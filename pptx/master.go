@@ -173,6 +173,7 @@ func (sm *SlideMaster) marshal() ([]byte, error) {
 // newMasterXML creates a new slide master XML structure.
 func newMasterXML() *oxml.SlideMaster {
 	return &oxml.SlideMaster{
+		XmlnsR:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 		Preserve: true,
 		CSld: &oxml.CommonSlideData{
 			SpTree: newShapeTree(),

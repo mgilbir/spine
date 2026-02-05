@@ -39,25 +39,32 @@ type SlideMasterID struct {
 }
 
 // MarshalXML implements custom XML marshaling for SlideMasterID.
+// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
 func (s SlideMasterID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if s.ID > 0 {
 		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
 	}
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Space: NsRelationships, Local: "id"}, Value: s.RID})
+	// Use r:id directly - the r prefix is declared in the root presentation element
+	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
 	return e.EncodeElement(struct{}{}, start)
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideMasterID.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
 func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "id" {
-			if attr.Name.Space == "" || attr.Name.Space == NsPresentationML {
-				var id uint32
-				fmt.Sscanf(attr.Value, "%d", &id)
-				s.ID = id
-			} else if attr.Name.Space == NsRelationships {
-				s.RID = attr.Value
-			}
+		switch {
+		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
+			// Numeric ID
+			var id uint32
+			fmt.Sscanf(attr.Value, "%d", &id)
+			s.ID = id
+		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
+			// Relationship ID with full namespace
+			s.RID = attr.Value
+		case attr.Name.Local == "r:id":
+			// Relationship ID with r: prefix (our marshaled format)
+			s.RID = attr.Value
 		}
 	}
 	return d.Skip()
@@ -75,28 +82,32 @@ type SlideID struct {
 }
 
 // MarshalXML implements custom XML marshaling for SlideID.
+// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
 func (s SlideID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Space: NsRelationships, Local: "id"}, Value: s.RID})
+	// Use r:id directly - the r prefix is declared in the root presentation element
+	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
 	return e.EncodeElement(struct{}{}, start)
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideID.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
 func (s *SlideID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "id" {
-			if attr.Name.Space == "" || attr.Name.Space == NsPresentationML {
-				// This is the numeric ID
-				var id uint32
-				fmt.Sscanf(attr.Value, "%d", &id)
-				s.ID = id
-			} else if attr.Name.Space == NsRelationships {
-				// This is the relationship ID
-				s.RID = attr.Value
-			}
+		switch {
+		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
+			// Numeric ID
+			var id uint32
+			fmt.Sscanf(attr.Value, "%d", &id)
+			s.ID = id
+		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
+			// Relationship ID with full namespace
+			s.RID = attr.Value
+		case attr.Name.Local == "r:id":
+			// Relationship ID with r: prefix (our marshaled format)
+			s.RID = attr.Value
 		}
 	}
-	// Consume the element
 	return d.Skip()
 }
 

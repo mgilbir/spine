@@ -1,7 +1,6 @@
 package opc
 
 import (
-	"encoding/xml"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +37,22 @@ func TestCoreProperties_Marshal(t *testing.T) {
 		t.Error("Missing XML declaration")
 	}
 
-	// Check root element
-	if !strings.Contains(xmlStr, "<coreProperties>") {
-		t.Error("Missing coreProperties root element")
+	// Check root element with proper namespace prefix
+	if !strings.Contains(xmlStr, "<cp:coreProperties") {
+		t.Error("Missing cp:coreProperties root element")
+	}
+
+	// Check namespace declarations
+	requiredNamespaces := []string{
+		`xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"`,
+		`xmlns:dc="http://purl.org/dc/elements/1.1/"`,
+		`xmlns:dcterms="http://purl.org/dc/terms/"`,
+		`xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"`,
+	}
+	for _, ns := range requiredNamespaces {
+		if !strings.Contains(xmlStr, ns) {
+			t.Errorf("Missing namespace declaration: %s", ns)
+		}
 	}
 
 	// Check properties are present
@@ -74,10 +86,30 @@ func TestCoreProperties_Marshal(t *testing.T) {
 		t.Error("Modified date not in expected format")
 	}
 
-	// Verify it's valid XML
-	var parsed corePropertiesXML
-	if err := xml.Unmarshal(data, &parsed); err != nil {
-		t.Errorf("Output is not valid XML: %v", err)
+	// Check elements use correct namespace prefixes
+	if !strings.Contains(xmlStr, "<dc:title>") {
+		t.Error("dc:title element missing")
+	}
+	if !strings.Contains(xmlStr, "<dc:creator>") {
+		t.Error("dc:creator element missing")
+	}
+	if !strings.Contains(xmlStr, "<cp:keywords>") {
+		t.Error("cp:keywords element missing")
+	}
+	if !strings.Contains(xmlStr, "<dcterms:created") {
+		t.Error("dcterms:created element missing")
+	}
+	if !strings.Contains(xmlStr, `xsi:type="dcterms:W3CDTF"`) {
+		t.Error("xsi:type attribute missing on date elements")
+	}
+
+	// Verify it can be unmarshaled back
+	parsed, err := UnmarshalCoreProperties(data)
+	if err != nil {
+		t.Errorf("Output cannot be parsed back: %v", err)
+	}
+	if parsed.Title != cp.Title {
+		t.Errorf("Round-trip Title = %q, want %q", parsed.Title, cp.Title)
 	}
 }
 

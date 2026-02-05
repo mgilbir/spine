@@ -25,12 +25,13 @@ type SlideLayout struct {
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
-	XMLName       xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
-	Preserve      bool             `xml:"preserve,attr,omitempty"`
-	CSld          *CommonSlideData `xml:"cSld"`
-	ClrMap        *ColorMap        `xml:"clrMap,omitempty"`
-	SlideLayoutIDs *SlideLayoutIDs `xml:"sldLayoutIdLst,omitempty"`
-	TxStyles      *TxStyles        `xml:"txStyles,omitempty"`
+	XMLName        xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	XmlnsR         string           `xml:"xmlns:r,attr,omitempty"`
+	Preserve       bool             `xml:"preserve,attr,omitempty"`
+	CSld           *CommonSlideData `xml:"cSld"`
+	ClrMap         *ColorMap        `xml:"clrMap,omitempty"`
+	SlideLayoutIDs *SlideLayoutIDs  `xml:"sldLayoutIdLst,omitempty"`
+	TxStyles       *TxStyles        `xml:"txStyles,omitempty"`
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.
@@ -45,25 +46,32 @@ type SlideLayoutID struct {
 }
 
 // MarshalXML implements custom XML marshaling for SlideLayoutID.
+// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
 func (s SlideLayoutID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if s.ID > 0 {
 		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
 	}
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Space: NsRelationships, Local: "id"}, Value: s.RID})
+	// Use r:id directly - the r prefix is declared in the root slideMaster element
+	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
 	return e.EncodeElement(struct{}{}, start)
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideLayoutID.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
 func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "id" {
-			if attr.Name.Space == "" || attr.Name.Space == NsPresentationML {
-				var id uint32
-				fmt.Sscanf(attr.Value, "%d", &id)
-				s.ID = id
-			} else if attr.Name.Space == NsRelationships {
-				s.RID = attr.Value
-			}
+		switch {
+		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
+			// Numeric ID
+			var id uint32
+			fmt.Sscanf(attr.Value, "%d", &id)
+			s.ID = id
+		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
+			// Relationship ID with full namespace
+			s.RID = attr.Value
+		case attr.Name.Local == "r:id":
+			// Relationship ID with r: prefix (our marshaled format)
+			s.RID = attr.Value
 		}
 	}
 	return d.Skip()
