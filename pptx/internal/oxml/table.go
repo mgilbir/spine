@@ -1,0 +1,119 @@
+package oxml
+
+import (
+	"encoding/xml"
+)
+
+// GraphicFrame represents a graphic frame element (p:graphicFrame) that contains tables.
+type GraphicFrame struct {
+	XMLName     xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main graphicFrame"`
+	NvGraphicFramePr *NvGraphicFramePr `xml:"nvGraphicFramePr"`
+	Xfrm        *Xfrm            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main xfrm"`
+	Graphic     *AGraphic        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic"`
+}
+
+// NvGraphicFramePr contains non-visual graphic frame properties.
+type NvGraphicFramePr struct {
+	CNvPr             *CNvPr             `xml:"cNvPr"`
+	CNvGraphicFramePr *CNvGraphicFramePr `xml:"cNvGraphicFramePr"`
+	NvPr              *NvPr              `xml:"nvPr"`
+}
+
+// CNvGraphicFramePr contains non-visual graphic frame drawing properties.
+type CNvGraphicFramePr struct {
+	GraphicFrameLocks *GraphicFrameLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphicFrameLocks,omitempty"`
+}
+
+// GraphicFrameLocks contains graphic frame locking properties.
+type GraphicFrameLocks struct {
+	NoGrp bool `xml:"noGrp,attr,omitempty"`
+}
+
+// AGraphic represents a DrawingML graphic container.
+type AGraphic struct {
+	GraphicData *AGraphicData `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphicData"`
+}
+
+// AGraphicData contains the graphic data with URI identifying the type.
+type AGraphicData struct {
+	URI   string  `xml:"uri,attr"`
+	Table *ATable `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tbl,omitempty"`
+}
+
+// TableGraphicDataURI is the URI for table graphic data.
+const TableGraphicDataURI = "http://schemas.openxmlformats.org/drawingml/2006/table"
+
+// ATable represents a DrawingML table.
+type ATable struct {
+	TblPr *ATblPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tblPr,omitempty"`
+	TblGrid *ATblGrid `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tblGrid"`
+	Tr    []*ATr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tr"`
+}
+
+// ATblPr contains table properties.
+type ATblPr struct {
+	FirstRow   bool   `xml:"firstRow,attr,omitempty"`
+	FirstCol   bool   `xml:"firstCol,attr,omitempty"`
+	LastRow    bool   `xml:"lastRow,attr,omitempty"`
+	LastCol    bool   `xml:"lastCol,attr,omitempty"`
+	BandRow    bool   `xml:"bandRow,attr,omitempty"`
+	BandCol    bool   `xml:"bandCol,attr,omitempty"`
+	TableStyleId string `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
+}
+
+// ATblGrid contains table grid column definitions.
+type ATblGrid struct {
+	GridCol []*AGridCol `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gridCol"`
+}
+
+// AGridCol represents a grid column with width.
+type AGridCol struct {
+	W int64 `xml:"w,attr"`
+}
+
+// ATr represents a table row.
+type ATr struct {
+	H  int64  `xml:"h,attr,omitempty"`
+	Tc []*ATc `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc"`
+}
+
+// ATc represents a table cell.
+type ATc struct {
+	TcPr   *ATcPr  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcPr,omitempty"`
+	TxBody *TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txBody,omitempty"`
+	RowSpan int    `xml:"rowSpan,attr,omitempty"`
+	GridSpan int   `xml:"gridSpan,attr,omitempty"`
+	HMerge  bool   `xml:"hMerge,attr,omitempty"`
+	VMerge  bool   `xml:"vMerge,attr,omitempty"`
+}
+
+// ATcPr contains table cell properties.
+type ATcPr struct {
+	MarL    int64       `xml:"marL,attr,omitempty"`
+	MarR    int64       `xml:"marR,attr,omitempty"`
+	MarT    int64       `xml:"marT,attr,omitempty"`
+	MarB    int64       `xml:"marB,attr,omitempty"`
+	Anchor  string      `xml:"anchor,attr,omitempty"`
+	LnL     *ALn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
+	LnR     *ALn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`
+	LnT     *ALn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnT,omitempty"`
+	LnB     *ALn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnB,omitempty"`
+	SolidFill *ASolidFill `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	NoFill    *NoFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+}
+
+// ALn represents a line (border) in DrawingML.
+type ALn struct {
+	W         int32       `xml:"w,attr,omitempty"`
+	Cap       string      `xml:"cap,attr,omitempty"`
+	Cmpd      string      `xml:"cmpd,attr,omitempty"`
+	Algn      string      `xml:"algn,attr,omitempty"`
+	SolidFill *ASolidFill `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	NoFill    *NoFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	PrstDash  *APrstDash  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstDash,omitempty"`
+}
+
+// APrstDash represents a preset dash pattern.
+type APrstDash struct {
+	Val string `xml:"val,attr"`
+}
