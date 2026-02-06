@@ -203,10 +203,13 @@ func TestDML_CT_GraphicalObject(t *testing.T) {
 	if v.GraphicData == nil {
 		t.Error("GraphicData is nil")
 	}
+	if len(v.GraphicData.RawContent) == 0 {
+		t.Error("RawContent should not be empty for chart graphic data")
+	}
 }
 
-// TestDML_CT_GraphicalObjectData tests CT_GraphicalObjectData type (a:graphicData)
-func TestDML_CT_GraphicalObjectData(t *testing.T) {
+// TestDML_CT_GraphicalObjectData_Table tests typed dispatch for table URI
+func TestDML_CT_GraphicalObjectData_Table(t *testing.T) {
 	var v GraphicData
 	input := `<a:graphicData xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
 		uri="http://schemas.openxmlformats.org/drawingml/2006/table">
@@ -217,5 +220,26 @@ func TestDML_CT_GraphicalObjectData(t *testing.T) {
 	}
 	if v.URI != "http://schemas.openxmlformats.org/drawingml/2006/table" {
 		t.Errorf("URI = %q, want http://schemas.openxmlformats.org/drawingml/2006/table", v.URI)
+	}
+	if v.Tbl == nil {
+		t.Error("Tbl should not be nil for table graphic data")
+	}
+}
+
+// TestDML_CT_GraphicalObjectData_Unknown tests fallback for unknown URIs
+func TestDML_CT_GraphicalObjectData_Unknown(t *testing.T) {
+	var v GraphicData
+	input := `<a:graphicData xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">
+		<dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" r:dm="rId1"/>
+	</a:graphicData>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.URI != "http://schemas.openxmlformats.org/drawingml/2006/diagram" {
+		t.Errorf("URI = %q", v.URI)
+	}
+	if len(v.RawContent) == 0 {
+		t.Error("RawContent should not be empty for unknown graphic data")
 	}
 }

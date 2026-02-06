@@ -2,6 +2,10 @@
 // These types handle audio, video, and OLE object embedding.
 package dml
 
+import "encoding/xml"
+
+const graphicDataTableURI = "http://schemas.openxmlformats.org/drawingml/2006/table"
+
 // AudioFile represents CT_AudioFile (a:audioFile)
 type AudioFile struct {
 	Link      string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr,omitempty"`
@@ -89,8 +93,41 @@ type Graphic struct {
 	GraphicData *GraphicData `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphicData,omitempty"`
 }
 
-// GraphicData represents CT_GraphicalObjectData (a:graphicData)
+// GraphicData represents CT_GraphicalObjectData (a:graphicData).
+// The XSD defines content as <xsd:any processContents="strict"/>.
+// Known content types are parsed into typed fields; unknown types use RawContent.
 type GraphicData struct {
-	URI      string `xml:"uri,attr"`
-	InnerXML []byte `xml:",innerxml"`
+	URI string `xml:"uri,attr"`
+
+	// Known graphical object types by URI
+	Tbl *Tbl `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tbl,omitempty"`
+
+	// Fallback for unknown graphic data (chart, diagram, picture, etc.)
+	// These types live in sub-packages and cannot be referenced here.
+	RawContent []byte `xml:"-"`
+}
+
+func (gd *GraphicData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Local == "uri" {
+			gd.URI = attr.Value
+		}
+	}
+
+	switch gd.URI {
+	case graphicDataTableURI:
+		type alias GraphicData
+		aux := (*alias)(gd)
+		return d.DecodeElement(aux, &start)
+	default:
+		// Preserve raw bytes for types we can't reference (chart, diagram, etc.)
+		var inner struct {
+			Content []byte `xml:",innerxml"`
+		}
+		if err := d.DecodeElement(&inner, &start); err != nil {
+			return err
+		}
+		gd.RawContent = inner.Content
+	}
+	return nil
 }
