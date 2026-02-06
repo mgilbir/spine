@@ -44,6 +44,8 @@ const (
 	PrefixSpreadsheetML       = "x"
 	PrefixWordprocessingML    = "w"
 	PrefixRelationships       = "r"
+	PrefixDrawingMLChart      = "c"
+	PrefixDrawingMLDiagram    = "dgm"
 	PrefixDublinCore          = "dc"
 	PrefixDcTerms             = "dcterms"
 	PrefixContentTypes        = "ct"
