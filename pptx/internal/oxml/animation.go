@@ -2,7 +2,12 @@
 // These types implement the p: namespace animation and timing elements.
 package oxml
 
-import "github.com/mgilbir/spine/common/dml"
+import (
+	"encoding/xml"
+
+	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // --- Slide Timing (p:timing) ---
 
@@ -13,21 +18,279 @@ type Timing struct {
 	ExtLst *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
-// TimeNodeList represents CT_TimeNodeList (p:tnLst)
+// TimeNodeList represents CT_TimeNodeList (p:tnLst, p:childTnLst, p:subTnLst).
+// Uses custom UnmarshalXML/MarshalToBuilder to preserve xs:choice element ordering.
 type TimeNodeList struct {
-	Par   []*ParallelTimeNode   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main par,omitempty"`
-	Seq   []*SequenceTimeNode   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main seq,omitempty"`
-	Excl  []*ExclusiveTimeNode  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main excl,omitempty"`
-	Anim  []*Animate            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main anim,omitempty"`
-	AnimClr []*AnimateColor     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main animClr,omitempty"`
-	AnimEffect []*AnimateEffect `xml:"http://schemas.openxmlformats.org/presentationml/2006/main animEffect,omitempty"`
-	AnimMotion []*AnimateMotion `xml:"http://schemas.openxmlformats.org/presentationml/2006/main animMotion,omitempty"`
-	AnimRot []*AnimateRotation  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main animRot,omitempty"`
-	AnimScale []*AnimateScale   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main animScale,omitempty"`
-	Cmd   []*Command            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cmd,omitempty"`
-	Set   []*Set                `xml:"http://schemas.openxmlformats.org/presentationml/2006/main set,omitempty"`
-	Audio []*Audio              `xml:"http://schemas.openxmlformats.org/presentationml/2006/main audio,omitempty"`
-	Video []*Video              `xml:"http://schemas.openxmlformats.org/presentationml/2006/main video,omitempty"`
+	Par        []*ParallelTimeNode  `xml:"-"`
+	Seq        []*SequenceTimeNode  `xml:"-"`
+	Excl       []*ExclusiveTimeNode `xml:"-"`
+	Anim       []*Animate           `xml:"-"`
+	AnimClr    []*AnimateColor      `xml:"-"`
+	AnimEffect []*AnimateEffect     `xml:"-"`
+	AnimMotion []*AnimateMotion     `xml:"-"`
+	AnimRot    []*AnimateRotation   `xml:"-"`
+	AnimScale  []*AnimateScale      `xml:"-"`
+	Cmd        []*Command           `xml:"-"`
+	Set        []*Set               `xml:"-"`
+	Audio      []*Audio             `xml:"-"`
+	Video      []*Video             `xml:"-"`
+	childOrder []tnlChildRef
+}
+
+type tnlChildKind int
+
+const (
+	tnlPar tnlChildKind = iota
+	tnlSeq
+	tnlExcl
+	tnlAnim
+	tnlAnimClr
+	tnlAnimEffect
+	tnlAnimMotion
+	tnlAnimRot
+	tnlAnimScale
+	tnlCmd
+	tnlSet
+	tnlAudio
+	tnlVideo
+)
+
+type tnlChildRef struct {
+	kind  tnlChildKind
+	index int
+}
+
+var tnlNameMap = map[string]tnlChildKind{
+	"par":        tnlPar,
+	"seq":        tnlSeq,
+	"excl":       tnlExcl,
+	"anim":       tnlAnim,
+	"animClr":    tnlAnimClr,
+	"animEffect": tnlAnimEffect,
+	"animMotion": tnlAnimMotion,
+	"animRot":    tnlAnimRot,
+	"animScale":  tnlAnimScale,
+	"cmd":        tnlCmd,
+	"set":        tnlSet,
+	"audio":      tnlAudio,
+	"video":      tnlVideo,
+}
+
+func (tnl *TimeNodeList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			kind, ok := tnlNameMap[t.Name.Local]
+			if !ok {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
+			switch kind {
+			case tnlPar:
+				var v ParallelTimeNode
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlPar, len(tnl.Par)})
+				tnl.Par = append(tnl.Par, &v)
+			case tnlSeq:
+				var v SequenceTimeNode
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlSeq, len(tnl.Seq)})
+				tnl.Seq = append(tnl.Seq, &v)
+			case tnlExcl:
+				var v ExclusiveTimeNode
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlExcl, len(tnl.Excl)})
+				tnl.Excl = append(tnl.Excl, &v)
+			case tnlAnim:
+				var v Animate
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnim, len(tnl.Anim)})
+				tnl.Anim = append(tnl.Anim, &v)
+			case tnlAnimClr:
+				var v AnimateColor
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimClr, len(tnl.AnimClr)})
+				tnl.AnimClr = append(tnl.AnimClr, &v)
+			case tnlAnimEffect:
+				var v AnimateEffect
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimEffect, len(tnl.AnimEffect)})
+				tnl.AnimEffect = append(tnl.AnimEffect, &v)
+			case tnlAnimMotion:
+				var v AnimateMotion
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimMotion, len(tnl.AnimMotion)})
+				tnl.AnimMotion = append(tnl.AnimMotion, &v)
+			case tnlAnimRot:
+				var v AnimateRotation
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimRot, len(tnl.AnimRot)})
+				tnl.AnimRot = append(tnl.AnimRot, &v)
+			case tnlAnimScale:
+				var v AnimateScale
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimScale, len(tnl.AnimScale)})
+				tnl.AnimScale = append(tnl.AnimScale, &v)
+			case tnlCmd:
+				var v Command
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlCmd, len(tnl.Cmd)})
+				tnl.Cmd = append(tnl.Cmd, &v)
+			case tnlSet:
+				var v Set
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlSet, len(tnl.Set)})
+				tnl.Set = append(tnl.Set, &v)
+			case tnlAudio:
+				var v Audio
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAudio, len(tnl.Audio)})
+				tnl.Audio = append(tnl.Audio, &v)
+			case tnlVideo:
+				var v Video
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlVideo, len(tnl.Video)})
+				tnl.Video = append(tnl.Video, &v)
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
+}
+
+func (tnl *TimeNodeList) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	nsP := xml.Name{Space: xmlb.NSPresentationML}
+	for _, ref := range tnl.childOrder {
+		switch ref.kind {
+		case tnlPar:
+			if err := e.EncodeElement(tnl.Par[ref.index], xml.StartElement{Name: xml.Name{Local: "par", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlSeq:
+			if err := e.EncodeElement(tnl.Seq[ref.index], xml.StartElement{Name: xml.Name{Local: "seq", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlExcl:
+			if err := e.EncodeElement(tnl.Excl[ref.index], xml.StartElement{Name: xml.Name{Local: "excl", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnim:
+			if err := e.EncodeElement(tnl.Anim[ref.index], xml.StartElement{Name: xml.Name{Local: "anim", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnimClr:
+			if err := e.EncodeElement(tnl.AnimClr[ref.index], xml.StartElement{Name: xml.Name{Local: "animClr", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnimEffect:
+			if err := e.EncodeElement(tnl.AnimEffect[ref.index], xml.StartElement{Name: xml.Name{Local: "animEffect", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnimMotion:
+			if err := e.EncodeElement(tnl.AnimMotion[ref.index], xml.StartElement{Name: xml.Name{Local: "animMotion", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnimRot:
+			if err := e.EncodeElement(tnl.AnimRot[ref.index], xml.StartElement{Name: xml.Name{Local: "animRot", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAnimScale:
+			if err := e.EncodeElement(tnl.AnimScale[ref.index], xml.StartElement{Name: xml.Name{Local: "animScale", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlCmd:
+			if err := e.EncodeElement(tnl.Cmd[ref.index], xml.StartElement{Name: xml.Name{Local: "cmd", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlSet:
+			if err := e.EncodeElement(tnl.Set[ref.index], xml.StartElement{Name: xml.Name{Local: "set", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlAudio:
+			if err := e.EncodeElement(tnl.Audio[ref.index], xml.StartElement{Name: xml.Name{Local: "audio", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		case tnlVideo:
+			if err := e.EncodeElement(tnl.Video[ref.index], xml.StartElement{Name: xml.Name{Local: "video", Space: nsP.Space}}); err != nil {
+				return err
+			}
+		}
+	}
+	return e.EncodeToken(start.End())
+}
+
+// MarshalToBuilder writes the TimeNodeList preserving child element order.
+func (tnl *TimeNodeList) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	if len(tnl.childOrder) == 0 {
+		return
+	}
+	b.StartElement(ns, localName)
+	for _, ref := range tnl.childOrder {
+		switch ref.kind {
+		case tnlPar:
+			b.MarshalElement(ns, "par", tnl.Par[ref.index])
+		case tnlSeq:
+			b.MarshalElement(ns, "seq", tnl.Seq[ref.index])
+		case tnlExcl:
+			b.MarshalElement(ns, "excl", tnl.Excl[ref.index])
+		case tnlAnim:
+			b.MarshalElement(ns, "anim", tnl.Anim[ref.index])
+		case tnlAnimClr:
+			b.MarshalElement(ns, "animClr", tnl.AnimClr[ref.index])
+		case tnlAnimEffect:
+			b.MarshalElement(ns, "animEffect", tnl.AnimEffect[ref.index])
+		case tnlAnimMotion:
+			b.MarshalElement(ns, "animMotion", tnl.AnimMotion[ref.index])
+		case tnlAnimRot:
+			b.MarshalElement(ns, "animRot", tnl.AnimRot[ref.index])
+		case tnlAnimScale:
+			b.MarshalElement(ns, "animScale", tnl.AnimScale[ref.index])
+		case tnlCmd:
+			b.MarshalElement(ns, "cmd", tnl.Cmd[ref.index])
+		case tnlSet:
+			b.MarshalElement(ns, "set", tnl.Set[ref.index])
+		case tnlAudio:
+			b.MarshalElement(ns, "audio", tnl.Audio[ref.index])
+		case tnlVideo:
+			b.MarshalElement(ns, "video", tnl.Video[ref.index])
+		}
+	}
+	b.EndElement(ns, localName)
 }
 
 // --- Time Node Types ---
@@ -55,9 +318,9 @@ type ExclusiveTimeNode struct {
 // CommonTimeNode represents CT_TLCommonTimeNodeData (p:cTn)
 type CommonTimeNode struct {
 	Id             uint32          `xml:"id,attr,omitempty"`
-	Presetid       int32           `xml:"presetID,attr,omitempty"`
+	Presetid       *int32          `xml:"presetID,attr,omitempty"`
 	PresetClass    string          `xml:"presetClass,attr,omitempty"` // entr, exit, emph, path, verb, mediacall
-	PresetSubtype  int32           `xml:"presetSubtype,attr,omitempty"`
+	PresetSubtype  *int32          `xml:"presetSubtype,attr,omitempty"`
 	Dur            string          `xml:"dur,attr,omitempty"` // indefinite, or time in ms
 	RepeatCount    string          `xml:"repeatCount,attr,omitempty"`
 	RepeatDur      string          `xml:"repeatDur,attr,omitempty"`
@@ -73,7 +336,7 @@ type CommonTimeNode struct {
 	Display        bool            `xml:"display,attr,omitempty"`
 	MasterRel      string          `xml:"masterRel,attr,omitempty"` // sameClick, lastClick, nextClick
 	BldLvl         int32           `xml:"bldLvl,attr,omitempty"`
-	GrpId          uint32          `xml:"grpId,attr,omitempty"`
+	GrpId          *uint32         `xml:"grpId,attr,omitempty"`
 	AfterEffect    bool            `xml:"afterEffect,attr,omitempty"`
 	NodeType       string          `xml:"nodeType,attr,omitempty"` // clickEffect, withEffect, afterEffect, mainSeq, interactiveSeq, clickPar, withGroup, afterGroup, tmRoot
 	NodePh         bool            `xml:"nodePh,attr,omitempty"`
@@ -409,22 +672,22 @@ type BuildList struct {
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
 type BuildParagraph struct {
-	SpId           uint32 `xml:"spid,attr"`
-	GrpId          uint32 `xml:"grpId,attr,omitempty"`
-	UiExpand       bool   `xml:"uiExpand,attr,omitempty"`
-	Build          string `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
-	BldLvl         int32  `xml:"bldLvl,attr,omitempty"`
-	AnimBg         bool   `xml:"animBg,attr,omitempty"`
-	AutoUpdateAnimBg bool `xml:"autoUpdateAnimBg,attr,omitempty"`
-	Rev            bool   `xml:"rev,attr,omitempty"`
+	SpId             uint32  `xml:"spid,attr"`
+	GrpId            *uint32 `xml:"grpId,attr,omitempty"`
+	UiExpand         *bool   `xml:"uiExpand,attr,omitempty"`
+	Build            string  `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
+	BldLvl           *int32  `xml:"bldLvl,attr,omitempty"`
+	AnimBg           *bool   `xml:"animBg,attr,omitempty"`
+	AutoUpdateAnimBg *bool   `xml:"autoUpdateAnimBg,attr,omitempty"`
+	Rev              *bool   `xml:"rev,attr,omitempty"`
 	AdvAuto        string `xml:"advAuto,attr,omitempty"` // time in ms or "indefinite"
 	TmplLst        *TemplateList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmplLst,omitempty"`
 }
 
 // BuildDiagram represents CT_TLBuildDiagram (p:bldDgm)
 type BuildDiagram struct {
-	SpId   uint32 `xml:"spid,attr"`
-	GrpId  uint32 `xml:"grpId,attr,omitempty"`
+	SpId   uint32  `xml:"spid,attr"`
+	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
 	Rev    bool   `xml:"rev,attr,omitempty"`
@@ -432,8 +695,8 @@ type BuildDiagram struct {
 
 // BuildOleChart represents CT_TLOleBuildChart (p:bldOleChart)
 type BuildOleChart struct {
-	SpId   uint32 `xml:"spid,attr"`
-	GrpId  uint32 `xml:"grpId,attr,omitempty"`
+	SpId   uint32  `xml:"spid,attr"`
+	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
 	AnimBg bool   `xml:"animBg,attr,omitempty"`
@@ -441,8 +704,8 @@ type BuildOleChart struct {
 
 // BuildGraphic represents CT_TLGraphicalObjectBuild (p:bldGraphic)
 type BuildGraphic struct {
-	SpId   uint32 `xml:"spid,attr"`
-	GrpId  uint32 `xml:"grpId,attr,omitempty"`
+	SpId   uint32  `xml:"spid,attr"`
+	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	BldAsOne *BuildAsOne `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldAsOne,omitempty"`
 	BldSub  *BuildSub   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldSub,omitempty"`

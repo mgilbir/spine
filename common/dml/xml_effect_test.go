@@ -35,14 +35,14 @@ func TestDML_CT_OuterShadowEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.BlurRad != 50800 {
-		t.Errorf("BlurRad = %d, want 50800", v.BlurRad)
+	if v.BlurRad == nil || *v.BlurRad != 50800 {
+		t.Errorf("BlurRad = %v, want 50800", v.BlurRad)
 	}
-	if v.Dist != 38100 {
-		t.Errorf("Dist = %d, want 38100", v.Dist)
+	if v.Dist == nil || *v.Dist != 38100 {
+		t.Errorf("Dist = %v, want 38100", v.Dist)
 	}
-	if v.Dir != 2700000 {
-		t.Errorf("Dir = %d, want 2700000", v.Dir)
+	if v.Dir == nil || *v.Dir != 2700000 {
+		t.Errorf("Dir = %v, want 2700000", v.Dir)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestDML_CT_InnerShadowEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.BlurRad != 63500 {
-		t.Errorf("BlurRad = %d, want 63500", v.BlurRad)
+	if v.BlurRad == nil || *v.BlurRad != 63500 {
+		t.Errorf("BlurRad = %v, want 63500", v.BlurRad)
 	}
 }
 
@@ -73,11 +73,11 @@ func TestDML_CT_ReflectionEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.BlurRad != 6350 {
-		t.Errorf("BlurRad = %d, want 6350", v.BlurRad)
+	if v.BlurRad == nil || *v.BlurRad != 6350 {
+		t.Errorf("BlurRad = %v, want 6350", v.BlurRad)
 	}
-	if v.StA != 50000 {
-		t.Errorf("StA = %d, want 50000", v.StA)
+	if v.StA == nil || *v.StA != 50000 {
+		t.Errorf("StA = %v, want 50000", v.StA)
 	}
 }
 

@@ -15,42 +15,46 @@ type EffectLst struct {
 
 // OuterShdw represents CT_OuterShadowEffect (a:outerShdw)
 type OuterShdw struct {
-	BlurRad      int64               `xml:"blurRad,attr,omitempty"`
-	Dist         int64               `xml:"dist,attr,omitempty"`
-	Dir          int32               `xml:"dir,attr,omitempty"`
-	Sx           int32               `xml:"sx,attr,omitempty"`
-	Sy           int32               `xml:"sy,attr,omitempty"`
-	Kx           int32               `xml:"kx,attr,omitempty"`
-	Ky           int32               `xml:"ky,attr,omitempty"`
+	BlurRad      *int64              `xml:"blurRad,attr,omitempty"`
+	Dist         *int64              `xml:"dist,attr,omitempty"`
+	Dir          *int32              `xml:"dir,attr,omitempty"`
+	Sx           *int32              `xml:"sx,attr,omitempty"`
+	Sy           *int32              `xml:"sy,attr,omitempty"`
+	Kx           *int32              `xml:"kx,attr,omitempty"`
+	Ky           *int32              `xml:"ky,attr,omitempty"`
 	Algn         string              `xml:"algn,attr,omitempty"`
 	RotWithShape *bool               `xml:"rotWithShape,attr,omitempty"`
+	ScRgbClr     *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr      *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr       *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr       *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr    *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr      *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // InnerShdw represents CT_InnerShadowEffect (a:innerShdw)
 type InnerShdw struct {
-	BlurRad   int64               `xml:"blurRad,attr,omitempty"`
-	Dist      int64               `xml:"dist,attr,omitempty"`
-	Dir       int32               `xml:"dir,attr,omitempty"`
+	BlurRad   *int64              `xml:"blurRad,attr,omitempty"`
+	Dist      *int64              `xml:"dist,attr,omitempty"`
+	Dir       *int32              `xml:"dir,attr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
 }
 
 // ReflectionXML represents CT_ReflectionEffect (a:reflection)
 type ReflectionXML struct {
-	BlurRad      int64  `xml:"blurRad,attr,omitempty"`
-	StA          int32  `xml:"stA,attr,omitempty"`
-	StPos        int32  `xml:"stPos,attr,omitempty"`
-	EndA         int32  `xml:"endA,attr,omitempty"`
-	EndPos       int32  `xml:"endPos,attr,omitempty"`
-	Dist         int64  `xml:"dist,attr,omitempty"`
-	Dir          int32  `xml:"dir,attr,omitempty"`
-	FadeDir      int32  `xml:"fadeDir,attr,omitempty"`
-	Sx           int32  `xml:"sx,attr,omitempty"`
-	Sy           int32  `xml:"sy,attr,omitempty"`
-	Kx           int32  `xml:"kx,attr,omitempty"`
-	Ky           int32  `xml:"ky,attr,omitempty"`
+	BlurRad      *int64 `xml:"blurRad,attr,omitempty"`
+	StA          *int32 `xml:"stA,attr,omitempty"`
+	StPos        *int32 `xml:"stPos,attr,omitempty"`
+	EndA         *int32 `xml:"endA,attr,omitempty"`
+	EndPos       *int32 `xml:"endPos,attr,omitempty"`
+	Dist         *int64 `xml:"dist,attr,omitempty"`
+	Dir          *int32 `xml:"dir,attr,omitempty"`
+	FadeDir      *int32 `xml:"fadeDir,attr,omitempty"`
+	Sx           *int32 `xml:"sx,attr,omitempty"`
+	Sy           *int32 `xml:"sy,attr,omitempty"`
+	Kx           *int32 `xml:"kx,attr,omitempty"`
+	Ky           *int32 `xml:"ky,attr,omitempty"`
 	Algn         string `xml:"algn,attr,omitempty"`
 	RotWithShape *bool  `xml:"rotWithShape,attr,omitempty"`
 }

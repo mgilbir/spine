@@ -195,6 +195,11 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 
 		// Categorize the part
 		switch {
+		case strings.HasSuffix(name, ".rels"):
+			// Relationships handled separately (must be checked before
+			// prefix-based matches like /ppt/theme/ to avoid capturing
+			// .rels files under those directories)
+			continue
 		case name == "/ppt/presProps.xml":
 			p.presPropsData = data
 		case name == "/ppt/viewProps.xml":
@@ -218,9 +223,6 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 			continue
 		case strings.HasPrefix(name, "/ppt/slideLayouts/") && !strings.Contains(name, "_rels"):
 			// Already loaded into p.slideLayouts
-			continue
-		case strings.HasSuffix(name, ".rels"):
-			// Relationships handled separately
 			continue
 		case name == "/docProps/core.xml":
 			// Already loaded into p.Properties
@@ -320,14 +322,14 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		}
 
 		// Extract mc:AlternateContent before unmarshaling (Go's xml.Unmarshal drops unknown elements)
-		mcContent, cleanData := extractAlternateContent(data)
+		mcContent, atEnd, cleanData := extractAlternateContent(data)
 
 		var slideXML oxml.Slide
 		if err := xml.Unmarshal(cleanData, &slideXML); err != nil {
 			continue
 		}
 		if mcContent != nil {
-			slideXML.AlternateContent = &oxml.AlternateContent{RawXML: mcContent}
+			slideXML.AlternateContent = &oxml.AlternateContent{RawXML: mcContent, AtEnd: atEnd}
 		}
 
 		slide := &Slide{
@@ -368,9 +370,15 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 			continue
 		}
 
+		// Extract mc:AlternateContent before unmarshaling (Go's xml.Unmarshal drops unknown elements)
+		mcContent, atEnd, cleanData := extractAlternateContent(data)
+
 		var masterXML oxml.SlideMaster
-		if err := xml.Unmarshal(data, &masterXML); err != nil {
+		if err := xml.Unmarshal(cleanData, &masterXML); err != nil {
 			continue
+		}
+		if mcContent != nil {
+			masterXML.AlternateContent = &oxml.AlternateContent{RawXML: mcContent, AtEnd: atEnd}
 		}
 
 		master := &SlideMaster{
@@ -426,9 +434,15 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 				continue
 			}
 
+			// Extract mc:AlternateContent before unmarshaling (Go's xml.Unmarshal drops unknown elements)
+			mcContent, atEnd, cleanData := extractAlternateContent(data)
+
 			var layoutXML oxml.SlideLayout
-			if err := xml.Unmarshal(data, &layoutXML); err != nil {
+			if err := xml.Unmarshal(cleanData, &layoutXML); err != nil {
 				continue
+			}
+			if mcContent != nil {
+				layoutXML.AlternateContent = &oxml.AlternateContent{RawXML: mcContent, AtEnd: atEnd}
 			}
 
 			layout := &SlideLayout{
@@ -1224,21 +1238,27 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 }
 
 // extractAlternateContent extracts mc:AlternateContent elements from XML bytes.
-// Returns the raw mc:AlternateContent XML and the cleaned XML with it removed.
+// Returns the raw mc:AlternateContent XML, a flag indicating whether it was at the end
+// (before the closing tag), and the cleaned XML with it removed.
 // mc:AlternateContent uses version-specific namespace prefixes (mc:, p14:, etc.)
 // that Go's encoding/xml cannot preserve, so we extract the raw bytes directly.
-func extractAlternateContent(data []byte) (mcContent []byte, cleaned []byte) {
+func extractAlternateContent(data []byte) (mcContent []byte, atEnd bool, cleaned []byte) {
 	// Look for <mc:AlternateContent (with possible variations in prefix)
 	// The mc: prefix is the conventional prefix for the markup-compatibility namespace
 	start := bytes.Index(data, []byte("<mc:AlternateContent"))
 	if start < 0 {
-		return nil, data
+		return nil, false, data
 	}
 	end := bytes.Index(data[start:], []byte("</mc:AlternateContent>"))
 	if end < 0 {
-		return nil, data
+		return nil, false, data
 	}
 	end = start + end + len("</mc:AlternateContent>")
+
+	// Determine position: check if mc:AlternateContent is at the end
+	// (only whitespace and the closing tag follow it)
+	afterMC := bytes.TrimSpace(data[end:])
+	atEnd = len(afterMC) > 0 && afterMC[0] == '<' && afterMC[1] == '/'
 
 	mcContent = make([]byte, end-start)
 	copy(mcContent, data[start:end])
@@ -1247,7 +1267,7 @@ func extractAlternateContent(data []byte) (mcContent []byte, cleaned []byte) {
 	cleaned = append(cleaned, data[:start]...)
 	cleaned = append(cleaned, data[end:]...)
 
-	return mcContent, cleaned
+	return mcContent, atEnd, cleaned
 }
 
 // Close closes the presentation and releases resources.

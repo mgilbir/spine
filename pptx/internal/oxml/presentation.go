@@ -267,7 +267,20 @@ type TextParagraphProperties struct {
 	FontAlgn     string  `xml:"fontAlgn,attr,omitempty"`
 	LatinLnBrk   *bool   `xml:"latinLnBrk,attr,omitempty"`
 	HangingPunct *bool   `xml:"hangingPunct,attr,omitempty"`
+	SpcBef       *TextSpacing `xml:"spcBef,omitempty"`
+	SpcAft       *TextSpacing `xml:"spcAft,omitempty"`
 	DefRPr       *TextCharacterProperties `xml:"defRPr,omitempty"`
+}
+
+// TextSpacing represents CT_TextSpacing (a:spcBef, a:spcAft)
+type TextSpacing struct {
+	SpcPct *TextSpacingValue `xml:"spcPct,omitempty"`
+	SpcPts *TextSpacingValue `xml:"spcPts,omitempty"`
+}
+
+// TextSpacingValue represents the val attribute for spacing elements.
+type TextSpacingValue struct {
+	Val int32 `xml:"val,attr"`
 }
 
 // TextCharacterProperties contains character-level text properties.

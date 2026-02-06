@@ -121,6 +121,7 @@ type CNvPr struct {
 	Hidden  bool      `xml:"hidden,attr,omitempty"`
 	HlinkClick *HlinkXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
 	HlinkHover *HlinkXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkHover,omitempty"`
+	ExtLst     *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // CNvSpPr represents CT_NonVisualDrawingShapeProps (a:cNvSpPr)

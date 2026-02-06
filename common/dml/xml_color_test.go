@@ -102,16 +102,16 @@ func TestDML_CT_SchemeColorWithTransforms(t *testing.T) {
 	if v.Val != "phClr" {
 		t.Errorf("Val = %q, want phClr", v.Val)
 	}
-	if v.Tint == nil || v.Tint.Val != 50000 {
+	if len(v.Tint) == 0 || v.Tint[0].Val != 50000 {
 		t.Error("Tint not properly parsed")
 	}
-	if v.Shade == nil || v.Shade.Val != 75000 {
+	if len(v.Shade) == 0 || v.Shade[0].Val != 75000 {
 		t.Error("Shade not properly parsed")
 	}
-	if v.SatMod == nil || v.SatMod.Val != 300000 {
+	if len(v.SatMod) == 0 || v.SatMod[0].Val != 300000 {
 		t.Error("SatMod not properly parsed")
 	}
-	if v.Alpha == nil || v.Alpha.Val != 50000 {
+	if len(v.Alpha) == 0 || v.Alpha[0].Val != 50000 {
 		t.Error("Alpha not properly parsed")
 	}
 }

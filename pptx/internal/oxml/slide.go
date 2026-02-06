@@ -12,7 +12,8 @@ import (
 // mc:AlternateContent wraps version-specific content (Choice/Fallback pairs) with
 // Office-version-specific namespaces (p14, p15, etc.) that cannot be fully typed.
 type AlternateContent struct {
-	RawXML []byte // complete <mc:AlternateContent>...</mc:AlternateContent> as raw XML bytes
+	RawXML     []byte // complete <mc:AlternateContent>...</mc:AlternateContent> as raw XML bytes
+	AtEnd      bool   // true if mc:AlternateContent was at the end (before closing tag)
 }
 
 // Slide is the root element of a slide part.
@@ -40,6 +41,7 @@ type SlideLayout struct {
 	CSld               *CommonSlideData  `xml:"cSld"`
 	ClrMapOvr          *ColorMapOverride `xml:"clrMapOvr,omitempty"`
 	Transition         *Transition       `xml:"transition,omitempty"`
+	AlternateContent   *AlternateContent `xml:"-"` // mc:AlternateContent (extracted from raw bytes)
 	Timing             *Timing           `xml:"timing,omitempty"`
 	Hf                 *HeaderFooter     `xml:"hf,omitempty"`
 	ExtLst             *ExtensionList    `xml:"extLst,omitempty"`
@@ -47,16 +49,17 @@ type SlideLayout struct {
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
-	XMLName        xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
-	Preserve       bool             `xml:"preserve,attr,omitempty"`
-	CSld           *CommonSlideData `xml:"cSld"`
-	ClrMap         *ColorMap        `xml:"clrMap,omitempty"`
-	SlideLayoutIDs *SlideLayoutIDs  `xml:"sldLayoutIdLst,omitempty"`
-	Transition     *Transition      `xml:"transition,omitempty"`
-	Timing         *Timing          `xml:"timing,omitempty"`
-	Hf             *HeaderFooter    `xml:"hf,omitempty"`
-	TxStyles       *TxStyles        `xml:"txStyles,omitempty"`
-	ExtLst         *ExtensionList   `xml:"extLst,omitempty"`
+	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	Preserve         bool              `xml:"preserve,attr,omitempty"`
+	CSld             *CommonSlideData  `xml:"cSld"`
+	ClrMap           *ColorMap         `xml:"clrMap,omitempty"`
+	SlideLayoutIDs   *SlideLayoutIDs   `xml:"sldLayoutIdLst,omitempty"`
+	Transition       *Transition       `xml:"transition,omitempty"`
+	AlternateContent *AlternateContent `xml:"-"` // mc:AlternateContent (extracted from raw bytes)
+	Timing           *Timing           `xml:"timing,omitempty"`
+	Hf               *HeaderFooter     `xml:"hf,omitempty"`
+	TxStyles         *TxStyles         `xml:"txStyles,omitempty"`
+	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.

@@ -348,8 +348,8 @@ func TestDML_CT_Hyperlink(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Id != "rId1" {
-		t.Errorf("Id = %q, want rId1", v.Id)
+	if v.Id == nil || *v.Id != "rId1" {
+		t.Errorf("Id = %v, want rId1", v.Id)
 	}
 	if v.Action != "ppaction://hlinksldjump" {
 		t.Errorf("Action = %q, want ppaction://hlinksldjump", v.Action)

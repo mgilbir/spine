@@ -22,8 +22,8 @@ func TestDML_CT_LineProperties(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.W != 12700 {
-		t.Errorf("W = %d, want 12700", v.W)
+	if v.W == nil || *v.W != 12700 {
+		t.Errorf("W = %v, want 12700", v.W)
 	}
 	if v.Cap != "flat" {
 		t.Errorf("Cap = %q, want flat", v.Cap)

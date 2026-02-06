@@ -28,8 +28,8 @@ type Blip struct {
 
 // BlipFill represents CT_BlipFillProperties (a:blipFill) - complete blip fill
 type BlipFill struct {
-	Dpi          uint32   `xml:"dpi,attr,omitempty"`
-	RotWithShape bool     `xml:"rotWithShape,attr,omitempty"`
+	Dpi          *uint32  `xml:"dpi,attr,omitempty"`
+	RotWithShape *bool    `xml:"rotWithShape,attr,omitempty"`
 	Blip         *Blip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
 	SrcRect      *SrcRect `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
 	Tile         *Tile    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`

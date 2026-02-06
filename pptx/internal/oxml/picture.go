@@ -41,14 +41,15 @@ type NvCxnSpPr struct {
 // GroupShape represents a group shape (p:grpSp).
 // Like ShapeTree, it preserves child element ordering (z-order).
 type GroupShape struct {
-	XMLName       xml.Name        `xml:"http://schemas.openxmlformats.org/presentationml/2006/main grpSp"`
-	NvGrpSpPr     *NvGrpSpPr      `xml:"nvGrpSpPr"`
-	GrpSpPr       *GrpSpPr        `xml:"grpSpPr"`
-	Shapes        []*Shape        `xml:"-"`
-	Pictures      []*Picture      `xml:"-"`
-	GraphicFrames []*GraphicFrame `xml:"-"`
-	GroupShapes   []*GroupShape   `xml:"-"`
-	childOrder    []childRef
+	XMLName          xml.Name           `xml:"http://schemas.openxmlformats.org/presentationml/2006/main grpSp"`
+	NvGrpSpPr        *NvGrpSpPr         `xml:"nvGrpSpPr"`
+	GrpSpPr          *GrpSpPr           `xml:"grpSpPr"`
+	Shapes           []*Shape           `xml:"-"`
+	Pictures         []*Picture         `xml:"-"`
+	GraphicFrames    []*GraphicFrame    `xml:"-"`
+	GroupShapes      []*GroupShape      `xml:"-"`
+	ConnectionShapes []*ConnectionShape `xml:"-"`
+	childOrder       []childRef
 }
 
 // UnmarshalXML implements custom unmarshaling for GroupShape to preserve child order.
@@ -100,11 +101,12 @@ func (gs *GroupShape) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 				gs.childOrder = append(gs.childOrder, childRef{childGrpSp, len(gs.GroupShapes)})
 				gs.GroupShapes = append(gs.GroupShapes, sub)
 			case "cxnSp":
-				// GroupShape can contain cxnSp per XSD but we skip to
-				// avoid expanding the struct; still consume the element.
-				if err := d.Skip(); err != nil {
+				cs := &ConnectionShape{}
+				if err := d.DecodeElement(cs, &t); err != nil {
 					return err
 				}
+				gs.childOrder = append(gs.childOrder, childRef{childCxnSp, len(gs.ConnectionShapes)})
+				gs.ConnectionShapes = append(gs.ConnectionShapes, cs)
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -146,6 +148,10 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.index < len(gs.GroupShapes) {
 					b.MarshalElement(ns, "grpSp", gs.GroupShapes[ref.index])
 				}
+			case childCxnSp:
+				if ref.index < len(gs.ConnectionShapes) {
+					b.MarshalElement(ns, "cxnSp", gs.ConnectionShapes[ref.index])
+				}
 			}
 		}
 	} else {
@@ -160,6 +166,9 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		}
 		for _, sub := range gs.GroupShapes {
 			b.MarshalElement(ns, "grpSp", sub)
+		}
+		for _, cs := range gs.ConnectionShapes {
+			b.MarshalElement(ns, "cxnSp", cs)
 		}
 	}
 

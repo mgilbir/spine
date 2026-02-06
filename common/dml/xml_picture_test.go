@@ -88,10 +88,10 @@ func TestDML_CT_BlipFill(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Dpi != 96 {
-		t.Errorf("Dpi = %d, want 96", v.Dpi)
+	if v.Dpi == nil || *v.Dpi != 96 {
+		t.Errorf("Dpi = %v, want 96", v.Dpi)
 	}
-	if !v.RotWithShape {
+	if v.RotWithShape == nil || !*v.RotWithShape {
 		t.Error("RotWithShape should be true")
 	}
 	if v.Blip == nil {

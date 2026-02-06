@@ -1045,7 +1045,7 @@ func TestBuildParagraph_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bp := &BuildParagraph{SpId: tt.spId, Build: tt.build, AnimBg: tt.animBg}
+			bp := &BuildParagraph{SpId: tt.spId, Build: tt.build, AnimBg: &tt.animBg}
 			out, err := xml.Marshal(bp)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)

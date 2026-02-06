@@ -307,7 +307,7 @@ type TextFont struct {
 
 // HlinkXML represents CT_Hyperlink (a:hlinkClick, a:hlinkMouseOver)
 type HlinkXML struct {
-	Id            string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	Id            *string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
 	InvalidUrl    string `xml:"invalidUrl,attr,omitempty"`
 	Action        string `xml:"action,attr,omitempty"`
 	TgtFrame      string `xml:"tgtFrame,attr,omitempty"`

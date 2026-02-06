@@ -22,42 +22,41 @@ func marshalSlide(slide *oxml.Slide) []byte {
 	result := b.Bytes()
 
 	// Inject mc:AlternateContent raw XML if present.
-	// It goes between clrMapOvr and timing (or before timing, or before </p:sld>).
 	if slide.AlternateContent != nil && len(slide.AlternateContent.RawXML) > 0 {
-		result = injectAlternateContent(result, slide.AlternateContent.RawXML)
+		result = injectAlternateContent(result, slide.AlternateContent.RawXML, slide.AlternateContent.AtEnd)
 	}
 
 	return result
 }
 
-// injectAlternateContent inserts raw mc:AlternateContent XML into the slide output.
-// The mc:AlternateContent element appears between clrMapOvr and timing per the XSD.
-func injectAlternateContent(slideXML []byte, mcXML []byte) []byte {
-	// Try to insert before <p:timing>
-	if idx := bytes.Index(slideXML, []byte("<p:timing")); idx >= 0 {
-		result := make([]byte, 0, len(slideXML)+len(mcXML))
-		result = append(result, slideXML[:idx]...)
-		result = append(result, mcXML...)
-		result = append(result, slideXML[idx:]...)
-		return result
+// injectAlternateContent inserts raw mc:AlternateContent XML into slide/layout/master output.
+// atEnd indicates whether the mc:AlternateContent was at the end (before closing tag) in the original.
+func injectAlternateContent(xmlData []byte, mcXML []byte, atEnd bool) []byte {
+	if !atEnd {
+		// mc:AlternateContent was in the middle (e.g., wrapping transition content).
+		// Insert before the first element that follows it: timing, hf, txStyles, extLst.
+		for _, tag := range []string{"<p:timing", "<p:hf", "<p:txStyles", "<p:extLst"} {
+			if idx := bytes.Index(xmlData, []byte(tag)); idx >= 0 {
+				return spliceBytes(xmlData, idx, mcXML)
+			}
+		}
 	}
-	// Try to insert before <p:extLst>
-	if idx := bytes.Index(slideXML, []byte("<p:extLst")); idx >= 0 {
-		result := make([]byte, 0, len(slideXML)+len(mcXML))
-		result = append(result, slideXML[:idx]...)
-		result = append(result, mcXML...)
-		result = append(result, slideXML[idx:]...)
-		return result
+	// Insert before closing tag (after all other elements)
+	for _, tag := range []string{"</p:sld>", "</p:sldLayout>", "</p:sldMaster>"} {
+		if idx := bytes.Index(xmlData, []byte(tag)); idx >= 0 {
+			return spliceBytes(xmlData, idx, mcXML)
+		}
 	}
-	// Insert before </p:sld>
-	if idx := bytes.Index(slideXML, []byte("</p:sld>")); idx >= 0 {
-		result := make([]byte, 0, len(slideXML)+len(mcXML))
-		result = append(result, slideXML[:idx]...)
-		result = append(result, mcXML...)
-		result = append(result, slideXML[idx:]...)
-		return result
-	}
-	return slideXML
+	return xmlData
+}
+
+// spliceBytes inserts data at the given position in src.
+func spliceBytes(src []byte, pos int, data []byte) []byte {
+	result := make([]byte, 0, len(src)+len(data))
+	result = append(result, src[:pos]...)
+	result = append(result, data...)
+	result = append(result, src[pos:]...)
+	return result
 }
 
 // marshalSlideLayout marshals a slide layout to XML using the reflection-based marshaler.
@@ -65,7 +64,14 @@ func marshalSlideLayout(layout *oxml.SlideLayout) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldLayout", layout, xmlb.PresentationMLNamespaces())
-	return b.Bytes()
+	result := b.Bytes()
+
+	// Inject mc:AlternateContent raw XML if present.
+	if layout.AlternateContent != nil && len(layout.AlternateContent.RawXML) > 0 {
+		result = injectAlternateContent(result, layout.AlternateContent.RawXML, layout.AlternateContent.AtEnd)
+	}
+
+	return result
 }
 
 // marshalSlideMaster marshals a slide master to XML using the reflection-based marshaler.
@@ -73,7 +79,14 @@ func marshalSlideMaster(master *oxml.SlideMaster) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldMaster", master, xmlb.PresentationMLNamespaces())
-	return b.Bytes()
+	result := b.Bytes()
+
+	// Inject mc:AlternateContent raw XML if present.
+	if master.AlternateContent != nil && len(master.AlternateContent.RawXML) > 0 {
+		result = injectAlternateContent(result, master.AlternateContent.RawXML, master.AlternateContent.AtEnd)
+	}
+
+	return result
 }
 
 // marshalPresentation marshals the presentation.xml using proper namespace prefixes.
@@ -171,6 +184,17 @@ func marshalPresentationXML(pres *oxml.Presentation) []byte {
 		marshalDefaultTextStyle(b)
 	}
 
+	// extLst
+	if pres.ExtLst != nil && len(pres.ExtLst.Ext) > 0 {
+		b.StartElement(nsP, "extLst")
+		for _, ext := range pres.ExtLst.Ext {
+			b.StartElement(nsP, "ext", xmlb.StrAttr("uri", ext.URI))
+			b.WriteRaw(ext.Content)
+			b.EndElement(nsP, "ext")
+		}
+		b.EndElement(nsP, "extLst")
+	}
+
 	b.EndElement(nsP, "presentation")
 	return b.Bytes()
 }
@@ -205,6 +229,12 @@ func marshalParsedParagraphProps(b *xmlb.Builder, name string, props *oxml.TextP
 	if props.MarL != nil {
 		attrs = append(attrs, xmlb.IntAttr("marL", *props.MarL))
 	}
+	if props.MarR != nil {
+		attrs = append(attrs, xmlb.IntAttr("marR", *props.MarR))
+	}
+	if props.Indent != nil {
+		attrs = append(attrs, xmlb.IntAttr("indent", *props.Indent))
+	}
 	if props.Algn != "" {
 		attrs = append(attrs, xmlb.StrAttr("algn", props.Algn))
 	}
@@ -225,6 +255,9 @@ func marshalParsedParagraphProps(b *xmlb.Builder, name string, props *oxml.TextP
 			attrs = append(attrs, xmlb.StrAttr("eaLnBrk", "0"))
 		}
 	}
+	if props.FontAlgn != "" {
+		attrs = append(attrs, xmlb.StrAttr("fontAlgn", props.FontAlgn))
+	}
 	if props.LatinLnBrk != nil {
 		if *props.LatinLnBrk {
 			attrs = append(attrs, xmlb.StrAttr("latinLnBrk", "1"))
@@ -242,11 +275,33 @@ func marshalParsedParagraphProps(b *xmlb.Builder, name string, props *oxml.TextP
 
 	b.StartElement(nsA, name, attrs...)
 
+	// spcBef
+	if props.SpcBef != nil {
+		marshalTextSpacing(b, "spcBef", props.SpcBef)
+	}
+
+	// spcAft
+	if props.SpcAft != nil {
+		marshalTextSpacing(b, "spcAft", props.SpcAft)
+	}
+
 	// defRPr
 	if props.DefRPr != nil {
 		marshalParsedCharacterProps(b, "defRPr", props.DefRPr)
 	}
 
+	b.EndElement(nsA, name)
+}
+
+// marshalTextSpacing writes a text spacing element (spcBef, spcAft).
+func marshalTextSpacing(b *xmlb.Builder, name string, spacing *oxml.TextSpacing) {
+	b.StartElement(nsA, name)
+	if spacing.SpcPct != nil {
+		b.EmptyElement(nsA, "spcPct", xmlb.Int32Attr("val", spacing.SpcPct.Val))
+	}
+	if spacing.SpcPts != nil {
+		b.EmptyElement(nsA, "spcPts", xmlb.Int32Attr("val", spacing.SpcPts.Val))
+	}
 	b.EndElement(nsA, name)
 }
 

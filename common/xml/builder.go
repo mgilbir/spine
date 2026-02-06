@@ -55,6 +55,11 @@ func (b *Builder) Bytes() []byte {
 	return []byte(b.buf.String())
 }
 
+// WriteRaw writes raw content directly to the output buffer without escaping.
+func (b *Builder) WriteRaw(data []byte) {
+	b.buf.Write(data)
+}
+
 // WriteHeader writes the XML declaration with CRLF line ending for Windows compatibility.
 func (b *Builder) WriteHeader() {
 	b.buf.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n")
