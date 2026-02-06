@@ -1,8 +1,6 @@
 package pptx
 
 import (
-	"bytes"
-
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -19,44 +17,7 @@ func marshalSlide(slide *oxml.Slide) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sld", slide, xmlb.PresentationMLNamespaces())
-	result := b.Bytes()
-
-	// Inject mc:AlternateContent raw XML if present.
-	if slide.AlternateContent != nil && len(slide.AlternateContent.RawXML) > 0 {
-		result = injectAlternateContent(result, slide.AlternateContent.RawXML, slide.AlternateContent.AtEnd)
-	}
-
-	return result
-}
-
-// injectAlternateContent inserts raw mc:AlternateContent XML into slide/layout/master output.
-// atEnd indicates whether the mc:AlternateContent was at the end (before closing tag) in the original.
-func injectAlternateContent(xmlData []byte, mcXML []byte, atEnd bool) []byte {
-	if !atEnd {
-		// mc:AlternateContent was in the middle (e.g., wrapping transition content).
-		// Insert before the first element that follows it: timing, hf, txStyles, extLst.
-		for _, tag := range []string{"<p:timing", "<p:hf", "<p:txStyles", "<p:extLst"} {
-			if idx := bytes.Index(xmlData, []byte(tag)); idx >= 0 {
-				return spliceBytes(xmlData, idx, mcXML)
-			}
-		}
-	}
-	// Insert before closing tag (after all other elements)
-	for _, tag := range []string{"</p:sld>", "</p:sldLayout>", "</p:sldMaster>"} {
-		if idx := bytes.Index(xmlData, []byte(tag)); idx >= 0 {
-			return spliceBytes(xmlData, idx, mcXML)
-		}
-	}
-	return xmlData
-}
-
-// spliceBytes inserts data at the given position in src.
-func spliceBytes(src []byte, pos int, data []byte) []byte {
-	result := make([]byte, 0, len(src)+len(data))
-	result = append(result, src[:pos]...)
-	result = append(result, data...)
-	result = append(result, src[pos:]...)
-	return result
+	return b.Bytes()
 }
 
 // marshalSlideLayout marshals a slide layout to XML using the reflection-based marshaler.
@@ -64,14 +25,7 @@ func marshalSlideLayout(layout *oxml.SlideLayout) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldLayout", layout, xmlb.PresentationMLNamespaces())
-	result := b.Bytes()
-
-	// Inject mc:AlternateContent raw XML if present.
-	if layout.AlternateContent != nil && len(layout.AlternateContent.RawXML) > 0 {
-		result = injectAlternateContent(result, layout.AlternateContent.RawXML, layout.AlternateContent.AtEnd)
-	}
-
-	return result
+	return b.Bytes()
 }
 
 // marshalSlideMaster marshals a slide master to XML using the reflection-based marshaler.
@@ -79,14 +33,7 @@ func marshalSlideMaster(master *oxml.SlideMaster) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldMaster", master, xmlb.PresentationMLNamespaces())
-	result := b.Bytes()
-
-	// Inject mc:AlternateContent raw XML if present.
-	if master.AlternateContent != nil && len(master.AlternateContent.RawXML) > 0 {
-		result = injectAlternateContent(result, master.AlternateContent.RawXML, master.AlternateContent.AtEnd)
-	}
-
-	return result
+	return b.Bytes()
 }
 
 // marshalPresentation marshals the presentation.xml using proper namespace prefixes.
@@ -187,10 +134,8 @@ func marshalPresentationXML(pres *oxml.Presentation) []byte {
 	// extLst
 	if pres.ExtLst != nil && len(pres.ExtLst.Ext) > 0 {
 		b.StartElement(nsP, "extLst")
-		for _, ext := range pres.ExtLst.Ext {
-			b.StartElement(nsP, "ext", xmlb.StrAttr("uri", ext.URI))
-			b.WriteRaw(ext.Content)
-			b.EndElement(nsP, "ext")
+		for i := range pres.ExtLst.Ext {
+			pres.ExtLst.Ext[i].MarshalToBuilder(b, nsP, "ext")
 		}
 		b.EndElement(nsP, "extLst")
 	}
@@ -308,14 +253,41 @@ func marshalTextSpacing(b *xmlb.Builder, name string, spacing *oxml.TextSpacing)
 // marshalParsedCharacterProps writes character properties from parsed data.
 func marshalParsedCharacterProps(b *xmlb.Builder, name string, props *oxml.TextCharacterProperties) {
 	var attrs []xmlb.Attr
+	if props.Kumimoji != nil {
+		attrs = append(attrs, xmlb.BoolAttr("kumimoji", *props.Kumimoji))
+	}
 	if props.Lang != "" {
 		attrs = append(attrs, xmlb.StrAttr("lang", props.Lang))
+	}
+	if props.AltLang != "" {
+		attrs = append(attrs, xmlb.StrAttr("altLang", props.AltLang))
 	}
 	if props.Sz != nil {
 		attrs = append(attrs, xmlb.Int32Attr("sz", *props.Sz))
 	}
+	if props.B != nil {
+		attrs = append(attrs, xmlb.BoolAttr("b", *props.B))
+	}
+	if props.I != nil {
+		attrs = append(attrs, xmlb.BoolAttr("i", *props.I))
+	}
+	if props.U != "" {
+		attrs = append(attrs, xmlb.StrAttr("u", props.U))
+	}
+	if props.Strike != "" {
+		attrs = append(attrs, xmlb.StrAttr("strike", props.Strike))
+	}
 	if props.Kern != nil {
 		attrs = append(attrs, xmlb.Int32Attr("kern", *props.Kern))
+	}
+	if props.Cap != "" {
+		attrs = append(attrs, xmlb.StrAttr("cap", props.Cap))
+	}
+	if props.Spc != nil {
+		attrs = append(attrs, xmlb.Int32Attr("spc", *props.Spc))
+	}
+	if props.Baseline != nil {
+		attrs = append(attrs, xmlb.Int32Attr("baseline", *props.Baseline))
 	}
 
 	// Check if we have any child elements
@@ -335,19 +307,35 @@ func marshalParsedCharacterProps(b *xmlb.Builder, name string, props *oxml.TextC
 		}
 
 		if hasLatin {
-			b.EmptyElement(nsA, "latin", xmlb.StrAttr("typeface", props.Latin.Typeface))
+			marshalTextFont(b, "latin", props.Latin)
 		}
 		if hasEa {
-			b.EmptyElement(nsA, "ea", xmlb.StrAttr("typeface", props.Ea.Typeface))
+			marshalTextFont(b, "ea", props.Ea)
 		}
 		if hasCs {
-			b.EmptyElement(nsA, "cs", xmlb.StrAttr("typeface", props.Cs.Typeface))
+			marshalTextFont(b, "cs", props.Cs)
 		}
 
 		b.EndElement(nsA, name)
 	} else {
 		b.EmptyElement(nsA, name, attrs...)
 	}
+}
+
+// marshalTextFont writes a font element with all its attributes.
+func marshalTextFont(b *xmlb.Builder, name string, font *oxml.TextFont) {
+	var fontAttrs []xmlb.Attr
+	fontAttrs = append(fontAttrs, xmlb.StrAttr("typeface", font.Typeface))
+	if font.Panose != "" {
+		fontAttrs = append(fontAttrs, xmlb.StrAttr("panose", font.Panose))
+	}
+	if font.PitchFamily != nil {
+		fontAttrs = append(fontAttrs, xmlb.Int32Attr("pitchFamily", int32(*font.PitchFamily)))
+	}
+	if font.Charset != nil {
+		fontAttrs = append(fontAttrs, xmlb.Int32Attr("charset", int32(*font.Charset)))
+	}
+	b.EmptyElement(nsA, name, fontAttrs...)
 }
 
 // marshalDefaultTextStyle writes the defaultTextStyle element with all 9 levels.
