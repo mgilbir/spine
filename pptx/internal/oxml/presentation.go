@@ -7,17 +7,140 @@ import (
 )
 
 // Presentation is the root element of presentation.xml.
+// Based on CT_Presentation from pml.xsd
 type Presentation struct {
 	XMLName         xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
 	XmlnsA          string           `xml:"xmlns:a,attr,omitempty"`
 	XmlnsR          string           `xml:"xmlns:r,attr,omitempty"`
 	XmlnsP          string           `xml:"xmlns:p,attr,omitempty"`
-	SaveSubsetFonts bool             `xml:"saveSubsetFonts,attr,omitempty"`
-	SlideMasterIDs  *SlideMasterIDs  `xml:"sldMasterIdLst,omitempty"`
-	SlideIDs        *SlideIDs        `xml:"sldIdLst,omitempty"`
-	SlideSize       *SlideSize       `xml:"sldSz,omitempty"`
-	NotesSize       *SlideSize       `xml:"notesSz,omitempty"`
-	DefaultTextStyle *TextListStyle  `xml:"defaultTextStyle,omitempty"`
+
+	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
+	ServerZoom              string `xml:"serverZoom,attr,omitempty"`
+	FirstSlideNum           *int   `xml:"firstSlideNum,attr,omitempty"`
+	ShowSpecialPlsOnTitleSld *bool  `xml:"showSpecialPlsOnTitleSld,attr,omitempty"`
+	Rtl                     *bool  `xml:"rtl,attr,omitempty"`
+	RemovePersonalInfoOnSave *bool  `xml:"removePersonalInfoOnSave,attr,omitempty"`
+	CompatMode              *bool  `xml:"compatMode,attr,omitempty"`
+	StrictFirstAndLastChars *bool  `xml:"strictFirstAndLastChars,attr,omitempty"`
+	EmbedTrueTypeFonts      *bool  `xml:"embedTrueTypeFonts,attr,omitempty"`
+	SaveSubsetFonts         *bool  `xml:"saveSubsetFonts,attr,omitempty"`
+	AutoCompressPictures    *bool  `xml:"autoCompressPictures,attr,omitempty"`
+	BookmarkIdSeed          *uint32 `xml:"bookmarkIdSeed,attr,omitempty"`
+	Conformance             string `xml:"conformance,attr,omitempty"`
+
+	// Elements from CT_Presentation (pml.xsd lines 1040-1055)
+	SlideMasterIDs   *SlideMasterIDs  `xml:"sldMasterIdLst,omitempty"`
+	NotesMasterIDs   *NotesMasterIDs  `xml:"notesMasterIdLst,omitempty"`
+	HandoutMasterIDs *HandoutMasterIDs `xml:"handoutMasterIdLst,omitempty"`
+	SlideIDs         *SlideIDs        `xml:"sldIdLst,omitempty"`
+	SlideSize        *SlideSize       `xml:"sldSz,omitempty"`
+	NotesSize        *SlideSize       `xml:"notesSz,omitempty"`
+	SmartTags        *SmartTags       `xml:"smartTags,omitempty"`
+	EmbeddedFontLst  *EmbeddedFontList `xml:"embeddedFontLst,omitempty"`
+	CustShowLst      *CustomShowList  `xml:"custShowLst,omitempty"`
+	PhotoAlbum       *PhotoAlbum      `xml:"photoAlbum,omitempty"`
+	CustDataLst      *CustomerDataList `xml:"custDataLst,omitempty"`
+	Kinsoku          *Kinsoku         `xml:"kinsoku,omitempty"`
+	DefaultTextStyle *TextListStyle   `xml:"defaultTextStyle,omitempty"`
+	ModifyVerifier   *ModifyVerifier  `xml:"modifyVerifier,omitempty"`
+	ExtLst           *ExtensionList   `xml:"extLst,omitempty"`
+}
+
+// NotesMasterIDs contains a list of notes master ID references.
+type NotesMasterIDs struct {
+	NotesMasterID []NotesMasterID `xml:"notesMasterId"`
+}
+
+// NotesMasterID references a notes master.
+type NotesMasterID struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// HandoutMasterIDs contains a list of handout master ID references.
+type HandoutMasterIDs struct {
+	HandoutMasterID []HandoutMasterID `xml:"handoutMasterId"`
+}
+
+// HandoutMasterID references a handout master.
+type HandoutMasterID struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// SmartTags placeholder for smart tags.
+type SmartTags struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+}
+
+// EmbeddedFontList contains embedded fonts.
+type EmbeddedFontList struct {
+	EmbeddedFont []EmbeddedFont `xml:"embeddedFont,omitempty"`
+}
+
+// EmbeddedFont represents an embedded font.
+type EmbeddedFont struct {
+	Font    *TextFont `xml:"font,omitempty"`
+	Regular *EmbeddedFontData `xml:"regular,omitempty"`
+	Bold    *EmbeddedFontData `xml:"bold,omitempty"`
+	Italic  *EmbeddedFontData `xml:"italic,omitempty"`
+	BoldItalic *EmbeddedFontData `xml:"boldItalic,omitempty"`
+}
+
+// EmbeddedFontData references embedded font data.
+type EmbeddedFontData struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// CustomShowList contains custom slide shows.
+type CustomShowList struct {
+	CustShow []CustomShow `xml:"custShow,omitempty"`
+}
+
+// CustomShow represents a custom slide show.
+type CustomShow struct {
+	Name string `xml:"name,attr"`
+	ID   uint32 `xml:"id,attr"`
+}
+
+// PhotoAlbum contains photo album settings.
+type PhotoAlbum struct {
+	Bw       *bool  `xml:"bw,attr,omitempty"`
+	ShowCaptions *bool `xml:"showCaptions,attr,omitempty"`
+	Layout   string `xml:"layout,attr,omitempty"`
+	Frame    string `xml:"frame,attr,omitempty"`
+}
+
+// CustomerDataList contains custom data.
+type CustomerDataList struct {
+	CustData []CustomerData `xml:"custData,omitempty"`
+	Tags     *Tags          `xml:"tags,omitempty"`
+}
+
+// CustomerData references custom data.
+type CustomerData struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// Tags references tags.
+type Tags struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// Kinsoku contains kinsoku settings for East Asian text.
+type Kinsoku struct {
+	Lang    string `xml:"lang,attr,omitempty"`
+	InvalStChars string `xml:"invalStChars,attr,omitempty"`
+	InvalEndChars string `xml:"invalEndChars,attr,omitempty"`
+}
+
+// ModifyVerifier contains modify verification settings.
+type ModifyVerifier struct {
+	CryptProviderType string `xml:"cryptProviderType,attr,omitempty"`
+	CryptAlgorithmClass string `xml:"cryptAlgorithmClass,attr,omitempty"`
+	CryptAlgorithmType string `xml:"cryptAlgorithmType,attr,omitempty"`
+	CryptAlgorithmSid *uint32 `xml:"cryptAlgorithmSid,attr,omitempty"`
+	SpinCount *uint32 `xml:"spinCount,attr,omitempty"`
+	SaltData string `xml:"saltData,attr,omitempty"`
+	HashData string `xml:"hashData,attr,omitempty"`
 }
 
 // PPTX namespace constants
@@ -35,7 +158,7 @@ type SlideMasterIDs struct {
 // SlideMasterID references a slide master.
 type SlideMasterID struct {
 	ID  uint32 `xml:"id,attr,omitempty"`
-	RID string `xml:"-"`
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideMasterID.
@@ -77,8 +200,8 @@ type SlideIDs struct {
 
 // SlideID references a slide.
 type SlideID struct {
-	ID  uint32 `xml:"-"`
-	RID string `xml:"-"`
+	ID  uint32 `xml:"id,attr"`
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideID.
@@ -140,6 +263,7 @@ type TextParagraphProperties struct {
 	Algn         string  `xml:"algn,attr,omitempty"`
 	DefTabSz     *int64  `xml:"defTabSz,attr,omitempty"`
 	Rtl          *bool   `xml:"rtl,attr,omitempty"`
+	EaLnBrk      *bool   `xml:"eaLnBrk,attr,omitempty"`
 	FontAlgn     string  `xml:"fontAlgn,attr,omitempty"`
 	LatinLnBrk   *bool   `xml:"latinLnBrk,attr,omitempty"`
 	HangingPunct *bool   `xml:"hangingPunct,attr,omitempty"`

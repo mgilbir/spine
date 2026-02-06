@@ -3,35 +3,60 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+
+	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// AlternateContent holds raw mc:AlternateContent XML for round-trip preservation.
+// mc:AlternateContent wraps version-specific content (Choice/Fallback pairs) with
+// Office-version-specific namespaces (p14, p15, etc.) that cannot be fully typed.
+type AlternateContent struct {
+	RawXML []byte // complete <mc:AlternateContent>...</mc:AlternateContent> as raw XML bytes
+}
 
 // Slide is the root element of a slide part.
 type Slide struct {
-	XMLName xml.Name  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
-	CSld    *CommonSlideData `xml:"cSld"`
-	ClrMapOvr *ColorMapOverride `xml:"clrMapOvr,omitempty"`
+	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	Show             *bool             `xml:"show,attr,omitempty"`
+	CSld             *CommonSlideData  `xml:"cSld"`
+	ClrMapOvr        *ColorMapOverride `xml:"clrMapOvr,omitempty"`
+	Transition       *Transition       `xml:"transition,omitempty"`
+	AlternateContent *AlternateContent `xml:"-"` // mc:AlternateContent (extracted from raw bytes)
+	Timing           *Timing           `xml:"timing,omitempty"`
+	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
 }
 
 // SlideLayout is the root element of a slide layout part.
+// Attribute order matches XSD CT_SlideLayout definition.
 type SlideLayout struct {
-	XMLName     xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
-	Type        string           `xml:"type,attr,omitempty"`
-	Preserve    bool             `xml:"preserve,attr,omitempty"`
-	UserDrawn   bool             `xml:"userDrawn,attr,omitempty"`
-	MatchingName string          `xml:"matchingName,attr,omitempty"`
-	CSld        *CommonSlideData `xml:"cSld"`
-	ClrMapOvr   *ColorMapOverride `xml:"clrMapOvr,omitempty"`
+	XMLName            xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
+	ShowMasterSp       *bool             `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim   *bool             `xml:"showMasterPhAnim,attr,omitempty"`
+	Type               string            `xml:"type,attr,omitempty"`
+	Preserve           bool              `xml:"preserve,attr,omitempty"`
+	UserDrawn          bool              `xml:"userDrawn,attr,omitempty"`
+	MatchingName       string            `xml:"matchingName,attr,omitempty"`
+	CSld               *CommonSlideData  `xml:"cSld"`
+	ClrMapOvr          *ColorMapOverride `xml:"clrMapOvr,omitempty"`
+	Transition         *Transition       `xml:"transition,omitempty"`
+	Timing             *Timing           `xml:"timing,omitempty"`
+	Hf                 *HeaderFooter     `xml:"hf,omitempty"`
+	ExtLst             *ExtensionList    `xml:"extLst,omitempty"`
 }
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
 	XMLName        xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
-	XmlnsR         string           `xml:"xmlns:r,attr,omitempty"`
 	Preserve       bool             `xml:"preserve,attr,omitempty"`
 	CSld           *CommonSlideData `xml:"cSld"`
 	ClrMap         *ColorMap        `xml:"clrMap,omitempty"`
 	SlideLayoutIDs *SlideLayoutIDs  `xml:"sldLayoutIdLst,omitempty"`
+	Transition     *Transition      `xml:"transition,omitempty"`
+	Timing         *Timing          `xml:"timing,omitempty"`
+	Hf             *HeaderFooter    `xml:"hf,omitempty"`
 	TxStyles       *TxStyles        `xml:"txStyles,omitempty"`
+	ExtLst         *ExtensionList   `xml:"extLst,omitempty"`
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.
@@ -42,7 +67,7 @@ type SlideLayoutIDs struct {
 // SlideLayoutID references a slide layout.
 type SlideLayoutID struct {
 	ID  uint32 `xml:"id,attr,omitempty"`
-	RID string `xml:"-"`
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideLayoutID.
@@ -79,79 +104,189 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 
 // CommonSlideData contains elements common to slides, layouts, and masters.
 type CommonSlideData struct {
-	Name    string    `xml:"name,attr,omitempty"`
-	SpTree  *ShapeTree `xml:"spTree"`
-	ExtLst  *ExtensionList `xml:"extLst,omitempty"`
+	Name   string         `xml:"name,attr,omitempty"`
+	Bg     *Background    `xml:"bg,omitempty"`
+	SpTree *ShapeTree     `xml:"spTree"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
+}
+
+// Background represents a slide background (p:bg).
+type Background struct {
+	BwMode string          `xml:"bwMode,attr,omitempty"`
+	BgPr   *BackgroundProps `xml:"bgPr,omitempty"`
+	BgRef  *dml.FillRef    `xml:"bgRef,omitempty"`
+}
+
+// BackgroundProps contains background fill properties.
+type BackgroundProps struct {
+	NoFill    *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill  *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill  *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill  *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	EffectLst *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	ExtLst    *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ShapeTree is the container for shapes on a slide.
+// It implements custom unmarshal/marshal to preserve child element ordering,
+// which determines z-order (per XSD: xs:choice maxOccurs="unbounded").
 type ShapeTree struct {
-	NvGrpSpPr     *NonVisualGroupShapeProperties `xml:"nvGrpSpPr"`
-	GrpSpPr       *GroupShapeProperties          `xml:"grpSpPr"`
-	Sp            []*Shape                        `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sp,omitempty"`
-	Pic           []*Picture                      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pic,omitempty"`
-	GraphicFrame  []*GraphicFrame                 `xml:"http://schemas.openxmlformats.org/presentationml/2006/main graphicFrame,omitempty"`
-	GrpSp         []*GroupShape                   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main grpSp,omitempty"`
-	CxnSp         []*ConnectionShape              `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cxnSp,omitempty"`
+	NvGrpSpPr    *NvGrpSpPr         `xml:"nvGrpSpPr"`
+	GrpSpPr      *GrpSpPr           `xml:"grpSpPr"`
+	Sp           []*Shape            `xml:"-"`
+	Pic          []*Picture          `xml:"-"`
+	GraphicFrame []*GraphicFrame     `xml:"-"`
+	GrpSp        []*GroupShape       `xml:"-"`
+	CxnSp        []*ConnectionShape  `xml:"-"`
+	childOrder   []childRef          // tracks interleaved child order
 }
 
-// NonVisualGroupShapeProperties contains non-visual properties for a group.
-type NonVisualGroupShapeProperties struct {
-	CNvPr      *NonVisualDrawingProperties `xml:"cNvPr"`
-	CNvGrpSpPr *NonVisualGroupShapeDrawingProperties `xml:"cNvGrpSpPr"`
-	NvPr       *ApplicationNonVisualDrawingProperties `xml:"nvPr"`
+// childKind identifies a shape child element type.
+type childKind int
+
+const (
+	childSp childKind = iota
+	childPic
+	childGraphicFrame
+	childGrpSp
+	childCxnSp
+)
+
+// childRef references a child element by kind and index into its typed slice.
+type childRef struct {
+	kind  childKind
+	index int
 }
 
-// NonVisualDrawingProperties contains non-visual drawing properties.
-type NonVisualDrawingProperties struct {
-	ID    uint32 `xml:"id,attr"`
-	Name  string `xml:"name,attr"`
-	Descr string `xml:"descr,attr,omitempty"`
-	Title string `xml:"title,attr,omitempty"`
+// ClearChildOrder removes the child order tracking (used when shapes are rebuilt programmatically).
+func (st *ShapeTree) ClearChildOrder() {
+	st.childOrder = nil
 }
 
-// NonVisualGroupShapeDrawingProperties contains non-visual group shape properties.
-type NonVisualGroupShapeDrawingProperties struct {
-	// Empty for now; can contain grpSpLocks
+// UnmarshalXML implements custom unmarshaling for ShapeTree to preserve child order.
+func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "nvGrpSpPr":
+				st.NvGrpSpPr = &NvGrpSpPr{}
+				if err := d.DecodeElement(st.NvGrpSpPr, &t); err != nil {
+					return err
+				}
+			case "grpSpPr":
+				st.GrpSpPr = &GrpSpPr{}
+				if err := d.DecodeElement(st.GrpSpPr, &t); err != nil {
+					return err
+				}
+			case "sp":
+				sp := &Shape{}
+				if err := d.DecodeElement(sp, &t); err != nil {
+					return err
+				}
+				st.childOrder = append(st.childOrder, childRef{childSp, len(st.Sp)})
+				st.Sp = append(st.Sp, sp)
+			case "pic":
+				pic := &Picture{}
+				if err := d.DecodeElement(pic, &t); err != nil {
+					return err
+				}
+				st.childOrder = append(st.childOrder, childRef{childPic, len(st.Pic)})
+				st.Pic = append(st.Pic, pic)
+			case "graphicFrame":
+				gf := &GraphicFrame{}
+				if err := d.DecodeElement(gf, &t); err != nil {
+					return err
+				}
+				st.childOrder = append(st.childOrder, childRef{childGraphicFrame, len(st.GraphicFrame)})
+				st.GraphicFrame = append(st.GraphicFrame, gf)
+			case "grpSp":
+				gs := &GroupShape{}
+				if err := d.DecodeElement(gs, &t); err != nil {
+					return err
+				}
+				st.childOrder = append(st.childOrder, childRef{childGrpSp, len(st.GrpSp)})
+				st.GrpSp = append(st.GrpSp, gs)
+			case "cxnSp":
+				cs := &ConnectionShape{}
+				if err := d.DecodeElement(cs, &t); err != nil {
+					return err
+				}
+				st.childOrder = append(st.childOrder, childRef{childCxnSp, len(st.CxnSp)})
+				st.CxnSp = append(st.CxnSp, cs)
+			default:
+				if err := d.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
 }
 
-// ApplicationNonVisualDrawingProperties contains application-specific non-visual properties.
-type ApplicationNonVisualDrawingProperties struct {
-	IsPhoto   bool `xml:"isPhoto,attr,omitempty"`
-	UserDrawn bool `xml:"userDrawn,attr,omitempty"`
-	Ph        *Placeholder `xml:"ph,omitempty"`
-}
+// MarshalToBuilder implements xmlb.BuilderMarshaler to preserve child element order.
+func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
 
-// GroupShapeProperties contains visual properties for a group.
-type GroupShapeProperties struct {
-	Xfrm *GroupTransform2D `xml:"xfrm,omitempty"`
-}
+	if st.NvGrpSpPr != nil {
+		b.MarshalElement(ns, "nvGrpSpPr", st.NvGrpSpPr)
+	}
+	if st.GrpSpPr != nil {
+		b.MarshalElement(ns, "grpSpPr", st.GrpSpPr)
+	}
 
-// GroupTransform2D specifies the transform for a group.
-type GroupTransform2D struct {
-	Off    *Offset2D `xml:"off,omitempty"`
-	Ext    *Extent2D `xml:"ext,omitempty"`
-	ChOff  *Offset2D `xml:"chOff,omitempty"`
-	ChExt  *Extent2D `xml:"chExt,omitempty"`
-}
+	if len(st.childOrder) > 0 {
+		// Write children in their original interleaved order
+		for _, ref := range st.childOrder {
+			switch ref.kind {
+			case childSp:
+				if ref.index < len(st.Sp) {
+					b.MarshalElement(ns, "sp", st.Sp[ref.index])
+				}
+			case childPic:
+				if ref.index < len(st.Pic) {
+					b.MarshalElement(ns, "pic", st.Pic[ref.index])
+				}
+			case childGraphicFrame:
+				if ref.index < len(st.GraphicFrame) {
+					b.MarshalElement(ns, "graphicFrame", st.GraphicFrame[ref.index])
+				}
+			case childGrpSp:
+				if ref.index < len(st.GrpSp) {
+					b.MarshalElement(ns, "grpSp", st.GrpSp[ref.index])
+				}
+			case childCxnSp:
+				if ref.index < len(st.CxnSp) {
+					b.MarshalElement(ns, "cxnSp", st.CxnSp[ref.index])
+				}
+			}
+		}
+	} else {
+		// No order tracking (programmatically built tree) - write by type
+		for _, sp := range st.Sp {
+			b.MarshalElement(ns, "sp", sp)
+		}
+		for _, pic := range st.Pic {
+			b.MarshalElement(ns, "pic", pic)
+		}
+		for _, gf := range st.GraphicFrame {
+			b.MarshalElement(ns, "graphicFrame", gf)
+		}
+		for _, gs := range st.GrpSp {
+			b.MarshalElement(ns, "grpSp", gs)
+		}
+		for _, cs := range st.CxnSp {
+			b.MarshalElement(ns, "cxnSp", cs)
+		}
+	}
 
-// Offset2D specifies a 2D offset.
-type Offset2D struct {
-	X int64 `xml:"x,attr"`
-	Y int64 `xml:"y,attr"`
-}
-
-// Extent2D specifies 2D extents.
-type Extent2D struct {
-	Cx int64 `xml:"cx,attr"`
-	Cy int64 `xml:"cy,attr"`
-}
-
-// ShapeChoice is a placeholder for shape elements in the shape tree.
-// Actual shapes are parsed separately.
-type ShapeChoice struct {
-	XMLName xml.Name
-	Content []byte `xml:",innerxml"`
+	b.EndElement(ns, localName)
 }
 
 // ColorMap defines the color mapping for a slide master.
@@ -172,27 +307,18 @@ type ColorMap struct {
 
 // ColorMapOverride specifies a color map override.
 type ColorMapOverride struct {
-	MasterClrMapping *MasterColorMapping `xml:"masterClrMapping,omitempty"`
-	OverrideClrMapping *ColorMap `xml:"overrideClrMapping,omitempty"`
+	MasterClrMapping   *MasterColorMapping `xml:"http://schemas.openxmlformats.org/drawingml/2006/main masterClrMapping,omitempty"`
+	OverrideClrMapping *ColorMap           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main overrideClrMapping,omitempty"`
 }
 
 // MasterColorMapping indicates to use the master's color mapping.
 type MasterColorMapping struct{}
 
-// Placeholder specifies placeholder information.
-type Placeholder struct {
-	Type       string `xml:"type,attr,omitempty"`
-	Orient     string `xml:"orient,attr,omitempty"`
-	Sz         string `xml:"sz,attr,omitempty"`
-	Idx        uint32 `xml:"idx,attr,omitempty"`
-	HasCustomPrompt bool `xml:"hasCustomPrompt,attr,omitempty"`
-}
-
 // TxStyles contains text styles for a slide master.
 type TxStyles struct {
-	TitleStyle *TextListStyle `xml:"titleStyle,omitempty"`
-	BodyStyle  *TextListStyle `xml:"bodyStyle,omitempty"`
-	OtherStyle *TextListStyle `xml:"otherStyle,omitempty"`
+	TitleStyle *dml.LstStyle `xml:"titleStyle,omitempty"`
+	BodyStyle  *dml.LstStyle `xml:"bodyStyle,omitempty"`
+	OtherStyle *dml.LstStyle `xml:"otherStyle,omitempty"`
 }
 
 // ExtensionList contains extension elements.
