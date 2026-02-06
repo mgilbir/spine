@@ -1,8 +1,10 @@
 package opc
 
 import (
+	"bytes"
 	"encoding/xml"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -50,6 +52,12 @@ type ContentTypes struct {
 
 	// Overrides maps specific part names to content types.
 	Overrides map[string]string
+
+	// defaultOrder preserves the original ordering of default extensions.
+	defaultOrder []string
+
+	// overrideOrder preserves the original ordering of override part names.
+	overrideOrder []string
 }
 
 // NewContentTypes creates a new ContentTypes with default extension mappings.
@@ -90,11 +98,17 @@ func (ct *ContentTypes) GetContentType(partName string) string {
 func (ct *ContentTypes) SetDefault(extension, contentType string) {
 	ext := strings.TrimPrefix(extension, ".")
 	ext = strings.ToLower(ext)
+	if _, exists := ct.Defaults[ext]; !exists {
+		ct.defaultOrder = append(ct.defaultOrder, ext)
+	}
 	ct.Defaults[ext] = contentType
 }
 
 // SetOverride sets a content type override for a specific part.
 func (ct *ContentTypes) SetOverride(partName, contentType string) {
+	if _, exists := ct.Overrides[partName]; !exists {
+		ct.overrideOrder = append(ct.overrideOrder, partName)
+	}
 	ct.Overrides[partName] = contentType
 }
 
@@ -120,33 +134,107 @@ type overrideXML struct {
 const ContentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 // Marshal converts ContentTypes to XML bytes.
+// Output format matches Microsoft Office: compact single-line with self-closing elements.
 func (ct *ContentTypes) Marshal() ([]byte, error) {
-	ctXML := contentTypesXML{
-		Xmlns:     ContentTypesNamespace,
-		Defaults:  make([]defaultXML, 0, len(ct.Defaults)),
-		Overrides: make([]overrideXML, 0, len(ct.Overrides)),
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
+	buf.WriteByte('\r')
+	buf.WriteByte('\n')
+	buf.WriteString(`<Types xmlns="`)
+	buf.WriteString(ContentTypesNamespace)
+	buf.WriteString(`">`)
+
+	// Write defaults: use original order, then append any new entries sorted
+	exts := ct.orderedDefaults()
+	for _, ext := range exts {
+		if contentType, ok := ct.Defaults[ext]; ok {
+			buf.WriteString(`<Default Extension="`)
+			xml.EscapeText(&buf, []byte(ext))
+			buf.WriteString(`" ContentType="`)
+			xml.EscapeText(&buf, []byte(contentType))
+			buf.WriteString(`"/>`)
+		}
 	}
 
-	for ext, contentType := range ct.Defaults {
-		ctXML.Defaults = append(ctXML.Defaults, defaultXML{
-			Extension:   ext,
-			ContentType: contentType,
-		})
+	// Write overrides: use original order, then append any new entries sorted
+	parts := ct.orderedOverrides()
+	for _, partName := range parts {
+		if contentType, ok := ct.Overrides[partName]; ok {
+			buf.WriteString(`<Override PartName="`)
+			xml.EscapeText(&buf, []byte(partName))
+			buf.WriteString(`" ContentType="`)
+			xml.EscapeText(&buf, []byte(contentType))
+			buf.WriteString(`"/>`)
+		}
 	}
 
-	for partName, contentType := range ct.Overrides {
-		ctXML.Overrides = append(ctXML.Overrides, overrideXML{
-			PartName:    partName,
-			ContentType: contentType,
-		})
+	buf.WriteString("</Types>")
+	return buf.Bytes(), nil
+}
+
+// orderedDefaults returns default extensions in stable order:
+// original order first, then any new entries sorted alphabetically.
+func (ct *ContentTypes) orderedDefaults() []string {
+	if len(ct.defaultOrder) == 0 {
+		// No original order: sort all keys
+		exts := make([]string, 0, len(ct.Defaults))
+		for ext := range ct.Defaults {
+			exts = append(exts, ext)
+		}
+		sort.Strings(exts)
+		return exts
 	}
 
-	output, err := xml.MarshalIndent(ctXML, "", "  ")
-	if err != nil {
-		return nil, err
+	// Start with original order
+	seen := make(map[string]bool, len(ct.defaultOrder))
+	result := make([]string, 0, len(ct.Defaults))
+	for _, ext := range ct.defaultOrder {
+		if _, ok := ct.Defaults[ext]; ok {
+			result = append(result, ext)
+			seen[ext] = true
+		}
 	}
 
-	return append([]byte(xml.Header), output...), nil
+	// Append any new entries not in original order
+	var extra []string
+	for ext := range ct.Defaults {
+		if !seen[ext] {
+			extra = append(extra, ext)
+		}
+	}
+	sort.Strings(extra)
+	return append(result, extra...)
+}
+
+// orderedOverrides returns override part names in stable order:
+// original order first, then any new entries sorted alphabetically.
+func (ct *ContentTypes) orderedOverrides() []string {
+	if len(ct.overrideOrder) == 0 {
+		parts := make([]string, 0, len(ct.Overrides))
+		for partName := range ct.Overrides {
+			parts = append(parts, partName)
+		}
+		sort.Strings(parts)
+		return parts
+	}
+
+	seen := make(map[string]bool, len(ct.overrideOrder))
+	result := make([]string, 0, len(ct.Overrides))
+	for _, partName := range ct.overrideOrder {
+		if _, ok := ct.Overrides[partName]; ok {
+			result = append(result, partName)
+			seen[partName] = true
+		}
+	}
+
+	var extra []string
+	for partName := range ct.Overrides {
+		if !seen[partName] {
+			extra = append(extra, partName)
+		}
+	}
+	sort.Strings(extra)
+	return append(result, extra...)
 }
 
 // UnmarshalContentTypes parses content types XML into a ContentTypes struct.
@@ -157,16 +245,21 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	}
 
 	ct := &ContentTypes{
-		Defaults:  make(map[string]string, len(ctXML.Defaults)),
-		Overrides: make(map[string]string, len(ctXML.Overrides)),
+		Defaults:      make(map[string]string, len(ctXML.Defaults)),
+		Overrides:     make(map[string]string, len(ctXML.Overrides)),
+		defaultOrder:  make([]string, 0, len(ctXML.Defaults)),
+		overrideOrder: make([]string, 0, len(ctXML.Overrides)),
 	}
 
 	for _, def := range ctXML.Defaults {
-		ct.Defaults[strings.ToLower(def.Extension)] = def.ContentType
+		ext := strings.ToLower(def.Extension)
+		ct.Defaults[ext] = def.ContentType
+		ct.defaultOrder = append(ct.defaultOrder, ext)
 	}
 
 	for _, override := range ctXML.Overrides {
 		ct.Overrides[override.PartName] = override.ContentType
+		ct.overrideOrder = append(ct.overrideOrder, override.PartName)
 	}
 
 	return ct, nil

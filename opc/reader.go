@@ -2,6 +2,7 @@ package opc
 
 import (
 	"archive/zip"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -213,6 +214,23 @@ func (r *Reader) GetFile(name string) *File {
 		}
 	}
 	return nil
+}
+
+// GetRawZipFile returns the raw data for a file in the zip archive by name.
+// This can be used to access special files like [Content_Types].xml that are
+// not included in the Files list.
+func (r *Reader) GetRawZipFile(name string) ([]byte, error) {
+	for _, zf := range r.zipReader.File {
+		if strings.EqualFold(zf.Name, name) {
+			rc, err := zf.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer rc.Close()
+			return io.ReadAll(rc)
+		}
+	}
+	return nil, fmt.Errorf("file not found: %s", name)
 }
 
 // GetRelationshipsByType returns all package-level relationships with the specified type.

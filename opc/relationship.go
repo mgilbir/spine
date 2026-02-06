@@ -1,6 +1,7 @@
 package opc
 
 import (
+	"bytes"
 	"encoding/xml"
 )
 
@@ -31,6 +32,27 @@ const (
 
 	// Digital signature relationship type
 	RelTypeDigitalSignature = "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature"
+
+	// Slide relationship type
+	RelTypeSlide = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+
+	// Slide master relationship type
+	RelTypeSlideMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
+
+	// Slide layout relationship type
+	RelTypeSlideLayout = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+
+	// Theme relationship type
+	RelTypeTheme = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
+
+	// Presentation properties relationship type
+	RelTypePresProps = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps"
+
+	// View properties relationship type
+	RelTypeViewProps = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps"
+
+	// Table styles relationship type
+	RelTypeTableStyles = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles"
 )
 
 // Relationship represents a relationship between a source part and a target.
@@ -72,29 +94,30 @@ type relationshipXML struct {
 const RelationshipsNamespace = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 // MarshalRelationships converts a slice of relationships to XML bytes.
+// Output format matches Microsoft Office: compact single-line with self-closing elements.
 func MarshalRelationships(rels []*Relationship) ([]byte, error) {
-	relsXML := relationshipsXML{
-		Xmlns:         RelationshipsNamespace,
-		Relationships: make([]relationshipXML, len(rels)),
-	}
-
-	for i, rel := range rels {
-		relsXML.Relationships[i] = relationshipXML{
-			ID:     rel.ID,
-			Type:   rel.Type,
-			Target: rel.Target,
-		}
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
+	buf.WriteByte('\r')
+	buf.WriteByte('\n')
+	buf.WriteString(`<Relationships xmlns="`)
+	buf.WriteString(RelationshipsNamespace)
+	buf.WriteString(`">`)
+	for _, rel := range rels {
+		buf.WriteString(`<Relationship Id="`)
+		xml.EscapeText(&buf, []byte(rel.ID))
+		buf.WriteString(`" Type="`)
+		xml.EscapeText(&buf, []byte(rel.Type))
+		buf.WriteString(`" Target="`)
+		xml.EscapeText(&buf, []byte(rel.Target))
+		buf.WriteByte('"')
 		if rel.TargetMode == TargetModeExternal {
-			relsXML.Relationships[i].TargetMode = string(TargetModeExternal)
+			buf.WriteString(` TargetMode="External"`)
 		}
+		buf.WriteString("/>")
 	}
-
-	output, err := xml.MarshalIndent(relsXML, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	return append([]byte(xml.Header), output...), nil
+	buf.WriteString("</Relationships>")
+	return buf.Bytes(), nil
 }
 
 // UnmarshalRelationships parses relationship XML into a slice of relationships.
