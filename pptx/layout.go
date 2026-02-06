@@ -1,8 +1,6 @@
 package pptx
 
 import (
-	"encoding/xml"
-
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -151,12 +149,8 @@ func (sl *SlideLayout) marshal() ([]byte, error) {
 		sl.layoutXML = newLayoutXML(sl.layoutType)
 	}
 
-	output, err := xml.MarshalIndent(sl.layoutXML, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	return append([]byte(xml.Header), output...), nil
+	// Use the namespace-aware marshaler for PowerPoint compatibility
+	return marshalSlideLayout(sl.layoutXML), nil
 }
 
 // newLayoutXML creates a new slide layout XML structure.

@@ -2,11 +2,14 @@
 package pptx
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -29,12 +32,22 @@ type Presentation struct {
 	slideLayouts []*SlideLayout
 	theme        *Theme
 
-	reader         *opc.ReadCloser
-	presentation   *oxml.Presentation
-	nextSlideID    uint32
-	nextRelID      int
-	preservedParts map[string]*preservedPart // Parts from original file for round-trip
-	templatePath   string                    // Path to template file if using one
+	reader       *opc.ReadCloser
+	presentation *oxml.Presentation
+	nextSlideID  uint32
+	nextRelID    int
+	templatePath string // Path to template file if using one
+
+	// Raw data for parts we serialize but don't fully parse
+	presPropsData   []byte                   // /ppt/presProps.xml
+	viewPropsData   []byte                   // /ppt/viewProps.xml
+	tableStylesData []byte                   // /ppt/tableStyles.xml
+	themeData       map[string][]byte        // /ppt/theme/*.xml (keyed by part name)
+	thumbnailData   []byte                   // /docProps/thumbnail.jpeg
+	appPropsData    []byte                   // /docProps/app.xml
+	printerSettings map[string][]byte        // /ppt/printerSettings/*.bin
+	otherParts      map[string]*rawPart      // Any other parts (media, custom XML, etc.)
+	relationships   map[string][]*opc.Relationship // Relationships for each part
 }
 
 // Open opens a PowerPoint presentation from a file path.
@@ -83,13 +96,16 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	}
 
 	p := &Presentation{
-		reader:         reader,
-		presentation:   &pres,
-		nextSlideID:    256,
-		nextRelID:      1,
-		slideMasters:   make([]*SlideMaster, 0),
-		slideLayouts:   make([]*SlideLayout, 0),
-		preservedParts: make(map[string]*preservedPart),
+		reader:          reader,
+		presentation:    &pres,
+		nextSlideID:     256,
+		nextRelID:       1,
+		slideMasters:    make([]*SlideMaster, 0),
+		slideLayouts:    make([]*SlideLayout, 0),
+		themeData:       make(map[string][]byte),
+		printerSettings: make(map[string][]byte),
+		otherParts:      make(map[string]*rawPart),
+		relationships:   make(map[string][]*opc.Relationship),
 	}
 
 	// Copy properties
@@ -133,14 +149,17 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 
-	// Preserve all other parts for round-trip saving
-	p.preserveAllParts()
+	// Load all remaining parts into the model
+	if err := p.loadAllParts(mainPartName); err != nil {
+		reader.Close()
+		return nil, err
+	}
 
 	return p, nil
 }
 
-// preservedPart stores a part from the original file for round-trip saving.
-type preservedPart struct {
+// rawPart stores a part that we don't fully parse but need to preserve.
+type rawPart struct {
 	contentType string
 	data        []byte
 }
@@ -157,15 +176,77 @@ func (p *Presentation) updateNextRelID(relID string) {
 	}
 }
 
-// preserveAllParts saves all parts from the original file for round-trip saving.
-func (p *Presentation) preserveAllParts() {
+// loadAllParts loads all remaining parts into the model for serialization.
+func (p *Presentation) loadAllParts(mainPartName string) error {
+	if p.reader == nil {
+		return nil
+	}
+
+	// Load all relationships
+	p.loadAllRelationships()
+
+	// Load specific known parts
+	for _, file := range p.reader.Files {
+		name := file.Name
+		data, err := file.ReadAll()
+		if err != nil {
+			continue
+		}
+
+		// Categorize the part
+		switch {
+		case name == "/ppt/presProps.xml":
+			p.presPropsData = data
+		case name == "/ppt/viewProps.xml":
+			p.viewPropsData = data
+		case name == "/ppt/tableStyles.xml":
+			p.tableStylesData = data
+		case strings.HasPrefix(name, "/ppt/theme/"):
+			p.themeData[name] = data
+		case name == "/docProps/thumbnail.jpeg":
+			p.thumbnailData = data
+		case strings.HasPrefix(name, "/ppt/printerSettings/"):
+			p.printerSettings[name] = data
+		case name == "/ppt/presentation.xml":
+			// Already loaded into p.presentation
+			continue
+		case strings.HasPrefix(name, "/ppt/slides/") && !strings.Contains(name, "_rels"):
+			// Already loaded into p.slides
+			continue
+		case strings.HasPrefix(name, "/ppt/slideMasters/") && !strings.Contains(name, "_rels"):
+			// Already loaded into p.slideMasters
+			continue
+		case strings.HasPrefix(name, "/ppt/slideLayouts/") && !strings.Contains(name, "_rels"):
+			// Already loaded into p.slideLayouts
+			continue
+		case strings.HasSuffix(name, ".rels"):
+			// Relationships handled separately
+			continue
+		case name == "/docProps/core.xml":
+			// Already loaded into p.Properties
+			continue
+		case name == "/docProps/app.xml":
+			p.appPropsData = data
+		default:
+			// Store as other part
+			p.otherParts[name] = &rawPart{
+				contentType: file.ContentType,
+				data:        data,
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadAllRelationships loads all relationship files into the model.
+func (p *Presentation) loadAllRelationships() {
 	if p.reader == nil {
 		return
 	}
 
 	for _, file := range p.reader.Files {
-		// Skip parts we'll regenerate
-		if p.isRegeneratedPart(file.Name) {
+		if !strings.HasSuffix(file.Name, ".rels") {
 			continue
 		}
 
@@ -174,65 +255,32 @@ func (p *Presentation) preserveAllParts() {
 			continue
 		}
 
-		p.preservedParts[file.Name] = &preservedPart{
-			contentType: file.ContentType,
-			data:        data,
+		rels, err := opc.UnmarshalRelationships(data)
+		if err != nil {
+			continue
 		}
-	}
 
-	// Also preserve relationships
-	p.preserveRelationships()
+		// Store relationships keyed by the source part
+		// e.g., "/ppt/_rels/presentation.xml.rels" -> relationships for /ppt/presentation.xml
+		sourcePart := relsPathToSourcePart(file.Name)
+		p.relationships[sourcePart] = rels
+	}
 }
 
-// isRegeneratedPart returns true if this part will be regenerated during save.
-func (p *Presentation) isRegeneratedPart(name string) bool {
-	// These parts are regenerated from our in-memory model
-	regenerated := []string{
-		"/ppt/presentation.xml",
-		"[Content_Types].xml",
-		"_rels/.rels",
-		"/docProps/core.xml",
+// relsPathToSourcePart converts a .rels path to its source part path.
+// e.g., "/ppt/_rels/presentation.xml.rels" -> "/ppt/presentation.xml"
+func relsPathToSourcePart(relsPath string) string {
+	// Remove trailing ".rels"
+	if !strings.HasSuffix(relsPath, ".rels") {
+		return relsPath
 	}
+	path := relsPath[:len(relsPath)-5]
 
-	for _, r := range regenerated {
-		if name == r {
-			return true
-		}
-	}
+	// Remove "/_rels" directory component
+	path = strings.Replace(path, "/_rels/", "/", 1)
+	path = strings.Replace(path, "_rels/", "", 1)
 
-	// Slides, slide masters, and slide layouts are regenerated
-	if len(name) > 12 && name[:12] == "/ppt/slides/" {
-		return true
-	}
-	if len(name) > 18 && name[:18] == "/ppt/slideMasters/" {
-		return true
-	}
-	if len(name) > 18 && name[:18] == "/ppt/slideLayouts/" {
-		return true
-	}
-
-	return false
-}
-
-// preserveRelationships preserves relationship files from the original.
-func (p *Presentation) preserveRelationships() {
-	if p.reader == nil {
-		return
-	}
-
-	// Store all relationship data
-	for _, file := range p.reader.Files {
-		if len(file.Name) > 5 && file.Name[len(file.Name)-5:] == ".rels" {
-			data, err := file.ReadAll()
-			if err != nil {
-				continue
-			}
-			p.preservedParts[file.Name] = &preservedPart{
-				contentType: opc.ContentTypeRelationships,
-				data:        data,
-			}
-		}
-	}
+	return path
 }
 
 // loadSlides loads all slides from the presentation.
@@ -271,9 +319,15 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			continue
 		}
 
+		// Extract mc:AlternateContent before unmarshaling (Go's xml.Unmarshal drops unknown elements)
+		mcContent, cleanData := extractAlternateContent(data)
+
 		var slideXML oxml.Slide
-		if err := xml.Unmarshal(data, &slideXML); err != nil {
+		if err := xml.Unmarshal(cleanData, &slideXML); err != nil {
 			continue
+		}
+		if mcContent != nil {
+			slideXML.AlternateContent = &oxml.AlternateContent{RawXML: mcContent}
 		}
 
 		slide := &Slide{
@@ -324,6 +378,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 			partName:     masterName,
 			masterXML:    &masterXML,
 			relID:        masterRef.RID,
+			numericID:    masterRef.ID,
 			layouts:      make([]*SlideLayout, 0),
 		}
 
@@ -570,11 +625,304 @@ func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 
 // saveTo writes the presentation to an OPC writer.
 func (p *Presentation) saveTo(writer *opc.Writer) error {
+	// For round-trip, use preserved data when available
+	if p.reader != nil {
+		return p.saveRoundTrip(writer)
+	}
+	return p.saveNew(writer)
+}
+
+// saveRoundTrip saves a presentation by serializing all parts from the model.
+func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
+	// Set properties
+	writer.Properties = &p.Properties
+
+	// Use original content types to preserve ordering and avoid extra entries
+	if p.reader != nil && p.reader.ContentTypes != nil {
+		writer.ContentTypes = p.reader.ContentTypes
+	}
+
+	// Track which parts have had their rels written explicitly
+	writtenRels := make(map[string]bool)
+
+	// Write slide masters using original part names
+	for i, master := range p.slideMasters {
+		masterData, err := master.marshal()
+		if err != nil {
+			return fmt.Errorf("marshal slide master %d: %w", i, err)
+		}
+		masterName := master.partName
+		if masterName == "" {
+			masterName = fmt.Sprintf("/ppt/slideMasters/slideMaster%d.xml", i+1)
+		}
+		if err := writer.WritePart(masterName, opc.ContentTypeSlideMaster, masterData); err != nil {
+			return err
+		}
+
+		// Write master relationships
+		if err := p.writePartRelationships(writer, masterName); err != nil {
+			return err
+		}
+		writtenRels[masterName] = true
+	}
+
+	// Write slide layouts using original part names
+	for i, layout := range p.slideLayouts {
+		layoutData, err := layout.marshal()
+		if err != nil {
+			return fmt.Errorf("marshal slide layout %d: %w", i, err)
+		}
+		layoutName := layout.partName
+		if layoutName == "" {
+			layoutName = fmt.Sprintf("/ppt/slideLayouts/slideLayout%d.xml", i+1)
+		}
+		if err := writer.WritePart(layoutName, opc.ContentTypeSlideLayout, layoutData); err != nil {
+			return err
+		}
+
+		// Write layout relationships
+		if err := p.writePartRelationships(writer, layoutName); err != nil {
+			return err
+		}
+		writtenRels[layoutName] = true
+	}
+
+	// Write slides using original part names
+	for i, slide := range p.slides {
+		slideData, err := slide.marshal()
+		if err != nil {
+			return fmt.Errorf("marshal slide %d: %w", i, err)
+		}
+		slideName := slide.partName
+		if slideName == "" {
+			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+		}
+		if err := writer.WritePart(slideName, opc.ContentTypeSlide, slideData); err != nil {
+			return err
+		}
+
+		// Write slide relationships
+		if err := p.writePartRelationships(writer, slideName); err != nil {
+			return err
+		}
+		writtenRels[slideName] = true
+	}
+
+	// Write all themes
+	for themeName, themeBytes := range p.themeData {
+		if err := writer.WritePart(themeName, opc.ContentTypeTheme, themeBytes); err != nil {
+			return err
+		}
+	}
+
+	// Write presentation properties
+	if len(p.presPropsData) > 0 {
+		if err := writer.WritePart("/ppt/presProps.xml", opc.ContentTypePresentationProps, p.presPropsData); err != nil {
+			return err
+		}
+	}
+
+	// Write view properties
+	if len(p.viewPropsData) > 0 {
+		if err := writer.WritePart("/ppt/viewProps.xml", opc.ContentTypeViewProps, p.viewPropsData); err != nil {
+			return err
+		}
+	}
+
+	// Write table styles
+	if len(p.tableStylesData) > 0 {
+		if err := writer.WritePart("/ppt/tableStyles.xml", opc.ContentTypeTableStyles, p.tableStylesData); err != nil {
+			return err
+		}
+	}
+
+	// Write thumbnail
+	if len(p.thumbnailData) > 0 {
+		if err := writer.WritePart("/docProps/thumbnail.jpeg", "image/jpeg", p.thumbnailData); err != nil {
+			return err
+		}
+	}
+
+	// Write docProps/app.xml if preserved
+	if len(p.appPropsData) > 0 {
+		if err := writer.WritePart("/docProps/app.xml", opc.ContentTypeExtendedProps, p.appPropsData); err != nil {
+			return err
+		}
+	}
+
+	// Write printer settings
+	for name, data := range p.printerSettings {
+		if err := writer.WritePart(name, "application/vnd.openxmlformats-officedocument.presentationml.printerSettings", data); err != nil {
+			return err
+		}
+	}
+
+	// Write other parts
+	for name, part := range p.otherParts {
+		if err := writer.WritePart(name, part.contentType, part.data); err != nil {
+			return err
+		}
+	}
+
+	// Write relationships for all parts that have rels but haven't been written explicitly
+	writtenRels["/ppt/presentation.xml"] = true // will be written below
+	for partName, rels := range p.relationships {
+		if writtenRels[partName] || len(rels) == 0 {
+			continue
+		}
+		if err := p.writePartRelationships(writer, partName); err != nil {
+			return err
+		}
+	}
+
+	// Write presentation.xml (regenerated to reflect current slide list)
+	presData, err := p.marshalPresentation()
+	if err != nil {
+		return err
+	}
+	if err := writer.WritePart("/ppt/presentation.xml", opc.ContentTypePresentationMain, presData); err != nil {
+		return err
+	}
+
+	// Write presentation relationships
+	if err := p.writePresentationRelationships(writer); err != nil {
+		return err
+	}
+
+	// Add main relationship
+	writer.AddRelationship(opc.RelTypeOfficeDocument, "ppt/presentation.xml", opc.TargetModeInternal)
+
+	return nil
+}
+
+// writePartRelationships writes the relationships file for a given part.
+func (p *Presentation) writePartRelationships(writer *opc.Writer, partName string) error {
+	rels, ok := p.relationships[partName]
+	if !ok || len(rels) == 0 {
+		return nil
+	}
+
+	data, err := opc.MarshalRelationships(rels)
+	if err != nil {
+		return err
+	}
+
+	relsPath := partNameToRelsPath(partName)
+	return writer.WritePart(relsPath, opc.ContentTypeRelationships, data)
+}
+
+// partNameToRelsPath converts a part name to its .rels file path.
+// e.g., "/ppt/slides/slide1.xml" -> "/ppt/slides/_rels/slide1.xml.rels"
+func partNameToRelsPath(partName string) string {
+	dir := partName[:strings.LastIndex(partName, "/")+1]
+	file := partName[strings.LastIndex(partName, "/")+1:]
+	return dir + "_rels/" + file + ".rels"
+}
+
+// writePresentationRelationships writes the presentation.xml.rels file.
+func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error {
+	var rels []*opc.Relationship
+
+	if existingRels, ok := p.relationships["/ppt/presentation.xml"]; ok && len(existingRels) > 0 {
+		// Start with existing relationships (preserves original order and IDs)
+		rels = append(rels, existingRels...)
+
+		// Build set of existing relationship IDs
+		existingIDs := make(map[string]bool)
+		for _, rel := range existingRels {
+			existingIDs[rel.ID] = true
+		}
+
+		// Add relationships for any new slides not already in the existing rels
+		for i, slide := range p.slides {
+			if !existingIDs[slide.relID] {
+				slideName := slide.partName
+				if slideName == "" {
+					slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+				}
+				target := partNameToRelTarget(slideName, "/ppt/")
+				rels = append(rels, &opc.Relationship{
+					ID:     slide.relID,
+					Type:   opc.RelTypeSlide,
+					Target: target,
+				})
+			}
+		}
+	} else {
+		// No existing relationships - build from scratch for new presentations.
+		for i, master := range p.slideMasters {
+			masterName := master.partName
+			if masterName == "" {
+				masterName = fmt.Sprintf("/ppt/slideMasters/slideMaster%d.xml", i+1)
+			}
+			target := partNameToRelTarget(masterName, "/ppt/")
+			rels = append(rels, &opc.Relationship{
+				ID:     master.relID,
+				Type:   opc.RelTypeSlideMaster,
+				Target: target,
+			})
+		}
+
+		for i, slide := range p.slides {
+			slideName := slide.partName
+			if slideName == "" {
+				slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			}
+			target := partNameToRelTarget(slideName, "/ppt/")
+			rels = append(rels, &opc.Relationship{
+				ID:     slide.relID,
+				Type:   opc.RelTypeSlide,
+				Target: target,
+			})
+		}
+	}
+
+	data, err := opc.MarshalRelationships(rels)
+	if err != nil {
+		return err
+	}
+
+	return writer.WritePart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
+}
+
+// saveNew saves a newly created presentation.
+func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Set properties
 	p.Properties.Modified = time.Now()
 	writer.Properties = &p.Properties
 
-	// Create presentation part
+	// Set extended properties
+	writer.ExtendedProperties = &opc.ExtendedProperties{
+		Slides:             len(p.slides),
+		PresentationFormat: "Widescreen",
+	}
+
+	// Assign fresh relationship IDs for all parts
+	// PowerPoint expects: slideMaster first, then slides, then other parts (theme, presProps, etc.)
+	presRelID := 1
+
+	// Assign relationship IDs to masters FIRST
+	for _, master := range p.slideMasters {
+		master.relID = fmt.Sprintf("rId%d", presRelID)
+		presRelID++
+	}
+
+	// Assign relationship IDs to slides SECOND
+	for _, slide := range p.slides {
+		slide.relID = fmt.Sprintf("rId%d", presRelID)
+		presRelID++
+	}
+
+	// Fixed parts (presProps, viewProps, theme, tableStyles) get IDs after masters and slides
+	presPropsRelID := fmt.Sprintf("rId%d", presRelID)
+	presRelID++
+	viewPropsRelID := fmt.Sprintf("rId%d", presRelID)
+	presRelID++
+	themeRelID := fmt.Sprintf("rId%d", presRelID)
+	presRelID++
+	tableStylesRelID := fmt.Sprintf("rId%d", presRelID)
+
+	// Create presentation part (now with correct relationship IDs)
 	presData, err := p.marshalPresentation()
 	if err != nil {
 		return err
@@ -590,7 +938,7 @@ func (p *Presentation) saveTo(writer *opc.Writer) error {
 	// Collect presentation relationships
 	presRels := make([]*opc.Relationship, 0)
 
-	// Write slide masters and their layouts
+	// Write slide masters and their layouts FIRST
 	for i, master := range p.slideMasters {
 		// Use original part name if loaded from file, otherwise generate
 		masterPartName := master.partName
@@ -657,23 +1005,20 @@ func (p *Presentation) saveTo(writer *opc.Writer) error {
 			}
 		}
 
-		// Write master relationships (include theme if present)
-		if master.theme != nil && master.theme.partName != "" {
-			themeRelTarget := partNameToRelTarget(master.theme.partName, "/ppt/slideMasters/")
-			masterRels = append(masterRels, &opc.Relationship{
-				ID:         "rId" + fmt.Sprintf("%d", len(masterRels)+1),
-				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
-				Target:     themeRelTarget,
-				TargetMode: opc.TargetModeInternal,
-			})
-		}
+		// Write master relationships (always include theme)
+		masterRels = append(masterRels, &opc.Relationship{
+			ID:         fmt.Sprintf("rId%d", len(masterRels)+1),
+			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
+			Target:     "../theme/theme1.xml",
+			TargetMode: opc.TargetModeInternal,
+		})
 
 		if err := writer.WritePartRelationships(masterPartName, masterRels); err != nil {
 			return err
 		}
 	}
 
-	// Create slide parts and relationships
+	// Create slide parts and relationships SECOND
 	for i, slide := range p.slides {
 		slidePartName := fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
 		slideData, err := slide.marshal()
@@ -724,33 +1069,59 @@ func (p *Presentation) saveTo(writer *opc.Writer) error {
 		}
 	}
 
+	// Write presentation properties (after masters and slides)
+	if err := writer.WritePart("/ppt/presProps.xml", opc.ContentTypePresentationProps, defaultPresPropsXML()); err != nil {
+		return err
+	}
+	presRels = append(presRels, &opc.Relationship{
+		ID:         presPropsRelID,
+		Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps",
+		Target:     "presProps.xml",
+		TargetMode: opc.TargetModeInternal,
+	})
+
+	// Write view properties
+	if err := writer.WritePart("/ppt/viewProps.xml", opc.ContentTypeViewProps, defaultViewPropsXML()); err != nil {
+		return err
+	}
+	presRels = append(presRels, &opc.Relationship{
+		ID:         viewPropsRelID,
+		Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps",
+		Target:     "viewProps.xml",
+		TargetMode: opc.TargetModeInternal,
+	})
+
+	// Write theme file
+	themePartName := "/ppt/theme/theme1.xml"
+	if err := writer.WritePart(themePartName, opc.ContentTypeTheme, defaultThemeXML()); err != nil {
+		return err
+	}
+	presRels = append(presRels, &opc.Relationship{
+		ID:         themeRelID,
+		Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
+		Target:     "theme/theme1.xml",
+		TargetMode: opc.TargetModeInternal,
+	})
+
+	// Write table styles
+	if err := writer.WritePart("/ppt/tableStyles.xml", opc.ContentTypeTableStyles, defaultTableStylesXML()); err != nil {
+		return err
+	}
+	presRels = append(presRels, &opc.Relationship{
+		ID:         tableStylesRelID,
+		Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles",
+		Target:     "tableStyles.xml",
+		TargetMode: opc.TargetModeInternal,
+	})
+
 	// Write presentation relationships
 	if err := writer.WritePartRelationships("/ppt/presentation.xml", presRels); err != nil {
 		return err
 	}
 
-	// Write preserved parts from original file (for round-trip support)
-	if err := p.writePreservedParts(writer); err != nil {
-		return err
-	}
-
 	return nil
 }
 
-// writePreservedParts writes parts from the original file that weren't regenerated.
-func (p *Presentation) writePreservedParts(writer *opc.Writer) error {
-	for partName, part := range p.preservedParts {
-		// Skip relationship files - they're handled separately
-		if len(partName) > 5 && partName[len(partName)-5:] == ".rels" {
-			continue
-		}
-
-		if err := writer.WritePart(partName, part.contentType, part.data); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // partNameToRelTarget converts an absolute part name to a relative target path.
 // baseDir is the directory of the source part (e.g., "/ppt/" or "/ppt/slideMasters/").
@@ -820,19 +1191,18 @@ func splitPath(path string) []string {
 
 // marshalPresentation generates the presentation.xml content.
 func (p *Presentation) marshalPresentation() ([]byte, error) {
-	// Set namespace attributes
-	p.presentation.XmlnsA = oxml.NsDrawingML
-	p.presentation.XmlnsR = oxml.NsRelationships
-	p.presentation.XmlnsP = oxml.NsPresentationML
-
 	// Update slide master IDs
 	if len(p.slideMasters) > 0 {
 		p.presentation.SlideMasterIDs = &oxml.SlideMasterIDs{
 			SlideMasterID: make([]oxml.SlideMasterID, len(p.slideMasters)),
 		}
 		for i, master := range p.slideMasters {
+			id := master.numericID
+			if id == 0 {
+				id = uint32(2147483648 + i) // High IDs as per spec
+			}
 			p.presentation.SlideMasterIDs.SlideMasterID[i] = oxml.SlideMasterID{
-				ID:  uint32(2147483648 + i), // High IDs as per spec
+				ID:  id,
 				RID: master.relID,
 			}
 		}
@@ -849,12 +1219,35 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 		}
 	}
 
-	output, err := xml.MarshalIndent(p.presentation, "", "  ")
-	if err != nil {
-		return nil, err
-	}
+	// Use the namespace-aware marshaler for PowerPoint compatibility
+	return marshalPresentationXML(p.presentation), nil
+}
 
-	return append([]byte(xml.Header), output...), nil
+// extractAlternateContent extracts mc:AlternateContent elements from XML bytes.
+// Returns the raw mc:AlternateContent XML and the cleaned XML with it removed.
+// mc:AlternateContent uses version-specific namespace prefixes (mc:, p14:, etc.)
+// that Go's encoding/xml cannot preserve, so we extract the raw bytes directly.
+func extractAlternateContent(data []byte) (mcContent []byte, cleaned []byte) {
+	// Look for <mc:AlternateContent (with possible variations in prefix)
+	// The mc: prefix is the conventional prefix for the markup-compatibility namespace
+	start := bytes.Index(data, []byte("<mc:AlternateContent"))
+	if start < 0 {
+		return nil, data
+	}
+	end := bytes.Index(data[start:], []byte("</mc:AlternateContent>"))
+	if end < 0 {
+		return nil, data
+	}
+	end = start + end + len("</mc:AlternateContent>")
+
+	mcContent = make([]byte, end-start)
+	copy(mcContent, data[start:end])
+
+	cleaned = make([]byte, 0, len(data)-(end-start))
+	cleaned = append(cleaned, data[:start]...)
+	cleaned = append(cleaned, data[end:]...)
+
+	return mcContent, cleaned
 }
 
 // Close closes the presentation and releases resources.
@@ -1005,20 +1398,17 @@ func newSlideXML() *oxml.Slide {
 // newShapeTree creates a new shape tree structure.
 func newShapeTree() *oxml.ShapeTree {
 	return &oxml.ShapeTree{
-		NvGrpSpPr: &oxml.NonVisualGroupShapeProperties{
-			CNvPr: &oxml.NonVisualDrawingProperties{
-				ID:   1,
-				Name: "",
-			},
-			CNvGrpSpPr: &oxml.NonVisualGroupShapeDrawingProperties{},
-			NvPr:       &oxml.ApplicationNonVisualDrawingProperties{},
+		NvGrpSpPr: &oxml.NvGrpSpPr{
+			CNvPr:      &dml.CNvPr{Id: 1, Name: ""},
+			CNvGrpSpPr: &dml.CNvGrpSpPr{},
+			NvPr:       &oxml.NvPr{},
 		},
-		GrpSpPr: &oxml.GroupShapeProperties{
-			Xfrm: &oxml.GroupTransform2D{
-				Off:   &oxml.Offset2D{X: 0, Y: 0},
-				Ext:   &oxml.Extent2D{Cx: 0, Cy: 0},
-				ChOff: &oxml.Offset2D{X: 0, Y: 0},
-				ChExt: &oxml.Extent2D{Cx: 0, Cy: 0},
+		GrpSpPr: &oxml.GrpSpPr{
+			Xfrm: &dml.GrpXfrm{
+				Off:   &dml.OffXML{X: 0, Y: 0},
+				Ext:   &dml.ExtXML{Cx: 0, Cy: 0},
+				ChOff: &dml.OffXML{X: 0, Y: 0},
+				ChExt: &dml.ExtXML{Cx: 0, Cy: 0},
 			},
 		},
 	}

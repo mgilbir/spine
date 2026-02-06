@@ -9,14 +9,15 @@ import (
 
 // Slide represents a slide in a presentation.
 type Slide struct {
-	presentation *Presentation
-	layout       *SlideLayout
-	partName     string
-	slideXML     *oxml.Slide
-	index        int
-	id           uint32
-	relID        string
-	shapes       []Shape
+	presentation   *Presentation
+	layout         *SlideLayout
+	partName       string
+	slideXML       *oxml.Slide
+	index          int
+	id             uint32
+	relID          string
+	shapes         []Shape
+	shapesModified bool // true if shapes changed via Go API
 }
 
 // Index returns the 0-based index of the slide in the presentation.
@@ -41,6 +42,7 @@ func (s *Slide) SetName(name string) {
 		s.slideXML.CSld = &oxml.CommonSlideData{}
 	}
 	s.slideXML.CSld.Name = name
+	s.shapesModified = true
 }
 
 // Layout returns the slide layout, or nil if none is set.
@@ -56,6 +58,7 @@ func (s *Slide) Shapes() []Shape {
 // AddShape adds a shape to the slide.
 func (s *Slide) AddShape(shape Shape) {
 	s.shapes = append(s.shapes, shape)
+	s.shapesModified = true
 }
 
 // RemoveShape removes a shape from the slide.
@@ -63,6 +66,7 @@ func (s *Slide) RemoveShape(shape Shape) {
 	for i, sh := range s.shapes {
 		if sh == shape {
 			s.shapes = append(s.shapes[:i], s.shapes[i+1:]...)
+			s.shapesModified = true
 			return
 		}
 	}
@@ -132,15 +136,14 @@ func (s *Slide) marshal() ([]byte, error) {
 		s.slideXML = newSlideXML()
 	}
 
-	// Convert Go shapes to XML shapes
-	s.syncShapesToXML()
-
-	output, err := xml.MarshalIndent(s.slideXML, "", "  ")
-	if err != nil {
-		return nil, err
+	// Only sync Go shapes to XML when shapes were modified via the API.
+	// When loading from a file, the slideXML already contains the parsed shapes.
+	if s.shapesModified {
+		s.syncShapesToXML()
 	}
 
-	return append([]byte(xml.Header), output...), nil
+	// Use the namespace-aware marshaler for PowerPoint compatibility
+	return marshalSlide(s.slideXML), nil
 }
 
 // syncShapesToXML converts Go shapes to oxml types in the shape tree.
@@ -154,11 +157,12 @@ func (s *Slide) syncShapesToXML() {
 
 	spTree := s.slideXML.CSld.SpTree
 
-	// Clear existing shapes
+	// Clear existing shapes and child order tracking
 	spTree.Sp = nil
 	spTree.GraphicFrame = nil
 	spTree.Pic = nil
 	spTree.GrpSp = nil
+	spTree.ClearChildOrder()
 
 	// Convert each shape
 	var shapeID uint32 = 2 // Start from 2 since 1 is used by spTree itself
@@ -200,23 +204,23 @@ func textBoxToOxml(tb *TextBox, id uint32) *oxml.Shape {
 
 	sp := &oxml.Shape{
 		NvSpPr: &oxml.NvSpPr{
-			CNvPr: &oxml.CNvPr{
-				ID:   id,
+			CNvPr: &dml.CNvPr{
+				Id:   id,
 				Name: name,
 			},
-			CNvSpPr: &oxml.CNvSpPr{
+			CNvSpPr: &dml.CNvSpPr{
 				TxBox: true,
 			},
 			NvPr: &oxml.NvPr{},
 		},
-		SpPr: &oxml.SpPr{
-			Xfrm: &oxml.Xfrm{
-				Off: &oxml.Off{X: int64(x), Y: int64(y)},
-				Ext: &oxml.Ext{Cx: int64(w), Cy: int64(h)},
+		SpPr: &dml.SpPr{
+			Xfrm: &dml.Xfrm{
+				Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+				Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
 			},
-			PrstGeom: &oxml.PrstGeom{
+			PrstGeom: &dml.PrstGeom{
 				Prst:  "rect",
-				AvLst: &oxml.AvLst{},
+				AvLst: &dml.AvLst{},
 			},
 		},
 	}
@@ -240,22 +244,22 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 
 	sp := &oxml.Shape{
 		NvSpPr: &oxml.NvSpPr{
-			CNvPr: &oxml.CNvPr{
-				ID:   id,
+			CNvPr: &dml.CNvPr{
+				Id:   id,
 				Name: name,
 			},
-			CNvSpPr: &oxml.CNvSpPr{},
+			CNvSpPr: &dml.CNvSpPr{},
 			NvPr: &oxml.NvPr{
-				Ph: &oxml.PlaceholderRef{
+				Ph: &oxml.Placeholder{
 					Type: string(ph.phType),
 					Idx:  ph.idx,
 				},
 			},
 		},
-		SpPr: &oxml.SpPr{
-			Xfrm: &oxml.Xfrm{
-				Off: &oxml.Off{X: int64(x), Y: int64(y)},
-				Ext: &oxml.Ext{Cx: int64(w), Cy: int64(h)},
+		SpPr: &dml.SpPr{
+			Xfrm: &dml.Xfrm{
+				Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+				Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
 			},
 		},
 	}
@@ -279,21 +283,21 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 
 	sp := &oxml.Shape{
 		NvSpPr: &oxml.NvSpPr{
-			CNvPr: &oxml.CNvPr{
-				ID:   id,
+			CNvPr: &dml.CNvPr{
+				Id:   id,
 				Name: name,
 			},
-			CNvSpPr: &oxml.CNvSpPr{},
+			CNvSpPr: &dml.CNvSpPr{},
 			NvPr:    &oxml.NvPr{},
 		},
-		SpPr: &oxml.SpPr{
-			Xfrm: &oxml.Xfrm{
-				Off: &oxml.Off{X: int64(x), Y: int64(y)},
-				Ext: &oxml.Ext{Cx: int64(w), Cy: int64(h)},
+		SpPr: &dml.SpPr{
+			Xfrm: &dml.Xfrm{
+				Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+				Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
 			},
-			PrstGeom: &oxml.PrstGeom{
+			PrstGeom: &dml.PrstGeom{
 				Prst:  as.presetGeometry,
-				AvLst: &oxml.AvLst{},
+				AvLst: &dml.AvLst{},
 			},
 		},
 	}
@@ -305,19 +309,23 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 	return sp
 }
 
-// textFrameToOxml converts a TextFrame to oxml.TxBody.
-func textFrameToOxml(tf *TextFrame) *oxml.TxBody {
-	txBody := &oxml.TxBody{
-		BodyPr: &oxml.BodyPr{
+// textFrameToOxml converts a TextFrame to dml.TxBody.
+func textFrameToOxml(tf *TextFrame) *dml.TxBody {
+	lIns := int64(tf.margins.Left)
+	tIns := int64(tf.margins.Top)
+	rIns := int64(tf.margins.Right)
+	bIns := int64(tf.margins.Bottom)
+	txBody := &dml.TxBody{
+		BodyPr: &dml.BodyPr{
 			Wrap:   string(tf.wrap),
 			Anchor: string(tf.anchor),
-			LIns:   int64(tf.margins.Left),
-			TIns:   int64(tf.margins.Top),
-			RIns:   int64(tf.margins.Right),
-			BIns:   int64(tf.margins.Bottom),
+			LIns:   &lIns,
+			TIns:   &tIns,
+			RIns:   &rIns,
+			BIns:   &bIns,
 		},
-		LstStyle: &oxml.LstStyle{},
-		P:        make([]*oxml.AP, 0, len(tf.paragraphs)),
+		LstStyle: &dml.LstStyle{},
+		P:        make([]*dml.P, 0, len(tf.paragraphs)),
 	}
 
 	for _, para := range tf.paragraphs {
@@ -327,32 +335,33 @@ func textFrameToOxml(tf *TextFrame) *oxml.TxBody {
 
 	// Ensure at least one paragraph
 	if len(txBody.P) == 0 {
-		txBody.P = append(txBody.P, &oxml.AP{})
+		txBody.P = append(txBody.P, &dml.P{})
 	}
 
 	return txBody
 }
 
-// paragraphToOxml converts a Paragraph to oxml.AP.
-func paragraphToOxml(p *Paragraph) *oxml.AP {
-	ap := &oxml.AP{
-		R: make([]*oxml.AR, 0, len(p.runs)),
+// paragraphToOxml converts a Paragraph to dml.P.
+func paragraphToOxml(p *Paragraph) *dml.P {
+	ap := &dml.P{
+		R: make([]*dml.R, 0, len(p.runs)),
 	}
 
 	// Set paragraph properties if needed
 	if p.alignment != "" || p.level > 0 || p.bulletType != BulletNone {
-		ap.PPr = &oxml.APPr{
+		lvl := int32(p.level)
+		ap.PPr = &dml.PPr{
 			Algn: string(p.alignment),
-			Lvl:  p.level,
+			Lvl:  &lvl,
 		}
 
 		switch p.bulletType {
 		case BulletNone:
-			ap.PPr.BuNone = &oxml.BuNone{}
+			ap.PPr.BuNone = &dml.BuNone{}
 		case BulletChar:
-			ap.PPr.BuChar = &oxml.BuChar{Char: p.bulletChar}
+			ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
 		case BulletNumber:
-			ap.PPr.BuAutoNum = &oxml.BuAutoNum{Type: "arabicPeriod"}
+			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
 		}
 	}
 
@@ -365,16 +374,16 @@ func paragraphToOxml(p *Paragraph) *oxml.AP {
 	return ap
 }
 
-// runToOxml converts a Run to oxml.AR.
-func runToOxml(r *Run) *oxml.AR {
-	ar := &oxml.AR{
+// runToOxml converts a Run to dml.R.
+func runToOxml(r *Run) *dml.R {
+	ar := &dml.R{
 		T: r.text,
 	}
 
 	// Set run properties if any formatting is applied
 	if r.fontName != "" || r.fontSize > 0 || r.bold || r.italic ||
 		r.underline != "" || r.strike != "" || r.color != nil || r.baseline != 0 {
-		ar.RPr = &oxml.ARPr{}
+		ar.RPr = &dml.RPr{}
 
 		if r.fontSize > 0 {
 			ar.RPr.Sz = int32(r.fontSize * 100) // Convert points to hundredths
@@ -399,11 +408,12 @@ func runToOxml(r *Run) *oxml.AR {
 		}
 
 		if r.baseline != 0 {
-			ar.RPr.Baseline = r.baseline
+			baseline := int32(r.baseline)
+			ar.RPr.Baseline = &baseline
 		}
 
 		if r.fontName != "" {
-			ar.RPr.Latin = &oxml.Latin{Typeface: r.fontName}
+			ar.RPr.Latin = &dml.TextFont{Typeface: r.fontName}
 		}
 
 		if r.color != nil {
@@ -414,17 +424,17 @@ func runToOxml(r *Run) *oxml.AR {
 	return ar
 }
 
-// colorToOxml converts a Color to oxml.ASolidFill.
-func colorToOxml(c *dml.Color) *oxml.ASolidFill {
+// colorToOxml converts a Color to dml.SolidFill.
+func colorToOxml(c *dml.Color) *dml.SolidFill {
 	if c == nil {
 		return nil
 	}
 
-	sf := &oxml.ASolidFill{}
+	sf := &dml.SolidFill{}
 	if c.Type == dml.ColorTypeTheme {
-		sf.SchemeClr = &oxml.ASchemeClr{Val: c.Theme.String()}
+		sf.SchemeClr = &dml.SchemeClrTransform{Val: c.Theme.String()}
 	} else {
-		sf.SrgbClr = &oxml.ASrgbClr{Val: c.RGB.String()}
+		sf.SrgbClr = &dml.SrgbClr{Val: c.RGB.String()}
 	}
 	return sf
 }
@@ -441,8 +451,8 @@ func tableToOxml(t *Table, id uint32) *oxml.GraphicFrame {
 
 	gf := &oxml.GraphicFrame{
 		NvGraphicFramePr: &oxml.NvGraphicFramePr{
-			CNvPr: &oxml.CNvPr{
-				ID:   id,
+			CNvPr: &dml.CNvPr{
+				Id:   id,
 				Name: name,
 			},
 			CNvGraphicFramePr: &oxml.CNvGraphicFramePr{
@@ -450,9 +460,9 @@ func tableToOxml(t *Table, id uint32) *oxml.GraphicFrame {
 			},
 			NvPr: &oxml.NvPr{},
 		},
-		Xfrm: &oxml.Xfrm{
-			Off: &oxml.Off{X: int64(x), Y: int64(y)},
-			Ext: &oxml.Ext{Cx: int64(w), Cy: int64(h)},
+		Xfrm: &dml.Xfrm{
+			Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+			Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
 		},
 		Graphic: &oxml.AGraphic{
 			GraphicData: &oxml.AGraphicData{
@@ -544,40 +554,40 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 
 	pic := &oxml.Picture{
 		NvPicPr: &oxml.NvPicPr{
-			CNvPr: &oxml.CNvPr{
-				ID:    id,
+			CNvPr: &dml.CNvPr{
+				Id:    id,
 				Name:  name,
 				Descr: p.description,
 			},
-			CNvPicPr: &oxml.CNvPicPr{
-				PicLocks: &oxml.PicLocks{NoChangeAspect: true},
+			CNvPicPr: &dml.CNvPicPr{
+				PicLocks: &dml.PicLocks{NoChangeAspect: true},
 			},
 			NvPr: &oxml.NvPr{},
 		},
-		BlipFill: &oxml.BlipFill{
-			Blip: &oxml.ABlip{
+		BlipFill: &dml.BlipFill{
+			Blip: &dml.Blip{
 				// The embed reference will be set when saving with relationships
 				Embed: p.relID,
 			},
-			Stretch: &oxml.AStretch{
-				FillRect: &oxml.AFillRect{},
+			Stretch: &dml.Stretch{
+				FillRect: &dml.RelRect{},
 			},
 		},
-		SpPr: &oxml.SpPr{
-			Xfrm: &oxml.Xfrm{
-				Off: &oxml.Off{X: int64(x), Y: int64(y)},
-				Ext: &oxml.Ext{Cx: int64(w), Cy: int64(h)},
+		SpPr: &dml.SpPr{
+			Xfrm: &dml.Xfrm{
+				Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+				Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
 			},
-			PrstGeom: &oxml.PrstGeom{
+			PrstGeom: &dml.PrstGeom{
 				Prst:  "rect",
-				AvLst: &oxml.AvLst{},
+				AvLst: &dml.AvLst{},
 			},
 		},
 	}
 
 	// Apply cropping if set
 	if p.cropLeft > 0 || p.cropTop > 0 || p.cropRight > 0 || p.cropBottom > 0 {
-		pic.BlipFill.SrcRect = &oxml.ASrcRect{
+		pic.BlipFill.SrcRect = &dml.SrcRect{
 			L: int32(p.cropLeft * 100000),
 			T: int32(p.cropTop * 100000),
 			R: int32(p.cropRight * 100000),

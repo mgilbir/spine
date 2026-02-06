@@ -1,20 +1,20 @@
 package pptx
 
 import (
-	"encoding/xml"
-
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
 // SlideMaster represents a slide master.
 type SlideMaster struct {
-	presentation *Presentation
-	partName     string
-	masterXML    *oxml.SlideMaster
-	theme        *Theme
-	layouts      []*SlideLayout
-	relID        string
+	presentation    *Presentation
+	partName        string
+	masterXML       *oxml.SlideMaster
+	theme           *Theme
+	layouts         []*SlideLayout
+	relID           string
+	numericID       uint32 // original numeric ID from presentation.xml
+	layoutsModified bool   // true if layouts changed via Go API
 }
 
 // Name returns the name of the slide master.
@@ -149,31 +149,29 @@ func (sm *SlideMaster) marshal() ([]byte, error) {
 		sm.masterXML = newMasterXML()
 	}
 
-	// Update layout ID list
-	if len(sm.layouts) > 0 {
-		sm.masterXML.SlideLayoutIDs = &oxml.SlideLayoutIDs{
-			SlideLayoutID: make([]oxml.SlideLayoutID, len(sm.layouts)),
-		}
-		for i, layout := range sm.layouts {
-			sm.masterXML.SlideLayoutIDs.SlideLayoutID[i] = oxml.SlideLayoutID{
-				ID:  uint32(2147483649 + i), // Starting from high number as per OOXML spec
-				RID: layout.relID,
+	// Update layout ID list only if layouts were modified or IDs are missing.
+	// Preserve original layout IDs for round-trip fidelity.
+	if sm.layoutsModified || sm.masterXML.SlideLayoutIDs == nil {
+		if len(sm.layouts) > 0 {
+			sm.masterXML.SlideLayoutIDs = &oxml.SlideLayoutIDs{
+				SlideLayoutID: make([]oxml.SlideLayoutID, len(sm.layouts)),
+			}
+			for i, layout := range sm.layouts {
+				sm.masterXML.SlideLayoutIDs.SlideLayoutID[i] = oxml.SlideLayoutID{
+					ID:  uint32(2147483649 + i), // Starting from high number as per OOXML spec
+					RID: layout.relID,
+				}
 			}
 		}
 	}
 
-	output, err := xml.MarshalIndent(sm.masterXML, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-
-	return append([]byte(xml.Header), output...), nil
+	// Use the namespace-aware marshaler for PowerPoint compatibility
+	return marshalSlideMaster(sm.masterXML), nil
 }
 
 // newMasterXML creates a new slide master XML structure.
 func newMasterXML() *oxml.SlideMaster {
 	return &oxml.SlideMaster{
-		XmlnsR:   "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 		Preserve: true,
 		CSld: &oxml.CommonSlideData{
 			SpTree: newShapeTree(),
@@ -201,25 +199,23 @@ func newMasterXML() *oxml.SlideMaster {
 }
 
 // newDefaultTextListStyle creates a default text list style.
-func newDefaultTextListStyle(baseFontSize int32) *oxml.TextListStyle {
-	return &oxml.TextListStyle{
-		Lvl1PPr: newDefaultLevelPPr(baseFontSize, 0),
-		Lvl2PPr: newDefaultLevelPPr(baseFontSize-200, 457200),
-		Lvl3PPr: newDefaultLevelPPr(baseFontSize-400, 914400),
-		Lvl4PPr: newDefaultLevelPPr(baseFontSize-600, 1371600),
-		Lvl5PPr: newDefaultLevelPPr(baseFontSize-800, 1828800),
+func newDefaultTextListStyle(baseFontSize int32) *dml.LstStyle {
+	return &dml.LstStyle{
+		Lvl1pPr: newDefaultLevelPPr(baseFontSize, 0),
+		Lvl2pPr: newDefaultLevelPPr(baseFontSize-200, 457200),
+		Lvl3pPr: newDefaultLevelPPr(baseFontSize-400, 914400),
+		Lvl4pPr: newDefaultLevelPPr(baseFontSize-600, 1371600),
+		Lvl5pPr: newDefaultLevelPPr(baseFontSize-800, 1828800),
 	}
 }
 
 // newDefaultLevelPPr creates default paragraph properties for a level.
-func newDefaultLevelPPr(fontSize int32, marginLeft int64) *oxml.TextParagraphProperties {
-	ml := marginLeft
-	sz := fontSize
-	return &oxml.TextParagraphProperties{
-		MarL: &ml,
+func newDefaultLevelPPr(fontSize int32, marginLeft int32) *dml.PPr {
+	return &dml.PPr{
+		MarL: &marginLeft,
 		Algn: "l",
-		DefRPr: &oxml.TextCharacterProperties{
-			Sz: &sz,
+		DefRPr: &dml.RPr{
+			Sz: fontSize,
 		},
 	}
 }
@@ -258,5 +254,6 @@ func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 	layout := createDefaultLayout(layoutType, sm)
 	layout.presentation = sm.presentation
 	sm.layouts = append(sm.layouts, layout)
+	sm.layoutsModified = true
 	return layout
 }
