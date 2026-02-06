@@ -3,6 +3,8 @@
 // These types implement the v: namespace elements.
 package vml
 
+import "encoding/xml"
+
 // --- Core Shape Types ---
 
 // Group represents the <v:group> element - a container for shapes
@@ -274,14 +276,70 @@ type Shadow struct {
 
 // --- Text Elements ---
 
-// Textbox represents the <v:textbox> element
+// Textbox represents the <v:textbox> element.
+// Per XSD: choice of w:txbxContent or local-namespace elements.
 type Textbox struct {
-	ID        string `xml:"id,attr,omitempty"`
-	Style     string `xml:"style,attr,omitempty"`
-	Inset     string `xml:"inset,attr,omitempty"` // margins: "left,top,right,bottom"
-	SingleClick string `xml:"urn:schemas-microsoft-com:office:office singleclick,attr,omitempty"`
-	InsetMode string `xml:"insetmode,attr,omitempty"` // auto, custom
-	InnerXML  []byte `xml:",innerxml"`
+	ID          string       `xml:"id,attr,omitempty"`
+	Style       string       `xml:"style,attr,omitempty"`
+	Inset       string       `xml:"inset,attr,omitempty"` // margins: "left,top,right,bottom"
+	SingleClick string       `xml:"urn:schemas-microsoft-com:office:office singleclick,attr,omitempty"`
+	InsetMode   string       `xml:"insetmode,attr,omitempty"` // auto, custom
+	TxbxContent *TxbxContent `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main txbxContent,omitempty"`
+	// Fallback for local-namespace elements (xsd:any namespace="##local" processContents="skip")
+	RawContent []byte `xml:"-"`
+}
+
+// TxbxContent represents w:txbxContent (CT_TxbxContent).
+// Contains WML body content (EG_ContentBlockContent - paragraphs, tables, etc.).
+// WML content types are not yet typed; content is preserved as raw bytes.
+type TxbxContent struct {
+	RawContent []byte `xml:",innerxml"`
+}
+
+func (tb *Textbox) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "id":
+			tb.ID = attr.Value
+		case "style":
+			tb.Style = attr.Value
+		case "inset":
+			tb.Inset = attr.Value
+		case "singleclick":
+			if attr.Name.Space == "urn:schemas-microsoft-com:office:office" {
+				tb.SingleClick = attr.Value
+			}
+		case "insetmode":
+			tb.InsetMode = attr.Value
+		}
+	}
+
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "txbxContent" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				tb.TxbxContent = &TxbxContent{}
+				if err := d.DecodeElement(tb.TxbxContent, &t); err != nil {
+					return err
+				}
+			} else {
+				// Local-namespace element fallback - preserve as raw XML
+				var inner struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&inner, &t); err != nil {
+					return err
+				}
+				tb.RawContent = inner.Content
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
 }
 
 // TextPath represents the <v:textpath> element - text along a path (WordArt)
