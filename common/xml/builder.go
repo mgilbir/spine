@@ -80,7 +80,7 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 			b.buf.WriteString(attr.Name)
 		}
 		b.buf.WriteString(`="`)
-		b.writeEscaped(attr.Value)
+		b.writeAttrEscaped(attr.Value)
 		b.buf.WriteByte('"')
 	}
 
@@ -118,7 +118,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 			b.buf.WriteString(attr.Name)
 		}
 		b.buf.WriteString(`="`)
-		b.writeEscaped(attr.Value)
+		b.writeAttrEscaped(attr.Value)
 		b.buf.WriteByte('"')
 	}
 
@@ -155,7 +155,7 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 			b.buf.WriteString(attr.Name)
 		}
 		b.buf.WriteString(`="`)
-		b.writeEscaped(attr.Value)
+		b.writeAttrEscaped(attr.Value)
 		b.buf.WriteByte('"')
 	}
 
@@ -179,7 +179,7 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 			b.buf.WriteString(attr.Name)
 		}
 		b.buf.WriteString(`="`)
-		b.writeEscaped(attr.Value)
+		b.writeAttrEscaped(attr.Value)
 		b.buf.WriteByte('"')
 	}
 
@@ -187,7 +187,7 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 		b.buf.WriteString("/>")
 	} else {
 		b.buf.WriteByte('>')
-		b.writeEscaped(content)
+		b.writeTextEscaped(content)
 		b.buf.WriteString("</")
 		b.writeQName(namespace, localName)
 		b.buf.WriteByte('>')
@@ -258,6 +258,96 @@ func (b *Builder) writeQName(namespace, localName string) {
 	b.buf.WriteString(localName)
 }
 
+// EmptyElementInlineNS writes a self-closing element with an inline namespace declaration.
+// This is used for extension elements that carry their own namespace declaration.
+func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
+	b.writeIndent()
+	b.buf.WriteByte('<')
+	b.buf.WriteString(prefix)
+	b.buf.WriteByte(':')
+	b.buf.WriteString(localName)
+	b.buf.WriteString(` xmlns:`)
+	b.buf.WriteString(prefix)
+	b.buf.WriteString(`="`)
+	b.buf.WriteString(nsURI)
+	b.buf.WriteByte('"')
+
+	for _, attr := range attrs {
+		b.buf.WriteByte(' ')
+		if attr.Namespace != "" {
+			b.writeQName(attr.Namespace, attr.Name)
+		} else {
+			b.buf.WriteString(attr.Name)
+		}
+		b.buf.WriteString(`="`)
+		b.writeAttrEscaped(attr.Value)
+		b.buf.WriteByte('"')
+	}
+
+	b.buf.WriteString("/>")
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+}
+
+// StartElementInlineNS starts an element with an inline namespace declaration.
+// The namespace is registered in the builder so child elements using the same
+// namespace can resolve the prefix. Call ResetNamespaceDeclaration after EndElement
+// to allow the next usage to get its own inline declaration.
+func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
+	b.namespaces[nsURI] = prefix
+	b.declaredNamespaces[nsURI] = true
+
+	b.writeIndent()
+	b.buf.WriteByte('<')
+	b.buf.WriteString(prefix)
+	b.buf.WriteByte(':')
+	b.buf.WriteString(localName)
+	b.buf.WriteString(` xmlns:`)
+	b.buf.WriteString(prefix)
+	b.buf.WriteString(`="`)
+	b.buf.WriteString(nsURI)
+	b.buf.WriteByte('"')
+
+	for _, attr := range attrs {
+		b.buf.WriteByte(' ')
+		if attr.Namespace != "" {
+			b.writeQName(attr.Namespace, attr.Name)
+		} else {
+			b.buf.WriteString(attr.Name)
+		}
+		b.buf.WriteString(`="`)
+		b.writeAttrEscaped(attr.Value)
+		b.buf.WriteByte('"')
+	}
+
+	b.buf.WriteByte('>')
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+	b.level++
+}
+
+// EndElementInlineNS ends an element that was started with StartElementInlineNS.
+func (b *Builder) EndElementInlineNS(prefix, localName string) {
+	b.level--
+	b.writeIndent()
+	b.buf.WriteString("</")
+	b.buf.WriteString(prefix)
+	b.buf.WriteByte(':')
+	b.buf.WriteString(localName)
+	b.buf.WriteByte('>')
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+}
+
+// ResetNamespaceDeclaration marks a namespace as undeclared so the next usage
+// will produce a fresh inline xmlns declaration. Used between extension elements.
+func (b *Builder) ResetNamespaceDeclaration(nsURI string) {
+	delete(b.declaredNamespaces, nsURI)
+}
+
 // writeIndent writes the current indentation.
 func (b *Builder) writeIndent() {
 	for i := 0; i < b.level; i++ {
@@ -265,25 +355,37 @@ func (b *Builder) writeIndent() {
 	}
 }
 
-// writeEscaped writes escaped XML content.
-func (b *Builder) writeEscaped(s string) {
-	for _, r := range s {
-		switch r {
-		case '&':
-			b.buf.WriteString("&amp;")
-		case '<':
-			b.buf.WriteString("&lt;")
-		case '>':
-			b.buf.WriteString("&gt;")
-		case '"':
-			b.buf.WriteString("&quot;")
-		case '\'':
-			// Apostrophes don't need escaping in double-quoted attributes or text content.
-			b.buf.WriteRune('\'')
-		default:
-			b.buf.WriteRune(r)
-		}
-	}
+// attrEscaper escapes XML attribute values delimited by double quotes.
+// Per XML spec §3.3.3: &, <, and the delimiting quote character must be escaped.
+// Whitespace characters are written as character references to survive
+// XML attribute-value normalization (XML spec §3.3.3).
+var attrEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+	"\n", "&#xA;",
+	"\r", "&#xD;",
+	"\t", "&#x9;",
+)
+
+// textEscaper escapes XML text content (character data).
+// Per XML spec §2.4: only & and < must be escaped in character data.
+// > is also escaped for safety (required in the sequence ]]>).
+var textEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+)
+
+// writeAttrEscaped writes escaped XML attribute value content.
+func (b *Builder) writeAttrEscaped(s string) {
+	attrEscaper.WriteString(&b.buf, s)
+}
+
+// writeTextEscaped writes escaped XML text content.
+func (b *Builder) writeTextEscaped(s string) {
+	textEscaper.WriteString(&b.buf, s)
 }
 
 // Attr represents an XML attribute.

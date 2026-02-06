@@ -352,7 +352,7 @@ func (b *Builder) marshalStructChildren(parentNS string, val reflect.Value) {
 		// chardata: write escaped text
 		if info.chardata {
 			if !isZeroValue(fval) {
-				b.writeEscaped(formatValue(fval))
+				b.writeTextEscaped(formatValue(fval))
 			}
 			continue
 		}
