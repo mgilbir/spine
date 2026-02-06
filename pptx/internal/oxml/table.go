@@ -82,13 +82,15 @@ type ATblGrid struct {
 
 // AGridCol represents a grid column with width.
 type AGridCol struct {
-	W int64 `xml:"w,attr"`
+	W      int64       `xml:"w,attr"`
+	ExtLst *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ATr represents a table row.
 type ATr struct {
-	H  int64  `xml:"h,attr,omitempty"`
-	Tc []*ATc `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc"`
+	H      int64       `xml:"h,attr,omitempty"`
+	Tc     []*ATc      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc"`
+	ExtLst *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ATc represents a table cell (CT_TableCell).
@@ -104,10 +106,10 @@ type ATc struct {
 
 // ATcPr contains table cell properties.
 type ATcPr struct {
-	MarL      int64           `xml:"marL,attr,omitempty"`
-	MarR      int64           `xml:"marR,attr,omitempty"`
-	MarT      int64           `xml:"marT,attr,omitempty"`
-	MarB      int64           `xml:"marB,attr,omitempty"`
+	MarL      *int64          `xml:"marL,attr,omitempty"`
+	MarR      *int64          `xml:"marR,attr,omitempty"`
+	MarT      *int64          `xml:"marT,attr,omitempty"`
+	MarB      *int64          `xml:"marB,attr,omitempty"`
 	Anchor    string          `xml:"anchor,attr,omitempty"`
 	LnL       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
 	LnR       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`

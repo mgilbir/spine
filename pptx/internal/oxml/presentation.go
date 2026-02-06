@@ -323,10 +323,10 @@ type SchemeColor struct {
 
 // TextFont specifies a font.
 type TextFont struct {
-	Typeface string `xml:"typeface,attr"`
-	Panose   string `xml:"panose,attr,omitempty"`
-	PitchFamily int8 `xml:"pitchFamily,attr,omitempty"`
-	Charset  int8   `xml:"charset,attr,omitempty"`
+	Typeface    string `xml:"typeface,attr"`
+	Panose      string `xml:"panose,attr,omitempty"`
+	PitchFamily *int8  `xml:"pitchFamily,attr,omitempty"`
+	Charset     *int8  `xml:"charset,attr,omitempty"`
 }
 
 // DefaultSlideSize returns the default slide size (10" x 7.5" at 96 DPI).

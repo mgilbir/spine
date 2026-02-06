@@ -59,10 +59,9 @@ var testPptxFiles = []struct {
 		description: "SDG integration PPTX with 177 parts including complex styling",
 	},
 	{
-		name:              "internet_basics",
-		path:              "testdata/internet_basics.pptx",
-		description:       "TAMU internet basics with 49 slides and animations",
-		skipByteIdentical: true, // animation/text encoding issues remain
+		name:        "internet_basics",
+		path:        "testdata/internet_basics.pptx",
+		description: "TAMU internet basics with 49 slides and animations",
 	},
 	{
 		name:        "lecture_1_3",
@@ -70,16 +69,14 @@ var testPptxFiles = []struct {
 		description: "UvA lecture with 35 slides and 16 layouts",
 	},
 	{
-		name:              "swarm_cop",
-		path:              "testdata/swarm_cop.pptx",
-		description:       "ESA Swarm COP with complex charts and 25 slides",
-		skipByteIdentical: true, // some round-trip issues remain
+		name:        "swarm_cop",
+		path:        "testdata/swarm_cop.pptx",
+		description: "ESA Swarm COP with complex charts and 25 slides",
 	},
 	{
-		name:              "sefuw",
-		path:              "testdata/sefuw.pptx",
-		description:       "ESA SEFUW with 25 slides and complex styling",
-		skipByteIdentical: true, // text encoding issues remain
+		name:        "sefuw",
+		path:        "testdata/sefuw.pptx",
+		description: "ESA SEFUW with 25 slides and complex styling",
 	},
 }
 
