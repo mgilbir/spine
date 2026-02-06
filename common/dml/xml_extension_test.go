@@ -20,23 +20,126 @@ func TestDML_CT_OfficeArtExtensionList(t *testing.T) {
 	if len(v.Ext) != 1 {
 		t.Errorf("Ext length = %d, want 1", len(v.Ext))
 	}
+	if v.Ext[0].CreationId == nil {
+		t.Fatal("CreationId should not be nil")
+	}
+	if v.Ext[0].CreationId.Id != "{00000000-0008-0000-0000-000002000000}" {
+		t.Errorf("CreationId.Id = %q", v.Ext[0].CreationId.Id)
+	}
 }
 
-// TestDML_CT_OfficeArtExtension tests CT_OfficeArtExtension type (a:ext)
-func TestDML_CT_OfficeArtExtension(t *testing.T) {
+// TestDML_CT_OfficeArtExtension_CreationId tests typed dispatch for creationId
+func TestDML_CT_OfficeArtExtension_CreationId(t *testing.T) {
 	var v Ext
 	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
 		uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}">
-		<someContent>inner xml content</someContent>
+		<a16:creationId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" id="{ABCD1234-5678-9012-3456-789012345678}"/>
 	</a:ext>`
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	if v.URI != "{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}" {
-		t.Errorf("URI = %q, want {FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}", v.URI)
+		t.Errorf("URI = %q", v.URI)
 	}
-	if len(v.InnerXML) == 0 {
-		t.Error("InnerXML should not be empty")
+	if v.CreationId == nil {
+		t.Fatal("CreationId should not be nil")
+	}
+	if v.CreationId.Id != "{ABCD1234-5678-9012-3456-789012345678}" {
+		t.Errorf("CreationId.Id = %q", v.CreationId.Id)
+	}
+}
+
+// TestDML_CT_OfficeArtExtension_UseLocalDpi tests typed dispatch for useLocalDpi
+func TestDML_CT_OfficeArtExtension_UseLocalDpi(t *testing.T) {
+	var v Ext
+	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="{28A0092B-C50C-407E-A947-70E740481C1C}">
+		<a14:useLocalDpi xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" val="0"/>
+	</a:ext>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.UseLocalDpi == nil {
+		t.Fatal("UseLocalDpi should not be nil")
+	}
+	if v.UseLocalDpi.Val == nil || *v.UseLocalDpi.Val != 0 {
+		t.Errorf("UseLocalDpi.Val = %v", v.UseLocalDpi.Val)
+	}
+}
+
+// TestDML_CT_OfficeArtExtension_HiddenFill tests typed dispatch for hiddenFill
+func TestDML_CT_OfficeArtExtension_HiddenFill(t *testing.T) {
+	var v Ext
+	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="{909E8E84-426E-40DD-AFC4-6F175D3DCCD1}">
+		<a14:hiddenFill xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main">
+			<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+		</a14:hiddenFill>
+	</a:ext>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.HiddenFill == nil {
+		t.Fatal("HiddenFill should not be nil")
+	}
+	if v.HiddenFill.SolidFill == nil {
+		t.Fatal("HiddenFill.SolidFill should not be nil")
+	}
+	if v.HiddenFill.SolidFill.SrgbClr == nil || v.HiddenFill.SolidFill.SrgbClr.Val != "FFFFFF" {
+		t.Error("HiddenFill.SolidFill.SrgbClr should be FFFFFF")
+	}
+}
+
+// TestDML_CT_OfficeArtExtension_HiddenLine tests typed dispatch for hiddenLine
+func TestDML_CT_OfficeArtExtension_HiddenLine(t *testing.T) {
+	var v Ext
+	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="{91240B29-F687-4F45-9708-019B960494DF}">
+		<a14:hiddenLine xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" w="9525">
+			<a:solidFill><a:srgbClr val="000000"/></a:solidFill>
+			<a:miter lim="800000"/>
+			<a:headEnd/>
+			<a:tailEnd/>
+		</a14:hiddenLine>
+	</a:ext>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.HiddenLine == nil {
+		t.Fatal("HiddenLine should not be nil")
+	}
+	if v.HiddenLine.W == nil || *v.HiddenLine.W != 9525 {
+		t.Error("HiddenLine.W should be 9525")
+	}
+	if v.HiddenLine.SolidFill == nil {
+		t.Error("HiddenLine.SolidFill should not be nil")
+	}
+	if v.HiddenLine.Miter == nil {
+		t.Error("HiddenLine.Miter should not be nil")
+	}
+	if v.HiddenLine.HeadEnd == nil {
+		t.Error("HiddenLine.HeadEnd should not be nil")
+	}
+	if v.HiddenLine.TailEnd == nil {
+		t.Error("HiddenLine.TailEnd should not be nil")
+	}
+}
+
+// TestDML_CT_OfficeArtExtension_Unknown tests fallback for unknown extensions
+func TestDML_CT_OfficeArtExtension_Unknown(t *testing.T) {
+	var v Ext
+	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="{UNKNOWN-URI}">
+		<someContent>inner xml content</someContent>
+	</a:ext>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.URI != "{UNKNOWN-URI}" {
+		t.Errorf("URI = %q", v.URI)
+	}
+	if len(v.RawContent) == 0 {
+		t.Error("RawContent should not be empty for unknown extensions")
 	}
 }
 
@@ -49,7 +152,7 @@ func TestDML_CT_OfficeArtExtension_Empty(t *testing.T) {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	if v.URI != "{28A0092B-C50C-407E-A947-70E740481C1C}" {
-		t.Errorf("URI = %q, want {28A0092B-C50C-407E-A947-70E740481C1C}", v.URI)
+		t.Errorf("URI = %q", v.URI)
 	}
 }
 
