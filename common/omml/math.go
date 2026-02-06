@@ -381,10 +381,155 @@ type ArgPr struct {
 	ArgSz *Integer `xml:"http://schemas.openxmlformats.org/officeDocument/2006/math argSz,omitempty"`
 }
 
-// CtrlPr represents CT_CtrlPr - control properties (for run properties)
+// CtrlPr represents CT_CtrlPr - control properties.
+// Per XSD: contains w:EG_RPrMath (choice of rPr, ins, del).
 type CtrlPr struct {
-	// Can contain run properties from either WordprocessingML or DrawingML
-	InnerXML []byte `xml:",innerxml"`
+	RPr *WmlRPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	Ins *WmlMathCtrlIns `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
+	Del *WmlMathCtrlDel `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
+}
+
+// WmlRPr represents CT_RPr (w:rPr) - WordprocessingML run properties.
+// Per XSD: EG_RPrContent = EG_RPrBase* + rPrChange?
+type WmlRPr struct {
+	RStyle  *WmlString   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rStyle,omitempty"`
+	RFonts  *WmlFonts    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rFonts,omitempty"`
+	B       *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main b,omitempty"`
+	BCs     *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bCs,omitempty"`
+	I       *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main i,omitempty"`
+	ICs     *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main iCs,omitempty"`
+	Caps    *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main caps,omitempty"`
+	SmallCaps *WmlOnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main smallCaps,omitempty"`
+	Strike  *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main strike,omitempty"`
+	Dstrike *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dstrike,omitempty"`
+	Outline *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outline,omitempty"`
+	Shadow  *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,omitempty"`
+	Emboss  *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main emboss,omitempty"`
+	Imprint *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main imprint,omitempty"`
+	NoProof *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noProof,omitempty"`
+	SnapToGrid *WmlOnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main snapToGrid,omitempty"`
+	Vanish  *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vanish,omitempty"`
+	WebHidden *WmlOnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webHidden,omitempty"`
+	Color   *WmlColor    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,omitempty"`
+	Spacing *WmlSignedMeasure `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main spacing,omitempty"`
+	W       *WmlMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,omitempty"`
+	Kern    *WmlMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main kern,omitempty"`
+	Position *WmlSignedMeasure `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main position,omitempty"`
+	Sz      *WmlMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,omitempty"`
+	SzCs    *WmlMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main szCs,omitempty"`
+	Highlight *WmlString `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main highlight,omitempty"`
+	U       *WmlUnderline `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main u,omitempty"`
+	Effect  *WmlString   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main effect,omitempty"`
+	Bdr     *WmlBorder   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bdr,omitempty"`
+	Shd     *WmlShd      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
+	FitText *WmlMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fitText,omitempty"`
+	VertAlign *WmlString `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertAlign,omitempty"`
+	Rtl     *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtl,omitempty"`
+	Cs      *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,omitempty"`
+	Em      *WmlString   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main em,omitempty"`
+	Lang    *WmlLang     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,omitempty"`
+	EastAsianLayout *WmlEastAsianLayout `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsianLayout,omitempty"`
+	SpecVanish *WmlOnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main specVanish,omitempty"`
+	OMath   *WmlOnOff    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oMath,omitempty"`
+}
+
+// WmlOnOff represents CT_OnOff (w:b, w:i, etc.)
+type WmlOnOff struct {
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+}
+
+// WmlString represents CT_String (w:rStyle, etc.)
+type WmlString struct {
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+}
+
+// WmlFonts represents CT_Fonts (w:rFonts)
+type WmlFonts struct {
+	Hint          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hint,attr,omitempty"`
+	Ascii         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ascii,attr,omitempty"`
+	HAnsi         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsi,attr,omitempty"`
+	EastAsia      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
+	Cs            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,attr,omitempty"`
+	AsciiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main asciiTheme,attr,omitempty"`
+	HAnsiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsiTheme,attr,omitempty"`
+	EastAsiaTheme string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsiaTheme,attr,omitempty"`
+	CsTheme       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cstheme,attr,omitempty"`
+}
+
+// WmlColor represents CT_Color (w:color)
+type WmlColor struct {
+	Val       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
+	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+}
+
+// WmlMeasure represents CT_HpsMeasure / CT_TextScale / CT_FitText (val attr)
+type WmlMeasure struct {
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+}
+
+// WmlSignedMeasure represents CT_SignedTwipsMeasure / CT_SignedHpsMeasure (val attr)
+type WmlSignedMeasure struct {
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+}
+
+// WmlUnderline represents CT_Underline (w:u)
+type WmlUnderline struct {
+	Val       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	Color     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+}
+
+// WmlBorder represents CT_Border (w:bdr)
+type WmlBorder struct {
+	Val       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	Color     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	Sz        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,attr,omitempty"`
+	Space     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+}
+
+// WmlShd represents CT_Shd (w:shd)
+type WmlShd struct {
+	Val       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	Color     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	Fill      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fill,attr,omitempty"`
+	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeFill  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFill,attr,omitempty"`
+}
+
+// WmlLang represents CT_Language (w:lang)
+type WmlLang struct {
+	Val      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	EastAsia string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
+	Bidi     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
+}
+
+// WmlEastAsianLayout represents CT_EastAsianLayout
+type WmlEastAsianLayout struct {
+	Id       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
+	Combine  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main combine,attr,omitempty"`
+	CombineBrackets string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main combineBrackets,attr,omitempty"`
+	Vert     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vert,attr,omitempty"`
+	VertCompress string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertCompress,attr,omitempty"`
+}
+
+// WmlMathCtrlIns represents CT_MathCtrlIns (w:ins in math context)
+type WmlMathCtrlIns struct {
+	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr,omitempty"`
+	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
+	Del    *WmlRPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
+	RPr    *WmlRPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+}
+
+// WmlMathCtrlDel represents CT_MathCtrlDel (w:del in math context)
+type WmlMathCtrlDel struct {
+	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr,omitempty"`
+	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
+	RPr    *WmlRPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
 }
 
 // --- Simple value types ---
