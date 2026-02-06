@@ -1,0 +1,83 @@
+// Package dml provides DrawingML XML line/stroke types from dml-main.xsd.
+package dml
+
+// Ln represents CT_LineProperties (a:ln)
+type Ln struct {
+	W        int64        `xml:"w,attr,omitempty"`
+	Cap      string       `xml:"cap,attr,omitempty"`
+	Cmpd     string       `xml:"cmpd,attr,omitempty"`
+	Algn     string       `xml:"algn,attr,omitempty"`
+	NoFill   *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill *SolidFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	PattFill *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	PrstDash *PrstDash    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstDash,omitempty"`
+	CustDash *CustDash    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main custDash,omitempty"`
+	Round    *Round       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main round,omitempty"`
+	Bevel    *Bevel       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bevel,omitempty"`
+	Miter    *Miter       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main miter,omitempty"`
+	HeadEnd  *LineEnd     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headEnd,omitempty"`
+	TailEnd  *LineEnd     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tailEnd,omitempty"`
+}
+
+// PrstDash represents CT_PresetLineDashProperties (a:prstDash)
+type PrstDash struct {
+	Val string `xml:"val,attr,omitempty"`
+}
+
+// CustDash represents CT_DashStopList (a:custDash)
+type CustDash struct {
+	Ds []*Ds `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ds,omitempty"`
+}
+
+// Ds represents CT_DashStop (a:ds)
+type Ds struct {
+	D  int32 `xml:"d,attr"`
+	Sp int32 `xml:"sp,attr"`
+}
+
+// Round represents CT_LineJoinRound (a:round)
+type Round struct{}
+
+// Bevel represents CT_LineJoinBevel (a:bevel)
+type Bevel struct{}
+
+// Miter represents CT_LineJoinMiterProperties (a:miter)
+type Miter struct {
+	Lim int32 `xml:"lim,attr,omitempty"`
+}
+
+// LineEnd represents CT_LineEndProperties (a:headEnd, a:tailEnd)
+type LineEnd struct {
+	Type string `xml:"type,attr,omitempty"`
+	W    string `xml:"w,attr,omitempty"`
+	Len  string `xml:"len,attr,omitempty"`
+}
+
+// LnRef represents CT_StyleMatrixReference (a:lnRef)
+type LnRef struct {
+	Idx       uint32              `xml:"idx,attr"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+}
+
+// FillRef represents CT_StyleMatrixReference (a:fillRef)
+type FillRef struct {
+	Idx       uint32              `xml:"idx,attr"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+}
+
+// StyleEffectRef represents CT_StyleMatrixReference (a:effectRef) for style references
+type StyleEffectRef struct {
+	Idx       uint32              `xml:"idx,attr"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+}
+
+// FontRef represents CT_FontReference (a:fontRef)
+type FontRef struct {
+	Idx       string              `xml:"idx,attr"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+}
