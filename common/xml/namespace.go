@@ -46,6 +46,8 @@ const (
 	NSDrawingDiagram2008 = "http://schemas.microsoft.com/office/drawing/2008/diagram"
 	NSPowerPoint2010     = "http://schemas.microsoft.com/office/powerpoint/2010/main"
 	NSPowerPoint2012     = "http://schemas.microsoft.com/office/powerpoint/2012/main"
+	NSWord2010           = "http://schemas.microsoft.com/office/word/2010/wordml"
+	NSWord2012           = "http://schemas.microsoft.com/office/word/2012/wordml"
 
 	// Markup Compatibility namespace (ECMA-376 Part 3)
 	NSMarkupCompatibility = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -70,6 +72,8 @@ const (
 	PrefixDrawingDiagram2008  = "dsp"
 	PrefixPowerPoint2010      = "p14"
 	PrefixPowerPoint2012      = "p15"
+	PrefixWord2010            = "w14"
+	PrefixWord2012            = "w15"
 	PrefixMarkupCompatibility = "mc"
 )
 
@@ -79,6 +83,8 @@ var ExtensionPrefixToNS = map[string]string{
 	"p15": NSPowerPoint2012,
 	"a14": NSDrawing2010,
 	"a16": NSDrawing2014,
+	"w14": NSWord2010,
+	"w15": NSWord2012,
 }
 
 // Extension URI constants identify known extension types by their URI attribute.

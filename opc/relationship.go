@@ -53,6 +53,20 @@ const (
 
 	// Table styles relationship type
 	RelTypeTableStyles = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles"
+
+	// Word relationship types
+	RelTypeStyles      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+	RelTypeNumbering   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
+	RelTypeSettings    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
+	RelTypeFontTable   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
+	RelTypeImage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+	RelTypeHeader      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+	RelTypeFooter      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+	RelTypeFootnotes   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+	RelTypeEndnotes    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
+	RelTypeComments    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+	RelTypeHyperlink   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
 )
 
 // Relationship represents a relationship between a source part and a target.

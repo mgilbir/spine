@@ -31,9 +31,17 @@ const (
 	ContentTypeStyles        = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
 
 	// Word content types
-	ContentTypeDocument = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
-	ContentTypeDocStyles = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
-	ContentTypeNumbering = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
+	ContentTypeDocument       = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+	ContentTypeDocStyles      = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
+	ContentTypeNumbering      = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
+	ContentTypeDocSettings    = "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
+	ContentTypeDocFontTable   = "application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"
+	ContentTypeDocFootnotes   = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+	ContentTypeDocEndnotes    = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
+	ContentTypeDocComments    = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+	ContentTypeDocHeader      = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+	ContentTypeDocFooter      = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
+	ContentTypeDocWebSettings = "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"
 
 	// Image content types
 	ContentTypePNG  = "image/png"

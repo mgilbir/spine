@@ -410,6 +410,28 @@ func PresentationMLNamespaces() []NSDecl {
 	}
 }
 
+// WordprocessingMLNamespaces returns the standard namespace declarations for WordprocessingML.
+func WordprocessingMLNamespaces() []NSDecl {
+	return []NSDecl{
+		{PrefixWordprocessingML, NSWordprocessingML},
+		{PrefixRelationships, NSPresentationRels},
+		{PrefixMarkupCompatibility, NSMarkupCompatibility},
+	}
+}
+
+// NewWordprocessingMLBuilder creates a builder pre-configured for WordprocessingML documents.
+func NewWordprocessingMLBuilder() *Builder {
+	b := NewBuilder()
+	b.RegisterNamespace(NSWordprocessingML, PrefixWordprocessingML)
+	b.RegisterNamespace(NSPresentationRels, PrefixRelationships)
+	b.RegisterNamespace(NSDrawingML, PrefixDrawingML)
+	b.RegisterNamespace(NSMarkupCompatibility, PrefixMarkupCompatibility)
+	b.RegisterNamespace(NSDrawingMLWordprocessing, "wp")
+	b.RegisterNamespace(NSWord2010, PrefixWord2010)
+	b.RegisterNamespace(NSWord2012, PrefixWord2012)
+	return b
+}
+
 // Helper functions for common attribute patterns
 
 // IntAttr creates an integer attribute.
