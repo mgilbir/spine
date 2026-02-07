@@ -68,11 +68,14 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 	prefixMC := xmlb.PrefixMarkupCompatibility
 
 	// Build inline namespace attrs for mc:AlternateContent element.
-	// Always declare xmlns:mc. Also declare extension NS from Requires prefix.
+	// Always declare xmlns:mc. Also declare extension NS from Requires prefix,
+	// but only if it hasn't already been declared at a higher level (e.g., root).
 	var nsAttrs []xmlb.Attr
 	if ac.Requires != "" {
 		if extNS, ok := xmlb.ExtensionPrefixToNS[ac.Requires]; ok {
-			nsAttrs = append(nsAttrs, xmlb.Attr{Name: "xmlns:" + ac.Requires, Value: extNS})
+			if !b.IsNamespaceDeclared(extNS) {
+				nsAttrs = append(nsAttrs, xmlb.Attr{Name: "xmlns:" + ac.Requires, Value: extNS})
+			}
 			// Register so child raw content with this prefix resolves correctly
 			b.RegisterNamespace(extNS, ac.Requires)
 		}
@@ -86,9 +89,12 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 	b.EndElement(nsMC, "Choice")
 
 	// mc:Fallback with xmlns="" (Office convention to reset default NS)
-	b.StartElement(nsMC, "Fallback", xmlb.Attr{Name: "xmlns", Value: ""})
-	b.WriteRaw(ac.FallbackContent)
-	b.EndElement(nsMC, "Fallback")
+	// Only emit if fallback content was present in the original.
+	if len(ac.FallbackContent) > 0 {
+		b.StartElement(nsMC, "Fallback", xmlb.Attr{Name: "xmlns", Value: ""})
+		b.WriteRaw(ac.FallbackContent)
+		b.EndElement(nsMC, "Fallback")
+	}
 
 	b.EndElementInlineNS(prefixMC, "AlternateContent")
 

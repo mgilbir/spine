@@ -48,6 +48,8 @@ const (
 	NSPowerPoint2012     = "http://schemas.microsoft.com/office/powerpoint/2012/main"
 	NSWord2010           = "http://schemas.microsoft.com/office/word/2010/wordml"
 	NSWord2012           = "http://schemas.microsoft.com/office/word/2012/wordml"
+	NSSpreadsheet2010    = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
+	NSSpreadsheet2010AC  = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"
 
 	// Markup Compatibility namespace (ECMA-376 Part 3)
 	NSMarkupCompatibility = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -85,6 +87,7 @@ var ExtensionPrefixToNS = map[string]string{
 	"a16": NSDrawing2014,
 	"w14": NSWord2010,
 	"w15": NSWord2012,
+	"x15": NSSpreadsheet2010,
 }
 
 // Extension URI constants identify known extension types by their URI attribute.

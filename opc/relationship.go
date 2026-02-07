@@ -67,6 +67,14 @@ const (
 	RelTypeComments    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
 	RelTypeHyperlink   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
+
+	// SpreadsheetML relationship types
+	RelTypeWorksheet      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+	RelTypeSharedStrings  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"
+	RelTypeDrawing        = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
+	RelTypeChart          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
+	RelTypePivotTable     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
+	RelTypePivotCacheDef  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 )
 
 // Relationship represents a relationship between a source part and a target.

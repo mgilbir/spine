@@ -14,6 +14,9 @@ type Builder struct {
 	namespaces         map[string]string // URI -> prefix
 	declaredNamespaces map[string]bool   // URIs that have been declared (root or inline)
 	hasRoot            bool              // true after StartElementWithNS is called
+	selfClosingSpace   bool              // true: " />" false: "/>"
+	elemSeparator      string            // inserted between sibling elements (e.g., " ")
+	trailingWS         bool              // set by WriteRaw when data ends with whitespace
 }
 
 // NewBuilder creates a new XML builder.
@@ -55,9 +58,28 @@ func (b *Builder) Bytes() []byte {
 	return []byte(b.buf.String())
 }
 
+// SetSelfClosingSpace controls whether self-closing elements use " />" (true) or "/>" (false).
+func (b *Builder) SetSelfClosingSpace(v bool) { b.selfClosingSpace = v }
+
+// SetElementSeparator sets a string to insert between sibling elements (e.g., " " for spaced format).
+func (b *Builder) SetElementSeparator(sep string) { b.elemSeparator = sep }
+
 // WriteRaw writes raw content directly to the output buffer without escaping.
 func (b *Builder) WriteRaw(data []byte) {
 	b.buf.Write(data)
+	if len(data) > 0 {
+		last := data[len(data)-1]
+		b.trailingWS = last == ' ' || last == '\t' || last == '\n' || last == '\r'
+	}
+}
+
+// writeSelfClose writes the self-closing tag end ("/>" or " />").
+func (b *Builder) writeSelfClose() {
+	if b.selfClosingSpace {
+		b.buf.WriteString(" />")
+	} else {
+		b.buf.WriteString("/>")
+	}
 }
 
 // WriteHeader writes the XML declaration with CRLF line ending for Windows compatibility.
@@ -94,16 +116,21 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 // StartElementWithNS starts an element and declares namespaces.
 // This is typically used for the root element.
 func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NSDecl, attrs ...Attr) {
-	b.hasRoot = true
 	b.writeIndent()
+	b.hasRoot = true
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
 
 	// Write namespace declarations
 	for _, ns := range declareNS {
-		b.buf.WriteString(` xmlns:`)
-		b.buf.WriteString(ns.Prefix)
-		b.buf.WriteString(`="`)
+		if ns.Prefix == "" {
+			// Default namespace: xmlns="URI"
+			b.buf.WriteString(` xmlns="`)
+		} else {
+			b.buf.WriteString(` xmlns:`)
+			b.buf.WriteString(ns.Prefix)
+			b.buf.WriteString(`="`)
+		}
 		b.buf.WriteString(ns.URI)
 		b.buf.WriteByte('"')
 		b.declaredNamespaces[ns.URI] = true
@@ -111,6 +138,66 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 
 	// Write attributes
 	for _, attr := range attrs {
+		b.buf.WriteByte(' ')
+		if attr.Namespace != "" {
+			b.writeQName(attr.Namespace, attr.Name)
+		} else {
+			b.buf.WriteString(attr.Name)
+		}
+		b.buf.WriteString(`="`)
+		b.writeAttrEscaped(attr.Value)
+		b.buf.WriteByte('"')
+	}
+
+	b.buf.WriteByte('>')
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+	b.level++
+}
+
+// StartElementWithRootAttrs starts a root element writing all attributes in the
+// exact order provided. Each RootAttr is either a namespace declaration or a
+// regular attribute, preserving the interleaved ordering from the original XML.
+func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAttrs []RootAttr, extraAttrs ...Attr) {
+	b.writeIndent()
+	b.hasRoot = true
+	b.buf.WriteByte('<')
+	b.writeQName(namespace, localName)
+
+	for _, ra := range rootAttrs {
+		if ra.IsNS {
+			// Namespace declaration
+			if ra.Prefix == "" {
+				b.buf.WriteString(` xmlns="`)
+			} else {
+				b.buf.WriteString(` xmlns:`)
+				b.buf.WriteString(ra.Prefix)
+				b.buf.WriteString(`="`)
+			}
+			b.buf.WriteString(ra.Value)
+			b.buf.WriteByte('"')
+			b.declaredNamespaces[ra.Value] = true
+			// Also register prefix so writeQName can resolve it for extension attrs.
+			if ra.Prefix != "" {
+				b.namespaces[ra.Value] = ra.Prefix
+			}
+		} else {
+			// Regular attribute (e.g., mc:Ignorable, conformance)
+			b.buf.WriteByte(' ')
+			if ra.Prefix != "" {
+				b.buf.WriteString(ra.Prefix)
+				b.buf.WriteByte(':')
+			}
+			b.buf.WriteString(ra.LocalName)
+			b.buf.WriteString(`="`)
+			b.writeAttrEscaped(ra.Value)
+			b.buf.WriteByte('"')
+		}
+	}
+
+	// Write any extra attributes
+	for _, attr := range extraAttrs {
 		b.buf.WriteByte(' ')
 		if attr.Namespace != "" {
 			b.writeQName(attr.Namespace, attr.Name)
@@ -159,7 +246,7 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 		b.buf.WriteByte('"')
 	}
 
-	b.buf.WriteString("/>")
+	b.writeSelfClose()
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
@@ -184,7 +271,7 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 	}
 
 	if content == "" {
-		b.buf.WriteString("/>")
+		b.writeSelfClose()
 	} else {
 		b.buf.WriteByte('>')
 		b.writeTextEscaped(content)
@@ -227,8 +314,12 @@ func (b *Builder) prependNamespaceDecls(elemNS string, attrs []Attr) []Attr {
 
 	// Check element namespace
 	if b.declareNamespaceIfNeeded(elemNS) {
-		if prefix, ok := b.namespaces[elemNS]; ok && prefix != "" {
-			decls = append(decls, Attr{Name: "xmlns:" + prefix, Value: elemNS})
+		if prefix, ok := b.namespaces[elemNS]; ok {
+			if prefix == "" {
+				decls = append(decls, Attr{Name: "xmlns", Value: elemNS})
+			} else {
+				decls = append(decls, Attr{Name: "xmlns:" + prefix, Value: elemNS})
+			}
 		}
 	}
 
@@ -236,8 +327,12 @@ func (b *Builder) prependNamespaceDecls(elemNS string, attrs []Attr) []Attr {
 	for _, attr := range attrs {
 		if attr.Namespace != "" {
 			if b.declareNamespaceIfNeeded(attr.Namespace) {
-				if prefix, ok := b.namespaces[attr.Namespace]; ok && prefix != "" {
-					decls = append(decls, Attr{Name: "xmlns:" + prefix, Value: attr.Namespace})
+				if prefix, ok := b.namespaces[attr.Namespace]; ok {
+					if prefix == "" {
+						decls = append(decls, Attr{Name: "xmlns", Value: attr.Namespace})
+					} else {
+						decls = append(decls, Attr{Name: "xmlns:" + prefix, Value: attr.Namespace})
+					}
 				}
 			}
 		}
@@ -284,7 +379,7 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 		b.buf.WriteByte('"')
 	}
 
-	b.buf.WriteString("/>")
+	b.writeSelfClose()
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
@@ -348,10 +443,27 @@ func (b *Builder) ResetNamespaceDeclaration(nsURI string) {
 	delete(b.declaredNamespaces, nsURI)
 }
 
-// writeIndent writes the current indentation.
+// IsNamespaceDeclared returns true if the namespace URI has been declared
+// (either at the root level or via an inline declaration).
+func (b *Builder) IsNamespaceDeclared(nsURI string) bool {
+	return b.declaredNamespaces[nsURI]
+}
+
+// writeIndent writes the current indentation or element separator.
 func (b *Builder) writeIndent() {
-	for i := 0; i < b.level; i++ {
-		b.buf.WriteString(b.indent)
+	// Capture and reset trailingWS flag. This ensures stale state from
+	// a prior WriteRaw doesn't leak through intervening element writes.
+	ws := b.trailingWS
+	b.trailingWS = false
+
+	if b.indent != "" {
+		for i := 0; i < b.level; i++ {
+			b.buf.WriteString(b.indent)
+		}
+	} else if b.elemSeparator != "" && b.hasRoot {
+		if !ws {
+			b.buf.WriteString(b.elemSeparator)
+		}
 	}
 }
 
@@ -401,6 +513,17 @@ type NSDecl struct {
 	URI    string
 }
 
+// RootAttr represents an attribute on a root XML element, which can be either
+// a namespace declaration (xmlns:prefix="URI" or xmlns="URI") or a regular
+// attribute (e.g., mc:Ignorable="x15"). This preserves the exact ordering of
+// all attributes for byte-identical round-trip.
+type RootAttr struct {
+	IsNS      bool   // true = namespace declaration, false = regular attribute
+	Prefix    string // For NS: the namespace prefix (empty for default xmlns). For attr: the prefix (e.g., "mc")
+	LocalName string // For NS: unused. For attr: the local name (e.g., "Ignorable")
+	Value     string // For NS: the namespace URI. For attr: the attribute value
+}
+
 // PresentationMLNamespaces returns the standard namespace declarations for PresentationML.
 func PresentationMLNamespaces() []NSDecl {
 	return []NSDecl{
@@ -417,6 +540,23 @@ func WordprocessingMLNamespaces() []NSDecl {
 		{PrefixRelationships, NSPresentationRels},
 		{PrefixMarkupCompatibility, NSMarkupCompatibility},
 	}
+}
+
+// SpreadsheetMLNamespaces returns the standard namespace declarations for SpreadsheetML.
+func SpreadsheetMLNamespaces() []NSDecl {
+	return []NSDecl{
+		{"", NSSpreadsheetML},
+		{PrefixRelationships, NSPresentationRels},
+	}
+}
+
+// NewSpreadsheetMLBuilder creates a builder pre-configured for SpreadsheetML documents.
+func NewSpreadsheetMLBuilder() *Builder {
+	b := NewBuilder()
+	b.RegisterNamespace(NSSpreadsheetML, "")
+	b.RegisterNamespace(NSPresentationRels, PrefixRelationships)
+	b.RegisterNamespace(NSMarkupCompatibility, PrefixMarkupCompatibility)
+	return b
 }
 
 // NewWordprocessingMLBuilder creates a builder pre-configured for WordprocessingML documents.
