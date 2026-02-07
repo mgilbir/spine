@@ -1,13 +1,11 @@
 package pptx
 
 import (
-	"archive/zip"
-	"bytes"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/internal/testutil"
 )
 
 // testPptxFiles contains all PPTX files to test for round-trip fidelity.
@@ -157,7 +155,7 @@ func TestRoundTripByteIdentical(t *testing.T) {
 			p.Close()
 
 			// Compare the two files
-			missing, extra, changed := comparePptxFiles(t, tc.path, tmpFile)
+			missing, extra, changed := testutil.CompareZipFiles(t, tc.path, tmpFile)
 
 			if len(missing) > 0 {
 				t.Errorf("%d missing parts:", len(missing))
@@ -172,8 +170,8 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 			if len(changed) > 0 {
-				origParts, _ := readPptxParts(tc.path)
-				rtParts, _ := readPptxParts(tmpFile)
+				origParts, _ := testutil.ReadZipParts(tc.path)
+				rtParts, _ := testutil.ReadZipParts(tmpFile)
 				t.Errorf("%d changed parts:", len(changed))
 				for _, name := range changed {
 					origSize := len(origParts[name])
@@ -182,128 +180,5 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// comparePptxFiles compares two PPTX files and returns lists of missing, extra, and changed parts.
-func comparePptxFiles(t *testing.T, original, roundtrip string) (missing, extra, changed []string) {
-	t.Helper()
-
-	origParts, err := readPptxParts(original)
-	if err != nil {
-		t.Fatalf("Failed to read original: %v", err)
-	}
-
-	rtParts, err := readPptxParts(roundtrip)
-	if err != nil {
-		t.Fatalf("Failed to read roundtrip: %v", err)
-	}
-
-	// Check for missing parts
-	for _, name := range sortedKeys(origParts) {
-		if _, ok := rtParts[name]; !ok {
-			missing = append(missing, name)
-		}
-	}
-
-	// Check for extra parts
-	for _, name := range sortedKeys(rtParts) {
-		if _, ok := origParts[name]; !ok {
-			extra = append(extra, name)
-		}
-	}
-
-	// Check for changed parts
-	for _, name := range sortedKeys(origParts) {
-		rtContent, ok := rtParts[name]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(origParts[name], rtContent) {
-			changed = append(changed, name)
-		}
-	}
-
-	return
-}
-
-// readPptxParts reads all parts from a PPTX file into a map.
-func readPptxParts(path string) (map[string][]byte, error) {
-	r, err := zip.OpenReader(path)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-
-	parts := make(map[string][]byte)
-	for _, f := range r.File {
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-		var buf bytes.Buffer
-		_, err = buf.ReadFrom(rc)
-		rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		// Normalize the name (remove leading slash if present)
-		name := f.Name
-		if len(name) > 0 && name[0] == '/' {
-			name = name[1:]
-		}
-		parts[name] = buf.Bytes()
-	}
-	return parts, nil
-}
-
-func sortedKeys(m map[string][]byte) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// showDiff shows the first difference between two strings for debugging.
-func showDiff(t *testing.T, name string, orig, rt []byte) {
-	t.Helper()
-	if !strings.HasSuffix(name, ".xml") && !strings.HasSuffix(name, ".rels") {
-		return
-	}
-	origStr := string(orig)
-	rtStr := string(rt)
-	minLen := len(origStr)
-	if len(rtStr) < minLen {
-		minLen = len(rtStr)
-	}
-	diffPos := -1
-	for i := 0; i < minLen; i++ {
-		if origStr[i] != rtStr[i] {
-			diffPos = i
-			break
-		}
-	}
-	if diffPos == -1 && len(origStr) != len(rtStr) {
-		diffPos = minLen
-	}
-	if diffPos >= 0 {
-		start := diffPos - 80
-		if start < 0 {
-			start = 0
-		}
-		end := diffPos + 80
-		origEnd := end
-		rtEnd := end
-		if origEnd > len(origStr) {
-			origEnd = len(origStr)
-		}
-		if rtEnd > len(rtStr) {
-			rtEnd = len(rtStr)
-		}
-		t.Logf("  %s (diff at byte %d):", name, diffPos)
-		t.Logf("    ORIG: ...%s...", origStr[start:origEnd])
-		t.Logf("    RT:   ...%s...", rtStr[start:rtEnd])
 	}
 }

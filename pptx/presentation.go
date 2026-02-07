@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mgilbir/spine/common/dml"
+	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -45,7 +46,7 @@ type Presentation struct {
 	thumbnailData   []byte                   // /docProps/thumbnail.jpeg
 	appPropsData    []byte                   // /docProps/app.xml
 	printerSettings map[string][]byte        // /ppt/printerSettings/*.bin
-	otherParts      map[string]*rawPart      // Any other parts (media, custom XML, etc.)
+	otherParts      map[string]*coxml.RawPart // Any other parts (media, custom XML, etc.)
 	relationships   map[string][]*opc.Relationship // Relationships for each part
 }
 
@@ -103,7 +104,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		slideLayouts:    make([]*SlideLayout, 0),
 		themeData:       make(map[string][]byte),
 		printerSettings: make(map[string][]byte),
-		otherParts:      make(map[string]*rawPart),
+		otherParts:      make(map[string]*coxml.RawPart),
 		relationships:   make(map[string][]*opc.Relationship),
 	}
 
@@ -155,12 +156,6 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	}
 
 	return p, nil
-}
-
-// rawPart stores a part that we don't fully parse but need to preserve.
-type rawPart struct {
-	contentType string
-	data        []byte
 }
 
 // updateNextRelID updates nextRelID based on an existing relationship ID.
@@ -230,9 +225,9 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 			p.appPropsData = data
 		default:
 			// Store as other part
-			p.otherParts[name] = &rawPart{
-				contentType: file.ContentType,
-				data:        data,
+			p.otherParts[name] = &coxml.RawPart{
+				ContentType: file.ContentType,
+				Data:        data,
 			}
 		}
 	}
@@ -263,25 +258,9 @@ func (p *Presentation) loadAllRelationships() {
 
 		// Store relationships keyed by the source part
 		// e.g., "/ppt/_rels/presentation.xml.rels" -> relationships for /ppt/presentation.xml
-		sourcePart := relsPathToSourcePart(file.Name)
+		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		p.relationships[sourcePart] = rels
 	}
-}
-
-// relsPathToSourcePart converts a .rels path to its source part path.
-// e.g., "/ppt/_rels/presentation.xml.rels" -> "/ppt/presentation.xml"
-func relsPathToSourcePart(relsPath string) string {
-	// Remove trailing ".rels"
-	if !strings.HasSuffix(relsPath, ".rels") {
-		return relsPath
-	}
-	path := relsPath[:len(relsPath)-5]
-
-	// Remove "/_rels" directory component
-	path = strings.Replace(path, "/_rels/", "/", 1)
-	path = strings.Replace(path, "_rels/", "", 1)
-
-	return path
 }
 
 // loadSlides loads all slides from the presentation.
@@ -754,7 +733,7 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write other parts
 	for name, part := range p.otherParts {
-		if err := writer.WritePart(name, part.contentType, part.data); err != nil {
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}

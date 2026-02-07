@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -24,17 +25,11 @@ type Document struct {
 	comments         *oxml.CT_Comments
 	headers          map[string]*headerPart
 	footers          map[string]*footerPart
-	otherParts       map[string]*rawPart
+	otherParts       map[string]*coxml.RawPart
 	relationships    map[string][]*opc.Relationship
 	hasCoreProps     bool
-	preservedParts   map[string]*rawPart // all original parts for round-trip
-	contentTypesData []byte              // raw [Content_Types].xml
-}
-
-// rawPart stores a part that we don't fully parse but need to preserve.
-type rawPart struct {
-	contentType string
-	data        []byte
+	preservedParts   map[string]*coxml.RawPart // all original parts for round-trip
+	contentTypesData []byte                    // raw [Content_Types].xml
 }
 
 // headerPart stores a parsed header.
@@ -96,9 +91,9 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		document:       &doc,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
-		otherParts:     make(map[string]*rawPart),
+		otherParts:     make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
-		preservedParts: make(map[string]*rawPart),
+		preservedParts: make(map[string]*coxml.RawPart),
 	}
 
 	if reader.Properties != nil {
@@ -135,9 +130,9 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		}
 
 		// Preserve all parts as raw bytes for round-trip
-		d.preservedParts[name] = &rawPart{
-			contentType: file.ContentType,
-			data:        data,
+		d.preservedParts[name] = &coxml.RawPart{
+			ContentType: file.ContentType,
+			Data:        data,
 		}
 
 		switch {
@@ -180,9 +175,9 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			xml.Unmarshal(data, ftr)
 			d.footers[name] = &footerPart{ftr: ftr, contentType: file.ContentType}
 		default:
-			d.otherParts[name] = &rawPart{
-				contentType: file.ContentType,
-				data:        data,
+			d.otherParts[name] = &coxml.RawPart{
+				ContentType: file.ContentType,
+				Data:        data,
 			}
 		}
 	}
@@ -211,20 +206,9 @@ func (d *Document) loadAllRelationships() {
 			continue
 		}
 
-		sourcePart := relsPathToSourcePart(file.Name)
+		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		d.relationships[sourcePart] = rels
 	}
-}
-
-// relsPathToSourcePart converts a .rels path to its source part path.
-func relsPathToSourcePart(relsPath string) string {
-	if !strings.HasSuffix(relsPath, ".rels") {
-		return relsPath
-	}
-	path := relsPath[:len(relsPath)-5]
-	path = strings.Replace(path, "/_rels/", "/", 1)
-	path = strings.Replace(path, "_rels/", "", 1)
-	return path
 }
 
 // Create creates a new, empty document.
@@ -237,9 +221,9 @@ func Create() *Document {
 		document:       doc,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
-		otherParts:     make(map[string]*rawPart),
+		otherParts:     make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
-		preservedParts: make(map[string]*rawPart),
+		preservedParts: make(map[string]*coxml.RawPart),
 	}
 }
 
@@ -292,7 +276,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// Write core.xml as preserved raw bytes if original had it
 	if d.hasCoreProps {
 		if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
-			if err := writer.WritePart("/docProps/core.xml", part.contentType, part.data); err != nil {
+			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
 			}
 		}
@@ -311,7 +295,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
-		if err := writer.WritePart(name, part.contentType, part.data); err != nil {
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}
@@ -324,7 +308,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/word/_rels/document.xml.rels" {
 			continue
 		}
-		if err := writer.WritePart(name, part.contentType, part.data); err != nil {
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}

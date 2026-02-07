@@ -1,13 +1,11 @@
 package docx
 
 import (
-	"archive/zip"
-	"bytes"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/internal/testutil"
 )
 
 // testDocxFiles contains all DOCX files to test for round-trip fidelity.
@@ -144,7 +142,7 @@ func TestRoundTripByteIdentical(t *testing.T) {
 			d.Close()
 
 			// Compare the two files
-			missing, extra, changed := compareDocxFiles(t, tc.path, tmpFile)
+			missing, extra, changed := testutil.CompareZipFiles(t, tc.path, tmpFile)
 
 			if len(missing) > 0 {
 				t.Errorf("%d missing parts:", len(missing))
@@ -159,134 +157,16 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 			if len(changed) > 0 {
-				origParts, _ := readDocxParts(tc.path)
-				rtParts, _ := readDocxParts(tmpFile)
+				origParts, _ := testutil.ReadZipParts(tc.path)
+				rtParts, _ := testutil.ReadZipParts(tmpFile)
 				t.Errorf("%d changed parts:", len(changed))
 				for _, name := range changed {
 					origSize := len(origParts[name])
 					rtSize := len(rtParts[name])
 					t.Errorf("  CHANGED: %s (%d -> %d bytes)", name, origSize, rtSize)
-					showDocxDiff(t, name, origParts[name], rtParts[name])
+					testutil.ShowDiff(t, name, origParts[name], rtParts[name])
 				}
 			}
 		})
-	}
-}
-
-// compareDocxFiles compares two DOCX files and returns lists of missing, extra, and changed parts.
-func compareDocxFiles(t *testing.T, original, roundtrip string) (missing, extra, changed []string) {
-	t.Helper()
-
-	origParts, err := readDocxParts(original)
-	if err != nil {
-		t.Fatalf("Failed to read original: %v", err)
-	}
-
-	rtParts, err := readDocxParts(roundtrip)
-	if err != nil {
-		t.Fatalf("Failed to read roundtrip: %v", err)
-	}
-
-	for _, name := range sortedDocxKeys(origParts) {
-		if _, ok := rtParts[name]; !ok {
-			missing = append(missing, name)
-		}
-	}
-
-	for _, name := range sortedDocxKeys(rtParts) {
-		if _, ok := origParts[name]; !ok {
-			extra = append(extra, name)
-		}
-	}
-
-	for _, name := range sortedDocxKeys(origParts) {
-		rtContent, ok := rtParts[name]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(origParts[name], rtContent) {
-			changed = append(changed, name)
-		}
-	}
-
-	return
-}
-
-// readDocxParts reads all parts from a DOCX file into a map.
-func readDocxParts(path string) (map[string][]byte, error) {
-	r, err := zip.OpenReader(path)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-
-	parts := make(map[string][]byte)
-	for _, f := range r.File {
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-		var buf bytes.Buffer
-		_, err = buf.ReadFrom(rc)
-		rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		name := f.Name
-		if len(name) > 0 && name[0] == '/' {
-			name = name[1:]
-		}
-		parts[name] = buf.Bytes()
-	}
-	return parts, nil
-}
-
-func sortedDocxKeys(m map[string][]byte) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func showDocxDiff(t *testing.T, name string, orig, rt []byte) {
-	t.Helper()
-	if !strings.HasSuffix(name, ".xml") && !strings.HasSuffix(name, ".rels") {
-		return
-	}
-	origStr := string(orig)
-	rtStr := string(rt)
-	minLen := len(origStr)
-	if len(rtStr) < minLen {
-		minLen = len(rtStr)
-	}
-	diffPos := -1
-	for i := 0; i < minLen; i++ {
-		if origStr[i] != rtStr[i] {
-			diffPos = i
-			break
-		}
-	}
-	if diffPos == -1 && len(origStr) != len(rtStr) {
-		diffPos = minLen
-	}
-	if diffPos >= 0 {
-		start := diffPos - 80
-		if start < 0 {
-			start = 0
-		}
-		end := diffPos + 80
-		origEnd := end
-		rtEnd := end
-		if origEnd > len(origStr) {
-			origEnd = len(origStr)
-		}
-		if rtEnd > len(rtStr) {
-			rtEnd = len(rtStr)
-		}
-		t.Logf("  %s (diff at byte %d):", name, diffPos)
-		t.Logf("    ORIG: ...%s...", origStr[start:origEnd])
-		t.Logf("    RT:   ...%s...", rtStr[start:rtEnd])
 	}
 }
