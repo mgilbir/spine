@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/spec/spectest"
 )
 
@@ -165,5 +166,10 @@ func TestWML_SpecExamples_Unmarshal(t *testing.T) {
 
 func TestWML_SpecExamples_RoundTrip(t *testing.T) {
 	examples := spectest.LoadExamples(t, wmlTestdataPath())
-	spectest.TestRoundTripExamples(t, examples, wmlTypeMap, spectest.WrapWML)
+	marshalFn := func(v interface{}, rootElem string) ([]byte, error) {
+		b := xmlb.NewWordprocessingMLBuilder()
+		b.MarshalElement(xmlb.NSWordprocessingML, rootElem, v)
+		return b.Bytes(), nil
+	}
+	spectest.TestRoundTripExamplesWithMarshal(t, examples, wmlTypeMap, spectest.WrapWML, marshalFn)
 }

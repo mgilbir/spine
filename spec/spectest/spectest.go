@@ -170,8 +170,26 @@ func TestUnmarshalExamples(t *testing.T, examples []Example, typeMap map[string]
 	}
 }
 
-// TestRoundTripExamples runs unmarshal-marshal-unmarshal round-trip tests.
+// MarshalFunc marshals a Go value for round-trip testing. The rootElem parameter
+// is the local name of the root element (e.g., "p", "document").
+// Implementations can use Builder-based marshaling for types with custom MarshalToBuilder.
+type MarshalFunc func(v interface{}, rootElem string) ([]byte, error)
+
+// TestRoundTripExamples runs unmarshal-marshal-unmarshal round-trip tests
+// using encoding/xml.Marshal.
 func TestRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string) {
+	t.Helper()
+	testRoundTripExamples(t, examples, typeMap, wrapFn, nil)
+}
+
+// TestRoundTripExamplesWithMarshal runs unmarshal-marshal-unmarshal round-trip tests
+// using a custom marshal function (e.g., Builder-based marshaling for types with xml:"-" fields).
+func TestRoundTripExamplesWithMarshal(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc) {
+	t.Helper()
+	testRoundTripExamples(t, examples, typeMap, wrapFn, marshalFn)
+}
+
+func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc) {
 	t.Helper()
 
 	for _, ex := range examples {
@@ -207,7 +225,13 @@ func TestRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 			}
 
 			// Marshal
-			marshaled, err := xml.Marshal(target1)
+			var marshaled []byte
+			var err error
+			if marshalFn != nil {
+				marshaled, err = marshalFn(target1, rootElem)
+			} else {
+				marshaled, err = xml.Marshal(target1)
+			}
 			if err != nil {
 				t.Errorf("Marshal failed: %v", err)
 				return
@@ -223,13 +247,36 @@ func TestRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 				return
 			}
 
-			// Compare
-			v1 := reflect.ValueOf(target1).Elem().Interface()
-			v2 := reflect.ValueOf(target2).Elem().Interface()
-			if !reflect.DeepEqual(v1, v2) {
+			// Compare: clear round-trip preservation fields before comparing,
+			// as they capture original file formatting (namespace URIs, attribute
+			// order) that may differ between Strict/Transitional conformance
+			// classes and are not part of the semantic content.
+			rv1 := reflect.ValueOf(target1).Elem()
+			rv2 := reflect.ValueOf(target2).Elem()
+			clearRoundTripFields(rv1)
+			clearRoundTripFields(rv2)
+			if !reflect.DeepEqual(rv1.Interface(), rv2.Interface()) {
 				t.Errorf("Round-trip mismatch:\n  Original XML: %.200s\n  Marshaled: %.200s", *ex.XML, string(marshaled))
 			}
 		})
+	}
+}
+
+// clearRoundTripFields zeroes out fields that exist solely for byte-identical
+// round-trip preservation (e.g., OriginalNSDecls, OriginalRootAttrs, XMLName).
+// These fields capture the original file's namespace representation and attribute
+// ordering, which may differ between Strict and Transitional conformance classes.
+func clearRoundTripFields(v reflect.Value) {
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		switch f.Name {
+		case "XMLName", "OriginalNSDecls", "OriginalRootAttrs":
+			v.Field(i).Set(reflect.Zero(f.Type))
+		}
 	}
 }
 

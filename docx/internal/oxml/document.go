@@ -62,6 +62,18 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 	}
 }
 
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Document.
+func (doc *CT_Document) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
+	if doc.Background != nil {
+		b.MarshalElement(ns, "background", doc.Background)
+	}
+	if doc.Body != nil {
+		doc.Body.MarshalToBuilder(b, ns, "body")
+	}
+	b.EndElement(ns, localName)
+}
+
 // CT_Background represents the document background.
 type CT_Background struct {
 	Color      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`

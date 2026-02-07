@@ -299,11 +299,11 @@ func TestTargetElement_RoundTrip(t *testing.T) {
 func TestShapeTarget_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
-		spId uint32
+		spId string
 	}{
-		{"shape 1", 1},
-		{"shape 5", 5},
-		{"shape 100", 100},
+		{"shape 1", "1"},
+		{"shape 5", "5"},
+		{"shape 100", "100"},
 	}
 
 	for _, tt := range tests {
@@ -320,7 +320,7 @@ func TestShapeTarget_RoundTrip(t *testing.T) {
 			}
 
 			if st2.SpId != tt.spId {
-				t.Errorf("SpId = %d, want %d", st2.SpId, tt.spId)
+				t.Errorf("SpId = %q, want %q", st2.SpId, tt.spId)
 			}
 		})
 	}
@@ -648,12 +648,12 @@ func TestAnimateMotion_RoundTrip(t *testing.T) {
 
 func TestPoint_RoundTrip(t *testing.T) {
 	tests := []struct {
-		x, y int32
+		x, y string
 	}{
-		{0, 0},
-		{100000, 100000},
-		{-50000, 50000},
-		{50000, -50000},
+		{"0", "0"},
+		{"100000", "100000"},
+		{"-50000", "50000"},
+		{"50000", "-50000"},
 	}
 
 	for _, tt := range tests {
@@ -670,10 +670,10 @@ func TestPoint_RoundTrip(t *testing.T) {
 			}
 
 			if pt2.X != tt.x {
-				t.Errorf("X = %d, want %d", pt2.X, tt.x)
+				t.Errorf("X = %q, want %q", pt2.X, tt.x)
 			}
 			if pt2.Y != tt.y {
-				t.Errorf("Y = %d, want %d", pt2.Y, tt.y)
+				t.Errorf("Y = %q, want %q", pt2.Y, tt.y)
 			}
 		})
 	}
@@ -832,14 +832,14 @@ func TestVideo_RoundTrip(t *testing.T) {
 func TestCommonMediaNode_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name            string
-		vol             int32
+		vol             string
 		mute            bool
 		numSld          uint32
 		showWhenStopped bool
 	}{
-		{"full volume", 100, false, 1, true},
-		{"muted", 50, true, 0, false},
-		{"silent", 0, false, 5, true},
+		{"full volume", "100", false, 1, true},
+		{"muted", "50", true, 0, false},
+		{"silent", "0", false, 5, true},
 	}
 
 	for _, tt := range tests {
@@ -861,7 +861,7 @@ func TestCommonMediaNode_RoundTrip(t *testing.T) {
 			}
 
 			if cmn2.Vol != tt.vol {
-				t.Errorf("Vol = %d, want %d", cmn2.Vol, tt.vol)
+				t.Errorf("Vol = %q, want %q", cmn2.Vol, tt.vol)
 			}
 			if cmn2.Mute != tt.mute {
 				t.Errorf("Mute = %v, want %v", cmn2.Mute, tt.mute)
@@ -1033,14 +1033,14 @@ func TestBuildList_RoundTrip(t *testing.T) {
 func TestBuildParagraph_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name   string
-		spId   uint32
+		spId   string
 		build  string
 		animBg bool
 	}{
-		{"all at once", 1, "allAtOnce", false},
-		{"by paragraph", 2, "p", true},
-		{"custom", 3, "cust", false},
-		{"whole", 4, "whole", true},
+		{"all at once", "1", "allAtOnce", false},
+		{"by paragraph", "2", "p", true},
+		{"custom", "3", "cust", false},
+		{"whole", "4", "whole", true},
 	}
 
 	for _, tt := range tests {
@@ -1057,7 +1057,7 @@ func TestBuildParagraph_RoundTrip(t *testing.T) {
 			}
 
 			if bp2.SpId != tt.spId {
-				t.Errorf("SpId = %d, want %d", bp2.SpId, tt.spId)
+				t.Errorf("SpId = %q, want %q", bp2.SpId, tt.spId)
 			}
 			if bp2.Build != tt.build {
 				t.Errorf("Build = %q, want %q", bp2.Build, tt.build)
@@ -1069,14 +1069,14 @@ func TestBuildParagraph_RoundTrip(t *testing.T) {
 func TestBuildDiagram_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
-		spId uint32
+		spId string
 		bld  string
 		rev  bool
 	}{
-		{"all at once", 1, "allAtOnce", false},
-		{"one by one", 2, "one", false},
-		{"level one", 3, "lvlOne", true},
-		{"level at once", 4, "lvlAtOnce", false},
+		{"all at once", "1", "allAtOnce", false},
+		{"one by one", "2", "one", false},
+		{"level one", "3", "lvlOne", true},
+		{"level at once", "4", "lvlAtOnce", false},
 	}
 
 	for _, tt := range tests {
@@ -1093,7 +1093,7 @@ func TestBuildDiagram_RoundTrip(t *testing.T) {
 			}
 
 			if bd2.SpId != tt.spId {
-				t.Errorf("SpId = %d, want %d", bd2.SpId, tt.spId)
+				t.Errorf("SpId = %q, want %q", bd2.SpId, tt.spId)
 			}
 			if bd2.Bld != tt.bld {
 				t.Errorf("Bld = %q, want %q", bd2.Bld, tt.bld)
@@ -1105,15 +1105,15 @@ func TestBuildDiagram_RoundTrip(t *testing.T) {
 func TestBuildOleChart_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name   string
-		spId   uint32
+		spId   string
 		bld    string
 		animBg bool
 	}{
-		{"all at once", 1, "allAtOnce", false},
-		{"by series", 2, "series", true},
-		{"by category", 3, "category", false},
-		{"series elements", 4, "seriesEl", true},
-		{"category elements", 5, "categoryEl", false},
+		{"all at once", "1", "allAtOnce", false},
+		{"by series", "2", "series", true},
+		{"by category", "3", "category", false},
+		{"series elements", "4", "seriesEl", true},
+		{"category elements", "5", "categoryEl", false},
 	}
 
 	for _, tt := range tests {
@@ -1130,7 +1130,7 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 			}
 
 			if boc2.SpId != tt.spId {
-				t.Errorf("SpId = %d, want %d", boc2.SpId, tt.spId)
+				t.Errorf("SpId = %q, want %q", boc2.SpId, tt.spId)
 			}
 			if boc2.Bld != tt.bld {
 				t.Errorf("Bld = %q, want %q", boc2.Bld, tt.bld)
@@ -1142,11 +1142,11 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 func TestBuildGraphic_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name     string
-		spId     uint32
+		spId     string
 		uiExpand bool
 	}{
-		{"basic", 1, false},
-		{"expanded", 2, true},
+		{"basic", "1", false},
+		{"expanded", "2", true},
 	}
 
 	for _, tt := range tests {
@@ -1163,7 +1163,7 @@ func TestBuildGraphic_RoundTrip(t *testing.T) {
 			}
 
 			if bg2.SpId != tt.spId {
-				t.Errorf("SpId = %d, want %d", bg2.SpId, tt.spId)
+				t.Errorf("SpId = %q, want %q", bg2.SpId, tt.spId)
 			}
 			if bg2.UiExpand != tt.uiExpand {
 				t.Errorf("UiExpand = %v, want %v", bg2.UiExpand, tt.uiExpand)

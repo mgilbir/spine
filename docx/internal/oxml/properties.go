@@ -67,7 +67,7 @@ type CT_LongHexNumber struct {
 
 // CT_TextScale represents text scaling percentage.
 type CT_TextScale struct {
-	Val int `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
 }
 
 // CT_Highlight represents a text highlight color.

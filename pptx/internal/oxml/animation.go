@@ -257,6 +257,7 @@ func (tnl *TimeNodeList) MarshalXML(e *xml.Encoder, start xml.StartElement) erro
 // MarshalToBuilder writes the TimeNodeList preserving child element order.
 func (tnl *TimeNodeList) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if len(tnl.childOrder) == 0 {
+		b.EmptyElement(ns, localName)
 		return
 	}
 	b.StartElement(ns, localName)
@@ -324,9 +325,9 @@ type CommonTimeNode struct {
 	Dur            string          `xml:"dur,attr,omitempty"` // indefinite, or time in ms
 	RepeatCount    string          `xml:"repeatCount,attr,omitempty"`
 	RepeatDur      string          `xml:"repeatDur,attr,omitempty"`
-	Spd            int32           `xml:"spd,attr,omitempty"` // percentage
-	Accel          int32           `xml:"accel,attr,omitempty"`
-	Decel          int32           `xml:"decel,attr,omitempty"`
+	Spd            string          `xml:"spd,attr,omitempty"` // percentage
+	Accel          string          `xml:"accel,attr,omitempty"`
+	Decel          string          `xml:"decel,attr,omitempty"`
 	AutoRev        bool            `xml:"autoRev,attr,omitempty"`
 	Restart        string          `xml:"restart,attr,omitempty"` // always, whenNotActive, never
 	Fill           string          `xml:"fill,attr,omitempty"`    // remove, freeze, hold, transition
@@ -393,7 +394,7 @@ type SoundTarget struct {
 
 // ShapeTarget represents CT_TLShapeTargetElement (p:spTgt)
 type ShapeTarget struct {
-	SpId   uint32      `xml:"spid,attr"`
+	SpId   string      `xml:"spid,attr"`
 	Bg     *AnimTargetBg `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bg,omitempty"`
 	SubSp  *SubShape   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subSp,omitempty"`
 	OleChartEl *OleChartElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main oleChartEl,omitempty"`
@@ -406,7 +407,7 @@ type AnimTargetBg struct{}
 
 // SubShape represents CT_TLSubShapeId (p:subSp)
 type SubShape struct {
-	SpId uint32 `xml:"spid,attr"`
+	SpId string `xml:"spid,attr"`
 }
 
 // OleChartElement represents CT_TLOleChartTargetElement (p:oleChartEl)
@@ -441,7 +442,7 @@ type AnimationDgmBuildProperties struct {
 
 // InkTarget represents CT_TLInkTargetElement (p:inkTgt)
 type InkTarget struct {
-	SpId uint32 `xml:"spid,attr"`
+	SpId string `xml:"spid,attr"`
 }
 
 // IndexRange represents CT_IndexRange (p:charRg, p:pRg)
@@ -465,7 +466,7 @@ type TimeAbsolute struct {
 
 // TimePercent represents CT_TLIterateIntervalPercentage (p:tmPct)
 type TimePercent struct {
-	Val int32 `xml:"val,attr"` // percentage in 1000ths
+	Val string `xml:"val,attr"` // percentage in 1000ths or "N%"
 }
 
 // --- Animation Behaviors ---
@@ -541,8 +542,8 @@ type AnimateMotion struct {
 
 // Point represents CT_TLPoint (p:by, p:from, p:to, p:rCtr)
 type Point struct {
-	X int32 `xml:"x,attr"` // percentage in 1000ths
-	Y int32 `xml:"y,attr"`
+	X string `xml:"x,attr"` // percentage in 1000ths or "N%"
+	Y string `xml:"y,attr"`
 }
 
 // AnimateRotation represents CT_TLAnimateRotationBehavior (p:animRot)
@@ -589,7 +590,7 @@ type Video struct {
 
 // CommonMediaNode represents CT_TLCommonMediaNodeData (p:cMediaNode)
 type CommonMediaNode struct {
-	Vol      int32  `xml:"vol,attr,omitempty"` // 0-100
+	Vol      string `xml:"vol,attr,omitempty"`
 	Mute     bool   `xml:"mute,attr,omitempty"`
 	NumSld   uint32 `xml:"numSld,attr,omitempty"`
 	ShowWhenStopped bool `xml:"showWhenStopped,attr,omitempty"`
@@ -672,7 +673,7 @@ type BuildList struct {
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
 type BuildParagraph struct {
-	SpId             uint32  `xml:"spid,attr"`
+	SpId             string  `xml:"spid,attr"`
 	GrpId            *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand         *bool   `xml:"uiExpand,attr,omitempty"`
 	Build            string  `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
@@ -686,7 +687,7 @@ type BuildParagraph struct {
 
 // BuildDiagram represents CT_TLBuildDiagram (p:bldDgm)
 type BuildDiagram struct {
-	SpId   uint32  `xml:"spid,attr"`
+	SpId   string  `xml:"spid,attr"`
 	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
@@ -695,7 +696,7 @@ type BuildDiagram struct {
 
 // BuildOleChart represents CT_TLOleBuildChart (p:bldOleChart)
 type BuildOleChart struct {
-	SpId   uint32  `xml:"spid,attr"`
+	SpId   string  `xml:"spid,attr"`
 	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
@@ -704,7 +705,7 @@ type BuildOleChart struct {
 
 // BuildGraphic represents CT_TLGraphicalObjectBuild (p:bldGraphic)
 type BuildGraphic struct {
-	SpId   uint32  `xml:"spid,attr"`
+	SpId   string  `xml:"spid,attr"`
 	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool `xml:"uiExpand,attr,omitempty"`
 	BldAsOne *BuildAsOne `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldAsOne,omitempty"`

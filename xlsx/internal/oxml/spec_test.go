@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/spec/spectest"
 )
 
@@ -88,5 +89,10 @@ func TestSML_SpecExamples_Unmarshal(t *testing.T) {
 
 func TestSML_SpecExamples_RoundTrip(t *testing.T) {
 	examples := spectest.LoadExamples(t, smlTestdataPath())
-	spectest.TestRoundTripExamples(t, examples, smlTypeMap, spectest.WrapSML)
+	marshalFn := func(v interface{}, rootElem string) ([]byte, error) {
+		b := xmlb.NewSpreadsheetMLBuilder()
+		b.MarshalElement(xmlb.NSSpreadsheetML, rootElem, v)
+		return b.Bytes(), nil
+	}
+	spectest.TestRoundTripExamplesWithMarshal(t, examples, smlTypeMap, spectest.WrapSML, marshalFn)
 }

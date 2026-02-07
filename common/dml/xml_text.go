@@ -202,6 +202,53 @@ func (p *P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// MarshalXML implements xml.Marshaler for P, ensuring interleaved R/Br/Fld children
+// are serialized even though they use xml:"-" struct tags.
+func (p *P) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	e.EncodeToken(start)
+
+	ns := "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+	if p.PPr != nil {
+		e.EncodeElement(p.PPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "pPr"}})
+	}
+
+	if len(p.childOrder) > 0 {
+		for _, ref := range p.childOrder {
+			switch ref.kind {
+			case pChildR:
+				if ref.index < len(p.R) {
+					e.EncodeElement(p.R[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}})
+				}
+			case pChildBr:
+				if ref.index < len(p.Br) {
+					e.EncodeElement(p.Br[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}})
+				}
+			case pChildFld:
+				if ref.index < len(p.Fld) {
+					e.EncodeElement(p.Fld[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}})
+				}
+			}
+		}
+	} else {
+		for _, r := range p.R {
+			e.EncodeElement(r, xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}})
+		}
+		for _, br := range p.Br {
+			e.EncodeElement(br, xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}})
+		}
+		for _, fld := range p.Fld {
+			e.EncodeElement(fld, xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}})
+		}
+	}
+
+	if p.EndParaRPr != nil {
+		e.EncodeElement(p.EndParaRPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "endParaRPr"}})
+	}
+
+	return e.EncodeToken(start.End())
+}
+
 // PPr represents CT_TextParagraphProperties (a:pPr)
 type PPr struct {
 	MarL         *int32      `xml:"marL,attr,omitempty"`

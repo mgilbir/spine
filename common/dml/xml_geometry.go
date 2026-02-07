@@ -233,6 +233,82 @@ func (p *PathXML2D) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// MarshalXML implements xml.Marshaler for PathXML2D, ensuring path commands
+// are serialized even though they use xml:"-" struct tags.
+func (p *PathXML2D) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	// Set attributes
+	if p.W != 0 {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "w"}, Value: fmt.Sprintf("%d", p.W)})
+	}
+	if p.H != 0 {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "h"}, Value: fmt.Sprintf("%d", p.H)})
+	}
+	if p.Fill != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "fill"}, Value: p.Fill})
+	}
+	if p.Stroke {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "stroke"}, Value: "1"})
+	}
+	if p.ExtrusionOk {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "extrusionOk"}, Value: "1"})
+	}
+	e.EncodeToken(start)
+
+	ns := "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+	if len(p.cmdOrder) > 0 {
+		for _, ref := range p.cmdOrder {
+			switch ref.kind {
+			case pathCmdMoveTo:
+				if ref.index < len(p.MoveTo) {
+					e.EncodeElement(p.MoveTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}})
+				}
+			case pathCmdLnTo:
+				if ref.index < len(p.LnTo) {
+					e.EncodeElement(p.LnTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}})
+				}
+			case pathCmdArcTo:
+				if ref.index < len(p.ArcTo) {
+					e.EncodeElement(p.ArcTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}})
+				}
+			case pathCmdQuadBezTo:
+				if ref.index < len(p.QuadBezTo) {
+					e.EncodeElement(p.QuadBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}})
+				}
+			case pathCmdCubicBezTo:
+				if ref.index < len(p.CubicBezTo) {
+					e.EncodeElement(p.CubicBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}})
+				}
+			case pathCmdClose:
+				if ref.index < len(p.Close) {
+					e.EncodeElement(p.Close[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}})
+				}
+			}
+		}
+	} else {
+		for _, v := range p.MoveTo {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}})
+		}
+		for _, v := range p.LnTo {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}})
+		}
+		for _, v := range p.ArcTo {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}})
+		}
+		for _, v := range p.QuadBezTo {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}})
+		}
+		for _, v := range p.CubicBezTo {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}})
+		}
+		for _, v := range p.Close {
+			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}})
+		}
+	}
+
+	return e.EncodeToken(start.End())
+}
+
 // MoveToXML represents CT_Path2DMoveTo (a:moveTo)
 type MoveToXML struct {
 	Pt *PtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pt"`
