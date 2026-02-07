@@ -5,14 +5,23 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 ## Features
 
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
+- **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
   - Work with slide masters and layouts
   - Add shapes, text, tables, and images
   - Support for placeholders and themes
-- **Word (DOCX)**: Basic document structure (in development)
-- **Excel (XLSX)**: Basic workbook structure (in development)
+- **Word (DOCX)**: Create and modify Word documents
+  - Create documents from scratch
+  - Add headings, paragraphs, and tables
+  - Rich text formatting (bold, italic, color, font, size)
+  - Paragraph alignment and styling
+- **Excel (XLSX)**: Create and modify Excel workbooks
+  - Create workbooks with multiple sheets
+  - Read and write cell values (strings, numbers, booleans)
+  - Formula support
+  - Shared string table resolution
 
 ## Installation
 
@@ -51,6 +60,77 @@ func main() {
     if err := p.Save("presentation.pptx"); err != nil {
         panic(err)
     }
+}
+```
+
+### Creating a Word Document
+
+```go
+package main
+
+import (
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    // Create a new document
+    doc := docx.Create()
+    doc.Properties.Title = "My Document"
+
+    // Add a heading
+    doc.AddHeading("Welcome", 1)
+
+    // Add a paragraph
+    doc.AddParagraphWithText("This is a simple document created with Spine.")
+
+    // Add formatted text
+    p := doc.AddParagraph()
+    bold := p.AddRun()
+    bold.SetText("Bold text")
+    bold.SetBold(true)
+
+    // Save the document
+    if err := doc.Save("document.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+### Creating an Excel Spreadsheet
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    // Create a new workbook
+    wb := xlsx.Create()
+
+    // Add a sheet
+    sheet := wb.AddSheet("Sales")
+
+    // Set cell values
+    sheet.SetCellValue("A1", "Product")
+    sheet.SetCellValue("B1", "Revenue")
+    sheet.SetCellValue("A2", "Widgets")
+    sheet.SetCellValue("B2", 1500.0)
+    sheet.SetCellValue("A3", "Gadgets")
+    sheet.SetCellValue("B3", 3200.0)
+
+    // Add a formula
+    cell, _ := sheet.Cell("B4")
+    cell.SetFormula("SUM(B2:B3)")
+
+    // Save the workbook
+    if err := wb.Save("spreadsheet.xlsx"); err != nil {
+        panic(err)
+    }
+
+    fmt.Printf("Sheets: %d\n", wb.SheetCount())
 }
 ```
 
@@ -119,10 +199,11 @@ func main() {
 - `common/` - Shared types and utilities
   - `dml/` - DrawingML types (colors, geometry)
   - `enum/` - Common enumerations
-  - `xml/` - XML namespace handling
+  - `oxml/` - Shared Office XML types
+  - `xml/` - XML namespace handling and Builder-based serialization
 - `pptx/` - PowerPoint document support
-- `docx/` - Word document support (in development)
-- `xlsx/` - Excel document support (in development)
+- `docx/` - Word document support
+- `xlsx/` - Excel document support
 
 ## Units
 
@@ -159,7 +240,7 @@ The following standard slide layout types are supported:
 
 ## Requirements
 
-- Go 1.21 or later
+- Go 1.25 or later
 
 ## License
 
