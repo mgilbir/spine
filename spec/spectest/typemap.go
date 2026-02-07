@@ -116,34 +116,10 @@ var DiagramTypeMap = map[string]reflect.Type{
 	"dataModel": reflect.TypeOf(diagram.DataModel{}),
 }
 
-// WMLTypeMap maps WordprocessingML element local names to Go types.
-// These types are in docx/internal/oxml/ (internal package) and cannot be
-// directly imported from this package. Tests using this map will skip.
-// To add type-mapped tests, create tests within the docx package.
-//
-// Known elements: document, body, p, r, pPr, rPr, tbl, tr, tc, tblPr, trPr,
-// tcPr, sectPr, styles, numbering, comments, footnotes, endnotes, hdr, ftr,
-// bookmarkStart, bookmarkEnd, sdt, sdtPr, sdtContent, hyperlink, drawing,
-// ins, del, settings
-var WMLTypeMap = map[string]reflect.Type{}
-
-// SMLTypeMap maps SpreadsheetML element local names to Go types.
-// These types are in xlsx/internal/oxml/ (internal package) and cannot be
-// directly imported from this package.
-//
-// Known elements: workbook, worksheet, styleSheet, sst, bookViews, bookView,
-// sheets, sheet, sheetData, row, c, sheetViews, sheetView, cols, col,
-// mergeCells, calcPr, definedNames, fonts, fills, borders, cellXfs, cellStyles
-var SMLTypeMap = map[string]reflect.Type{}
-
-// PMLTypeMap maps PresentationML element local names to Go types.
-// These types are in pptx/internal/oxml/ (internal package) and cannot be
-// directly imported from this package.
-//
-// Known elements: presentation, sld, sldLayout, sldMaster, cSld, spTree,
-// sp, pic, cxnSp, grpSp, graphicFrame, nvSpPr, nvPicPr, transition,
-// cmLst, cmAuthorLst, notes, notesMaster, viewPr
-var PMLTypeMap = map[string]reflect.Type{}
+// WML/SML/PML type-mapped tests are in their respective internal packages:
+//   - docx/internal/oxml/spec_test.go
+//   - xlsx/internal/oxml/spec_test.go
+//   - pptx/internal/oxml/spec_test.go
 
 // VMLTypeMap maps VML element local names to Go types.
 // These types are from common/vml/ and are publicly accessible.

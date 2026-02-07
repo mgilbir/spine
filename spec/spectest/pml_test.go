@@ -15,13 +15,3 @@ func TestPML_SpecExamples_WellFormed(t *testing.T) {
 	examples := LoadExamples(t, pmlTestdataPath())
 	TestWellFormedExamples(t, examples, WrapPML)
 }
-
-func TestPML_SpecExamples_Unmarshal(t *testing.T) {
-	examples := LoadExamples(t, pmlTestdataPath())
-	TestUnmarshalExamples(t, examples, PMLTypeMap, WrapPML)
-}
-
-func TestPML_SpecExamples_RoundTrip(t *testing.T) {
-	examples := LoadExamples(t, pmlTestdataPath())
-	TestRoundTripExamples(t, examples, PMLTypeMap, WrapPML)
-}

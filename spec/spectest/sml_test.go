@@ -15,13 +15,3 @@ func TestSML_SpecExamples_WellFormed(t *testing.T) {
 	examples := LoadExamples(t, smlTestdataPath())
 	TestWellFormedExamples(t, examples, WrapSML)
 }
-
-func TestSML_SpecExamples_Unmarshal(t *testing.T) {
-	examples := LoadExamples(t, smlTestdataPath())
-	TestUnmarshalExamples(t, examples, SMLTypeMap, WrapSML)
-}
-
-func TestSML_SpecExamples_RoundTrip(t *testing.T) {
-	examples := LoadExamples(t, smlTestdataPath())
-	TestRoundTripExamples(t, examples, SMLTypeMap, WrapSML)
-}
