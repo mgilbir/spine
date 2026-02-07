@@ -30,7 +30,7 @@ func (f *File) ReadAll() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	return io.ReadAll(rc)
 }
@@ -72,13 +72,13 @@ func OpenReader(path string) (*ReadCloser, error) {
 
 	fi, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 
 	r, err := NewReader(f, fi.Size())
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
 
@@ -105,7 +105,7 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 				return nil, err
 			}
 			data, err := io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 			if err != nil {
 				return nil, err
 			}
@@ -226,7 +226,7 @@ func (r *Reader) GetRawZipFile(name string) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			return io.ReadAll(rc)
 		}
 	}

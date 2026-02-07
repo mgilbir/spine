@@ -52,7 +52,9 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 					return err
 				}
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil
@@ -163,7 +165,9 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildSdt, len(*sdtBlock)})
 			*sdtBlock = append(*sdtBlock, v)
 		} else {
-			d.Skip()
+			if err := d.Skip(); err != nil {
+				return err
+			}
 		}
 	case "bookmarkStart":
 		if bookmarkStart != nil {
@@ -174,7 +178,9 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkStart, len(*bookmarkStart)})
 			*bookmarkStart = append(*bookmarkStart, v)
 		} else {
-			d.Skip()
+			if err := d.Skip(); err != nil {
+				return err
+			}
 		}
 	case "bookmarkEnd":
 		if bookmarkEnd != nil {
@@ -185,10 +191,14 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkEnd, len(*bookmarkEnd)})
 			*bookmarkEnd = append(*bookmarkEnd, v)
 		} else {
-			d.Skip()
+			if err := d.Skip(); err != nil {
+				return err
+			}
 		}
 	default:
-		d.Skip()
+		if err := d.Skip(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

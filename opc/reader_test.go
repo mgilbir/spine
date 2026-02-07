@@ -155,7 +155,7 @@ func TestFile_Open(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	readContent, err := io.ReadAll(rc)
 	if err != nil {
@@ -200,8 +200,12 @@ func TestReader_PartRelationships(t *testing.T) {
 	buf := &bytes.Buffer{}
 	w := NewWriter(buf)
 
-	w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>"))
-	w.WritePart("/ppt/slides/slide1.xml", ContentTypeSlide, []byte("<slide/>"))
+	if err := w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
+	if err := w.WritePart("/ppt/slides/slide1.xml", ContentTypeSlide, []byte("<slide/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
 
 	// Add package-level relationship
 	w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
@@ -210,9 +214,13 @@ func TestReader_PartRelationships(t *testing.T) {
 	partRels := []*Relationship{
 		{ID: "rId1", Type: "http://slide", Target: "slides/slide1.xml", TargetMode: TargetModeInternal},
 	}
-	w.WritePartRelationships("/ppt/presentation.xml", partRels)
+	if err := w.WritePartRelationships("/ppt/presentation.xml", partRels); err != nil {
+		t.Fatalf("WritePartRelationships error: %v", err)
+	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Read the package
 	data := buf.Bytes()
@@ -272,9 +280,13 @@ func TestReader_CoreProperties(t *testing.T) {
 		Modified: time.Date(2024, 1, 16, 10, 0, 0, 0, time.UTC),
 	}
 
-	w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>"))
+	if err := w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
 	w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Read the package
 	data := buf.Bytes()
@@ -300,8 +312,12 @@ func TestNewReader_NoContentTypes(t *testing.T) {
 	buf := &bytes.Buffer{}
 	zw := zip.NewWriter(buf)
 	w, _ := zw.Create("test.xml")
-	w.Write([]byte("<test/>"))
-	zw.Close()
+	if _, err := w.Write([]byte("<test/>")); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	data := buf.Bytes()
 	_, err := NewReader(bytes.NewReader(data), int64(len(data)))

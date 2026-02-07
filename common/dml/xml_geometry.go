@@ -87,9 +87,9 @@ func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "w":
-			fmt.Sscanf(attr.Value, "%d", &p.W)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &p.W)
 		case "h":
-			fmt.Sscanf(attr.Value, "%d", &p.H)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &p.H)
 		case "fill":
 			p.Fill = attr.Value
 		case "stroke":

@@ -492,12 +492,12 @@ var textEscaper = strings.NewReplacer(
 
 // writeAttrEscaped writes escaped XML attribute value content.
 func (b *Builder) writeAttrEscaped(s string) {
-	attrEscaper.WriteString(&b.buf, s)
+	_, _ = attrEscaper.WriteString(&b.buf, s)
 }
 
 // writeTextEscaped writes escaped XML text content.
 func (b *Builder) writeTextEscaped(s string) {
-	textEscaper.WriteString(&b.buf, s)
+	_, _ = textEscaper.WriteString(&b.buf, s)
 }
 
 // Attr represents an XML attribute.

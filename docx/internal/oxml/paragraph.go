@@ -254,7 +254,9 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				p.childOrder = append(p.childOrder, pChildRef{pChildAlternateContent, len(p.AlternateContent)})
 				p.AlternateContent = append(p.AlternateContent, v)
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil
@@ -410,7 +412,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildHyperlink, len(*hyperlink)})
 					*hyperlink = append(*hyperlink, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "bookmarkStart":
 				if bookmarkStart != nil {
@@ -421,7 +425,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildBookmarkStart, len(*bookmarkStart)})
 					*bookmarkStart = append(*bookmarkStart, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "bookmarkEnd":
 				if bookmarkEnd != nil {
@@ -432,7 +438,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildBookmarkEnd, len(*bookmarkEnd)})
 					*bookmarkEnd = append(*bookmarkEnd, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "proofErr":
 				if proofErr != nil {
@@ -443,7 +451,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildProofErr, len(*proofErr)})
 					*proofErr = append(*proofErr, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "permStart":
 				if permStart != nil {
@@ -454,7 +464,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildPermStart, len(*permStart)})
 					*permStart = append(*permStart, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "permEnd":
 				if permEnd != nil {
@@ -465,7 +477,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildPermEnd, len(*permEnd)})
 					*permEnd = append(*permEnd, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "ins":
 				if ins != nil {
@@ -476,7 +490,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildIns, len(*ins)})
 					*ins = append(*ins, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "del":
 				if del != nil {
@@ -487,7 +503,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildDel, len(*del)})
 					*del = append(*del, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "fldSimple":
 				if fldSimple != nil {
@@ -498,7 +516,9 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildFldSimple, len(*fldSimple)})
 					*fldSimple = append(*fldSimple, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			case "sdt":
 				if sdtRun != nil {
@@ -509,10 +529,14 @@ func unmarshalPContent(d *xml.Decoder,
 					*childOrder = append(*childOrder, pChildRef{pChildSdtRun, len(*sdtRun)})
 					*sdtRun = append(*sdtRun, v)
 				} else {
-					d.Skip()
+					if err := d.Skip(); err != nil {
+						return err
+					}
 				}
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

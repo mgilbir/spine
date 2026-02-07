@@ -224,16 +224,16 @@ type CT_Tr struct {
 // UnmarshalXML implements custom unmarshaling for CT_Tr.
 func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		switch {
-		case attr.Name.Local == "rsidR":
+		switch attr.Name.Local {
+		case "rsidR":
 			tr.RsidR = attr.Value
-		case attr.Name.Local == "rsidRPr":
+		case "rsidRPr":
 			tr.RsidRPr = attr.Value
-		case attr.Name.Local == "rsidTr":
+		case "rsidTr":
 			tr.RsidTr = attr.Value
-		case attr.Name.Local == "paraId":
+		case "paraId":
 			tr.ParaId = attr.Value
-		case attr.Name.Local == "textId":
+		case "textId":
 			tr.TextId = attr.Value
 		}
 	}
@@ -294,7 +294,9 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				tr.childOrder = append(tr.childOrder, trChildRef{trChildDel, len(tr.Del)})
 				tr.Del = append(tr.Del, v)
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil
@@ -431,7 +433,9 @@ func (tbl *CT_Tbl) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildBookmarkEnd, len(tbl.BookmarkEnd)})
 				tbl.BookmarkEnd = append(tbl.BookmarkEnd, v)
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

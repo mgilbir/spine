@@ -127,11 +127,11 @@ func MarshalRelationships(rels []*Relationship) ([]byte, error) {
 	buf.WriteString(`">`)
 	for _, rel := range rels {
 		buf.WriteString(`<Relationship Id="`)
-		xml.EscapeText(&buf, []byte(rel.ID))
+		_ = xml.EscapeText(&buf, []byte(rel.ID))
 		buf.WriteString(`" Type="`)
-		xml.EscapeText(&buf, []byte(rel.Type))
+		_ = xml.EscapeText(&buf, []byte(rel.Type))
 		buf.WriteString(`" Target="`)
-		xml.EscapeText(&buf, []byte(rel.Target))
+		_ = xml.EscapeText(&buf, []byte(rel.Target))
 		buf.WriteByte('"')
 		if rel.TargetMode == TargetModeExternal {
 			buf.WriteString(` TargetMode="External"`)

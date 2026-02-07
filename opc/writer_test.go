@@ -51,7 +51,9 @@ func TestWriter_CreatePart(t *testing.T) {
 		t.Errorf("ContentType = %q, want %q", ct, "application/xml")
 	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 }
 
 func TestWriter_CreatePart_InvalidName(t *testing.T) {
@@ -104,7 +106,9 @@ func TestWriter_WritePart(t *testing.T) {
 		t.Fatalf("WritePart() error = %v", err)
 	}
 
-	w.Close()
+	if err = w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Verify the part exists in the zip
 	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
@@ -118,7 +122,7 @@ func TestWriter_WritePart(t *testing.T) {
 			found = true
 			rc, _ := f.Open()
 			data, _ := io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 			if string(data) != string(content) {
 				t.Errorf("Part content = %q, want %q", string(data), string(content))
 			}
@@ -156,7 +160,9 @@ func TestWriter_Close(t *testing.T) {
 	buf := &bytes.Buffer{}
 	w := NewWriter(buf)
 
-	w.WritePart("/test.xml", "application/xml", []byte("<test/>"))
+	if err := w.WritePart("/test.xml", "application/xml", []byte("<test/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
 	w.AddRelationship(RelTypeOfficeDocument, "test.xml", TargetModeInternal)
 
 	err := w.Close()
@@ -207,7 +213,9 @@ func TestWriter_Close_Twice(t *testing.T) {
 func TestWriter_CreatePart_AfterClose(t *testing.T) {
 	buf := &bytes.Buffer{}
 	w := NewWriter(buf)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	_, err := w.CreatePart("/test.xml", "application/xml", CompressionDeflate)
 	if err != ErrPackageClosed {
@@ -226,8 +234,12 @@ func TestWriter_WithCoreProperties(t *testing.T) {
 		Modified: time.Date(2024, 1, 16, 10, 0, 0, 0, time.UTC),
 	}
 
-	w.WritePart("/test.xml", "application/xml", []byte("<test/>"))
-	w.Close()
+	if err := w.WritePart("/test.xml", "application/xml", []byte("<test/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Verify the zip contains core properties
 	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
@@ -241,7 +253,7 @@ func TestWriter_WithCoreProperties(t *testing.T) {
 			found = true
 			rc, _ := f.Open()
 			data, _ := io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 
 			content := string(data)
 			if !strings.Contains(content, "Test Document") {
@@ -261,7 +273,9 @@ func TestWriter_WritePartRelationships(t *testing.T) {
 	buf := &bytes.Buffer{}
 	w := NewWriter(buf)
 
-	w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>"))
+	if err := w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
 
 	rels := []*Relationship{
 		{ID: "rId1", Type: "http://slide", Target: "slides/slide1.xml", TargetMode: TargetModeInternal},
@@ -273,7 +287,9 @@ func TestWriter_WritePartRelationships(t *testing.T) {
 		t.Fatalf("WritePartRelationships() error = %v", err)
 	}
 
-	w.Close()
+	if err = w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Verify the relationships file exists
 	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
@@ -287,7 +303,7 @@ func TestWriter_WritePartRelationships(t *testing.T) {
 			found = true
 			rc, _ := f.Open()
 			data, _ := io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 
 			content := string(data)
 			if !strings.Contains(content, "rId1") {
@@ -312,8 +328,12 @@ func TestWriter_CompressionNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreatePart() error = %v", err)
 	}
-	writer.Write(content)
-	w.Close()
+	if _, err = writer.Write(content); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if err = w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
 	// Verify the file is stored (not deflated)
 	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))

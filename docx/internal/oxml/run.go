@@ -172,12 +172,16 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				r.Br = append(r.Br, v)
 			case "tab":
 				v := &CT_Empty{}
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildTab, len(r.Tab)})
 				r.Tab = append(r.Tab, v)
 			case "cr":
 				v := &CT_Empty{}
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildCr, len(r.Cr)})
 				r.Cr = append(r.Cr, v)
 			case "sym":
@@ -210,17 +214,23 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				r.EndnoteRef = append(r.EndnoteRef, v)
 			case "lastRenderedPageBreak":
 				v := &CT_Empty{}
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildLastRenderedPageBreak, len(r.LastRenderedPageBreak)})
 				r.LastRenderedPageBreak = append(r.LastRenderedPageBreak, v)
 			case "noBreakHyphen":
 				v := &CT_Empty{}
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildNoBreakHyphen, len(r.NoBreakHyphen)})
 				r.NoBreakHyphen = append(r.NoBreakHyphen, v)
 			case "softHyphen":
 				v := &CT_Empty{}
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildSoftHyphen, len(r.SoftHyphen)})
 				r.SoftHyphen = append(r.SoftHyphen, v)
 			case "fldChar":
@@ -238,7 +248,9 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				r.childOrder = append(r.childOrder, runChildRef{runChildInstrText, len(r.InstrText)})
 				r.InstrText = append(r.InstrText, v)
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

@@ -23,14 +23,14 @@ type CT_Sst struct {
 func (sst *CT_Sst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sst.XMLName = start.Name
 	for _, attr := range start.Attr {
-		switch {
-		case attr.Name.Local == "count":
+		switch attr.Name.Local {
+		case "count":
 			var v uint32
 			if _, err := parseUint32(attr.Value, &v); err != nil {
 				return err
 			}
 			sst.Count = &v
-		case attr.Name.Local == "uniqueCount":
+		case "uniqueCount":
 			var v uint32
 			if _, err := parseUint32(attr.Value, &v); err != nil {
 				return err
@@ -64,7 +64,9 @@ func (sst *CT_Sst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				sst.Si = append(sst.Si, si)
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

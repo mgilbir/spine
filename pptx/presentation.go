@@ -65,33 +65,33 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	// Find the main presentation part
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotPPTX
 	}
 
 	mainPartName := opc.ResolvePartName("/", rels[0].Target)
 	mainPart := reader.GetFile(mainPartName)
 	if mainPart == nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotPPTX
 	}
 
 	// Verify content type
 	if mainPart.ContentType != opc.ContentTypePresentationMain {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotPPTX
 	}
 
 	// Parse presentation XML
 	data, err := mainPart.ReadAll()
 	if err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
 	var pres oxml.Presentation
 	if err := xml.Unmarshal(data, &pres); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -126,7 +126,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	// Get relationships for the main part
 	presRels, err := reader.GetPartRelationships(mainPartName)
 	if err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -139,19 +139,19 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 
 	// Load slide masters
 	if err := p.loadSlideMasters(mainPartName, relMap); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
 	// Load slides
 	if err := p.loadSlides(mainPartName); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
 	// Load all remaining parts into the model
 	if err := p.loadAllParts(mainPartName); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -502,9 +502,12 @@ func (p *Presentation) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	defer writer.Close()
 
-	return p.saveTo(writer)
+	if err := p.saveTo(writer); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	return writer.Close()
 }
 
 // SaveAs saves the presentation to a new file path.

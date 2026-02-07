@@ -22,7 +22,7 @@ func TestSchema_PresentationElements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// Verify presentation structure exists
 	if p.presentation == nil {
@@ -67,7 +67,7 @@ func TestSchema_SlideElements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	if p.SlideCount() == 0 {
 		t.Skip("No slides in test file")
@@ -103,7 +103,7 @@ func TestSchema_SlideMasterElements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	masters := p.SlideMasters()
 	if len(masters) == 0 {
@@ -144,7 +144,7 @@ func TestSchema_SlideLayoutElements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	layouts := p.SlideLayouts()
 	if len(layouts) == 0 {
@@ -177,7 +177,7 @@ func TestSchema_RelationshipIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error: %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// Check slide master RID
 	if p.presentation.SlideMasterIDs != nil {
@@ -295,17 +295,17 @@ func TestSchema_ContentPreservation(t *testing.T) {
 	// Save to temp file
 	tmpFile := t.TempDir() + "/roundtrip.pptx"
 	if err := p1.Save(tmpFile); err != nil {
-		p1.Close()
+		_ = p1.Close()
 		t.Fatalf("Save() error: %v", err)
 	}
-	p1.Close()
+	_ = p1.Close()
 
 	// Re-open
 	p2, err := Open(tmpFile)
 	if err != nil {
 		t.Fatalf("Re-open error: %v", err)
 	}
-	defer p2.Close()
+	defer func() { _ = p2.Close() }()
 
 	// Verify structure preserved
 	if p2.SlideCount() != origSlideCount {
@@ -349,7 +349,7 @@ func TestSchema_AllTestFilesOpen(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Open() error: %v", err)
 			}
-			defer p.Close()
+			defer func() { _ = p.Close() }()
 
 			// Basic structure validation
 			t.Logf("Slides: %d, Masters: %d, Layouts: %d",
@@ -375,7 +375,7 @@ func TestSchema_XMLNamespaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open ZIP: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	var presData []byte
 	for _, f := range zr.File {
@@ -385,7 +385,7 @@ func TestSchema_XMLNamespaces(t *testing.T) {
 				t.Fatalf("Failed to open presentation.xml: %v", err)
 			}
 			presData, err = io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 			if err != nil {
 				t.Fatalf("Failed to read presentation.xml: %v", err)
 			}

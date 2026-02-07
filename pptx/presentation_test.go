@@ -244,7 +244,7 @@ func TestPresentation_Save(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open saved file as zip: %v", err)
 	}
-	defer zipFile.Close()
+	defer func() { _ = zipFile.Close() }()
 
 	// Check required files exist
 	requiredFiles := []string{
@@ -288,7 +288,7 @@ func TestPresentation_SaveAndOpen_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer opened.Close()
+	defer func() { _ = opened.Close() }()
 
 	// Verify properties
 	if opened.Properties.Title != "Round Trip Test" {
@@ -326,12 +326,18 @@ func TestOpen_NotPPTX(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	w := opc.NewWriter(buf)
-	w.WritePart("/test.xml", "application/xml", []byte("<test/>"))
+	if err := w.WritePart("/test.xml", "application/xml", []byte("<test/>")); err != nil {
+		t.Fatalf("WritePart error: %v", err)
+	}
 	// Add a relationship that's NOT an office document
 	w.AddRelationship("http://some/other/type", "test.xml", opc.TargetModeInternal)
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close error: %v", err)
+	}
 
-	os.WriteFile(filePath, buf.Bytes(), 0644)
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	_, err := Open(filePath)
 	if err != ErrNotPPTX {
@@ -401,7 +407,7 @@ func TestIntegration_MinimalPPTX(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open ZIP: %v", err)
 	}
-	defer zipFile.Close()
+	defer func() { _ = zipFile.Close() }()
 
 	// Verify [Content_Types].xml
 	ctFile := findZipFile(zipFile, "[Content_Types].xml")
@@ -463,7 +469,7 @@ func readZipFile(t *testing.T, f *zip.File) []byte {
 	if err != nil {
 		t.Fatalf("Failed to open %s: %v", f.Name, err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
@@ -514,7 +520,7 @@ func TestPresentation_SaveWithMastersAndLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open ZIP: %v", err)
 	}
-	defer zipFile.Close()
+	defer func() { _ = zipFile.Close() }()
 
 	// Verify slide master exists
 	masterFile := findZipFile(zipFile, "ppt/slideMasters/slideMaster1.xml")
@@ -672,14 +678,14 @@ func TestCreateFromTemplate(t *testing.T) {
 	if err := template.Save(templatePath); err != nil {
 		t.Fatalf("Failed to save template: %v", err)
 	}
-	template.Close()
+	_ = template.Close()
 
 	// Now create from template
 	p, err := CreateFromTemplate(templatePath)
 	if err != nil {
 		t.Fatalf("CreateFromTemplate() error = %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// Template path should be recorded
 	if p.TemplatePath() != templatePath {
@@ -717,14 +723,14 @@ func TestCreateFromTemplateWithSlides(t *testing.T) {
 	if err := template.Save(templatePath); err != nil {
 		t.Fatalf("Failed to save template: %v", err)
 	}
-	template.Close()
+	_ = template.Close()
 
 	// Now create from template with slides
 	p, err := CreateFromTemplateWithSlides(templatePath)
 	if err != nil {
 		t.Fatalf("CreateFromTemplateWithSlides() error = %v", err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 
 	// Should have slides from template
 	if p.SlideCount() != 2 {
@@ -808,14 +814,14 @@ func TestPresentation_SaveAsRoundTrip(t *testing.T) {
 	if err := opened.SaveAs(newPath); err != nil {
 		t.Fatalf("SaveAs() error = %v", err)
 	}
-	opened.Close()
+	_ = opened.Close()
 
 	// Verify the new file
 	reopened, err := Open(newPath)
 	if err != nil {
 		t.Fatalf("Open(new) error = %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 
 	if reopened.Properties.Title != "Modified" {
 		t.Errorf("Title = %q, want 'Modified'", reopened.Properties.Title)

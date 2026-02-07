@@ -17,7 +17,7 @@ func ReadZipParts(path string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	parts := make(map[string][]byte)
 	for _, f := range r.File {
@@ -27,7 +27,7 @@ func ReadZipParts(path string) (map[string][]byte, error) {
 		}
 		var buf bytes.Buffer
 		_, err = buf.ReadFrom(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			return nil, err
 		}

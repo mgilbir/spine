@@ -43,31 +43,31 @@ func Open(path string) (*Workbook, error) {
 func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	mainPartName := opc.ResolvePartName("/", rels[0].Target)
 	mainPart := reader.GetFile(mainPartName)
 	if mainPart == nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	if mainPart.ContentType != opc.ContentTypeWorkbook {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	data, err := mainPart.ReadAll()
 	if err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
 	var wb oxml.CT_Workbook
 	if err := xml.Unmarshal(data, &wb); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -88,7 +88,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	}
 
 	if err := w.loadAllParts(mainPartName); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -132,12 +132,14 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case name == "/xl/sharedStrings.xml":
 			w.sharedStrings = &oxml.CT_Sst{}
-			xml.Unmarshal(data, w.sharedStrings)
+			if err := xml.Unmarshal(data, w.sharedStrings); err != nil {
+				return err
+			}
 		case name == "/xl/styles.xml":
 			w.stylesheet = &oxml.CT_Stylesheet{}
-			xml.Unmarshal(data, w.stylesheet)
-		case strings.HasPrefix(name, "/xl/worksheets/") && strings.HasSuffix(name, ".xml"):
-			// parsed separately after all parts are loaded
+			if err := xml.Unmarshal(data, w.stylesheet); err != nil {
+				return err
+			}
 		default:
 			// preserved in preservedParts
 		}
@@ -261,9 +263,12 @@ func (w *Workbook) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	defer writer.Close()
 
-	return w.saveTo(writer)
+	if err := w.saveTo(writer); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	return writer.Close()
 }
 
 // Close closes the workbook and releases resources.

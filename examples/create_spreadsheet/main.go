@@ -16,6 +16,12 @@ import (
 	"github.com/mgilbir/spine/xlsx"
 )
 
+func must(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	// Create a new workbook
 	wb := xlsx.Create()
@@ -32,7 +38,7 @@ func main() {
 	headers := []string{"Product", "Q1", "Q2", "Q3", "Q4", "Total"}
 	for i, h := range headers {
 		ref, _ := xlsx.CellRef(1, i+1)
-		sales.SetCellValue(ref, h)
+		must(sales.SetCellValue(ref, h))
 	}
 
 	// Data rows
@@ -48,11 +54,11 @@ func main() {
 
 	for i, row := range data {
 		r := i + 2 // data starts at row 2
-		sales.SetCellValue(fmt.Sprintf("A%d", r), row.product)
-		sales.SetCellValue(fmt.Sprintf("B%d", r), row.q1)
-		sales.SetCellValue(fmt.Sprintf("C%d", r), row.q2)
-		sales.SetCellValue(fmt.Sprintf("D%d", r), row.q3)
-		sales.SetCellValue(fmt.Sprintf("E%d", r), row.q4)
+		must(sales.SetCellValue(fmt.Sprintf("A%d", r), row.product))
+		must(sales.SetCellValue(fmt.Sprintf("B%d", r), row.q1))
+		must(sales.SetCellValue(fmt.Sprintf("C%d", r), row.q2))
+		must(sales.SetCellValue(fmt.Sprintf("D%d", r), row.q3))
+		must(sales.SetCellValue(fmt.Sprintf("E%d", r), row.q4))
 
 		// Total formula for each row
 		cell, _ := sales.Cell(fmt.Sprintf("F%d", r))
@@ -62,17 +68,17 @@ func main() {
 	// --- Sheet 2: Summary ---
 	summary := wb.AddSheet("Summary")
 
-	summary.SetCellValue("A1", "Metric")
-	summary.SetCellValue("B1", "Value")
+	must(summary.SetCellValue("A1", "Metric"))
+	must(summary.SetCellValue("B1", "Value"))
 
-	summary.SetCellValue("A2", "Total Products")
-	summary.SetCellValue("B2", len(data))
+	must(summary.SetCellValue("A2", "Total Products"))
+	must(summary.SetCellValue("B2", len(data)))
 
-	summary.SetCellValue("A3", "Quarters")
-	summary.SetCellValue("B3", 4)
+	must(summary.SetCellValue("A3", "Quarters"))
+	must(summary.SetCellValue("B3", 4))
 
-	summary.SetCellValue("A4", "Report Generated")
-	summary.SetCellValue("B4", true)
+	must(summary.SetCellValue("A4", "Report Generated"))
+	must(summary.SetCellValue("B4", true))
 
 	// Save the workbook
 	outputPath := "output.xlsx"
@@ -83,7 +89,9 @@ func main() {
 	// Ensure output directory exists
 	dir := filepath.Dir(outputPath)
 	if dir != "" && dir != "." {
-		os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("Failed to create directory: %v", err)
+		}
 	}
 
 	err := wb.Save(outputPath)

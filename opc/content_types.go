@@ -157,9 +157,9 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	for _, ext := range exts {
 		if contentType, ok := ct.Defaults[ext]; ok {
 			buf.WriteString(`<Default Extension="`)
-			xml.EscapeText(&buf, []byte(ext))
+			_ = xml.EscapeText(&buf, []byte(ext))
 			buf.WriteString(`" ContentType="`)
-			xml.EscapeText(&buf, []byte(contentType))
+			_ = xml.EscapeText(&buf, []byte(contentType))
 			buf.WriteString(`"/>`)
 		}
 	}
@@ -169,9 +169,9 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	for _, partName := range parts {
 		if contentType, ok := ct.Overrides[partName]; ok {
 			buf.WriteString(`<Override PartName="`)
-			xml.EscapeText(&buf, []byte(partName))
+			_ = xml.EscapeText(&buf, []byte(partName))
 			buf.WriteString(`" ContentType="`)
-			xml.EscapeText(&buf, []byte(contentType))
+			_ = xml.EscapeText(&buf, []byte(contentType))
 			buf.WriteString(`"/>`)
 		}
 	}

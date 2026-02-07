@@ -606,12 +606,13 @@ func (s *Slide) Duplicate() *Slide {
 	if s.slideXML != nil {
 		data, _ := xml.Marshal(s.slideXML)
 		var copyXML oxml.Slide
-		xml.Unmarshal(data, &copyXML)
-		newSlide.slideXML = &copyXML
+		if err := xml.Unmarshal(data, &copyXML); err == nil {
+			newSlide.slideXML = &copyXML
+		}
 	}
 
 	// Move to position after original
-	s.presentation.MoveSlide(newSlide.index, s.index+1)
+	_ = s.presentation.MoveSlide(newSlide.index, s.index+1)
 
 	return newSlide
 }

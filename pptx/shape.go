@@ -73,7 +73,6 @@ type BaseShape struct {
 	x, y   dml.EMU
 	width  dml.EMU
 	height dml.EMU
-	id     uint32
 }
 
 // Name returns the name of the shape.

@@ -129,7 +129,6 @@ type Video struct {
 	videoPath   string
 	videoData   []byte
 	contentType string
-	relID       string
 	posterFrame *Picture // preview image
 }
 
@@ -185,7 +184,6 @@ type Audio struct {
 	audioPath   string
 	audioData   []byte
 	contentType string
-	relID       string
 	icon        *Picture // icon to display
 }
 

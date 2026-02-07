@@ -97,7 +97,9 @@ func main() {
 	// Ensure output directory exists
 	dir := filepath.Dir(outputPath)
 	if dir != "" && dir != "." {
-		os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("Failed to create directory: %v", err)
+		}
 	}
 
 	err := doc.Save(outputPath)

@@ -291,6 +291,6 @@ func UnmarshalOnOff(d *xml.Decoder, start *xml.StartElement) *CT_OnOff {
 			o.Val = &val
 		}
 	}
-	d.Skip()
+	_ = d.Skip()
 	return o
 }

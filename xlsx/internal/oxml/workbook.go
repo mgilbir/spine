@@ -4,6 +4,7 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+	"strconv"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -337,33 +338,40 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 			b := attr.Value == "1" || attr.Value == "true"
 			bv.ShowSheetTabs = &b
 		case "xWindow":
-			var v int32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.XWindow = &v
+			if n, err := strconv.ParseInt(attr.Value, 10, 32); err == nil {
+				v := int32(n)
+				bv.XWindow = &v
+			}
 		case "yWindow":
-			var v int32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.YWindow = &v
+			if n, err := strconv.ParseInt(attr.Value, 10, 32); err == nil {
+				v := int32(n)
+				bv.YWindow = &v
+			}
 		case "windowWidth":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.WindowWidth = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				bv.WindowWidth = &v
+			}
 		case "windowHeight":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.WindowHeight = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				bv.WindowHeight = &v
+			}
 		case "tabRatio":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.TabRatio = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				bv.TabRatio = &v
+			}
 		case "firstSheet":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.FirstSheet = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				bv.FirstSheet = &v
+			}
 		case "activeTab":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			bv.ActiveTab = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				bv.ActiveTab = &v
+			}
 		case "autoFilterDateGrouping":
 			b := attr.Value == "1" || attr.Value == "true"
 			bv.AutoFilterDateGrouping = &b
@@ -451,7 +459,9 @@ func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case attr.Name.Local == "name":
 			s.Name = attr.Value
 		case attr.Name.Local == "sheetId":
-			fmt.Sscanf(attr.Value, "%d", &s.SheetId)
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				s.SheetId = uint32(n)
+			}
 		case attr.Name.Local == "state":
 			s.State = attr.Value
 		case attr.Name.Local == "id" && attr.Name.Space == nsR:
@@ -519,9 +529,10 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 		case "statusBar":
 			dn.StatusBar = attr.Value
 		case "localSheetId":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			dn.LocalSheetId = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				dn.LocalSheetId = &v
+			}
 		case "hidden":
 			b := attr.Value == "1" || attr.Value == "true"
 			dn.Hidden = &b
@@ -535,9 +546,10 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 			b := attr.Value == "1" || attr.Value == "true"
 			dn.Xlm = &b
 		case "functionGroupId":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			dn.FunctionGroupId = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				dn.FunctionGroupId = &v
+			}
 		case "shortcutKey":
 			dn.ShortcutKey = attr.Value
 		case "publishToServer":

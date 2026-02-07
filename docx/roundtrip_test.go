@@ -45,7 +45,7 @@ func TestCreateAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to reopen: %v", err)
 	}
-	defer doc2.Close()
+	defer func() { _ = doc2.Close() }()
 
 	paras := doc2.Paragraphs()
 	if len(paras) != 2 {
@@ -88,17 +88,17 @@ func TestRoundTrip(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.docx")
 			if err := d1.Save(tmpFile); err != nil {
-				d1.Close()
+				_ = d1.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			d1.Close()
+			_ = d1.Close()
 
 			// Re-open the saved file to verify it's valid
 			d2, err := Open(tmpFile)
 			if err != nil {
 				t.Fatalf("Failed to re-open saved file: %v", err)
 			}
-			defer d2.Close()
+			defer func() { _ = d2.Close() }()
 
 			// Verify structure is preserved
 			if len(d2.Paragraphs()) != origParaCount {
@@ -136,10 +136,10 @@ func TestRoundTripByteIdentical(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.docx")
 			if err := d.Save(tmpFile); err != nil {
-				d.Close()
+				_ = d.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			d.Close()
+			_ = d.Close()
 
 			// Compare the two files
 			missing, extra, changed := testutil.CompareZipFiles(t, tc.path, tmpFile)

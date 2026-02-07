@@ -88,7 +88,7 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
 			// Numeric ID
 			var id uint32
-			fmt.Sscanf(attr.Value, "%d", &id)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &id)
 			s.ID = id
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			// Relationship ID with full namespace

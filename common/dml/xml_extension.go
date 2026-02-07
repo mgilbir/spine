@@ -198,8 +198,7 @@ func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			v.Embed = attr.Value
 		}
 	}
-	d.Skip()
-	return nil
+	return d.Skip()
 }
 
 func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -211,8 +210,7 @@ func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 			v.MinVer = attr.Value
 		}
 	}
-	d.Skip()
-	return nil
+	return d.Skip()
 }
 
 // --- Custom UnmarshalXML for Ext ---

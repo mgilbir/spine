@@ -333,9 +333,10 @@ func (sf *CT_SheetFormatPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "baseColWidth" && attr.Name.Space == "":
-			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
-			sf.BaseColWidth = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				sf.BaseColWidth = &v
+			}
 		case attr.Name.Local == "defaultColWidth" && attr.Name.Space == "":
 			v, err := strconv.ParseFloat(attr.Value, 64)
 			if err == nil {
@@ -359,13 +360,15 @@ func (sf *CT_SheetFormatPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 			b := attr.Value == "1" || attr.Value == "true"
 			sf.ThickBottom = &b
 		case attr.Name.Local == "outlineLevelRow" && attr.Name.Space == "":
-			var v uint8
-			fmt.Sscanf(attr.Value, "%d", &v)
-			sf.OutlineLevelRow = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
+				v := uint8(n)
+				sf.OutlineLevelRow = &v
+			}
 		case attr.Name.Local == "outlineLevelCol" && attr.Name.Space == "":
-			var v uint8
-			fmt.Sscanf(attr.Value, "%d", &v)
-			sf.OutlineLevelCol = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
+				v := uint8(n)
+				sf.OutlineLevelCol = &v
+			}
 		case attr.Name.Local == "dyDescent" && (attr.Name.Space == nsX14AC || attr.Name.Space == "x14ac"):
 			v, err := strconv.ParseFloat(attr.Value, 64)
 			if err == nil {
@@ -497,13 +500,13 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		switch {
 		case attr.Name.Local == "r" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			r.R = &v
 		case attr.Name.Local == "spans" && attr.Name.Space == "":
 			r.Spans = attr.Value
 		case attr.Name.Local == "s" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			r.S = &v
 		case attr.Name.Local == "ht" && attr.Name.Space == "":
 			v, err := strconv.ParseFloat(attr.Value, 64)
@@ -518,7 +521,7 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			r.CustomHeight = &b
 		case attr.Name.Local == "outlineLevel" && attr.Name.Space == "":
 			var v uint8
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			r.OutlineLevel = &v
 		case attr.Name.Local == "collapsed" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
@@ -664,7 +667,7 @@ func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 			f.Ref = attr.Value
 		case "si":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			f.Si = &v
 		}
 	}
@@ -803,23 +806,23 @@ func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		switch {
 		case attr.Name.Local == "paperSize" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.PaperSize = &v
 		case attr.Name.Local == "scale" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.Scale = &v
 		case attr.Name.Local == "firstPageNumber" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.FirstPageNumber = &v
 		case attr.Name.Local == "fitToWidth" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.FitToWidth = &v
 		case attr.Name.Local == "fitToHeight" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.FitToHeight = &v
 		case attr.Name.Local == "pageOrder" && attr.Name.Space == "":
 			ps.PageOrder = attr.Value
@@ -843,15 +846,15 @@ func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			ps.Errors = attr.Value
 		case attr.Name.Local == "horizontalDpi" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.HorizontalDpi = &v
 		case attr.Name.Local == "verticalDpi" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.VerticalDpi = &v
 		case attr.Name.Local == "copies" && attr.Name.Space == "":
 			var v uint32
-			fmt.Sscanf(attr.Value, "%d", &v)
+			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.Copies = &v
 		case (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id":
 			ps.RID = attr.Value

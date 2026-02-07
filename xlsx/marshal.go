@@ -77,7 +77,7 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			marshalWorkbookExtLst(b, wb)
 		case strings.HasPrefix(childName, "unknown:"):
 			var idx int
-			fmt.Sscanf(childName, "unknown:%d", &idx)
+			_, _ = fmt.Sscanf(childName, "unknown:%d", &idx)
 			if idx < len(wb.UnknownChildren) {
 				b.WriteRaw(wb.UnknownChildren[idx].Data)
 			}
@@ -282,88 +282,3 @@ func marshalTableParts(b *xmlb.Builder, tp *oxml.CT_TableParts) {
 	b.EndElement(nsSML, "tableParts")
 }
 
-// marshalSharedStringsXML marshals a shared string table to XML.
-func marshalSharedStringsXML(sst *oxml.CT_Sst) []byte {
-	b := xmlb.NewSpreadsheetMLBuilder()
-	b.WriteHeader()
-
-	// Use original namespace declarations if available (for round-trip fidelity),
-	// otherwise use the standard set.
-	nsDecls := xmlb.SpreadsheetMLNamespaces()
-	if len(sst.OriginalNSDecls) > 0 {
-		nsDecls = sst.OriginalNSDecls
-	}
-
-	var attrs []xmlb.Attr
-	if sst.Count != nil {
-		attrs = append(attrs, xmlb.UintAttr("count", *sst.Count))
-	}
-	if sst.UniqueCount != nil {
-		attrs = append(attrs, xmlb.UintAttr("uniqueCount", *sst.UniqueCount))
-	}
-
-	b.StartElementWithNS(nsSML, "sst", nsDecls, attrs...)
-
-	for i := range sst.Si {
-		b.MarshalElement(nsSML, "si", &sst.Si[i])
-	}
-
-	b.EndElement(nsSML, "sst")
-	return b.Bytes()
-}
-
-// marshalStylesheetXML marshals a stylesheet to XML.
-func marshalStylesheetXML(ss *oxml.CT_Stylesheet) []byte {
-	b := xmlb.NewSpreadsheetMLBuilder()
-	b.WriteHeader()
-
-	// Use original namespace declarations if available (for round-trip fidelity),
-	// otherwise use the standard set.
-	nsDecls := xmlb.SpreadsheetMLNamespaces()
-	if len(ss.OriginalNSDecls) > 0 {
-		nsDecls = ss.OriginalNSDecls
-	}
-
-	b.StartElementWithNS(nsSML, "styleSheet", nsDecls)
-
-	if ss.NumFmts != nil {
-		b.MarshalElement(nsSML, "numFmts", ss.NumFmts)
-	}
-	if ss.Fonts != nil {
-		b.MarshalElement(nsSML, "fonts", ss.Fonts)
-	}
-	if ss.Fills != nil {
-		b.MarshalElement(nsSML, "fills", ss.Fills)
-	}
-	if ss.Borders != nil {
-		b.MarshalElement(nsSML, "borders", ss.Borders)
-	}
-	if ss.CellStyleXfs != nil {
-		b.MarshalElement(nsSML, "cellStyleXfs", ss.CellStyleXfs)
-	}
-	if ss.CellXfs != nil {
-		b.MarshalElement(nsSML, "cellXfs", ss.CellXfs)
-	}
-	if ss.CellStyles != nil {
-		b.MarshalElement(nsSML, "cellStyles", ss.CellStyles)
-	}
-	if ss.Dxfs != nil {
-		b.MarshalElement(nsSML, "dxfs", ss.Dxfs)
-	}
-	if ss.TableStyles != nil {
-		b.MarshalElement(nsSML, "tableStyles", ss.TableStyles)
-	}
-	if ss.Colors != nil {
-		b.MarshalElement(nsSML, "colors", ss.Colors)
-	}
-	if ss.ExtLst != nil && len(ss.ExtLst.Ext) > 0 {
-		b.StartElement(nsSML, "extLst")
-		for i := range ss.ExtLst.Ext {
-			ss.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
-		}
-		b.EndElement(nsSML, "extLst")
-	}
-
-	b.EndElement(nsSML, "styleSheet")
-	return b.Bytes()
-}

@@ -6,7 +6,6 @@ import (
 
 // Theme represents a presentation theme.
 type Theme struct {
-	partName     string
 	name         string
 	colorScheme  *ColorScheme
 	fontScheme   *FontScheme

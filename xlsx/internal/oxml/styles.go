@@ -106,7 +106,9 @@ func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 					return err
 				}
 			default:
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

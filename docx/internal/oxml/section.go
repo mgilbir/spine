@@ -59,12 +59,16 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 			case "headerReference":
 				v := &CT_HdrFtrRef{}
 				v.unmarshalAttrs(t.Attr)
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				sp.HeaderReference = append(sp.HeaderReference, v)
 			case "footerReference":
 				v := &CT_HdrFtrRef{}
 				v.unmarshalAttrs(t.Attr)
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 				sp.FooterReference = append(sp.FooterReference, v)
 			case "footnotePr":
 				sp.FootnoteProperties = &CT_FtnProps{}
@@ -114,8 +118,9 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 					return err
 				}
 			default:
-				// Handle remaining elements generically
-				d.Skip()
+				if err := d.Skip(); err != nil {
+					return err
+				}
 			}
 		case xml.EndElement:
 			return nil

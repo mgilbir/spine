@@ -65,13 +65,23 @@ func TestCreateAndReopen(t *testing.T) {
 	// Create a new workbook
 	wb := Create()
 	s1 := wb.AddSheet("Sheet1")
-	s1.SetCellValue("A1", "Hello")
-	s1.SetCellValue("B1", 42)
-	s1.SetCellValue("A2", true)
-	s1.SetCellValue("B2", 3.14)
+	if err := s1.SetCellValue("A1", "Hello"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := s1.SetCellValue("B1", 42); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := s1.SetCellValue("A2", true); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := s1.SetCellValue("B2", 3.14); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
 
 	s2 := wb.AddSheet("Sheet2")
-	s2.SetCellValue("A1", "World")
+	if err := s2.SetCellValue("A1", "World"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
 
 	if err := wb.Save(tmpFile); err != nil {
 		t.Fatalf("Failed to save: %v", err)
@@ -82,7 +92,7 @@ func TestCreateAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to reopen: %v", err)
 	}
-	defer wb2.Close()
+	defer func() { _ = wb2.Close() }()
 
 	if wb2.SheetCount() != 2 {
 		t.Fatalf("Expected 2 sheets, got %d", wb2.SheetCount())
@@ -154,17 +164,17 @@ func TestRoundTrip(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.xlsx")
 			if err := w1.Save(tmpFile); err != nil {
-				w1.Close()
+				_ = w1.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			w1.Close()
+			_ = w1.Close()
 
 			// Re-open the saved file to verify it's valid
 			w2, err := Open(tmpFile)
 			if err != nil {
 				t.Fatalf("Failed to re-open saved file: %v", err)
 			}
-			defer w2.Close()
+			defer func() { _ = w2.Close() }()
 
 			// Verify structure is preserved
 			if w2.SheetCount() != origSheetCount {
@@ -201,10 +211,10 @@ func TestRoundTripByteIdentical(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.xlsx")
 			if err := w.Save(tmpFile); err != nil {
-				w.Close()
+				_ = w.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			w.Close()
+			_ = w.Close()
 
 			// Compare the two files
 			missing, extra, changed := testutil.CompareZipFiles(t, tc.path, tmpFile)

@@ -101,17 +101,17 @@ func TestRoundTrip(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.pptx")
 			if err := p1.Save(tmpFile); err != nil {
-				p1.Close()
+				_ = p1.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			p1.Close()
+			_ = p1.Close()
 
 			// Re-open the saved file to verify it's valid
 			p2, err := Open(tmpFile)
 			if err != nil {
 				t.Fatalf("Failed to re-open saved file: %v", err)
 			}
-			defer p2.Close()
+			defer func() { _ = p2.Close() }()
 
 			// Verify structure is preserved
 			if p2.SlideCount() != origSlideCount {
@@ -149,10 +149,10 @@ func TestRoundTripByteIdentical(t *testing.T) {
 			// Save to a temp file
 			tmpFile := filepath.Join(t.TempDir(), "roundtrip.pptx")
 			if err := p.Save(tmpFile); err != nil {
-				p.Close()
+				_ = p.Close()
 				t.Fatalf("Failed to save: %v", err)
 			}
-			p.Close()
+			_ = p.Close()
 
 			// Compare the two files
 			missing, extra, changed := testutil.CompareZipFiles(t, tc.path, tmpFile)

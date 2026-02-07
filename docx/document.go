@@ -58,31 +58,31 @@ func Open(path string) (*Document, error) {
 func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotDOCX
 	}
 
 	mainPartName := opc.ResolvePartName("/", rels[0].Target)
 	mainPart := reader.GetFile(mainPartName)
 	if mainPart == nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotDOCX
 	}
 
 	if mainPart.ContentType != opc.ContentTypeDocument {
-		reader.Close()
+		_ = reader.Close()
 		return nil, ErrNotDOCX
 	}
 
 	data, err := mainPart.ReadAll()
 	if err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
 	var doc oxml.CT_Document
 	if err := xml.Unmarshal(data, &doc); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -102,7 +102,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	}
 
 	if err := d.loadAllParts(mainPartName); err != nil {
-		reader.Close()
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -146,33 +146,49 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case name == "/word/styles.xml":
 			d.styles = &oxml.CT_Styles{}
-			xml.Unmarshal(data, d.styles)
+			if err := xml.Unmarshal(data, d.styles); err != nil {
+				return err
+			}
 		case name == "/word/numbering.xml":
 			d.numbering = &oxml.CT_Numbering{}
-			xml.Unmarshal(data, d.numbering)
+			if err := xml.Unmarshal(data, d.numbering); err != nil {
+				return err
+			}
 		case name == "/word/settings.xml":
 			d.settings = &oxml.CT_Settings{}
-			xml.Unmarshal(data, d.settings)
+			if err := xml.Unmarshal(data, d.settings); err != nil {
+				return err
+			}
 		case name == "/word/footnotes.xml":
 			d.footnotes = &oxml.CT_Footnotes{}
-			xml.Unmarshal(data, d.footnotes)
+			if err := xml.Unmarshal(data, d.footnotes); err != nil {
+				return err
+			}
 		case name == "/word/endnotes.xml":
 			d.endnotes = &oxml.CT_Endnotes{}
-			xml.Unmarshal(data, d.endnotes)
+			if err := xml.Unmarshal(data, d.endnotes); err != nil {
+				return err
+			}
 		case name == "/word/comments.xml":
 			d.comments = &oxml.CT_Comments{}
-			xml.Unmarshal(data, d.comments)
+			if err := xml.Unmarshal(data, d.comments); err != nil {
+				return err
+			}
 		case name == "/word/fontTable.xml":
 			// preserved in preservedParts
 		case name == "/word/webSettings.xml":
 			// preserved in preservedParts
 		case strings.HasPrefix(name, "/word/header") && strings.HasSuffix(name, ".xml"):
 			hdr := &oxml.CT_HdrFtr{}
-			xml.Unmarshal(data, hdr)
+			if err := xml.Unmarshal(data, hdr); err != nil {
+				return err
+			}
 			d.headers[name] = &headerPart{hdr: hdr, contentType: file.ContentType}
 		case strings.HasPrefix(name, "/word/footer") && strings.HasSuffix(name, ".xml"):
 			ftr := &oxml.CT_HdrFtr{}
-			xml.Unmarshal(data, ftr)
+			if err := xml.Unmarshal(data, ftr); err != nil {
+				return err
+			}
 			d.footers[name] = &footerPart{ftr: ftr, contentType: file.ContentType}
 		default:
 			d.otherParts[name] = &coxml.RawPart{
@@ -233,9 +249,12 @@ func (d *Document) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	defer writer.Close()
 
-	return d.saveTo(writer)
+	if err := d.saveTo(writer); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	return writer.Close()
 }
 
 // Close closes the document and releases resources.
@@ -355,7 +374,6 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 			Type:   opc.RelTypeStyles,
 			Target: "styles.xml",
 		})
-		relID++
 	}
 
 	if err := writer.WritePartRelationships("/word/document.xml", docRels); err != nil {
@@ -447,5 +465,4 @@ func (d *Document) Tables() []*Table {
 
 // Section represents a document section.
 type Section struct {
-	sectPr *oxml.CT_SectPr
 }
