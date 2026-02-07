@@ -205,12 +205,16 @@ func (p *P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // MarshalXML implements xml.Marshaler for P, ensuring interleaved R/Br/Fld children
 // are serialized even though they use xml:"-" struct tags.
 func (p *P) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	e.EncodeToken(start)
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
 
 	ns := "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 	if p.PPr != nil {
-		e.EncodeElement(p.PPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "pPr"}})
+		if err := e.EncodeElement(p.PPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "pPr"}}); err != nil {
+			return err
+		}
 	}
 
 	if len(p.childOrder) > 0 {
@@ -218,32 +222,46 @@ func (p *P) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 			switch ref.kind {
 			case pChildR:
 				if ref.index < len(p.R) {
-					e.EncodeElement(p.R[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}})
+					if err := e.EncodeElement(p.R[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}}); err != nil {
+						return err
+					}
 				}
 			case pChildBr:
 				if ref.index < len(p.Br) {
-					e.EncodeElement(p.Br[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}})
+					if err := e.EncodeElement(p.Br[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}}); err != nil {
+						return err
+					}
 				}
 			case pChildFld:
 				if ref.index < len(p.Fld) {
-					e.EncodeElement(p.Fld[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}})
+					if err := e.EncodeElement(p.Fld[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}}); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	} else {
 		for _, r := range p.R {
-			e.EncodeElement(r, xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}})
+			if err := e.EncodeElement(r, xml.StartElement{Name: xml.Name{Space: ns, Local: "r"}}); err != nil {
+				return err
+			}
 		}
 		for _, br := range p.Br {
-			e.EncodeElement(br, xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}})
+			if err := e.EncodeElement(br, xml.StartElement{Name: xml.Name{Space: ns, Local: "br"}}); err != nil {
+				return err
+			}
 		}
 		for _, fld := range p.Fld {
-			e.EncodeElement(fld, xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}})
+			if err := e.EncodeElement(fld, xml.StartElement{Name: xml.Name{Space: ns, Local: "fld"}}); err != nil {
+				return err
+			}
 		}
 	}
 
 	if p.EndParaRPr != nil {
-		e.EncodeElement(p.EndParaRPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "endParaRPr"}})
+		if err := e.EncodeElement(p.EndParaRPr, xml.StartElement{Name: xml.Name{Space: ns, Local: "endParaRPr"}}); err != nil {
+			return err
+		}
 	}
 
 	return e.EncodeToken(start.End())

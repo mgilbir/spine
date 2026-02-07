@@ -252,7 +252,9 @@ func (p *PathXML2D) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if p.ExtrusionOk {
 		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "extrusionOk"}, Value: "1"})
 	}
-	e.EncodeToken(start)
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
 
 	ns := "http://schemas.openxmlformats.org/drawingml/2006/main"
 
@@ -261,48 +263,72 @@ func (p *PathXML2D) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 			switch ref.kind {
 			case pathCmdMoveTo:
 				if ref.index < len(p.MoveTo) {
-					e.EncodeElement(p.MoveTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}})
+					if err := e.EncodeElement(p.MoveTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}}); err != nil {
+						return err
+					}
 				}
 			case pathCmdLnTo:
 				if ref.index < len(p.LnTo) {
-					e.EncodeElement(p.LnTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}})
+					if err := e.EncodeElement(p.LnTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}}); err != nil {
+						return err
+					}
 				}
 			case pathCmdArcTo:
 				if ref.index < len(p.ArcTo) {
-					e.EncodeElement(p.ArcTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}})
+					if err := e.EncodeElement(p.ArcTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}}); err != nil {
+						return err
+					}
 				}
 			case pathCmdQuadBezTo:
 				if ref.index < len(p.QuadBezTo) {
-					e.EncodeElement(p.QuadBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}})
+					if err := e.EncodeElement(p.QuadBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}}); err != nil {
+						return err
+					}
 				}
 			case pathCmdCubicBezTo:
 				if ref.index < len(p.CubicBezTo) {
-					e.EncodeElement(p.CubicBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}})
+					if err := e.EncodeElement(p.CubicBezTo[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}}); err != nil {
+						return err
+					}
 				}
 			case pathCmdClose:
 				if ref.index < len(p.Close) {
-					e.EncodeElement(p.Close[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}})
+					if err := e.EncodeElement(p.Close[ref.index], xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}}); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	} else {
 		for _, v := range p.MoveTo {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "moveTo"}}); err != nil {
+				return err
+			}
 		}
 		for _, v := range p.LnTo {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "lnTo"}}); err != nil {
+				return err
+			}
 		}
 		for _, v := range p.ArcTo {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "arcTo"}}); err != nil {
+				return err
+			}
 		}
 		for _, v := range p.QuadBezTo {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "quadBezTo"}}); err != nil {
+				return err
+			}
 		}
 		for _, v := range p.CubicBezTo {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "cubicBezTo"}}); err != nil {
+				return err
+			}
 		}
 		for _, v := range p.Close {
-			e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}})
+			if err := e.EncodeElement(v, xml.StartElement{Name: xml.Name{Space: ns, Local: "close"}}); err != nil {
+				return err
+			}
 		}
 	}
 
