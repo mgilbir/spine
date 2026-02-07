@@ -6,6 +6,7 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/dml/chart"
 	"github.com/mgilbir/spine/common/dml/diagram"
+	"github.com/mgilbir/spine/common/vml"
 )
 
 // DMLTypeMap maps DrawingML element local names to Go types.
@@ -143,3 +144,35 @@ var SMLTypeMap = map[string]reflect.Type{}
 // sp, pic, cxnSp, grpSp, graphicFrame, nvSpPr, nvPicPr, transition,
 // cmLst, cmAuthorLst, notes, notesMaster, viewPr
 var PMLTypeMap = map[string]reflect.Type{}
+
+// VMLTypeMap maps VML element local names to Go types.
+// These types are from common/vml/ and are publicly accessible.
+var VMLTypeMap = map[string]reflect.Type{
+	"group":     reflect.TypeOf(vml.Group{}),
+	"shape":     reflect.TypeOf(vml.Shape{}),
+	"shapetype": reflect.TypeOf(vml.Shapetype{}),
+	"rect":      reflect.TypeOf(vml.Rect{}),
+	"roundrect": reflect.TypeOf(vml.RoundRect{}),
+	"oval":      reflect.TypeOf(vml.Oval{}),
+	"line":      reflect.TypeOf(vml.Line{}),
+	"polyline":  reflect.TypeOf(vml.Polyline{}),
+	"curve":     reflect.TypeOf(vml.Curve{}),
+	"arc":       reflect.TypeOf(vml.Arc{}),
+	"image":     reflect.TypeOf(vml.ImageEl{}),
+	"fill":      reflect.TypeOf(vml.Fill{}),
+	"stroke":    reflect.TypeOf(vml.Stroke{}),
+	"shadow":    reflect.TypeOf(vml.Shadow{}),
+	"textbox":   reflect.TypeOf(vml.Textbox{}),
+	"textpath":  reflect.TypeOf(vml.TextPath{}),
+	"imagedata": reflect.TypeOf(vml.ImageData{}),
+	"path":      reflect.TypeOf(vml.PathEl{}),
+	"formulas":  reflect.TypeOf(vml.Formulas{}),
+	"handles":   reflect.TypeOf(vml.Handles{}),
+	"lock":      reflect.TypeOf(vml.Lock{}),
+	"callout":   reflect.TypeOf(vml.Callout{}),
+	"extrusion": reflect.TypeOf(vml.Extrusion{}),
+	"signatureline": reflect.TypeOf(vml.SignatureLine{}),
+	"wrap":      reflect.TypeOf(vml.Wrap{}),
+	"anchorlock": reflect.TypeOf(vml.AnchorLock{}),
+	"ClientData": reflect.TypeOf(vml.ClientData{}),
+}

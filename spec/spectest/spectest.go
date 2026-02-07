@@ -20,6 +20,7 @@ type Example struct {
 	ElementName    string  `json:"element_name"`
 	Description    string  `json:"description"`
 	Page           int     `json:"page"`
+	Document       string  `json:"document"`
 	RootElement    *string `json:"root_element"`
 	NSPrefix       string  `json:"ns_prefix"`
 	Classification string  `json:"classification"`
@@ -29,9 +30,9 @@ type Example struct {
 
 // ExampleFile represents a JSON file of extracted examples.
 type ExampleFile struct {
-	Document string    `json:"document"`
-	Format   string    `json:"format"`
-	Examples []Example `json:"examples"`
+	Documents []string  `json:"documents"`
+	Format    string    `json:"format"`
+	Examples  []Example `json:"examples"`
 }
 
 // LoadExamples reads a JSON test data file and returns the parsed examples.
@@ -55,7 +56,7 @@ func LoadExamples(t *testing.T, path string) []Example {
 func LogBreadcrumb(t *testing.T, ex Example) {
 	t.Helper()
 	t.Logf("%s, section %s, page %d: %s (%s)",
-		"ISO/IEC 29500-1:2012", ex.Section, ex.Page, ex.ElementName, ex.Description)
+		ex.Document, ex.Section, ex.Page, ex.ElementName, ex.Description)
 }
 
 // WML namespace constants.

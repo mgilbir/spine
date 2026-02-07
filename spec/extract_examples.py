@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Extract XML examples from ISO/IEC 29500-1:2012 PDF.
+"""Extract XML examples from ISO/IEC 29500 PDFs (all four parts).
 
-Extracts [Example: ... end example] blocks from sections 17 (WML),
-18 (SML), and 19 (PML), classifies them, and writes JSON test data files.
+Extracts [Example: ... end example] blocks, classifies them, and writes
+JSON test data files grouped by format (WML, SML, PML, DML, etc.).
+
+Part 1: Main spec (WML §17, SML §18, PML §19, DML §20-21)
+Part 2: OPC (Open Packaging Conventions)
+Part 3: Markup Compatibility and Extensibility
+Part 4: Transitional Migration Features (WML §14, SML §15, PML §16, DML §17-18, VML §19, Shared §20)
 
 Requires: pymupdf (fitz)
 
@@ -20,18 +25,65 @@ import fitz
 
 # --- Configuration ---
 
-PDF_PATH = os.path.join(os.path.dirname(__file__), "ISO-IEC-29500-1", "ISO-IEC-29500-1.pdf")
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "testdata")
+SPEC_DIR = os.path.dirname(__file__)
+OUTPUT_DIR = os.path.join(SPEC_DIR, "testdata")
 
-DOCUMENT_ID = "ISO/IEC 29500-1:2012"
+# PDF definitions: each PDF has sections that map to output format files.
+# "document" is the ISO document identifier for breadcrumbs.
+PDFS = [
+    {
+        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-1", "ISO-IEC-29500-1.pdf"),
+        "document": "ISO/IEC 29500-1:2012",
+        "part_number": 1,
+        "sections": {
+            "WML": {"prefix": "17", "start_page": 178, "end_page": 1529},
+            "SML": {"prefix": "18", "start_page": 1529, "end_page": 2520},
+            "PML": {"prefix": "19", "start_page": 2520, "end_page": 2720},
+            "DML": {"prefix": "20", "start_page": 2720, "end_page": 3600},
+        },
+    },
+    {
+        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-2", "ISO-IEC-29500-2.pdf"),
+        "document": "ISO/IEC 29500-2:2012",
+        "part_number": 2,
+        "sections": {
+            "OPC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+        },
+    },
+    {
+        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-3", "ISO-IEC-29500-3.pdf"),
+        "document": "ISO/IEC 29500-3:2012",
+        "part_number": 3,
+        "sections": {
+            "MC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+        },
+    },
+    {
+        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-4", "ISO-IEC-29500-4.pdf"),
+        "document": "ISO/IEC 29500-4:2012",
+        "part_number": 4,
+        "sections": {
+            "WML_T": {"prefix": "14", "start_page": 45, "end_page": 218},
+            "SML_T": {"prefix": "15", "start_page": 218, "end_page": 239},
+            "PML_T": {"prefix": "16", "start_page": 239, "end_page": 267},
+            "DML_T": {"prefix": "17", "start_page": 267, "end_page": 307},
+            "VML":   {"prefix": "19", "start_page": 307, "end_page": 873},
+            "SHARED_T": {"prefix": "20", "start_page": 873, "end_page": 9999},
+        },
+    },
+]
 
-# Section page ranges (0-indexed). Each section starts at its title page
-# and ends just before the next major section.
-SECTIONS = {
-    "WML": {"prefix": "17", "start_page": 178, "end_page": 1529, "format": "WML"},
-    "SML": {"prefix": "18", "start_page": 1529, "end_page": 2520, "format": "SML"},
-    "PML": {"prefix": "19", "start_page": 2520, "end_page": 2720, "format": "PML"},
-    "DML": {"prefix": "20", "start_page": 2720, "end_page": 3600, "format": "DML"},
+# Map internal section keys to output format names for JSON files.
+# Multiple keys can map to the same output format (they get merged).
+FORMAT_OUTPUT_MAP = {
+    "WML": "wml", "WML_T": "wml",
+    "SML": "sml", "SML_T": "sml",
+    "PML": "pml", "PML_T": "pml",
+    "DML": "dml", "DML_T": "dml",
+    "OPC": "opc",
+    "MC": "mc",
+    "VML": "vml",
+    "SHARED_T": "shared",
 }
 
 # Section header pattern: "17.3.1.1\nelement (Description)"
@@ -58,15 +110,22 @@ NS_MAP = {
     "x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "wsp": "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
     "xml": "http://www.w3.org/XML/1998/namespace",
+    "w10": "urn:schemas-microsoft-com:office:word",
+    "x14": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
 }
+
+# Page artifact pattern matches all four part numbers
+PAGE_ARTIFACT_RE = re.compile(r"ISO/IEC 29500-[1-4]:2012\(E\)\s*")
+COPYRIGHT_RE = re.compile(r"©ISO/IEC 2012 – All rights reserved\s*")
+PAGE_NUM_RE = re.compile(r"(?m)^\d{1,4}\s*$")
 
 
 def extract_text_by_page(doc, start_page, end_page):
     """Extract text from each page in range, returning list of (page_num, text)."""
     pages = []
-    for pg in range(start_page, end_page):
-        if pg < len(doc):
-            pages.append((pg + 1, doc[pg].get_text()))  # 1-indexed page numbers
+    end = min(end_page, len(doc))
+    for pg in range(start_page, end):
+        pages.append((pg + 1, doc[pg].get_text()))  # 1-indexed page numbers
     return pages
 
 
@@ -107,7 +166,6 @@ def find_examples(pages):
                 else:
                     examples.append(ex)
 
-    # If there's an unclosed example at the end, discard it
     if buffer:
         print(f"  Warning: unclosed example starting at page {buffer_page}", file=sys.stderr)
 
@@ -115,10 +173,7 @@ def find_examples(pages):
 
 
 def _find_examples_in_text(text, page_num):
-    """Find examples within a single page's text. Yields dicts.
-
-    If an example starts but doesn't end on this page, yields it with _open=True.
-    """
+    """Find examples within a single page's text. Yields dicts."""
     idx = 0
     while idx < len(text):
         start_idx = text.find("[Example:", idx)
@@ -127,7 +182,6 @@ def _find_examples_in_text(text, page_num):
 
         end_idx = text.find("end example]", start_idx)
         if end_idx == -1:
-            # Example continues to next page
             yield {"text": text[start_idx:], "start_page": page_num, "_open": True}
             return
         else:
@@ -137,61 +191,41 @@ def _find_examples_in_text(text, page_num):
 
 
 def strip_page_artifacts(text):
-    """Remove PDF page headers/footers/page numbers that get mixed into multi-page examples."""
-    # Remove header: "ISO/IEC 29500-1:2012(E) "
-    text = re.sub(r"ISO/IEC 29500-1:2012\(E\)\s*", "", text)
-    # Remove copyright line: "©ISO/IEC 2012 – All rights reserved "
-    text = re.sub(r"©ISO/IEC 2012 – All rights reserved\s*", "", text)
-    # Remove standalone page numbers (lines that are just a number)
-    text = re.sub(r"(?m)^\d{1,4}\s*$", "", text)
-    # Collapse multiple blank lines
+    """Remove PDF page headers/footers/page numbers from multi-page examples."""
+    text = PAGE_ARTIFACT_RE.sub("", text)
+    text = COPYRIGHT_RE.sub("", text)
+    text = PAGE_NUM_RE.sub("", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
 
 def extract_xml_fragment(example_text):
-    """Extract the XML fragment from an example text block.
-
-    Returns the XML string or None if no XML found.
-    """
-    # Strip the [Example: prefix and end example] suffix
+    """Extract the XML fragment from an example text block."""
     text = example_text
     if text.startswith("[Example:"):
         text = text[len("[Example:") :]
     if text.endswith("end example]"):
         text = text[: -len("end example]")]
 
-    # Strip PDF page artifacts from multi-page examples
     text = strip_page_artifacts(text)
-
     text = text.strip()
 
-    # Find XML fragments - look for angle bracket blocks
-    # Strategy: find the first '<' that starts a proper XML element and the last '>' that closes one
     xml_start = None
     xml_end = None
 
-    # Find the first '<' that starts a proper XML tag (not inline reference like <anim> in prose)
     for i, ch in enumerate(text):
         if ch == "<" and i + 1 < len(text) and (text[i + 1].isalpha() or text[i + 1] in "/?!"):
-            # Check that this isn't an inline element reference in prose
-            # Look at context before '<' on the same line
             line_start = text.rfind("\n", 0, i)
             if line_start == -1:
                 line_start = 0
             prefix = text[line_start:i].strip()
 
-            # If prefix ends with a word character, this < might be inline in prose
-            # e.g. "the <anim> element should be used as follows:"
             if prefix and re.search(r"\w$", prefix):
-                # Check if the content after > continues as prose on the same segment
                 close_gt = text.find(">", i)
                 if close_gt != -1:
                     after_gt = text[close_gt + 1 : close_gt + 50].strip()
-                    # If after the closing > there's prose (words without <), skip this
                     if after_gt and not after_gt.startswith("<") and re.match(r"[a-z]", after_gt):
                         continue
-                    # Otherwise accept it (it's a real XML block)
                     xml_start = i
                     break
                 continue
@@ -201,15 +235,11 @@ def extract_xml_fragment(example_text):
     if xml_start is None:
         return None
 
-    # Find the last '>' in the text
     xml_end = text.rfind(">")
     if xml_end is None or xml_end <= xml_start:
         return None
 
     fragment = text[xml_start : xml_end + 1]
-
-    # Clean up: remove any trailing prose after the last complete XML element
-    # Look for the pattern where XML ends and prose begins
     fragment = _trim_trailing_prose(fragment)
 
     return fragment.strip() if fragment.strip() else None
@@ -217,7 +247,6 @@ def extract_xml_fragment(example_text):
 
 def _trim_trailing_prose(fragment):
     """Remove trailing prose that may have been included after the XML."""
-    # Find the last '>' and check if there's significant non-XML text after it
     lines = fragment.split("\n")
     result_lines = []
     found_xml = False
@@ -230,12 +259,9 @@ def _trim_trailing_prose(fragment):
             after_xml_lines = 0
             result_lines.append(line)
         elif found_xml and stripped:
-            # Check if this looks like prose (no XML characters)
             after_xml_lines += 1
             if after_xml_lines > 2:
-                # Probably prose, stop here
                 break
-            # Could be continuation - include if short
             if len(stripped) < 100 and not stripped.endswith("."):
                 result_lines.append(line)
             else:
@@ -251,7 +277,6 @@ def detect_root_element(xml_fragment):
     if not xml_fragment:
         return None, ""
 
-    # Match the first element tag
     m = re.match(r"\s*<\??(?:!--.*?-->\s*<)?([a-zA-Z_][\w]*(?::[\w]+)?)", xml_fragment, re.DOTALL)
     if not m:
         return None, ""
@@ -274,15 +299,10 @@ def strip_ellipsis(xml_fragment):
         return None
 
     result = xml_fragment
-    # Replace Unicode ellipsis
     result = result.replace("\u2026", "")
     result = result.replace("…", "")
-    # Replace ASCII ellipsis (but not in attribute values where ... might be literal)
     result = re.sub(r"\.{3,}", "", result)
-    # Clean up empty attributes left behind: attr="" or attr=''
-    # Clean up "..." as attribute values
     result = re.sub(r'\s+\w+(?::\w+)?=""\s*', " ", result)
-    # Clean up dangling whitespace in tags
     result = re.sub(r"\s+>", ">", result)
     result = re.sub(r"\s+/>", "/>", result)
     return result.strip()
@@ -308,7 +328,6 @@ def try_parse_xml(xml_fragment, format_type):
         ET.fromstring(wrapped)
         return True
     except ET.ParseError:
-        # Try without wrapper in case it's already a complete document
         try:
             ET.fromstring(xml_fragment)
             return True
@@ -317,10 +336,7 @@ def try_parse_xml(xml_fragment, format_type):
 
 
 def classify_example(xml_fragment, format_type):
-    """Classify an example XML fragment.
-
-    Returns (classification, xml_stripped_or_none).
-    """
+    """Classify an example XML fragment."""
     if xml_fragment is None:
         return "no_xml", None
 
@@ -332,7 +348,6 @@ def classify_example(xml_fragment, format_type):
         else:
             return "malformed", None
     else:
-        # Has ellipsis
         stripped = strip_ellipsis(xml_fragment)
         if stripped and try_parse_xml(stripped, format_type):
             return "ellipsis_strippable", stripped
@@ -349,19 +364,18 @@ def track_section(text, current_section, current_element, current_desc):
     return current_section, current_element, current_desc
 
 
-def make_example_id(format_type, section, counter):
+def make_example_id(format_key, section, counter):
     """Generate a unique example ID."""
     section_slug = section.replace(".", "_")
-    return f"{format_type.lower()}_{section_slug}_{counter:03d}"
+    return f"{format_key.lower()}_{section_slug}_{counter:03d}"
 
 
-def process_section(doc, section_config):
+def process_section(doc, section_config, format_key, document_id):
     """Process a section of the PDF and extract examples."""
-    format_type = section_config["format"]
     start = section_config["start_page"]
     end = section_config["end_page"]
 
-    print(f"Processing {format_type} (pages {start + 1}-{end})...", file=sys.stderr)
+    print(f"  Processing {format_key} (pages {start + 1}-{min(end, len(doc))})...", file=sys.stderr)
 
     pages = extract_text_by_page(doc, start, end)
 
@@ -380,7 +394,6 @@ def process_section(doc, section_config):
     # Second pass: extract examples
     raw_examples = find_examples(pages)
 
-    # Build the examples list
     examples = []
     section_counters = {}
 
@@ -390,22 +403,20 @@ def process_section(doc, section_config):
             page, (section_config["prefix"], "", "")
         )
 
-        # Look backwards through pages if we haven't found a section yet
         if not element_name:
             for p in range(page, start, -1):
                 if p in section_at_page and section_at_page[p][1]:
                     section, element_name, desc = section_at_page[p]
                     break
 
-        # Counter per section
         key = section
         section_counters[key] = section_counters.get(key, 0) + 1
 
         xml_fragment = extract_xml_fragment(raw_ex["text"])
         root_element, ns_prefix = detect_root_element(xml_fragment)
-        classification, xml_stripped = classify_example(xml_fragment, format_type)
+        classification, xml_stripped = classify_example(xml_fragment, format_key)
 
-        example_id = make_example_id(format_type, section, section_counters[key])
+        example_id = make_example_id(format_key, section, section_counters[key])
 
         examples.append(
             {
@@ -414,6 +425,7 @@ def process_section(doc, section_config):
                 "element_name": element_name,
                 "description": desc,
                 "page": page,
+                "document": document_id,
                 "root_element": root_element,
                 "ns_prefix": ns_prefix,
                 "classification": classification,
@@ -425,14 +437,14 @@ def process_section(doc, section_config):
     return examples
 
 
-def print_stats(examples, format_type):
+def print_stats(examples, label):
     """Print classification statistics."""
     stats = {}
     for ex in examples:
         c = ex["classification"]
         stats[c] = stats.get(c, 0) + 1
 
-    print(f"\n  {format_type} statistics:", file=sys.stderr)
+    print(f"\n  {label} statistics:", file=sys.stderr)
     print(f"    Total examples: {len(examples)}", file=sys.stderr)
     for cls in ["clean", "ellipsis_strippable", "has_ellipsis", "no_xml", "malformed"]:
         count = stats.get(cls, 0)
@@ -441,33 +453,52 @@ def print_stats(examples, format_type):
 
 
 def main():
-    if not os.path.exists(PDF_PATH):
-        print(f"Error: PDF not found at {PDF_PATH}", file=sys.stderr)
-        sys.exit(1)
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    doc = fitz.open(PDF_PATH)
-    print(f"Opened PDF with {len(doc)} pages", file=sys.stderr)
+    # Collect all examples grouped by output format
+    all_examples = {}  # output_format -> list of examples
 
-    for name, config in SECTIONS.items():
-        format_type = config["format"]
-        examples = process_section(doc, config)
-        print_stats(examples, format_type)
+    for pdf_config in PDFS:
+        pdf_path = pdf_config["path"]
+        document_id = pdf_config["document"]
+
+        if not os.path.exists(pdf_path):
+            print(f"Warning: PDF not found at {pdf_path}, skipping", file=sys.stderr)
+            continue
+
+        doc = fitz.open(pdf_path)
+        print(f"\nOpened {document_id} ({len(doc)} pages)", file=sys.stderr)
+
+        for section_key, section_config in pdf_config["sections"].items():
+            output_format = FORMAT_OUTPUT_MAP[section_key]
+            examples = process_section(doc, section_config, section_key, document_id)
+
+            if output_format not in all_examples:
+                all_examples[output_format] = []
+            all_examples[output_format].extend(examples)
+
+            print_stats(examples, f"{document_id} {section_key}")
+
+        doc.close()
+
+    # Write output files
+    print("\n--- Output ---", file=sys.stderr)
+    for output_format, examples in sorted(all_examples.items()):
+        # Determine document IDs present
+        doc_ids = sorted(set(ex["document"] for ex in examples))
 
         output = {
-            "document": DOCUMENT_ID,
-            "format": format_type,
+            "documents": doc_ids,
+            "format": output_format.upper(),
             "examples": examples,
         }
 
-        output_path = os.path.join(OUTPUT_DIR, f"{format_type.lower()}_examples.json")
+        output_path = os.path.join(OUTPUT_DIR, f"{output_format}_examples.json")
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2, ensure_ascii=False)
 
-        print(f"  Wrote {output_path} ({len(examples)} examples)", file=sys.stderr)
+        print(f"  {output_path}: {len(examples)} examples", file=sys.stderr)
 
-    doc.close()
     print("\nDone.", file=sys.stderr)
 
 

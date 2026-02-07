@@ -1,0 +1,86 @@
+{
+  "documents": [
+    "ISO/IEC 29500-4:2012"
+  ],
+  "format": "SHARED",
+  "examples": [
+    {
+      "id": "shared_t_20_1_2_1_001",
+      "section": "20.1.2.1",
+      "element_name": "ST_AlgClass",
+      "description": "Cryptographic Algorithm Classes",
+      "page": 874,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": null,
+      "ns_prefix": "",
+      "classification": "no_xml",
+      "xml": null,
+      "xml_stripped": null
+    },
+    {
+      "id": "shared_t_20_1_2_2_001",
+      "section": "20.1.2.2",
+      "element_name": "ST_AlgType",
+      "description": "Cryptographic Algorithm Types",
+      "page": 875,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": null,
+      "ns_prefix": "",
+      "classification": "no_xml",
+      "xml": null,
+      "xml_stripped": null
+    },
+    {
+      "id": "shared_t_20_1_2_3_001",
+      "section": "20.1.2.3",
+      "element_name": "ST_ColorType",
+      "description": "Color Type",
+      "page": 876,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": null,
+      "ns_prefix": "",
+      "classification": "no_xml",
+      "xml": null,
+      "xml_stripped": null
+    },
+    {
+      "id": "shared_t_20_1_2_3_002",
+      "section": "20.1.2.3",
+      "element_name": "ST_ColorType",
+      "description": "Color Type",
+      "page": 876,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": null,
+      "ns_prefix": "",
+      "classification": "no_xml",
+      "xml": null,
+      "xml_stripped": null
+    },
+    {
+      "id": "shared_t_20_1_2_3_003",
+      "section": "20.1.2.3",
+      "element_name": "ST_ColorType",
+      "description": "Color Type",
+      "page": 876,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": null,
+      "ns_prefix": "",
+      "classification": "no_xml",
+      "xml": null,
+      "xml_stripped": null
+    },
+    {
+      "id": "shared_t_20_1_2_5_001",
+      "section": "20.1.2.5",
+      "element_name": "ST_TrueFalse",
+      "description": "Boolean Value",
+      "page": 877,
+      "document": "ISO/IEC 29500-4:2012",
+      "root_element": "Sources",
+      "ns_prefix": "b",
+      "classification": "malformed",
+      "xml": "<b:Sources SelectedStyle=\"\\APA.XSL\" StyleName=\"APA\" \nURI=\"http://schemas.openxmlformats.org/bibliographicStyle/APA\">",
+      "xml_stripped": null
+    }
+  ]
+}
