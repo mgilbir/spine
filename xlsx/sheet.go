@@ -1,11 +1,21 @@
 package xlsx
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/mgilbir/spine/xlsx/internal/oxml"
+)
+
 // Sheet represents a worksheet in an Excel workbook.
 type Sheet struct {
-	workbook *Workbook
-	name     string
-	index    int
-	cells    map[string]*Cell
+	workbook  *Workbook
+	name      string
+	index     int
+	partName  string
+	relID     string
+	worksheet *oxml.CT_Worksheet
 }
 
 // Name returns the sheet name.
@@ -16,6 +26,10 @@ func (s *Sheet) Name() string {
 // SetName sets the sheet name.
 func (s *Sheet) SetName(name string) {
 	s.name = name
+	// Update the workbook model if within bounds
+	if s.workbook != nil && s.index < len(s.workbook.workbook.Sheets.Sheet) {
+		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
+	}
 }
 
 // Index returns the sheet index within the workbook.
@@ -24,19 +38,50 @@ func (s *Sheet) Index() int {
 }
 
 // Cell returns the cell at the specified reference (e.g., "A1").
+// If the cell doesn't exist in the worksheet data, it is created.
 func (s *Sheet) Cell(ref string) (*Cell, error) {
-	if s.cells == nil {
-		s.cells = make(map[string]*Cell)
-	}
-	cell, ok := s.cells[ref]
-	if !ok {
-		cell = &Cell{
-			sheet: s,
-			ref:   ref,
+	if s.worksheet == nil {
+		s.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
 		}
-		s.cells[ref] = cell
 	}
-	return cell, nil
+
+	// Parse the reference to get row and column
+	row, _, err := ParseCellRef(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find or create the row
+	var targetRow *oxml.CT_Row
+	for i := range s.worksheet.SheetData.Row {
+		if s.worksheet.SheetData.Row[i].R != nil && *s.worksheet.SheetData.Row[i].R == uint32(row) {
+			targetRow = &s.worksheet.SheetData.Row[i]
+			break
+		}
+	}
+	if targetRow == nil {
+		r := uint32(row)
+		s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{R: &r})
+		targetRow = &s.worksheet.SheetData.Row[len(s.worksheet.SheetData.Row)-1]
+	}
+
+	// Find or create the cell
+	ref = strings.ToUpper(ref)
+	for i := range targetRow.C {
+		if strings.EqualFold(targetRow.C[i].R, ref) {
+			return &Cell{
+				sheet: s,
+				cell:  &targetRow.C[i],
+			}, nil
+		}
+	}
+
+	targetRow.C = append(targetRow.C, oxml.CT_Cell{R: ref})
+	return &Cell{
+		sheet: s,
+		cell:  &targetRow.C[len(targetRow.C)-1],
+	}, nil
 }
 
 // CellByRowCol returns the cell at the specified row and column (1-based).
@@ -58,45 +103,175 @@ func (s *Sheet) SetCellValue(ref string, value interface{}) error {
 	return nil
 }
 
-// GetCellValue returns the value of a cell.
-func (s *Sheet) GetCellValue(ref string) (interface{}, error) {
-	cell, err := s.Cell(ref)
-	if err != nil {
-		return nil, err
+// GetCellValue returns the display value of a cell as a string.
+func (s *Sheet) GetCellValue(ref string) (string, error) {
+	if s.worksheet == nil {
+		return "", nil
 	}
-	return cell.Value(), nil
+
+	ref = strings.ToUpper(ref)
+	row, _, err := ParseCellRef(ref)
+	if err != nil {
+		return "", err
+	}
+
+	for i := range s.worksheet.SheetData.Row {
+		r := &s.worksheet.SheetData.Row[i]
+		if r.R != nil && *r.R == uint32(row) {
+			for j := range r.C {
+				if strings.EqualFold(r.C[j].R, ref) {
+					c := &Cell{sheet: s, cell: &r.C[j]}
+					return c.String(), nil
+				}
+			}
+		}
+	}
+
+	return "", nil
 }
 
 // Rows returns the number of used rows.
 func (s *Sheet) Rows() int {
-	// Placeholder implementation
-	return 0
+	if s.worksheet == nil {
+		return 0
+	}
+	return len(s.worksheet.SheetData.Row)
 }
 
-// Cols returns the number of used columns.
+// Cols returns the number of used columns (maximum column across all rows).
 func (s *Sheet) Cols() int {
-	// Placeholder implementation
-	return 0
+	if s.worksheet == nil {
+		return 0
+	}
+
+	maxCol := 0
+	for _, row := range s.worksheet.SheetData.Row {
+		for _, cell := range row.C {
+			_, col, err := ParseCellRef(cell.R)
+			if err == nil && col > maxCol {
+				maxCol = col
+			}
+		}
+	}
+	return maxCol
 }
 
-// SetColWidth sets the width of a column.
+// SetColWidth sets the width of a column (1-based).
 func (s *Sheet) SetColWidth(col int, width float64) error {
-	return ErrNotImplemented
+	if col < 1 {
+		return ErrInvalidCell
+	}
+	if s.worksheet == nil {
+		s.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
+		}
+	}
+
+	c := uint32(col)
+	w := width
+	customWidth := true
+
+	// Find or create cols element
+	if len(s.worksheet.Cols) == 0 {
+		s.worksheet.Cols = append(s.worksheet.Cols, oxml.CT_Cols{})
+	}
+
+	// Find existing col entry or create new
+	for i := range s.worksheet.Cols[0].Col {
+		if s.worksheet.Cols[0].Col[i].Min == c && s.worksheet.Cols[0].Col[i].Max == c {
+			s.worksheet.Cols[0].Col[i].Width = &w
+			s.worksheet.Cols[0].Col[i].CustomWidth = &customWidth
+			return nil
+		}
+	}
+
+	s.worksheet.Cols[0].Col = append(s.worksheet.Cols[0].Col, oxml.CT_Col{
+		Min:         c,
+		Max:         c,
+		Width:       &w,
+		CustomWidth: &customWidth,
+	})
+
+	return nil
 }
 
-// SetRowHeight sets the height of a row.
+// SetRowHeight sets the height of a row (1-based).
 func (s *Sheet) SetRowHeight(row int, height float64) error {
-	return ErrNotImplemented
+	if row < 1 {
+		return ErrInvalidCell
+	}
+	if s.worksheet == nil {
+		s.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
+		}
+	}
+
+	r := uint32(row)
+	customHeight := true
+
+	// Find or create the row
+	for i := range s.worksheet.SheetData.Row {
+		if s.worksheet.SheetData.Row[i].R != nil && *s.worksheet.SheetData.Row[i].R == r {
+			s.worksheet.SheetData.Row[i].Ht = &height
+			s.worksheet.SheetData.Row[i].CustomHeight = &customHeight
+			return nil
+		}
+	}
+
+	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{
+		R:            &r,
+		Ht:           &height,
+		CustomHeight: &customHeight,
+	})
+
+	return nil
 }
 
 // MergeCells merges a range of cells.
 func (s *Sheet) MergeCells(startRef, endRef string) error {
-	return ErrNotImplemented
+	if s.worksheet == nil {
+		s.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
+		}
+	}
+
+	ref := strings.ToUpper(startRef) + ":" + strings.ToUpper(endRef)
+
+	if s.worksheet.MergeCells == nil {
+		s.worksheet.MergeCells = &oxml.CT_MergeCells{}
+	}
+
+	s.worksheet.MergeCells.MergeCell = append(s.worksheet.MergeCells.MergeCell, oxml.CT_MergeCell{Ref: ref})
+	count := uint32(len(s.worksheet.MergeCells.MergeCell))
+	s.worksheet.MergeCells.Count = &count
+
+	return nil
 }
 
 // UnmergeCells unmerges a range of cells.
 func (s *Sheet) UnmergeCells(startRef, endRef string) error {
-	return ErrNotImplemented
+	if s.worksheet == nil || s.worksheet.MergeCells == nil {
+		return nil
+	}
+
+	ref := strings.ToUpper(startRef) + ":" + strings.ToUpper(endRef)
+
+	for i, mc := range s.worksheet.MergeCells.MergeCell {
+		if strings.EqualFold(mc.Ref, ref) {
+			s.worksheet.MergeCells.MergeCell = append(
+				s.worksheet.MergeCells.MergeCell[:i],
+				s.worksheet.MergeCells.MergeCell[i+1:]...,
+			)
+			count := uint32(len(s.worksheet.MergeCells.MergeCell))
+			s.worksheet.MergeCells.Count = &count
+			if len(s.worksheet.MergeCells.MergeCell) == 0 {
+				s.worksheet.MergeCells = nil
+			}
+			return nil
+		}
+	}
+
+	return nil
 }
 
 // CellRef converts row and column indices (1-based) to a cell reference.
@@ -107,11 +282,28 @@ func CellRef(row, col int) (string, error) {
 
 	// Convert column to letter(s)
 	colStr := ""
-	for col > 0 {
-		col--
-		colStr = string(rune('A'+col%26)) + colStr
-		col /= 26
+	c := col
+	for c > 0 {
+		c--
+		colStr = string(rune('A'+c%26)) + colStr
+		c /= 26
 	}
 
-	return colStr + string(rune('0'+row)), nil
+	return colStr + strconv.Itoa(row), nil
+}
+
+// columnLetters converts a 1-based column number to column letters.
+func columnLetters(col int) string {
+	result := ""
+	for col > 0 {
+		col--
+		result = string(rune('A'+col%26)) + result
+		col /= 26
+	}
+	return result
+}
+
+// FormatCellRef creates a cell reference from row and column numbers (1-based).
+func FormatCellRef(row, col int) string {
+	return fmt.Sprintf("%s%d", columnLetters(col), row)
 }

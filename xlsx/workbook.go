@@ -1,7 +1,15 @@
 package xlsx
 
 import (
+	"bytes"
+	"encoding/xml"
+	"fmt"
+	"strconv"
+	"strings"
+
+	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
+	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
 // Workbook represents an Excel workbook.
@@ -9,31 +17,401 @@ type Workbook struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	sheets []*Sheet
+	reader           *opc.ReadCloser
+	workbook         *oxml.CT_Workbook
+	sharedStrings    *oxml.CT_Sst
+	stylesheet       *oxml.CT_Stylesheet
+	sheets           []*Sheet
+	preservedParts   map[string]*coxml.RawPart
+	contentTypesData []byte
+	relationships    map[string][]*opc.Relationship
+	hasCoreProps     bool
+	stringTable      []string // plain text values extracted from shared strings
 }
 
 // Open opens an Excel workbook from a file path.
-// This function is not yet implemented.
 func Open(path string) (*Workbook, error) {
-	return nil, ErrNotImplemented
+	reader, err := opc.OpenReader(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return openFromReader(reader)
+}
+
+// openFromReader creates a Workbook from an OPC reader.
+func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
+	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
+	if len(rels) == 0 {
+		reader.Close()
+		return nil, ErrNotXLSX
+	}
+
+	mainPartName := opc.ResolvePartName("/", rels[0].Target)
+	mainPart := reader.GetFile(mainPartName)
+	if mainPart == nil {
+		reader.Close()
+		return nil, ErrNotXLSX
+	}
+
+	if mainPart.ContentType != opc.ContentTypeWorkbook {
+		reader.Close()
+		return nil, ErrNotXLSX
+	}
+
+	data, err := mainPart.ReadAll()
+	if err != nil {
+		reader.Close()
+		return nil, err
+	}
+
+	var wb oxml.CT_Workbook
+	if err := xml.Unmarshal(data, &wb); err != nil {
+		reader.Close()
+		return nil, err
+	}
+
+	// Extract formatting details from the raw XML for byte-identical round-trip.
+	wb.OriginalXMLSep = extractXMLSeparator(data)
+	wb.SelfClosingSpace = detectSelfClosingSpace(data)
+
+	w := &Workbook{
+		reader:         reader,
+		workbook:       &wb,
+		preservedParts: make(map[string]*coxml.RawPart),
+		relationships:  make(map[string][]*opc.Relationship),
+	}
+
+	if reader.Properties != nil {
+		w.Properties = *reader.Properties
+		w.hasCoreProps = true
+	}
+
+	if err := w.loadAllParts(mainPartName); err != nil {
+		reader.Close()
+		return nil, err
+	}
+
+	return w, nil
+}
+
+// loadAllParts loads all parts from the package.
+func (w *Workbook) loadAllParts(mainPartName string) error {
+	if w.reader == nil {
+		return nil
+	}
+
+	w.loadAllRelationships()
+
+	// Preserve [Content_Types].xml
+	if ctData, err := w.reader.GetRawZipFile("[Content_Types].xml"); err == nil {
+		w.contentTypesData = ctData
+	}
+
+	for _, file := range w.reader.Files {
+		name := file.Name
+		data, err := file.ReadAll()
+		if err != nil {
+			continue
+		}
+
+		// Preserve all parts as raw bytes for round-trip
+		w.preservedParts[name] = &coxml.RawPart{
+			ContentType: file.ContentType,
+			Data:        data,
+		}
+
+		switch {
+		case strings.HasSuffix(name, ".rels"):
+			continue
+		case name == mainPartName:
+			continue
+		case name == "/docProps/core.xml":
+			continue
+		case name == "/docProps/app.xml":
+			// preserved in preservedParts
+		case name == "/xl/sharedStrings.xml":
+			w.sharedStrings = &oxml.CT_Sst{}
+			xml.Unmarshal(data, w.sharedStrings)
+		case name == "/xl/styles.xml":
+			w.stylesheet = &oxml.CT_Stylesheet{}
+			xml.Unmarshal(data, w.stylesheet)
+		case strings.HasPrefix(name, "/xl/worksheets/") && strings.HasSuffix(name, ".xml"):
+			// parsed separately after all parts are loaded
+		default:
+			// preserved in preservedParts
+		}
+	}
+
+	// Build string table from shared strings
+	w.buildStringTable()
+
+	// Load worksheets using the sheet order from workbook.xml
+	w.loadSheets(mainPartName)
+
+	return nil
+}
+
+// loadAllRelationships loads all relationship files into the model.
+func (w *Workbook) loadAllRelationships() {
+	if w.reader == nil {
+		return
+	}
+
+	for _, file := range w.reader.Files {
+		if !strings.HasSuffix(file.Name, ".rels") {
+			continue
+		}
+
+		data, err := file.ReadAll()
+		if err != nil {
+			continue
+		}
+
+		rels, err := opc.UnmarshalRelationships(data)
+		if err != nil {
+			continue
+		}
+
+		sourcePart := coxml.RelsPathToSourcePart(file.Name)
+		w.relationships[sourcePart] = rels
+	}
+}
+
+// loadSheets loads worksheets in the order defined by workbook.xml sheets element.
+func (w *Workbook) loadSheets(mainPartName string) {
+	wbRels := w.relationships[mainPartName]
+
+	for i, sheetDef := range w.workbook.Sheets.Sheet {
+		// Resolve the sheet's part name from its r:id
+		partName := ""
+		for _, rel := range wbRels {
+			if rel.ID == sheetDef.RID {
+				partName = opc.ResolvePartName(mainPartName, rel.Target)
+				break
+			}
+		}
+
+		sheet := &Sheet{
+			workbook: w,
+			name:     sheetDef.Name,
+			index:    i,
+			partName: partName,
+			relID:    sheetDef.RID,
+		}
+
+		if partName != "" {
+			if part, ok := w.preservedParts[partName]; ok {
+				ws := &oxml.CT_Worksheet{}
+				if err := xml.Unmarshal(part.Data, ws); err == nil {
+					sheet.worksheet = ws
+				}
+			}
+		}
+
+		w.sheets = append(w.sheets, sheet)
+	}
+}
+
+// buildStringTable extracts plain text from the shared string table.
+func (w *Workbook) buildStringTable() {
+	if w.sharedStrings == nil {
+		return
+	}
+
+	w.stringTable = make([]string, len(w.sharedStrings.Si))
+	for i, si := range w.sharedStrings.Si {
+		if si.T != nil {
+			w.stringTable[i] = *si.T
+		} else if len(si.R) > 0 {
+			// Concatenate rich text runs
+			var sb strings.Builder
+			for _, run := range si.R {
+				sb.WriteString(run.T)
+			}
+			w.stringTable[i] = sb.String()
+		}
+	}
+}
+
+// resolveSharedString returns the string at the given index in the shared string table.
+func (w *Workbook) resolveSharedString(index int) string {
+	if index < 0 || index >= len(w.stringTable) {
+		return ""
+	}
+	return w.stringTable[index]
 }
 
 // Create creates a new, empty workbook.
-// This function is not yet implemented.
 func Create() *Workbook {
+	wb := &oxml.CT_Workbook{
+		Sheets: oxml.CT_Sheets{},
+	}
+
 	return &Workbook{
-		sheets: make([]*Sheet, 0),
+		workbook:       wb,
+		preservedParts: make(map[string]*coxml.RawPart),
+		relationships:  make(map[string][]*opc.Relationship),
 	}
 }
 
 // Save saves the workbook to a file.
-// This function is not yet implemented.
 func (w *Workbook) Save(path string) error {
-	return ErrNotImplemented
+	writer, err := opc.Create(path)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
+
+	return w.saveTo(writer)
 }
 
 // Close closes the workbook and releases resources.
 func (w *Workbook) Close() error {
+	if w.reader != nil {
+		return w.reader.Close()
+	}
+	return nil
+}
+
+// saveTo writes the workbook to an OPC writer.
+func (w *Workbook) saveTo(writer *opc.Writer) error {
+	if w.reader != nil {
+		return w.saveRoundTrip(writer)
+	}
+	return w.saveNew(writer)
+}
+
+// saveRoundTrip saves a workbook opened from a file, preserving all parts.
+func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
+	if w.hasCoreProps {
+		writer.Properties = &w.Properties
+	}
+
+	// Preserve original content types
+	if w.reader != nil && w.reader.ContentTypes != nil {
+		writer.ContentTypes = w.reader.ContentTypes
+	}
+
+	// Write [Content_Types].xml as raw file if preserved
+	if len(w.contentTypesData) > 0 {
+		if err := writer.WriteRawFile("[Content_Types].xml", w.contentTypesData); err != nil {
+			return err
+		}
+	}
+
+	// Write core.xml as preserved raw bytes if original had it
+	if w.hasCoreProps {
+		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
+			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Write all preserved parts except workbook.xml (which is regenerated),
+	// core.xml (handled above), and .rels files (handled separately)
+	mainPartName := "/xl/workbook.xml"
+	for name, part := range w.preservedParts {
+		if name == mainPartName {
+			continue
+		}
+		if name == "/docProps/core.xml" {
+			continue
+		}
+		if strings.HasSuffix(name, ".rels") {
+			continue
+		}
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+			return err
+		}
+	}
+
+	// Write all .rels files from preserved parts
+	for name, part := range w.preservedParts {
+		if !strings.HasSuffix(name, ".rels") {
+			continue
+		}
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+			return err
+		}
+	}
+
+	// Write workbook.xml (always regenerated from parsed model)
+	wbData := marshalWorkbookXML(w.workbook)
+	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
+		return err
+	}
+
+	// Add main relationship
+	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
+
+	return nil
+}
+
+// saveNew saves a newly created workbook.
+func (w *Workbook) saveNew(writer *opc.Writer) error {
+	writer.Properties = &w.Properties
+
+	mainPartName := "/xl/workbook.xml"
+	var wbRels []*opc.Relationship
+	relID := 1
+
+	// Write each worksheet
+	for i, sheet := range w.sheets {
+		if sheet.worksheet == nil {
+			sheet.worksheet = &oxml.CT_Worksheet{
+				SheetData: oxml.CT_SheetData{},
+			}
+		}
+
+		sheetPartName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
+		wsData := marshalWorksheetXML(sheet.worksheet)
+		if err := writer.WritePart(sheetPartName, opc.ContentTypeWorksheet, wsData); err != nil {
+			return err
+		}
+
+		rid := fmt.Sprintf("rId%d", relID)
+		wbRels = append(wbRels, &opc.Relationship{
+			ID:     rid,
+			Type:   opc.RelTypeWorksheet,
+			Target: fmt.Sprintf("worksheets/sheet%d.xml", i+1),
+		})
+
+		// Update the workbook model
+		w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:0:0], w.workbook.Sheets.Sheet...)
+		if i < len(w.workbook.Sheets.Sheet) {
+			w.workbook.Sheets.Sheet[i].RID = rid
+		}
+		relID++
+	}
+
+	// Rebuild the sheets element in the workbook model
+	w.workbook.Sheets.Sheet = make([]oxml.CT_Sheet, len(w.sheets))
+	sheetRelID := 1
+	for i, sheet := range w.sheets {
+		w.workbook.Sheets.Sheet[i] = oxml.CT_Sheet{
+			Name:    sheet.name,
+			SheetId: uint32(i + 1),
+			RID:     fmt.Sprintf("rId%d", sheetRelID),
+		}
+		sheetRelID++
+	}
+
+	// Write workbook.xml
+	wbData := marshalWorkbookXML(w.workbook)
+	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
+		return err
+	}
+
+	// Write workbook relationships
+	if err := writer.WritePartRelationships(mainPartName, wbRels); err != nil {
+		return err
+	}
+
+	// Add main relationship
+	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
+
 	return nil
 }
 
@@ -67,12 +445,26 @@ func (w *Workbook) SheetByName(name string) (*Sheet, error) {
 
 // AddSheet adds a new sheet to the workbook.
 func (w *Workbook) AddSheet(name string) *Sheet {
+	ws := &oxml.CT_Worksheet{
+		SheetData: oxml.CT_SheetData{},
+	}
+
 	sheet := &Sheet{
-		workbook: w,
-		name:     name,
-		index:    len(w.sheets),
+		workbook:  w,
+		name:      name,
+		index:     len(w.sheets),
+		worksheet: ws,
 	}
 	w.sheets = append(w.sheets, sheet)
+
+
+	// Update the workbook model
+	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
+		Name:    name,
+		SheetId: uint32(len(w.sheets)),
+		RID:     fmt.Sprintf("rId%d", len(w.sheets)),
+	})
+
 	return sheet
 }
 
@@ -85,6 +477,11 @@ func (w *Workbook) DeleteSheet(index int) error {
 	for i := index; i < len(w.sheets); i++ {
 		w.sheets[i].index = i
 	}
+
+
+	// Update the workbook model
+	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
+
 	return nil
 }
 
@@ -93,6 +490,19 @@ func (w *Workbook) ActiveSheet() *Sheet {
 	if len(w.sheets) == 0 {
 		return nil
 	}
+
+	// Check bookViews for active tab
+	if w.workbook.BookViews != nil {
+		for _, bv := range w.workbook.BookViews.WorkbookView {
+			if bv.ActiveTab != nil {
+				idx := int(*bv.ActiveTab)
+				if idx >= 0 && idx < len(w.sheets) {
+					return w.sheets[idx]
+				}
+			}
+		}
+	}
+
 	return w.sheets[0]
 }
 
@@ -101,6 +511,103 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex
 	}
-	// Placeholder: would set the active sheet
+
+	if w.workbook.BookViews == nil {
+		w.workbook.BookViews = &oxml.CT_BookViews{}
+	}
+	if len(w.workbook.BookViews.WorkbookView) == 0 {
+		w.workbook.BookViews.WorkbookView = append(w.workbook.BookViews.WorkbookView, oxml.CT_BookView{})
+	}
+
+	idx := uint32(index)
+	w.workbook.BookViews.WorkbookView[0].ActiveTab = &idx
+
 	return nil
+}
+
+// ParseCellRef parses a cell reference like "A1" into 1-based row and column numbers.
+func ParseCellRef(ref string) (row, col int, err error) {
+	if ref == "" {
+		return 0, 0, ErrInvalidCell
+	}
+
+	// Split into column letters and row number
+	i := 0
+	for i < len(ref) && ref[i] >= 'A' && ref[i] <= 'Z' {
+		i++
+	}
+	if i == 0 {
+		// Try lowercase
+		for i < len(ref) && ref[i] >= 'a' && ref[i] <= 'z' {
+			i++
+		}
+	}
+	if i == 0 || i == len(ref) {
+		return 0, 0, ErrInvalidCell
+	}
+
+	colStr := strings.ToUpper(ref[:i])
+	rowStr := ref[i:]
+
+	// Parse column letters to number
+	col = 0
+	for _, c := range colStr {
+		col = col*26 + int(c-'A'+1)
+	}
+
+	// Parse row number
+	row, err = strconv.Atoi(rowStr)
+	if err != nil || row < 1 {
+		return 0, 0, ErrInvalidCell
+	}
+
+	return row, col, nil
+}
+
+// detectSelfClosingSpace detects whether the XML uses " />" (space before close)
+// for self-closing elements, vs "/>" (no space).
+func detectSelfClosingSpace(data []byte) bool {
+	// Look for the first self-closing element after the root element's opening tag.
+	// Find end of XML declaration, then find end of root opening tag.
+	start := bytes.Index(data, []byte("?>"))
+	if start < 0 {
+		start = 0
+	}
+	// Find root element's closing >
+	rootOpen := bytes.Index(data[start:], []byte(">"))
+	if rootOpen < 0 {
+		return false
+	}
+	searchFrom := start + rootOpen + 1
+	// Find first /> in the body
+	idx := bytes.Index(data[searchFrom:], []byte("/>"))
+	if idx < 0 {
+		return false
+	}
+	absIdx := searchFrom + idx
+	return absIdx > 0 && data[absIdx-1] == ' '
+}
+
+// extractXMLSeparator extracts the bytes between the XML declaration "?>" and
+// the root element "<" for preserving the exact whitespace during round-trip.
+// Returns empty string if the standard "\r\n" separator is used (our default).
+func extractXMLSeparator(data []byte) string {
+	declEnd := bytes.Index(data, []byte("?>"))
+	if declEnd < 0 {
+		return ""
+	}
+	declEnd += 2 // past "?>"
+
+	rootStart := bytes.IndexByte(data[declEnd:], '<')
+	if rootStart < 0 {
+		return ""
+	}
+
+	sep := string(data[declEnd : declEnd+rootStart])
+	// Our builder's WriteHeader already writes "\r\n", so if the separator
+	// matches we don't need to store it.
+	if sep == "\r\n" {
+		return ""
+	}
+	return sep
 }
