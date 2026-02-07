@@ -55,8 +55,8 @@ type NoAutofit struct{}
 
 // NormAutofit represents CT_TextNormalAutofit (a:normAutofit)
 type NormAutofit struct {
-	FontScale int32 `xml:"fontScale,attr,omitempty"`
-	LnSpcReduction int32 `xml:"lnSpcReduction,attr,omitempty"`
+	FontScale      Percentage `xml:"fontScale,attr,omitempty"`
+	LnSpcReduction Percentage `xml:"lnSpcReduction,attr,omitempty"`
 }
 
 // SpAutoFit represents CT_TextShapeAutofit (a:spAutoFit)
@@ -344,7 +344,7 @@ type SpcAft struct {
 
 // SpcPct represents CT_TextSpacingPercent (a:spcPct)
 type SpcPct struct {
-	Val int32 `xml:"val,attr"`
+	Val Percentage `xml:"val,attr"`
 }
 
 // SpcPts represents CT_TextSpacingPoint (a:spcPts)
@@ -366,7 +366,7 @@ type BuSzTx struct{}
 
 // BuSzPct represents CT_TextBulletSizePercent (a:buSzPct)
 type BuSzPct struct {
-	Val int32 `xml:"val,attr"`
+	Val Percentage `xml:"val,attr"`
 }
 
 // BuSzPts represents CT_TextBulletSizePoint (a:buSzPts)

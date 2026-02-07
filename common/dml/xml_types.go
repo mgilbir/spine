@@ -48,9 +48,9 @@ type SystemClr struct {
 
 // HslClr represents CT_HslColor (a:hslClr) for XML serialization
 type HslClr struct {
-	Hue int32 `xml:"hue,attr"`
-	Sat int32 `xml:"sat,attr"`
-	Lum int32 `xml:"lum,attr"`
+	Hue int32      `xml:"hue,attr"`
+	Sat Percentage `xml:"sat,attr"`
+	Lum Percentage `xml:"lum,attr"`
 }
 
 // PrstClr represents CT_PresetColor (a:prstClr) for XML serialization.
@@ -78,9 +78,9 @@ type PrstClr struct {
 
 // ScRgbClr represents CT_ScRgbColor (a:scrgbClr) for XML serialization
 type ScRgbClr struct {
-	R int32 `xml:"r,attr"`
-	G int32 `xml:"g,attr"`
-	B int32 `xml:"b,attr"`
+	R Percentage `xml:"r,attr"`
+	G Percentage `xml:"g,attr"`
+	B Percentage `xml:"b,attr"`
 }
 
 // clrTransformKind identifies a color transform element type.
@@ -243,7 +243,7 @@ func (s *SchemeClrTransform) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 			slice := s.sliceForKind(ref.kind)
 			if ref.index < len(*slice) {
 				ct := (*slice)[ref.index]
-				b.EmptyElement(ns, name, xmlb.Int32Attr("val", ct.Val))
+				b.EmptyElement(ns, name, xmlb.Int32Attr("val", int32(ct.Val)))
 			}
 		}
 	} else {
@@ -276,7 +276,7 @@ func (s *SchemeClrTransform) writeAllTransforms(b *xmlb.Builder, ns string) {
 	}
 	for _, entry := range allSlices {
 		for _, ct := range entry.slice {
-			b.EmptyElement(ns, entry.name, xmlb.Int32Attr("val", ct.Val))
+			b.EmptyElement(ns, entry.name, xmlb.Int32Attr("val", int32(ct.Val)))
 		}
 	}
 }
@@ -337,7 +337,7 @@ func (s SchemeClrTransform) MarshalXML(e *xml.Encoder, start xml.StartElement) e
 
 // ColorTransform represents a color transform (a:tint, a:shade, a:alpha, etc.)
 type ColorTransform struct {
-	Val int32 `xml:"val,attr"`
+	Val Percentage `xml:"val,attr"`
 }
 
 // ColorChoice represents EG_ColorChoice for XML serialization
