@@ -4,10 +4,12 @@
 Extracts [Example: ... end example] blocks, classifies them, and writes
 JSON test data files grouped by format (WML, SML, PML, DML, etc.).
 
-Part 1: Main spec (WML §17, SML §18, PML §19, DML §20-21)
+Part 1: Main spec (WML §17, SML §18, PML §19, DML §20-21, Shared §22)
 Part 2: OPC (Open Packaging Conventions)
 Part 3: Markup Compatibility and Extensibility
 Part 4: Transitional Migration Features (WML §14, SML §15, PML §16, DML §17-18, VML §19, Shared §20)
+
+Supports both 2012 and 2016/2021 editions; prefers the latest available.
 
 Requires: pymupdf (fitz)
 
@@ -28,48 +30,101 @@ import fitz
 SPEC_DIR = os.path.dirname(__file__)
 OUTPUT_DIR = os.path.join(SPEC_DIR, "testdata")
 
-# PDF definitions: each PDF has sections that map to output format files.
+# PDF definitions: each entry lists candidates in preference order (latest first).
 # "document" is the ISO document identifier for breadcrumbs.
 PDFS = [
     {
-        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-1", "ISO-IEC-29500-1.pdf"),
-        "document": "ISO/IEC 29500-1:2012",
+        "candidates": [
+            {
+                "path": os.path.join(SPEC_DIR, "part1", "ISO_IEC_29500-1_2016.pdf"),
+                "document": "ISO/IEC 29500-1:2016",
+                "sections": {
+                    "WML": {"prefix": "17", "start_page": 178, "end_page": 1531},
+                    "SML": {"prefix": "18", "start_page": 1532, "end_page": 2524},
+                    "PML": {"prefix": "19", "start_page": 2525, "end_page": 2727},
+                    "DML": {"prefix": "20", "start_page": 2728, "end_page": 3607},
+                    "SHARED": {"prefix": "22", "start_page": 3608, "end_page": 3813},
+                },
+            },
+            {
+                "path": os.path.join(SPEC_DIR, "part1", "ISO_IEC_29500-1_2012.pdf"),
+                "document": "ISO/IEC 29500-1:2012",
+                "sections": {
+                    "WML": {"prefix": "17", "start_page": 178, "end_page": 1529},
+                    "SML": {"prefix": "18", "start_page": 1529, "end_page": 2520},
+                    "PML": {"prefix": "19", "start_page": 2520, "end_page": 2720},
+                    "DML": {"prefix": "20", "start_page": 2720, "end_page": 3600},
+                },
+            },
+        ],
         "part_number": 1,
-        "sections": {
-            "WML": {"prefix": "17", "start_page": 178, "end_page": 1529},
-            "SML": {"prefix": "18", "start_page": 1529, "end_page": 2520},
-            "PML": {"prefix": "19", "start_page": 2520, "end_page": 2720},
-            "DML": {"prefix": "20", "start_page": 2720, "end_page": 3600},
-        },
     },
     {
-        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-2", "ISO-IEC-29500-2.pdf"),
-        "document": "ISO/IEC 29500-2:2012",
+        "candidates": [
+            {
+                "path": os.path.join(SPEC_DIR, "part2", "ISO_IEC_29500-2_2021.pdf"),
+                "document": "ISO/IEC 29500-2:2021",
+                "sections": {
+                    "OPC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+                },
+            },
+            {
+                "path": os.path.join(SPEC_DIR, "part2", "ISO_IEC_29500-2_2012.pdf"),
+                "document": "ISO/IEC 29500-2:2012",
+                "sections": {
+                    "OPC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+                },
+            },
+        ],
         "part_number": 2,
-        "sections": {
-            "OPC": {"prefix": "9", "start_page": 0, "end_page": 9999},
-        },
     },
     {
-        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-3", "ISO-IEC-29500-3.pdf"),
-        "document": "ISO/IEC 29500-3:2012",
+        "candidates": [
+            {
+                "path": os.path.join(SPEC_DIR, "part3", "ISO_IEC_29500-3_2015.pdf"),
+                "document": "ISO/IEC 29500-3:2015",
+                "sections": {
+                    "MC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+                },
+            },
+            {
+                "path": os.path.join(SPEC_DIR, "part3", "ISO_IEC_29500-3_2012.pdf"),
+                "document": "ISO/IEC 29500-3:2012",
+                "sections": {
+                    "MC": {"prefix": "9", "start_page": 0, "end_page": 9999},
+                },
+            },
+        ],
         "part_number": 3,
-        "sections": {
-            "MC": {"prefix": "9", "start_page": 0, "end_page": 9999},
-        },
     },
     {
-        "path": os.path.join(SPEC_DIR, "ISO-IEC-29500-4", "ISO-IEC-29500-4.pdf"),
-        "document": "ISO/IEC 29500-4:2012",
+        "candidates": [
+            {
+                "path": os.path.join(SPEC_DIR, "part4", "ISO_IEC_29500-4_2016.pdf"),
+                "document": "ISO/IEC 29500-4:2016",
+                "sections": {
+                    "WML_T": {"prefix": "14", "start_page": 45, "end_page": 219},
+                    "SML_T": {"prefix": "15", "start_page": 219, "end_page": 241},
+                    "PML_T": {"prefix": "16", "start_page": 241, "end_page": 267},
+                    "DML_T": {"prefix": "17", "start_page": 267, "end_page": 307},
+                    "VML":   {"prefix": "19", "start_page": 307, "end_page": 873},
+                    "SHARED_T": {"prefix": "20", "start_page": 873, "end_page": 880},
+                },
+            },
+            {
+                "path": os.path.join(SPEC_DIR, "part4", "ISO_IEC_29500-4_2012.pdf"),
+                "document": "ISO/IEC 29500-4:2012",
+                "sections": {
+                    "WML_T": {"prefix": "14", "start_page": 45, "end_page": 218},
+                    "SML_T": {"prefix": "15", "start_page": 218, "end_page": 239},
+                    "PML_T": {"prefix": "16", "start_page": 239, "end_page": 267},
+                    "DML_T": {"prefix": "17", "start_page": 267, "end_page": 307},
+                    "VML":   {"prefix": "19", "start_page": 307, "end_page": 873},
+                    "SHARED_T": {"prefix": "20", "start_page": 873, "end_page": 9999},
+                },
+            },
+        ],
         "part_number": 4,
-        "sections": {
-            "WML_T": {"prefix": "14", "start_page": 45, "end_page": 218},
-            "SML_T": {"prefix": "15", "start_page": 218, "end_page": 239},
-            "PML_T": {"prefix": "16", "start_page": 239, "end_page": 267},
-            "DML_T": {"prefix": "17", "start_page": 267, "end_page": 307},
-            "VML":   {"prefix": "19", "start_page": 307, "end_page": 873},
-            "SHARED_T": {"prefix": "20", "start_page": 873, "end_page": 9999},
-        },
     },
 ]
 
@@ -83,7 +138,7 @@ FORMAT_OUTPUT_MAP = {
     "OPC": "opc",
     "MC": "mc",
     "VML": "vml",
-    "SHARED_T": "shared",
+    "SHARED": "shared", "SHARED_T": "shared",
 }
 
 # Section header pattern: "17.3.1.1\nelement (Description)"
@@ -114,9 +169,9 @@ NS_MAP = {
     "x14": "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main",
 }
 
-# Page artifact pattern matches all four part numbers
-PAGE_ARTIFACT_RE = re.compile(r"ISO/IEC 29500-[1-4]:2012\(E\)\s*")
-COPYRIGHT_RE = re.compile(r"©ISO/IEC 2012 – All rights reserved\s*")
+# Page artifact pattern matches all four part numbers and all editions
+PAGE_ARTIFACT_RE = re.compile(r"ISO/IEC 29500-[1-4]:\d{4}\(E\)\s*")
+COPYRIGHT_RE = re.compile(r"©\s?ISO/IEC \d{4} – All rights reserved\s*")
 PAGE_NUM_RE = re.compile(r"(?m)^\d{1,4}\s*$")
 
 
@@ -129,8 +184,14 @@ def extract_text_by_page(doc, start_page, end_page):
     return pages
 
 
+# Pattern for ISO 2015+ EXAMPLE blocks (used in Part 2:2021, Part 3:2015)
+EXAMPLE_BLOCK_RE = re.compile(r"EXAMPLE(?:\s+\d+)?\s*\t?\n")
+
+
 def find_examples(pages):
     """Find all [Example: ... end example] blocks, handling multi-page spans.
+
+    Also finds EXAMPLE blocks used in newer ISO editions (2015+).
 
     Returns list of dicts with keys: text, start_page.
     """
@@ -169,6 +230,11 @@ def find_examples(pages):
     if buffer:
         print(f"  Warning: unclosed example starting at page {buffer_page}", file=sys.stderr)
 
+    # Also find EXAMPLE blocks (newer ISO format)
+    for page_num, text in pages:
+        for ex in _find_example_blocks(text, page_num):
+            examples.append(ex)
+
     return examples
 
 
@@ -188,6 +254,32 @@ def _find_examples_in_text(text, page_num):
             full = text[start_idx : end_idx + len("end example]")]
             yield {"text": full, "start_page": page_num}
             idx = end_idx + len("end example]")
+
+
+def _find_example_blocks(text, page_num):
+    """Find EXAMPLE blocks (ISO 2015+ format) within a single page's text.
+
+    These use "EXAMPLE" or "EXAMPLE N" as a heading, with content following
+    until the next section heading or another EXAMPLE marker. Only yields
+    blocks that contain XML (at least one '<' character).
+    """
+    for m in EXAMPLE_BLOCK_RE.finditer(text):
+        start = m.end()
+        # Find end: next EXAMPLE block, or next section heading pattern
+        next_example = EXAMPLE_BLOCK_RE.search(text, start)
+        # Also look for section heading patterns (e.g. "6.5.2\n")
+        next_section = re.search(r"\n\d+\.\d+(?:\.\d+)*\s*\t?\n", text[start:])
+
+        end = len(text)
+        if next_example:
+            end = min(end, next_example.start())
+        if next_section:
+            end = min(end, start + next_section.start())
+
+        content = text[start:end].strip()
+        if "<" in content:
+            # Wrap in [Example: ... end example] format for uniform processing
+            yield {"text": f"[Example: {content} end example]", "start_page": page_num}
 
 
 def strip_page_artifacts(text):
@@ -458,18 +550,29 @@ def main():
     # Collect all examples grouped by output format
     all_examples = {}  # output_format -> list of examples
 
-    for pdf_config in PDFS:
-        pdf_path = pdf_config["path"]
-        document_id = pdf_config["document"]
+    for pdf_group in PDFS:
+        part_number = pdf_group["part_number"]
 
-        if not os.path.exists(pdf_path):
-            print(f"Warning: PDF not found at {pdf_path}, skipping", file=sys.stderr)
+        # Find the first available candidate PDF
+        selected = None
+        for candidate in pdf_group["candidates"]:
+            if os.path.exists(candidate["path"]):
+                selected = candidate
+                break
+
+        if selected is None:
+            tried = [c["path"] for c in pdf_group["candidates"]]
+            print(f"Warning: No PDF found for Part {part_number}, tried: {tried}", file=sys.stderr)
             continue
+
+        pdf_path = selected["path"]
+        document_id = selected["document"]
+        sections = selected["sections"]
 
         doc = fitz.open(pdf_path)
         print(f"\nOpened {document_id} ({len(doc)} pages)", file=sys.stderr)
 
-        for section_key, section_config in pdf_config["sections"].items():
+        for section_key, section_config in sections.items():
             output_format = FORMAT_OUTPUT_MAP[section_key]
             examples = process_section(doc, section_config, section_key, document_id)
 
