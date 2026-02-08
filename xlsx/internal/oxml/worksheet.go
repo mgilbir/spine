@@ -3,6 +3,7 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+	"sort"
 	"strconv"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -603,11 +604,33 @@ func (r *CT_Row) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		return
 	}
 
+	// Sort cells by column index so they appear in ascending order,
+	// which is required by the OOXML specification.
+	sort.Slice(r.C, func(i, j int) bool {
+		return cellRefColIndex(r.C[i].R) < cellRefColIndex(r.C[j].R)
+	})
+
 	b.StartElement(ns, localName, attrs...)
 	for i := range r.C {
 		r.C[i].MarshalToBuilder(b, ns, "c")
 	}
 	b.EndElement(ns, localName)
+}
+
+// cellRefColIndex extracts the column index from a cell reference like "A1", "BC42".
+// Returns 0 on invalid input.
+func cellRefColIndex(ref string) int {
+	col := 0
+	for _, ch := range ref {
+		if ch >= 'A' && ch <= 'Z' {
+			col = col*26 + int(ch-'A') + 1
+		} else if ch >= 'a' && ch <= 'z' {
+			col = col*26 + int(ch-'a') + 1
+		} else {
+			break
+		}
+	}
+	return col
 }
 
 // CT_Cell represents a c (cell) element.
