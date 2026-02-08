@@ -353,3 +353,17 @@ type AlignmentStyle struct {
 	Indent     int
 	Rotation   int
 }
+
+// SetStyle creates a style from the given definition and applies it to the cell.
+func (c *Cell) SetStyle(style CellStyle) error {
+	if c.sheet == nil || c.sheet.workbook == nil {
+		return fmt.Errorf("xlsx: cell is not associated with a workbook")
+	}
+	sm := c.sheet.workbook.Styles()
+	idx, err := sm.NewCellStyle(style)
+	if err != nil {
+		return err
+	}
+	c.SetStyleIndex(idx)
+	return nil
+}

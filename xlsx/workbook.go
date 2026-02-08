@@ -403,6 +403,22 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		sheetRelID++
 	}
 
+	// Write styles.xml if a stylesheet exists
+	if w.stylesheet != nil {
+		stylesPartName := "/xl/styles.xml"
+		stylesData := marshalStylesheetXML(w.stylesheet)
+		if err := writer.WritePart(stylesPartName, opc.ContentTypeStyles, stylesData); err != nil {
+			return err
+		}
+
+		rid := fmt.Sprintf("rId%d", relID)
+		wbRels = append(wbRels, &opc.Relationship{
+			ID:     rid,
+			Type:   opc.RelTypeStyles,
+			Target: "styles.xml",
+		})
+	}
+
 	// Write workbook.xml
 	wbData := marshalWorkbookXML(w.workbook)
 	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
@@ -418,6 +434,15 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
 
 	return nil
+}
+
+// Styles returns the StyleManager for this workbook. If no stylesheet exists
+// yet (e.g. for a newly created workbook), a default one is created.
+func (w *Workbook) Styles() *StyleManager {
+	if w.stylesheet == nil {
+		w.stylesheet = defaultStylesheet()
+	}
+	return newStyleManager(w.stylesheet)
 }
 
 // Sheets returns all sheets in the workbook.

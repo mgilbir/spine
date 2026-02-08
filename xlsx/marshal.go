@@ -140,6 +140,60 @@ func marshalWorkbookExtLst(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	b.EndElement(nsSML, "extLst")
 }
 
+// marshalStylesheetXML marshals a stylesheet to XML.
+func marshalStylesheetXML(ss *oxml.CT_Stylesheet) []byte {
+	b := xmlb.NewSpreadsheetMLBuilder()
+	b.WriteHeader()
+
+	nsDecls := xmlb.SpreadsheetMLNamespaces()
+	if len(ss.OriginalNSDecls) > 0 {
+		nsDecls = ss.OriginalNSDecls
+	}
+
+	b.StartElementWithNS(nsSML, "styleSheet", nsDecls)
+
+	if ss.NumFmts != nil && len(ss.NumFmts.NumFmt) > 0 {
+		b.MarshalElement(nsSML, "numFmts", ss.NumFmts)
+	}
+	if ss.Fonts != nil {
+		b.MarshalElement(nsSML, "fonts", ss.Fonts)
+	}
+	if ss.Fills != nil {
+		b.MarshalElement(nsSML, "fills", ss.Fills)
+	}
+	if ss.Borders != nil {
+		b.MarshalElement(nsSML, "borders", ss.Borders)
+	}
+	if ss.CellStyleXfs != nil {
+		b.MarshalElement(nsSML, "cellStyleXfs", ss.CellStyleXfs)
+	}
+	if ss.CellXfs != nil {
+		b.MarshalElement(nsSML, "cellXfs", ss.CellXfs)
+	}
+	if ss.CellStyles != nil {
+		b.MarshalElement(nsSML, "cellStyles", ss.CellStyles)
+	}
+	if ss.Dxfs != nil {
+		b.MarshalElement(nsSML, "dxfs", ss.Dxfs)
+	}
+	if ss.TableStyles != nil {
+		b.MarshalElement(nsSML, "tableStyles", ss.TableStyles)
+	}
+	if ss.Colors != nil {
+		b.MarshalElement(nsSML, "colors", ss.Colors)
+	}
+	if ss.ExtLst != nil && len(ss.ExtLst.Ext) > 0 {
+		b.StartElement(nsSML, "extLst")
+		for i := range ss.ExtLst.Ext {
+			ss.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
+		}
+		b.EndElement(nsSML, "extLst")
+	}
+
+	b.EndElement(nsSML, "styleSheet")
+	return b.Bytes()
+}
+
 // marshalWorksheetXML marshals a worksheet to XML.
 func marshalWorksheetXML(ws *oxml.CT_Worksheet) []byte {
 	b := xmlb.NewSpreadsheetMLBuilder()
