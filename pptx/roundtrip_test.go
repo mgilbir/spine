@@ -48,32 +48,32 @@ var testPptxFiles = []struct {
 	},
 	{
 		name:        "big_data",
-		path:        "testdata/big_data.pptx",
+		path:        "testdata/external/big_data.pptx",
 		description: "Large PPTX with 263 parts including charts and diagrams",
 	},
 	{
 		name:        "sdg_integration",
-		path:        "testdata/sdg_integration.pptx",
+		path:        "testdata/external/sdg_integration.pptx",
 		description: "SDG integration PPTX with 177 parts including complex styling",
 	},
 	{
 		name:        "internet_basics",
-		path:        "testdata/internet_basics.pptx",
+		path:        "testdata/external/internet_basics.pptx",
 		description: "TAMU internet basics with 49 slides and animations",
 	},
 	{
 		name:        "lecture_1_3",
-		path:        "testdata/lecture_1_3.pptx",
+		path:        "testdata/external/lecture_1_3.pptx",
 		description: "UvA lecture with 35 slides and 16 layouts",
 	},
 	{
 		name:        "swarm_cop",
-		path:        "testdata/swarm_cop.pptx",
+		path:        "testdata/external/swarm_cop.pptx",
 		description: "ESA Swarm COP with complex charts and 25 slides",
 	},
 	{
 		name:        "sefuw",
-		path:        "testdata/sefuw.pptx",
+		path:        "testdata/external/sefuw.pptx",
 		description: "ESA SEFUW with 25 slides and complex styling",
 	},
 }

@@ -1,0 +1,20 @@
+# External test fixtures — one entry per line: DEST_PATH<tab>URL
+# Lines starting with # are comments. Blank lines are ignored.
+# DEST_PATH is relative to repo root.
+
+# PPTX fixtures
+pptx/testdata/external/internet_basics.pptx	https://tcall.tamu.edu/digitalliteracytoolkit/2.%20internet%20basics%20and%20cyber%20safety/2.2%20internet%20basics%20presentation.pptx
+pptx/testdata/external/swarm_cop.pptx	https://earth.esa.int/eogateway/documents/20142/2249972/N2_E_Maestroni_Swarm_COP.pptx
+pptx/testdata/external/sefuw.pptx	https://indico.esa.int/event/531/contributions/10620/attachments/6614/11765/SEFUW.pptx
+pptx/testdata/external/lecture_1_3.pptx	https://ivi.fnwi.uva.nl/fcn/teaching/Project_Analysis_2013/Practicum%20Lectures/Lecture%201.3.pptx
+# pptx/testdata/external/big_data.pptx	# ECB, Per Nymand-Andersen — URL unknown
+# pptx/testdata/external/sdg_integration.pptx	# OECD DCD, Anjali Karnavar — URL unknown
+
+# XLSX fixtures
+xlsx/testdata/external/world_bank.xlsx	https://datacatalogfiles.worldbank.org/ddh-published/0037712/DR0090755/CLASS.xlsx
+xlsx/testdata/external/excelize_test.xlsx	https://raw.githubusercontent.com/qax-os/excelize/master/test/Book1.xlsx
+xlsx/testdata/external/excelize_test2.xlsx	https://raw.githubusercontent.com/qax-os/excelize/master/test/SharedStrings.xlsx
+xlsx/testdata/external/excelize_test3.xlsx	https://raw.githubusercontent.com/qax-os/excelize/master/test/MergeCell.xlsx
+xlsx/testdata/external/financial_sample.xlsx	https://go.microsoft.com/fwlink/?LinkID=521962
+# xlsx/testdata/external/fred_data.xlsx	# FRED quarterly series — URL unknown
+# xlsx/testdata/external/abs_australia.xlsx	# ABS time series — URL unknown

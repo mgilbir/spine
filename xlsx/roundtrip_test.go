@@ -22,37 +22,37 @@ var testXlsxFiles = []struct {
 	},
 	{
 		name:        "world_bank",
-		path:        "testdata/world_bank.xlsx",
+		path:        "testdata/external/world_bank.xlsx",
 		description: "World Bank country classification dataset",
 	},
 	{
 		name:        "excelize_test",
-		path:        "testdata/excelize_test.xlsx",
+		path:        "testdata/external/excelize_test.xlsx",
 		description: "Excelize library test file",
 	},
 	{
 		name:        "excelize_test2",
-		path:        "testdata/excelize_test2.xlsx",
+		path:        "testdata/external/excelize_test2.xlsx",
 		description: "Excelize library test file 2",
 	},
 	{
 		name:        "excelize_test3",
-		path:        "testdata/excelize_test3.xlsx",
+		path:        "testdata/external/excelize_test3.xlsx",
 		description: "Excelize library test file 3 (merge cells)",
 	},
 	{
 		name:        "financial_sample",
-		path:        "testdata/financial_sample.xlsx",
+		path:        "testdata/external/financial_sample.xlsx",
 		description: "Financial sample dataset",
 	},
 	{
 		name:        "fred_data",
-		path:        "testdata/fred_data.xlsx",
+		path:        "testdata/external/fred_data.xlsx",
 		description: "FRED economic data export",
 	},
 	{
 		name:        "abs_australia",
-		path:        "testdata/abs_australia.xlsx",
+		path:        "testdata/external/abs_australia.xlsx",
 		description: "Australian Bureau of Statistics dataset",
 	},
 }
