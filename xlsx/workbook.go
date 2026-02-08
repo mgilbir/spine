@@ -594,6 +594,64 @@ func ParseCellRef(ref string) (row, col int, err error) {
 	return row, col, nil
 }
 
+// DefinedName represents a named range or formula in the workbook.
+type DefinedName struct {
+	Name       string
+	Value      string
+	SheetIndex int // -1 for workbook scope
+}
+
+// AddDefinedName adds a workbook-scoped defined name.
+func (w *Workbook) AddDefinedName(name, ref string) error {
+	return w.addDefinedName(name, ref, -1)
+}
+
+// AddDefinedNameScoped adds a sheet-scoped defined name.
+func (w *Workbook) AddDefinedNameScoped(name, ref string, sheetIndex int) error {
+	if sheetIndex < 0 || sheetIndex >= len(w.sheets) {
+		return ErrSheetIndex
+	}
+	return w.addDefinedName(name, ref, sheetIndex)
+}
+
+func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
+	if w.workbook.DefinedNames == nil {
+		w.workbook.DefinedNames = &oxml.CT_DefinedNames{}
+	}
+
+	dn := oxml.CT_DefinedName{
+		Name:  name,
+		Value: ref,
+	}
+	if sheetIndex >= 0 {
+		idx := uint32(sheetIndex)
+		dn.LocalSheetId = &idx
+	}
+
+	w.workbook.DefinedNames.DefinedName = append(w.workbook.DefinedNames.DefinedName, dn)
+	return nil
+}
+
+// DefinedNames returns all defined names in the workbook.
+func (w *Workbook) DefinedNames() []DefinedName {
+	if w.workbook.DefinedNames == nil {
+		return nil
+	}
+
+	result := make([]DefinedName, len(w.workbook.DefinedNames.DefinedName))
+	for i, dn := range w.workbook.DefinedNames.DefinedName {
+		result[i] = DefinedName{
+			Name:       dn.Name,
+			Value:      dn.Value,
+			SheetIndex: -1,
+		}
+		if dn.LocalSheetId != nil {
+			result[i].SheetIndex = int(*dn.LocalSheetId)
+		}
+	}
+	return result
+}
+
 // detectSelfClosingSpace detects whether the XML uses " />" (space before close)
 // for self-closing elements, vs "/>" (no space).
 func detectSelfClosingSpace(data []byte) bool {
