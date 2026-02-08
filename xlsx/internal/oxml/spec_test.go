@@ -155,6 +155,7 @@ var smlTypeMap = map[string]reflect.Type{
 // SpreadsheetML content types (they belong to OPC or other namespaces).
 var smlOutOfScope = map[string]string{
 	"Relationships": "OPC package relationships, not SML content",
+	"oddHeader":     "bare xsd:string child of headerFooter, not a complex type",
 }
 
 func smlTestdataPath() string {
