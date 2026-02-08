@@ -48,3 +48,11 @@ func marshalStylesXML(styles *oxml.CT_Styles) []byte {
 	return b.Bytes()
 }
 
+// marshalNumberingXML marshals numbering definitions to XML.
+func marshalNumberingXML(numbering *oxml.CT_Numbering) []byte {
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	b.MarshalRoot(nsW, "numbering", numbering, xmlb.WordprocessingMLNamespaces())
+	return b.Bytes()
+}
+
