@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/spec/spectest"
 )
@@ -73,6 +74,12 @@ var pmlTypeMap = map[string]reflect.Type{
 
 	// View properties
 	"style": reflect.TypeOf(SlideProperties{}),
+
+	// Background reference (uses DML FillRef / CT_StyleMatrixReference)
+	"bgRef": reflect.TypeOf(dml.FillRef{}),
+
+	// Comment text
+	"text": reflect.TypeOf(CommentText{}),
 }
 
 func pmlTestdataPath() string {

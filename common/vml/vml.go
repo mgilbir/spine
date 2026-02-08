@@ -558,6 +558,191 @@ type BorderRight struct {
 	Color string `xml:"color,attr,omitempty"`
 }
 
+// --- Office VML Extensions (o:) ---
+
+// Background represents the <v:background> element - document background
+type Background struct {
+	XMLName   xml.Name `xml:"urn:schemas-microsoft-com:vml background"`
+	ID        string   `xml:"id,attr,omitempty"`
+	FillColor string   `xml:"fillcolor,attr,omitempty"`
+	Fill      *Fill    `xml:"urn:schemas-microsoft-com:vml fill,omitempty"`
+}
+
+// ShapeLayout represents the <o:shapelayout> element - shape layout
+type ShapeLayout struct {
+	Ext string `xml:"-"` // v:ext attr (cross-namespace)
+}
+
+// UnmarshalXML implements custom unmarshaling for ShapeLayout.
+func (s *ShapeLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Local == "ext" {
+			s.Ext = attr.Value
+		}
+	}
+	return d.Skip()
+}
+
+// MarshalXML implements custom marshaling for ShapeLayout to output v:ext.
+func (s *ShapeLayout) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	start.Name = xml.Name{Local: "shapelayout"}
+	if s.Ext != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Space: "urn:schemas-microsoft-com:vml", Local: "ext"},
+			Value: s.Ext,
+		})
+	}
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	return e.EncodeToken(start.End())
+}
+
+// ShapeDefaults represents the <o:shapedefaults> element - default shape properties
+type ShapeDefaults struct {
+	Ext       string `xml:"-"` // v:ext attr (cross-namespace)
+	SpidMax   string `xml:"spidmax,attr,omitempty"`
+	FillColor string `xml:"fillcolor,attr,omitempty"`
+}
+
+// UnmarshalXML implements custom unmarshaling for ShapeDefaults.
+func (s *ShapeDefaults) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "ext":
+			s.Ext = attr.Value
+		case "spidmax":
+			s.SpidMax = attr.Value
+		case "fillcolor":
+			s.FillColor = attr.Value
+		}
+	}
+	return d.Skip()
+}
+
+// MarshalXML implements custom marshaling for ShapeDefaults to output v:ext.
+func (s *ShapeDefaults) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	start.Name = xml.Name{Local: "shapedefaults"}
+	if s.Ext != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Space: "urn:schemas-microsoft-com:vml", Local: "ext"},
+			Value: s.Ext,
+		})
+	}
+	if s.SpidMax != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "spidmax"}, Value: s.SpidMax})
+	}
+	if s.FillColor != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "fillcolor"}, Value: s.FillColor})
+	}
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	return e.EncodeToken(start.End())
+}
+
+// ColorMru represents the <o:colormru> element - most recently used colors
+type ColorMru struct {
+	XMLName xml.Name `xml:"urn:schemas-microsoft-com:office:office colormru"`
+	Ext     string   `xml:"urn:schemas-microsoft-com:vml ext,attr,omitempty"`
+	Colors  string   `xml:"colors,attr,omitempty"`
+}
+
+// IdMap represents the <o:idmap> element - shape ID block mapping
+type IdMap struct {
+	XMLName xml.Name `xml:"urn:schemas-microsoft-com:office:office idmap"`
+	Ext     string   `xml:"urn:schemas-microsoft-com:vml ext,attr,omitempty"`
+	Data    string   `xml:"data,attr,omitempty"`
+}
+
+// RelationTable represents the <o:relationtable> element - shape relationship table
+type RelationTable struct {
+	XMLName xml.Name `xml:"urn:schemas-microsoft-com:office:office relationtable"`
+	Ext     string   `xml:"urn:schemas-microsoft-com:vml ext,attr,omitempty"`
+	Rel     []Rel    `xml:"urn:schemas-microsoft-com:office:office rel,omitempty"`
+}
+
+// Rel represents the <o:rel> element - shape relationship
+type Rel struct {
+	XMLName xml.Name `xml:"urn:schemas-microsoft-com:office:office rel"`
+	Ext     string   `xml:"urn:schemas-microsoft-com:vml ext,attr,omitempty"`
+	IdSrc   string   `xml:"idsrc,attr,omitempty"`
+	IdDest  string   `xml:"iddest,attr,omitempty"`
+	IdCntr  string   `xml:"idcntr,attr,omitempty"`
+}
+
+// OLEObject represents the <o:OLEObject> element - embedded OLE object
+type OLEObject struct {
+	Type       string `xml:"-"`
+	ProgID     string `xml:"-"`
+	ShapeID    string `xml:"-"`
+	DrawAspect string `xml:"-"`
+	ObjectID   string `xml:"-"`
+	RID        string `xml:"-"` // r:id attr
+}
+
+// UnmarshalXML implements custom unmarshaling for OLEObject.
+func (o *OLEObject) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "Type":
+			o.Type = attr.Value
+		case "ProgID":
+			o.ProgID = attr.Value
+		case "ShapeID":
+			o.ShapeID = attr.Value
+		case "DrawAspect":
+			o.DrawAspect = attr.Value
+		case "ObjectID":
+			o.ObjectID = attr.Value
+		case "id":
+			o.RID = attr.Value
+		}
+	}
+	return d.Skip()
+}
+
+// MarshalXML implements custom marshaling for OLEObject to output all attributes including r:id.
+func (o *OLEObject) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	start.Name = xml.Name{Local: "OLEObject"}
+	for _, pair := range [][2]string{
+		{"Type", o.Type},
+		{"ProgID", o.ProgID},
+		{"ShapeID", o.ShapeID},
+		{"DrawAspect", o.DrawAspect},
+		{"ObjectID", o.ObjectID},
+	} {
+		if pair[1] != "" {
+			start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: pair[0]}, Value: pair[1]})
+		}
+	}
+	if o.RID != "" {
+		start.Attr = append(start.Attr, xml.Attr{
+			Name:  xml.Name{Space: "http://schemas.openxmlformats.org/officeDocument/2006/relationships", Local: "id"},
+			Value: o.RID,
+		})
+	}
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	return e.EncodeToken(start.End())
+}
+
+// Diagram represents the <o:diagram> element - VML diagram
+type Diagram struct {
+	Autoformat string `xml:"autoformat,attr,omitempty"`
+	Reverse    string `xml:"reverse,attr,omitempty"`
+	AutoLayout string `xml:"autolayout,attr,omitempty"`
+	Dgmstyle   string `xml:"dgmstyle,attr,omitempty"`
+}
+
+// Ink represents the <o:ink> element - ink data
+type Ink struct {
+	XMLName    xml.Name `xml:"urn:schemas-microsoft-com:office:office ink"`
+	I          string   `xml:"i,attr,omitempty"`
+	Annotation string   `xml:"annotation,attr,omitempty"`
+}
+
 // --- Excel VML Extensions (x:) ---
 
 // ClientData represents the <x:ClientData> element - Excel form control data

@@ -70,6 +70,17 @@ var smlTypeMap = map[string]reflect.Type{
 	"borders":      reflect.TypeOf(CT_Borders{}),
 	"cellStyleXfs": reflect.TypeOf(CT_CellStyleXfs{}),
 	"cellStyles":   reflect.TypeOf(CT_CellStyles{}),
+
+	// New worksheet types (Batch 3)
+	"drawingHF":       reflect.TypeOf(CT_DrawingHF{}),
+	"commentPr":       reflect.TypeOf(CT_CommentPr{}),
+	"controlPr":       reflect.TypeOf(CT_ControlPr{}),
+	"objectPr":        reflect.TypeOf(CT_ObjectPr{}),
+	"sharedItems":     reflect.TypeOf(CT_SharedItems{}),
+	"DataBinding":     reflect.TypeOf(CT_DataBinding{}),
+	"protectedRanges": reflect.TypeOf(CT_ProtectedRanges{}),
+	"table":           reflect.TypeOf(CT_Table{}),
+	"tableColumn":     reflect.TypeOf(CT_TableColumn{}),
 }
 
 func smlTestdataPath() string {

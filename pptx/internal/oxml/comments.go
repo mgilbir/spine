@@ -42,6 +42,11 @@ type CommentAuthor struct {
 	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
+// CommentText represents the text content of a comment (p:text).
+type CommentText struct {
+	Value string `xml:",chardata"`
+}
+
 // --- Modern Comments (Office 2021+) ---
 
 // ModernComment represents p15:comment modern threaded comment

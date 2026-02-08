@@ -147,6 +147,114 @@ var wmlTypeMap = map[string]reflect.Type{
 	"name":   reflect.TypeOf(CT_String{}),
 	"type":   reflect.TypeOf(CT_String{}),
 	"vAlign": reflect.TypeOf(CT_String{}),
+
+	// CT_OnOff settings properties
+	"embedTrueTypeFonts":              reflect.TypeOf(CT_OnOff{}),
+	"alignBordersAndEdges":            reflect.TypeOf(CT_OnOff{}),
+	"alwaysMergeEmptyNamespace":       reflect.TypeOf(CT_OnOff{}),
+	"alwaysShowPlaceholderText":       reflect.TypeOf(CT_OnOff{}),
+	"autoFormatOverride":              reflect.TypeOf(CT_OnOff{}),
+	"bordersDoNotSurroundFooter":      reflect.TypeOf(CT_OnOff{}),
+	"bordersDoNotSurroundHeader":      reflect.TypeOf(CT_OnOff{}),
+	"displayBackgroundShape":          reflect.TypeOf(CT_OnOff{}),
+	"doNotAutoCompressPictures":       reflect.TypeOf(CT_OnOff{}),
+	"doNotDemarcateInvalidXml":        reflect.TypeOf(CT_OnOff{}),
+	"doNotDisplayPageBoundaries":      reflect.TypeOf(CT_OnOff{}),
+	"doNotEmbedSmartTags":             reflect.TypeOf(CT_OnOff{}),
+	"doNotHyphenateCaps":              reflect.TypeOf(CT_OnOff{}),
+	"doNotIncludeSubdocsInStats":      reflect.TypeOf(CT_OnOff{}),
+	"doNotShadeFormData":              reflect.TypeOf(CT_OnOff{}),
+	"doNotTrackMoves":                 reflect.TypeOf(CT_OnOff{}),
+	"doNotUseMarginsForDrawingGridOrigin": reflect.TypeOf(CT_OnOff{}),
+	"doNotValidateAgainstSchema":      reflect.TypeOf(CT_OnOff{}),
+	"formsDesign":                     reflect.TypeOf(CT_OnOff{}),
+	"hideGrammaticalErrors":           reflect.TypeOf(CT_OnOff{}),
+	"hideSpellingErrors":              reflect.TypeOf(CT_OnOff{}),
+	"mirrorMargins":                   reflect.TypeOf(CT_OnOff{}),
+	"noPunctuationKerning":            reflect.TypeOf(CT_OnOff{}),
+	"printFormsData":                  reflect.TypeOf(CT_OnOff{}),
+	"printFractionalCharacterWidth":   reflect.TypeOf(CT_OnOff{}),
+	"printPostScriptOverText":         reflect.TypeOf(CT_OnOff{}),
+	"removePersonalInformation":       reflect.TypeOf(CT_OnOff{}),
+	"saveFormsData":                   reflect.TypeOf(CT_OnOff{}),
+	"saveInvalidXml":                  reflect.TypeOf(CT_OnOff{}),
+	"savePreviewPicture":              reflect.TypeOf(CT_OnOff{}),
+	"showEnvelope":                    reflect.TypeOf(CT_OnOff{}),
+	"showXMLTags":                     reflect.TypeOf(CT_OnOff{}),
+	"strictFirstAndLastChars":         reflect.TypeOf(CT_OnOff{}),
+	"styleLockQFSet":                  reflect.TypeOf(CT_OnOff{}),
+	"styleLockTheme":                  reflect.TypeOf(CT_OnOff{}),
+	"updateFields":                    reflect.TypeOf(CT_OnOff{}),
+	"doNotSuppressBlankLines":         reflect.TypeOf(CT_OnOff{}),
+	"viewMergedData":                  reflect.TypeOf(CT_OnOff{}),
+	"useXSLTWhenSaving":               reflect.TypeOf(CT_OnOff{}),
+	"optimizeForBrowser":              reflect.TypeOf(CT_OnOff{}),
+
+	// CT_String settings properties
+	"characterSpacingControl": reflect.TypeOf(CT_String{}),
+	"documentType":            reflect.TypeOf(CT_String{}),
+	"view":                    reflect.TypeOf(CT_String{}),
+	"stylePaneSortMethod":     reflect.TypeOf(CT_String{}),
+	"dataType":                reflect.TypeOf(CT_String{}),
+	"mainDocumentType":        reflect.TypeOf(CT_String{}),
+	"addressFieldName":        reflect.TypeOf(CT_String{}),
+	"destination":             reflect.TypeOf(CT_String{}),
+	"decimalSymbol":           reflect.TypeOf(CT_String{}),
+	"listSeparator":           reflect.TypeOf(CT_String{}),
+	"tblOverlap":              reflect.TypeOf(CT_String{}),
+
+	// CT_DecimalNumber settings properties
+	"consecutiveHyphenLimit":             reflect.TypeOf(CT_DecimalNumber{}),
+	"displayHorizontalDrawingGridEvery":  reflect.TypeOf(CT_DecimalNumber{}),
+	"displayVerticalDrawingGridEvery":    reflect.TypeOf(CT_DecimalNumber{}),
+	"summaryLength":                      reflect.TypeOf(CT_String{}),
+	"colDelim":                           reflect.TypeOf(CT_DecimalNumber{}),
+	"numIdMacAtCleanup":                  reflect.TypeOf(CT_DecimalNumber{}),
+
+	// CT_TwipsMeasure settings properties
+	"drawingGridHorizontalSpacing": reflect.TypeOf(CT_TwipsMeasure{}),
+	"drawingGridVerticalSpacing":   reflect.TypeOf(CT_TwipsMeasure{}),
+	"hyphenationZone":              reflect.TypeOf(CT_TwipsMeasure{}),
+	"defaultTabStop":               reflect.TypeOf(CT_TwipsMeasure{}),
+
+	// CT_Empty
+	"forceUpgrade": reflect.TypeOf(CT_Empty{}),
+
+	// New container types (Batch 2)
+	"compat":              reflect.TypeOf(CT_Compat{}),
+	"compatSetting":       reflect.TypeOf(CT_CompatSetting{}),
+	"clrSchemeMapping":    reflect.TypeOf(CT_ClrSchemeMapping{}),
+	"webSettings":         reflect.TypeOf(CT_WebSettings{}),
+	"revisionView":        reflect.TypeOf(CT_RevisionView{}),
+	"documentProtection":  reflect.TypeOf(CT_DocumentProtection{}),
+	"captions":            reflect.TypeOf(CT_Captions{}),
+	"caption":             reflect.TypeOf(CT_Caption{}),
+	"autoCaption":         reflect.TypeOf(CT_AutoCaption{}),
+	"docVars":             reflect.TypeOf(CT_DocVars{}),
+	"rsids":               reflect.TypeOf(CT_Rsids{}),
+	"proofState":          reflect.TypeOf(CT_ProofState{}),
+	"readModeInkLockDown": reflect.TypeOf(CT_ReadModeInkLockDown{}),
+	"zoom":                reflect.TypeOf(CT_Zoom{}),
+	"writeProtection":     reflect.TypeOf(CT_WriteProtection{}),
+	"stylePaneFormatFilter": reflect.TypeOf(CT_StylePaneFormatFilter{}),
+
+	// Form field types
+	"ffData":  reflect.TypeOf(CT_FFData{}),
+	"control": reflect.TypeOf(CT_Control{}),
+
+	// Custom XML types
+	"customXml":   reflect.TypeOf(CT_CustomXml{}),
+	"customXmlPr": reflect.TypeOf(CT_CustomXmlPr{}),
+
+	// Font table types
+	"font": reflect.TypeOf(CT_Font{}),
+
+	// Table property exceptions
+	"tblPrEx": reflect.TypeOf(CT_TblPrEx{}),
+
+	// Header/footer references
+	"headerReference": reflect.TypeOf(CT_HeaderReference{}),
+	"footerReference": reflect.TypeOf(CT_HeaderReference{}),
 }
 
 func wmlTestdataPath() string {
