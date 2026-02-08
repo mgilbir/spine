@@ -11,17 +11,26 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Add, remove, and reorder slides
   - Work with slide masters and layouts
   - Add shapes, text, tables, and images
+  - Auto shapes with solid/gradient fills, lines, and shadows
+  - Slide transitions (fade, push, wipe, and more)
   - Support for placeholders and themes
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables
   - Rich text formatting (bold, italic, color, font, size)
-  - Paragraph alignment and styling
+  - Paragraph alignment, spacing, and indentation
+  - Bullet and numbered lists
+  - Headers and footers
+  - Inline images
+  - Page setup (size, margins)
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
   - Formula support
-  - Shared string table resolution
+  - Cell styling (fonts, fills, borders, number formats, alignment)
+  - Freeze panes, auto-filter, and data validation
+  - Merged cells and named ranges
+  - Column widths and row heights
 
 ## Installation
 
@@ -37,6 +46,7 @@ go get github.com/mgilbir/spine
 package main
 
 import (
+    "github.com/mgilbir/spine/common/dml"
     "github.com/mgilbir/spine/pptx"
 )
 
@@ -52,8 +62,8 @@ func main() {
 
     // Add a text box
     textBox := slide.AddTextBox()
-    textBox.SetPosition(pptx.Inches(1), pptx.Inches(1))
-    textBox.SetSize(pptx.Inches(8), pptx.Inches(1))
+    textBox.SetPosition(dml.Inches(1), dml.Inches(1))
+    textBox.SetSize(dml.Inches(8), dml.Inches(1))
     textBox.SetText("Hello, World!")
 
     // Save the presentation
@@ -184,7 +194,7 @@ func main() {
 
     // Add slides using template layouts
     layout := p.GetLayoutByType(pptx.LayoutTitleAndContent)
-    slide := p.AddSlideFromLayout(layout)
+    _ = p.AddSlideFromLayout(layout)
 
     // Save the new presentation
     if err := p.Save("from_template.pptx"); err != nil {
@@ -197,9 +207,14 @@ func main() {
 
 - `opc/` - Open Packaging Conventions implementation
 - `common/` - Shared types and utilities
-  - `dml/` - DrawingML types (colors, geometry)
+  - `dml/` - DrawingML types (colors, geometry, fills, lines)
+    - `chart/` - Chart types
+    - `diagram/` - Diagram types
+  - `docprops/` - Document properties (core and extended)
   - `enum/` - Common enumerations
+  - `omml/` - Office Math Markup Language types
   - `oxml/` - Shared Office XML types
+  - `vml/` - Vector Markup Language types
   - `xml/` - XML namespace handling and Builder-based serialization
 - `pptx/` - PowerPoint document support
 - `docx/` - Word document support
@@ -237,6 +252,8 @@ The following standard slide layout types are supported:
 | `LayoutBlank` | Blank slide |
 | `LayoutContentWithCaption` | Content with caption |
 | `LayoutPictureWithCaption` | Picture with caption |
+| `LayoutTitleAndVerticalText` | Title and vertical text |
+| `LayoutVerticalTitleAndText` | Vertical title and text |
 
 ## Requirements
 
