@@ -10,6 +10,19 @@ import (
 	"github.com/mgilbir/spine/spec/spectest"
 )
 
+// Dublin Core / OPC property leaf element wrappers for spec example testing.
+// The spec examples use display names (Creator, Title, etc.) rather than the
+// actual namespaced XML element names (dc:creator, dc:title, etc.).
+// These are xsd:string or xsd:int leaf elements from Dublin Core (DCES),
+// Dublin Core Terms, and OPC extended properties.
+type specStringElement struct {
+	Value string `xml:",chardata"`
+}
+
+type specIntElement struct {
+	Value int32 `xml:",chardata"`
+}
+
 var wmlTypeMap = map[string]reflect.Type{
 	// Root document types (with XMLName)
 	"document":  reflect.TypeOf(CT_Document{}),
@@ -320,6 +333,24 @@ var wmlTypeMap = map[string]reflect.Type{
 
 	// Div types (run_types.go)
 	"div": reflect.TypeOf(CT_Div{}),
+
+	// Dublin Core elements (DCES) — dc:creator, dc:title, etc.
+	// Spec examples use PascalCase display names without namespace prefixes.
+	"Creator":     reflect.TypeOf(specStringElement{}),
+	"Title":       reflect.TypeOf(specStringElement{}),
+	"Subject":     reflect.TypeOf(specStringElement{}),
+	"Description": reflect.TypeOf(specStringElement{}),
+	"Keywords":    reflect.TypeOf(specStringElement{}),
+
+	// Dublin Core Terms — dcterms:created, dcterms:modified
+	"DateCreated":  reflect.TypeOf(specStringElement{}),
+	"DateModified": reflect.TypeOf(specStringElement{}),
+
+	// OPC extended properties (docProps/app.xml)
+	"TotalTime":      reflect.TypeOf(specIntElement{}),
+	"Revision":       reflect.TypeOf(specStringElement{}),
+	"LastPrinted":    reflect.TypeOf(specStringElement{}),
+	"LastModifiedBy": reflect.TypeOf(specStringElement{}),
 }
 
 // wmlOutOfScope lists elements that appear in WML test data but are NOT WML types.
@@ -328,20 +359,6 @@ var wmlTypeMap = map[string]reflect.Type{
 var wmlOutOfScope = map[string]string{
 	// HTML content (not WML)
 	"html": "HTML content, not WML",
-	// Dublin Core metadata (docProps/core.xml)
-	"Title":       "Dublin Core metadata",
-	"Creator":     "Dublin Core metadata",
-	"Subject":     "Dublin Core metadata",
-	"Description": "Dublin Core metadata",
-	"Keywords":    "Dublin Core metadata",
-	// Office properties (docProps/app.xml)
-	"TotalTime":      "Office app properties",
-	"Revision":       "Office app properties",
-	"LastPrinted":    "Office app properties",
-	"LastModifiedBy": "Office app properties",
-	// Dublin Core date types
-	"DateCreated":  "Dublin Core date type",
-	"DateModified": "Dublin Core date type",
 	// OPC package relationships
 	"Relationships": "OPC package relationship",
 	// VML shapes (tested in VML suite)
