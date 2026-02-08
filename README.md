@@ -255,6 +255,30 @@ The following standard slide layout types are supported:
 | `LayoutTitleAndVerticalText` | Title and vertical text |
 | `LayoutVerticalTitleAndText` | Vertical title and text |
 
+## Testing
+
+Unit tests run against both small synthetic fixtures (committed to git) and a set of real-world Office files sourced from the internet. The external files are used for round-trip compatibility testing: each file is parsed, serialized back, and compared byte-for-byte against the original.
+
+External fixtures are not checked into the repository. To download them:
+
+```bash
+make fetch
+```
+
+This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Use `bash testdata/fetch.sh --force` to re-download all of them.
+
+To run the full test suite (fetches external files first):
+
+```bash
+make test
+```
+
+To lint:
+
+```bash
+make lint
+```
+
 ## Requirements
 
 - Go 1.25 or later
