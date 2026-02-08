@@ -183,6 +183,46 @@ var DMLTypeMap = map[string]reflect.Type{
 	"styleDef":    reflect.TypeOf(diagram.StyleDef{}),
 	"styleDefHdr": reflect.TypeOf(diagram.StyleDefHdr{}),
 	"styleLbl":    reflect.TypeOf(diagram.StyleDefLabel{}),
+
+	// Diagram layout header (diagram/layout.go)
+	"layoutDefHdr": reflect.TypeOf(diagram.LayoutDefHdr{}),
+
+	// Table style list (xml_tablestyle.go)
+	"tblStyleLst": reflect.TypeOf(dml.TblStyleLst{}),
+
+	// Gradient path (xml_types.go)
+	"path": reflect.TypeOf(dml.PathXML{}),
+
+	// Table cell border directions (same as ThemeableLineStyle)
+	"top":    reflect.TypeOf(dml.ThemeableLineStyle{}),
+	"bottom": reflect.TypeOf(dml.ThemeableLineStyle{}),
+	"left":   reflect.TypeOf(dml.ThemeableLineStyle{}),
+	"right":  reflect.TypeOf(dml.ThemeableLineStyle{}),
+
+	// Diagram background and page setup (xml_misc.go)
+	"bg":        reflect.TypeOf(dml.DiagramBg{}),
+	"wsp":       reflect.TypeOf(dml.Wsp{}),
+	"pageSetup": reflect.TypeOf(dml.DiagramPageSetup{}),
+
+	// WordprocessingDrawing types (xml_wpdrawing.go)
+	"anchor":        reflect.TypeOf(dml.WPAnchor{}),
+	"inline":        reflect.TypeOf(dml.WPInline{}),
+	"effectExtent":  reflect.TypeOf(dml.WPEffectExtent{}),
+	"effectExtents": reflect.TypeOf(dml.WPEffectExtent{}),
+	"wrapPolygon":   reflect.TypeOf(dml.WPWrapPolygon{}),
+
+	// SpreadsheetDrawing types (xml_xdrdrawing.go)
+	"twoCellAnchor": reflect.TypeOf(dml.XDRTwoCellAnchor{}),
+
+	// ChartDrawing types (xml_cdrdrawing.go) — mapped by root_element
+
+	// Picture namespace types (xml_picdrawing.go)
+	"pic": reflect.TypeOf(dml.PicPic{}),
+
+	// PML shape types for DML cross-namespace tests (xml_pmldrawing.go)
+	"sp":     reflect.TypeOf(dml.PMLShape{}),
+	"grpSp":  reflect.TypeOf(dml.PMLGroupShape{}),
+	"spTree": reflect.TypeOf(dml.PMLShapeTree{}),
 }
 
 // ChartTypeMap maps Chart element local names to Go types.

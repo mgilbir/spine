@@ -228,6 +228,54 @@ type CT_WriteProtection struct {
 	CryptProviderType   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cryptProviderType,attr,omitempty"`
 }
 
+// CT_ActiveWritingStyle represents an active writing style (w:activeWritingStyle).
+type CT_ActiveWritingStyle struct {
+	AppName  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main appName,attr,omitempty"`
+	Lang     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,attr,omitempty"`
+	VendorID string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vendorID,attr,omitempty"`
+	DllVersion string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dllVersion,attr,omitempty"`
+	NlCheck  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main nlCheck,attr,omitempty"`
+	CheckStyle string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main checkStyle,attr,omitempty"`
+}
+
+// CT_ThemeFontLang represents theme font languages (w:themeFontLang).
+type CT_ThemeFontLang struct {
+	Val      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	EastAsia string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
+	Bidi     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
+}
+
+// CT_ShapeDefaults represents default shape properties (w:shapeDefaults, w:hdrShapeDefaults).
+type CT_ShapeDefaults struct{}
+
+// CT_SmartTagType represents a smart tag type (w:smartTagType).
+type CT_SmartTagType struct {
+	NamespaceURI string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main namespaceuri,attr,omitempty"`
+	Name         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,attr,omitempty"`
+	URL          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main url,attr,omitempty"`
+}
+
+// CT_SmartTagPr represents smart tag properties (w:smartTagPr).
+type CT_SmartTagPr struct {
+	Attr []*CT_SmartTagAttr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main attr,omitempty"`
+}
+
+// CT_SmartTagAttr represents a smart tag attribute.
+type CT_SmartTagAttr struct {
+	Name string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,attr,omitempty"`
+	Val  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	URI  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main uri,attr,omitempty"`
+}
+
+// CT_SdtDate represents a structured document tag date element (w:date).
+type CT_SdtDate struct {
+	FullDate   string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fullDate,attr,omitempty"`
+	DateFormat *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dateFormat,omitempty"`
+	Lid        *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lid,omitempty"`
+	StoreMappedDataAs *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main storeMappedDataAs,omitempty"`
+	Calendar   *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main calendar,omitempty"`
+}
+
 // CT_StylePaneFormatFilter represents style pane format filter (w:stylePaneFormatFilter).
 type CT_StylePaneFormatFilter struct {
 	Val                   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`

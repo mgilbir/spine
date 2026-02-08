@@ -132,6 +132,13 @@ func UnmarshalFragment(wrapped []byte, target interface{}) error {
 // type registry and wrapper function.
 func TestUnmarshalExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string) {
 	t.Helper()
+	TestUnmarshalExamplesWithSkips(t, examples, typeMap, wrapFn, nil)
+}
+
+// TestUnmarshalExamplesWithSkips runs unmarshal tests with an optional out-of-scope skip map.
+// Elements in outOfScope are skipped with a descriptive reason instead of "No Go type mapped".
+func TestUnmarshalExamplesWithSkips(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, outOfScope map[string]string) {
+	t.Helper()
 
 	for _, ex := range examples {
 		if ex.Classification != "clean" && ex.Classification != "ellipsis_strippable" {
@@ -153,6 +160,11 @@ func TestUnmarshalExamples(t *testing.T, examples []Example, typeMap map[string]
 
 		t.Run(ex.ID, func(t *testing.T) {
 			LogBreadcrumb(t, ex)
+
+			if reason, skip := outOfScope[rootElem]; skip {
+				t.Skipf("Out of scope: %s (%s)", rootElem, reason)
+				return
+			}
 
 			typ, ok := typeMap[rootElem]
 			if !ok {
@@ -179,17 +191,23 @@ type MarshalFunc func(v interface{}, rootElem string) ([]byte, error)
 // using encoding/xml.Marshal.
 func TestRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string) {
 	t.Helper()
-	testRoundTripExamples(t, examples, typeMap, wrapFn, nil)
+	testRoundTripExamples(t, examples, typeMap, wrapFn, nil, nil)
 }
 
 // TestRoundTripExamplesWithMarshal runs unmarshal-marshal-unmarshal round-trip tests
 // using a custom marshal function (e.g., Builder-based marshaling for types with xml:"-" fields).
 func TestRoundTripExamplesWithMarshal(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc) {
 	t.Helper()
-	testRoundTripExamples(t, examples, typeMap, wrapFn, marshalFn)
+	testRoundTripExamples(t, examples, typeMap, wrapFn, marshalFn, nil)
 }
 
-func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc) {
+// TestRoundTripExamplesWithSkips runs round-trip tests with an out-of-scope skip map.
+func TestRoundTripExamplesWithSkips(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc, outOfScope map[string]string) {
+	t.Helper()
+	testRoundTripExamples(t, examples, typeMap, wrapFn, marshalFn, outOfScope)
+}
+
+func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc, outOfScope map[string]string) {
 	t.Helper()
 
 	for _, ex := range examples {
@@ -208,6 +226,11 @@ func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 
 		t.Run(ex.ID, func(t *testing.T) {
 			LogBreadcrumb(t, ex)
+
+			if reason, skip := outOfScope[rootElem]; skip {
+				t.Skipf("Out of scope: %s (%s)", rootElem, reason)
+				return
+			}
 
 			typ, ok := typeMap[rootElem]
 			if !ok {

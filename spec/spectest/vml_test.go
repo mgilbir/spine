@@ -23,6 +23,13 @@ func WrapVML(xmlStr string) string {
 		`>` + xmlStr + `</v:wrapper>`
 }
 
+// vmlOutOfScope lists elements that appear in VML spec examples but are not
+// VML content types.
+var vmlOutOfScope = map[string]string{
+	"object": "WML w:object element, not VML content",
+	"":       "Example with no identifiable root element",
+}
+
 func TestVML_SpecExamples_WellFormed(t *testing.T) {
 	examples := LoadExamples(t, vmlTestdataPath())
 	TestWellFormedExamples(t, examples, WrapVML)
@@ -30,11 +37,10 @@ func TestVML_SpecExamples_WellFormed(t *testing.T) {
 
 func TestVML_SpecExamples_Unmarshal(t *testing.T) {
 	examples := LoadExamples(t, vmlTestdataPath())
-	// VML types are in common/vml/ - add to VMLTypeMap when accessible
-	TestUnmarshalExamples(t, examples, VMLTypeMap, WrapVML)
+	TestUnmarshalExamplesWithSkips(t, examples, VMLTypeMap, WrapVML, vmlOutOfScope)
 }
 
 func TestVML_SpecExamples_RoundTrip(t *testing.T) {
 	examples := LoadExamples(t, vmlTestdataPath())
-	TestRoundTripExamples(t, examples, VMLTypeMap, WrapVML)
+	TestRoundTripExamplesWithSkips(t, examples, VMLTypeMap, WrapVML, nil, vmlOutOfScope)
 }

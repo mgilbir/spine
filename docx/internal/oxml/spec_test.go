@@ -255,6 +255,100 @@ var wmlTypeMap = map[string]reflect.Type{
 	// Header/footer references
 	"headerReference": reflect.TypeOf(CT_HeaderReference{}),
 	"footerReference": reflect.TypeOf(CT_HeaderReference{}),
+
+	// Mail merge types (mailmerge.go)
+	"mailMerge":       reflect.TypeOf(CT_MailMerge{}),
+	"odso":            reflect.TypeOf(CT_Odso{}),
+	"fieldMapData":    reflect.TypeOf(CT_OdsoFieldMapData{}),
+	"recipientData":   reflect.TypeOf(CT_RecipientData{}),
+	"recipients":      reflect.TypeOf(CT_Recipients{}),
+	"saveThroughXslt": reflect.TypeOf(CT_SaveThroughXslt{}),
+	"query":           reflect.TypeOf(CT_String{}),
+	"connectString":   reflect.TypeOf(CT_String{}),
+	"checkErrors":     reflect.TypeOf(CT_DecimalNumber{}),
+	"udl":             reflect.TypeOf(CT_String{}),
+	"fHdr":            reflect.TypeOf(CT_OnOff{}),
+
+	// Ruby / phonetic guide types (ruby.go)
+	"rubyPr":   reflect.TypeOf(CT_RubyPr{}),
+	"rubyBase": reflect.TypeOf(CT_RubyContent{}),
+	"rt":       reflect.TypeOf(CT_RubyContent{}),
+
+	// Glossary / building block types (docparts.go)
+	"glossaryDocument": reflect.TypeOf(CT_GlossaryDocument{}),
+	"docPart":          reflect.TypeOf(CT_DocPart{}),
+	"docPartPr":        reflect.TypeOf(CT_DocPartPr{}),
+	"gallery":          reflect.TypeOf(CT_String{}),
+
+	// OLE object types (objects.go)
+	"object":      reflect.TypeOf(CT_Object{}),
+	"objectEmbed": reflect.TypeOf(CT_ObjectEmbed{}),
+	"objectLink":  reflect.TypeOf(CT_ObjectLink{}),
+
+	// Frameset types (frameset.go)
+	"frameset": reflect.TypeOf(CT_Frameset{}),
+	"frame":    reflect.TypeOf(CT_Frame{}),
+
+	// Additional settings types (settings_types.go)
+	"activeWritingStyle": reflect.TypeOf(CT_ActiveWritingStyle{}),
+	"attachedTemplate":   reflect.TypeOf(CT_Rel{}),
+	"attachedSchema":     reflect.TypeOf(CT_String{}),
+	"themeFontLang":      reflect.TypeOf(CT_ThemeFontLang{}),
+	"shapeDefaults":      reflect.TypeOf(CT_ShapeDefaults{}),
+	"hdrShapeDefaults":   reflect.TypeOf(CT_ShapeDefaults{}),
+	"defaultTableStyle":  reflect.TypeOf(CT_String{}),
+	"clickAndTypeStyle":  reflect.TypeOf(CT_String{}),
+	"date":               reflect.TypeOf(CT_SdtDate{}),
+	"smartTagType":       reflect.TypeOf(CT_SmartTagType{}),
+	"smartTagPr":         reflect.TypeOf(CT_SmartTagPr{}),
+
+	// Run types (run_types.go)
+	"ptab":   reflect.TypeOf(CT_Ptab{}),
+	"legacy": reflect.TypeOf(CT_Legacy{}),
+	"dir":    reflect.TypeOf(CT_DirContentRun{}),
+	"bdo":    reflect.TypeOf(CT_BdoContentRun{}),
+
+	// Numbering types (run_types.go)
+	"numPicBullet": reflect.TypeOf(CT_NumPicBullet{}),
+
+	// Font table types (run_types.go)
+	"fonts": reflect.TypeOf(CT_FontsList{}),
+	"pitch": reflect.TypeOf(CT_String{}),
+
+	// Table width (properties.go)
+	"tblW": reflect.TypeOf(CT_TblWidth{}),
+
+	// Div types (run_types.go)
+	"div": reflect.TypeOf(CT_Div{}),
+}
+
+// wmlOutOfScope lists elements that appear in WML test data but are NOT WML types.
+// These are from other namespaces (Dublin Core, OPC, VML, Math, HTML) and are
+// intentionally excluded from the WML type map.
+var wmlOutOfScope = map[string]string{
+	// HTML content (not WML)
+	"html": "HTML content, not WML",
+	// Dublin Core metadata (docProps/core.xml)
+	"Title":       "Dublin Core metadata",
+	"Creator":     "Dublin Core metadata",
+	"Subject":     "Dublin Core metadata",
+	"Description": "Dublin Core metadata",
+	"Keywords":    "Dublin Core metadata",
+	// Office properties (docProps/app.xml)
+	"TotalTime":      "Office app properties",
+	"Revision":       "Office app properties",
+	"LastPrinted":    "Office app properties",
+	"LastModifiedBy": "Office app properties",
+	// Dublin Core date types
+	"DateCreated":  "Dublin Core date type",
+	"DateModified": "Dublin Core date type",
+	// OPC package relationships
+	"Relationships": "OPC package relationship",
+	// VML shapes (tested in VML suite)
+	"shape": "VML shape, tested in VML suite",
+	// Math namespace
+	"f":    "Office Math formula",
+	"math": "MathML element",
 }
 
 func wmlTestdataPath() string {
@@ -269,7 +363,7 @@ func TestWML_SpecExamples_WellFormed(t *testing.T) {
 
 func TestWML_SpecExamples_Unmarshal(t *testing.T) {
 	examples := spectest.LoadExamples(t, wmlTestdataPath())
-	spectest.TestUnmarshalExamples(t, examples, wmlTypeMap, spectest.WrapWML)
+	spectest.TestUnmarshalExamplesWithSkips(t, examples, wmlTypeMap, spectest.WrapWML, wmlOutOfScope)
 }
 
 func TestWML_SpecExamples_RoundTrip(t *testing.T) {
@@ -279,5 +373,5 @@ func TestWML_SpecExamples_RoundTrip(t *testing.T) {
 		b.MarshalElement(xmlb.NSWordprocessingML, rootElem, v)
 		return b.Bytes(), nil
 	}
-	spectest.TestRoundTripExamplesWithMarshal(t, examples, wmlTypeMap, spectest.WrapWML, marshalFn)
+	spectest.TestRoundTripExamplesWithSkips(t, examples, wmlTypeMap, spectest.WrapWML, marshalFn, wmlOutOfScope)
 }

@@ -19,6 +19,18 @@ type LayoutDef struct {
 	ExtLst   *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
 }
 
+// LayoutDefHdr represents CT_DiagramDefinitionHeader (dgm:layoutDefHdr) - layout header
+type LayoutDefHdr struct {
+	UniqueId string       `xml:"uniqueId,attr,omitempty"`
+	MinVer   string       `xml:"minVer,attr,omitempty"`
+	DefStyle string       `xml:"defStyle,attr,omitempty"`
+	ResId    string       `xml:"resId,attr,omitempty"`
+	Title    []*DiagTitle `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram title,omitempty"`
+	Desc     []*DiagDesc  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram desc,omitempty"`
+	CatLst   *CatLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram catLst,omitempty"`
+	ExtLst   *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
+}
+
 // DiagTitle represents CT_Name (dgm:title) - localized title
 type DiagTitle struct {
 	Lang string `xml:"lang,attr,omitempty"`

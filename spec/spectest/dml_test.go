@@ -20,6 +20,11 @@ func WrapDML(xmlStr string) string {
 		` xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"` +
 		` xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"` +
 		` xmlns:mc="` + NsMC + `"` +
+		` xmlns:wp="` + NsWPDrawing + `"` +
+		` xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"` +
+		` xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"` +
+		` xmlns:cdr="http://schemas.openxmlformats.org/drawingml/2006/chartDrawing"` +
+		` xmlns:w="` + NsWML + `"` +
 		`>` + xmlStr + `</a:wrapper>`
 }
 
