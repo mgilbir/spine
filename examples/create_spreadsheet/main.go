@@ -1,8 +1,8 @@
-// Example: Create a simple Excel spreadsheet
+// Example: Create a formatted Excel spreadsheet
 //
-// This example demonstrates how to use the spine library to create
-// a basic Excel workbook with multiple sheets, different cell types,
-// and formulas.
+// This example demonstrates cell styling, freeze panes, auto-filter,
+// data validation, named ranges, merged cells, column widths, and
+// tab colors using the spine XLSX library.
 //
 // Run with: go run ./examples/create_spreadsheet
 package main
@@ -23,70 +23,181 @@ func must(err error) {
 }
 
 func main() {
-	// Create a new workbook
 	wb := xlsx.Create()
-
-	// Set document properties
 	wb.Properties.Title = "Spine Demo Spreadsheet"
 	wb.Properties.Creator = "Spine Library"
-	wb.Properties.Subject = "Demonstration of the spine XLSX library"
 
-	// --- Sheet 1: Sales Data ---
+	// ── Sheet 1: Sales Data ──────────────────────────────────────────
+
 	sales := wb.AddSheet("Sales Data")
+	sales.SetTabColor("4472C4") // blue tab
 
-	// Headers
-	headers := []string{"Product", "Q1", "Q2", "Q3", "Q4", "Total"}
-	for i, h := range headers {
-		ref, _ := xlsx.CellRef(1, i+1)
-		must(sales.SetCellValue(ref, h))
+	// Title row (merged)
+	must(sales.SetCellValue("A1", "Quarterly Sales Report"))
+	must(sales.MergeCells("A1", "G1"))
+	titleCell, _ := sales.Cell("A1")
+	must(titleCell.SetStyle(xlsx.CellStyle{
+		Font:      &xlsx.FontStyle{Name: "Calibri", Size: 14, Bold: true, Color: "1F4E79"},
+		Alignment: &xlsx.AlignmentStyle{Horizontal: "center"},
+	}))
+	must(sales.SetRowHeight(1, 30))
+
+	// Header row
+	headers := []string{"Product", "Q1", "Q2", "Q3", "Q4", "Total", "Status"}
+	headerStyle := xlsx.CellStyle{
+		Font:      &xlsx.FontStyle{Name: "Calibri", Size: 11, Bold: true, Color: "FFFFFF"},
+		Fill:      &xlsx.FillStyle{Pattern: "solid", FgColor: "4472C4"},
+		Alignment: &xlsx.AlignmentStyle{Horizontal: "center"},
+		Border: &xlsx.BorderStyle{
+			Bottom: &xlsx.BorderSide{Style: "thin", Color: "2F5496"},
+		},
 	}
+	for i, h := range headers {
+		ref, _ := xlsx.CellRef(2, i+1)
+		must(sales.SetCellValue(ref, h))
+		cell, _ := sales.Cell(ref)
+		must(cell.SetStyle(headerStyle))
+	}
+	must(sales.SetRowHeight(2, 20))
+
+	// Column widths
+	must(sales.SetColWidth(1, 15)) // Product
+	for i := 2; i <= 6; i++ {
+		must(sales.SetColWidth(i, 12)) // Q1-Q4, Total
+	}
+	must(sales.SetColWidth(7, 12)) // Status
 
 	// Data rows
 	data := []struct {
-		product string
-		q1, q2, q3, q4 float64
+		product            string
+		q1, q2, q3, q4    float64
+		status             string
 	}{
-		{"Widgets", 1500, 1800, 2100, 2400},
-		{"Gadgets", 3200, 2900, 3100, 3500},
-		{"Sprockets", 800, 950, 1100, 1250},
-		{"Flanges", 2100, 2300, 2000, 2600},
+		{"Widgets", 15200, 18400, 21100, 24300, "Active"},
+		{"Gadgets", 32100, 29500, 31800, 35200, "Active"},
+		{"Sprockets", 8050, 9500, 11200, 12500, "Pending"},
+		{"Flanges", 21400, 23100, 20800, 26300, "Active"},
+		{"Brackets", 5600, 6200, 7100, 8400, "Inactive"},
+	}
+
+	currencyStyle := xlsx.CellStyle{
+		Format:    "#,##0",
+		Alignment: &xlsx.AlignmentStyle{Horizontal: "right"},
 	}
 
 	for i, row := range data {
-		r := i + 2 // data starts at row 2
+		r := i + 3 // data starts at row 3
 		must(sales.SetCellValue(fmt.Sprintf("A%d", r), row.product))
 		must(sales.SetCellValue(fmt.Sprintf("B%d", r), row.q1))
 		must(sales.SetCellValue(fmt.Sprintf("C%d", r), row.q2))
 		must(sales.SetCellValue(fmt.Sprintf("D%d", r), row.q3))
 		must(sales.SetCellValue(fmt.Sprintf("E%d", r), row.q4))
+		must(sales.SetCellValue(fmt.Sprintf("G%d", r), row.status))
 
-		// Total formula for each row
+		// Currency formatting on number cells
+		for col := 2; col <= 5; col++ {
+			ref, _ := xlsx.CellRef(r, col)
+			cell, _ := sales.Cell(ref)
+			must(cell.SetStyle(currencyStyle))
+		}
+
+		// Total formula
 		cell, _ := sales.Cell(fmt.Sprintf("F%d", r))
 		cell.SetFormula(fmt.Sprintf("SUM(B%d:E%d)", r, r))
+		must(cell.SetStyle(xlsx.CellStyle{
+			Format: "#,##0",
+			Font:   &xlsx.FontStyle{Bold: true},
+			Border: &xlsx.BorderStyle{
+				Left: &xlsx.BorderSide{Style: "thin", Color: "4472C4"},
+			},
+			Alignment: &xlsx.AlignmentStyle{Horizontal: "right"},
+		}))
 	}
 
-	// --- Sheet 2: Summary ---
+	// Grand total row
+	totalRow := len(data) + 3
+	must(sales.SetCellValue(fmt.Sprintf("A%d", totalRow), "Grand Total"))
+	totalStyle := xlsx.CellStyle{
+		Font:   &xlsx.FontStyle{Bold: true, Size: 11},
+		Format: "#,##0",
+		Fill:   &xlsx.FillStyle{Pattern: "solid", FgColor: "D6E4F0"},
+		Border: &xlsx.BorderStyle{
+			Top:    &xlsx.BorderSide{Style: "double", Color: "4472C4"},
+			Bottom: &xlsx.BorderSide{Style: "double", Color: "4472C4"},
+		},
+		Alignment: &xlsx.AlignmentStyle{Horizontal: "right"},
+	}
+	for col := 2; col <= 6; col++ {
+		ref, _ := xlsx.CellRef(totalRow, col)
+		cell, _ := sales.Cell(ref)
+		colLetter := string(rune('A' + col - 1))
+		cell.SetFormula(fmt.Sprintf("SUM(%s3:%s%d)", colLetter, colLetter, totalRow-1))
+		must(cell.SetStyle(totalStyle))
+	}
+	labelCell, _ := sales.Cell(fmt.Sprintf("A%d", totalRow))
+	must(labelCell.SetStyle(xlsx.CellStyle{
+		Font: &xlsx.FontStyle{Bold: true, Size: 11},
+		Fill: &xlsx.FillStyle{Pattern: "solid", FgColor: "D6E4F0"},
+		Border: &xlsx.BorderStyle{
+			Top:    &xlsx.BorderSide{Style: "double", Color: "4472C4"},
+			Bottom: &xlsx.BorderSide{Style: "double", Color: "4472C4"},
+		},
+	}))
+
+	// Freeze panes: freeze title + header rows
+	must(sales.FreezePanes("A3"))
+
+	// Auto-filter on header row
+	must(sales.SetAutoFilter(fmt.Sprintf("A2:G%d", totalRow-1)))
+
+	// Data validation on Status column
+	must(sales.AddDataValidation(xlsx.DataValidation{
+		Range:        fmt.Sprintf("G3:G%d", totalRow-1),
+		Type:         "list",
+		Formula1:     `"Active,Inactive,Pending"`,
+		ShowDropDown: true,
+		AllowBlank:   true,
+		ErrorTitle:   "Invalid Status",
+		ErrorMessage: "Please select Active, Inactive, or Pending.",
+	}))
+
+	// Named range for grand total
+	must(wb.AddDefinedName("GrandTotal",
+		fmt.Sprintf("'Sales Data'!$F$%d", totalRow)))
+
+	// ── Sheet 2: Summary ─────────────────────────────────────────────
+
 	summary := wb.AddSheet("Summary")
+	summary.SetTabColor("70AD47") // green tab
+	summary.SetZoom(120)
+	summary.SetShowGridLines(false)
 
-	must(summary.SetCellValue("A1", "Metric"))
-	must(summary.SetCellValue("B1", "Value"))
+	must(summary.SetCellValue("A1", "Summary"))
+	cell, _ := summary.Cell("A1")
+	must(cell.SetStyle(xlsx.CellStyle{
+		Font: &xlsx.FontStyle{Size: 16, Bold: true, Color: "1F4E79"},
+	}))
 
-	must(summary.SetCellValue("A2", "Total Products"))
-	must(summary.SetCellValue("B2", len(data)))
+	must(summary.SetCellValue("A3", "Total Products"))
+	must(summary.SetCellValue("B3", len(data)))
+	must(summary.SetCellValue("A4", "Quarters"))
+	must(summary.SetCellValue("B4", 4))
+	must(summary.SetCellValue("A5", "Grand Total"))
+	totalRef, _ := summary.Cell("B5")
+	totalRef.SetFormula("GrandTotal")
 
-	must(summary.SetCellValue("A3", "Quarters"))
-	must(summary.SetCellValue("B3", 4))
+	must(summary.SetColWidth(1, 18))
+	must(summary.SetColWidth(2, 14))
 
-	must(summary.SetCellValue("A4", "Report Generated"))
-	must(summary.SetCellValue("B4", true))
+	// Set active sheet to Sales Data
+	must(wb.SetActiveSheet(0))
 
-	// Save the workbook
+	// ── Save ─────────────────────────────────────────────────────────
+
 	outputPath := "output.xlsx"
 	if len(os.Args) > 1 {
 		outputPath = os.Args[1]
 	}
-
-	// Ensure output directory exists
 	dir := filepath.Dir(outputPath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -94,8 +205,7 @@ func main() {
 		}
 	}
 
-	err := wb.Save(outputPath)
-	if err != nil {
+	if err := wb.Save(outputPath); err != nil {
 		log.Fatalf("Failed to save workbook: %v", err)
 	}
 
@@ -104,4 +214,5 @@ func main() {
 	for _, s := range wb.Sheets() {
 		fmt.Printf("  - %s (%d rows)\n", s.Name(), s.Rows())
 	}
+	fmt.Printf("Defined names: %d\n", len(wb.DefinedNames()))
 }
