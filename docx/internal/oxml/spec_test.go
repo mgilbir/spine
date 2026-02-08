@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/mgilbir/spine/common/omml"
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/spec/spectest"
 )
@@ -362,19 +363,21 @@ var wmlTypeMap = map[string]reflect.Type{
 	// HTML fragments — illustrative XHTML showing source HTML that produces WML.
 	// Inner content captured as raw string since it's not WML markup.
 	"html": reflect.TypeOf(specRawElement{}),
+
+	// Office Math (OMML) types — m: namespace elements that appear in WML examples.
+	"f": reflect.TypeOf(omml.Fraction{}),
 }
 
 // wmlOutOfScope lists elements that appear in WML test data but are NOT WML types.
-// These are from other namespaces (OPC, VML, Math) and are tested in their
+// These are from other namespaces (OPC, VML, MathML) and are tested in their
 // respective test suites.
 var wmlOutOfScope = map[string]string{
 	// OPC package relationships
 	"Relationships": "OPC package relationship",
 	// VML shapes (tested in VML suite)
 	"shape": "VML shape, tested in VML suite",
-	// Math namespace
-	"f":    "Office Math formula",
-	"math": "MathML element",
+	// W3C MathML (different spec from Office Math)
+	"math": "W3C MathML element, not Office Math (OMML)",
 }
 
 func wmlTestdataPath() string {
