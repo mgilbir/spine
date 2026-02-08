@@ -345,6 +345,11 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// AppendDrawingChild adds a drawing child reference to maintain proper child ordering.
+func (r *CT_R) AppendDrawingChild(index int) {
+	r.childOrder = append(r.childOrder, runChildRef{runChildDrawing, index})
+}
+
 // marshalText writes a text element with xml:space handling.
 func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr

@@ -30,6 +30,12 @@ type Document struct {
 	hasCoreProps     bool
 	preservedParts   map[string]*coxml.RawPart // all original parts for round-trip
 	contentTypesData []byte                    // raw [Content_Types].xml
+	imageParts       []*imagePart              // images to be written
+	imageCount       int                       // counter for image numbering
+	nextRelIDVal     int                       // counter for relationship IDs
+	newHeaderParts   []*hdrFtrPart             // new headers to be written
+	newFooterParts   []*hdrFtrPart             // new footers to be written
+	hdrFtrCount      int                       // counter for header/footer numbering
 }
 
 // headerPart stores a parsed header.
@@ -359,9 +365,8 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		return err
 	}
 
-	// Write document relationships
+	// Collect document relationships - all allocated via nextRelID()
 	var docRels []*opc.Relationship
-	relID := 1
 
 	// Write default styles
 	if d.styles != nil {
@@ -370,9 +375,62 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 			return err
 		}
 		docRels = append(docRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", relID),
+			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
 			Type:   opc.RelTypeStyles,
 			Target: "styles.xml",
+		})
+	}
+
+	// Write numbering definitions
+	if d.numbering != nil && (len(d.numbering.AbstractNum) > 0 || len(d.numbering.Num) > 0) {
+		data := marshalNumberingXML(d.numbering)
+		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
+			return err
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
+			Type:   opc.RelTypeNumbering,
+			Target: "numbering.xml",
+		})
+	}
+
+	// Write image parts and add their relationships
+	for _, img := range d.imageParts {
+		if err := writer.WritePart(img.partName, img.contentType, img.data); err != nil {
+			return err
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     img.relID,
+			Type:   opc.RelTypeImage,
+			Target: img.partName[len("/word/"):], // relative to /word/
+		})
+	}
+
+	// Write header/footer parts and relationships
+	for _, hp := range d.newHeaderParts {
+		if hdrPart, ok := d.headers[hp.partName]; ok {
+			data := marshalHdrFtrXML(hdrPart.hdr, "hdr")
+			if err := writer.WritePart(hp.partName, opc.ContentTypeDocHeader, data); err != nil {
+				return err
+			}
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     hp.relID,
+			Type:   opc.RelTypeHeader,
+			Target: hp.partName[len("/word/"):],
+		})
+	}
+	for _, fp := range d.newFooterParts {
+		if ftrPart, ok := d.footers[fp.partName]; ok {
+			data := marshalHdrFtrXML(ftrPart.ftr, "ftr")
+			if err := writer.WritePart(fp.partName, opc.ContentTypeDocFooter, data); err != nil {
+				return err
+			}
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     fp.relID,
+			Type:   opc.RelTypeFooter,
+			Target: fp.partName[len("/word/"):],
 		})
 	}
 
@@ -463,6 +521,87 @@ func (d *Document) Tables() []*Table {
 	return result
 }
 
-// Section represents a document section.
-type Section struct {
+// AddTable creates a new table with the specified number of rows and columns.
+func (d *Document) AddTable(rows, cols int) *Table {
+	if d.document.Body == nil {
+		d.document.Body = &oxml.CT_Body{}
+	}
+	tbl := &oxml.CT_Tbl{
+		TblPr: &oxml.CT_TblPr{},
+		TblGrid: &oxml.CT_TblGrid{},
+	}
+	// Create grid columns
+	for i := 0; i < cols; i++ {
+		tbl.TblGrid.GridCol = append(tbl.TblGrid.GridCol, oxml.CT_GridCol{})
+	}
+	// Create rows with cells
+	for i := 0; i < rows; i++ {
+		tr := &oxml.CT_Tr{}
+		for j := 0; j < cols; j++ {
+			tc := &oxml.CT_Tc{
+				P: []*oxml.CT_P{{}},
+			}
+			tr.Tc = append(tr.Tc, tc)
+		}
+		tbl.Tr = append(tbl.Tr, tr)
+	}
+	d.document.Body.Tbl = append(d.document.Body.Tbl, tbl)
+	return &Table{tbl: tbl}
+}
+
+// nextRelID returns the next available relationship ID number.
+func (d *Document) nextRelID() int {
+	if d.nextRelIDVal == 0 {
+		// Start from existing relationships count + 1
+		d.nextRelIDVal = len(d.relationships["/word/document.xml"]) + 1
+	}
+	id := d.nextRelIDVal
+	d.nextRelIDVal++
+	return id
+}
+
+// addDocRelationship adds a relationship to the document.xml relationships.
+func (d *Document) addDocRelationship(rel *opc.Relationship) {
+	d.relationships["/word/document.xml"] = append(d.relationships["/word/document.xml"], rel)
+}
+
+// DefaultSection returns the document's default (last) section.
+// If no section properties exist, they are created with default values.
+func (d *Document) DefaultSection() *Section {
+	if d.document.Body == nil {
+		d.document.Body = &oxml.CT_Body{}
+	}
+	if d.document.Body.SectPr == nil {
+		d.document.Body.SectPr = &oxml.CT_SectPr{}
+	}
+	return &Section{sectPr: d.document.Body.SectPr}
+}
+
+// AddSectionBreak adds a section break by setting section properties on the
+// last paragraph and creating a new default section.
+func (d *Document) AddSectionBreak() *Section {
+	if d.document.Body == nil {
+		d.document.Body = &oxml.CT_Body{}
+	}
+
+	// Move current body sectPr into the last paragraph
+	oldSectPr := d.document.Body.SectPr
+	if oldSectPr == nil {
+		oldSectPr = &oxml.CT_SectPr{}
+	}
+
+	// Ensure there's at least one paragraph to attach the section break to
+	if len(d.document.Body.P) == 0 {
+		d.AddParagraph()
+	}
+
+	lastP := d.document.Body.P[len(d.document.Body.P)-1]
+	if lastP.PPr == nil {
+		lastP.PPr = &oxml.CT_PPr{}
+	}
+	lastP.PPr.SectPr = oldSectPr
+
+	// Create new body-level section
+	d.document.Body.SectPr = &oxml.CT_SectPr{}
+	return &Section{sectPr: d.document.Body.SectPr}
 }
