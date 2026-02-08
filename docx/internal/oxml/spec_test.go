@@ -23,6 +23,13 @@ type specIntElement struct {
 	Value int32 `xml:",chardata"`
 }
 
+// specRawElement captures inner content as a raw string. Used for HTML
+// fragments in spec examples — these are illustrative XHTML showing the
+// source HTML that produces the corresponding WML output.
+type specRawElement struct {
+	Inner string `xml:",innerxml"`
+}
+
 var wmlTypeMap = map[string]reflect.Type{
 	// Root document types (with XMLName)
 	"document":  reflect.TypeOf(CT_Document{}),
@@ -351,14 +358,16 @@ var wmlTypeMap = map[string]reflect.Type{
 	"Revision":       reflect.TypeOf(specStringElement{}),
 	"LastPrinted":    reflect.TypeOf(specStringElement{}),
 	"LastModifiedBy": reflect.TypeOf(specStringElement{}),
+
+	// HTML fragments — illustrative XHTML showing source HTML that produces WML.
+	// Inner content captured as raw string since it's not WML markup.
+	"html": reflect.TypeOf(specRawElement{}),
 }
 
 // wmlOutOfScope lists elements that appear in WML test data but are NOT WML types.
-// These are from other namespaces (Dublin Core, OPC, VML, Math, HTML) and are
-// intentionally excluded from the WML type map.
+// These are from other namespaces (OPC, VML, Math) and are tested in their
+// respective test suites.
 var wmlOutOfScope = map[string]string{
-	// HTML content (not WML)
-	"html": "HTML content, not WML",
 	// OPC package relationships
 	"Relationships": "OPC package relationship",
 	// VML shapes (tested in VML suite)
@@ -386,6 +395,9 @@ func TestWML_SpecExamples_Unmarshal(t *testing.T) {
 func TestWML_SpecExamples_RoundTrip(t *testing.T) {
 	examples := spectest.LoadExamples(t, wmlTestdataPath())
 	marshalFn := func(v interface{}, rootElem string) ([]byte, error) {
+		if raw, ok := v.(*specRawElement); ok {
+			return []byte("<" + rootElem + ">" + raw.Inner + "</" + rootElem + ">"), nil
+		}
 		b := xmlb.NewWordprocessingMLBuilder()
 		b.MarshalElement(xmlb.NSWordprocessingML, rootElem, v)
 		return b.Bytes(), nil
