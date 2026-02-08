@@ -307,3 +307,168 @@ func columnLetters(col int) string {
 func FormatCellRef(row, col int) string {
 	return fmt.Sprintf("%s%d", columnLetters(col), row)
 }
+
+// FreezePanes freezes rows and columns at the specified cell reference.
+// For example, "B2" freezes row 1 and column A.
+func (s *Sheet) FreezePanes(cellRef string) error {
+	row, col, err := ParseCellRef(cellRef)
+	if err != nil {
+		return err
+	}
+
+	s.ensureWorksheet()
+	sv := s.ensureSheetView()
+
+	xSplit := float64(col - 1)
+	ySplit := float64(row - 1)
+
+	sv.Pane = &oxml.CT_Pane{
+		TopLeftCell: strings.ToUpper(cellRef),
+		State:       "frozen",
+	}
+	if xSplit > 0 {
+		sv.Pane.XSplit = &xSplit
+	}
+	if ySplit > 0 {
+		sv.Pane.YSplit = &ySplit
+	}
+
+	// Set active pane
+	if xSplit > 0 && ySplit > 0 {
+		sv.Pane.ActivePane = "bottomRight"
+	} else if ySplit > 0 {
+		sv.Pane.ActivePane = "bottomLeft"
+	} else if xSplit > 0 {
+		sv.Pane.ActivePane = "topRight"
+	}
+
+	// Add selection for the active pane
+	sv.Selection = []oxml.CT_Selection{{
+		Pane:       sv.Pane.ActivePane,
+		ActiveCell: cellRef,
+		SqRef:      cellRef,
+	}}
+
+	return nil
+}
+
+// UnfreezePanes removes any frozen panes from the sheet.
+func (s *Sheet) UnfreezePanes() {
+	if s.worksheet == nil || s.worksheet.SheetViews == nil {
+		return
+	}
+	if len(s.worksheet.SheetViews.SheetView) > 0 {
+		s.worksheet.SheetViews.SheetView[0].Pane = nil
+	}
+}
+
+// SetZoom sets the zoom percentage for the sheet view (e.g., 100 for 100%).
+func (s *Sheet) SetZoom(percent uint32) {
+	s.ensureWorksheet()
+	sv := s.ensureSheetView()
+	sv.ZoomScale = &percent
+	sv.ZoomScaleNormal = &percent
+}
+
+// SetShowGridLines sets whether grid lines are displayed.
+func (s *Sheet) SetShowGridLines(show bool) {
+	s.ensureWorksheet()
+	sv := s.ensureSheetView()
+	sv.ShowGridLines = &show
+}
+
+// SetTabColor sets the sheet tab color as a hex RGB string (e.g., "FF0000").
+func (s *Sheet) SetTabColor(hexColor string) {
+	s.ensureWorksheet()
+	if s.worksheet.SheetPr == nil {
+		s.worksheet.SheetPr = &oxml.CT_SheetPr{}
+	}
+	s.worksheet.SheetPr.TabColor = &oxml.CT_Color{
+		Rgb: hexColor,
+	}
+}
+
+// SetAutoFilter sets an auto-filter on the specified range (e.g., "A1:F1").
+func (s *Sheet) SetAutoFilter(rangeRef string) error {
+	s.ensureWorksheet()
+	s.worksheet.AutoFilter = &oxml.CT_AutoFilter{
+		Ref: strings.ToUpper(rangeRef),
+	}
+	return nil
+}
+
+// RemoveAutoFilter removes the auto-filter from the sheet.
+func (s *Sheet) RemoveAutoFilter() {
+	if s.worksheet != nil {
+		s.worksheet.AutoFilter = nil
+	}
+}
+
+// DataValidation represents a data validation rule.
+type DataValidation struct {
+	Range        string // cell range (e.g., "B2:B100")
+	Type         string // "list", "whole", "decimal", "date", "textLength", "custom"
+	Operator     string // "between", "lessThan", "equal", etc.
+	Formula1     string
+	Formula2     string
+	AllowBlank   bool
+	ShowDropDown bool
+	ErrorTitle   string
+	ErrorMessage string
+}
+
+// AddDataValidation adds a data validation rule to the sheet.
+func (s *Sheet) AddDataValidation(dv DataValidation) error {
+	s.ensureWorksheet()
+	if s.worksheet.DataValidations == nil {
+		s.worksheet.DataValidations = &oxml.CT_DataValidations{}
+	}
+
+	v := oxml.CT_DataValidation{
+		Sqref:      strings.ToUpper(dv.Range),
+		Type:       dv.Type,
+		Operator:   dv.Operator,
+		ErrorTitle: dv.ErrorTitle,
+		Error:      dv.ErrorMessage,
+	}
+
+	if dv.AllowBlank {
+		v.AllowBlank = &dv.AllowBlank
+	}
+	if dv.ShowDropDown {
+		// Note: In OOXML, showDropDown=false means show dropdown (counterintuitive)
+		// But our public API uses intuitive semantics
+		show := false
+		v.ShowDropDown = &show
+	}
+	if dv.Formula1 != "" {
+		v.Formula1 = &dv.Formula1
+	}
+	if dv.Formula2 != "" {
+		v.Formula2 = &dv.Formula2
+	}
+
+	s.worksheet.DataValidations.DataValidation = append(s.worksheet.DataValidations.DataValidation, v)
+	count := uint32(len(s.worksheet.DataValidations.DataValidation))
+	s.worksheet.DataValidations.Count = &count
+
+	return nil
+}
+
+func (s *Sheet) ensureWorksheet() {
+	if s.worksheet == nil {
+		s.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
+		}
+	}
+}
+
+func (s *Sheet) ensureSheetView() *oxml.CT_SheetView {
+	if s.worksheet.SheetViews == nil {
+		s.worksheet.SheetViews = &oxml.CT_SheetViews{}
+	}
+	if len(s.worksheet.SheetViews.SheetView) == 0 {
+		s.worksheet.SheetViews.SheetView = append(s.worksheet.SheetViews.SheetView, oxml.CT_SheetView{})
+	}
+	return &s.worksheet.SheetViews.SheetView[0]
+}
