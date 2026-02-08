@@ -124,6 +124,7 @@ func (s *BaseShape) SetBounds(r dml.Rect) {
 type TextBox struct {
 	BaseShape
 	textFrame *TextFrame
+	spPr      dml.SpPr
 }
 
 // NewTextBox creates a new text box.
@@ -202,6 +203,7 @@ type AutoShape struct {
 	BaseShape
 	presetGeometry string
 	textFrame      *TextFrame
+	spPr           dml.SpPr
 }
 
 // NewAutoShape creates a new auto shape with the specified preset geometry.
@@ -227,6 +229,40 @@ func (a *AutoShape) TextFrame() *TextFrame {
 		a.textFrame = NewTextFrame()
 	}
 	return a.textFrame
+}
+
+// --- Fill, Line, Shadow for AutoShape ---
+
+// SetFill sets the fill of the auto shape.
+func (a *AutoShape) SetFill(fill dml.Fill) {
+	fill.ApplyToSpPr(&a.spPr)
+}
+
+// SetLine sets the line (outline) of the auto shape.
+func (a *AutoShape) SetLine(line dml.Line) {
+	line.ApplyToSpPr(&a.spPr)
+}
+
+// SetShadow sets the shadow effect on the auto shape.
+func (a *AutoShape) SetShadow(shadow dml.Shadow) {
+	shadow.ApplyToSpPr(&a.spPr)
+}
+
+// --- Fill, Line, Shadow for TextBox ---
+
+// SetFill sets the fill of the text box.
+func (t *TextBox) SetFill(fill dml.Fill) {
+	fill.ApplyToSpPr(&t.spPr)
+}
+
+// SetLine sets the line (outline) of the text box.
+func (t *TextBox) SetLine(line dml.Line) {
+	line.ApplyToSpPr(&t.spPr)
+}
+
+// SetShadow sets the shadow effect on the text box.
+func (t *TextBox) SetShadow(shadow dml.Shadow) {
+	shadow.ApplyToSpPr(&t.spPr)
 }
 
 // Common preset geometry names
