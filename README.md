@@ -144,6 +144,84 @@ func main() {
 }
 ```
 
+### Writing an XLSX Workbook to Memory
+
+```go
+package main
+
+import (
+    "bytes"
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    wb := xlsx.Create()
+    sheet := wb.AddSheet("Export")
+    sheet.SetCellValue("A1", "hello")
+
+    buf, err := wb.WriteToBuffer()
+    if err != nil {
+        panic(err)
+    }
+
+    _ = bytes.NewReader(buf.Bytes())
+}
+```
+
+### Opening an XLSX Workbook from Memory
+
+```go
+package main
+
+import (
+    "bytes"
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    data := []byte{ /* xlsx bytes */ }
+
+    wb, err := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
+    if err != nil {
+        panic(err)
+    }
+    defer wb.Close()
+}
+```
+
+### Streaming Large XLSX Sheets
+
+```go
+package main
+
+import "github.com/mgilbir/spine/xlsx"
+
+func main() {
+    wb := xlsx.Create()
+    sheet := wb.AddSheet("Rows")
+
+    sw, err := sheet.NewStreamWriter()
+    if err != nil {
+        panic(err)
+    }
+
+    if err := sw.SetRow("A1", []any{"name", "count"}); err != nil {
+        panic(err)
+    }
+    if err := sw.SetRow("A2", []any{"apples", 3}); err != nil {
+        panic(err)
+    }
+
+    if err := sw.Flush(); err != nil {
+        panic(err)
+    }
+
+    if err := wb.Save("streamed.xlsx"); err != nil {
+        panic(err)
+    }
+}
+```
+
 ### Opening and Modifying a Presentation
 
 ```go
