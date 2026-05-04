@@ -19,7 +19,6 @@ type Workbook struct {
 	Properties opc.CoreProperties
 
 	reader           *opc.Reader
-	closer           io.Closer
 	workbook         *oxml.CT_Workbook
 	sharedStrings    *oxml.CT_Sst
 	stylesheet       *oxml.CT_Stylesheet
@@ -37,7 +36,7 @@ func Open(path string) (*Workbook, error) {
 		return nil, err
 	}
 
-	return openFromReader(&reader.Reader, reader)
+	return openFromReader(reader)
 }
 
 // OpenReader opens an Excel workbook from an in-memory reader.
@@ -47,38 +46,38 @@ func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
 		return nil, err
 	}
 
-	return openFromReader(reader, nil)
+	return openFromReader(reader)
 }
 
 // openFromReader creates a Workbook from an OPC reader.
-func openFromReader(reader *opc.Reader, closer io.Closer) (*Workbook, error) {
+func openFromReader(reader *opc.Reader) (*Workbook, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	mainPartName := opc.ResolvePartName("/", rels[0].Target)
 	mainPart := reader.GetFile(mainPartName)
 	if mainPart == nil {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	if mainPart.ContentType != opc.ContentTypeWorkbook {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
 
 	data, err := mainPart.ReadAll()
 	if err != nil {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, err
 	}
 
 	var wb oxml.CT_Workbook
 	if err := xml.Unmarshal(data, &wb); err != nil {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -88,7 +87,6 @@ func openFromReader(reader *opc.Reader, closer io.Closer) (*Workbook, error) {
 
 	w := &Workbook{
 		reader:         reader,
-		closer:         closer,
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
@@ -100,7 +98,7 @@ func openFromReader(reader *opc.Reader, closer io.Closer) (*Workbook, error) {
 	}
 
 	if err := w.loadAllParts(mainPartName); err != nil {
-		closeCloser(closer)
+		_ = reader.Close()
 		return nil, err
 	}
 
@@ -300,10 +298,10 @@ func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 // Close closes the workbook and releases resources.
 func (w *Workbook) Close() error {
 	streamErr := w.closeStreamWriters()
-	if w.closer != nil {
-		closer := w.closer
-		w.closer = nil
-		if err := closer.Close(); err != nil {
+	if w.reader != nil {
+		reader := w.reader
+		w.reader = nil
+		if err := reader.Close(); err != nil {
 			return err
 		}
 	}
@@ -316,12 +314,6 @@ func (w *Workbook) saveTo(writer *opc.Writer) error {
 		return w.saveRoundTrip(writer)
 	}
 	return w.saveNew(writer)
-}
-
-func closeCloser(closer io.Closer) {
-	if closer != nil {
-		_ = closer.Close()
-	}
 }
 
 // saveRoundTrip saves a workbook opened from a file, preserving all parts.

@@ -34,4 +34,7 @@ var (
 
 	// ErrStreamWriterUnsupported indicates streaming is not available for this workbook state.
 	ErrStreamWriterUnsupported = errors.New("xlsx: streaming is only supported for new workbooks")
+
+	// ErrStreamWriterMemoryLimit indicates the streamed worksheet data exceeded the in-memory buffer limit.
+	ErrStreamWriterMemoryLimit = errors.New("xlsx: streamed worksheet exceeded in-memory buffer limit")
 )

@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
-var streamWriterSpillThreshold = 8 << 20
+var streamWriterBufferLimit = 8 << 20
 
 // StreamWriter incrementally writes rows for a single sheet.
 type StreamWriter struct {
@@ -109,10 +108,8 @@ func normalizeStreamValue(value any) any {
 }
 
 type streamFragmentStore struct {
-	buf      bytes.Buffer
-	tempFile *os.File
-	tempPath string
-	closed   bool
+	buf    bytes.Buffer
+	closed bool
 }
 
 func newStreamFragmentStore() *streamFragmentStore {
@@ -123,30 +120,18 @@ func (s *streamFragmentStore) Write(p []byte) error {
 	if s.closed {
 		return ErrStreamWriterClosed
 	}
-	if s.tempFile == nil && s.buf.Len()+len(p) > streamWriterSpillThreshold {
-		if err := s.spillToDisk(); err != nil {
-			return err
-		}
-	}
-	if s.tempFile != nil {
-		_, err := s.tempFile.Write(p)
-		return err
+	if s.buf.Len()+len(p) > streamWriterBufferLimit {
+		return ErrStreamWriterMemoryLimit
 	}
 	_, err := s.buf.Write(p)
 	return err
 }
 
 func (s *streamFragmentStore) Flush() error {
-	if s.tempFile != nil {
-		return s.tempFile.Sync()
-	}
 	return nil
 }
 
 func (s *streamFragmentStore) Reader() (io.ReadCloser, error) {
-	if s.tempPath != "" {
-		return os.Open(s.tempPath)
-	}
 	return io.NopCloser(bytes.NewReader(s.buf.Bytes())), nil
 }
 
@@ -155,38 +140,5 @@ func (s *streamFragmentStore) Close() error {
 		return nil
 	}
 	s.closed = true
-
-	var err error
-	if s.tempFile != nil {
-		err = s.tempFile.Close()
-		s.tempFile = nil
-	}
-	if s.tempPath != "" {
-		removeErr := os.Remove(s.tempPath)
-		s.tempPath = ""
-		if err == nil {
-			err = removeErr
-		}
-	}
-	return err
-}
-
-func (s *streamFragmentStore) usingTempFile() bool {
-	return s.tempPath != ""
-}
-
-func (s *streamFragmentStore) spillToDisk() error {
-	tempFile, err := os.CreateTemp("", "spine-xlsx-stream-*.xml")
-	if err != nil {
-		return err
-	}
-	if _, err := tempFile.Write(s.buf.Bytes()); err != nil {
-		_ = tempFile.Close()
-		_ = os.Remove(tempFile.Name())
-		return err
-	}
-	s.buf.Reset()
-	s.tempFile = tempFile
-	s.tempPath = tempFile.Name()
 	return nil
 }

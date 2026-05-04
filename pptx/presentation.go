@@ -32,7 +32,7 @@ type Presentation struct {
 	slideLayouts []*SlideLayout
 	theme        *Theme
 
-	reader       *opc.ReadCloser
+	reader       *opc.Reader
 	presentation *oxml.Presentation
 	nextSlideID  uint32
 	nextRelID    int
@@ -61,7 +61,7 @@ func Open(path string) (*Presentation, error) {
 }
 
 // openFromReader creates a Presentation from an OPC reader.
-func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
+func openFromReader(reader *opc.Reader) (*Presentation, error) {
 	// Find the main presentation part
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {

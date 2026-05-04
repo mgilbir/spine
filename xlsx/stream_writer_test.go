@@ -3,7 +3,6 @@ package xlsx
 import (
 	"bytes"
 	"errors"
-	"os"
 	"testing"
 	"time"
 )
@@ -238,10 +237,10 @@ func TestStreamWriterFlushIdempotence(t *testing.T) {
 	}
 }
 
-func TestStreamWriterSpillsToDisk(t *testing.T) {
-	originalThreshold := streamWriterSpillThreshold
-	streamWriterSpillThreshold = 32
-	defer func() { streamWriterSpillThreshold = originalThreshold }()
+func TestStreamWriterErrorsWhenBufferLimitExceeded(t *testing.T) {
+	originalLimit := streamWriterBufferLimit
+	streamWriterBufferLimit = 32
+	defer func() { streamWriterBufferLimit = originalLimit }()
 
 	wb := Create()
 	sheet := wb.AddSheet("Streamed")
@@ -249,32 +248,22 @@ func TestStreamWriterSpillsToDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamWriter error: %v", err)
 	}
-	if err := sw.SetRow("A1", []any{"this is a long value that forces spill to disk"}); err != nil {
-		t.Fatalf("SetRow error: %v", err)
+	err = sw.SetRow("A1", []any{"this is a long value that exceeds the in-memory buffer"})
+	if !errors.Is(err, ErrStreamWriterMemoryLimit) {
+		t.Fatalf("SetRow error = %v, want %v", err, ErrStreamWriterMemoryLimit)
 	}
-	if !sw.fragments.usingTempFile() {
-		t.Fatalf("expected stream writer to spill to disk")
+	if sw.fragments.buf.Len() != 0 {
+		t.Fatalf("expected failed write to leave buffer empty, got %d bytes", sw.fragments.buf.Len())
 	}
-	if sw.fragments.tempPath == "" {
-		t.Fatalf("expected temp file path to be recorded")
-	}
-	if _, err := os.Stat(sw.fragments.tempPath); err != nil {
-		t.Fatalf("expected temp file to exist: %v", err)
-	}
-
-	buf, err := wb.WriteToBuffer()
-	if err != nil {
-		t.Fatalf("WriteToBuffer error: %v", err)
-	}
-	if buf.Len() == 0 {
-		t.Fatalf("expected non-empty xlsx buffer")
+	if err := wb.Close(); err != nil {
+		t.Fatalf("Workbook Close error: %v", err)
 	}
 }
 
-func TestWorkbookCloseRemovesStreamWriterTempFile(t *testing.T) {
-	originalThreshold := streamWriterSpillThreshold
-	streamWriterSpillThreshold = 32
-	defer func() { streamWriterSpillThreshold = originalThreshold }()
+func TestWorkbookCloseAfterBufferLimitExceeded(t *testing.T) {
+	originalLimit := streamWriterBufferLimit
+	streamWriterBufferLimit = 32
+	defer func() { streamWriterBufferLimit = originalLimit }()
 
 	wb := Create()
 	sheet := wb.AddSheet("Streamed")
@@ -282,18 +271,12 @@ func TestWorkbookCloseRemovesStreamWriterTempFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamWriter error: %v", err)
 	}
-	if err := sw.SetRow("A1", []any{"this is a long value that forces spill to disk"}); err != nil {
-		t.Fatalf("SetRow error: %v", err)
-	}
-	tempPath := sw.fragments.tempPath
-	if tempPath == "" {
-		t.Fatalf("expected temp file path to be recorded")
+	err = sw.SetRow("A1", []any{"this is a long value that exceeds the in-memory buffer"})
+	if !errors.Is(err, ErrStreamWriterMemoryLimit) {
+		t.Fatalf("SetRow error = %v, want %v", err, ErrStreamWriterMemoryLimit)
 	}
 
 	if err := wb.Close(); err != nil {
 		t.Fatalf("Workbook Close error: %v", err)
-	}
-	if _, err := os.Stat(tempPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("expected temp file to be removed, got err=%v", err)
 	}
 }
