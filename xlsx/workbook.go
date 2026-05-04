@@ -411,9 +411,30 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		}
 
 		sheetPartName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
-		wsData := marshalWorksheetXML(sheet.worksheet)
-		if err := writer.WritePart(sheetPartName, opc.ContentTypeWorksheet, wsData); err != nil {
-			return err
+		if sheet.streamWriter != nil {
+			if err := sheet.streamWriter.Flush(); err != nil {
+				return err
+			}
+			updateStreamedSheetDimension(sheet)
+
+			partWriter, err := writer.CreatePart(sheetPartName, opc.ContentTypeWorksheet, opc.CompressionDeflate)
+			if err != nil {
+				return err
+			}
+			if err := writeWorksheetPrefix(partWriter, sheet.worksheet); err != nil {
+				return err
+			}
+			if _, err := partWriter.Write(sheet.streamWriter.buf.Bytes()); err != nil {
+				return err
+			}
+			if err := writeWorksheetSuffix(partWriter, sheet.worksheet); err != nil {
+				return err
+			}
+		} else {
+			wsData := marshalWorksheetXML(sheet.worksheet)
+			if err := writer.WritePart(sheetPartName, opc.ContentTypeWorksheet, wsData); err != nil {
+				return err
+			}
 		}
 
 		rid := fmt.Sprintf("rId%d", relID)
@@ -474,6 +495,14 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
 
 	return nil
+}
+
+func updateStreamedSheetDimension(sheet *Sheet) {
+	if sheet.streamWriter == nil || sheet.streamWriter.maxCol == 0 || sheet.streamWriter.maxRow() == 0 {
+		return
+	}
+	endRef := FormatCellRef(sheet.streamWriter.maxRow(), sheet.streamWriter.maxCol)
+	sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: "A1:" + endRef}
 }
 
 // Styles returns the StyleManager for this workbook. If no stylesheet exists

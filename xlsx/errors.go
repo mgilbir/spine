@@ -22,4 +22,16 @@ var (
 
 	// ErrInvalidRange indicates an invalid cell range.
 	ErrInvalidRange = errors.New("xlsx: invalid range")
+
+	// ErrStreamWriterClosed indicates a stream writer was used after flush.
+	ErrStreamWriterClosed = errors.New("xlsx: stream writer is closed")
+
+	// ErrStreamWriterOrder indicates rows were written out of order.
+	ErrStreamWriterOrder = errors.New("xlsx: rows must be written in strictly increasing order")
+
+	// ErrStreamWriterMixedMode indicates streaming and random-access writes were mixed.
+	ErrStreamWriterMixedMode = errors.New("xlsx: cannot mix streaming and random-access writes on the same sheet")
+
+	// ErrStreamWriterUnsupported indicates streaming is not available for this workbook state.
+	ErrStreamWriterUnsupported = errors.New("xlsx: streaming is only supported for new workbooks")
 )
