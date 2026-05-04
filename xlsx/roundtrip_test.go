@@ -1,6 +1,7 @@
 package xlsx
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,6 +137,117 @@ func TestCreateAndReopen(t *testing.T) {
 	}
 	if val != "World" {
 		t.Errorf("Sheet2 A1 = %q, want %q", val, "World")
+	}
+}
+
+func TestSaveToBufferAndOpenReader(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Data")
+	if err := sheet.SetCellValue("A1", "Hello"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := sheet.SetCellValue("B2", 42); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	gotSheet, err := reopened.SheetByName("Data")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+
+	val, err := gotSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("GetCellValue A1 error: %v", err)
+	}
+	if val != "Hello" {
+		t.Fatalf("A1 = %q, want %q", val, "Hello")
+	}
+
+	val, err = gotSheet.GetCellValue("B2")
+	if err != nil {
+		t.Fatalf("GetCellValue B2 error: %v", err)
+	}
+	if val != "42" {
+		t.Fatalf("B2 = %q, want %q", val, "42")
+	}
+}
+
+func TestSaveToMatchesSave(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+	if err := sheet.SetCellValue("A1", "same"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer error: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "saved.xlsx")
+	if err := wb.Save(path); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	fromBuffer, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("OpenReader buffer error: %v", err)
+	}
+	defer func() { _ = fromBuffer.Close() }()
+
+	fromFile, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open file error: %v", err)
+	}
+	defer func() { _ = fromFile.Close() }()
+
+	bufSheet, err := fromBuffer.Sheet(0)
+	if err != nil {
+		t.Fatalf("buffer Sheet error: %v", err)
+	}
+	fileSheet, err := fromFile.Sheet(0)
+	if err != nil {
+		t.Fatalf("file Sheet error: %v", err)
+	}
+
+	bufVal, err := bufSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("buffer GetCellValue error: %v", err)
+	}
+	fileVal, err := fileSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("file GetCellValue error: %v", err)
+	}
+	if bufVal != fileVal {
+		t.Fatalf("A1 mismatch: buffer=%q file=%q", bufVal, fileVal)
+	}
+}
+
+func TestOpenReaderFromBytes(t *testing.T) {
+	data, err := os.ReadFile("testdata/minimal.xlsx")
+	if err != nil {
+		t.Fatalf("ReadFile error: %v", err)
+	}
+
+	wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = wb.Close() }()
+
+	if wb.SheetCount() != 2 {
+		t.Fatalf("SheetCount = %d, want 2", wb.SheetCount())
 	}
 }
 
@@ -285,10 +397,10 @@ func TestCellRef(t *testing.T) {
 // TestParseCellRef tests the ParseCellRef function.
 func TestParseCellRef(t *testing.T) {
 	tests := []struct {
-		ref          string
-		wantRow      int
-		wantCol      int
-		wantErr      bool
+		ref     string
+		wantRow int
+		wantCol int
+		wantErr bool
 	}{
 		{"A1", 1, 1, false},
 		{"B1", 1, 2, false},
