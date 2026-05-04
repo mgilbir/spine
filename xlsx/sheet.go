@@ -102,7 +102,7 @@ func (s *Sheet) NewStreamWriter() (*StreamWriter, error) {
 	}
 
 	s.ensureWorksheet()
-	s.streamWriter = &StreamWriter{sheet: s}
+	s.streamWriter = &StreamWriter{sheet: s, fragments: newStreamFragmentStore()}
 	return s.streamWriter, nil
 }
 

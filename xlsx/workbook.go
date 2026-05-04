@@ -305,12 +305,15 @@ func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 
 // Close closes the workbook and releases resources.
 func (w *Workbook) Close() error {
+	streamErr := w.closeStreamWriters()
 	if w.closer != nil {
 		closer := w.closer
 		w.closer = nil
-		return closer.Close()
+		if err := closer.Close(); err != nil {
+			return err
+		}
 	}
-	return nil
+	return streamErr
 }
 
 // saveTo writes the workbook to an OPC writer.
@@ -424,7 +427,15 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			if err := writeWorksheetPrefix(partWriter, sheet.worksheet); err != nil {
 				return err
 			}
-			if _, err := partWriter.Write(sheet.streamWriter.buf.Bytes()); err != nil {
+			fragmentReader, err := sheet.streamWriter.fragments.Reader()
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(partWriter, fragmentReader); err != nil {
+				_ = fragmentReader.Close()
+				return err
+			}
+			if err := fragmentReader.Close(); err != nil {
 				return err
 			}
 			if err := writeWorksheetSuffix(partWriter, sheet.worksheet); err != nil {
@@ -498,11 +509,29 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 }
 
 func updateStreamedSheetDimension(sheet *Sheet) {
-	if sheet.streamWriter == nil || sheet.streamWriter.maxCol == 0 || sheet.streamWriter.maxRow() == 0 {
+	if sheet.streamWriter == nil || sheet.streamWriter.minCol == 0 || sheet.streamWriter.minRow == 0 || sheet.streamWriter.maxCol == 0 || sheet.streamWriter.maxRow() == 0 {
 		return
 	}
+	startRef := FormatCellRef(sheet.streamWriter.minRow, sheet.streamWriter.minCol)
 	endRef := FormatCellRef(sheet.streamWriter.maxRow(), sheet.streamWriter.maxCol)
-	sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: "A1:" + endRef}
+	if startRef == endRef {
+		sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: startRef}
+		return
+	}
+	sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: startRef + ":" + endRef}
+}
+
+func (w *Workbook) closeStreamWriters() error {
+	var firstErr error
+	for _, sheet := range w.sheets {
+		if sheet.streamWriter == nil || sheet.streamWriter.fragments == nil {
+			continue
+		}
+		if err := sheet.streamWriter.fragments.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // Styles returns the StyleManager for this workbook. If no stylesheet exists

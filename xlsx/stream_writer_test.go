@@ -3,6 +3,7 @@ package xlsx
 import (
 	"bytes"
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -49,6 +50,40 @@ func TestStreamWriterCreateAndReopen(t *testing.T) {
 	}
 	if val != "3" {
 		t.Fatalf("B2 = %q, want %q", val, "3")
+	}
+}
+
+func TestStreamWriterPreservesDimensionFromStartCell(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Offset")
+	sw, err := sheet.NewStreamWriter()
+	if err != nil {
+		t.Fatalf("NewStreamWriter error: %v", err)
+	}
+	if err := sw.SetRow("C5", []any{"name", 7}); err != nil {
+		t.Fatalf("SetRow C5 error: %v", err)
+	}
+
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	gotSheet, err := reopened.SheetByName("Offset")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	if gotSheet.worksheet == nil || gotSheet.worksheet.Dimension == nil {
+		t.Fatalf("expected worksheet dimension to be set")
+	}
+	if gotSheet.worksheet.Dimension.Ref != "C5:D5" {
+		t.Fatalf("dimension = %q, want %q", gotSheet.worksheet.Dimension.Ref, "C5:D5")
 	}
 }
 
@@ -148,5 +183,65 @@ func TestStreamWriterFlushIdempotence(t *testing.T) {
 	}
 	if err := sw.SetRow("A1", []any{"x"}); !errors.Is(err, ErrStreamWriterClosed) {
 		t.Fatalf("SetRow after Flush error = %v, want %v", err, ErrStreamWriterClosed)
+	}
+}
+
+func TestStreamWriterSpillsToDisk(t *testing.T) {
+	originalThreshold := streamWriterSpillThreshold
+	streamWriterSpillThreshold = 32
+	defer func() { streamWriterSpillThreshold = originalThreshold }()
+
+	wb := Create()
+	sheet := wb.AddSheet("Streamed")
+	sw, err := sheet.NewStreamWriter()
+	if err != nil {
+		t.Fatalf("NewStreamWriter error: %v", err)
+	}
+	if err := sw.SetRow("A1", []any{"this is a long value that forces spill to disk"}); err != nil {
+		t.Fatalf("SetRow error: %v", err)
+	}
+	if !sw.fragments.usingTempFile() {
+		t.Fatalf("expected stream writer to spill to disk")
+	}
+	if sw.fragments.tempPath == "" {
+		t.Fatalf("expected temp file path to be recorded")
+	}
+	if _, err := os.Stat(sw.fragments.tempPath); err != nil {
+		t.Fatalf("expected temp file to exist: %v", err)
+	}
+
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer error: %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatalf("expected non-empty xlsx buffer")
+	}
+}
+
+func TestWorkbookCloseRemovesStreamWriterTempFile(t *testing.T) {
+	originalThreshold := streamWriterSpillThreshold
+	streamWriterSpillThreshold = 32
+	defer func() { streamWriterSpillThreshold = originalThreshold }()
+
+	wb := Create()
+	sheet := wb.AddSheet("Streamed")
+	sw, err := sheet.NewStreamWriter()
+	if err != nil {
+		t.Fatalf("NewStreamWriter error: %v", err)
+	}
+	if err := sw.SetRow("A1", []any{"this is a long value that forces spill to disk"}); err != nil {
+		t.Fatalf("SetRow error: %v", err)
+	}
+	tempPath := sw.fragments.tempPath
+	if tempPath == "" {
+		t.Fatalf("expected temp file path to be recorded")
+	}
+
+	if err := wb.Close(); err != nil {
+		t.Fatalf("Workbook Close error: %v", err)
+	}
+	if _, err := os.Stat(tempPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected temp file to be removed, got err=%v", err)
 	}
 }
