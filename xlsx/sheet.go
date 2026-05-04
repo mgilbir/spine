@@ -17,6 +17,7 @@ type Sheet struct {
 	relID        string
 	worksheet    *oxml.CT_Worksheet
 	streamWriter *StreamWriter
+	dirty        bool
 }
 
 // Name returns the sheet name.
@@ -31,6 +32,7 @@ func (s *Sheet) SetName(name string) {
 	if s.workbook != nil && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
 	}
+	s.markDirty()
 }
 
 // Index returns the sheet index within the workbook.
@@ -103,6 +105,7 @@ func (s *Sheet) NewStreamWriter() (*StreamWriter, error) {
 
 	s.ensureWorksheet()
 	s.streamWriter = &StreamWriter{sheet: s, fragments: newStreamFragmentStore()}
+	s.markDirty()
 	return s.streamWriter, nil
 }
 
@@ -183,6 +186,7 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 	if col < 1 {
 		return ErrInvalidCell
 	}
+	s.markDirty()
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
@@ -222,6 +226,7 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 	if row < 1 {
 		return ErrInvalidCell
 	}
+	s.markDirty()
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
@@ -251,6 +256,7 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 
 // MergeCells merges a range of cells.
 func (s *Sheet) MergeCells(startRef, endRef string) error {
+	s.markDirty()
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
@@ -280,6 +286,7 @@ func (s *Sheet) UnmergeCells(startRef, endRef string) error {
 
 	for i, mc := range s.worksheet.MergeCells.MergeCell {
 		if strings.EqualFold(mc.Ref, ref) {
+			s.markDirty()
 			s.worksheet.MergeCells.MergeCell = append(
 				s.worksheet.MergeCells.MergeCell[:i],
 				s.worksheet.MergeCells.MergeCell[i+1:]...,
@@ -337,6 +344,7 @@ func (s *Sheet) FreezePanes(cellRef string) error {
 	if err != nil {
 		return err
 	}
+	s.markDirty()
 
 	s.ensureWorksheet()
 	sv := s.ensureSheetView()
@@ -380,12 +388,14 @@ func (s *Sheet) UnfreezePanes() {
 		return
 	}
 	if len(s.worksheet.SheetViews.SheetView) > 0 {
+		s.markDirty()
 		s.worksheet.SheetViews.SheetView[0].Pane = nil
 	}
 }
 
 // SetZoom sets the zoom percentage for the sheet view (e.g., 100 for 100%).
 func (s *Sheet) SetZoom(percent uint32) {
+	s.markDirty()
 	s.ensureWorksheet()
 	sv := s.ensureSheetView()
 	sv.ZoomScale = &percent
@@ -394,6 +404,7 @@ func (s *Sheet) SetZoom(percent uint32) {
 
 // SetShowGridLines sets whether grid lines are displayed.
 func (s *Sheet) SetShowGridLines(show bool) {
+	s.markDirty()
 	s.ensureWorksheet()
 	sv := s.ensureSheetView()
 	sv.ShowGridLines = &show
@@ -401,6 +412,7 @@ func (s *Sheet) SetShowGridLines(show bool) {
 
 // SetTabColor sets the sheet tab color as a hex RGB string (e.g., "FF0000").
 func (s *Sheet) SetTabColor(hexColor string) {
+	s.markDirty()
 	s.ensureWorksheet()
 	if s.worksheet.SheetPr == nil {
 		s.worksheet.SheetPr = &oxml.CT_SheetPr{}
@@ -412,6 +424,7 @@ func (s *Sheet) SetTabColor(hexColor string) {
 
 // SetAutoFilter sets an auto-filter on the specified range (e.g., "A1:F1").
 func (s *Sheet) SetAutoFilter(rangeRef string) error {
+	s.markDirty()
 	s.ensureWorksheet()
 	s.worksheet.AutoFilter = &oxml.CT_AutoFilter{
 		Ref: strings.ToUpper(rangeRef),
@@ -422,6 +435,7 @@ func (s *Sheet) SetAutoFilter(rangeRef string) error {
 // RemoveAutoFilter removes the auto-filter from the sheet.
 func (s *Sheet) RemoveAutoFilter() {
 	if s.worksheet != nil {
+		s.markDirty()
 		s.worksheet.AutoFilter = nil
 	}
 }
@@ -441,6 +455,7 @@ type DataValidation struct {
 
 // AddDataValidation adds a data validation rule to the sheet.
 func (s *Sheet) AddDataValidation(dv DataValidation) error {
+	s.markDirty()
 	s.ensureWorksheet()
 	if s.worksheet.DataValidations == nil {
 		s.worksheet.DataValidations = &oxml.CT_DataValidations{}
@@ -482,6 +497,12 @@ func (s *Sheet) ensureWorksheet() {
 		s.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
 		}
+	}
+}
+
+func (s *Sheet) markDirty() {
+	if s != nil {
+		s.dirty = true
 	}
 }
 

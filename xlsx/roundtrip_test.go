@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/internal/testutil"
+	"github.com/mgilbir/spine/opc"
 )
 
 // testXlsxFiles contains all XLSX files to test for round-trip fidelity.
@@ -355,6 +356,311 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRoundTripEditLoadedWorkbookCellValue(t *testing.T) {
+	originalPath := filepath.Join(t.TempDir(), "original.xlsx")
+	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
+
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+	if err := sheet.SetCellValue("A1", "original"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := wb.Save(originalPath); err != nil {
+		t.Fatalf("Save original workbook error: %v", err)
+	}
+
+	loaded, err := Open(originalPath)
+	if err != nil {
+		t.Fatalf("Open original workbook error: %v", err)
+	}
+	defer func() { _ = loaded.Close() }()
+
+	loadedSheet, err := loaded.SheetByName("Sheet1")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	if err := loadedSheet.SetCellValue("A1", "modified"); err != nil {
+		t.Fatalf("SetCellValue on loaded workbook error: %v", err)
+	}
+	if err := loaded.Save(updatedPath); err != nil {
+		t.Fatalf("Save updated workbook error: %v", err)
+	}
+
+	reopened, err := Open(updatedPath)
+	if err != nil {
+		t.Fatalf("Open updated workbook error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	reopenedSheet, err := reopened.SheetByName("Sheet1")
+	if err != nil {
+		t.Fatalf("SheetByName on reopened workbook error: %v", err)
+	}
+	value, err := reopenedSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("GetCellValue error: %v", err)
+	}
+	if value != "modified" {
+		t.Fatalf("A1 = %q, want %q", value, "modified")
+	}
+}
+
+func TestRoundTripEditLoadedWorkbookStyle(t *testing.T) {
+	originalPath := filepath.Join(t.TempDir(), "original.xlsx")
+	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
+
+	wb := Create()
+	sheet := wb.AddSheet("Styled")
+	if err := sheet.SetCellValue("A1", "hello"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := wb.Save(originalPath); err != nil {
+		t.Fatalf("Save original workbook error: %v", err)
+	}
+
+	loaded, err := Open(originalPath)
+	if err != nil {
+		t.Fatalf("Open original workbook error: %v", err)
+	}
+	defer func() { _ = loaded.Close() }()
+
+	loadedSheet, err := loaded.SheetByName("Styled")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	cell, err := loadedSheet.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell error: %v", err)
+	}
+	if err := cell.SetStyle(CellStyle{
+		Fill: &FillStyle{Pattern: "solid", FgColor: "FFF2CC"},
+	}); err != nil {
+		t.Fatalf("SetStyle error: %v", err)
+	}
+	if err := loaded.Save(updatedPath); err != nil {
+		t.Fatalf("Save updated workbook error: %v", err)
+	}
+
+	reopened, err := Open(updatedPath)
+	if err != nil {
+		t.Fatalf("Open updated workbook error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	reopenedSheet, err := reopened.SheetByName("Styled")
+	if err != nil {
+		t.Fatalf("SheetByName on reopened workbook error: %v", err)
+	}
+	reopenedCell, err := reopenedSheet.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell on reopened workbook error: %v", err)
+	}
+	if reopenedCell.StyleIndex() == nil {
+		t.Fatal("expected style index to persist")
+	}
+	style, err := reopened.Styles().GetCellStyle(*reopenedCell.StyleIndex())
+	if err != nil {
+		t.Fatalf("GetCellStyle error: %v", err)
+	}
+	if style.Fill == nil {
+		t.Fatal("expected fill to persist")
+	}
+	if style.Fill.Pattern != "solid" {
+		t.Fatalf("fill pattern = %q, want %q", style.Fill.Pattern, "solid")
+	}
+	if style.Fill.FgColor != "FFF2CC" {
+		t.Fatalf("fill color = %q, want %q", style.Fill.FgColor, "FFF2CC")
+	}
+}
+
+func TestRoundTripEditLoadedWorkbookValueAndStyle(t *testing.T) {
+	originalPath := filepath.Join(t.TempDir(), "original.xlsx")
+	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
+
+	wb := Create()
+	sheet := wb.AddSheet("Catalog")
+	if err := sheet.SetCellValue("B2", "cat"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := wb.Save(originalPath); err != nil {
+		t.Fatalf("Save original workbook error: %v", err)
+	}
+
+	loaded, err := Open(originalPath)
+	if err != nil {
+		t.Fatalf("Open original workbook error: %v", err)
+	}
+	defer func() { _ = loaded.Close() }()
+
+	loadedSheet, err := loaded.SheetByName("Catalog")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	cell, err := loadedSheet.Cell("B2")
+	if err != nil {
+		t.Fatalf("Cell error: %v", err)
+	}
+	cell.SetValue("lion")
+	if err := cell.SetStyle(CellStyle{
+		Fill: &FillStyle{Pattern: "solid", FgColor: "FFF2CC"},
+	}); err != nil {
+		t.Fatalf("SetStyle error: %v", err)
+	}
+	if err := loaded.Save(updatedPath); err != nil {
+		t.Fatalf("Save updated workbook error: %v", err)
+	}
+
+	reopened, err := Open(updatedPath)
+	if err != nil {
+		t.Fatalf("Open updated workbook error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	reopenedSheet, err := reopened.SheetByName("Catalog")
+	if err != nil {
+		t.Fatalf("SheetByName on reopened workbook error: %v", err)
+	}
+	value, err := reopenedSheet.GetCellValue("B2")
+	if err != nil {
+		t.Fatalf("GetCellValue error: %v", err)
+	}
+	if value != "lion" {
+		t.Fatalf("B2 = %q, want %q", value, "lion")
+	}
+	reopenedCell, err := reopenedSheet.Cell("B2")
+	if err != nil {
+		t.Fatalf("Cell on reopened workbook error: %v", err)
+	}
+	if reopenedCell.StyleIndex() == nil {
+		t.Fatal("expected style index to persist")
+	}
+	style, err := reopened.Styles().GetCellStyle(*reopenedCell.StyleIndex())
+	if err != nil {
+		t.Fatalf("GetCellStyle error: %v", err)
+	}
+	if style.Fill == nil {
+		t.Fatal("expected fill to persist")
+	}
+	if style.Fill.FgColor != "FFF2CC" {
+		t.Fatalf("fill color = %q, want %q", style.Fill.FgColor, "FFF2CC")
+	}
+}
+
+func TestRoundTripDeleteThenAddSheet(t *testing.T) {
+	originalPath := filepath.Join(t.TempDir(), "original.xlsx")
+	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
+
+	wb := Create()
+	for i := 1; i <= 3; i++ {
+		sheet := wb.AddSheet("Sheet" + string(rune('0'+i)))
+		if err := sheet.SetCellValue("A1", i); err != nil {
+			t.Fatalf("SetCellValue error: %v", err)
+		}
+	}
+	if err := wb.Save(originalPath); err != nil {
+		t.Fatalf("Save original workbook error: %v", err)
+	}
+
+	loaded, err := Open(originalPath)
+	if err != nil {
+		t.Fatalf("Open original workbook error: %v", err)
+	}
+	defer func() { _ = loaded.Close() }()
+
+	if err := loaded.DeleteSheet(2); err != nil {
+		t.Fatalf("DeleteSheet error: %v", err)
+	}
+	added := loaded.AddSheet("Sheet4")
+	if err := added.SetCellValue("A1", "new"); err != nil {
+		t.Fatalf("SetCellValue on added sheet error: %v", err)
+	}
+	if err := loaded.Save(updatedPath); err != nil {
+		t.Fatalf("Save updated workbook error: %v", err)
+	}
+
+	reopened, err := Open(updatedPath)
+	if err != nil {
+		t.Fatalf("Open updated workbook error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	if reopened.SheetCount() != 3 {
+		t.Fatalf("SheetCount = %d, want 3", reopened.SheetCount())
+	}
+	sheet, err := reopened.SheetByName("Sheet4")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	value, err := sheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("GetCellValue error: %v", err)
+	}
+	if value != "new" {
+		t.Fatalf("A1 = %q, want %q", value, "new")
+	}
+}
+
+func TestRoundTripAddStylesToWorkbookWithoutStylesPart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nostyles.xlsx")
+
+	writer, err := opc.Create(path)
+	if err != nil {
+		t.Fatalf("opc.Create error: %v", err)
+	}
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+	if err := sheet.SetCellValue("A1", "plain"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+	if err := wb.saveNew(writer); err != nil {
+		_ = writer.Close()
+		t.Fatalf("saveNew error: %v", err)
+	}
+	delete(writer.ContentTypes.Overrides, "/xl/styles.xml")
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close error: %v", err)
+	}
+
+	loaded, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open workbook error: %v", err)
+	}
+	defer func() { _ = loaded.Close() }()
+
+	loadedSheet, err := loaded.SheetByName("Sheet1")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	cell, err := loadedSheet.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell error: %v", err)
+	}
+	if err := cell.SetStyle(CellStyle{Fill: &FillStyle{Pattern: "solid", FgColor: "FFF2CC"}}); err != nil {
+		t.Fatalf("SetStyle error: %v", err)
+	}
+	if err := loaded.Save(path); err != nil {
+		t.Fatalf("Save updated workbook error: %v", err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open updated workbook error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	reopenedSheet, err := reopened.SheetByName("Sheet1")
+	if err != nil {
+		t.Fatalf("SheetByName on reopened workbook error: %v", err)
+	}
+	reopenedCell, err := reopenedSheet.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell on reopened workbook error: %v", err)
+	}
+	if reopenedCell.StyleIndex() == nil {
+		t.Fatal("expected style index to persist")
 	}
 }
 
