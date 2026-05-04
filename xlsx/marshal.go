@@ -2,7 +2,6 @@ package xlsx
 
 import (
 	"fmt"
-	"io"
 	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -292,117 +291,6 @@ func marshalWorksheetXML(ws *oxml.CT_Worksheet) []byte {
 
 	b.EndElement(nsSML, "worksheet")
 	return b.Bytes()
-}
-
-func writeWorksheetPrefix(w io.Writer, ws *oxml.CT_Worksheet) error {
-	b := xmlb.NewSpreadsheetMLBuilder()
-	writeWorksheetPrefixToBuilder(b, ws)
-	_, err := w.Write(b.Bytes())
-	return err
-}
-
-func writeWorksheetSuffix(w io.Writer, ws *oxml.CT_Worksheet) error {
-	b := xmlb.NewSpreadsheetMLBuilder()
-	writeWorksheetSuffixToBuilder(b, ws)
-	_, err := w.Write(b.Bytes())
-	return err
-}
-
-func writeWorksheetPrefixToBuilder(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
-	b.WriteHeader()
-
-	nsDecls := xmlb.SpreadsheetMLNamespaces()
-	if len(ws.OriginalNSDecls) > 0 {
-		nsDecls = ws.OriginalNSDecls
-	}
-
-	b.StartElementWithNS(nsSML, "worksheet", nsDecls)
-
-	if ws.SheetPr != nil {
-		b.MarshalElement(nsSML, "sheetPr", ws.SheetPr)
-	}
-	if ws.Dimension != nil {
-		b.MarshalElement(nsSML, "dimension", ws.Dimension)
-	}
-	if ws.SheetViews != nil {
-		b.MarshalElement(nsSML, "sheetViews", ws.SheetViews)
-	}
-	if ws.SheetFormatPr != nil {
-		ws.SheetFormatPr.MarshalToBuilder(b, nsSML, "sheetFormatPr")
-	}
-	for i := range ws.Cols {
-		b.MarshalElement(nsSML, "cols", &ws.Cols[i])
-	}
-
-	b.StartElement(nsSML, "sheetData")
-}
-
-func writeWorksheetSuffixToBuilder(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
-	b.EndElement(nsSML, "sheetData")
-
-	if ws.SheetCalcPr != nil {
-		b.MarshalElement(nsSML, "sheetCalcPr", ws.SheetCalcPr)
-	}
-	if ws.SheetProtection != nil {
-		b.MarshalElement(nsSML, "sheetProtection", ws.SheetProtection)
-	}
-	if ws.AutoFilter != nil {
-		b.MarshalElement(nsSML, "autoFilter", ws.AutoFilter)
-	}
-	if ws.SortState != nil {
-		b.MarshalElement(nsSML, "sortState", ws.SortState)
-	}
-	if ws.MergeCells != nil {
-		b.MarshalElement(nsSML, "mergeCells", ws.MergeCells)
-	}
-	if ws.PhoneticPr != nil {
-		b.MarshalElement(nsSML, "phoneticPr", ws.PhoneticPr)
-	}
-	for i := range ws.ConditionalFormatting {
-		b.MarshalElement(nsSML, "conditionalFormatting", &ws.ConditionalFormatting[i])
-	}
-	if ws.DataValidations != nil {
-		b.MarshalElement(nsSML, "dataValidations", ws.DataValidations)
-	}
-	if ws.Hyperlinks != nil {
-		marshalHyperlinks(b, ws.Hyperlinks)
-	}
-	if ws.PrintOptions != nil {
-		b.MarshalElement(nsSML, "printOptions", ws.PrintOptions)
-	}
-	if ws.PageMargins != nil {
-		b.MarshalElement(nsSML, "pageMargins", ws.PageMargins)
-	}
-	if ws.PageSetup != nil {
-		ws.PageSetup.MarshalToBuilder(b, nsSML, "pageSetup")
-	}
-	if ws.HeaderFooter != nil {
-		b.MarshalElement(nsSML, "headerFooter", ws.HeaderFooter)
-	}
-	if ws.RowBreaks != nil {
-		b.MarshalElement(nsSML, "rowBreaks", ws.RowBreaks)
-	}
-	if ws.ColBreaks != nil {
-		b.MarshalElement(nsSML, "colBreaks", ws.ColBreaks)
-	}
-	if ws.Drawing != nil {
-		ws.Drawing.MarshalToBuilder(b, nsSML, "drawing")
-	}
-	if ws.LegacyDrawing != nil {
-		ws.LegacyDrawing.MarshalToBuilder(b, nsSML, "legacyDrawing")
-	}
-	if ws.TableParts != nil {
-		marshalTableParts(b, ws.TableParts)
-	}
-	if ws.ExtLst != nil && len(ws.ExtLst.Ext) > 0 {
-		b.StartElement(nsSML, "extLst")
-		for i := range ws.ExtLst.Ext {
-			ws.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
-		}
-		b.EndElement(nsSML, "extLst")
-	}
-
-	b.EndElement(nsSML, "worksheet")
 }
 
 // marshalSheetData marshals the sheetData element with its rows and cells.

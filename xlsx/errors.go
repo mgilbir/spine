@@ -22,5 +22,4 @@ var (
 
 	// ErrInvalidRange indicates an invalid cell range.
 	ErrInvalidRange = errors.New("xlsx: invalid range")
-
 )
