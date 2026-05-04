@@ -198,6 +198,8 @@ import "github.com/mgilbir/spine/xlsx"
 
 func main() {
     wb := xlsx.Create()
+    defer wb.Close()
+
     sheet := wb.AddSheet("Rows")
 
     sw, err := sheet.NewStreamWriter()

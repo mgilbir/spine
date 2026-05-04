@@ -454,12 +454,6 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			Type:   opc.RelTypeWorksheet,
 			Target: fmt.Sprintf("worksheets/sheet%d.xml", i+1),
 		})
-
-		// Update the workbook model
-		w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:0:0], w.workbook.Sheets.Sheet...)
-		if i < len(w.workbook.Sheets.Sheet) {
-			w.workbook.Sheets.Sheet[i].RID = rid
-		}
 		relID++
 	}
 

@@ -97,12 +97,12 @@ func (sw *StreamWriter) maxRow() int {
 
 func normalizeStreamValue(value any) any {
 	switch v := value.(type) {
+	case time.Time:
+		return v
 	case fmt.Stringer:
 		return v.String()
 	case []byte:
 		return string(v)
-	case time.Time:
-		return v
 	default:
 		return value
 	}

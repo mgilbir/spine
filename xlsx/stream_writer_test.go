@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestStreamWriterCreateAndReopen(t *testing.T) {
@@ -84,6 +85,57 @@ func TestStreamWriterPreservesDimensionFromStartCell(t *testing.T) {
 	}
 	if gotSheet.worksheet.Dimension.Ref != "C5:D5" {
 		t.Fatalf("dimension = %q, want %q", gotSheet.worksheet.Dimension.Ref, "C5:D5")
+	}
+}
+
+func TestStreamWriterPreservesTimeValues(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Times")
+	sw, err := sheet.NewStreamWriter()
+	if err != nil {
+		t.Fatalf("NewStreamWriter error: %v", err)
+	}
+	wantTime := time.Date(2026, time.May, 4, 15, 30, 0, 0, time.UTC)
+	if err := sw.SetRow("A1", []any{wantTime}); err != nil {
+		t.Fatalf("SetRow A1 error: %v", err)
+	}
+
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	gotSheet, err := reopened.SheetByName("Times")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	cell, err := gotSheet.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell A1 error: %v", err)
+	}
+	if cell.Type() != CellTypeNumber {
+		t.Fatalf("A1 type = %v, want %v", cell.Type(), CellTypeNumber)
+	}
+	gotTime := cell.Time().UTC()
+	delta := gotTime.Sub(wantTime)
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > time.Microsecond {
+		t.Fatalf("A1 time = %v, want %v (delta %v)", gotTime, wantTime, delta)
+	}
+	value, err := gotSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("GetCellValue A1 error: %v", err)
+	}
+	if value == wantTime.String() {
+		t.Fatalf("A1 value was serialized as a string: %q", value)
 	}
 }
 
