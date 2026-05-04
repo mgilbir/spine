@@ -50,11 +50,24 @@ type Reader struct {
 	Properties *CoreProperties
 
 	zipReader *zip.Reader
-	closer    io.Closer
+}
+
+// ReadCloser extends Reader with a Close method.
+type ReadCloser struct {
+	Reader
+	file *os.File
+}
+
+// Close closes the ReadCloser.
+func (rc *ReadCloser) Close() error {
+	if rc.file == nil {
+		return nil
+	}
+	return rc.file.Close()
 }
 
 // OpenReader opens an OPC package from a file path.
-func OpenReader(path string) (*Reader, error) {
+func OpenReader(path string) (*ReadCloser, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -72,8 +85,7 @@ func OpenReader(path string) (*Reader, error) {
 		return nil, err
 	}
 
-	r.closer = f
-	return r, nil
+	return &ReadCloser{Reader: *r, file: f}, nil
 }
 
 // NewReader creates a Reader from an io.ReaderAt.
@@ -146,17 +158,6 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 
 	return reader, nil
 }
-
-// Close closes the Reader if it owns an underlying resource.
-func (r *Reader) Close() error {
-	if r == nil || r.closer == nil {
-		return nil
-	}
-	closer := r.closer
-	r.closer = nil
-	return closer.Close()
-}
-
 // parsePackageRelationships reads the package-level .rels file.
 func (r *Reader) parsePackageRelationships() error {
 	relsFile := r.GetFile("/_rels/.rels")

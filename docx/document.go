@@ -15,7 +15,7 @@ type Document struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader           *opc.Reader
+	reader           *opc.ReadCloser
 	document         *oxml.CT_Document
 	styles           *oxml.CT_Styles
 	numbering        *oxml.CT_Numbering
@@ -61,7 +61,7 @@ func Open(path string) (*Document, error) {
 }
 
 // openFromReader creates a Document from an OPC reader.
-func openFromReader(reader *opc.Reader) (*Document, error) {
+func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
 		_ = reader.Close()

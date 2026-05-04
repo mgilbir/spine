@@ -18,7 +18,7 @@ type Workbook struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader           *opc.Reader
+	reader           *opc.ReadCloser
 	workbook         *oxml.CT_Workbook
 	sharedStrings    *oxml.CT_Sst
 	stylesheet       *oxml.CT_Stylesheet
@@ -46,11 +46,11 @@ func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
 		return nil, err
 	}
 
-	return openFromReader(reader)
+	return openFromReader(&opc.ReadCloser{Reader: *reader})
 }
 
 // openFromReader creates a Workbook from an OPC reader.
-func openFromReader(reader *opc.Reader) (*Workbook, error) {
+func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
 		_ = reader.Close()
