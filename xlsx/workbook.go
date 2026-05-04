@@ -297,7 +297,6 @@ func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 
 // Close closes the workbook and releases resources.
 func (w *Workbook) Close() error {
-	streamErr := w.closeStreamWriters()
 	if w.reader != nil {
 		reader := w.reader
 		w.reader = nil
@@ -305,7 +304,7 @@ func (w *Workbook) Close() error {
 			return err
 		}
 	}
-	return streamErr
+	return nil
 }
 
 // saveTo writes the workbook to an OPC writer.
@@ -509,40 +508,12 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	return nil
 }
 
-// writeSheetPart writes a worksheet part using either the normal worksheet
-// marshaler or the stream writer fragments for streamed sheets.
+// writeSheetPart writes a worksheet part from the worksheet model.
 func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 	if sheet.worksheet == nil {
 		sheet.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
 		}
-	}
-
-	if sheet.streamWriter != nil {
-		if err := sheet.streamWriter.Flush(); err != nil {
-			return err
-		}
-		updateStreamedSheetDimension(sheet)
-
-		partWriter, err := writer.CreatePart(partName, opc.ContentTypeWorksheet, opc.CompressionDeflate)
-		if err != nil {
-			return err
-		}
-		if err := writeWorksheetPrefix(partWriter, sheet.worksheet); err != nil {
-			return err
-		}
-		fragmentReader, err := sheet.streamWriter.fragments.Reader()
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(partWriter, fragmentReader); err != nil {
-			_ = fragmentReader.Close()
-			return err
-		}
-		if err := fragmentReader.Close(); err != nil {
-			return err
-		}
-		return writeWorksheetSuffix(partWriter, sheet.worksheet)
 	}
 
 	wsData := marshalWorksheetXML(sheet.worksheet)
@@ -675,32 +646,6 @@ func nextWorksheetPartName(preserved map[string]*coxml.RawPart, sheets []*Sheet,
 		}
 		return partName, fmt.Sprintf("worksheets/sheet%d.xml", idx)
 	}
-}
-
-func updateStreamedSheetDimension(sheet *Sheet) {
-	if sheet.streamWriter == nil || sheet.streamWriter.minCol == 0 || sheet.streamWriter.minRow == 0 || sheet.streamWriter.maxCol == 0 || sheet.streamWriter.maxRow() == 0 {
-		return
-	}
-	startRef := FormatCellRef(sheet.streamWriter.minRow, sheet.streamWriter.minCol)
-	endRef := FormatCellRef(sheet.streamWriter.maxRow(), sheet.streamWriter.maxCol)
-	if startRef == endRef {
-		sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: startRef}
-		return
-	}
-	sheet.worksheet.Dimension = &oxml.CT_SheetDimension{Ref: startRef + ":" + endRef}
-}
-
-func (w *Workbook) closeStreamWriters() error {
-	var firstErr error
-	for _, sheet := range w.sheets {
-		if sheet.streamWriter == nil || sheet.streamWriter.fragments == nil {
-			continue
-		}
-		if err := sheet.streamWriter.fragments.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
 }
 
 // Styles returns the StyleManager for this workbook. If no stylesheet exists

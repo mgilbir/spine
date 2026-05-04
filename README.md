@@ -189,41 +189,6 @@ func main() {
 }
 ```
 
-### Streaming Large XLSX Sheets
-
-```go
-package main
-
-import "github.com/mgilbir/spine/xlsx"
-
-func main() {
-    wb := xlsx.Create()
-    defer wb.Close()
-
-    sheet := wb.AddSheet("Rows")
-
-    sw, err := sheet.NewStreamWriter()
-    if err != nil {
-        panic(err)
-    }
-
-    if err := sw.SetRow("A1", []any{"name", "count"}); err != nil {
-        panic(err)
-    }
-    if err := sw.SetRow("A2", []any{"apples", 3}); err != nil {
-        panic(err)
-    }
-
-    if err := sw.Flush(); err != nil {
-        panic(err)
-    }
-
-    if err := wb.Save("streamed.xlsx"); err != nil {
-        panic(err)
-    }
-}
-```
-
 ### Opening and Modifying a Presentation
 
 ```go

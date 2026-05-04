@@ -16,7 +16,6 @@ type Sheet struct {
 	partName     string
 	relID        string
 	worksheet    *oxml.CT_Worksheet
-	streamWriter *StreamWriter
 	dirty        bool
 }
 
@@ -43,10 +42,6 @@ func (s *Sheet) Index() int {
 // Cell returns the cell at the specified reference (e.g., "A1").
 // If the cell doesn't exist in the worksheet data, it is created.
 func (s *Sheet) Cell(ref string) (*Cell, error) {
-	if s.streamWriter != nil {
-		return nil, ErrStreamWriterMixedMode
-	}
-
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
 			SheetData: oxml.CT_SheetData{},
@@ -90,25 +85,6 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 		cell:  &targetRow.C[len(targetRow.C)-1],
 	}, nil
 }
-
-// NewStreamWriter creates a streaming row writer for a new sheet.
-func (s *Sheet) NewStreamWriter() (*StreamWriter, error) {
-	if s.workbook != nil && s.workbook.reader != nil {
-		return nil, ErrStreamWriterUnsupported
-	}
-	if s.streamWriter != nil {
-		return nil, ErrStreamWriterMixedMode
-	}
-	if s.worksheet != nil && len(s.worksheet.SheetData.Row) > 0 {
-		return nil, ErrStreamWriterMixedMode
-	}
-
-	s.ensureWorksheet()
-	s.streamWriter = &StreamWriter{sheet: s, fragments: newStreamFragmentStore()}
-	s.markDirty()
-	return s.streamWriter, nil
-}
-
 // CellByRowCol returns the cell at the specified row and column (1-based).
 func (s *Sheet) CellByRowCol(row, col int) (*Cell, error) {
 	ref, err := CellRef(row, col)
