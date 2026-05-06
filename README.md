@@ -144,6 +144,51 @@ func main() {
 }
 ```
 
+### Writing an XLSX Workbook to Memory
+
+```go
+package main
+
+import (
+    "bytes"
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    wb := xlsx.Create()
+    sheet := wb.AddSheet("Export")
+    sheet.SetCellValue("A1", "hello")
+
+    buf, err := wb.WriteToBuffer()
+    if err != nil {
+        panic(err)
+    }
+
+    _ = bytes.NewReader(buf.Bytes())
+}
+```
+
+### Opening an XLSX Workbook from Memory
+
+```go
+package main
+
+import (
+    "bytes"
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    data := []byte{ /* xlsx bytes */ }
+
+    wb, err := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
+    if err != nil {
+        panic(err)
+    }
+    defer wb.Close()
+}
+```
+
 ### Opening and Modifying a Presentation
 
 ```go
