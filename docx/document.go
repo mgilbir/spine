@@ -3,6 +3,8 @@ package docx
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -251,12 +253,24 @@ func Create() *Document {
 
 // Save saves the document to a file.
 func (d *Document) Save(path string) error {
-	writer, err := opc.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
+	return d.SaveTo(f)
+}
 
-	if err := d.saveTo(writer); err != nil {
+// SaveTo saves the document to an arbitrary writer.
+func (d *Document) SaveTo(dst io.Writer) error {
+	writer := opc.NewWriter(dst)
+	var err error
+	if d.reader != nil {
+		err = d.saveRoundTrip(writer)
+	} else {
+		err = d.saveNew(writer)
+	}
+	if err != nil {
 		_ = writer.Close()
 		return err
 	}
@@ -269,14 +283,6 @@ func (d *Document) Close() error {
 		return d.reader.Close()
 	}
 	return nil
-}
-
-// saveTo writes the document to an OPC writer.
-func (d *Document) saveTo(writer *opc.Writer) error {
-	if d.reader != nil {
-		return d.saveRoundTrip(writer)
-	}
-	return d.saveNew(writer)
 }
 
 // saveRoundTrip saves a document opened from a file, preserving all parts.
@@ -527,7 +533,7 @@ func (d *Document) AddTable(rows, cols int) *Table {
 		d.document.Body = &oxml.CT_Body{}
 	}
 	tbl := &oxml.CT_Tbl{
-		TblPr: &oxml.CT_TblPr{},
+		TblPr:   &oxml.CT_TblPr{},
 		TblGrid: &oxml.CT_TblGrid{},
 	}
 	// Create grid columns

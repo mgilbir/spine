@@ -5,6 +5,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -16,9 +18,9 @@ import (
 
 // Common errors
 var (
-	ErrNotPPTX     = errors.New("pptx: not a valid PowerPoint file")
-	ErrNoSlides    = errors.New("pptx: presentation has no slides")
-	ErrSlideIndex  = errors.New("pptx: slide index out of range")
+	ErrNotPPTX      = errors.New("pptx: not a valid PowerPoint file")
+	ErrNoSlides     = errors.New("pptx: presentation has no slides")
+	ErrSlideIndex   = errors.New("pptx: slide index out of range")
 	ErrInvalidSlide = errors.New("pptx: invalid slide")
 )
 
@@ -39,14 +41,14 @@ type Presentation struct {
 	templatePath string // Path to template file if using one
 
 	// Raw data for parts we serialize but don't fully parse
-	presPropsData   []byte                   // /ppt/presProps.xml
-	viewPropsData   []byte                   // /ppt/viewProps.xml
-	tableStylesData []byte                   // /ppt/tableStyles.xml
-	themeData       map[string][]byte        // /ppt/theme/*.xml (keyed by part name)
-	thumbnailData   []byte                   // /docProps/thumbnail.jpeg
-	appPropsData    []byte                   // /docProps/app.xml
-	printerSettings map[string][]byte        // /ppt/printerSettings/*.bin
-	otherParts      map[string]*coxml.RawPart // Any other parts (media, custom XML, etc.)
+	presPropsData   []byte                         // /ppt/presProps.xml
+	viewPropsData   []byte                         // /ppt/viewProps.xml
+	tableStylesData []byte                         // /ppt/tableStyles.xml
+	themeData       map[string][]byte              // /ppt/theme/*.xml (keyed by part name)
+	thumbnailData   []byte                         // /docProps/thumbnail.jpeg
+	appPropsData    []byte                         // /docProps/app.xml
+	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin
+	otherParts      map[string]*coxml.RawPart      // Any other parts (media, custom XML, etc.)
 	relationships   map[string][]*opc.Relationship // Relationships for each part
 }
 
@@ -498,12 +500,24 @@ func CreateWidescreen() *Presentation {
 
 // Save saves the presentation to a file.
 func (p *Presentation) Save(path string) error {
-	writer, err := opc.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
+	defer f.Close()
+	return p.SaveTo(f)
+}
 
-	if err := p.saveTo(writer); err != nil {
+// SaveTo saves the presentation to an arbitrary writer.
+func (p *Presentation) SaveTo(dst io.Writer) error {
+	writer := opc.NewWriter(dst)
+	var err error
+	if p.reader != nil {
+		err = p.saveRoundTrip(writer)
+	} else {
+		err = p.saveNew(writer)
+	}
+	if err != nil {
 		_ = writer.Close()
 		return err
 	}
@@ -598,15 +612,6 @@ func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 	slide := p.AddSlide()
 	slide.layout = layout
 	return slide
-}
-
-// saveTo writes the presentation to an OPC writer.
-func (p *Presentation) saveTo(writer *opc.Writer) error {
-	// For round-trip, use preserved data when available
-	if p.reader != nil {
-		return p.saveRoundTrip(writer)
-	}
-	return p.saveNew(writer)
 }
 
 // saveRoundTrip saves a presentation by serializing all parts from the model.
@@ -1098,7 +1103,6 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 
 	return nil
 }
-
 
 // partNameToRelTarget converts an absolute part name to a relative target path.
 // baseDir is the directory of the source part (e.g., "/ppt/" or "/ppt/slideMasters/").
