@@ -10,13 +10,13 @@ import (
 
 // Sheet represents a worksheet in an Excel workbook.
 type Sheet struct {
-	workbook     *Workbook
-	name         string
-	index        int
-	partName     string
-	relID        string
-	worksheet    *oxml.CT_Worksheet
-	dirty        bool
+	workbook  *Workbook
+	name      string
+	index     int
+	partName  string
+	relID     string
+	worksheet *oxml.CT_Worksheet
+	dirty     bool
 }
 
 // Name returns the sheet name.
@@ -85,6 +85,7 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 		cell:  &targetRow.C[len(targetRow.C)-1],
 	}, nil
 }
+
 // CellByRowCol returns the cell at the specified row and column (1-based).
 func (s *Sheet) CellByRowCol(row, col int) (*Cell, error) {
 	ref, err := CellRef(row, col)

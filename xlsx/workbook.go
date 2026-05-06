@@ -18,17 +18,17 @@ type Workbook struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader           *opc.ReadCloser
-	workbook         *oxml.CT_Workbook
-	sharedStrings    *oxml.CT_Sst
-	stylesheet       *oxml.CT_Stylesheet
-	sheets           []*Sheet
-	preservedParts   map[string]*coxml.RawPart
-	relationships    map[string][]*opc.Relationship
-	hasCoreProps     bool
-	stylesDirty      bool
-	sheetsModified   bool
-	stringTable      []string // plain text values extracted from shared strings
+	reader         *opc.ReadCloser
+	workbook       *oxml.CT_Workbook
+	sharedStrings  *oxml.CT_Sst
+	stylesheet     *oxml.CT_Stylesheet
+	sheets         []*Sheet
+	preservedParts map[string]*coxml.RawPart
+	relationships  map[string][]*opc.Relationship
+	hasCoreProps   bool
+	stylesDirty    bool
+	sheetsModified bool
+	stringTable    []string // plain text values extracted from shared strings
 }
 
 // Open opens an Excel workbook from a file path.
