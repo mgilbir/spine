@@ -60,6 +60,9 @@ type ReadCloser struct {
 
 // Close closes the ReadCloser.
 func (rc *ReadCloser) Close() error {
+	if rc.file == nil {
+		return nil
+	}
 	return rc.file.Close()
 }
 
@@ -155,7 +158,6 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 
 	return reader, nil
 }
-
 // parsePackageRelationships reads the package-level .rels file.
 func (r *Reader) parsePackageRelationships() error {
 	relsFile := r.GetFile("/_rels/.rels")

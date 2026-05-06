@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -17,16 +18,17 @@ type Workbook struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader           *opc.ReadCloser
-	workbook         *oxml.CT_Workbook
-	sharedStrings    *oxml.CT_Sst
-	stylesheet       *oxml.CT_Stylesheet
-	sheets           []*Sheet
-	preservedParts   map[string]*coxml.RawPart
-	contentTypesData []byte
-	relationships    map[string][]*opc.Relationship
-	hasCoreProps     bool
-	stringTable      []string // plain text values extracted from shared strings
+	reader         *opc.ReadCloser
+	workbook       *oxml.CT_Workbook
+	sharedStrings  *oxml.CT_Sst
+	stylesheet     *oxml.CT_Stylesheet
+	sheets         []*Sheet
+	preservedParts map[string]*coxml.RawPart
+	relationships  map[string][]*opc.Relationship
+	hasCoreProps   bool
+	stylesDirty    bool
+	sheetsDirty bool
+	stringTable    []string // plain text values extracted from shared strings
 }
 
 // Open opens an Excel workbook from a file path.
@@ -37,6 +39,16 @@ func Open(path string) (*Workbook, error) {
 	}
 
 	return openFromReader(reader)
+}
+
+// OpenReader opens an Excel workbook from an in-memory reader.
+func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
+	reader, err := opc.NewReader(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return openFromReader(&opc.ReadCloser{Reader: *reader})
 }
 
 // openFromReader creates a Workbook from an OPC reader.
@@ -102,11 +114,6 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 	}
 
 	w.loadAllRelationships()
-
-	// Preserve [Content_Types].xml
-	if ctData, err := w.reader.GetRawZipFile("[Content_Types].xml"); err == nil {
-		w.contentTypesData = ctData
-	}
 
 	for _, file := range w.reader.Files {
 		name := file.Name
@@ -271,10 +278,33 @@ func (w *Workbook) Save(path string) error {
 	return writer.Close()
 }
 
+// SaveTo saves the workbook to an arbitrary writer.
+func (w *Workbook) SaveTo(dst io.Writer) error {
+	writer := opc.NewWriter(dst)
+	if err := w.saveTo(writer); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	return writer.Close()
+}
+
+// WriteToBuffer saves the workbook to an in-memory buffer.
+func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	if err := w.SaveTo(&buf); err != nil {
+		return nil, err
+	}
+	return &buf, nil
+}
+
 // Close closes the workbook and releases resources.
 func (w *Workbook) Close() error {
 	if w.reader != nil {
-		return w.reader.Close()
+		reader := w.reader
+		w.reader = nil
+		if err := reader.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -298,13 +328,6 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.ContentTypes = w.reader.ContentTypes
 	}
 
-	// Write [Content_Types].xml as raw file if preserved
-	if len(w.contentTypesData) > 0 {
-		if err := writer.WriteRawFile("[Content_Types].xml", w.contentTypesData); err != nil {
-			return err
-		}
-	}
-
 	// Write core.xml as preserved raw bytes if original had it
 	if w.hasCoreProps {
 		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
@@ -314,9 +337,31 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
+	worksheetParts := make(map[string]struct{}, len(w.sheets))
+	for _, sheet := range w.sheets {
+		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
+			worksheetParts[sheet.partName] = struct{}{}
+		}
+	}
+	stylesDirty := w.stylesDirty
+
+	// Determine if the workbook .rels need rebuilding. We need to rebuild if
+	// any sheet was modified/added/deleted or if styles were changed.
+	needRelsRebuild := stylesDirty || w.sheetsDirty
+	if !needRelsRebuild {
+		for _, sheet := range w.sheets {
+			if sheet.partName == "" || sheet.dirty {
+				needRelsRebuild = true
+				break
+			}
+		}
+	}
+
 	// Write all preserved parts except workbook.xml (which is regenerated),
-	// core.xml (handled above), and .rels files (handled separately)
+	// core.xml (handled above), rewritten worksheet/style parts, and workbook/.rels
+	// files (handled separately when rebuilt)
 	mainPartName := "/xl/workbook.xml"
+	workbookRelsName := "/xl/_rels/workbook.xml.rels"
 	for name, part := range w.preservedParts {
 		if name == mainPartName {
 			continue
@@ -324,7 +369,16 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/docProps/core.xml" {
 			continue
 		}
-		if strings.HasSuffix(name, ".rels") {
+		if name == workbookRelsName && needRelsRebuild {
+			continue
+		}
+		if strings.HasSuffix(name, ".rels") && name != workbookRelsName {
+			continue
+		}
+		if _, ok := worksheetParts[name]; ok {
+			continue
+		}
+		if name == "/xl/styles.xml" && stylesDirty {
 			continue
 		}
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
@@ -332,12 +386,50 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write all .rels files from preserved parts
+	// Write non-workbook .rels files from preserved parts.
 	for name, part := range w.preservedParts {
 		if !strings.HasSuffix(name, ".rels") {
 			continue
 		}
+		if name == workbookRelsName {
+			continue
+		}
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+			return err
+		}
+	}
+
+	if needRelsRebuild {
+		var wbRels []*opc.Relationship
+		if existing := w.relationships[mainPartName]; len(existing) > 0 {
+			wbRels = cloneRelationships(existing)
+		}
+		worksheetTargets := make(map[string]struct{}, len(w.sheets))
+		for i, sheet := range w.sheets {
+			partName, target := w.roundTripSheetPartName(sheet, i+1)
+			if sheet.partName == "" {
+				sheet.partName = partName
+			}
+			worksheetTargets[target] = struct{}{}
+			if sheet.worksheet == nil || !sheet.dirty {
+				continue
+			}
+			if err := writeSheetPart(writer, partName, sheet); err != nil {
+				return err
+			}
+		}
+		wbRels = rebuildWorksheetRelationships(wbRels, w.sheets, worksheetTargets)
+		syncWorkbookSheetRefs(w.workbook, w.sheets)
+
+		if stylesDirty {
+			stylesData := marshalStylesheetXML(w.stylesheet)
+			if err := writer.WritePart("/xl/styles.xml", opc.ContentTypeStyles, stylesData); err != nil {
+				return err
+			}
+			wbRels = ensureRelationship(wbRels, opc.RelTypeStyles, "styles.xml")
+		}
+
+		if err := writer.WritePartRelationships(mainPartName, wbRels); err != nil {
 			return err
 		}
 	}
@@ -354,6 +446,15 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	return nil
 }
 
+func (w *Workbook) roundTripSheetPartName(sheet *Sheet, fallbackIndex int) (string, string) {
+	if sheet.partName != "" {
+		return sheet.partName, strings.TrimPrefix(sheet.partName, "/xl/")
+	}
+
+	partName, target := nextWorksheetPartName(w.preservedParts, w.sheets, fallbackIndex)
+	return partName, target
+}
+
 // saveNew saves a newly created workbook.
 func (w *Workbook) saveNew(writer *opc.Writer) error {
 	writer.Properties = &w.Properties
@@ -364,15 +465,8 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 
 	// Write each worksheet
 	for i, sheet := range w.sheets {
-		if sheet.worksheet == nil {
-			sheet.worksheet = &oxml.CT_Worksheet{
-				SheetData: oxml.CT_SheetData{},
-			}
-		}
-
 		sheetPartName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
-		wsData := marshalWorksheetXML(sheet.worksheet)
-		if err := writer.WritePart(sheetPartName, opc.ContentTypeWorksheet, wsData); err != nil {
+		if err := writeSheetPart(writer, sheetPartName, sheet); err != nil {
 			return err
 		}
 
@@ -382,12 +476,6 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			Type:   opc.RelTypeWorksheet,
 			Target: fmt.Sprintf("worksheets/sheet%d.xml", i+1),
 		})
-
-		// Update the workbook model
-		w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:0:0], w.workbook.Sheets.Sheet...)
-		if i < len(w.workbook.Sheets.Sheet) {
-			w.workbook.Sheets.Sheet[i].RID = rid
-		}
 		relID++
 	}
 
@@ -436,12 +524,154 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	return nil
 }
 
+// writeSheetPart writes a worksheet part from the worksheet model.
+func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
+	if sheet.worksheet == nil {
+		sheet.worksheet = &oxml.CT_Worksheet{
+			SheetData: oxml.CT_SheetData{},
+		}
+	}
+
+	wsData := marshalWorksheetXML(sheet.worksheet)
+	return writer.WritePart(partName, opc.ContentTypeWorksheet, wsData)
+}
+
+func cloneRelationships(rels []*opc.Relationship) []*opc.Relationship {
+	if len(rels) == 0 {
+		return nil
+	}
+	cloned := make([]*opc.Relationship, 0, len(rels))
+	for _, rel := range rels {
+		if rel == nil {
+			continue
+		}
+		copyRel := *rel
+		cloned = append(cloned, &copyRel)
+	}
+	return cloned
+}
+
+func rebuildWorksheetRelationships(existing []*opc.Relationship, sheets []*Sheet, worksheetTargets map[string]struct{}) []*opc.Relationship {
+	filtered := make([]*opc.Relationship, 0, len(existing)+len(sheets))
+	for _, rel := range existing {
+		if rel == nil {
+			continue
+		}
+		if rel.Type == opc.RelTypeWorksheet {
+			continue
+		}
+		filtered = append(filtered, rel)
+	}
+
+	usedIDs := make(map[string]struct{}, len(filtered))
+	for _, rel := range filtered {
+		usedIDs[rel.ID] = struct{}{}
+	}
+
+	for _, sheet := range sheets {
+		partName := sheet.partName
+		if partName == "" {
+			continue
+		}
+		target := strings.TrimPrefix(partName, "/xl/")
+		if _, ok := worksheetTargets[target]; !ok {
+			continue
+		}
+		id := sheet.relID
+		if id == "" || relationshipIDInUse(usedIDs, id) {
+			id = fmt.Sprintf("rId%d", nextRelationshipID(usedIDs))
+		}
+		usedIDs[id] = struct{}{}
+		sheet.relID = id
+		filtered = append(filtered, &opc.Relationship{
+			ID:     id,
+			Type:   opc.RelTypeWorksheet,
+			Target: target,
+		})
+	}
+
+	return filtered
+}
+
+func ensureRelationship(rels []*opc.Relationship, relType, target string) []*opc.Relationship {
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType && rel.Target == target {
+			return rels
+		}
+	}
+	usedIDs := make(map[string]struct{}, len(rels))
+	for _, rel := range rels {
+		if rel != nil {
+			usedIDs[rel.ID] = struct{}{}
+		}
+	}
+	return append(rels, &opc.Relationship{
+		ID:     fmt.Sprintf("rId%d", nextRelationshipID(usedIDs)),
+		Type:   relType,
+		Target: target,
+	})
+}
+
+func syncWorkbookSheetRefs(wb *oxml.CT_Workbook, sheets []*Sheet) {
+	if wb == nil {
+		return
+	}
+	for i := range sheets {
+		if i >= len(wb.Sheets.Sheet) {
+			break
+		}
+		wb.Sheets.Sheet[i].Name = sheets[i].name
+		wb.Sheets.Sheet[i].RID = sheets[i].relID
+	}
+}
+
+func nextRelationshipID(used map[string]struct{}) int {
+	nextID := 1
+	for {
+		candidate := fmt.Sprintf("rId%d", nextID)
+		if _, ok := used[candidate]; !ok {
+			return nextID
+		}
+		nextID++
+	}
+}
+
+func relationshipIDInUse(used map[string]struct{}, id string) bool {
+	if id == "" {
+		return false
+	}
+	_, ok := used[id]
+	return ok
+}
+
+func nextWorksheetPartName(preserved map[string]*coxml.RawPart, sheets []*Sheet, fallbackIndex int) (string, string) {
+	used := make(map[string]struct{}, len(preserved)+len(sheets))
+	for name := range preserved {
+		used[name] = struct{}{}
+	}
+	for _, sheet := range sheets {
+		if sheet.partName != "" {
+			used[sheet.partName] = struct{}{}
+		}
+	}
+
+	for idx := fallbackIndex; ; idx++ {
+		partName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", idx)
+		if _, ok := used[partName]; ok {
+			continue
+		}
+		return partName, fmt.Sprintf("worksheets/sheet%d.xml", idx)
+	}
+}
+
 // Styles returns the StyleManager for this workbook. If no stylesheet exists
 // yet (e.g. for a newly created workbook), a default one is created.
+// Accessing the StyleManager marks styles as dirty so they are re-serialized on save.
 func (w *Workbook) Styles() *StyleManager {
 	if w.stylesheet == nil {
 		w.stylesheet = defaultStylesheet()
 	}
+	w.stylesDirty = true
 	return newStyleManager(w.stylesheet)
 }
 
@@ -484,9 +714,10 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 		name:      name,
 		index:     len(w.sheets),
 		worksheet: ws,
+		dirty:     true,
 	}
 	w.sheets = append(w.sheets, sheet)
-
+	w.sheetsDirty = true
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
@@ -503,11 +734,14 @@ func (w *Workbook) DeleteSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex
 	}
+	if sheet := w.sheets[index]; sheet != nil && sheet.partName != "" {
+		delete(w.preservedParts, sheet.partName)
+	}
 	w.sheets = append(w.sheets[:index], w.sheets[index+1:]...)
 	for i := index; i < len(w.sheets); i++ {
 		w.sheets[i].index = i
 	}
-
+	w.sheetsDirty = true
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)

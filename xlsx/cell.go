@@ -54,6 +54,7 @@ func (c *Cell) Value() interface{} {
 
 // SetValue sets the cell value, automatically detecting the type.
 func (c *Cell) SetValue(value interface{}) {
+	c.markSheetDirty()
 	if value == nil {
 		c.Clear()
 		return
@@ -157,6 +158,7 @@ func (c *Cell) String() string {
 
 // SetString sets the cell value to an inline string.
 func (c *Cell) SetString(value string) {
+	c.markSheetDirty()
 	c.cell.T = "str"
 	c.cell.V = &value
 	c.cell.F = nil
@@ -176,6 +178,7 @@ func (c *Cell) Float() float64 {
 
 // SetFloat sets the cell value to a float64.
 func (c *Cell) SetFloat(value float64) {
+	c.markSheetDirty()
 	c.cell.T = "n"
 	v := strconv.FormatFloat(value, 'f', -1, 64)
 	c.cell.V = &v
@@ -189,6 +192,7 @@ func (c *Cell) Int() int {
 
 // SetInt sets the cell value to an int.
 func (c *Cell) SetInt(value int) {
+	c.markSheetDirty()
 	c.cell.T = "n"
 	v := strconv.Itoa(value)
 	c.cell.V = &v
@@ -205,6 +209,7 @@ func (c *Cell) Bool() bool {
 
 // SetBool sets the cell value to a bool.
 func (c *Cell) SetBool(value bool) {
+	c.markSheetDirty()
 	c.cell.T = "b"
 	v := "0"
 	if value {
@@ -229,6 +234,7 @@ func (c *Cell) Time() time.Time {
 
 // SetTime sets the cell value to a time.Time.
 func (c *Cell) SetTime(value time.Time) {
+	c.markSheetDirty()
 	c.cell.T = "n"
 	v := strconv.FormatFloat(timeToExcelDate(value), 'f', -1, 64)
 	c.cell.V = &v
@@ -245,6 +251,7 @@ func (c *Cell) Formula() string {
 
 // SetFormula sets the cell formula.
 func (c *Cell) SetFormula(formula string) {
+	c.markSheetDirty()
 	c.cell.T = ""
 	c.cell.F = &oxml.CT_CellFormula{Value: formula}
 	c.cell.V = nil
@@ -257,6 +264,7 @@ func (c *Cell) StyleIndex() *uint32 {
 
 // SetStyleIndex sets the cell's style index.
 func (c *Cell) SetStyleIndex(index uint32) {
+	c.markSheetDirty()
 	c.cell.S = &index
 }
 
@@ -267,6 +275,7 @@ func (c *Cell) IsEmpty() bool {
 
 // Clear clears the cell value and formula.
 func (c *Cell) Clear() {
+	c.markSheetDirty()
 	c.cell.V = nil
 	c.cell.F = nil
 	c.cell.T = ""
@@ -356,6 +365,7 @@ type AlignmentStyle struct {
 
 // SetStyle creates a style from the given definition and applies it to the cell.
 func (c *Cell) SetStyle(style CellStyle) error {
+	c.markSheetDirty()
 	if c.sheet == nil || c.sheet.workbook == nil {
 		return fmt.Errorf("xlsx: cell is not associated with a workbook")
 	}
@@ -366,4 +376,10 @@ func (c *Cell) SetStyle(style CellStyle) error {
 	}
 	c.SetStyleIndex(idx)
 	return nil
+}
+
+func (c *Cell) markSheetDirty() {
+	if c != nil && c.sheet != nil {
+		c.sheet.markDirty()
+	}
 }

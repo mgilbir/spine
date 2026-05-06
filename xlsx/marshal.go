@@ -335,4 +335,3 @@ func marshalTableParts(b *xmlb.Builder, tp *oxml.CT_TableParts) {
 	}
 	b.EndElement(nsSML, "tableParts")
 }
-
