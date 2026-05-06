@@ -27,7 +27,7 @@ type Workbook struct {
 	relationships  map[string][]*opc.Relationship
 	hasCoreProps   bool
 	stylesDirty    bool
-	sheetsModified bool
+	sheetsDirty bool
 	stringTable    []string // plain text values extracted from shared strings
 }
 
@@ -347,7 +347,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
 	// any sheet was modified/added/deleted or if styles were changed.
-	needRelsRebuild := stylesDirty || w.sheetsModified
+	needRelsRebuild := stylesDirty || w.sheetsDirty
 	if !needRelsRebuild {
 		for _, sheet := range w.sheets {
 			if sheet.partName == "" || sheet.dirty {
@@ -717,7 +717,7 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 		dirty:     true,
 	}
 	w.sheets = append(w.sheets, sheet)
-	w.sheetsModified = true
+	w.sheetsDirty = true
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
@@ -741,7 +741,7 @@ func (w *Workbook) DeleteSheet(index int) error {
 	for i := index; i < len(w.sheets); i++ {
 		w.sheets[i].index = i
 	}
-	w.sheetsModified = true
+	w.sheetsDirty = true
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
