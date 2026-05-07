@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,7 @@ type Workbook struct {
 	relationships  map[string][]*opc.Relationship
 	hasCoreProps   bool
 	stylesDirty    bool
-	sheetsDirty bool
+	sheetsDirty    bool
 	stringTable    []string // plain text values extracted from shared strings
 }
 
@@ -266,22 +267,24 @@ func Create() *Workbook {
 
 // Save saves the workbook to a file.
 func (w *Workbook) Save(path string) error {
-	writer, err := opc.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-
-	if err := w.saveTo(writer); err != nil {
-		_ = writer.Close()
-		return err
-	}
-	return writer.Close()
+	defer f.Close()
+	return w.SaveTo(f)
 }
 
 // SaveTo saves the workbook to an arbitrary writer.
 func (w *Workbook) SaveTo(dst io.Writer) error {
 	writer := opc.NewWriter(dst)
-	if err := w.saveTo(writer); err != nil {
+	var err error
+	if w.reader != nil {
+		err = w.saveRoundTrip(writer)
+	} else {
+		err = w.saveNew(writer)
+	}
+	if err != nil {
 		_ = writer.Close()
 		return err
 	}
@@ -307,14 +310,6 @@ func (w *Workbook) Close() error {
 		}
 	}
 	return nil
-}
-
-// saveTo writes the workbook to an OPC writer.
-func (w *Workbook) saveTo(writer *opc.Writer) error {
-	if w.reader != nil {
-		return w.saveRoundTrip(writer)
-	}
-	return w.saveNew(writer)
 }
 
 // saveRoundTrip saves a workbook opened from a file, preserving all parts.
