@@ -606,10 +606,11 @@ func TestRoundTripDeleteThenAddSheet(t *testing.T) {
 func TestRoundTripAddStylesToWorkbookWithoutStylesPart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nostyles.xlsx")
 
-	writer, err := opc.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
-		t.Fatalf("opc.Create error: %v", err)
+		t.Fatalf("os.Create error: %v", err)
 	}
+	writer := opc.NewWriter(f)
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
 	if err := sheet.SetCellValue("A1", "plain"); err != nil {
@@ -617,12 +618,15 @@ func TestRoundTripAddStylesToWorkbookWithoutStylesPart(t *testing.T) {
 	}
 	if err := wb.saveNew(writer); err != nil {
 		_ = writer.Close()
+		f.Close()
 		t.Fatalf("saveNew error: %v", err)
 	}
 	delete(writer.ContentTypes.Overrides, "/xl/styles.xml")
 	if err := writer.Close(); err != nil {
+		f.Close()
 		t.Fatalf("writer.Close error: %v", err)
 	}
+	f.Close()
 
 	loaded, err := Open(path)
 	if err != nil {

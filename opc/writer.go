@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 )
 
@@ -33,12 +32,11 @@ type Writer struct {
 	// ContentTypes manages content types for parts.
 	ContentTypes *ContentTypes
 
-	zipWriter     *zip.Writer
-	output        io.Writer
-	closer        io.Closer
-	parts         map[string]bool
-	nextRelID     int
-	closed        bool
+	zipWriter *zip.Writer
+	output    io.Writer
+	parts     map[string]bool
+	nextRelID int
+	closed    bool
 }
 
 // NewWriter creates a new Writer that writes to the provided io.Writer.
@@ -51,18 +49,6 @@ func NewWriter(w io.Writer) *Writer {
 		nextRelID:     1,
 		Relationships: make([]*Relationship, 0),
 	}
-}
-
-// Create creates a new Writer that writes to a file.
-func Create(path string) (*Writer, error) {
-	f, err := os.Create(path)
-	if err != nil {
-		return nil, err
-	}
-
-	w := NewWriter(f)
-	w.closer = f
-	return w, nil
 }
 
 // CreatePart creates a new part in the package.
@@ -355,11 +341,6 @@ func (w *Writer) Close() error {
 	// Close zip writer
 	if err := w.zipWriter.Close(); err != nil {
 		return err
-	}
-
-	// Close underlying file if we created it
-	if w.closer != nil {
-		return w.closer.Close()
 	}
 
 	return nil
