@@ -42,6 +42,12 @@ func (s *Slide) materializeShapes() {
 						s.shapes = append(s.shapes, tbl)
 					}
 				}
+			case oxml.ChildGrpSp:
+				if ref.Index < len(spTree.GrpSp) {
+					if grp := oxmlGroupShapeToGoGroupShape(spTree.GrpSp[ref.Index], s); grp != nil {
+						s.shapes = append(s.shapes, grp)
+					}
+				}
 			}
 		}
 	} else {
@@ -61,6 +67,11 @@ func (s *Slide) materializeShapes() {
 		for _, gf := range spTree.GraphicFrame {
 			if tbl := oxmlGraphicFrameToGoTable(gf); tbl != nil {
 				s.shapes = append(s.shapes, tbl)
+			}
+		}
+		for _, grp := range spTree.GrpSp {
+			if g := oxmlGroupShapeToGoGroupShape(grp, s); g != nil {
+				s.shapes = append(s.shapes, g)
 			}
 		}
 	}
@@ -200,6 +211,63 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 	}
 
 	return p
+}
+
+// oxmlGroupShapeToGoGroupShape converts an oxml.GroupShape to a GroupShape.
+func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape {
+	if gs == nil {
+		return nil
+	}
+
+	g := NewGroupShape()
+	if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil {
+		g.name = gs.NvGrpSpPr.CNvPr.Name
+	}
+
+	if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
+		xfrm := gs.GrpSpPr.Xfrm
+		if xfrm.ChOff != nil {
+			g.x = dml.EMU(xfrm.ChOff.X)
+			g.y = dml.EMU(xfrm.ChOff.Y)
+		}
+		if xfrm.ChExt != nil {
+			g.width = dml.EMU(xfrm.ChExt.Cx)
+			g.height = dml.EMU(xfrm.ChExt.Cy)
+		}
+	}
+
+	for _, ref := range gs.ChildOrder() {
+		switch ref.Kind {
+		case oxml.ChildSp:
+			if ref.Index < len(gs.Shapes) {
+				if shape := oxmlShapeToGoShape(gs.Shapes[ref.Index]); shape != nil {
+					slide.setShapeBackRef(shape)
+					g.AddChild(shape)
+				}
+			}
+		case oxml.ChildPic:
+			if ref.Index < len(gs.Pictures) {
+				if pic := oxmlPictureToGoPicture(gs.Pictures[ref.Index]); pic != nil {
+					slide.setShapeBackRef(pic)
+					g.AddChild(pic)
+				}
+			}
+		case oxml.ChildGraphicFrame:
+			if ref.Index < len(gs.GraphicFrames) {
+				if tbl := oxmlGraphicFrameToGoTable(gs.GraphicFrames[ref.Index]); tbl != nil {
+					g.AddChild(tbl)
+				}
+			}
+		case oxml.ChildGrpSp:
+			if ref.Index < len(gs.GroupShapes) {
+				if sub := oxmlGroupShapeToGoGroupShape(gs.GroupShapes[ref.Index], slide); sub != nil {
+					g.AddChild(sub)
+				}
+			}
+		}
+	}
+
+	return g
 }
 
 // oxmlGraphicFrameToGoTable converts an oxml.GraphicFrame to a Table, if it contains a table.

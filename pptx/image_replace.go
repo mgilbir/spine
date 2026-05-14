@@ -14,9 +14,9 @@ import (
 // and regular picture shapes.
 // For placeholders, it converts the p:sp element to a p:pic element.
 // For regular pictures, it updates the blip reference to point to the new image.
-func (s *Slide) processPendingImages() {
+func (s *Slide) processPendingImages() error {
 	if s.presentation == nil || s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
-		return
+		return nil
 	}
 
 	for _, shape := range s.shapes {
@@ -24,20 +24,19 @@ func (s *Slide) processPendingImages() {
 		case *PlaceholderShape:
 			if sh.hasPendingImage() {
 				if err := s.replacePlaceholderWithImage(sh); err != nil {
-					// Log the error but continue processing other shapes.
-					// Silently dropping errors during marshal is acceptable here
-					// because Save already returns its own error.
-					_ = err
+					return err
 				}
 			}
 		case *Picture:
 			if sh.hasPendingImage() {
 				if err := s.replacePictureImage(sh); err != nil {
-					_ = err
+					return err
 				}
 			}
 		}
 	}
+
+	return nil
 }
 
 // embedImageData creates a media part and relationship for the given image data,

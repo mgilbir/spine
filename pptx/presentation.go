@@ -444,11 +444,15 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 			Created:  now,
 			Modified: now,
 		},
-		slides:       make([]*Slide, 0),
-		slideMasters: make([]*SlideMaster, 0),
-		slideLayouts: make([]*SlideLayout, 0),
-		nextSlideID:  256,
-		nextRelID:    1,
+		slides:          make([]*Slide, 0),
+		slideMasters:    make([]*SlideMaster, 0),
+		slideLayouts:    make([]*SlideLayout, 0),
+		themeData:       make(map[string][]byte),
+		printerSettings: make(map[string][]byte),
+		otherParts:      make(map[string]*coxml.RawPart),
+		relationships:   make(map[string][]*opc.Relationship),
+		nextSlideID:     256,
+		nextRelID:       1,
 		presentation: &oxml.Presentation{
 			SlideSize: oxml.DefaultSlideSize(),
 			NotesSize: &oxml.SlideSize{
@@ -1009,6 +1013,44 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Create slide parts and relationships SECOND
 	for i, slide := range p.slides {
 		slidePartName := fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+		slide.partName = slidePartName
+
+		slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
+		hasLayoutRel := false
+		for _, rel := range slideRels {
+			if rel.Type == opc.RelTypeSlideLayout {
+				hasLayoutRel = true
+				break
+			}
+		}
+
+		if !hasLayoutRel {
+			if slide.layout != nil {
+				// Find layout index
+				for j, layout := range p.slideLayouts {
+					if layout == slide.layout {
+						slideRels = append(slideRels, &opc.Relationship{
+							ID:         "rId1",
+							Type:       opc.RelTypeSlideLayout,
+							Target:     fmt.Sprintf("../slideLayouts/slideLayout%d.xml", j+1),
+							TargetMode: opc.TargetModeInternal,
+						})
+						break
+					}
+				}
+			} else if len(p.slideLayouts) > 0 {
+				slideRels = append(slideRels, &opc.Relationship{
+					ID:         "rId1",
+					Type:       opc.RelTypeSlideLayout,
+					Target:     "../slideLayouts/slideLayout1.xml",
+					TargetMode: opc.TargetModeInternal,
+				})
+			}
+		}
+		if len(slideRels) > 0 {
+			p.relationships[slidePartName] = slideRels
+		}
+
 		slideData, err := slide.marshal()
 		if err != nil {
 			return err
@@ -1025,30 +1067,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			TargetMode: opc.TargetModeInternal,
 		})
 
-		// Write slide relationships (to layout if set)
-		slideRels := make([]*opc.Relationship, 0)
-		if slide.layout != nil {
-			// Find layout index
-			for j, layout := range p.slideLayouts {
-				if layout == slide.layout {
-					slideRels = append(slideRels, &opc.Relationship{
-						ID:         "rId1",
-						Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-						Target:     fmt.Sprintf("../slideLayouts/slideLayout%d.xml", j+1),
-						TargetMode: opc.TargetModeInternal,
-					})
-					break
-				}
-			}
-		} else if len(p.slideLayouts) > 0 {
-			// Default to first layout (Title layout)
-			slideRels = append(slideRels, &opc.Relationship{
-				ID:         "rId1",
-				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-				Target:     "../slideLayouts/slideLayout1.xml",
-				TargetMode: opc.TargetModeInternal,
-			})
-		}
+		slideRels = p.relationships[slidePartName]
 
 		if len(slideRels) > 0 {
 			if err := writer.WritePartRelationships(slidePartName, slideRels); err != nil {

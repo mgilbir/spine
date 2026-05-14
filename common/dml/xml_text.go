@@ -16,32 +16,32 @@ type TxBody struct {
 
 // BodyPr represents CT_TextBodyProperties (a:bodyPr)
 type BodyPr struct {
-	Rot              int32  `xml:"rot,attr,omitempty"`
-	SpcFirstLastPara *bool  `xml:"spcFirstLastPara,attr,omitempty"`
-	VertOverflow     string `xml:"vertOverflow,attr,omitempty"`
-	HorzOverflow     string `xml:"horzOverflow,attr,omitempty"`
-	Vert             string `xml:"vert,attr,omitempty"`
-	Wrap             string `xml:"wrap,attr,omitempty"`
-	LIns             *int64 `xml:"lIns,attr,omitempty"`
-	TIns             *int64 `xml:"tIns,attr,omitempty"`
-	RIns             *int64 `xml:"rIns,attr,omitempty"`
-	BIns             *int64 `xml:"bIns,attr,omitempty"`
-	NumCol           int32  `xml:"numCol,attr,omitempty"`
-	SpcCol           int32  `xml:"spcCol,attr,omitempty"`
-	RtlCol           *bool  `xml:"rtlCol,attr,omitempty"`
-	FromWordArt      *bool  `xml:"fromWordArt,attr,omitempty"`
-	Anchor           string `xml:"anchor,attr,omitempty"`
-	AnchorCtr        *bool  `xml:"anchorCtr,attr,omitempty"`
-	ForceAA          *bool  `xml:"forceAA,attr,omitempty"`
-	UpRight          *bool  `xml:"upright,attr,omitempty"`
-	CompatLnSpc      *bool  `xml:"compatLnSpc,attr,omitempty"`
-	PrstTxWarp       *PrstTxWarp `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
-	NoAutofit        *NoAutofit  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
+	Rot              int32        `xml:"rot,attr,omitempty"`
+	SpcFirstLastPara *bool        `xml:"spcFirstLastPara,attr,omitempty"`
+	VertOverflow     string       `xml:"vertOverflow,attr,omitempty"`
+	HorzOverflow     string       `xml:"horzOverflow,attr,omitempty"`
+	Vert             string       `xml:"vert,attr,omitempty"`
+	Wrap             string       `xml:"wrap,attr,omitempty"`
+	LIns             *int64       `xml:"lIns,attr,omitempty"`
+	TIns             *int64       `xml:"tIns,attr,omitempty"`
+	RIns             *int64       `xml:"rIns,attr,omitempty"`
+	BIns             *int64       `xml:"bIns,attr,omitempty"`
+	NumCol           int32        `xml:"numCol,attr,omitempty"`
+	SpcCol           int32        `xml:"spcCol,attr,omitempty"`
+	RtlCol           *bool        `xml:"rtlCol,attr,omitempty"`
+	FromWordArt      *bool        `xml:"fromWordArt,attr,omitempty"`
+	Anchor           string       `xml:"anchor,attr,omitempty"`
+	AnchorCtr        *bool        `xml:"anchorCtr,attr,omitempty"`
+	ForceAA          *bool        `xml:"forceAA,attr,omitempty"`
+	UpRight          *bool        `xml:"upright,attr,omitempty"`
+	CompatLnSpc      *bool        `xml:"compatLnSpc,attr,omitempty"`
+	PrstTxWarp       *PrstTxWarp  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
+	NoAutofit        *NoAutofit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
 	NormAutofit      *NormAutofit `xml:"http://schemas.openxmlformats.org/drawingml/2006/main normAutofit,omitempty"`
-	SpAutoFit        *SpAutoFit  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
-	Scene3d          *Scene3d    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
-	Sp3d             *Sp3d       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
-	FlatTx           *FlatTx     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	SpAutoFit        *SpAutoFit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
+	Scene3d          *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
+	Sp3d             *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
+	FlatTx           *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
 }
 
 // PrstTxWarp represents CT_PresetTextShape (a:prstTxWarp)
@@ -85,11 +85,11 @@ type LstStyle struct {
 // It implements custom unmarshal/marshal to preserve interleaved R/Br/Fld order
 // (per XSD: xs:choice maxOccurs="unbounded").
 type P struct {
-	PPr        *PPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pPr,omitempty"`
-	R          []*R   `xml:"-"`
-	Br         []*Br  `xml:"-"`
-	Fld        []*Fld `xml:"-"`
-	EndParaRPr *RPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main endParaRPr,omitempty"`
+	PPr        *PPr        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pPr,omitempty"`
+	R          []*R        `xml:"-"`
+	Br         []*Br       `xml:"-"`
+	Fld        []*Fld      `xml:"-"`
+	EndParaRPr *RPr        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main endParaRPr,omitempty"`
 	childOrder []pChildRef // tracks interleaved child order
 }
 
@@ -104,6 +104,16 @@ const (
 type pChildRef struct {
 	kind  pChildKind
 	index int
+}
+
+// ResetRunOrder rebuilds the paragraph child order as run-only content.
+// This is useful after code mutates the run slice on paragraphs that do not
+// contain line breaks or fields.
+func (p *P) ResetRunOrder() {
+	p.childOrder = p.childOrder[:0]
+	for i := range p.R {
+		p.childOrder = append(p.childOrder, pChildRef{pChildR, i})
+	}
 }
 
 // UnmarshalXML implements custom unmarshaling for P to preserve child order.
@@ -269,33 +279,33 @@ func (p *P) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 
 // PPr represents CT_TextParagraphProperties (a:pPr)
 type PPr struct {
-	MarL         *int32      `xml:"marL,attr,omitempty"`
-	MarR         *int32      `xml:"marR,attr,omitempty"`
-	Lvl          *int32      `xml:"lvl,attr,omitempty"`
-	Indent       *int32      `xml:"indent,attr,omitempty"`
-	Algn         string      `xml:"algn,attr,omitempty"`
-	DefTabSz     *int32      `xml:"defTabSz,attr,omitempty"`
-	Rtl          *bool       `xml:"rtl,attr,omitempty"`
-	EaLnBrk      *bool       `xml:"eaLnBrk,attr,omitempty"`
-	FontAlgn     string      `xml:"fontAlgn,attr,omitempty"`
-	LatinLnBrk   *bool       `xml:"latinLnBrk,attr,omitempty"`
-	HangingPunct *bool       `xml:"hangingPunct,attr,omitempty"`
-	LnSpc        *LnSpc      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnSpc,omitempty"`
-	SpcBef       *SpcBef     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcBef,omitempty"`
-	SpcAft       *SpcAft     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcAft,omitempty"`
-	BuClrTx      *BuClrTx    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClrTx,omitempty"`
-	BuClr        *BuClr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClr,omitempty"`
-	BuSzTx       *BuSzTx     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzTx,omitempty"`
-	BuSzPct      *BuSzPct    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPct,omitempty"`
-	BuSzPts      *BuSzPts    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPts,omitempty"`
-	BuFontTx     *BuFontTx   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFontTx,omitempty"`
-	BuFont       *BuFont     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFont,omitempty"`
-	BuNone       *BuNone     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buNone,omitempty"`
-	BuAutoNum    *BuAutoNum  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buAutoNum,omitempty"`
-	BuChar       *BuChar     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buChar,omitempty"`
-	BuBlip       *BuBlip     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
-	TabLst       *TabLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
-	DefRPr       *RPr        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
+	MarL         *int32     `xml:"marL,attr,omitempty"`
+	MarR         *int32     `xml:"marR,attr,omitempty"`
+	Lvl          *int32     `xml:"lvl,attr,omitempty"`
+	Indent       *int32     `xml:"indent,attr,omitempty"`
+	Algn         string     `xml:"algn,attr,omitempty"`
+	DefTabSz     *int32     `xml:"defTabSz,attr,omitempty"`
+	Rtl          *bool      `xml:"rtl,attr,omitempty"`
+	EaLnBrk      *bool      `xml:"eaLnBrk,attr,omitempty"`
+	FontAlgn     string     `xml:"fontAlgn,attr,omitempty"`
+	LatinLnBrk   *bool      `xml:"latinLnBrk,attr,omitempty"`
+	HangingPunct *bool      `xml:"hangingPunct,attr,omitempty"`
+	LnSpc        *LnSpc     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnSpc,omitempty"`
+	SpcBef       *SpcBef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcBef,omitempty"`
+	SpcAft       *SpcAft    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcAft,omitempty"`
+	BuClrTx      *BuClrTx   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClrTx,omitempty"`
+	BuClr        *BuClr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClr,omitempty"`
+	BuSzTx       *BuSzTx    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzTx,omitempty"`
+	BuSzPct      *BuSzPct   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPct,omitempty"`
+	BuSzPts      *BuSzPts   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPts,omitempty"`
+	BuFontTx     *BuFontTx  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFontTx,omitempty"`
+	BuFont       *BuFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFont,omitempty"`
+	BuNone       *BuNone    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buNone,omitempty"`
+	BuAutoNum    *BuAutoNum `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buAutoNum,omitempty"`
+	BuChar       *BuChar    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buChar,omitempty"`
+	BuBlip       *BuBlip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
+	TabLst       *TabLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
+	DefRPr       *RPr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
 }
 
 // R represents CT_RegularTextRun (a:r)
@@ -306,46 +316,46 @@ type R struct {
 
 // RPr represents CT_TextCharacterProperties (a:rPr)
 type RPr struct {
-	Kumimoji   *bool  `xml:"kumimoji,attr,omitempty"`
-	Lang       string `xml:"lang,attr,omitempty"`
-	AltLang    string `xml:"altLang,attr,omitempty"`
-	Sz         int32  `xml:"sz,attr,omitempty"`
-	B          *bool  `xml:"b,attr,omitempty"`
-	I          *bool  `xml:"i,attr,omitempty"`
-	U          string `xml:"u,attr,omitempty"`
-	Strike     string `xml:"strike,attr,omitempty"`
-	Kern       *int32 `xml:"kern,attr,omitempty"`
-	Cap        string `xml:"cap,attr,omitempty"`
-	Spc        *int32 `xml:"spc,attr,omitempty"`
-	NormalizeH *bool  `xml:"normalizeH,attr,omitempty"`
-	Baseline   *int32 `xml:"baseline,attr,omitempty"`
-	NoProof    *bool  `xml:"noProof,attr,omitempty"`
-	Dirty      *bool  `xml:"dirty,attr,omitempty"`
-	Err        *bool  `xml:"err,attr,omitempty"`
-	SmtClean   *bool  `xml:"smtClean,attr,omitempty"`
-	SmtId      uint32 `xml:"smtId,attr,omitempty"`
-	Bmk        string `xml:"bmk,attr,omitempty"`
-	Ln         *Ln    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ln,omitempty"`
-	NoFill     *NoFillXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill  *SolidFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill   *GradFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill   *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill   *PattFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill    *GrpFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
-	EffectLst  *EffectLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	EffectDag  *EffectDag  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
-	Highlight  *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main highlight,omitempty"`
-	ULnTx      *ULnTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLnTx,omitempty"`
-	ULn        *Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLn,omitempty"`
-	UFillTx    *UFillTx    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFillTx,omitempty"`
-	UFill      *UFill      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFill,omitempty"`
-	Latin      *TextFont   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
-	Ea         *TextFont   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
-	Cs         *TextFont   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
-	Sym        *TextFont   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sym,omitempty"`
-	HlinkClick *HlinkXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
-	HlinkMouseOver *HlinkXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
-	Rtl        *bool       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+	Kumimoji       *bool        `xml:"kumimoji,attr,omitempty"`
+	Lang           string       `xml:"lang,attr,omitempty"`
+	AltLang        string       `xml:"altLang,attr,omitempty"`
+	Sz             int32        `xml:"sz,attr,omitempty"`
+	B              *bool        `xml:"b,attr,omitempty"`
+	I              *bool        `xml:"i,attr,omitempty"`
+	U              string       `xml:"u,attr,omitempty"`
+	Strike         string       `xml:"strike,attr,omitempty"`
+	Kern           *int32       `xml:"kern,attr,omitempty"`
+	Cap            string       `xml:"cap,attr,omitempty"`
+	Spc            *int32       `xml:"spc,attr,omitempty"`
+	NormalizeH     *bool        `xml:"normalizeH,attr,omitempty"`
+	Baseline       *int32       `xml:"baseline,attr,omitempty"`
+	NoProof        *bool        `xml:"noProof,attr,omitempty"`
+	Dirty          *bool        `xml:"dirty,attr,omitempty"`
+	Err            *bool        `xml:"err,attr,omitempty"`
+	SmtClean       *bool        `xml:"smtClean,attr,omitempty"`
+	SmtId          uint32       `xml:"smtId,attr,omitempty"`
+	Bmk            string       `xml:"bmk,attr,omitempty"`
+	Ln             *Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ln,omitempty"`
+	NoFill         *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill      *SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill       *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill       *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill       *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill        *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	EffectLst      *EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	EffectDag      *EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	Highlight      *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main highlight,omitempty"`
+	ULnTx          *ULnTx       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLnTx,omitempty"`
+	ULn            *Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLn,omitempty"`
+	UFillTx        *UFillTx     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFillTx,omitempty"`
+	UFill          *UFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFill,omitempty"`
+	Latin          *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
+	Ea             *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
+	Cs             *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
+	Sym            *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sym,omitempty"`
+	HlinkClick     *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
+	HlinkMouseOver *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
+	Rtl            *bool        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
 }
 
 // Br represents CT_TextLineBreak (a:br)
@@ -372,15 +382,15 @@ type TextFont struct {
 
 // HlinkXML represents CT_Hyperlink (a:hlinkClick, a:hlinkMouseOver)
 type HlinkXML struct {
-	Id            *string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
-	InvalidUrl    string `xml:"invalidUrl,attr,omitempty"`
-	Action        string `xml:"action,attr,omitempty"`
-	TgtFrame      string `xml:"tgtFrame,attr,omitempty"`
-	Tooltip       string `xml:"tooltip,attr,omitempty"`
-	History       *bool  `xml:"history,attr,omitempty"`
-	HighlightClick *bool `xml:"highlightClick,attr,omitempty"`
-	EndSnd        *bool  `xml:"endSnd,attr,omitempty"`
-	Snd           *EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main snd,omitempty"`
+	Id             *string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	InvalidUrl     string          `xml:"invalidUrl,attr,omitempty"`
+	Action         string          `xml:"action,attr,omitempty"`
+	TgtFrame       string          `xml:"tgtFrame,attr,omitempty"`
+	Tooltip        string          `xml:"tooltip,attr,omitempty"`
+	History        *bool           `xml:"history,attr,omitempty"`
+	HighlightClick *bool           `xml:"highlightClick,attr,omitempty"`
+	EndSnd         *bool           `xml:"endSnd,attr,omitempty"`
+	Snd            *EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main snd,omitempty"`
 }
 
 // EmbeddedWAVXML represents CT_EmbeddedWAVAudioFile (a:snd)
@@ -488,12 +498,12 @@ type UFillTx struct{}
 
 // UFill represents CT_TextUnderlineFillGroupWrapper (a:uFill)
 type UFill struct {
-	NoFill    *NoFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill *SolidFill `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  *GradFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	NoFill    *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill *SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill  *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
 	BlipFill  *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  *PattFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill   *GrpFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	PattFill  *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill   *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
 }
 
 // --- OpenType Feature Types ---

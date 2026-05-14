@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"bytes"
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,21 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
+
+func testPresentationWithoutLayouts() *Presentation {
+	opts := DefaultCreateOptions()
+	opts.IncludeDefaultLayouts = false
+	return CreateWithOptions(opts)
+}
+
+func mustParseShapeTree(t *testing.T, src string) *oxml.ShapeTree {
+	t.Helper()
+	var st oxml.ShapeTree
+	if err := xml.Unmarshal([]byte(src), &st); err != nil {
+		t.Fatalf("xml.Unmarshal ShapeTree failed: %v", err)
+	}
+	return &st
+}
 
 // mustSlide is a test helper that calls Slide and fails on error.
 func mustSlide(t *testing.T, p *Presentation, index int) *Slide {
@@ -561,7 +577,7 @@ func TestSetImageData_PicturePlaceholder(t *testing.T) {
 
 func TestImageReplacement_EndToEnd(t *testing.T) {
 	// Create a presentation with a picture placeholder
-	p := Create()
+	p := testPresentationWithoutLayouts()
 	slide := p.AddSlide()
 
 	// Add a picture placeholder
@@ -642,6 +658,41 @@ func TestImageReplacement_EndToEnd(t *testing.T) {
 	}
 	if !foundMedia {
 		t.Error("No media part found in the saved file")
+	}
+}
+
+func TestImageReplacement_NewSlidePlaceholder(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	placeholder := NewPlaceholderShape(PlaceholderPicture)
+	placeholder.SetName("Direct Placeholder")
+	placeholder.SetIndex(1)
+	slide.AddShape(placeholder)
+
+	if err := placeholder.SetImageData(createMinimalPNG(), "image/png"); err != nil {
+		t.Fatalf("SetImageData failed: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "new_slide_placeholder_image.pptx")
+	if err := p.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	p2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer p2.Close()
+
+	loaded := mustSlide(t, p2, 0)
+	shape := loaded.ShapeByName("Direct Placeholder")
+	if shape == nil {
+		t.Fatal("ShapeByName returned nil after save/reopen")
+	}
+	if _, ok := shape.(*Picture); !ok {
+		t.Fatalf("expected placeholder to become *Picture, got %T", shape)
 	}
 }
 
@@ -735,6 +786,81 @@ func TestPictureSetImageData_NewPicture(t *testing.T) {
 	}
 }
 
+func TestPictureImageReplacement_NewSlidePicture(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	pic := NewPicture()
+	pic.SetName("Generated Picture")
+	pic.SetPosition(dml.Inches(1), dml.Inches(1))
+	pic.SetSize(dml.Inches(2), dml.Inches(2))
+	pic.SetImageData(createMinimalPNG(), "image/png")
+	slide.AddShape(pic)
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "new_slide_picture_image.pptx")
+	if err := p.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	p2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer p2.Close()
+
+	loaded := mustSlide(t, p2, 0)
+	shape := loaded.ShapeByName("Generated Picture")
+	if shape == nil {
+		t.Fatal("ShapeByName returned nil after save/reopen")
+	}
+	pic2, ok := shape.(*Picture)
+	if !ok {
+		t.Fatalf("expected *Picture, got %T", shape)
+	}
+	if pic2.relID == "" {
+		t.Fatal("expected saved picture to have a relationship ID")
+	}
+	if len(p2.relationships[loaded.partName]) == 0 {
+		t.Fatal("expected slide relationships to include image rel")
+	}
+}
+
+func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	paragraph := &dml.P{
+		R: []*dml.R{
+			{T: "{{na"},
+			{T: "me}}"},
+		},
+	}
+	paragraph.ResetRunOrder()
+	spTree := mustParseShapeTree(t, `
+		<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+		  <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+		  <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+		  <p:sp>
+		    <p:nvSpPr><p:cNvPr id="2" name="Text With Break"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+		    <p:spPr/>
+		    <p:txBody><a:bodyPr/><a:p><a:r><a:t>{{na</a:t></a:r><a:r><a:t>me}}</a:t></a:r></a:p></p:txBody>
+		  </p:sp>
+		</p:spTree>`)
+	spTree.Sp[0].TxBody.P[0] = paragraph
+	slide.slideXML.CSld.SpTree = spTree
+
+	slide.ReplaceText(map[string]string{"name": "Alice"})
+
+	updatedParagraph := slide.slideXML.CSld.SpTree.Sp[0].TxBody.P[0]
+	if len(updatedParagraph.R) != 1 {
+		t.Fatalf("len(R) = %d, want 1", len(updatedParagraph.R))
+	}
+	if updatedParagraph.R[0].T != "Alice" {
+		t.Fatalf("replacement text = %q, want %q", updatedParagraph.R[0].T, "Alice")
+	}
+}
+
 // --- ShapeByName Tests ---
 
 func TestShapeByName(t *testing.T) {
@@ -774,6 +900,35 @@ func TestShapeByName(t *testing.T) {
 	// Not found
 	if slide.ShapeByName("DoesNotExist") != nil {
 		t.Error("ShapeByName(DoesNotExist) should return nil")
+	}
+}
+
+func TestShapeByName_GroupChild(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	slide.slideXML.CSld.SpTree = mustParseShapeTree(t, `
+		<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+		  <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+		  <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+		  <p:grpSp>
+		    <p:nvGrpSpPr><p:cNvPr id="2" name="Outer Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+		    <p:grpSpPr/>
+		    <p:sp>
+		      <p:nvSpPr><p:cNvPr id="3" name="Inner Box"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+		      <p:spPr/>
+		      <p:txBody><a:bodyPr/><a:p><a:r><a:t>Grouped text</a:t></a:r></a:p></p:txBody>
+		    </p:sp>
+		  </p:grpSp>
+		</p:spTree>`)
+	slide.slideXML.CSld.SpTree.GrpSp[0].Shapes[0].TxBody.P[0].ResetRunOrder()
+	slide.materializeShapes()
+
+	if got := slide.ShapeByName("Outer Group"); got == nil {
+		t.Fatal("ShapeByName on group returned nil")
+	}
+	if got := slide.ShapeByName("Inner Box"); got == nil {
+		t.Fatal("ShapeByName on nested child returned nil")
 	}
 }
 
