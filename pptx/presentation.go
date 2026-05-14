@@ -315,6 +315,12 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			relID:        slideRef.RID,
 		}
 
+		// Materialize Go-level shape objects from the parsed XML.
+		// This populates slide.shapes so that Shapes(), Placeholders(), etc.
+		// work on loaded slides. shapesModified remains false so the original
+		// XML is preserved during save unless shapes are explicitly modified.
+		slide.materializeShapes()
+
 		p.slides = append(p.slides, slide)
 	}
 

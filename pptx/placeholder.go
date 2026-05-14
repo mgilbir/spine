@@ -1,7 +1,18 @@
 package pptx
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/mgilbir/spine/common/dml"
+)
+
+// Common placeholder errors.
+var (
+	ErrNotPicturePlaceholder = errors.New("pptx: not a picture placeholder")
 )
 
 // PlaceholderType represents the type of a placeholder.
@@ -51,6 +62,12 @@ type PlaceholderShape struct {
 	size        PlaceholderSize
 	idx         uint32
 	textFrame   *TextFrame
+
+	// Image replacement fields (only for picture placeholders)
+	pendingImagePath string // file path to image (set via SetImage)
+	pendingImageData []byte // raw image data (set via SetImageData)
+	pendingImageCT   string // content type of pending image
+	slide            *Slide // back-reference to the owning slide (set during materialization)
 }
 
 // NewPlaceholderShape creates a new placeholder shape.
@@ -130,6 +147,109 @@ func (p *PlaceholderShape) IsTitle() bool {
 // IsBody returns true if this is a body/content placeholder.
 func (p *PlaceholderShape) IsBody() bool {
 	return p.phType == PlaceholderBody || p.phType == PlaceholderObject
+}
+
+// IsPicture returns true if this is a picture placeholder.
+func (p *PlaceholderShape) IsPicture() bool {
+	return p.phType == PlaceholderPicture
+}
+
+// SetImage sets an image on a picture placeholder from a file path.
+// Only works on placeholders of type PlaceholderPicture.
+// The image is embedded when the presentation is saved.
+func (p *PlaceholderShape) SetImage(imagePath string) error {
+	if p.phType != PlaceholderPicture {
+		return ErrNotPicturePlaceholder
+	}
+
+	data, ct, err := readImageFile(imagePath)
+	if err != nil {
+		return err
+	}
+
+	p.pendingImagePath = imagePath
+	p.pendingImageData = data
+	p.pendingImageCT = ct
+
+	return nil
+}
+
+// SetImageData sets an image on a picture placeholder from raw bytes.
+// Only works on placeholders of type PlaceholderPicture.
+// The contentType should be a MIME type like "image/png" or "image/jpeg".
+func (p *PlaceholderShape) SetImageData(data []byte, contentType string) error {
+	if p.phType != PlaceholderPicture {
+		return ErrNotPicturePlaceholder
+	}
+
+	p.pendingImageData = data
+	p.pendingImageCT = contentType
+	p.pendingImagePath = ""
+
+	return nil
+}
+
+// hasPendingImage returns true if this placeholder has a pending image replacement.
+func (p *PlaceholderShape) hasPendingImage() bool {
+	return len(p.pendingImageData) > 0
+}
+
+// contentTypeFromExt returns the MIME type for a file extension.
+func contentTypeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".bmp":
+		return "image/bmp"
+	case ".tiff", ".tif":
+		return "image/tiff"
+	case ".svg":
+		return "image/svg+xml"
+	case ".emf":
+		return "image/x-emf"
+	case ".wmf":
+		return "image/x-wmf"
+	default:
+		return "image/png"
+	}
+}
+
+// extFromContentType returns a file extension for a MIME type.
+func extFromContentType(ct string) string {
+	switch ct {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpeg"
+	case "image/gif":
+		return ".gif"
+	case "image/bmp":
+		return ".bmp"
+	case "image/tiff":
+		return ".tiff"
+	case "image/svg+xml":
+		return ".svg"
+	case "image/x-emf":
+		return ".emf"
+	case "image/x-wmf":
+		return ".wmf"
+	default:
+		return ".png"
+	}
+}
+
+// readImageFile reads an image file and returns its data and content type.
+func readImageFile(imagePath string) (data []byte, contentType string, err error) {
+	data, err = os.ReadFile(imagePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("pptx: reading image file: %w", err)
+	}
+	contentType = contentTypeFromExt(filepath.Ext(imagePath))
+	return data, contentType, nil
 }
 
 // DefaultTitlePlaceholder creates a title placeholder with default settings.
