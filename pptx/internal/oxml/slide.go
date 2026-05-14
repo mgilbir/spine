@@ -138,24 +138,37 @@ type ShapeTree struct {
 	GraphicFrame []*GraphicFrame     `xml:"-"`
 	GrpSp        []*GroupShape       `xml:"-"`
 	CxnSp        []*ConnectionShape  `xml:"-"`
-	childOrder   []childRef          // tracks interleaved child order
+	childOrder   []ChildRef          // tracks interleaved child order
 }
 
-// childKind identifies a shape child element type.
-type childKind int
+// ChildKind identifies a shape child element type.
+type ChildKind int
 
 const (
-	childSp childKind = iota
-	childPic
-	childGraphicFrame
-	childGrpSp
-	childCxnSp
+	ChildSp ChildKind = iota
+	ChildPic
+	ChildGraphicFrame
+	ChildGrpSp
+	ChildCxnSp
 )
 
-// childRef references a child element by kind and index into its typed slice.
-type childRef struct {
-	kind  childKind
-	index int
+// ChildRef references a child element by kind and index into its typed slice.
+type ChildRef struct {
+	Kind  ChildKind
+	Index int
+}
+
+// ChildOrder returns the child order tracking slice.
+// This is used during shape materialization to iterate shapes in their original z-order.
+func (st *ShapeTree) ChildOrder() []ChildRef {
+	return st.childOrder
+}
+
+// SetChildRef updates the child reference at the given index.
+func (st *ShapeTree) SetChildRef(i int, ref ChildRef) {
+	if i >= 0 && i < len(st.childOrder) {
+		st.childOrder[i] = ref
+	}
 }
 
 // ClearChildOrder removes the child order tracking (used when shapes are rebuilt programmatically).
@@ -188,35 +201,35 @@ func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				if err := d.DecodeElement(sp, &t); err != nil {
 					return err
 				}
-				st.childOrder = append(st.childOrder, childRef{childSp, len(st.Sp)})
+				st.childOrder = append(st.childOrder, ChildRef{ChildSp, len(st.Sp)})
 				st.Sp = append(st.Sp, sp)
 			case "pic":
 				pic := &Picture{}
 				if err := d.DecodeElement(pic, &t); err != nil {
 					return err
 				}
-				st.childOrder = append(st.childOrder, childRef{childPic, len(st.Pic)})
+				st.childOrder = append(st.childOrder, ChildRef{ChildPic, len(st.Pic)})
 				st.Pic = append(st.Pic, pic)
 			case "graphicFrame":
 				gf := &GraphicFrame{}
 				if err := d.DecodeElement(gf, &t); err != nil {
 					return err
 				}
-				st.childOrder = append(st.childOrder, childRef{childGraphicFrame, len(st.GraphicFrame)})
+				st.childOrder = append(st.childOrder, ChildRef{ChildGraphicFrame, len(st.GraphicFrame)})
 				st.GraphicFrame = append(st.GraphicFrame, gf)
 			case "grpSp":
 				gs := &GroupShape{}
 				if err := d.DecodeElement(gs, &t); err != nil {
 					return err
 				}
-				st.childOrder = append(st.childOrder, childRef{childGrpSp, len(st.GrpSp)})
+				st.childOrder = append(st.childOrder, ChildRef{ChildGrpSp, len(st.GrpSp)})
 				st.GrpSp = append(st.GrpSp, gs)
 			case "cxnSp":
 				cs := &ConnectionShape{}
 				if err := d.DecodeElement(cs, &t); err != nil {
 					return err
 				}
-				st.childOrder = append(st.childOrder, childRef{childCxnSp, len(st.CxnSp)})
+				st.childOrder = append(st.childOrder, ChildRef{ChildCxnSp, len(st.CxnSp)})
 				st.CxnSp = append(st.CxnSp, cs)
 			default:
 				if err := d.Skip(); err != nil {
@@ -243,26 +256,26 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if len(st.childOrder) > 0 {
 		// Write children in their original interleaved order
 		for _, ref := range st.childOrder {
-			switch ref.kind {
-			case childSp:
-				if ref.index < len(st.Sp) {
-					b.MarshalElement(ns, "sp", st.Sp[ref.index])
+			switch ref.Kind {
+			case ChildSp:
+				if ref.Index < len(st.Sp) {
+					b.MarshalElement(ns, "sp", st.Sp[ref.Index])
 				}
-			case childPic:
-				if ref.index < len(st.Pic) {
-					b.MarshalElement(ns, "pic", st.Pic[ref.index])
+			case ChildPic:
+				if ref.Index < len(st.Pic) {
+					b.MarshalElement(ns, "pic", st.Pic[ref.Index])
 				}
-			case childGraphicFrame:
-				if ref.index < len(st.GraphicFrame) {
-					b.MarshalElement(ns, "graphicFrame", st.GraphicFrame[ref.index])
+			case ChildGraphicFrame:
+				if ref.Index < len(st.GraphicFrame) {
+					b.MarshalElement(ns, "graphicFrame", st.GraphicFrame[ref.Index])
 				}
-			case childGrpSp:
-				if ref.index < len(st.GrpSp) {
-					b.MarshalElement(ns, "grpSp", st.GrpSp[ref.index])
+			case ChildGrpSp:
+				if ref.Index < len(st.GrpSp) {
+					b.MarshalElement(ns, "grpSp", st.GrpSp[ref.Index])
 				}
-			case childCxnSp:
-				if ref.index < len(st.CxnSp) {
-					b.MarshalElement(ns, "cxnSp", st.CxnSp[ref.index])
+			case ChildCxnSp:
+				if ref.Index < len(st.CxnSp) {
+					b.MarshalElement(ns, "cxnSp", st.CxnSp[ref.Index])
 				}
 			}
 		}

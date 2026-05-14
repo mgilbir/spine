@@ -120,6 +120,16 @@ func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 	return nil
 }
 
+// ShapeByName returns the first shape with the given name, or nil if not found.
+func (s *Slide) ShapeByName(name string) Shape {
+	for _, shape := range s.shapes {
+		if shape.Name() == name {
+			return shape
+		}
+	}
+	return nil
+}
+
 // TitlePlaceholder returns the title placeholder, or nil if none exists.
 func (s *Slide) TitlePlaceholder() *PlaceholderShape {
 	return s.GetPlaceholder(PlaceholderTitle)
@@ -135,6 +145,10 @@ func (s *Slide) marshal() ([]byte, error) {
 	if s.slideXML == nil {
 		s.slideXML = newSlideXML()
 	}
+
+	// Process any pending image replacements on picture placeholders.
+	// This modifies the XML directly, converting p:sp elements to p:pic elements.
+	s.processPendingImages()
 
 	// Only sync Go shapes to XML when shapes were modified via the API.
 	// When loading from a file, the slideXML already contains the parsed shapes.

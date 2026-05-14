@@ -16,6 +16,7 @@ type Picture struct {
 	cropRight    float64
 	cropTop      float64
 	cropBottom   float64
+	slide        *Slide // back-reference to owning slide (set during materialization)
 }
 
 // NewPicture creates a new picture shape.
@@ -47,6 +48,28 @@ func (p *Picture) ImageData() []byte {
 func (p *Picture) SetImageData(data []byte, contentType string) {
 	p.imageData = data
 	p.contentType = contentType
+}
+
+// SetImage sets an image on this picture from a file path.
+// The file is read immediately; the image is embedded when the presentation is saved.
+func (p *Picture) SetImage(imagePath string) error {
+	data, ct, err := readImageFile(imagePath)
+	if err != nil {
+		return err
+	}
+
+	p.imagePath = imagePath
+	p.imageData = data
+	p.contentType = ct
+
+	return nil
+}
+
+// hasPendingImage returns true if this picture has pending image data to embed
+// as a replacement for an existing image. Only applies to pictures loaded from
+// an existing file (which have a slide back-reference set).
+func (p *Picture) hasPendingImage() bool {
+	return len(p.imageData) > 0 && p.slide != nil
 }
 
 // ContentType returns the MIME type of the image.
