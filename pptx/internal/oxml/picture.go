@@ -25,10 +25,10 @@ type NvPicPr struct {
 
 // ConnectionShape represents a connector shape (p:cxnSp).
 type ConnectionShape struct {
-	XMLName   xml.Name       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cxnSp"`
-	NvCxnSpPr *NvCxnSpPr    `xml:"nvCxnSpPr"`
-	SpPr      *dml.SpPr     `xml:"spPr"`
-	Style     *dml.Style    `xml:"style,omitempty"`
+	XMLName   xml.Name   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cxnSp"`
+	NvCxnSpPr *NvCxnSpPr `xml:"nvCxnSpPr"`
+	SpPr      *dml.SpPr  `xml:"spPr"`
+	Style     *dml.Style `xml:"style,omitempty"`
 }
 
 // NvCxnSpPr contains non-visual connection shape properties.
@@ -50,6 +50,11 @@ type GroupShape struct {
 	GroupShapes      []*GroupShape      `xml:"-"`
 	ConnectionShapes []*ConnectionShape `xml:"-"`
 	childOrder       []ChildRef
+}
+
+// ChildOrder returns the child order tracking slice.
+func (gs *GroupShape) ChildOrder() []ChildRef {
+	return gs.childOrder
 }
 
 // UnmarshalXML implements custom unmarshaling for GroupShape to preserve child order.
@@ -184,6 +189,6 @@ type NvGrpSpPr struct {
 
 // GrpSpPr contains group shape properties.
 type GrpSpPr struct {
-	BwMode string        `xml:"bwMode,attr,omitempty"`
+	BwMode string       `xml:"bwMode,attr,omitempty"`
 	Xfrm   *dml.GrpXfrm `xml:"http://schemas.openxmlformats.org/drawingml/2006/main xfrm,omitempty"`
 }

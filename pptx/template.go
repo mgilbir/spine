@@ -161,6 +161,9 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 		return false
 	}
 
+	origRunCount := len(p.R)
+	origRuns := append([]*dml.R(nil), p.R...)
+
 	// Build the concatenated paragraph text and track run boundaries.
 	var sb strings.Builder
 	runBoundaries := make([]int, len(p.R)+1) // start position of each run in concatenated text
@@ -190,6 +193,9 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 	// Strategy: if only a single run, just update its text.
 	if len(p.R) == 1 {
 		p.R[0].T = newText
+		if len(p.Br) == 0 && len(p.Fld) == 0 {
+			p.ResetRunOrder()
+		}
 		return true
 	}
 
@@ -201,6 +207,15 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 	// However, this would lose formatting on non-template parts. A better approach:
 	// Process each replacement key individually, finding which runs contain parts of it.
 	redistributeText(p, fullText, newText, runBoundaries)
+	if len(p.Br) == 0 && len(p.Fld) == 0 {
+		p.ResetRunOrder()
+	} else if len(p.R) != origRunCount {
+		// When paragraphs contain interleaved breaks or fields, changing the run count
+		// would invalidate the preserved child ordering. Keep the original ordering and
+		// run segmentation in those cases.
+		p.R = origRuns
+		return false
+	}
 
 	return true
 }

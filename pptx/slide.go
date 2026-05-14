@@ -57,6 +57,7 @@ func (s *Slide) Shapes() []Shape {
 
 // AddShape adds a shape to the slide.
 func (s *Slide) AddShape(shape Shape) {
+	s.setShapeBackRef(shape)
 	s.shapes = append(s.shapes, shape)
 	s.shapesModified = true
 }
@@ -123,8 +124,22 @@ func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 // ShapeByName returns the first shape with the given name, or nil if not found.
 func (s *Slide) ShapeByName(name string) Shape {
 	for _, shape := range s.shapes {
-		if shape.Name() == name {
-			return shape
+		if found := shapeByName(shape, name); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func shapeByName(shape Shape, name string) Shape {
+	if shape.Name() == name {
+		return shape
+	}
+	if group, ok := shape.(*GroupShape); ok {
+		for _, child := range group.Children() {
+			if found := shapeByName(child, name); found != nil {
+				return found
+			}
 		}
 	}
 	return nil
@@ -146,14 +161,17 @@ func (s *Slide) marshal() ([]byte, error) {
 		s.slideXML = newSlideXML()
 	}
 
-	// Process any pending image replacements on picture placeholders.
-	// This modifies the XML directly, converting p:sp elements to p:pic elements.
-	s.processPendingImages()
-
 	// Only sync Go shapes to XML when shapes were modified via the API.
 	// When loading from a file, the slideXML already contains the parsed shapes.
 	if s.shapesModified {
 		s.syncShapesToXML()
+	}
+
+	// Process any pending image replacements after the XML tree is up to date.
+	// This modifies the XML directly, converting p:sp elements to p:pic elements
+	// or swapping the blip reference on existing pictures.
+	if err := s.processPendingImages(); err != nil {
+		return nil, err
 	}
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
@@ -204,6 +222,8 @@ func (s *Slide) syncShapesToXML() {
 			shapeID++
 		}
 	}
+
+	s.shapesModified = false
 }
 
 // textBoxToOxml converts a TextBox to oxml.Shape.
