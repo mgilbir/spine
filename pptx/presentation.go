@@ -629,6 +629,16 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// Set properties
 	writer.Properties = &p.Properties
 
+	currentSlideParts := make(map[string]bool, len(p.slides))
+	for i, slide := range p.slides {
+		slideName := slide.partName
+		if slideName == "" || currentSlideParts[slideName] {
+			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			slide.partName = slideName
+		}
+		currentSlideParts[slideName] = true
+	}
+
 	// Use original content types to preserve ordering and avoid extra entries
 	if p.reader != nil && p.reader.ContentTypes != nil {
 		writer.ContentTypes = p.reader.ContentTypes
@@ -760,6 +770,9 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	writtenRels["/ppt/presentation.xml"] = true // will be written below
 	for partName, rels := range p.relationships {
 		if writtenRels[partName] || len(rels) == 0 {
+			continue
+		}
+		if strings.HasPrefix(partName, "/ppt/slides/") && !currentSlideParts[partName] {
 			continue
 		}
 		if err := p.writePartRelationships(writer, partName); err != nil {
