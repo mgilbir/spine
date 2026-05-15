@@ -132,13 +132,13 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if sp.RsidR != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidR", sp.RsidR))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: sp.RsidR})
 	}
 	if sp.RsidRPr != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidRPr", sp.RsidRPr))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: sp.RsidRPr})
 	}
 	if sp.RsidSect != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidSect", sp.RsidSect))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidSect", Value: sp.RsidSect})
 	}
 	b.StartElement(ns, localName, attrs...)
 
