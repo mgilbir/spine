@@ -826,6 +826,161 @@ func TestPictureImageReplacement_NewSlidePicture(t *testing.T) {
 	}
 }
 
+func TestPictureSVGReplacement_NewSlidePicture(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	pic := NewPicture()
+	pic.SetName("SVG Picture")
+	pic.SetPosition(dml.Inches(1), dml.Inches(1))
+	pic.SetSize(dml.Inches(2), dml.Inches(2))
+	pic.SetSVGData(createMinimalSVG())
+	slide.AddShape(pic)
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "new_slide_picture_svg.pptx")
+	if err := p.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	p2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer p2.Close()
+
+	loaded := mustSlide(t, p2, 0)
+	shape := loaded.ShapeByName("SVG Picture")
+	if shape == nil {
+		t.Fatal("ShapeByName returned nil after save/reopen")
+	}
+	pic2, ok := shape.(*Picture)
+	if !ok {
+		t.Fatalf("expected *Picture, got %T", shape)
+	}
+	if pic2.relID == "" {
+		t.Fatal("expected saved picture to have a raster relationship ID")
+	}
+	if pic2.svgRelID == "" {
+		t.Fatal("expected saved picture to have an SVG relationship ID")
+	}
+	if len(p2.relationships[loaded.partName]) < 2 {
+		t.Fatalf("expected at least 2 slide relationships, got %d", len(p2.relationships[loaded.partName]))
+	}
+
+	var foundXMLPic *oxml.Picture
+	for _, candidate := range loaded.slideXML.CSld.SpTree.Pic {
+		if candidate.NvPicPr != nil && candidate.NvPicPr.CNvPr != nil && candidate.NvPicPr.CNvPr.Name == "SVG Picture" {
+			foundXMLPic = candidate
+			break
+		}
+	}
+	if foundXMLPic == nil {
+		t.Fatal("picture XML not found after save/reopen")
+	}
+	if foundXMLPic.BlipFill == nil || foundXMLPic.BlipFill.Blip == nil {
+		t.Fatal("picture blip missing after save/reopen")
+	}
+	if foundXMLPic.BlipFill.Blip.ExtLst == nil {
+		t.Fatal("expected SVG extension list on picture blip")
+	}
+	foundSvgExt := false
+	for _, ext := range foundXMLPic.BlipFill.Blip.ExtLst.Ext {
+		if ext != nil && ext.SvgBlip != nil {
+			foundSvgExt = true
+			if ext.SvgBlip.Embed == "" {
+				t.Fatal("svgBlip embed was empty")
+			}
+		}
+	}
+	if !foundSvgExt {
+		t.Fatal("expected svgBlip extension on picture blip")
+	}
+}
+
+func TestImageReplacement_SVGPlaceholderEndToEnd(t *testing.T) {
+	p := testPresentationWithoutLayouts()
+	slide := p.AddSlide()
+
+	picPh := NewPlaceholderShape(PlaceholderPicture)
+	picPh.SetName("SVG Placeholder")
+	picPh.SetIndex(10)
+	picPh.SetPosition(dml.Inches(1), dml.Inches(1))
+	picPh.SetSize(dml.Inches(5), dml.Inches(4))
+	slide.AddShape(picPh)
+
+	tmpDir := t.TempDir()
+	path1 := filepath.Join(tmpDir, "with_svg_pic_ph.pptx")
+	if err := p.Save(path1); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	p2, err := Open(path1)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	slide2 := mustSlide(t, p2, 0)
+	picPh2 := slide2.GetPlaceholder(PlaceholderPicture)
+	if picPh2 == nil {
+		t.Fatal("Picture placeholder not found after materialization")
+	}
+	if err := picPh2.SetSVGData(createMinimalSVG()); err != nil {
+		t.Fatalf("SetSVGData failed: %v", err)
+	}
+
+	path2 := filepath.Join(tmpDir, "with_svg_image.pptx")
+	if err := p2.Save(path2); err != nil {
+		t.Fatalf("Save with SVG image failed: %v", err)
+	}
+	p2.Close()
+
+	p3, err := Open(path2)
+	if err != nil {
+		t.Fatalf("Open file with SVG image failed: %v", err)
+	}
+	defer p3.Close()
+
+	slide3 := mustSlide(t, p3, 0)
+	shape := slide3.ShapeByName("SVG Placeholder")
+	if shape == nil {
+		t.Fatal("ShapeByName returned nil after save/reopen")
+	}
+	pic3, ok := shape.(*Picture)
+	if !ok {
+		t.Fatalf("expected placeholder to become *Picture, got %T", shape)
+	}
+	if pic3.relID == "" || pic3.svgRelID == "" {
+		t.Fatal("expected picture to include both raster and SVG relationship IDs")
+	}
+	if len(p3.relationships[slide3.partName]) < 2 {
+		t.Fatalf("expected at least 2 slide relationships, got %d", len(p3.relationships[slide3.partName]))
+	}
+
+	var foundXMLPic *oxml.Picture
+	for _, candidate := range slide3.slideXML.CSld.SpTree.Pic {
+		if candidate.NvPicPr != nil && candidate.NvPicPr.CNvPr != nil && candidate.NvPicPr.CNvPr.Name == "SVG Placeholder" {
+			foundXMLPic = candidate
+			break
+		}
+	}
+	if foundXMLPic == nil {
+		t.Fatal("picture XML not found after placeholder replacement")
+	}
+	if foundXMLPic.BlipFill == nil || foundXMLPic.BlipFill.Blip == nil || foundXMLPic.BlipFill.Blip.ExtLst == nil {
+		t.Fatal("expected svgBlip extension on converted placeholder picture")
+	}
+	foundSvgExt := false
+	for _, ext := range foundXMLPic.BlipFill.Blip.ExtLst.Ext {
+		if ext != nil && ext.SvgBlip != nil {
+			foundSvgExt = true
+		}
+	}
+	if !foundSvgExt {
+		t.Fatal("expected svgBlip extension on converted placeholder picture")
+	}
+}
+
 func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 	p := testPresentationWithoutLayouts()
 	slide := p.AddSlide()
@@ -1209,4 +1364,8 @@ func createMinimalPNG() []byte {
 		0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND chunk
 		0x44, 0xae, 0x42, 0x60, 0x82,
 	}
+}
+
+func createMinimalSVG() []byte {
+	return []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"><rect width="1" height="1" fill="#000"/></svg>`)
 }

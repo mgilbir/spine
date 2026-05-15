@@ -67,7 +67,21 @@ type PlaceholderShape struct {
 	pendingImagePath string // file path to image (set via SetImage)
 	pendingImageData []byte // raw image data (set via SetImageData)
 	pendingImageCT   string // content type of pending image
+	pendingSVGData   []byte // raw svg data (set via SetSVGData)
+	pendingSVGCT     string // content type of pending svg
 	slide            *Slide // back-reference to the owning slide (set during materialization)
+}
+
+var minimalTransparentPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+	0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9c, 0x63, 0x60, 0x00, 0x02, 0x00,
+	0x00, 0x05, 0x00, 0x01, 0xe2, 0x26, 0x05, 0x9b,
+	0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+	0xae, 0x42, 0x60, 0x82,
 }
 
 // NewPlaceholderShape creates a new placeholder shape.
@@ -170,6 +184,8 @@ func (p *PlaceholderShape) SetImage(imagePath string) error {
 	p.pendingImagePath = imagePath
 	p.pendingImageData = data
 	p.pendingImageCT = ct
+	p.pendingSVGData = nil
+	p.pendingSVGCT = ""
 
 	return nil
 }
@@ -185,13 +201,35 @@ func (p *PlaceholderShape) SetImageData(data []byte, contentType string) error {
 	p.pendingImageData = data
 	p.pendingImageCT = contentType
 	p.pendingImagePath = ""
+	p.pendingSVGData = nil
+	p.pendingSVGCT = ""
 
 	return nil
 }
 
+// SetSVGImageData sets SVG data plus a raster fallback image on a picture placeholder.
+func (p *PlaceholderShape) SetSVGImageData(svgData, fallbackData []byte, fallbackCT string) error {
+	if p.phType != PlaceholderPicture {
+		return ErrNotPicturePlaceholder
+	}
+
+	p.pendingSVGData = svgData
+	p.pendingSVGCT = "image/svg+xml"
+	p.pendingImageData = fallbackData
+	p.pendingImageCT = fallbackCT
+	p.pendingImagePath = ""
+
+	return nil
+}
+
+// SetSVGData sets SVG data on a picture placeholder using a transparent PNG fallback.
+func (p *PlaceholderShape) SetSVGData(svgData []byte) error {
+	return p.SetSVGImageData(svgData, minimalTransparentPNG, "image/png")
+}
+
 // hasPendingImage returns true if this placeholder has a pending image replacement.
 func (p *PlaceholderShape) hasPendingImage() bool {
-	return len(p.pendingImageData) > 0
+	return len(p.pendingImageData) > 0 || len(p.pendingSVGData) > 0
 }
 
 // contentTypeFromExt returns the MIME type for a file extension.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/mgilbir/spine/common/dml"
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	oxmlpkg "github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -90,11 +91,15 @@ func (s *Slide) replacePlaceholderWithImage(ph *PlaceholderShape) error {
 
 	origSp := spTree.Sp[spIdx]
 
-	// Embed the image and get the relationship ID
-	relID := s.embedImageData(ph.pendingImageData, ph.pendingImageCT)
+	// Embed the raster fallback and optional SVG payload.
+	rasterRelID := s.embedImageData(ph.pendingImageData, ph.pendingImageCT)
+	var svgRelID string
+	if len(ph.pendingSVGData) > 0 {
+		svgRelID = s.embedImageData(ph.pendingSVGData, ph.pendingSVGCT)
+	}
 
 	// Build the p:pic element
-	pic := buildPicFromPlaceholder(origSp, relID)
+	pic := buildPicFromPlaceholder(origSp, rasterRelID, svgRelID)
 
 	// Replace the p:sp with a p:pic in the shape tree:
 	// 1. Remove the sp from the Sp slice
@@ -123,13 +128,23 @@ func (s *Slide) replacePlaceholderWithImage(ph *PlaceholderShape) error {
 	ph.pendingImageData = nil
 	ph.pendingImagePath = ""
 	ph.pendingImageCT = ""
+	ph.pendingSVGData = nil
+	ph.pendingSVGCT = ""
 
 	return nil
 }
 
 // buildPicFromPlaceholder creates an oxml.Picture element from a placeholder oxml.Shape,
 // preserving the placeholder info, position, and size.
-func buildPicFromPlaceholder(sp *oxmlpkg.Shape, relID string) *oxmlpkg.Picture {
+func buildPicFromPlaceholder(sp *oxmlpkg.Shape, rasterRelID, svgRelID string) *oxmlpkg.Picture {
+	blip := &dml.Blip{Embed: rasterRelID}
+	if svgRelID != "" {
+		blip.ExtLst = &dml.ExtLst{Ext: []*dml.Ext{{
+			URI:     xmlb.ExtURISvgBlip,
+			SvgBlip: &dml.ASvgBlip{Embed: svgRelID},
+		}}}
+	}
+
 	pic := &oxmlpkg.Picture{
 		NvPicPr: &oxmlpkg.NvPicPr{
 			CNvPr: &dml.CNvPr{
@@ -145,9 +160,7 @@ func buildPicFromPlaceholder(sp *oxmlpkg.Shape, relID string) *oxmlpkg.Picture {
 			},
 		},
 		BlipFill: &dml.BlipFill{
-			Blip: &dml.Blip{
-				Embed: relID,
-			},
+			Blip: blip,
 			Stretch: &dml.Stretch{
 				FillRect: &dml.RelRect{},
 			},
@@ -187,7 +200,7 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 		return fmt.Errorf("pptx: picture %q (relID=%q) not found in slide XML", pic.name, pic.relID)
 	}
 
-	// Embed the image and get the relationship ID
+	// Embed the raster fallback and update the primary blip reference.
 	relID := s.embedImageData(pic.imageData, pic.contentType)
 
 	// Update the blip reference in the existing p:pic element
@@ -198,6 +211,14 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 		oxmlPic.BlipFill.Blip = &dml.Blip{}
 	}
 	oxmlPic.BlipFill.Blip.Embed = relID
+	if len(pic.svgData) > 0 {
+		svgRelID := s.embedImageData(pic.svgData, pic.svgContentType)
+		setBlipSVGExtension(oxmlPic.BlipFill.Blip, svgRelID)
+		pic.svgRelID = svgRelID
+	} else {
+		removeBlipSVGExtension(oxmlPic.BlipFill.Blip)
+		pic.svgRelID = ""
+	}
 
 	// Update the Go-level relID
 	pic.relID = relID
@@ -205,8 +226,48 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 	// Clear the pending image data
 	pic.imageData = nil
 	pic.imagePath = ""
+	pic.svgData = nil
+	pic.svgContentType = ""
 
 	return nil
+}
+
+func setBlipSVGExtension(blip *dml.Blip, svgRelID string) {
+	if blip == nil {
+		return
+	}
+	if blip.ExtLst == nil {
+		blip.ExtLst = &dml.ExtLst{}
+	}
+	svgExt := &dml.Ext{
+		URI:     xmlb.ExtURISvgBlip,
+		SvgBlip: &dml.ASvgBlip{Embed: svgRelID},
+	}
+	for i, ext := range blip.ExtLst.Ext {
+		if ext != nil && ext.URI == xmlb.ExtURISvgBlip {
+			blip.ExtLst.Ext[i] = svgExt
+			return
+		}
+	}
+	blip.ExtLst.Ext = append(blip.ExtLst.Ext, svgExt)
+}
+
+func removeBlipSVGExtension(blip *dml.Blip) {
+	if blip == nil || blip.ExtLst == nil {
+		return
+	}
+	filtered := blip.ExtLst.Ext[:0]
+	for _, ext := range blip.ExtLst.Ext {
+		if ext != nil && ext.URI == xmlb.ExtURISvgBlip {
+			continue
+		}
+		filtered = append(filtered, ext)
+	}
+	if len(filtered) == 0 {
+		blip.ExtLst = nil
+		return
+	}
+	blip.ExtLst.Ext = filtered
 }
 
 // nextMediaName generates a unique media part name for the presentation.

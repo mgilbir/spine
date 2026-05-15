@@ -201,6 +201,14 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 	if pic.BlipFill != nil {
 		if pic.BlipFill.Blip != nil {
 			p.relID = pic.BlipFill.Blip.Embed
+			if pic.BlipFill.Blip.ExtLst != nil {
+				for _, ext := range pic.BlipFill.Blip.ExtLst.Ext {
+					if ext != nil && ext.SvgBlip != nil {
+						p.svgRelID = ext.SvgBlip.Embed
+						break
+					}
+				}
+			}
 		}
 		if pic.BlipFill.SrcRect != nil {
 			p.cropLeft = float64(pic.BlipFill.SrcRect.L) / 100000.0
