@@ -148,6 +148,35 @@ func TestPlaceholderShape_IsBody(t *testing.T) {
 	}
 }
 
+func TestPlaceholderShape_SetSVGData(t *testing.T) {
+	ph := NewPlaceholderShape(PlaceholderPicture)
+	svgData := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>`)
+
+	if err := ph.SetSVGData(svgData); err != nil {
+		t.Fatalf("SetSVGData failed: %v", err)
+	}
+	if string(ph.pendingSVGData) != string(svgData) {
+		t.Fatal("pendingSVGData was not stored")
+	}
+	if ph.pendingSVGCT != "image/svg+xml" {
+		t.Fatalf("pendingSVGCT = %q, want image/svg+xml", ph.pendingSVGCT)
+	}
+	if string(ph.pendingImageData) != string(minimalTransparentPNG) {
+		t.Fatal("fallback PNG was not populated")
+	}
+	if ph.pendingImageCT != "image/png" {
+		t.Fatalf("pendingImageCT = %q, want image/png", ph.pendingImageCT)
+	}
+}
+
+func TestPlaceholderShape_SetSVGData_NotPicturePlaceholder(t *testing.T) {
+	ph := NewPlaceholderShape(PlaceholderTitle)
+	err := ph.SetSVGData([]byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`))
+	if err != ErrNotPicturePlaceholder {
+		t.Fatalf("expected ErrNotPicturePlaceholder, got %v", err)
+	}
+}
+
 func TestDefaultTitlePlaceholder(t *testing.T) {
 	ph := DefaultTitlePlaceholder()
 	if ph == nil {

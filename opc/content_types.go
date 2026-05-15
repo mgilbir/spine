@@ -51,6 +51,7 @@ const (
 	ContentTypeTIFF = "image/tiff"
 	ContentTypeWMF  = "image/x-wmf"
 	ContentTypeEMF  = "image/x-emf"
+	ContentTypeSVG  = "image/svg+xml"
 )
 
 // ContentTypes manages the content types for parts in a package.
@@ -79,6 +80,7 @@ func NewContentTypes() *ContentTypes {
 			"jpg":  ContentTypeJPEG,
 			"gif":  ContentTypeGIF,
 			"bmp":  ContentTypeBMP,
+			"svg":  ContentTypeSVG,
 		},
 		Overrides: make(map[string]string),
 	}

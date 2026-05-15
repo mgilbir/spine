@@ -10,7 +10,10 @@ type Picture struct {
 	imagePath    string
 	imageData    []byte
 	contentType  string
+	svgData      []byte
+	svgContentType string
 	relID        string
+	svgRelID     string
 	description  string
 	cropLeft     float64
 	cropRight    float64
@@ -48,6 +51,24 @@ func (p *Picture) ImageData() []byte {
 func (p *Picture) SetImageData(data []byte, contentType string) {
 	p.imageData = data
 	p.contentType = contentType
+	p.svgData = nil
+	p.svgContentType = ""
+}
+
+// SetSVGImageData sets SVG data plus a raster fallback image.
+// The raster fallback is written to a:blip@r:embed and the SVG is referenced
+// through the Office svgBlip extension.
+func (p *Picture) SetSVGImageData(svgData, fallbackData []byte, fallbackCT string) {
+	p.svgData = svgData
+	p.svgContentType = "image/svg+xml"
+	p.imageData = fallbackData
+	p.contentType = fallbackCT
+	p.imagePath = ""
+}
+
+// SetSVGData sets SVG data using a built-in transparent PNG fallback.
+func (p *Picture) SetSVGData(svgData []byte) {
+	p.SetSVGImageData(svgData, minimalTransparentPNG, "image/png")
 }
 
 // SetImage sets an image on this picture from a file path.
@@ -61,6 +82,8 @@ func (p *Picture) SetImage(imagePath string) error {
 	p.imagePath = imagePath
 	p.imageData = data
 	p.contentType = ct
+	p.svgData = nil
+	p.svgContentType = ""
 
 	return nil
 }
@@ -69,7 +92,7 @@ func (p *Picture) SetImage(imagePath string) error {
 // as a replacement for an existing image. Only applies to pictures loaded from
 // an existing file (which have a slide back-reference set).
 func (p *Picture) hasPendingImage() bool {
-	return len(p.imageData) > 0 && p.slide != nil
+	return p.slide != nil && (len(p.imageData) > 0 || len(p.svgData) > 0)
 }
 
 // ContentType returns the MIME type of the image.

@@ -1134,6 +1134,13 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		TargetMode: opc.TargetModeInternal,
 	})
 
+	// Write media and other auxiliary parts created while marshaling slides.
+	for name, part := range p.otherParts {
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+			return err
+		}
+	}
+
 	// Write presentation relationships
 	if err := writer.WritePartRelationships("/ppt/presentation.xml", presRels); err != nil {
 		return err

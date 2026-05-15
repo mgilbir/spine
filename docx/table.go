@@ -42,7 +42,7 @@ func (t *Table) Rows() []*TableRow {
 // AddRow adds a new row to the table.
 func (t *Table) AddRow() *TableRow {
 	tr := &oxml.CT_Tr{}
-	t.tbl.Tr = append(t.tbl.Tr, tr)
+	t.tbl.AppendRow(tr)
 	return &TableRow{table: t, tr: tr}
 }
 
@@ -141,7 +141,7 @@ func (tr *TableRow) AddCell() *TableCell {
 	tc := &oxml.CT_Tc{
 		P: []*oxml.CT_P{{}},
 	}
-	tr.tr.Tc = append(tr.tr.Tc, tc)
+	tr.tr.AppendCell(tc)
 	return &TableCell{row: tr, tc: tc}
 }
 
