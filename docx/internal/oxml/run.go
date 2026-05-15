@@ -262,13 +262,13 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if r.RsidRPr != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidRPr", r.RsidRPr))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: r.RsidRPr})
 	}
 	if r.RsidDel != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidDel", r.RsidDel))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidDel", Value: r.RsidDel})
 	}
 	if r.RsidR != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidR", r.RsidR))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: r.RsidR})
 	}
 	b.StartElement(ns, localName, attrs...)
 

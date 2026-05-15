@@ -307,20 +307,20 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Tr.
 func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	if tr.RsidR != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidR", tr.RsidR))
-	}
-	if tr.RsidRPr != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidRPr", tr.RsidRPr))
-	}
-	if tr.RsidTr != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidTr", tr.RsidTr))
-	}
 	if tr.ParaId != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "paraId", Value: tr.ParaId})
 	}
 	if tr.TextId != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "textId", Value: tr.TextId})
+	}
+	if tr.RsidR != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: tr.RsidR})
+	}
+	if tr.RsidRPr != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: tr.RsidRPr})
+	}
+	if tr.RsidTr != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidTr", Value: tr.RsidTr})
 	}
 	b.StartElement(ns, localName, attrs...)
 
