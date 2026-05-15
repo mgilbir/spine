@@ -267,26 +267,26 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_P.
 func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	if p.RsidR != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidR", p.RsidR))
-	}
-	if p.RsidRPr != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidRPr", p.RsidRPr))
-	}
-	if p.RsidRDefault != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidRDefault", p.RsidRDefault))
-	}
-	if p.RsidP != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidP", p.RsidP))
-	}
-	if p.RsidDel != "" {
-		attrs = append(attrs, xmlb.StrAttr("rsidDel", p.RsidDel))
-	}
 	if p.ParaId != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "paraId", Value: p.ParaId})
 	}
 	if p.TextId != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "textId", Value: p.TextId})
+	}
+	if p.RsidR != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: p.RsidR})
+	}
+	if p.RsidRPr != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: p.RsidRPr})
+	}
+	if p.RsidRDefault != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRDefault", Value: p.RsidRDefault})
+	}
+	if p.RsidP != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidP", Value: p.RsidP})
+	}
+	if p.RsidDel != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidDel", Value: p.RsidDel})
 	}
 	b.StartElement(ns, localName, attrs...)
 

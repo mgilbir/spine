@@ -20,6 +20,11 @@ var testDocxFiles = []struct {
 		path:        "testdata/minimal.docx",
 		description: "Minimal DOCX with basic content",
 	},
+	{
+		name:        "svg_test",
+		path:        "testdata/svg_test.docx",
+		description: "DOCX with embedded SVG images",
+	},
 }
 
 // TestCreateAndReopen verifies that creating, saving, and reopening a document
