@@ -304,6 +304,96 @@ func TestPresentation_SaveAndOpen_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPresentation_OpenAddSlideSaveReopen(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Skipf("Could not open test_slides.pptx: %v", err)
+	}
+	defer p.Close()
+
+	originalCount := p.SlideCount()
+	if originalCount == 0 {
+		t.Fatal("expected test_slides.pptx to contain slides")
+	}
+
+	added := p.AddSlide()
+	added.SetName("Added After Open")
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "add_after_open.pptx")
+	if err := p.Save(filePath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reopened, err := Open(filePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reopened.Close()
+
+	if reopened.SlideCount() != originalCount+1 {
+		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount+1)
+	}
+
+	slide, err := reopened.Slide(originalCount)
+	if err != nil {
+		t.Fatalf("Slide(%d) error = %v", originalCount, err)
+	}
+	if slide.Name() != "Added After Open" {
+		t.Errorf("Added slide name = %q, want %q", slide.Name(), "Added After Open")
+	}
+	if slide.Index() != originalCount {
+		t.Errorf("Added slide index = %d, want %d", slide.Index(), originalCount)
+	}
+}
+
+func TestPresentation_OpenRemoveSlideSaveReopen(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Skipf("Could not open test_slides.pptx: %v", err)
+	}
+	defer p.Close()
+
+	originalCount := p.SlideCount()
+	if originalCount < 2 {
+		t.Skip("need at least two slides to test removal")
+	}
+
+	removedName := p.Slides()[0].Name()
+	nextName := p.Slides()[1].Name()
+
+	if err := p.RemoveSlide(0); err != nil {
+		t.Fatalf("RemoveSlide(0) error = %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "remove_after_open.pptx")
+	if err := p.Save(filePath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reopened, err := Open(filePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reopened.Close()
+
+	if reopened.SlideCount() != originalCount-1 {
+		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount-1)
+	}
+
+	first, err := reopened.Slide(0)
+	if err != nil {
+		t.Fatalf("Slide(0) error = %v", err)
+	}
+	if first.Name() != nextName {
+		t.Errorf("First remaining slide = %q, want %q", first.Name(), nextName)
+	}
+	if first.Name() == removedName {
+		t.Errorf("Removed slide %q still present at index 0", removedName)
+	}
+}
+
 func TestPresentation_Close(t *testing.T) {
 	p := Create()
 	err := p.Close()
