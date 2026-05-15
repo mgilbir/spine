@@ -981,6 +981,32 @@ func TestImageReplacement_SVGPlaceholderEndToEnd(t *testing.T) {
 	}
 }
 
+func TestMaterializeShapes_ExistingSVGPicture(t *testing.T) {
+	p, err := Open("testdata/svg_test.pptx")
+	if err != nil {
+		t.Skipf("Could not open svg_test.pptx: %v", err)
+	}
+	defer p.Close()
+
+	foundSVGPicture := false
+	for i := 0; i < p.SlideCount(); i++ {
+		slide := mustSlide(t, p, i)
+		for _, shape := range slide.Shapes() {
+			if pic, ok := shape.(*Picture); ok && pic.svgRelID != "" {
+				foundSVGPicture = true
+				break
+			}
+		}
+		if foundSVGPicture {
+			break
+		}
+	}
+
+	if !foundSVGPicture {
+		t.Fatal("expected to materialize at least one picture with svgRelID from svg_test.pptx")
+	}
+}
+
 func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 	p := testPresentationWithoutLayouts()
 	slide := p.AddSlide()
