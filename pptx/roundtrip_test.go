@@ -47,6 +47,11 @@ var testPptxFiles = []struct {
 		description: "PPTX with missing relationship item (edge case)",
 	},
 	{
+		name:        "svg_test",
+		path:        "testdata/svg_test.pptx",
+		description: "PPTX with embedded SVG images",
+	},
+	{
 		name:        "big_data",
 		path:        "testdata/external/big_data.pptx",
 		description: "Large PPTX with 263 parts including charts and diagrams",
