@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -145,6 +146,9 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 
+	// Relationship files are needed to resolve slide -> layout links on loaded slides.
+	p.loadAllRelationships()
+
 	// Load slides
 	if err := p.loadSlides(mainPartName); err != nil {
 		_ = reader.Close()
@@ -177,9 +181,6 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 	if p.reader == nil {
 		return nil
 	}
-
-	// Load all relationships
-	p.loadAllRelationships()
 
 	// Load specific known parts
 	for _, file := range p.reader.Files {
@@ -322,6 +323,10 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		slide.materializeShapes()
 
 		p.slides = append(p.slides, slide)
+	}
+
+	for _, slide := range p.slides {
+		p.resolveSlideLayout(slide)
 	}
 
 	return nil
@@ -631,10 +636,17 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 
 	currentSlideParts := make(map[string]bool, len(p.slides))
 	for i, slide := range p.slides {
-		slideName := slide.partName
+		oldSlideName := slide.partName
+		slideName := oldSlideName
 		if slideName == "" || currentSlideParts[slideName] {
 			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
 			slide.partName = slideName
+			if oldSlideName != "" && oldSlideName != slideName {
+				if rels, ok := p.relationships[oldSlideName]; ok {
+					p.relationships[slideName] = rels
+					delete(p.relationships, oldSlideName)
+				}
+			}
 		}
 		currentSlideParts[slideName] = true
 	}
@@ -691,13 +703,16 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write slides using original part names
 	for i, slide := range p.slides {
-		slideData, err := slide.marshal()
-		if err != nil {
-			return fmt.Errorf("marshal slide %d: %w", i, err)
-		}
 		slideName := slide.partName
 		if slideName == "" {
 			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			slide.partName = slideName
+		}
+		p.ensureSlideLayoutRelationship(slide, slideName)
+
+		slideData, err := slide.marshal()
+		if err != nil {
+			return fmt.Errorf("marshal slide %d: %w", i, err)
 		}
 		if err := writer.WritePart(slideName, opc.ContentTypeSlide, slideData); err != nil {
 			return err
@@ -816,6 +831,71 @@ func (p *Presentation) writePartRelationships(writer *opc.Writer, partName strin
 	return writer.WritePart(relsPath, opc.ContentTypeRelationships, data)
 }
 
+// resolveSlideLayout maps a loaded slide's slideLayout relationship back to its
+// *SlideLayout pointer. Without this, Slide.Layout() returns nil for slides loaded
+// from disk, which breaks AddSlideFromLayout in round-trip (Open -> mutate -> SaveAs)
+// scenarios because the caller cannot obtain a valid layout reference.
+func (p *Presentation) resolveSlideLayout(slide *Slide) {
+	rels := p.relationships[slide.partName]
+	for _, rel := range rels {
+		if rel.Type != opc.RelTypeSlideLayout {
+			continue
+		}
+
+		layoutPartName := opc.ResolvePartName(slide.partName, rel.Target)
+		for _, layout := range p.slideLayouts {
+			if layout.partName == layoutPartName {
+				slide.layout = layout
+				return
+			}
+		}
+	}
+}
+
+// ensureSlideLayoutRelationship guarantees that a slide with a layout pointer also
+// has a corresponding slideLayout relationship in p.relationships. This is needed
+// during round-trip save because the "save new" path creates layout rels automatically,
+// but the round-trip path only writes pre-existing rels — so new slides added via
+// AddSlideFromLayout would otherwise lose their layout link on save.
+func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName string) {
+	if slide.layout == nil {
+		return
+	}
+
+	slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
+	for _, rel := range slideRels {
+		if rel.Type == opc.RelTypeSlideLayout {
+			return
+		}
+	}
+
+	for _, layout := range p.slideLayouts {
+		if layout != slide.layout {
+			continue
+		}
+
+		slideRels = append(slideRels, &opc.Relationship{
+			ID:         fmt.Sprintf("rId%d", nextRelationshipID(slideRels)),
+			Type:       opc.RelTypeSlideLayout,
+			Target:     partNameToRelTarget(layout.partName, path.Dir(slidePartName)+"/"),
+			TargetMode: opc.TargetModeInternal,
+		})
+		p.relationships[slidePartName] = slideRels
+		return
+	}
+}
+
+func nextRelationshipID(rels []*opc.Relationship) int {
+	maxID := 0
+	for _, rel := range rels {
+		var id int
+		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+			maxID = id
+		}
+	}
+	return maxID + 1
+}
+
 // partNameToRelsPath converts a part name to its .rels file path.
 // e.g., "/ppt/slides/slide1.xml" -> "/ppt/slides/_rels/slide1.xml.rels"
 func partNameToRelsPath(partName string) string {
@@ -827,14 +907,36 @@ func partNameToRelsPath(partName string) string {
 // writePresentationRelationships writes the presentation.xml.rels file.
 func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error {
 	var rels []*opc.Relationship
+	currentSlideTargets := make(map[string]string, len(p.slides))
+	for i, slide := range p.slides {
+		slideName := slide.partName
+		if slideName == "" {
+			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+		}
+		currentSlideTargets[slide.relID] = partNameToRelTarget(slideName, "/ppt/")
+	}
 
 	if existingRels, ok := p.relationships["/ppt/presentation.xml"]; ok && len(existingRels) > 0 {
 		// Start with existing relationships (preserves original order and IDs)
-		rels = append(rels, existingRels...)
+		rels = make([]*opc.Relationship, 0, len(existingRels))
 
 		// Build set of existing relationship IDs
 		existingIDs := make(map[string]bool)
 		for _, rel := range existingRels {
+			if rel.Type == opc.RelTypeSlide {
+				target, ok := currentSlideTargets[rel.ID]
+				if !ok {
+					continue
+				}
+				copied := *rel
+				copied.Target = target
+				rels = append(rels, &copied)
+				existingIDs[rel.ID] = true
+				continue
+			}
+
+			copied := *rel
+			rels = append(rels, &copied)
 			existingIDs[rel.ID] = true
 		}
 
@@ -1304,6 +1406,12 @@ func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 func (p *Presentation) RemoveSlide(index int) error {
 	if index < 0 || index >= len(p.slides) {
 		return ErrSlideIndex
+	}
+
+	// Clean up relationships for the removed slide to prevent stale entries from
+	// leaking into a new slide that may later reuse the same part name during save.
+	if partName := p.slides[index].partName; partName != "" {
+		delete(p.relationships, partName)
 	}
 
 	// Remove the slide
