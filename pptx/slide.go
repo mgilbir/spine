@@ -298,11 +298,52 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 		},
 	}
 
+	if ph.IsTitle() {
+		sp.NvSpPr.CNvSpPr.SpLocks = &dml.SpLocks{NoGrp: true}
+	}
+
 	if ph.textFrame != nil {
-		sp.TxBody = textFrameToOxml(ph.textFrame)
+		if ph.IsTitle() {
+			sp.TxBody = titlePlaceholderTextFrameToOxml(ph.textFrame)
+		} else {
+			sp.TxBody = textFrameToOxml(ph.textFrame)
+		}
 	}
 
 	return sp
+}
+
+func titlePlaceholderTextFrameToOxml(tf *TextFrame) *dml.TxBody {
+	txBody := &dml.TxBody{
+		BodyPr: &dml.BodyPr{
+			NormAutofit: &dml.NormAutofit{},
+		},
+		LstStyle: &dml.LstStyle{},
+		P:        make([]*dml.P, 0, len(tf.paragraphs)),
+	}
+
+	for _, para := range tf.paragraphs {
+		ap := &dml.P{
+			R: make([]*dml.R, 0, len(para.runs)),
+		}
+		for _, run := range para.runs {
+			ar := &dml.R{T: run.text}
+			if run.text != "" {
+				ar.RPr = &dml.RPr{Lang: "en-US"}
+			}
+			ap.R = append(ap.R, ar)
+		}
+		if len(ap.R) == 0 {
+			ap.R = append(ap.R, &dml.R{})
+		}
+		txBody.P = append(txBody.P, ap)
+	}
+
+	if len(txBody.P) == 0 {
+		txBody.P = append(txBody.P, &dml.P{})
+	}
+
+	return txBody
 }
 
 // autoShapeToOxml converts an AutoShape to oxml.Shape.
