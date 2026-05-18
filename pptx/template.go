@@ -57,6 +57,30 @@ func (s *Slide) ReplaceTextRaw(replacements map[string]string) {
 	s.replaceTextInXML(replacements)
 }
 
+// ReplaceTextInShape performs template-style text replacement on the named shape.
+// Keys in the replacements map should NOT include delimiters.
+func (s *Slide) ReplaceTextInShape(shapeName string, replacements map[string]string) {
+	if shapeName == "" || len(replacements) == 0 {
+		return
+	}
+
+	delimited := make(map[string]string, len(replacements))
+	for k, v := range replacements {
+		delimited["{{"+k+"}}"] = v
+	}
+
+	s.replaceTextInNamedShapeXML(shapeName, delimited)
+}
+
+// ReplaceTextRawInShape performs exact text replacement on the named shape.
+// Unlike ReplaceTextInShape, the keys should include any delimiters you want to match.
+func (s *Slide) ReplaceTextRawInShape(shapeName string, replacements map[string]string) {
+	if shapeName == "" || len(replacements) == 0 {
+		return
+	}
+	s.replaceTextInNamedShapeXML(shapeName, replacements)
+}
+
 // replaceTextInXML performs replacement directly on the slide's XML shape tree
 // and re-materializes the Go-level shapes to keep them in sync.
 // The replacements map contains exact strings to find (already delimited if needed).
@@ -105,6 +129,48 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	}
 }
 
+func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[string]string) {
+	if s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+		return
+	}
+
+	changed := false
+	spTree := s.slideXML.CSld.SpTree
+
+	for _, sp := range spTree.Sp {
+		if shapeNameOfShape(sp) != shapeName || sp.TxBody == nil {
+			continue
+		}
+		if replaceTextInTxBody(sp.TxBody, replacements) {
+			changed = true
+		}
+	}
+
+	for _, gf := range spTree.GraphicFrame {
+		if shapeNameOfGraphicFrame(gf) != shapeName || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.Table == nil {
+			continue
+		}
+		for _, tr := range gf.Graphic.GraphicData.Table.Tr {
+			for _, tc := range tr.Tc {
+				if tc.TxBody != nil && replaceTextInTxBody(tc.TxBody, replacements) {
+					changed = true
+				}
+			}
+		}
+	}
+
+	for _, grpSp := range spTree.GrpSp {
+		if replaceTextInNamedGroupShape(grpSp, shapeName, replacements) {
+			changed = true
+		}
+	}
+
+	if changed {
+		s.shapes = nil
+		s.materializeShapes()
+	}
+}
+
 // replaceTextInGroupShape recursively replaces text in a group shape's children.
 func replaceTextInGroupShape(gs *oxml.GroupShape, replacements map[string]string) bool {
 	if gs == nil {
@@ -128,6 +194,74 @@ func replaceTextInGroupShape(gs *oxml.GroupShape, replacements map[string]string
 	}
 
 	return changed
+}
+
+func replaceTextInNamedGroupShape(gs *oxml.GroupShape, shapeName string, replacements map[string]string) bool {
+	if gs == nil {
+		return false
+	}
+
+	changed := false
+	applyAllChildren := shapeNameOfGroupShape(gs) == shapeName
+
+	for _, sp := range gs.Shapes {
+		if (applyAllChildren || shapeNameOfShape(sp) == shapeName) && sp.TxBody != nil {
+			if replaceTextInTxBody(sp.TxBody, replacements) {
+				changed = true
+			}
+		}
+	}
+
+	for _, gf := range gs.GraphicFrames {
+		if !applyAllChildren && shapeNameOfGraphicFrame(gf) != shapeName {
+			continue
+		}
+		if gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.Table == nil {
+			continue
+		}
+		for _, tr := range gf.Graphic.GraphicData.Table.Tr {
+			for _, tc := range tr.Tc {
+				if tc.TxBody != nil && replaceTextInTxBody(tc.TxBody, replacements) {
+					changed = true
+				}
+			}
+		}
+	}
+
+	for _, sub := range gs.GroupShapes {
+		if applyAllChildren {
+			if replaceTextInGroupShape(sub, replacements) {
+				changed = true
+			}
+			continue
+		}
+		if replaceTextInNamedGroupShape(sub, shapeName, replacements) {
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+func shapeNameOfShape(sp *oxml.Shape) string {
+	if sp == nil || sp.NvSpPr == nil || sp.NvSpPr.CNvPr == nil {
+		return ""
+	}
+	return sp.NvSpPr.CNvPr.Name
+}
+
+func shapeNameOfGraphicFrame(gf *oxml.GraphicFrame) string {
+	if gf == nil || gf.NvGraphicFramePr == nil || gf.NvGraphicFramePr.CNvPr == nil {
+		return ""
+	}
+	return gf.NvGraphicFramePr.CNvPr.Name
+}
+
+func shapeNameOfGroupShape(gs *oxml.GroupShape) string {
+	if gs == nil || gs.NvGrpSpPr == nil || gs.NvGrpSpPr.CNvPr == nil {
+		return ""
+	}
+	return gs.NvGrpSpPr.CNvPr.Name
 }
 
 // replaceTextInTxBody performs template replacement in a TxBody, handling the case

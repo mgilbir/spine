@@ -1042,6 +1042,50 @@ func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 	}
 }
 
+func TestReplaceTextRawInShape(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+
+	title := NewPlaceholderShape(PlaceholderTitle)
+	title.SetName("Title 2")
+	title.SetText("#TITLE#")
+	slide.AddShape(title)
+
+	body := slide.AddTextBox()
+	body.SetName("Body 1")
+	body.SetText("#TITLE#")
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "shape_scope.pptx")
+	if err := p.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	p2, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer p2.Close()
+
+	slide2 := mustSlide(t, p2, 0)
+	slide2.ReplaceTextRawInShape("Title 2", map[string]string{"#TITLE#": "Updated Title"})
+
+	titleShape, ok := slide2.ShapeByName("Title 2").(*PlaceholderShape)
+	if !ok {
+		t.Fatalf("title shape type = %T, want *PlaceholderShape", slide2.ShapeByName("Title 2"))
+	}
+	if titleShape.Text() != "Updated Title" {
+		t.Fatalf("title text = %q, want %q", titleShape.Text(), "Updated Title")
+	}
+	bodyShape, ok := slide2.ShapeByName("Body 1").(*TextBox)
+	if !ok {
+		t.Fatalf("body shape type = %T, want *TextBox", slide2.ShapeByName("Body 1"))
+	}
+	if bodyShape.Text() != "#TITLE#" {
+		t.Fatalf("body text = %q, want %q", bodyShape.Text(), "#TITLE#")
+	}
+}
+
 // --- ShapeByName Tests ---
 
 func TestShapeByName(t *testing.T) {
