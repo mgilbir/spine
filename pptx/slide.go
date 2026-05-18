@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -298,52 +299,11 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 		},
 	}
 
-	if ph.IsTitle() {
-		sp.NvSpPr.CNvSpPr.SpLocks = &dml.SpLocks{NoGrp: true}
-	}
-
 	if ph.textFrame != nil {
-		if ph.IsTitle() {
-			sp.TxBody = titlePlaceholderTextFrameToOxml(ph.textFrame)
-		} else {
-			sp.TxBody = textFrameToOxml(ph.textFrame)
-		}
+		sp.TxBody = textFrameToOxml(ph.textFrame)
 	}
 
 	return sp
-}
-
-func titlePlaceholderTextFrameToOxml(tf *TextFrame) *dml.TxBody {
-	txBody := &dml.TxBody{
-		BodyPr: &dml.BodyPr{
-			NormAutofit: &dml.NormAutofit{},
-		},
-		LstStyle: &dml.LstStyle{},
-		P:        make([]*dml.P, 0, len(tf.paragraphs)),
-	}
-
-	for _, para := range tf.paragraphs {
-		ap := &dml.P{
-			R: make([]*dml.R, 0, len(para.runs)),
-		}
-		for _, run := range para.runs {
-			ar := &dml.R{T: run.text}
-			if run.text != "" {
-				ar.RPr = &dml.RPr{Lang: "en-US"}
-			}
-			ap.R = append(ap.R, ar)
-		}
-		if len(ap.R) == 0 {
-			ap.R = append(ap.R, &dml.R{})
-		}
-		txBody.P = append(txBody.P, ap)
-	}
-
-	if len(txBody.P) == 0 {
-		txBody.P = append(txBody.P, &dml.P{})
-	}
-
-	return txBody
 }
 
 // autoShapeToOxml converts an AutoShape to oxml.Shape.
@@ -675,15 +635,32 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 
 // Duplicate creates a copy of the slide and adds it after this slide.
 func (s *Slide) Duplicate() *Slide {
-	newSlide := s.presentation.AddSlide()
+	if s.shapesModified {
+		s.syncShapesToXML()
+	}
 
-	// Copy slide XML (deep copy would be needed for full implementation)
+	newSlide := s.presentation.AddSlide()
+	newSlide.layout = s.layout
+	newSlide.partName = s.presentation.nextAvailableSlidePartName()
+
+	// Copy slide XML and slide-level relationships so the duplicate remains self-contained.
 	if s.slideXML != nil {
-		data, _ := xml.Marshal(s.slideXML)
+		data := marshalSlide(s.slideXML)
 		var copyXML oxml.Slide
 		if err := xml.Unmarshal(data, &copyXML); err == nil {
 			newSlide.slideXML = &copyXML
 		}
+	}
+	if s.partName != "" {
+		newSlide.partName = s.presentation.nextAvailableSlidePartName()
+		s.presentation.clonePartRelationships(s.partName, newSlide.partName)
+	}
+	if newSlide.slideXML == nil {
+		newSlide.slideXML = newSlideXML()
+	}
+	newSlide.materializeShapes()
+	if newSlide.partName == "" {
+		newSlide.partName = fmt.Sprintf("/ppt/slides/slide%d.xml", newSlide.index+1)
 	}
 
 	// Move to position after original

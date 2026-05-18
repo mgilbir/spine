@@ -1,8 +1,6 @@
 package pptx
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestSlide_Index(t *testing.T) {
 	p := Create()
@@ -203,6 +201,10 @@ func TestSlide_Duplicate(t *testing.T) {
 	p := Create()
 	original := p.AddSlide()
 	original.SetName("Original")
+	title := NewPlaceholderShape(PlaceholderTitle)
+	title.SetName("Title 2")
+	title.SetText("Hello {{name}}")
+	original.AddShape(title)
 
 	duplicate := original.Duplicate()
 
@@ -213,6 +215,9 @@ func TestSlide_Duplicate(t *testing.T) {
 	// Duplicate should be after original
 	if duplicate.Index() != 1 {
 		t.Errorf("Duplicate.Index() = %d, want 1", duplicate.Index())
+	}
+	if duplicate.ShapeByName("Title 2") == nil {
+		t.Fatal("duplicate should materialize copied shapes")
 	}
 }
 

@@ -1395,6 +1395,43 @@ func (p *Presentation) AddSlide() *Slide {
 	return slide
 }
 
+func (p *Presentation) nextAvailableSlidePartName() string {
+	used := make(map[string]bool, len(p.slides)+len(p.otherParts))
+	for _, slide := range p.slides {
+		if slide.partName != "" {
+			used[slide.partName] = true
+		}
+	}
+	for name := range p.otherParts {
+		used[name] = true
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/slides/slide%d.xml", i)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
+func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
+	if sourcePart == "" || targetPart == "" {
+		return
+	}
+	sourceRels := p.relationships[sourcePart]
+	if len(sourceRels) == 0 {
+		return
+	}
+	cloned := make([]*opc.Relationship, 0, len(sourceRels))
+	for _, rel := range sourceRels {
+		if rel == nil {
+			continue
+		}
+		copied := *rel
+		cloned = append(cloned, &copied)
+	}
+	p.relationships[targetPart] = cloned
+}
+
 // AddSlideWithLayout adds a new slide using the specified layout.
 func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 	slide := p.AddSlide()
