@@ -1,6 +1,7 @@
 package docx
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -54,12 +55,22 @@ type footerPart struct {
 
 // Open opens a Word document from a file path.
 func Open(path string) (*Document, error) {
-	reader, err := opc.OpenReader(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return openFromReader(reader)
+	return OpenReader(bytes.NewReader(data), int64(len(data)))
+}
+
+// OpenReader opens a Word document from an in-memory reader.
+func OpenReader(r io.ReaderAt, size int64) (*Document, error) {
+	reader, err := opc.NewReader(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return openFromReader(&opc.ReadCloser{Reader: *reader})
 }
 
 // openFromReader creates a Document from an OPC reader.
@@ -253,12 +264,20 @@ func Create() *Document {
 
 // Save saves the document to a file.
 func (d *Document) Save(path string) error {
-	f, err := os.Create(path)
+	data, err := d.SaveBytes()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return d.SaveTo(f)
+	return os.WriteFile(path, data, 0o644)
+}
+
+// SaveBytes saves the document to an in-memory buffer.
+func (d *Document) SaveBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := d.SaveTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // SaveTo saves the document to an arbitrary writer.

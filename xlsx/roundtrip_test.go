@@ -252,6 +252,37 @@ func TestOpenReaderFromBytes(t *testing.T) {
 	}
 }
 
+func TestSaveBytesAndOpenReader(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Data")
+	if err := sheet.SetCellValue("A1", "Hello"); err != nil {
+		t.Fatalf("SetCellValue error: %v", err)
+	}
+
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	gotSheet, err := reopened.SheetByName("Data")
+	if err != nil {
+		t.Fatalf("SheetByName error: %v", err)
+	}
+	val, err := gotSheet.GetCellValue("A1")
+	if err != nil {
+		t.Fatalf("GetCellValue error: %v", err)
+	}
+	if val != "Hello" {
+		t.Fatalf("A1 = %q, want %q", val, "Hello")
+	}
+}
+
 // TestRoundTrip tests that opening and saving XLSX files produces valid output
 // that can be re-opened and has the same structure.
 func TestRoundTrip(t *testing.T) {
