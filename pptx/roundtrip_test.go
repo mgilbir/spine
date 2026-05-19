@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -185,5 +186,34 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSaveBytesAndOpenReader(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	box := slide.AddTextBox()
+	box.TextFrame().SetText("Hello, world!")
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	if reopened.SlideCount() != 1 {
+		t.Fatalf("SlideCount = %d, want 1", reopened.SlideCount())
+	}
+	textBox, ok := reopened.Slides()[0].Shapes()[0].(*TextBox)
+	if !ok {
+		t.Fatalf("shape type = %T, want *TextBox", reopened.Slides()[0].Shapes()[0])
+	}
+	if got := textBox.Text(); got != "Hello, world!" {
+		t.Fatalf("slide text = %q, want %q", got, "Hello, world!")
 	}
 }

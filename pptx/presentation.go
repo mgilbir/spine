@@ -2,6 +2,7 @@
 package pptx
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -55,12 +56,22 @@ type Presentation struct {
 
 // Open opens a PowerPoint presentation from a file path.
 func Open(path string) (*Presentation, error) {
-	reader, err := opc.OpenReader(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return openFromReader(reader)
+	return OpenReader(bytes.NewReader(data), int64(len(data)))
+}
+
+// OpenReader opens a PowerPoint presentation from an in-memory reader.
+func OpenReader(r io.ReaderAt, size int64) (*Presentation, error) {
+	reader, err := opc.NewReader(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return openFromReader(&opc.ReadCloser{Reader: *reader})
 }
 
 // openFromReader creates a Presentation from an OPC reader.
@@ -515,12 +526,20 @@ func CreateWidescreen() *Presentation {
 
 // Save saves the presentation to a file.
 func (p *Presentation) Save(path string) error {
-	f, err := os.Create(path)
+	data, err := p.SaveBytes()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return p.SaveTo(f)
+	return os.WriteFile(path, data, 0o644)
+}
+
+// SaveBytes saves the presentation to an in-memory buffer.
+func (p *Presentation) SaveBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := p.SaveTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // SaveTo saves the presentation to an arbitrary writer.

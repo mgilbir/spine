@@ -267,12 +267,20 @@ func Create() *Workbook {
 
 // Save saves the workbook to a file.
 func (w *Workbook) Save(path string) error {
-	f, err := os.Create(path)
+	data, err := w.SaveBytes()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return w.SaveTo(f)
+	return os.WriteFile(path, data, 0o644)
+}
+
+// SaveBytes saves the workbook to an in-memory buffer.
+func (w *Workbook) SaveBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := w.SaveTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // SaveTo saves the workbook to an arbitrary writer.
@@ -293,11 +301,11 @@ func (w *Workbook) SaveTo(dst io.Writer) error {
 
 // WriteToBuffer saves the workbook to an in-memory buffer.
 func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
-	var buf bytes.Buffer
-	if err := w.SaveTo(&buf); err != nil {
+	data, err := w.SaveBytes()
+	if err != nil {
 		return nil, err
 	}
-	return &buf, nil
+	return bytes.NewBuffer(data), nil
 }
 
 // Close closes the workbook and releases resources.
