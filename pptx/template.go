@@ -7,10 +7,10 @@ import (
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
-// ReplaceText performs template-style text replacement across all slides in the presentation.
-// Keys in the replacements map should NOT include delimiters — they will be wrapped with
-// {{ and }} automatically. For example, to replace "{{name}}" with "John", pass
-// map[string]string{"name": "John"}.
+// ReplaceText performs text replacement across all slides in the presentation.
+// Keys in the replacements map are matched exactly as provided.
+// For example, to replace "{{name}}" with "John", pass
+// map[string]string{"{{name}}": "John"}.
 //
 // This modifies the underlying XML directly to preserve formatting fidelity.
 // It also updates the materialized Go-level shapes so that Shapes()/Placeholders()
@@ -20,61 +20,25 @@ func (p *Presentation) ReplaceText(replacements map[string]string) {
 		return
 	}
 
-	// Build the delimited replacement map: "{{key}}" -> "value"
-	delimited := make(map[string]string, len(replacements))
-	for k, v := range replacements {
-		delimited["{{"+k+"}}"] = v
-	}
-
 	for _, slide := range p.slides {
-		slide.replaceTextInXML(delimited)
+		slide.replaceTextInXML(replacements)
 	}
 }
 
-// ReplaceText performs template-style text replacement on this slide.
-// Keys in the replacements map should NOT include delimiters.
+// ReplaceText performs text replacement on this slide.
+// Keys in the replacements map are matched exactly as provided.
 // See Presentation.ReplaceText for details.
 func (s *Slide) ReplaceText(replacements map[string]string) {
-	if len(replacements) == 0 {
-		return
-	}
-
-	delimited := make(map[string]string, len(replacements))
-	for k, v := range replacements {
-		delimited["{{"+k+"}}"] = v
-	}
-
-	s.replaceTextInXML(delimited)
-}
-
-// ReplaceTextRaw performs text replacement on this slide using exact match strings.
-// Unlike ReplaceText, the keys should include any delimiters you want to match.
-// For example: map[string]string{"{{name}}": "John", "Hello": "Hi"}.
-func (s *Slide) ReplaceTextRaw(replacements map[string]string) {
 	if len(replacements) == 0 {
 		return
 	}
 	s.replaceTextInXML(replacements)
 }
 
-// ReplaceTextInShape performs template-style text replacement on the named shape.
-// Keys in the replacements map should NOT include delimiters.
+// ReplaceTextInShape performs text replacement on the named shape.
+// Keys in the replacements map are matched exactly as provided.
+// Only the shape with the given name is affected; other shapes on the slide are untouched.
 func (s *Slide) ReplaceTextInShape(shapeName string, replacements map[string]string) {
-	if shapeName == "" || len(replacements) == 0 {
-		return
-	}
-
-	delimited := make(map[string]string, len(replacements))
-	for k, v := range replacements {
-		delimited["{{"+k+"}}"] = v
-	}
-
-	s.replaceTextInNamedShapeXML(shapeName, delimited)
-}
-
-// ReplaceTextRawInShape performs exact text replacement on the named shape.
-// Unlike ReplaceTextInShape, the keys should include any delimiters you want to match.
-func (s *Slide) ReplaceTextRawInShape(shapeName string, replacements map[string]string) {
 	if shapeName == "" || len(replacements) == 0 {
 		return
 	}

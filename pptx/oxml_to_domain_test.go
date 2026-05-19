@@ -317,7 +317,7 @@ func TestReplaceText_SingleRun(t *testing.T) {
 
 	// Perform replacement
 	p2.ReplaceText(map[string]string{
-		"name": "John",
+		"{{name}}": "John",
 	})
 
 	// Verify
@@ -352,9 +352,9 @@ func TestReplaceText_MultipleKeys(t *testing.T) {
 	defer p2.Close()
 
 	p2.ReplaceText(map[string]string{
-		"greeting": "Hi",
-		"name":     "Jane",
-		"place":    "Spine",
+		"{{greeting}}": "Hi",
+		"{{name}}":     "Jane",
+		"{{place}}":    "Spine",
 	})
 
 	slide2 := mustSlide(t, p2, 0)
@@ -390,7 +390,7 @@ func TestReplaceText_NoMatch(t *testing.T) {
 
 	// Should not crash or modify text
 	p2.ReplaceText(map[string]string{
-		"missing": "value",
+		"{{missing}}": "value",
 	})
 
 	slide2 := mustSlide(t, p2, 0)
@@ -424,7 +424,7 @@ func TestReplaceText_TextBox(t *testing.T) {
 
 	slide2 := mustSlide(t, p2, 0)
 	slide2.ReplaceText(map[string]string{
-		"name": "Bob",
+		"{{name}}": "Bob",
 	})
 
 	shapes := slide2.Shapes()
@@ -463,7 +463,7 @@ func TestReplaceText_SaveAndReopen(t *testing.T) {
 	}
 
 	p2.ReplaceText(map[string]string{
-		"company": "Acme Corp",
+		"{{company}}": "Acme Corp",
 	})
 
 	path2 := filepath.Join(tmpDir, "after.pptx")
@@ -511,8 +511,8 @@ func TestReplaceText_Table(t *testing.T) {
 
 	slide2 := mustSlide(t, p2, 0)
 	slide2.ReplaceText(map[string]string{
-		"name": "Alice",
-		"age":  "30",
+		"{{name}}": "Alice",
+		"{{age}}":  "30",
 	})
 
 	// Save and reopen to verify
@@ -1031,7 +1031,7 @@ func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 	spTree.Sp[0].TxBody.P[0] = paragraph
 	slide.slideXML.CSld.SpTree = spTree
 
-	slide.ReplaceText(map[string]string{"name": "Alice"})
+	slide.ReplaceText(map[string]string{"{{name}}": "Alice"})
 
 	updatedParagraph := slide.slideXML.CSld.SpTree.Sp[0].TxBody.P[0]
 	if len(updatedParagraph.R) != 1 {
@@ -1042,7 +1042,7 @@ func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 	}
 }
 
-func TestReplaceTextRawInShape(t *testing.T) {
+func TestReplaceTextInShape(t *testing.T) {
 	p := Create()
 	slide := p.AddSlide()
 
@@ -1068,7 +1068,7 @@ func TestReplaceTextRawInShape(t *testing.T) {
 	defer p2.Close()
 
 	slide2 := mustSlide(t, p2, 0)
-	slide2.ReplaceTextRawInShape("Title 2", map[string]string{"#TITLE#": "Updated Title"})
+	slide2.ReplaceTextInShape("Title 2", map[string]string{"#TITLE#": "Updated Title"})
 
 	titleShape, ok := slide2.ShapeByName("Title 2").(*PlaceholderShape)
 	if !ok {
