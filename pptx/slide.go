@@ -336,6 +336,18 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 			},
 		},
 	}
+	if as.spPr.SolidFill != nil {
+		sp.SpPr.SolidFill = as.spPr.SolidFill
+	}
+	if as.spPr.Ln != nil {
+		sp.SpPr.Ln = as.spPr.Ln
+	}
+	if as.spPr.EffectLst != nil {
+		sp.SpPr.EffectLst = as.spPr.EffectLst
+	}
+	if as.spPr.EffectDag != nil {
+		sp.SpPr.EffectDag = as.spPr.EffectDag
+	}
 
 	if as.textFrame != nil {
 		sp.TxBody = textFrameToOxml(as.textFrame)
