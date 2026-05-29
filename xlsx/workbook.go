@@ -457,12 +457,31 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	mainPartName := "/xl/workbook.xml"
 	var wbRels []*opc.Relationship
 	relID := 1
+	drawingCount := 0
+	mediaCount := 0
 
 	// Write each worksheet
 	for i, sheet := range w.sheets {
 		sheetPartName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
+
+		// Attach a drawing part to the worksheet model before it is marshalled
+		// so the <drawing> element is emitted.
+		if len(sheet.images) > 0 {
+			drawingCount++
+			if sheet.worksheet == nil {
+				sheet.worksheet = &oxml.CT_Worksheet{SheetData: oxml.CT_SheetData{}}
+			}
+			sheet.worksheet.Drawing = &oxml.CT_Drawing{RID: "rId1"}
+		}
+
 		if err := writeSheetPart(writer, sheetPartName, sheet); err != nil {
 			return err
+		}
+
+		if len(sheet.images) > 0 {
+			if err := writeSheetDrawing(writer, sheetPartName, sheet, drawingCount, &mediaCount); err != nil {
+				return err
+			}
 		}
 
 		rid := fmt.Sprintf("rId%d", relID)
@@ -529,6 +548,50 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 
 	wsData := marshalWorksheetXML(sheet.worksheet)
 	return writer.WritePart(partName, opc.ContentTypeWorksheet, wsData)
+}
+
+// writeSheetDrawing emits the drawing part, the media parts and the
+// relationships that anchor a sheet's images. It writes:
+//   - the worksheet -> drawing relationship (rId1 in the sheet's rels),
+//   - one /xl/media/imageN.<ext> part per image,
+//   - the /xl/drawings/drawing<idx>.xml part, and
+//   - the drawing -> image relationships.
+//
+// mediaCount is a workbook-wide counter so media part names stay unique across
+// sheets.
+func writeSheetDrawing(writer *opc.Writer, sheetPartName string, sheet *Sheet, drawingIndex int, mediaCount *int) error {
+	drawingPartName := fmt.Sprintf("/xl/drawings/drawing%d.xml", drawingIndex)
+
+	// Worksheet -> drawing relationship (matches CT_Drawing.RID = "rId1").
+	if err := writer.WritePartRelationships(sheetPartName, []*opc.Relationship{{
+		ID:     "rId1",
+		Type:   opc.RelTypeDrawing,
+		Target: fmt.Sprintf("../drawings/drawing%d.xml", drawingIndex),
+	}}); err != nil {
+		return err
+	}
+
+	// Media parts + drawing -> image relationships.
+	drawingRels := make([]*opc.Relationship, 0, len(sheet.images))
+	for i := range sheet.images {
+		*mediaCount++
+		img := sheet.images[i]
+		mediaPartName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
+		if err := writer.WritePart(mediaPartName, img.contentType, img.data); err != nil {
+			return err
+		}
+		drawingRels = append(drawingRels, &opc.Relationship{
+			ID:     relIDForImage(i),
+			Type:   opc.RelTypeImage,
+			Target: fmt.Sprintf("../media/image%d.%s", *mediaCount, img.ext),
+		})
+	}
+
+	// Drawing part + its relationships.
+	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images)); err != nil {
+		return err
+	}
+	return writer.WritePartRelationships(drawingPartName, drawingRels)
 }
 
 func cloneRelationships(rels []*opc.Relationship) []*opc.Relationship {
