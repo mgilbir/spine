@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -57,6 +58,7 @@ func (s *Slide) Shapes() []Shape {
 
 // AddShape adds a shape to the slide.
 func (s *Slide) AddShape(shape Shape) {
+	s.setShapeBackRef(shape)
 	s.shapes = append(s.shapes, shape)
 	s.shapesModified = true
 }
@@ -120,6 +122,30 @@ func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 	return nil
 }
 
+// ShapeByName returns the first shape with the given name, or nil if not found.
+func (s *Slide) ShapeByName(name string) Shape {
+	for _, shape := range s.shapes {
+		if found := shapeByName(shape, name); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func shapeByName(shape Shape, name string) Shape {
+	if shape.Name() == name {
+		return shape
+	}
+	if group, ok := shape.(*GroupShape); ok {
+		for _, child := range group.Children() {
+			if found := shapeByName(child, name); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
 // TitlePlaceholder returns the title placeholder, or nil if none exists.
 func (s *Slide) TitlePlaceholder() *PlaceholderShape {
 	return s.GetPlaceholder(PlaceholderTitle)
@@ -140,6 +166,13 @@ func (s *Slide) marshal() ([]byte, error) {
 	// When loading from a file, the slideXML already contains the parsed shapes.
 	if s.shapesModified {
 		s.syncShapesToXML()
+	}
+
+	// Process any pending image replacements after the XML tree is up to date.
+	// This modifies the XML directly, converting p:sp elements to p:pic elements
+	// or swapping the blip reference on existing pictures.
+	if err := s.processPendingImages(); err != nil {
+		return nil, err
 	}
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
@@ -190,6 +223,8 @@ func (s *Slide) syncShapesToXML() {
 			shapeID++
 		}
 	}
+
+	s.shapesModified = false
 }
 
 // textBoxToOxml converts a TextBox to oxml.Shape.
@@ -300,6 +335,18 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 				AvLst: &dml.AvLst{},
 			},
 		},
+	}
+	if as.spPr.SolidFill != nil {
+		sp.SpPr.SolidFill = as.spPr.SolidFill
+	}
+	if as.spPr.Ln != nil {
+		sp.SpPr.Ln = as.spPr.Ln
+	}
+	if as.spPr.EffectLst != nil {
+		sp.SpPr.EffectLst = as.spPr.EffectLst
+	}
+	if as.spPr.EffectDag != nil {
+		sp.SpPr.EffectDag = as.spPr.EffectDag
 	}
 
 	if as.textFrame != nil {
@@ -600,15 +647,32 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 
 // Duplicate creates a copy of the slide and adds it after this slide.
 func (s *Slide) Duplicate() *Slide {
-	newSlide := s.presentation.AddSlide()
+	if s.shapesModified {
+		s.syncShapesToXML()
+	}
 
-	// Copy slide XML (deep copy would be needed for full implementation)
+	newSlide := s.presentation.AddSlide()
+	newSlide.layout = s.layout
+	newSlide.partName = s.presentation.nextAvailableSlidePartName()
+
+	// Copy slide XML and slide-level relationships so the duplicate remains self-contained.
 	if s.slideXML != nil {
-		data, _ := xml.Marshal(s.slideXML)
+		data := marshalSlide(s.slideXML)
 		var copyXML oxml.Slide
 		if err := xml.Unmarshal(data, &copyXML); err == nil {
 			newSlide.slideXML = &copyXML
 		}
+	}
+	if s.partName != "" {
+		newSlide.partName = s.presentation.nextAvailableSlidePartName()
+		s.presentation.clonePartRelationships(s.partName, newSlide.partName)
+	}
+	if newSlide.slideXML == nil {
+		newSlide.slideXML = newSlideXML()
+	}
+	newSlide.materializeShapes()
+	if newSlide.partName == "" {
+		newSlide.partName = fmt.Sprintf("/ppt/slides/slide%d.xml", newSlide.index+1)
 	}
 
 	// Move to position after original

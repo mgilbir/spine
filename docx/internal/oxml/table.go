@@ -381,6 +381,18 @@ type tblChildRef struct {
 	index int
 }
 
+// AppendRow appends a row and updates child ordering for round-trip edits.
+func (tbl *CT_Tbl) AppendRow(tr *CT_Tr) {
+	tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildTr, len(tbl.Tr)})
+	tbl.Tr = append(tbl.Tr, tr)
+}
+
+// AppendCell appends a cell and updates child ordering for round-trip edits.
+func (tr *CT_Tr) AppendCell(tc *CT_Tc) {
+	tr.childOrder = append(tr.childOrder, trChildRef{trChildTc, len(tr.Tc)})
+	tr.Tc = append(tr.Tc, tc)
+}
+
 // CT_Tbl represents a table (w:tbl).
 type CT_Tbl struct {
 	TblPr         *CT_TblPr           `xml:"-"`
