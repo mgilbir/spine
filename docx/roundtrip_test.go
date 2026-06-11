@@ -1,6 +1,7 @@
 package docx
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -173,5 +174,29 @@ func TestRoundTripByteIdentical(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSaveBytesAndOpenReader(t *testing.T) {
+	doc := Create()
+	doc.AddParagraphWithText("Hello, World!")
+
+	data, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	paras := reopened.Paragraphs()
+	if len(paras) != 1 {
+		t.Fatalf("paragraph count = %d, want 1", len(paras))
+	}
+	if got := paras[0].Text(); got != "Hello, World!" {
+		t.Fatalf("paragraph text = %q, want %q", got, "Hello, World!")
 	}
 }

@@ -304,6 +304,140 @@ func TestPresentation_SaveAndOpen_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPresentation_OpenAddSlideSaveReopen(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Skipf("Could not open test_slides.pptx: %v", err)
+	}
+	defer p.Close()
+
+	originalCount := p.SlideCount()
+	if originalCount == 0 {
+		t.Fatal("expected test_slides.pptx to contain slides")
+	}
+
+	added := p.AddSlide()
+	added.SetName("Added After Open")
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "add_after_open.pptx")
+	if err := p.Save(filePath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reopened, err := Open(filePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reopened.Close()
+
+	if reopened.SlideCount() != originalCount+1 {
+		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount+1)
+	}
+
+	slide, err := reopened.Slide(originalCount)
+	if err != nil {
+		t.Fatalf("Slide(%d) error = %v", originalCount, err)
+	}
+	if slide.Name() != "Added After Open" {
+		t.Errorf("Added slide name = %q, want %q", slide.Name(), "Added After Open")
+	}
+	if slide.Index() != originalCount {
+		t.Errorf("Added slide index = %d, want %d", slide.Index(), originalCount)
+	}
+}
+
+func TestPresentation_OpenRemoveSlideSaveReopen(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Skipf("Could not open test_slides.pptx: %v", err)
+	}
+	defer p.Close()
+
+	originalCount := p.SlideCount()
+	if originalCount < 2 {
+		t.Skip("need at least two slides to test removal")
+	}
+
+	removedName := p.Slides()[0].Name()
+	nextName := p.Slides()[1].Name()
+
+	if err := p.RemoveSlide(0); err != nil {
+		t.Fatalf("RemoveSlide(0) error = %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "remove_after_open.pptx")
+	if err := p.Save(filePath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reopened, err := Open(filePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reopened.Close()
+
+	if reopened.SlideCount() != originalCount-1 {
+		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount-1)
+	}
+
+	first, err := reopened.Slide(0)
+	if err != nil {
+		t.Fatalf("Slide(0) error = %v", err)
+	}
+	if first.Name() != nextName {
+		t.Errorf("First remaining slide = %q, want %q", first.Name(), nextName)
+	}
+	if first.Name() == removedName {
+		t.Errorf("Removed slide %q still present at index 0", removedName)
+	}
+}
+
+func TestPresentation_OpenRemoveThenAddSlideSaveReopen(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Skipf("Could not open test_slides.pptx: %v", err)
+	}
+	defer p.Close()
+
+	originalCount := p.SlideCount()
+	if originalCount < 1 {
+		t.Skip("need at least one slide to test remove/add")
+	}
+
+	if err := p.RemoveSlide(0); err != nil {
+		t.Fatalf("RemoveSlide(0) error = %v", err)
+	}
+
+	added := p.AddSlide()
+	added.SetName("Added After Remove")
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "remove_then_add_after_open.pptx")
+	if err := p.Save(filePath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	reopened, err := Open(filePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reopened.Close()
+
+	if reopened.SlideCount() != originalCount {
+		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount)
+	}
+
+	last, err := reopened.Slide(reopened.SlideCount() - 1)
+	if err != nil {
+		t.Fatalf("last Slide() error = %v", err)
+	}
+	if last.Name() != "Added After Remove" {
+		t.Errorf("Last slide name = %q, want %q", last.Name(), "Added After Remove")
+	}
+}
+
 func TestPresentation_Close(t *testing.T) {
 	p := Create()
 	err := p.Close()
@@ -829,6 +963,79 @@ func TestPresentation_SaveAsRoundTrip(t *testing.T) {
 
 	if reopened.SlideCount() != 2 {
 		t.Errorf("SlideCount() = %d, want 2", reopened.SlideCount())
+	}
+}
+
+func TestPresentation_SaveAsRoundTrip_AddSlideFromLoadedLayout(t *testing.T) {
+	template := Create()
+	layout := template.GetLayoutByType(LayoutTitleAndContent)
+	if layout == nil {
+		t.Fatal("expected title and content layout")
+	}
+	templateSlide := template.AddSlideFromLayout(layout)
+	templateSlide.SetName("Template Content")
+
+	tmpDir := t.TempDir()
+	templatePath := filepath.Join(tmpDir, "template-layout.pptx")
+	if err := template.Save(templatePath); err != nil {
+		t.Fatalf("Save(template) error = %v", err)
+	}
+	_ = template.Close()
+
+	opened, err := Open(templatePath)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+
+	loadedLayout := opened.Slides()[0].Layout()
+	if loadedLayout == nil {
+		t.Fatal("expected loaded slide to resolve its layout")
+	}
+
+	newSlide := opened.AddSlideFromLayout(loadedLayout)
+	newSlide.SetName("Added Content")
+
+	newPath := filepath.Join(tmpDir, "template-layout-roundtrip.pptx")
+	if err := opened.SaveAs(newPath); err != nil {
+		t.Fatalf("SaveAs() error = %v", err)
+	}
+	_ = opened.Close()
+
+	reopened, err := Open(newPath)
+	if err != nil {
+		t.Fatalf("Open(new) error = %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	if reopened.SlideCount() != 2 {
+		t.Fatalf("SlideCount() = %d, want 2", reopened.SlideCount())
+	}
+
+	if reopened.Slides()[0].Layout() == nil {
+		t.Fatal("expected original slide to keep its layout")
+	}
+	if reopened.Slides()[1].Layout() == nil {
+		t.Fatal("expected new slide to keep its layout after round-trip save")
+	}
+	if reopened.Slides()[1].Layout().Type() != loadedLayout.Type() {
+		t.Errorf("new slide layout type = %v, want %v", reopened.Slides()[1].Layout().Type(), loadedLayout.Type())
+	}
+	if reopened.Slides()[1].Layout().partName != loadedLayout.partName {
+		t.Errorf("new slide layout part = %q, want %q", reopened.Slides()[1].Layout().partName, loadedLayout.partName)
+	}
+	if len(reopened.relationships[reopened.Slides()[1].partName]) == 0 {
+		t.Fatal("expected new slide relationships to be written")
+	}
+
+	hasLayoutRel := false
+	for _, rel := range reopened.relationships[reopened.Slides()[1].partName] {
+		if rel.Type == opc.RelTypeSlideLayout {
+			hasLayoutRel = true
+			break
+		}
+	}
+	if !hasLayoutRel {
+		t.Fatal("expected new slide to have a slideLayout relationship")
 	}
 }
 

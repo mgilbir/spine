@@ -37,6 +37,29 @@ func TestPicture_ImageData(t *testing.T) {
 	}
 }
 
+func TestPicture_SetSVGData(t *testing.T) {
+	pic := NewPicture()
+	svgData := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>`)
+
+	pic.SetSVGData(svgData)
+
+	if string(pic.svgData) != string(svgData) {
+		t.Fatal("svgData was not stored")
+	}
+	if pic.svgContentType != "image/svg+xml" {
+		t.Fatalf("svgContentType = %q, want image/svg+xml", pic.svgContentType)
+	}
+	if string(pic.imageData) != string(minimalTransparentPNG) {
+		t.Fatal("fallback PNG was not populated")
+	}
+	if pic.contentType != "image/png" {
+		t.Fatalf("contentType = %q, want image/png", pic.contentType)
+	}
+	if pic.ShapeType() != ShapeTypePicture {
+		t.Fatalf("ShapeType() = %v, want ShapeTypePicture", pic.ShapeType())
+	}
+}
+
 func TestPicture_Description(t *testing.T) {
 	pic := NewPicture()
 	pic.SetDescription("A test image")

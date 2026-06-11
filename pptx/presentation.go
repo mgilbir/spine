@@ -2,11 +2,13 @@
 package pptx
 
 import (
+	"bytes"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -54,12 +56,22 @@ type Presentation struct {
 
 // Open opens a PowerPoint presentation from a file path.
 func Open(path string) (*Presentation, error) {
-	reader, err := opc.OpenReader(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return openFromReader(reader)
+	return OpenReader(bytes.NewReader(data), int64(len(data)))
+}
+
+// OpenReader opens a PowerPoint presentation from an in-memory reader.
+func OpenReader(r io.ReaderAt, size int64) (*Presentation, error) {
+	reader, err := opc.NewReader(r, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return openFromReader(&opc.ReadCloser{Reader: *reader})
 }
 
 // openFromReader creates a Presentation from an OPC reader.
@@ -145,6 +157,9 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 
+	// Relationship files are needed to resolve slide -> layout links on loaded slides.
+	p.loadAllRelationships()
+
 	// Load slides
 	if err := p.loadSlides(mainPartName); err != nil {
 		_ = reader.Close()
@@ -177,9 +192,6 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 	if p.reader == nil {
 		return nil
 	}
-
-	// Load all relationships
-	p.loadAllRelationships()
 
 	// Load specific known parts
 	for _, file := range p.reader.Files {
@@ -315,7 +327,17 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			relID:        slideRef.RID,
 		}
 
+		// Materialize Go-level shape objects from the parsed XML.
+		// This populates slide.shapes so that Shapes(), Placeholders(), etc.
+		// work on loaded slides. shapesModified remains false so the original
+		// XML is preserved during save unless shapes are explicitly modified.
+		slide.materializeShapes()
+
 		p.slides = append(p.slides, slide)
+	}
+
+	for _, slide := range p.slides {
+		p.resolveSlideLayout(slide)
 	}
 
 	return nil
@@ -438,11 +460,15 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 			Created:  now,
 			Modified: now,
 		},
-		slides:       make([]*Slide, 0),
-		slideMasters: make([]*SlideMaster, 0),
-		slideLayouts: make([]*SlideLayout, 0),
-		nextSlideID:  256,
-		nextRelID:    1,
+		slides:          make([]*Slide, 0),
+		slideMasters:    make([]*SlideMaster, 0),
+		slideLayouts:    make([]*SlideLayout, 0),
+		themeData:       make(map[string][]byte),
+		printerSettings: make(map[string][]byte),
+		otherParts:      make(map[string]*coxml.RawPart),
+		relationships:   make(map[string][]*opc.Relationship),
+		nextSlideID:     256,
+		nextRelID:       1,
 		presentation: &oxml.Presentation{
 			SlideSize: oxml.DefaultSlideSize(),
 			NotesSize: &oxml.SlideSize{
@@ -500,12 +526,20 @@ func CreateWidescreen() *Presentation {
 
 // Save saves the presentation to a file.
 func (p *Presentation) Save(path string) error {
-	f, err := os.Create(path)
+	data, err := p.SaveBytes()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return p.SaveTo(f)
+	return os.WriteFile(path, data, 0o644)
+}
+
+// SaveBytes saves the presentation to an in-memory buffer.
+func (p *Presentation) SaveBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := p.SaveTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // SaveTo saves the presentation to an arbitrary writer.
@@ -619,6 +653,23 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// Set properties
 	writer.Properties = &p.Properties
 
+	currentSlideParts := make(map[string]bool, len(p.slides))
+	for i, slide := range p.slides {
+		oldSlideName := slide.partName
+		slideName := oldSlideName
+		if slideName == "" || currentSlideParts[slideName] {
+			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			slide.partName = slideName
+			if oldSlideName != "" && oldSlideName != slideName {
+				if rels, ok := p.relationships[oldSlideName]; ok {
+					p.relationships[slideName] = rels
+					delete(p.relationships, oldSlideName)
+				}
+			}
+		}
+		currentSlideParts[slideName] = true
+	}
+
 	// Use original content types to preserve ordering and avoid extra entries
 	if p.reader != nil && p.reader.ContentTypes != nil {
 		writer.ContentTypes = p.reader.ContentTypes
@@ -671,13 +722,16 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write slides using original part names
 	for i, slide := range p.slides {
-		slideData, err := slide.marshal()
-		if err != nil {
-			return fmt.Errorf("marshal slide %d: %w", i, err)
-		}
 		slideName := slide.partName
 		if slideName == "" {
 			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			slide.partName = slideName
+		}
+		p.ensureSlideLayoutRelationship(slide, slideName)
+
+		slideData, err := slide.marshal()
+		if err != nil {
+			return fmt.Errorf("marshal slide %d: %w", i, err)
 		}
 		if err := writer.WritePart(slideName, opc.ContentTypeSlide, slideData); err != nil {
 			return err
@@ -752,6 +806,9 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		if writtenRels[partName] || len(rels) == 0 {
 			continue
 		}
+		if strings.HasPrefix(partName, "/ppt/slides/") && !currentSlideParts[partName] {
+			continue
+		}
 		if err := p.writePartRelationships(writer, partName); err != nil {
 			return err
 		}
@@ -793,6 +850,71 @@ func (p *Presentation) writePartRelationships(writer *opc.Writer, partName strin
 	return writer.WritePart(relsPath, opc.ContentTypeRelationships, data)
 }
 
+// resolveSlideLayout maps a loaded slide's slideLayout relationship back to its
+// *SlideLayout pointer. Without this, Slide.Layout() returns nil for slides loaded
+// from disk, which breaks AddSlideFromLayout in round-trip (Open -> mutate -> SaveAs)
+// scenarios because the caller cannot obtain a valid layout reference.
+func (p *Presentation) resolveSlideLayout(slide *Slide) {
+	rels := p.relationships[slide.partName]
+	for _, rel := range rels {
+		if rel.Type != opc.RelTypeSlideLayout {
+			continue
+		}
+
+		layoutPartName := opc.ResolvePartName(slide.partName, rel.Target)
+		for _, layout := range p.slideLayouts {
+			if layout.partName == layoutPartName {
+				slide.layout = layout
+				return
+			}
+		}
+	}
+}
+
+// ensureSlideLayoutRelationship guarantees that a slide with a layout pointer also
+// has a corresponding slideLayout relationship in p.relationships. This is needed
+// during round-trip save because the "save new" path creates layout rels automatically,
+// but the round-trip path only writes pre-existing rels — so new slides added via
+// AddSlideFromLayout would otherwise lose their layout link on save.
+func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName string) {
+	if slide.layout == nil {
+		return
+	}
+
+	slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
+	for _, rel := range slideRels {
+		if rel.Type == opc.RelTypeSlideLayout {
+			return
+		}
+	}
+
+	for _, layout := range p.slideLayouts {
+		if layout != slide.layout {
+			continue
+		}
+
+		slideRels = append(slideRels, &opc.Relationship{
+			ID:         fmt.Sprintf("rId%d", nextRelationshipID(slideRels)),
+			Type:       opc.RelTypeSlideLayout,
+			Target:     partNameToRelTarget(layout.partName, path.Dir(slidePartName)+"/"),
+			TargetMode: opc.TargetModeInternal,
+		})
+		p.relationships[slidePartName] = slideRels
+		return
+	}
+}
+
+func nextRelationshipID(rels []*opc.Relationship) int {
+	maxID := 0
+	for _, rel := range rels {
+		var id int
+		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+			maxID = id
+		}
+	}
+	return maxID + 1
+}
+
 // partNameToRelsPath converts a part name to its .rels file path.
 // e.g., "/ppt/slides/slide1.xml" -> "/ppt/slides/_rels/slide1.xml.rels"
 func partNameToRelsPath(partName string) string {
@@ -804,14 +926,36 @@ func partNameToRelsPath(partName string) string {
 // writePresentationRelationships writes the presentation.xml.rels file.
 func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error {
 	var rels []*opc.Relationship
+	currentSlideTargets := make(map[string]string, len(p.slides))
+	for i, slide := range p.slides {
+		slideName := slide.partName
+		if slideName == "" {
+			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+		}
+		currentSlideTargets[slide.relID] = partNameToRelTarget(slideName, "/ppt/")
+	}
 
 	if existingRels, ok := p.relationships["/ppt/presentation.xml"]; ok && len(existingRels) > 0 {
 		// Start with existing relationships (preserves original order and IDs)
-		rels = append(rels, existingRels...)
+		rels = make([]*opc.Relationship, 0, len(existingRels))
 
 		// Build set of existing relationship IDs
 		existingIDs := make(map[string]bool)
 		for _, rel := range existingRels {
+			if rel.Type == opc.RelTypeSlide {
+				target, ok := currentSlideTargets[rel.ID]
+				if !ok {
+					continue
+				}
+				copied := *rel
+				copied.Target = target
+				rels = append(rels, &copied)
+				existingIDs[rel.ID] = true
+				continue
+			}
+
+			copied := *rel
+			rels = append(rels, &copied)
 			existingIDs[rel.ID] = true
 		}
 
@@ -1003,6 +1147,44 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Create slide parts and relationships SECOND
 	for i, slide := range p.slides {
 		slidePartName := fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+		slide.partName = slidePartName
+
+		slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
+		hasLayoutRel := false
+		for _, rel := range slideRels {
+			if rel.Type == opc.RelTypeSlideLayout {
+				hasLayoutRel = true
+				break
+			}
+		}
+
+		if !hasLayoutRel {
+			if slide.layout != nil {
+				// Find layout index
+				for j, layout := range p.slideLayouts {
+					if layout == slide.layout {
+						slideRels = append(slideRels, &opc.Relationship{
+							ID:         "rId1",
+							Type:       opc.RelTypeSlideLayout,
+							Target:     fmt.Sprintf("../slideLayouts/slideLayout%d.xml", j+1),
+							TargetMode: opc.TargetModeInternal,
+						})
+						break
+					}
+				}
+			} else if len(p.slideLayouts) > 0 {
+				slideRels = append(slideRels, &opc.Relationship{
+					ID:         "rId1",
+					Type:       opc.RelTypeSlideLayout,
+					Target:     "../slideLayouts/slideLayout1.xml",
+					TargetMode: opc.TargetModeInternal,
+				})
+			}
+		}
+		if len(slideRels) > 0 {
+			p.relationships[slidePartName] = slideRels
+		}
+
 		slideData, err := slide.marshal()
 		if err != nil {
 			return err
@@ -1019,30 +1201,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			TargetMode: opc.TargetModeInternal,
 		})
 
-		// Write slide relationships (to layout if set)
-		slideRels := make([]*opc.Relationship, 0)
-		if slide.layout != nil {
-			// Find layout index
-			for j, layout := range p.slideLayouts {
-				if layout == slide.layout {
-					slideRels = append(slideRels, &opc.Relationship{
-						ID:         "rId1",
-						Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-						Target:     fmt.Sprintf("../slideLayouts/slideLayout%d.xml", j+1),
-						TargetMode: opc.TargetModeInternal,
-					})
-					break
-				}
-			}
-		} else if len(p.slideLayouts) > 0 {
-			// Default to first layout (Title layout)
-			slideRels = append(slideRels, &opc.Relationship{
-				ID:         "rId1",
-				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-				Target:     "../slideLayouts/slideLayout1.xml",
-				TargetMode: opc.TargetModeInternal,
-			})
-		}
+		slideRels = p.relationships[slidePartName]
 
 		if len(slideRels) > 0 {
 			if err := writer.WritePartRelationships(slidePartName, slideRels); err != nil {
@@ -1095,6 +1254,13 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		Target:     "tableStyles.xml",
 		TargetMode: opc.TargetModeInternal,
 	})
+
+	// Write media and other auxiliary parts created while marshaling slides.
+	for name, part := range p.otherParts {
+		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+			return err
+		}
+	}
 
 	// Write presentation relationships
 	if err := writer.WritePartRelationships("/ppt/presentation.xml", presRels); err != nil {
@@ -1248,6 +1414,43 @@ func (p *Presentation) AddSlide() *Slide {
 	return slide
 }
 
+func (p *Presentation) nextAvailableSlidePartName() string {
+	used := make(map[string]bool, len(p.slides)+len(p.otherParts))
+	for _, slide := range p.slides {
+		if slide.partName != "" {
+			used[slide.partName] = true
+		}
+	}
+	for name := range p.otherParts {
+		used[name] = true
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/slides/slide%d.xml", i)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
+func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
+	if sourcePart == "" || targetPart == "" {
+		return
+	}
+	sourceRels := p.relationships[sourcePart]
+	if len(sourceRels) == 0 {
+		return
+	}
+	cloned := make([]*opc.Relationship, 0, len(sourceRels))
+	for _, rel := range sourceRels {
+		if rel == nil {
+			continue
+		}
+		copied := *rel
+		cloned = append(cloned, &copied)
+	}
+	p.relationships[targetPart] = cloned
+}
+
 // AddSlideWithLayout adds a new slide using the specified layout.
 func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 	slide := p.AddSlide()
@@ -1259,6 +1462,12 @@ func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 func (p *Presentation) RemoveSlide(index int) error {
 	if index < 0 || index >= len(p.slides) {
 		return ErrSlideIndex
+	}
+
+	// Clean up relationships for the removed slide to prevent stale entries from
+	// leaking into a new slide that may later reuse the same part name during save.
+	if partName := p.slides[index].partName; partName != "" {
+		delete(p.relationships, partName)
 	}
 
 	// Remove the slide

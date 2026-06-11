@@ -10,12 +10,16 @@ type Picture struct {
 	imagePath    string
 	imageData    []byte
 	contentType  string
+	svgData      []byte
+	svgContentType string
 	relID        string
+	svgRelID     string
 	description  string
 	cropLeft     float64
 	cropRight    float64
 	cropTop      float64
 	cropBottom   float64
+	slide        *Slide // back-reference to owning slide (set during materialization)
 }
 
 // NewPicture creates a new picture shape.
@@ -47,6 +51,48 @@ func (p *Picture) ImageData() []byte {
 func (p *Picture) SetImageData(data []byte, contentType string) {
 	p.imageData = data
 	p.contentType = contentType
+	p.svgData = nil
+	p.svgContentType = ""
+}
+
+// SetSVGImageData sets SVG data plus a raster fallback image.
+// The raster fallback is written to a:blip@r:embed and the SVG is referenced
+// through the Office svgBlip extension.
+func (p *Picture) SetSVGImageData(svgData, fallbackData []byte, fallbackCT string) {
+	p.svgData = svgData
+	p.svgContentType = "image/svg+xml"
+	p.imageData = fallbackData
+	p.contentType = fallbackCT
+	p.imagePath = ""
+}
+
+// SetSVGData sets SVG data using a built-in transparent PNG fallback.
+func (p *Picture) SetSVGData(svgData []byte) {
+	p.SetSVGImageData(svgData, minimalTransparentPNG, "image/png")
+}
+
+// SetImage sets an image on this picture from a file path.
+// The file is read immediately; the image is embedded when the presentation is saved.
+func (p *Picture) SetImage(imagePath string) error {
+	data, ct, err := readImageFile(imagePath)
+	if err != nil {
+		return err
+	}
+
+	p.imagePath = imagePath
+	p.imageData = data
+	p.contentType = ct
+	p.svgData = nil
+	p.svgContentType = ""
+
+	return nil
+}
+
+// hasPendingImage returns true if this picture has pending image data to embed
+// as a replacement for an existing image. Only applies to pictures loaded from
+// an existing file (which have a slide back-reference set).
+func (p *Picture) hasPendingImage() bool {
+	return p.slide != nil && (len(p.imageData) > 0 || len(p.svgData) > 0)
 }
 
 // ContentType returns the MIME type of the image.
