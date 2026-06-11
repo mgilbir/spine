@@ -16,6 +16,7 @@ type Sheet struct {
 	partName  string
 	relID     string
 	worksheet *oxml.CT_Worksheet
+	images    []sheetImage
 	dirty     bool
 }
 

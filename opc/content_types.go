@@ -43,6 +43,9 @@ const (
 	ContentTypeDocFooter      = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
 	ContentTypeDocWebSettings = "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"
 
+	// Drawing content type (SpreadsheetML/DrawingML drawing part)
+	ContentTypeDrawing = "application/vnd.openxmlformats-officedocument.drawing+xml"
+
 	// Image content types
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"
