@@ -3,19 +3,38 @@ package pptx
 import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/enum"
+	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
 // Table represents a table shape.
 type Table struct {
 	BaseShape
-	rows        []*TableRow
-	colWidths   []dml.EMU
-	firstRow    bool // highlight first row
-	lastRow     bool // highlight last row
-	firstCol    bool // highlight first column
-	lastCol     bool // highlight last column
-	bandRow     bool // banded rows
-	bandCol     bool // banded columns
+	rows      []*TableRow
+	colWidths []dml.EMU
+	firstRow  bool // highlight first row
+	lastRow   bool // highlight last row
+	firstCol  bool // highlight first column
+	lastCol   bool // highlight last column
+	bandRow   bool // banded rows
+	bandCol   bool // banded columns
+
+	// sourceFrame is the graphic frame this table was parsed from, when the
+	// slide was loaded from a file. Mutations to a loaded table do not reach
+	// the slide XML automatically (the slide keeps its parsed tree); call
+	// SyncXML after mutating rows or cells.
+	sourceFrame *oxml.GraphicFrame
+}
+
+// SyncXML writes the table's current rows, cells, and properties back into
+// the graphic frame it was parsed from. It reports whether a source frame was
+// present (tables created via AddTable have none and are marshaled from the
+// domain automatically).
+func (t *Table) SyncXML() bool {
+	if t.sourceFrame == nil || t.sourceFrame.Graphic == nil || t.sourceFrame.Graphic.GraphicData == nil {
+		return false
+	}
+	t.sourceFrame.Graphic.GraphicData.Table = tableDataToOxml(t)
+	return true
 }
 
 // NewTable creates a new table with the specified number of rows and columns.
@@ -243,17 +262,17 @@ func (r *TableRow) SetHeight(height dml.EMU) {
 
 // TableCell represents a cell in a table.
 type TableCell struct {
-	textFrame   *TextFrame
-	fill        *dml.Color
-	borderLeft  *TableBorder
-	borderRight *TableBorder
-	borderTop   *TableBorder
+	textFrame    *TextFrame
+	fill         *dml.Color
+	borderLeft   *TableBorder
+	borderRight  *TableBorder
+	borderTop    *TableBorder
 	borderBottom *TableBorder
-	vertAlign   enum.VerticalAlign
-	rowSpan     int
-	colSpan     int
-	hMerge      bool // merged with cell to the left
-	vMerge      bool // merged with cell above
+	vertAlign    enum.VerticalAlign
+	rowSpan      int
+	colSpan      int
+	hMerge       bool // merged with cell to the left
+	vMerge       bool // merged with cell above
 }
 
 // NewTableCell creates a new table cell.
