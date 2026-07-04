@@ -301,6 +301,7 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 	}
 
 	tbl := NewTable(rowCount, colCount)
+	tbl.sourceFrame = gf
 
 	// Name
 	if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
