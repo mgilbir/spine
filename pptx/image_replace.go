@@ -220,6 +220,17 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 		pic.svgRelID = ""
 	}
 
+	// Sync geometry from the domain shape: loaded slides keep their parsed
+	// XML, so a SetPosition/SetSize on the Go Picture would otherwise be lost
+	// (writing the parsed-back values is an identity for untouched shapes).
+	if oxmlPic.SpPr != nil {
+		if oxmlPic.SpPr.Xfrm == nil {
+			oxmlPic.SpPr.Xfrm = &dml.Xfrm{}
+		}
+		oxmlPic.SpPr.Xfrm.Off = &dml.OffXML{X: int64(pic.x), Y: int64(pic.y)}
+		oxmlPic.SpPr.Xfrm.Ext = &dml.ExtXML{Cx: int64(pic.width), Cy: int64(pic.height)}
+	}
+
 	// Update the Go-level relID
 	pic.relID = relID
 
