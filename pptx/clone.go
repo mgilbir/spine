@@ -1,6 +1,10 @@
 package pptx
 
-import "github.com/mgilbir/spine/common/dml"
+import (
+	"encoding/xml"
+
+	"github.com/mgilbir/spine/common/dml"
+)
 
 // CloneRow deep-copies the row at srcIndex — cell fills, borders, alignment,
 // spans, and full text formatting — and inserts the copy at dstIndex. It
@@ -141,4 +145,41 @@ func (t *Table) CloneColumn(srcIndex, dstIndex int) bool {
 		}
 	}
 	return true
+}
+
+// CloneShape deep-copies a shape for prototype-based repetition (text boxes
+// and auto shapes; other shape kinds return nil). The clone shares no state
+// with the original: text frames are deep-copied and the drawing properties
+// are copied via their XML round-trip.
+func CloneShape(shape Shape) Shape {
+	switch s := shape.(type) {
+	case *TextBox:
+		return &TextBox{
+			BaseShape: s.BaseShape,
+			textFrame: s.textFrame.clone(),
+			spPr:      cloneSpPr(s.spPr),
+		}
+	case *AutoShape:
+		return &AutoShape{
+			BaseShape:      s.BaseShape,
+			presetGeometry: s.presetGeometry,
+			textFrame:      s.textFrame.clone(),
+			spPr:           cloneSpPr(s.spPr),
+		}
+	}
+	return nil
+}
+
+// cloneSpPr deep-copies shape drawing properties through their XML encoding
+// (the structs exist for that round-trip).
+func cloneSpPr(src dml.SpPr) dml.SpPr {
+	data, err := xml.Marshal(&src)
+	if err != nil {
+		return dml.SpPr{}
+	}
+	var out dml.SpPr
+	if err := xml.Unmarshal(data, &out); err != nil {
+		return dml.SpPr{}
+	}
+	return out
 }

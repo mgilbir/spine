@@ -73,3 +73,42 @@ func TestCloneColumnPreservesStyling(t *testing.T) {
 		t.Fatal("out-of-range src must return false")
 	}
 }
+
+func TestCloneShape(t *testing.T) {
+	swatch := NewAutoShape(PresetRect)
+	swatch.SetName("swatch")
+	swatch.SetPosition(100, 200)
+	swatch.SetSize(300, 300)
+	swatch.SetFill(dml.NewSolidFill(dml.NewRGB(0xAA, 0xBB, 0xCC).ToColor()))
+	swatch.SetLine(dml.Line{Width: 1.5, Color: dml.NewRGB(0, 0, 0).ToColor(), Dash: dml.DashDash})
+	swatch.TextFrame().SetText("x")
+
+	clone, ok := CloneShape(swatch).(*AutoShape)
+	if !ok || clone == nil {
+		t.Fatal("CloneShape returned no AutoShape")
+	}
+	x, y := clone.Position()
+	if x != 100 || y != 200 {
+		t.Fatalf("position not cloned: %d,%d", x, y)
+	}
+	clone.SetPosition(999, 999)
+	if px, _ := swatch.Position(); px != 100 {
+		t.Fatal("clone shares BaseShape with original")
+	}
+	clone.TextFrame().SetText("changed")
+	if swatch.TextFrame().Text() != "x" {
+		t.Fatal("clone shares text frame with original")
+	}
+	clone.SetFill(dml.NewSolidFill(dml.NewRGB(1, 2, 3).ToColor()))
+
+	label := NewTextBox()
+	label.SetName("label")
+	label.TextFrame().SetText("hello")
+	lc, ok := CloneShape(label).(*TextBox)
+	if !ok || lc.TextFrame().Text() != "hello" {
+		t.Fatal("TextBox clone failed")
+	}
+	if CloneShape(nil) != nil {
+		t.Fatal("nil shape must clone to nil")
+	}
+}
