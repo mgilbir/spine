@@ -10,6 +10,10 @@ import (
 // spans, and full text formatting — and inserts the copy at dstIndex. It
 // returns the inserted row. A deck can carry one styled prototype row that
 // callers clone per data row, keeping all styling in the document itself.
+//
+// Cells that participate in merges are copied as-is; cloning across a merge
+// boundary is the caller's responsibility. On tables loaded from a file,
+// call SyncXML after the mutations so they reach the slide XML.
 func (t *Table) CloneRow(srcIndex, dstIndex int) *TableRow {
 	if srcIndex < 0 || srcIndex >= len(t.rows) {
 		return nil
@@ -27,6 +31,9 @@ func (t *Table) CloneRow(srcIndex, dstIndex int) *TableRow {
 }
 
 func (r *TableRow) clone() *TableRow {
+	if r == nil {
+		return nil
+	}
 	out := &TableRow{
 		cells:  make([]*TableCell, len(r.cells)),
 		height: r.height,
@@ -73,6 +80,9 @@ func (tf *TextFrame) clone() *TextFrame {
 }
 
 func (p *Paragraph) clone() *Paragraph {
+	if p == nil {
+		return nil
+	}
 	out := &Paragraph{
 		runs:        make([]*Run, len(p.runs)),
 		alignment:   p.alignment,
@@ -116,7 +126,8 @@ func cloneBorder(b *TableBorder) *TableBorder {
 // plus the column width — and inserts the copy at dstIndex. It reports
 // whether srcIndex was valid. This is the column-wise counterpart of CloneRow
 // for tables whose column count depends on the data (the document carries
-// one styled prototype column).
+// one styled prototype column). The merge and SyncXML notes on CloneRow
+// apply here too.
 func (t *Table) CloneColumn(srcIndex, dstIndex int) bool {
 	if srcIndex < 0 || srcIndex >= len(t.colWidths) {
 		return false
@@ -150,7 +161,9 @@ func (t *Table) CloneColumn(srcIndex, dstIndex int) bool {
 // CloneShape deep-copies a shape for prototype-based repetition (text boxes
 // and auto shapes; other shape kinds return nil). The clone shares no state
 // with the original: text frames are deep-copied and the drawing properties
-// are copied via their XML round-trip.
+// are copied via their XML round-trip. Add the clone to a slide with
+// Slide.AddShape; on slides loaded from a file it is appended to the parsed
+// shape tree with a fresh id, leaving the existing content untouched.
 func CloneShape(shape Shape) Shape {
 	switch s := shape.(type) {
 	case *TextBox:
@@ -171,7 +184,10 @@ func CloneShape(shape Shape) Shape {
 }
 
 // cloneSpPr deep-copies shape drawing properties through their XML encoding
-// (the structs exist for that round-trip).
+// (the structs exist for that round-trip). The error paths are unreachable
+// for properties that were themselves parsed or built through these structs;
+// returning empty properties keeps the clone usable rather than aliasing the
+// source's pointer fields.
 func cloneSpPr(src dml.SpPr) dml.SpPr {
 	data, err := xml.Marshal(&src)
 	if err != nil {
