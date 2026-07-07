@@ -95,8 +95,12 @@ func (s *Slide) RemoveShape(shape Shape) {
 		}
 		switch {
 		case i < s.syncedShapes && i < len(s.shapeRefs):
-			// A parsed shape: mark its source node for surgical deletion.
-			s.removedRefs = append(s.removedRefs, s.shapeRefs[i])
+			// A synced shape: mark its source node for surgical deletion. A
+			// sentinel ref (Index -1) means the shape never made it into the
+			// tree, so there is nothing to delete there.
+			if ref := s.shapeRefs[i]; ref.Index >= 0 {
+				s.removedRefs = append(s.removedRefs, ref)
+			}
 			s.shapeRefs = append(s.shapeRefs[:i], s.shapeRefs[i+1:]...)
 			s.syncedShapes--
 		case i < s.syncedShapes:
@@ -222,9 +226,10 @@ func (s *Slide) marshal() ([]byte, error) {
 		s.slideXML = newSlideXML()
 	}
 
-	// Only sync Go shapes to XML when shapes were modified via the API.
-	// When loading from a file, the slideXML already contains the parsed shapes.
-	if s.shapesModified {
+	// Only sync Go shapes to XML when shapes were modified via the API: added
+	// or removed (shapesModified), or mutated in place (dirty flags). When
+	// loading from a file, the slideXML already contains the parsed shapes.
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 
@@ -260,24 +265,30 @@ func (s *Slide) syncShapesToXML() {
 	// rebuild below.
 	if len(s.removedRefs) > 0 && !s.forceShapeRebuild {
 		spTree.RemoveChildren(s.removedRefs)
+		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
+		s.syncDirtyShapes(spTree)
 		if len(s.shapes) > s.syncedShapes {
 			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		}
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
+		s.clearShapeDirt()
 		return
 	}
 
-	// Loaded slide, appends only: marshal just the new shapes into the parsed
+	// Loaded slide, in-place edits and appends only: flush dirty synced shapes
+	// into their parsed nodes, then marshal just the new shapes into the parsed
 	// tree. The full rebuild below regenerates the tree from the domain model,
 	// which drops content the model does not represent (group shapes,
 	// connectors) and re-numbers every existing shape — acceptable for decks
 	// built programmatically, destructive for decks loaded from a file.
 	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapes) >= s.syncedShapes {
+		s.syncDirtyShapes(spTree)
 		s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
+		s.clearShapeDirt()
 		return
 	}
 
@@ -321,39 +332,82 @@ func (s *Slide) syncShapesToXML() {
 		}
 	}
 
+	// The rebuild regenerates the whole tree from the domain model, so any
+	// surgical bookkeeping recorded against the old tree is void. Leaving
+	// syncedShapes at 0 keeps the slide in rebuild mode, where every domain
+	// mutation is flushed on the next sync.
+	s.syncedShapes = 0
+	s.shapeRefs = nil
+	s.removedRefs = nil
 	s.shapesModified = false
+	s.clearShapeDirt()
+}
+
+// reindexShapeRefsAfterRemoval rewrites shapeRefs from the pre-compaction
+// indices they were recorded with to the indices the surviving children occupy
+// after RemoveChildren compacted the typed slices: every removed same-kind
+// child below a ref shifts it down by one. Without this, refs recorded before
+// one removal target the wrong nodes in the next removal cycle.
+func (s *Slide) reindexShapeRefsAfterRemoval(removed []oxml.ChildRef) {
+	for i, ref := range s.shapeRefs {
+		if ref.Index < 0 {
+			continue
+		}
+		dec := 0
+		for _, rem := range removed {
+			if rem.Kind == ref.Kind && rem.Index < ref.Index {
+				dec++
+			}
+		}
+		if dec > 0 {
+			s.shapeRefs[i] = oxml.ChildRef{Kind: ref.Kind, Index: ref.Index - dec}
+		}
+	}
 }
 
 // appendShapesToXML marshals newly added shapes into a parsed shape tree,
-// assigning ids above everything already on the slide.
+// assigning ids above everything already on the slide. Each appended shape's
+// child reference is recorded in shapeRefs so a later removal (or in-place
+// update) can target its node surgically instead of forcing a full rebuild;
+// shapes the append path cannot express get a sentinel ref (Index -1) to keep
+// shapeRefs aligned with the shapes slice.
 func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 	id := spTree.MaxShapeID() + 1
 	if id < 2 {
 		id = 2 // 1 belongs to the shape tree itself
 	}
 	for _, shape := range shapes {
+		ref := oxml.ChildRef{Index: -1}
 		switch sh := shape.(type) {
 		case *TextBox:
 			spTree.AppendSp(textBoxToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *PlaceholderShape:
 			spTree.AppendSp(placeholderToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *AutoShape:
 			spTree.AppendSp(autoShapeToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *Table:
 			gf := tableToOxml(sh, id)
 			spTree.AppendGraphicFrame(gf)
 			// Later row/cell mutations reach the XML via SyncXML.
 			sh.sourceFrame = gf
+			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *Picture:
 			spTree.AppendPic(pictureToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		case *Video:
 			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		case *Audio:
 			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
-		default:
-			continue
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		}
-		id++
+		if ref.Index >= 0 {
+			id++
+		}
+		s.shapeRefs = append(s.shapeRefs, ref)
 	}
 }
 
@@ -879,7 +933,7 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 
 // Duplicate creates a copy of the slide and adds it after this slide.
 func (s *Slide) Duplicate() *Slide {
-	if s.shapesModified {
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 
