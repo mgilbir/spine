@@ -381,14 +381,63 @@ type tblChildRef struct {
 	index int
 }
 
+// backfillChildOrder records any existing untracked children in childOrder,
+// grouped by kind in slice order, so the first tracked append on a table
+// built programmatically does not flip marshaling to the childOrder-only path
+// and drop them.
+func (tbl *CT_Tbl) backfillChildOrder() {
+	if len(tbl.childOrder) > 0 {
+		return
+	}
+	for i := range tbl.Tr {
+		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildTr, i})
+	}
+	for i := range tbl.BookmarkStart {
+		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildBookmarkStart, i})
+	}
+	for i := range tbl.BookmarkEnd {
+		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildBookmarkEnd, i})
+	}
+}
+
 // AppendRow appends a row and updates child ordering for round-trip edits.
+// Existing untracked rows are backfilled into the order first.
 func (tbl *CT_Tbl) AppendRow(tr *CT_Tr) {
+	tbl.backfillChildOrder()
 	tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildTr, len(tbl.Tr)})
 	tbl.Tr = append(tbl.Tr, tr)
 }
 
+// backfillChildOrder records any existing untracked children in childOrder,
+// grouped by kind in slice order (see CT_Tbl.backfillChildOrder).
+func (tr *CT_Tr) backfillChildOrder() {
+	if len(tr.childOrder) > 0 {
+		return
+	}
+	for i := range tr.Tc {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildTc, i})
+	}
+	for i := range tr.BookmarkStart {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildBookmarkStart, i})
+	}
+	for i := range tr.BookmarkEnd {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildBookmarkEnd, i})
+	}
+	for i := range tr.SdtCell {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildSdtCell, i})
+	}
+	for i := range tr.Ins {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildIns, i})
+	}
+	for i := range tr.Del {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildDel, i})
+	}
+}
+
 // AppendCell appends a cell and updates child ordering for round-trip edits.
+// Existing untracked cells are backfilled into the order first.
 func (tr *CT_Tr) AppendCell(tc *CT_Tc) {
+	tr.backfillChildOrder()
 	tr.childOrder = append(tr.childOrder, trChildRef{trChildTc, len(tr.Tc)})
 	tr.Tc = append(tr.Tc, tc)
 }
@@ -493,5 +542,9 @@ func (tbl *CT_Tbl) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 }
 
 // AppendP appends a paragraph to this table cell, maintaining child order so it
-// is marshaled even on a cell parsed from a file.
-func (tc *CT_Tc) AppendP(p *CT_P) { appendBodyP(&tc.P, &tc.childOrder, p) }
+// is marshaled even on a cell parsed from a file. Existing untracked children
+// (e.g. a seed paragraph assigned directly) are backfilled into the order first.
+func (tc *CT_Tc) AppendP(p *CT_P) {
+	backfillBodyChildOrder(&tc.childOrder, tc.P, tc.Tbl, tc.SdtBlock, tc.BookmarkStart, tc.BookmarkEnd)
+	appendBodyP(&tc.P, &tc.childOrder, p)
+}

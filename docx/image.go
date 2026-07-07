@@ -171,8 +171,7 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 	drawing := &oxml.CT_Drawing{
 		RawContent: img.buildInlineXML(),
 	}
-	r.r.Drawing = append(r.r.Drawing, drawing)
-	r.r.AppendDrawingChild(len(r.r.Drawing) - 1)
+	r.r.AppendDrawing(drawing)
 
 	return img, nil
 }

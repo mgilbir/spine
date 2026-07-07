@@ -152,6 +152,36 @@ func (body *CT_Body) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// backfillBodyChildOrder records any existing untracked children of a
+// body-level container in childOrder, grouped by kind in slice order. A
+// container built programmatically (e.g. a table cell seeded with a literal
+// paragraph) has typed children but an empty childOrder; the first tracked
+// append would otherwise flip marshaling to the childOrder-only path and
+// silently drop them.
+func backfillBodyChildOrder(childOrder *[]bodyChildRef,
+	p []*CT_P, tbl []*CT_Tbl, sdtBlock []*CT_SdtBlock,
+	bookmarkStart []*CT_BookmarkStart, bookmarkEnd []*CT_BookmarkEnd,
+) {
+	if len(*childOrder) > 0 {
+		return
+	}
+	for i := range p {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildP, i})
+	}
+	for i := range tbl {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildTbl, i})
+	}
+	for i := range sdtBlock {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildSdt, i})
+	}
+	for i := range bookmarkStart {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkStart, i})
+	}
+	for i := range bookmarkEnd {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkEnd, i})
+	}
+}
+
 // appendBodyP appends a paragraph to a body-level container, recording it in the
 // child order. The marshal walks childOrder, so a container parsed from a file
 // (whose order is already populated) would otherwise drop appended content.
@@ -170,10 +200,16 @@ func appendBodyTbl(tbl *[]*CT_Tbl, childOrder *[]bodyChildRef, t *CT_Tbl) {
 }
 
 // AppendP appends a paragraph to the document body, maintaining child order.
-func (body *CT_Body) AppendP(p *CT_P) { appendBodyP(&body.P, &body.childOrder, p) }
+func (body *CT_Body) AppendP(p *CT_P) {
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	appendBodyP(&body.P, &body.childOrder, p)
+}
 
 // AppendTbl appends a table to the document body, maintaining child order.
-func (body *CT_Body) AppendTbl(t *CT_Tbl) { appendBodyTbl(&body.Tbl, &body.childOrder, t) }
+func (body *CT_Body) AppendTbl(t *CT_Tbl) {
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	appendBodyTbl(&body.Tbl, &body.childOrder, t)
+}
 
 // unmarshalBodyChild handles a single body-level child element start tag.
 // The decoder is positioned at the start element; this function decodes or skips it.
