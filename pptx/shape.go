@@ -79,6 +79,12 @@ type BaseShape struct {
 	x, y   dml.EMU
 	width  dml.EMU
 	height dml.EMU
+
+	// dirty is set by every mutator. During the shape sync, dirty shapes that
+	// are already represented in a parsed slide tree get their node updated in
+	// place (see syncDirtyShapes); without the flag those edits would be
+	// silently dropped, since parsed trees are never rebuilt wholesale.
+	dirty bool
 }
 
 // Name returns the name of the shape.
@@ -89,6 +95,7 @@ func (s *BaseShape) Name() string {
 // SetName sets the name of the shape.
 func (s *BaseShape) SetName(name string) {
 	s.name = name
+	s.dirty = true
 }
 
 // Position returns the position of the shape in EMUs.
@@ -100,6 +107,7 @@ func (s *BaseShape) Position() (x, y dml.EMU) {
 func (s *BaseShape) SetPosition(x, y dml.EMU) {
 	s.x = x
 	s.y = y
+	s.dirty = true
 }
 
 // Size returns the size of the shape in EMUs.
@@ -111,6 +119,7 @@ func (s *BaseShape) Size() (width, height dml.EMU) {
 func (s *BaseShape) SetSize(width, height dml.EMU) {
 	s.width = width
 	s.height = height
+	s.dirty = true
 }
 
 // Bounds returns the bounding rectangle of the shape.
@@ -124,6 +133,7 @@ func (s *BaseShape) SetBounds(r dml.Rect) {
 	s.y = r.Y
 	s.width = r.Width
 	s.height = r.Height
+	s.dirty = true
 }
 
 // TextBox represents a text box shape.
@@ -242,16 +252,19 @@ func (a *AutoShape) TextFrame() *TextFrame {
 // SetFill sets the fill of the auto shape.
 func (a *AutoShape) SetFill(fill dml.Fill) {
 	fill.ApplyToSpPr(&a.spPr)
+	a.dirty = true
 }
 
 // SetLine sets the line (outline) of the auto shape.
 func (a *AutoShape) SetLine(line dml.Line) {
 	line.ApplyToSpPr(&a.spPr)
+	a.dirty = true
 }
 
 // SetShadow sets the shadow effect on the auto shape.
 func (a *AutoShape) SetShadow(shadow dml.Shadow) {
 	shadow.ApplyToSpPr(&a.spPr)
+	a.dirty = true
 }
 
 // --- Fill, Line, Shadow for TextBox ---
@@ -259,16 +272,19 @@ func (a *AutoShape) SetShadow(shadow dml.Shadow) {
 // SetFill sets the fill of the text box.
 func (t *TextBox) SetFill(fill dml.Fill) {
 	fill.ApplyToSpPr(&t.spPr)
+	t.dirty = true
 }
 
 // SetLine sets the line (outline) of the text box.
 func (t *TextBox) SetLine(line dml.Line) {
 	line.ApplyToSpPr(&t.spPr)
+	t.dirty = true
 }
 
 // SetShadow sets the shadow effect on the text box.
 func (t *TextBox) SetShadow(shadow dml.Shadow) {
 	shadow.ApplyToSpPr(&t.spPr)
+	t.dirty = true
 }
 
 // Common preset geometry names

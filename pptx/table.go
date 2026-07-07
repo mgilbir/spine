@@ -18,6 +18,12 @@ type Table struct {
 	bandRow   bool // banded rows
 	bandCol   bool // banded columns
 
+	// structDirty is set by mutators of the table grid and properties; row and
+	// cell mutators set their own flags. isDirty aggregates them so the shape
+	// sync knows the a:tbl must be regenerated (the same modeled-bits-only
+	// serialization SyncXML performs).
+	structDirty bool
+
 	// sourceFrame is the graphic frame this table was parsed from, when the
 	// slide was loaded from a file. Mutations to a loaded table do not reach
 	// the slide XML automatically (the slide keeps its parsed tree); call
@@ -35,6 +41,44 @@ func (t *Table) SyncXML() bool {
 	}
 	t.sourceFrame.Graphic.GraphicData.Table = tableDataToOxml(t)
 	return true
+}
+
+// isDirty reports whether any table mutation is unflushed: geometry/name (via
+// BaseShape), grid/properties, rows, cells, or cell text.
+func (t *Table) isDirty() bool {
+	return t.dirty || t.contentDirty()
+}
+
+// contentDirty reports unflushed mutations to the table content itself (as
+// opposed to the frame's name/geometry).
+func (t *Table) contentDirty() bool {
+	if t.structDirty {
+		return true
+	}
+	for _, row := range t.rows {
+		if row.dirty {
+			return true
+		}
+		for _, c := range row.cells {
+			if c.dirty || c.textFrame.isDirty() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// clearDirty resets all modification flags after a sync flushed them.
+func (t *Table) clearDirty() {
+	t.BaseShape.dirty = false
+	t.structDirty = false
+	for _, row := range t.rows {
+		row.dirty = false
+		for _, c := range row.cells {
+			c.dirty = false
+			c.textFrame.clearDirty()
+		}
+	}
 }
 
 // NewTable creates a new table with the specified number of rows and columns.
@@ -100,6 +144,7 @@ func (t *Table) Cell(row, col int) *TableCell {
 func (t *Table) SetColWidth(col int, width dml.EMU) {
 	if col >= 0 && col < len(t.colWidths) {
 		t.colWidths[col] = width
+		t.structDirty = true
 	}
 }
 
@@ -115,6 +160,7 @@ func (t *Table) ColWidth(col int) dml.EMU {
 func (t *Table) AddRow() *TableRow {
 	row := newTableRow(len(t.colWidths))
 	t.rows = append(t.rows, row)
+	t.structDirty = true
 	return row
 }
 
@@ -129,6 +175,7 @@ func (t *Table) InsertRow(index int) *TableRow {
 	} else {
 		t.rows = append(t.rows[:index], append([]*TableRow{row}, t.rows[index:]...)...)
 	}
+	t.structDirty = true
 	return row
 }
 
@@ -136,6 +183,7 @@ func (t *Table) InsertRow(index int) *TableRow {
 func (t *Table) DeleteRow(index int) {
 	if index >= 0 && index < len(t.rows) {
 		t.rows = append(t.rows[:index], t.rows[index+1:]...)
+		t.structDirty = true
 	}
 }
 
@@ -145,6 +193,7 @@ func (t *Table) AddColumn(width dml.EMU) {
 	for _, row := range t.rows {
 		row.cells = append(row.cells, NewTableCell())
 	}
+	t.structDirty = true
 }
 
 // DeleteColumn removes the column at the specified index.
@@ -156,6 +205,7 @@ func (t *Table) DeleteColumn(index int) {
 				row.cells = append(row.cells[:index], row.cells[index+1:]...)
 			}
 		}
+		t.structDirty = true
 	}
 }
 
@@ -167,6 +217,7 @@ func (t *Table) FirstRow() bool {
 // SetFirstRow sets whether the first row is highlighted.
 func (t *Table) SetFirstRow(value bool) {
 	t.firstRow = value
+	t.structDirty = true
 }
 
 // LastRow returns whether the last row is highlighted.
@@ -177,6 +228,7 @@ func (t *Table) LastRow() bool {
 // SetLastRow sets whether the last row is highlighted.
 func (t *Table) SetLastRow(value bool) {
 	t.lastRow = value
+	t.structDirty = true
 }
 
 // FirstCol returns whether the first column is highlighted.
@@ -187,6 +239,7 @@ func (t *Table) FirstCol() bool {
 // SetFirstCol sets whether the first column is highlighted.
 func (t *Table) SetFirstCol(value bool) {
 	t.firstCol = value
+	t.structDirty = true
 }
 
 // LastCol returns whether the last column is highlighted.
@@ -197,6 +250,7 @@ func (t *Table) LastCol() bool {
 // SetLastCol sets whether the last column is highlighted.
 func (t *Table) SetLastCol(value bool) {
 	t.lastCol = value
+	t.structDirty = true
 }
 
 // BandedRows returns whether rows are banded.
@@ -207,6 +261,7 @@ func (t *Table) BandedRows() bool {
 // SetBandedRows sets whether rows are banded.
 func (t *Table) SetBandedRows(value bool) {
 	t.bandRow = value
+	t.structDirty = true
 }
 
 // BandedCols returns whether columns are banded.
@@ -217,12 +272,14 @@ func (t *Table) BandedCols() bool {
 // SetBandedCols sets whether columns are banded.
 func (t *Table) SetBandedCols(value bool) {
 	t.bandCol = value
+	t.structDirty = true
 }
 
 // TableRow represents a row in a table.
 type TableRow struct {
 	cells  []*TableCell
 	height dml.EMU
+	dirty  bool
 }
 
 // newTableRow creates a new table row with the specified number of cells.
@@ -258,6 +315,7 @@ func (r *TableRow) Height() dml.EMU {
 // SetHeight sets the row height.
 func (r *TableRow) SetHeight(height dml.EMU) {
 	r.height = height
+	r.dirty = true
 }
 
 // TableCell represents a cell in a table.
@@ -273,6 +331,7 @@ type TableCell struct {
 	colSpan      int
 	hMerge       bool // merged with cell to the left
 	vMerge       bool // merged with cell above
+	dirty        bool
 }
 
 // NewTableCell creates a new table cell.
@@ -308,11 +367,13 @@ func (c *TableCell) Fill() *dml.Color {
 // SetFill sets the fill color of the cell.
 func (c *TableCell) SetFill(color dml.Color) {
 	c.fill = &color
+	c.dirty = true
 }
 
 // ClearFill removes the fill color.
 func (c *TableCell) ClearFill() {
 	c.fill = nil
+	c.dirty = true
 }
 
 // VerticalAlign returns the vertical alignment.
@@ -323,6 +384,7 @@ func (c *TableCell) VerticalAlign() enum.VerticalAlign {
 // SetVerticalAlign sets the vertical alignment.
 func (c *TableCell) SetVerticalAlign(align enum.VerticalAlign) {
 	c.vertAlign = align
+	c.dirty = true
 }
 
 // RowSpan returns the number of rows this cell spans.
@@ -336,6 +398,7 @@ func (c *TableCell) SetRowSpan(span int) {
 		span = 1
 	}
 	c.rowSpan = span
+	c.dirty = true
 }
 
 // ColSpan returns the number of columns this cell spans.
@@ -349,6 +412,7 @@ func (c *TableCell) SetColSpan(span int) {
 		span = 1
 	}
 	c.colSpan = span
+	c.dirty = true
 }
 
 // TableBorder represents a border on a table cell.
@@ -372,21 +436,25 @@ const (
 // SetBorderLeft sets the left border.
 func (c *TableCell) SetBorderLeft(border *TableBorder) {
 	c.borderLeft = border
+	c.dirty = true
 }
 
 // SetBorderRight sets the right border.
 func (c *TableCell) SetBorderRight(border *TableBorder) {
 	c.borderRight = border
+	c.dirty = true
 }
 
 // SetBorderTop sets the top border.
 func (c *TableCell) SetBorderTop(border *TableBorder) {
 	c.borderTop = border
+	c.dirty = true
 }
 
 // SetBorderBottom sets the bottom border.
 func (c *TableCell) SetBorderBottom(border *TableBorder) {
 	c.borderBottom = border
+	c.dirty = true
 }
 
 // SetBorders sets all borders to the same value.
@@ -395,4 +463,5 @@ func (c *TableCell) SetBorders(border *TableBorder) {
 	c.borderRight = border
 	c.borderTop = border
 	c.borderBottom = border
+	c.dirty = true
 }

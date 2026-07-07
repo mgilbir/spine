@@ -188,6 +188,44 @@ func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
 		drop[r] = true
 	}
 
+	if len(st.childOrder) == 0 {
+		// Tree without interleaved order tracking (built programmatically, e.g.
+		// rebuilt from the domain model): filter the typed slices directly.
+		// Marshal order stays by-type, matching how the tree was written.
+		var sp []*Shape
+		for i, v := range st.Sp {
+			if !drop[ChildRef{ChildSp, i}] {
+				sp = append(sp, v)
+			}
+		}
+		var pic []*Picture
+		for i, v := range st.Pic {
+			if !drop[ChildRef{ChildPic, i}] {
+				pic = append(pic, v)
+			}
+		}
+		var gf []*GraphicFrame
+		for i, v := range st.GraphicFrame {
+			if !drop[ChildRef{ChildGraphicFrame, i}] {
+				gf = append(gf, v)
+			}
+		}
+		var grp []*GroupShape
+		for i, v := range st.GrpSp {
+			if !drop[ChildRef{ChildGrpSp, i}] {
+				grp = append(grp, v)
+			}
+		}
+		var cxn []*ConnectionShape
+		for i, v := range st.CxnSp {
+			if !drop[ChildRef{ChildCxnSp, i}] {
+				cxn = append(cxn, v)
+			}
+		}
+		st.Sp, st.Pic, st.GraphicFrame, st.GrpSp, st.CxnSp = sp, pic, gf, grp, cxn
+		return
+	}
+
 	var (
 		sp    []*Shape
 		pic   []*Picture

@@ -109,6 +109,7 @@ func (p *Picture) Description() string {
 // SetDescription sets the image description (alt text).
 func (p *Picture) SetDescription(desc string) {
 	p.description = desc
+	p.dirty = true
 }
 
 // CropLeft returns the left crop amount (0.0 to 1.0).
@@ -119,6 +120,7 @@ func (p *Picture) CropLeft() float64 {
 // SetCropLeft sets the left crop amount (0.0 to 1.0).
 func (p *Picture) SetCropLeft(crop float64) {
 	p.cropLeft = clampCrop(crop)
+	p.dirty = true
 }
 
 // CropRight returns the right crop amount (0.0 to 1.0).
@@ -129,6 +131,7 @@ func (p *Picture) CropRight() float64 {
 // SetCropRight sets the right crop amount (0.0 to 1.0).
 func (p *Picture) SetCropRight(crop float64) {
 	p.cropRight = clampCrop(crop)
+	p.dirty = true
 }
 
 // CropTop returns the top crop amount (0.0 to 1.0).
@@ -139,6 +142,7 @@ func (p *Picture) CropTop() float64 {
 // SetCropTop sets the top crop amount (0.0 to 1.0).
 func (p *Picture) SetCropTop(crop float64) {
 	p.cropTop = clampCrop(crop)
+	p.dirty = true
 }
 
 // CropBottom returns the bottom crop amount (0.0 to 1.0).
@@ -149,6 +153,7 @@ func (p *Picture) CropBottom() float64 {
 // SetCropBottom sets the bottom crop amount (0.0 to 1.0).
 func (p *Picture) SetCropBottom(crop float64) {
 	p.cropBottom = clampCrop(crop)
+	p.dirty = true
 }
 
 // SetCrop sets all crop amounts.
@@ -157,6 +162,7 @@ func (p *Picture) SetCrop(left, top, right, bottom float64) {
 	p.cropTop = clampCrop(top)
 	p.cropRight = clampCrop(right)
 	p.cropBottom = clampCrop(bottom)
+	p.dirty = true
 }
 
 // clampCrop ensures the crop value is between 0 and 1.
