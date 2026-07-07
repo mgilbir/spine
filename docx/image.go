@@ -137,9 +137,11 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 		return nil, fmt.Errorf("run is not attached to a document")
 	}
 
-	// Assign image number and relationship ID
-	doc.imageCount++
-	imgNum := doc.imageCount
+	// Assign image number and relationship ID. The number is derived from the
+	// parts already in the package (preserved parts plus images added in this
+	// session), so adding an image to an opened document that already contains
+	// /word/media/image1.png does not produce a duplicate part name.
+	imgNum := doc.nextImageNumber()
 	relID := fmt.Sprintf("rId%d", doc.nextRelID())
 	partName := fmt.Sprintf("/word/media/image%d%s", imgNum, ext)
 

@@ -46,7 +46,7 @@ func (c *CT_Compat) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
 	for name, o := range c.Options {
 		if o.Val != nil {
-			b.EmptyElement(ns, name, xmlb.StrAttr("val", *o.Val))
+			b.EmptyElement(ns, name, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "val", Value: *o.Val})
 		} else {
 			b.EmptyElement(ns, name)
 		}
@@ -110,7 +110,7 @@ func (w *CT_WebSettings) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	b.StartElement(ns, localName)
 	for name, o := range w.Options {
 		if o.Val != nil {
-			b.EmptyElement(ns, name, xmlb.StrAttr("val", *o.Val))
+			b.EmptyElement(ns, name, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "val", Value: *o.Val})
 		} else {
 			b.EmptyElement(ns, name)
 		}

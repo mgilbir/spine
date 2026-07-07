@@ -47,10 +47,10 @@ func (tc *CT_RunTrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_RunTrackChange.
 func (tc *CT_RunTrackChange) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	attrs = append(attrs, xmlb.StrAttr("id", tc.Id))
-	attrs = append(attrs, xmlb.StrAttr("author", tc.Author))
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "id", Value: tc.Id})
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "author", Value: tc.Author})
 	if tc.Date != "" {
-		attrs = append(attrs, xmlb.StrAttr("date", tc.Date))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "date", Value: tc.Date})
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, tc.R, tc.Hyperlink, tc.BookmarkStart, tc.BookmarkEnd,

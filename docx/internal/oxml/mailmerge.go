@@ -84,7 +84,7 @@ func (s *CT_SaveThroughXslt) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: s.RID})
 	}
 	if s.SolutionID != "" {
-		attrs = append(attrs, xmlb.StrAttr("solutionID", s.SolutionID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "solutionID", Value: s.SolutionID})
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }

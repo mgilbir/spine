@@ -47,13 +47,13 @@ func (c *CT_Comment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Comment.
 func (c *CT_Comment) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	attrs = append(attrs, xmlb.StrAttr("id", c.Id))
-	attrs = append(attrs, xmlb.StrAttr("author", c.Author))
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "id", Value: c.Id})
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "author", Value: c.Author})
 	if c.Date != "" {
-		attrs = append(attrs, xmlb.StrAttr("date", c.Date))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "date", Value: c.Date})
 	}
 	if c.Initials != "" {
-		attrs = append(attrs, xmlb.StrAttr("initials", c.Initials))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "initials", Value: c.Initials})
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalBodyContent(b, ns, c.P, c.Tbl, c.SdtBlock, c.BookmarkStart, c.BookmarkEnd, c.childOrder)

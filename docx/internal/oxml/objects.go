@@ -45,16 +45,16 @@ func (o *CT_ObjectEmbed) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: o.RID})
 	}
 	if o.DrawAspect != "" {
-		attrs = append(attrs, xmlb.StrAttr("drawAspect", o.DrawAspect))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "drawAspect", Value: o.DrawAspect})
 	}
 	if o.ProgID != "" {
-		attrs = append(attrs, xmlb.StrAttr("progId", o.ProgID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "progId", Value: o.ProgID})
 	}
 	if o.ShapeID != "" {
-		attrs = append(attrs, xmlb.StrAttr("shapeId", o.ShapeID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "shapeId", Value: o.ShapeID})
 	}
 	if o.FieldCodes != "" {
-		attrs = append(attrs, xmlb.StrAttr("fieldCodes", o.FieldCodes))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "fieldCodes", Value: o.FieldCodes})
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }
@@ -98,22 +98,22 @@ func (o *CT_ObjectLink) MarshalToBuilder(b *xmlb.Builder, ns, localName string) 
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: o.RID})
 	}
 	if o.DrawAspect != "" {
-		attrs = append(attrs, xmlb.StrAttr("drawAspect", o.DrawAspect))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "drawAspect", Value: o.DrawAspect})
 	}
 	if o.ProgID != "" {
-		attrs = append(attrs, xmlb.StrAttr("progId", o.ProgID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "progId", Value: o.ProgID})
 	}
 	if o.ShapeID != "" {
-		attrs = append(attrs, xmlb.StrAttr("shapeId", o.ShapeID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "shapeId", Value: o.ShapeID})
 	}
 	if o.FieldCodes != "" {
-		attrs = append(attrs, xmlb.StrAttr("fieldCodes", o.FieldCodes))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "fieldCodes", Value: o.FieldCodes})
 	}
 	if o.UpdateMode != "" {
-		attrs = append(attrs, xmlb.StrAttr("updateMode", o.UpdateMode))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "updateMode", Value: o.UpdateMode})
 	}
 	if o.LockedField != "" {
-		attrs = append(attrs, xmlb.StrAttr("lockedField", o.LockedField))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "lockedField", Value: o.LockedField})
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }
