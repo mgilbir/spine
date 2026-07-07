@@ -62,19 +62,19 @@ func (h *CT_Hyperlink) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
 	}
 	if h.Anchor != "" {
-		attrs = append(attrs, xmlb.StrAttr("anchor", h.Anchor))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "anchor", Value: h.Anchor})
 	}
 	if h.History != "" {
-		attrs = append(attrs, xmlb.StrAttr("history", h.History))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "history", Value: h.History})
 	}
 	if h.TgtFrame != "" {
-		attrs = append(attrs, xmlb.StrAttr("tgtFrame", h.TgtFrame))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "tgtFrame", Value: h.TgtFrame})
 	}
 	if h.Tooltip != "" {
-		attrs = append(attrs, xmlb.StrAttr("tooltip", h.Tooltip))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "tooltip", Value: h.Tooltip})
 	}
 	if h.DocLocation != "" {
-		attrs = append(attrs, xmlb.StrAttr("docLocation", h.DocLocation))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "docLocation", Value: h.DocLocation})
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, h.R, h.Hyperlink, h.BookmarkStart, h.BookmarkEnd,
@@ -117,12 +117,12 @@ func (f *CT_SimpleField) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SimpleField.
 func (f *CT_SimpleField) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	attrs = append(attrs, xmlb.StrAttr("instr", f.Instr))
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "instr", Value: f.Instr})
 	if f.Dirty != "" {
-		attrs = append(attrs, xmlb.StrAttr("dirty", f.Dirty))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "dirty", Value: f.Dirty})
 	}
 	if f.Lock != "" {
-		attrs = append(attrs, xmlb.StrAttr("lock", f.Lock))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "lock", Value: f.Lock})
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, f.R, f.Hyperlink, f.BookmarkStart, f.BookmarkEnd,

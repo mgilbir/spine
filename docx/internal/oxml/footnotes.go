@@ -48,9 +48,9 @@ func (f *CT_FtnEdn) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (f *CT_FtnEdn) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if f.Type != "" {
-		attrs = append(attrs, xmlb.StrAttr("type", f.Type))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "type", Value: f.Type})
 	}
-	attrs = append(attrs, xmlb.StrAttr("id", f.Id))
+	attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "id", Value: f.Id})
 	b.StartElement(ns, localName, attrs...)
 	marshalBodyContent(b, ns, f.P, f.Tbl, f.SdtBlock, f.BookmarkStart, f.BookmarkEnd, f.childOrder)
 	b.EndElement(ns, localName)

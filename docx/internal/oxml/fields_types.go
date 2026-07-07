@@ -96,10 +96,10 @@ func (c *CT_Control) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: c.RID})
 	}
 	if c.Name != "" {
-		attrs = append(attrs, xmlb.StrAttr("name", c.Name))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "name", Value: c.Name})
 	}
 	if c.ShapeID != "" {
-		attrs = append(attrs, xmlb.StrAttr("shapeid", c.ShapeID))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "shapeid", Value: c.ShapeID})
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }

@@ -67,10 +67,10 @@ func (cx *CT_CustomXml) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 func (cx *CT_CustomXml) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if cx.URI != "" {
-		attrs = append(attrs, xmlb.StrAttr("uri", cx.URI))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "uri", Value: cx.URI})
 	}
 	if cx.Element != "" {
-		attrs = append(attrs, xmlb.StrAttr("element", cx.Element))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "element", Value: cx.Element})
 	}
 	b.StartElement(ns, localName, attrs...)
 	if cx.CustomXmlPr != nil {
