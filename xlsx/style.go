@@ -51,16 +51,27 @@ var builtinNumFmtCodes = map[string]uint32{
 // StyleManager manages the workbook stylesheet.
 type StyleManager struct {
 	stylesheet *oxml.CT_Stylesheet
+	// onModify is invoked by mutating operations so the owning workbook can
+	// mark styles.xml dirty. Merely reading styles must not trigger it.
+	onModify func()
 }
 
 // newStyleManager creates a StyleManager that wraps the given stylesheet.
 // If ss is nil, a new default stylesheet is created with the required
-// two fills (none + gray125) and a default font.
-func newStyleManager(ss *oxml.CT_Stylesheet) *StyleManager {
+// two fills (none + gray125) and a default font. onModify (may be nil) is
+// called when a mutating method changes the stylesheet.
+func newStyleManager(ss *oxml.CT_Stylesheet, onModify func()) *StyleManager {
 	if ss == nil {
 		ss = defaultStylesheet()
 	}
-	return &StyleManager{stylesheet: ss}
+	return &StyleManager{stylesheet: ss, onModify: onModify}
+}
+
+// markModified notifies the owner that the stylesheet changed.
+func (sm *StyleManager) markModified() {
+	if sm.onModify != nil {
+		sm.onModify()
+	}
 }
 
 // defaultStylesheet creates a minimal stylesheet that Excel requires.
@@ -118,6 +129,7 @@ func defaultStylesheet() *oxml.CT_Stylesheet {
 // returns its 0-based index into cellXfs. The cell format index can be applied
 // to cells via Cell.SetStyleIndex.
 func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
+	sm.markModified()
 	ss := sm.stylesheet
 
 	// Resolve font
@@ -243,6 +255,7 @@ func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 // AddNumberFormat registers a custom number format string and returns its ID.
 // If the format string matches a built-in format, the built-in ID is returned.
 func (sm *StyleManager) AddNumberFormat(code string) uint32 {
+	sm.markModified()
 	return sm.resolveNumberFormat(code)
 }
 
