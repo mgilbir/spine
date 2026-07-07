@@ -238,13 +238,15 @@ func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape
 
 	if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
 		xfrm := gs.GrpSpPr.Xfrm
-		if xfrm.ChOff != nil {
-			g.x = dml.EMU(xfrm.ChOff.X)
-			g.y = dml.EMU(xfrm.ChOff.Y)
+		// A group's on-slide placement is off/ext; chOff/chExt define the child
+		// coordinate space and must not be reported as the group's position.
+		if xfrm.Off != nil {
+			g.x = dml.EMU(xfrm.Off.X)
+			g.y = dml.EMU(xfrm.Off.Y)
 		}
-		if xfrm.ChExt != nil {
-			g.width = dml.EMU(xfrm.ChExt.Cx)
-			g.height = dml.EMU(xfrm.ChExt.Cy)
+		if xfrm.Ext != nil {
+			g.width = dml.EMU(xfrm.Ext.Cx)
+			g.height = dml.EMU(xfrm.Ext.Cy)
 		}
 	}
 
