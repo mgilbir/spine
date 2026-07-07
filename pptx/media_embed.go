@@ -26,16 +26,111 @@ const (
 	defaultMediaHeight = dml.EMU(3 * 914400)
 )
 
-// embedMediaData stores the media bytes as a part (reusing an identical existing
-// part) and creates the two relationships an embedded video/audio needs: a
-// Microsoft "media" embed reference and an OOXML "video"/"audio" link reference,
-// both pointing at the same media part. It returns (mediaRelID, linkRelID).
+// mediaShapeOf returns the embedded mediaShape of a Video or Audio shape (and
+// its kind name for error messages), or nil for any other shape.
+func mediaShapeOf(shape Shape) (*mediaShape, string) {
+	switch sh := shape.(type) {
+	case *Video:
+		return &sh.mediaShape, "video"
+	case *Audio:
+		return &sh.mediaShape, "audio"
+	}
+	return nil, ""
+}
+
+// resolveMediaContentTypes fills in the content type of media shapes the
+// caller added without one, by sniffing the leading magic bytes. Called before
+// any shape sync so the media part is never stored under an unregistered
+// extension.
+func (s *Slide) resolveMediaContentTypes() {
+	for _, shape := range s.shapes {
+		m, _ := mediaShapeOf(shape)
+		if m == nil || m.mediaRelID != "" || m.contentType != "" {
+			continue
+		}
+		m.contentType = sniffMediaContentType(m.mediaData)
+	}
+}
+
+// validateMediaShapes rejects media that cannot be embedded as a valid OPC
+// part: no bytes at all, or no content type (neither declared by the caller
+// nor recognizable from the data). Without this check an empty content type
+// produced a /ppt/media/mediaN.bin part absent from [Content_Types].xml — an
+// invalid package that PowerPoint asks to repair.
+func (s *Slide) validateMediaShapes() error {
+	s.resolveMediaContentTypes()
+	for _, shape := range s.shapes {
+		m, kind := mediaShapeOf(shape)
+		if m == nil || m.mediaRelID != "" {
+			continue
+		}
+		if len(m.mediaData) == 0 {
+			return fmt.Errorf("pptx: slide %d: %s has no media data", s.index+1, kind)
+		}
+		if m.contentType == "" {
+			return fmt.Errorf("pptx: slide %d: %s has no content type and the media format was not recognized", s.index+1, kind)
+		}
+	}
+	return nil
+}
+
+// sniffMediaContentType infers a media MIME type from the leading bytes of the
+// data. It recognizes the common containers PowerPoint embeds (MP4/M4V, M4A,
+// QuickTime, MP3, WAV, AVI, Ogg, WebM/Matroska) and returns "" for anything
+// else.
+func sniffMediaContentType(data []byte) string {
+	if len(data) < 12 {
+		return ""
+	}
+	// ISO base media file format: size + "ftyp" + brand.
+	if string(data[4:8]) == "ftyp" {
+		switch brand := string(data[8:12]); {
+		case strings.HasPrefix(brand, "qt"):
+			return "video/quicktime"
+		case strings.HasPrefix(brand, "M4A"):
+			return "audio/mp4"
+		default: // isom, iso2, mp41, mp42, avc1, M4V , ...
+			return "video/mp4"
+		}
+	}
+	if string(data[:4]) == "RIFF" {
+		switch string(data[8:12]) {
+		case "WAVE":
+			return "audio/wav"
+		case "AVI ":
+			return "video/x-msvideo"
+		}
+		return ""
+	}
+	if string(data[:3]) == "ID3" {
+		return "audio/mpeg"
+	}
+	// Bare MPEG audio frame sync (11 set bits).
+	if data[0] == 0xFF && data[1]&0xE0 == 0xE0 {
+		return "audio/mpeg"
+	}
+	if string(data[:4]) == "OggS" {
+		return "audio/ogg"
+	}
+	// EBML header (WebM/Matroska).
+	if data[0] == 0x1A && data[1] == 0x45 && data[2] == 0xDF && data[3] == 0xA3 {
+		return "video/webm"
+	}
+	return ""
+}
+
+// embedMediaData stores the media bytes as a part (reusing an existing part
+// only when both its bytes and its declared content type match) and creates the
+// two relationships an embedded video/audio needs: a Microsoft "media" embed
+// reference and an OOXML "video"/"audio" link reference, both pointing at the
+// same media part. It returns (mediaRelID, linkRelID).
 func (s *Slide) embedMediaData(data []byte, contentType, linkRelType string) (mediaRelID, linkRelID string) {
 	p := s.presentation
 
 	mediaName := ""
 	for name, part := range p.otherParts {
-		if part != nil && strings.HasPrefix(name, "/ppt/media/") && bytes.Equal(part.Data, data) {
+		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
+			part.ContentType == contentType && bytes.Equal(part.Data, data) {
 			mediaName = name
 			break
 		}
@@ -86,7 +181,11 @@ func (s *Slide) nextMediaFileName(ext string) string {
 // buildMediaPic embeds the media (and poster) if not already embedded, then
 // builds the p:pic element that represents the video/audio on the slide.
 func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Picture {
-	if m.mediaRelID == "" {
+	// Invalid media (no data or no resolvable content type) is not embedded:
+	// validateMediaShapes fails the save with a descriptive error, and skipping
+	// here keeps an early sync (ReplaceText/Duplicate before the first save)
+	// from storing an unregistered part.
+	if m.mediaRelID == "" && len(m.mediaData) > 0 && m.contentType != "" {
 		linkType := opc.RelTypeVideo
 		if kind == mediaAudio {
 			linkType = opc.RelTypeAudio
