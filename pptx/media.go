@@ -169,3 +169,76 @@ func clampCrop(v float64) float64 {
 	}
 	return v
 }
+
+// mediaShape holds the state shared by embedded Video and Audio shapes: the raw
+// media bytes, its content type, an optional poster/preview image, and the
+// relationship IDs assigned when the media is embedded on save.
+type mediaShape struct {
+	BaseShape
+	mediaData   []byte
+	contentType string
+	posterData  []byte
+	posterCT    string
+
+	// Relationship IDs, assigned during serialization.
+	mediaRelID  string // r:embed on p14:media (Microsoft "media" reltype)
+	linkRelID   string // r:link on a:videoFile/a:audioFile ("video"/"audio" reltype)
+	posterRelID string // r:embed on the poster blip (image reltype)
+}
+
+// MediaData returns the raw media bytes.
+func (m *mediaShape) MediaData() []byte { return m.mediaData }
+
+// ContentType returns the MIME type of the media (e.g. "video/mp4").
+func (m *mediaShape) ContentType() string { return m.contentType }
+
+// Poster returns the poster/preview image bytes and content type, if set.
+func (m *mediaShape) Poster() (data []byte, contentType string) {
+	return m.posterData, m.posterCT
+}
+
+// SetPoster sets the poster/preview image shown before playback. When unset, a
+// minimal placeholder image is generated on save so the file stays valid.
+func (m *mediaShape) SetPoster(data []byte, contentType string) {
+	m.posterData = data
+	m.posterCT = contentType
+}
+
+// effectivePoster returns the caller-provided poster, or a generated placeholder
+// when none was set (PowerPoint requires a blip fill on a media picture).
+func (m *mediaShape) effectivePoster() (data []byte, contentType string) {
+	if len(m.posterData) > 0 {
+		return m.posterData, m.posterCT
+	}
+	return minimalTransparentPNG, "image/png"
+}
+
+// Video represents an embedded video shape. On save it is serialized as a
+// p:pic referencing the embedded media, so it opens and plays in PowerPoint.
+type Video struct {
+	mediaShape
+}
+
+// NewVideo creates a video shape from raw media bytes and their content type
+// (e.g. "video/mp4"). Use Slide.AddVideo to attach it to a slide.
+func NewVideo(data []byte, contentType string) *Video {
+	return &Video{mediaShape{mediaData: data, contentType: contentType}}
+}
+
+// ShapeType returns ShapeTypeVideo.
+func (v *Video) ShapeType() ShapeType { return ShapeTypeVideo }
+
+// Audio represents an embedded audio shape, serialized as a p:pic referencing
+// the embedded media on save.
+type Audio struct {
+	mediaShape
+}
+
+// NewAudio creates an audio shape from raw media bytes and their content type
+// (e.g. "audio/mpeg"). Use Slide.AddAudio to attach it to a slide.
+func NewAudio(data []byte, contentType string) *Audio {
+	return &Audio{mediaShape{mediaData: data, contentType: contentType}}
+}
+
+// ShapeType returns ShapeTypeAudio.
+func (a *Audio) ShapeType() ShapeType { return ShapeTypeAudio }

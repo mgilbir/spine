@@ -41,6 +41,8 @@ const (
 	ShapeTypePlaceholder
 	ShapeTypeConnector
 	ShapeTypeAutoShape
+	ShapeTypeVideo
+	ShapeTypeAudio
 )
 
 // String returns the string representation of the shape type.
@@ -62,6 +64,10 @@ func (st ShapeType) String() string {
 		return "connector"
 	case ShapeTypeAutoShape:
 		return "autoshape"
+	case ShapeTypeVideo:
+		return "video"
+	case ShapeTypeAudio:
+		return "audio"
 	default:
 		return "unknown"
 	}
