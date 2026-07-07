@@ -108,9 +108,16 @@ func NewContentTypes() *ContentTypes {
 // GetContentType returns the content type for a part.
 // It first checks overrides, then defaults by extension.
 func (ct *ContentTypes) GetContentType(partName string) string {
-	// Check overrides first
+	// Check overrides first (exact, then case-insensitive: OPC part names
+	// compare case-insensitively, so a differently-cased part must still match
+	// its override rather than falling through to a default extension type).
 	if contentType, ok := ct.Overrides[partName]; ok {
 		return contentType
+	}
+	for name, contentType := range ct.Overrides {
+		if strings.EqualFold(name, partName) {
+			return contentType
+		}
 	}
 
 	// Get extension and check defaults
@@ -235,10 +242,14 @@ func (ct *ContentTypes) orderedDefaults() []string {
 		return exts
 	}
 
-	// Start with original order
+	// Start with original order, skipping duplicates so a source file with a
+	// repeated <Default> does not re-emit it (OPC requires unique extensions).
 	seen := make(map[string]bool, len(ct.defaultOrder))
 	result := make([]string, 0, len(ct.Defaults))
 	for _, ext := range ct.defaultOrder {
+		if seen[ext] {
+			continue
+		}
 		if _, ok := ct.Defaults[ext]; ok {
 			result = append(result, ext)
 			seen[ext] = true
@@ -271,6 +282,9 @@ func (ct *ContentTypes) orderedOverrides() []string {
 	seen := make(map[string]bool, len(ct.overrideOrder))
 	result := make([]string, 0, len(ct.Overrides))
 	for _, partName := range ct.overrideOrder {
+		if seen[partName] {
+			continue
+		}
 		if _, ok := ct.Overrides[partName]; ok {
 			result = append(result, partName)
 			seen[partName] = true
