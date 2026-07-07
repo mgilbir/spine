@@ -159,7 +159,9 @@ func (s *Slide) AddTable(rows, cols int) *Table {
 // AddVideo embeds a video in the slide from raw media bytes and their content
 // type (e.g. "video/mp4"). The video is stored inside the .pptx and plays on
 // click in PowerPoint. Set a poster image with Video.SetPoster; otherwise a
-// placeholder preview is generated on save.
+// placeholder preview is generated on save. An empty contentType is inferred
+// from the data's magic bytes; saving fails with an error when the data is
+// empty or the content type is neither given nor recognizable.
 func (s *Slide) AddVideo(data []byte, contentType string) *Video {
 	v := NewVideo(data, contentType)
 	s.AddShape(v)
@@ -168,7 +170,9 @@ func (s *Slide) AddVideo(data []byte, contentType string) *Video {
 
 // AddAudio embeds an audio clip in the slide from raw media bytes and their
 // content type (e.g. "audio/mpeg"). Set an icon image with Audio.SetPoster;
-// otherwise a placeholder is generated on save.
+// otherwise a placeholder is generated on save. An empty contentType is
+// inferred from the data's magic bytes; saving fails with an error when the
+// data is empty or the content type is neither given nor recognizable.
 func (s *Slide) AddAudio(data []byte, contentType string) *Audio {
 	a := NewAudio(data, contentType)
 	s.AddShape(a)
@@ -238,6 +242,12 @@ func (s *Slide) marshal() ([]byte, error) {
 		s.slideXML = newSlideXML()
 	}
 
+	// Reject media that cannot become a valid package part (no data, or no
+	// recognizable content type) before any of it is written.
+	if err := s.validateMediaShapes(); err != nil {
+		return nil, err
+	}
+
 	// Only sync Go shapes to XML when shapes were modified via the API: added
 	// or removed (shapesModified), or mutated in place (dirty flags). When
 	// loading from a file, the slideXML already contains the parsed shapes.
@@ -262,6 +272,9 @@ func (s *Slide) marshal() ([]byte, error) {
 
 // syncShapesToXML converts Go shapes to oxml types in the shape tree.
 func (s *Slide) syncShapesToXML() {
+	// Sniff missing media content types first: syncs triggered before the
+	// first save (ReplaceText, Duplicate) embed media parts too.
+	s.resolveMediaContentTypes()
 	if s.slideXML.CSld == nil {
 		s.slideXML.CSld = &oxml.CommonSlideData{}
 	}
