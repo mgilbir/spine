@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
@@ -20,6 +21,8 @@ type Workbook struct {
 	Properties opc.CoreProperties
 
 	reader         *opc.ReadCloser
+	opened         bool // true if this workbook was loaded from an existing package
+	contentTypes   *opc.ContentTypes
 	workbook       *oxml.CT_Workbook
 	sharedStrings  *oxml.CT_Sst
 	stylesheet     *oxml.CT_Stylesheet
@@ -90,6 +93,8 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 
 	w := &Workbook{
 		reader:         reader,
+		opened:         true,
+		contentTypes:   reader.ContentTypes,
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
@@ -287,7 +292,11 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 func (w *Workbook) SaveTo(dst io.Writer) error {
 	writer := opc.NewWriter(dst)
 	var err error
-	if w.reader != nil {
+	// Use the durable opened flag, not w.reader: Close() releases the reader
+	// but the preserved parts and models remain in memory, so a round-trip save
+	// must still take the preserving path (otherwise every preserved part —
+	// themes, sharedStrings, media — would be silently dropped).
+	if w.opened {
 		err = w.saveRoundTrip(writer)
 	} else {
 		err = w.saveNew(writer)
@@ -326,9 +335,10 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.Properties = &w.Properties
 	}
 
-	// Preserve original content types
-	if w.reader != nil && w.reader.ContentTypes != nil {
-		writer.ContentTypes = w.reader.ContentTypes
+	// Preserve original content types (captured at open so this still works
+	// after Close has released the reader).
+	if w.contentTypes != nil {
+		writer.ContentTypes = w.contentTypes
 	}
 
 	// Write core.xml as preserved raw bytes if original had it
@@ -731,14 +741,17 @@ func nextWorksheetPartName(preserved map[string]*coxml.RawPart, sheets []*Sheet,
 }
 
 // Styles returns the StyleManager for this workbook. If no stylesheet exists
-// yet (e.g. for a newly created workbook), a default one is created.
-// Accessing the StyleManager marks styles as dirty so they are re-serialized on save.
+// yet (e.g. for a newly created workbook), a default one is created and styles
+// are marked dirty. Merely reading styles from an existing workbook does not
+// mark them dirty (which would force styles.xml to be regenerated and break
+// byte-identical round-trip); the returned manager marks styles dirty only when
+// a mutating method is called.
 func (w *Workbook) Styles() *StyleManager {
 	if w.stylesheet == nil {
 		w.stylesheet = defaultStylesheet()
+		w.stylesDirty = true
 	}
-	w.stylesDirty = true
-	return newStyleManager(w.stylesheet)
+	return newStyleManager(w.stylesheet, func() { w.stylesDirty = true })
 }
 
 // Sheets returns all sheets in the workbook.
@@ -769,8 +782,11 @@ func (w *Workbook) SheetByName(name string) (*Sheet, error) {
 	return nil, ErrSheetNotFound
 }
 
-// AddSheet adds a new sheet to the workbook.
+// AddSheet adds a new sheet to the workbook. The name is coerced to a valid,
+// unique Excel sheet name (see ValidateSheetName); use the returned sheet's
+// Name to observe the final name.
 func (w *Workbook) AddSheet(name string) *Sheet {
+	name = w.sanitizeSheetName(name)
 	ws := &oxml.CT_Worksheet{
 		SheetData: oxml.CT_SheetData{},
 	}
@@ -785,14 +801,101 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 	w.sheets = append(w.sheets, sheet)
 	w.sheetsDirty = true
 
-	// Update the workbook model
+	// Update the workbook model. SheetId must be unique across the workbook's
+	// lifetime — allocating len(sheets) collides after a delete+add, so use one
+	// past the current maximum.
+	sheetID := w.nextSheetID()
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
 		Name:    name,
-		SheetId: uint32(len(w.sheets)),
-		RID:     fmt.Sprintf("rId%d", len(w.sheets)),
+		SheetId: sheetID,
+		RID:     fmt.Sprintf("rId%d", sheetID),
 	})
 
 	return sheet
+}
+
+// nextSheetID returns an unused sheet id (one past the current maximum).
+func (w *Workbook) nextSheetID() uint32 {
+	var max uint32
+	for _, s := range w.workbook.Sheets.Sheet {
+		if s.SheetId > max {
+			max = s.SheetId
+		}
+	}
+	return max + 1
+}
+
+// forbiddenSheetNameChars are the characters Excel disallows in a sheet name.
+const forbiddenSheetNameChars = `\/?*[]:`
+
+// ValidateSheetName reports whether name is a legal Excel sheet name: non-empty,
+// at most 31 characters, containing none of \ / ? * [ ] :, and not beginning or
+// ending with an apostrophe. It does not check uniqueness within a workbook.
+func ValidateSheetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("xlsx: sheet name must not be empty")
+	}
+	if utf8.RuneCountInString(name) > 31 {
+		return fmt.Errorf("xlsx: sheet name %q exceeds 31 characters", name)
+	}
+	if strings.ContainsAny(name, forbiddenSheetNameChars) {
+		return fmt.Errorf(`xlsx: sheet name %q contains a forbidden character (\ / ? * [ ] :)`, name)
+	}
+	if strings.HasPrefix(name, "'") || strings.HasSuffix(name, "'") {
+		return fmt.Errorf("xlsx: sheet name %q must not start or end with an apostrophe", name)
+	}
+	return nil
+}
+
+// sanitizeSheetName coerces name into a valid, unique sheet name, mirroring how
+// Excel repairs invalid names: forbidden characters are stripped, the result is
+// trimmed to 31 characters and made non-empty, and a numeric suffix is appended
+// if the name collides (case-insensitively) with an existing sheet.
+func (w *Workbook) sanitizeSheetName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if !strings.ContainsRune(forbiddenSheetNameChars, r) {
+			b.WriteRune(r)
+		}
+	}
+	name = strings.Trim(strings.TrimSpace(b.String()), "'")
+	if name == "" {
+		name = "Sheet"
+	}
+	name = truncateRunes(name, 31)
+	if !w.sheetNameExists(name) {
+		return name
+	}
+	base := name
+	for i := 2; ; i++ {
+		suffix := fmt.Sprintf(" (%d)", i)
+		cand := truncateRunes(base, 31-utf8.RuneCountInString(suffix)) + suffix
+		if !w.sheetNameExists(cand) {
+			return cand
+		}
+	}
+}
+
+// sheetNameExists reports whether a sheet with the given name (case-insensitive)
+// already exists in the workbook.
+func (w *Workbook) sheetNameExists(name string) bool {
+	for _, s := range w.sheets {
+		if strings.EqualFold(s.name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// truncateRunes returns s limited to at most n runes.
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // DeleteSheet removes the sheet at the specified index.
