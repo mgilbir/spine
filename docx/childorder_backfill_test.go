@@ -70,8 +70,8 @@ func TestNewDocument_TableSeedParagraphSurvivesAddParagraph(t *testing.T) {
 	}
 }
 
-// C154 (AddCell path): a cell added to a table row seeds its paragraph the
-// same way and must not lose it on the first AddParagraph.
+// C154 (AddCell path): a cell added to a parsed table row seeds its paragraph
+// the same way and must not lose it on the first AddParagraph.
 func TestNewDocument_AddCellSeedParagraphSurvives(t *testing.T) {
 	doc := Create()
 	tbl := doc.AddTable(1, 1)
@@ -87,6 +87,58 @@ func TestNewDocument_AddCellSeedParagraphSurvives(t *testing.T) {
 	}
 	if got, want := cells[1].Text(), "CELL2-SEED\nCELL2-ADDED"; got != want {
 		t.Errorf("cell text = %q, want %q", got, want)
+	}
+}
+
+// C159: Clear on a parsed paragraph must drop the stale run references from
+// the recorded child order, otherwise a following AddRun is serialized twice
+// (once via the stale reference, once via the appended entry).
+func TestOpenedDocument_ClearThenAddRun(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Paragraphs()[0]
+	p.Clear()
+	p.AddRun().SetText("REPLACED")
+
+	reopened := saveAndReopen(t, doc)
+	pr := reopened.Paragraphs()[0]
+	if got, want := pr.Text(), "REPLACED"; got != want {
+		t.Errorf("paragraph text = %q, want %q (duplicated or dropped run)", got, want)
+	}
+	if got := len(pr.Runs()); got != 1 {
+		t.Errorf("got %d runs, want 1", got)
+	}
+
+	// Multi-cycle: clear and replace again on the reopened document.
+	pr.Clear()
+	pr.AddRun().SetText("REPLACED-AGAIN")
+	final := saveAndReopen(t, reopened)
+	pf := final.Paragraphs()[0]
+	if got, want := pf.Text(), "REPLACED-AGAIN"; got != want {
+		t.Errorf("after second cycle, paragraph text = %q, want %q", got, want)
+	}
+	if got := len(pf.Runs()); got != 1 {
+		t.Errorf("after second cycle, got %d runs, want 1", got)
+	}
+}
+
+// SetText on a parsed paragraph replaces the runs in place; a following
+// AddRun must not resolve a stale run reference and duplicate content
+// (same mechanism as C159, via SetText instead of Clear).
+func TestOpenedDocument_SetTextThenAddRun(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Paragraphs()[0]
+	p.SetText("BASE")
+	p.AddRun().SetText("EXTRA")
+
+	reopened := saveAndReopen(t, doc)
+	if got, want := reopened.Paragraphs()[0].Text(), "BASEEXTRA"; got != want {
+		t.Errorf("paragraph text = %q, want %q", got, want)
 	}
 }
 
@@ -128,5 +180,23 @@ func TestNewDocument_RunSetTextThenTrackedAppends(t *testing.T) {
 		if !strings.Contains(string(dx2), want) {
 			t.Errorf("after second cycle, document.xml missing %q", want)
 		}
+	}
+}
+
+// Run.Clear must reset the run's recorded child order so later appends do not
+// duplicate content through stale references (C159 analogue on CT_R).
+func TestOpenedDocument_RunClearThenSetText(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := doc.Paragraphs()[0].Runs()[0]
+	r.Clear()
+	r.SetText("RUN-REPLACED")
+	r.AddBreak()
+
+	reopened := saveAndReopen(t, doc)
+	if got, want := reopened.Paragraphs()[0].Text(), "RUN-REPLACED"; got != want {
+		t.Errorf("paragraph text = %q, want %q", got, want)
 	}
 }

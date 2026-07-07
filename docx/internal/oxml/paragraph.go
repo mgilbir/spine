@@ -732,3 +732,35 @@ func (p *CT_P) AppendR(r *CT_R) {
 	p.childOrder = append(p.childOrder, pChildRef{pChildR, len(p.R)})
 	p.R = append(p.R, r)
 }
+
+// SetRuns replaces the paragraph's top-level runs with rs, keeping childOrder
+// consistent so stale run references neither drop nor duplicate content. On a
+// tracked paragraph the new runs take the position of the first existing run
+// reference and all other run references are removed; a paragraph with no
+// recorded order stays untracked (the fallback marshal writes runs directly).
+func (p *CT_P) SetRuns(rs []*CT_R) {
+	p.R = rs
+	if len(p.childOrder) == 0 {
+		return
+	}
+	newOrder := make([]pChildRef, 0, len(p.childOrder)+len(rs))
+	inserted := false
+	for _, ref := range p.childOrder {
+		if ref.kind == pChildR {
+			if !inserted {
+				for i := range rs {
+					newOrder = append(newOrder, pChildRef{pChildR, i})
+				}
+				inserted = true
+			}
+			continue
+		}
+		newOrder = append(newOrder, ref)
+	}
+	if !inserted {
+		for i := range rs {
+			newOrder = append(newOrder, pChildRef{pChildR, i})
+		}
+	}
+	p.childOrder = newOrder
+}

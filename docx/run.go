@@ -24,7 +24,7 @@ func (r *Run) Text() string {
 
 // SetText sets the text content, replacing all existing text elements.
 func (r *Run) SetText(text string) {
-	r.r.T = []*oxml.CT_Text{{Space: "preserve", Text: text}}
+	r.r.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: text}})
 }
 
 // Bold returns whether the run is bold.
@@ -188,19 +188,7 @@ func (r *Run) AddTab() {
 
 // Clear removes all content from the run.
 func (r *Run) Clear() {
-	r.r.T = nil
-	r.r.Br = nil
-	r.r.Tab = nil
-	r.r.Cr = nil
-	r.r.Sym = nil
-	r.r.Drawing = nil
-	r.r.FtnRef = nil
-	r.r.EndnoteRef = nil
-	r.r.LastRenderedPageBreak = nil
-	r.r.NoBreakHyphen = nil
-	r.r.SoftHyphen = nil
-	r.r.FldChar = nil
-	r.r.InstrText = nil
+	r.r.ClearContent()
 }
 
 func (r *Run) ensureRPr() {
