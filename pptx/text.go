@@ -243,10 +243,11 @@ type Run struct {
 	baseline   int32 // percentage, positive for superscript, negative for subscript
 }
 
-// NewRun creates a new run.
+// NewRun creates a new run. The font size defaults to 0 (unset) so a run added
+// to a placeholder inherits the placeholder/layout size instead of being
+// clobbered with an explicit sz; set it explicitly with SetFontSize when needed.
 func NewRun() *Run {
 	return &Run{
-		fontSize:  12,
 		underline: enum.UnderlineNone,
 		strike:    enum.StrikeNone,
 	}
