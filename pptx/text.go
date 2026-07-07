@@ -116,9 +116,17 @@ type Paragraph struct {
 type BulletType int
 
 const (
-	BulletNone BulletType = iota
+	// BulletInherit is the zero value: the paragraph does not set any bullet
+	// property and inherits it from the layout/master. This is distinct from
+	// BulletNone, which explicitly suppresses an inherited bullet.
+	BulletInherit BulletType = iota
+	// BulletNone explicitly renders no bullet (emits <a:buNone/>).
+	BulletNone
+	// BulletAuto renders an automatic number.
 	BulletAuto
+	// BulletChar renders a literal bullet character (see SetBulletChar).
 	BulletChar
+	// BulletNumber renders an automatic number (arabicPeriod).
 	BulletNumber
 )
 
