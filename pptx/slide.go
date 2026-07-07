@@ -19,6 +19,16 @@ type Slide struct {
 	relID          string
 	shapes         []Shape
 	shapesModified bool // true if shapes changed via Go API
+
+	// syncedShapes counts the leading shapes already represented in slideXML
+	// (the parsed shapes of a loaded slide). When only appends happened,
+	// marshal() syncs just the new shapes into the parsed tree instead of
+	// rebuilding it — a rebuild drops slide content the domain model cannot
+	// represent (group shapes, connectors) and re-numbers every shape.
+	syncedShapes int
+	// forceShapeRebuild is set by structural edits (shape removal) that the
+	// append-only sync cannot express.
+	forceShapeRebuild bool
 }
 
 // Index returns the 0-based index of the slide in the presentation.
@@ -63,12 +73,15 @@ func (s *Slide) AddShape(shape Shape) {
 	s.shapesModified = true
 }
 
-// RemoveShape removes a shape from the slide.
+// RemoveShape removes a shape from the slide. On slides loaded from a file
+// this forces the shape tree to be rebuilt from the domain model on save;
+// slide content the model does not represent does not survive that rebuild.
 func (s *Slide) RemoveShape(shape Shape) {
 	for i, sh := range s.shapes {
 		if sh == shape {
 			s.shapes = append(s.shapes[:i], s.shapes[i+1:]...)
 			s.shapesModified = true
+			s.forceShapeRebuild = true
 			return
 		}
 	}
@@ -190,6 +203,18 @@ func (s *Slide) syncShapesToXML() {
 
 	spTree := s.slideXML.CSld.SpTree
 
+	// Loaded slide, appends only: marshal just the new shapes into the parsed
+	// tree. The full rebuild below regenerates the tree from the domain model,
+	// which drops content the model does not represent (group shapes,
+	// connectors) and re-numbers every existing shape — acceptable for decks
+	// built programmatically, destructive for decks loaded from a file.
+	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapes) >= s.syncedShapes {
+		s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
+		s.syncedShapes = len(s.shapes)
+		s.shapesModified = false
+		return
+	}
+
 	// Clear existing shapes and child order tracking
 	spTree.Sp = nil
 	spTree.GraphicFrame = nil
@@ -225,6 +250,35 @@ func (s *Slide) syncShapesToXML() {
 	}
 
 	s.shapesModified = false
+}
+
+// appendShapesToXML marshals newly added shapes into a parsed shape tree,
+// assigning ids above everything already on the slide.
+func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
+	id := spTree.MaxShapeID() + 1
+	if id < 2 {
+		id = 2 // 1 belongs to the shape tree itself
+	}
+	for _, shape := range shapes {
+		switch sh := shape.(type) {
+		case *TextBox:
+			spTree.AppendSp(textBoxToOxml(sh, id))
+		case *PlaceholderShape:
+			spTree.AppendSp(placeholderToOxml(sh, id))
+		case *AutoShape:
+			spTree.AppendSp(autoShapeToOxml(sh, id))
+		case *Table:
+			gf := tableToOxml(sh, id)
+			spTree.AppendGraphicFrame(gf)
+			// Later row/cell mutations reach the XML via SyncXML.
+			sh.sourceFrame = gf
+		case *Picture:
+			spTree.AppendPic(pictureToOxml(sh, id))
+		default:
+			continue
+		}
+		id++
+	}
 }
 
 // textBoxToOxml converts a TextBox to oxml.Shape.

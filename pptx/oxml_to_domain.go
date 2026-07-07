@@ -75,6 +75,10 @@ func (s *Slide) materializeShapes() {
 			}
 		}
 	}
+
+	// Everything materialized so far is already represented in the parsed
+	// XML; marshal() appends only shapes added after this point.
+	s.syncedShapes = len(s.shapes)
 }
 
 // setShapeBackRef sets the slide back-reference on shapes that need it.
