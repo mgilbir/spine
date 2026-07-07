@@ -1444,6 +1444,58 @@ func (p *Presentation) nextAvailableSlidePartName() string {
 	}
 }
 
+// deepCloneNotesSlide gives the slide at newSlidePart its own copy of the notes
+// slide it currently references (shared verbatim from the slide it was
+// duplicated from). Without this, both slides point at one notesSlide part and
+// editing one slide's notes changes the other.
+func (p *Presentation) deepCloneNotesSlide(newSlidePart string) {
+	for _, rel := range p.relationships[newSlidePart] {
+		if rel == nil || rel.Type != opc.RelTypeNotesSlide {
+			continue
+		}
+		srcNotes := opc.ResolvePartName(newSlidePart, rel.Target)
+		part, ok := p.otherParts[srcNotes]
+		if !ok {
+			return
+		}
+
+		newNotes := p.nextAvailableNotesName()
+		copied := *part
+		p.otherParts[newNotes] = &copied
+
+		// Point the duplicate's notesSlide relationship at the new part.
+		rel.Target = relativeTarget(newSlidePart, newNotes)
+
+		// Copy the notes part's own relationships, repointing its slide
+		// back-reference to the duplicate rather than the original slide.
+		var notesRels []*opc.Relationship
+		for _, nr := range p.relationships[srcNotes] {
+			if nr == nil {
+				continue
+			}
+			c := *nr
+			if c.Type == opc.RelTypeSlide {
+				c.Target = relativeTarget(newNotes, newSlidePart)
+			}
+			notesRels = append(notesRels, &c)
+		}
+		if len(notesRels) > 0 {
+			p.relationships[newNotes] = notesRels
+		}
+		return
+	}
+}
+
+// nextAvailableNotesName returns a notesSlide part name not already in use.
+func (p *Presentation) nextAvailableNotesName() string {
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/notesSlides/notesSlide%d.xml", i)
+		if _, exists := p.otherParts[name]; !exists {
+			return name
+		}
+	}
+}
+
 // nextAvailableLayoutPartName returns a slideLayout part name not already used
 // by an existing layout or other part.
 func (p *Presentation) nextAvailableLayoutPartName() string {
