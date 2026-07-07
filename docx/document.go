@@ -317,8 +317,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		writer.ContentTypes = d.reader.ContentTypes
 	}
 
-	// Write [Content_Types].xml as raw file if preserved
-	if len(d.contentTypesData) > 0 {
+	// Write [Content_Types].xml as raw file if preserved. When parts were added
+	// after open (images/headers/footers), skip the raw copy so the writer
+	// regenerates [Content_Types].xml from the (preserved plus newly registered)
+	// content types — otherwise the new parts' content types would be missing.
+	if len(d.contentTypesData) > 0 && !d.hasAddedParts() {
 		if err := writer.WriteRawFile("[Content_Types].xml", d.contentTypesData); err != nil {
 			return err
 		}
@@ -364,6 +367,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
+	// Write parts added through the mutation API (images, headers, footers).
+	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
 	// Write document.xml (regenerated)
 	docData := marshalDocumentXML(d.document)
 	if err := writer.WritePart("/word/document.xml", opc.ContentTypeDocument, docData); err != nil {
@@ -379,6 +387,44 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal)
 
 	return nil
+}
+
+// writeAddedParts writes the media, header, and footer parts added through the
+// mutation API. Both save paths call it, so parts added to a document opened
+// from a file are written into the package — previously only the new-document
+// path wrote them, leaving the relationships and references dangling.
+func (d *Document) writeAddedParts(writer *opc.Writer) error {
+	for _, img := range d.imageParts {
+		if err := writer.WritePart(img.partName, img.contentType, img.data); err != nil {
+			return err
+		}
+	}
+	for _, hp := range d.newHeaderParts {
+		hdrPart, ok := d.headers[hp.partName]
+		if !ok {
+			continue
+		}
+		data := marshalHdrFtrXML(hdrPart.hdr, "hdr")
+		if err := writer.WritePart(hp.partName, opc.ContentTypeDocHeader, data); err != nil {
+			return err
+		}
+	}
+	for _, fp := range d.newFooterParts {
+		ftrPart, ok := d.footers[fp.partName]
+		if !ok {
+			continue
+		}
+		data := marshalHdrFtrXML(ftrPart.ftr, "ftr")
+		if err := writer.WritePart(fp.partName, opc.ContentTypeDocFooter, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hasAddedParts reports whether any parts were added through the mutation API.
+func (d *Document) hasAddedParts() bool {
+	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0
 }
 
 // saveNew saves a newly created document.
@@ -420,26 +466,18 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		})
 	}
 
-	// Write image parts and add their relationships
+	// Write the media/header/footer parts, then record their relationships.
+	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
 	for _, img := range d.imageParts {
-		if err := writer.WritePart(img.partName, img.contentType, img.data); err != nil {
-			return err
-		}
 		docRels = append(docRels, &opc.Relationship{
 			ID:     img.relID,
 			Type:   opc.RelTypeImage,
 			Target: img.partName[len("/word/"):], // relative to /word/
 		})
 	}
-
-	// Write header/footer parts and relationships
 	for _, hp := range d.newHeaderParts {
-		if hdrPart, ok := d.headers[hp.partName]; ok {
-			data := marshalHdrFtrXML(hdrPart.hdr, "hdr")
-			if err := writer.WritePart(hp.partName, opc.ContentTypeDocHeader, data); err != nil {
-				return err
-			}
-		}
 		docRels = append(docRels, &opc.Relationship{
 			ID:     hp.relID,
 			Type:   opc.RelTypeHeader,
@@ -447,12 +485,6 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		})
 	}
 	for _, fp := range d.newFooterParts {
-		if ftrPart, ok := d.footers[fp.partName]; ok {
-			data := marshalHdrFtrXML(ftrPart.ftr, "ftr")
-			if err := writer.WritePart(fp.partName, opc.ContentTypeDocFooter, data); err != nil {
-				return err
-			}
-		}
 		docRels = append(docRels, &opc.Relationship{
 			ID:     fp.relID,
 			Type:   opc.RelTypeFooter,
