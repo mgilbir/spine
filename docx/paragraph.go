@@ -21,9 +21,9 @@ func (p *Paragraph) Text() string {
 
 // SetText sets the text content, replacing all runs.
 func (p *Paragraph) SetText(text string) {
-	p.p.R = []*oxml.CT_R{{
+	p.p.SetRuns([]*oxml.CT_R{{
 		T: []*oxml.CT_Text{{Space: "preserve", Text: text}},
-	}}
+	}})
 }
 
 // Runs returns all runs in the paragraph.
@@ -90,9 +90,11 @@ func (p *Paragraph) SetAlignment(align Alignment) {
 	p.p.PPr.Jc = &oxml.CT_Jc{Val: val}
 }
 
-// Clear removes all runs from the paragraph.
+// Clear removes all runs from the paragraph, including their entries in the
+// recorded child order, so a later AddRun does not resolve a stale reference
+// to the new run and duplicate it.
 func (p *Paragraph) Clear() {
-	p.p.R = nil
+	p.p.SetRuns(nil)
 }
 
 // --- Spacing ---

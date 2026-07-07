@@ -664,10 +664,103 @@ func marshalPContent(b *xmlb.Builder, ns string,
 	}
 }
 
+// backfillChildOrder records any existing untracked children in childOrder,
+// grouped by kind in slice order. A paragraph built programmatically (e.g.
+// SetRuns on an empty order writes p.R without tracking) has typed children
+// but an empty childOrder; the first tracked append would otherwise flip
+// marshaling to the childOrder-only path and silently drop them.
+func (p *CT_P) backfillChildOrder() {
+	if len(p.childOrder) > 0 {
+		return
+	}
+	for i := range p.R {
+		p.childOrder = append(p.childOrder, pChildRef{pChildR, i})
+	}
+	for i := range p.Hyperlink {
+		p.childOrder = append(p.childOrder, pChildRef{pChildHyperlink, i})
+	}
+	for i := range p.BookmarkStart {
+		p.childOrder = append(p.childOrder, pChildRef{pChildBookmarkStart, i})
+	}
+	for i := range p.BookmarkEnd {
+		p.childOrder = append(p.childOrder, pChildRef{pChildBookmarkEnd, i})
+	}
+	for i := range p.ProofErr {
+		p.childOrder = append(p.childOrder, pChildRef{pChildProofErr, i})
+	}
+	for i := range p.PermStart {
+		p.childOrder = append(p.childOrder, pChildRef{pChildPermStart, i})
+	}
+	for i := range p.PermEnd {
+		p.childOrder = append(p.childOrder, pChildRef{pChildPermEnd, i})
+	}
+	for i := range p.Ins {
+		p.childOrder = append(p.childOrder, pChildRef{pChildIns, i})
+	}
+	for i := range p.Del {
+		p.childOrder = append(p.childOrder, pChildRef{pChildDel, i})
+	}
+	for i := range p.FldSimple {
+		p.childOrder = append(p.childOrder, pChildRef{pChildFldSimple, i})
+	}
+	for i := range p.SdtRun {
+		p.childOrder = append(p.childOrder, pChildRef{pChildSdtRun, i})
+	}
+	for i := range p.CommentRangeStart {
+		p.childOrder = append(p.childOrder, pChildRef{pChildCommentRangeStart, i})
+	}
+	for i := range p.CommentRangeEnd {
+		p.childOrder = append(p.childOrder, pChildRef{pChildCommentRangeEnd, i})
+	}
+	for i := range p.OMath {
+		p.childOrder = append(p.childOrder, pChildRef{pChildOMath, i})
+	}
+	for i := range p.OMathPara {
+		p.childOrder = append(p.childOrder, pChildRef{pChildOMathPara, i})
+	}
+	for i := range p.AlternateContent {
+		p.childOrder = append(p.childOrder, pChildRef{pChildAlternateContent, i})
+	}
+}
+
 // AppendR appends a run to this paragraph, maintaining child order so it is
 // marshaled even on a paragraph parsed from a file (whose order is already
-// populated).
+// populated). Existing untracked children are backfilled into the order first
+// so they are not dropped by the childOrder-gated marshal.
 func (p *CT_P) AppendR(r *CT_R) {
+	p.backfillChildOrder()
 	p.childOrder = append(p.childOrder, pChildRef{pChildR, len(p.R)})
 	p.R = append(p.R, r)
+}
+
+// SetRuns replaces the paragraph's top-level runs with rs, keeping childOrder
+// consistent so stale run references neither drop nor duplicate content. On a
+// tracked paragraph the new runs take the position of the first existing run
+// reference and all other run references are removed; a paragraph with no
+// recorded order stays untracked (the fallback marshal writes runs directly).
+func (p *CT_P) SetRuns(rs []*CT_R) {
+	p.R = rs
+	if len(p.childOrder) == 0 {
+		return
+	}
+	newOrder := make([]pChildRef, 0, len(p.childOrder)+len(rs))
+	inserted := false
+	for _, ref := range p.childOrder {
+		if ref.kind == pChildR {
+			if !inserted {
+				for i := range rs {
+					newOrder = append(newOrder, pChildRef{pChildR, i})
+				}
+				inserted = true
+			}
+			continue
+		}
+		newOrder = append(newOrder, ref)
+	}
+	if !inserted {
+		for i := range rs {
+			newOrder = append(newOrder, pChildRef{pChildR, i})
+		}
+	}
+	p.childOrder = newOrder
 }
