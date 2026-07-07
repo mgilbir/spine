@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -756,9 +757,9 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		writtenRels[slideName] = true
 	}
 
-	// Write all themes
-	for themeName, themeBytes := range p.themeData {
-		if err := writer.WritePart(themeName, opc.ContentTypeTheme, themeBytes); err != nil {
+	// Write all themes (sorted for deterministic package output)
+	for _, themeName := range sortedKeys(p.themeData) {
+		if err := writer.WritePart(themeName, opc.ContentTypeTheme, p.themeData[themeName]); err != nil {
 			return err
 		}
 	}
@@ -798,23 +799,26 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write printer settings
-	for name, data := range p.printerSettings {
-		if err := writer.WritePart(name, "application/vnd.openxmlformats-officedocument.presentationml.printerSettings", data); err != nil {
+	// Write printer settings (sorted for deterministic package output)
+	for _, name := range sortedKeys(p.printerSettings) {
+		if err := writer.WritePart(name, "application/vnd.openxmlformats-officedocument.presentationml.printerSettings", p.printerSettings[name]); err != nil {
 			return err
 		}
 	}
 
-	// Write other parts
-	for name, part := range p.otherParts {
+	// Write other parts (sorted for deterministic package output)
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}
 
-	// Write relationships for all parts that have rels but haven't been written explicitly
+	// Write relationships for all parts that have rels but haven't been written
+	// explicitly (sorted for deterministic package output)
 	writtenRels["/ppt/presentation.xml"] = true // will be written below
-	for partName, rels := range p.relationships {
+	for _, partName := range sortedKeys(p.relationships) {
+		rels := p.relationships[partName]
 		if writtenRels[partName] || len(rels) == 0 {
 			continue
 		}
@@ -1275,8 +1279,10 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		TargetMode: opc.TargetModeInternal,
 	})
 
-	// Write media and other auxiliary parts created while marshaling slides.
-	for name, part := range p.otherParts {
+	// Write media and other auxiliary parts created while marshaling slides
+	// (sorted for deterministic package output).
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
@@ -1667,4 +1673,17 @@ func newShapeTree() *oxml.ShapeTree {
 			},
 		},
 	}
+}
+
+// sortedKeys returns the keys of a string-keyed map in sorted order, so parts
+// written by iterating a map land in a deterministic order (Go randomizes map
+// iteration per process, which would otherwise vary the package byte-for-byte
+// between runs).
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
