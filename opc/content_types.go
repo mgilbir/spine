@@ -6,6 +6,8 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Common content types used in OOXML documents.
@@ -70,6 +72,19 @@ type ContentTypes struct {
 
 	// overrideOrder preserves the original ordering of override part names.
 	overrideOrder []string
+
+	// origExt maps a lowercase extension to the original-cased spelling first
+	// seen in the source (or as passed to SetDefault). OPC matches extensions
+	// case-insensitively, so Defaults is keyed by lowercase, but byte-identical
+	// round-trip requires re-emitting the extension exactly as it appeared
+	// (e.g. "JPG", not "jpg").
+	origExt map[string]string
+
+	// OriginalXMLSep is the exact byte sequence between the XML declaration and
+	// the root <Types> element in the parsed file (typically "\r\n", but some
+	// producers use "\n"). It is empty for a ContentTypes created from scratch,
+	// which defaults to "\r\n" on marshal.
+	OriginalXMLSep string
 }
 
 // NewContentTypes creates a new ContentTypes with default extension mappings.
@@ -86,6 +101,7 @@ func NewContentTypes() *ContentTypes {
 			"svg":  ContentTypeSVG,
 		},
 		Overrides: make(map[string]string),
+		origExt:   make(map[string]string),
 	}
 }
 
@@ -109,12 +125,28 @@ func (ct *ContentTypes) GetContentType(partName string) string {
 
 // SetDefault sets a default content type for a file extension.
 func (ct *ContentTypes) SetDefault(extension, contentType string) {
-	ext := strings.TrimPrefix(extension, ".")
-	ext = strings.ToLower(ext)
+	orig := strings.TrimPrefix(extension, ".")
+	ext := strings.ToLower(orig)
 	if _, exists := ct.Defaults[ext]; !exists {
 		ct.defaultOrder = append(ct.defaultOrder, ext)
 	}
+	if ct.origExt == nil {
+		ct.origExt = make(map[string]string)
+	}
+	if _, exists := ct.origExt[ext]; !exists {
+		ct.origExt[ext] = orig
+	}
 	ct.Defaults[ext] = contentType
+}
+
+// displayExtension returns the original-cased spelling for a lowercase
+// extension key, falling back to the key itself when no original casing was
+// recorded.
+func (ct *ContentTypes) displayExtension(ext string) string {
+	if orig, ok := ct.origExt[ext]; ok {
+		return orig
+	}
+	return ext
 }
 
 // SetOverride sets a content type override for a specific part.
@@ -151,20 +183,25 @@ const ContentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/co
 func (ct *ContentTypes) Marshal() ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
-	buf.WriteByte('\r')
-	buf.WriteByte('\n')
+	sep := ct.OriginalXMLSep
+	if sep == "" {
+		sep = "\r\n"
+	}
+	buf.WriteString(sep)
 	buf.WriteString(`<Types xmlns="`)
 	buf.WriteString(ContentTypesNamespace)
 	buf.WriteString(`">`)
 
-	// Write defaults: use original order, then append any new entries sorted
+	// Write defaults: use original order, then append any new entries sorted.
+	// The extension is re-emitted in its original case (OPC matches
+	// case-insensitively, but round-trip must preserve the source spelling).
 	exts := ct.orderedDefaults()
 	for _, ext := range exts {
 		if contentType, ok := ct.Defaults[ext]; ok {
 			buf.WriteString(`<Default Extension="`)
-			_ = xml.EscapeText(&buf, []byte(ext))
+			buf.WriteString(xmlb.EscapeAttrValue(ct.displayExtension(ext)))
 			buf.WriteString(`" ContentType="`)
-			_ = xml.EscapeText(&buf, []byte(contentType))
+			buf.WriteString(xmlb.EscapeAttrValue(contentType))
 			buf.WriteString(`"/>`)
 		}
 	}
@@ -174,9 +211,9 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	for _, partName := range parts {
 		if contentType, ok := ct.Overrides[partName]; ok {
 			buf.WriteString(`<Override PartName="`)
-			_ = xml.EscapeText(&buf, []byte(partName))
+			buf.WriteString(xmlb.EscapeAttrValue(partName))
 			buf.WriteString(`" ContentType="`)
-			_ = xml.EscapeText(&buf, []byte(contentType))
+			buf.WriteString(xmlb.EscapeAttrValue(contentType))
 			buf.WriteString(`"/>`)
 		}
 	}
@@ -250,6 +287,24 @@ func (ct *ContentTypes) orderedOverrides() []string {
 	return append(result, extra...)
 }
 
+// extractXMLSeparator returns the exact bytes appearing between the XML
+// declaration ("?>") and the root element ("<") in data. This is usually
+// "\r\n" but some producers emit a bare "\n"; capturing it lets Marshal
+// reproduce the original prolog byte-for-byte. Returns "" when no separator is
+// found.
+func extractXMLSeparator(data []byte) string {
+	end := bytes.Index(data, []byte("?>"))
+	if end < 0 {
+		return ""
+	}
+	rest := data[end+2:]
+	lt := bytes.IndexByte(rest, '<')
+	if lt < 0 {
+		return ""
+	}
+	return string(rest[:lt])
+}
+
 // UnmarshalContentTypes parses content types XML into a ContentTypes struct.
 func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	var ctXML contentTypesXML
@@ -258,16 +313,21 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	}
 
 	ct := &ContentTypes{
-		Defaults:      make(map[string]string, len(ctXML.Defaults)),
-		Overrides:     make(map[string]string, len(ctXML.Overrides)),
-		defaultOrder:  make([]string, 0, len(ctXML.Defaults)),
-		overrideOrder: make([]string, 0, len(ctXML.Overrides)),
+		Defaults:       make(map[string]string, len(ctXML.Defaults)),
+		Overrides:      make(map[string]string, len(ctXML.Overrides)),
+		defaultOrder:   make([]string, 0, len(ctXML.Defaults)),
+		overrideOrder:  make([]string, 0, len(ctXML.Overrides)),
+		origExt:        make(map[string]string, len(ctXML.Defaults)),
+		OriginalXMLSep: extractXMLSeparator(data),
 	}
 
 	for _, def := range ctXML.Defaults {
 		ext := strings.ToLower(def.Extension)
 		ct.Defaults[ext] = def.ContentType
 		ct.defaultOrder = append(ct.defaultOrder, ext)
+		if _, exists := ct.origExt[ext]; !exists {
+			ct.origExt[ext] = def.Extension
+		}
 	}
 
 	for _, override := range ctXML.Overrides {

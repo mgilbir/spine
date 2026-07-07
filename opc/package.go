@@ -61,6 +61,59 @@ type CoreProperties struct {
 	// presentFields tracks which fields had XML elements during unmarshaling,
 	// even if their values were empty. Used by Marshal to preserve empty elements.
 	presentFields map[string]bool
+
+	// rawDates preserves the exact lexical form of each date element as it
+	// appeared in the source (keyed by element key, e.g. "dcterms:created").
+	// W3CDTF permits reduced-precision forms ("2024", "2024-01-15") and
+	// non-UTC offsets that are not valid RFC3339; preserving the original text
+	// lets Marshal re-emit it verbatim when the value has not been reassigned,
+	// avoiding both data loss and gratuitous reformatting.
+	rawDates map[string]string
+}
+
+// w3cdtfLayouts lists the date layouts accepted for W3CDTF core-property dates,
+// from most to least precise. W3CDTF (ISO 8601 profile) allows truncating to
+// any of these; only the first is valid RFC3339.
+var w3cdtfLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02T15:04:05",
+	"2006-01-02T15:04",
+	"2006-01-02",
+	"2006-01",
+	"2006",
+}
+
+// parseW3CDTF parses a W3CDTF date string, trying each accepted layout.
+func parseW3CDTF(s string) (time.Time, bool) {
+	for _, layout := range w3cdtfLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// dateContent returns the text to write for a date element, or "" to omit it.
+// When the source preserved a raw lexical form and t still equals it, the raw
+// text is returned verbatim (preserving reduced precision, offset, and
+// sub-second components); otherwise t is formatted as RFC3339 UTC.
+func (cp *CoreProperties) dateContent(key string, t time.Time) string {
+	if raw, ok := cp.rawDates[key]; ok {
+		if parsed, pok := parseW3CDTF(raw); pok {
+			if parsed.Equal(t) {
+				return raw
+			}
+		} else if t.IsZero() {
+			// Original was present but unparseable and never reassigned:
+			// preserve it verbatim rather than dropping it.
+			return raw
+		}
+	}
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // dcDate represents a Dublin Core date with xsi:type attribute.
@@ -131,21 +184,21 @@ func (cp *CoreProperties) marshalCoreElement(b *strings.Builder, key string) {
 			b.WriteString("<cp:version>" + xmlEscape(cp.Version) + "</cp:version>")
 		}
 	case "dcterms:created":
-		if !cp.Created.IsZero() {
+		if s := cp.dateContent(key, cp.Created); s != "" {
 			b.WriteString(`<dcterms:created xsi:type="dcterms:W3CDTF">`)
-			b.WriteString(cp.Created.UTC().Format(time.RFC3339))
+			b.WriteString(s)
 			b.WriteString("</dcterms:created>")
 		}
 	case "dcterms:modified":
-		if !cp.Modified.IsZero() {
+		if s := cp.dateContent(key, cp.Modified); s != "" {
 			b.WriteString(`<dcterms:modified xsi:type="dcterms:W3CDTF">`)
-			b.WriteString(cp.Modified.UTC().Format(time.RFC3339))
+			b.WriteString(s)
 			b.WriteString("</dcterms:modified>")
 		}
 	case "cp:lastPrinted":
-		if !cp.LastPrinted.IsZero() {
+		if s := cp.dateContent(key, cp.LastPrinted); s != "" {
 			b.WriteString(`<cp:lastPrinted>`)
-			b.WriteString(cp.LastPrinted.UTC().Format(time.RFC3339))
+			b.WriteString(s)
 			b.WriteString("</cp:lastPrinted>")
 		}
 	}
@@ -199,7 +252,12 @@ func (cp *CoreProperties) Marshal() ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-// xmlEscape escapes special XML characters in a string.
+// xmlEscape escapes the characters that must be escaped in XML character data:
+// &, <, and > (the last is only strictly required in the sequence "]]>", but
+// is escaped unconditionally for safety). Unlike encoding/xml's EscapeText it
+// does not escape quotes or apostrophes — those are legal in text and escaping
+// them mutates otherwise-unchanged content, breaking byte-identical round-trip
+// (e.g. "O'Brien" must not become "O&apos;Brien").
 func xmlEscape(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -210,10 +268,6 @@ func xmlEscape(s string) string {
 			b.WriteString("&lt;")
 		case '>':
 			b.WriteString("&gt;")
-		case '"':
-			b.WriteString("&quot;")
-		case '\'':
-			b.WriteString("&apos;")
 		default:
 			b.WriteRune(r)
 		}
@@ -366,6 +420,7 @@ func coreElementKey(name xml.Name) string {
 func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 	cp := &CoreProperties{
 		presentFields: make(map[string]bool),
+		rawDates:      make(map[string]string),
 	}
 
 	decoder := xml.NewDecoder(strings.NewReader(string(data)))
@@ -397,21 +452,24 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 			case "dcterms:created":
 				var d dcDate
 				if err := decoder.DecodeElement(&d, &t); err == nil {
-					if parsed, err := time.Parse(time.RFC3339, d.Value); err == nil {
+					cp.rawDates[key] = d.Value
+					if parsed, ok := parseW3CDTF(d.Value); ok {
 						cp.Created = parsed
 					}
 				}
 			case "dcterms:modified":
 				var d dcDate
 				if err := decoder.DecodeElement(&d, &t); err == nil {
-					if parsed, err := time.Parse(time.RFC3339, d.Value); err == nil {
+					cp.rawDates[key] = d.Value
+					if parsed, ok := parseW3CDTF(d.Value); ok {
 						cp.Modified = parsed
 					}
 				}
 			case "cp:lastPrinted":
 				var d dcDate
 				if err := decoder.DecodeElement(&d, &t); err == nil {
-					if parsed, err := time.Parse(time.RFC3339, d.Value); err == nil {
+					cp.rawDates[key] = d.Value
+					if parsed, ok := parseW3CDTF(d.Value); ok {
 						cp.LastPrinted = parsed
 					}
 				}
