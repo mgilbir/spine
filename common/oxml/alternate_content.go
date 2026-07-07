@@ -3,21 +3,36 @@ package oxml
 
 import (
 	"encoding/xml"
+	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// AlternateContentChoice is a single mc:Choice branch of an AlternateContent.
+type AlternateContentChoice struct {
+	// Requires is the mc:Choice/@Requires attribute. It may list more than one
+	// namespace prefix, e.g. "p14 p15".
+	Requires string
+	// Content is the inner XML of the choice (xsd:any from external schemas).
+	Content []byte
+}
 
 // AlternateContent represents mc:AlternateContent from ECMA-376 Part 3.
 // The mc structure is typed, but the inner content of mc:Choice and mc:Fallback
 // is xsd:any from external schemas (p14, p15, etc.) and stored as raw bytes.
 type AlternateContent struct {
-	Requires        string // mc:Choice/@Requires (e.g., "p14")
-	ChoiceContent   []byte // inner XML of mc:Choice (xsd:any from external schemas)
-	FallbackContent []byte // inner XML of mc:Fallback (xsd:any)
+	// Choices holds every mc:Choice in document order. MCE permits more than one.
+	Choices []AlternateContentChoice
+	// HasFallback records whether an mc:Fallback element was present, so an
+	// empty <mc:Fallback/> round-trips (its absence is semantically different).
+	HasFallback bool
+	// Fallback is the inner XML of mc:Fallback (xsd:any).
+	Fallback []byte
 }
 
 // UnmarshalXML implements custom XML unmarshaling for AlternateContent.
-// Parses mc:Choice and mc:Fallback children, capturing inner content as raw bytes.
+// Parses every mc:Choice and the mc:Fallback child, capturing inner content as
+// raw bytes.
 func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {
 		tok, err := d.Token()
@@ -28,28 +43,29 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "Choice":
-				// Extract Requires attribute
+				choice := AlternateContentChoice{}
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "Requires" {
-						ac.Requires = attr.Value
+						choice.Requires = attr.Value
 					}
 				}
-				// Capture inner content as raw bytes
 				var inner struct {
 					Content []byte `xml:",innerxml"`
 				}
 				if err := d.DecodeElement(&inner, &t); err != nil {
 					return err
 				}
-				ac.ChoiceContent = inner.Content
+				choice.Content = inner.Content
+				ac.Choices = append(ac.Choices, choice)
 			case "Fallback":
+				ac.HasFallback = true
 				var inner struct {
 					Content []byte `xml:",innerxml"`
 				}
 				if err := d.DecodeElement(&inner, &t); err != nil {
 					return err
 				}
-				ac.FallbackContent = inner.Content
+				ac.Fallback = inner.Content
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -67,42 +83,52 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 	nsMC := xmlb.NSMarkupCompatibility
 	prefixMC := xmlb.PrefixMarkupCompatibility
 
-	// Build inline namespace attrs for mc:AlternateContent element.
-	// Always declare xmlns:mc. Also declare extension NS from Requires prefix,
-	// but only if it hasn't already been declared at a higher level (e.g., root).
+	// Declare an xmlns for every extension prefix referenced by any choice's
+	// Requires (which may list several prefixes). Only declare a prefix that is
+	// not already in scope, and register all of them so raw child content using
+	// those prefixes resolves correctly.
 	var nsAttrs []xmlb.Attr
-	if ac.Requires != "" {
-		if extNS, ok := xmlb.ExtensionPrefixToNS[ac.Requires]; ok {
-			if !b.IsNamespaceDeclared(extNS) {
-				nsAttrs = append(nsAttrs, xmlb.Attr{Name: "xmlns:" + ac.Requires, Value: extNS})
+	var registered []string // extension NS URIs registered here, reset afterward
+	seen := make(map[string]bool)
+	for _, choice := range ac.Choices {
+		for _, prefix := range strings.Fields(choice.Requires) {
+			if seen[prefix] {
+				continue
 			}
-			// Register so child raw content with this prefix resolves correctly
-			b.RegisterNamespace(extNS, ac.Requires)
+			seen[prefix] = true
+			extNS, ok := xmlb.ExtensionPrefixToNS[prefix]
+			if !ok {
+				continue
+			}
+			if !b.IsNamespaceDeclared(extNS) {
+				nsAttrs = append(nsAttrs, xmlb.Attr{Name: "xmlns:" + prefix, Value: extNS})
+			}
+			b.RegisterNamespace(extNS, prefix)
+			registered = append(registered, extNS)
 		}
 	}
 
 	b.StartElementInlineNS(nsMC, prefixMC, "AlternateContent", nsAttrs...)
 
-	// mc:Choice with Requires attribute
-	b.StartElement(nsMC, "Choice", xmlb.StrAttr("Requires", ac.Requires))
-	b.WriteRaw(ac.ChoiceContent)
-	b.EndElement(nsMC, "Choice")
+	for _, choice := range ac.Choices {
+		b.StartElement(nsMC, "Choice", xmlb.StrAttr("Requires", choice.Requires))
+		b.WriteRaw(choice.Content)
+		b.EndElement(nsMC, "Choice")
+	}
 
-	// mc:Fallback with xmlns="" (Office convention to reset default NS)
-	// Only emit if fallback content was present in the original.
-	if len(ac.FallbackContent) > 0 {
+	// mc:Fallback with xmlns="" (Office convention to reset default NS). Emitted
+	// whenever the original had a fallback, even if it was empty.
+	if ac.HasFallback {
 		b.StartElement(nsMC, "Fallback", xmlb.Attr{Name: "xmlns", Value: ""})
-		b.WriteRaw(ac.FallbackContent)
+		b.WriteRaw(ac.Fallback)
 		b.EndElement(nsMC, "Fallback")
 	}
 
 	b.EndElementInlineNS(prefixMC, "AlternateContent")
 
-	// Reset so next usage gets fresh inline declarations
+	// Reset so the next usage gets fresh inline declarations.
 	b.ResetNamespaceDeclaration(nsMC)
-	if ac.Requires != "" {
-		if extNS, ok := xmlb.ExtensionPrefixToNS[ac.Requires]; ok {
-			b.ResetNamespaceDeclaration(extNS)
-		}
+	for _, extNS := range registered {
+		b.ResetNamespaceDeclaration(extNS)
 	}
 }
