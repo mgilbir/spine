@@ -76,6 +76,37 @@ var tnlNameMap = map[string]tnlChildKind{
 	"video":      tnlVideo,
 }
 
+// AppendPar adds a parallel time node, maintaining child order so it is
+// marshaled (the list serializes strictly by child order).
+func (tnl *TimeNodeList) AppendPar(p *ParallelTimeNode) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlPar, len(tnl.Par)})
+	tnl.Par = append(tnl.Par, p)
+}
+
+// AppendSeq adds a sequence time node, maintaining child order.
+func (tnl *TimeNodeList) AppendSeq(s *SequenceTimeNode) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlSeq, len(tnl.Seq)})
+	tnl.Seq = append(tnl.Seq, s)
+}
+
+// AppendCmd adds a command node, maintaining child order.
+func (tnl *TimeNodeList) AppendCmd(c *Command) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlCmd, len(tnl.Cmd)})
+	tnl.Cmd = append(tnl.Cmd, c)
+}
+
+// AppendVideo adds a video media node, maintaining child order.
+func (tnl *TimeNodeList) AppendVideo(v *Video) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlVideo, len(tnl.Video)})
+	tnl.Video = append(tnl.Video, v)
+}
+
+// AppendAudio adds an audio media node, maintaining child order.
+func (tnl *TimeNodeList) AppendAudio(a *Audio) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAudio, len(tnl.Audio)})
+	tnl.Audio = append(tnl.Audio, a)
+}
+
 func (tnl *TimeNodeList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {
 		tok, err := d.Token()

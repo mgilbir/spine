@@ -96,6 +96,10 @@ func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Pi
 		m.posterRelID = s.embedImageData(posterData, posterCT)
 	}
 
+	if m.playMode == PlayAutomatically {
+		s.autoplayMedia = append(s.autoplayMedia, mediaTimingRef{spid: id, kind: kind})
+	}
+
 	name := m.Name()
 	if name == "" {
 		if kind == mediaAudio {
