@@ -176,6 +176,62 @@ func (st *ShapeTree) ClearChildOrder() {
 	st.childOrder = nil
 }
 
+// RemoveChildren rebuilds the shape tree, omitting the given child references
+// and preserving every other child (including kinds not materialized by the
+// domain model, such as connectors and non-table graphic frames) in order.
+func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
+	if len(refs) == 0 {
+		return
+	}
+	drop := make(map[ChildRef]bool, len(refs))
+	for _, r := range refs {
+		drop[r] = true
+	}
+
+	var (
+		sp    []*Shape
+		pic   []*Picture
+		gf    []*GraphicFrame
+		grp   []*GroupShape
+		cxn   []*ConnectionShape
+		order []ChildRef
+	)
+	for _, ref := range st.childOrder {
+		if drop[ref] {
+			continue
+		}
+		switch ref.Kind {
+		case ChildSp:
+			if ref.Index < len(st.Sp) {
+				order = append(order, ChildRef{ChildSp, len(sp)})
+				sp = append(sp, st.Sp[ref.Index])
+			}
+		case ChildPic:
+			if ref.Index < len(st.Pic) {
+				order = append(order, ChildRef{ChildPic, len(pic)})
+				pic = append(pic, st.Pic[ref.Index])
+			}
+		case ChildGraphicFrame:
+			if ref.Index < len(st.GraphicFrame) {
+				order = append(order, ChildRef{ChildGraphicFrame, len(gf)})
+				gf = append(gf, st.GraphicFrame[ref.Index])
+			}
+		case ChildGrpSp:
+			if ref.Index < len(st.GrpSp) {
+				order = append(order, ChildRef{ChildGrpSp, len(grp)})
+				grp = append(grp, st.GrpSp[ref.Index])
+			}
+		case ChildCxnSp:
+			if ref.Index < len(st.CxnSp) {
+				order = append(order, ChildRef{ChildCxnSp, len(cxn)})
+				cxn = append(cxn, st.CxnSp[ref.Index])
+			}
+		}
+	}
+	st.Sp, st.Pic, st.GraphicFrame, st.GrpSp, st.CxnSp = sp, pic, gf, grp, cxn
+	st.childOrder = order
+}
+
 // AppendSp appends a shape as the last child, keeping z-order tracking
 // consistent on trees parsed from a file (appended children render on top).
 func (st *ShapeTree) AppendSp(sp *Shape) {
