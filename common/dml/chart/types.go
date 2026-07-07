@@ -240,10 +240,12 @@ type DLblPos struct {
 	Val string `xml:"val,attr"` // bestFit, b, ctr, inBase, inEnd, l, outEnd, r, t
 }
 
-// NumFmt represents CT_NumFmt (c:numFmt)
+// NumFmt represents CT_NumFmt (c:numFmt). sourceLinked defaults to true, so it
+// is a pointer: an explicit false must be emitted rather than omitted (which
+// readers treat as true).
 type NumFmt struct {
 	FormatCode   string `xml:"formatCode,attr"`
-	SourceLinked bool   `xml:"sourceLinked,attr,omitempty"`
+	SourceLinked *bool  `xml:"sourceLinked,attr,omitempty"`
 }
 
 // --- Legend ---

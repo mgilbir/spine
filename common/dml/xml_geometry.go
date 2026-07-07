@@ -69,9 +69,12 @@ type pathCmdRef struct {
 type PathXML2D struct {
 	W           int64            `xml:"w,attr,omitempty"`
 	H           int64            `xml:"h,attr,omitempty"`
-	Fill        string           `xml:"fill,attr,omitempty"`
-	Stroke      bool             `xml:"stroke,attr,omitempty"`
-	ExtrusionOk bool             `xml:"extrusionOk,attr,omitempty"`
+	Fill string `xml:"fill,attr,omitempty"`
+	// Stroke and ExtrusionOk default to true when absent, so they are pointers:
+	// nil means "unspecified" and an explicit false must be emitted as "0"
+	// rather than omitted (which readers treat as true).
+	Stroke      *bool            `xml:"-"`
+	ExtrusionOk *bool            `xml:"-"`
 	MoveTo      []*MoveToXML     `xml:"-"`
 	LnTo        []*LnToXML       `xml:"-"`
 	ArcTo       []*ArcToXML      `xml:"-"`
@@ -79,6 +82,14 @@ type PathXML2D struct {
 	CubicBezTo  []*CubicBezToXML `xml:"-"`
 	Close       []*CloseXML      `xml:"-"`
 	cmdOrder    []pathCmdRef
+}
+
+// boolAttrValue formats a boolean as the canonical OOXML attribute value.
+func boolAttrValue(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 // UnmarshalXML implements custom unmarshaling for PathXML2D to preserve command order.
@@ -93,9 +104,11 @@ func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case "fill":
 			p.Fill = attr.Value
 		case "stroke":
-			p.Stroke = attr.Value == "1" || attr.Value == "true"
+			v := attr.Value == "1" || attr.Value == "true"
+			p.Stroke = &v
 		case "extrusionOk":
-			p.ExtrusionOk = attr.Value == "1" || attr.Value == "true"
+			v := attr.Value == "1" || attr.Value == "true"
+			p.ExtrusionOk = &v
 		}
 	}
 
@@ -172,11 +185,11 @@ func (p *PathXML2D) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if p.Fill != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "fill", Value: p.Fill})
 	}
-	if p.Stroke {
-		attrs = append(attrs, xmlb.Attr{Name: "stroke", Value: "1"})
+	if p.Stroke != nil {
+		attrs = append(attrs, xmlb.Attr{Name: "stroke", Value: boolAttrValue(*p.Stroke)})
 	}
-	if p.ExtrusionOk {
-		attrs = append(attrs, xmlb.Attr{Name: "extrusionOk", Value: "1"})
+	if p.ExtrusionOk != nil {
+		attrs = append(attrs, xmlb.Attr{Name: "extrusionOk", Value: boolAttrValue(*p.ExtrusionOk)})
 	}
 	b.StartElement(ns, localName, attrs...)
 
@@ -246,11 +259,11 @@ func (p *PathXML2D) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if p.Fill != "" {
 		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "fill"}, Value: p.Fill})
 	}
-	if p.Stroke {
-		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "stroke"}, Value: "1"})
+	if p.Stroke != nil {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "stroke"}, Value: boolAttrValue(*p.Stroke)})
 	}
-	if p.ExtrusionOk {
-		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "extrusionOk"}, Value: "1"})
+	if p.ExtrusionOk != nil {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "extrusionOk"}, Value: boolAttrValue(*p.ExtrusionOk)})
 	}
 	if err := e.EncodeToken(start); err != nil {
 		return err
