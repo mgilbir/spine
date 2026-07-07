@@ -844,11 +844,12 @@ func TestCommonMediaNode_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			swStopped := tt.showWhenStopped
 			cmn := &CommonMediaNode{
 				Vol:             tt.vol,
 				Mute:            tt.mute,
 				NumSld:          tt.numSld,
-				ShowWhenStopped: tt.showWhenStopped,
+				ShowWhenStopped: &swStopped,
 			}
 			out, err := xml.Marshal(cmn)
 			if err != nil {
@@ -865,6 +866,10 @@ func TestCommonMediaNode_RoundTrip(t *testing.T) {
 			}
 			if cmn2.Mute != tt.mute {
 				t.Errorf("Mute = %v, want %v", cmn2.Mute, tt.mute)
+			}
+			// An explicit false must survive (previously dropped and read as true).
+			if cmn2.ShowWhenStopped == nil || *cmn2.ShowWhenStopped != tt.showWhenStopped {
+				t.Errorf("ShowWhenStopped = %v, want %v", cmn2.ShowWhenStopped, tt.showWhenStopped)
 			}
 		})
 	}
