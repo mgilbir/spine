@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"fmt"
+
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -249,11 +251,29 @@ func createDefaultMaster() *SlideMaster {
 	return master
 }
 
-// AddLayout adds a slide layout to this master.
+// AddLayout adds a slide layout to this master. It assigns the layout a
+// relationship id (unique within the master) and a part name, and registers it
+// with the presentation, so the saved package references it correctly. Without
+// this the output contains <p:sldLayoutId r:id=""/> and an empty
+// <Relationship Id=""/> — a corrupt package.
 func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 	layout := createDefaultLayout(layoutType, sm)
 	layout.presentation = sm.presentation
+
+	maxRel := 0
+	for _, l := range sm.layouts {
+		var id int
+		if _, err := fmt.Sscanf(l.relID, "rId%d", &id); err == nil && id > maxRel {
+			maxRel = id
+		}
+	}
+	layout.relID = fmt.Sprintf("rId%d", maxRel+1)
+
 	sm.layouts = append(sm.layouts, layout)
+	if sm.presentation != nil {
+		layout.partName = sm.presentation.nextAvailableLayoutPartName()
+		sm.presentation.slideLayouts = append(sm.presentation.slideLayouts, layout)
+	}
 	sm.layoutsModified = true
 	return layout
 }
