@@ -1168,10 +1168,19 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		}
 	}
 
-	// Create slide parts and relationships SECOND
-	for i, slide := range p.slides {
-		slidePartName := fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
-		slide.partName = slidePartName
+	// Create slide parts and relationships SECOND. Slides keep the part name
+	// assigned when they were added: slide-level relationships (media, images)
+	// are keyed by part name, so re-deriving names from the current index here
+	// would detach those rels from their slide after a MoveSlide/RemoveSlide.
+	currentSlideParts := make(map[string]bool, len(p.slides))
+	for _, slide := range p.slides {
+		if slide.partName == "" || currentSlideParts[slide.partName] {
+			slide.partName = p.nextAvailableSlidePartName()
+		}
+		currentSlideParts[slide.partName] = true
+	}
+	for _, slide := range p.slides {
+		slidePartName := slide.partName
 
 		slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
 		hasLayoutRel := false
@@ -1183,12 +1192,15 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		}
 
 		if !hasLayoutRel {
+			// Allocate the next free rel ID: the slide may already carry media
+			// or image relationships created before the first save.
+			layoutRelID := fmt.Sprintf("rId%d", nextRelationshipID(slideRels))
 			if slide.layout != nil {
 				// Find layout index
 				for j, layout := range p.slideLayouts {
 					if layout == slide.layout {
 						slideRels = append(slideRels, &opc.Relationship{
-							ID:         "rId1",
+							ID:         layoutRelID,
 							Type:       opc.RelTypeSlideLayout,
 							Target:     fmt.Sprintf("../slideLayouts/slideLayout%d.xml", j+1),
 							TargetMode: opc.TargetModeInternal,
@@ -1198,7 +1210,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				}
 			} else if len(p.slideLayouts) > 0 {
 				slideRels = append(slideRels, &opc.Relationship{
-					ID:         "rId1",
+					ID:         layoutRelID,
 					Type:       opc.RelTypeSlideLayout,
 					Target:     "../slideLayouts/slideLayout1.xml",
 					TargetMode: opc.TargetModeInternal,
@@ -1221,7 +1233,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		presRels = append(presRels, &opc.Relationship{
 			ID:         slide.relID,
 			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
-			Target:     fmt.Sprintf("slides/slide%d.xml", i+1),
+			Target:     partNameToRelTarget(slidePartName, "/ppt/"),
 			TargetMode: opc.TargetModeInternal,
 		})
 
@@ -1433,6 +1445,13 @@ func (p *Presentation) AddSlide() *Slide {
 		id:           p.nextSlideID,
 		relID:        relID,
 		slideXML:     newSlideXML(),
+		// Assign the part name eagerly so the slide has a stable identity from
+		// the moment it exists. Slide-level relationships (media, images) are
+		// keyed by part name; allocating it lazily at save time meant rels
+		// created before the first save were stored under "" and lost, and
+		// index-derived names reattached rels to the wrong slide after a
+		// MoveSlide/RemoveSlide.
+		partName: p.nextAvailableSlidePartName(),
 	}
 	p.nextSlideID++
 

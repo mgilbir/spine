@@ -2,7 +2,6 @@ package pptx
 
 import (
 	"encoding/xml"
-	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -937,9 +936,9 @@ func (s *Slide) Duplicate() *Slide {
 		s.syncShapesToXML()
 	}
 
+	// AddSlide assigned the duplicate its own part name.
 	newSlide := s.presentation.AddSlide()
 	newSlide.layout = s.layout
-	newSlide.partName = s.presentation.nextAvailableSlidePartName()
 
 	// Copy slide XML and slide-level relationships so the duplicate remains self-contained.
 	if s.slideXML != nil {
@@ -950,8 +949,6 @@ func (s *Slide) Duplicate() *Slide {
 		}
 	}
 	if s.partName != "" {
-		// Reuse the part name already allocated above; allocating a second one
-		// here would treat the first as taken and skip (burn) a slide number.
 		s.presentation.clonePartRelationships(s.partName, newSlide.partName)
 		// Give the duplicate its own notes slide rather than sharing the
 		// original's (otherwise editing one slide's notes changes the other).
@@ -961,9 +958,6 @@ func (s *Slide) Duplicate() *Slide {
 		newSlide.slideXML = newSlideXML()
 	}
 	newSlide.materializeShapes()
-	if newSlide.partName == "" {
-		newSlide.partName = fmt.Sprintf("/ppt/slides/slide%d.xml", newSlide.index+1)
-	}
 
 	// Move to position after original
 	_ = s.presentation.MoveSlide(newSlide.index, s.index+1)
