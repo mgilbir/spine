@@ -855,7 +855,15 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	return nil
 }
 
-// ParseCellRef parses a cell reference like "A1" into 1-based row and column numbers.
+// Worksheet grid limits (Excel 2007+): 1,048,576 rows by 16,384 columns (XFD).
+const (
+	MaxRow = 1048576
+	MaxCol = 16384
+)
+
+// ParseCellRef parses a cell reference like "A1" into 1-based row and column
+// numbers. It rejects references outside the worksheet grid and guards against
+// integer overflow from pathologically long column strings.
 func ParseCellRef(ref string) (row, col int, err error) {
 	if ref == "" {
 		return 0, 0, ErrInvalidCell
@@ -879,15 +887,19 @@ func ParseCellRef(ref string) (row, col int, err error) {
 	colStr := strings.ToUpper(ref[:i])
 	rowStr := ref[i:]
 
-	// Parse column letters to number
+	// Parse column letters to number, rejecting anything past the last column
+	// as soon as it overflows the grid (which also prevents int overflow).
 	col = 0
 	for _, c := range colStr {
 		col = col*26 + int(c-'A'+1)
+		if col > MaxCol {
+			return 0, 0, ErrInvalidCell
+		}
 	}
 
 	// Parse row number
 	row, err = strconv.Atoi(rowStr)
-	if err != nil || row < 1 {
+	if err != nil || row < 1 || row > MaxRow {
 		return 0, 0, ErrInvalidCell
 	}
 
