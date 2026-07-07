@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -276,6 +277,108 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			return nil
 		}
 	}
+}
+
+// worksheetSchemaSeq is the CT_Worksheet child element sequence from the
+// SpreadsheetML schema (ECMA-376 sml.xsd). It includes elements this package
+// has no typed model for (protectedRanges, oleObjects, ...) so that captured
+// unknown children can still be ranked when computing a schema-ordered
+// insertion point.
+var worksheetSchemaSeq = []string{
+	"sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData",
+	"sheetCalcPr", "sheetProtection", "protectedRanges", "scenarios",
+	"autoFilter", "sortState", "dataConsolidate", "customSheetViews",
+	"mergeCells", "phoneticPr", "conditionalFormatting", "dataValidations",
+	"hyperlinks", "printOptions", "pageMargins", "pageSetup", "headerFooter",
+	"rowBreaks", "colBreaks", "customProperties", "cellWatches",
+	"ignoredErrors", "smartTags", "drawing", "legacyDrawing",
+	"legacyDrawingHF", "drawingHF", "picture", "oleObjects", "controls",
+	"webPublishItems", "tableParts", "extLst",
+}
+
+// worksheetChildRank maps a CT_Worksheet child local name to its index in
+// worksheetSchemaSeq.
+var worksheetChildRank = func() map[string]int {
+	m := make(map[string]int, len(worksheetSchemaSeq))
+	for i, n := range worksheetSchemaSeq {
+		m[n] = i
+	}
+	return m
+}()
+
+// EnsureChildOrder records name in ws.ChildOrder at its CT_Worksheet schema
+// position if it is not already present. Mutators must call this when they
+// populate a child element kind the parsed sheet did not contain: marshaling
+// of opened sheets is ChildOrder-gated, so a populated child without an entry
+// would be silently dropped (C157). It is a no-op when ChildOrder is empty
+// (new sheets marshal in fixed schema order) or when name is already listed.
+//
+// The insertion point is immediately before the first existing entry whose
+// schema rank exceeds name's rank. "unknown:N" entries are ranked by the
+// captured element's local name when it is a standard worksheet child we lack
+// a typed model for; otherwise they impose no constraint and keep their
+// position relative to the surrounding known children.
+func (ws *CT_Worksheet) EnsureChildOrder(name string) {
+	if len(ws.ChildOrder) == 0 {
+		return
+	}
+	rank, ok := worksheetChildRank[name]
+	if !ok {
+		return
+	}
+	for _, entry := range ws.ChildOrder {
+		if entry == name {
+			return
+		}
+	}
+	insert := len(ws.ChildOrder)
+	for i, entry := range ws.ChildOrder {
+		if r, ok := ws.childOrderEntryRank(entry); ok && r > rank {
+			insert = i
+			break
+		}
+	}
+	ws.ChildOrder = append(ws.ChildOrder, "")
+	copy(ws.ChildOrder[insert+1:], ws.ChildOrder[insert:])
+	ws.ChildOrder[insert] = name
+}
+
+// childOrderEntryRank resolves the schema rank of a ChildOrder entry. Known
+// element names are looked up directly; "unknown:N" entries are ranked by the
+// local name of the captured element when it is a standard worksheet child.
+func (ws *CT_Worksheet) childOrderEntryRank(entry string) (int, bool) {
+	if idx, isUnknown := strings.CutPrefix(entry, "unknown:"); isUnknown {
+		n, err := strconv.Atoi(idx)
+		if err != nil || n < 0 || n >= len(ws.UnknownChildren) {
+			return 0, false
+		}
+		r, ok := worksheetChildRank[unknownElementLocalName(ws.UnknownChildren[n].Data)]
+		return r, ok
+	}
+	r, ok := worksheetChildRank[entry]
+	return r, ok
+}
+
+// unknownElementLocalName extracts the element local name (namespace prefix
+// stripped) from raw XML that starts with the element's start tag. It returns
+// "" if the bytes do not start with a tag.
+func unknownElementLocalName(raw []byte) string {
+	if len(raw) == 0 || raw[0] != '<' {
+		return ""
+	}
+	end := 1
+	for end < len(raw) {
+		switch raw[end] {
+		case ' ', '\t', '\r', '\n', '>', '/':
+			name := string(raw[1:end])
+			if i := strings.LastIndexByte(name, ':'); i >= 0 {
+				name = name[i+1:]
+			}
+			return name
+		}
+		end++
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------

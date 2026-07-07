@@ -48,6 +48,7 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 			SheetData: oxml.CT_SheetData{},
 		}
 	}
+	s.worksheet.EnsureChildOrder("sheetData")
 
 	// Parse the reference to get row and column
 	row, _, err := ParseCellRef(ref)
@@ -190,6 +191,7 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 	if len(s.worksheet.Cols) == 0 {
 		s.worksheet.Cols = append(s.worksheet.Cols, oxml.CT_Cols{})
 	}
+	s.worksheet.EnsureChildOrder("cols")
 
 	// Find existing col entry or create new
 	for i := range s.worksheet.Cols[0].Col {
@@ -221,6 +223,8 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 			SheetData: oxml.CT_SheetData{},
 		}
 	}
+
+	s.worksheet.EnsureChildOrder("sheetData")
 
 	r := uint32(row)
 	customHeight := true
@@ -257,6 +261,7 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 	if s.worksheet.MergeCells == nil {
 		s.worksheet.MergeCells = &oxml.CT_MergeCells{}
 	}
+	s.worksheet.EnsureChildOrder("mergeCells")
 
 	s.worksheet.MergeCells.MergeCell = append(s.worksheet.MergeCells.MergeCell, oxml.CT_MergeCell{Ref: ref})
 	count := uint32(len(s.worksheet.MergeCells.MergeCell))
@@ -405,6 +410,7 @@ func (s *Sheet) SetTabColor(hexColor string) {
 	if s.worksheet.SheetPr == nil {
 		s.worksheet.SheetPr = &oxml.CT_SheetPr{}
 	}
+	s.worksheet.EnsureChildOrder("sheetPr")
 	s.worksheet.SheetPr.TabColor = &oxml.CT_Color{
 		Rgb: hexColor,
 	}
@@ -417,6 +423,7 @@ func (s *Sheet) SetAutoFilter(rangeRef string) error {
 	s.worksheet.AutoFilter = &oxml.CT_AutoFilter{
 		Ref: strings.ToUpper(rangeRef),
 	}
+	s.worksheet.EnsureChildOrder("autoFilter")
 	return nil
 }
 
@@ -448,6 +455,7 @@ func (s *Sheet) AddDataValidation(dv DataValidation) error {
 	if s.worksheet.DataValidations == nil {
 		s.worksheet.DataValidations = &oxml.CT_DataValidations{}
 	}
+	s.worksheet.EnsureChildOrder("dataValidations")
 
 	v := oxml.CT_DataValidation{
 		Sqref:      strings.ToUpper(dv.Range),
@@ -498,6 +506,7 @@ func (s *Sheet) ensureSheetView() *oxml.CT_SheetView {
 	if s.worksheet.SheetViews == nil {
 		s.worksheet.SheetViews = &oxml.CT_SheetViews{}
 	}
+	s.worksheet.EnsureChildOrder("sheetViews")
 	if len(s.worksheet.SheetViews.SheetView) == 0 {
 		s.worksheet.SheetViews.SheetView = append(s.worksheet.SheetViews.SheetView, oxml.CT_SheetView{})
 	}
