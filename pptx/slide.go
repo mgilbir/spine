@@ -260,6 +260,7 @@ func (s *Slide) syncShapesToXML() {
 	// rebuild below.
 	if len(s.removedRefs) > 0 && !s.forceShapeRebuild {
 		spTree.RemoveChildren(s.removedRefs)
+		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
 		if len(s.shapes) > s.syncedShapes {
 			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
@@ -322,6 +323,28 @@ func (s *Slide) syncShapesToXML() {
 	}
 
 	s.shapesModified = false
+}
+
+// reindexShapeRefsAfterRemoval rewrites shapeRefs from the pre-compaction
+// indices they were recorded with to the indices the surviving children occupy
+// after RemoveChildren compacted the typed slices: every removed same-kind
+// child below a ref shifts it down by one. Without this, refs recorded before
+// one removal target the wrong nodes in the next removal cycle.
+func (s *Slide) reindexShapeRefsAfterRemoval(removed []oxml.ChildRef) {
+	for i, ref := range s.shapeRefs {
+		if ref.Index < 0 {
+			continue
+		}
+		dec := 0
+		for _, rem := range removed {
+			if rem.Kind == ref.Kind && rem.Index < ref.Index {
+				dec++
+			}
+		}
+		if dec > 0 {
+			s.shapeRefs[i] = oxml.ChildRef{Kind: ref.Kind, Index: ref.Index - dec}
+		}
+	}
 }
 
 // appendShapesToXML marshals newly added shapes into a parsed shape tree,
