@@ -449,20 +449,39 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 	}
 
 	// Set paragraph properties if needed
-	if p.alignment != "" || p.level > 0 || p.bulletType != BulletNone {
+	needBullet := p.alignment != "" || p.level > 0 || p.bulletType != BulletNone
+	needSpacing := p.lineSpacing != 0 || p.spaceBefore != 0 || p.spaceAfter != 0
+	if needBullet || needSpacing {
 		lvl := int32(p.level)
 		ap.PPr = &dml.PPr{
 			Algn: string(p.alignment),
 			Lvl:  &lvl,
 		}
 
-		switch p.bulletType {
-		case BulletNone:
-			ap.PPr.BuNone = &dml.BuNone{}
-		case BulletChar:
-			ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
-		case BulletNumber:
-			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
+		// Only touch bullet properties when alignment/level/bullet was set, so a
+		// paragraph that only sets spacing does not gain an explicit <a:buNone/>
+		// that would suppress an inherited bullet.
+		if needBullet {
+			switch p.bulletType {
+			case BulletNone:
+				ap.PPr.BuNone = &dml.BuNone{}
+			case BulletChar:
+				ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
+			case BulletNumber:
+				ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
+			}
+		}
+
+		// Spacing (symmetric with the oxml->domain read): line spacing is a
+		// percentage, space before/after are point values.
+		if p.lineSpacing != 0 {
+			ap.PPr.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.Percentage(p.lineSpacing)}}
+		}
+		if p.spaceBefore != 0 {
+			ap.PPr.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
+		}
+		if p.spaceAfter != 0 {
+			ap.PPr.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: int32(p.spaceAfter)}}
 		}
 	}
 
@@ -483,8 +502,13 @@ func runToOxml(r *Run) *dml.R {
 
 	// Set run properties if any formatting is applied
 	if r.fontName != "" || r.fontSize > 0 || r.bold || r.italic ||
-		r.underline != "" || r.strike != "" || r.color != nil || r.baseline != 0 {
+		r.underline != "" || r.strike != "" || r.color != nil || r.baseline != 0 ||
+		r.highlight != nil {
 		ar.RPr = &dml.RPr{}
+
+		if r.highlight != nil {
+			ar.RPr.Highlight = colorToColorChoiceOxml(r.highlight)
+		}
 
 		if r.fontSize > 0 {
 			ar.RPr.Sz = int32(r.fontSize * 100) // Convert points to hundredths
@@ -523,6 +547,21 @@ func runToOxml(r *Run) *dml.R {
 	}
 
 	return ar
+}
+
+// colorToColorChoiceOxml converts a Color to a dml.ColorChoice (used where the
+// schema expects a bare color element, e.g. a:highlight).
+func colorToColorChoiceOxml(c *dml.Color) *dml.ColorChoice {
+	if c == nil {
+		return nil
+	}
+	cc := &dml.ColorChoice{}
+	if c.Type == dml.ColorTypeTheme {
+		cc.SchemeClr = &dml.SchemeClrTransform{Val: c.Theme.String()}
+	} else {
+		cc.SrgbClr = &dml.SrgbClr{Val: c.RGB.String()}
+	}
+	return cc
 }
 
 // colorToOxml converts a Color to dml.SolidFill.
@@ -609,11 +648,17 @@ func tableDataToOxml(t *Table) *oxml.ATable {
 			tc := &oxml.ATc{}
 
 			// Set cell properties
-			if cell.fill != nil || cell.vertAlign != "" {
+			if cell.fill != nil || cell.vertAlign != "" ||
+				cell.borderLeft != nil || cell.borderRight != nil ||
+				cell.borderTop != nil || cell.borderBottom != nil {
 				tc.TcPr = &oxml.ATcPr{}
 				if cell.vertAlign != "" {
 					tc.TcPr.Anchor = string(cell.vertAlign)
 				}
+				tc.TcPr.LnL = tableBorderToLn(cell.borderLeft)
+				tc.TcPr.LnR = tableBorderToLn(cell.borderRight)
+				tc.TcPr.LnT = tableBorderToLn(cell.borderTop)
+				tc.TcPr.LnB = tableBorderToLn(cell.borderBottom)
 				if cell.fill != nil {
 					tc.TcPr.SolidFill = colorToOxml(cell.fill)
 				}
@@ -641,6 +686,32 @@ func tableDataToOxml(t *Table) *oxml.ATable {
 	}
 
 	return tbl
+}
+
+// tableBorderToLn converts a domain TableBorder to a dml.Ln for a cell edge.
+func tableBorderToLn(b *TableBorder) *dml.Ln {
+	if b == nil {
+		return nil
+	}
+	ln := &dml.Ln{}
+	if b.Width > 0 {
+		w := int64(b.Width)
+		ln.W = &w
+	}
+	switch b.Style {
+	case BorderStyleNone:
+		// An explicit "no border" — emit a line with no fill.
+		ln.NoFill = &dml.NoFillXML{}
+		return ln
+	case BorderStyleDashed:
+		ln.PrstDash = &dml.PrstDash{Val: "dash"}
+	case BorderStyleDotted:
+		ln.PrstDash = &dml.PrstDash{Val: "dot"}
+	case BorderStyleDouble:
+		ln.Cmpd = "dbl"
+	}
+	ln.SolidFill = colorToOxml(&b.Color)
+	return ln
 }
 
 // pictureToOxml converts a Picture to oxml.Picture.
