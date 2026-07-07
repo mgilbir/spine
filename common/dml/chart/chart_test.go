@@ -454,7 +454,8 @@ func TestNumFmt_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
-			nf := &NumFmt{FormatCode: tt.code, SourceLinked: tt.linked}
+			linked := tt.linked
+			nf := &NumFmt{FormatCode: tt.code, SourceLinked: &linked}
 			out, err := xml.Marshal(nf)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)

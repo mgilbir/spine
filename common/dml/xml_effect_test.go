@@ -120,7 +120,7 @@ func TestDML_CT_BlurEffect(t *testing.T) {
 	if v.Rad != 50800 {
 		t.Errorf("Rad = %d, want 50800", v.Rad)
 	}
-	if !v.Grow {
+	if v.Grow == nil || !*v.Grow {
 		t.Error("Grow should be true")
 	}
 }
