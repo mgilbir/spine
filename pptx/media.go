@@ -1,21 +1,48 @@
 package pptx
 
+import (
+	"bytes"
+	"image"
+
+	// Register the stdlib decoders so AddPicture can read the intrinsic
+	// dimensions of the common image formats for its default frame size.
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+
+	"github.com/mgilbir/spine/common/dml"
+)
+
+// emuPerPixel is the EMU size of one pixel at 96 DPI (914400 EMU per inch / 96).
+const emuPerPixel = 9525
+
+// nativeImageSize returns the intrinsic size of the encoded image at 96 DPI.
+// ok is false when the data is not in a decodable format (only the image
+// header is read, never the full pixel data).
+func nativeImageSize(data []byte) (w, h dml.EMU, ok bool) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, false
+	}
+	return dml.EMU(cfg.Width) * emuPerPixel, dml.EMU(cfg.Height) * emuPerPixel, true
+}
+
 // Picture represents a picture shape.
 type Picture struct {
 	BaseShape
-	imagePath    string
-	imageData    []byte
-	contentType  string
-	svgData      []byte
+	imagePath      string
+	imageData      []byte
+	contentType    string
+	svgData        []byte
 	svgContentType string
-	relID        string
-	svgRelID     string
-	description  string
-	cropLeft     float64
-	cropRight    float64
-	cropTop      float64
-	cropBottom   float64
-	slide        *Slide // back-reference to owning slide (set during materialization)
+	relID          string
+	svgRelID       string
+	description    string
+	cropLeft       float64
+	cropRight      float64
+	cropTop        float64
+	cropBottom     float64
+	slide          *Slide // back-reference to owning slide (set during materialization)
 	// sourceID is the cNvPr id of the oxml picture this shape was materialized
 	// from (0 for API-created pictures). It gives a stable identity for locating
 	// the exact picture node on save, so replacing one of two pictures that
