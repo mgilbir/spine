@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -45,13 +46,22 @@ func (s *Slide) processPendingImages() error {
 func (s *Slide) embedImageData(data []byte, contentType string) string {
 	p := s.presentation
 
-	ext := extFromContentType(contentType)
-	mediaName := s.nextMediaName(ext)
-
-	// Store the image data as a media part in the presentation
-	p.otherParts[mediaName] = &coxml.RawPart{
-		ContentType: contentType,
-		Data:        data,
+	// Reuse an existing media part with identical bytes rather than storing the
+	// same image again under a new name.
+	mediaName := ""
+	for name, part := range p.otherParts {
+		if part != nil && strings.HasPrefix(name, "/ppt/media/") && bytes.Equal(part.Data, data) {
+			mediaName = name
+			break
+		}
+	}
+	if mediaName == "" {
+		ext := extFromContentType(contentType)
+		mediaName = s.nextMediaName(ext)
+		p.otherParts[mediaName] = &coxml.RawPart{
+			ContentType: contentType,
+			Data:        data,
+		}
 	}
 
 	// Create a relationship for this slide pointing to the media part
@@ -177,12 +187,26 @@ func buildPicFromPlaceholder(sp *oxmlpkg.Shape, rasterRelID, svgRelID string) *o
 func (s *Slide) replacePictureImage(pic *Picture) error {
 	spTree := s.slideXML.CSld.SpTree
 
-	// Find the oxml.Picture that matches this Picture shape (by old relID or name)
+	// Prefer the stable cNvPr id captured at materialization: two pictures can
+	// share the same blip embed (the same image), so matching on the embed alone
+	// could update the wrong node.
 	var oxmlPic *oxmlpkg.Picture
-	for _, op := range spTree.Pic {
-		if op.BlipFill != nil && op.BlipFill.Blip != nil && op.BlipFill.Blip.Embed == pic.relID {
-			oxmlPic = op
-			break
+	if pic.sourceID != 0 {
+		for _, op := range spTree.Pic {
+			if op.NvPicPr != nil && op.NvPicPr.CNvPr != nil && op.NvPicPr.CNvPr.Id == pic.sourceID {
+				oxmlPic = op
+				break
+			}
+		}
+	}
+
+	// Fallback: match by current blip embed (covers API-created pictures).
+	if oxmlPic == nil {
+		for _, op := range spTree.Pic {
+			if op.BlipFill != nil && op.BlipFill.Blip != nil && op.BlipFill.Blip.Embed == pic.relID {
+				oxmlPic = op
+				break
+			}
 		}
 	}
 

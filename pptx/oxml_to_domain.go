@@ -183,10 +183,11 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 
 	p := &Picture{}
 
-	// Name and description from CNvPr
+	// Name, description, and stable identity from CNvPr
 	if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
 		p.name = pic.NvPicPr.CNvPr.Name
 		p.description = pic.NvPicPr.CNvPr.Descr
+		p.sourceID = pic.NvPicPr.CNvPr.Id
 	}
 
 	// Position and size from SpPr
