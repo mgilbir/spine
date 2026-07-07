@@ -517,16 +517,6 @@ type UFill struct {
 
 // --- OpenType Feature Types ---
 
-// Ligatures represents OpenType ligature settings (a:liga)
-type Ligatures struct {
-	Val string `xml:"val,attr,omitempty"` // all, standard, contextual, historical, discretionary, none
-}
-
-// NumForm represents OpenType number form settings (a:numForm)
-type NumForm struct {
-	Val string `xml:"val,attr,omitempty"` // default, lining, oldStyle
-}
-
 // NumSpacing represents OpenType number spacing settings (a:numSpacing)
 type NumSpacing struct {
 	Val string `xml:"val,attr,omitempty"` // default, proportional, tabular
@@ -554,15 +544,6 @@ type DefPPr = PPr
 
 // FldType represents field type values
 // Common values: slidenum, datetime, datetime1-datetime13
-
-// --- Rich Text Types ---
-
-// RichText represents rich text content that can contain multiple paragraphs
-type RichText struct {
-	BodyPr   *BodyPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bodyPr,omitempty"`
-	LstStyle *LstStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lstStyle,omitempty"`
-	P        []*P      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main p"`
-}
 
 // --- Additional Spacing Types ---
 
@@ -598,8 +579,3 @@ type FontSubstitute struct {
 // textDeflateBottom, textInflateTop, textDeflateTop, textDeflateInflate, textDeflateInflateDeflate,
 // textFadeRight, textFadeLeft, textFadeUp, textFadeDown, textSlantUp, textSlantDown, textCascadeUp,
 // textCascadeDown
-
-// WordArt represents word art effect settings
-type WordArt struct {
-	PrstTxWarp *PrstTxWarp `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
-}

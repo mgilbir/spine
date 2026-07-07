@@ -36,11 +36,6 @@ type BlipFill struct {
 	Stretch      *Stretch `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
 }
 
-// PicProps represents picture-specific properties
-type PicProps struct {
-	PreferRelativeResize bool `xml:"preferRelativeResize,attr,omitempty"`
-}
-
 // --- Image Compression Settings ---
 
 // ImageCompressionState values for Blip.Cstate:
