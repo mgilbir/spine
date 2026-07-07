@@ -71,14 +71,17 @@ type A16RowId struct {
 
 // --- a14 extensions (Drawing 2010) ---
 
-// A14UseLocalDpi represents a14:useLocalDpi extension element
+// A14UseLocalDpi represents a14:useLocalDpi extension element. The val
+// attribute is xsd:boolean (e.g. val="0" or val="true"), so it must be modeled
+// as a bool — an int32 fails to parse the lexical "true"/"false" forms.
 type A14UseLocalDpi struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val *bool `xml:"val,attr,omitempty"`
 }
 
-// A14ShadowObscured represents a14:shadowObscured extension element
+// A14ShadowObscured represents a14:shadowObscured extension element. The val
+// attribute is xsd:boolean; see A14UseLocalDpi.
 type A14ShadowObscured struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val *bool `xml:"val,attr,omitempty"`
 }
 
 // A14HiddenFill represents a14:hiddenFill extension element.
@@ -450,10 +453,10 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 }
 
 // marshalA14Simple writes a simple a14 extension element with an optional val attribute.
-func marshalA14Simple(b *xmlb.Builder, localName string, val *int32) {
+func marshalA14Simple(b *xmlb.Builder, localName string, val *bool) {
 	if val != nil {
 		b.EmptyElementInlineNS(nsA14, xmlb.PrefixDrawing2010, localName,
-			xmlb.Int32Attr("val", *val))
+			xmlb.BoolAttr("val", *val))
 	} else {
 		b.EmptyElementInlineNS(nsA14, xmlb.PrefixDrawing2010, localName)
 	}

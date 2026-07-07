@@ -126,9 +126,17 @@ type ClrRepl struct {
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
 }
 
-// Duotone represents CT_DuotoneEffect (a:duotone)
+// Duotone represents CT_DuotoneEffect (a:duotone), a sequence of two
+// EG_ColorChoice colors given as direct children. Each color kind is captured
+// by its own element name so a duotone using scheme/system/preset colors (not
+// just srgbClr) round-trips instead of collapsing to an empty <a:duotone/>.
 type Duotone struct {
-	Colors []*ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr"`
+	ScRgbClr  []*ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr   []*SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    []*HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    []*SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr []*SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   []*PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // FillOverlayXML represents CT_FillOverlayEffect (a:fillOverlay)
