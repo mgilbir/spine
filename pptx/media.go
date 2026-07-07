@@ -179,12 +179,31 @@ type mediaShape struct {
 	contentType string
 	posterData  []byte
 	posterCT    string
+	playMode    PlayMode
 
 	// Relationship IDs, assigned during serialization.
 	mediaRelID  string // r:embed on p14:media (Microsoft "media" reltype)
 	linkRelID   string // r:link on a:videoFile/a:audioFile ("video"/"audio" reltype)
 	posterRelID string // r:embed on the poster blip (image reltype)
 }
+
+// PlayMode controls when embedded media starts playing.
+type PlayMode int
+
+const (
+	// PlayOnClick plays the media when the viewer clicks it (the default; no
+	// timing tree is emitted).
+	PlayOnClick PlayMode = iota
+	// PlayAutomatically plays the media automatically when the slide appears,
+	// via a timing tree. Applied only when the slide has no existing timing.
+	PlayAutomatically
+)
+
+// PlayMode returns the media's play mode.
+func (m *mediaShape) PlayMode() PlayMode { return m.playMode }
+
+// SetPlayMode sets when the media starts playing.
+func (m *mediaShape) SetPlayMode(mode PlayMode) { m.playMode = mode }
 
 // MediaData returns the raw media bytes.
 func (m *mediaShape) MediaData() []byte { return m.mediaData }
