@@ -37,6 +37,9 @@ type Slide struct {
 	// applied at sync time by deleting just those nodes (preserving everything
 	// else, including content the domain model cannot represent).
 	removedRefs []oxml.ChildRef
+	// autoplayMedia records the shape ids of auto-play video/audio added to the
+	// slide, collected during the shape sync and used to build the timing tree.
+	autoplayMedia []mediaTimingRef
 }
 
 // Index returns the 0-based index of the slide in the presentation.
@@ -231,6 +234,10 @@ func (s *Slide) marshal() ([]byte, error) {
 	if err := s.processPendingImages(); err != nil {
 		return nil, err
 	}
+
+	// Build the timing tree for any auto-play media added to the slide (needs the
+	// shape ids assigned during the sync above).
+	s.applyMediaTiming()
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
 	return marshalSlide(s.slideXML), nil
