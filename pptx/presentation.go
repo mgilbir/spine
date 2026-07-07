@@ -654,11 +654,15 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	writer.Properties = &p.Properties
 
 	currentSlideParts := make(map[string]bool, len(p.slides))
-	for i, slide := range p.slides {
+	for _, slide := range p.slides {
 		oldSlideName := slide.partName
 		slideName := oldSlideName
 		if slideName == "" || currentSlideParts[slideName] {
-			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
+			// Allocate a name not already taken by any slide or other part.
+			// An index-based name (slide{i+1}.xml) collides with a surviving
+			// slide after a RemoveSlide+AddSlide, failing Save with a duplicate
+			// part.
+			slideName = p.nextAvailableSlidePartName()
 			slide.partName = slideName
 			if oldSlideName != "" && oldSlideName != slideName {
 				if rels, ok := p.relationships[oldSlideName]; ok {
@@ -877,8 +881,16 @@ func (p *Presentation) resolveSlideLayout(slide *Slide) {
 // but the round-trip path only writes pre-existing rels — so new slides added via
 // AddSlideFromLayout would otherwise lose their layout link on save.
 func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName string) {
-	if slide.layout == nil {
-		return
+	// Use the slide's layout, or fall back to the first available layout so a
+	// slide added to an opened deck (which leaves slide.layout nil) still gets a
+	// slideLayout relationship. A slide with no layout rel makes PowerPoint
+	// prompt to repair — mirroring the "save new" path's fallback.
+	target := slide.layout
+	if target == nil {
+		if len(p.slideLayouts) == 0 {
+			return
+		}
+		target = p.slideLayouts[0]
 	}
 
 	slideRels := append([]*opc.Relationship(nil), p.relationships[slidePartName]...)
@@ -889,7 +901,7 @@ func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName
 	}
 
 	for _, layout := range p.slideLayouts {
-		if layout != slide.layout {
+		if layout != target {
 			continue
 		}
 
@@ -1426,6 +1438,26 @@ func (p *Presentation) nextAvailableSlidePartName() string {
 	}
 	for i := 1; ; i++ {
 		name := fmt.Sprintf("/ppt/slides/slide%d.xml", i)
+		if !used[name] {
+			return name
+		}
+	}
+}
+
+// nextAvailableLayoutPartName returns a slideLayout part name not already used
+// by an existing layout or other part.
+func (p *Presentation) nextAvailableLayoutPartName() string {
+	used := make(map[string]bool, len(p.slideLayouts)+len(p.otherParts))
+	for _, l := range p.slideLayouts {
+		if l.partName != "" {
+			used[l.partName] = true
+		}
+	}
+	for name := range p.otherParts {
+		used[name] = true
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/slideLayouts/slideLayout%d.xml", i)
 		if !used[name] {
 			return name
 		}
