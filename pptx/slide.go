@@ -314,11 +314,53 @@ func textBoxToOxml(tb *TextBox, id uint32) *oxml.Shape {
 		},
 	}
 
+	// Carry any fill/line/shadow set via SetFill/SetLine/SetShadow into the XML
+	// (previously textBoxToOxml ignored tb.spPr entirely, so those setters were
+	// silent no-ops).
+	applyShapeStyle(sp.SpPr, &tb.spPr)
+
 	if tb.textFrame != nil {
 		sp.TxBody = textFrameToOxml(tb.textFrame)
 	}
 
 	return sp
+}
+
+// applyShapeStyle copies the fill, line, and effect properties that a domain
+// shape stored (via Fill/Line/Shadow ApplyToSpPr) into the SpPr being
+// marshaled. Every fill kind is copied, not just SolidFill, so gradient,
+// pattern, and no-fill values are not dropped.
+func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
+	if src == nil {
+		return
+	}
+	if src.NoFill != nil {
+		dst.NoFill = src.NoFill
+	}
+	if src.SolidFill != nil {
+		dst.SolidFill = src.SolidFill
+	}
+	if src.GradFill != nil {
+		dst.GradFill = src.GradFill
+	}
+	if src.PattFill != nil {
+		dst.PattFill = src.PattFill
+	}
+	if src.BlipFill != nil {
+		dst.BlipFill = src.BlipFill
+	}
+	if src.GrpFill != nil {
+		dst.GrpFill = src.GrpFill
+	}
+	if src.Ln != nil {
+		dst.Ln = src.Ln
+	}
+	if src.EffectLst != nil {
+		dst.EffectLst = src.EffectLst
+	}
+	if src.EffectDag != nil {
+		dst.EffectDag = src.EffectDag
+	}
 }
 
 // placeholderToOxml converts a PlaceholderShape to oxml.Shape.
@@ -390,18 +432,9 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 			},
 		},
 	}
-	if as.spPr.SolidFill != nil {
-		sp.SpPr.SolidFill = as.spPr.SolidFill
-	}
-	if as.spPr.Ln != nil {
-		sp.SpPr.Ln = as.spPr.Ln
-	}
-	if as.spPr.EffectLst != nil {
-		sp.SpPr.EffectLst = as.spPr.EffectLst
-	}
-	if as.spPr.EffectDag != nil {
-		sp.SpPr.EffectDag = as.spPr.EffectDag
-	}
+	// Copy every fill kind plus line/effects (previously only SolidFill was
+	// carried, so gradient/pattern/no-fill fills set via SetFill were dropped).
+	applyShapeStyle(sp.SpPr, &as.spPr)
 
 	if as.textFrame != nil {
 		sp.TxBody = textFrameToOxml(as.textFrame)
