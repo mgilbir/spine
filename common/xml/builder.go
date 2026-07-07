@@ -131,7 +131,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 			b.buf.WriteString(ns.Prefix)
 			b.buf.WriteString(`="`)
 		}
-		b.buf.WriteString(ns.URI)
+		b.writeAttrEscaped(ns.URI)
 		b.buf.WriteByte('"')
 		b.declaredNamespaces[ns.URI] = true
 	}
@@ -175,7 +175,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 				b.buf.WriteString(ra.Prefix)
 				b.buf.WriteString(`="`)
 			}
-			b.buf.WriteString(ra.Value)
+			b.writeAttrEscaped(ra.Value)
 			b.buf.WriteByte('"')
 			b.declaredNamespaces[ra.Value] = true
 			// Also register prefix so writeQName can resolve it for extension attrs.
@@ -364,7 +364,7 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 	b.buf.WriteString(` xmlns:`)
 	b.buf.WriteString(prefix)
 	b.buf.WriteString(`="`)
-	b.buf.WriteString(nsURI)
+	b.writeAttrEscaped(nsURI)
 	b.buf.WriteByte('"')
 
 	for _, attr := range attrs {
@@ -490,14 +490,57 @@ var textEscaper = strings.NewReplacer(
 	">", "&gt;",
 )
 
+// EscapeAttrValue returns s escaped for use as the value of a double-quoted XML
+// attribute, applying the same rules as the Builder's own attribute writer:
+// &, <, >, and the delimiting quote are escaped, whitespace is written as
+// character references to survive attribute-value normalization, and
+// XML-illegal control characters are dropped.
+func EscapeAttrValue(s string) string {
+	return attrEscaper.Replace(stripInvalidXMLChars(s))
+}
+
 // writeAttrEscaped writes escaped XML attribute value content.
 func (b *Builder) writeAttrEscaped(s string) {
-	_, _ = attrEscaper.WriteString(&b.buf, s)
+	_, _ = attrEscaper.WriteString(&b.buf, stripInvalidXMLChars(s))
 }
 
 // writeTextEscaped writes escaped XML text content.
 func (b *Builder) writeTextEscaped(s string) {
-	_, _ = textEscaper.WriteString(&b.buf, s)
+	_, _ = textEscaper.WriteString(&b.buf, stripInvalidXMLChars(s))
+}
+
+// isInvalidXMLByte reports whether c is a byte that cannot appear in a
+// well-formed XML 1.0 document. The only control characters permitted are
+// tab (0x09), newline (0x0A), and carriage return (0x0D); every other byte
+// below 0x20 is illegal and cannot even be represented as a character
+// reference (XML spec §2.2). Such bytes are always < 0x80, so filtering them
+// out at the byte level never splits a multi-byte UTF-8 sequence.
+func isInvalidXMLByte(c byte) bool {
+	return c < 0x20 && c != '\t' && c != '\n' && c != '\r'
+}
+
+// stripInvalidXMLChars drops XML-1.0-illegal control characters from s. It
+// allocates only when such a character is present; the common case (no
+// invalid bytes) returns s unchanged.
+func stripInvalidXMLChars(s string) string {
+	i := 0
+	for ; i < len(s); i++ {
+		if isInvalidXMLByte(s[i]) {
+			break
+		}
+	}
+	if i == len(s) {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	sb.WriteString(s[:i])
+	for ; i < len(s); i++ {
+		if c := s[i]; !isInvalidXMLByte(c) {
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
 }
 
 // Attr represents an XML attribute.
