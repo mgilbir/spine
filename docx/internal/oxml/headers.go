@@ -52,3 +52,7 @@ func unmarshalBodyContent(d *xml.Decoder,
 		}
 	}
 }
+
+// AppendP appends a paragraph to this header/footer, maintaining child order so
+// it is marshaled even on one parsed from a file.
+func (hf *CT_HdrFtr) AppendP(p *CT_P) { appendBodyP(&hf.P, &hf.childOrder, p) }

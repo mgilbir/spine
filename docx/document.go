@@ -503,7 +503,7 @@ func (d *Document) AddParagraph() *Paragraph {
 		d.document.Body = &oxml.CT_Body{}
 	}
 	p := &oxml.CT_P{}
-	d.document.Body.P = append(d.document.Body.P, p)
+	d.document.Body.AppendP(p)
 	return &Paragraph{document: d, p: p}
 }
 
@@ -578,7 +578,7 @@ func (d *Document) AddTable(rows, cols int) *Table {
 		}
 		tbl.Tr = append(tbl.Tr, tr)
 	}
-	d.document.Body.Tbl = append(d.document.Body.Tbl, tbl)
+	d.document.Body.AppendTbl(tbl)
 	return &Table{tbl: tbl}
 }
 

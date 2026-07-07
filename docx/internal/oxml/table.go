@@ -491,3 +491,7 @@ func (tbl *CT_Tbl) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 	b.EndElement(ns, localName)
 }
+
+// AppendP appends a paragraph to this table cell, maintaining child order so it
+// is marshaled even on a cell parsed from a file.
+func (tc *CT_Tc) AppendP(p *CT_P) { appendBodyP(&tc.P, &tc.childOrder, p) }
