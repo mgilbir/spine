@@ -345,12 +345,14 @@ type LnToXML struct {
 	Pt *PtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pt"`
 }
 
-// ArcToXML represents CT_Path2DArcTo (a:arcTo)
+// ArcToXML represents CT_Path2DArcTo (a:arcTo). All four attributes are
+// required by the schema; stAng/swAng must not be omitted when zero (a
+// zero-angle arc is valid), so they carry no omitempty.
 type ArcToXML struct {
 	WR    int64 `xml:"wR,attr"`
 	HR    int64 `xml:"hR,attr"`
-	StAng int32 `xml:"stAng,attr,omitempty"`
-	SwAng int32 `xml:"swAng,attr,omitempty"`
+	StAng int32 `xml:"stAng,attr"`
+	SwAng int32 `xml:"swAng,attr"`
 }
 
 // QuadBezToXML represents CT_Path2DQuadBezierTo (a:quadBezTo)

@@ -1,6 +1,8 @@
 // Package dml provides DrawingML primitive types used across OOXML formats.
 package dml
 
+import "math"
+
 // EMU represents English Metric Units, the base unit in OOXML.
 // 1 inch = 914400 EMUs
 // 1 point = 12700 EMUs
@@ -16,24 +18,25 @@ const (
 	EMUsPerPixel      EMU = 9525  // at 96 DPI
 )
 
-// Inches converts inches to EMU.
+// Inches converts inches to EMU. The result is rounded to the nearest EMU so
+// that exact fractional inches (e.g. 0.57") do not truncate off by one.
 func Inches(inches float64) EMU {
-	return EMU(inches * float64(EMUsPerInch))
+	return EMU(math.Round(inches * float64(EMUsPerInch)))
 }
 
 // Points converts points to EMU.
 func Points(points float64) EMU {
-	return EMU(points * float64(EMUsPerPoint))
+	return EMU(math.Round(points * float64(EMUsPerPoint)))
 }
 
 // Centimeters converts centimeters to EMU.
 func Centimeters(cm float64) EMU {
-	return EMU(cm * float64(EMUsPerCentimeter))
+	return EMU(math.Round(cm * float64(EMUsPerCentimeter)))
 }
 
 // Millimeters converts millimeters to EMU.
 func Millimeters(mm float64) EMU {
-	return EMU(mm * float64(EMUsPerMillimeter))
+	return EMU(math.Round(mm * float64(EMUsPerMillimeter)))
 }
 
 // Pixels converts pixels to EMU (assuming 96 DPI).
@@ -61,9 +64,10 @@ func (e EMU) ToMillimeters() float64 {
 	return float64(e) / float64(EMUsPerMillimeter)
 }
 
-// ToPixels converts EMU to pixels (assuming 96 DPI).
+// ToPixels converts EMU to pixels (assuming 96 DPI), rounding to the nearest
+// pixel rather than truncating.
 func (e EMU) ToPixels() int {
-	return int(e / EMUsPerPixel)
+	return int(math.Round(float64(e) / float64(EMUsPerPixel)))
 }
 
 // Point represents a 2D point in EMU coordinates.

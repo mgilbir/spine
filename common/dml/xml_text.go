@@ -355,7 +355,16 @@ type RPr struct {
 	Sym            *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sym,omitempty"`
 	HlinkClick     *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
 	HlinkMouseOver *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
-	Rtl            *bool        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+	Rtl            *TextRtl     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+}
+
+// TextRtl represents the a:rtl element (CT_Boolean): the value is carried in a
+// val attribute (<a:rtl val="1"/>), not as element chardata. Modeling it as a
+// bare *bool serialized as <a:rtl>true</a:rtl>, which is schema-invalid and
+// fails to parse real input (the value lives in the attribute, so chardata is
+// empty).
+type TextRtl struct {
+	Val bool `xml:"val,attr"`
 }
 
 // Br represents CT_TextLineBreak (a:br)
