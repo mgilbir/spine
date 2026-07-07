@@ -91,3 +91,62 @@ func TestRemoveShapesAcrossSaveCycles(t *testing.T) {
 		t.Error("group shape was dropped when the last textbox was removed")
 	}
 }
+
+// C158: a shape appended in a previous save cycle must extend shapeRefs, so
+// removing it later stays surgical. Before the fix the removal fell into the
+// full rebuild, which dropped the group shape and renumbered ids.
+func TestRemoveAppendedShapeAfterSaveCycle(t *testing.T) {
+	deck := deckWithGroupShape(t)
+	p, err := OpenReader(bytes.NewReader(deck), int64(len(deck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slide := p.Slides()[0]
+
+	added := slide.AddTextBox()
+	added.TextFrame().SetText("temp")
+	saved, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(zipPart(t, saved, "ppt/slides/slide1.xml")), "temp") {
+		t.Fatal("appended textbox missing after first save")
+	}
+
+	slide.RemoveShape(added)
+	saved, err = p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := string(zipPart(t, saved, "ppt/slides/slide1.xml"))
+	if strings.Contains(slideXML, "temp") {
+		t.Error("removed appended textbox is still present")
+	}
+	if !strings.Contains(slideXML, "prototype") {
+		t.Error("parsed textbox was dropped by the removal")
+	}
+	if !strings.Contains(slideXML, `<p:cNvPr id="9" name="Group 9"/>`) ||
+		!strings.Contains(slideXML, `<p:cNvPr id="10" name="Grouped 10"/>`) {
+		t.Errorf("group shape was dropped or renumbered by the removal:\n%s", slideXML)
+	}
+
+	// Next cycle must still be surgical: removing the parsed textbox keeps the
+	// group intact.
+	for _, shape := range slide.Shapes() {
+		if tb, ok := shape.(*TextBox); ok {
+			slide.RemoveShape(tb)
+			break
+		}
+	}
+	saved, err = p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML = string(zipPart(t, saved, "ppt/slides/slide1.xml"))
+	if strings.Contains(slideXML, "prototype") {
+		t.Error("removed parsed textbox is still present")
+	}
+	if !strings.Contains(slideXML, "Group 9") {
+		t.Error("group shape was dropped in the second removal cycle")
+	}
+}

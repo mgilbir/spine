@@ -95,8 +95,12 @@ func (s *Slide) RemoveShape(shape Shape) {
 		}
 		switch {
 		case i < s.syncedShapes && i < len(s.shapeRefs):
-			// A parsed shape: mark its source node for surgical deletion.
-			s.removedRefs = append(s.removedRefs, s.shapeRefs[i])
+			// A synced shape: mark its source node for surgical deletion. A
+			// sentinel ref (Index -1) means the shape never made it into the
+			// tree, so there is nothing to delete there.
+			if ref := s.shapeRefs[i]; ref.Index >= 0 {
+				s.removedRefs = append(s.removedRefs, ref)
+			}
 			s.shapeRefs = append(s.shapeRefs[:i], s.shapeRefs[i+1:]...)
 			s.syncedShapes--
 		case i < s.syncedShapes:
@@ -322,6 +326,13 @@ func (s *Slide) syncShapesToXML() {
 		}
 	}
 
+	// The rebuild regenerates the whole tree from the domain model, so any
+	// surgical bookkeeping recorded against the old tree is void. Leaving
+	// syncedShapes at 0 keeps the slide in rebuild mode, where every domain
+	// mutation is flushed on the next sync.
+	s.syncedShapes = 0
+	s.shapeRefs = nil
+	s.removedRefs = nil
 	s.shapesModified = false
 }
 
@@ -348,35 +359,48 @@ func (s *Slide) reindexShapeRefsAfterRemoval(removed []oxml.ChildRef) {
 }
 
 // appendShapesToXML marshals newly added shapes into a parsed shape tree,
-// assigning ids above everything already on the slide.
+// assigning ids above everything already on the slide. Each appended shape's
+// child reference is recorded in shapeRefs so a later removal (or in-place
+// update) can target its node surgically instead of forcing a full rebuild;
+// shapes the append path cannot express get a sentinel ref (Index -1) to keep
+// shapeRefs aligned with the shapes slice.
 func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 	id := spTree.MaxShapeID() + 1
 	if id < 2 {
 		id = 2 // 1 belongs to the shape tree itself
 	}
 	for _, shape := range shapes {
+		ref := oxml.ChildRef{Index: -1}
 		switch sh := shape.(type) {
 		case *TextBox:
 			spTree.AppendSp(textBoxToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *PlaceholderShape:
 			spTree.AppendSp(placeholderToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *AutoShape:
 			spTree.AppendSp(autoShapeToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildSp, Index: len(spTree.Sp) - 1}
 		case *Table:
 			gf := tableToOxml(sh, id)
 			spTree.AppendGraphicFrame(gf)
 			// Later row/cell mutations reach the XML via SyncXML.
 			sh.sourceFrame = gf
+			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *Picture:
 			spTree.AppendPic(pictureToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		case *Video:
 			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		case *Audio:
 			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
-		default:
-			continue
+			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
 		}
-		id++
+		if ref.Index >= 0 {
+			id++
+		}
+		s.shapeRefs = append(s.shapeRefs, ref)
 	}
 }
 
