@@ -1155,9 +1155,11 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			}
 		}
 
-		// Write master relationships (always include theme)
+		// Write master relationships (always include theme). Allocate the next
+		// free rel id rather than assuming the layout ids are contiguous from 1:
+		// a gap or an out-of-sequence layout relID would make len+1 collide.
 		masterRels = append(masterRels, &opc.Relationship{
-			ID:         fmt.Sprintf("rId%d", len(masterRels)+1),
+			ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
 			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
 			Target:     "../theme/theme1.xml",
 			TargetMode: opc.TargetModeInternal,

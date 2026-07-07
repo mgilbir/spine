@@ -154,7 +154,7 @@ type Paragraph struct {
 	runs        []*Run
 	alignment   enum.TextAlign
 	level       int
-	lineSpacing int32 // in hundredths of a percent (100000 = 100%)
+	lineSpacing int32 // in hundredths of a percent (100000 = 100%); 0 = unset, inherit
 	spaceBefore dml.EMU
 	spaceAfter  dml.EMU
 	bulletType  BulletType
@@ -180,12 +180,14 @@ const (
 	BulletNumber
 )
 
-// NewParagraph creates a new paragraph.
+// NewParagraph creates a new paragraph. Line spacing defaults to 0 (unset) so
+// the paragraph inherits spacing from its placeholder/layout/master instead of
+// clobbering it with an explicit 100%; set it explicitly with SetLineSpacing
+// when needed.
 func NewParagraph() *Paragraph {
 	return &Paragraph{
-		runs:        make([]*Run, 0),
-		alignment:   enum.TextAlignLeft,
-		lineSpacing: 100000, // 100%
+		runs:      make([]*Run, 0),
+		alignment: enum.TextAlignLeft,
 	}
 }
 
@@ -253,12 +255,14 @@ func (p *Paragraph) SetLevel(level int) {
 }
 
 // LineSpacing returns the line spacing in hundredths of a percent.
+// 0 means unset: the paragraph inherits the placeholder/layout/master spacing.
 func (p *Paragraph) LineSpacing() int32 {
 	return p.lineSpacing
 }
 
 // SetLineSpacing sets the line spacing in hundredths of a percent.
-// 100000 = 100% (single spacing), 200000 = 200% (double spacing)
+// 100000 = 100% (single spacing), 200000 = 200% (double spacing).
+// 0 restores the default: inherit from the placeholder/layout/master.
 func (p *Paragraph) SetLineSpacing(spacing int32) {
 	p.lineSpacing = spacing
 	p.dirty = true
@@ -324,14 +328,14 @@ type Run struct {
 	dirty     bool
 }
 
-// NewRun creates a new run. The font size defaults to 0 (unset) so a run added
-// to a placeholder inherits the placeholder/layout size instead of being
-// clobbered with an explicit sz; set it explicitly with SetFontSize when needed.
+// NewRun creates a new run. Font size, underline, and strike default to their
+// zero values (unset) so a run added to a placeholder inherits the
+// placeholder/layout formatting instead of being clobbered with explicit
+// attributes; set them explicitly with SetFontSize/SetUnderline/SetStrike when
+// needed (SetUnderline(enum.UnderlineNone) and SetStrike(enum.StrikeNone)
+// explicitly suppress inherited underline/strike).
 func NewRun() *Run {
-	return &Run{
-		underline: enum.UnderlineNone,
-		strike:    enum.StrikeNone,
-	}
+	return &Run{}
 }
 
 // Text returns the text content.
@@ -389,23 +393,27 @@ func (r *Run) SetItalic(italic bool) {
 	r.dirty = true
 }
 
-// Underline returns the underline style.
+// Underline returns the underline style. The empty string means unset: the
+// run inherits the underline of its placeholder/layout/master.
 func (r *Run) Underline() enum.UnderlineStyle {
 	return r.underline
 }
 
-// SetUnderline sets the underline style.
+// SetUnderline sets the underline style. Use enum.UnderlineNone to explicitly
+// suppress an inherited underline; the empty string restores inheritance.
 func (r *Run) SetUnderline(style enum.UnderlineStyle) {
 	r.underline = style
 	r.dirty = true
 }
 
-// Strike returns the strikethrough style.
+// Strike returns the strikethrough style. The empty string means unset: the
+// run inherits the strike of its placeholder/layout/master.
 func (r *Run) Strike() enum.StrikeStyle {
 	return r.strike
 }
 
-// SetStrike sets the strikethrough style.
+// SetStrike sets the strikethrough style. Use enum.StrikeNone to explicitly
+// suppress an inherited strike; the empty string restores inheritance.
 func (r *Run) SetStrike(style enum.StrikeStyle) {
 	r.strike = style
 	r.dirty = true

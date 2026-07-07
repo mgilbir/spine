@@ -3,6 +3,7 @@ package pptx
 import (
 	"bytes"
 	"path"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -77,6 +78,70 @@ func TestAddLayoutAssignsRelIDAndPart(t *testing.T) {
 	}
 	if len(p.slideLayouts) != before+1 {
 		t.Errorf("layout not registered with presentation: %d -> %d", before, len(p.slideLayouts))
+	}
+}
+
+// C17 (residual): AddLayout on an opened deck must allocate its relationship
+// id across ALL of the master's relationships, not just the sibling layouts.
+// The master's rels already hold a theme rel at the next id after the layouts,
+// so the sibling-only scan handed the new layout the theme's rId: the
+// <p:sldLayoutId r:id> resolved to theme1.xml, no relationship was written for
+// the layout, and it was silently lost on reopen.
+func TestAddLayoutOnOpenedDeckSurvivesReopen(t *testing.T) {
+	p, err := Open("testdata/test.pptx") // master rels: slideLayout rId1-11, theme rId12
+	if err != nil {
+		t.Fatal(err)
+	}
+	master := p.SlideMasters()[0]
+	before := len(master.Layouts())
+
+	layout := master.AddLayout(LayoutTitleAndContent)
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	masterPart := strings.TrimPrefix(master.partName, "/")
+	relsName := path.Dir(masterPart) + "/_rels/" + path.Base(masterPart) + ".rels"
+	rels := string(zipPart(t, data, relsName))
+
+	// No rel id may be used twice, and the new layout's id must be present as
+	// a slideLayout relationship (not shadowed by the theme rel).
+	ids := regexp.MustCompile(`Id="(rId\d+)"`).FindAllStringSubmatch(rels, -1)
+	seen := make(map[string]bool, len(ids))
+	for _, m := range ids {
+		if seen[m[1]] {
+			t.Errorf("duplicate relationship id %s in master rels:\n%s", m[1], rels)
+		}
+		seen[m[1]] = true
+	}
+	if !regexp.MustCompile(`Id="` + layout.relID + `" Type="[^"]*/slideLayout"`).MatchString(rels) {
+		t.Errorf("new layout rel %s missing or not a slideLayout rel:\n%s", layout.relID, rels)
+	}
+
+	// Every sldLayoutId r:id in the master must resolve to a slideLayout rel.
+	masterXML := string(zipPart(t, data, masterPart))
+	for _, m := range regexp.MustCompile(`<p:sldLayoutId [^>]*r:id="(rId\d+)"`).FindAllStringSubmatch(masterXML, -1) {
+		if !regexp.MustCompile(`Id="` + m[1] + `" Type="[^"]*/slideLayout"`).MatchString(rels) {
+			t.Errorf("sldLayoutId %s does not resolve to a slideLayout relationship:\n%s", m[1], rels)
+		}
+	}
+
+	// The layout part itself needs a rel back to its master.
+	layoutPart := strings.TrimPrefix(layout.partName, "/")
+	layoutRels := zipPart(t, data, path.Dir(layoutPart)+"/_rels/"+path.Base(layoutPart)+".rels")
+	if !bytes.Contains(layoutRels, []byte("slideMaster")) {
+		t.Errorf("added layout %s has no slideMaster relationship:\n%s", layout.partName, layoutRels)
+	}
+
+	// The layout must survive a reopen.
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(reopened.SlideMasters()[0].Layouts()); got != before+1 {
+		t.Errorf("layouts after reopen = %d, want %d (added layout lost)", got, before+1)
 	}
 }
 

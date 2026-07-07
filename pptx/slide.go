@@ -140,10 +140,20 @@ func (s *Slide) AddTextBox() *TextBox {
 // path was stored without reading it, so a nonexistent file returned no error
 // and produced a blip with no image reference). The image data is embedded as a
 // media part when the presentation is saved.
+//
+// The picture frame defaults to the image's intrinsic size at 96 DPI (decoded
+// from the PNG/JPEG/GIF header; other formats fall back to 4x3 inches), so the
+// picture is visible without further setup. Call SetSize/SetPosition on the
+// returned Picture to place it explicitly.
 func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
 	pic := NewPicture()
 	if err := pic.SetImage(imagePath); err != nil {
 		return nil, err
+	}
+	if w, h, ok := nativeImageSize(pic.imageData); ok {
+		pic.SetSize(w, h)
+	} else {
+		pic.SetSize(dml.Inches(4), dml.Inches(3))
 	}
 	s.AddShape(pic)
 	return pic, nil

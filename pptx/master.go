@@ -2,8 +2,10 @@ package pptx
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/mgilbir/spine/common/dml"
+	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -74,17 +76,17 @@ func (sm *SlideMaster) ColorMap() *ColorMap {
 		return nil
 	}
 	return &ColorMap{
-		Background1: sm.masterXML.ClrMap.Bg1,
-		Text1:       sm.masterXML.ClrMap.Tx1,
-		Background2: sm.masterXML.ClrMap.Bg2,
-		Text2:       sm.masterXML.ClrMap.Tx2,
-		Accent1:     sm.masterXML.ClrMap.Accent1,
-		Accent2:     sm.masterXML.ClrMap.Accent2,
-		Accent3:     sm.masterXML.ClrMap.Accent3,
-		Accent4:     sm.masterXML.ClrMap.Accent4,
-		Accent5:     sm.masterXML.ClrMap.Accent5,
-		Accent6:     sm.masterXML.ClrMap.Accent6,
-		Hyperlink:   sm.masterXML.ClrMap.Hlink,
+		Background1:       sm.masterXML.ClrMap.Bg1,
+		Text1:             sm.masterXML.ClrMap.Tx1,
+		Background2:       sm.masterXML.ClrMap.Bg2,
+		Text2:             sm.masterXML.ClrMap.Tx2,
+		Accent1:           sm.masterXML.ClrMap.Accent1,
+		Accent2:           sm.masterXML.ClrMap.Accent2,
+		Accent3:           sm.masterXML.ClrMap.Accent3,
+		Accent4:           sm.masterXML.ClrMap.Accent4,
+		Accent5:           sm.masterXML.ClrMap.Accent5,
+		Accent6:           sm.masterXML.ClrMap.Accent6,
+		Hyperlink:         sm.masterXML.ClrMap.Hlink,
 		FollowedHyperlink: sm.masterXML.ClrMap.FolHlink,
 	}
 }
@@ -259,7 +261,25 @@ func createDefaultMaster() *SlideMaster {
 func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 	layout := createDefaultLayout(layoutType, sm)
 	layout.presentation = sm.presentation
+	layout.relID = fmt.Sprintf("rId%d", sm.nextLayoutRelIDNum())
 
+	sm.layouts = append(sm.layouts, layout)
+	if sm.presentation != nil {
+		layout.partName = sm.presentation.nextAvailableLayoutPartName()
+		sm.presentation.slideLayouts = append(sm.presentation.slideLayouts, layout)
+		sm.registerLayoutRelationships(layout)
+	}
+	sm.layoutsModified = true
+	return layout
+}
+
+// nextLayoutRelIDNum returns the next free relationship id number within the
+// master, scanning the sibling layouts' relIDs and the master's loaded
+// relationships. The latter matters on opened decks: the master's rels already
+// hold a theme rel, so scanning only the layouts handed the new layout the
+// theme's rId — the <p:sldLayoutId r:id> resolved to theme1.xml and the layout
+// was silently lost on reopen.
+func (sm *SlideMaster) nextLayoutRelIDNum() int {
 	maxRel := 0
 	for _, l := range sm.layouts {
 		var id int
@@ -267,13 +287,36 @@ func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 			maxRel = id
 		}
 	}
-	layout.relID = fmt.Sprintf("rId%d", maxRel+1)
-
-	sm.layouts = append(sm.layouts, layout)
-	if sm.presentation != nil {
-		layout.partName = sm.presentation.nextAvailableLayoutPartName()
-		sm.presentation.slideLayouts = append(sm.presentation.slideLayouts, layout)
+	if sm.presentation != nil && sm.partName != "" {
+		if id := nextRelationshipID(sm.presentation.relationships[sm.partName]) - 1; id > maxRel {
+			maxRel = id
+		}
 	}
-	sm.layoutsModified = true
-	return layout
+	return maxRel + 1
+}
+
+// registerLayoutRelationships records the relationships a newly added layout
+// needs in the presentation's relationship map, which is what the round-trip
+// save path writes verbatim: the master -> layout relationship and the
+// layout's own relationship back to its master. Created decks are handled by
+// saveNew, which rebuilds master and layout rels from the layout list, so
+// masters without a part name (never loaded from a file) need no entries here.
+func (sm *SlideMaster) registerLayoutRelationships(layout *SlideLayout) {
+	if sm.partName == "" || layout.partName == "" {
+		return
+	}
+	p := sm.presentation
+	p.relationships[sm.partName] = append(p.relationships[sm.partName], &opc.Relationship{
+		ID:         layout.relID,
+		Type:       opc.RelTypeSlideLayout,
+		Target:     partNameToRelTarget(layout.partName, path.Dir(sm.partName)+"/"),
+		TargetMode: opc.TargetModeInternal,
+	})
+	layoutRels := p.relationships[layout.partName]
+	p.relationships[layout.partName] = append(layoutRels, &opc.Relationship{
+		ID:         fmt.Sprintf("rId%d", nextRelationshipID(layoutRels)),
+		Type:       opc.RelTypeSlideMaster,
+		Target:     partNameToRelTarget(sm.partName, path.Dir(layout.partName)+"/"),
+		TargetMode: opc.TargetModeInternal,
+	})
 }
