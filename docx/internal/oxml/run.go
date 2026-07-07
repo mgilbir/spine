@@ -345,9 +345,76 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// AppendDrawingChild adds a drawing child reference to maintain proper child ordering.
-func (r *CT_R) AppendDrawingChild(index int) {
-	r.childOrder = append(r.childOrder, runChildRef{runChildDrawing, index})
+// backfillChildOrder records any existing untracked children in childOrder,
+// grouped by kind in slice order. A run built programmatically (e.g. SetTexts
+// on an empty order writes r.T without tracking) has typed children but an
+// empty childOrder; the first tracked append would otherwise flip marshaling
+// to the childOrder-only path and silently drop them.
+func (r *CT_R) backfillChildOrder() {
+	if len(r.childOrder) > 0 {
+		return
+	}
+	for i := range r.T {
+		r.childOrder = append(r.childOrder, runChildRef{runChildT, i})
+	}
+	for i := range r.Br {
+		r.childOrder = append(r.childOrder, runChildRef{runChildBr, i})
+	}
+	for i := range r.Tab {
+		r.childOrder = append(r.childOrder, runChildRef{runChildTab, i})
+	}
+	for i := range r.Cr {
+		r.childOrder = append(r.childOrder, runChildRef{runChildCr, i})
+	}
+	for i := range r.Sym {
+		r.childOrder = append(r.childOrder, runChildRef{runChildSym, i})
+	}
+	for i := range r.Drawing {
+		r.childOrder = append(r.childOrder, runChildRef{runChildDrawing, i})
+	}
+	for i := range r.FtnRef {
+		r.childOrder = append(r.childOrder, runChildRef{runChildFtnRef, i})
+	}
+	for i := range r.EndnoteRef {
+		r.childOrder = append(r.childOrder, runChildRef{runChildEndnoteRef, i})
+	}
+	for i := range r.LastRenderedPageBreak {
+		r.childOrder = append(r.childOrder, runChildRef{runChildLastRenderedPageBreak, i})
+	}
+	for i := range r.NoBreakHyphen {
+		r.childOrder = append(r.childOrder, runChildRef{runChildNoBreakHyphen, i})
+	}
+	for i := range r.SoftHyphen {
+		r.childOrder = append(r.childOrder, runChildRef{runChildSoftHyphen, i})
+	}
+	for i := range r.FldChar {
+		r.childOrder = append(r.childOrder, runChildRef{runChildFldChar, i})
+	}
+	for i := range r.InstrText {
+		r.childOrder = append(r.childOrder, runChildRef{runChildInstrText, i})
+	}
+}
+
+// AppendDrawing appends a drawing to the run, maintaining child order.
+// Existing untracked children are backfilled into the order first.
+func (r *CT_R) AppendDrawing(d *CT_Drawing) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildDrawing, len(r.Drawing)})
+	r.Drawing = append(r.Drawing, d)
+}
+
+// AppendBr appends a break to the run, maintaining child order (see AppendDrawing).
+func (r *CT_R) AppendBr(br *CT_Br) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildBr, len(r.Br)})
+	r.Br = append(r.Br, br)
+}
+
+// AppendTab appends a tab to the run, maintaining child order (see AppendDrawing).
+func (r *CT_R) AppendTab() {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildTab, len(r.Tab)})
+	r.Tab = append(r.Tab, &CT_Empty{})
 }
 
 // marshalText writes a text element with xml:space handling.

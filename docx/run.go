@@ -178,12 +178,12 @@ func (r *Run) SetColor(color string) {
 
 // AddBreak adds a line break to the run.
 func (r *Run) AddBreak() {
-	r.r.Br = append(r.r.Br, &oxml.CT_Br{})
+	r.r.AppendBr(&oxml.CT_Br{})
 }
 
 // AddTab adds a tab to the run.
 func (r *Run) AddTab() {
-	r.r.Tab = append(r.r.Tab, &oxml.CT_Empty{})
+	r.r.AppendTab()
 }
 
 // Clear removes all content from the run.
