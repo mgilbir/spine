@@ -593,7 +593,10 @@ type CommonMediaNode struct {
 	Vol      string `xml:"vol,attr,omitempty"`
 	Mute     bool   `xml:"mute,attr,omitempty"`
 	NumSld   uint32 `xml:"numSld,attr,omitempty"`
-	ShowWhenStopped bool `xml:"showWhenStopped,attr,omitempty"`
+	// ShowWhenStopped defaults to true when absent, so it is a pointer: an
+	// explicit false must be emitted rather than omitted (which readers treat as
+	// true).
+	ShowWhenStopped *bool `xml:"showWhenStopped,attr,omitempty"`
 	CTn      *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
 	TgtEl    *TargetElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
 }
