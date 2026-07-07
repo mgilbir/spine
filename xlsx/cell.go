@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -72,17 +73,17 @@ func (c *Cell) SetValue(value interface{}) {
 	case int32:
 		c.SetInt(int(v))
 	case int64:
-		c.SetFloat(float64(v))
+		c.SetInt64(v)
 	case uint:
-		c.SetFloat(float64(v))
+		c.SetUint64(uint64(v))
 	case uint8:
 		c.SetInt(int(v))
 	case uint16:
 		c.SetInt(int(v))
 	case uint32:
-		c.SetFloat(float64(v))
+		c.SetUint64(uint64(v))
 	case uint64:
-		c.SetFloat(float64(v))
+		c.SetUint64(v)
 	case float32:
 		c.SetFloat(float64(v))
 	case float64:
@@ -176,11 +177,24 @@ func (c *Cell) Float() float64 {
 	return f
 }
 
-// SetFloat sets the cell value to a float64.
+// SetFloat sets the cell value to a float64. NaN and ±Inf are not
+// representable as a numeric cell, so they are written as a #NUM! error cell
+// rather than an invalid <v>NaN</v>.
 func (c *Cell) SetFloat(value float64) {
 	c.markSheetDirty()
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		c.cell.T = "e"
+		v := "#NUM!"
+		c.cell.V = &v
+		c.cell.F = nil
+		return
+	}
+	c.setNumeric(strconv.FormatFloat(value, 'f', -1, 64))
+}
+
+// setNumeric writes a pre-formatted numeric literal to the cell.
+func (c *Cell) setNumeric(v string) {
 	c.cell.T = "n"
-	v := strconv.FormatFloat(value, 'f', -1, 64)
 	c.cell.V = &v
 	c.cell.F = nil
 }
@@ -193,10 +207,20 @@ func (c *Cell) Int() int {
 // SetInt sets the cell value to an int.
 func (c *Cell) SetInt(value int) {
 	c.markSheetDirty()
-	c.cell.T = "n"
-	v := strconv.Itoa(value)
-	c.cell.V = &v
-	c.cell.F = nil
+	c.setNumeric(strconv.Itoa(value))
+}
+
+// SetInt64 sets the cell value to an int64, formatting it exactly rather than
+// routing through float64 (which loses precision above 2^53).
+func (c *Cell) SetInt64(value int64) {
+	c.markSheetDirty()
+	c.setNumeric(strconv.FormatInt(value, 10))
+}
+
+// SetUint64 sets the cell value to a uint64, formatting it exactly.
+func (c *Cell) SetUint64(value uint64) {
+	c.markSheetDirty()
+	c.setNumeric(strconv.FormatUint(value, 10))
 }
 
 // Bool returns the cell value as a bool.
@@ -232,13 +256,15 @@ func (c *Cell) Time() time.Time {
 	return excelDateToTime(f)
 }
 
-// SetTime sets the cell value to a time.Time.
+// SetTime sets the cell value to a time.Time, stored as an Excel serial date.
+// The serial is computed from the wall-clock date/time in the value's own
+// location, so the stored day does not shift by the zone offset.
+//
+// Note: this sets only the numeric value, not a date number format, so the cell
+// displays the raw serial number until a date format is applied via SetStyle.
 func (c *Cell) SetTime(value time.Time) {
 	c.markSheetDirty()
-	c.cell.T = "n"
-	v := strconv.FormatFloat(timeToExcelDate(value), 'f', -1, 64)
-	c.cell.V = &v
-	c.cell.F = nil
+	c.setNumeric(strconv.FormatFloat(timeToExcelDate(value), 'f', -1, 64))
 }
 
 // Formula returns the cell formula.
@@ -282,36 +308,41 @@ func (c *Cell) Clear() {
 	c.cell.Is = nil
 }
 
-// excelDateToTime converts an Excel serial date to time.Time.
-// Excel uses a base date of January 1, 1900.
-func excelDateToTime(serial float64) time.Time {
-	// Excel incorrectly considers 1900 to be a leap year,
-	// so dates after February 28, 1900 are off by one day.
-	if serial > 59 {
-		serial--
-	}
-	// Serial 1 = January 1, 1900
-	days := int(serial) - 1
-	fraction := serial - float64(int(serial))
+// excelEpoch is the base date of the Excel 1900 serial-date system. Serials
+// count days from 1899-12-30 for dates on or after 1900-03-01, which accounts
+// for Excel's fictitious 1900-02-29 leap day.
+var excelEpoch = time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 
-	base := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
-	t := base.AddDate(0, 0, days)
-	// Add fractional day
-	t = t.Add(time.Duration(fraction * 24 * float64(time.Hour)))
+// excelDateToTime converts an Excel serial date to a time.Time (in UTC).
+func excelDateToTime(serial float64) time.Time {
+	whole := math.Floor(serial)
+	frac := serial - whole
+	days := int(whole)
+	// Dates before 1900-03-01 (serial < 61) predate the fictitious leap day, so
+	// they map one day later than the raw offset from the epoch.
+	if days < 61 {
+		days++
+	}
+	t := excelEpoch.AddDate(0, 0, days)
+	// Add the time-of-day fraction, rounded to the nearest second.
+	t = t.Add(time.Duration(math.Round(frac*86400)) * time.Second)
 	return t
 }
 
-// timeToExcelDate converts a time.Time to an Excel serial date.
+// timeToExcelDate converts a time.Time to an Excel serial date. It uses the
+// wall-clock calendar fields of t (in t's own location) so the serial is
+// independent of the time-zone offset.
 func timeToExcelDate(t time.Time) float64 {
-	base := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
-	days := t.Sub(base).Hours() / 24
-	serial := days + 1 // Serial 1 = January 1, 1900
-
-	// Excel incorrectly considers 1900 to be a leap year
-	if serial > 59 {
-		serial++
+	year, month, day := t.Date()
+	dateOnly := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	days := int(math.Round(dateOnly.Sub(excelEpoch).Hours() / 24))
+	// Inverse of the leap-day adjustment in excelDateToTime.
+	if days < 61 {
+		days--
 	}
-	return serial
+	hour, min, sec := t.Clock()
+	frac := (float64(hour)*3600 + float64(min)*60 + float64(sec) + float64(t.Nanosecond())/1e9) / 86400
+	return float64(days) + frac
 }
 
 // CellStyle represents the style of a cell.

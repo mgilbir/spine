@@ -491,8 +491,12 @@ type CT_Row struct {
 	ThickTop     *bool      `xml:"-"`
 	ThickBot     *bool      `xml:"-"`
 	Ph           *bool      `xml:"-"`
-	C            []CT_Cell  `xml:"-"`
-	DyDescent    *float64   `xml:"-"`
+	// C holds pointers so that a *Cell handle obtained from the public API
+	// stays valid when later cells are appended to the same row (appending a
+	// value slice would reallocate its backing array and detach prior
+	// handles).
+	C         []*CT_Cell `xml:"-"`
+	DyDescent *float64   `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Row.
@@ -546,7 +550,7 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 	// Decode child elements
 	var helper struct {
-		C []CT_Cell `xml:"c"`
+		C []*CT_Cell `xml:"c"`
 	}
 	if err := d.DecodeElement(&helper, &start); err != nil {
 		return err

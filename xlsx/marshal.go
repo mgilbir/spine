@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -299,6 +300,14 @@ func marshalSheetData(b *xmlb.Builder, sd *oxml.CT_SheetData) {
 		b.EmptyElement(nsSML, "sheetData")
 		return
 	}
+	// OOXML requires rows in ascending row-number order. Cells within a row are
+	// already sorted at marshal time; sort the rows too (stable, so equal or
+	// underivable numbers keep their relative order).
+	sort.SliceStable(sd.Row, func(i, j int) bool {
+		ri, _ := rowNumberOf(&sd.Row[i])
+		rj, _ := rowNumberOf(&sd.Row[j])
+		return ri < rj
+	})
 	b.StartElement(nsSML, "sheetData")
 	for i := range sd.Row {
 		sd.Row[i].MarshalToBuilder(b, nsSML, "row")
