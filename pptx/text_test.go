@@ -211,8 +211,10 @@ func TestParagraph_SpaceAfter(t *testing.T) {
 func TestParagraph_Bullet(t *testing.T) {
 	p := NewParagraph()
 
-	if p.Bullet() != BulletNone {
-		t.Errorf("Default Bullet() = %v, want BulletNone", p.Bullet())
+	// The default is BulletInherit so a paragraph keeps the layout's bullet
+	// unless it explicitly sets one (BulletNone suppresses it).
+	if p.Bullet() != BulletInherit {
+		t.Errorf("Default Bullet() = %v, want BulletInherit", p.Bullet())
 	}
 
 	p.SetBullet(BulletAuto)
