@@ -27,6 +27,7 @@ func (t *Table) CloneRow(srcIndex, dstIndex int) *TableRow {
 	} else {
 		t.rows = append(t.rows[:dstIndex], append([]*TableRow{row}, t.rows[dstIndex:]...)...)
 	}
+	t.structDirty = true
 	return row
 }
 
@@ -155,6 +156,7 @@ func (t *Table) CloneColumn(srcIndex, dstIndex int) bool {
 			row.cells = append(row.cells[:dstIndex], append([]*TableCell{cell}, row.cells[dstIndex:]...)...)
 		}
 	}
+	t.structDirty = true
 	return true
 }
 

@@ -226,9 +226,10 @@ func (s *Slide) marshal() ([]byte, error) {
 		s.slideXML = newSlideXML()
 	}
 
-	// Only sync Go shapes to XML when shapes were modified via the API.
-	// When loading from a file, the slideXML already contains the parsed shapes.
-	if s.shapesModified {
+	// Only sync Go shapes to XML when shapes were modified via the API: added
+	// or removed (shapesModified), or mutated in place (dirty flags). When
+	// loading from a file, the slideXML already contains the parsed shapes.
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 
@@ -266,23 +267,28 @@ func (s *Slide) syncShapesToXML() {
 		spTree.RemoveChildren(s.removedRefs)
 		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
+		s.syncDirtyShapes(spTree)
 		if len(s.shapes) > s.syncedShapes {
 			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		}
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
+		s.clearShapeDirt()
 		return
 	}
 
-	// Loaded slide, appends only: marshal just the new shapes into the parsed
+	// Loaded slide, in-place edits and appends only: flush dirty synced shapes
+	// into their parsed nodes, then marshal just the new shapes into the parsed
 	// tree. The full rebuild below regenerates the tree from the domain model,
 	// which drops content the model does not represent (group shapes,
 	// connectors) and re-numbers every existing shape — acceptable for decks
 	// built programmatically, destructive for decks loaded from a file.
 	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapes) >= s.syncedShapes {
+		s.syncDirtyShapes(spTree)
 		s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
+		s.clearShapeDirt()
 		return
 	}
 
@@ -334,6 +340,7 @@ func (s *Slide) syncShapesToXML() {
 	s.shapeRefs = nil
 	s.removedRefs = nil
 	s.shapesModified = false
+	s.clearShapeDirt()
 }
 
 // reindexShapeRefsAfterRemoval rewrites shapeRefs from the pre-compaction
@@ -926,7 +933,7 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 
 // Duplicate creates a copy of the slide and adds it after this slide.
 func (s *Slide) Duplicate() *Slide {
-	if s.shapesModified {
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 
