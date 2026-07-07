@@ -35,11 +35,9 @@ type Document struct {
 	preservedParts   map[string]*coxml.RawPart // all original parts for round-trip
 	contentTypesData []byte                    // raw [Content_Types].xml
 	imageParts       []*imagePart              // images to be written
-	imageCount       int                       // counter for image numbering
 	nextRelIDVal     int                       // counter for relationship IDs
 	newHeaderParts   []*hdrFtrPart             // new headers to be written
 	newFooterParts   []*hdrFtrPart             // new footers to be written
-	hdrFtrCount      int                       // counter for header/footer numbering
 }
 
 // headerPart stores a parsed header.
@@ -642,6 +640,76 @@ func relIDNumber(id string) int {
 		return 0
 	}
 	return n
+}
+
+// nextImageNumber returns the smallest positive N for which no
+// /word/media/imageN.* part exists. Word shares a single number space across
+// image extensions (image1.png and image1.jpeg collide), so numbering is by
+// basename number regardless of extension. The scan covers the parts preserved
+// from an opened package as well as images added through the mutation API, so
+// names stay collision-free across open→add→save cycles.
+func (d *Document) nextImageNumber() int {
+	used := make(map[int]bool)
+	mark := func(name string) {
+		const prefix = "/word/media/image"
+		if !strings.HasPrefix(name, prefix) {
+			return
+		}
+		rest := name[len(prefix):]
+		dot := strings.IndexByte(rest, '.')
+		if dot <= 0 {
+			return
+		}
+		if n, err := strconv.Atoi(rest[:dot]); err == nil && n > 0 {
+			used[n] = true
+		}
+	}
+	for name := range d.preservedParts {
+		mark(name)
+	}
+	for name := range d.otherParts {
+		mark(name)
+	}
+	for _, img := range d.imageParts {
+		mark(img.partName)
+	}
+	for n := 1; ; n++ {
+		if !used[n] {
+			return n
+		}
+	}
+}
+
+// nextHdrFtrPartName returns the first free /word/<kind>N.xml part name, where
+// kind is "header" or "footer". It scans the parsed header/footer maps, the
+// parts added earlier in this session, and everything preserved from the
+// opened package, so the returned name never collides with an existing part
+// and is always a fresh key into d.headers/d.footers (an existing parsed
+// header is never clobbered in memory).
+func (d *Document) nextHdrFtrPartName(kind string) string {
+	used := make(map[string]bool,
+		len(d.preservedParts)+len(d.headers)+len(d.footers)+len(d.newHeaderParts)+len(d.newFooterParts))
+	for name := range d.preservedParts {
+		used[name] = true
+	}
+	for name := range d.headers {
+		used[name] = true
+	}
+	for name := range d.footers {
+		used[name] = true
+	}
+	for _, hp := range d.newHeaderParts {
+		used[hp.partName] = true
+	}
+	for _, fp := range d.newFooterParts {
+		used[fp.partName] = true
+	}
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("/word/%s%d.xml", kind, n)
+		if !used[name] {
+			return name
+		}
+	}
 }
 
 // addDocRelationship adds a relationship to the document.xml relationships.

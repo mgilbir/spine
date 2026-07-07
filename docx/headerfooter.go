@@ -77,10 +77,12 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
 
-	d.hdrFtrCount++
-	num := d.hdrFtrCount
+	// Derive the part name from the parts already in the package (preserved
+	// parts, parsed headers/footers, and parts added in this session), so a
+	// header added to an opened document that already contains
+	// /word/header1.xml gets the next free name instead of a duplicate.
 	relID := fmt.Sprintf("rId%d", d.nextRelID())
-	partName := fmt.Sprintf("/word/header%d.xml", num)
+	partName := d.nextHdrFtrPartName("header")
 
 	hdr := &oxml.CT_HdrFtr{}
 
@@ -103,7 +105,8 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 		relID:    relID,
 	})
 
-	// Keep reference to marshal later
+	// Keep reference to marshal later. nextHdrFtrPartName guarantees the key
+	// is fresh, so this can never clobber a parsed header already in the map.
 	d.headers[partName] = &headerPart{hdr: hdr}
 
 	// Register the relationship so it is written on the round-trip save path too
@@ -112,7 +115,7 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	d.addDocRelationship(&opc.Relationship{
 		ID:     relID,
 		Type:   opc.RelTypeHeader,
-		Target: fmt.Sprintf("header%d.xml", num),
+		Target: partName[len("/word/"):],
 	})
 
 	return h
@@ -127,10 +130,9 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
 
-	d.hdrFtrCount++
-	num := d.hdrFtrCount
+	// Derive the part name from the parts already in the package (see AddHeader).
 	relID := fmt.Sprintf("rId%d", d.nextRelID())
-	partName := fmt.Sprintf("/word/footer%d.xml", num)
+	partName := d.nextHdrFtrPartName("footer")
 
 	ftr := &oxml.CT_HdrFtr{}
 
@@ -153,6 +155,8 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 		relID:    relID,
 	})
 
+	// nextHdrFtrPartName guarantees the key is fresh, so this can never
+	// clobber a parsed footer already in the map.
 	d.footers[partName] = &footerPart{ftr: ftr}
 
 	// Register the relationship so it is written on the round-trip save path too
@@ -160,7 +164,7 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	d.addDocRelationship(&opc.Relationship{
 		ID:     relID,
 		Type:   opc.RelTypeFooter,
-		Target: fmt.Sprintf("footer%d.xml", num),
+		Target: partName[len("/word/"):],
 	})
 
 	return f
