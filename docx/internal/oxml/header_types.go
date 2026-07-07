@@ -36,7 +36,7 @@ func (h *CT_HeaderReference) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
 	}
 	if h.Type != "" {
-		attrs = append(attrs, xmlb.StrAttr("type", h.Type))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "type", Value: h.Type})
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }
