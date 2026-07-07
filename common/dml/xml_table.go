@@ -125,14 +125,16 @@ type TablePartStyle struct {
 	TcStyle   *TcStyle   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcStyle,omitempty"`
 }
 
-// TcTxStyle represents CT_TableStyleTextStyle (a:tcTxStyle)
+// TcTxStyle represents CT_TableStyleTextStyle (a:tcTxStyle). Its a:font child
+// is a CT_FontCollection (latin/ea/cs typefaces), distinct from the a:fontRef
+// which is a CT_FontReference.
 type TcTxStyle struct {
-	B          string      `xml:"b,attr,omitempty"`
-	I          string      `xml:"i,attr,omitempty"`
-	Font       *FontRef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main font,omitempty"`
-	FontRef    *FontRef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fontRef,omitempty"`
-	SrgbClr    *SrgbClr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	SchemeClr  *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	B         string              `xml:"b,attr,omitempty"`
+	I         string              `xml:"i,attr,omitempty"`
+	Font      *FontCollection     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main font,omitempty"`
+	FontRef   *FontRef            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fontRef,omitempty"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
 }
 
 // TcStyle represents CT_TableStyleCellStyle (a:tcStyle)

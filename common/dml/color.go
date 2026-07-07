@@ -153,8 +153,15 @@ var (
 	ColorMagenta = NewRGB(255, 0, 255).ToColor()
 )
 
-// WithAlpha returns a copy of the color with the specified alpha (0-100).
+// WithAlpha returns a copy of the color with the specified alpha percentage,
+// clamped to the valid 0-100 range so out-of-range inputs cannot produce an
+// invalid opacity value.
 func (c Color) WithAlpha(alphaPercent int) Color {
+	if alphaPercent < 0 {
+		alphaPercent = 0
+	} else if alphaPercent > 100 {
+		alphaPercent = 100
+	}
 	copy := c
 	copy.Alpha = alphaPercent * 1000
 	return copy

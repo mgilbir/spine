@@ -62,8 +62,25 @@ func TestDML_CT_OfficeArtExtension_UseLocalDpi(t *testing.T) {
 	if v.UseLocalDpi == nil {
 		t.Fatal("UseLocalDpi should not be nil")
 	}
-	if v.UseLocalDpi.Val == nil || *v.UseLocalDpi.Val != 0 {
-		t.Errorf("UseLocalDpi.Val = %v", v.UseLocalDpi.Val)
+	if v.UseLocalDpi.Val == nil || *v.UseLocalDpi.Val != false {
+		t.Errorf("UseLocalDpi.Val = %v, want false", v.UseLocalDpi.Val)
+	}
+}
+
+// TestDML_CT_OfficeArtExtension_UseLocalDpi_BooleanLexical verifies that the
+// xsd:boolean lexical form val="true" parses, which the previous *int32 model
+// rejected with a strconv error (C94).
+func TestDML_CT_OfficeArtExtension_UseLocalDpi_BooleanLexical(t *testing.T) {
+	var v Ext
+	input := `<a:ext xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		uri="{28A0092B-C50C-407E-A947-70E740481C1C}">
+		<a14:useLocalDpi xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" val="true"/>
+	</a:ext>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if v.UseLocalDpi == nil || v.UseLocalDpi.Val == nil || *v.UseLocalDpi.Val != true {
+		t.Errorf("UseLocalDpi.Val = %v, want true", v.UseLocalDpi)
 	}
 }
 

@@ -364,6 +364,7 @@ type SolidFill struct {
 
 // GradFill represents CT_GradientFillProperties (a:gradFill)
 type GradFill struct {
+	Flip         string   `xml:"flip,attr,omitempty"`
 	RotWithShape bool     `xml:"rotWithShape,attr,omitempty"`
 	GsLst        *GsLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gsLst,omitempty"`
 	Lin          *Lin     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lin,omitempty"`
@@ -376,11 +377,17 @@ type GsLst struct {
 	Gs []*Gs `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gs"`
 }
 
-// Gs represents CT_GradientStop (a:gs)
+// Gs represents CT_GradientStop (a:gs). It carries exactly one EG_ColorChoice
+// child; all six color kinds must be supported or a stop using, e.g., a scheme
+// or system color would be dropped, leaving <a:gs> with no color child.
 type Gs struct {
 	Pos       int32               `xml:"pos,attr"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // Lin represents CT_LinearShadeProperties (a:lin)
