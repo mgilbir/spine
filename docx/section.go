@@ -1,9 +1,6 @@
 package docx
 
 import (
-	"math"
-	"strconv"
-
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
@@ -99,8 +96,8 @@ func (s *Section) SetMargins(m PageMargins) {
 	if s.sectPr.PgMar == nil {
 		s.sectPr.PgMar = &oxml.CT_PgMar{}
 	}
-	s.sectPr.PgMar.Top = pointsToTwipsSigned(m.Top)
-	s.sectPr.PgMar.Bottom = pointsToTwipsSigned(m.Bottom)
+	s.sectPr.PgMar.Top = pointsToTwips(m.Top)
+	s.sectPr.PgMar.Bottom = pointsToTwips(m.Bottom)
 	s.sectPr.PgMar.Left = pointsToTwips(m.Left)
 	s.sectPr.PgMar.Right = pointsToTwips(m.Right)
 	if m.Header > 0 {
@@ -121,9 +118,3 @@ func PageSizeA4() (float64, float64) { return 595.3, 841.9 }
 
 // PageSizeLegal returns US Legal size (8.5 x 14 inches) in points.
 func PageSizeLegal() (float64, float64) { return 612, 1008 }
-
-// pointsToTwipsSigned converts points to twips, allowing negative values.
-// Margins like Top and Bottom can be negative in some WML documents.
-func pointsToTwipsSigned(points float64) string {
-	return strconv.Itoa(int(math.Round(points * 20)))
-}
