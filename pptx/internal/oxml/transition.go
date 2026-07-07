@@ -7,7 +7,10 @@ import "github.com/mgilbir/spine/common/dml"
 // Transition represents CT_SlideTransition (p:transition)
 type Transition struct {
 	Spd         string `xml:"spd,attr,omitempty"`       // slow, med, fast
-	AdvClick    bool   `xml:"advClick,attr,omitempty"`  // default true
+	// AdvClick defaults to true when absent, so it is a pointer: nil means
+	// "unspecified" (advance-on-click enabled), and an explicit false must be
+	// emitted as advClick="0" rather than omitted (which readers treat as true).
+	AdvClick    *bool  `xml:"advClick,attr,omitempty"`
 	AdvTm       uint32 `xml:"advTm,attr,omitempty"`     // advance time in ms
 	// Choice of transition type
 	Blinds      *OrientationTransition    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main blinds,omitempty"`

@@ -26,8 +26,12 @@ const (
 
 // Transition represents slide transition settings.
 type Transition struct {
-	Type           TransitionType
-	Duration       float64 // seconds
+	Type TransitionType
+	// Duration is the transition speed in seconds. The base OOXML schema only
+	// stores a coarse speed (fast/med/slow), so the value snaps to 0.5, 1.0, or
+	// 2.0 on a round-trip; exact durations require the p14 extension, which is
+	// not yet modeled.
+	Duration       float64
 	AdvanceOnClick bool
 	AdvanceAfter   float64 // seconds, 0 = disabled
 }
@@ -43,8 +47,11 @@ func (s *Slide) SetTransition(t Transition) {
 		return
 	}
 
+	// Always set advClick explicitly so AdvanceOnClick=false is emitted
+	// (advClick="0") rather than omitted and read back as the default true.
+	advClick := t.AdvanceOnClick
 	tr := &oxml.Transition{
-		AdvClick: t.AdvanceOnClick,
+		AdvClick: &advClick,
 	}
 
 	// Convert duration to speed attribute
@@ -105,7 +112,8 @@ func (s *Slide) Transition() *Transition {
 
 	tr := s.slideXML.Transition
 	t := &Transition{
-		AdvanceOnClick: tr.AdvClick,
+		// advClick defaults to true when the attribute is absent.
+		AdvanceOnClick: tr.AdvClick == nil || *tr.AdvClick,
 	}
 
 	// Convert speed to approximate duration
