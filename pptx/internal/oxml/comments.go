@@ -47,34 +47,6 @@ type CommentText struct {
 	Value string `xml:",chardata"`
 }
 
-// --- Modern Comments (Office 2021+) ---
-
-// ModernComment represents p15:comment modern threaded comment
-type ModernComment struct {
-	Id        string `xml:"id,attr"`
-	AuthorId  string `xml:"authorId,attr"`
-	Status    string `xml:"status,attr,omitempty"`   // active, resolved, reOpened, closed
-	Created   string `xml:"created,attr,omitempty"`  // datetime
-	Text      *ModernCommentText `xml:"text,omitempty"`
-	ParentId  string `xml:"parentId,attr,omitempty"` // for reply threading
-	Done      bool   `xml:"done,attr,omitempty"`
-	Pos       *Point2D `xml:"pos,omitempty"`
-	ExtLst    *dml.ExtLst `xml:"extLst,omitempty"`
-}
-
-// ModernCommentText represents text content of modern comment
-type ModernCommentText struct {
-	Text string `xml:",chardata"`
-}
-
-// ModernCommentAuthor represents p15:cmAuthor modern comment author
-type ModernCommentAuthor struct {
-	Id           string `xml:"id,attr"`
-	Name         string `xml:"name,attr"`
-	UserId       string `xml:"userId,attr,omitempty"`
-	ProviderId   string `xml:"providerId,attr,omitempty"`
-}
-
 // --- Notes ---
 
 // NotesSlide represents CT_NotesSlide (p:notes)
