@@ -99,10 +99,10 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 		}
 	}
 
-	// If anything changed, re-materialize the Go-level shapes
+	// If anything changed, refresh the Go-level shapes from the XML, keeping
+	// caller-held shape pointers attached (see rematerializeShapes).
 	if changed {
-		s.shapes = nil
-		s.materializeShapes()
+		s.rematerializeShapes()
 	}
 }
 
@@ -149,8 +149,7 @@ func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[st
 	}
 
 	if changed {
-		s.shapes = nil
-		s.materializeShapes()
+		s.rematerializeShapes()
 	}
 }
 
