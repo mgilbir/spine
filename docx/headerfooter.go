@@ -5,6 +5,7 @@ import (
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
+	"github.com/mgilbir/spine/opc"
 )
 
 // HeaderType identifies the type of header.
@@ -105,6 +106,15 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	// Keep reference to marshal later
 	d.headers[partName] = &headerPart{hdr: hdr}
 
+	// Register the relationship so it is written on the round-trip save path too
+	// (the new-document path builds its own; without this a header added to an
+	// opened document would have no relationship).
+	d.addDocRelationship(&opc.Relationship{
+		ID:     relID,
+		Type:   opc.RelTypeHeader,
+		Target: fmt.Sprintf("header%d.xml", num),
+	})
+
 	return h
 }
 
@@ -144,6 +154,14 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	})
 
 	d.footers[partName] = &footerPart{ftr: ftr}
+
+	// Register the relationship so it is written on the round-trip save path too
+	// (see AddHeader).
+	d.addDocRelationship(&opc.Relationship{
+		ID:     relID,
+		Type:   opc.RelTypeFooter,
+		Target: fmt.Sprintf("footer%d.xml", num),
+	})
 
 	return f
 }
