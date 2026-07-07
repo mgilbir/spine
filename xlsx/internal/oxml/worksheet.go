@@ -47,23 +47,63 @@ type CT_Worksheet struct {
 	TableParts              *CT_TableParts               `xml:"tableParts,omitempty"`
 	ExtLst                  *CT_ExtensionList            `xml:"extLst,omitempty"`
 	OriginalNSDecls         []xmlb.NSDecl                `xml:"-"`
+	// OriginalRootAttrs preserves all root-element attributes (namespace
+	// declarations and regular attributes like mc:Ignorable / xr:uid) in order.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	// ChildOrder preserves the order of child elements; each entry is a known
+	// element local name or "unknown:N" indexing UnknownChildren.
+	ChildOrder []string `xml:"-"`
+	// UnknownChildren captures child elements without a typed model (e.g.
+	// oleObjects, controls, customSheetViews) as raw bytes, so editing a sheet
+	// no longer deletes them.
+	UnknownChildren []WbUnknownChild `xml:"-"`
+	// ElemSeparator is inter-element whitespace for round-trip formatting.
+	ElemSeparator string `xml:"-"`
 }
 
-// UnmarshalXML implements custom unmarshaling for CT_Worksheet.
-// Captures namespace declarations from the root element for round-trip preservation.
+// UnmarshalXML implements custom unmarshaling for CT_Worksheet. It preserves
+// the root attributes, child order, and any unknown child elements so that a
+// re-marshaled (dirty) sheet does not silently drop content it lacks a typed
+// model for (oleObjects, controls, customSheetViews, scenarios, ...).
 func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ws.XMLName = start.Name
 
-	// Capture namespace declarations
+	// Capture all root-element attributes in order for round-trip preservation,
+	// distinguishing namespace declarations from regular attributes.
 	for _, attr := range start.Attr {
-		if attr.Name.Space == "xmlns" {
-			ws.OriginalNSDecls = append(ws.OriginalNSDecls, xmlb.NSDecl{
-				Prefix: attr.Name.Local,
-				URI:    attr.Value,
-			})
-		} else if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
-			// Default namespace: xmlns="URI"
+		switch {
+		case attr.Name.Space == "xmlns":
+			ws.OriginalNSDecls = append(ws.OriginalNSDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: attr.Name.Local, Value: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
 			ws.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, ws.OriginalNSDecls...)
+			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: "", Value: attr.Value})
+		default:
+			prefix := ""
+			switch attr.Name.Space {
+			case xmlb.NSMarkupCompatibility:
+				prefix = xmlb.PrefixMarkupCompatibility
+			case nsR:
+				prefix = "r"
+			case "":
+				// no prefix
+			default:
+				for _, ra := range ws.OriginalRootAttrs {
+					if ra.IsNS && ra.Value == attr.Name.Space {
+						prefix = ra.Prefix
+						break
+					}
+				}
+			}
+			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: false, Prefix: prefix, LocalName: attr.Name.Local, Value: attr.Value})
+		}
+	}
+
+	// Map namespace URIs to prefixes for reconstructing unknown children.
+	nsPrefixMap := make(map[string]string)
+	for _, ra := range ws.OriginalRootAttrs {
+		if ra.IsNS && ra.Prefix != "" {
+			nsPrefixMap[ra.Value] = ra.Prefix
 		}
 	}
 
@@ -73,8 +113,23 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			// Capture inter-element whitespace for round-trip formatting.
+			if ws.ElemSeparator == "" && len(t) > 0 {
+				isWS := true
+				for _, b := range t {
+					if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+						isWS = false
+						break
+					}
+				}
+				if isWS {
+					ws.ElemSeparator = string(t)
+				}
+			}
 		case xml.StartElement:
-			switch t.Name.Local {
+			name := t.Name.Local
+			switch name {
 			case "sheetPr":
 				ws.SheetPr = &CT_SheetPr{}
 				if err := d.DecodeElement(ws.SheetPr, &t); err != nil {
@@ -202,10 +257,21 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 					return err
 				}
 			default:
-				if err := d.Skip(); err != nil {
+				// Capture unknown children as raw bytes rather than dropping them.
+				var raw struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&raw, &t); err != nil {
 					return err
 				}
+				idx := len(ws.UnknownChildren)
+				ws.UnknownChildren = append(ws.UnknownChildren, WbUnknownChild{
+					Data: encodeUnknownElement(t, raw.Content, nsPrefixMap),
+				})
+				ws.ChildOrder = append(ws.ChildOrder, fmt.Sprintf("unknown:%d", idx))
+				continue
 			}
+			ws.ChildOrder = append(ws.ChildOrder, name)
 		case xml.EndElement:
 			return nil
 		}
