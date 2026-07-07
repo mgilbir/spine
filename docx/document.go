@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -513,10 +514,17 @@ func (d *Document) AddParagraphWithText(text string) *Paragraph {
 	return p
 }
 
-// AddHeading adds a heading paragraph with the specified level (1-9).
+// AddHeading adds a heading paragraph with the specified level. The level is
+// clamped to the valid 1-9 range so out-of-range values cannot produce a
+// nonsensical style name (e.g. level 10 previously yielded "Heading:").
 func (d *Document) AddHeading(text string, level int) *Paragraph {
+	if level < 1 {
+		level = 1
+	} else if level > 9 {
+		level = 9
+	}
 	p := d.AddParagraph()
-	p.SetStyle("Heading" + string(rune('0'+level)))
+	p.SetStyle("Heading" + strconv.Itoa(level))
 	p.AddRun().SetText(text)
 	return p
 }
@@ -577,12 +585,30 @@ func (d *Document) AddTable(rows, cols int) *Table {
 // nextRelID returns the next available relationship ID number.
 func (d *Document) nextRelID() int {
 	if d.nextRelIDVal == 0 {
-		// Start from existing relationships count + 1
-		d.nextRelIDVal = len(d.relationships["/word/document.xml"]) + 1
+		// Seed past the highest existing numeric rId, not the count: rIds are
+		// often non-contiguous after Word edits (e.g. rId1, rId3), so seeding
+		// from the count would collide with an existing id.
+		max := 0
+		for _, rel := range d.relationships["/word/document.xml"] {
+			if n := relIDNumber(rel.ID); n > max {
+				max = n
+			}
+		}
+		d.nextRelIDVal = max + 1
 	}
 	id := d.nextRelIDVal
 	d.nextRelIDVal++
 	return id
+}
+
+// relIDNumber parses the numeric suffix of a relationship id like "rId7",
+// returning 0 if it does not have that form.
+func relIDNumber(id string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "rId"))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // addDocRelationship adds a relationship to the document.xml relationships.

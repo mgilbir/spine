@@ -2,6 +2,7 @@ package oxml
 
 import (
 	"encoding/xml"
+	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -71,6 +72,60 @@ const (
 type pChildRef struct {
 	kind  pChildKind
 	index int
+}
+
+// Text returns the paragraph's visible text, walking child content in document
+// order (runs, hyperlinks, simple fields, tracked insertions, and structured
+// document tags), so text nested in a hyperlink or field is not lost. Deleted
+// (w:del) content is excluded as it is not visible text.
+func (p *CT_P) Text() string {
+	var sb strings.Builder
+	if len(p.childOrder) > 0 {
+		for _, ref := range p.childOrder {
+			switch ref.kind {
+			case pChildR:
+				if ref.index < len(p.R) {
+					writeRunText(&sb, p.R[ref.index])
+				}
+			case pChildHyperlink:
+				if ref.index < len(p.Hyperlink) {
+					writeRunsText(&sb, p.Hyperlink[ref.index].R)
+				}
+			case pChildIns:
+				if ref.index < len(p.Ins) {
+					writeRunsText(&sb, p.Ins[ref.index].R)
+				}
+			case pChildFldSimple:
+				if ref.index < len(p.FldSimple) {
+					writeRunsText(&sb, p.FldSimple[ref.index].R)
+				}
+			case pChildSdtRun:
+				if ref.index < len(p.SdtRun) && p.SdtRun[ref.index].SdtContent != nil {
+					writeRunsText(&sb, p.SdtRun[ref.index].SdtContent.R)
+				}
+			}
+		}
+		return sb.String()
+	}
+	// No recorded child order (e.g. a programmatically built paragraph): read
+	// the top-level runs.
+	writeRunsText(&sb, p.R)
+	return sb.String()
+}
+
+func writeRunText(sb *strings.Builder, r *CT_R) {
+	if r == nil {
+		return
+	}
+	for _, t := range r.T {
+		sb.WriteString(t.Text)
+	}
+}
+
+func writeRunsText(sb *strings.Builder, runs []*CT_R) {
+	for _, r := range runs {
+		writeRunText(sb, r)
+	}
 }
 
 // CT_P represents a paragraph (w:p).

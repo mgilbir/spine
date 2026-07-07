@@ -8,9 +8,12 @@ import (
 
 // CT_Document is the root element of a document part (w:document).
 type CT_Document struct {
-	XMLName     xml.Name `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main document"`
-	Conformance string   `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 Ignorable,attr,omitempty"`
-	Body        *CT_Body `xml:"-"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main document"`
+	// Ignorable is the mc:Ignorable attribute value.
+	Ignorable string `xml:"-"`
+	// Conformance is the w:conformance attribute (e.g. "strict"/"transitional").
+	Conformance string        `xml:"-"`
+	Body        *CT_Body      `xml:"-"`
 	Background  *CT_Background `xml:"-"`
 	// OriginalNSDecls preserves the namespace declarations from the original XML
 	// for byte-identical round-trip of document.xml.
@@ -22,6 +25,9 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 	doc.XMLName = start.Name
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "Ignorable" {
+			doc.Ignorable = attr.Value
+		}
+		if attr.Name.Local == "conformance" {
 			doc.Conformance = attr.Value
 		}
 		// Capture namespace declarations for round-trip preservation
