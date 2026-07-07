@@ -5,22 +5,6 @@ import (
 	"strings"
 )
 
-// Part represents a part within an OPC package.
-// Parts are the fundamental units of content within a package.
-type Part struct {
-	// Name is the URI path of the part (e.g., "/ppt/presentation.xml").
-	Name string
-
-	// ContentType is the MIME type of the part content.
-	ContentType string
-
-	// Relationships contains the relationships defined for this part.
-	Relationships []*Relationship
-
-	// Data holds the raw content of the part.
-	Data []byte
-}
-
 // ValidatePartName checks if a part name conforms to OPC naming rules.
 // Part names must:
 // - Start with a forward slash
@@ -87,30 +71,4 @@ func ResolvePartName(base, relative string) string {
 
 	// Join and normalize
 	return NormalizePartName(path.Join(baseDir, relative))
-}
-
-// Extension returns the file extension of the part name.
-func (p *Part) Extension() string {
-	return strings.ToLower(path.Ext(p.Name))
-}
-
-// GetRelationshipsByType returns all relationships with the specified type.
-func (p *Part) GetRelationshipsByType(relType string) []*Relationship {
-	var result []*Relationship
-	for _, rel := range p.Relationships {
-		if rel.Type == relType {
-			result = append(result, rel)
-		}
-	}
-	return result
-}
-
-// GetRelationshipByID returns the relationship with the specified ID, or nil.
-func (p *Part) GetRelationshipByID(id string) *Relationship {
-	for _, rel := range p.Relationships {
-		if rel.ID == id {
-			return rel
-		}
-	}
-	return nil
 }
