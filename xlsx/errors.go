@@ -1,13 +1,12 @@
-// Package xlsx provides functionality for reading and writing Excel spreadsheets.
-// This package is currently a placeholder and will be fully implemented in a future release.
+// Package xlsx reads and writes Microsoft Excel (SpreadsheetML) workbooks via
+// the Open Packaging Conventions. It supports opening existing .xlsx files,
+// editing cells, styles, sheets, and images, and creating workbooks from
+// scratch, preserving unmodified parts byte-for-byte on round-trip.
 package xlsx
 
 import "errors"
 
 var (
-	// ErrNotImplemented indicates the feature is not yet implemented.
-	ErrNotImplemented = errors.New("xlsx: not implemented")
-
 	// ErrNotXLSX indicates the file is not a valid Excel file.
 	ErrNotXLSX = errors.New("xlsx: not a valid Excel file")
 
