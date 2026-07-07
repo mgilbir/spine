@@ -5,10 +5,7 @@ import (
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
-const (
-	nsW = xmlb.NSWordprocessingML
-	nsR = xmlb.NSPresentationRels
-)
+const nsW = xmlb.NSWordprocessingML
 
 // marshalDocumentXML marshals a document to XML.
 func marshalDocumentXML(doc *oxml.CT_Document) []byte {
