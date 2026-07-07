@@ -59,6 +59,37 @@ func marshalPresentationXML(pres *oxml.Presentation) []byte {
 		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
 	}
 
+	// Emit the remaining CT_Presentation attributes when present (previously
+	// parsed but never written, so e.g. firstSlideNum or a modify password
+	// verifier was silently dropped on every save).
+	appendBool := func(name string, v *bool) {
+		if v == nil {
+			return
+		}
+		val := "0"
+		if *v {
+			val = "1"
+		}
+		presAttrs = append(presAttrs, xmlb.StrAttr(name, val))
+	}
+	if pres.ServerZoom != "" {
+		presAttrs = append(presAttrs, xmlb.StrAttr("serverZoom", pres.ServerZoom))
+	}
+	if pres.FirstSlideNum != nil {
+		presAttrs = append(presAttrs, xmlb.IntAttr("firstSlideNum", int64(*pres.FirstSlideNum)))
+	}
+	appendBool("showSpecialPlsOnTitleSld", pres.ShowSpecialPlsOnTitleSld)
+	appendBool("rtl", pres.Rtl)
+	appendBool("removePersonalInfoOnSave", pres.RemovePersonalInfoOnSave)
+	appendBool("compatMode", pres.CompatMode)
+	appendBool("strictFirstAndLastChars", pres.StrictFirstAndLastChars)
+	if pres.BookmarkIdSeed != nil {
+		presAttrs = append(presAttrs, xmlb.UintAttr("bookmarkIdSeed", *pres.BookmarkIdSeed))
+	}
+	if pres.Conformance != "" {
+		presAttrs = append(presAttrs, xmlb.StrAttr("conformance", pres.Conformance))
+	}
+
 	// Start root element with namespace declarations and attributes
 	b.StartElementWithNS(nsP, "presentation", xmlb.PresentationMLNamespaces(), presAttrs...)
 
@@ -124,11 +155,37 @@ func marshalPresentationXML(pres *oxml.Presentation) []byte {
 		)
 	}
 
+	// smartTags .. kinsoku: parsed-but-previously-dropped children, emitted in
+	// their schema position (between notesSz and defaultTextStyle) when present.
+	if pres.SmartTags != nil {
+		b.MarshalElement(nsP, "smartTags", pres.SmartTags)
+	}
+	if pres.EmbeddedFontLst != nil {
+		b.MarshalElement(nsP, "embeddedFontLst", pres.EmbeddedFontLst)
+	}
+	if pres.CustShowLst != nil {
+		b.MarshalElement(nsP, "custShowLst", pres.CustShowLst)
+	}
+	if pres.PhotoAlbum != nil {
+		b.MarshalElement(nsP, "photoAlbum", pres.PhotoAlbum)
+	}
+	if pres.CustDataLst != nil {
+		b.MarshalElement(nsP, "custDataLst", pres.CustDataLst)
+	}
+	if pres.Kinsoku != nil {
+		b.MarshalElement(nsP, "kinsoku", pres.Kinsoku)
+	}
+
 	// defaultTextStyle - use parsed data if available, otherwise default
 	if pres.DefaultTextStyle != nil {
 		marshalParsedDefaultTextStyle(b, pres.DefaultTextStyle)
 	} else {
 		marshalDefaultTextStyle(b)
+	}
+
+	// modifyVerifier (password-to-modify) — parsed but previously dropped.
+	if pres.ModifyVerifier != nil {
+		b.MarshalElement(nsP, "modifyVerifier", pres.ModifyVerifier)
 	}
 
 	// extLst
