@@ -57,27 +57,34 @@ func (s *Slide) materializeShapes() {
 			}
 		}
 	} else {
-		// No child order tracking — iterate typed slices in order
-		for _, sp := range spTree.Sp {
+		// No child order tracking (a tree rebuilt from the domain model, e.g.
+		// after a ReplaceText on a created deck) — iterate typed slices in
+		// order. Refs are recorded here too, so in-place edits and surgical
+		// removals keep working on the re-materialized shapes.
+		for i, sp := range spTree.Sp {
 			if shape := oxmlShapeToGoShape(sp); shape != nil {
 				s.setShapeBackRef(shape)
 				s.shapes = append(s.shapes, shape)
+				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildSp, Index: i})
 			}
 		}
-		for _, pic := range spTree.Pic {
+		for i, pic := range spTree.Pic {
 			if p := oxmlPictureToGoPicture(pic); p != nil {
 				s.setShapeBackRef(p)
 				s.shapes = append(s.shapes, p)
+				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildPic, Index: i})
 			}
 		}
-		for _, gf := range spTree.GraphicFrame {
+		for i, gf := range spTree.GraphicFrame {
 			if tbl := oxmlGraphicFrameToGoTable(gf); tbl != nil {
 				s.shapes = append(s.shapes, tbl)
+				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: i})
 			}
 		}
-		for _, grp := range spTree.GrpSp {
+		for i, grp := range spTree.GrpSp {
 			if g := oxmlGroupShapeToGoGroupShape(grp, s); g != nil {
 				s.shapes = append(s.shapes, g)
+				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i})
 			}
 		}
 	}
@@ -85,6 +92,130 @@ func (s *Slide) materializeShapes() {
 	// Everything materialized so far is already represented in the parsed
 	// XML; marshal() appends only shapes added after this point.
 	s.syncedShapes = len(s.shapes)
+}
+
+// rematerializeShapes rebuilds the domain shapes from the slide XML after an
+// in-XML mutation (text replacement) and, where possible, copies the refreshed
+// state into the pre-existing domain objects so caller-held shape pointers
+// stay attached to the slide — a plain re-materialization would silently
+// detach them, dropping any subsequent edits made through them.
+func (s *Slide) rematerializeShapes() {
+	old := s.shapes
+	s.shapes = nil
+	s.materializeShapes()
+	if len(old) != len(s.shapes) {
+		return
+	}
+
+	// Match old to fresh shapes per tree-kind class: relative order within a
+	// class is preserved by both the sync (typed slices) and materialization,
+	// even when the overall interleaving differs (type-ordered rebuilt trees
+	// materialize grouped by kind).
+	buckets := make(map[int][]Shape)
+	for _, sh := range old {
+		buckets[shapeKindClass(sh)] = append(buckets[shapeKindClass(sh)], sh)
+	}
+	adopted := make([]Shape, len(s.shapes))
+	for i, fresh := range s.shapes {
+		k := shapeKindClass(fresh)
+		q := buckets[k]
+		if len(q) == 0 {
+			return // structural mismatch: keep the freshly materialized shapes
+		}
+		o := q[0]
+		buckets[k] = q[1:]
+		if !adoptRefreshedShape(o, fresh) {
+			return
+		}
+		adopted[i] = o
+	}
+	copy(s.shapes, adopted)
+}
+
+// shapeKindClass maps a domain shape to the spTree child kind its node has.
+func shapeKindClass(sh Shape) int {
+	switch sh.(type) {
+	case *TextBox, *PlaceholderShape, *AutoShape:
+		return int(oxml.ChildSp)
+	case *Picture, *Video, *Audio:
+		return int(oxml.ChildPic)
+	case *Table:
+		return int(oxml.ChildGraphicFrame)
+	case *GroupShape:
+		return int(oxml.ChildGrpSp)
+	}
+	return -1
+}
+
+// adoptRefreshedShape copies the parts of a freshly materialized shape that a
+// text replacement can change (text frames) into the pre-existing domain
+// object, reporting whether the pair was compatible. Shapes without text keep
+// the old object untouched, preserving state the fresh copy lacks (pending
+// image data, media relationship IDs).
+func adoptRefreshedShape(old, fresh Shape) bool {
+	switch o := old.(type) {
+	case *TextBox:
+		f, ok := fresh.(*TextBox)
+		if !ok {
+			return false
+		}
+		o.textFrame = f.textFrame
+	case *PlaceholderShape:
+		f, ok := fresh.(*PlaceholderShape)
+		if !ok {
+			return false
+		}
+		o.textFrame = f.textFrame
+	case *AutoShape:
+		f, ok := fresh.(*AutoShape)
+		if !ok {
+			return false
+		}
+		o.textFrame = f.textFrame
+	case *Table:
+		f, ok := fresh.(*Table)
+		if !ok || len(o.rows) != len(f.rows) {
+			return false
+		}
+		for i, row := range o.rows {
+			if len(row.cells) != len(f.rows[i].cells) {
+				return false
+			}
+		}
+		for i, row := range o.rows {
+			for j, cell := range row.cells {
+				cell.textFrame = f.rows[i].cells[j].textFrame
+			}
+		}
+		o.sourceFrame = f.sourceFrame
+	case *Picture:
+		if _, ok := fresh.(*Picture); !ok {
+			return false
+		}
+	case *Video:
+		// Media shapes materialize as *Picture; the old shape keeps its media
+		// identity.
+		if _, ok := fresh.(*Picture); !ok {
+			return false
+		}
+	case *Audio:
+		if _, ok := fresh.(*Picture); !ok {
+			return false
+		}
+	case *GroupShape:
+		f, ok := fresh.(*GroupShape)
+		if !ok || len(o.children) != len(f.children) {
+			return false
+		}
+		for i := range o.children {
+			if !adoptRefreshedShape(o.children[i], f.children[i]) {
+				return false
+			}
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 // setShapeBackRef sets the slide back-reference on shapes that need it.
