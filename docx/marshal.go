@@ -17,7 +17,10 @@ func marshalDocumentXML(doc *oxml.CT_Document) []byte {
 
 	var attrs []xmlb.Attr
 	if doc.Conformance != "" {
-		attrs = append(attrs, xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable", doc.Conformance))
+		attrs = append(attrs, xmlb.StrAttr("w:conformance", doc.Conformance))
+	}
+	if doc.Ignorable != "" {
+		attrs = append(attrs, xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable", doc.Ignorable))
 	}
 
 	// Use original namespace declarations if available (for round-trip fidelity),
