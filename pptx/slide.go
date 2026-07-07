@@ -94,12 +94,15 @@ func (s *Slide) AddTextBox() *TextBox {
 	return tb
 }
 
-// AddPicture adds a picture shape to the slide.
+// AddPicture adds a picture shape to the slide, reading the image from
+// imagePath. It returns an error if the file cannot be read (previously the
+// path was stored without reading it, so a nonexistent file returned no error
+// and produced a blip with no image reference). The image data is embedded as a
+// media part when the presentation is saved.
 func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
-	// Placeholder implementation
-	pic := &Picture{
-		BaseShape: BaseShape{},
-		imagePath: imagePath,
+	pic := NewPicture()
+	if err := pic.SetImage(imagePath); err != nil {
+		return nil, err
 	}
 	s.AddShape(pic)
 	return pic, nil
