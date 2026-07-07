@@ -2,10 +2,7 @@
 // as defined in ECMA-376 Part 2.
 package opc
 
-import (
-	"errors"
-	"fmt"
-)
+import "errors"
 
 var (
 	// ErrInvalidPartName indicates a part name that violates OPC naming rules.
@@ -29,31 +26,3 @@ var (
 	// ErrCorruptedPackage indicates the package structure is invalid.
 	ErrCorruptedPackage = errors.New("opc: corrupted package")
 )
-
-// PartError represents an error associated with a specific part.
-type PartError struct {
-	PartName string
-	Err      error
-}
-
-func (e *PartError) Error() string {
-	return fmt.Sprintf("opc: part %q: %v", e.PartName, e.Err)
-}
-
-func (e *PartError) Unwrap() error {
-	return e.Err
-}
-
-// RelationshipError represents an error associated with a relationship.
-type RelationshipError struct {
-	RelationshipID string
-	Err            error
-}
-
-func (e *RelationshipError) Error() string {
-	return fmt.Sprintf("opc: relationship %q: %v", e.RelationshipID, e.Err)
-}
-
-func (e *RelationshipError) Unwrap() error {
-	return e.Err
-}
