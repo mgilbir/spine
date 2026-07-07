@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -49,7 +50,18 @@ func (s *Slide) ReplaceTextInShape(shapeName string, replacements map[string]str
 // and re-materializes the Go-level shapes to keep them in sync.
 // The replacements map contains exact strings to find (already delimited if needed).
 func (s *Slide) replaceTextInXML(replacements map[string]string) {
-	if s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.slideXML == nil {
+		return
+	}
+	// Flush pending domain-shape edits into the XML tree first. Decks built via
+	// the API author their text in domain shapes that are only synced to XML at
+	// marshal time, so without this the walk below sees an empty tree (a no-op
+	// on created decks); loaded decks may also have API-added shapes that the
+	// re-materialize at the end would otherwise drop.
+	if s.shapesModified {
+		s.syncShapesToXML()
+	}
+	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
 		return
 	}
 
@@ -94,7 +106,13 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 }
 
 func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[string]string) {
-	if s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.slideXML == nil {
+		return
+	}
+	if s.shapesModified {
+		s.syncShapesToXML()
+	}
+	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
 		return
 	}
 
@@ -273,16 +291,10 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 
 	fullText := sb.String()
 
-	// Check if any replacement key exists in the full text.
-	newText := fullText
-	hasMatch := false
-	for old, repl := range replacements {
-		if strings.Contains(newText, old) {
-			newText = strings.ReplaceAll(newText, old, repl)
-			hasMatch = true
-		}
-	}
-
+	// Apply all replacements in a single deterministic pass (see applyReplacements),
+	// so the result does not depend on Go's map iteration order and a replacement
+	// value that happens to contain another key is not re-replaced.
+	newText, hasMatch := applyReplacements(fullText, replacements)
 	if !hasMatch {
 		return false
 	}
@@ -318,6 +330,48 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 	return true
 }
 
+// applyReplacements applies every key->value replacement to text in a single
+// left-to-right pass. At each position the longest matching key wins and the
+// scan advances past the inserted value, so the result is independent of map
+// iteration order and a value that contains another key is never re-replaced.
+func applyReplacements(text string, replacements map[string]string) (string, bool) {
+	keys := make([]string, 0, len(replacements))
+	for k := range replacements {
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+
+	var sb strings.Builder
+	changed := false
+	for i := 0; i < len(text); {
+		matched := false
+		for _, k := range keys {
+			if strings.HasPrefix(text[i:], k) {
+				sb.WriteString(replacements[k])
+				i += len(k)
+				matched = true
+				changed = true
+				break
+			}
+		}
+		if !matched {
+			sb.WriteByte(text[i])
+			i++
+		}
+	}
+	if !changed {
+		return text, false
+	}
+	return sb.String(), true
+}
+
 // redistributeText redistributes replacement text across runs in a paragraph.
 // It attempts to preserve formatting of runs that were not affected by the replacement,
 // while consolidating runs that contained parts of a template key.
@@ -350,6 +404,17 @@ func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries [
 	// Find common prefix and suffix between old and new text
 	prefixLen := commonPrefixLen(oldFullText, newFullText)
 	suffixLen := commonSuffixLen(oldFullText, newFullText)
+
+	// The prefix and suffix must not overlap in either string. A shrinking
+	// replacement (e.g. "aa" -> "a") otherwise double-counts the shared region
+	// and emits "aa" instead of "a". Clamp the suffix so prefix+suffix fits the
+	// shorter of the two strings.
+	if maxSuffix := min(len(oldFullText), len(newFullText)) - prefixLen; suffixLen > maxSuffix {
+		if maxSuffix < 0 {
+			maxSuffix = 0
+		}
+		suffixLen = maxSuffix
+	}
 
 	// Ensure prefix and suffix don't overlap
 	oldMiddleStart := prefixLen
