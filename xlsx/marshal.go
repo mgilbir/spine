@@ -200,98 +200,193 @@ func marshalWorksheetXML(ws *oxml.CT_Worksheet) []byte {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.WriteHeader()
 
-	// Use original namespace declarations if available (for round-trip fidelity),
-	// otherwise use the standard set.
-	nsDecls := xmlb.SpreadsheetMLNamespaces()
-	if len(ws.OriginalNSDecls) > 0 {
-		nsDecls = ws.OriginalNSDecls
-	}
+	b.SetElementSeparator(ws.ElemSeparator)
 
-	b.StartElementWithNS(nsSML, "worksheet", nsDecls)
-
-	if ws.SheetPr != nil {
-		b.MarshalElement(nsSML, "sheetPr", ws.SheetPr)
-	}
-	if ws.Dimension != nil {
-		b.MarshalElement(nsSML, "dimension", ws.Dimension)
-	}
-	if ws.SheetViews != nil {
-		b.MarshalElement(nsSML, "sheetViews", ws.SheetViews)
-	}
-	if ws.SheetFormatPr != nil {
-		ws.SheetFormatPr.MarshalToBuilder(b, nsSML, "sheetFormatPr")
-	}
-	for i := range ws.Cols {
-		b.MarshalElement(nsSML, "cols", &ws.Cols[i])
-	}
-
-	// SheetData - always present (even if empty)
-	marshalSheetData(b, &ws.SheetData)
-
-	if ws.SheetCalcPr != nil {
-		b.MarshalElement(nsSML, "sheetCalcPr", ws.SheetCalcPr)
-	}
-	if ws.SheetProtection != nil {
-		b.MarshalElement(nsSML, "sheetProtection", ws.SheetProtection)
-	}
-	if ws.AutoFilter != nil {
-		b.MarshalElement(nsSML, "autoFilter", ws.AutoFilter)
-	}
-	if ws.SortState != nil {
-		b.MarshalElement(nsSML, "sortState", ws.SortState)
-	}
-	if ws.MergeCells != nil {
-		b.MarshalElement(nsSML, "mergeCells", ws.MergeCells)
-	}
-	if ws.PhoneticPr != nil {
-		b.MarshalElement(nsSML, "phoneticPr", ws.PhoneticPr)
-	}
-	for i := range ws.ConditionalFormatting {
-		b.MarshalElement(nsSML, "conditionalFormatting", &ws.ConditionalFormatting[i])
-	}
-	if ws.DataValidations != nil {
-		b.MarshalElement(nsSML, "dataValidations", ws.DataValidations)
-	}
-	if ws.Hyperlinks != nil {
-		marshalHyperlinks(b, ws.Hyperlinks)
-	}
-	if ws.PrintOptions != nil {
-		b.MarshalElement(nsSML, "printOptions", ws.PrintOptions)
-	}
-	if ws.PageMargins != nil {
-		b.MarshalElement(nsSML, "pageMargins", ws.PageMargins)
-	}
-	if ws.PageSetup != nil {
-		ws.PageSetup.MarshalToBuilder(b, nsSML, "pageSetup")
-	}
-	if ws.HeaderFooter != nil {
-		b.MarshalElement(nsSML, "headerFooter", ws.HeaderFooter)
-	}
-	if ws.RowBreaks != nil {
-		b.MarshalElement(nsSML, "rowBreaks", ws.RowBreaks)
-	}
-	if ws.ColBreaks != nil {
-		b.MarshalElement(nsSML, "colBreaks", ws.ColBreaks)
-	}
-	if ws.Drawing != nil {
-		ws.Drawing.MarshalToBuilder(b, nsSML, "drawing")
-	}
-	if ws.LegacyDrawing != nil {
-		ws.LegacyDrawing.MarshalToBuilder(b, nsSML, "legacyDrawing")
-	}
-	if ws.TableParts != nil {
-		marshalTableParts(b, ws.TableParts)
-	}
-	if ws.ExtLst != nil && len(ws.ExtLst.Ext) > 0 {
-		b.StartElement(nsSML, "extLst")
-		for i := range ws.ExtLst.Ext {
-			ws.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
+	if len(ws.OriginalRootAttrs) > 0 {
+		// Preserve the original root attributes (xmlns decls + mc:Ignorable etc.).
+		b.StartElementWithRootAttrs(nsSML, "worksheet", ws.OriginalRootAttrs)
+	} else {
+		nsDecls := xmlb.SpreadsheetMLNamespaces()
+		if len(ws.OriginalNSDecls) > 0 {
+			nsDecls = ws.OriginalNSDecls
 		}
-		b.EndElement(nsSML, "extLst")
+		b.StartElementWithNS(nsSML, "worksheet", nsDecls)
+	}
+
+	if len(ws.ChildOrder) > 0 {
+		marshalWorksheetChildrenOrdered(b, ws)
+	} else {
+		marshalWorksheetChildrenDefault(b, ws)
 	}
 
 	b.EndElement(nsSML, "worksheet")
 	return b.Bytes()
+}
+
+// marshalWorksheetChild emits a single known worksheet child by local name,
+// consuming the next entry of the repeatable cols/conditionalFormatting slices
+// via the supplied indices. Returns false if the name is not a known child.
+func marshalWorksheetChild(b *xmlb.Builder, ws *oxml.CT_Worksheet, name string, colsIdx, cfIdx *int) bool {
+	switch name {
+	case "sheetPr":
+		if ws.SheetPr != nil {
+			b.MarshalElement(nsSML, "sheetPr", ws.SheetPr)
+		}
+	case "dimension":
+		if ws.Dimension != nil {
+			b.MarshalElement(nsSML, "dimension", ws.Dimension)
+		}
+	case "sheetViews":
+		if ws.SheetViews != nil {
+			b.MarshalElement(nsSML, "sheetViews", ws.SheetViews)
+		}
+	case "sheetFormatPr":
+		if ws.SheetFormatPr != nil {
+			ws.SheetFormatPr.MarshalToBuilder(b, nsSML, "sheetFormatPr")
+		}
+	case "cols":
+		if *colsIdx < len(ws.Cols) {
+			b.MarshalElement(nsSML, "cols", &ws.Cols[*colsIdx])
+			*colsIdx++
+		}
+	case "sheetData":
+		marshalSheetData(b, &ws.SheetData)
+	case "sheetCalcPr":
+		if ws.SheetCalcPr != nil {
+			b.MarshalElement(nsSML, "sheetCalcPr", ws.SheetCalcPr)
+		}
+	case "sheetProtection":
+		if ws.SheetProtection != nil {
+			b.MarshalElement(nsSML, "sheetProtection", ws.SheetProtection)
+		}
+	case "autoFilter":
+		if ws.AutoFilter != nil {
+			b.MarshalElement(nsSML, "autoFilter", ws.AutoFilter)
+		}
+	case "sortState":
+		if ws.SortState != nil {
+			b.MarshalElement(nsSML, "sortState", ws.SortState)
+		}
+	case "mergeCells":
+		if ws.MergeCells != nil {
+			b.MarshalElement(nsSML, "mergeCells", ws.MergeCells)
+		}
+	case "phoneticPr":
+		if ws.PhoneticPr != nil {
+			b.MarshalElement(nsSML, "phoneticPr", ws.PhoneticPr)
+		}
+	case "conditionalFormatting":
+		if *cfIdx < len(ws.ConditionalFormatting) {
+			b.MarshalElement(nsSML, "conditionalFormatting", &ws.ConditionalFormatting[*cfIdx])
+			*cfIdx++
+		}
+	case "dataValidations":
+		if ws.DataValidations != nil {
+			b.MarshalElement(nsSML, "dataValidations", ws.DataValidations)
+		}
+	case "hyperlinks":
+		if ws.Hyperlinks != nil {
+			marshalHyperlinks(b, ws.Hyperlinks)
+		}
+	case "printOptions":
+		if ws.PrintOptions != nil {
+			b.MarshalElement(nsSML, "printOptions", ws.PrintOptions)
+		}
+	case "pageMargins":
+		if ws.PageMargins != nil {
+			b.MarshalElement(nsSML, "pageMargins", ws.PageMargins)
+		}
+	case "pageSetup":
+		if ws.PageSetup != nil {
+			ws.PageSetup.MarshalToBuilder(b, nsSML, "pageSetup")
+		}
+	case "headerFooter":
+		if ws.HeaderFooter != nil {
+			b.MarshalElement(nsSML, "headerFooter", ws.HeaderFooter)
+		}
+	case "rowBreaks":
+		if ws.RowBreaks != nil {
+			b.MarshalElement(nsSML, "rowBreaks", ws.RowBreaks)
+		}
+	case "colBreaks":
+		if ws.ColBreaks != nil {
+			b.MarshalElement(nsSML, "colBreaks", ws.ColBreaks)
+		}
+	case "drawing":
+		if ws.Drawing != nil {
+			ws.Drawing.MarshalToBuilder(b, nsSML, "drawing")
+		}
+	case "legacyDrawing":
+		if ws.LegacyDrawing != nil {
+			ws.LegacyDrawing.MarshalToBuilder(b, nsSML, "legacyDrawing")
+		}
+	case "tableParts":
+		if ws.TableParts != nil {
+			marshalTableParts(b, ws.TableParts)
+		}
+	case "extLst":
+		marshalWorksheetExtLst(b, ws)
+	default:
+		return false
+	}
+	return true
+}
+
+// marshalWorksheetExtLst emits the worksheet extension list if non-empty.
+func marshalWorksheetExtLst(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
+	if ws.ExtLst == nil || len(ws.ExtLst.Ext) == 0 {
+		return
+	}
+	b.StartElement(nsSML, "extLst")
+	for i := range ws.ExtLst.Ext {
+		ws.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
+	}
+	b.EndElement(nsSML, "extLst")
+}
+
+// marshalWorksheetChildrenOrdered emits children in their original order,
+// including any unknown children captured as raw bytes.
+func marshalWorksheetChildrenOrdered(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
+	colsIdx, cfIdx := 0, 0
+	for _, name := range ws.ChildOrder {
+		if strings.HasPrefix(name, "unknown:") {
+			var idx int
+			_, _ = fmt.Sscanf(name, "unknown:%d", &idx)
+			if idx >= 0 && idx < len(ws.UnknownChildren) {
+				b.WriteRaw(ws.UnknownChildren[idx].Data)
+			}
+			continue
+		}
+		marshalWorksheetChild(b, ws, name, &colsIdx, &cfIdx)
+	}
+}
+
+// marshalWorksheetChildrenDefault emits children in schema order for sheets
+// created from scratch (no captured child order).
+func marshalWorksheetChildrenDefault(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
+	order := []string{
+		"sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData",
+		"sheetCalcPr", "sheetProtection", "autoFilter", "sortState", "mergeCells",
+		"phoneticPr", "conditionalFormatting", "dataValidations", "hyperlinks",
+		"printOptions", "pageMargins", "pageSetup", "headerFooter", "rowBreaks",
+		"colBreaks", "drawing", "legacyDrawing", "tableParts", "extLst",
+	}
+	colsIdx, cfIdx := 0, 0
+	for _, name := range order {
+		// Emit every cols / conditionalFormatting entry, then the rest once.
+		switch name {
+		case "cols":
+			for colsIdx < len(ws.Cols) {
+				marshalWorksheetChild(b, ws, "cols", &colsIdx, &cfIdx)
+			}
+		case "conditionalFormatting":
+			for cfIdx < len(ws.ConditionalFormatting) {
+				marshalWorksheetChild(b, ws, "conditionalFormatting", &colsIdx, &cfIdx)
+			}
+		default:
+			marshalWorksheetChild(b, ws, name, &colsIdx, &cfIdx)
+		}
+	}
 }
 
 // marshalSheetData marshals the sheetData element with its rows and cells.
