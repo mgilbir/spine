@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -17,6 +18,52 @@ type Builder struct {
 	selfClosingSpace   bool              // true: " />" false: "/>"
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
 	trailingWS         bool              // set by WriteRaw when data ends with whitespace
+	stack              []string          // open element local names, for balance checking
+	err                error             // first structural error encountered
+}
+
+// pushElem records an opened element for balance checking.
+func (b *Builder) pushElem(localName string) {
+	b.stack = append(b.stack, localName)
+}
+
+// popElem matches a closing element against the open-element stack, recording
+// the first structural error and preventing the indentation level from going
+// negative on an unbalanced close.
+func (b *Builder) popElem(localName string) {
+	if len(b.stack) == 0 {
+		if b.err == nil {
+			b.err = fmt.Errorf("xml: closing </%s> with no open element", localName)
+		}
+		return
+	}
+	top := b.stack[len(b.stack)-1]
+	b.stack = b.stack[:len(b.stack)-1]
+	if top != localName && b.err == nil {
+		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", localName, top)
+	}
+	if b.level > 0 {
+		b.level--
+	}
+}
+
+// Err returns the first structural error the Builder encountered (an unbalanced
+// or mismatched element), or nil.
+func (b *Builder) Err() error {
+	return b.err
+}
+
+// Finish reports any structural error, including elements left unclosed. Call it
+// after building to validate that every StartElement was matched by an
+// EndElement.
+func (b *Builder) Finish() error {
+	if b.err != nil {
+		return b.err
+	}
+	if len(b.stack) > 0 {
+		return fmt.Errorf("xml: %d unclosed element(s), innermost <%s>", len(b.stack), b.stack[len(b.stack)-1])
+	}
+	return nil
 }
 
 // NewBuilder creates a new XML builder.
@@ -110,6 +157,7 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.pushElem(localName)
 	b.level++
 }
 
@@ -153,6 +201,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.pushElem(localName)
 	b.level++
 }
 
@@ -213,12 +262,13 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.pushElem(localName)
 	b.level++
 }
 
 // EndElement ends the current element.
 func (b *Builder) EndElement(namespace, localName string) {
-	b.level--
+	b.popElem(localName)
 	b.writeIndent()
 	b.buf.WriteString("</")
 	b.writeQName(namespace, localName)
@@ -420,12 +470,13 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.pushElem(localName)
 	b.level++
 }
 
 // EndElementInlineNS ends an element that was started with StartElementInlineNS.
 func (b *Builder) EndElementInlineNS(prefix, localName string) {
-	b.level--
+	b.popElem(localName)
 	b.writeIndent()
 	b.buf.WriteString("</")
 	b.buf.WriteString(prefix)

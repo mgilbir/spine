@@ -305,9 +305,21 @@ func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
 			continue
 		}
 
-		if !isZeroValue(fval) {
-			return true
+		// A field not skipped by omitempty is written by marshalStructChildren
+		// unless it is an absent pointer/interface/collection. In particular a
+		// mandatory zero-valued scalar or struct still produces an element, so
+		// the parent must not self-close (previously such a child was dropped).
+		switch fval.Kind() {
+		case reflect.Ptr, reflect.Interface:
+			if fval.IsNil() {
+				continue
+			}
+		case reflect.Slice, reflect.Map:
+			if fval.Len() == 0 {
+				continue
+			}
 		}
+		return true
 	}
 
 	return false
