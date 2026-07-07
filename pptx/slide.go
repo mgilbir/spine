@@ -718,7 +718,8 @@ func (s *Slide) Duplicate() *Slide {
 		}
 	}
 	if s.partName != "" {
-		newSlide.partName = s.presentation.nextAvailableSlidePartName()
+		// Reuse the part name already allocated above; allocating a second one
+		// here would treat the first as taken and skip (burn) a slide number.
 		s.presentation.clonePartRelationships(s.partName, newSlide.partName)
 	}
 	if newSlide.slideXML == nil {
