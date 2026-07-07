@@ -21,6 +21,7 @@ type Extension struct {
 	// p14 extensions (PowerPoint 2010)
 	CreationId        *P14CreationId        `xml:"-"`
 	ModId             *P14ModId             `xml:"-"`
+	Media             *P14Media             `xml:"-"`
 	ShowMediaCtrls    *P14ShowMediaCtrls    `xml:"-"`
 	DefaultImageDpi   *P14DefaultImageDpi   `xml:"-"`
 	DiscardImageEdit  *P14DiscardImageEdit  `xml:"-"`
@@ -45,6 +46,12 @@ type P14CreationId struct {
 // P14ModId represents p14:modId extension element.
 type P14ModId struct {
 	Val uint32 `xml:"val,attr"`
+}
+
+// P14Media represents the p14:media extension element, whose r:embed attribute
+// references the embedded media part of a video or audio p:pic.
+type P14Media struct {
+	Embed string // r:embed relationship ID
 }
 
 // P14ShowMediaCtrls represents p14:showMediaCtrls extension element.
@@ -132,6 +139,17 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		e.ModId = &w.V
+
+	case xmlb.ExtURIMedia:
+		var w struct {
+			V struct {
+				Embed string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr"`
+			} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
+		}
+		if err := d.DecodeElement(&w, &start); err != nil {
+			return err
+		}
+		e.Media = &P14Media{Embed: w.V.Embed}
 
 	case xmlb.ExtURIShowMediaCtrls:
 		var w struct {
@@ -223,6 +241,10 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	case e.ModId != nil:
 		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "modId",
 			xmlb.UintAttr("val", e.ModId.Val))
+
+	case e.Media != nil:
+		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
+			xmlb.RelAttr("embed", e.Media.Embed))
 
 	case e.ShowMediaCtrls != nil:
 		marshalP14Simple(b, "showMediaCtrls", e.ShowMediaCtrls.Val)
