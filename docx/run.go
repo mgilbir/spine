@@ -35,14 +35,30 @@ func (r *Run) Bold() bool {
 	return r.r.RPr.B.IsOn()
 }
 
-// SetBold sets whether the run is bold.
+// SetBold sets the run's bold state explicitly. Unlike a plain toggle,
+// SetBold(false) emits an explicit "off" (w:b w:val="false") so text that
+// inherits bold from its style is actually un-bolded; use ClearBold to inherit
+// the style's value instead.
 func (r *Run) SetBold(bold bool) {
 	r.ensureRPr()
-	if bold {
-		r.r.RPr.B = &oxml.CT_OnOff{}
-	} else {
+	r.r.RPr.B = onOff(bold)
+}
+
+// ClearBold removes the run's explicit bold setting so it inherits from the
+// paragraph/style.
+func (r *Run) ClearBold() {
+	if r.r.RPr != nil {
 		r.r.RPr.B = nil
 	}
+}
+
+// onOff builds a CT_OnOff for an explicit on (val absent) or off (val="false").
+func onOff(on bool) *oxml.CT_OnOff {
+	if on {
+		return &oxml.CT_OnOff{}
+	}
+	val := "false"
+	return &oxml.CT_OnOff{Val: &val}
 }
 
 // Italic returns whether the run is italic.
@@ -53,12 +69,16 @@ func (r *Run) Italic() bool {
 	return r.r.RPr.I.IsOn()
 }
 
-// SetItalic sets whether the run is italic.
+// SetItalic sets the run's italic state explicitly. SetItalic(false) emits an
+// explicit "off"; use ClearItalic to inherit from the style.
 func (r *Run) SetItalic(italic bool) {
 	r.ensureRPr()
-	if italic {
-		r.r.RPr.I = &oxml.CT_OnOff{}
-	} else {
+	r.r.RPr.I = onOff(italic)
+}
+
+// ClearItalic removes the run's explicit italic setting so it inherits.
+func (r *Run) ClearItalic() {
+	if r.r.RPr != nil {
 		r.r.RPr.I = nil
 	}
 }
@@ -89,12 +109,16 @@ func (r *Run) Strike() bool {
 	return r.r.RPr.Strike.IsOn()
 }
 
-// SetStrike sets whether the run has strikethrough.
+// SetStrike sets the run's strikethrough state explicitly. SetStrike(false)
+// emits an explicit "off"; use ClearStrike to inherit from the style.
 func (r *Run) SetStrike(strike bool) {
 	r.ensureRPr()
-	if strike {
-		r.r.RPr.Strike = &oxml.CT_OnOff{}
-	} else {
+	r.r.RPr.Strike = onOff(strike)
+}
+
+// ClearStrike removes the run's explicit strikethrough setting so it inherits.
+func (r *Run) ClearStrike() {
+	if r.r.RPr != nil {
 		r.r.RPr.Strike = nil
 	}
 }
