@@ -584,8 +584,7 @@ func oxmlToParagraph(p *dml.P) *Paragraph {
 	}
 
 	para := &Paragraph{
-		runs:        make([]*Run, 0, len(p.R)),
-		lineSpacing: 100000, // default
+		runs: make([]*Run, 0, len(p.R)),
 	}
 
 	// Paragraph properties
