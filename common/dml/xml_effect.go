@@ -71,10 +71,12 @@ type SoftEdgeXML struct {
 	Rad int64 `xml:"rad,attr"`
 }
 
-// BlurXML represents CT_BlurEffect (a:blur)
+// BlurXML represents CT_BlurEffect (a:blur). grow defaults to true, so it is a
+// pointer: an explicit false must be emitted rather than omitted (which readers
+// treat as true).
 type BlurXML struct {
 	Rad  int64 `xml:"rad,attr,omitempty"`
-	Grow bool  `xml:"grow,attr,omitempty"`
+	Grow *bool `xml:"grow,attr,omitempty"`
 }
 
 // PrstShdw represents CT_PresetShadowEffect (a:prstShdw)
