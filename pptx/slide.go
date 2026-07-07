@@ -26,9 +26,17 @@ type Slide struct {
 	// rebuilding it — a rebuild drops slide content the domain model cannot
 	// represent (group shapes, connectors) and re-numbers every shape.
 	syncedShapes int
-	// forceShapeRebuild is set by structural edits (shape removal) that the
-	// append-only sync cannot express.
+	// forceShapeRebuild is set by structural edits the surgical/append sync
+	// cannot express, forcing a full rebuild from the domain model.
 	forceShapeRebuild bool
+	// shapeRefs records, for each materialized (parsed) shape in shapes, the
+	// child reference in the parsed shape tree it came from. It stays aligned
+	// with shapes[:syncedShapes] so a removed shape can be deleted surgically.
+	shapeRefs []oxml.ChildRef
+	// removedRefs collects the parsed child references removed via RemoveShape,
+	// applied at sync time by deleting just those nodes (preserving everything
+	// else, including content the domain model cannot represent).
+	removedRefs []oxml.ChildRef
 }
 
 // Index returns the 0-based index of the slide in the presentation.
@@ -73,17 +81,31 @@ func (s *Slide) AddShape(shape Shape) {
 	s.shapesModified = true
 }
 
-// RemoveShape removes a shape from the slide. On slides loaded from a file
-// this forces the shape tree to be rebuilt from the domain model on save;
-// slide content the model does not represent does not survive that rebuild.
+// RemoveShape removes a shape from the slide. On a slide loaded from a file the
+// removed shape's node is deleted surgically from the parsed tree on save, so
+// other content (including group shapes, connectors, and other kinds the domain
+// model does not represent) is preserved.
 func (s *Slide) RemoveShape(shape Shape) {
 	for i, sh := range s.shapes {
-		if sh == shape {
-			s.shapes = append(s.shapes[:i], s.shapes[i+1:]...)
-			s.shapesModified = true
-			s.forceShapeRebuild = true
-			return
+		if sh != shape {
+			continue
 		}
+		switch {
+		case i < s.syncedShapes && i < len(s.shapeRefs):
+			// A parsed shape: mark its source node for surgical deletion.
+			s.removedRefs = append(s.removedRefs, s.shapeRefs[i])
+			s.shapeRefs = append(s.shapeRefs[:i], s.shapeRefs[i+1:]...)
+			s.syncedShapes--
+		case i < s.syncedShapes:
+			// Parsed shape without a tracked source (no child-order info):
+			// fall back to a full rebuild.
+			s.forceShapeRebuild = true
+		}
+		// Shapes added after the last sync were never written; dropping them
+		// from the slice is sufficient.
+		s.shapes = append(s.shapes[:i], s.shapes[i+1:]...)
+		s.shapesModified = true
+		return
 	}
 }
 
@@ -205,6 +227,21 @@ func (s *Slide) syncShapesToXML() {
 	}
 
 	spTree := s.slideXML.CSld.SpTree
+
+	// Loaded slide with removals: delete just the removed nodes from the parsed
+	// tree (preserving all other content, including kinds the domain model does
+	// not represent), then append any new shapes. Avoids the destructive full
+	// rebuild below.
+	if len(s.removedRefs) > 0 && !s.forceShapeRebuild {
+		spTree.RemoveChildren(s.removedRefs)
+		s.removedRefs = nil
+		if len(s.shapes) > s.syncedShapes {
+			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
+		}
+		s.syncedShapes = len(s.shapes)
+		s.shapesModified = false
+		return
+	}
 
 	// Loaded slide, appends only: marshal just the new shapes into the parsed
 	// tree. The full rebuild below regenerates the tree from the domain model,
