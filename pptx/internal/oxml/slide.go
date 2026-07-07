@@ -176,6 +176,107 @@ func (st *ShapeTree) ClearChildOrder() {
 	st.childOrder = nil
 }
 
+// AppendSp appends a shape as the last child, keeping z-order tracking
+// consistent on trees parsed from a file (appended children render on top).
+func (st *ShapeTree) AppendSp(sp *Shape) {
+	st.Sp = append(st.Sp, sp)
+	if st.childOrder != nil {
+		st.childOrder = append(st.childOrder, ChildRef{ChildSp, len(st.Sp) - 1})
+	}
+}
+
+// AppendPic appends a picture as the last child (see AppendSp).
+func (st *ShapeTree) AppendPic(pic *Picture) {
+	st.Pic = append(st.Pic, pic)
+	if st.childOrder != nil {
+		st.childOrder = append(st.childOrder, ChildRef{ChildPic, len(st.Pic) - 1})
+	}
+}
+
+// AppendGraphicFrame appends a graphic frame as the last child (see AppendSp).
+func (st *ShapeTree) AppendGraphicFrame(gf *GraphicFrame) {
+	st.GraphicFrame = append(st.GraphicFrame, gf)
+	if st.childOrder != nil {
+		st.childOrder = append(st.childOrder, ChildRef{ChildGraphicFrame, len(st.GraphicFrame) - 1})
+	}
+}
+
+// MaxShapeID returns the highest cNvPr id anywhere in the tree, descending
+// into group shapes (0 when the tree holds none). New shapes must use ids
+// above it: PowerPoint requires slide-wide uniqueness.
+func (st *ShapeTree) MaxShapeID() uint32 {
+	var max uint32
+	bump := func(cNvPr *dml.CNvPr) {
+		if cNvPr != nil && cNvPr.Id > max {
+			max = cNvPr.Id
+		}
+	}
+	for _, sp := range st.Sp {
+		if sp.NvSpPr != nil {
+			bump(sp.NvSpPr.CNvPr)
+		}
+	}
+	for _, pic := range st.Pic {
+		if pic.NvPicPr != nil {
+			bump(pic.NvPicPr.CNvPr)
+		}
+	}
+	for _, gf := range st.GraphicFrame {
+		if gf.NvGraphicFramePr != nil {
+			bump(gf.NvGraphicFramePr.CNvPr)
+		}
+	}
+	for _, cs := range st.CxnSp {
+		if cs.NvCxnSpPr != nil {
+			bump(cs.NvCxnSpPr.CNvPr)
+		}
+	}
+	for _, gs := range st.GrpSp {
+		if id := gs.maxShapeID(); id > max {
+			max = id
+		}
+	}
+	return max
+}
+
+func (gs *GroupShape) maxShapeID() uint32 {
+	var max uint32
+	bump := func(cNvPr *dml.CNvPr) {
+		if cNvPr != nil && cNvPr.Id > max {
+			max = cNvPr.Id
+		}
+	}
+	if gs.NvGrpSpPr != nil {
+		bump(gs.NvGrpSpPr.CNvPr)
+	}
+	for _, sp := range gs.Shapes {
+		if sp.NvSpPr != nil {
+			bump(sp.NvSpPr.CNvPr)
+		}
+	}
+	for _, pic := range gs.Pictures {
+		if pic.NvPicPr != nil {
+			bump(pic.NvPicPr.CNvPr)
+		}
+	}
+	for _, gf := range gs.GraphicFrames {
+		if gf.NvGraphicFramePr != nil {
+			bump(gf.NvGraphicFramePr.CNvPr)
+		}
+	}
+	for _, cs := range gs.ConnectionShapes {
+		if cs.NvCxnSpPr != nil {
+			bump(cs.NvCxnSpPr.CNvPr)
+		}
+	}
+	for _, sub := range gs.GroupShapes {
+		if id := sub.maxShapeID(); id > max {
+			max = id
+		}
+	}
+	return max
+}
+
 // UnmarshalXML implements custom unmarshaling for ShapeTree to preserve child order.
 func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {
