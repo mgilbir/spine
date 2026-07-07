@@ -417,6 +417,58 @@ func (r *CT_R) AppendTab() {
 	r.Tab = append(r.Tab, &CT_Empty{})
 }
 
+// SetTexts replaces the run's text elements with ts, keeping childOrder
+// consistent so stale text references neither drop nor duplicate content. On
+// a tracked run the new texts take the position of the first existing text
+// reference and all other text references are removed; a run with no recorded
+// order stays untracked (the fallback marshal writes texts directly).
+func (r *CT_R) SetTexts(ts []*CT_Text) {
+	r.T = ts
+	if len(r.childOrder) == 0 {
+		return
+	}
+	newOrder := make([]runChildRef, 0, len(r.childOrder)+len(ts))
+	inserted := false
+	for _, ref := range r.childOrder {
+		if ref.kind == runChildT {
+			if !inserted {
+				for i := range ts {
+					newOrder = append(newOrder, runChildRef{runChildT, i})
+				}
+				inserted = true
+			}
+			continue
+		}
+		newOrder = append(newOrder, ref)
+	}
+	if !inserted {
+		for i := range ts {
+			newOrder = append(newOrder, runChildRef{runChildT, i})
+		}
+	}
+	r.childOrder = newOrder
+}
+
+// ClearContent removes all content children from the run, including the
+// recorded child order, so later appends do not resolve stale references to
+// the new content and duplicate it.
+func (r *CT_R) ClearContent() {
+	r.T = nil
+	r.Br = nil
+	r.Tab = nil
+	r.Cr = nil
+	r.Sym = nil
+	r.Drawing = nil
+	r.FtnRef = nil
+	r.EndnoteRef = nil
+	r.LastRenderedPageBreak = nil
+	r.NoBreakHyphen = nil
+	r.SoftHyphen = nil
+	r.FldChar = nil
+	r.InstrText = nil
+	r.childOrder = nil
+}
+
 // marshalText writes a text element with xml:space handling.
 func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr
