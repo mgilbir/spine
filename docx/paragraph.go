@@ -38,7 +38,7 @@ func (p *Paragraph) Runs() []*Run {
 // AddRun adds a new run to the paragraph.
 func (p *Paragraph) AddRun() *Run {
 	r := &oxml.CT_R{}
-	p.p.R = append(p.p.R, r)
+	p.p.AppendR(r)
 	return &Run{paragraph: p, r: r}
 }
 

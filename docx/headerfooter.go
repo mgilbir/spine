@@ -151,7 +151,7 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 // AddParagraph adds a paragraph to the header.
 func (h *Header) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
-	h.hdr.P = append(h.hdr.P, p)
+	h.hdr.AppendP(p)
 	return &Paragraph{document: h.document, p: p}
 }
 
@@ -165,7 +165,7 @@ func (h *Header) AddParagraphWithText(text string) *Paragraph {
 // AddParagraph adds a paragraph to the footer.
 func (f *Footer) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
-	f.ftr.P = append(f.ftr.P, p)
+	f.ftr.AppendP(p)
 	return &Paragraph{document: f.document, p: p}
 }
 
