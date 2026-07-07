@@ -176,8 +176,10 @@ func TestParagraph_Level(t *testing.T) {
 func TestParagraph_LineSpacing(t *testing.T) {
 	p := NewParagraph()
 
-	if p.LineSpacing() != 100000 {
-		t.Errorf("Default LineSpacing() = %d, want 100000", p.LineSpacing())
+	// The default is 0 (unset) so the paragraph inherits the placeholder/
+	// layout/master spacing instead of emitting an explicit lnSpc.
+	if p.LineSpacing() != 0 {
+		t.Errorf("Default LineSpacing() = %d, want 0 (unset)", p.LineSpacing())
 	}
 
 	p.SetLineSpacing(150000) // 150%
@@ -304,8 +306,10 @@ func TestRun_Italic(t *testing.T) {
 func TestRun_Underline(t *testing.T) {
 	r := NewRun()
 
-	if r.Underline() != enum.UnderlineNone {
-		t.Errorf("Default Underline() = %v, want UnderlineNone", r.Underline())
+	// The default is empty (unset) so the run inherits the placeholder/layout
+	// underline; enum.UnderlineNone is an explicit override.
+	if r.Underline() != "" {
+		t.Errorf("Default Underline() = %v, want empty (unset)", r.Underline())
 	}
 
 	r.SetUnderline(enum.UnderlineSingle)
@@ -317,8 +321,10 @@ func TestRun_Underline(t *testing.T) {
 func TestRun_Strike(t *testing.T) {
 	r := NewRun()
 
-	if r.Strike() != enum.StrikeNone {
-		t.Errorf("Default Strike() = %v, want StrikeNone", r.Strike())
+	// The default is empty (unset) so the run inherits the placeholder/layout
+	// strike; enum.StrikeNone is an explicit override.
+	if r.Strike() != "" {
+		t.Errorf("Default Strike() = %v, want empty (unset)", r.Strike())
 	}
 
 	r.SetStrike(enum.StrikeSingle)
