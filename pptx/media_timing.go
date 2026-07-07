@@ -92,9 +92,13 @@ func buildAutoplayTiming(refs []mediaTimingRef) *oxml.Timing {
 		Id: withParID, Fill: "hold", StCondLst: condDelay("0"), ChildTnLst: effChild,
 	}})
 
+	// The outer group starts at delay 0 (not the "indefinite" used for
+	// click-triggered effects) so the whole play chain fires when the slide's
+	// timeline begins — i.e. when the slide appears — rather than on the next
+	// advance click.
 	clickChild := &oxml.TimeNodeList{}
 	clickChild.AppendPar(&oxml.ParallelTimeNode{CTn: &oxml.CommonTimeNode{
-		Id: clickParID, Fill: "hold", StCondLst: condDelay("indefinite"), ChildTnLst: withChild,
+		Id: clickParID, Fill: "hold", StCondLst: condDelay("0"), ChildTnLst: withChild,
 	}})
 
 	seq := &oxml.SequenceTimeNode{
