@@ -2,6 +2,13 @@
 // the Open Packaging Conventions. It supports opening existing .xlsx files,
 // editing cells, styles, sheets, and images, and creating workbooks from
 // scratch, preserving unmodified parts byte-for-byte on round-trip.
+//
+// A Workbook is not safe for concurrent use. A single Workbook, and the sheets
+// and cells reached through it, must be confined to one goroutine, or all access
+// must be guarded by external synchronization. In particular Save, SaveBytes,
+// and SaveTo mutate shared state while serializing, so they must not run
+// concurrently with each other or with any mutation of the same Workbook.
+// Distinct Workbook values may be used from different goroutines.
 package xlsx
 
 import "errors"
