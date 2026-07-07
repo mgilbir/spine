@@ -85,9 +85,12 @@ func (w *Writer) CreatePart(name, contentType string, compression CompressionOpt
 
 	w.parts[strings.ToLower(normalizedName)] = true
 
-	// Only add a content type override if the type isn't already covered by a default
-	// extension mapping. This avoids bloating [Content_Types].xml with redundant entries.
-	if w.ContentTypes.GetContentType(normalizedName) != contentType {
+	// Only add a content type override if a non-empty type isn't already covered
+	// by a default extension mapping. This avoids bloating [Content_Types].xml
+	// with redundant entries and, critically, never registers an empty-string
+	// override (which would be a schema-invalid <Override ContentType=""/>); a
+	// part with no declared type simply relies on default extension mapping.
+	if contentType != "" && w.ContentTypes.GetContentType(normalizedName) != contentType {
 		w.ContentTypes.SetOverride(normalizedName, contentType)
 	}
 
@@ -283,10 +286,22 @@ func (w *Writer) writeExtendedProperties() error {
 	return nil
 }
 
-// WritePartRelationships writes a relationships file for a specific part.
+// WritePartRelationships writes a relationships file for a specific part. Like
+// the other write methods it honors the closed check and rejects a duplicate
+// write of the same .rels part (which would otherwise emit two zip entries with
+// the same name).
 func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) error {
 	if len(rels) == 0 {
 		return nil
+	}
+	if w.closed {
+		return ErrPackageClosed
+	}
+
+	relsName := GetRelationshipsPartName(partName)
+	key := strings.ToLower("/" + strings.TrimPrefix(relsName, "/"))
+	if w.parts[key] {
+		return ErrDuplicatePart
 	}
 
 	data, err := MarshalRelationships(rels)
@@ -294,9 +309,7 @@ func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) e
 		return err
 	}
 
-	relsName := GetRelationshipsPartName(partName)
 	zipName := strings.TrimPrefix(relsName, "/")
-
 	header := &zip.FileHeader{
 		Name:   zipName,
 		Method: zip.Deflate,
@@ -307,8 +320,11 @@ func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) e
 		return err
 	}
 
-	_, err = writer.Write(data)
-	return err
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	w.parts[key] = true
+	return nil
 }
 
 // Close finalizes the package and writes all metadata.
