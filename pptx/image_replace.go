@@ -134,6 +134,18 @@ func (s *Slide) replacePlaceholderWithImage(ph *PlaceholderShape) error {
 		}
 	}
 
+	// 5. Apply the same remap to the slide's shapeRefs, which mirror the tree
+	// across save cycles: the placeholder's ref now points at the pic, and sp
+	// refs above the removed index shift down.
+	for i, ref := range s.shapeRefs {
+		switch {
+		case ref.Kind == oxmlpkg.ChildSp && ref.Index == spIdx:
+			s.shapeRefs[i] = oxmlpkg.ChildRef{Kind: oxmlpkg.ChildPic, Index: picIdx}
+		case ref.Kind == oxmlpkg.ChildSp && ref.Index > spIdx:
+			s.shapeRefs[i] = oxmlpkg.ChildRef{Kind: oxmlpkg.ChildSp, Index: ref.Index - 1}
+		}
+	}
+
 	// Clear the pending image data
 	ph.pendingImageData = nil
 	ph.pendingImagePath = ""
