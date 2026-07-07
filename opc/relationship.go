@@ -63,6 +63,14 @@ const (
 	RelTypeSettings    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
 	RelTypeFontTable   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
 	RelTypeImage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+
+	// Media relationship types. Embedded video/audio uses two relationships to
+	// the same media part: a "video"/"audio" link reference (a:videoFile/
+	// a:audioFile r:link) and a Microsoft "media" embed reference (p14:media
+	// r:embed).
+	RelTypeVideo = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
+	RelTypeAudio = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
+	RelTypeMedia = "http://schemas.microsoft.com/office/2007/relationships/media"
 	RelTypeHeader      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
 	RelTypeFooter      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
 	RelTypeFootnotes   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"

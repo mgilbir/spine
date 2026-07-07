@@ -137,6 +137,25 @@ func (s *Slide) AddTable(rows, cols int) *Table {
 	return table
 }
 
+// AddVideo embeds a video in the slide from raw media bytes and their content
+// type (e.g. "video/mp4"). The video is stored inside the .pptx and plays on
+// click in PowerPoint. Set a poster image with Video.SetPoster; otherwise a
+// placeholder preview is generated on save.
+func (s *Slide) AddVideo(data []byte, contentType string) *Video {
+	v := NewVideo(data, contentType)
+	s.AddShape(v)
+	return v
+}
+
+// AddAudio embeds an audio clip in the slide from raw media bytes and their
+// content type (e.g. "audio/mpeg"). Set an icon image with Audio.SetPoster;
+// otherwise a placeholder is generated on save.
+func (s *Slide) AddAudio(data []byte, contentType string) *Audio {
+	a := NewAudio(data, contentType)
+	s.AddShape(a)
+	return a
+}
+
 // Placeholders returns all placeholder shapes on the slide.
 func (s *Slide) Placeholders() []*PlaceholderShape {
 	var placeholders []*PlaceholderShape
@@ -286,6 +305,12 @@ func (s *Slide) syncShapesToXML() {
 			pic := pictureToOxml(sh, shapeID)
 			spTree.Pic = append(spTree.Pic, pic)
 			shapeID++
+		case *Video:
+			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, shapeID, mediaVideo))
+			shapeID++
+		case *Audio:
+			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, shapeID, mediaAudio))
+			shapeID++
 		}
 	}
 
@@ -314,6 +339,10 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 			sh.sourceFrame = gf
 		case *Picture:
 			spTree.AppendPic(pictureToOxml(sh, id))
+		case *Video:
+			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+		case *Audio:
+			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
 		default:
 			continue
 		}
