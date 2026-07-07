@@ -189,7 +189,7 @@ func (tc *TableCell) Paragraphs() []*Paragraph {
 // AddParagraph adds a new paragraph to the cell.
 func (tc *TableCell) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
-	tc.tc.P = append(tc.tc.P, p)
+	tc.tc.AppendP(p)
 	return &Paragraph{p: p}
 }
 

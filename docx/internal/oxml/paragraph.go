@@ -663,3 +663,11 @@ func marshalPContent(b *xmlb.Builder, ns string,
 		}
 	}
 }
+
+// AppendR appends a run to this paragraph, maintaining child order so it is
+// marshaled even on a paragraph parsed from a file (whose order is already
+// populated).
+func (p *CT_P) AppendR(r *CT_R) {
+	p.childOrder = append(p.childOrder, pChildRef{pChildR, len(p.R)})
+	p.R = append(p.R, r)
+}
