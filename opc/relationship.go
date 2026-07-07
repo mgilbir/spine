@@ -36,6 +36,9 @@ const (
 	// Slide relationship type
 	RelTypeSlide = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
 
+	// Notes slide relationship type
+	RelTypeNotesSlide = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
+
 	// Slide master relationship type
 	RelTypeSlideMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
 

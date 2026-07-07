@@ -826,6 +826,9 @@ func (s *Slide) Duplicate() *Slide {
 		// Reuse the part name already allocated above; allocating a second one
 		// here would treat the first as taken and skip (burn) a slide number.
 		s.presentation.clonePartRelationships(s.partName, newSlide.partName)
+		// Give the duplicate its own notes slide rather than sharing the
+		// original's (otherwise editing one slide's notes changes the other).
+		s.presentation.deepCloneNotesSlide(newSlide.partName)
 	}
 	if newSlide.slideXML == nil {
 		newSlide.slideXML = newSlideXML()
