@@ -152,6 +152,29 @@ func (body *CT_Body) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// appendBodyP appends a paragraph to a body-level container, recording it in the
+// child order. The marshal walks childOrder, so a container parsed from a file
+// (whose order is already populated) would otherwise drop appended content.
+// Appending to a nil order also starts tracking it, which keeps paragraph/table
+// interleaving correct for containers built from scratch.
+func appendBodyP(p *[]*CT_P, childOrder *[]bodyChildRef, para *CT_P) {
+	*childOrder = append(*childOrder, bodyChildRef{bodyChildP, len(*p)})
+	*p = append(*p, para)
+}
+
+// appendBodyTbl appends a table to a body-level container, recording it in the
+// child order (see appendBodyP).
+func appendBodyTbl(tbl *[]*CT_Tbl, childOrder *[]bodyChildRef, t *CT_Tbl) {
+	*childOrder = append(*childOrder, bodyChildRef{bodyChildTbl, len(*tbl)})
+	*tbl = append(*tbl, t)
+}
+
+// AppendP appends a paragraph to the document body, maintaining child order.
+func (body *CT_Body) AppendP(p *CT_P) { appendBodyP(&body.P, &body.childOrder, p) }
+
+// AppendTbl appends a table to the document body, maintaining child order.
+func (body *CT_Body) AppendTbl(t *CT_Tbl) { appendBodyTbl(&body.Tbl, &body.childOrder, t) }
+
 // unmarshalBodyChild handles a single body-level child element start tag.
 // The decoder is positioned at the start element; this function decodes or skips it.
 func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
