@@ -138,9 +138,8 @@ func (tr *TableRow) Cells() []*TableCell {
 
 // AddCell adds a new cell to the row.
 func (tr *TableRow) AddCell() *TableCell {
-	tc := &oxml.CT_Tc{
-		P: []*oxml.CT_P{{}},
-	}
+	tc := &oxml.CT_Tc{}
+	tc.AppendP(&oxml.CT_P{})
 	tr.tr.AppendCell(tc)
 	return &TableCell{row: tr, tc: tc}
 }

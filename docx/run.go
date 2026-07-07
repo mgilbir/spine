@@ -24,7 +24,7 @@ func (r *Run) Text() string {
 
 // SetText sets the text content, replacing all existing text elements.
 func (r *Run) SetText(text string) {
-	r.r.T = []*oxml.CT_Text{{Space: "preserve", Text: text}}
+	r.r.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: text}})
 }
 
 // Bold returns whether the run is bold.
@@ -178,29 +178,17 @@ func (r *Run) SetColor(color string) {
 
 // AddBreak adds a line break to the run.
 func (r *Run) AddBreak() {
-	r.r.Br = append(r.r.Br, &oxml.CT_Br{})
+	r.r.AppendBr(&oxml.CT_Br{})
 }
 
 // AddTab adds a tab to the run.
 func (r *Run) AddTab() {
-	r.r.Tab = append(r.r.Tab, &oxml.CT_Empty{})
+	r.r.AppendTab()
 }
 
 // Clear removes all content from the run.
 func (r *Run) Clear() {
-	r.r.T = nil
-	r.r.Br = nil
-	r.r.Tab = nil
-	r.r.Cr = nil
-	r.r.Sym = nil
-	r.r.Drawing = nil
-	r.r.FtnRef = nil
-	r.r.EndnoteRef = nil
-	r.r.LastRenderedPageBreak = nil
-	r.r.NoBreakHyphen = nil
-	r.r.SoftHyphen = nil
-	r.r.FldChar = nil
-	r.r.InstrText = nil
+	r.r.ClearContent()
 }
 
 func (r *Run) ensureRPr() {

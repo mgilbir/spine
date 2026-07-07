@@ -599,16 +599,17 @@ func (d *Document) AddTable(rows, cols int) *Table {
 	for i := 0; i < cols; i++ {
 		tbl.TblGrid.GridCol = append(tbl.TblGrid.GridCol, oxml.CT_GridCol{})
 	}
-	// Create rows with cells
+	// Create rows with cells, seeding through the tracking helpers so the
+	// required empty cell paragraph is recorded in the child order and is not
+	// dropped by the first tracked append on the cell.
 	for i := 0; i < rows; i++ {
 		tr := &oxml.CT_Tr{}
 		for j := 0; j < cols; j++ {
-			tc := &oxml.CT_Tc{
-				P: []*oxml.CT_P{{}},
-			}
-			tr.Tc = append(tr.Tc, tc)
+			tc := &oxml.CT_Tc{}
+			tc.AppendP(&oxml.CT_P{})
+			tr.AppendCell(tc)
 		}
-		tbl.Tr = append(tbl.Tr, tr)
+		tbl.AppendRow(tr)
 	}
 	d.document.Body.AppendTbl(tbl)
 	return &Table{tbl: tbl}
