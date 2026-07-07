@@ -58,7 +58,7 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	// Find or create the row
 	var targetRow *oxml.CT_Row
 	for i := range s.worksheet.SheetData.Row {
-		if s.worksheet.SheetData.Row[i].R != nil && *s.worksheet.SheetData.Row[i].R == uint32(row) {
+		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == uint32(row) {
 			targetRow = &s.worksheet.SheetData.Row[i]
 			break
 		}
@@ -69,22 +69,33 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 		targetRow = &s.worksheet.SheetData.Row[len(s.worksheet.SheetData.Row)-1]
 	}
 
-	// Find or create the cell
+	// Find or create the cell. Cells are stored as pointers so this handle
+	// remains valid even if later cells are appended to the same row.
 	ref = strings.ToUpper(ref)
-	for i := range targetRow.C {
-		if strings.EqualFold(targetRow.C[i].R, ref) {
-			return &Cell{
-				sheet: s,
-				cell:  &targetRow.C[i],
-			}, nil
+	for _, cell := range targetRow.C {
+		if strings.EqualFold(cell.R, ref) {
+			return &Cell{sheet: s, cell: cell}, nil
 		}
 	}
 
-	targetRow.C = append(targetRow.C, oxml.CT_Cell{R: ref})
-	return &Cell{
-		sheet: s,
-		cell:  &targetRow.C[len(targetRow.C)-1],
-	}, nil
+	newCell := &oxml.CT_Cell{R: ref}
+	targetRow.C = append(targetRow.C, newCell)
+	return &Cell{sheet: s, cell: newCell}, nil
+}
+
+// rowNumberOf returns the 1-based row number for a parsed row. A row may omit
+// the optional r attribute (legal SpreadsheetML), in which case the number is
+// derived from its cell references so the row is still addressable (C73).
+func rowNumberOf(r *oxml.CT_Row) (uint32, bool) {
+	if r.R != nil {
+		return *r.R, true
+	}
+	for _, c := range r.C {
+		if rn, _, err := ParseCellRef(c.R); err == nil {
+			return uint32(rn), true
+		}
+	}
+	return 0, false
 }
 
 // CellByRowCol returns the cell at the specified row and column (1-based).
@@ -120,10 +131,10 @@ func (s *Sheet) GetCellValue(ref string) (string, error) {
 
 	for i := range s.worksheet.SheetData.Row {
 		r := &s.worksheet.SheetData.Row[i]
-		if r.R != nil && *r.R == uint32(row) {
-			for j := range r.C {
-				if strings.EqualFold(r.C[j].R, ref) {
-					c := &Cell{sheet: s, cell: &r.C[j]}
+		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
+			for _, cell := range r.C {
+				if strings.EqualFold(cell.R, ref) {
+					c := &Cell{sheet: s, cell: cell}
 					return c.String(), nil
 				}
 			}
@@ -283,24 +294,18 @@ func (s *Sheet) UnmergeCells(startRef, endRef string) error {
 
 // CellRef converts row and column indices (1-based) to a cell reference.
 func CellRef(row, col int) (string, error) {
-	if row < 1 || col < 1 {
+	if row < 1 || row > MaxRow || col < 1 || col > MaxCol {
 		return "", ErrInvalidCell
 	}
-
-	// Convert column to letter(s)
-	colStr := ""
-	c := col
-	for c > 0 {
-		c--
-		colStr = string(rune('A'+c%26)) + colStr
-		c /= 26
-	}
-
-	return colStr + strconv.Itoa(row), nil
+	return columnLetters(col) + strconv.Itoa(row), nil
 }
 
-// columnLetters converts a 1-based column number to column letters.
+// columnLetters converts a 1-based column number to column letters. It returns
+// "" for a non-positive column, which callers must treat as invalid.
 func columnLetters(col int) string {
+	if col < 1 {
+		return ""
+	}
 	result := ""
 	for col > 0 {
 		col--
@@ -310,8 +315,13 @@ func columnLetters(col int) string {
 	return result
 }
 
-// FormatCellRef creates a cell reference from row and column numbers (1-based).
+// FormatCellRef creates a cell reference from 1-based row and column numbers.
+// It returns "" for coordinates outside the worksheet grid rather than an
+// invalid reference such as "5" (column 0).
 func FormatCellRef(row, col int) string {
+	if row < 1 || row > MaxRow || col < 1 || col > MaxCol {
+		return ""
+	}
 	return fmt.Sprintf("%s%d", columnLetters(col), row)
 }
 
