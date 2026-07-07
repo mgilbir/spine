@@ -16,36 +16,42 @@ func (s *Slide) materializeShapes() {
 	}
 
 	spTree := s.slideXML.CSld.SpTree
+	s.shapeRefs = nil
 
 	// Materialize shapes in their original z-order using childOrder if available.
+	// Each materialized shape records the child reference it came from, so it can
+	// later be removed surgically without rebuilding the whole tree.
 	if len(spTree.ChildOrder()) > 0 {
+		add := func(shape Shape, ref oxml.ChildRef) {
+			s.setShapeBackRef(shape)
+			s.shapes = append(s.shapes, shape)
+			s.shapeRefs = append(s.shapeRefs, ref)
+		}
 		for _, ref := range spTree.ChildOrder() {
 			switch ref.Kind {
 			case oxml.ChildSp:
 				if ref.Index < len(spTree.Sp) {
 					if shape := oxmlShapeToGoShape(spTree.Sp[ref.Index]); shape != nil {
-						s.setShapeBackRef(shape)
-						s.shapes = append(s.shapes, shape)
+						add(shape, ref)
 					}
 				}
 			case oxml.ChildPic:
 				if ref.Index < len(spTree.Pic) {
 					if pic := oxmlPictureToGoPicture(spTree.Pic[ref.Index]); pic != nil {
-						s.setShapeBackRef(pic)
-						s.shapes = append(s.shapes, pic)
+						add(pic, ref)
 					}
 				}
 			case oxml.ChildGraphicFrame:
 				// Tables are the only graphic frames we materialize for now
 				if ref.Index < len(spTree.GraphicFrame) {
 					if tbl := oxmlGraphicFrameToGoTable(spTree.GraphicFrame[ref.Index]); tbl != nil {
-						s.shapes = append(s.shapes, tbl)
+						add(tbl, ref)
 					}
 				}
 			case oxml.ChildGrpSp:
 				if ref.Index < len(spTree.GrpSp) {
 					if grp := oxmlGroupShapeToGoGroupShape(spTree.GrpSp[ref.Index], s); grp != nil {
-						s.shapes = append(s.shapes, grp)
+						add(grp, ref)
 					}
 				}
 			}
