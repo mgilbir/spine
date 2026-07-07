@@ -239,8 +239,10 @@ func TestNewRun(t *testing.T) {
 		t.Fatal("NewRun() returned nil")
 	}
 
-	if r.FontSize() != 12 {
-		t.Errorf("Default FontSize() = %f, want 12", r.FontSize())
+	// Default font size is unset (0) so the run inherits from its placeholder/
+	// layout rather than clobbering it with an explicit size.
+	if r.FontSize() != 0 {
+		t.Errorf("Default FontSize() = %f, want 0 (unset)", r.FontSize())
 	}
 }
 
