@@ -485,27 +485,25 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 	}
 
 	// Set paragraph properties if needed
-	needBullet := p.alignment != "" || p.level > 0 || p.bulletType != BulletNone
 	needSpacing := p.lineSpacing != 0 || p.spaceBefore != 0 || p.spaceAfter != 0
-	if needBullet || needSpacing {
+	if p.alignment != "" || p.level > 0 || p.bulletType != BulletInherit || needSpacing {
 		lvl := int32(p.level)
 		ap.PPr = &dml.PPr{
 			Algn: string(p.alignment),
 			Lvl:  &lvl,
 		}
 
-		// Only touch bullet properties when alignment/level/bullet was set, so a
-		// paragraph that only sets spacing does not gain an explicit <a:buNone/>
-		// that would suppress an inherited bullet.
-		if needBullet {
-			switch p.bulletType {
-			case BulletNone:
-				ap.PPr.BuNone = &dml.BuNone{}
-			case BulletChar:
-				ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
-			case BulletNumber:
-				ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
-			}
+		// Emit a bullet element only when the bullet was set explicitly.
+		// BulletInherit (the default) emits nothing so the paragraph keeps the
+		// layout/master bullet even when other properties (alignment, spacing)
+		// are set.
+		switch p.bulletType {
+		case BulletNone:
+			ap.PPr.BuNone = &dml.BuNone{}
+		case BulletChar:
+			ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
+		case BulletNumber, BulletAuto:
+			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
 		}
 
 		// Spacing (symmetric with the oxml->domain read): line spacing is a
