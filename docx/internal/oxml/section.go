@@ -208,7 +208,7 @@ func (h *CT_HdrFtrRef) unmarshalAttrs(attrs []xml.Attr) {
 func (h *CT_HdrFtrRef) marshalTo(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if h.Type != "" {
-		attrs = append(attrs, xmlb.StrAttr("type", h.Type))
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "type", Value: h.Type})
 	}
 	if h.RID != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
