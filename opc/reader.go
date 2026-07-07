@@ -8,6 +8,48 @@ import (
 	"strings"
 )
 
+// MaxDecompressedPartSize bounds how many bytes any single package part may
+// decompress to. It guards against decompression bombs — a small compressed
+// entry that expands to an enormous amount of data — which would otherwise let
+// a hostile package exhaust memory before user code runs (the mandatory
+// [Content_Types].xml is decompressed during NewReader). Set it to 0 to
+// disable the bound; raise it before opening a package that legitimately
+// contains a larger part.
+var MaxDecompressedPartSize int64 = 1 << 30 // 1 GiB
+
+// readZipEntry decompresses a single zip entry, bounding the output to
+// MaxDecompressedPartSize. It rejects entries whose declared uncompressed size
+// already exceeds the cap, and re-checks during the read so a lying local
+// header cannot slip past.
+func readZipEntry(zf *zip.File) ([]byte, error) {
+	if MaxDecompressedPartSize > 0 && zf.UncompressedSize64 > uint64(MaxDecompressedPartSize) {
+		return nil, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte decompression limit", zf.Name, zf.UncompressedSize64, MaxDecompressedPartSize)
+	}
+	rc, err := zf.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	return readAllLimited(rc, zf.Name)
+}
+
+// readAllLimited reads rc fully, but fails if it yields more than
+// MaxDecompressedPartSize bytes.
+func readAllLimited(rc io.Reader, name string) ([]byte, error) {
+	if MaxDecompressedPartSize <= 0 {
+		return io.ReadAll(rc)
+	}
+	// Read one byte past the cap so len > cap unambiguously signals overflow.
+	data, err := io.ReadAll(io.LimitReader(rc, MaxDecompressedPartSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxDecompressedPartSize {
+		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte decompression limit", name, MaxDecompressedPartSize)
+	}
+	return data, nil
+}
+
 // File represents a file within an OPC package.
 type File struct {
 	// Name is the path of the file within the package.
@@ -24,15 +66,10 @@ func (f *File) Open() (io.ReadCloser, error) {
 	return f.zipFile.Open()
 }
 
-// ReadAll reads and returns the entire contents of the file.
+// ReadAll reads and returns the entire contents of the file. The result is
+// bounded by MaxDecompressedPartSize to guard against decompression bombs.
 func (f *File) ReadAll() ([]byte, error) {
-	rc, err := f.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rc.Close() }()
-
-	return io.ReadAll(rc)
+	return readZipEntry(f.zipFile)
 }
 
 // Reader provides read access to an OPC package.
@@ -103,12 +140,7 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 	// First pass: find and parse [Content_Types].xml
 	for _, zf := range zr.File {
 		if strings.EqualFold(zf.Name, "[Content_Types].xml") {
-			rc, err := zf.Open()
-			if err != nil {
-				return nil, err
-			}
-			data, err := io.ReadAll(rc)
-			_ = rc.Close()
+			data, err := readZipEntry(zf)
 			if err != nil {
 				return nil, err
 			}
@@ -224,12 +256,7 @@ func (r *Reader) GetFile(name string) *File {
 func (r *Reader) GetRawZipFile(name string) ([]byte, error) {
 	for _, zf := range r.zipReader.File {
 		if strings.EqualFold(zf.Name, name) {
-			rc, err := zf.Open()
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = rc.Close() }()
-			return io.ReadAll(rc)
+			return readZipEntry(zf)
 		}
 	}
 	return nil, fmt.Errorf("file not found: %s", name)

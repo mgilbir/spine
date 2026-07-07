@@ -245,7 +245,7 @@ func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixM
 		}
 		buf = append(buf, attr.Name.Local...)
 		buf = append(buf, `="`...)
-		buf = append(buf, attr.Value...)
+		buf = append(buf, xmlb.EscapeAttrValue(attr.Value)...)
 		buf = append(buf, '"')
 	}
 
