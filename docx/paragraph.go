@@ -13,15 +13,10 @@ type Paragraph struct {
 	p        *oxml.CT_P
 }
 
-// Text returns the text content of the paragraph.
+// Text returns the text content of the paragraph, including text nested in
+// hyperlinks, simple fields, tracked insertions, and structured document tags.
 func (p *Paragraph) Text() string {
-	text := ""
-	for _, r := range p.p.R {
-		for _, t := range r.T {
-			text += t.Text
-		}
-	}
-	return text
+	return p.p.Text()
 }
 
 // SetText sets the text content, replacing all runs.
