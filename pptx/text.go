@@ -13,6 +13,13 @@ type TextFrame struct {
 	anchor     enum.TextAnchor
 	wrap       enum.TextWrapping
 	margins    TextMargins
+
+	// bodyDirty is set when anchor/wrap/margins change; contentDirty when the
+	// paragraph list changes. Together with the per-paragraph and per-run
+	// flags they let the shape sync update only what the caller touched (see
+	// updateTxBody), leaving unmodeled parsed content alone.
+	bodyDirty    bool
+	contentDirty bool
 }
 
 // TextMargins specifies the text margins within a text frame.
@@ -47,6 +54,7 @@ func (tf *TextFrame) Paragraphs() []*Paragraph {
 func (tf *TextFrame) AddParagraph() *Paragraph {
 	p := NewParagraph()
 	tf.paragraphs = append(tf.paragraphs, p)
+	tf.contentDirty = true
 	return p
 }
 
@@ -54,6 +62,7 @@ func (tf *TextFrame) AddParagraph() *Paragraph {
 // Multiple paragraphs can be specified by separating with newlines.
 func (tf *TextFrame) SetText(text string) {
 	tf.paragraphs = tf.paragraphs[:0]
+	tf.contentDirty = true
 	lines := strings.Split(text, "\n")
 	for _, line := range lines {
 		p := tf.AddParagraph()
@@ -78,6 +87,7 @@ func (tf *TextFrame) Anchor() enum.TextAnchor {
 // SetAnchor sets the vertical anchor position.
 func (tf *TextFrame) SetAnchor(anchor enum.TextAnchor) {
 	tf.anchor = anchor
+	tf.bodyDirty = true
 }
 
 // WordWrap returns the text wrapping mode.
@@ -88,6 +98,7 @@ func (tf *TextFrame) WordWrap() enum.TextWrapping {
 // SetWordWrap sets the text wrapping mode.
 func (tf *TextFrame) SetWordWrap(wrap enum.TextWrapping) {
 	tf.wrap = wrap
+	tf.bodyDirty = true
 }
 
 // Margins returns the text margins.
@@ -98,18 +109,57 @@ func (tf *TextFrame) Margins() TextMargins {
 // SetMargins sets the text margins.
 func (tf *TextFrame) SetMargins(margins TextMargins) {
 	tf.margins = margins
+	tf.bodyDirty = true
+}
+
+// isContentDirty reports whether the paragraph content changed since the last
+// sync (paragraph list, paragraph properties, or any run).
+func (tf *TextFrame) isContentDirty() bool {
+	if tf == nil {
+		return false
+	}
+	if tf.contentDirty {
+		return true
+	}
+	for _, p := range tf.paragraphs {
+		if p.isDirty() {
+			return true
+		}
+	}
+	return false
+}
+
+// isDirty reports whether any part of the text frame changed since the last sync.
+func (tf *TextFrame) isDirty() bool {
+	return tf != nil && (tf.bodyDirty || tf.isContentDirty())
+}
+
+// clearDirty resets all modification flags after a sync flushed them.
+func (tf *TextFrame) clearDirty() {
+	if tf == nil {
+		return
+	}
+	tf.bodyDirty = false
+	tf.contentDirty = false
+	for _, p := range tf.paragraphs {
+		p.dirty = false
+		for _, r := range p.runs {
+			r.dirty = false
+		}
+	}
 }
 
 // Paragraph represents a paragraph of text.
 type Paragraph struct {
-	runs       []*Run
-	alignment  enum.TextAlign
-	level      int
+	runs        []*Run
+	alignment   enum.TextAlign
+	level       int
 	lineSpacing int32 // in hundredths of a percent (100000 = 100%)
 	spaceBefore dml.EMU
 	spaceAfter  dml.EMU
 	bulletType  BulletType
 	bulletChar  string
+	dirty       bool
 }
 
 // BulletType specifies the type of bullet for a paragraph.
@@ -148,7 +198,22 @@ func (p *Paragraph) Runs() []*Run {
 func (p *Paragraph) AddRun() *Run {
 	r := NewRun()
 	p.runs = append(p.runs, r)
+	p.dirty = true
 	return r
+}
+
+// isDirty reports whether the paragraph or any of its runs changed since the
+// last sync.
+func (p *Paragraph) isDirty() bool {
+	if p.dirty {
+		return true
+	}
+	for _, r := range p.runs {
+		if r.dirty {
+			return true
+		}
+	}
+	return false
 }
 
 // Text returns the text content of all runs.
@@ -168,6 +233,7 @@ func (p *Paragraph) Alignment() enum.TextAlign {
 // SetAlignment sets the paragraph alignment.
 func (p *Paragraph) SetAlignment(align enum.TextAlign) {
 	p.alignment = align
+	p.dirty = true
 }
 
 // Level returns the indentation level (0-8).
@@ -183,6 +249,7 @@ func (p *Paragraph) SetLevel(level int) {
 		level = 8
 	}
 	p.level = level
+	p.dirty = true
 }
 
 // LineSpacing returns the line spacing in hundredths of a percent.
@@ -194,6 +261,7 @@ func (p *Paragraph) LineSpacing() int32 {
 // 100000 = 100% (single spacing), 200000 = 200% (double spacing)
 func (p *Paragraph) SetLineSpacing(spacing int32) {
 	p.lineSpacing = spacing
+	p.dirty = true
 }
 
 // SpaceBefore returns the space before the paragraph.
@@ -204,6 +272,7 @@ func (p *Paragraph) SpaceBefore() dml.EMU {
 // SetSpaceBefore sets the space before the paragraph.
 func (p *Paragraph) SetSpaceBefore(space dml.EMU) {
 	p.spaceBefore = space
+	p.dirty = true
 }
 
 // SpaceAfter returns the space after the paragraph.
@@ -214,6 +283,7 @@ func (p *Paragraph) SpaceAfter() dml.EMU {
 // SetSpaceAfter sets the space after the paragraph.
 func (p *Paragraph) SetSpaceAfter(space dml.EMU) {
 	p.spaceAfter = space
+	p.dirty = true
 }
 
 // Bullet returns the bullet type.
@@ -224,6 +294,7 @@ func (p *Paragraph) Bullet() BulletType {
 // SetBullet sets the bullet type.
 func (p *Paragraph) SetBullet(bulletType BulletType) {
 	p.bulletType = bulletType
+	p.dirty = true
 }
 
 // BulletChar returns the bullet character.
@@ -235,20 +306,22 @@ func (p *Paragraph) BulletChar() string {
 func (p *Paragraph) SetBulletChar(char string) {
 	p.bulletChar = char
 	p.bulletType = BulletChar
+	p.dirty = true
 }
 
 // Run represents a run of text with consistent formatting.
 type Run struct {
-	text       string
-	fontName   string
-	fontSize   float64 // in points
-	bold       bool
-	italic     bool
-	underline  enum.UnderlineStyle
-	strike     enum.StrikeStyle
-	color      *dml.Color
-	highlight  *dml.Color
-	baseline   int32 // percentage, positive for superscript, negative for subscript
+	text      string
+	fontName  string
+	fontSize  float64 // in points
+	bold      bool
+	italic    bool
+	underline enum.UnderlineStyle
+	strike    enum.StrikeStyle
+	color     *dml.Color
+	highlight *dml.Color
+	baseline  int32 // percentage, positive for superscript, negative for subscript
+	dirty     bool
 }
 
 // NewRun creates a new run. The font size defaults to 0 (unset) so a run added
@@ -269,6 +342,7 @@ func (r *Run) Text() string {
 // SetText sets the text content.
 func (r *Run) SetText(text string) {
 	r.text = text
+	r.dirty = true
 }
 
 // Font returns the font name.
@@ -279,6 +353,7 @@ func (r *Run) Font() string {
 // SetFont sets the font name.
 func (r *Run) SetFont(name string) {
 	r.fontName = name
+	r.dirty = true
 }
 
 // FontSize returns the font size in points.
@@ -289,6 +364,7 @@ func (r *Run) FontSize() float64 {
 // SetFontSize sets the font size in points.
 func (r *Run) SetFontSize(size float64) {
 	r.fontSize = size
+	r.dirty = true
 }
 
 // Bold returns whether the run is bold.
@@ -299,6 +375,7 @@ func (r *Run) Bold() bool {
 // SetBold sets whether the run is bold.
 func (r *Run) SetBold(bold bool) {
 	r.bold = bold
+	r.dirty = true
 }
 
 // Italic returns whether the run is italic.
@@ -309,6 +386,7 @@ func (r *Run) Italic() bool {
 // SetItalic sets whether the run is italic.
 func (r *Run) SetItalic(italic bool) {
 	r.italic = italic
+	r.dirty = true
 }
 
 // Underline returns the underline style.
@@ -319,6 +397,7 @@ func (r *Run) Underline() enum.UnderlineStyle {
 // SetUnderline sets the underline style.
 func (r *Run) SetUnderline(style enum.UnderlineStyle) {
 	r.underline = style
+	r.dirty = true
 }
 
 // Strike returns the strikethrough style.
@@ -329,6 +408,7 @@ func (r *Run) Strike() enum.StrikeStyle {
 // SetStrike sets the strikethrough style.
 func (r *Run) SetStrike(style enum.StrikeStyle) {
 	r.strike = style
+	r.dirty = true
 }
 
 // Color returns the text color.
@@ -339,6 +419,7 @@ func (r *Run) Color() *dml.Color {
 // SetColor sets the text color.
 func (r *Run) SetColor(color dml.Color) {
 	r.color = &color
+	r.dirty = true
 }
 
 // Highlight returns the highlight color.
@@ -349,6 +430,7 @@ func (r *Run) Highlight() *dml.Color {
 // SetHighlight sets the highlight color.
 func (r *Run) SetHighlight(color dml.Color) {
 	r.highlight = &color
+	r.dirty = true
 }
 
 // Baseline returns the baseline offset percentage.
@@ -360,14 +442,17 @@ func (r *Run) Baseline() int32 {
 // SetBaseline sets the baseline offset percentage.
 func (r *Run) SetBaseline(baseline int32) {
 	r.baseline = baseline
+	r.dirty = true
 }
 
 // SetSuperscript configures the run as superscript.
 func (r *Run) SetSuperscript() {
 	r.baseline = 30000 // 30%
+	r.dirty = true
 }
 
 // SetSubscript configures the run as subscript.
 func (r *Run) SetSubscript() {
 	r.baseline = -30000 // -30%
+	r.dirty = true
 }

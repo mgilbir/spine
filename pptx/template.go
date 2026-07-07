@@ -57,8 +57,9 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	// the API author their text in domain shapes that are only synced to XML at
 	// marshal time, so without this the walk below sees an empty tree (a no-op
 	// on created decks); loaded decks may also have API-added shapes that the
-	// re-materialize at the end would otherwise drop.
-	if s.shapesModified {
+	// re-materialize at the end would otherwise drop. Dirty in-place edits are
+	// flushed too, so the replacement operates on the caller's latest text.
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
@@ -109,7 +110,7 @@ func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[st
 	if s.slideXML == nil {
 		return
 	}
-	if s.shapesModified {
+	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
 	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
