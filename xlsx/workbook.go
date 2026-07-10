@@ -341,6 +341,20 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.ContentTypes = w.contentTypes
 	}
 
+	// Images added to the opened workbook: write their drawing/media/rels
+	// parts first so the sheets they belong to are dirtied before
+	// worksheetParts and needRelsRebuild are computed below. The returned set
+	// names the sheet .rels parts rebuilt here, so the verbatim stream skips
+	// their stale originals.
+	var rebuiltRels map[string]bool
+	if w.sheetsHaveImages() {
+		var err error
+		rebuiltRels, err = w.saveOpenedSheetImages(writer)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Write core.xml as preserved raw bytes if original had it
 	if w.hasCoreProps {
 		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
@@ -399,12 +413,16 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write non-workbook .rels files from preserved parts.
+	// Write non-workbook .rels files from preserved parts, except any sheet
+	// .rels rebuilt above to carry a new drawing relationship.
 	for name, part := range w.preservedParts {
 		if !strings.HasSuffix(name, ".rels") {
 			continue
 		}
 		if name == workbookRelsName {
+			continue
+		}
+		if rebuiltRels[name] {
 			continue
 		}
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {

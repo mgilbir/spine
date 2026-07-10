@@ -81,17 +81,17 @@ type ImageOptions struct {
 // workbook on save. SVG images are embedded with a transparent raster fallback
 // for viewers that cannot render SVG.
 //
-// AddImage is currently supported only on workbooks created with Create().
-// Embedding into a workbook opened from disk (Open/OpenReader) is not yet
-// implemented, so to avoid silently dropping the image on save AddImage returns
-// an error in that case rather than accepting an image that would be lost.
+// AddImage works on both created (Create) and opened (Open/OpenReader)
+// workbooks. On an opened workbook the drawing, media, and relationship parts
+// are added alongside whatever the package already carries, with part names
+// chosen to avoid the existing ones.
+//
+// One caveat for opened workbooks: if the target sheet already has a drawing
+// from the original file, the images added here are written to a new drawing
+// that replaces it as the sheet's referenced drawing (the original drawing's
+// shapes are no longer shown). Adding images to sheets without an existing
+// drawing — the common templating case — is unaffected.
 func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
-	// Gate on the durable opened flag, not the reader: Close() nils the reader
-	// while opened stays true, and the round-trip save path (used for any
-	// opened workbook) does not write sheet.images.
-	if s.workbook != nil && s.workbook.opened {
-		return fmt.Errorf("xlsx: AddImage: embedding images into an opened workbook is not supported yet (only workbooks created with Create())")
-	}
 	if len(data) == 0 {
 		return fmt.Errorf("xlsx: AddImage: empty image data")
 	}
