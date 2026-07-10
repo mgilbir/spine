@@ -589,24 +589,48 @@ func writeSheetDrawing(writer *opc.Writer, sheetPartName string, sheet *Sheet, d
 		return err
 	}
 
-	// Media parts + drawing -> image relationships.
+	// Media parts + drawing -> image relationships. Relationship ids are
+	// allocated sequentially so SVG images (which need two parts: the raster
+	// fallback and the SVG) don't collide with single-part raster images.
 	drawingRels := make([]*opc.Relationship, 0, len(sheet.images))
+	rels := make([]imageRels, len(sheet.images))
+	relN := 0
+	nextRelID := func() string { relN++; return fmt.Sprintf("rId%d", relN) }
+
 	for i := range sheet.images {
-		*mediaCount++
 		img := sheet.images[i]
-		mediaPartName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
-		if err := writer.WritePart(mediaPartName, img.contentType, img.data); err != nil {
+
+		*mediaCount++
+		rasterName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
+		if err := writer.WritePart(rasterName, img.contentType, img.data); err != nil {
 			return err
 		}
+		rasterRID := nextRelID()
 		drawingRels = append(drawingRels, &opc.Relationship{
-			ID:     relIDForImage(i),
+			ID:     rasterRID,
 			Type:   opc.RelTypeImage,
 			Target: fmt.Sprintf("../media/image%d.%s", *mediaCount, img.ext),
 		})
+		rels[i].rasterRID = rasterRID
+
+		if len(img.svgData) > 0 {
+			*mediaCount++
+			svgName := fmt.Sprintf("/xl/media/image%d.svg", *mediaCount)
+			if err := writer.WritePart(svgName, opc.ContentTypeSVG, img.svgData); err != nil {
+				return err
+			}
+			svgRID := nextRelID()
+			drawingRels = append(drawingRels, &opc.Relationship{
+				ID:     svgRID,
+				Type:   opc.RelTypeImage,
+				Target: fmt.Sprintf("../media/image%d.svg", *mediaCount),
+			})
+			rels[i].svgRID = svgRID
+		}
 	}
 
 	// Drawing part + its relationships.
-	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images)); err != nil {
+	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, rels)); err != nil {
 		return err
 	}
 	return writer.WritePartRelationships(drawingPartName, drawingRels)
