@@ -733,6 +733,15 @@ func (p *CT_P) AppendR(r *CT_R) {
 	p.R = append(p.R, r)
 }
 
+// AppendFldSimple appends a simple field (w:fldSimple) to this paragraph,
+// maintaining child order like AppendR so it survives the childOrder-gated
+// marshal of paragraphs parsed from a file.
+func (p *CT_P) AppendFldSimple(f *CT_SimpleField) {
+	p.backfillChildOrder()
+	p.childOrder = append(p.childOrder, pChildRef{pChildFldSimple, len(p.FldSimple)})
+	p.FldSimple = append(p.FldSimple, f)
+}
+
 // SetRuns replaces the paragraph's top-level runs with rs, keeping childOrder
 // consistent so stale run references neither drop nor duplicate content. On a
 // tracked paragraph the new runs take the position of the first existing run
