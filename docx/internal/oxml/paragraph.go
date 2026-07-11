@@ -406,15 +406,11 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				}
 			case pChildOMath:
 				if ref.index < len(p.OMath) {
-					b.StartElement("http://schemas.openxmlformats.org/officeDocument/2006/math", "oMath")
-					b.WriteRaw(p.OMath[ref.index])
-					b.EndElement("http://schemas.openxmlformats.org/officeDocument/2006/math", "oMath")
+					marshalMathElement(b, "oMath", p.OMath[ref.index])
 				}
 			case pChildOMathPara:
 				if ref.index < len(p.OMathPara) {
-					b.StartElement("http://schemas.openxmlformats.org/officeDocument/2006/math", "oMathPara")
-					b.WriteRaw(p.OMathPara[ref.index])
-					b.EndElement("http://schemas.openxmlformats.org/officeDocument/2006/math", "oMathPara")
+					marshalMathElement(b, "oMathPara", p.OMathPara[ref.index])
 				}
 			case pChildAlternateContent:
 				if ref.index < len(p.AlternateContent) {
@@ -429,6 +425,26 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 
 	b.EndElement(ns, localName)
+}
+
+// marshalMathElement writes a captured m:oMath / m:oMathPara element with its
+// raw inner content. The math namespace prefix is resolved through the
+// builder's namespace table (registered by NewWordprocessingMLBuilder), so the
+// element is emitted prefixed instead of as unprefixed <oMath>. When the root
+// element did not declare the math namespace, the declaration is emitted
+// inline on the element itself (and reset afterwards so a later sibling gets
+// its own declaration) — the output stays well-formed in every context.
+func marshalMathElement(b *xmlb.Builder, localName string, raw []byte) {
+	if b.IsNamespaceDeclared(xmlb.NSMath) {
+		b.StartElement(xmlb.NSMath, localName)
+		b.WriteRaw(raw)
+		b.EndElement(xmlb.NSMath, localName)
+		return
+	}
+	b.StartElementInlineNS(xmlb.NSMath, xmlb.PrefixMath, localName)
+	b.WriteRaw(raw)
+	b.EndElementInlineNS(xmlb.PrefixMath, localName)
+	b.ResetNamespaceDeclaration(xmlb.NSMath)
 }
 
 // unmarshalPContent is a shared helper for unmarshaling paragraph-level content children

@@ -27,6 +27,26 @@ func marshalDocumentXML(doc *oxml.CT_Document) []byte {
 		nsDecls = doc.OriginalNSDecls
 	}
 
+	// The captured m:oMath/m:oMathPara content is re-emitted prefixed, so the
+	// math namespace must be bound. If the original declarations already bind
+	// it, reuse their prefix (whatever it is); otherwise, when the document
+	// contains math, add the declaration to the root. Documents without math
+	// keep their declarations byte-identical.
+	mathDeclared := false
+	for _, decl := range nsDecls {
+		if decl.URI == xmlb.NSMath {
+			mathDeclared = true
+			if decl.Prefix != "" {
+				b.RegisterNamespace(xmlb.NSMath, decl.Prefix)
+			}
+			break
+		}
+	}
+	if !mathDeclared && doc.ContainsMath() {
+		nsDecls = append(append([]xmlb.NSDecl{}, nsDecls...),
+			xmlb.NSDecl{Prefix: xmlb.PrefixMath, URI: xmlb.NSMath})
+	}
+
 	b.StartElementWithNS(nsW, "document", nsDecls, attrs...)
 
 	if doc.Background != nil {
