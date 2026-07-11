@@ -29,3 +29,28 @@ func TestEncodeUnknownElement_EscapesAttributes(t *testing.T) {
 		t.Errorf("expected escaped quotes/angles, got: %q", got)
 	}
 }
+
+// TestEncodeUnknownElement_InlineNamespaceDecl verifies that a prefix declared
+// on the unknown element itself (not at the root) is used when re-encoding the
+// element and its attributes, instead of being stripped and re-namespacing the
+// content into the default namespace (C201).
+func TestEncodeUnknownElement_InlineNamespaceDecl(t *testing.T) {
+	start := xml.StartElement{
+		Name: xml.Name{Space: "urn:foo", Local: "custom"},
+		Attr: []xml.Attr{
+			{Name: xml.Name{Space: "xmlns", Local: "foo"}, Value: "urn:foo"},
+			{Name: xml.Name{Space: "urn:foo", Local: "val"}, Value: "1"},
+		},
+	}
+	rootMap := map[string]string{"urn:other": "oth"}
+	got := string(encodeUnknownElement(start, []byte("<foo:inner/>"), rootMap))
+
+	want := `<foo:custom xmlns:foo="urn:foo" foo:val="1"><foo:inner/></foo:custom>`
+	if got != want {
+		t.Errorf("encodeUnknownElement = %q, want %q", got, want)
+	}
+	// The caller's root map must not be polluted for sibling elements.
+	if len(rootMap) != 1 || rootMap["urn:other"] != "oth" {
+		t.Errorf("root prefix map mutated: %v", rootMap)
+	}
+}
