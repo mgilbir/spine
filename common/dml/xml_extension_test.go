@@ -3,7 +3,10 @@ package dml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TestDML_CT_OfficeArtExtensionList tests CT_OfficeArtExtensionList type (a:extLst)
@@ -195,5 +198,49 @@ func TestDML_CompatExt(t *testing.T) {
 	}
 	if v.SpId != "_x0000_s1025" {
 		t.Errorf("SpId = %q, want _x0000_s1025", v.SpId)
+	}
+}
+
+// C189: unmodeled a14:imgEffect children (artistic effects) are captured as
+// raw content and re-emitted through the production Builder, so the typed
+// imgProps dispatch never loses what the unknown-URI raw fallback preserves.
+func TestA14ImgProps_ArtisticEffectRoundTrip(t *testing.T) {
+	input := `<extLst xmlns="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+		` xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"` +
+		` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+		`<ext uri="{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}"><a14:imgProps><a14:imgLayer r:embed="rId2">` +
+		`<a14:imgEffect><a14:artisticChalkSketch pressure="75000"/></a14:imgEffect>` +
+		`<a14:imgEffect><a14:saturation sat="400000"/></a14:imgEffect>` +
+		`</a14:imgLayer></a14:imgProps></ext></extLst>`
+
+	var el ExtLst
+	if err := xml.Unmarshal([]byte(input), &el); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(el.Ext) != 1 || el.Ext[0].ImgProps == nil || el.Ext[0].ImgProps.ImgLayer == nil {
+		t.Fatalf("imgProps not parsed: %+v", el.Ext)
+	}
+	effects := el.Ext[0].ImgProps.ImgLayer.ImgEffects
+	if len(effects) != 2 {
+		t.Fatalf("imgEffect count = %d, want 2", len(effects))
+	}
+	if len(effects[0].Raw) == 0 {
+		t.Fatalf("artistic effect not captured as raw content: %+v", effects[0])
+	}
+	if effects[1].Saturation == nil || effects[1].Saturation.Sat == nil || *effects[1].Saturation.Sat != 400000 {
+		t.Errorf("typed saturation effect lost: %+v", effects[1])
+	}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(nsA, "extLst", &el)
+	out := b.String()
+	if !strings.Contains(out, `<a14:artisticChalkSketch pressure="75000"/>`) {
+		t.Errorf("artistic effect lost on Builder re-marshal: %s", out)
+	}
+	if !strings.Contains(out, `<a14:saturation sat="400000"/>`) {
+		t.Errorf("typed saturation effect lost on Builder re-marshal: %s", out)
+	}
+	if strings.Contains(out, "<a14:imgEffect></a14:imgEffect>") || strings.Contains(out, "<a14:imgEffect/>") {
+		t.Errorf("empty imgEffect emitted: %s", out)
 	}
 }
