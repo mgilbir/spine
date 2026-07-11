@@ -29,7 +29,7 @@ func TestMarshalPresentationXML_PreservesAttrsAndChildren(t *testing.T) {
 		},
 	}
 
-	out := string(marshalPresentationXML(pres))
+	out := string(marshalPresentationXML(pres, false))
 
 	for _, want := range []string{
 		`firstSlideNum="5"`,
