@@ -66,6 +66,17 @@ func (w *Writer) CreatePart(name, contentType string, compression CompressionOpt
 		return nil, ErrDuplicatePart
 	}
 
+	// Every part must resolve to a content type — either the explicit one
+	// passed here (emitted as an Override) or a Default mapping covering its
+	// extension. A part with neither would silently be absent from
+	// [Content_Types].xml, making the package OPC-invalid (Office shows a
+	// repair prompt). Checked at part-creation time rather than at Close:
+	// Defaults are registered before parts are written in every supported
+	// flow, and failing here names the offending call site.
+	if contentType == "" && w.ContentTypes.GetContentType(normalizedName) == "" {
+		return nil, fmt.Errorf("%w: part %q has no content type and no default mapping covers its extension", ErrInvalidContentType, normalizedName)
+	}
+
 	// Remove leading slash for zip file name
 	zipName := strings.TrimPrefix(normalizedName, "/")
 
