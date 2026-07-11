@@ -134,7 +134,9 @@ func (w *Writer) WriteRawFile(name string, data []byte) error {
 	}
 
 	header := &zip.FileHeader{
-		Name:   name,
+		// Zip entry names never carry a leading slash; writing one verbatim
+		// would produce an absolute-path entry many consumers reject.
+		Name:   strings.TrimPrefix(name, "/"),
 		Method: zip.Deflate,
 	}
 
@@ -152,8 +154,20 @@ func (w *Writer) WriteRawFile(name string, data []byte) error {
 	return nil
 }
 
-// AddRelationship adds a package-level relationship.
-func (w *Writer) AddRelationship(relType, target string, targetMode TargetMode) *Relationship {
+// AddRelationship adds a package-level relationship and returns it. It fails
+// with ErrPackageClosed after Close: the package-level .rels part is emitted
+// during Close, so a relationship added later could never be written and
+// would silently dangle.
+func (w *Writer) AddRelationship(relType, target string, targetMode TargetMode) (*Relationship, error) {
+	if w.closed {
+		return nil, ErrPackageClosed
+	}
+	return w.addRelationship(relType, target, targetMode), nil
+}
+
+// addRelationship is the internal, no-closed-check variant used during Close
+// itself, after closed is set but before the .rels part has been written.
+func (w *Writer) addRelationship(relType, target string, targetMode TargetMode) *Relationship {
 	rel := &Relationship{
 		ID:         fmt.Sprintf("rId%d", w.nextRelID),
 		Type:       relType,
@@ -254,7 +268,7 @@ func (w *Writer) writeCoreProperties() error {
 
 	// Add relationship and content type
 	w.ContentTypes.SetOverride("/docProps/core.xml", ContentTypeCoreProps)
-	w.AddRelationship(RelTypeCore, "docProps/core.xml", TargetModeInternal)
+	w.addRelationship(RelTypeCore, "docProps/core.xml", TargetModeInternal)
 
 	return nil
 }
@@ -292,7 +306,7 @@ func (w *Writer) writeExtendedProperties() error {
 
 	// Add relationship and content type
 	w.ContentTypes.SetOverride("/docProps/app.xml", ContentTypeExtendedProps)
-	w.AddRelationship(RelTypeExtended, "docProps/app.xml", TargetModeInternal)
+	w.addRelationship(RelTypeExtended, "docProps/app.xml", TargetModeInternal)
 
 	return nil
 }

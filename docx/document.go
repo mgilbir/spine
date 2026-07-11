@@ -382,7 +382,9 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -495,7 +497,9 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	return nil
 }

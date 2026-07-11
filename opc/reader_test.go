@@ -25,7 +25,9 @@ func createTestPackage(t *testing.T, parts map[string][]byte, contentTypes map[s
 		}
 	}
 
-	w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
+	if _, err := w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal); err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("Failed to close writer: %v", err)
@@ -59,9 +61,9 @@ func TestNewReader(t *testing.T) {
 
 func TestReader_GetFile(t *testing.T) {
 	parts := map[string][]byte{
-		"/ppt/presentation.xml":    []byte("<presentation/>"),
-		"/ppt/slides/slide1.xml":   []byte("<slide/>"),
-		"/ppt/slides/slide2.xml":   []byte("<slide/>"),
+		"/ppt/presentation.xml":  []byte("<presentation/>"),
+		"/ppt/slides/slide1.xml": []byte("<slide/>"),
+		"/ppt/slides/slide2.xml": []byte("<slide/>"),
 	}
 
 	data := createTestPackage(t, parts, nil)
@@ -208,7 +210,9 @@ func TestReader_PartRelationships(t *testing.T) {
 	}
 
 	// Add package-level relationship
-	w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
+	if _, err := w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal); err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
 
 	// Add part-level relationships
 	partRels := []*Relationship{
@@ -283,7 +287,9 @@ func TestReader_CoreProperties(t *testing.T) {
 	if err := w.WritePart("/ppt/presentation.xml", ContentTypePresentationMain, []byte("<presentation/>")); err != nil {
 		t.Fatalf("WritePart error: %v", err)
 	}
-	w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
+	if _, err := w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal); err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close error: %v", err)
 	}

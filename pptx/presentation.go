@@ -845,7 +845,9 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "ppt/presentation.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "ppt/presentation.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -1083,7 +1085,9 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "ppt/presentation.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "ppt/presentation.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	// Collect presentation relationships
 	presRels := make([]*opc.Relationship, 0)
