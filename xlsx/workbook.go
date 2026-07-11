@@ -454,7 +454,9 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -551,7 +553,9 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal)
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal); err != nil {
+		return err
+	}
 
 	return nil
 }
