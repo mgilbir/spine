@@ -26,6 +26,7 @@ type TblPr struct {
 	EffectLst    *EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
 	EffectDag    *EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
 	TableStyleId string       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
+	ExtLst       *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TblGrid represents CT_TableGrid (a:tblGrid)
@@ -78,6 +79,7 @@ type TcPr struct {
 	BlipFill     *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
 	PattFill     *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
 	GrpFill      *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	ExtLst       *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // Cell3D represents CT_Cell3D (a:cell3D)
@@ -105,6 +107,7 @@ type TableStyle struct {
 	FirstRow  *TablePartStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/main firstRow,omitempty"`
 	NeCell    *TablePartStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/main neCell,omitempty"`
 	NwCell    *TablePartStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/main nwCell,omitempty"`
+	ExtLst    *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TableBgStyle represents CT_TableBackgroundStyle (a:tblBg)
@@ -140,6 +143,7 @@ type TcTxStyle struct {
 	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
 	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
+	ExtLst    *ExtLst             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TcStyle represents CT_TableStyleCellStyle (a:tcStyle)

@@ -42,6 +42,7 @@ type BodyPr struct {
 	Scene3d          *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
 	Sp3d             *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
 	FlatTx           *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	ExtLst           *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // PrstTxWarp represents CT_PresetTextShape (a:prstTxWarp)
@@ -306,6 +307,7 @@ type PPr struct {
 	BuBlip       *BuBlip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
 	TabLst       *TabLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
 	DefRPr       *RPr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
+	ExtLst       *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // R represents CT_RegularTextRun (a:r)
@@ -356,6 +358,7 @@ type RPr struct {
 	HlinkClick     *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
 	HlinkMouseOver *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
 	Rtl            *TextRtl     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+	ExtLst         *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TextRtl represents the a:rtl element (CT_Boolean): the value is carried in a
