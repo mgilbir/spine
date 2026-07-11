@@ -3,7 +3,10 @@ package dml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TestDML_CT_LineProperties tests CT_LineProperties type (a:ln)
@@ -194,4 +197,31 @@ func TestDML_CT_LineJoinBevel(t *testing.T) {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 	// Bevel is an empty element
+}
+
+// C190: an a:extLst inside a:ln (CT_LineProperties) survives re-marshal
+// through the production Builder instead of being silently stripped.
+func TestLn_ExtLstRoundTrip(t *testing.T) {
+	input := `<ln xmlns="http://schemas.openxmlformats.org/drawingml/2006/main" w="12700">` +
+		`<solidFill><srgbClr val="FF0000"/></solidFill>` +
+		`<extLst><ext uri="{C807C97D-BFC1-408E-A445-0C87EB9F89A2}"/></extLst></ln>`
+
+	var ln Ln
+	if err := xml.Unmarshal([]byte(input), &ln); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if ln.ExtLst == nil || len(ln.ExtLst.Ext) != 1 {
+		t.Fatalf("extLst not parsed: %+v", ln.ExtLst)
+	}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement("http://schemas.openxmlformats.org/drawingml/2006/main", "ln", &ln)
+	out := b.String()
+	if !strings.Contains(out, `<a:extLst><a:ext uri="{C807C97D-BFC1-408E-A445-0C87EB9F89A2}"`) {
+		t.Errorf("extLst lost on Builder re-marshal: %s", out)
+	}
+	// extLst is last in the XSD sequence: it must come after solidFill.
+	if strings.Index(out, "a:extLst") < strings.Index(out, "a:solidFill") {
+		t.Errorf("extLst emitted before solidFill: %s", out)
+	}
 }
