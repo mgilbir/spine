@@ -1045,6 +1045,13 @@ func (s *Slide) Duplicate() *Slide {
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
+	// Build any pending auto-play timing tree now, before the XML snapshot
+	// below: timing is normally built at save, so duplicating an unsaved
+	// slide with auto-play media would otherwise snapshot a tree-less slide
+	// and the duplicate would silently lose autoplay (C193). The copied tree
+	// targets the same shape ids the copied shapes carry, so it is valid for
+	// the duplicate as-is.
+	s.applyMediaTiming()
 
 	// AddSlide assigned the duplicate its own part name.
 	newSlide := s.presentation.AddSlide()
