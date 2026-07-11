@@ -299,6 +299,10 @@ func (s *Slide) syncShapesToXML() {
 	// not represent), then append any new shapes. Avoids the destructive full
 	// rebuild below.
 	if len(s.removedRefs) > 0 && !s.forceShapeRebuild {
+		// Capture what the removed pic nodes reference before they go: their
+		// shape ids (a generated timing tree must stop targeting them) and
+		// their relationship ids (media/poster rels to garbage collect).
+		removedSpids, removedRelIDs := collectRemovedPicRefs(spTree, s.removedRefs)
 		spTree.RemoveChildren(s.removedRefs)
 		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
@@ -306,6 +310,8 @@ func (s *Slide) syncShapesToXML() {
 		if len(s.shapes) > s.syncedShapes {
 			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		}
+		s.pruneAutoTiming(removedSpids)
+		s.gcSlideRels(removedRelIDs)
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
 		s.clearShapeDirt()
