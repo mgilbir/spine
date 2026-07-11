@@ -18,11 +18,15 @@ type Table struct {
 	bandRow   bool // banded rows
 	bandCol   bool // banded columns
 
-	// structDirty is set by mutators of the table grid and properties; row and
-	// cell mutators set their own flags. isDirty aggregates them so the shape
-	// sync knows the a:tbl must be regenerated (the same modeled-bits-only
-	// serialization SyncXML performs).
+	// structDirty is set by mutators that change the table's grid shape (rows
+	// or columns added/removed); the parsed a:tbl must then be regenerated —
+	// with parsed styling carried over for surviving cells (see
+	// regenerateTableNode). propsDirty covers table-level properties and
+	// column widths, which are patched into the parsed node in place. Row and
+	// cell mutators set their own flags; isDirty aggregates all of them so the
+	// shape sync knows a flush is needed.
 	structDirty bool
+	propsDirty  bool
 
 	// sourceFrame is the graphic frame this table was parsed from, when the
 	// slide was loaded from a file. Mutations to a loaded table do not reach
@@ -34,12 +38,13 @@ type Table struct {
 // SyncXML writes the table's current rows, cells, and properties back into
 // the graphic frame it was parsed from. It reports whether a source frame was
 // present (tables created via AddTable have none and are marshaled from the
-// domain automatically).
+// domain automatically). Parsed styling the domain model does not represent
+// (cell margins, table style references) is carried over for surviving cells.
 func (t *Table) SyncXML() bool {
 	if t.sourceFrame == nil || t.sourceFrame.Graphic == nil || t.sourceFrame.Graphic.GraphicData == nil {
 		return false
 	}
-	t.sourceFrame.Graphic.GraphicData.Table = tableDataToOxml(t)
+	t.sourceFrame.Graphic.GraphicData.Table = regenerateTableNode(t, t.sourceFrame.Graphic.GraphicData.Table)
 	return true
 }
 
@@ -52,7 +57,7 @@ func (t *Table) isDirty() bool {
 // contentDirty reports unflushed mutations to the table content itself (as
 // opposed to the frame's name/geometry).
 func (t *Table) contentDirty() bool {
-	if t.structDirty {
+	if t.structDirty || t.propsDirty {
 		return true
 	}
 	for _, row := range t.rows {
@@ -72,6 +77,7 @@ func (t *Table) contentDirty() bool {
 func (t *Table) clearDirty() {
 	t.BaseShape.dirty = false
 	t.structDirty = false
+	t.propsDirty = false
 	for _, row := range t.rows {
 		row.dirty = false
 		for _, c := range row.cells {
@@ -144,7 +150,7 @@ func (t *Table) Cell(row, col int) *TableCell {
 func (t *Table) SetColWidth(col int, width dml.EMU) {
 	if col >= 0 && col < len(t.colWidths) {
 		t.colWidths[col] = width
-		t.structDirty = true
+		t.propsDirty = true
 	}
 }
 
@@ -217,7 +223,7 @@ func (t *Table) FirstRow() bool {
 // SetFirstRow sets whether the first row is highlighted.
 func (t *Table) SetFirstRow(value bool) {
 	t.firstRow = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // LastRow returns whether the last row is highlighted.
@@ -228,7 +234,7 @@ func (t *Table) LastRow() bool {
 // SetLastRow sets whether the last row is highlighted.
 func (t *Table) SetLastRow(value bool) {
 	t.lastRow = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // FirstCol returns whether the first column is highlighted.
@@ -239,7 +245,7 @@ func (t *Table) FirstCol() bool {
 // SetFirstCol sets whether the first column is highlighted.
 func (t *Table) SetFirstCol(value bool) {
 	t.firstCol = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // LastCol returns whether the last column is highlighted.
@@ -250,7 +256,7 @@ func (t *Table) LastCol() bool {
 // SetLastCol sets whether the last column is highlighted.
 func (t *Table) SetLastCol(value bool) {
 	t.lastCol = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // BandedRows returns whether rows are banded.
@@ -261,7 +267,7 @@ func (t *Table) BandedRows() bool {
 // SetBandedRows sets whether rows are banded.
 func (t *Table) SetBandedRows(value bool) {
 	t.bandRow = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // BandedCols returns whether columns are banded.
@@ -272,7 +278,7 @@ func (t *Table) BandedCols() bool {
 // SetBandedCols sets whether columns are banded.
 func (t *Table) SetBandedCols(value bool) {
 	t.bandCol = value
-	t.structDirty = true
+	t.propsDirty = true
 }
 
 // TableRow represents a row in a table.
@@ -280,6 +286,11 @@ type TableRow struct {
 	cells  []*TableCell
 	height dml.EMU
 	dirty  bool
+
+	// sourceTr is the a:tr node this row was parsed from (or last flushed
+	// into). It lets a structural regeneration carry parsed row content the
+	// domain model does not represent over to the rebuilt table.
+	sourceTr *oxml.ATr
 }
 
 // newTableRow creates a new table row with the specified number of cells.
@@ -332,6 +343,12 @@ type TableCell struct {
 	hMerge       bool // merged with cell to the left
 	vMerge       bool // merged with cell above
 	dirty        bool
+
+	// sourceTc is the a:tc node this cell was parsed from (or last flushed
+	// into). A structural regeneration reuses its tcPr and txBody for
+	// surviving cells, so parsed styling (margins, borders, fills) is not
+	// wiped by an unrelated row/column change.
+	sourceTc *oxml.ATc
 }
 
 // NewTableCell creates a new table cell.
