@@ -153,6 +153,11 @@ func shapeKindClass(sh Shape) int {
 // the old object untouched, preserving state the fresh copy lacks (pending
 // image data, media relationship IDs).
 func adoptRefreshedShape(old, fresh Shape) bool {
+	// Refresh the stable node identity: on loaded slides it is unchanged, but
+	// after a full rebuild the re-materialized nodes carry renumbered ids.
+	if ob, fb := baseShapeOf(old), baseShapeOf(fresh); ob != nil && fb != nil {
+		ob.sourceID = fb.sourceID
+	}
 	switch o := old.(type) {
 	case *TextBox:
 		f, ok := fresh.(*TextBox)
@@ -214,6 +219,8 @@ func adoptRefreshedShape(old, fresh Shape) bool {
 				return false
 			}
 		}
+		o.sourceGrp = f.sourceGrp
+		o.syncedChildren = f.syncedChildren
 	default:
 		return false
 	}
@@ -372,8 +379,10 @@ func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape
 	}
 
 	g := NewGroupShape()
+	g.sourceGrp = gs
 	if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil {
 		g.name = gs.NvGrpSpPr.CNvPr.Name
+		g.sourceID = gs.NvGrpSpPr.CNvPr.Id
 	}
 
 	if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
@@ -421,6 +430,11 @@ func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape
 		}
 	}
 
+	// Everything added above came from the parsed node; only children added
+	// via AddChild after this point need appending on sync.
+	g.syncedChildren = len(g.children)
+	g.childrenModified = false
+
 	return g
 }
 
@@ -449,9 +463,10 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 	tbl := NewTable(rowCount, colCount)
 	tbl.sourceFrame = gf
 
-	// Name
+	// Name and stable node identity
 	if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
 		tbl.name = gf.NvGraphicFramePr.CNvPr.Name
+		tbl.sourceID = gf.NvGraphicFramePr.CNvPr.Id
 	}
 
 	// Position and size
@@ -527,6 +542,7 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 func populateBaseShapeFromOxml(base *BaseShape, cnvPr *dml.CNvPr, spPr *dml.SpPr) {
 	if cnvPr != nil {
 		base.name = cnvPr.Name
+		base.sourceID = cnvPr.Id
 	}
 
 	if spPr != nil && spPr.Xfrm != nil {

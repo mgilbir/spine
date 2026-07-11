@@ -43,11 +43,9 @@ type Picture struct {
 	cropTop        float64
 	cropBottom     float64
 	slide          *Slide // back-reference to owning slide (set during materialization)
-	// sourceID is the cNvPr id of the oxml picture this shape was materialized
-	// from (0 for API-created pictures). It gives a stable identity for locating
-	// the exact picture node on save, so replacing one of two pictures that
-	// share an image reference updates the right one.
-	sourceID uint32
+	// The picture's stable node identity (used e.g. by replacePictureImage to
+	// locate the exact node when two pictures share an image reference) lives
+	// in BaseShape.sourceID.
 }
 
 // NewPicture creates a new picture shape.
