@@ -3,6 +3,7 @@ package pptx
 import (
 	"bytes"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/mgilbir/spine/common/dml"
 )
@@ -97,4 +98,86 @@ func shapeText(t *testing.T, s *Slide) string {
 	}
 	t.Fatal("no textbox shape found")
 	return ""
+}
+
+// C143: cross-run replacement splices must operate on rune boundaries. The
+// byte-level prefix/suffix split used to cut multi-byte UTF-8 sequences in
+// half, emitting <a:t> content that is invalid UTF-8 (malformed slide XML).
+func TestReplaceTextInParagraph_MultiByteBoundaries(t *testing.T) {
+	cases := []struct {
+		name string
+		runs []string
+		repl map[string]string
+		want string
+	}{
+		{"prefix keeps alpha", []string{"αα", "x"}, map[string]string{"αx": "γ"}, "αγ"},
+		{"suffix keeps alpha", []string{"x", "αα"}, map[string]string{"xα": "γ"}, "γα"},
+		{"prefix and suffix multi-byte", []string{"α", "βγ", "δ"}, map[string]string{"βγ": "Q"}, "αQδ"},
+		{"multi-byte shrink across runs", []string{"α", "α"}, map[string]string{"αα": "α"}, "α"},
+		{"ascii shrink stays fixed", []string{"a", "a"}, map[string]string{"aa": "a"}, "a"},
+		{"grow across runs", []string{"αβ", "γ"}, map[string]string{"βγ": "ββγγ"}, "αββγγ"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runs := make([]*dml.R, len(tc.runs))
+			for i, s := range tc.runs {
+				runs[i] = &dml.R{T: s}
+			}
+			p := &dml.P{R: runs}
+			if !replaceTextInParagraph(p, tc.repl) {
+				t.Fatal("expected a replacement to occur")
+			}
+			got := ""
+			for _, r := range p.R {
+				if !utf8.ValidString(r.T) {
+					t.Errorf("run %q is not valid UTF-8", r.T)
+				}
+				got += r.T
+			}
+			if got != tc.want {
+				t.Errorf("result = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// C143 end to end: the exact probe scenario. The saved slide XML must be
+// valid UTF-8 and re-parse cleanly.
+func TestReplaceText_MultiByteMultiRunSavesValidXML(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	tb := s.AddTextBox()
+	para := tb.TextFrame().AddParagraph()
+	para.AddRun().SetText("αα")
+	para.AddRun().SetText("x")
+
+	p.ReplaceText(map[string]string{"αx": "γ"})
+
+	for _, r := range para.Runs() {
+		if !utf8.ValidString(r.Text()) {
+			t.Errorf("run %q is not valid UTF-8 after ReplaceText", r.Text())
+		}
+	}
+
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := zipPart(t, out, "ppt/slides/slide1.xml")
+	if !utf8.Valid(slideXML) {
+		t.Fatal("saved slide1.xml is not valid UTF-8")
+	}
+	// The result may be split across runs ("α" prefix run + "γ" middle run);
+	// each <a:t> must hold complete runes.
+	for _, want := range []string{"<a:t>α</a:t>", "<a:t>γ</a:t>"} {
+		if !bytes.Contains(slideXML, []byte(want)) {
+			t.Errorf("%q missing from slide XML", want)
+		}
+	}
+
+	// The deck must reopen without a parse error.
+	p2 := openBytes(t, out)
+	if got := shapeText(t, p2.Slides()[0]); got != "αγ" {
+		t.Errorf("reopened text = %q, want %q", got, "αγ")
+	}
 }
