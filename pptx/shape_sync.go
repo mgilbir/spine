@@ -255,9 +255,12 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 }
 
 // updateGraphicFrameNode flushes a dirty table into its parsed p:graphicFrame
-// node. Content edits regenerate the a:tbl from the domain — the same
-// modeled-bits-only serialization Table.SyncXML performs. Non-table graphic
-// frames are never dirty (they are not materialized), so they are untouched.
+// node. Text and property edits patch the parsed a:tbl in place, so untouched
+// cells keep everything the domain model does not represent (margins, borders,
+// fills, table style references). Only structural changes (rows/columns added
+// or removed) regenerate the node — and even then parsed styling is carried
+// over for surviving cells (see regenerateTableNode). Non-table graphic frames
+// are never dirty (they are not materialized), so they are untouched.
 func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 	tbl, ok := shape.(*Table)
 	if !ok {
@@ -274,8 +277,110 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(tbl.width), Cy: int64(tbl.height)}
 	}
 	if tbl.contentDirty() && gf.Graphic != nil && gf.Graphic.GraphicData != nil && gf.Graphic.GraphicData.Table != nil {
-		gf.Graphic.GraphicData.Table = tableDataToOxml(tbl)
+		atbl := gf.Graphic.GraphicData.Table
+		if !tbl.structDirty && tableShapeMatches(tbl, atbl) {
+			patchTableNode(atbl, tbl)
+		} else {
+			gf.Graphic.GraphicData.Table = regenerateTableNode(tbl, atbl)
+		}
 	}
+}
+
+// tableShapeMatches reports whether the domain table and the parsed a:tbl have
+// the same grid shape, so per-cell patching can pair them up by index.
+func tableShapeMatches(t *Table, atbl *oxml.ATable) bool {
+	if atbl == nil || len(t.rows) != len(atbl.Tr) {
+		return false
+	}
+	for i, row := range t.rows {
+		if len(row.cells) != len(atbl.Tr[i].Tc) {
+			return false
+		}
+	}
+	return atbl.TblGrid != nil && len(t.colWidths) == len(atbl.TblGrid.GridCol)
+}
+
+// patchTableNode flushes non-structural table edits into the parsed a:tbl in
+// place: table-level properties and column widths when they were set, row
+// heights of dirty rows, and per-cell text/properties of dirty cells. Cells
+// without unflushed edits are not touched at all.
+func patchTableNode(atbl *oxml.ATable, t *Table) {
+	if t.propsDirty {
+		if atbl.TblPr == nil {
+			atbl.TblPr = &oxml.ATblPr{}
+		}
+		pr := atbl.TblPr
+		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
+		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
+		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
+		for i, gc := range atbl.TblGrid.GridCol {
+			gc.W = int64(t.colWidths[i])
+		}
+	}
+	for i, row := range t.rows {
+		tr := atbl.Tr[i]
+		if row.dirty {
+			tr.H = int64(row.height)
+		}
+		row.sourceTr = tr
+		for j, cell := range row.cells {
+			tc := tr.Tc[j]
+			if cell.textFrame != nil && cell.textFrame.isDirty() {
+				updateTxBody(&tc.TxBody, cell.textFrame)
+			}
+			if cell.dirty {
+				applyCellProps(tc, cell)
+			}
+			cell.sourceTc = tc
+		}
+	}
+}
+
+// applyCellProps writes the cell properties the domain API models into the
+// parsed a:tc node, leaving everything it does not model (margins, per-cell
+// extension content) alone. Borders are written only for edges the domain
+// carries a border for: the parse does not materialize borders, so a non-nil
+// edge always means an explicit SetBorder call.
+func applyCellProps(tc *oxml.ATc, cell *TableCell) {
+	if tc.TcPr == nil {
+		tc.TcPr = &oxml.ATcPr{}
+	}
+	pr := tc.TcPr
+	if cell.vertAlign != "" {
+		pr.Anchor = string(cell.vertAlign)
+	}
+	if cell.borderLeft != nil {
+		pr.LnL = tableBorderToLn(cell.borderLeft)
+	}
+	if cell.borderRight != nil {
+		pr.LnR = tableBorderToLn(cell.borderRight)
+	}
+	if cell.borderTop != nil {
+		pr.LnT = tableBorderToLn(cell.borderTop)
+	}
+	if cell.borderBottom != nil {
+		pr.LnB = tableBorderToLn(cell.borderBottom)
+	}
+	if cell.fill != nil {
+		pr.SolidFill = colorToOxml(cell.fill)
+		pr.NoFill = nil
+	} else {
+		// ClearFill and never-filled both hold nil: either way the domain
+		// says the cell has no solid fill.
+		pr.SolidFill = nil
+	}
+	if cell.rowSpan > 1 {
+		tc.RowSpan = cell.rowSpan
+	} else {
+		tc.RowSpan = 0
+	}
+	if cell.colSpan > 1 {
+		tc.GridSpan = cell.colSpan
+	} else {
+		tc.GridSpan = 0
+	}
+	tc.HMerge = cell.hMerge
+	tc.VMerge = cell.vMerge
 }
 
 // updateGroupNode flushes a dirty group's name and placement into its parsed

@@ -183,8 +183,10 @@ func adoptRefreshedShape(old, fresh Shape) bool {
 			}
 		}
 		for i, row := range o.rows {
+			row.sourceTr = f.rows[i].sourceTr
 			for j, cell := range row.cells {
 				cell.textFrame = f.rows[i].cells[j].textFrame
+				cell.sourceTc = f.rows[i].cells[j].sourceTc
 			}
 		}
 		o.sourceFrame = f.sourceFrame
@@ -489,12 +491,14 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 			break
 		}
 		tbl.rows[i].height = dml.EMU(tr.H)
+		tbl.rows[i].sourceTr = tr
 
 		for j, tc := range tr.Tc {
 			if j >= len(tbl.rows[i].cells) {
 				break
 			}
 			cell := tbl.rows[i].cells[j]
+			cell.sourceTc = tc
 
 			if tc.TxBody != nil {
 				cell.textFrame = oxmlToTextFrame(tc.TxBody)
