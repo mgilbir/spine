@@ -146,12 +146,16 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) []byte {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.WriteHeader()
 
-	nsDecls := xmlb.SpreadsheetMLNamespaces()
-	if len(ss.OriginalNSDecls) > 0 {
-		nsDecls = ss.OriginalNSDecls
+	if len(ss.OriginalRootAttrs) > 0 {
+		// Preserve the original root attributes (xmlns decls + mc:Ignorable etc.).
+		b.StartElementWithRootAttrs(nsSML, "styleSheet", ss.OriginalRootAttrs)
+	} else {
+		nsDecls := xmlb.SpreadsheetMLNamespaces()
+		if len(ss.OriginalNSDecls) > 0 {
+			nsDecls = ss.OriginalNSDecls
+		}
+		b.StartElementWithNS(nsSML, "styleSheet", nsDecls)
 	}
-
-	b.StartElementWithNS(nsSML, "styleSheet", nsDecls)
 
 	if ss.NumFmts != nil && len(ss.NumFmts.NumFmt) > 0 {
 		b.MarshalElement(nsSML, "numFmts", ss.NumFmts)
