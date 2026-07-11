@@ -2,6 +2,7 @@ package opc
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -21,14 +22,32 @@ func TestWritePartRelationships_RejectsDuplicate(t *testing.T) {
 }
 
 // C45: a part written with an empty content type must not register an
-// empty-string <Override ContentType=""/>.
+// empty-string <Override ContentType=""/>; it relies on the Default mapping
+// covering its extension instead.
 func TestCreatePart_NoEmptyOverride(t *testing.T) {
 	w := NewWriter(&bytes.Buffer{})
-	if err := w.WritePart("/xl/media/thing.dat", "", []byte("x")); err != nil {
+	if err := w.WritePart("/xl/media/thing.png", "", []byte("x")); err != nil {
 		t.Fatalf("WritePart: %v", err)
 	}
-	if ctype, ok := w.ContentTypes.Overrides["/xl/media/thing.dat"]; ok {
+	if ctype, ok := w.ContentTypes.Overrides["/xl/media/thing.png"]; ok {
 		t.Errorf("empty content type registered an override = %q", ctype)
+	}
+}
+
+// C185: a part with an empty content type whose extension no Default mapping
+// covers would be silently absent from [Content_Types].xml, producing an
+// OPC-invalid package; it must be rejected at part-creation time instead.
+func TestCreatePart_EmptyContentTypeNoDefault(t *testing.T) {
+	w := NewWriter(&bytes.Buffer{})
+
+	if err := w.WritePart("/xl/media/thing.dat", "", []byte("x")); !errors.Is(err, ErrInvalidContentType) {
+		t.Errorf("WritePart with uncovered empty content type = %v, want ErrInvalidContentType", err)
+	}
+
+	// After registering a Default for the extension, the same part is fine.
+	w.ContentTypes.SetDefault("dat", "application/octet-stream")
+	if err := w.WritePart("/xl/media/thing.dat", "", []byte("x")); err != nil {
+		t.Errorf("WritePart with covering default = %v, want nil", err)
 	}
 }
 
