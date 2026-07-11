@@ -228,6 +228,12 @@ func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Pi
 	w, h := m.Size()
 	if w <= 0 || h <= 0 {
 		w, h = defaultMediaWidth, defaultMediaHeight
+		// Write the default back into the domain shape so both
+		// representations agree: otherwise a later SetPosition/SetName flush
+		// (updateXfrm) would write the domain's 0x0 into the node, collapsing
+		// the shape (C192). Assigned directly — this is a sync, not a caller
+		// mutation, so it must not set the dirty flag.
+		m.width, m.height = w, h
 	}
 
 	nvPr := &oxml.NvPr{
