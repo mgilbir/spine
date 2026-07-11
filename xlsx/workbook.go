@@ -861,6 +861,7 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 	// Update the workbook model. SheetId must be unique across the workbook's
 	// lifetime — allocating len(sheets) collides after a delete+add, so use one
 	// past the current maximum.
+	w.workbook.EnsureChildOrder("sheets")
 	sheetID := w.nextSheetID()
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
 		Name:    name,
@@ -1005,6 +1006,10 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	if w.workbook.BookViews == nil {
 		w.workbook.BookViews = &oxml.CT_BookViews{}
 	}
+	// Workbook marshaling is ChildOrder-gated for opened files: a bookViews
+	// element the original lacked must be inserted at its schema position or
+	// it would be silently dropped on save (C12).
+	w.workbook.EnsureChildOrder("bookViews")
 	if len(w.workbook.BookViews.WorkbookView) == 0 {
 		w.workbook.BookViews.WorkbookView = append(w.workbook.BookViews.WorkbookView, oxml.CT_BookView{})
 	}
@@ -1090,6 +1095,8 @@ func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
 	if w.workbook.DefinedNames == nil {
 		w.workbook.DefinedNames = &oxml.CT_DefinedNames{}
 	}
+	// See SetActiveSheet: insert the child kind into the preserved order (C12).
+	w.workbook.EnsureChildOrder("definedNames")
 
 	dn := oxml.CT_DefinedName{
 		Name:  name,

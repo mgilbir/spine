@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strconv"
+	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -294,6 +295,84 @@ func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixM
 		buf = append(buf, '>')
 	}
 	return buf
+}
+
+// workbookSchemaSeq is the CT_Workbook child element sequence from the
+// SpreadsheetML schema (ECMA-376 sml.xsd). It includes elements this package
+// has no typed model for (fileSharing, pivotCaches, ...) so that captured
+// unknown children can still be ranked when computing a schema-ordered
+// insertion point.
+var workbookSchemaSeq = []string{
+	"fileVersion", "fileSharing", "workbookPr", "workbookProtection",
+	"bookViews", "sheets", "functionGroups", "externalReferences",
+	"definedNames", "calcPr", "oleSize", "customWorkbookViews",
+	"pivotCaches", "smartTagPr", "smartTagTypes", "webPublishing",
+	"fileRecoveryPr", "webPublishObjects", "extLst",
+}
+
+// workbookChildRank maps a CT_Workbook child local name to its index in
+// workbookSchemaSeq.
+var workbookChildRank = func() map[string]int {
+	m := make(map[string]int, len(workbookSchemaSeq))
+	for i, n := range workbookSchemaSeq {
+		m[n] = i
+	}
+	return m
+}()
+
+// EnsureChildOrder records name in wb.ChildOrder at its CT_Workbook schema
+// position if it is not already present. Mutators must call this when they
+// populate a child element kind the parsed workbook did not contain:
+// marshaling of opened workbooks is ChildOrder-gated, so a populated child
+// without an entry would be silently dropped (C12). It is a no-op when
+// ChildOrder is empty (new workbooks marshal in fixed schema order) or when
+// name is already listed.
+//
+// The insertion point is immediately before the first existing entry whose
+// schema rank exceeds name's rank. "unknown:N" entries are ranked by the
+// captured element's local name when it is a standard workbook child we lack
+// a typed model for; otherwise (e.g. xr:revisionPtr, mc:AlternateContent)
+// they impose no constraint and keep their position relative to the
+// surrounding known children. This mirrors CT_Worksheet.EnsureChildOrder.
+func (wb *CT_Workbook) EnsureChildOrder(name string) {
+	if len(wb.ChildOrder) == 0 {
+		return
+	}
+	rank, ok := workbookChildRank[name]
+	if !ok {
+		return
+	}
+	for _, entry := range wb.ChildOrder {
+		if entry == name {
+			return
+		}
+	}
+	insert := len(wb.ChildOrder)
+	for i, entry := range wb.ChildOrder {
+		if r, ok := wb.childOrderEntryRank(entry); ok && r > rank {
+			insert = i
+			break
+		}
+	}
+	wb.ChildOrder = append(wb.ChildOrder, "")
+	copy(wb.ChildOrder[insert+1:], wb.ChildOrder[insert:])
+	wb.ChildOrder[insert] = name
+}
+
+// childOrderEntryRank resolves the schema rank of a ChildOrder entry. Known
+// element names are looked up directly; "unknown:N" entries are ranked by the
+// local name of the captured element when it is a standard workbook child.
+func (wb *CT_Workbook) childOrderEntryRank(entry string) (int, bool) {
+	if idx, isUnknown := strings.CutPrefix(entry, "unknown:"); isUnknown {
+		n, err := strconv.Atoi(idx)
+		if err != nil || n < 0 || n >= len(wb.UnknownChildren) {
+			return 0, false
+		}
+		r, ok := workbookChildRank[unknownElementLocalName(wb.UnknownChildren[n].Data)]
+		return r, ok
+	}
+	r, ok := workbookChildRank[entry]
+	return r, ok
 }
 
 // CT_FileVersion represents the fileVersion element.
