@@ -164,6 +164,32 @@ func (ct *ContentTypes) SetOverride(partName, contentType string) {
 	ct.Overrides[partName] = contentType
 }
 
+// RemoveOverride removes the content type override for a specific part, so a
+// part dropped from a package does not leave a dangling Override entry. Part
+// names match case-insensitively, mirroring GetContentType.
+func (ct *ContentTypes) RemoveOverride(partName string) {
+	name := partName
+	if _, ok := ct.Overrides[name]; !ok {
+		name = ""
+		for existing := range ct.Overrides {
+			if strings.EqualFold(existing, partName) {
+				name = existing
+				break
+			}
+		}
+		if name == "" {
+			return
+		}
+	}
+	delete(ct.Overrides, name)
+	for i, entry := range ct.overrideOrder {
+		if entry == name {
+			ct.overrideOrder = append(ct.overrideOrder[:i], ct.overrideOrder[i+1:]...)
+			break
+		}
+	}
+}
+
 // contentTypesXML is the XML structure for [Content_Types].xml
 type contentTypesXML struct {
 	XMLName   xml.Name            `xml:"Types"`
