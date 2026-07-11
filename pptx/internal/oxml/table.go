@@ -6,6 +6,7 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/dml/chart"
 	"github.com/mgilbir/spine/common/dml/diagram"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // GraphicFrame represents a graphic frame element (p:graphicFrame) that contains tables.
@@ -46,12 +47,90 @@ const (
 )
 
 // AGraphicData contains the graphic data with URI identifying the type.
-// Exactly one of Table, DiagramRelIds, or ChartRef will be populated based on URI.
+// Known URIs populate exactly one of Table, DiagramRelIds, or ChartRef.
+// Unknown URIs (e.g. embedded OLE objects) are preserved verbatim in
+// RawContent so their payload survives re-marshaling.
 type AGraphicData struct {
-	URI           string           `xml:"uri,attr"`
-	Table         *ATable          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tbl,omitempty"`
-	DiagramRelIds *diagram.RelIds  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram relIds,omitempty"`
-	ChartRef      *chart.RelId     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart chart,omitempty"`
+	URI           string          `xml:"uri,attr"`
+	Table         *ATable         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tbl,omitempty"`
+	DiagramRelIds *diagram.RelIds `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram relIds,omitempty"`
+	ChartRef      *chart.RelId    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart chart,omitempty"`
+
+	// Fallback for unknown URIs: raw inner XML plus any xmlns declarations
+	// carried on the graphicData element itself.
+	RawContent    []byte        `xml:"-"`
+	InlineNSDecls []xmlb.NSDecl `xml:"-"`
+}
+
+// aGraphicDataNoMethods mirrors AGraphicData without its methods so the
+// typed URIs keep using the tag-driven decode/encode paths.
+type aGraphicDataNoMethods AGraphicData
+
+// UnmarshalXML implements custom unmarshaling for AGraphicData: known URIs
+// decode into typed fields; unknown URIs capture their content verbatim.
+func (g *AGraphicData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var uri string
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "uri" {
+			uri = attr.Value
+		}
+	}
+
+	switch uri {
+	case TableGraphicDataURI, DiagramGraphicDataURI, ChartGraphicDataURI:
+		var tmp aGraphicDataNoMethods
+		if err := d.DecodeElement(&tmp, &start); err != nil {
+			return err
+		}
+		*g = AGraphicData(tmp)
+		return nil
+	}
+
+	// Unknown URI (e.g. OLE objects): preserve raw bytes for round-trip.
+	g.URI = uri
+	for _, attr := range start.Attr {
+		switch {
+		case attr.Name.Space == "xmlns":
+			g.InlineNSDecls = append(g.InlineNSDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			g.InlineNSDecls = append(g.InlineNSDecls, xmlb.NSDecl{URI: attr.Value})
+		}
+	}
+	var inner struct {
+		Content []byte `xml:",innerxml"`
+	}
+	if err := d.DecodeElement(&inner, &start); err != nil {
+		return err
+	}
+	g.RawContent = inner.Content
+	return nil
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler for AGraphicData.
+// Typed content marshals through the tag-driven reflection path; unknown
+// URIs re-emit their captured raw content.
+func (g *AGraphicData) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	if g.Table != nil || g.DiagramRelIds != nil || g.ChartRef != nil ||
+		(len(g.RawContent) == 0 && len(g.InlineNSDecls) == 0) {
+		b.MarshalElement(ns, localName, (*aGraphicDataNoMethods)(g))
+		return
+	}
+
+	attrs := []xmlb.Attr{xmlb.StrAttr("uri", g.URI)}
+	for _, nsd := range g.InlineNSDecls {
+		name := "xmlns"
+		if nsd.Prefix != "" {
+			name = "xmlns:" + nsd.Prefix
+		}
+		attrs = append(attrs, xmlb.Attr{Name: name, Value: nsd.URI})
+	}
+	if len(g.RawContent) == 0 {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	b.WriteRaw(g.RawContent)
+	b.EndElement(ns, localName)
 }
 
 // TableGraphicDataURI is the URI for table graphic data.
