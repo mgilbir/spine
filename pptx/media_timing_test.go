@@ -216,3 +216,33 @@ func TestAutoPlayTiming_ParsedTimingNotClobbered(t *testing.T) {
 		t.Errorf("parsed timing tree was modified:\nbefore: %s\nafter:  %s", timing1, got)
 	}
 }
+
+// C193: duplicating a slide with auto-play media before the first save must
+// give BOTH slides a valid timing tree targeting their own shape ids (timing
+// used to be built only at save, after Duplicate snapshotted the XML).
+func TestAutoPlayTiming_SurvivesDuplicateBeforeSave(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	v := s.AddVideo([]byte("vid"), "video/mp4")
+	v.SetPlayMode(PlayAutomatically)
+	v.SetName("Vid1")
+	s.Duplicate()
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{"ppt/slides/slide1.xml", "ppt/slides/slide2.xml"} {
+		xml := string(zipPart(t, data, part))
+		if !strings.Contains(xml, "<p:timing>") {
+			t.Errorf("%s has no timing tree", part)
+			continue
+		}
+		id := shapeIDByName(t, xml, "Vid1")
+		for _, m := range spidRE.FindAllStringSubmatch(xml, -1) {
+			if m[1] != id {
+				t.Errorf("%s: timing targets spid %s, media id is %s", part, m[1], id)
+			}
+		}
+	}
+}
