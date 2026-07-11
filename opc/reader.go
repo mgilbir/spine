@@ -151,6 +151,101 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 	return data, nil
 }
 
+// openZipEntry opens a bounded stream over one zip entry. Declared-size
+// violations are rejected immediately; violations only observable while
+// decompressing (lying local headers) surface as Read errors from the
+// returned stream. If the entry has not been charged against the package
+// budget yet, the stream becomes its charger: bytes count toward the budget
+// as they are read.
+func (b *decompressionBudget) openZipEntry(zf *zip.File) (io.ReadCloser, error) {
+	if _, err := b.admit(zf); err != nil {
+		return nil, err
+	}
+
+	rc, err := zf.Open()
+	if err != nil {
+		return nil, err
+	}
+
+	s := &budgetedReadCloser{rc: rc, b: b, name: zf.Name}
+	// Mark the entry charged now so this stream and any concurrent or later
+	// read of the same entry agree on charge-once semantics; the byte count
+	// itself is added incrementally as the stream is consumed.
+	b.mu.Lock()
+	if b.maxPackage > 0 && !b.charged[zf] {
+		b.charged[zf] = true
+		s.charges = true
+	}
+	b.mu.Unlock()
+	return s, nil
+}
+
+// budgetedReadCloser enforces the decompression limits on a streaming read
+// of one zip entry without buffering it. Once the bytes decompressed through
+// it exceed the per-part cap or the shared package budget, Read fails and
+// the error is sticky.
+type budgetedReadCloser struct {
+	rc   io.ReadCloser
+	b    *decompressionBudget
+	name string
+
+	// charges records whether this stream charges the package budget (it
+	// does unless the entry was already charged when the stream was opened).
+	charges  bool
+	streamed int64 // bytes read through this stream so far
+	err      error // sticky limit-violation error
+}
+
+func (s *budgetedReadCloser) Read(p []byte) (int, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	// Clamp the read so an oversized part is detected at most one byte past
+	// the per-part cap instead of decompressing arbitrarily far beyond it.
+	if s.b.maxPart > 0 {
+		if headroom := s.b.maxPart - s.streamed + 1; int64(len(p)) > headroom {
+			p = p[:headroom]
+		}
+	}
+	n, err := s.rc.Read(p)
+	if n > 0 {
+		s.streamed += int64(n)
+		if cerr := s.chargeStream(int64(n)); cerr != nil {
+			s.err = cerr
+			return n, cerr
+		}
+		if s.b.maxPart > 0 && s.streamed > s.b.maxPart {
+			s.err = fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", s.name, s.b.maxPart)
+			return n, s.err
+		}
+	}
+	return n, err
+}
+
+// chargeStream adds n freshly decompressed bytes to the package total,
+// failing once the budget is exhausted. Unlike ReadAll, which knows the full
+// part size up front, a stream charges as bytes arrive.
+func (s *budgetedReadCloser) chargeStream(n int64) error {
+	if !s.charges {
+		return nil
+	}
+	s.b.mu.Lock()
+	s.b.total += n
+	over := s.b.total > s.b.maxPackage
+	// This stream is the entry's only charger, so total minus our own bytes
+	// is what the rest of the package had decompressed.
+	already := s.b.total - s.streamed
+	s.b.mu.Unlock()
+	if over {
+		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", s.name, s.b.maxPackage, already)
+	}
+	return nil
+}
+
+func (s *budgetedReadCloser) Close() error {
+	return s.rc.Close()
+}
+
 // readAllLimited reads rc fully, but stops one byte past limit so the caller
 // can unambiguously detect overflow via len > limit. limit < 0 means
 // unbounded.
@@ -173,9 +268,16 @@ type File struct {
 	budget  *decompressionBudget
 }
 
-// Open returns an io.ReadCloser for reading the file's contents.
+// Open returns an io.ReadCloser streaming the file's contents. The stream is
+// bounded by the same MaxDecompressedPartSize and MaxDecompressedPackageSize
+// limits as ReadAll, captured when the Reader was constructed: Open fails
+// immediately when the part's declared size exceeds either bound, and Read
+// returns an error once the bytes actually decompressed exceed the per-part
+// limit or the remaining package budget. Bytes count toward the package
+// budget as they stream; like ReadAll, a part is charged at most once, so
+// re-reading an already-read part does not consume additional budget.
 func (f *File) Open() (io.ReadCloser, error) {
-	return f.zipFile.Open()
+	return f.budget.openZipEntry(f.zipFile)
 }
 
 // ReadAll reads and returns the entire contents of the file. The result is

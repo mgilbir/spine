@@ -1,8 +1,10 @@
 package opc
 
 import (
+	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -272,5 +274,138 @@ func TestDecompressionBudget_ConcurrentReadAll(t *testing.T) {
 	want := openCost + numParts*partSize
 	if got := reader.budget.total; got != want {
 		t.Errorf("budget total after concurrent reads = %d, want %d", got, want)
+	}
+}
+
+// TestFileOpen_RejectsDeclaredOversizedPart verifies that File.Open honors
+// the per-part cap for parts whose declared size already exceeds it (C183:
+// Open used to bypass both decompression limits entirely).
+func TestFileOpen_RejectsDeclaredOversizedPart(t *testing.T) {
+	big := bytes.Repeat([]byte("A"), 64*1024)
+	data := createTestPackage(t, map[string][]byte{"/ppt/presentation.xml": big}, nil)
+
+	withDecompressionLimits(t, 1024, 1<<20)
+
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	_, err = reader.GetFile("/ppt/presentation.xml").Open()
+	if err == nil {
+		t.Fatal("expected Open to reject a declared-oversized part, got nil error")
+	}
+	if !strings.Contains(err.Error(), "per-part decompression limit") {
+		t.Errorf("expected a per-part decompression-limit error, got: %v", err)
+	}
+}
+
+// TestBudgetedReadCloser_EnforcesPartLimitMidStream exercises the streaming
+// per-part cap on the wrapper directly (C183). archive/zip itself stops an
+// entry that overruns its declared size, so through File.Open this guard is
+// defense in depth against sources the zip layer does not police; here it is
+// driven with a raw stream to prove it fails at most one byte past the cap.
+func TestBudgetedReadCloser_EnforcesPartLimitMidStream(t *testing.T) {
+	b := &decompressionBudget{maxPart: 1024, charged: make(map[*zip.File]bool)}
+	src := io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("A"), 64*1024)))
+	rc := &budgetedReadCloser{rc: src, b: b, name: "ppt/bomb.bin"}
+
+	n, err := io.Copy(io.Discard, rc)
+	if err == nil {
+		t.Fatal("expected the stream to fail at the per-part cap, got nil error")
+	}
+	if !strings.Contains(err.Error(), "per-part decompression limit") {
+		t.Errorf("expected a per-part decompression-limit error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bomb.bin") {
+		t.Errorf("expected the error to name the offending part, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "MaxDecompressedPartSize") {
+		t.Errorf("expected the error to say how to raise the limit, got: %v", err)
+	}
+	if n > 1024+1 {
+		t.Errorf("stream decompressed %d bytes, want at most one byte past the 1024-byte cap", n)
+	}
+	// The error is sticky.
+	if _, err := rc.Read(make([]byte, 1)); err == nil {
+		t.Error("expected reads after a limit violation to keep failing")
+	}
+}
+
+// TestFileOpen_StreamEnforcesPackageLimit verifies that bytes streamed via
+// File.Open are charged against the package budget and that a stream fails
+// once the budget is exhausted (C183). Two streams are opened before either
+// is consumed: each part alone passes the declared-size pre-check, so only
+// the incremental charging can stop the second one.
+func TestFileOpen_StreamEnforcesPackageLimit(t *testing.T) {
+	data, openCost := twoPartPackage(t)
+
+	// Room for one 2000-byte part but not both.
+	withDecompressionLimits(t, 1<<20, openCost+3000)
+
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+
+	a, err := reader.GetFile("/ppt/presentation.xml").Open()
+	if err != nil {
+		t.Fatalf("Open(first) error = %v", err)
+	}
+	defer func() { _ = a.Close() }()
+	b, err := reader.GetFile("/ppt/media/image1.png").Open()
+	if err != nil {
+		t.Fatalf("Open(second) error = %v (nothing streamed yet, so it must pass the pre-check)", err)
+	}
+	defer func() { _ = b.Close() }()
+
+	if n, err := io.Copy(io.Discard, a); err != nil || n != 2000 {
+		t.Fatalf("streaming the first part = (%d, %v), want (2000, nil)", n, err)
+	}
+
+	if _, err := io.Copy(io.Discard, b); err == nil {
+		t.Fatal("expected the second stream to fail at the package budget, got nil error")
+	} else if !strings.Contains(err.Error(), "package decompression limit") {
+		t.Errorf("expected a package-decompression-limit error, got: %v", err)
+	} else if !strings.Contains(err.Error(), "MaxDecompressedPackageSize") {
+		t.Errorf("expected the error to say how to raise the limit, got: %v", err)
+	}
+}
+
+// TestFileOpen_ChargesOnce verifies that a part fully streamed via Open is
+// charged against the package budget exactly once: a later ReadAll of the
+// same part is free, while a different part that no longer fits is rejected
+// at Open (C183, matching ReadAll's charge-once semantics).
+func TestFileOpen_ChargesOnce(t *testing.T) {
+	data, openCost := twoPartPackage(t)
+
+	withDecompressionLimits(t, 1<<20, openCost+2500)
+
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+
+	first := reader.GetFile("/ppt/presentation.xml")
+	rc, err := first.Open()
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if n, err := io.Copy(io.Discard, rc); err != nil || n != 2000 {
+		t.Fatalf("streaming the first part = (%d, %v), want (2000, nil)", n, err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Re-reading an already-streamed part consumes no additional budget.
+	if _, err := first.ReadAll(); err != nil {
+		t.Fatalf("ReadAll() after streaming the same part error = %v", err)
+	}
+
+	// The second part's declared size no longer fits the remaining budget.
+	if _, err := reader.GetFile("/ppt/media/image1.png").Open(); err == nil {
+		t.Fatal("expected Open to reject the part that busts the package total, got nil error")
+	} else if !strings.Contains(err.Error(), "package decompression limit") {
+		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 }
