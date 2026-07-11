@@ -341,8 +341,13 @@ func (s *Slide) syncShapesToXML() {
 	s.autoplayMedia = nil
 	s.timingRegen = true
 
-	// Convert each shape
-	var shapeID uint32 = 2 // Start from 2 since 1 is used by spTree itself
+	// Convert each shape, seeding ids above anything the rebuild left in the
+	// tree (connectors survive the clearing above): cNvPr ids must be unique
+	// slide-wide (ST_DrawingElementId).
+	shapeID := spTree.MaxShapeID() + 1
+	if shapeID < 2 {
+		shapeID = 2 // 1 belongs to the shape tree itself
+	}
 	for _, shape := range s.shapes {
 		switch sh := shape.(type) {
 		case *TextBox:
