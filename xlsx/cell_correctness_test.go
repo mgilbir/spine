@@ -168,3 +168,29 @@ func TestRowWithoutRAttribute(t *testing.T) {
 		t.Errorf("Cell(A3) duplicated the r-less row: rows %d -> %d", before, len(s.worksheet.SheetData.Row))
 	}
 }
+
+// C230: SetRowHeight must resolve rows via rowNumberOf like the other row
+// lookups (C73), or an r-less row gets a duplicate <row r="N"> appended.
+func TestSetRowHeightOnRowWithoutRAttribute(t *testing.T) {
+	wb := Create()
+	s := wb.AddSheet("Sheet1")
+	s.ensureWorksheet()
+	v := "7"
+	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{
+		C: []*oxml.CT_Cell{{R: "A1", V: &v}},
+	})
+
+	if err := s.SetRowHeight(1, 42); err != nil {
+		t.Fatalf("SetRowHeight: %v", err)
+	}
+	if got := len(s.worksheet.SheetData.Row); got != 1 {
+		t.Fatalf("SetRowHeight duplicated the r-less row: %d rows, want 1", got)
+	}
+	row := &s.worksheet.SheetData.Row[0]
+	if row.Ht == nil || *row.Ht != 42 {
+		t.Errorf("row height not applied to the r-less row: %+v", row)
+	}
+	if row.CustomHeight == nil || !*row.CustomHeight {
+		t.Errorf("customHeight not set on the r-less row: %+v", row)
+	}
+}
