@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 // MaxDecompressedPartSize bounds how many bytes any single package part may
@@ -43,6 +44,11 @@ type decompressionBudget struct {
 	maxPart    int64 // per-part cap; <= 0 disables
 	maxPackage int64 // package-total cap; <= 0 disables
 
+	// mu guards total and charged. All Files of a Reader share one budget and
+	// a read-only Reader invites concurrent part reads, so the running
+	// accounting must be synchronized.
+	mu sync.Mutex
+
 	// total is the number of bytes decompressed so far, counting each zip
 	// entry once (on first successful read).
 	total   int64
@@ -58,26 +64,13 @@ func newDecompressionBudget() *decompressionBudget {
 	}
 }
 
-// readZipEntry decompresses a single zip entry, bounding the output to the
-// per-part cap and the remaining package-total budget. It rejects entries
-// whose declared uncompressed size already exceeds either bound, and
-// re-checks during the read so a lying local header cannot slip past.
-func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
+// admit performs the declared-size pre-checks for one zip entry and returns
+// the effective cap on the bytes that may be read for it (-1: unbounded). It
+// rejects entries whose declared uncompressed size already exceeds the
+// per-part cap or the remaining package budget.
+func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 	if b.maxPart > 0 && zf.UncompressedSize64 > uint64(b.maxPart) {
-		return nil, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
-	}
-
-	// The package-total bound only applies to entries not yet counted:
-	// re-reading an already-charged part cannot grow the total.
-	pkgRemaining := int64(-1) // -1: package bound not in effect for this read
-	if b.maxPackage > 0 && !b.charged[zf] {
-		pkgRemaining = b.maxPackage - b.total
-		if pkgRemaining < 0 {
-			pkgRemaining = 0
-		}
-		if zf.UncompressedSize64 > uint64(pkgRemaining) {
-			return nil, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
-		}
+		return 0, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
 	}
 
 	// Effective cap on the bytes actually read; -1 means unbounded.
@@ -85,8 +78,54 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 	if b.maxPart > 0 {
 		limit = b.maxPart
 	}
-	if pkgRemaining >= 0 && (limit < 0 || pkgRemaining < limit) {
-		limit = pkgRemaining
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// The package-total bound only applies to entries not yet counted:
+	// re-reading an already-charged part cannot grow the total.
+	if b.maxPackage > 0 && !b.charged[zf] {
+		pkgRemaining := b.maxPackage - b.total
+		if pkgRemaining < 0 {
+			pkgRemaining = 0
+		}
+		if zf.UncompressedSize64 > uint64(pkgRemaining) {
+			return 0, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
+		}
+		if limit < 0 || pkgRemaining < limit {
+			limit = pkgRemaining
+		}
+	}
+	return limit, nil
+}
+
+// charge counts n freshly decompressed bytes for zf toward the package
+// total, once per entry. It re-checks the remaining budget under the lock:
+// the pre-check in admit used a snapshot, and other goroutines may have
+// consumed budget since; this also catches entries whose actual size exceeds
+// their declared size (lying local header).
+func (b *decompressionBudget) charge(zf *zip.File, n int64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.maxPackage <= 0 || b.charged[zf] {
+		return nil
+	}
+	if n > b.maxPackage-b.total {
+		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, b.maxPackage, b.total)
+	}
+	b.total += n
+	b.charged[zf] = true
+	return nil
+}
+
+// readZipEntry decompresses a single zip entry, bounding the output to the
+// per-part cap and the remaining package-total budget. It rejects entries
+// whose declared uncompressed size already exceeds either bound, and
+// re-checks during the read so a lying local header cannot slip past.
+func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
+	limit, err := b.admit(zf)
+	if err != nil {
+		return nil, err
 	}
 
 	rc, err := zf.Open()
@@ -99,16 +138,15 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if limit >= 0 && int64(len(data)) > limit {
-		if b.maxPart > 0 && int64(len(data)) > b.maxPart {
-			return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, b.maxPart)
-		}
-		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, b.maxPackage, b.total)
+	if b.maxPart > 0 && int64(len(data)) > b.maxPart {
+		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, b.maxPart)
 	}
 
-	if b.maxPackage > 0 && !b.charged[zf] {
-		b.total += int64(len(data))
-		b.charged[zf] = true
+	// Any read that overflowed the package-remaining portion of limit is
+	// caught here: charge re-checks the budget under the lock and the total
+	// only ever grows, so an over-read cannot slip through.
+	if err := b.charge(zf, int64(len(data))); err != nil {
+		return nil, err
 	}
 	return data, nil
 }

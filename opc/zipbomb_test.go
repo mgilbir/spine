@@ -2,7 +2,9 @@ package opc
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -226,5 +228,49 @@ func TestDecompressionLimits_SnapshotPerReader(t *testing.T) {
 		if _, err := f.ReadAll(); err != nil {
 			t.Errorf("ReadAll(%s) after raising limits error = %v", f.Name, err)
 		}
+	}
+}
+
+// TestDecompressionBudget_ConcurrentReadAll verifies that concurrent ReadAll
+// calls on distinct (and repeated) parts of one Reader are safe: the shared
+// budget's running total and charged map are mutex-guarded (C181). Run under
+// -race to exercise the synchronization.
+func TestDecompressionBudget_ConcurrentReadAll(t *testing.T) {
+	const numParts = 64
+	const partSize = 1000
+	parts := make(map[string][]byte, numParts)
+	for i := 0; i < numParts; i++ {
+		parts[fmt.Sprintf("/ppt/part%d.xml", i)] = bytes.Repeat([]byte("A"), partSize)
+	}
+	data := createTestPackage(t, parts, nil)
+
+	withDecompressionLimits(t, 1<<20, 1<<20)
+
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	openCost := reader.budget.total
+
+	var wg sync.WaitGroup
+	for _, f := range reader.Files {
+		// Repeated reads of the same part exercise charge-once under contention.
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func(f *File) {
+				defer wg.Done()
+				if _, err := f.ReadAll(); err != nil {
+					t.Errorf("ReadAll(%s) error = %v", f.Name, err)
+				}
+			}(f)
+		}
+	}
+	wg.Wait()
+
+	// Every part must have been charged exactly once despite the fan-out
+	// (the package .rels was already charged during NewReader).
+	want := openCost + numParts*partSize
+	if got := reader.budget.total; got != want {
+		t.Errorf("budget total after concurrent reads = %d, want %d", got, want)
 	}
 }
