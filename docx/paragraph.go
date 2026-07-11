@@ -11,6 +11,11 @@ import (
 type Paragraph struct {
 	document *Document
 	p        *oxml.CT_P
+	// hfPart names the header/footer part that owns this paragraph (e.g.
+	// "/word/header1.xml"). Empty for paragraphs in the main document part.
+	// Part-scoped resources (image relationships) are registered against the
+	// owning part so their r:embed references resolve from that part's rels.
+	hfPart string
 }
 
 // Text returns the text content of the paragraph, including text nested in
