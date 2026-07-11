@@ -319,12 +319,12 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 
 		data, err := slideFile.ReadAll()
 		if err != nil {
-			continue
+			return fmt.Errorf("pptx: reading slide part %s: %w", slideName, err)
 		}
 
 		var slideXML oxml.Slide
 		if err := xml.Unmarshal(data, &slideXML); err != nil {
-			continue
+			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
 
 		slide := &Slide{
@@ -372,12 +372,12 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 
 		data, err := masterFile.ReadAll()
 		if err != nil {
-			continue
+			return fmt.Errorf("pptx: reading slide master part %s: %w", masterName, err)
 		}
 
 		var masterXML oxml.SlideMaster
 		if err := xml.Unmarshal(data, &masterXML); err != nil {
-			continue
+			return fmt.Errorf("pptx: parsing slide master part %s: %w", masterName, err)
 		}
 
 		master := &SlideMaster{
@@ -391,7 +391,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 
 		// Load layouts for this master
 		if err := p.loadSlideLayouts(master, masterName); err != nil {
-			continue
+			return err
 		}
 
 		p.slideMasters = append(p.slideMasters, master)
@@ -430,12 +430,12 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 
 			data, err := layoutFile.ReadAll()
 			if err != nil {
-				continue
+				return fmt.Errorf("pptx: reading slide layout part %s: %w", layoutName, err)
 			}
 
 			var layoutXML oxml.SlideLayout
 			if err := xml.Unmarshal(data, &layoutXML); err != nil {
-				continue
+				return fmt.Errorf("pptx: parsing slide layout part %s: %w", layoutName, err)
 			}
 
 			layout := &SlideLayout{
