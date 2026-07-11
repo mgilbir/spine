@@ -439,10 +439,16 @@ type SpcPts struct {
 // BuClrTx represents CT_TextBulletColorFollowText (a:buClrTx)
 type BuClrTx struct{}
 
-// BuClr represents CT_Color (a:buClr)
+// BuClr represents CT_Color (a:buClr). Its content is an EG_ColorChoice, so
+// all six color kinds are modeled: a parsed hsl/sys/prst/scrgb bullet color
+// must survive re-marshal instead of collapsing to an empty element.
 type BuClr struct {
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // BuSzTx represents CT_TextBulletSizeFollowText (a:buSzTx)

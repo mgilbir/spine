@@ -6,30 +6,30 @@ import "github.com/mgilbir/spine/common/dml"
 
 // StyleDef represents CT_StyleDefinition (dgm:styleDef) - style definition root
 type StyleDef struct {
-	UniqueId string          `xml:"uniqueId,attr,omitempty"`
-	MinVer   string          `xml:"minVer,attr,omitempty"`
-	Title    []*DiagTitle    `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram title,omitempty"`
-	Desc     []*DiagDesc     `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram desc,omitempty"`
-	CatLst   *CatLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram catLst,omitempty"`
+	UniqueId string           `xml:"uniqueId,attr,omitempty"`
+	MinVer   string           `xml:"minVer,attr,omitempty"`
+	Title    []*DiagTitle     `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram title,omitempty"`
+	Desc     []*DiagDesc      `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram desc,omitempty"`
+	CatLst   *CatLst          `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram catLst,omitempty"`
 	StyleLbl []*StyleDefLabel `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram styleLbl,omitempty"`
-	Scene3d  *dml.Scene3d    `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram scene3d,omitempty"`
-	ExtLst   *dml.ExtLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
+	Scene3d  *dml.Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram scene3d,omitempty"`
+	ExtLst   *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
 }
 
 // StyleDefLabel represents CT_StyleLabel (dgm:styleLbl) - style label with visual properties
 type StyleDefLabel struct {
-	Name   string      `xml:"name,attr"`
+	Name    string       `xml:"name,attr"`
 	Scene3d *dml.Scene3d `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram scene3d,omitempty"`
-	Sp3d   *dml.Sp3d   `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram sp3d,omitempty"`
-	TxPr   *DiagTxPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram txPr,omitempty"`
-	Style  *DiagStyle  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram style,omitempty"`
-	ExtLst *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
+	Sp3d    *dml.Sp3d    `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram sp3d,omitempty"`
+	TxPr    *DiagTxPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram txPr,omitempty"`
+	Style   *DiagStyle   `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram style,omitempty"`
+	ExtLst  *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
 }
 
 // DiagTxPr represents CT_TextProps (dgm:txPr) - text properties for diagram styles
 type DiagTxPr struct {
-	Sp3d      *dml.Sp3d       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
-	FlatTx    *dml.FlatTx     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	Sp3d   *dml.Sp3d   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
+	FlatTx *dml.FlatTx `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
 }
 
 // DiagStyle represents CT_ShapeStyle (dgm:style) - shape style reference for diagram
@@ -40,18 +40,28 @@ type DiagStyle struct {
 	FontRef   *FontReference  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fontRef,omitempty"`
 }
 
-// StyleMatrixRef represents CT_StyleMatrixReference (a:lnRef, a:fillRef, a:effectRef)
+// StyleMatrixRef represents CT_StyleMatrixReference (a:lnRef, a:fillRef, a:effectRef).
+// Its color is an EG_ColorChoice, so all six color kinds are modeled.
 type StyleMatrixRef struct {
-	Idx       uint32                    `xml:"idx,attr"`
-	SrgbClr   *dml.SrgbClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	SchemeClr *dml.SchemeClrTransform   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	Idx       uint32                  `xml:"idx,attr"`
+	ScRgbClr  *dml.ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr   *dml.SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *dml.HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *dml.SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr *dml.SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *dml.PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// FontReference represents CT_FontReference (a:fontRef)
+// FontReference represents CT_FontReference (a:fontRef).
+// Its color is an EG_ColorChoice, so all six color kinds are modeled.
 type FontReference struct {
-	Idx       string                    `xml:"idx,attr"` // ST_FontCollectionIndex: major, minor, none
-	SrgbClr   *dml.SrgbClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	SchemeClr *dml.SchemeClrTransform   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	Idx       string                  `xml:"idx,attr"` // ST_FontCollectionIndex: major, minor, none
+	ScRgbClr  *dml.ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr   *dml.SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *dml.HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *dml.SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr *dml.SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *dml.PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // StyleDefHdr represents CT_StyleDefinitionHeader (dgm:styleDefHdr)
