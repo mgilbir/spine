@@ -43,7 +43,7 @@ func shapeDirty(shape Shape) bool {
 	case *Table:
 		return sh.isDirty()
 	case *GroupShape:
-		return sh.dirty
+		return sh.isDirty()
 	}
 	return false
 }
@@ -77,6 +77,11 @@ func clearShapeDirty(shape Shape) {
 		sh.clearDirty()
 	case *GroupShape:
 		sh.dirty = false
+		sh.childrenModified = false
+		sh.removedChildIDs = nil
+		for _, child := range sh.children {
+			clearShapeDirty(child)
+		}
 	}
 }
 
@@ -112,7 +117,7 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 			}
 		case oxml.ChildGrpSp:
 			if ref.Index < len(spTree.GrpSp) {
-				updateGroupNode(spTree.GrpSp[ref.Index], shape)
+				s.updateGroupNode(spTree.GrpSp[ref.Index], shape, spTree)
 			}
 		}
 	}
@@ -383,20 +388,214 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	tc.VMerge = cell.vMerge
 }
 
-// updateGroupNode flushes a dirty group's name and placement into its parsed
-// p:grpSp node. Group content is not materialized for mutation, so only the
-// group-level frame is synced; the child coordinate space (chOff/chExt) is
-// preserved.
-func updateGroupNode(gs *oxml.GroupShape, shape Shape) {
+// updateGroupNode flushes a dirty group into its parsed p:grpSp node: the
+// group's own name and placement (the child coordinate space chOff/chExt is
+// preserved), removals of children, in-place edits to children, and appends
+// of children added via AddChild. Children are matched to their nodes by
+// cNvPr id — slice indices shift as siblings come and go. Nested groups are
+// flushed recursively.
+func (s *Slide) updateGroupNode(gs *oxml.GroupShape, shape Shape, spTree *oxml.ShapeTree) {
 	grp, ok := shape.(*GroupShape)
-	if !ok || !grp.dirty {
+	if !ok {
 		return
 	}
-	if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil && grp.name != "" {
-		gs.NvGrpSpPr.CNvPr.Name = grp.name
+	if grp.dirty {
+		if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil && grp.name != "" {
+			gs.NvGrpSpPr.CNvPr.Name = grp.name
+		}
+		if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
+			gs.GrpSpPr.Xfrm.Off = &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)}
+			gs.GrpSpPr.Xfrm.Ext = &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)}
+		}
 	}
-	if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
-		gs.GrpSpPr.Xfrm.Off = &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)}
-		gs.GrpSpPr.Xfrm.Ext = &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)}
+
+	// Apply removals surgically, matched by cNvPr id.
+	if len(grp.removedChildIDs) > 0 {
+		removeGroupChildrenByID(gs, grp.removedChildIDs)
+		grp.removedChildIDs = nil
 	}
+
+	// Flush dirty synced children by locating their nodes inside this grpSp.
+	n := grp.syncedChildren
+	if n > len(grp.children) {
+		n = len(grp.children)
+	}
+	for i := 0; i < n; i++ {
+		if child := grp.children[i]; shapeDirty(child) {
+			s.flushGroupChild(gs, child, spTree)
+		}
+	}
+
+	// Append children added via AddChild, with slide-wide unique ids.
+	if len(grp.children) > n {
+		id := spTree.MaxShapeID()
+		alloc := func() uint32 { id++; return id }
+		for _, child := range grp.children[n:] {
+			s.appendGroupChild(gs, child, alloc)
+		}
+	}
+	grp.syncedChildren = len(grp.children)
+	grp.childrenModified = false
+}
+
+// flushGroupChild updates the parsed node of a dirty group child in place,
+// locating it among the group's children of the matching kind by cNvPr id.
+// Children without a recorded id (never written) are skipped — they are
+// handled by the append path.
+func (s *Slide) flushGroupChild(gs *oxml.GroupShape, child Shape, spTree *oxml.ShapeTree) {
+	base := baseShapeOf(child)
+	if base == nil || base.sourceID == 0 {
+		return
+	}
+	switch sh := child.(type) {
+	case *TextBox, *PlaceholderShape, *AutoShape:
+		for _, sp := range gs.Shapes {
+			if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && sp.NvSpPr.CNvPr.Id == base.sourceID {
+				updateShapeNode(sp, child)
+				return
+			}
+		}
+	case *Picture, *Video, *Audio:
+		for _, pic := range gs.Pictures {
+			if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil && pic.NvPicPr.CNvPr.Id == base.sourceID {
+				updatePictureNode(pic, child)
+				return
+			}
+		}
+	case *Table:
+		for _, gf := range gs.GraphicFrames {
+			if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && gf.NvGraphicFramePr.CNvPr.Id == base.sourceID {
+				updateGraphicFrameNode(gf, sh)
+				return
+			}
+		}
+	case *GroupShape:
+		for _, sub := range gs.GroupShapes {
+			if sub.NvGrpSpPr != nil && sub.NvGrpSpPr.CNvPr != nil && sub.NvGrpSpPr.CNvPr.Id == base.sourceID {
+				s.updateGroupNode(sub, sh, spTree)
+				return
+			}
+		}
+	}
+}
+
+// removeGroupChildrenByID deletes the group children whose cNvPr ids are in
+// ids, preserving all other children in order.
+func removeGroupChildrenByID(gs *oxml.GroupShape, ids []uint32) {
+	var refs []oxml.ChildRef
+	for _, id := range ids {
+		if ref, ok := groupChildRefByID(gs, id); ok {
+			refs = append(refs, ref)
+		}
+	}
+	gs.RemoveChildren(refs)
+}
+
+// groupChildRefByID locates a direct child of the group by its cNvPr id.
+func groupChildRefByID(gs *oxml.GroupShape, id uint32) (oxml.ChildRef, bool) {
+	for i, sp := range gs.Shapes {
+		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && sp.NvSpPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildSp, Index: i}, true
+		}
+	}
+	for i, pic := range gs.Pictures {
+		if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil && pic.NvPicPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildPic, Index: i}, true
+		}
+	}
+	for i, gf := range gs.GraphicFrames {
+		if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && gf.NvGraphicFramePr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: i}, true
+		}
+	}
+	for i, sub := range gs.GroupShapes {
+		if sub.NvGrpSpPr != nil && sub.NvGrpSpPr.CNvPr != nil && sub.NvGrpSpPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i}, true
+		}
+	}
+	return oxml.ChildRef{Index: -1}, false
+}
+
+// appendGroupChild marshals a child added via GroupShape.AddChild into the
+// parsed p:grpSp, assigning it the next slide-wide unique id and recording it
+// as the child's node identity for later in-place edits and removals.
+func (s *Slide) appendGroupChild(gs *oxml.GroupShape, child Shape, alloc func() uint32) {
+	switch sh := child.(type) {
+	case *TextBox:
+		id := alloc()
+		gs.AppendSp(textBoxToOxml(sh, id))
+		sh.sourceID = id
+	case *PlaceholderShape:
+		id := alloc()
+		gs.AppendSp(placeholderToOxml(sh, id))
+		sh.sourceID = id
+	case *AutoShape:
+		id := alloc()
+		gs.AppendSp(autoShapeToOxml(sh, id))
+		sh.sourceID = id
+	case *Table:
+		id := alloc()
+		gf := tableToOxml(sh, id)
+		gs.AppendGraphicFrame(gf)
+		sh.sourceFrame = gf
+		sh.sourceID = id
+	case *Picture:
+		id := alloc()
+		if len(sh.imageData) > 0 {
+			sh.relID = s.embedImageData(sh.imageData, sh.contentType)
+			sh.imageData = nil
+			sh.imagePath = ""
+		}
+		pic := pictureToOxml(sh, id)
+		if len(sh.svgData) > 0 {
+			sh.svgRelID = s.embedImageData(sh.svgData, sh.svgContentType)
+			setBlipSVGExtension(pic.BlipFill.Blip, sh.svgRelID)
+			sh.svgData = nil
+			sh.svgContentType = ""
+		}
+		gs.AppendPic(pic)
+		sh.sourceID = id
+	case *Video:
+		id := alloc()
+		gs.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+		sh.sourceID = id
+	case *Audio:
+		id := alloc()
+		gs.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
+		sh.sourceID = id
+	case *GroupShape:
+		gs.AppendGrpSp(s.buildGroupNode(sh, alloc))
+	}
+}
+
+// buildGroupNode marshals an API-created GroupShape (added to a loaded group
+// via AddChild) into a p:grpSp node, recursing into its children. The child
+// coordinate space is seeded from the group's own frame.
+func (s *Slide) buildGroupNode(grp *GroupShape, alloc func() uint32) *oxml.GroupShape {
+	name := grp.Name()
+	if name == "" {
+		name = "Group"
+	}
+	id := alloc()
+	node := &oxml.GroupShape{
+		NvGrpSpPr: &oxml.NvGrpSpPr{
+			CNvPr:      &dml.CNvPr{Id: id, Name: name},
+			CNvGrpSpPr: &dml.CNvGrpSpPr{},
+			NvPr:       &oxml.NvPr{},
+		},
+		GrpSpPr: &oxml.GrpSpPr{Xfrm: &dml.GrpXfrm{
+			Off:   &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)},
+			Ext:   &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)},
+			ChOff: &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)},
+			ChExt: &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)},
+		}},
+	}
+	grp.sourceID = id
+	grp.sourceGrp = node
+	for _, child := range grp.children {
+		s.appendGroupChild(node, child, alloc)
+	}
+	grp.syncedChildren = len(grp.children)
+	grp.childrenModified = false
+	return node
 }

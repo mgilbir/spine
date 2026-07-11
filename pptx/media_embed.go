@@ -38,18 +38,29 @@ func mediaShapeOf(shape Shape) (*mediaShape, string) {
 	return nil, ""
 }
 
+// forEachShape calls fn for every shape in shapes, descending into group
+// shapes (media can live inside groups via GroupShape.AddChild).
+func forEachShape(shapes []Shape, fn func(Shape)) {
+	for _, shape := range shapes {
+		fn(shape)
+		if grp, ok := shape.(*GroupShape); ok {
+			forEachShape(grp.children, fn)
+		}
+	}
+}
+
 // resolveMediaContentTypes fills in the content type of media shapes the
 // caller added without one, by sniffing the leading magic bytes. Called before
 // any shape sync so the media part is never stored under an unregistered
 // extension.
 func (s *Slide) resolveMediaContentTypes() {
-	for _, shape := range s.shapes {
+	forEachShape(s.shapes, func(shape Shape) {
 		m, _ := mediaShapeOf(shape)
 		if m == nil || m.mediaRelID != "" || m.contentType != "" {
-			continue
+			return
 		}
 		m.contentType = sniffMediaContentType(m.mediaData)
-	}
+	})
 }
 
 // validateMediaShapes rejects media that cannot be embedded as a valid OPC
@@ -59,19 +70,24 @@ func (s *Slide) resolveMediaContentTypes() {
 // invalid package that PowerPoint asks to repair.
 func (s *Slide) validateMediaShapes() error {
 	s.resolveMediaContentTypes()
-	for _, shape := range s.shapes {
+	var err error
+	forEachShape(s.shapes, func(shape Shape) {
+		if err != nil {
+			return
+		}
 		m, kind := mediaShapeOf(shape)
 		if m == nil || m.mediaRelID != "" {
-			continue
+			return
 		}
 		if len(m.mediaData) == 0 {
-			return fmt.Errorf("pptx: slide %d: %s has no media data", s.index+1, kind)
+			err = fmt.Errorf("pptx: slide %d: %s has no media data", s.index+1, kind)
+			return
 		}
 		if m.contentType == "" {
-			return fmt.Errorf("pptx: slide %d: %s has no content type and the media format was not recognized", s.index+1, kind)
+			err = fmt.Errorf("pptx: slide %d: %s has no content type and the media format was not recognized", s.index+1, kind)
 		}
-	}
-	return nil
+	})
+	return err
 }
 
 // sniffMediaContentType infers a media MIME type from the leading bytes of the

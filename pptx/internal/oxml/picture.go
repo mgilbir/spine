@@ -57,6 +57,133 @@ func (gs *GroupShape) ChildOrder() []ChildRef {
 	return gs.childOrder
 }
 
+// AppendSp appends a shape as the last child of the group, keeping z-order
+// tracking consistent on groups parsed from a file (see ShapeTree.AppendSp).
+func (gs *GroupShape) AppendSp(sp *Shape) {
+	gs.Shapes = append(gs.Shapes, sp)
+	if gs.childOrder != nil {
+		gs.childOrder = append(gs.childOrder, ChildRef{ChildSp, len(gs.Shapes) - 1})
+	}
+}
+
+// AppendPic appends a picture as the last child of the group (see AppendSp).
+func (gs *GroupShape) AppendPic(pic *Picture) {
+	gs.Pictures = append(gs.Pictures, pic)
+	if gs.childOrder != nil {
+		gs.childOrder = append(gs.childOrder, ChildRef{ChildPic, len(gs.Pictures) - 1})
+	}
+}
+
+// AppendGraphicFrame appends a graphic frame as the last child of the group
+// (see AppendSp).
+func (gs *GroupShape) AppendGraphicFrame(gf *GraphicFrame) {
+	gs.GraphicFrames = append(gs.GraphicFrames, gf)
+	if gs.childOrder != nil {
+		gs.childOrder = append(gs.childOrder, ChildRef{ChildGraphicFrame, len(gs.GraphicFrames) - 1})
+	}
+}
+
+// AppendGrpSp appends a nested group as the last child of the group (see
+// AppendSp).
+func (gs *GroupShape) AppendGrpSp(sub *GroupShape) {
+	gs.GroupShapes = append(gs.GroupShapes, sub)
+	if gs.childOrder != nil {
+		gs.childOrder = append(gs.childOrder, ChildRef{ChildGrpSp, len(gs.GroupShapes) - 1})
+	}
+}
+
+// RemoveChildren rebuilds the group's children, omitting the given child
+// references and preserving every other child (including kinds the domain
+// model does not materialize, such as connectors) in order. It mirrors
+// ShapeTree.RemoveChildren.
+func (gs *GroupShape) RemoveChildren(refs []ChildRef) {
+	if len(refs) == 0 {
+		return
+	}
+	drop := make(map[ChildRef]bool, len(refs))
+	for _, r := range refs {
+		drop[r] = true
+	}
+
+	if len(gs.childOrder) == 0 {
+		var sp []*Shape
+		for i, v := range gs.Shapes {
+			if !drop[ChildRef{ChildSp, i}] {
+				sp = append(sp, v)
+			}
+		}
+		var pic []*Picture
+		for i, v := range gs.Pictures {
+			if !drop[ChildRef{ChildPic, i}] {
+				pic = append(pic, v)
+			}
+		}
+		var gf []*GraphicFrame
+		for i, v := range gs.GraphicFrames {
+			if !drop[ChildRef{ChildGraphicFrame, i}] {
+				gf = append(gf, v)
+			}
+		}
+		var grp []*GroupShape
+		for i, v := range gs.GroupShapes {
+			if !drop[ChildRef{ChildGrpSp, i}] {
+				grp = append(grp, v)
+			}
+		}
+		var cxn []*ConnectionShape
+		for i, v := range gs.ConnectionShapes {
+			if !drop[ChildRef{ChildCxnSp, i}] {
+				cxn = append(cxn, v)
+			}
+		}
+		gs.Shapes, gs.Pictures, gs.GraphicFrames, gs.GroupShapes, gs.ConnectionShapes = sp, pic, gf, grp, cxn
+		return
+	}
+
+	var (
+		sp    []*Shape
+		pic   []*Picture
+		gf    []*GraphicFrame
+		grp   []*GroupShape
+		cxn   []*ConnectionShape
+		order []ChildRef
+	)
+	for _, ref := range gs.childOrder {
+		if drop[ref] {
+			continue
+		}
+		switch ref.Kind {
+		case ChildSp:
+			if ref.Index < len(gs.Shapes) {
+				order = append(order, ChildRef{ChildSp, len(sp)})
+				sp = append(sp, gs.Shapes[ref.Index])
+			}
+		case ChildPic:
+			if ref.Index < len(gs.Pictures) {
+				order = append(order, ChildRef{ChildPic, len(pic)})
+				pic = append(pic, gs.Pictures[ref.Index])
+			}
+		case ChildGraphicFrame:
+			if ref.Index < len(gs.GraphicFrames) {
+				order = append(order, ChildRef{ChildGraphicFrame, len(gf)})
+				gf = append(gf, gs.GraphicFrames[ref.Index])
+			}
+		case ChildGrpSp:
+			if ref.Index < len(gs.GroupShapes) {
+				order = append(order, ChildRef{ChildGrpSp, len(grp)})
+				grp = append(grp, gs.GroupShapes[ref.Index])
+			}
+		case ChildCxnSp:
+			if ref.Index < len(gs.ConnectionShapes) {
+				order = append(order, ChildRef{ChildCxnSp, len(cxn)})
+				cxn = append(cxn, gs.ConnectionShapes[ref.Index])
+			}
+		}
+	}
+	gs.Shapes, gs.Pictures, gs.GraphicFrames, gs.GroupShapes, gs.ConnectionShapes = sp, pic, gf, grp, cxn
+	gs.childOrder = order
+}
+
 // UnmarshalXML implements custom unmarshaling for GroupShape to preserve child order.
 func (gs *GroupShape) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {

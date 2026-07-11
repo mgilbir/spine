@@ -170,19 +170,27 @@ func CloneShape(shape Shape) Shape {
 	switch s := shape.(type) {
 	case *TextBox:
 		return &TextBox{
-			BaseShape: s.BaseShape,
+			BaseShape: cloneBaseShape(s.BaseShape),
 			textFrame: s.textFrame.clone(),
 			spPr:      cloneSpPr(s.spPr),
 		}
 	case *AutoShape:
 		return &AutoShape{
-			BaseShape:      s.BaseShape,
+			BaseShape:      cloneBaseShape(s.BaseShape),
 			presetGeometry: s.presetGeometry,
 			textFrame:      s.textFrame.clone(),
 			spPr:           cloneSpPr(s.spPr),
 		}
 	}
 	return nil
+}
+
+// cloneBaseShape copies the base fields but drops the source node identity:
+// the clone is a new shape and must not alias the original's parsed node, or
+// id-matched in-place updates would hit the original.
+func cloneBaseShape(b BaseShape) BaseShape {
+	b.sourceID = 0
+	return b
 }
 
 // cloneSpPr deep-copies shape drawing properties through their XML encoding
