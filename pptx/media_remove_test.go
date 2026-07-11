@@ -127,3 +127,34 @@ func TestLoadedSlide_RemoveVideosAcrossCycles(t *testing.T) {
 		t.Errorf("media relationships linger after all media removed\n%s", rels)
 	}
 }
+
+// C192: a video added to a loaded slide without SetSize gets the 4x3 default
+// in the XML; the domain shape must carry the same size, so a later
+// SetName/SetPosition flush does not collapse the frame to 0x0.
+func TestLoadedSlide_MediaDefaultSizeSurvivesLaterFlush(t *testing.T) {
+	p := loadedDeck(t)
+	s := p.Slides()[0]
+	v := s.AddVideo([]byte("vid-one"), "video/mp4")
+	v.SetName("Vid1")
+	// no SetSize
+	if _, err := p.SaveBytes(); err != nil {
+		t.Fatal(err)
+	}
+	if w, h := v.Size(); w != defaultMediaWidth || h != defaultMediaHeight {
+		t.Errorf("domain size after save = %dx%d, want the %dx%d default", w, h, defaultMediaWidth, defaultMediaHeight)
+	}
+
+	v.SetPosition(914400, 914400)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	pic := xml[strings.Index(xml, "<p:pic>"):]
+	if strings.Contains(pic, `<a:ext cx="0" cy="0"/>`) {
+		t.Errorf("media frame collapsed to 0x0 after SetPosition flush\n%s", pic[:strings.Index(pic, "</p:pic>")])
+	}
+	if !strings.Contains(pic, `<a:ext cx="3657600" cy="2743200"/>`) {
+		t.Errorf("media frame does not keep the 4x3 default size\n%s", pic[:strings.Index(pic, "</p:pic>")])
+	}
+}
