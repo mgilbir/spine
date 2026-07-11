@@ -95,8 +95,11 @@ func TestNextImageNumber_SharedNumberSpaceAndGaps(t *testing.T) {
 	doc.otherParts["/word/media/image2.jpeg"] = &coxml.RawPart{ContentType: opc.ContentTypeJPEG}
 
 	r := doc.AddParagraph().AddRun()
-	for _, want := range []string{"/word/media/image1.png", "/word/media/image4.png", "/word/media/image5.png"} {
-		if _, err := r.AddImageFromBytes(minimalPNG(), opc.ContentTypePNG); err != nil {
+	for i, want := range []string{"/word/media/image1.png", "/word/media/image4.png", "/word/media/image5.png"} {
+		// Distinct bytes per image: identical bytes would be deduplicated into
+		// a single media part instead of exercising the numbering.
+		data := append(minimalPNG(), byte(i))
+		if _, err := r.AddImageFromBytes(data, opc.ContentTypePNG); err != nil {
 			t.Fatal(err)
 		}
 		got := doc.imageParts[len(doc.imageParts)-1].partName
@@ -157,8 +160,10 @@ func TestAddHeader_NamingWithGaps(t *testing.T) {
 	// Simulate a package that already contains header2.xml only.
 	doc.headers["/word/header2.xml"] = &headerPart{contentType: opc.ContentTypeDocHeader}
 
+	// Distinct types: a repeated same-type AddHeader replaces the previous
+	// header (C226) instead of adding a second part.
 	doc.AddHeader(HeaderDefault)
-	doc.AddHeader(HeaderDefault)
+	doc.AddHeader(HeaderFirst)
 	got := make([]string, 0, len(doc.newHeaderParts))
 	for _, hp := range doc.newHeaderParts {
 		got = append(got, hp.partName)

@@ -1,10 +1,12 @@
 package docx
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
@@ -104,6 +106,7 @@ type imagePart struct {
 	contentType string
 	partName    string
 	relID       string
+	owner       string // source part of the relationship (document or header/footer part)
 }
 
 // AddImage adds an inline image from a file path to the run.
@@ -137,27 +140,50 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 		return nil, fmt.Errorf("run is not attached to a document")
 	}
 
-	// Assign image number and relationship ID. The number is derived from the
-	// parts already in the package (preserved parts plus images added in this
-	// session), so adding an image to an opened document that already contains
-	// /word/media/image1.png does not produce a duplicate part name.
-	imgNum := doc.nextImageNumber()
+	// The relationship is registered against the part that contains the
+	// drawing: document.xml for body paragraphs, the header/footer part for
+	// paragraphs in a header or footer — an r:embed only resolves through the
+	// rels of the part it appears in.
+	owner := mainDocumentPart
+	if r.paragraph.hfPart != "" {
+		owner = r.paragraph.hfPart
+	}
+
 	relID := fmt.Sprintf("rId%d", doc.nextRelID())
-	partName := fmt.Sprintf("/word/media/image%d%s", imgNum, ext)
 
-	// Store image part for writing
-	doc.imageParts = append(doc.imageParts, &imagePart{
-		data:        data,
-		contentType: contentType,
-		partName:    partName,
-		relID:       relID,
-	})
+	// Reuse an identical image already added in this session (e.g. the same
+	// picture in the body and a header) instead of writing a duplicate media
+	// part; each placement still gets its own relationship in its own part.
+	partName := ""
+	for _, existing := range doc.imageParts {
+		if existing.contentType == contentType && bytes.Equal(existing.data, data) {
+			partName = existing.partName
+			break
+		}
+	}
+	if partName == "" {
+		// Assign image number derived from the parts already in the package
+		// (preserved parts plus images added in this session), so adding an
+		// image to an opened document that already contains
+		// /word/media/image1.png does not produce a duplicate part name.
+		imgNum := doc.nextImageNumber()
+		partName = fmt.Sprintf("/word/media/image%d%s", imgNum, ext)
+		doc.imageParts = append(doc.imageParts, &imagePart{
+			data:        data,
+			contentType: contentType,
+			partName:    partName,
+			relID:       relID,
+			owner:       owner,
+		})
+	}
 
-	// Add relationship
-	doc.addDocRelationship(&opc.Relationship{
+	// Add relationship in the owning part's scope. Header/footer parts live in
+	// /word/ like document.xml, so the media target is relative to /word/ in
+	// both cases.
+	doc.addPartRelationship(owner, &opc.Relationship{
 		ID:     relID,
 		Type:   opc.RelTypeImage,
-		Target: fmt.Sprintf("media/image%d%s", imgNum, ext),
+		Target: partName[len("/word/"):],
 	})
 
 	// Default size: 100x100 points (will be overridden by SetSize)
@@ -165,7 +191,7 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 		relID:     relID,
 		widthEMU:  int64(100 * 914400 / 72),
 		heightEMU: int64(100 * 914400 / 72),
-		drawingID: uint32(imgNum),
+		drawingID: uint32(imageNumberFromPartName(partName)),
 		run:       r,
 	}
 
@@ -176,6 +202,25 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 	r.r.AppendDrawing(drawing)
 
 	return img, nil
+}
+
+// imageNumberFromPartName extracts N from /word/media/imageN.ext, returning 0
+// if the name does not have that form.
+func imageNumberFromPartName(partName string) int {
+	const prefix = "/word/media/image"
+	if !strings.HasPrefix(partName, prefix) {
+		return 0
+	}
+	rest := partName[len(prefix):]
+	dot := strings.IndexByte(rest, '.')
+	if dot <= 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(rest[:dot])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func contentTypeForExt(ext string) string {
