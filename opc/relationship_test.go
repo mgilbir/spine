@@ -229,3 +229,37 @@ func TestUnmarshalRelationships_EmptyRelationships(t *testing.T) {
 		t.Errorf("UnmarshalRelationships() returned %d relationships, want 0", len(rels))
 	}
 }
+
+// TestMarshalRelationships_AttrEscaping verifies attributes are escaped with
+// the project-wide attribute policy (C205): quotes become &quot;, ampersands
+// &amp;, and apostrophes stay literal (xml.EscapeText would emit &#39;).
+func TestMarshalRelationships_AttrEscaping(t *testing.T) {
+	rels := []*Relationship{{
+		ID:         "rId1",
+		Type:       RelTypeHyperlink,
+		Target:     `https://example.com/a?b=1&c="x"&d='y'`,
+		TargetMode: TargetModeExternal,
+	}}
+
+	data, err := MarshalRelationships(rels)
+	if err != nil {
+		t.Fatalf("MarshalRelationships() error = %v", err)
+	}
+	out := string(data)
+	want := `Target="https://example.com/a?b=1&amp;c=&quot;x&quot;&amp;d='y'"`
+	if !strings.Contains(out, want) {
+		t.Errorf("escaped Target attribute not found:\nwant substring: %s\ngot: %s", want, out)
+	}
+	if strings.Contains(out, "&#39;") || strings.Contains(out, "&#34;") {
+		t.Errorf("xml.EscapeText-style numeric references present, want policy escaping: %s", out)
+	}
+
+	// The escaped output must still parse back to the original target.
+	parsed, err := UnmarshalRelationships(data)
+	if err != nil {
+		t.Fatalf("UnmarshalRelationships() error = %v", err)
+	}
+	if len(parsed) != 1 || parsed[0].Target != rels[0].Target {
+		t.Errorf("round-trip Target = %+v, want %q", parsed, rels[0].Target)
+	}
+}
