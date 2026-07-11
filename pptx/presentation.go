@@ -1410,8 +1410,10 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 		}
 	}
 
-	// Use the namespace-aware marshaler for PowerPoint compatibility
-	return marshalPresentationXML(p.presentation), nil
+	// Use the namespace-aware marshaler for PowerPoint compatibility.
+	// Only decks created programmatically (no backing reader) get a
+	// fabricated defaultTextStyle; opened decks keep whatever they had.
+	return marshalPresentationXML(p.presentation, p.reader == nil), nil
 }
 
 // Close closes the presentation and releases resources.
