@@ -80,6 +80,13 @@ type CT_FtnEdnRef struct {
 	Id string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
 }
 
+// CT_Markup represents a markup element carrying only a w:id attribute
+// (w:commentReference — the run-level anchor tying a comment range to its
+// entry in comments.xml).
+type CT_Markup struct {
+	Id string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+}
+
 // CT_R represents a run of content (w:r).
 // Uses custom UnmarshalXML/MarshalToBuilder for child ordering.
 type CT_R struct {
@@ -102,6 +109,11 @@ type CT_R struct {
 	SoftHyphen    []*CT_Empty `xml:"-"`
 	FldChar       []*CT_FldChar `xml:"-"`
 	InstrText     []*CT_Text    `xml:"-"`
+	DelText       []*CT_Text    `xml:"-"` // w:delText - tracked-deletion text
+	CommentReference []*CT_Markup   `xml:"-"`
+	Ptab             []*CT_Ptab     `xml:"-"`
+	Pict             []*CT_RawElement `xml:"-"` // w:pict - VML content, raw
+	Object           []*CT_RawElement `xml:"-"` // w:object - OLE wrapper, raw
 	childOrder []runChildRef
 }
 
@@ -122,6 +134,11 @@ const (
 	runChildSoftHyphen
 	runChildFldChar
 	runChildInstrText
+	runChildDelText
+	runChildCommentReference
+	runChildPtab
+	runChildPict
+	runChildObject
 )
 
 // runChildRef references a child element by kind and index.
@@ -247,6 +264,41 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildInstrText, len(r.InstrText)})
 				r.InstrText = append(r.InstrText, v)
+			case "delText":
+				v := &CT_Text{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildDelText, len(r.DelText)})
+				r.DelText = append(r.DelText, v)
+			case "commentReference":
+				v := &CT_Markup{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildCommentReference, len(r.CommentReference)})
+				r.CommentReference = append(r.CommentReference, v)
+			case "ptab":
+				v := &CT_Ptab{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildPtab, len(r.Ptab)})
+				r.Ptab = append(r.Ptab, v)
+			case "pict":
+				v := &CT_RawElement{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildPict, len(r.Pict)})
+				r.Pict = append(r.Pict, v)
+			case "object":
+				v := &CT_RawElement{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildObject, len(r.Object)})
+				r.Object = append(r.Object, v)
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -331,6 +383,26 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.index < len(r.InstrText) {
 					marshalText(b, ns, "instrText", r.InstrText[ref.index])
 				}
+			case runChildDelText:
+				if ref.index < len(r.DelText) {
+					marshalText(b, ns, "delText", r.DelText[ref.index])
+				}
+			case runChildCommentReference:
+				if ref.index < len(r.CommentReference) {
+					b.MarshalElement(ns, "commentReference", r.CommentReference[ref.index])
+				}
+			case runChildPtab:
+				if ref.index < len(r.Ptab) {
+					b.MarshalElement(ns, "ptab", r.Ptab[ref.index])
+				}
+			case runChildPict:
+				if ref.index < len(r.Pict) {
+					r.Pict[ref.index].MarshalToBuilder(b, ns, "pict")
+				}
+			case runChildObject:
+				if ref.index < len(r.Object) {
+					r.Object[ref.index].MarshalToBuilder(b, ns, "object")
+				}
 			}
 		}
 	} else {
@@ -392,6 +464,21 @@ func (r *CT_R) backfillChildOrder() {
 	}
 	for i := range r.InstrText {
 		r.childOrder = append(r.childOrder, runChildRef{runChildInstrText, i})
+	}
+	for i := range r.DelText {
+		r.childOrder = append(r.childOrder, runChildRef{runChildDelText, i})
+	}
+	for i := range r.CommentReference {
+		r.childOrder = append(r.childOrder, runChildRef{runChildCommentReference, i})
+	}
+	for i := range r.Ptab {
+		r.childOrder = append(r.childOrder, runChildRef{runChildPtab, i})
+	}
+	for i := range r.Pict {
+		r.childOrder = append(r.childOrder, runChildRef{runChildPict, i})
+	}
+	for i := range r.Object {
+		r.childOrder = append(r.childOrder, runChildRef{runChildObject, i})
 	}
 }
 
@@ -466,6 +553,11 @@ func (r *CT_R) ClearContent() {
 	r.SoftHyphen = nil
 	r.FldChar = nil
 	r.InstrText = nil
+	r.DelText = nil
+	r.CommentReference = nil
+	r.Ptab = nil
+	r.Pict = nil
+	r.Object = nil
 	r.childOrder = nil
 }
 
