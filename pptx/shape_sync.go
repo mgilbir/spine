@@ -37,9 +37,9 @@ func shapeDirty(shape Shape) bool {
 	case *Picture:
 		return sh.dirty
 	case *Video:
-		return sh.dirty
+		return sh.dirty || sh.hasPendingProps()
 	case *Audio:
-		return sh.dirty
+		return sh.dirty || sh.hasPendingProps()
 	case *Table:
 		return sh.isDirty()
 	case *GroupShape:
@@ -71,8 +71,10 @@ func clearShapeDirty(shape Shape) {
 		sh.dirty = false
 	case *Video:
 		sh.dirty = false
+		sh.timingDirty, sh.posterDirty = false, false
 	case *Audio:
 		sh.dirty = false
+		sh.timingDirty, sh.posterDirty = false, false
 	case *Table:
 		sh.clearDirty()
 	case *GroupShape:
@@ -110,6 +112,7 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 		case oxml.ChildPic:
 			if ref.Index < len(spTree.Pic) {
 				updatePictureNode(spTree.Pic[ref.Index], shape)
+				s.flushMediaShapeProps(spTree.Pic[ref.Index], shape)
 			}
 		case oxml.ChildGraphicFrame:
 			if ref.Index < len(spTree.GraphicFrame) {
@@ -459,6 +462,7 @@ func (s *Slide) flushGroupChild(gs *oxml.GroupShape, child Shape, spTree *oxml.S
 		for _, pic := range gs.Pictures {
 			if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil && pic.NvPicPr.CNvPr.Id == base.sourceID {
 				updatePictureNode(pic, child)
+				s.flushMediaShapeProps(pic, child)
 				return
 			}
 		}

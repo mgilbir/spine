@@ -158,3 +158,91 @@ func TestLoadedSlide_MediaDefaultSizeSurvivesLaterFlush(t *testing.T) {
 		t.Errorf("media frame does not keep the 4x3 default size\n%s", pic[:strings.Index(pic, "</p:pic>")])
 	}
 }
+
+// C220: SetPlayMode after the shape was synced must not be a silent no-op —
+// switching to autoplay builds the timing tree on the next save, switching
+// back drops it.
+func TestLoadedSlide_SetPlayModeAfterSync(t *testing.T) {
+	p := loadedDeck(t)
+	s := p.Slides()[0]
+	v := s.AddVideo([]byte("vid-one"), "video/mp4")
+	v.SetName("Vid1")
+	if _, err := p.SaveBytes(); err != nil {
+		t.Fatal(err)
+	}
+
+	v.SetPlayMode(PlayAutomatically)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if !strings.Contains(xml, "<p:timing>") {
+		t.Fatal("post-sync SetPlayMode(PlayAutomatically) produced no timing tree")
+	}
+	id := shapeIDByName(t, xml, "Vid1")
+	for _, m := range spidRE.FindAllStringSubmatch(xml, -1) {
+		if m[1] != id {
+			t.Errorf("timing targets spid %s, video id is %s", m[1], id)
+		}
+	}
+
+	v.SetPlayMode(PlayOnClick)
+	data, err = p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml = string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if strings.Contains(xml, "<p:timing>") {
+		t.Error("post-sync SetPlayMode(PlayOnClick) left the timing tree behind")
+	}
+}
+
+// C220: SetPoster after the shape was synced swaps the poster blip on the
+// next save; the new rel resolves and the old placeholder rel is collected.
+func TestLoadedSlide_SetPosterAfterSync(t *testing.T) {
+	p := loadedDeck(t)
+	s := p.Slides()[0]
+	v := s.AddVideo([]byte("vid-one"), "video/mp4")
+	v.SetName("Vid1")
+	data1, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedRE := regexp.MustCompile(`<p:blipFill><a:blip r:embed="([^"]+)"`)
+	oldEmbed := embedRE.FindStringSubmatch(string(zipPart(t, data1, "ppt/slides/slide1.xml")))
+	if oldEmbed == nil {
+		t.Fatal("setup: no poster blip after first save")
+	}
+
+	v.SetPoster([]byte("real-poster-bytes"), "image/png")
+	data2, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data2, "ppt/slides/slide1.xml"))
+	newEmbed := embedRE.FindStringSubmatch(xml)
+	if newEmbed == nil {
+		t.Fatal("no poster blip after SetPoster save")
+	}
+	if newEmbed[1] == oldEmbed[1] {
+		t.Errorf("poster blip still %s after SetPoster", oldEmbed[1])
+	}
+	rels := string(zipPart(t, data2, "ppt/slides/_rels/slide1.xml.rels"))
+	if !strings.Contains(rels, `Id="`+newEmbed[1]+`"`) {
+		t.Error("new poster relationship missing from rels part")
+	}
+	if strings.Contains(rels, `Id="`+oldEmbed[1]+`"`) {
+		t.Error("old poster relationship was not collected")
+	}
+	// The new poster part must carry the new bytes.
+	found := false
+	for _, name := range []string{"ppt/media/image1.png", "ppt/media/image2.png"} {
+		if strings.Contains(string(zipPart(t, data2, name)), "real-poster-bytes") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("new poster bytes not stored in any media part")
+	}
+}

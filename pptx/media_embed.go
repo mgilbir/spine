@@ -279,6 +279,53 @@ func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Pi
 	}
 }
 
+// flushMediaShapeProps applies SetPlayMode/SetPoster edits made after the
+// shape was synced to its parsed p:pic node and the timing bookkeeping
+// (previously such edits were silent no-ops on already-saved shapes, C220).
+func (s *Slide) flushMediaShapeProps(pic *oxml.Picture, shape Shape) {
+	switch sh := shape.(type) {
+	case *Video:
+		s.flushMediaProps(pic, &sh.mediaShape, mediaVideo)
+	case *Audio:
+		s.flushMediaProps(pic, &sh.mediaShape, mediaAudio)
+	}
+}
+
+func (s *Slide) flushMediaProps(pic *oxml.Picture, m *mediaShape, kind mediaKind) {
+	if m.posterDirty {
+		m.posterDirty = false
+		// Only media already embedded needs an explicit swap; before the
+		// first embed, buildMediaPic reads the current poster anyway.
+		if m.mediaRelID != "" {
+			oldID := ""
+			if pic.BlipFill != nil && pic.BlipFill.Blip != nil {
+				oldID = pic.BlipFill.Blip.Embed
+			}
+			data, ct := m.effectivePoster()
+			newID := s.embedImageData(data, ct)
+			if pic.BlipFill == nil {
+				pic.BlipFill = &dml.BlipFill{Stretch: &dml.Stretch{FillRect: &dml.RelRect{}}}
+			}
+			if pic.BlipFill.Blip == nil {
+				pic.BlipFill.Blip = &dml.Blip{}
+			}
+			pic.BlipFill.Blip.Embed = newID
+			m.posterRelID = newID
+			if oldID != "" && oldID != newID {
+				s.gcSlideRels([]string{oldID})
+			}
+		}
+	}
+	if m.timingDirty {
+		m.timingDirty = false
+		var spid uint32
+		if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
+			spid = pic.NvPicPr.CNvPr.Id
+		}
+		s.syncPlayMode(spid, kind, m.playMode)
+	}
+}
+
 // collectRemovedPicRefs gathers, for each removed p:pic node, its shape id
 // and the relationship ids it references (poster/image blip, svg blip,
 // p14:media embed, video/audio file link). Called before the nodes are
