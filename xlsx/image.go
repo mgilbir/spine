@@ -61,7 +61,11 @@ type ImageOptions struct {
 // implemented, so to avoid silently dropping the image on save AddImage returns
 // an error in that case rather than accepting an image that would be lost.
 func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
-	if s.workbook != nil && s.workbook.reader != nil {
+	// Guard on the durable opened flag, not the reader: Close() releases the
+	// reader but the workbook still saves via the round-trip path, which has no
+	// image handling — guarding on the reader would silently drop the image
+	// after Open→Close→AddImage→Save (C200).
+	if s.workbook != nil && s.workbook.opened {
 		return fmt.Errorf("xlsx: AddImage: embedding images into an opened workbook is not supported yet (only workbooks created with Create())")
 	}
 	if len(data) == 0 {

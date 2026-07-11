@@ -333,3 +333,44 @@ func TestAddImageRejectsOpenedWorkbook(t *testing.T) {
 		t.Fatal("expected AddImage on an opened workbook to error, got nil")
 	}
 }
+
+// C200: the guard must use the durable opened flag, not the reader. After
+// Close() the reader is nil but the workbook still saves via the round-trip
+// path (which has no image handling), so AddImage must keep erroring instead
+// of silently dropping the image.
+func TestAddImageRejectsOpenedWorkbookAfterClose(t *testing.T) {
+	wb := Create()
+	wb.AddSheet("Sheet1")
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer: %v", err)
+	}
+	data := buf.Bytes()
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sheet, err := reopened.Sheet(0)
+	if err != nil {
+		t.Fatalf("Sheet(0): %v", err)
+	}
+	if err := sheet.AddImage("A1", testPNG(t, 10, 10), ImageOptions{}); err == nil {
+		t.Fatal("expected AddImage after Open→Close to error, got nil (image would be silently dropped on save)")
+	}
+
+	// Saving must not sneak a half-attached image in either.
+	out, err := reopened.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	for name := range zipNames(t, out) {
+		if strings.Contains(name, "drawing") || strings.Contains(name, "media") {
+			t.Errorf("unexpected image part %s in output", name)
+		}
+	}
+}
