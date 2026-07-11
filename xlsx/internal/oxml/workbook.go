@@ -220,12 +220,41 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 // start element and inner content. nsPrefixMap maps namespace URIs to their prefixes
 // (from root element namespace declarations).
 func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixMap map[string]string) []byte {
+	// Prefixes declared inline on the element itself (xmlns:foo="urn:foo") must
+	// resolve too, or the element and its attributes would be re-emitted
+	// unprefixed and silently move into the default namespace (C201). The map
+	// is copied on write so the caller's root-attr map is not polluted for
+	// sibling elements. Inner content is raw bytes, so nested declarations and
+	// prefixes are preserved verbatim and need no handling here.
+	prefixes := nsPrefixMap
+	cloned := false
+	for _, attr := range start.Attr {
+		var prefix string
+		switch {
+		case attr.Name.Space == "xmlns":
+			prefix = attr.Name.Local
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			prefix = "" // default namespace declaration
+		default:
+			continue
+		}
+		if !cloned {
+			m := make(map[string]string, len(nsPrefixMap)+1)
+			for k, v := range nsPrefixMap {
+				m[k] = v
+			}
+			prefixes = m
+			cloned = true
+		}
+		prefixes[attr.Value] = prefix
+	}
+
 	var buf []byte
 	buf = append(buf, '<')
 
 	// Write qualified name using namespace prefix
 	if start.Name.Space != "" {
-		if prefix, ok := nsPrefixMap[start.Name.Space]; ok && prefix != "" {
+		if prefix, ok := prefixes[start.Name.Space]; ok && prefix != "" {
 			buf = append(buf, prefix...)
 			buf = append(buf, ':')
 		}
@@ -238,7 +267,7 @@ func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixM
 		if attr.Name.Space == "xmlns" {
 			buf = append(buf, "xmlns:"...)
 		} else if attr.Name.Space != "" {
-			if prefix, ok := nsPrefixMap[attr.Name.Space]; ok && prefix != "" {
+			if prefix, ok := prefixes[attr.Name.Space]; ok && prefix != "" {
 				buf = append(buf, prefix...)
 				buf = append(buf, ':')
 			}
@@ -256,7 +285,7 @@ func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixM
 		buf = append(buf, innerContent...)
 		buf = append(buf, "</"...)
 		if start.Name.Space != "" {
-			if prefix, ok := nsPrefixMap[start.Name.Space]; ok && prefix != "" {
+			if prefix, ok := prefixes[start.Name.Space]; ok && prefix != "" {
 				buf = append(buf, prefix...)
 				buf = append(buf, ':')
 			}
