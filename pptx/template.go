@@ -3,6 +3,7 @@ package pptx
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -401,33 +402,37 @@ func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries [
 		return
 	}
 
-	// Find common prefix and suffix between old and new text
+	// Find common prefix and suffix between old and new text. Both advance by
+	// whole runes, so every split point computed below is a rune boundary in
+	// the full text — and, because run boundaries are rune boundaries too, in
+	// the run being split. Byte-level splits cut multi-byte UTF-8 sequences in
+	// half, emitting <a:t> content that is not valid XML.
 	prefixLen := commonPrefixLen(oldFullText, newFullText)
 	suffixLen := commonSuffixLen(oldFullText, newFullText)
 
 	// The prefix and suffix must not overlap in either string. A shrinking
 	// replacement (e.g. "aa" -> "a") otherwise double-counts the shared region
 	// and emits "aa" instead of "a". Clamp the suffix so prefix+suffix fits the
-	// shorter of the two strings.
+	// shorter of the two strings...
 	if maxSuffix := min(len(oldFullText), len(newFullText)) - prefixLen; suffixLen > maxSuffix {
 		if maxSuffix < 0 {
 			maxSuffix = 0
 		}
 		suffixLen = maxSuffix
 	}
+	// ...and re-snap the clamped byte count to a rune boundary in both
+	// strings (the clamp can land mid-rune even though prefix and suffix
+	// individually cannot).
+	for suffixLen > 0 && (!utf8.RuneStart(oldFullText[len(oldFullText)-suffixLen]) ||
+		!utf8.RuneStart(newFullText[len(newFullText)-suffixLen])) {
+		suffixLen--
+	}
 
-	// Ensure prefix and suffix don't overlap
+	// After the clamp, prefixLen+suffixLen <= min(len(oldFullText),
+	// len(newFullText)), so the middle bounds below cannot cross.
 	oldMiddleStart := prefixLen
-	oldMiddleEnd := len(oldFullText) - suffixLen
 	newMiddleStart := prefixLen
 	newMiddleEnd := len(newFullText) - suffixLen
-
-	if oldMiddleStart > oldMiddleEnd {
-		oldMiddleEnd = oldMiddleStart
-	}
-	if newMiddleStart > newMiddleEnd {
-		newMiddleEnd = newMiddleStart
-	}
 
 	// Rebuild runs:
 	// 1. Prefix runs (unchanged text from the beginning)
@@ -485,34 +490,35 @@ func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries [
 	p.R = newRuns
 }
 
-// commonPrefixLen returns the length of the common prefix between two strings.
+// commonPrefixLen returns the byte length of the common prefix between two
+// strings, counting whole runes only, so the result is always a rune boundary
+// in both.
 func commonPrefixLen(a, b string) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
+	n := 0
+	for n < len(a) && n < len(b) {
+		_, size := utf8.DecodeRuneInString(a[n:])
+		if n+size > len(b) || a[n:n+size] != b[n:n+size] {
+			break
 		}
+		n += size
 	}
 	return n
 }
 
-// commonSuffixLen returns the length of the common suffix between two strings.
+// commonSuffixLen returns the byte length of the common suffix between two
+// strings, counting whole runes only, so the result is always a rune boundary
+// in both.
 func commonSuffixLen(a, b string) int {
-	n := len(a)
-	m := len(b)
-	maxLen := n
-	if m < maxLen {
-		maxLen = m
-	}
-	for i := 0; i < maxLen; i++ {
-		if a[n-1-i] != b[m-1-i] {
-			return i
+	n := 0
+	for n < len(a) && n < len(b) {
+		_, size := utf8.DecodeLastRuneInString(a[:len(a)-n])
+		if size == 0 || len(b)-n-size < 0 ||
+			a[len(a)-n-size:len(a)-n] != b[len(b)-n-size:len(b)-n] {
+			break
 		}
+		n += size
 	}
-	return maxLen
+	return n
 }
 
 // findRunAtPosition finds the run that contains the character at the given position
