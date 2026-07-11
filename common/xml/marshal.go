@@ -213,20 +213,23 @@ func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 		}
 
 	case reflect.String:
-		b.WriteElement(ns, localName, val.String())
+		// Scalars need the same inline namespace declarations as structs:
+		// an element in a namespace not declared at the root would otherwise
+		// be emitted with an unbound prefix.
+		b.WriteElement(ns, localName, val.String(), b.prependNamespaceDecls(ns, nil)...)
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		b.WriteElement(ns, localName, fmt.Sprintf("%d", val.Int()))
+		b.WriteElement(ns, localName, fmt.Sprintf("%d", val.Int()), b.prependNamespaceDecls(ns, nil)...)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		b.WriteElement(ns, localName, fmt.Sprintf("%d", val.Uint()))
+		b.WriteElement(ns, localName, fmt.Sprintf("%d", val.Uint()), b.prependNamespaceDecls(ns, nil)...)
 
 	case reflect.Bool:
+		content := "0"
 		if val.Bool() {
-			b.WriteElement(ns, localName, "1")
-		} else {
-			b.WriteElement(ns, localName, "0")
+			content = "1"
 		}
+		b.WriteElement(ns, localName, content, b.prependNamespaceDecls(ns, nil)...)
 	}
 }
 
