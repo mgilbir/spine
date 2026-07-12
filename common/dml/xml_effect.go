@@ -1,6 +1,12 @@
 // Package dml provides DrawingML XML effect types from dml-main.xsd.
 package dml
 
+import (
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
+
 // EffectLst represents CT_EffectList (a:effectLst)
 type EffectLst struct {
 	Blur        *BlurXML        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blur,omitempty"`
@@ -132,9 +138,11 @@ type BiLevelXML struct {
 	Thresh int32 `xml:"thresh,attr"`
 }
 
-// ClrChange represents CT_ColorChangeEffect (a:clrChange)
+// ClrChange represents CT_ColorChangeEffect (a:clrChange). useA defaults to
+// true in the XSD, so it is a pointer: an explicit useA="0" must be emitted
+// rather than omitted (which readers treat as true).
 type ClrChange struct {
-	UseA    bool         `xml:"useA,attr,omitempty"`
+	UseA    *bool        `xml:"useA,attr,omitempty"`
 	ClrFrom *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrFrom,omitempty"`
 	ClrTo   *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrTo,omitempty"`
 }
@@ -150,17 +158,206 @@ type ClrRepl struct {
 	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// Duotone represents CT_DuotoneEffect (a:duotone), a sequence of two
-// EG_ColorChoice colors given as direct children. Each color kind is captured
-// by its own element name so a duotone using scheme/system/preset colors (not
-// just srgbClr) round-trips instead of collapsing to an empty <a:duotone/>.
+// clrChoiceKind identifies an EG_ColorChoice element kind.
+type clrChoiceKind int
+
+const (
+	ccScRgbClr clrChoiceKind = iota
+	ccSrgbClr
+	ccHslClr
+	ccSysClr
+	ccSchemeClr
+	ccPrstClr
+)
+
+// clrChoiceKindName maps a color choice kind to its element local name.
+var clrChoiceKindName = map[clrChoiceKind]string{
+	ccScRgbClr: "scrgbClr", ccSrgbClr: "srgbClr", ccHslClr: "hslClr",
+	ccSysClr: "sysClr", ccSchemeClr: "schemeClr", ccPrstClr: "prstClr",
+}
+
+// clrChoiceRef references a color by kind and index within its per-kind slice.
+type clrChoiceRef struct {
+	kind  clrChoiceKind
+	index int
+}
+
+// Duotone represents CT_DuotoneEffect (a:duotone), exactly two EG_ColorChoice
+// colors given as direct children. The two colors are POSITIONAL (dark then
+// light), so custom unmarshal/marshal preserves their cross-kind document
+// order: a <a:prstClr/><a:srgbClr/> pair must not re-emit inverted.
 type Duotone struct {
-	ScRgbClr  []*ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
-	SrgbClr   []*SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	HslClr    []*HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
-	SysClr    []*SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
-	SchemeClr []*SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
-	PrstClr   []*PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
+	ScRgbClr  []*ScRgbClr           `xml:"-"`
+	SrgbClr   []*SrgbClr            `xml:"-"`
+	HslClr    []*HslClr             `xml:"-"`
+	SysClr    []*SystemClr          `xml:"-"`
+	SchemeClr []*SchemeClrTransform `xml:"-"`
+	PrstClr   []*PrstClr            `xml:"-"`
+	clrOrder  []clrChoiceRef        // tracks interleaved color order
+}
+
+// UnmarshalXML implements custom unmarshaling for Duotone, preserving the
+// document order of its color children across kinds.
+func (v *Duotone) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "scrgbClr":
+				c := &ScRgbClr{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccScRgbClr, len(v.ScRgbClr)})
+				v.ScRgbClr = append(v.ScRgbClr, c)
+			case "srgbClr":
+				c := &SrgbClr{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccSrgbClr, len(v.SrgbClr)})
+				v.SrgbClr = append(v.SrgbClr, c)
+			case "hslClr":
+				c := &HslClr{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccHslClr, len(v.HslClr)})
+				v.HslClr = append(v.HslClr, c)
+			case "sysClr":
+				c := &SystemClr{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccSysClr, len(v.SysClr)})
+				v.SysClr = append(v.SysClr, c)
+			case "schemeClr":
+				c := &SchemeClrTransform{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccSchemeClr, len(v.SchemeClr)})
+				v.SchemeClr = append(v.SchemeClr, c)
+			case "prstClr":
+				c := &PrstClr{}
+				if err := d.DecodeElement(c, &t); err != nil {
+					return err
+				}
+				v.clrOrder = append(v.clrOrder, clrChoiceRef{ccPrstClr, len(v.PrstClr)})
+				v.PrstClr = append(v.PrstClr, c)
+			default:
+				if err := d.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
+}
+
+// colorForRef returns the color value referenced by ref, or nil when out of range.
+func (v *Duotone) colorForRef(ref clrChoiceRef) interface{} {
+	switch ref.kind {
+	case ccScRgbClr:
+		if ref.index < len(v.ScRgbClr) {
+			return v.ScRgbClr[ref.index]
+		}
+	case ccSrgbClr:
+		if ref.index < len(v.SrgbClr) {
+			return v.SrgbClr[ref.index]
+		}
+	case ccHslClr:
+		if ref.index < len(v.HslClr) {
+			return v.HslClr[ref.index]
+		}
+	case ccSysClr:
+		if ref.index < len(v.SysClr) {
+			return v.SysClr[ref.index]
+		}
+	case ccSchemeClr:
+		if ref.index < len(v.SchemeClr) {
+			return v.SchemeClr[ref.index]
+		}
+	case ccPrstClr:
+		if ref.index < len(v.PrstClr) {
+			return v.PrstClr[ref.index]
+		}
+	}
+	return nil
+}
+
+// groupedRefs builds refs in grouped XSD order, the fallback when no document
+// order was captured (e.g. a programmatically built Duotone).
+func (v *Duotone) groupedRefs() []clrChoiceRef {
+	var refs []clrChoiceRef
+	for i := range v.ScRgbClr {
+		refs = append(refs, clrChoiceRef{ccScRgbClr, i})
+	}
+	for i := range v.SrgbClr {
+		refs = append(refs, clrChoiceRef{ccSrgbClr, i})
+	}
+	for i := range v.HslClr {
+		refs = append(refs, clrChoiceRef{ccHslClr, i})
+	}
+	for i := range v.SysClr {
+		refs = append(refs, clrChoiceRef{ccSysClr, i})
+	}
+	for i := range v.SchemeClr {
+		refs = append(refs, clrChoiceRef{ccSchemeClr, i})
+	}
+	for i := range v.PrstClr {
+		refs = append(refs, clrChoiceRef{ccPrstClr, i})
+	}
+	return refs
+}
+
+// orderedRefs returns the captured document order, or the grouped fallback.
+func (v *Duotone) orderedRefs() []clrChoiceRef {
+	if len(v.clrOrder) > 0 {
+		return v.clrOrder
+	}
+	return v.groupedRefs()
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler, emitting the two colors
+// in their original document order.
+func (v *Duotone) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	refs := v.orderedRefs()
+	if len(refs) == 0 {
+		b.EmptyElement(ns, localName)
+		return
+	}
+	b.StartElement(ns, localName)
+	for _, ref := range refs {
+		if c := v.colorForRef(ref); c != nil {
+			b.MarshalElement(ns, clrChoiceKindName[ref.kind], c)
+		}
+	}
+	b.EndElement(ns, localName)
+}
+
+// MarshalXML implements xml.Marshaler for Duotone (encoding/xml path),
+// mirroring MarshalToBuilder.
+func (v *Duotone) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	for _, ref := range v.orderedRefs() {
+		c := v.colorForRef(ref)
+		if c == nil {
+			continue
+		}
+		name := xml.Name{Space: NsDrawingML, Local: clrChoiceKindName[ref.kind]}
+		if err := e.EncodeElement(c, xml.StartElement{Name: name}); err != nil {
+			return err
+		}
+	}
+	return e.EncodeToken(start.End())
 }
 
 // FillOverlayXML represents CT_FillOverlayEffect (a:fillOverlay)

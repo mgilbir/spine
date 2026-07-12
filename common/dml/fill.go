@@ -40,12 +40,12 @@ type GradientStop struct {
 	Color    Color
 }
 
-// NoFill creates a fill that removes any fill from the shape.
+// NewNoFill creates a fill that removes any fill from the shape.
 func NewNoFill() Fill {
 	return Fill{typ: FillTypeNone}
 }
 
-// SolidFill creates a solid color fill.
+// NewSolidFill creates a solid color fill.
 func NewSolidFill(c Color) Fill {
 	return Fill{
 		typ:   FillTypeSolid,
@@ -53,8 +53,9 @@ func NewSolidFill(c Color) Fill {
 	}
 }
 
-// GradientFill creates a linear gradient fill.
+// NewGradientFill creates a linear gradient fill.
 // angleDeg is the angle in degrees (0 = left-to-right, 90 = top-to-bottom).
+// Angles outside [0, 360) are normalized into that range.
 func NewGradientFill(angleDeg float64, stops ...GradientStop) Fill {
 	return Fill{
 		typ:      FillTypeGradient,
@@ -62,7 +63,7 @@ func NewGradientFill(angleDeg float64, stops ...GradientStop) Fill {
 	}
 }
 
-// PatternFill creates a pattern fill.
+// NewPatternFill creates a pattern fill.
 func NewPatternFill(pattern string, fg, bg Color) Fill {
 	return Fill{
 		typ:     FillTypePattern,
@@ -96,13 +97,23 @@ func (f Fill) ApplyToSpPr(spPr *SpPr) {
 }
 
 // colorAlpha returns an alpha transform for partial opacity, or nil when the
-// color is fully opaque or unset (Alpha 0 is treated as "not specified", the
-// zero value). The value is clamped to the valid 0..100000 range.
+// color is fully opaque or the opacity was never specified. A color built via
+// WithAlpha carries an explicit set-flag, so WithAlpha(0) (fully transparent)
+// emits <a:alpha val="0"/> instead of being confused with the unset zero
+// value. The value is clamped to the valid 0..100000 range.
 func colorAlpha(c Color) *ColorTransform {
-	if c.Alpha <= 0 || c.Alpha >= 100000 {
+	a := c.Alpha
+	if !c.alphaSet && a <= 0 {
+		// Zero without the set-flag is the unset zero value, not transparency.
 		return nil
 	}
-	return &ColorTransform{Val: Percentage(c.Alpha)}
+	if a >= 100000 {
+		return nil // fully opaque: no transform needed
+	}
+	if a < 0 {
+		a = 0
+	}
+	return &ColorTransform{Val: Percentage(a)}
 }
 
 // colorToSrgbClr builds an <a:srgbClr> from a color's RGB value and opacity.
@@ -157,11 +168,19 @@ func colorToColorChoice(c Color) *ColorChoice {
 }
 
 func (g *gradientFillDef) toXML() *GradFill {
+	// ang is ST_PositiveFixedAngle ([0, 21600000)): normalize the angle into
+	// [0, 360) first so a negative input cannot emit a schema-invalid
+	// negative ang.
+	ang := math.Mod(g.angleDeg, 360)
+	if ang < 0 {
+		ang += 360
+	}
+	scaled := true
 	gf := &GradFill{
 		GsLst: &GsLst{},
 		Lin: &Lin{
-			Ang:    int32(math.Round(g.angleDeg * 60000)), // degrees to 60000ths
-			Scaled: true,
+			Ang:    int32(math.Round(ang*60000)) % 21600000, // degrees to 60000ths
+			Scaled: &scaled,
 		},
 	}
 	for _, stop := range g.stops {

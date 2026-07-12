@@ -21,7 +21,7 @@ func TestDML_CT_SRgbColor(t *testing.T) {
 // TestDML_CT_SchemeColor tests CT_SchemeColor type (a:schemeClr)
 func TestDML_CT_SchemeColor(t *testing.T) {
 	input := `<a:schemeClr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" val="accent1"/>`
-	var v SchemeClr
+	var v SchemeClrTransform
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
