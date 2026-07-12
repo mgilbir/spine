@@ -117,7 +117,13 @@ func marshalWorkbookSheets(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 
 // marshalWorkbookDefinedNames marshals the definedNames element.
 func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
-	if wb.DefinedNames == nil || len(wb.DefinedNames.DefinedName) == 0 {
+	if wb.DefinedNames == nil {
+		return
+	}
+	// An empty <definedNames/> present in the source is kept: dropping the
+	// element on a no-op round trip would drift from the producer's bytes.
+	if len(wb.DefinedNames.DefinedName) == 0 {
+		b.EmptyElement(nsSML, "definedNames")
 		return
 	}
 	b.StartElement(nsSML, "definedNames")
