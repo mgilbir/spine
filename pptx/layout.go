@@ -62,10 +62,15 @@ func (sl *SlideLayout) Master() *SlideMaster {
 	return sl.master
 }
 
-// Placeholders returns the placeholders defined in this layout.
+// Placeholders returns the placeholder shapes defined in this layout's shape
+// tree, materialized read-only from the parsed XML: mutating the returned
+// shapes does not modify the layout part, which is written from its parsed
+// tree on save.
 func (sl *SlideLayout) Placeholders() []*PlaceholderShape {
-	// Placeholder implementation - would parse shapes from layoutXML
-	return nil
+	if sl.layoutXML == nil || sl.layoutXML.CSld == nil {
+		return nil
+	}
+	return placeholdersFromSpTree(sl.layoutXML.CSld.SpTree)
 }
 
 // GetPlaceholder returns the placeholder with the specified type.

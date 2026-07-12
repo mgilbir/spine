@@ -181,7 +181,38 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 
+	// Parse each master's theme part into a read-only Theme (needs the theme
+	// data captured by loadAllParts and the rels from loadAllRelationships).
+	p.resolveThemes()
+
 	return p, nil
+}
+
+// resolveThemes parses the theme part each slide master references into a
+// read-only Theme. The raw theme bytes stay preserved for round-trip; a theme
+// part that fails to parse just leaves the master's Theme nil.
+func (p *Presentation) resolveThemes() {
+	for _, master := range p.slideMasters {
+		for _, rel := range p.relationships[master.partName] {
+			if rel == nil || rel.Type != opc.RelTypeTheme {
+				continue
+			}
+			themeName := opc.ResolvePartName(master.partName, rel.Target)
+			data, ok := p.themeData[themeName]
+			if !ok {
+				break
+			}
+			var themeXML dml.Theme
+			if err := xml.Unmarshal(data, &themeXML); err != nil {
+				break
+			}
+			master.theme = themeFromOxml(&themeXML)
+			break
+		}
+	}
+	if p.theme == nil && len(p.slideMasters) > 0 {
+		p.theme = p.slideMasters[0].theme
+	}
 }
 
 // updateNextRelID updates nextRelID based on an existing relationship ID.
@@ -464,6 +495,8 @@ func Create() *Presentation {
 }
 
 // CreateWithOptions creates a new presentation with the specified options.
+// The slide size is taken from opts.SlideSize (previously the option was
+// ignored and every deck came out 4:3).
 func CreateWithOptions(opts CreateOptions) *Presentation {
 	now := time.Now()
 	p := &Presentation{
@@ -481,7 +514,7 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 		nextSlideID:     256,
 		nextRelID:       1,
 		presentation: &oxml.Presentation{
-			SlideSize: oxml.DefaultSlideSize(),
+			SlideSize: slideSizeToOxml(opts.SlideSize),
 			NotesSize: &oxml.SlideSize{
 				Cx: 6858000,
 				Cy: 9144000,
@@ -495,6 +528,21 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 	}
 
 	return p
+}
+
+// slideSizeToOxml maps an Options slide size to the p:sldSz element. The two
+// screen formats carry their canonical type attribute; paper sizes emit plain
+// dimensions.
+func slideSizeToOxml(ss SlideSize) *oxml.SlideSize {
+	switch ss {
+	case SlideSizeStandard:
+		return oxml.DefaultSlideSize()
+	case SlideSizeWidescreen:
+		return oxml.WidescreenSlideSize()
+	default:
+		w, h := ss.Dimensions()
+		return &oxml.SlideSize{Cx: int64(w), Cy: int64(h)}
+	}
 }
 
 // initializeDefaultMasterAndLayouts creates the default slide master and layouts.
@@ -530,9 +578,9 @@ func (p *Presentation) initializeDefaultMasterAndLayouts() {
 
 // CreateWidescreen creates a new presentation with widescreen (16:9) dimensions.
 func CreateWidescreen() *Presentation {
-	p := Create()
-	p.presentation.SlideSize = oxml.WidescreenSlideSize()
-	return p
+	opts := DefaultCreateOptions()
+	opts.SlideSize = SlideSizeWidescreen
+	return CreateWithOptions(opts)
 }
 
 // Save saves the presentation to a file.
@@ -1049,10 +1097,15 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	p.Properties.Modified = time.Now()
 	writer.Properties = &p.Properties
 
-	// Set extended properties
+	// Set extended properties. The format string reflects the actual slide
+	// size (previously hardcoded to "Widescreen" even for 4:3 decks).
+	format := "On-screen Show (4:3)"
+	if p.presentation.SlideSize != nil && p.presentation.SlideSize.Cx == 12192000 {
+		format = "Widescreen"
+	}
 	writer.ExtendedProperties = &opc.ExtendedProperties{
 		Slides:             len(p.slides),
-		PresentationFormat: "Widescreen",
+		PresentationFormat: format,
 	}
 
 	// Assign fresh relationship IDs for all parts
@@ -1650,7 +1703,12 @@ func (p *Presentation) SlideLayouts() []*SlideLayout {
 	return p.slideLayouts
 }
 
-// Theme returns the presentation theme.
+// Theme returns the presentation theme: the theme of the first slide master,
+// parsed from its theme part when the presentation was opened. It is a
+// read-only view — the theme part is preserved verbatim on save, so edits
+// made through the returned value are not written back. It returns nil for
+// presentations created programmatically (their default theme part is not
+// modeled) and for masters without a parseable theme part.
 func (p *Presentation) Theme() *Theme {
 	return p.theme
 }
