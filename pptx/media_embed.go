@@ -423,6 +423,9 @@ func (s *Slide) gcSlideRels(relIDs []string) {
 	}
 	if changed {
 		s.presentation.relationships[s.partName] = kept
+		// Dropped relationships may leave media parts unreferenced; allow the
+		// save to garbage-collect them (C221).
+		s.presentation.mediaGCNeeded = true
 	}
 }
 
