@@ -46,34 +46,12 @@ type BlipFill struct {
 
 // --- Cropping Types ---
 
-// CropRect represents cropping rectangle (offsets from edges)
+// CropRect represents cropping rectangle (offsets from edges).
+// NOTE: duplicates RelRect/SrcRect (CT_RelativeRect); consolidating the
+// RelRect family is a deeper refactor, deliberately deferred.
 type CropRect struct {
 	L int32 `xml:"l,attr,omitempty"` // left offset
 	T int32 `xml:"t,attr,omitempty"` // top offset
 	R int32 `xml:"r,attr,omitempty"` // right offset
 	B int32 `xml:"b,attr,omitempty"` // bottom offset
-}
-
-// --- Picture Rendering Hints ---
-
-// PicRenderHints represents rendering hints for pictures
-type PicRenderHints struct {
-	PreferRelativeResize bool   `xml:"preferRelativeResize,attr,omitempty"`
-	DisableLocking       bool   `xml:"noChangeArrowheads,attr,omitempty"`
-	DisableAspectRatio   bool   `xml:"noChangeAspect,attr,omitempty"`
-}
-
-// --- Linked Picture Types ---
-
-// LinkedPic represents a linked (not embedded) picture
-type LinkedPic struct {
-	Link string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr"`
-}
-
-// --- Picture Placeholder Types ---
-
-// PicPlaceholder represents a picture placeholder
-type PicPlaceholder struct {
-	Type string `xml:"type,attr,omitempty"` // clipArt, media, etc.
-	Idx  uint32 `xml:"idx,attr,omitempty"`
 }
