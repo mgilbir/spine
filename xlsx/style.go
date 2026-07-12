@@ -129,6 +129,9 @@ func defaultStylesheet() *oxml.CT_Stylesheet {
 // returns its 0-based index into cellXfs. The cell format index can be applied
 // to cells via Cell.SetStyleIndex.
 func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
+	if err := validateCellStyle(&style); err != nil {
+		return 0, err
+	}
 	sm.markModified()
 	ss := sm.stylesheet
 
@@ -211,6 +214,22 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	ss.CellXfs.Count = &count
 
 	return idx, nil
+}
+
+// validateCellStyle rejects style values that would be silently corrupted on
+// serialization. Alignment indent and rotation are unsigned in the schema, so
+// negative Go values would wrap to huge numbers via uint conversion (C133);
+// text rotation must be 0-180 or the special value 255 (vertical text).
+func validateCellStyle(style *CellStyle) error {
+	if a := style.Alignment; a != nil {
+		if a.Indent < 0 || a.Indent > 250 {
+			return fmt.Errorf("xlsx: alignment indent %d out of range 0-250", a.Indent)
+		}
+		if a.Rotation < 0 || (a.Rotation > 180 && a.Rotation != 255) {
+			return fmt.Errorf("xlsx: text rotation %d out of range (0-180 or 255)", a.Rotation)
+		}
+	}
+	return nil
 }
 
 // GetCellStyle returns the CellStyle for the given style index.
