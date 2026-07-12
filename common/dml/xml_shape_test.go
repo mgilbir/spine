@@ -258,7 +258,7 @@ func TestDML_CT_NonVisualPictureProperties(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if !v.PreferRelativeResize {
+	if v.PreferRelativeResize == nil || !*v.PreferRelativeResize {
 		t.Error("PreferRelativeResize should be true")
 	}
 	if v.PicLocks == nil {

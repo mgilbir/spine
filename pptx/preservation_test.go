@@ -2,6 +2,8 @@ package pptx
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -230,5 +232,42 @@ func TestThemeOverridePartKeepsItsContentType(t *testing.T) {
 	}
 	if got := zipPart(t, out, "ppt/theme/themeOverride1.xml"); !bytes.Equal(got, []byte(overrideXML)) {
 		t.Errorf("themeOverride1.xml content changed:\n%s", got)
+	}
+}
+
+// Corpus class F3 (semantic): the XSD default of preferRelativeResize is
+// TRUE, so an explicit preferRelativeResize="0" carried real information —
+// bool+omitempty dropped it and silently flipped the picture back to
+// relative resizing. The pointer type must round-trip the explicit zero.
+func TestPreferRelativeResizeZeroRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "img.png")
+	if err := os.WriteFile(imgPath, minimalTransparentPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := Create()
+	if _, err := p.AddSlide().AddPicture(imgPath); err != nil {
+		t.Fatalf("AddPicture: %v", err)
+	}
+	deck, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := rewriteZipPart(t, deck, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		out := bytes.Replace(xml, []byte("<p:cNvPicPr>"), []byte(`<p:cNvPicPr preferRelativeResize="0">`), 1)
+		if bytes.Equal(out, xml) {
+			t.Fatal("fixture rewrite matched nothing: <p:cNvPicPr> not found")
+		}
+		return out
+	})
+
+	out, err := openBytes(t, data).SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := zipPart(t, out, "ppt/slides/slide1.xml")
+	if !bytes.Contains(slideXML, []byte(`<p:cNvPicPr preferRelativeResize="0">`)) {
+		t.Errorf("explicit preferRelativeResize=\"0\" dropped on save:\n%s", slideXML)
 	}
 }

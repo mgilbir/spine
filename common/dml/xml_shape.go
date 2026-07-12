@@ -124,9 +124,12 @@ type CNvSpPr struct {
 	SpLocks *SpLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spLocks,omitempty"`
 }
 
-// CNvPicPr represents CT_NonVisualPictureProperties (a:cNvPicPr)
+// CNvPicPr represents CT_NonVisualPictureProperties (a:cNvPicPr).
+// preferRelativeResize defaults to TRUE in the XSD, so it must be a pointer:
+// bool+omitempty would drop an explicit preferRelativeResize="0" and silently
+// flip the picture back to relative resizing (C29 rule).
 type CNvPicPr struct {
-	PreferRelativeResize bool      `xml:"preferRelativeResize,attr,omitempty"`
+	PreferRelativeResize *bool     `xml:"preferRelativeResize,attr,omitempty"`
 	PicLocks             *PicLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main picLocks,omitempty"`
 }
 
