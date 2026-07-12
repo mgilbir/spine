@@ -84,7 +84,42 @@ func parseUint32(s string, v *uint32) (int, error) {
 type CT_Rst struct {
 	T          *string        `xml:"t,omitempty"`
 	R          []CT_RElt      `xml:"r,omitempty"`
-	PhoneticPr *CT_PhoneticPr `xml:"rPh,omitempty"`
+	PhoneticPr *CT_PhoneticPr `xml:"phoneticPr,omitempty"`
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Rst. The plain
+// text element carries xml:space="preserve" when the value has leading or
+// trailing whitespace, which XML processors would otherwise strip.
+func (rst *CT_Rst) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	if rst.T == nil && len(rst.R) == 0 && rst.PhoneticPr == nil {
+		b.EmptyElement(ns, localName)
+		return
+	}
+	b.StartElement(ns, localName)
+	if rst.T != nil {
+		var attrs []xmlb.Attr
+		if needsSpacePreserve(*rst.T) {
+			attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: "preserve"})
+		}
+		b.WriteElement(ns, "t", *rst.T, attrs...)
+	}
+	for i := range rst.R {
+		b.MarshalElement(ns, "r", &rst.R[i])
+	}
+	if rst.PhoneticPr != nil {
+		b.MarshalElement(ns, "phoneticPr", rst.PhoneticPr)
+	}
+	b.EndElement(ns, localName)
+}
+
+// needsSpacePreserve reports whether s would lose whitespace without
+// xml:space="preserve".
+func needsSpacePreserve(s string) bool {
+	if s == "" {
+		return false
+	}
+	isWS := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+	return isWS(s[0]) || isWS(s[len(s)-1])
 }
 
 // CT_RElt represents a rich text run element (r).
