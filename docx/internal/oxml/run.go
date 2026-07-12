@@ -530,6 +530,22 @@ func (r *CT_R) AppendTab() {
 	r.Tab = append(r.Tab, &CT_Empty{})
 }
 
+// AppendFldChar appends a field character (w:fldChar begin/separate/end) to
+// the run, maintaining child order (see AppendDrawing).
+func (r *CT_R) AppendFldChar(fc *CT_FldChar) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildFldChar, len(r.FldChar)})
+	r.FldChar = append(r.FldChar, fc)
+}
+
+// AppendInstrText appends field instruction text (w:instrText) to the run,
+// maintaining child order (see AppendDrawing).
+func (r *CT_R) AppendInstrText(t *CT_Text) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildInstrText, len(r.InstrText)})
+	r.InstrText = append(r.InstrText, t)
+}
+
 // SetTexts replaces the run's text elements with ts, keeping childOrder
 // consistent so stale text references neither drop nor duplicate content. On
 // a tracked run the new texts take the position of the first existing text
