@@ -129,7 +129,12 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	var doc oxml.CT_Document
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		_ = reader.Close()
-		return nil, err
+		// Deliberately strict: some wild files carry XML that is not
+		// well-formed (unescaped '&', control characters like U+001F). Word
+		// silently repairs those; accepting and re-emitting them here would
+		// launder invalid XML through the library, so they are rejected with
+		// the part name for context.
+		return nil, fmt.Errorf("docx: parsing %s: %w", mainPartName, err)
 	}
 
 	d := &Document{
