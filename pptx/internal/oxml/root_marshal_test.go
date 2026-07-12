@@ -47,7 +47,7 @@ func TestSlideRoot_MultipleAlternateContentInPosition(t *testing.T) {
 	if m1 < 0 || m2 < 0 {
 		t.Fatalf("AlternateContent sibling(s) lost:\n%s", out)
 	}
-	if !(m1 < tr && tr < tm && tm < m2) {
+	if m1 >= tr || tr >= tm || tm >= m2 {
 		t.Errorf("AlternateContent positions not preserved (m1=%d tr=%d tm=%d m2=%d):\n%s", m1, tr, tm, m2, out)
 	}
 }
@@ -75,7 +75,7 @@ func TestSlideRoot_DefaultACPosition(t *testing.T) {
 	if ac < 0 {
 		t.Fatalf("AlternateContent lost:\n%s", out)
 	}
-	if !(tr < ac && ac < tm) {
+	if tr >= ac || ac >= tm {
 		t.Errorf("default AC position not between transition and timing (tr=%d ac=%d tm=%d):\n%s", tr, ac, tm, out)
 	}
 }
