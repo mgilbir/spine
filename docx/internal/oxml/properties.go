@@ -268,11 +268,12 @@ type CT_DocGrid struct {
 	CharSpace string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main charSpace,attr,omitempty"`
 }
 
-// CT_Columns represents column definitions.
+// CT_Columns represents column definitions. Field order follows Word's
+// attribute emission order (num, space, equalWidth).
 type CT_Columns struct {
-	EqualWidth string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
-	Space      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
 	Num        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num,attr,omitempty"`
+	Space      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	EqualWidth string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
 	Sep        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sep,attr,omitempty"`
 	Col        []CT_Column `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main col,omitempty"`
 }
