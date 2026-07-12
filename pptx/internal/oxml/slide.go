@@ -215,9 +215,9 @@ func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 
 // Background represents a slide background (p:bg).
 type Background struct {
-	BwMode string          `xml:"bwMode,attr,omitempty"`
+	BwMode string           `xml:"bwMode,attr,omitempty"`
 	BgPr   *BackgroundProps `xml:"bgPr,omitempty"`
-	BgRef  *dml.FillRef    `xml:"bgRef,omitempty"`
+	BgRef  *dml.FillRef     `xml:"bgRef,omitempty"`
 }
 
 // BackgroundProps contains background fill properties.
@@ -237,11 +237,11 @@ type BackgroundProps struct {
 type ShapeTree struct {
 	NvGrpSpPr    *NvGrpSpPr         `xml:"nvGrpSpPr"`
 	GrpSpPr      *GrpSpPr           `xml:"grpSpPr"`
-	Sp           []*Shape            `xml:"-"`
-	Pic          []*Picture          `xml:"-"`
-	GraphicFrame []*GraphicFrame     `xml:"-"`
-	GrpSp        []*GroupShape       `xml:"-"`
-	CxnSp        []*ConnectionShape  `xml:"-"`
+	Sp           []*Shape           `xml:"-"`
+	Pic          []*Picture         `xml:"-"`
+	GraphicFrame []*GraphicFrame    `xml:"-"`
+	GrpSp        []*GroupShape      `xml:"-"`
+	CxnSp        []*ConnectionShape `xml:"-"`
 	// AltContent holds mc:AlternateContent children (ink, 2010+ shapes with
 	// fallbacks); RawXML holds any other unmodeled child (p:contentPart,
 	// extLst, ...) as reconstructed raw bytes. Both are kept in childOrder so
@@ -685,4 +685,3 @@ type TxStyles struct {
 	BodyStyle  *dml.LstStyle `xml:"bodyStyle,omitempty"`
 	OtherStyle *dml.LstStyle `xml:"otherStyle,omitempty"`
 }
-

@@ -13,9 +13,9 @@ import (
 
 // Timing represents CT_SlideTiming (p:timing)
 type Timing struct {
-	TnLst  *TimeNodeList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tnLst,omitempty"`
-	BldLst *BuildList    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldLst,omitempty"`
-	ExtLst *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	TnLst  *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tnLst,omitempty"`
+	BldLst *BuildList     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldLst,omitempty"`
+	ExtLst *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // TimeNodeList represents CT_TimeNodeList (p:tnLst, p:childTnLst, p:subTnLst).
@@ -334,12 +334,12 @@ type ParallelTimeNode struct {
 
 // SequenceTimeNode represents CT_TLTimeNodeSequence (p:seq)
 type SequenceTimeNode struct {
-	Concurrent bool   `xml:"concurrent,attr,omitempty"`
-	PrevAc     string `xml:"prevAc,attr,omitempty"` // none, skipTimed
-	NextAc     string `xml:"nextAc,attr,omitempty"` // none, seek
-	CTn        *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
-	PrevCondLst *ConditionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main prevCondLst,omitempty"`
-	NextCondLst *ConditionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main nextCondLst,omitempty"`
+	Concurrent  bool            `xml:"concurrent,attr,omitempty"`
+	PrevAc      string          `xml:"prevAc,attr,omitempty"` // none, skipTimed
+	NextAc      string          `xml:"nextAc,attr,omitempty"` // none, seek
+	CTn         *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
+	PrevCondLst *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main prevCondLst,omitempty"`
+	NextCondLst *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main nextCondLst,omitempty"`
 }
 
 // ExclusiveTimeNode represents CT_TLTimeNodeExclusive (p:excl)
@@ -349,38 +349,38 @@ type ExclusiveTimeNode struct {
 
 // CommonTimeNode represents CT_TLCommonTimeNodeData (p:cTn)
 type CommonTimeNode struct {
-	Id             uint32          `xml:"id,attr,omitempty"`
-	Presetid       *int32          `xml:"presetID,attr,omitempty"`
-	PresetClass    string          `xml:"presetClass,attr,omitempty"` // entr, exit, emph, path, verb, mediacall
-	PresetSubtype  *int32          `xml:"presetSubtype,attr,omitempty"`
-	Dur            string          `xml:"dur,attr,omitempty"` // indefinite, or time in ms
-	RepeatCount    string          `xml:"repeatCount,attr,omitempty"`
-	RepeatDur      string          `xml:"repeatDur,attr,omitempty"`
-	Spd            string          `xml:"spd,attr,omitempty"` // percentage
-	Accel          string          `xml:"accel,attr,omitempty"`
-	Decel          string          `xml:"decel,attr,omitempty"`
+	Id            uint32 `xml:"id,attr,omitempty"`
+	Presetid      *int32 `xml:"presetID,attr,omitempty"`
+	PresetClass   string `xml:"presetClass,attr,omitempty"` // entr, exit, emph, path, verb, mediacall
+	PresetSubtype *int32 `xml:"presetSubtype,attr,omitempty"`
+	Dur           string `xml:"dur,attr,omitempty"` // indefinite, or time in ms
+	RepeatCount   string `xml:"repeatCount,attr,omitempty"`
+	RepeatDur     string `xml:"repeatDur,attr,omitempty"`
+	Spd           string `xml:"spd,attr,omitempty"` // percentage
+	Accel         string `xml:"accel,attr,omitempty"`
+	Decel         string `xml:"decel,attr,omitempty"`
 	// AutoRev, Display, AfterEffect, and NodePh have no XSD default, so an
 	// explicit "0" must round-trip on the always-remarshaled timing path
 	// instead of being deleted (C224).
-	AutoRev        *bool           `xml:"autoRev,attr,omitempty"`
-	Restart        string          `xml:"restart,attr,omitempty"` // always, whenNotActive, never
-	Fill           string          `xml:"fill,attr,omitempty"`    // remove, freeze, hold, transition
-	SyncBehavior   string          `xml:"syncBehavior,attr,omitempty"`
-	TmFilter       string          `xml:"tmFilter,attr,omitempty"`
-	EvtFilter      string          `xml:"evtFilter,attr,omitempty"`
-	Display        *bool           `xml:"display,attr,omitempty"`
-	MasterRel      string          `xml:"masterRel,attr,omitempty"` // sameClick, lastClick, nextClick
-	BldLvl         int32           `xml:"bldLvl,attr,omitempty"`
-	GrpId          *uint32         `xml:"grpId,attr,omitempty"`
-	AfterEffect    *bool           `xml:"afterEffect,attr,omitempty"`
-	NodeType       string          `xml:"nodeType,attr,omitempty"` // clickEffect, withEffect, afterEffect, mainSeq, interactiveSeq, clickPar, withGroup, afterGroup, tmRoot
-	NodePh         *bool           `xml:"nodePh,attr,omitempty"`
-	StCondLst      *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main stCondLst,omitempty"`
-	EndCondLst     *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endCondLst,omitempty"`
-	EndSync        *Condition      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endSync,omitempty"`
-	Iterate        *Iterate        `xml:"http://schemas.openxmlformats.org/presentationml/2006/main iterate,omitempty"`
-	ChildTnLst     *TimeNodeList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main childTnLst,omitempty"`
-	SubTnLst       *TimeNodeList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subTnLst,omitempty"`
+	AutoRev      *bool          `xml:"autoRev,attr,omitempty"`
+	Restart      string         `xml:"restart,attr,omitempty"` // always, whenNotActive, never
+	Fill         string         `xml:"fill,attr,omitempty"`    // remove, freeze, hold, transition
+	SyncBehavior string         `xml:"syncBehavior,attr,omitempty"`
+	TmFilter     string         `xml:"tmFilter,attr,omitempty"`
+	EvtFilter    string         `xml:"evtFilter,attr,omitempty"`
+	Display      *bool          `xml:"display,attr,omitempty"`
+	MasterRel    string         `xml:"masterRel,attr,omitempty"` // sameClick, lastClick, nextClick
+	BldLvl       int32          `xml:"bldLvl,attr,omitempty"`
+	GrpId        *uint32        `xml:"grpId,attr,omitempty"`
+	AfterEffect  *bool          `xml:"afterEffect,attr,omitempty"`
+	NodeType     string         `xml:"nodeType,attr,omitempty"` // clickEffect, withEffect, afterEffect, mainSeq, interactiveSeq, clickPar, withGroup, afterGroup, tmRoot
+	NodePh       *bool          `xml:"nodePh,attr,omitempty"`
+	StCondLst    *ConditionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main stCondLst,omitempty"`
+	EndCondLst   *ConditionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endCondLst,omitempty"`
+	EndSync      *Condition     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endSync,omitempty"`
+	Iterate      *Iterate       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main iterate,omitempty"`
+	ChildTnLst   *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main childTnLst,omitempty"`
+	SubTnLst     *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subTnLst,omitempty"`
 }
 
 // --- Conditions ---
@@ -392,11 +392,11 @@ type ConditionList struct {
 
 // Condition represents CT_TLTimeCondition (p:cond)
 type Condition struct {
-	Evt   string       `xml:"evt,attr,omitempty"`   // onBegin, onEnd, begin, end, onClick, onDblClick, onMouseOver, onMouseOut, onNext, onPrev, onStopAudio
-	Delay string       `xml:"delay,attr,omitempty"` // indefinite or time in ms
+	Evt   string         `xml:"evt,attr,omitempty"`   // onBegin, onEnd, begin, end, onClick, onDblClick, onMouseOver, onMouseOut, onNext, onPrev, onStopAudio
+	Delay string         `xml:"delay,attr,omitempty"` // indefinite or time in ms
 	TgtEl *TargetElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
-	Tn    *TimeNode    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tn,omitempty"`
-	Rtn   *RuntimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rtn,omitempty"`
+	Tn    *TimeNode      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tn,omitempty"`
+	Rtn   *RuntimeNode   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rtn,omitempty"`
 }
 
 // TimeNode represents CT_TLTimeNodeId (p:tn)
@@ -411,10 +411,10 @@ type RuntimeNode struct {
 
 // TargetElement represents CT_TLTimeTargetElement (p:tgtEl)
 type TargetElement struct {
-	SldTgt   *SlideTarget   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldTgt,omitempty"`
-	SndTgt   *SoundTarget   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sndTgt,omitempty"`
-	SpTgt    *ShapeTarget   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main spTgt,omitempty"`
-	InkTgt   *InkTarget     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main inkTgt,omitempty"`
+	SldTgt *SlideTarget `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldTgt,omitempty"`
+	SndTgt *SoundTarget `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sndTgt,omitempty"`
+	SpTgt  *ShapeTarget `xml:"http://schemas.openxmlformats.org/presentationml/2006/main spTgt,omitempty"`
+	InkTgt *InkTarget   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main inkTgt,omitempty"`
 }
 
 // SlideTarget represents CT_Empty (p:sldTgt)
@@ -428,12 +428,12 @@ type SoundTarget struct {
 
 // ShapeTarget represents CT_TLShapeTargetElement (p:spTgt)
 type ShapeTarget struct {
-	SpId   string      `xml:"spid,attr"`
-	Bg     *AnimTargetBg `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bg,omitempty"`
-	SubSp  *SubShape   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subSp,omitempty"`
+	SpId       string           `xml:"spid,attr"`
+	Bg         *AnimTargetBg    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bg,omitempty"`
+	SubSp      *SubShape        `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subSp,omitempty"`
 	OleChartEl *OleChartElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main oleChartEl,omitempty"`
-	TxEl   *TextElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main txEl,omitempty"`
-	GraphicEl *GraphicElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main graphicEl,omitempty"`
+	TxEl       *TextElement     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main txEl,omitempty"`
+	GraphicEl  *GraphicElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main graphicEl,omitempty"`
 }
 
 // AnimTargetBg represents CT_Empty (p:bg) used as animation shape target background.
@@ -446,8 +446,8 @@ type SubShape struct {
 
 // OleChartElement represents CT_TLOleChartTargetElement (p:oleChartEl)
 type OleChartElement struct {
-	Type  string `xml:"type,attr"` // embed, link
-	Lvl   int32  `xml:"lvl,attr,omitempty"`
+	Type string `xml:"type,attr"` // embed, link
+	Lvl  int32  `xml:"lvl,attr,omitempty"`
 }
 
 // TextElement represents CT_TLTextTargetElement (p:txEl)
@@ -505,10 +505,10 @@ type IndexRange struct {
 
 // Iterate represents CT_TLIterateData (p:iterate)
 type Iterate struct {
-	Type     string `xml:"type,attr,omitempty"` // el, wd, lt
-	Backwards bool  `xml:"backwards,attr,omitempty"`
-	TmAbs    *TimeAbsolute `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmAbs,omitempty"`
-	TmPct    *TimePercent  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmPct,omitempty"`
+	Type      string        `xml:"type,attr,omitempty"` // el, wd, lt
+	Backwards bool          `xml:"backwards,attr,omitempty"`
+	TmAbs     *TimeAbsolute `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmAbs,omitempty"`
+	TmPct     *TimePercent  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmPct,omitempty"`
 }
 
 // TimeAbsolute represents CT_TLIterateIntervalTime (p:tmAbs)
@@ -525,23 +525,23 @@ type TimePercent struct {
 
 // Animate represents CT_TLAnimateBehavior (p:anim)
 type Animate struct {
-	By         string `xml:"by,attr,omitempty"`
-	From       string `xml:"from,attr,omitempty"`
-	To         string `xml:"to,attr,omitempty"`
-	CalcMode   string `xml:"calcmode,attr,omitempty"` // discrete, lin, fmla
-	ValueType  string `xml:"valueType,attr,omitempty"` // str, num, clr
-	CBhvr      *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	TavLst     *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	By        string                `xml:"by,attr,omitempty"`
+	From      string                `xml:"from,attr,omitempty"`
+	To        string                `xml:"to,attr,omitempty"`
+	CalcMode  string                `xml:"calcmode,attr,omitempty"`  // discrete, lin, fmla
+	ValueType string                `xml:"valueType,attr,omitempty"` // str, num, clr
+	CBhvr     *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	TavLst    *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
 }
 
 // AnimateColor represents CT_TLAnimateColorBehavior (p:animClr)
 type AnimateColor struct {
-	ClrSpc   string `xml:"clrSpc,attr,omitempty"` // rgb, hsl
-	Dir      string `xml:"dir,attr,omitempty"`    // cw, ccw
-	CBhvr    *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	By       *ByAnimateColor `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
-	From     *dml.ColorChoice `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
-	To       *dml.ColorChoice `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	ClrSpc string           `xml:"clrSpc,attr,omitempty"` // rgb, hsl
+	Dir    string           `xml:"dir,attr,omitempty"`    // cw, ccw
+	CBhvr  *CommonBehavior  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	By     *ByAnimateColor  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
+	From   *dml.ColorChoice `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
+	To     *dml.ColorChoice `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
 }
 
 // ByAnimateColor represents CT_TLByAnimateColorTransform (p:by)
@@ -566,9 +566,9 @@ type ByHslColor struct {
 
 // AnimateEffect represents CT_TLAnimateEffectBehavior (p:animEffect)
 type AnimateEffect struct {
-	Transition string `xml:"transition,attr,omitempty"` // in, out, none
-	Filter     string `xml:"filter,attr,omitempty"`
-	PrLst      string `xml:"prLst,attr,omitempty"`
+	Transition string          `xml:"transition,attr,omitempty"` // in, out, none
+	Filter     string          `xml:"filter,attr,omitempty"`
+	PrLst      string          `xml:"prLst,attr,omitempty"`
 	CBhvr      *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
 	// Progress is CT_TLAnimVariant per the XSD (boolVal/intVal/fltVal/strVal/
 	// clrVal choice), not a tavLst container (C34).
@@ -577,16 +577,16 @@ type AnimateEffect struct {
 
 // AnimateMotion represents CT_TLAnimateMotionBehavior (p:animMotion)
 type AnimateMotion struct {
-	Origin       string `xml:"origin,attr,omitempty"` // parent, layout
-	Path         string `xml:"path,attr,omitempty"`
-	PathEditMode string `xml:"pathEditMode,attr,omitempty"` // relative, fixed
-	RAng         int32  `xml:"rAng,attr,omitempty"`
-	PtsTypes     string `xml:"ptsTypes,attr,omitempty"`
+	Origin       string          `xml:"origin,attr,omitempty"` // parent, layout
+	Path         string          `xml:"path,attr,omitempty"`
+	PathEditMode string          `xml:"pathEditMode,attr,omitempty"` // relative, fixed
+	RAng         int32           `xml:"rAng,attr,omitempty"`
+	PtsTypes     string          `xml:"ptsTypes,attr,omitempty"`
 	CBhvr        *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	By           *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
-	From         *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
-	To           *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
-	RCtr         *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
+	By           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
+	From         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
+	To           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	RCtr         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
 }
 
 // Point represents CT_TLPoint (p:by, p:from, p:to, p:rCtr)
@@ -597,19 +597,19 @@ type Point struct {
 
 // AnimateRotation represents CT_TLAnimateRotationBehavior (p:animRot)
 type AnimateRotation struct {
-	By    int32  `xml:"by,attr,omitempty"`   // angle in 60000ths
-	From  int32  `xml:"from,attr,omitempty"`
-	To    int32  `xml:"to,attr,omitempty"`
+	By    int32           `xml:"by,attr,omitempty"` // angle in 60000ths
+	From  int32           `xml:"from,attr,omitempty"`
+	To    int32           `xml:"to,attr,omitempty"`
 	CBhvr *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
 }
 
 // AnimateScale represents CT_TLAnimateScaleBehavior (p:animScale)
 type AnimateScale struct {
-	ZoomContents bool `xml:"zoomContents,attr,omitempty"`
+	ZoomContents bool            `xml:"zoomContents,attr,omitempty"`
 	CBhvr        *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	By           *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
-	From         *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
-	To           *Point `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	By           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
+	From         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
+	To           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
 }
 
 // Set represents CT_TLSetBehavior (p:set)
@@ -620,49 +620,49 @@ type Set struct {
 
 // Command represents CT_TLCommandBehavior (p:cmd)
 type Command struct {
-	Type  string `xml:"type,attr,omitempty"` // evt, call, verb
-	Cmd   string `xml:"cmd,attr,omitempty"`
+	Type  string          `xml:"type,attr,omitempty"` // evt, call, verb
+	Cmd   string          `xml:"cmd,attr,omitempty"`
 	CBhvr *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
 }
 
 // Audio represents CT_TLMediaNodeAudio (p:audio)
 type Audio struct {
-	IsNarration bool `xml:"isNarration,attr,omitempty"`
+	IsNarration bool             `xml:"isNarration,attr,omitempty"`
 	CMediaNode  *CommonMediaNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cMediaNode,omitempty"`
 }
 
 // Video represents CT_TLMediaNodeVideo (p:video)
 type Video struct {
-	FullScrn   bool `xml:"fullScrn,attr,omitempty"`
+	FullScrn   bool             `xml:"fullScrn,attr,omitempty"`
 	CMediaNode *CommonMediaNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cMediaNode,omitempty"`
 }
 
 // CommonMediaNode represents CT_TLCommonMediaNodeData (p:cMediaNode)
 type CommonMediaNode struct {
-	Vol      string `xml:"vol,attr,omitempty"`
-	Mute     bool   `xml:"mute,attr,omitempty"`
-	NumSld   uint32 `xml:"numSld,attr,omitempty"`
+	Vol    string `xml:"vol,attr,omitempty"`
+	Mute   bool   `xml:"mute,attr,omitempty"`
+	NumSld uint32 `xml:"numSld,attr,omitempty"`
 	// ShowWhenStopped defaults to true when absent, so it is a pointer: an
 	// explicit false must be emitted rather than omitted (which readers treat as
 	// true).
-	ShowWhenStopped *bool `xml:"showWhenStopped,attr,omitempty"`
-	CTn      *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
-	TgtEl    *TargetElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
+	ShowWhenStopped *bool           `xml:"showWhenStopped,attr,omitempty"`
+	CTn             *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
+	TgtEl           *TargetElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
 }
 
 // CommonBehavior represents CT_TLCommonBehaviorData (p:cBhvr)
 type CommonBehavior struct {
-	Additive   string `xml:"additive,attr,omitempty"`  // base, sum, repl, mult, none
-	Accumulate string `xml:"accumulate,attr,omitempty"` // none, always
-	XfrmType   string `xml:"xfrmType,attr,omitempty"`  // pt, img
-	From       string `xml:"from,attr,omitempty"`
-	To         string `xml:"to,attr,omitempty"`
-	By         string `xml:"by,attr,omitempty"`
-	RuntimeContext string `xml:"rctx,attr,omitempty"`
-	Override   string `xml:"override,attr,omitempty"` // normal, childStyle
-	CTn        *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
-	TgtEl      *TargetElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
-	AttrNameLst *AttributeNameList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main attrNameLst,omitempty"`
+	Additive       string             `xml:"additive,attr,omitempty"`   // base, sum, repl, mult, none
+	Accumulate     string             `xml:"accumulate,attr,omitempty"` // none, always
+	XfrmType       string             `xml:"xfrmType,attr,omitempty"`   // pt, img
+	From           string             `xml:"from,attr,omitempty"`
+	To             string             `xml:"to,attr,omitempty"`
+	By             string             `xml:"by,attr,omitempty"`
+	RuntimeContext string             `xml:"rctx,attr,omitempty"`
+	Override       string             `xml:"override,attr,omitempty"` // normal, childStyle
+	CTn            *CommonTimeNode    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
+	TgtEl          *TargetElement     `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
+	AttrNameLst    *AttributeNameList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main attrNameLst,omitempty"`
 }
 
 // AttributeNameList represents CT_TLBehaviorAttributeNameList (p:attrNameLst)
@@ -679,9 +679,9 @@ type TimeAnimateValueList struct {
 
 // TimeAnimateValue represents CT_TLTimeAnimateValue (p:tav)
 type TimeAnimateValue struct {
-	Tm  string `xml:"tm,attr,omitempty"` // percentage or "indefinite"
-	Fmla string `xml:"fmla,attr,omitempty"`
-	Val *AnimVariant `xml:"http://schemas.openxmlformats.org/presentationml/2006/main val,omitempty"`
+	Tm   string       `xml:"tm,attr,omitempty"` // percentage or "indefinite"
+	Fmla string       `xml:"fmla,attr,omitempty"`
+	Val  *AnimVariant `xml:"http://schemas.openxmlformats.org/presentationml/2006/main val,omitempty"`
 }
 
 // AnimVariant represents CT_TLAnimVariant (p:val, p:to)
@@ -717,51 +717,51 @@ type AnimVariantString struct {
 
 // BuildList represents CT_BuildList (p:bldLst)
 type BuildList struct {
-	BldP       []*BuildParagraph    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldP,omitempty"`
-	BldDgm     []*BuildDiagram      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldDgm,omitempty"`
-	BldOleChart []*BuildOleChart    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldOleChart,omitempty"`
-	BldGraphic []*BuildGraphic      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldGraphic,omitempty"`
+	BldP        []*BuildParagraph `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldP,omitempty"`
+	BldDgm      []*BuildDiagram   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldDgm,omitempty"`
+	BldOleChart []*BuildOleChart  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldOleChart,omitempty"`
+	BldGraphic  []*BuildGraphic   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldGraphic,omitempty"`
 }
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
 type BuildParagraph struct {
-	SpId             string  `xml:"spid,attr"`
-	GrpId            *uint32 `xml:"grpId,attr,omitempty"`
-	UiExpand         *bool   `xml:"uiExpand,attr,omitempty"`
-	Build            string  `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
-	BldLvl           *int32  `xml:"bldLvl,attr,omitempty"`
-	AnimBg           *bool   `xml:"animBg,attr,omitempty"`
-	AutoUpdateAnimBg *bool   `xml:"autoUpdateAnimBg,attr,omitempty"`
-	Rev              *bool   `xml:"rev,attr,omitempty"`
-	AdvAuto        string `xml:"advAuto,attr,omitempty"` // time in ms or "indefinite"
-	TmplLst        *TemplateList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmplLst,omitempty"`
+	SpId             string        `xml:"spid,attr"`
+	GrpId            *uint32       `xml:"grpId,attr,omitempty"`
+	UiExpand         *bool         `xml:"uiExpand,attr,omitempty"`
+	Build            string        `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
+	BldLvl           *int32        `xml:"bldLvl,attr,omitempty"`
+	AnimBg           *bool         `xml:"animBg,attr,omitempty"`
+	AutoUpdateAnimBg *bool         `xml:"autoUpdateAnimBg,attr,omitempty"`
+	Rev              *bool         `xml:"rev,attr,omitempty"`
+	AdvAuto          string        `xml:"advAuto,attr,omitempty"` // time in ms or "indefinite"
+	TmplLst          *TemplateList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmplLst,omitempty"`
 }
 
 // BuildDiagram represents CT_TLBuildDiagram (p:bldDgm)
 type BuildDiagram struct {
-	SpId   string  `xml:"spid,attr"`
-	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
-	UiExpand bool `xml:"uiExpand,attr,omitempty"`
-	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
-	Rev    bool   `xml:"rev,attr,omitempty"`
+	SpId     string  `xml:"spid,attr"`
+	GrpId    *uint32 `xml:"grpId,attr,omitempty"`
+	UiExpand bool    `xml:"uiExpand,attr,omitempty"`
+	Bld      string  `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
+	Rev      bool    `xml:"rev,attr,omitempty"`
 }
 
 // BuildOleChart represents CT_TLOleBuildChart (p:bldOleChart)
 type BuildOleChart struct {
-	SpId   string  `xml:"spid,attr"`
-	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
-	UiExpand bool `xml:"uiExpand,attr,omitempty"`
-	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
-	AnimBg bool   `xml:"animBg,attr,omitempty"`
+	SpId     string  `xml:"spid,attr"`
+	GrpId    *uint32 `xml:"grpId,attr,omitempty"`
+	UiExpand bool    `xml:"uiExpand,attr,omitempty"`
+	Bld      string  `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
+	AnimBg   bool    `xml:"animBg,attr,omitempty"`
 }
 
 // BuildGraphic represents CT_TLGraphicalObjectBuild (p:bldGraphic)
 type BuildGraphic struct {
-	SpId   string  `xml:"spid,attr"`
-	GrpId  *uint32 `xml:"grpId,attr,omitempty"`
-	UiExpand bool `xml:"uiExpand,attr,omitempty"`
+	SpId     string      `xml:"spid,attr"`
+	GrpId    *uint32     `xml:"grpId,attr,omitempty"`
+	UiExpand bool        `xml:"uiExpand,attr,omitempty"`
 	BldAsOne *BuildAsOne `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldAsOne,omitempty"`
-	BldSub  *BuildSub   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldSub,omitempty"`
+	BldSub   *BuildSub   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldSub,omitempty"`
 }
 
 // BuildAsOne represents CT_Empty (p:bldAsOne)
@@ -782,6 +782,6 @@ type TemplateList struct {
 
 // Template represents CT_TLTemplate (p:tmpl)
 type Template struct {
-	Lvl   int32  `xml:"lvl,attr,omitempty"`
+	Lvl   int32         `xml:"lvl,attr,omitempty"`
 	TnLst *TimeNodeList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tnLst,omitempty"`
 }
