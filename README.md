@@ -12,6 +12,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Add, remove, and reorder slides
   - Add shapes, text, tables, and images — including SVG images with a raster fallback
   - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
+  - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Slide transitions (fade, push, wipe, and more)
 - **Word (DOCX)**: Create and modify Word documents
@@ -21,7 +22,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Paragraph alignment, spacing, and indentation
   - Bullet and numbered lists
   - Headers and footers
-  - Inline images
+  - Inline and floating (anchored) images — including SVG images with a raster fallback
+  - Fields (PAGE/NUMPAGES) and a table of contents
   - Page setup (size, margins)
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
@@ -31,7 +33,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Freeze panes, auto-filter, and data validation
   - Merged cells and named ranges
   - Column widths and row heights
-  - Embedded images anchored to cells
+  - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
+  - Rich text (per-run formatting) within a cell
 
 Runnable programs for all three formats live in [`examples/`](examples/).
 
