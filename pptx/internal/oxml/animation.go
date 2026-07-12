@@ -578,16 +578,17 @@ type AnimateEffect struct {
 
 // AnimateMotion represents CT_TLAnimateMotionBehavior (p:animMotion)
 type AnimateMotion struct {
-	Origin       string          `xml:"origin,attr,omitempty"` // parent, layout
-	Path         string          `xml:"path,attr,omitempty"`
-	PathEditMode string          `xml:"pathEditMode,attr,omitempty"` // relative, fixed
-	RAng         int32           `xml:"rAng,attr,omitempty"`
-	PtsTypes     string          `xml:"ptsTypes,attr,omitempty"`
-	CBhvr        *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	By           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
-	From         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
-	To           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
-	RCtr         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
+	Origin       string `xml:"origin,attr,omitempty"` // parent, layout
+	Path         string `xml:"path,attr,omitempty"`
+	PathEditMode string `xml:"pathEditMode,attr,omitempty"` // relative, fixed
+	// RAng is a pointer so an explicit rAng="0" survives the round trip.
+	RAng     *int32          `xml:"rAng,attr,omitempty"`
+	PtsTypes string          `xml:"ptsTypes,attr,omitempty"`
+	CBhvr    *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	By       *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
+	From     *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
+	To       *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	RCtr     *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
 }
 
 // Point represents CT_TLPoint (p:by, p:from, p:to, p:rCtr)

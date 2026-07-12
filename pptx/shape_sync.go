@@ -328,7 +328,8 @@ func patchTableNode(atbl *oxml.ATable, t *Table) {
 	for i, row := range t.rows {
 		tr := atbl.Tr[i]
 		if row.dirty {
-			tr.H = int64(row.height)
+			rowH := int64(row.height)
+			tr.H = &rowH
 		}
 		row.sourceTr = tr
 		for j, cell := range row.cells {

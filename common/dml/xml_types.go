@@ -580,8 +580,9 @@ type Gs struct {
 // Lin represents CT_LinearShadeProperties (a:lin).
 // scaled is optional with no XSD default, so it is a pointer; see GradFill.
 type Lin struct {
-	Ang    int32 `xml:"ang,attr,omitempty"`
-	Scaled *bool `xml:"scaled,attr,omitempty"`
+	// Ang is a pointer so an explicit ang="0" survives the round trip.
+	Ang    *int32 `xml:"ang,attr,omitempty"`
+	Scaled *bool  `xml:"scaled,attr,omitempty"`
 }
 
 // PathXML represents CT_PathShadeProperties (a:path)
@@ -958,8 +959,9 @@ func fixupRawToken(tok xml.Token) xml.Token {
 
 // TileXML represents CT_TileInfoProperties (a:tile)
 type TileXML struct {
-	Tx   int64      `xml:"tx,attr,omitempty"`
-	Ty   int64      `xml:"ty,attr,omitempty"`
+	// Tx/Ty are pointers so explicit tx="0" ty="0" survive the round trip.
+	Tx   *int64     `xml:"tx,attr,omitempty"`
+	Ty   *int64     `xml:"ty,attr,omitempty"`
 	Sx   Percentage `xml:"sx,attr,omitempty"`
 	Sy   Percentage `xml:"sy,attr,omitempty"`
 	Flip string     `xml:"flip,attr,omitempty"`

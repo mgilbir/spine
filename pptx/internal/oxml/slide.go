@@ -51,21 +51,24 @@ type SlideLayout struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool                `xml:"-"`
-	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
-	Type             string              `xml:"type,attr,omitempty"`
-	Preserve         bool                `xml:"preserve,attr,omitempty"`
-	UserDrawn        bool                `xml:"userDrawn,attr,omitempty"`
-	MatchingName     string              `xml:"matchingName,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	Hf               *HeaderFooter       `xml:"hf,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	CollapseEmpty    bool   `xml:"-"`
+	ShowMasterSp     *bool  `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool  `xml:"showMasterPhAnim,attr,omitempty"`
+	Type             string `xml:"type,attr,omitempty"`
+	Preserve         bool   `xml:"preserve,attr,omitempty"`
+	UserDrawn        bool   `xml:"userDrawn,attr,omitempty"`
+	MatchingName     string `xml:"matchingName,attr,omitempty"`
+	// MatchingNamePresent records that the source carried the attribute,
+	// so an explicit matchingName="" survives the round trip.
+	MatchingNamePresent bool                `xml:"-"`
+	CSld                *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr           *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition          *Transition         `xml:"transition,omitempty"`
+	AlternateContent    []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing              *Timing             `xml:"timing,omitempty"`
+	Hf                  *HeaderFooter       `xml:"hf,omitempty"`
+	ExtLst              *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors           []string
 }
 
 // SlideMaster is the root element of a slide master part.
