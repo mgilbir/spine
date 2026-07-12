@@ -132,6 +132,8 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 
 	var doc oxml.CT_Document
 	doc.Prolog = xmlb.CaptureProlog(data)
+	doc.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
+	doc.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		_ = reader.Close()
 		// Deliberately strict: some wild files carry XML that is not

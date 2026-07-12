@@ -17,9 +17,14 @@ type Presentation struct {
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
 	Prolog xmlb.Prolog `xml:"-"`
-	XmlnsA string      `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR string      `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP string      `xml:"xmlns:p,attr,omitempty"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty bool   `xml:"-"`
+	XmlnsA        string `xml:"xmlns:a,attr,omitempty"`
+	XmlnsR        string `xml:"xmlns:r,attr,omitempty"`
+	XmlnsP        string `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
 	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`

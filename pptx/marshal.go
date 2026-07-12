@@ -18,6 +18,8 @@ const (
 // siblings in their parsed positions (C223).
 func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
+	b.SetSelfClosingSpace(slide.SelfClosingSpace)
+	b.SetCollapseEmptyElements(slide.CollapseEmpty)
 	b.WriteProlog(slide.Prolog)
 	slide.MarshalRootToBuilder(b)
 	b.WriteTrailer(slide.Prolog)
@@ -30,6 +32,8 @@ func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 // marshalSlideLayout marshals a slide layout to XML (see marshalSlide).
 func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
+	b.SetSelfClosingSpace(layout.SelfClosingSpace)
+	b.SetCollapseEmptyElements(layout.CollapseEmpty)
 	b.WriteProlog(layout.Prolog)
 	layout.MarshalRootToBuilder(b)
 	b.WriteTrailer(layout.Prolog)
@@ -42,6 +46,8 @@ func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 // marshalSlideMaster marshals a slide master to XML (see marshalSlide).
 func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
+	b.SetSelfClosingSpace(master.SelfClosingSpace)
+	b.SetCollapseEmptyElements(master.CollapseEmpty)
 	b.WriteProlog(master.Prolog)
 	master.MarshalRootToBuilder(b)
 	b.WriteTrailer(master.Prolog)
@@ -58,6 +64,8 @@ func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 // defaultTextStyle must not gain invented document-wide text defaults on save).
 func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
+	b.SetSelfClosingSpace(pres.SelfClosingSpace)
+	b.SetCollapseEmptyElements(pres.CollapseEmpty)
 	b.WriteProlog(pres.Prolog)
 
 	// Build presentation attributes

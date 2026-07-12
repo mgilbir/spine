@@ -22,7 +22,12 @@ type Slide struct {
 	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
-	Prolog           xmlb.Prolog         `xml:"-"`
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool                `xml:"-"`
 	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
 	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
 	Show             *bool               `xml:"show,attr,omitempty"`
@@ -41,7 +46,12 @@ type SlideLayout struct {
 	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
-	Prolog           xmlb.Prolog         `xml:"-"`
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool                `xml:"-"`
 	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
 	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
 	Type             string              `xml:"type,attr,omitempty"`
@@ -63,7 +73,12 @@ type SlideMaster struct {
 	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
-	Prolog           xmlb.Prolog         `xml:"-"`
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool                `xml:"-"`
 	Preserve         bool                `xml:"preserve,attr,omitempty"`
 	CSld             *CommonSlideData    `xml:"cSld"`
 	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`

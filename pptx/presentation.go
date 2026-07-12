@@ -142,6 +142,8 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 	pres.Prolog = xmlb.CaptureProlog(data)
+	pres.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
+	pres.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 
 	p := &Presentation{
 		reader:          reader,
@@ -410,6 +412,8 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
 		slideXML.Prolog = xmlb.CaptureProlog(data)
+		slideXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
+		slideXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 
 		slide := &Slide{
 			presentation: p,
@@ -465,6 +469,8 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 			return fmt.Errorf("pptx: parsing slide master part %s: %w", masterName, err)
 		}
 		masterXML.Prolog = xmlb.CaptureProlog(data)
+		masterXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
+		masterXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 
 		master := &SlideMaster{
 			presentation: p,
@@ -525,6 +531,8 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 				return fmt.Errorf("pptx: parsing slide layout part %s: %w", layoutName, err)
 			}
 			layoutXML.Prolog = xmlb.CaptureProlog(data)
+			layoutXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
+			layoutXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 
 			layout := &SlideLayout{
 				presentation: p,
