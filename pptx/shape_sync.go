@@ -157,6 +157,13 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 			applyShapeStyle(sp.SpPr, style)
 		}
 	}
+	// A furniture placeholder set to an auto field (slide number / date) owns
+	// its whole text body: replace it with the field body rather than flushing
+	// text-frame edits.
+	if ph, ok := shape.(*PlaceholderShape); ok && ph.fieldType != "" {
+		sp.TxBody = fieldTextBody(ph.fieldType, ph.fieldText)
+		return
+	}
 	updateTxBody(&sp.TxBody, tf)
 }
 
