@@ -198,3 +198,37 @@ func TestNoFabricatedDefaultTextStyleOnOpenedDeck(t *testing.T) {
 		t.Error("unmodified save fabricated a defaultTextStyle into a deck that had none")
 	}
 }
+
+// Theme override parts live under /ppt/theme/ next to regular themes, but
+// their content type is themeOverride+xml. Registering them as theme+xml
+// corrupts [Content_Types].xml: PowerPoint then refuses to apply the
+// per-slide color/font overrides.
+func TestThemeOverridePartKeepsItsContentType(t *testing.T) {
+	const overrideXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<a:themeOverride xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>`
+	data := addZipParts(t, savedDeck(t), map[string][]byte{
+		"ppt/theme/themeOverride1.xml": []byte(overrideXML),
+	})
+	data = rewriteZipPart(t, data, "[Content_Types].xml", func(ct []byte) []byte {
+		override := `<Override PartName="/ppt/theme/themeOverride1.xml" ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml"/></Types>`
+		return bytes.Replace(ct, []byte("</Types>"), []byte(override), 1)
+	})
+
+	p := openBytes(t, data)
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct := zipPart(t, out, "[Content_Types].xml")
+	if !bytes.Contains(ct, []byte(`PartName="/ppt/theme/themeOverride1.xml" ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml"`)) &&
+		!bytes.Contains(ct, []byte(`ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml" PartName="/ppt/theme/themeOverride1.xml"`)) {
+		t.Errorf("themeOverride1.xml not registered with the themeOverride content type:\n%s", ct)
+	}
+	// The regular theme must still be theme+xml.
+	if !bytes.Contains(ct, []byte(`application/vnd.openxmlformats-officedocument.theme+xml`)) {
+		t.Errorf("theme1.xml lost its theme content type:\n%s", ct)
+	}
+	if got := zipPart(t, out, "ppt/theme/themeOverride1.xml"); !bytes.Equal(got, []byte(overrideXML)) {
+		t.Errorf("themeOverride1.xml content changed:\n%s", got)
+	}
+}
