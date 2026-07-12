@@ -15,7 +15,7 @@ type ViewProperties struct {
 	SorterViewPr   *SorterViewProperties   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sorterViewPr,omitempty"`
 	NotesViewPr    *NotesViewProperties    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main notesViewPr,omitempty"`
 	GridSpacing    *dml.OffXML             `xml:"http://schemas.openxmlformats.org/presentationml/2006/main gridSpacing,omitempty"`
-	ExtLst         *dml.ExtLst             `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst         *ExtensionList             `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // NormalViewProperties represents CT_NormalViewProperties (p:normalViewPr)

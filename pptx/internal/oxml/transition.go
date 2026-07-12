@@ -36,7 +36,7 @@ type Transition struct {
 	Zoom        *InOutTransition          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main zoom,omitempty"`
 	// Sound action
 	SndAc       *TransitionSoundAction    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sndAc,omitempty"`
-	ExtLst      *dml.ExtLst               `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst      *ExtensionList               `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // EmptyTransition represents CT_Empty for transitions with no parameters

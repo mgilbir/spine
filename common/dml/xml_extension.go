@@ -40,6 +40,22 @@ type Ext struct {
 
 	// Fallback for unrecognized extensions (xsd:any)
 	RawContent []byte `xml:"-"`
+
+	// InlineNSDecls preserves xmlns declarations carried on the ext element
+	// itself (e.g. <a:ext uri="..." xmlns:foo="urn:foo">). They are re-emitted
+	// for unknown-URI extensions so prefixes used by RawContent stay bound.
+	InlineNSDecls []xmlb.NSDecl `xml:"-"`
+}
+
+// hasTypedContent reports whether the extension was dispatched to a typed
+// field (known URI). Typed marshaling declares its namespaces inline on the
+// child element, so the captured ext-level declarations are not re-emitted.
+func (e *Ext) hasTypedContent() bool {
+	return e.CreationId != nil || e.ColId != nil || e.RowId != nil ||
+		e.UseLocalDpi != nil || e.ShadowObscured != nil ||
+		e.HiddenFill != nil || e.HiddenLine != nil || e.HiddenEffects != nil ||
+		e.ImgProps != nil || e.SvgBlip != nil || e.ThemeFamily != nil ||
+		e.DataModelExt != nil
 }
 
 // NonVisualDrawingPropsExtension represents extension for non-visual drawing properties
@@ -140,12 +156,26 @@ type A14ImgEffect struct {
 	// Raw holds the original inner XML when no typed field matched,
 	// mirroring Ext.RawContent for unknown extension URIs.
 	Raw []byte `xml:"-"`
+
+	// InlineNSDecls preserves xmlns declarations carried on the imgEffect
+	// element itself, re-emitted with Raw so its prefixes stay bound
+	// (mirroring Ext.InlineNSDecls).
+	InlineNSDecls []xmlb.NSDecl `xml:"-"`
 }
 
 // UnmarshalXML decodes the known effect kinds into typed fields and falls back
 // to capturing the raw inner XML for unmodeled effects, so they survive
 // re-marshal instead of being deleted.
 func (v *A14ImgEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var nsDecls []xmlb.NSDecl
+	for _, attr := range start.Attr {
+		switch {
+		case attr.Name.Space == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{URI: attr.Value})
+		}
+	}
 	var aux struct {
 		Saturation *A14Saturation `xml:"http://schemas.microsoft.com/office/drawing/2010/main saturation,omitempty"`
 		Brightness *A14Brightness `xml:"http://schemas.microsoft.com/office/drawing/2010/main brightnessContrast,omitempty"`
@@ -162,6 +192,7 @@ func (v *A14ImgEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	v.ColorTemp = aux.ColorTemp
 	if v.Saturation == nil && v.Brightness == nil && v.Sharpen == nil && v.ColorTemp == nil {
 		v.Raw = aux.Inner
+		v.InlineNSDecls = nsDecls
 	}
 	return nil
 }
@@ -246,9 +277,15 @@ func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 // --- Custom UnmarshalXML for Ext ---
 
 func (e *Ext) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var nsDecls []xmlb.NSDecl
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "uri" {
+		switch {
+		case attr.Name.Local == "uri" && attr.Name.Space == "":
 			e.URI = attr.Value
+		case attr.Name.Space == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{URI: attr.Value})
 		}
 	}
 
@@ -362,7 +399,9 @@ func (e *Ext) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		e.DataModelExt = &w.V
 
 	default:
-		// Unknown extension - preserve raw bytes
+		// Unknown extension - preserve raw bytes along with any xmlns
+		// declarations the ext element carried, so re-emitted content
+		// keeps its prefixes bound.
 		var inner struct {
 			Content []byte `xml:",innerxml"`
 		}
@@ -370,6 +409,7 @@ func (e *Ext) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		e.RawContent = inner.Content
+		e.InlineNSDecls = nsDecls
 	}
 
 	return nil
@@ -385,7 +425,11 @@ const (
 )
 
 func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName, xmlb.StrAttr("uri", e.URI))
+	attrs := []xmlb.Attr{xmlb.StrAttr("uri", e.URI)}
+	if !e.hasTypedContent() {
+		attrs = xmlb.NSDeclAttrs(attrs, e.InlineNSDecls)
+	}
+	b.StartElement(ns, localName, attrs...)
 
 	switch {
 	case e.CreationId != nil:
@@ -500,12 +544,14 @@ func marshalImgLayer(b *xmlb.Builder, layer *A14ImgLayer) {
 	}
 	b.StartElement(nsA14, "imgLayer", attrs...)
 	for _, eff := range layer.ImgEffects {
-		b.StartElement(nsA14, "imgEffect")
 		if len(eff.Raw) > 0 {
-			// Unmodeled effect (e.g. artistic effects): re-emit the
-			// captured raw bytes, as the unknown-URI Ext fallback does.
+			// Unmodeled effect (e.g. artistic effects): re-emit the captured
+			// raw bytes, as the unknown-URI Ext fallback does, restoring any
+			// xmlns declarations the imgEffect element carried.
+			b.StartElement(nsA14, "imgEffect", xmlb.NSDeclAttrs(nil, eff.InlineNSDecls)...)
 			b.WriteRaw(eff.Raw)
 		} else {
+			b.StartElement(nsA14, "imgEffect")
 			b.MarshalChildren(nsA14, eff)
 		}
 		b.EndElement(nsA14, "imgEffect")

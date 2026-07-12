@@ -232,3 +232,66 @@ func TestA14ImgProps_ArtisticEffectRoundTrip(t *testing.T) {
 		t.Errorf("empty imgEffect emitted: %s", out)
 	}
 }
+
+// C36: an unknown-URI extension carrying its own xmlns declarations must
+// re-emit them, or the raw content's prefixes come out unbound (malformed
+// XML) when the part is re-marshaled through the production Builder.
+func TestDML_CT_OfficeArtExtension_UnknownWithInlineNS(t *testing.T) {
+	input := `<extLst xmlns="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+		`<ext uri="{AAAAAAAA-0000-0000-0000-000000000000}" xmlns:foo="urn:example:foo">` +
+		`<foo:thing val="7"/>` +
+		`</ext></extLst>`
+
+	var el ExtLst
+	if err := xml.Unmarshal([]byte(input), &el); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(el.Ext) != 1 {
+		t.Fatalf("Ext length = %d, want 1", len(el.Ext))
+	}
+	if got := el.Ext[0].InlineNSDecls; len(got) != 1 || got[0].Prefix != "foo" || got[0].URI != "urn:example:foo" {
+		t.Fatalf("InlineNSDecls = %+v, want xmlns:foo captured", got)
+	}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(nsA, "extLst", &el)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	want := `<a:extLst><a:ext uri="{AAAAAAAA-0000-0000-0000-000000000000}" xmlns:foo="urn:example:foo">` +
+		`<foo:thing val="7"/>` +
+		`</a:ext></a:extLst>`
+	if got := b.String(); got != want {
+		t.Errorf("round-trip mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The xmlns declarations carried on a raw-captured imgEffect element are
+// restored on re-marshal so its content's prefixes stay bound.
+func TestA14ImgEffect_InlineNSPreserved(t *testing.T) {
+	input := `<extLst xmlns="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+		` xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"` +
+		` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+		`<ext uri="{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}"><a14:imgProps><a14:imgLayer r:embed="rId2">` +
+		`<a14:imgEffect xmlns:foo="urn:example:foo"><foo:customEffect amount="1"/></a14:imgEffect>` +
+		`</a14:imgLayer></a14:imgProps></ext></extLst>`
+
+	var el ExtLst
+	if err := xml.Unmarshal([]byte(input), &el); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	effects := el.Ext[0].ImgProps.ImgLayer.ImgEffects
+	if len(effects) != 1 || len(effects[0].Raw) == 0 {
+		t.Fatalf("raw imgEffect not captured: %+v", effects)
+	}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(nsA, "extLst", &el)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `<a14:imgEffect xmlns:foo="urn:example:foo"><foo:customEffect amount="1"/></a14:imgEffect>`) {
+		t.Errorf("imgEffect xmlns declaration lost: %s", out)
+	}
+}
