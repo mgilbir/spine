@@ -2,33 +2,36 @@
 // These types represent wp: namespace elements used for inline/anchored drawings in WML.
 package dml
 
-// WPAnchor represents CT_Anchor (wp:anchor) - anchored drawing object
+// WPAnchor represents CT_Anchor (wp:anchor) - anchored drawing object.
+// relativeHeight, behindDoc, locked, layoutInCell and allowOverlap are
+// required by the XSD, so they carry no omitempty: their zero values must be
+// emitted rather than dropped.
 type WPAnchor struct {
 	DistT          *uint32 `xml:"distT,attr,omitempty"`
 	DistB          *uint32 `xml:"distB,attr,omitempty"`
 	DistL          *uint32 `xml:"distL,attr,omitempty"`
 	DistR          *uint32 `xml:"distR,attr,omitempty"`
 	SimplePos2     *bool   `xml:"simplePos,attr,omitempty"`
-	RelativeHeight uint32  `xml:"relativeHeight,attr,omitempty"`
-	BehindDoc      bool    `xml:"behindDoc,attr,omitempty"`
-	Locked         bool    `xml:"locked,attr,omitempty"`
-	LayoutInCell   bool    `xml:"layoutInCell,attr,omitempty"`
+	RelativeHeight uint32  `xml:"relativeHeight,attr"`
+	BehindDoc      bool    `xml:"behindDoc,attr"`
+	Locked         bool    `xml:"locked,attr"`
+	LayoutInCell   bool    `xml:"layoutInCell,attr"`
 	Hidden         bool    `xml:"hidden,attr,omitempty"`
-	AllowOverlap   bool    `xml:"allowOverlap,attr,omitempty"`
+	AllowOverlap   bool    `xml:"allowOverlap,attr"`
 
-	SimplePos      *WPPoint2D        `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing simplePos,omitempty"`
-	PositionH      *WPPosH           `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing positionH,omitempty"`
-	PositionV      *WPPosV           `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing positionV,omitempty"`
-	Extent         *ExtXML           `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing extent,omitempty"`
-	EffectExtent   *WPEffectExtent   `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing effectExtent,omitempty"`
-	WrapNone       *WPWrapNone       `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapNone,omitempty"`
-	WrapSquare     *WPWrapSquare     `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapSquare,omitempty"`
-	WrapTight      *WPWrapTight      `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapTight,omitempty"`
-	WrapThrough    *WPWrapThrough    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapThrough,omitempty"`
-	WrapTopAndBottom *WPWrapTopBottom `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapTopAndBottom,omitempty"`
-	DocPr          *CNvPr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing docPr,omitempty"`
-	CNvGraphicFramePr *CNvGrpSpPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvGraphicFramePr,omitempty"`
-	Graphic        *Graphic          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic,omitempty"`
+	SimplePos         *WPPoint2D         `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing simplePos,omitempty"`
+	PositionH         *WPPosH            `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing positionH,omitempty"`
+	PositionV         *WPPosV            `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing positionV,omitempty"`
+	Extent            *ExtXML            `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing extent,omitempty"`
+	EffectExtent      *WPEffectExtent    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing effectExtent,omitempty"`
+	WrapNone          *WPWrapNone        `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapNone,omitempty"`
+	WrapSquare        *WPWrapSquare      `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapSquare,omitempty"`
+	WrapTight         *WPWrapTight       `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapTight,omitempty"`
+	WrapThrough       *WPWrapThrough     `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapThrough,omitempty"`
+	WrapTopAndBottom  *WPWrapTopBottom   `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing wrapTopAndBottom,omitempty"`
+	DocPr             *CNvPr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing docPr,omitempty"`
+	CNvGraphicFramePr *CNvGraphicFramePr `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvGraphicFramePr,omitempty"`
+	Graphic           *Graphic           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic,omitempty"`
 }
 
 // WPInline represents CT_Inline (wp:inline) - inline drawing object
@@ -38,11 +41,11 @@ type WPInline struct {
 	DistL *uint32 `xml:"distL,attr,omitempty"`
 	DistR *uint32 `xml:"distR,attr,omitempty"`
 
-	Extent            *ExtXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing extent,omitempty"`
-	EffectExtent      *WPEffectExtent `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing effectExtent,omitempty"`
-	DocPr             *CNvPr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing docPr,omitempty"`
-	CNvGraphicFramePr *CNvGrpSpPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvGraphicFramePr,omitempty"`
-	Graphic           *Graphic        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic,omitempty"`
+	Extent            *ExtXML            `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing extent,omitempty"`
+	EffectExtent      *WPEffectExtent    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing effectExtent,omitempty"`
+	DocPr             *CNvPr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing docPr,omitempty"`
+	CNvGraphicFramePr *CNvGraphicFramePr `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvGraphicFramePr,omitempty"`
+	Graphic           *Graphic           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic,omitempty"`
 }
 
 // WPEffectExtent represents CT_EffectExtent (wp:effectExtent)
@@ -55,9 +58,9 @@ type WPEffectExtent struct {
 
 // WPWrapPolygon represents CT_WrapPath (wp:wrapPolygon)
 type WPWrapPolygon struct {
-	Edited bool          `xml:"edited,attr,omitempty"`
-	Start  *WPPoint2D    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing start,omitempty"`
-	LineTo []*WPPoint2D  `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing lineTo,omitempty"`
+	Edited bool         `xml:"edited,attr,omitempty"`
+	Start  *WPPoint2D   `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing start,omitempty"`
+	LineTo []*WPPoint2D `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing lineTo,omitempty"`
 }
 
 // WPPoint2D represents CT_Point2D (wp:start, wp:lineTo)

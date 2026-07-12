@@ -37,13 +37,6 @@ type GrpSpPr struct {
 	ExtLst    *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
-// CnxSpPr represents CT_NonVisualConnectorProperties (for connectors)
-type CnxSpPr struct {
-	CxnSpLocks *CxnSpLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cxnSpLocks,omitempty"`
-	StCxn      *Cxn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stCxn,omitempty"`
-	EndCxn     *Cxn        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main endCxn,omitempty"`
-}
-
 // Cxn represents CT_Connection (a:stCxn, a:endCxn)
 type Cxn struct {
 	Id  uint32 `xml:"id,attr"`
@@ -139,6 +132,25 @@ type CNvPicPr struct {
 // CNvGrpSpPr represents CT_NonVisualGroupDrawingShapeProps (a:cNvGrpSpPr)
 type CNvGrpSpPr struct {
 	GrpSpLocks *GrpSpLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpSpLocks,omitempty"`
+}
+
+// GraphicFrameLocks represents CT_GraphicalObjectFrameLocking (a:graphicFrameLocks)
+type GraphicFrameLocks struct {
+	NoGrp          bool    `xml:"noGrp,attr,omitempty"`
+	NoDrilldown    bool    `xml:"noDrilldown,attr,omitempty"`
+	NoSelect       bool    `xml:"noSelect,attr,omitempty"`
+	NoChangeAspect bool    `xml:"noChangeAspect,attr,omitempty"`
+	NoMove         bool    `xml:"noMove,attr,omitempty"`
+	NoResize       bool    `xml:"noResize,attr,omitempty"`
+	ExtLst         *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+}
+
+// CNvGraphicFramePr represents CT_NonVisualGraphicFrameProperties
+// (cNvGraphicFramePr). Its child a:graphicFrameLocks lives in the DrawingML
+// main namespace regardless of the parent's namespace.
+type CNvGraphicFramePr struct {
+	GraphicFrameLocks *GraphicFrameLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphicFrameLocks,omitempty"`
+	ExtLst            *ExtLst            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // CNvCxnSpPr represents CT_NonVisualConnectorProperties (a:cNvCxnSpPr)
