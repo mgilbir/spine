@@ -307,29 +307,69 @@ func TestAddImageJPEG(t *testing.T) {
 	}
 }
 
-// TestAddImageRejectsOpenedWorkbook guards against silently dropping images:
-// round-trip embedding is not implemented, so AddImage on a workbook opened
-// from bytes must fail fast rather than accept an image that would be lost.
-func TestAddImageRejectsOpenedWorkbook(t *testing.T) {
+// TestAddImageOnOpenedWorkbook embeds an image into a workbook opened from
+// bytes: the drawing, media, and relationship parts must be added alongside
+// the preserved content and the package must reopen cleanly.
+func TestAddImageOnOpenedWorkbook(t *testing.T) {
 	wb := Create()
 	wb.AddSheet("Sheet1")
 	buf, err := wb.WriteToBuffer()
 	if err != nil {
 		t.Fatalf("WriteToBuffer: %v", err)
 	}
-	data := buf.Bytes()
+	base := buf.Bytes()
 
-	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	reopened, err := OpenReader(bytes.NewReader(base), int64(len(base)))
 	if err != nil {
 		t.Fatalf("OpenReader: %v", err)
 	}
-	defer reopened.Close()
-
 	sheet, err := reopened.Sheet(0)
 	if err != nil {
 		t.Fatalf("Sheet(0): %v", err)
 	}
-	if err := sheet.AddImage("A1", testPNG(t, 10, 10), ImageOptions{}); err == nil {
-		t.Fatal("expected AddImage on an opened workbook to error, got nil")
+	if err := sheet.AddImage("B2", testPNG(t, 20, 10), ImageOptions{WidthPx: 200, HeightPx: 100}); err != nil {
+		t.Fatalf("AddImage on opened workbook: %v", err)
+	}
+
+	out, err := reopened.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	names := zipNames(t, out)
+	for _, want := range []string{
+		"xl/media/image1.png",
+		"xl/drawings/drawing1.xml",
+	} {
+		if !names[want] {
+			t.Errorf("missing part %q; parts=%v", want, names)
+		}
+	}
+	// The sheet part name is preserved; its rels must gain a drawing rel.
+	sheetName := strings.TrimPrefix(sheet.partName, "/")
+	relsName := ""
+	for n := range names {
+		if strings.HasSuffix(n, "_rels/"+strings.TrimPrefix(sheetName, "xl/worksheets/")+".rels") {
+			relsName = n
+		}
+	}
+	if relsName == "" {
+		t.Fatalf("sheet rels part not found; parts=%v", names)
+	}
+	rels := zipEntry(t, out, relsName)
+	if !strings.Contains(rels, "drawing") {
+		t.Errorf("sheet rels missing drawing relationship:\n%s", rels)
+	}
+	worksheet := zipEntry(t, out, sheetName)
+	if !strings.Contains(worksheet, "<drawing") {
+		t.Errorf("worksheet missing <drawing> element:\n%s", worksheet)
+	}
+	// Content types must declare the drawing part and the png extension.
+	ct := zipEntry(t, out, "[Content_Types].xml")
+	if !strings.Contains(ct, "drawing+xml") {
+		t.Errorf("[Content_Types].xml missing drawing type:\n%s", ct)
+	}
+
+	if _, err := OpenReader(bytes.NewReader(out), int64(len(out))); err != nil {
+		t.Fatalf("reopen after adding image: %v", err)
 	}
 }
