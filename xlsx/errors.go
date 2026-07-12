@@ -28,4 +28,8 @@ var (
 
 	// ErrInvalidRange indicates an invalid cell range.
 	ErrInvalidRange = errors.New("xlsx: invalid range")
+
+	// ErrNoSheets indicates an attempt to save a workbook with no sheets,
+	// which Excel does not accept (a workbook requires at least one sheet).
+	ErrNoSheets = errors.New("xlsx: workbook has no sheets")
 )
