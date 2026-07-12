@@ -368,27 +368,25 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.Properties = &w.Properties
 	}
 
-	worksheetParts := make(map[string]struct{}, len(w.sheets))
-	anySheetDirty := w.sheetsDirty
-	for _, sheet := range w.sheets {
-		if sheet.dirty {
-			anySheetDirty = true
-		}
-		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
-			worksheetParts[sheet.partName] = struct{}{}
-		}
-	}
-	stylesDirty := w.stylesDirty
-
 	// A dirty sheet can add, move or remove formulas, so a preserved
 	// calcChain.xml may reference cells that no longer hold one — a known
 	// Excel "we found a problem" repair class (C198). Drop the part together
 	// with its content-type override and workbook relationship; Excel rebuilds
 	// the calculation chain transparently on next open. Untouched workbooks
-	// keep their calcChain byte-identical. This mutates the durable model
-	// (preserved parts and w.contentTypes), so it must run before the writer
-	// snapshots the content types below.
-	dropCalcChain := anySheetDirty
+	// keep their calcChain byte-identical. Sheets that receive images in
+	// saveOpenedSheetImages below count as dirty: attaching the drawing
+	// reference re-marshals them. This mutates the durable model (preserved
+	// parts and w.contentTypes), so it must run before the writer clones the
+	// content types below.
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages()
+	if !dropCalcChain {
+		for _, sheet := range w.sheets {
+			if sheet.dirty {
+				dropCalcChain = true
+				break
+			}
+		}
+	}
 	if dropCalcChain {
 		w.dropCalcChainParts(w.mainPart())
 	}
@@ -397,9 +395,26 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// after Close has released the reader). Hand the writer a clone: Close
 	// mutates its ContentTypes (SetOverride for regenerated metadata parts),
 	// so sharing the captured instance would let repeated saves observe each
-	// other's side effects and make concurrent saves race.
+	// other's side effects and make concurrent saves race. The clone must be
+	// in place before any part is written, so overrides recorded by WritePart
+	// (e.g. for the image drawing/media parts below) land in this save's
+	// content types instead of being discarded.
 	if w.contentTypes != nil {
 		writer.ContentTypes = w.contentTypes.Clone()
+	}
+
+	// Images added to the opened workbook: write their drawing/media/rels
+	// parts first so the sheets they belong to are dirtied before
+	// worksheetParts and needRelsRebuild are computed below. The returned set
+	// names the sheet .rels parts rebuilt here, so the verbatim stream skips
+	// their stale originals.
+	var rebuiltRels map[string]bool
+	if w.sheetsHaveImages() {
+		var err error
+		rebuiltRels, err = w.saveOpenedSheetImages(writer)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Write core.xml as preserved raw bytes only when the in-memory
@@ -414,6 +429,14 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			}
 		}
 	}
+
+	worksheetParts := make(map[string]struct{}, len(w.sheets))
+	for _, sheet := range w.sheets {
+		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
+			worksheetParts[sheet.partName] = struct{}{}
+		}
+	}
+	stylesDirty := w.stylesDirty
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
 	// any sheet was modified/added/deleted or if styles were changed.
@@ -464,12 +487,16 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write non-workbook .rels files from preserved parts.
+	// Write non-workbook .rels files from preserved parts, except any sheet
+	// .rels rebuilt above to carry a new drawing relationship.
 	for _, name := range preservedNames {
 		if !strings.HasSuffix(name, ".rels") {
 			continue
 		}
 		if name == workbookRelsName {
+			continue
+		}
+		if rebuiltRels[name] {
 			continue
 		}
 		part := w.preservedParts[name]
@@ -718,24 +745,48 @@ func writeSheetDrawing(writer *opc.Writer, sheetPartName string, sheet *Sheet, d
 		return err
 	}
 
-	// Media parts + drawing -> image relationships.
+	// Media parts + drawing -> image relationships. Relationship ids are
+	// allocated sequentially so SVG images (which need two parts: the raster
+	// fallback and the SVG) don't collide with single-part raster images.
 	drawingRels := make([]*opc.Relationship, 0, len(sheet.images))
+	rels := make([]imageRels, len(sheet.images))
+	relN := 0
+	nextRelID := func() string { relN++; return fmt.Sprintf("rId%d", relN) }
+
 	for i := range sheet.images {
-		*mediaCount++
 		img := sheet.images[i]
-		mediaPartName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
-		if err := writer.WritePart(mediaPartName, img.contentType, img.data); err != nil {
+
+		*mediaCount++
+		rasterName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
+		if err := writer.WritePart(rasterName, img.contentType, img.data); err != nil {
 			return err
 		}
+		rasterRID := nextRelID()
 		drawingRels = append(drawingRels, &opc.Relationship{
-			ID:     relIDForImage(i),
+			ID:     rasterRID,
 			Type:   opc.RelTypeImage,
 			Target: fmt.Sprintf("../media/image%d.%s", *mediaCount, img.ext),
 		})
+		rels[i].rasterRID = rasterRID
+
+		if len(img.svgData) > 0 {
+			*mediaCount++
+			svgName := fmt.Sprintf("/xl/media/image%d.svg", *mediaCount)
+			if err := writer.WritePart(svgName, opc.ContentTypeSVG, img.svgData); err != nil {
+				return err
+			}
+			svgRID := nextRelID()
+			drawingRels = append(drawingRels, &opc.Relationship{
+				ID:     svgRID,
+				Type:   opc.RelTypeImage,
+				Target: fmt.Sprintf("../media/image%d.svg", *mediaCount),
+			})
+			rels[i].svgRID = svgRID
+		}
 	}
 
 	// Drawing part + its relationships.
-	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images)); err != nil {
+	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, rels)); err != nil {
 		return err
 	}
 	return writer.WritePartRelationships(drawingPartName, drawingRels)
