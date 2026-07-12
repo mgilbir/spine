@@ -82,7 +82,7 @@ func (rn *CT_RawNamedElement) MarshalNamed(b *xmlb.Builder, parentNS string) {
 	if ns == "" {
 		ns = parentNS
 	}
-	rn.CT_RawElement.MarshalToBuilder(b, ns, rn.Local)
+	rn.MarshalToBuilder(b, ns, rn.Local)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_RawElement.

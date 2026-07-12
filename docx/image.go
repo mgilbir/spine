@@ -144,7 +144,7 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 	// drawing: document.xml for body paragraphs, the header/footer part for
 	// paragraphs in a header or footer — an r:embed only resolves through the
 	// rels of the part it appears in.
-	owner := mainDocumentPart
+	owner := doc.mainPart()
 	if r.paragraph.hfPart != "" {
 		owner = r.paragraph.hfPart
 	}
