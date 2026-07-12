@@ -116,8 +116,18 @@ spec/
 ├── extract_msoi.py             # Extract implementation notes from MS-OI29500
 ├── testdata/                   # Generated test data (committed)
 ├── spectest/                   # Go test harness
-└── gen_spec/                   # Shape type generator
+└── gen_spec/                   # Optional local shape-type generator (gitignored, see below)
 ```
+
+## gen_spec (optional, not shipped)
+
+`gen_spec/` is an optional local tool derived from
+[python-pptx](https://github.com/scanny/python-pptx)'s spec-generation
+tooling (MIT-licensed). It generates shape-type constants from a local
+spec database. It is not part of this repository (gitignored, like the
+spec PDFs above) and nothing in the build or tests depends on it; if you
+obtain a copy, note that its scripts still contain the upstream author's
+local paths and need adjusting before use.
 
 ## Running the Extraction Scripts
 
