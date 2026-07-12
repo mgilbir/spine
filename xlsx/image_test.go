@@ -52,10 +52,12 @@ func zipEntry(t *testing.T, data []byte, name string) string {
 			if err != nil {
 				t.Fatalf("open %s: %v", name, err)
 			}
-			defer rc.Close()
 			var buf bytes.Buffer
 			if _, err := buf.ReadFrom(rc); err != nil {
 				t.Fatalf("read %s: %v", name, err)
+			}
+			if err := rc.Close(); err != nil {
+				t.Fatalf("close %s: %v", name, err)
 			}
 			return buf.String()
 		}
@@ -323,7 +325,11 @@ func TestAddImageRejectsOpenedWorkbook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenReader: %v", err)
 	}
-	defer reopened.Close()
+	defer func() {
+		if err := reopened.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	}()
 
 	sheet, err := reopened.Sheet(0)
 	if err != nil {
