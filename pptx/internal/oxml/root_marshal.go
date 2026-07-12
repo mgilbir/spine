@@ -44,7 +44,15 @@ func parseXSDBool(v string) *bool {
 func (s *Slide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.XMLName = start.Name
 	for _, attr := range start.Attr {
-		if attr.Name.Space == "" && attr.Name.Local == "show" {
+		if attr.Name.Space != "" {
+			continue
+		}
+		switch attr.Name.Local {
+		case "showMasterSp":
+			s.ShowMasterSp = parseXSDBool(attr.Value)
+		case "showMasterPhAnim":
+			s.ShowMasterPhAnim = parseXSDBool(attr.Value)
+		case "show":
 			s.Show = parseXSDBool(attr.Value)
 		}
 	}
@@ -139,6 +147,12 @@ func (s *Slide) marshalRootChildren(b *xmlb.Builder) {
 
 func (s *Slide) rootAttrs() []xmlb.Attr {
 	var attrs []xmlb.Attr
+	if s.ShowMasterSp != nil {
+		attrs = append(attrs, xmlb.BoolAttr("showMasterSp", *s.ShowMasterSp))
+	}
+	if s.ShowMasterPhAnim != nil {
+		attrs = append(attrs, xmlb.BoolAttr("showMasterPhAnim", *s.ShowMasterPhAnim))
+	}
 	if s.Show != nil {
 		attrs = append(attrs, xmlb.BoolAttr("show", *s.Show))
 	}
