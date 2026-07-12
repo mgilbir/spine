@@ -6,7 +6,7 @@ import "math"
 type FillType int
 
 const (
-	FillTypeNone     FillType = iota
+	FillTypeNone FillType = iota
 	FillTypeSolid
 	FillTypeGradient
 	FillTypePattern
@@ -113,7 +113,7 @@ func colorAlpha(c Color) *ColorTransform {
 	if a < 0 {
 		a = 0
 	}
-	return &ColorTransform{Val: Percentage(a)}
+	return &ColorTransform{Val: NewPercentage(int32(a))}
 }
 
 // colorToSrgbClr builds an <a:srgbClr> from a color's RGB value and opacity.
@@ -132,9 +132,9 @@ func colorToSchemeClr(c Color) *SchemeClrTransform {
 	if c.Tint != 0 {
 		tintVal := int32(math.Round(c.Tint * 100000))
 		if c.Tint > 0 {
-			scheme.Tint = append(scheme.Tint, &ColorTransform{Val: Percentage(tintVal)})
+			scheme.Tint = append(scheme.Tint, &ColorTransform{Val: NewPercentage(tintVal)})
 		} else {
-			scheme.Shade = append(scheme.Shade, &ColorTransform{Val: Percentage(-tintVal)})
+			scheme.Shade = append(scheme.Shade, &ColorTransform{Val: NewPercentage(-tintVal)})
 		}
 	}
 	if a := colorAlpha(c); a != nil {
@@ -184,7 +184,7 @@ func (g *gradientFillDef) toXML() *GradFill {
 		},
 	}
 	for _, stop := range g.stops {
-		gs := &Gs{Pos: int32(math.Round(stop.Position * 100000))}
+		gs := &Gs{Pos: NewPercentage(int32(math.Round(stop.Position * 100000)))}
 		// Route the stop color to the correct color-choice element so theme
 		// colors are not silently rendered as black.
 		if stop.Color.Type == ColorTypeTheme {

@@ -132,11 +132,11 @@ func TestDML_SrcRect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.L != 5000 {
-		t.Errorf("L = %d, want 5000", v.L)
+	if v.L.Int32() != 5000 {
+		t.Errorf("L = %d, want 5000", v.L.Int32())
 	}
-	if v.T != 10000 {
-		t.Errorf("T = %d, want 10000", v.T)
+	if v.T.Int32() != 10000 {
+		t.Errorf("T = %d, want 10000", v.T.Int32())
 	}
 }
 
@@ -183,10 +183,10 @@ func TestDML_CropRect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.L != 15000 {
-		t.Errorf("L = %d, want 15000", v.L)
+	if v.L.Int32() != 15000 {
+		t.Errorf("L = %d, want 15000", v.L.Int32())
 	}
-	if v.T != 20000 {
-		t.Errorf("T = %d, want 20000", v.T)
+	if v.T.Int32() != 20000 {
+		t.Errorf("T = %d, want 20000", v.T.Int32())
 	}
 }

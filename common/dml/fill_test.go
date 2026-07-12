@@ -82,8 +82,8 @@ func TestNewSolidFill_ThemeWithTint(t *testing.T) {
 	if len(spPr.SolidFill.SchemeClr.Tint) != 1 {
 		t.Fatalf("expected 1 tint transform, got %d", len(spPr.SolidFill.SchemeClr.Tint))
 	}
-	if spPr.SolidFill.SchemeClr.Tint[0].Val != 50000 {
-		t.Errorf("Tint.Val = %d, want 50000", spPr.SolidFill.SchemeClr.Tint[0].Val)
+	if spPr.SolidFill.SchemeClr.Tint[0].Val.Int32() != 50000 {
+		t.Errorf("Tint.Val = %d, want 50000", spPr.SolidFill.SchemeClr.Tint[0].Val.Int32())
 	}
 }
 
@@ -100,8 +100,8 @@ func TestNewSolidFill_ThemeWithShade(t *testing.T) {
 	if len(spPr.SolidFill.SchemeClr.Shade) != 1 {
 		t.Fatalf("expected 1 shade transform, got %d", len(spPr.SolidFill.SchemeClr.Shade))
 	}
-	if spPr.SolidFill.SchemeClr.Shade[0].Val != 25000 {
-		t.Errorf("Shade.Val = %d, want 25000", spPr.SolidFill.SchemeClr.Shade[0].Val)
+	if spPr.SolidFill.SchemeClr.Shade[0].Val.Int32() != 25000 {
+		t.Errorf("Shade.Val = %d, want 25000", spPr.SolidFill.SchemeClr.Shade[0].Val.Int32())
 	}
 }
 
@@ -118,8 +118,8 @@ func TestNewSolidFill_WithAlpha(t *testing.T) {
 	if spPr.SolidFill.SrgbClr.Alpha == nil {
 		t.Fatal("expected Alpha to be set")
 	}
-	if spPr.SolidFill.SrgbClr.Alpha.Val != 50000 {
-		t.Errorf("Alpha.Val = %d, want 50000", spPr.SolidFill.SrgbClr.Alpha.Val)
+	if spPr.SolidFill.SrgbClr.Alpha.Val.Int32() != 50000 {
+		t.Errorf("Alpha.Val = %d, want 50000", spPr.SolidFill.SrgbClr.Alpha.Val.Int32())
 	}
 }
 
@@ -162,16 +162,16 @@ func TestNewGradientFill(t *testing.T) {
 	}
 
 	// First stop: position 0
-	if gf.GsLst.Gs[0].Pos != 0 {
-		t.Errorf("stop 0 Pos = %d, want 0", gf.GsLst.Gs[0].Pos)
+	if gf.GsLst.Gs[0].Pos.Int32() != 0 {
+		t.Errorf("stop 0 Pos = %d, want 0", gf.GsLst.Gs[0].Pos.Int32())
 	}
 	if gf.GsLst.Gs[0].SrgbClr == nil || gf.GsLst.Gs[0].SrgbClr.Val != "4472C4" {
 		t.Errorf("stop 0 color incorrect")
 	}
 
 	// Second stop: position 100000 (1.0 * 100000)
-	if gf.GsLst.Gs[1].Pos != 100000 {
-		t.Errorf("stop 1 Pos = %d, want 100000", gf.GsLst.Gs[1].Pos)
+	if gf.GsLst.Gs[1].Pos.Int32() != 100000 {
+		t.Errorf("stop 1 Pos = %d, want 100000", gf.GsLst.Gs[1].Pos.Int32())
 	}
 	if gf.GsLst.Gs[1].SrgbClr == nil || gf.GsLst.Gs[1].SrgbClr.Val != "FFFFFF" {
 		t.Errorf("stop 1 color incorrect")

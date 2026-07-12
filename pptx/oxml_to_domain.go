@@ -362,10 +362,10 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 			}
 		}
 		if pic.BlipFill.SrcRect != nil {
-			p.cropLeft = float64(pic.BlipFill.SrcRect.L) / 100000.0
-			p.cropTop = float64(pic.BlipFill.SrcRect.T) / 100000.0
-			p.cropRight = float64(pic.BlipFill.SrcRect.R) / 100000.0
-			p.cropBottom = float64(pic.BlipFill.SrcRect.B) / 100000.0
+			p.cropLeft = float64(pic.BlipFill.SrcRect.L.Int32()) / 100000.0
+			p.cropTop = float64(pic.BlipFill.SrcRect.T.Int32()) / 100000.0
+			p.cropRight = float64(pic.BlipFill.SrcRect.R.Int32()) / 100000.0
+			p.cropBottom = float64(pic.BlipFill.SrcRect.B.Int32()) / 100000.0
 		}
 	}
 
@@ -628,7 +628,7 @@ func oxmlToParagraph(p *dml.P) *Paragraph {
 
 		// Line spacing
 		if p.PPr.LnSpc != nil && p.PPr.LnSpc.SpcPct != nil {
-			para.lineSpacing = int32(p.PPr.LnSpc.SpcPct.Val)
+			para.lineSpacing = p.PPr.LnSpc.SpcPct.Val.Int32()
 		}
 
 		// Space before/after

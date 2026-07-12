@@ -76,7 +76,7 @@ func TestDML_CT_ReflectionEffect(t *testing.T) {
 	if v.BlurRad == nil || *v.BlurRad != 6350 {
 		t.Errorf("BlurRad = %v, want 6350", v.BlurRad)
 	}
-	if v.StA == nil || *v.StA != 50000 {
+	if v.StA == nil || v.StA.Int32() != 50000 {
 		t.Errorf("StA = %v, want 50000", v.StA)
 	}
 }
@@ -152,8 +152,8 @@ func TestDML_CT_AlphaModulateFixedEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Amt != 50000 {
-		t.Errorf("Amt = %d, want 50000", v.Amt)
+	if v.Amt.Int32() != 50000 {
+		t.Errorf("Amt = %d, want 50000", v.Amt.Int32())
 	}
 }
 
@@ -164,8 +164,8 @@ func TestDML_CT_BiLevelEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Thresh != 50000 {
-		t.Errorf("Thresh = %d, want 50000", v.Thresh)
+	if v.Thresh.Int32() != 50000 {
+		t.Errorf("Thresh = %d, want 50000", v.Thresh.Int32())
 	}
 }
 
@@ -186,8 +186,8 @@ func TestDML_CT_HSLEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Sat != 100000 {
-		t.Errorf("Sat = %d, want 100000", v.Sat)
+	if v.Sat.Int32() != 100000 {
+		t.Errorf("Sat = %d, want 100000", v.Sat.Int32())
 	}
 }
 
@@ -198,8 +198,8 @@ func TestDML_CT_LuminanceEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Bright != 20000 {
-		t.Errorf("Bright = %d, want 20000", v.Bright)
+	if v.Bright.Int32() != 20000 {
+		t.Errorf("Bright = %d, want 20000", v.Bright.Int32())
 	}
 }
 
