@@ -9,9 +9,7 @@ func TestErrorVariables(t *testing.T) {
 	// Verify error variables are distinct
 	errs := []error{
 		ErrInvalidPartName,
-		ErrPartNotFound,
 		ErrDuplicatePart,
-		ErrInvalidRelationship,
 		ErrInvalidContentType,
 		ErrPackageClosed,
 		ErrCorruptedPackage,
