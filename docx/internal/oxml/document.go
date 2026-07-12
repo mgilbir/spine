@@ -330,8 +330,8 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 		}
 	default:
 		if raw != nil && isRawBodyChild(t.Name.Local) {
-			v := &CT_RawNamedElement{Local: t.Name.Local}
-			if err := d.DecodeElement(&v.CT_RawElement, t); err != nil {
+			v := &CT_RawNamedElement{}
+			if err := d.DecodeElement(v, t); err != nil {
 				return err
 			}
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildRaw, len(*raw)})
@@ -377,7 +377,7 @@ func marshalBodyContent(b *xmlb.Builder, ns string,
 				}
 			case bodyChildRaw:
 				if ref.index < len(raw) {
-					raw[ref.index].MarshalToBuilder(b, ns, raw[ref.index].Local)
+					raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}

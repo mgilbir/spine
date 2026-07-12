@@ -119,6 +119,11 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	if hType == HeaderFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
+	// An even-page header only renders when settings.xml carries
+	// w:evenAndOddHeaders.
+	if hType == HeaderEven {
+		d.ensureEvenAndOddHeaders()
+	}
 
 	h := &Header{document: d, hdr: hdr, relID: relID, partName: partName}
 
@@ -186,6 +191,11 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	if fType == FooterFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
+	// An even-page footer only renders when settings.xml carries
+	// w:evenAndOddHeaders (the flag covers both headers and footers).
+	if fType == FooterEven {
+		d.ensureEvenAndOddHeaders()
+	}
 
 	f := &Footer{document: d, ftr: ftr, relID: relID, partName: partName}
 
@@ -208,6 +218,20 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	})
 
 	return f
+}
+
+// ensureEvenAndOddHeaders makes sure settings.xml declares
+// w:evenAndOddHeaders, creating the settings model when the document has
+// none. The modified flag makes the save path regenerate (or newly write) the
+// settings part; a document whose settings already carry the flag is left
+// untouched so a zero-modification save stays byte-identical.
+func (d *Document) ensureEvenAndOddHeaders() {
+	if d.settings == nil {
+		d.settings = &oxml.CT_Settings{}
+	}
+	if d.settings.EnsureEvenAndOddHeaders() {
+		d.settingsModified = true
+	}
 }
 
 // AddParagraph adds a paragraph to the header.
