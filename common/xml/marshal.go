@@ -252,6 +252,12 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 		}
 
 		fval := val.Field(i)
+		// A nil pointer has no value to emit: omit the attribute even without
+		// omitempty, matching encoding/xml (previously the Builder diverged
+		// and emitted attr="").
+		if fval.Kind() == reflect.Ptr && fval.IsNil() {
+			continue
+		}
 		if info.omitempty && isZeroValue(fval) {
 			continue
 		}
