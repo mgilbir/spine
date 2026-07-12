@@ -331,8 +331,8 @@ func TestDML_CT_TextTabStop(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Pos != 914400 {
-		t.Errorf("Pos = %d, want 914400", v.Pos)
+	if v.Pos == nil || *v.Pos != 914400 {
+		t.Errorf("Pos = %v, want 914400", v.Pos)
 	}
 	if v.Algn != "l" {
 		t.Errorf("Algn = %q, want l", v.Algn)

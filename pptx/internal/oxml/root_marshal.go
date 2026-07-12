@@ -200,6 +200,7 @@ func (sl *SlideLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 			}
 		case "matchingName":
 			sl.MatchingName = attr.Value
+			sl.MatchingNamePresent = true
 		}
 	}
 	anchor := ""
@@ -307,7 +308,8 @@ func (sl *SlideLayout) rootAttrs() []xmlb.Attr {
 		attrs = append(attrs, xmlb.BoolAttr("showMasterPhAnim", *sl.ShowMasterPhAnim))
 	}
 	// PowerPoint's attribute order: matchingName, type, preserve, userDrawn.
-	if sl.MatchingName != "" {
+	// An explicit matchingName="" in the source is re-emitted.
+	if sl.MatchingName != "" || sl.MatchingNamePresent {
 		attrs = append(attrs, xmlb.StrAttr("matchingName", sl.MatchingName))
 	}
 	if sl.Type != "" {

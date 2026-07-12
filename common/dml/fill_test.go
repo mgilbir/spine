@@ -147,8 +147,8 @@ func TestNewGradientFill(t *testing.T) {
 		t.Fatal("expected Lin to be set")
 	}
 	// 90 degrees * 60000 = 5400000
-	if gf.Lin.Ang != 5400000 {
-		t.Errorf("Lin.Ang = %d, want 5400000", gf.Lin.Ang)
+	if gf.Lin.Ang == nil || *gf.Lin.Ang != 5400000 {
+		t.Errorf("Lin.Ang = %v, want 5400000", gf.Lin.Ang)
 	}
 	if gf.Lin.Scaled == nil || !*gf.Lin.Scaled {
 		t.Error("expected Scaled to be true")

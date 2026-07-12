@@ -127,8 +127,8 @@ func TestDML_CT_TableRow(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.H != 370840 {
-		t.Errorf("H = %d, want 370840", v.H)
+	if v.H == nil || *v.H != 370840 {
+		t.Errorf("H = %v, want 370840", v.H)
 	}
 	if len(v.Tc) != 1 {
 		t.Errorf("Tc length = %d, want 1", len(v.Tc))
