@@ -20,13 +20,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	b.SetSelfClosingSpace(wb.SelfClosingSpace)
 	b.SetElementSeparator(wb.ElemSeparator)
 
-	if wb.OriginalXMLSep != "" {
-		// Use original separator between XML declaration and root element
-		b.WriteRaw([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"))
-		b.WriteRaw([]byte(wb.OriginalXMLSep))
-	} else {
-		b.WriteHeader()
-	}
+	b.WriteProlog(wb.Prolog)
 
 	if len(wb.OriginalRootAttrs) > 0 {
 		// Use preserved root attributes in their original order
@@ -53,6 +47,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	}
 
 	b.EndElement(nsSML, "workbook")
+	b.WriteTrailer(wb.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("xlsx: marshal workbook.xml: %w", err)
 	}

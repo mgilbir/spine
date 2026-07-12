@@ -12,12 +12,15 @@ type CT_Document struct {
 	// Ignorable is the mc:Ignorable attribute value.
 	Ignorable string `xml:"-"`
 	// Conformance is the w:conformance attribute (e.g. "strict"/"transitional").
-	Conformance string        `xml:"-"`
-	Body        *CT_Body      `xml:"-"`
+	Conformance string         `xml:"-"`
+	Body        *CT_Body       `xml:"-"`
 	Background  *CT_Background `xml:"-"`
 	// OriginalNSDecls preserves the namespace declarations from the original XML
 	// for byte-identical round-trip of document.xml.
 	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration.
+	Prolog xmlb.Prolog `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Document.
@@ -124,12 +127,12 @@ type CT_Body struct {
 	P             []*CT_P             `xml:"-"`
 	Tbl           []*CT_Tbl           `xml:"-"`
 	SdtBlock      []*CT_SdtBlock      `xml:"-"`
-	BookmarkStart []*CT_BookmarkStart  `xml:"-"`
-	BookmarkEnd   []*CT_BookmarkEnd    `xml:"-"`
+	BookmarkStart []*CT_BookmarkStart `xml:"-"`
+	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
 	// Raw holds block-level children preserved verbatim (see isRawBodyChild).
-	Raw    []*CT_RawNamedElement `xml:"-"`
-	SectPr *CT_SectPr            `xml:"-"`
-	childOrder    []bodyChildRef
+	Raw        []*CT_RawNamedElement `xml:"-"`
+	SectPr     *CT_SectPr            `xml:"-"`
+	childOrder []bodyChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Body to preserve child order.

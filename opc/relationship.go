@@ -156,6 +156,28 @@ func MarshalRelationships(rels []*Relationship) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// RelationshipsEqual reports whether a and b contain the same relationships in
+// the same order. Save paths use it to detect that a parsed relationship set
+// was not modified, so the source .rels bytes can be preserved verbatim
+// instead of regenerated in canonical form.
+func RelationshipsEqual(a, b []*Relationship) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] == nil || b[i] == nil {
+			if a[i] != b[i] {
+				return false
+			}
+			continue
+		}
+		if *a[i] != *b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // UnmarshalRelationships parses relationship XML into a slice of relationships.
 func UnmarshalRelationships(data []byte) ([]*Relationship, error) {
 	var relsXML relationshipsXML

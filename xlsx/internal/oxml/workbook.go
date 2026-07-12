@@ -60,9 +60,10 @@ type CT_Workbook struct {
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
 	// OriginalNSDecls preserves namespace declarations (fallback for new workbooks).
 	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
-	// OriginalXMLSep is the bytes between the XML declaration and the root element
-	// (e.g., "\r\n" or "\n "). Set from raw part data during loading.
-	OriginalXMLSep string `xml:"-"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration. Set from raw part data
+	// during loading.
+	Prolog xmlb.Prolog `xml:"-"`
 	// SelfClosingSpace controls whether self-closing elements use " />" (true) or "/>" (false).
 	SelfClosingSpace bool `xml:"-"`
 	// ElemSeparator is whitespace inserted between sibling elements (e.g., " " for spaced format).
