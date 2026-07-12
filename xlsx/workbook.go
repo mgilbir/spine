@@ -101,7 +101,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 
 	// Extract formatting details from the raw XML for byte-identical round-trip.
 	wb.Prolog = xmlb.CaptureProlog(data)
-	wb.SelfClosingSpace = detectSelfClosingSpace(data)
+	wb.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 
 	w := &Workbook{
 		reader:         reader,
@@ -1283,28 +1283,4 @@ func (w *Workbook) DefinedNames() []DefinedName {
 		}
 	}
 	return result
-}
-
-// detectSelfClosingSpace detects whether the XML uses " />" (space before close)
-// for self-closing elements, vs "/>" (no space).
-func detectSelfClosingSpace(data []byte) bool {
-	// Look for the first self-closing element after the root element's opening tag.
-	// Find end of XML declaration, then find end of root opening tag.
-	start := bytes.Index(data, []byte("?>"))
-	if start < 0 {
-		start = 0
-	}
-	// Find root element's closing >
-	rootOpen := bytes.Index(data[start:], []byte(">"))
-	if rootOpen < 0 {
-		return false
-	}
-	searchFrom := start + rootOpen + 1
-	// Find first /> in the body
-	idx := bytes.Index(data[searchFrom:], []byte("/>"))
-	if idx < 0 {
-		return false
-	}
-	absIdx := searchFrom + idx
-	return absIdx > 0 && data[absIdx-1] == ' '
 }

@@ -12,6 +12,8 @@ const nsW = xmlb.NSWordprocessingML
 // marshalDocumentXML marshals a document to XML.
 func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
+	b.SetSelfClosingSpace(doc.SelfClosingSpace)
+	b.SetCollapseEmptyElements(doc.CollapseEmpty)
 	b.WriteProlog(doc.Prolog)
 
 	var attrs []xmlb.Attr

@@ -21,6 +21,11 @@ type CT_Document struct {
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
 	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty bool `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Document.
