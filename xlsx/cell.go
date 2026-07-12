@@ -414,7 +414,13 @@ type CellStyle struct {
 	Fill      *FillStyle
 	Border    *BorderStyle
 	Alignment *AlignmentStyle
-	Format    string // number format
+	// Format is a number format code string (e.g. "0.00" or a custom code).
+	// It takes precedence over NumberFormatID when both are set.
+	Format string
+	// NumberFormatID applies a number format by its id, letting callers use
+	// the built-in NumberFormat* constants (e.g. NumberFormatDate) directly
+	// without spelling out the format code (C131). Zero means General.
+	NumberFormatID int
 }
 
 // FontStyle represents font styling.

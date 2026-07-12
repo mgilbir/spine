@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
 func TestStyleManager_NewCellStyle_Font(t *testing.T) {
@@ -429,5 +431,73 @@ func TestNewCellStyle_RejectsInvalidAlignment(t *testing.T) {
 	}
 	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Indent: 2, Rotation: 45}}); err != nil {
 		t.Errorf("valid alignment rejected: %v", err)
+	}
+}
+
+// C131: built-in number format ids must be usable directly through the
+// public style API.
+func TestNewCellStyle_BuiltinNumberFormatID(t *testing.T) {
+	sm := newStyleManager(nil, nil)
+
+	idx, err := sm.NewCellStyle(CellStyle{NumberFormatID: NumberFormatDate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xf := sm.stylesheet.CellXfs.Xf[idx]
+	if xf.NumFmtId == nil || *xf.NumFmtId != 14 {
+		t.Errorf("NumFmtId = %v, want 14", xf.NumFmtId)
+	}
+	if xf.ApplyNumberFormat == nil || !*xf.ApplyNumberFormat {
+		t.Errorf("ApplyNumberFormat = %v, want true", xf.ApplyNumberFormat)
+	}
+
+	got, err := sm.GetCellStyle(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NumberFormatID != 14 {
+		t.Errorf("GetCellStyle NumberFormatID = %d, want 14", got.NumberFormatID)
+	}
+
+	if _, err := sm.NewCellStyle(CellStyle{NumberFormatID: -3}); err == nil {
+		t.Error("negative number format id accepted")
+	}
+
+	// A format code string wins over the id when both are set.
+	idx2, err := sm.NewCellStyle(CellStyle{Format: "0.00", NumberFormatID: NumberFormatDate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if xf2 := sm.stylesheet.CellXfs.Xf[idx2]; xf2.NumFmtId == nil || *xf2.NumFmtId != 2 {
+		t.Errorf("NumFmtId = %v, want 2 (format code precedence)", xf2.NumFmtId)
+	}
+}
+
+// C232: a parsed xf carrying protection (or quotePrefix) must not be reused
+// for a plain style that specified neither.
+func TestNewCellStyle_NoDedupeOntoProtectedXf(t *testing.T) {
+	sm := newStyleManager(nil, nil)
+	ss := sm.stylesheet
+
+	// Simulate a parsed cellXfs entry: same ids as a plain default style but
+	// with locked+hidden protection applied.
+	yes := true
+	zero := uint32(0)
+	ss.CellXfs.Xf = append(ss.CellXfs.Xf, oxml.CT_Xf{
+		NumFmtId: &zero, FontId: &zero, FillId: &zero, BorderId: &zero, XfId: &zero,
+		ApplyProtection: &yes,
+		Protection:      &oxml.CT_CellProtection{Locked: &yes, Hidden: &yes},
+	})
+	protectedIdx := uint32(len(ss.CellXfs.Xf) - 1)
+
+	idx, err := sm.NewCellStyle(CellStyle{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx == protectedIdx {
+		t.Fatalf("plain style deduped onto the protected xf %d", protectedIdx)
+	}
+	if got := ss.CellXfs.Xf[idx]; got.Protection != nil || got.ApplyProtection != nil {
+		t.Errorf("plain style xf carries protection: %+v", got)
 	}
 }
