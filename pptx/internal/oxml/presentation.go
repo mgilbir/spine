@@ -11,41 +11,41 @@ import (
 // Presentation is the root element of presentation.xml.
 // Based on CT_Presentation from pml.xsd
 type Presentation struct {
-	XMLName         xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
-	XmlnsA          string           `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR          string           `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP          string           `xml:"xmlns:p,attr,omitempty"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
+	XmlnsA  string   `xml:"xmlns:a,attr,omitempty"`
+	XmlnsR  string   `xml:"xmlns:r,attr,omitempty"`
+	XmlnsP  string   `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
-	ServerZoom              string `xml:"serverZoom,attr,omitempty"`
-	FirstSlideNum           *int   `xml:"firstSlideNum,attr,omitempty"`
-	ShowSpecialPlsOnTitleSld *bool  `xml:"showSpecialPlsOnTitleSld,attr,omitempty"`
-	Rtl                     *bool  `xml:"rtl,attr,omitempty"`
-	RemovePersonalInfoOnSave *bool  `xml:"removePersonalInfoOnSave,attr,omitempty"`
-	CompatMode              *bool  `xml:"compatMode,attr,omitempty"`
-	StrictFirstAndLastChars *bool  `xml:"strictFirstAndLastChars,attr,omitempty"`
-	EmbedTrueTypeFonts      *bool  `xml:"embedTrueTypeFonts,attr,omitempty"`
-	SaveSubsetFonts         *bool  `xml:"saveSubsetFonts,attr,omitempty"`
-	AutoCompressPictures    *bool  `xml:"autoCompressPictures,attr,omitempty"`
-	BookmarkIdSeed          *uint32 `xml:"bookmarkIdSeed,attr,omitempty"`
-	Conformance             string `xml:"conformance,attr,omitempty"`
+	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`
+	FirstSlideNum            *int    `xml:"firstSlideNum,attr,omitempty"`
+	ShowSpecialPlsOnTitleSld *bool   `xml:"showSpecialPlsOnTitleSld,attr,omitempty"`
+	Rtl                      *bool   `xml:"rtl,attr,omitempty"`
+	RemovePersonalInfoOnSave *bool   `xml:"removePersonalInfoOnSave,attr,omitempty"`
+	CompatMode               *bool   `xml:"compatMode,attr,omitempty"`
+	StrictFirstAndLastChars  *bool   `xml:"strictFirstAndLastChars,attr,omitempty"`
+	EmbedTrueTypeFonts       *bool   `xml:"embedTrueTypeFonts,attr,omitempty"`
+	SaveSubsetFonts          *bool   `xml:"saveSubsetFonts,attr,omitempty"`
+	AutoCompressPictures     *bool   `xml:"autoCompressPictures,attr,omitempty"`
+	BookmarkIdSeed           *uint32 `xml:"bookmarkIdSeed,attr,omitempty"`
+	Conformance              string  `xml:"conformance,attr,omitempty"`
 
 	// Elements from CT_Presentation (pml.xsd lines 1040-1055)
-	SlideMasterIDs   *SlideMasterIDs  `xml:"sldMasterIdLst,omitempty"`
-	NotesMasterIDs   *NotesMasterIDs  `xml:"notesMasterIdLst,omitempty"`
+	SlideMasterIDs   *SlideMasterIDs   `xml:"sldMasterIdLst,omitempty"`
+	NotesMasterIDs   *NotesMasterIDs   `xml:"notesMasterIdLst,omitempty"`
 	HandoutMasterIDs *HandoutMasterIDs `xml:"handoutMasterIdLst,omitempty"`
-	SlideIDs         *SlideIDs        `xml:"sldIdLst,omitempty"`
-	SlideSize        *SlideSize       `xml:"sldSz,omitempty"`
-	NotesSize        *SlideSize       `xml:"notesSz,omitempty"`
-	SmartTags        *SmartTags       `xml:"smartTags,omitempty"`
+	SlideIDs         *SlideIDs         `xml:"sldIdLst,omitempty"`
+	SlideSize        *SlideSize        `xml:"sldSz,omitempty"`
+	NotesSize        *SlideSize        `xml:"notesSz,omitempty"`
+	SmartTags        *SmartTags        `xml:"smartTags,omitempty"`
 	EmbeddedFontLst  *EmbeddedFontList `xml:"embeddedFontLst,omitempty"`
-	CustShowLst      *CustomShowList  `xml:"custShowLst,omitempty"`
-	PhotoAlbum       *PhotoAlbum      `xml:"photoAlbum,omitempty"`
+	CustShowLst      *CustomShowList   `xml:"custShowLst,omitempty"`
+	PhotoAlbum       *PhotoAlbum       `xml:"photoAlbum,omitempty"`
 	CustDataLst      *CustomerDataList `xml:"custDataLst,omitempty"`
-	Kinsoku          *Kinsoku         `xml:"kinsoku,omitempty"`
-	DefaultTextStyle *dml.LstStyle    `xml:"defaultTextStyle,omitempty"`
-	ModifyVerifier   *ModifyVerifier  `xml:"modifyVerifier,omitempty"`
-	ExtLst           *ExtensionList   `xml:"extLst,omitempty"`
+	Kinsoku          *Kinsoku          `xml:"kinsoku,omitempty"`
+	DefaultTextStyle *dml.LstStyle     `xml:"defaultTextStyle,omitempty"`
+	ModifyVerifier   *ModifyVerifier   `xml:"modifyVerifier,omitempty"`
+	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
 }
 
 // NotesMasterIDs contains a list of notes master ID references.
@@ -82,10 +82,10 @@ type EmbeddedFontList struct {
 
 // EmbeddedFont represents an embedded font.
 type EmbeddedFont struct {
-	Font    *TextFont `xml:"font,omitempty"`
-	Regular *EmbeddedFontData `xml:"regular,omitempty"`
-	Bold    *EmbeddedFontData `xml:"bold,omitempty"`
-	Italic  *EmbeddedFontData `xml:"italic,omitempty"`
+	Font       *TextFont         `xml:"font,omitempty"`
+	Regular    *EmbeddedFontData `xml:"regular,omitempty"`
+	Bold       *EmbeddedFontData `xml:"bold,omitempty"`
+	Italic     *EmbeddedFontData `xml:"italic,omitempty"`
 	BoldItalic *EmbeddedFontData `xml:"boldItalic,omitempty"`
 }
 
@@ -116,11 +116,11 @@ type SlideRelationshipList struct {
 
 // PhotoAlbum contains photo album settings.
 type PhotoAlbum struct {
-	Bw       *bool  `xml:"bw,attr,omitempty"`
-	ShowCaptions *bool `xml:"showCaptions,attr,omitempty"`
-	Layout   string `xml:"layout,attr,omitempty"`
-	Frame    string `xml:"frame,attr,omitempty"`
-	ExtLst   *ExtensionList `xml:"extLst,omitempty"`
+	Bw           *bool          `xml:"bw,attr,omitempty"`
+	ShowCaptions *bool          `xml:"showCaptions,attr,omitempty"`
+	Layout       string         `xml:"layout,attr,omitempty"`
+	Frame        string         `xml:"frame,attr,omitempty"`
+	ExtLst       *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // CustomerDataList contains custom data.
@@ -141,20 +141,20 @@ type Tags struct {
 
 // Kinsoku contains kinsoku settings for East Asian text.
 type Kinsoku struct {
-	Lang    string `xml:"lang,attr,omitempty"`
-	InvalStChars string `xml:"invalStChars,attr,omitempty"`
+	Lang          string `xml:"lang,attr,omitempty"`
+	InvalStChars  string `xml:"invalStChars,attr,omitempty"`
 	InvalEndChars string `xml:"invalEndChars,attr,omitempty"`
 }
 
 // ModifyVerifier contains modify verification settings.
 type ModifyVerifier struct {
-	CryptProviderType string `xml:"cryptProviderType,attr,omitempty"`
-	CryptAlgorithmClass string `xml:"cryptAlgorithmClass,attr,omitempty"`
-	CryptAlgorithmType string `xml:"cryptAlgorithmType,attr,omitempty"`
-	CryptAlgorithmSid *uint32 `xml:"cryptAlgorithmSid,attr,omitempty"`
-	SpinCount *uint32 `xml:"spinCount,attr,omitempty"`
-	SaltData string `xml:"saltData,attr,omitempty"`
-	HashData string `xml:"hashData,attr,omitempty"`
+	CryptProviderType   string  `xml:"cryptProviderType,attr,omitempty"`
+	CryptAlgorithmClass string  `xml:"cryptAlgorithmClass,attr,omitempty"`
+	CryptAlgorithmType  string  `xml:"cryptAlgorithmType,attr,omitempty"`
+	CryptAlgorithmSid   *uint32 `xml:"cryptAlgorithmSid,attr,omitempty"`
+	SpinCount           *uint32 `xml:"spinCount,attr,omitempty"`
+	SaltData            string  `xml:"saltData,attr,omitempty"`
+	HashData            string  `xml:"hashData,attr,omitempty"`
 }
 
 // PPTX namespace constants
