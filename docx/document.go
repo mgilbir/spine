@@ -52,6 +52,9 @@ type Document struct {
 	// preserved original bytes.
 	numberingModified bool
 	settingsModified  bool
+	// dirEntries preserves the source archive's zip directory entries
+	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
+	dirEntries []string
 }
 
 // mainDocumentPart is the default name of the main document part. Image
@@ -141,6 +144,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		reader:         reader,
 		document:       &doc,
 		mainPartName:   mainPartName,
+		dirEntries:     reader.DirectoryEntries,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
 		otherParts:     make(map[string]*coxml.RawPart),
@@ -344,6 +348,12 @@ func (d *Document) Close() error {
 func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	if d.hasCoreProps {
 		writer.Properties = &d.Properties
+	}
+
+	// Re-emit the source archive's directory entries (some producers write
+	// them; OPC ignores them but a faithful save keeps the entry listing).
+	if err := writer.WriteDirectoryEntries(d.dirEntries); err != nil {
+		return err
 	}
 
 	// Preserve original content types. Hand the writer a clone: Close mutates

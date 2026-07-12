@@ -41,6 +41,9 @@ type Workbook struct {
 	stylesDirty    bool
 	sheetsDirty    bool
 	stringTable    []string // plain text values extracted from shared strings
+	// dirEntries preserves the source archive's zip directory entries
+	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
+	dirEntries []string
 }
 
 // Open opens an Excel workbook from a file path.
@@ -107,6 +110,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
+		dirEntries:     reader.DirectoryEntries,
 	}
 
 	if reader.Properties != nil {
@@ -366,6 +370,12 @@ func (w *Workbook) Close() error {
 func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	if w.hasCoreProps {
 		writer.Properties = &w.Properties
+	}
+
+	// Re-emit the source archive's directory entries (some producers write
+	// them; OPC ignores them but a faithful save keeps the entry listing).
+	if err := writer.WriteDirectoryEntries(w.dirEntries); err != nil {
+		return err
 	}
 
 	worksheetParts := make(map[string]struct{}, len(w.sheets))

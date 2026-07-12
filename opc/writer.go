@@ -150,6 +150,37 @@ func (w *Writer) WritePreservedPart(name, contentType string, data []byte) error
 	return err
 }
 
+// WriteDirectoryEntries writes zero-length zip directory entries (names ending
+// in "/"). OPC consumers ignore directory entries, but re-emitting the ones a
+// source archive carried (Reader.DirectoryEntries) keeps a round-tripped
+// package's entry listing faithful to its producer. Names that do not end in
+// "/" or that were already written are skipped rather than rejected, so a
+// caller can replay a captured list verbatim.
+func (w *Writer) WriteDirectoryEntries(names []string) error {
+	if w.closed {
+		return ErrPackageClosed
+	}
+	for _, name := range names {
+		name = strings.TrimPrefix(name, "/")
+		if name == "" || !strings.HasSuffix(name, "/") {
+			continue
+		}
+		key := strings.ToLower("/" + name)
+		if w.parts[key] {
+			continue
+		}
+		header := &zip.FileHeader{
+			Name:   name,
+			Method: zip.Store,
+		}
+		if _, err := w.zipWriter.CreateHeader(header); err != nil {
+			return err
+		}
+		w.parts[key] = true
+	}
+	return nil
+}
+
 // WriteRawFile writes a raw file to the package without part name validation.
 // This is used for special files like [Content_Types].xml that don't follow
 // OPC part naming rules.
