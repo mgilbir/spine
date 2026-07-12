@@ -423,6 +423,14 @@ func (st *ShapeTree) AppendGraphicFrame(gf *GraphicFrame) {
 	}
 }
 
+// AppendGrpSp appends a group shape as the last child (see AppendSp).
+func (st *ShapeTree) AppendGrpSp(grp *GroupShape) {
+	st.GrpSp = append(st.GrpSp, grp)
+	if st.childOrder != nil {
+		st.childOrder = append(st.childOrder, ChildRef{ChildGrpSp, len(st.GrpSp) - 1})
+	}
+}
+
 // MaxShapeID returns the highest cNvPr id anywhere in the tree, descending
 // into group shapes (0 when the tree holds none). New shapes must use ids
 // above it: PowerPoint requires slide-wide uniqueness.

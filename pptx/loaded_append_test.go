@@ -71,6 +71,31 @@ func rewriteZipPart(t *testing.T, data []byte, name string, rewrite func([]byte)
 	return out.Bytes()
 }
 
+// zipPartIfExists returns the named part's content and whether it exists.
+func zipPartIfExists(t *testing.T, data []byte, name string) ([]byte, bool) {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		src, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = src.Close() }()
+		content, err := io.ReadAll(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return content, true
+	}
+	return nil, false
+}
+
 func zipPart(t *testing.T, data []byte, name string) []byte {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -126,7 +151,7 @@ func TestAddShapeToLoadedSlidePreservesUnmodeledContent(t *testing.T) {
 	}
 	clone.(*TextBox).TextFrame().SetText("cloned")
 	clone.SetPosition(dml.EMU(914400), dml.EMU(914400))
-	slide.AddShape(clone)
+	_ = slide.AddShape(clone)
 
 	saved, err := p.SaveBytes()
 	if err != nil {
