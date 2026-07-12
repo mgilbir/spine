@@ -4,40 +4,50 @@ package xml
 // OOXML namespace URIs
 const (
 	// Core namespaces
-	NSRelationships       = "http://schemas.openxmlformats.org/package/2006/relationships"
-	NSContentTypes        = "http://schemas.openxmlformats.org/package/2006/content-types"
-	NSCoreProperties      = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
-	NSExtendedProperties  = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+	NSRelationships      = "http://schemas.openxmlformats.org/package/2006/relationships"
+	NSContentTypes       = "http://schemas.openxmlformats.org/package/2006/content-types"
+	NSCoreProperties     = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+	NSExtendedProperties = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
 
 	// DrawingML namespaces
-	NSDrawingML           = "http://schemas.openxmlformats.org/drawingml/2006/main"
-	NSDrawingMLChart      = "http://schemas.openxmlformats.org/drawingml/2006/chart"
-	NSDrawingMLDiagram    = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
-	NSDrawingMLPicture    = "http://schemas.openxmlformats.org/drawingml/2006/picture"
-	NSDrawingMLSpreadsheet = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+	NSDrawingML               = "http://schemas.openxmlformats.org/drawingml/2006/main"
+	NSDrawingMLChart          = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+	NSDrawingMLDiagram        = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+	NSDrawingMLPicture        = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+	NSDrawingMLSpreadsheet    = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
 	NSDrawingMLWordprocessing = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
 
 	// PresentationML namespaces
-	NSPresentationML      = "http://schemas.openxmlformats.org/presentationml/2006/main"
-	NSPresentationRels    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	NSPresentationML = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+	// NSOfficeDocumentRels is the officeDocument relationship namespace
+	// (conventionally bound to the r: prefix). It is shared by every OOXML
+	// document format, not just PresentationML.
+	NSOfficeDocumentRels = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+	// NSPresentationRels is a misnomer: the value is the format-agnostic
+	// officeDocument relationship namespace.
+	//
+	// Deprecated: use NSOfficeDocumentRels.
+	NSPresentationRels = NSOfficeDocumentRels
 
 	// SpreadsheetML namespaces
-	NSSpreadsheetML       = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+	NSSpreadsheetML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
 	// WordprocessingML namespaces
-	NSWordprocessingML    = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	NSWordprocessingML = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 	// Office Math namespace (OMML, used by m:oMath / m:oMathPara)
-	NSMath                = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+	NSMath = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
 	// Dublin Core namespaces
-	NSDublinCore          = "http://purl.org/dc/elements/1.1/"
-	NSDcTerms             = "http://purl.org/dc/terms/"
-	NSDcmiType            = "http://purl.org/dc/dcmitype/"
+	NSDublinCore = "http://purl.org/dc/elements/1.1/"
+	NSDcTerms    = "http://purl.org/dc/terms/"
+	NSDcmiType   = "http://purl.org/dc/dcmitype/"
 
 	// XML Schema namespaces
-	NSXmlSchema           = "http://www.w3.org/2001/XMLSchema"
-	NSXmlSchemaInstance   = "http://www.w3.org/2001/XMLSchema-instance"
+	NSXmlSchema         = "http://www.w3.org/2001/XMLSchema"
+	NSXmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance"
 )
 
 // Microsoft Office extension namespaces
@@ -53,6 +63,17 @@ const (
 	NSWord2012           = "http://schemas.microsoft.com/office/word/2012/wordml"
 	NSSpreadsheet2010    = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
 	NSSpreadsheet2010AC  = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"
+	NSSpreadsheet2009    = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+	NSSpreadsheet2009AC  = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"
+
+	// Wordprocessing drawing extension namespaces (Word 2010 DrawingML shapes)
+	NSWordprocessingShape  = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+	NSWordprocessingGroup  = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+	NSWordprocessingCanvas = "http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+
+	// Legacy VML namespaces
+	NSVML       = "urn:schemas-microsoft-com:vml"
+	NSVMLOffice = "urn:schemas-microsoft-com:office:office"
 
 	// Markup Compatibility namespace (ECMA-376 Part 3)
 	NSMarkupCompatibility = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -62,14 +83,10 @@ const (
 const (
 	PrefixDrawingML           = "a"
 	PrefixPresentationML      = "p"
-	PrefixSpreadsheetML       = "x"
 	PrefixWordprocessingML    = "w"
 	PrefixRelationships       = "r"
 	PrefixDrawingMLChart      = "c"
 	PrefixDrawingMLDiagram    = "dgm"
-	PrefixDublinCore          = "dc"
-	PrefixDcTerms             = "dcterms"
-	PrefixContentTypes        = "ct"
 	PrefixDrawing2010         = "a14"
 	PrefixDrawing2014         = "a16"
 	PrefixDrawingSVG2016      = "asvg"
@@ -85,13 +102,20 @@ const (
 
 // ExtensionPrefixToNS maps mc:Choice/@Requires prefix names to namespace URIs.
 var ExtensionPrefixToNS = map[string]string{
-	"p14": NSPowerPoint2010,
-	"p15": NSPowerPoint2012,
-	"a14": NSDrawing2010,
-	"a16": NSDrawing2014,
-	"w14": NSWord2010,
-	"w15": NSWord2012,
-	"x15": NSSpreadsheet2010,
+	"p14":   NSPowerPoint2010,
+	"p15":   NSPowerPoint2012,
+	"a14":   NSDrawing2010,
+	"a16":   NSDrawing2014,
+	"w14":   NSWord2010,
+	"w15":   NSWord2012,
+	"x14":   NSSpreadsheet2009,
+	"x14ac": NSSpreadsheet2009AC,
+	"x15":   NSSpreadsheet2010,
+	"wps":   NSWordprocessingShape,
+	"wpg":   NSWordprocessingGroup,
+	"wpc":   NSWordprocessingCanvas,
+	"v":     NSVML,
+	"o":     NSVMLOffice,
 }
 
 // Extension URI constants identify known extension types by their URI attribute.
@@ -119,9 +143,9 @@ const (
 	ExtURILaserClr             = "{EC167BDD-8182-4AB7-AECC-EB403E3ABB37}"
 
 	// PresentationML extension URIs (p15 - PowerPoint 2012)
-	ExtURIPresenceInfo           = "{19B8F6BF-5375-455C-9EA6-DF929625EA0E}"
-	ExtURISldGuideLst            = "{EFAFB233-063F-42B5-8137-9DF3F51BA10A}"
-	ExtURISldGuideLstMaster      = "{27BBF7A9-308A-43DC-89C8-2F10F3537804}"
-	ExtURISldGuideLstLayout      = "{DCECCB84-F9BA-43D5-87BE-67443E8EF086}"
-	ExtURIChartTrackingRefBased  = "{FD5EFAAD-0ECE-453E-9831-46B23BE46B34}"
+	ExtURIPresenceInfo          = "{19B8F6BF-5375-455C-9EA6-DF929625EA0E}"
+	ExtURISldGuideLst           = "{EFAFB233-063F-42B5-8137-9DF3F51BA10A}"
+	ExtURISldGuideLstMaster     = "{27BBF7A9-308A-43DC-89C8-2F10F3537804}"
+	ExtURISldGuideLstLayout     = "{DCECCB84-F9BA-43D5-87BE-67443E8EF086}"
+	ExtURIChartTrackingRefBased = "{FD5EFAAD-0ECE-453E-9831-46B23BE46B34}"
 )
