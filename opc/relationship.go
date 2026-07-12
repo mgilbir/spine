@@ -3,6 +3,8 @@ package opc
 import (
 	"bytes"
 	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TargetMode specifies how to interpret the target URI of a relationship.
@@ -58,19 +60,19 @@ const (
 	RelTypeTableStyles = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles"
 
 	// Word relationship types
-	RelTypeStyles      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
-	RelTypeNumbering   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
-	RelTypeSettings    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
-	RelTypeFontTable   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
-	RelTypeImage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+	RelTypeStyles    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+	RelTypeNumbering = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
+	RelTypeSettings  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
+	RelTypeFontTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
+	RelTypeImage     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 
 	// Media relationship types. Embedded video/audio uses two relationships to
 	// the same media part: a "video"/"audio" link reference (a:videoFile/
 	// a:audioFile r:link) and a Microsoft "media" embed reference (p14:media
 	// r:embed).
-	RelTypeVideo = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
-	RelTypeAudio = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
-	RelTypeMedia = "http://schemas.microsoft.com/office/2007/relationships/media"
+	RelTypeVideo       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
+	RelTypeAudio       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
+	RelTypeMedia       = "http://schemas.microsoft.com/office/2007/relationships/media"
 	RelTypeHeader      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
 	RelTypeFooter      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
 	RelTypeFootnotes   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
@@ -80,12 +82,12 @@ const (
 	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
 
 	// SpreadsheetML relationship types
-	RelTypeWorksheet      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
-	RelTypeSharedStrings  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"
-	RelTypeDrawing        = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
-	RelTypeChart          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
-	RelTypePivotTable     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
-	RelTypePivotCacheDef  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
+	RelTypeWorksheet     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+	RelTypeSharedStrings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"
+	RelTypeDrawing       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
+	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
+	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
+	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 )
 
 // Relationship represents a relationship between a source part and a target.
@@ -138,11 +140,11 @@ func MarshalRelationships(rels []*Relationship) ([]byte, error) {
 	buf.WriteString(`">`)
 	for _, rel := range rels {
 		buf.WriteString(`<Relationship Id="`)
-		_ = xml.EscapeText(&buf, []byte(rel.ID))
+		buf.WriteString(xmlb.EscapeAttrValue(rel.ID))
 		buf.WriteString(`" Type="`)
-		_ = xml.EscapeText(&buf, []byte(rel.Type))
+		buf.WriteString(xmlb.EscapeAttrValue(rel.Type))
 		buf.WriteString(`" Target="`)
-		_ = xml.EscapeText(&buf, []byte(rel.Target))
+		buf.WriteString(xmlb.EscapeAttrValue(rel.Target))
 		buf.WriteByte('"')
 		if rel.TargetMode == TargetModeExternal {
 			buf.WriteString(` TargetMode="External"`)

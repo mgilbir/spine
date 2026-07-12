@@ -137,9 +137,18 @@ func TestWriter_AddRelationship(t *testing.T) {
 	buf := &bytes.Buffer{}
 	w := NewWriter(buf)
 
-	rel1 := w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
-	rel2 := w.AddRelationship(RelTypeCore, "docProps/core.xml", TargetModeInternal)
-	rel3 := w.AddRelationship("http://external", "https://example.com", TargetModeExternal)
+	rel1, err := w.AddRelationship(RelTypeOfficeDocument, "ppt/presentation.xml", TargetModeInternal)
+	if err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
+	rel2, err := w.AddRelationship(RelTypeCore, "docProps/core.xml", TargetModeInternal)
+	if err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
+	rel3, err := w.AddRelationship("http://external", "https://example.com", TargetModeExternal)
+	if err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
 
 	if rel1.ID != "rId1" {
 		t.Errorf("First relationship ID = %q, want %q", rel1.ID, "rId1")
@@ -163,7 +172,9 @@ func TestWriter_Close(t *testing.T) {
 	if err := w.WritePart("/test.xml", "application/xml", []byte("<test/>")); err != nil {
 		t.Fatalf("WritePart error: %v", err)
 	}
-	w.AddRelationship(RelTypeOfficeDocument, "test.xml", TargetModeInternal)
+	if _, err := w.AddRelationship(RelTypeOfficeDocument, "test.xml", TargetModeInternal); err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
 
 	err := w.Close()
 	if err != nil {

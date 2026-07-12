@@ -402,6 +402,15 @@ func coreElementKey(name xml.Name) string {
 	case nsCoreProperties:
 		return "cp:" + name.Local
 	default:
+		if name.Space != "" {
+			// Unknown namespace: never map onto the standard dc/dcterms/cp
+			// fields — a foreign-namespace <evil:creator> must not be captured
+			// as, and re-emitted as, a genuine <dc:creator>. The braced key
+			// cannot collide with any "prefix:local" key, so the element is
+			// recorded in elementOrder but populates no field (and, like other
+			// unknown children, is dropped on regeneration).
+			return "{" + name.Space + "}" + name.Local
+		}
 		// For non-namespaced elements (legacy format), map to expected prefix
 		switch name.Local {
 		case "title", "subject", "creator", "description", "identifier", "language":

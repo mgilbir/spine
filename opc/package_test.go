@@ -289,3 +289,68 @@ func TestUnmarshalCoreProperties_InvalidDate(t *testing.T) {
 		t.Errorf("Created should be zero for invalid date, got %v", cp.Created)
 	}
 }
+
+// TestUnmarshalCoreProperties_ForeignNamespaceNotLaundered verifies that an
+// element in an unknown namespace whose local name collides with a standard
+// property is neither captured into the typed field nor re-emitted as the
+// genuine dc/cp element (C184: metadata laundering).
+func TestUnmarshalCoreProperties_ForeignNamespaceNotLaundered(t *testing.T) {
+	src := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"` +
+		` xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:evil="urn:evil">` +
+		`<evil:creator>Mallory</evil:creator>` +
+		`<dc:title>Real Title</dc:title>` +
+		`</cp:coreProperties>`
+
+	cp, err := UnmarshalCoreProperties([]byte(src))
+	if err != nil {
+		t.Fatalf("UnmarshalCoreProperties() error = %v", err)
+	}
+	if cp.Creator != "" {
+		t.Errorf("foreign-namespace element captured into Creator = %q, want empty", cp.Creator)
+	}
+	if cp.Title != "Real Title" {
+		t.Errorf("Title = %q, want %q", cp.Title, "Real Title")
+	}
+
+	out, err := cp.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(out), "Mallory") {
+		t.Errorf("foreign-namespace content laundered into output:\n%s", out)
+	}
+	if strings.Contains(string(out), "<dc:creator>") {
+		t.Errorf("foreign-namespace element re-emitted as genuine <dc:creator>:\n%s", out)
+	}
+}
+
+// TestUnmarshalCoreProperties_LegacyNoNamespace verifies that the legacy
+// local-name mapping still works for elements with no namespace at all
+// (C184: only unknown namespaces lose the fallback).
+func TestUnmarshalCoreProperties_LegacyNoNamespace(t *testing.T) {
+	src := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<coreProperties>` +
+		`<creator>Alice</creator>` +
+		`<title>Legacy Title</title>` +
+		`</coreProperties>`
+
+	cp, err := UnmarshalCoreProperties([]byte(src))
+	if err != nil {
+		t.Fatalf("UnmarshalCoreProperties() error = %v", err)
+	}
+	if cp.Creator != "Alice" {
+		t.Errorf("legacy Creator = %q, want %q", cp.Creator, "Alice")
+	}
+	if cp.Title != "Legacy Title" {
+		t.Errorf("legacy Title = %q, want %q", cp.Title, "Legacy Title")
+	}
+
+	out, err := cp.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(out), "<dc:creator>Alice</dc:creator>") {
+		t.Errorf("legacy creator not re-emitted as dc:creator:\n%s", out)
+	}
+}
