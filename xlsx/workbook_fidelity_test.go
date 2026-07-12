@@ -417,3 +417,34 @@ func TestUntouchedStylesStayByteIdentical(t *testing.T) {
 		t.Errorf("untouched styles.xml changed:\nwant: %s\ngot:  %s", stylesFixture, got)
 	}
 }
+
+// The reserved xml: prefix is never declared, so prefix resolution against
+// the root xmlns declarations cannot find it. A workbook root carrying
+// xml:space="preserve" was re-emitted as the invalid bare space="preserve";
+// the same held for xml:-prefixed attributes on unknown preserved children.
+func TestXMLSpaceAttrKeepsReservedPrefix(t *testing.T) {
+	const wbWithXMLSpace = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<workbook xml:space="preserve" xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets><oleSize xml:space="preserve" ref="A1:B2"/></workbook>`
+
+	data := buildFidelityTestXlsx(t, mutatorTestSheetBare, nil, "", "")
+	data = replaceZipEntry(t, data, "xl/workbook.xml", wbWithXMLSpace)
+
+	wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := string(readZipPart(t, out, "xl/workbook.xml"))
+	if !strings.Contains(got, `<workbook xml:space="preserve"`) {
+		t.Errorf("workbook root lost the xml: prefix:\n%s", got)
+	}
+	if !strings.Contains(got, `<oleSize xml:space="preserve" ref="A1:B2"/>`) {
+		t.Errorf("preserved unknown child lost the xml: prefix:\n%s", got)
+	}
+	if strings.Contains(got, ` space="preserve"`) {
+		t.Errorf("invalid unprefixed space attribute emitted:\n%s", got)
+	}
+}
