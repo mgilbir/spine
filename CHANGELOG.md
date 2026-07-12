@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-User-visible changes from the audit remediation series (#59–#75).
+User-visible changes from the feature series (#54–#58) and the audit
+remediation series (#59–#75).
 
 ### Fixed
 
@@ -59,6 +60,13 @@ User-visible changes from the audit remediation series (#59–#75).
 
 ### Added
 
+- docx: public field API (PAGE/NUMPAGES), table of contents, floating and
+  anchored images, and SVG images with a raster fallback (#54, #56).
+- pptx: slide furniture API (footers, dates, slide numbers) and
+  `AddPictureFromBytes` (#55).
+- xlsx: two-cell anchors, aspect-preserving scaling, and SVG images;
+  image embedding into opened workbooks; and rich text within a cell
+  (`SetRichText`/`RichText`) (#57, #58).
 - pptx: read-only `Placeholders()` and `Theme()` (color and font schemes)
   on slide masters and layouts (#71).
 - xlsx: exported builtin number-format ids (#73).
