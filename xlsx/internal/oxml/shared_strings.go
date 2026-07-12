@@ -1,4 +1,5 @@
-// Package oxml contains the XML schema types for XLSX documents.
+// This file contains the XML schema types for XLSX documents.
+
 package oxml
 
 import (

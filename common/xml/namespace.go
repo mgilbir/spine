@@ -1,4 +1,5 @@
-// Package xml provides XML namespace constants for OOXML documents.
+// This file provides XML namespace constants for OOXML documents.
+
 package xml
 
 // OOXML namespace URIs

@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML effect types from dml-main.xsd.
+// This file provides DrawingML XML effect types from dml-main.xsd.
+
 package dml
 
 import (

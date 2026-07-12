@@ -1,6 +1,7 @@
-// Package dml provides DrawingML types.
+// This file provides DrawingML types.
 // This file contains XML serialization types from dml-main.xsd.
 // These types are used for marshaling/unmarshaling OOXML documents.
+
 package dml
 
 import (

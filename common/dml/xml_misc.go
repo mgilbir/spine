@@ -1,4 +1,5 @@
-// Package dml provides miscellaneous DrawingML types for cross-namespace elements.
+// This file provides miscellaneous DrawingML types for cross-namespace elements.
+
 package dml
 
 // Wsp represents CT_WordprocessingShape (wsp) from dml-wordprocessingDrawing.xsd.

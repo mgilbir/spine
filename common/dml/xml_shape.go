@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML shape property types from dml-main.xsd.
+// This file provides DrawingML XML shape property types from dml-main.xsd.
+
 package dml
 
 // SpPr represents CT_ShapeProperties (a:spPr)

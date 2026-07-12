@@ -1,5 +1,6 @@
-// Package oxml provides PresentationML animation types from pml.xsd.
+// This file provides PresentationML animation types from pml.xsd.
 // These types implement the p: namespace animation and timing elements.
+
 package oxml
 
 import (

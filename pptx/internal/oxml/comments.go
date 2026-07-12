@@ -1,5 +1,6 @@
-// Package oxml provides PresentationML comment types from pml.xsd.
+// This file provides PresentationML comment types from pml.xsd.
 // These types implement the p: namespace comment elements.
+
 package oxml
 
 import "github.com/mgilbir/spine/common/dml"

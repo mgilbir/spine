@@ -1,4 +1,5 @@
-// Package dml provides DrawingML table style list type from dml-main.xsd.
+// This file provides DrawingML table style list type from dml-main.xsd.
+
 package dml
 
 // TblStyleLst represents CT_TableStyleList (a:tblStyleLst)

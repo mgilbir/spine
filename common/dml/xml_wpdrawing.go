@@ -1,5 +1,6 @@
-// Package dml provides WordprocessingDrawing types from dml-wordprocessingDrawing.xsd.
+// This file provides WordprocessingDrawing types from dml-wordprocessingDrawing.xsd.
 // These types represent wp: namespace elements used for inline/anchored drawings in WML.
+
 package dml
 
 // WPAnchor represents CT_Anchor (wp:anchor) - anchored drawing object.
