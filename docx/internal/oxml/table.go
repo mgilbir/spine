@@ -318,8 +318,8 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				tr.Del = append(tr.Del, v)
 			default:
 				if isRawRowChild(t.Name.Local) {
-					v := &CT_RawNamedElement{Local: t.Name.Local}
-					if err := d.DecodeElement(&v.CT_RawElement, &t); err != nil {
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
 						return err
 					}
 					tr.childOrder = append(tr.childOrder, trChildRef{trChildRaw, len(tr.Raw)})
@@ -392,7 +392,7 @@ func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				}
 			case trChildRaw:
 				if ref.index < len(tr.Raw) {
-					tr.Raw[ref.index].MarshalToBuilder(b, ns, tr.Raw[ref.index].Local)
+					tr.Raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}

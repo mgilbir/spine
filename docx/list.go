@@ -60,6 +60,7 @@ func (d *Document) AddBulletList() *ListStyle {
 		NumId:         strconv.Itoa(numID),
 		AbstractNumId: &oxml.CT_DecimalNumber{Val: absID},
 	})
+	d.numberingModified = true
 
 	return &ListStyle{document: d, numID: numID}
 }
@@ -114,6 +115,7 @@ func (d *Document) AddNumberedList() *ListStyle {
 		NumId:         strconv.Itoa(numID),
 		AbstractNumId: &oxml.CT_DecimalNumber{Val: absID},
 	})
+	d.numberingModified = true
 
 	return &ListStyle{document: d, numID: numID}
 }
@@ -141,6 +143,9 @@ func (d *Document) ensureNumbering() {
 	}
 }
 
+// nextAbstractNumID allocates an abstract numbering ID past both the
+// definitions parsed from an opened package (kept raw, IDs surfaced in
+// ParsedAbstractNumIDs) and the ones added in this session.
 func (d *Document) nextAbstractNumID() int {
 	max := -1
 	if d.numbering != nil {
@@ -150,15 +155,28 @@ func (d *Document) nextAbstractNumID() int {
 				max = id
 			}
 		}
+		for _, raw := range d.numbering.ParsedAbstractNumIDs {
+			id, err := strconv.Atoi(raw)
+			if err == nil && id > max {
+				max = id
+			}
+		}
 	}
 	return max + 1
 }
 
+// nextNumID allocates a numbering-instance ID (see nextAbstractNumID).
 func (d *Document) nextNumID() int {
 	max := 0
 	if d.numbering != nil {
 		for _, n := range d.numbering.Num {
 			id, err := strconv.Atoi(n.NumId)
+			if err == nil && id > max {
+				max = id
+			}
+		}
+		for _, raw := range d.numbering.ParsedNumIDs {
+			id, err := strconv.Atoi(raw)
 			if err == nil && id > max {
 				max = id
 			}

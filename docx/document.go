@@ -39,6 +39,12 @@ type Document struct {
 	nextRelIDVal     int                       // counter for relationship IDs
 	newHeaderParts   []*hdrFtrPart             // new headers to be written
 	newFooterParts   []*hdrFtrPart             // new footers to be written
+	// numberingModified / settingsModified record that the session changed the
+	// numbering or settings model, so the round-trip save regenerates that part
+	// (with its relationship and content-type override) instead of writing the
+	// preserved original bytes.
+	numberingModified bool
+	settingsModified  bool
 }
 
 // mainDocumentPart is the part name of the main document part. Image
@@ -358,6 +364,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/docProps/core.xml" {
 			continue
 		}
+		// Regenerated below from the (possibly extended) parsed model.
+		if name == "/word/numbering.xml" && d.numberingModified {
+			continue
+		}
+		if name == "/word/settings.xml" && d.settingsModified {
+			continue
+		}
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
@@ -381,6 +394,15 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write parts added through the mutation API (images, headers, footers).
 	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
+	// Write the numbering/settings parts when the session modified them, and
+	// make sure document.xml carries a relationship to each. A document opened
+	// without the part gets a fresh part, relationship, and content-type
+	// override; one that already had it gets the parsed-and-extended content
+	// in place of the preserved bytes.
+	if err := d.writeModifiedMetadataParts(writer); err != nil {
 		return err
 	}
 
@@ -463,14 +485,66 @@ func (d *Document) writeHdrFtrRelationships(writer *opc.Writer, partName string)
 	return writer.WritePartRelationships(partName, rels)
 }
 
-// hasAddedParts reports whether any parts were added through the mutation API.
+// writeModifiedMetadataParts regenerates the numbering and settings parts on
+// the round-trip path when the session modified them, registering the
+// document.xml relationship if the opened package did not already carry one.
+func (d *Document) writeModifiedMetadataParts(writer *opc.Writer) error {
+	if d.numberingModified && d.numbering != nil {
+		data, err := marshalNumberingXML(d.numbering)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeNumbering, "numbering.xml")
+	}
+	if d.settingsModified && d.settings != nil {
+		data, err := marshalSettingsXML(d.settings)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeSettings, "settings.xml")
+	}
+	return nil
+}
+
+// ensureDocRelationship adds a document.xml relationship of the given type
+// unless one already exists.
+func (d *Document) ensureDocRelationship(relType, target string) {
+	for _, rel := range d.relationships[mainDocumentPart] {
+		if rel.Type == relType {
+			return
+		}
+	}
+	d.addDocRelationship(&opc.Relationship{
+		ID:     fmt.Sprintf("rId%d", d.nextRelID()),
+		Type:   relType,
+		Target: target,
+	})
+}
+
+// hasAddedParts reports whether the mutation API added parts or modified a
+// metadata part, requiring [Content_Types].xml to be regenerated so the new
+// parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
-	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0
+	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
+		d.numberingModified || d.settingsModified
 }
 
 // saveNew saves a newly created document.
 func (d *Document) saveNew(writer *opc.Writer) error {
 	writer.Properties = &d.Properties
+
+	// A created document always gets a styles part: AddHeading references
+	// "Heading1".."Heading9", which would otherwise be undefined and render as
+	// plain text.
+	if d.styles == nil {
+		d.styles = defaultStyles()
+	}
 
 	// Write document.xml
 	docData, err := marshalDocumentXML(d.document)
@@ -513,6 +587,23 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
 			Type:   opc.RelTypeNumbering,
 			Target: "numbering.xml",
+		})
+	}
+
+	// Write settings (created when the API needs a document-level flag, e.g.
+	// evenAndOddHeaders for even headers/footers).
+	if d.settings != nil {
+		data, err := marshalSettingsXML(d.settings)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
+			return err
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
+			Type:   opc.RelTypeSettings,
+			Target: "settings.xml",
 		})
 	}
 

@@ -76,13 +76,47 @@ func marshalStylesXML(styles *oxml.CT_Styles) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// marshalNumberingXML marshals numbering definitions to XML.
+// marshalNumberingXML marshals numbering definitions to XML. A part parsed
+// from an opened package keeps its original root namespace declarations and
+// mc:Ignorable so the raw-preserved children still resolve their prefixes.
 func marshalNumberingXML(numbering *oxml.CT_Numbering) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
-	b.MarshalRoot(nsW, "numbering", numbering, xmlb.WordprocessingMLNamespaces())
+	var attrs []xmlb.Attr
+	if numbering.Ignorable != "" {
+		attrs = append(attrs, xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable", numbering.Ignorable))
+	}
+	nsDecls := xmlb.WordprocessingMLNamespaces()
+	if len(numbering.OriginalNSDecls) > 0 {
+		nsDecls = numbering.OriginalNSDecls
+	}
+	b.StartElementWithNS(nsW, "numbering", nsDecls, attrs...)
+	numbering.MarshalContent(b, nsW)
+	b.EndElement(nsW, "numbering")
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("docx: marshal numbering.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// marshalSettingsXML marshals the settings part to XML (see marshalNumberingXML
+// for the root-attribute handling).
+func marshalSettingsXML(settings *oxml.CT_Settings) ([]byte, error) {
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	var attrs []xmlb.Attr
+	if settings.Ignorable != "" {
+		attrs = append(attrs, xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable", settings.Ignorable))
+	}
+	nsDecls := xmlb.WordprocessingMLNamespaces()
+	if len(settings.OriginalNSDecls) > 0 {
+		nsDecls = settings.OriginalNSDecls
+	}
+	b.StartElementWithNS(nsW, "settings", nsDecls, attrs...)
+	settings.MarshalContent(b, nsW)
+	b.EndElement(nsW, "settings")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal settings.xml: %w", err)
 	}
 	return b.Bytes(), nil
 }

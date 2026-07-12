@@ -328,8 +328,8 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				p.AlternateContent = append(p.AlternateContent, v)
 			default:
 				if isRawPChild(t.Name.Local) {
-					v := &CT_RawNamedElement{Local: t.Name.Local}
-					if err := d.DecodeElement(&v.CT_RawElement, &t); err != nil {
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
 						return err
 					}
 					p.childOrder = append(p.childOrder, pChildRef{pChildRaw, len(p.Raw)})
@@ -445,7 +445,7 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				}
 			case pChildRaw:
 				if ref.index < len(p.Raw) {
-					p.Raw[ref.index].MarshalToBuilder(b, ns, p.Raw[ref.index].Local)
+					p.Raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}
@@ -638,8 +638,8 @@ func unmarshalPContent(d *xml.Decoder,
 				}
 			default:
 				if raw != nil && isRawPChild(t.Name.Local) {
-					v := &CT_RawNamedElement{Local: t.Name.Local}
-					if err := d.DecodeElement(&v.CT_RawElement, &t); err != nil {
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
 						return err
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildRaw, len(*raw)})
@@ -715,7 +715,7 @@ func marshalPContent(b *xmlb.Builder, ns string,
 				}
 			case pChildRaw:
 				if ref.index < len(raw) {
-					raw[ref.index].MarshalToBuilder(b, ns, raw[ref.index].Local)
+					raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}
