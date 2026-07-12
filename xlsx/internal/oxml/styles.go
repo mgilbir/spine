@@ -53,6 +53,9 @@ func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 				prefix = xmlb.PrefixMarkupCompatibility
 			case nsR:
 				prefix = "r"
+			case xmlb.NSXML:
+				// Reserved prefix, never declared: xml:space etc.
+				prefix = "xml"
 			case "":
 				// no prefix
 			default:
@@ -145,8 +148,8 @@ func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 
 // CT_NumFmts represents the numFmts element containing custom number format definitions.
 type CT_NumFmts struct {
-	Count  *uint32      `xml:"count,attr,omitempty"`
-	NumFmt []CT_NumFmt  `xml:"numFmt"`
+	Count  *uint32     `xml:"count,attr,omitempty"`
+	NumFmt []CT_NumFmt `xml:"numFmt"`
 }
 
 // CT_NumFmt represents a single number format definition.
@@ -159,8 +162,8 @@ type CT_NumFmt struct {
 
 // CT_Fonts represents the fonts element containing font definitions.
 type CT_Fonts struct {
-	Count      *uint32 `xml:"count,attr,omitempty"`
-	KnownFonts *bool   `xml:"knownFonts,attr,omitempty"`
+	Count      *uint32   `xml:"count,attr,omitempty"`
+	KnownFonts *bool     `xml:"knownFonts,attr,omitempty"`
 	Font       []CT_Font `xml:"font"`
 }
 
@@ -226,7 +229,7 @@ type CT_Fill struct {
 
 // CT_PatternFill represents a pattern fill with optional foreground and background colors.
 type CT_PatternFill struct {
-	PatternType string   `xml:"patternType,attr,omitempty"`
+	PatternType string    `xml:"patternType,attr,omitempty"`
 	FgColor     *CT_Color `xml:"fgColor,omitempty"`
 	BgColor     *CT_Color `xml:"bgColor,omitempty"`
 }
@@ -270,7 +273,7 @@ type CT_Border struct {
 
 // CT_BorderPr represents a single border edge property with style and color.
 type CT_BorderPr struct {
-	Style string   `xml:"style,attr,omitempty"`
+	Style string    `xml:"style,attr,omitempty"`
 	Color *CT_Color `xml:"color,omitempty"`
 }
 
@@ -290,19 +293,19 @@ type CT_CellXfs struct {
 
 // CT_Xf represents a single cell format record (xf element).
 type CT_Xf struct {
-	NumFmtId          *uint32          `xml:"numFmtId,attr,omitempty"`
-	FontId            *uint32          `xml:"fontId,attr,omitempty"`
-	FillId            *uint32          `xml:"fillId,attr,omitempty"`
-	BorderId          *uint32          `xml:"borderId,attr,omitempty"`
-	XfId              *uint32          `xml:"xfId,attr,omitempty"`
-	QuotePrefix       *bool            `xml:"quotePrefix,attr,omitempty"`
-	PivotButton       *bool            `xml:"pivotButton,attr,omitempty"`
-	ApplyNumberFormat *bool            `xml:"applyNumberFormat,attr,omitempty"`
-	ApplyFont         *bool            `xml:"applyFont,attr,omitempty"`
-	ApplyFill         *bool            `xml:"applyFill,attr,omitempty"`
-	ApplyBorder       *bool            `xml:"applyBorder,attr,omitempty"`
-	ApplyAlignment    *bool            `xml:"applyAlignment,attr,omitempty"`
-	ApplyProtection   *bool            `xml:"applyProtection,attr,omitempty"`
+	NumFmtId          *uint32            `xml:"numFmtId,attr,omitempty"`
+	FontId            *uint32            `xml:"fontId,attr,omitempty"`
+	FillId            *uint32            `xml:"fillId,attr,omitempty"`
+	BorderId          *uint32            `xml:"borderId,attr,omitempty"`
+	XfId              *uint32            `xml:"xfId,attr,omitempty"`
+	QuotePrefix       *bool              `xml:"quotePrefix,attr,omitempty"`
+	PivotButton       *bool              `xml:"pivotButton,attr,omitempty"`
+	ApplyNumberFormat *bool              `xml:"applyNumberFormat,attr,omitempty"`
+	ApplyFont         *bool              `xml:"applyFont,attr,omitempty"`
+	ApplyFill         *bool              `xml:"applyFill,attr,omitempty"`
+	ApplyBorder       *bool              `xml:"applyBorder,attr,omitempty"`
+	ApplyAlignment    *bool              `xml:"applyAlignment,attr,omitempty"`
+	ApplyProtection   *bool              `xml:"applyProtection,attr,omitempty"`
 	Alignment         *CT_CellAlignment  `xml:"alignment,omitempty"`
 	Protection        *CT_CellProtection `xml:"protection,omitempty"`
 }
