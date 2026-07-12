@@ -1028,13 +1028,25 @@ func truncateRunes(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-// DeleteSheet removes the sheet at the specified index.
+// DeleteSheet removes the sheet at the specified index, together with its
+// preserved part, its content-type override, and its own .rels part (C75).
+// Workbook state that indexes sheets by position is adjusted: the active tab
+// is shifted/clamped and sheet-scoped defined names are re-pointed (names
+// scoped to the deleted sheet are dropped).
 func (w *Workbook) DeleteSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex
 	}
 	if sheet := w.sheets[index]; sheet != nil && sheet.partName != "" {
-		delete(w.preservedParts, sheet.partName)
+		partName := sheet.partName
+		relsName := opc.GetRelationshipsPartName(partName)
+		delete(w.preservedParts, partName)
+		delete(w.preservedParts, relsName)
+		delete(w.relationships, partName)
+		if w.contentTypes != nil {
+			w.contentTypes.RemoveOverride(partName)
+			w.contentTypes.RemoveOverride(relsName)
+		}
 	}
 	w.sheets = append(w.sheets[:index], w.sheets[index+1:]...)
 	for i := index; i < len(w.sheets); i++ {
@@ -1045,7 +1057,66 @@ func (w *Workbook) DeleteSheet(index int) error {
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
 
+	w.adjustActiveTabAfterDelete(index)
+	w.adjustDefinedNamesAfterDelete(index)
+
 	return nil
+}
+
+// adjustActiveTabAfterDelete shifts workbookView activeTab indices down when
+// they pointed past the deleted sheet and clamps them into the remaining
+// range; a stale index would select the wrong sheet or fall off the end.
+func (w *Workbook) adjustActiveTabAfterDelete(index int) {
+	if w.workbook.BookViews == nil {
+		return
+	}
+	for i := range w.workbook.BookViews.WorkbookView {
+		bv := &w.workbook.BookViews.WorkbookView[i]
+		if bv.ActiveTab == nil {
+			continue
+		}
+		tab := int(*bv.ActiveTab)
+		if tab > index {
+			tab--
+		}
+		if tab >= len(w.sheets) {
+			tab = len(w.sheets) - 1
+		}
+		if tab < 0 {
+			bv.ActiveTab = nil
+			continue
+		}
+		v := uint32(tab)
+		bv.ActiveTab = &v
+	}
+}
+
+// adjustDefinedNamesAfterDelete drops defined names scoped to the deleted
+// sheet and shifts the localSheetId of names scoped to later sheets, which
+// would otherwise point at the wrong sheet (or beyond the sheet list).
+func (w *Workbook) adjustDefinedNamesAfterDelete(index int) {
+	if w.workbook.DefinedNames == nil {
+		return
+	}
+	names := w.workbook.DefinedNames.DefinedName
+	kept := names[:0]
+	for _, dn := range names {
+		if dn.LocalSheetId != nil {
+			id := int(*dn.LocalSheetId)
+			if id == index {
+				continue // scoped to the deleted sheet
+			}
+			if id > index {
+				v := uint32(id - 1)
+				dn.LocalSheetId = &v
+			}
+		}
+		kept = append(kept, dn)
+	}
+	w.workbook.DefinedNames.DefinedName = kept
+	if len(kept) == 0 {
+		w.workbook.DefinedNames = nil
+	}
 }
 
 // ActiveSheet returns the currently active sheet.
