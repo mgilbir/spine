@@ -409,3 +409,25 @@ func TestStripAlphaFromRGB(t *testing.T) {
 		}
 	}
 }
+
+// C133: negative indent/rotation must be rejected instead of wrapping to huge
+// unsigned values; rotation is limited to 0-180 or the special 255.
+func TestNewCellStyle_RejectsInvalidAlignment(t *testing.T) {
+	sm := newStyleManager(nil, nil)
+
+	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Indent: -1}}); err == nil {
+		t.Error("negative indent accepted")
+	}
+	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Rotation: -90}}); err == nil {
+		t.Error("negative rotation accepted")
+	}
+	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Rotation: 200}}); err == nil {
+		t.Error("rotation 200 accepted (valid range is 0-180 or 255)")
+	}
+	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Rotation: 255}}); err != nil {
+		t.Errorf("rotation 255 (vertical text) rejected: %v", err)
+	}
+	if _, err := sm.NewCellStyle(CellStyle{Alignment: &AlignmentStyle{Indent: 2, Rotation: 45}}); err != nil {
+		t.Errorf("valid alignment rejected: %v", err)
+	}
+}

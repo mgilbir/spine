@@ -447,13 +447,23 @@ func FormatCellRef(row, col int) string {
 }
 
 // FreezePanes freezes rows and columns at the specified cell reference.
-// For example, "B2" freezes row 1 and column A.
+// For example, "B2" freezes row 1 and column A. The reference is
+// canonicalized, so "b2" behaves like "B2". Freezing at A1 freezes nothing:
+// it removes any existing pane instead of emitting a frozen pane with no
+// splits, which Excel flags as invalid (C133).
 func (s *Sheet) FreezePanes(cellRef string) error {
 	row, col, err := ParseCellRef(cellRef)
 	if err != nil {
 		return err
 	}
+	cellRef = FormatCellRef(row, col)
 	s.markDirty()
+
+	// A1 means "no frozen rows or columns": drop the pane entirely.
+	if row == 1 && col == 1 {
+		s.UnfreezePanes()
+		return nil
+	}
 
 	s.ensureWorksheet()
 	sv := s.ensureSheetView()
@@ -462,7 +472,7 @@ func (s *Sheet) FreezePanes(cellRef string) error {
 	ySplit := float64(row - 1)
 
 	sv.Pane = &oxml.CT_Pane{
-		TopLeftCell: strings.ToUpper(cellRef),
+		TopLeftCell: cellRef,
 		State:       "frozen",
 	}
 	if xSplit > 0 {
@@ -491,14 +501,24 @@ func (s *Sheet) FreezePanes(cellRef string) error {
 	return nil
 }
 
-// UnfreezePanes removes any frozen panes from the sheet.
+// UnfreezePanes removes any frozen panes from the sheet, along with
+// selections that referenced a pane (a pane-scoped selection is invalid once
+// the pane is gone).
 func (s *Sheet) UnfreezePanes() {
 	if s.worksheet == nil || s.worksheet.SheetViews == nil {
 		return
 	}
 	if len(s.worksheet.SheetViews.SheetView) > 0 {
 		s.markDirty()
-		s.worksheet.SheetViews.SheetView[0].Pane = nil
+		sv := &s.worksheet.SheetViews.SheetView[0]
+		sv.Pane = nil
+		kept := sv.Selection[:0]
+		for _, sel := range sv.Selection {
+			if sel.Pane == "" {
+				kept = append(kept, sel)
+			}
+		}
+		sv.Selection = kept
 	}
 }
 
@@ -553,15 +573,27 @@ func (s *Sheet) RemoveAutoFilter() {
 
 // DataValidation represents a data validation rule.
 type DataValidation struct {
-	Range        string // cell range (e.g., "B2:B100")
-	Type         string // "list", "whole", "decimal", "date", "textLength", "custom"
-	Operator     string // "between", "lessThan", "equal", etc.
-	Formula1     string
-	Formula2     string
-	AllowBlank   bool
-	ShowDropDown bool
+	Range    string // cell range (e.g., "B2:B100")
+	Type     string // "list", "whole", "decimal", "date", "textLength", "custom"
+	Operator string // "between", "lessThan", "equal", etc.
+	Formula1 string
+	Formula2 string
+	// AllowBlank permits empty cells regardless of the rule.
+	AllowBlank bool
+	// HideDropDown suppresses the in-cell dropdown arrow for list validations.
+	// By default Excel shows the dropdown; the underlying OOXML attribute
+	// showDropDown counterintuitively means "suppress the dropdown", so this
+	// field is named for what it actually does (C76).
+	HideDropDown bool
+	// ErrorTitle/ErrorMessage define the alert Excel shows on invalid input.
+	// When either is set, showErrorMessage is emitted automatically — without
+	// it Excel never displays the alert.
 	ErrorTitle   string
 	ErrorMessage string
+	// PromptTitle/PromptMessage define the input hint shown when the cell is
+	// selected. When either is set, showInputMessage is emitted automatically.
+	PromptTitle   string
+	PromptMessage string
 }
 
 // AddDataValidation adds a data validation rule to the sheet.
@@ -574,21 +606,29 @@ func (s *Sheet) AddDataValidation(dv DataValidation) error {
 	s.worksheet.EnsureChildOrder("dataValidations")
 
 	v := oxml.CT_DataValidation{
-		Sqref:      strings.ToUpper(dv.Range),
-		Type:       dv.Type,
-		Operator:   dv.Operator,
-		ErrorTitle: dv.ErrorTitle,
-		Error:      dv.ErrorMessage,
+		Sqref:       strings.ToUpper(dv.Range),
+		Type:        dv.Type,
+		Operator:    dv.Operator,
+		ErrorTitle:  dv.ErrorTitle,
+		Error:       dv.ErrorMessage,
+		PromptTitle: dv.PromptTitle,
+		Prompt:      dv.PromptMessage,
 	}
 
+	show := true
 	if dv.AllowBlank {
 		v.AllowBlank = &dv.AllowBlank
 	}
-	if dv.ShowDropDown {
-		// Note: In OOXML, showDropDown=false means show dropdown (counterintuitive)
-		// But our public API uses intuitive semantics
-		show := false
+	if dv.HideDropDown {
+		// OOXML: showDropDown="1" SUPPRESSES the in-cell dropdown; absent
+		// means the dropdown is shown (the Excel default).
 		v.ShowDropDown = &show
+	}
+	if dv.ErrorTitle != "" || dv.ErrorMessage != "" {
+		v.ShowErrorMessage = &show
+	}
+	if dv.PromptTitle != "" || dv.PromptMessage != "" {
+		v.ShowInputMessage = &show
 	}
 	if dv.Formula1 != "" {
 		v.Formula1 = &dv.Formula1

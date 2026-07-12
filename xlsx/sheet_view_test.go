@@ -85,6 +85,66 @@ func TestFreezePanesColOnly(t *testing.T) {
 	}
 }
 
+// C133: FreezePanes("a1") emitted a frozen pane with no splits, no
+// activePane, and a lowercase selection ref. A1 freezes nothing, so it must
+// remove the pane; a lowercase ref must be canonicalized.
+func TestFreezePanesA1RemovesPane(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+
+	// Freeze then re-freeze at A1: pane and pane-scoped selections must go.
+	if err := sheet.FreezePanes("B2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sheet.FreezePanes("a1"); err != nil {
+		t.Fatal(err)
+	}
+	sv := sheet.worksheet.SheetViews.SheetView[0]
+	if sv.Pane != nil {
+		t.Errorf("Pane = %+v, want nil for A1 freeze", sv.Pane)
+	}
+	for _, sel := range sv.Selection {
+		if sel.Pane != "" {
+			t.Errorf("pane-scoped selection %+v left behind after pane removal", sel)
+		}
+	}
+
+	// A freshly created sheet frozen at A1 stays pane-free too.
+	sheet2 := wb.AddSheet("Sheet2")
+	if err := sheet2.FreezePanes("A1"); err != nil {
+		t.Fatal(err)
+	}
+	if sheet2.worksheet != nil && sheet2.worksheet.SheetViews != nil &&
+		len(sheet2.worksheet.SheetViews.SheetView) > 0 &&
+		sheet2.worksheet.SheetViews.SheetView[0].Pane != nil {
+		t.Error("A1 freeze on a fresh sheet created a pane")
+	}
+}
+
+// C133: a lowercase freeze ref must produce canonical TopLeftCell and
+// selection references.
+func TestFreezePanesCanonicalizesRef(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+
+	if err := sheet.FreezePanes("b2"); err != nil {
+		t.Fatal(err)
+	}
+	sv := sheet.worksheet.SheetViews.SheetView[0]
+	if sv.Pane == nil || sv.Pane.TopLeftCell != "B2" {
+		t.Fatalf("TopLeftCell = %+v, want B2", sv.Pane)
+	}
+	if sv.Pane.ActivePane != "bottomRight" {
+		t.Errorf("ActivePane = %q, want bottomRight", sv.Pane.ActivePane)
+	}
+	if len(sv.Selection) != 1 || sv.Selection[0].ActiveCell != "B2" || sv.Selection[0].SqRef != "B2" {
+		t.Errorf("Selection = %+v, want canonical B2 refs", sv.Selection)
+	}
+	if sv.Selection[0].Pane != "bottomRight" {
+		t.Errorf("Selection pane = %q, want bottomRight", sv.Selection[0].Pane)
+	}
+}
+
 func TestUnfreezePanes(t *testing.T) {
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
@@ -171,13 +231,14 @@ func TestAddDataValidation(t *testing.T) {
 	sheet := wb.AddSheet("Sheet1")
 
 	err := sheet.AddDataValidation(DataValidation{
-		Range:        "c2:c100",
-		Type:         "list",
-		Formula1:     `"Yes,No,Maybe"`,
-		ShowDropDown: true,
-		AllowBlank:   true,
-		ErrorTitle:   "Invalid",
-		ErrorMessage: "Please select from the list",
+		Range:         "c2:c100",
+		Type:          "list",
+		Formula1:      `"Yes,No,Maybe"`,
+		AllowBlank:    true,
+		ErrorTitle:    "Invalid",
+		ErrorMessage:  "Please select from the list",
+		PromptTitle:   "Pick one",
+		PromptMessage: "Choose Yes, No or Maybe",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -204,15 +265,55 @@ func TestAddDataValidation(t *testing.T) {
 	if v.AllowBlank == nil || *v.AllowBlank != true {
 		t.Errorf("AllowBlank = %v, want true", v.AllowBlank)
 	}
-	// ShowDropDown in OOXML is counterintuitive: false = show
-	if v.ShowDropDown == nil || *v.ShowDropDown != false {
-		t.Errorf("ShowDropDown = %v, want false (OOXML semantics)", v.ShowDropDown)
+	// C76: with the dropdown not hidden, the suppressing showDropDown
+	// attribute must be absent (Excel shows the dropdown by default).
+	if v.ShowDropDown != nil {
+		t.Errorf("ShowDropDown = %v, want nil (attribute absent)", *v.ShowDropDown)
 	}
 	if v.ErrorTitle != "Invalid" {
 		t.Errorf("ErrorTitle = %s, want Invalid", v.ErrorTitle)
 	}
 	if v.Error != "Please select from the list" {
 		t.Errorf("Error = %s, want 'Please select from the list'", v.Error)
+	}
+	// C76: error text without showErrorMessage="1" is never displayed.
+	if v.ShowErrorMessage == nil || !*v.ShowErrorMessage {
+		t.Errorf("ShowErrorMessage = %v, want true (error text present)", v.ShowErrorMessage)
+	}
+	if v.PromptTitle != "Pick one" || v.Prompt != "Choose Yes, No or Maybe" {
+		t.Errorf("prompt = %q/%q, want set", v.PromptTitle, v.Prompt)
+	}
+	if v.ShowInputMessage == nil || !*v.ShowInputMessage {
+		t.Errorf("ShowInputMessage = %v, want true (prompt text present)", v.ShowInputMessage)
+	}
+}
+
+// C76: HideDropDown must emit showDropDown="1" (the attribute means SUPPRESS
+// the dropdown), and a rule without error/prompt text must not emit the
+// show* attributes.
+func TestAddDataValidationHideDropDown(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Sheet1")
+
+	err := sheet.AddDataValidation(DataValidation{
+		Range:        "B2:B10",
+		Type:         "list",
+		Formula1:     `"a,b"`,
+		HideDropDown: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v := sheet.worksheet.DataValidations.DataValidation[0]
+	if v.ShowDropDown == nil || !*v.ShowDropDown {
+		t.Errorf("ShowDropDown = %v, want true (showDropDown=\"1\" suppresses the dropdown)", v.ShowDropDown)
+	}
+	if v.ShowErrorMessage != nil {
+		t.Errorf("ShowErrorMessage = %v, want nil (no error text)", *v.ShowErrorMessage)
+	}
+	if v.ShowInputMessage != nil {
+		t.Errorf("ShowInputMessage = %v, want nil (no prompt text)", *v.ShowInputMessage)
 	}
 }
 

@@ -155,7 +155,6 @@ func main() {
 		Range:        fmt.Sprintf("G3:G%d", totalRow-1),
 		Type:         "list",
 		Formula1:     `"Active,Inactive,Pending"`,
-		ShowDropDown: true,
 		AllowBlank:   true,
 		ErrorTitle:   "Invalid Status",
 		ErrorMessage: "Please select Active, Inactive, or Pending.",
