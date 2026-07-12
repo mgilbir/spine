@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -151,6 +152,29 @@ func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
 		return nil, err
 	}
 	if w, h, ok := nativeImageSize(pic.imageData); ok {
+		pic.SetSize(w, h)
+	} else {
+		pic.SetSize(dml.Inches(4), dml.Inches(3))
+	}
+	s.AddShape(pic)
+	return pic, nil
+}
+
+// AddPictureFromBytes adds a picture to the slide from raw image bytes and
+// their content type (e.g. "image/png"), embedding the image in the .pptx on
+// save. This is the byte-slice counterpart to AddPicture (which reads a file)
+// and mirrors AddVideo/AddAudio. The frame defaults to the image's intrinsic
+// pixel size at 96 DPI, or 4x3 inches when the dimensions cannot be decoded;
+// override it with Picture.SetSize.
+//
+// Saving fails with an error when the data is empty or not a decodable image.
+func (s *Slide) AddPictureFromBytes(data []byte, contentType string) (*Picture, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("pptx: AddPictureFromBytes: image data is empty")
+	}
+	pic := NewPicture()
+	pic.SetImageData(data, contentType)
+	if w, h, ok := nativeImageSize(data); ok {
 		pic.SetSize(w, h)
 	} else {
 		pic.SetSize(dml.Inches(4), dml.Inches(3))
@@ -553,9 +577,6 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 		name = string(ph.phType)
 	}
 
-	x, y := ph.Position()
-	w, h := ph.Size()
-
 	sp := &oxml.Shape{
 		NvSpPr: &oxml.NvSpPr{
 			CNvPr: &dml.CNvPr{
@@ -566,23 +587,60 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 			NvPr: &oxml.NvPr{
 				Ph: &oxml.Placeholder{
 					Type: string(ph.phType),
+					Sz:   string(ph.size),
 					Idx:  ph.idx,
 				},
 			},
 		},
-		SpPr: &dml.SpPr{
-			Xfrm: &dml.Xfrm{
-				Off: &dml.OffXML{X: int64(x), Y: int64(y)},
-				Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
-			},
-		},
+		SpPr: &dml.SpPr{},
 	}
 
-	if ph.textFrame != nil {
+	// Furniture placeholders (footer/number/date) omit xfrm so PowerPoint
+	// inherits geometry from the layout placeholder of the same type; every
+	// other placeholder carries its explicit position and size.
+	if !ph.inheritGeometry {
+		x, y := ph.Position()
+		w, h := ph.Size()
+		sp.SpPr.Xfrm = &dml.Xfrm{
+			Off: &dml.OffXML{X: int64(x), Y: int64(y)},
+			Ext: &dml.ExtXML{Cx: int64(w), Cy: int64(h)},
+		}
+	}
+
+	switch {
+	case ph.fieldType != "":
+		sp.TxBody = fieldTextBody(ph.fieldType, ph.fieldText)
+	case ph.textFrame != nil:
 		sp.TxBody = textFrameToOxml(ph.textFrame)
 	}
 
 	return sp
+}
+
+// fieldGUIDs are stable per-field-type ids for the required a:fld id
+// attribute. PowerPoint uses random GUIDs but does not require uniqueness
+// across slides for these auto fields; fixed values keep spine's output
+// deterministic.
+var fieldGUIDs = map[string]string{
+	"slidenum": "{4A9C4C6E-5B2A-4C1D-9E8F-1A2B3C4D5E6F}",
+	"datetime": "{7B1D2E3F-4A5B-4C6D-8E9F-0A1B2C3D4E5F}",
+}
+
+// fieldTextBody builds a text body whose single paragraph is an auto-updating
+// field (a:fld) — used by slide-number and date furniture placeholders. The
+// fallback text is what PowerPoint shows until it recalculates the field.
+func fieldTextBody(fieldType, fallback string) *dml.TxBody {
+	id := fieldGUIDs[fieldType]
+	if id == "" {
+		id = "{00000000-0000-0000-0000-000000000000}"
+	}
+	return &dml.TxBody{
+		BodyPr:   &dml.BodyPr{},
+		LstStyle: &dml.LstStyle{},
+		P: []*dml.P{{
+			Fld: []*dml.Fld{{Id: id, Type: fieldType, T: fallback}},
+		}},
+	}
 }
 
 // autoShapeToOxml converts an AutoShape to oxml.Shape.

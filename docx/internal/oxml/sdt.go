@@ -29,6 +29,12 @@ type CT_SdtContentBlock struct {
 	childOrder     []bodyChildRef
 }
 
+// AppendP appends a paragraph to the SDT content, maintaining child order.
+func (sc *CT_SdtContentBlock) AppendP(p *CT_P) {
+	backfillBodyChildOrder(&sc.childOrder, sc.P, sc.Tbl, sc.SdtBlock, sc.BookmarkStart, sc.BookmarkEnd)
+	appendBodyP(&sc.P, &sc.childOrder, p)
+}
+
 // UnmarshalXML implements custom unmarshaling for CT_SdtContentBlock.
 func (sc *CT_SdtContentBlock) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return unmarshalBodyContent(d, &sc.P, &sc.Tbl, &sc.SdtBlock, &sc.BookmarkStart, &sc.BookmarkEnd, &sc.childOrder)

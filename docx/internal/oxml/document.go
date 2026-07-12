@@ -211,6 +211,20 @@ func (body *CT_Body) AppendTbl(t *CT_Tbl) {
 	appendBodyTbl(&body.Tbl, &body.childOrder, t)
 }
 
+// appendBodySdt appends a block-level SDT to a body-level container, recording
+// it in the child order (see appendBodyP).
+func appendBodySdt(sdt *[]*CT_SdtBlock, childOrder *[]bodyChildRef, s *CT_SdtBlock) {
+	*childOrder = append(*childOrder, bodyChildRef{bodyChildSdt, len(*sdt)})
+	*sdt = append(*sdt, s)
+}
+
+// AppendSdtBlock appends a block-level structured document tag to the document
+// body, maintaining child order.
+func (body *CT_Body) AppendSdtBlock(s *CT_SdtBlock) {
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	appendBodySdt(&body.SdtBlock, &body.childOrder, s)
+}
+
 // unmarshalBodyChild handles a single body-level child element start tag.
 // The decoder is positioned at the start element; this function decodes or skips it.
 func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
