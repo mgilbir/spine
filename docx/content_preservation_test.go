@@ -450,3 +450,28 @@ func TestAddHeaderDifferentTypesCoexist(t *testing.T) {
 		}
 	}
 }
+
+// Corpus class F2 (docx side): w:cnfStyle was bound to CT_String, so its
+// twelve explicit conditional-formatting booleans were dropped from trPr,
+// tcPr, and pPr on save; w:shd lacked themeFillTint/themeFillShade. Word
+// writes explicit zeros, so every attribute must survive verbatim.
+func TestCnfStyleAndShdThemeFillRoundTrip(t *testing.T) {
+	const cnf = `<w:cnfStyle w:val="000010000000" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:oddVBand="1" w:evenVBand="0" w:oddHBand="0" w:evenHBand="0" w:firstRowFirstColumn="0" w:firstRowLastColumn="0" w:lastRowFirstColumn="0" w:lastRowLastColumn="0"/>`
+	const shd = `<w:shd w:val="clear" w:color="auto" w:fill="EDEDED" w:themeFill="accent3" w:themeFillTint="33" w:themeFillShade="99"/>`
+	body := `<w:body><w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>` +
+		`<w:tblGrid><w:gridCol w:w="4675"/></w:tblGrid>` +
+		`<w:tr><w:trPr>` + cnf + `</w:trPr>` +
+		`<w:tc><w:tcPr>` + cnf + shd + `</w:tcPr>` +
+		`<w:p><w:pPr>` + cnf + `</w:pPr><w:r><w:t>cell</w:t></w:r></w:p>` +
+		`</w:tc></w:tr></w:tbl><w:p/><w:sectPr/></w:body>`
+
+	fixture := fixtureWithDocument(t, fixtureWNS, body)
+	doc := openSave(t, fixture)
+
+	if got := strings.Count(doc, cnf); got != 3 {
+		t.Errorf("cnfStyle preserved %d/3 times (trPr, tcPr, pPr):\n%s", got, doc)
+	}
+	if !strings.Contains(doc, shd) {
+		t.Errorf("shd themeFillTint/themeFillShade dropped:\n%s", doc)
+	}
+}

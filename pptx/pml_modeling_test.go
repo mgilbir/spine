@@ -174,3 +174,85 @@ func TestDefaultTextStyleFullFidelityRoundTrip(t *testing.T) {
 		t.Errorf("defaultTextStyle not preserved byte-faithfully:\n%s", presXML)
 	}
 }
+
+// tableModelGF is a table graphic frame exercising the corpus class F2 gaps:
+// graphicFrameLocks with the full attribute set, and a tcPr with vert /
+// anchorCtr / horzOverflow attributes plus lnTlToBr / lnBlToTr / headers
+// children — all of which were previously dropped by the typed model.
+const tableModelGF = `<p:graphicFrame>` +
+	`<p:nvGraphicFramePr><p:cNvPr id="20" name="Table 19"/>` +
+	`<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1" noSelect="1" noChangeAspect="1" noMove="1" noResize="1"/></p:cNvGraphicFramePr>` +
+	`<p:nvPr/></p:nvGraphicFramePr>` +
+	`<p:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></p:xfrm>` +
+	`<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">` +
+	`<a:tbl><a:tblPr rtl="1" firstRow="1" bandRow="1"><a:tableStyleId>{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}</a:tableStyleId></a:tblPr>` +
+	`<a:tblGrid><a:gridCol w="1000"/></a:tblGrid>` +
+	`<a:tr h="370840"><a:tc>` +
+	`<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>cell</a:t></a:r></a:p></a:txBody>` +
+	`<a:tcPr marL="0" vert="vert270" anchor="ctr" anchorCtr="1" horzOverflow="overflow">` +
+	`<a:lnTlToBr w="12700"><a:solidFill><a:srgbClr val="FF00FF"/></a:solidFill></a:lnTlToBr>` +
+	`<a:lnBlToTr w="12700"><a:noFill/></a:lnBlToTr>` +
+	`<a:headers><a:header>hdr-a</a:header><a:header>hdr-b</a:header></a:headers>` +
+	`</a:tcPr>` +
+	`</a:tc></a:tr></a:tbl>` +
+	`</a:graphicData></a:graphic></p:graphicFrame>`
+
+// nvPrCustData is a shape nvPr carrying a customer-data tags reference
+// (p:custDataLst), previously deleted because NvPr had no field for it.
+const nvPrCustData = `<p:nvPr><p:custDataLst><p:custData r:id="rId7"/><p:tags r:id="rId8"/></p:custDataLst></p:nvPr>`
+
+// hlinkWithExtLst is an a:hlinkClick carrying an extLst (ahyp:hlinkClr),
+// previously collapsed to a self-closing hlinkClick.
+const hlinkWithExtLst = `<a:hlinkClick r:id="rId9">` +
+	`<a:extLst><a:ext uri="{A12FA001-9CCC-4127-97F1-B205AA2FDE22}">` +
+	`<ahyp:hlinkClr xmlns:ahyp="http://schemas.microsoft.com/office/drawing/2018/hyperlinkcolor" val="tx"/>` +
+	`</a:ext></a:extLst></a:hlinkClick>`
+
+// Corpus class F2: typed pml/dml structs were missing XSD fields and dropped
+// real attributes and children on a zero-modification save: tcPr overflow and
+// diagonal borders, table-cell headers, graphicFrameLocks beyond noGrp, nvPr
+// custDataLst, and hlinkClick extLst.
+func TestZeroModSavePreservesModelGapFields(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	slide.AddTextBox().TextFrame().SetText("keeper")
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deck := rewriteZipPart(t, data, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		xml = bytes.Replace(xml, []byte(`<p:nvPr/>`), []byte(nvPrCustData), 1)
+		if i := bytes.Index(xml, []byte(`name="TextBox`)); i >= 0 {
+			// Give the textbox cNvPr a hyperlink with an extLst.
+			end := bytes.Index(xml[i:], []byte(`/>`))
+			xml = append(xml[:i+end], append([]byte(`>`+hlinkWithExtLst+`</p:cNvPr>`), xml[i+end+2:]...)...)
+		}
+		return bytes.Replace(xml, []byte(`</p:spTree>`), []byte(tableModelGF+`</p:spTree>`), 1)
+	})
+
+	opened, err := OpenReader(bytes.NewReader(deck), int64(len(deck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := opened.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := string(zipPart(t, saved, "ppt/slides/slide1.xml"))
+
+	for _, want := range []string{
+		`<a:graphicFrameLocks noGrp="1" noSelect="1" noChangeAspect="1" noMove="1" noResize="1"/>`,
+		`<a:tblPr rtl="1" firstRow="1" bandRow="1">`,
+		`<a:tcPr marL="0" vert="vert270" anchor="ctr" anchorCtr="1" horzOverflow="overflow">`,
+		`<a:lnTlToBr w="12700"><a:solidFill><a:srgbClr val="FF00FF"/></a:solidFill></a:lnTlToBr>`,
+		`<a:lnBlToTr w="12700"><a:noFill/></a:lnBlToTr>`,
+		`<a:headers><a:header>hdr-a</a:header><a:header>hdr-b</a:header></a:headers>`,
+		nvPrCustData,
+		hlinkWithExtLst,
+		"keeper",
+	} {
+		if !strings.Contains(slideXML, want) {
+			t.Errorf("slide1.xml lost %q:\n%s", want, slideXML)
+		}
+	}
+}

@@ -271,3 +271,38 @@ func TestPreferRelativeResizeZeroRoundTrips(t *testing.T) {
 		t.Errorf("explicit preferRelativeResize=\"0\" dropped on save:\n%s", slideXML)
 	}
 }
+
+// Corpus class F2: a:picLocks modeled only ten of its eleven locking
+// attributes — an explicit noChangeShapeType="1" was dropped on save.
+func TestPicLocksNoChangeShapeTypeRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "img.png")
+	if err := os.WriteFile(imgPath, minimalTransparentPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := Create()
+	if _, err := p.AddSlide().AddPicture(imgPath); err != nil {
+		t.Fatalf("AddPicture: %v", err)
+	}
+	deck, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const locks = `<a:picLocks noChangeAspect="1" noChangeArrowheads="1" noChangeShapeType="1" noCrop="1"/>`
+	data := rewriteZipPart(t, deck, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		out := bytes.Replace(xml, []byte(`<a:picLocks noChangeAspect="1"/>`), []byte(locks), 1)
+		if bytes.Equal(out, xml) {
+			t.Fatal("fixture rewrite matched nothing: default picLocks not found")
+		}
+		return out
+	})
+
+	out, err := openBytes(t, data).SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slideXML := zipPart(t, out, "ppt/slides/slide1.xml"); !bytes.Contains(slideXML, []byte(locks)) {
+		t.Errorf("picLocks attributes dropped on save:\n%s", slideXML)
+	}
+}
