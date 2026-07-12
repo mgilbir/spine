@@ -3,6 +3,7 @@ package opc
 import (
 	"bytes"
 	"encoding/xml"
+	"io"
 	"maps"
 	"path"
 	"slices"
@@ -88,6 +89,27 @@ type ContentTypes struct {
 	// producers use "\n"). It is empty for a ContentTypes created from scratch,
 	// which defaults to "\r\n" on marshal.
 	OriginalXMLSep string
+
+	// prolog is the full prolog capture from the parsed file (declaration
+	// presence and form, separator, trailer). When captured it wins over
+	// OriginalXMLSep, so a source without an XML declaration does not gain one.
+	prolog xmlb.Prolog
+
+	// entryOrder preserves the document order of every <Default> and
+	// <Override> entry in the parsed file, including their interleaving and
+	// each entry's attribute order. Entries added after parse are appended by
+	// Marshal (defaults first, then overrides, each sorted).
+	entryOrder []ctEntry
+}
+
+// ctEntry is one <Default> or <Override> element in source document order.
+type ctEntry struct {
+	isDefault bool
+	// key is the lowercase extension (defaults) or the part name (overrides).
+	key string
+	// contentTypeFirst records that the source wrote the ContentType
+	// attribute before Extension/PartName.
+	contentTypeFirst bool
 }
 
 // NewContentTypes creates a new ContentTypes with default extension mappings.
@@ -123,6 +145,8 @@ func (ct *ContentTypes) Clone() *ContentTypes {
 		overrideOrder:  slices.Clone(ct.overrideOrder),
 		origExt:        maps.Clone(ct.origExt),
 		OriginalXMLSep: ct.OriginalXMLSep,
+		prolog:         ct.prolog,
+		entryOrder:     slices.Clone(ct.entryOrder),
 	}
 	// maps.Clone(nil) is nil; keep the invariant that the maps are usable.
 	if c.Defaults == nil {
@@ -228,69 +252,121 @@ func (ct *ContentTypes) RemoveOverride(partName string) {
 	}
 }
 
-// contentTypesXML is the XML structure for [Content_Types].xml
-type contentTypesXML struct {
-	XMLName   xml.Name      `xml:"Types"`
-	Xmlns     string        `xml:"xmlns,attr"`
-	Defaults  []defaultXML  `xml:"Default"`
-	Overrides []overrideXML `xml:"Override"`
-}
-
-type defaultXML struct {
-	Extension   string `xml:"Extension,attr"`
-	ContentType string `xml:"ContentType,attr"`
-}
-
-type overrideXML struct {
-	PartName    string `xml:"PartName,attr"`
-	ContentType string `xml:"ContentType,attr"`
-}
-
 // ContentTypesNamespace is the XML namespace for content types.
 const ContentTypesNamespace = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 // Marshal converts ContentTypes to XML bytes.
-// Output format matches Microsoft Office: compact single-line with self-closing elements.
+// Output format matches Microsoft Office: compact single-line with
+// self-closing elements. A ContentTypes parsed from a source file reproduces
+// the source's prolog, the document order of its Default/Override entries
+// (including their interleaving), and each entry's attribute order; entries
+// added after parse are appended (defaults first, then overrides, sorted).
 func (ct *ContentTypes) Marshal() ([]byte, error) {
 	var buf bytes.Buffer
-	buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
-	sep := ct.OriginalXMLSep
-	if sep == "" {
-		sep = "\r\n"
+	if ct.prolog.Captured {
+		buf.WriteString(ct.prolog.Decl)
+		buf.WriteString(ct.prolog.Sep)
+	} else {
+		buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
+		sep := ct.OriginalXMLSep
+		if sep == "" {
+			sep = "\r\n"
+		}
+		buf.WriteString(sep)
 	}
-	buf.WriteString(sep)
 	buf.WriteString(`<Types xmlns="`)
 	buf.WriteString(ContentTypesNamespace)
 	buf.WriteString(`">`)
 
-	// Write defaults: use original order, then append any new entries sorted.
-	// The extension is re-emitted in its original case (OPC matches
-	// case-insensitively, but round-trip must preserve the source spelling).
-	exts := ct.orderedDefaults()
-	for _, ext := range exts {
-		if contentType, ok := ct.Defaults[ext]; ok {
-			buf.WriteString(`<Default Extension="`)
-			buf.WriteString(xmlb.EscapeAttrValue(ct.displayExtension(ext)))
-			buf.WriteString(`" ContentType="`)
-			buf.WriteString(xmlb.EscapeAttrValue(contentType))
-			buf.WriteString(`"/>`)
+	// Replay the source entries in document order, skipping entries that were
+	// removed since parse and duplicates (OPC requires unique entries).
+	seenDefault := make(map[string]bool, len(ct.Defaults))
+	seenOverride := make(map[string]bool, len(ct.Overrides))
+	for _, e := range ct.entryOrder {
+		if e.isDefault {
+			if seenDefault[e.key] {
+				continue
+			}
+			if contentType, ok := ct.Defaults[e.key]; ok {
+				seenDefault[e.key] = true
+				ct.writeDefault(&buf, e.key, contentType, e.contentTypeFirst)
+			}
+		} else {
+			if seenOverride[e.key] {
+				continue
+			}
+			if contentType, ok := ct.Overrides[e.key]; ok {
+				seenOverride[e.key] = true
+				ct.writeOverride(&buf, e.key, contentType, e.contentTypeFirst)
+			}
 		}
 	}
 
-	// Write overrides: use original order, then append any new entries sorted
-	parts := ct.orderedOverrides()
-	for _, partName := range parts {
+	// Write remaining defaults: original two-bucket order for a ContentTypes
+	// built from scratch, plus entries registered after parse.
+	for _, ext := range ct.orderedDefaults() {
+		if seenDefault[ext] {
+			continue
+		}
+		if contentType, ok := ct.Defaults[ext]; ok {
+			seenDefault[ext] = true
+			ct.writeDefault(&buf, ext, contentType, false)
+		}
+	}
+
+	// Then remaining overrides.
+	for _, partName := range ct.orderedOverrides() {
+		if seenOverride[partName] {
+			continue
+		}
 		if contentType, ok := ct.Overrides[partName]; ok {
-			buf.WriteString(`<Override PartName="`)
-			buf.WriteString(xmlb.EscapeAttrValue(partName))
-			buf.WriteString(`" ContentType="`)
-			buf.WriteString(xmlb.EscapeAttrValue(contentType))
-			buf.WriteString(`"/>`)
+			seenOverride[partName] = true
+			ct.writeOverride(&buf, partName, contentType, false)
 		}
 	}
 
 	buf.WriteString("</Types>")
+	if ct.prolog.Captured {
+		buf.WriteString(ct.prolog.Trailer)
+	}
 	return buf.Bytes(), nil
+}
+
+// writeDefault writes one <Default> entry. The extension is re-emitted in its
+// original case (OPC matches case-insensitively, but round-trip must preserve
+// the source spelling), and contentTypeFirst reproduces the source's
+// attribute order.
+func (ct *ContentTypes) writeDefault(buf *bytes.Buffer, ext, contentType string, contentTypeFirst bool) {
+	buf.WriteString(`<Default `)
+	if contentTypeFirst {
+		buf.WriteString(`ContentType="`)
+		buf.WriteString(xmlb.EscapeAttrValue(contentType))
+		buf.WriteString(`" Extension="`)
+		buf.WriteString(xmlb.EscapeAttrValue(ct.displayExtension(ext)))
+	} else {
+		buf.WriteString(`Extension="`)
+		buf.WriteString(xmlb.EscapeAttrValue(ct.displayExtension(ext)))
+		buf.WriteString(`" ContentType="`)
+		buf.WriteString(xmlb.EscapeAttrValue(contentType))
+	}
+	buf.WriteString(`"/>`)
+}
+
+// writeOverride writes one <Override> entry (see writeDefault).
+func (ct *ContentTypes) writeOverride(buf *bytes.Buffer, partName, contentType string, contentTypeFirst bool) {
+	buf.WriteString(`<Override `)
+	if contentTypeFirst {
+		buf.WriteString(`ContentType="`)
+		buf.WriteString(xmlb.EscapeAttrValue(contentType))
+		buf.WriteString(`" PartName="`)
+		buf.WriteString(xmlb.EscapeAttrValue(partName))
+	} else {
+		buf.WriteString(`PartName="`)
+		buf.WriteString(xmlb.EscapeAttrValue(partName))
+		buf.WriteString(`" ContentType="`)
+		buf.WriteString(xmlb.EscapeAttrValue(contentType))
+	}
+	buf.WriteString(`"/>`)
 }
 
 // orderedDefaults returns default extensions in stable order:
@@ -384,33 +460,77 @@ func extractXMLSeparator(data []byte) string {
 }
 
 // UnmarshalContentTypes parses content types XML into a ContentTypes struct.
+// The parse walks the document token by token so the interleaved order of
+// Default and Override entries — and each entry's attribute order — is
+// captured for byte-faithful regeneration.
 func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
-	var ctXML contentTypesXML
-	if err := xml.Unmarshal(data, &ctXML); err != nil {
-		return nil, err
-	}
-
 	ct := &ContentTypes{
-		Defaults:       make(map[string]string, len(ctXML.Defaults)),
-		Overrides:      make(map[string]string, len(ctXML.Overrides)),
-		defaultOrder:   make([]string, 0, len(ctXML.Defaults)),
-		overrideOrder:  make([]string, 0, len(ctXML.Overrides)),
-		origExt:        make(map[string]string, len(ctXML.Defaults)),
+		Defaults:       make(map[string]string),
+		Overrides:      make(map[string]string),
+		origExt:        make(map[string]string),
 		OriginalXMLSep: extractXMLSeparator(data),
+		prolog:         xmlb.CaptureProlog(data),
 	}
 
-	for _, def := range ctXML.Defaults {
-		ext := strings.ToLower(def.Extension)
-		ct.Defaults[ext] = def.ContentType
-		ct.defaultOrder = append(ct.defaultOrder, ext)
-		if _, exists := ct.origExt[ext]; !exists {
-			ct.origExt[ext] = def.Extension
+	d := xml.NewDecoder(bytes.NewReader(data))
+	sawTypes := false
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch se.Name.Local {
+		case "Types":
+			sawTypes = true
+		case "Default":
+			var ext, contentType string
+			ctFirst := false
+			for i, attr := range se.Attr {
+				switch attr.Name.Local {
+				case "Extension":
+					ext = attr.Value
+				case "ContentType":
+					contentType = attr.Value
+					ctFirst = i == 0
+				}
+			}
+			key := strings.ToLower(ext)
+			if _, exists := ct.Defaults[key]; !exists {
+				ct.defaultOrder = append(ct.defaultOrder, key)
+			}
+			ct.Defaults[key] = contentType
+			if _, exists := ct.origExt[key]; !exists {
+				ct.origExt[key] = ext
+			}
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: true, key: key, contentTypeFirst: ctFirst})
+		case "Override":
+			var partName, contentType string
+			ctFirst := false
+			for i, attr := range se.Attr {
+				switch attr.Name.Local {
+				case "PartName":
+					partName = attr.Value
+				case "ContentType":
+					contentType = attr.Value
+					ctFirst = i == 0
+				}
+			}
+			if _, exists := ct.Overrides[partName]; !exists {
+				ct.overrideOrder = append(ct.overrideOrder, partName)
+			}
+			ct.Overrides[partName] = contentType
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: false, key: partName, contentTypeFirst: ctFirst})
 		}
 	}
-
-	for _, override := range ctXML.Overrides {
-		ct.Overrides[override.PartName] = override.ContentType
-		ct.overrideOrder = append(ct.overrideOrder, override.PartName)
+	if !sawTypes {
+		return nil, ErrCorruptedPackage
 	}
 
 	return ct, nil
