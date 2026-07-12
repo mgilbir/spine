@@ -138,7 +138,14 @@ type ShapeTree struct {
 	GraphicFrame []*GraphicFrame     `xml:"-"`
 	GrpSp        []*GroupShape       `xml:"-"`
 	CxnSp        []*ConnectionShape  `xml:"-"`
-	childOrder   []ChildRef          // tracks interleaved child order
+	// AltContent holds mc:AlternateContent children (ink, 2010+ shapes with
+	// fallbacks); RawXML holds any other unmodeled child (p:contentPart,
+	// extLst, ...) as reconstructed raw bytes. Both are kept in childOrder so
+	// a save re-emits them in position instead of deleting them (C32). They
+	// are never referenced by the domain model's shapeRefs.
+	AltContent []*AlternateContent `xml:"-"`
+	RawXML     [][]byte            `xml:"-"`
+	childOrder []ChildRef          // tracks interleaved child order
 }
 
 // ChildKind identifies a shape child element type.
@@ -150,6 +157,10 @@ const (
 	ChildGraphicFrame
 	ChildGrpSp
 	ChildCxnSp
+	// ChildAltContent and ChildRawXML index the AltContent and RawXML slices:
+	// preserved content the domain model never materializes or removes.
+	ChildAltContent
+	ChildRawXML
 )
 
 // ChildRef references a child element by kind and index into its typed slice.
@@ -232,6 +243,8 @@ func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
 		gf    []*GraphicFrame
 		grp   []*GroupShape
 		cxn   []*ConnectionShape
+		ac    []*AlternateContent
+		raw   [][]byte
 		order []ChildRef
 	)
 	for _, ref := range st.childOrder {
@@ -264,9 +277,20 @@ func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
 				order = append(order, ChildRef{ChildCxnSp, len(cxn)})
 				cxn = append(cxn, st.CxnSp[ref.Index])
 			}
+		case ChildAltContent:
+			if ref.Index < len(st.AltContent) {
+				order = append(order, ChildRef{ChildAltContent, len(ac)})
+				ac = append(ac, st.AltContent[ref.Index])
+			}
+		case ChildRawXML:
+			if ref.Index < len(st.RawXML) {
+				order = append(order, ChildRef{ChildRawXML, len(raw)})
+				raw = append(raw, st.RawXML[ref.Index])
+			}
 		}
 	}
 	st.Sp, st.Pic, st.GraphicFrame, st.GrpSp, st.CxnSp = sp, pic, gf, grp, cxn
+	st.AltContent, st.RawXML = ac, raw
 	st.childOrder = order
 }
 
@@ -427,9 +451,25 @@ func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				st.childOrder = append(st.childOrder, ChildRef{ChildCxnSp, len(st.CxnSp)})
 				st.CxnSp = append(st.CxnSp, cs)
 			default:
-				if err := d.Skip(); err != nil {
+				if t.Name.Space == xmlb.NSMarkupCompatibility && t.Name.Local == "AlternateContent" {
+					ac := &AlternateContent{}
+					if err := d.DecodeElement(ac, &t); err != nil {
+						return err
+					}
+					st.childOrder = append(st.childOrder, ChildRef{ChildAltContent, len(st.AltContent)})
+					st.AltContent = append(st.AltContent, ac)
+					continue
+				}
+				// Unmodeled child (p:contentPart, extLst, ...): capture the
+				// whole element raw so a save re-emits it in position (C32).
+				var inner struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&inner, &t); err != nil {
 					return err
 				}
+				st.childOrder = append(st.childOrder, ChildRef{ChildRawXML, len(st.RawXML)})
+				st.RawXML = append(st.RawXML, encodeRawChild(t, inner.Content))
 			}
 		case xml.EndElement:
 			return nil
@@ -472,6 +512,14 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.Index < len(st.CxnSp) {
 					b.MarshalElement(ns, "cxnSp", st.CxnSp[ref.Index])
 				}
+			case ChildAltContent:
+				if ref.Index < len(st.AltContent) {
+					b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", st.AltContent[ref.Index])
+				}
+			case ChildRawXML:
+				if ref.Index < len(st.RawXML) {
+					b.WriteRaw(st.RawXML[ref.Index])
+				}
 			}
 		}
 	} else {
@@ -490,6 +538,12 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		}
 		for _, cs := range st.CxnSp {
 			b.MarshalElement(ns, "cxnSp", cs)
+		}
+		for _, ac := range st.AltContent {
+			b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
+		}
+		for _, raw := range st.RawXML {
+			b.WriteRaw(raw)
 		}
 	}
 
