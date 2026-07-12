@@ -55,11 +55,11 @@ func TestDML_CT_HslColor(t *testing.T) {
 	if v.Hue != 0 {
 		t.Errorf("Hue = %d, want 0", v.Hue)
 	}
-	if v.Sat != 100000 {
-		t.Errorf("Sat = %d, want 100000", v.Sat)
+	if v.Sat.Int32() != 100000 {
+		t.Errorf("Sat = %d, want 100000", v.Sat.Int32())
 	}
-	if v.Lum != 50000 {
-		t.Errorf("Lum = %d, want 50000", v.Lum)
+	if v.Lum.Int32() != 50000 {
+		t.Errorf("Lum = %d, want 50000", v.Lum.Int32())
 	}
 }
 
@@ -82,8 +82,8 @@ func TestDML_CT_ScRgbColor(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.R != 50000 {
-		t.Errorf("R = %d, want 50000", v.R)
+	if v.R.Int32() != 50000 {
+		t.Errorf("R = %d, want 50000", v.R.Int32())
 	}
 }
 
@@ -102,16 +102,16 @@ func TestDML_CT_SchemeColorWithTransforms(t *testing.T) {
 	if v.Val != "phClr" {
 		t.Errorf("Val = %q, want phClr", v.Val)
 	}
-	if len(v.Tint) == 0 || v.Tint[0].Val != 50000 {
+	if len(v.Tint) == 0 || v.Tint[0].Val.Int32() != 50000 {
 		t.Error("Tint not properly parsed")
 	}
-	if len(v.Shade) == 0 || v.Shade[0].Val != 75000 {
+	if len(v.Shade) == 0 || v.Shade[0].Val.Int32() != 75000 {
 		t.Error("Shade not properly parsed")
 	}
-	if len(v.SatMod) == 0 || v.SatMod[0].Val != 300000 {
+	if len(v.SatMod) == 0 || v.SatMod[0].Val.Int32() != 300000 {
 		t.Error("SatMod not properly parsed")
 	}
-	if len(v.Alpha) == 0 || v.Alpha[0].Val != 50000 {
+	if len(v.Alpha) == 0 || v.Alpha[0].Val.Int32() != 50000 {
 		t.Error("Alpha not properly parsed")
 	}
 }
@@ -123,7 +123,7 @@ func TestDML_CT_Tint(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Val != 50000 {
-		t.Errorf("Val = %d, want 50000", v.Val)
+	if v.Val.Int32() != 50000 {
+		t.Errorf("Val = %d, want 50000", v.Val.Int32())
 	}
 }

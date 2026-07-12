@@ -25,8 +25,8 @@ type OuterShdw struct {
 	BlurRad      *int64              `xml:"blurRad,attr,omitempty"`
 	Dist         *int64              `xml:"dist,attr,omitempty"`
 	Dir          *int32              `xml:"dir,attr,omitempty"`
-	Sx           *int32              `xml:"sx,attr,omitempty"`
-	Sy           *int32              `xml:"sy,attr,omitempty"`
+	Sx           *Percentage         `xml:"sx,attr,omitempty"`
+	Sy           *Percentage         `xml:"sy,attr,omitempty"`
 	Kx           *int32              `xml:"kx,attr,omitempty"`
 	Ky           *int32              `xml:"ky,attr,omitempty"`
 	Algn         string              `xml:"algn,attr,omitempty"`
@@ -57,20 +57,20 @@ type InnerShdw struct {
 
 // ReflectionXML represents CT_ReflectionEffect (a:reflection)
 type ReflectionXML struct {
-	BlurRad      *int64 `xml:"blurRad,attr,omitempty"`
-	StA          *int32 `xml:"stA,attr,omitempty"`
-	StPos        *int32 `xml:"stPos,attr,omitempty"`
-	EndA         *int32 `xml:"endA,attr,omitempty"`
-	EndPos       *int32 `xml:"endPos,attr,omitempty"`
-	Dist         *int64 `xml:"dist,attr,omitempty"`
-	Dir          *int32 `xml:"dir,attr,omitempty"`
-	FadeDir      *int32 `xml:"fadeDir,attr,omitempty"`
-	Sx           *int32 `xml:"sx,attr,omitempty"`
-	Sy           *int32 `xml:"sy,attr,omitempty"`
-	Kx           *int32 `xml:"kx,attr,omitempty"`
-	Ky           *int32 `xml:"ky,attr,omitempty"`
-	Algn         string `xml:"algn,attr,omitempty"`
-	RotWithShape *bool  `xml:"rotWithShape,attr,omitempty"`
+	BlurRad      *int64      `xml:"blurRad,attr,omitempty"`
+	StA          *Percentage `xml:"stA,attr,omitempty"`
+	StPos        *Percentage `xml:"stPos,attr,omitempty"`
+	EndA         *Percentage `xml:"endA,attr,omitempty"`
+	EndPos       *Percentage `xml:"endPos,attr,omitempty"`
+	Dist         *int64      `xml:"dist,attr,omitempty"`
+	Dir          *int32      `xml:"dir,attr,omitempty"`
+	FadeDir      *int32      `xml:"fadeDir,attr,omitempty"`
+	Sx           *Percentage `xml:"sx,attr,omitempty"`
+	Sy           *Percentage `xml:"sy,attr,omitempty"`
+	Kx           *int32      `xml:"kx,attr,omitempty"`
+	Ky           *int32      `xml:"ky,attr,omitempty"`
+	Algn         string      `xml:"algn,attr,omitempty"`
+	RotWithShape *bool       `xml:"rotWithShape,attr,omitempty"`
 }
 
 // GlowXML represents CT_GlowEffect (a:glow). All six EG_ColorChoice kinds are
@@ -131,12 +131,12 @@ type AlphaMod struct {
 
 // AlphaModFix represents CT_AlphaModulateFixedEffect (a:alphaModFix)
 type AlphaModFix struct {
-	Amt int32 `xml:"amt,attr,omitempty"`
+	Amt Percentage `xml:"amt,attr,omitempty"`
 }
 
 // BiLevelXML represents CT_BiLevelEffect (a:biLevel)
 type BiLevelXML struct {
-	Thresh int32 `xml:"thresh,attr"`
+	Thresh Percentage `xml:"thresh,attr"`
 }
 
 // ClrChange represents CT_ColorChangeEffect (a:clrChange). useA defaults to
@@ -373,21 +373,21 @@ type GrayscaleXML struct{}
 
 // HslXML represents CT_HSLEffect (a:hsl)
 type HslXML struct {
-	Hue int32 `xml:"hue,attr,omitempty"`
-	Sat int32 `xml:"sat,attr,omitempty"`
-	Lum int32 `xml:"lum,attr,omitempty"`
+	Hue int32      `xml:"hue,attr,omitempty"`
+	Sat Percentage `xml:"sat,attr,omitempty"`
+	Lum Percentage `xml:"lum,attr,omitempty"`
 }
 
 // LumXML represents CT_LuminanceEffect (a:lum)
 type LumXML struct {
-	Bright   int32 `xml:"bright,attr,omitempty"`
-	Contrast int32 `xml:"contrast,attr,omitempty"`
+	Bright   Percentage `xml:"bright,attr,omitempty"`
+	Contrast Percentage `xml:"contrast,attr,omitempty"`
 }
 
 // TintEffectXML represents CT_TintEffect (a:tint)
 type TintEffectXML struct {
-	Hue int32 `xml:"hue,attr,omitempty"`
-	Amt int32 `xml:"amt,attr,omitempty"`
+	Hue int32      `xml:"hue,attr,omitempty"`
+	Amt Percentage `xml:"amt,attr,omitempty"`
 }
 
 // AlphaOutset represents CT_AlphaOutsetEffect (a:alphaOutset)

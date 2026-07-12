@@ -4,27 +4,27 @@ package dml
 
 // Blip represents CT_Blip (a:blip) - image reference with effects
 type Blip struct {
-	Embed      string      `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr,omitempty"`
-	Link       string      `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr,omitempty"`
-	Cstate     string      `xml:"cstate,attr,omitempty"` // email, screen, print, hqprint
-	AlphaBiLevel *AlphaBiLevel `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaBiLevel,omitempty"`
-	AlphaCeiling *AlphaCeiling `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaCeiling,omitempty"`
-	AlphaFloor   *AlphaFloor   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaFloor,omitempty"`
-	AlphaInv     *AlphaInv     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaInv,omitempty"`
-	AlphaMod     *AlphaMod     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
-	AlphaModFix  *AlphaModFix  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaModFix,omitempty"`
-	AlphaRepl    *AlphaRepl    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaRepl,omitempty"`
-	BiLevel      *BiLevelXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main biLevel,omitempty"`
-	Blur         *BlurXML      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blur,omitempty"`
-	ClrChange    *ClrChange    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrChange,omitempty"`
-	ClrRepl      *ClrRepl      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrRepl,omitempty"`
-	Duotone      *Duotone      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main duotone,omitempty"`
+	Embed        string          `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr,omitempty"`
+	Link         string          `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr,omitempty"`
+	Cstate       string          `xml:"cstate,attr,omitempty"` // email, screen, print, hqprint
+	AlphaBiLevel *AlphaBiLevel   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaBiLevel,omitempty"`
+	AlphaCeiling *AlphaCeiling   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaCeiling,omitempty"`
+	AlphaFloor   *AlphaFloor     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaFloor,omitempty"`
+	AlphaInv     *AlphaInv       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaInv,omitempty"`
+	AlphaMod     *AlphaMod       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
+	AlphaModFix  *AlphaModFix    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaModFix,omitempty"`
+	AlphaRepl    *AlphaRepl      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaRepl,omitempty"`
+	BiLevel      *BiLevelXML     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main biLevel,omitempty"`
+	Blur         *BlurXML        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blur,omitempty"`
+	ClrChange    *ClrChange      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrChange,omitempty"`
+	ClrRepl      *ClrRepl        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrRepl,omitempty"`
+	Duotone      *Duotone        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main duotone,omitempty"`
 	FillOverlay  *FillOverlayXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fillOverlay,omitempty"`
-	Grayscl      *GrayscaleXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grayscl,omitempty"`
-	Hsl          *HslXML       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hsl,omitempty"`
-	Lum          *LumXML       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
-	Tint         *TintEffectXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
-	ExtLst       *ExtLst       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	Grayscl      *GrayscaleXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grayscl,omitempty"`
+	Hsl          *HslXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hsl,omitempty"`
+	Lum          *LumXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
+	Tint         *TintEffectXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
+	ExtLst       *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // BlipFill represents CT_BlipFillProperties (a:blipFill) - complete blip fill
@@ -51,8 +51,8 @@ type BlipFill struct {
 // NOTE: duplicates RelRect/SrcRect (CT_RelativeRect); consolidating the
 // RelRect family is a deeper refactor, deliberately deferred.
 type CropRect struct {
-	L int32 `xml:"l,attr,omitempty"` // left offset
-	T int32 `xml:"t,attr,omitempty"` // top offset
-	R int32 `xml:"r,attr,omitempty"` // right offset
-	B int32 `xml:"b,attr,omitempty"` // bottom offset
+	L Percentage `xml:"l,attr,omitempty"` // left offset
+	T Percentage `xml:"t,attr,omitempty"` // top offset
+	R Percentage `xml:"r,attr,omitempty"` // right offset
+	B Percentage `xml:"b,attr,omitempty"` // bottom offset
 }
