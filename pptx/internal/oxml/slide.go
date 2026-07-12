@@ -13,49 +13,57 @@ import (
 type AlternateContent = coxml.AlternateContent
 
 // Slide is the root element of a slide part.
+//
+// AlternateContent holds every root-level mc:AlternateContent in document
+// order (C223: a single pointer collapsed multiple siblings to the last).
+// Each element's position relative to the typed children is tracked by
+// acAnchors; see root_marshal.go.
 type Slide struct {
-	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
-	Show             *bool             `xml:"show,attr,omitempty"`
-	CSld             *CommonSlideData  `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition       `xml:"transition,omitempty"`
-	AlternateContent *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing           `xml:"timing,omitempty"`
-	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	Show             *bool               `xml:"show,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideLayout is the root element of a slide layout part.
 // Attribute order matches XSD CT_SlideLayout definition.
 type SlideLayout struct {
-	XMLName            xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
-	ShowMasterSp       *bool             `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim   *bool             `xml:"showMasterPhAnim,attr,omitempty"`
-	Type               string            `xml:"type,attr,omitempty"`
-	Preserve           bool              `xml:"preserve,attr,omitempty"`
-	UserDrawn          bool              `xml:"userDrawn,attr,omitempty"`
-	MatchingName       string            `xml:"matchingName,attr,omitempty"`
-	CSld               *CommonSlideData  `xml:"cSld"`
-	ClrMapOvr          *ColorMapOverride `xml:"clrMapOvr,omitempty"`
-	Transition         *Transition       `xml:"transition,omitempty"`
-	AlternateContent   *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing             *Timing           `xml:"timing,omitempty"`
-	Hf                 *HeaderFooter     `xml:"hf,omitempty"`
-	ExtLst             *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
+	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
+	Type             string              `xml:"type,attr,omitempty"`
+	Preserve         bool                `xml:"preserve,attr,omitempty"`
+	UserDrawn        bool                `xml:"userDrawn,attr,omitempty"`
+	MatchingName     string              `xml:"matchingName,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	Hf               *HeaderFooter       `xml:"hf,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
-	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
-	Preserve         bool              `xml:"preserve,attr,omitempty"`
-	CSld             *CommonSlideData  `xml:"cSld"`
-	ClrMap           *ColorMap         `xml:"clrMap,omitempty"`
-	SlideLayoutIDs   *SlideLayoutIDs   `xml:"sldLayoutIdLst,omitempty"`
-	Transition       *Transition       `xml:"transition,omitempty"`
-	AlternateContent *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing           `xml:"timing,omitempty"`
-	Hf               *HeaderFooter     `xml:"hf,omitempty"`
-	TxStyles         *TxStyles         `xml:"txStyles,omitempty"`
-	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	Preserve         bool                `xml:"preserve,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`
+	SlideLayoutIDs   *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	Hf               *HeaderFooter       `xml:"hf,omitempty"`
+	TxStyles         *TxStyles           `xml:"txStyles,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.

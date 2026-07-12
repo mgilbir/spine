@@ -14,33 +14,34 @@ const (
 	nsR = xmlb.NSOfficeDocumentRels
 )
 
-// marshalSlide marshals a slide to XML using the reflection-based marshaler.
+// marshalSlide marshals a slide to XML, keeping root-level AlternateContent
+// siblings in their parsed positions (C223).
 func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
-	b.MarshalRoot(nsP, "sld", slide, xmlb.PresentationMLNamespaces())
+	slide.MarshalRootToBuilder(b)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide: %w", err)
 	}
 	return b.Bytes(), nil
 }
 
-// marshalSlideLayout marshals a slide layout to XML using the reflection-based marshaler.
+// marshalSlideLayout marshals a slide layout to XML (see marshalSlide).
 func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
-	b.MarshalRoot(nsP, "sldLayout", layout, xmlb.PresentationMLNamespaces())
+	layout.MarshalRootToBuilder(b)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide layout: %w", err)
 	}
 	return b.Bytes(), nil
 }
 
-// marshalSlideMaster marshals a slide master to XML using the reflection-based marshaler.
+// marshalSlideMaster marshals a slide master to XML (see marshalSlide).
 func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
-	b.MarshalRoot(nsP, "sldMaster", master, xmlb.PresentationMLNamespaces())
+	master.MarshalRootToBuilder(b)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide master: %w", err)
 	}
