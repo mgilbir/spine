@@ -55,3 +55,42 @@ func TestBuilder_MismatchedClose(t *testing.T) {
 		t.Error("expected a mismatched-close error, got nil")
 	}
 }
+
+// C214: the balance check must compare the full prefixed name, not just the
+// local name — <p:sp></a:sp> is mismatched even though both are "sp".
+func TestBuilder_MismatchedPrefix(t *testing.T) {
+	b := NewPresentationMLBuilder()
+	b.StartElement(NSPresentationML, "sp") // <p:sp>
+	b.EndElement(NSDrawingML, "sp")        // </a:sp>
+	if b.Err() == nil {
+		t.Errorf("closing </a:sp> against open <p:sp> not detected: %q", b.String())
+	}
+}
+
+func TestBuilder_MatchingPrefixBalanced(t *testing.T) {
+	b := NewPresentationMLBuilder()
+	b.StartElement(NSPresentationML, "sp")
+	b.EndElement(NSPresentationML, "sp")
+	if err := b.Finish(); err != nil {
+		t.Errorf("balanced prefixed element reported error: %v", err)
+	}
+}
+
+// C214: EndElementInlineNS takes the prefix directly and must be checked too.
+func TestBuilder_MismatchedInlineNSPrefix(t *testing.T) {
+	b := NewBuilder()
+	b.StartElementInlineNS("http://example.com/p14", "p14", "ext")
+	b.EndElementInlineNS("p15", "ext") // wrong prefix
+	if b.Err() == nil {
+		t.Errorf("closing </p15:ext> against open <p14:ext> not detected: %q", b.String())
+	}
+}
+
+func TestBuilder_MatchingInlineNSBalanced(t *testing.T) {
+	b := NewBuilder()
+	b.StartElementInlineNS("http://example.com/p14", "p14", "ext")
+	b.EndElementInlineNS("p14", "ext")
+	if err := b.Finish(); err != nil {
+		t.Errorf("balanced inline-NS element reported error: %v", err)
+	}
+}

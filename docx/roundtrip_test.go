@@ -200,3 +200,33 @@ func TestSaveBytesAndOpenReader(t *testing.T) {
 		t.Fatalf("paragraph text = %q, want %q", got, "Hello, World!")
 	}
 }
+
+// TestRoundTrip_CarriageReturnInText verifies that a carriage return in run
+// text survives save/reopen (C177). XML parsers normalize a literal \r in
+// element content to \n (XML spec end-of-line handling), so the serializer
+// must write it as &#xD;.
+func TestRoundTrip_CarriageReturnInText(t *testing.T) {
+	const want = "line1\rline2"
+
+	doc := Create()
+	doc.AddParagraphWithText(want)
+
+	data, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes error: %v", err)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader error: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+
+	paras := reopened.Paragraphs()
+	if len(paras) != 1 {
+		t.Fatalf("paragraph count = %d, want 1", len(paras))
+	}
+	if got := paras[0].Text(); got != want {
+		t.Fatalf("carriage return lost on round-trip: text = %q, want %q", got, want)
+	}
+}

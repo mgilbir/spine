@@ -3,6 +3,7 @@ package xml
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Builder creates XML with proper namespace prefixes for OOXML documents.
@@ -18,29 +19,39 @@ type Builder struct {
 	selfClosingSpace   bool              // true: " />" false: "/>"
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
 	trailingWS         bool              // set by WriteRaw when data ends with whitespace
-	stack              []string          // open element local names, for balance checking
+	stack              []string          // open element qualified names (prefix:local), for balance checking
 	err                error             // first structural error encountered
 }
 
-// pushElem records an opened element for balance checking.
-func (b *Builder) pushElem(localName string) {
-	b.stack = append(b.stack, localName)
+// qualifiedName returns the name as it is written to the output:
+// prefix:localName when the namespace resolves to a non-empty prefix,
+// otherwise just localName. Mirrors writeQName.
+func (b *Builder) qualifiedName(namespace, localName string) string {
+	if prefix, ok := b.namespaces[namespace]; ok && prefix != "" {
+		return prefix + ":" + localName
+	}
+	return localName
 }
 
-// popElem matches a closing element against the open-element stack, recording
-// the first structural error and preventing the indentation level from going
-// negative on an unbalanced close.
-func (b *Builder) popElem(localName string) {
+// pushElem records an opened element's qualified name for balance checking.
+func (b *Builder) pushElem(qname string) {
+	b.stack = append(b.stack, qname)
+}
+
+// popElem matches a closing element's qualified name against the open-element
+// stack, recording the first structural error and preventing the indentation
+// level from going negative on an unbalanced close.
+func (b *Builder) popElem(qname string) {
 	if len(b.stack) == 0 {
 		if b.err == nil {
-			b.err = fmt.Errorf("xml: closing </%s> with no open element", localName)
+			b.err = fmt.Errorf("xml: closing </%s> with no open element", qname)
 		}
 		return
 	}
 	top := b.stack[len(b.stack)-1]
 	b.stack = b.stack[:len(b.stack)-1]
-	if top != localName && b.err == nil {
-		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", localName, top)
+	if top != qname && b.err == nil {
+		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", qname, top)
 	}
 	if b.level > 0 {
 		b.level--
@@ -157,7 +168,7 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
-	b.pushElem(localName)
+	b.pushElem(b.qualifiedName(namespace, localName))
 	b.level++
 }
 
@@ -201,7 +212,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
-	b.pushElem(localName)
+	b.pushElem(b.qualifiedName(namespace, localName))
 	b.level++
 }
 
@@ -262,13 +273,13 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
-	b.pushElem(localName)
+	b.pushElem(b.qualifiedName(namespace, localName))
 	b.level++
 }
 
 // EndElement ends the current element.
 func (b *Builder) EndElement(namespace, localName string) {
-	b.popElem(localName)
+	b.popElem(b.qualifiedName(namespace, localName))
 	b.writeIndent()
 	b.buf.WriteString("</")
 	b.writeQName(namespace, localName)
@@ -470,13 +481,13 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
-	b.pushElem(localName)
+	b.pushElem(prefix + ":" + localName)
 	b.level++
 }
 
 // EndElementInlineNS ends an element that was started with StartElementInlineNS.
 func (b *Builder) EndElementInlineNS(prefix, localName string) {
-	b.popElem(localName)
+	b.popElem(prefix + ":" + localName)
 	b.writeIndent()
 	b.buf.WriteString("</")
 	b.buf.WriteString(prefix)
@@ -535,10 +546,16 @@ var attrEscaper = strings.NewReplacer(
 // textEscaper escapes XML text content (character data).
 // Per XML spec §2.4: only & and < must be escaped in character data.
 // > is also escaped for safety (required in the sequence ]]>).
+// Carriage return is written as a character reference because XML §2.11
+// end-of-line handling makes every conforming parser normalize a literal
+// \r (or \r\n) in element content to \n; only &#xD; survives a reparse.
+// Tab and newline are NOT escaped: parsers preserve them verbatim in
+// character data, and escaping them would cause round-trip byte drift.
 var textEscaper = strings.NewReplacer(
 	"&", "&amp;",
 	"<", "&lt;",
 	">", "&gt;",
+	"\r", "&#xD;",
 )
 
 // EscapeAttrValue returns s escaped for use as the value of a double-quoted XML
@@ -560,25 +577,49 @@ func (b *Builder) writeTextEscaped(s string) {
 	_, _ = textEscaper.WriteString(&b.buf, stripInvalidXMLChars(s))
 }
 
-// isInvalidXMLByte reports whether c is a byte that cannot appear in a
-// well-formed XML 1.0 document. The only control characters permitted are
+// isInvalidXMLByte reports whether c is an ASCII byte that cannot appear in
+// a well-formed XML 1.0 document. The only control characters permitted are
 // tab (0x09), newline (0x0A), and carriage return (0x0D); every other byte
 // below 0x20 is illegal and cannot even be represented as a character
-// reference (XML spec §2.2). Such bytes are always < 0x80, so filtering them
-// out at the byte level never splits a multi-byte UTF-8 sequence.
+// reference (XML spec §2.2).
 func isInvalidXMLByte(c byte) bool {
 	return c < 0x20 && c != '\t' && c != '\n' && c != '\r'
 }
 
-// stripInvalidXMLChars drops XML-1.0-illegal control characters from s. It
-// allocates only when such a character is present; the common case (no
-// invalid bytes) returns s unchanged.
+// isValidXMLRune reports whether r matches the XML 1.0 Char production
+// (spec §2.2): #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] |
+// [#x10000-#x10FFFF]. Notably U+FFFE and U+FFFF are excluded. Surrogate
+// code points ([#xD800-#xDFFF]) cannot occur here because valid UTF-8
+// never encodes them; they arrive as invalid byte sequences, which the
+// caller strips.
+func isValidXMLRune(r rune) bool {
+	return r == 0x9 || r == 0xA || r == 0xD ||
+		(r >= 0x20 && r <= 0xD7FF) ||
+		(r >= 0xE000 && r <= 0xFFFD) ||
+		(r >= 0x10000 && r <= 0x10FFFF)
+}
+
+// stripInvalidXMLChars drops characters that violate the XML 1.0 Char
+// production from s: illegal control characters, U+FFFE/U+FFFF, and invalid
+// UTF-8 sequences (including lone surrogates encoded as raw bytes). It
+// allocates only when something must be stripped; the common case (already
+// valid) returns s unchanged.
 func stripInvalidXMLChars(s string) string {
+	// Fast path: scan without allocating until the first invalid character.
 	i := 0
-	for ; i < len(s); i++ {
-		if isInvalidXMLByte(s[i]) {
+	for i < len(s) {
+		if c := s[i]; c < utf8.RuneSelf {
+			if isInvalidXMLByte(c) {
+				break
+			}
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r == utf8.RuneError && size == 1) || !isValidXMLRune(r) {
 			break
 		}
+		i += size
 	}
 	if i == len(s) {
 		return s
@@ -586,10 +627,19 @@ func stripInvalidXMLChars(s string) string {
 	var sb strings.Builder
 	sb.Grow(len(s))
 	sb.WriteString(s[:i])
-	for ; i < len(s); i++ {
-		if c := s[i]; !isInvalidXMLByte(c) {
-			sb.WriteByte(c)
+	for i < len(s) {
+		if c := s[i]; c < utf8.RuneSelf {
+			if !isInvalidXMLByte(c) {
+				sb.WriteByte(c)
+			}
+			i++
+			continue
 		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if (r != utf8.RuneError || size > 1) && isValidXMLRune(r) {
+			sb.WriteString(s[i : i+size])
+		}
+		i += size
 	}
 	return sb.String()
 }
