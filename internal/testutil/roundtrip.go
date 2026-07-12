@@ -5,6 +5,7 @@ package testutil
 import (
 	"archive/zip"
 	"bytes"
+	"io"
 	"sort"
 	"strings"
 	"testing"
@@ -40,6 +41,95 @@ func ReadZipParts(path string) (map[string][]byte, error) {
 	return parts, nil
 }
 
+// ReadZipPartsBytes reads all parts from an in-memory ZIP archive into a map.
+// Part names have leading slashes stripped for consistency.
+func ReadZipPartsBytes(data []byte) (map[string][]byte, error) {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+
+	parts := make(map[string][]byte)
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		_, err = buf.ReadFrom(rc)
+		_ = rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		name := f.Name
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+		parts[name] = buf.Bytes()
+	}
+	return parts, nil
+}
+
+// AppendZipEntry rewrites the ZIP file at path into an in-memory archive with
+// one extra entry appended. It is used to craft fixtures reproducing
+// real-world packages that carry junk entries (e.g. [trash]/0000.dat) without
+// a matching [Content_Types].xml entry.
+func AppendZipEntry(t *testing.T, path, name string, content []byte) []byte {
+	t.Helper()
+
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatalf("Failed to open %s: %v", path, err)
+	}
+	defer func() { _ = r.Close() }()
+
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for _, f := range r.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("Failed to open entry %s: %v", f.Name, err)
+		}
+		fw, err := w.Create(f.Name)
+		if err != nil {
+			t.Fatalf("Failed to create entry %s: %v", f.Name, err)
+		}
+		if _, err := io.Copy(fw, rc); err != nil {
+			t.Fatalf("Failed to copy entry %s: %v", f.Name, err)
+		}
+		_ = rc.Close()
+	}
+	fw, err := w.Create(name)
+	if err != nil {
+		t.Fatalf("Failed to create entry %s: %v", name, err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatalf("Failed to write entry %s: %v", name, err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Failed to close zip: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// CompareZipBytes compares two in-memory ZIP archives and returns lists of
+// missing, extra, and changed parts.
+func CompareZipBytes(t *testing.T, original, roundtrip []byte) (missing, extra, changed []string) {
+	t.Helper()
+
+	origParts, err := ReadZipPartsBytes(original)
+	if err != nil {
+		t.Fatalf("Failed to read original: %v", err)
+	}
+
+	rtParts, err := ReadZipPartsBytes(roundtrip)
+	if err != nil {
+		t.Fatalf("Failed to read roundtrip: %v", err)
+	}
+
+	return diffZipParts(origParts, rtParts)
+}
+
 // CompareZipFiles compares two ZIP files and returns lists of missing, extra, and changed parts.
 func CompareZipFiles(t *testing.T, original, roundtrip string) (missing, extra, changed []string) {
 	t.Helper()
@@ -54,6 +144,12 @@ func CompareZipFiles(t *testing.T, original, roundtrip string) (missing, extra, 
 		t.Fatalf("Failed to read roundtrip: %v", err)
 	}
 
+	return diffZipParts(origParts, rtParts)
+}
+
+// diffZipParts computes missing, extra, and changed part names between two
+// part maps.
+func diffZipParts(origParts, rtParts map[string][]byte) (missing, extra, changed []string) {
 	for _, name := range SortedKeys(origParts) {
 		if _, ok := rtParts[name]; !ok {
 			missing = append(missing, name)

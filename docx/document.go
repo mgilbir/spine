@@ -366,7 +366,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// so Close regenerates core.xml from d.Properties.
 	if d.hasCoreProps && d.Properties.Equal(d.propsSnapshot) {
 		if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
-			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
 			}
 		}
@@ -400,7 +400,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
-		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
+		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}
@@ -414,7 +414,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == mainRelsName {
 			continue
 		}
-		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
+		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}
