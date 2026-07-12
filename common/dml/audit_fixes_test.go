@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // C145: converters round to the nearest unit instead of truncating.
@@ -133,5 +135,88 @@ func TestTcTxStyle_FontCollection(t *testing.T) {
 	}
 	if s.Font == nil || s.Font.Latin == nil || s.Font.Latin.Typeface != "Calibri" {
 		t.Errorf("tcTxStyle font collection not parsed: %+v", s.Font)
+	}
+}
+
+// buildFragment marshals v as an a:-namespace element through the production
+// Builder and returns the serialized bytes.
+func buildFragment(t *testing.T, localName string, v interface{}) string {
+	t.Helper()
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(nsA, localName, v)
+	return b.String()
+}
+
+// C178: single-EG_ColorChoice containers preserve all six color kinds through
+// the production Builder instead of re-emitting a schema-invalid empty element.
+func TestSingleColorContainers_AllColorKindsRoundTrip(t *testing.T) {
+	const ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+	tests := []struct {
+		name  string
+		local string
+		input string
+		v     interface{}
+		want  string // exact color child that must survive
+	}{
+		{
+			name:  "glow sysClr",
+			local: "glow",
+			input: `<glow xmlns="` + ns + `" rad="63500"><sysClr val="windowText" lastClr="000000"/></glow>`,
+			v:     &GlowXML{},
+			want:  `<a:sysClr val="windowText" lastClr="000000"/>`,
+		},
+		{
+			name:  "innerShdw prstClr",
+			local: "innerShdw",
+			input: `<innerShdw xmlns="` + ns + `" blurRad="63500"><prstClr val="black"/></innerShdw>`,
+			v:     &InnerShdw{},
+			want:  `<a:prstClr val="black"/>`,
+		},
+		{
+			name:  "prstShdw hslClr",
+			local: "prstShdw",
+			input: `<prstShdw xmlns="` + ns + `" prst="shdw13" dist="38100"><hslClr hue="14400000" sat="100000" lum="50000"/></prstShdw>`,
+			v:     &PrstShdw{},
+			want:  `<a:hslClr hue="14400000" sat="100000" lum="50000"/>`,
+		},
+		{
+			name:  "clrRepl scrgbClr",
+			local: "clrRepl",
+			input: `<clrRepl xmlns="` + ns + `"><scrgbClr r="50000" g="25000" b="0"/></clrRepl>`,
+			v:     &ClrRepl{},
+			want:  `<a:scrgbClr r="50000" g="25000" b="0"/>`,
+		},
+		{
+			name:  "alphaInv sysClr",
+			local: "alphaInv",
+			input: `<alphaInv xmlns="` + ns + `"><sysClr val="window" lastClr="FFFFFF"/></alphaInv>`,
+			v:     &AlphaInv{},
+			want:  `<a:sysClr val="window" lastClr="FFFFFF"/>`,
+		},
+		{
+			name:  "buClr hslClr",
+			local: "pPr",
+			input: `<pPr xmlns="` + ns + `"><buClr><hslClr hue="14400000" sat="100000" lum="50000"/></buClr></pPr>`,
+			v:     &PPr{},
+			want:  `<a:buClr><a:hslClr hue="14400000" sat="100000" lum="50000"/></a:buClr>`,
+		},
+		{
+			name:  "tcTxStyle prstClr",
+			local: "tcTxStyle",
+			input: `<tcTxStyle xmlns="` + ns + `"><fontRef idx="minor"/><prstClr val="black"/></tcTxStyle>`,
+			v:     &TcTxStyle{},
+			want:  `<a:prstClr val="black"/>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := xml.Unmarshal([]byte(tt.input), tt.v); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			out := buildFragment(t, tt.local, tt.v)
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("color child lost on Builder re-marshal:\n got: %s\nwant substring: %s", out, tt.want)
+			}
+		})
 	}
 }

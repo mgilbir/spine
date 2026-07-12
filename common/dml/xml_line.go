@@ -3,21 +3,22 @@ package dml
 
 // Ln represents CT_LineProperties (a:ln)
 type Ln struct {
-	W        *int64       `xml:"w,attr,omitempty"`
-	Cap      string       `xml:"cap,attr,omitempty"`
-	Cmpd     string       `xml:"cmpd,attr,omitempty"`
-	Algn     string       `xml:"algn,attr,omitempty"`
-	NoFill   *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill *SolidFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	PattFill *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	PrstDash *PrstDash    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstDash,omitempty"`
-	CustDash *CustDash    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main custDash,omitempty"`
-	Round    *Round       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main round,omitempty"`
-	Bevel    *Bevel       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bevel,omitempty"`
-	Miter    *Miter       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main miter,omitempty"`
-	HeadEnd  *LineEnd     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headEnd,omitempty"`
-	TailEnd  *LineEnd     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tailEnd,omitempty"`
+	W         *int64     `xml:"w,attr,omitempty"`
+	Cap       string     `xml:"cap,attr,omitempty"`
+	Cmpd      string     `xml:"cmpd,attr,omitempty"`
+	Algn      string     `xml:"algn,attr,omitempty"`
+	NoFill    *NoFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill *SolidFill `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill  *GradFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	PattFill  *PattFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	PrstDash  *PrstDash  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstDash,omitempty"`
+	CustDash  *CustDash  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main custDash,omitempty"`
+	Round     *Round     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main round,omitempty"`
+	Bevel     *Bevel     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bevel,omitempty"`
+	Miter     *Miter     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main miter,omitempty"`
+	HeadEnd   *LineEnd   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headEnd,omitempty"`
+	TailEnd   *LineEnd   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tailEnd,omitempty"`
+	ExtLst    *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // PrstDash represents CT_PresetLineDashProperties (a:prstDash)

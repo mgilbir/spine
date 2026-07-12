@@ -42,6 +42,7 @@ type BodyPr struct {
 	Scene3d          *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
 	Sp3d             *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
 	FlatTx           *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	ExtLst           *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // PrstTxWarp represents CT_PresetTextShape (a:prstTxWarp)
@@ -306,6 +307,7 @@ type PPr struct {
 	BuBlip       *BuBlip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
 	TabLst       *TabLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
 	DefRPr       *RPr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
+	ExtLst       *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // R represents CT_RegularTextRun (a:r)
@@ -356,6 +358,7 @@ type RPr struct {
 	HlinkClick     *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
 	HlinkMouseOver *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
 	Rtl            *TextRtl     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+	ExtLst         *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TextRtl represents the a:rtl element (CT_Boolean): the value is carried in a
@@ -439,10 +442,16 @@ type SpcPts struct {
 // BuClrTx represents CT_TextBulletColorFollowText (a:buClrTx)
 type BuClrTx struct{}
 
-// BuClr represents CT_Color (a:buClr)
+// BuClr represents CT_Color (a:buClr). Its content is an EG_ColorChoice, so
+// all six color kinds are modeled: a parsed hsl/sys/prst/scrgb bullet color
+// must survive re-marshal instead of collapsing to an empty element.
 type BuClr struct {
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // BuSzTx represents CT_TextBulletSizeFollowText (a:buSzTx)

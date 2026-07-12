@@ -32,13 +32,20 @@ type OuterShdw struct {
 	PrstClr      *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// InnerShdw represents CT_InnerShadowEffect (a:innerShdw)
+// InnerShdw represents CT_InnerShadowEffect (a:innerShdw). Its color is an
+// EG_ColorChoice, so all six color kinds are modeled: a parsed hsl/sys/prst/
+// scrgb color must survive re-marshal instead of collapsing to an empty,
+// schema-invalid element.
 type InnerShdw struct {
 	BlurRad   *int64              `xml:"blurRad,attr,omitempty"`
 	Dist      *int64              `xml:"dist,attr,omitempty"`
 	Dir       *int32              `xml:"dir,attr,omitempty"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // ReflectionXML represents CT_ReflectionEffect (a:reflection)
@@ -59,11 +66,16 @@ type ReflectionXML struct {
 	RotWithShape *bool  `xml:"rotWithShape,attr,omitempty"`
 }
 
-// GlowXML represents CT_GlowEffect (a:glow)
+// GlowXML represents CT_GlowEffect (a:glow). All six EG_ColorChoice kinds are
+// modeled; see InnerShdw.
 type GlowXML struct {
 	Rad       int64               `xml:"rad,attr,omitempty"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // SoftEdgeXML represents CT_SoftEdgesEffect (a:softEdge)
@@ -79,13 +91,18 @@ type BlurXML struct {
 	Grow *bool `xml:"grow,attr,omitempty"`
 }
 
-// PrstShdw represents CT_PresetShadowEffect (a:prstShdw)
+// PrstShdw represents CT_PresetShadowEffect (a:prstShdw). All six
+// EG_ColorChoice kinds are modeled; see InnerShdw.
 type PrstShdw struct {
 	Prst      string              `xml:"prst,attr"`
 	Dist      int64               `xml:"dist,attr,omitempty"`
 	Dir       int32               `xml:"dir,attr,omitempty"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // EffectContainer represents CT_EffectContainer (a:cont)
@@ -122,10 +139,15 @@ type ClrChange struct {
 	ClrTo   *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrTo,omitempty"`
 }
 
-// ClrRepl represents CT_ColorReplaceEffect (a:clrRepl)
+// ClrRepl represents CT_ColorReplaceEffect (a:clrRepl). All six
+// EG_ColorChoice kinds are modeled; see InnerShdw.
 type ClrRepl struct {
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
 	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // Duotone represents CT_DuotoneEffect (a:duotone), a sequence of two
@@ -186,9 +208,15 @@ type AlphaCeiling struct{}
 // AlphaFloor represents CT_AlphaFloorEffect (a:alphaFloor)
 type AlphaFloor struct{}
 
-// AlphaInv represents CT_AlphaInverseEffect (a:alphaInv)
+// AlphaInv represents CT_AlphaInverseEffect (a:alphaInv). All six
+// EG_ColorChoice kinds are modeled; see InnerShdw.
 type AlphaInv struct {
-	SrgbClr *SrgbClr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // AlphaRepl represents CT_AlphaReplaceEffect (a:alphaRepl)
@@ -198,7 +226,7 @@ type AlphaRepl struct {
 
 // EffectDag represents CT_EffectContainer (a:effectDag)
 type EffectDag struct {
-	Type string   `xml:"type,attr,omitempty"`
-	Name string   `xml:"name,attr,omitempty"`
+	Type string           `xml:"type,attr,omitempty"`
+	Name string           `xml:"name,attr,omitempty"`
 	Cont *EffectContainer `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cont,omitempty"`
 }
