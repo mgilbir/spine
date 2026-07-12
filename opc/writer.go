@@ -2,6 +2,7 @@ package opc
 
 import (
 	"archive/zip"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -353,36 +354,33 @@ func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) e
 }
 
 // Close finalizes the package and writes all metadata.
+//
+// If Close returns an error the output is incomplete and must be discarded:
+// some parts or metadata may be missing and the zip central directory may not
+// reflect what was written. Even when a metadata write fails, Close still
+// closes the underlying zip writer (so the stream is flushed and not left as
+// a truncated non-zip with no central directory) and reports every error via
+// errors.Join.
 func (w *Writer) Close() error {
 	if w.closed {
 		return ErrPackageClosed
 	}
 	w.closed = true
 
-	// Write core properties
-	if err := w.writeCoreProperties(); err != nil {
-		return err
+	// Write package metadata, stopping at the first failure. Content types
+	// must be written last: earlier writes may register overrides.
+	var metaErr error
+	for _, write := range []func() error{
+		w.writeCoreProperties,
+		w.writeExtendedProperties,
+		w.writeRelationships,
+		w.writeContentTypes,
+	} {
+		if metaErr = write(); metaErr != nil {
+			break
+		}
 	}
 
-	// Write extended properties
-	if err := w.writeExtendedProperties(); err != nil {
-		return err
-	}
-
-	// Write package-level relationships
-	if err := w.writeRelationships(); err != nil {
-		return err
-	}
-
-	// Write content types (must be last)
-	if err := w.writeContentTypes(); err != nil {
-		return err
-	}
-
-	// Close zip writer
-	if err := w.zipWriter.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	// Always close the zip writer, even after a metadata failure.
+	return errors.Join(metaErr, w.zipWriter.Close())
 }
