@@ -70,6 +70,17 @@ type PlaceholderShape struct {
 	pendingSVGData   []byte // raw svg data (set via SetSVGData)
 	pendingSVGCT     string // content type of pending svg
 	slide            *Slide // back-reference to the owning slide (set during materialization)
+
+	// Furniture placeholder fields (footer / slide number / date). When
+	// inheritGeometry is set the shape is written with an empty <p:spPr/> so
+	// PowerPoint inherits position and size from the layout placeholder of the
+	// same type — the way real slides carry footer/number/date. fieldType, when
+	// set, makes the text body an auto-updating <a:fld> (e.g. "slidenum",
+	// "datetime") with fieldText as the fallback shown until PowerPoint
+	// recalculates it.
+	inheritGeometry bool
+	fieldType       string
+	fieldText       string
 }
 
 var minimalTransparentPNG = []byte{
