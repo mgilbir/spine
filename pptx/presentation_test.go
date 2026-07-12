@@ -464,7 +464,9 @@ func TestOpen_NotPPTX(t *testing.T) {
 		t.Fatalf("WritePart error: %v", err)
 	}
 	// Add a relationship that's NOT an office document
-	w.AddRelationship("http://some/other/type", "test.xml", opc.TargetModeInternal)
+	if _, err := w.AddRelationship("http://some/other/type", "test.xml", opc.TargetModeInternal); err != nil {
+		t.Fatalf("AddRelationship error: %v", err)
+	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close error: %v", err)
 	}
