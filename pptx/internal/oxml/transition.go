@@ -1,5 +1,6 @@
-// Package oxml provides PresentationML transition types from pml.xsd.
+// This file provides PresentationML transition types from pml.xsd.
 // These types implement the p: namespace slide transition elements.
+
 package oxml
 
 import "github.com/mgilbir/spine/common/dml"

@@ -1,5 +1,6 @@
-// Package oxml provides PresentationML view property types from pml.xsd.
+// This file provides PresentationML view property types from pml.xsd.
 // These types implement the p: namespace view elements.
+
 package oxml
 
 import "github.com/mgilbir/spine/common/dml"

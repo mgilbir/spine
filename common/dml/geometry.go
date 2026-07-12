@@ -1,4 +1,5 @@
-// Package dml provides DrawingML primitive types used across OOXML formats.
+// This file provides DrawingML primitive types used across OOXML formats.
+
 package dml
 
 import "math"

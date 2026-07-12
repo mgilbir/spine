@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML theme types from dml-main.xsd.
+// This file provides DrawingML XML theme types from dml-main.xsd.
+
 package dml
 
 // Theme represents CT_OfficeStyleSheet (a:theme)

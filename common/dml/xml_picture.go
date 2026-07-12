@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML picture types from dml-main.xsd.
+// This file provides DrawingML XML picture types from dml-main.xsd.
+
 package dml
 
 // Blip represents CT_Blip (a:blip) - image reference with effects
