@@ -254,3 +254,37 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// C188: a scalar field in a registered-but-undeclared namespace must get an
+// inline xmlns declaration, exactly like a struct field would.
+func TestMarshal_ScalarFieldInUndeclaredNamespace(t *testing.T) {
+	type root struct {
+		V string `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart v"`
+	}
+
+	// NewPresentationMLBuilder registers the chart namespace (prefix c), but
+	// PresentationMLNamespaces does not declare it at the root.
+	b := NewPresentationMLBuilder()
+	b.MarshalRoot(NSPresentationML, "root", &root{V: "x"}, PresentationMLNamespaces())
+	got := b.String()
+
+	if !contains(got, `<c:v xmlns:c="`+NSDrawingMLChart+`">x</c:v>`) {
+		t.Errorf("scalar element in undeclared namespace missing inline xmlns declaration: %s", got)
+	}
+}
+
+// C188: a scalar in an already-declared namespace must not get a redundant
+// inline declaration.
+func TestMarshal_ScalarFieldInDeclaredNamespace(t *testing.T) {
+	type root struct {
+		V string `xml:"http://schemas.openxmlformats.org/drawingml/2006/main v"`
+	}
+
+	b := NewPresentationMLBuilder()
+	b.MarshalRoot(NSPresentationML, "root", &root{V: "x"}, PresentationMLNamespaces())
+	got := b.String()
+
+	if !contains(got, `<a:v>x</a:v>`) {
+		t.Errorf("scalar in root-declared namespace gained a spurious declaration: %s", got)
+	}
+}
