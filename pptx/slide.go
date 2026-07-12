@@ -9,13 +9,13 @@ import (
 
 // Slide represents a slide in a presentation.
 type Slide struct {
-	presentation   *Presentation
-	layout         *SlideLayout
-	partName       string
-	slideXML       *oxml.Slide
-	index          int
-	id             uint32
-	relID          string
+	presentation *Presentation
+	layout       *SlideLayout
+	partName     string
+	slideXML     *oxml.Slide
+	index        int
+	id           uint32
+	relID        string
 	// idExtLst preserves the extLst child of this slide's p:sldId entry in
 	// presentation.xml, which is regenerated on every save (C225).
 	idExtLst       *oxml.ExtensionList

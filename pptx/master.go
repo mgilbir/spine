@@ -11,13 +11,13 @@ import (
 
 // SlideMaster represents a slide master.
 type SlideMaster struct {
-	presentation    *Presentation
-	partName        string
-	masterXML       *oxml.SlideMaster
-	theme           *Theme
-	layouts         []*SlideLayout
-	relID           string
-	numericID       uint32 // original numeric ID from presentation.xml
+	presentation *Presentation
+	partName     string
+	masterXML    *oxml.SlideMaster
+	theme        *Theme
+	layouts      []*SlideLayout
+	relID        string
+	numericID    uint32 // original numeric ID from presentation.xml
 	// idExtLst preserves the extLst child of this master's p:sldMasterId
 	// entry in presentation.xml, which is regenerated on every save (C225).
 	idExtLst        *oxml.ExtensionList
