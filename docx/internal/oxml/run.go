@@ -8,45 +8,50 @@ import (
 
 // CT_RPr represents run properties (w:rPr).
 type CT_RPr struct {
-	RStyle        *CT_String           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rStyle,omitempty"`
-	RFonts        *CT_Fonts            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rFonts,omitempty"`
-	B             *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main b,omitempty"`
-	BCs           *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bCs,omitempty"`
-	I             *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main i,omitempty"`
-	ICs           *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main iCs,omitempty"`
-	Caps          *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main caps,omitempty"`
-	SmallCaps     *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main smallCaps,omitempty"`
-	Strike        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main strike,omitempty"`
-	Dstrike       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dstrike,omitempty"`
-	Outline       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outline,omitempty"`
-	Shadow        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,omitempty"`
-	Emboss        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main emboss,omitempty"`
-	Imprint       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main imprint,omitempty"`
-	NoProof       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noProof,omitempty"`
-	SnapToGrid    *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main snapToGrid,omitempty"`
-	Vanish        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vanish,omitempty"`
-	WebHidden     *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webHidden,omitempty"`
-	Color         *CT_Color            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,omitempty"`
-	Spacing       *CT_SignedTwipsMeasure `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main spacing,omitempty"`
-	W             *CT_TextScale        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,omitempty"`
-	Kern          *CT_HpsMeasure       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main kern,omitempty"`
-	Position      *CT_SignedHpsMeasure  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main position,omitempty"`
-	Sz            *CT_HpsMeasure       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,omitempty"`
-	SzCs          *CT_HpsMeasure       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main szCs,omitempty"`
-	Highlight     *CT_Highlight        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main highlight,omitempty"`
-	U             *CT_Underline        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main u,omitempty"`
-	Effect        *CT_String           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main effect,omitempty"`
-	Bdr           *CT_Border           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bdr,omitempty"`
-	Shd           *CT_Shd              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
-	FitText       *CT_FitText          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fitText,omitempty"`
-	VertAlign     *CT_VerticalAlignRun `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertAlign,omitempty"`
-	Rtl           *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtl,omitempty"`
-	Cs            *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,omitempty"`
-	Em            *CT_Em               `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main em,omitempty"`
-	Lang          *CT_Lang             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,omitempty"`
-	SpecVanish    *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main specVanish,omitempty"`
-	OMatch        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oMath,omitempty"`
-	RPrChange     *CT_RPrChange        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPrChange,omitempty"`
+	RStyle *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rStyle,omitempty"`
+	// AlternateContent captures mc:AlternateContent inside w:rPr (Word wraps
+	// w:rFonts in one for markup-compat, e.g. emoji fonts via w16se). It sits
+	// at the rFonts slot to match where Word emits it. Raw capture, like the
+	// run-level AlternateContent.
+	AlternateContent []*CT_RawElement       `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	RFonts           *CT_Fonts              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rFonts,omitempty"`
+	B                *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main b,omitempty"`
+	BCs              *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bCs,omitempty"`
+	I                *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main i,omitempty"`
+	ICs              *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main iCs,omitempty"`
+	Caps             *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main caps,omitempty"`
+	SmallCaps        *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main smallCaps,omitempty"`
+	Strike           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main strike,omitempty"`
+	Dstrike          *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dstrike,omitempty"`
+	Outline          *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outline,omitempty"`
+	Shadow           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,omitempty"`
+	Emboss           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main emboss,omitempty"`
+	Imprint          *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main imprint,omitempty"`
+	NoProof          *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noProof,omitempty"`
+	SnapToGrid       *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main snapToGrid,omitempty"`
+	Vanish           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vanish,omitempty"`
+	WebHidden        *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webHidden,omitempty"`
+	Color            *CT_Color              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,omitempty"`
+	Spacing          *CT_SignedTwipsMeasure `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main spacing,omitempty"`
+	W                *CT_TextScale          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,omitempty"`
+	Kern             *CT_HpsMeasure         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main kern,omitempty"`
+	Position         *CT_SignedHpsMeasure   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main position,omitempty"`
+	Sz               *CT_HpsMeasure         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,omitempty"`
+	SzCs             *CT_HpsMeasure         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main szCs,omitempty"`
+	Highlight        *CT_Highlight          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main highlight,omitempty"`
+	U                *CT_Underline          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main u,omitempty"`
+	Effect           *CT_String             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main effect,omitempty"`
+	Bdr              *CT_Border             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bdr,omitempty"`
+	Shd              *CT_Shd                `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
+	FitText          *CT_FitText            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fitText,omitempty"`
+	VertAlign        *CT_VerticalAlignRun   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertAlign,omitempty"`
+	Rtl              *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtl,omitempty"`
+	Cs               *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,omitempty"`
+	Em               *CT_Em                 `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main em,omitempty"`
+	Lang             *CT_Lang               `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,omitempty"`
+	SpecVanish       *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main specVanish,omitempty"`
+	OMatch           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oMath,omitempty"`
+	RPrChange        *CT_RPrChange          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPrChange,omitempty"`
 }
 
 // CT_RPrChange represents a revision of run properties.
@@ -96,25 +101,30 @@ type CT_R struct {
 	RPr     *CT_RPr `xml:"-"`
 
 	// Content children tracked in order
-	T          []*CT_Text      `xml:"-"`
-	Br         []*CT_Br        `xml:"-"`
-	Tab        []*CT_Empty     `xml:"-"`
-	Cr         []*CT_Empty     `xml:"-"`
-	Sym        []*CT_Sym       `xml:"-"`
-	Drawing    []*CT_Drawing   `xml:"-"`
-	FtnRef     []*CT_FtnEdnRef `xml:"-"`
-	EndnoteRef []*CT_FtnEdnRef `xml:"-"`
-	LastRenderedPageBreak []*CT_Empty `xml:"-"`
-	NoBreakHyphen []*CT_Empty `xml:"-"`
-	SoftHyphen    []*CT_Empty `xml:"-"`
-	FldChar       []*CT_FldChar `xml:"-"`
-	InstrText     []*CT_Text    `xml:"-"`
-	DelText       []*CT_Text    `xml:"-"` // w:delText - tracked-deletion text
-	CommentReference []*CT_Markup   `xml:"-"`
-	Ptab             []*CT_Ptab     `xml:"-"`
-	Pict             []*CT_RawElement `xml:"-"` // w:pict - VML content, raw
-	Object           []*CT_RawElement `xml:"-"` // w:object - OLE wrapper, raw
-	childOrder []runChildRef
+	T                     []*CT_Text       `xml:"-"`
+	Br                    []*CT_Br         `xml:"-"`
+	Tab                   []*CT_Empty      `xml:"-"`
+	Cr                    []*CT_Empty      `xml:"-"`
+	Sym                   []*CT_Sym        `xml:"-"`
+	Drawing               []*CT_Drawing    `xml:"-"`
+	FtnRef                []*CT_FtnEdnRef  `xml:"-"`
+	EndnoteRef            []*CT_FtnEdnRef  `xml:"-"`
+	LastRenderedPageBreak []*CT_Empty      `xml:"-"`
+	NoBreakHyphen         []*CT_Empty      `xml:"-"`
+	SoftHyphen            []*CT_Empty      `xml:"-"`
+	FldChar               []*CT_FldChar    `xml:"-"`
+	InstrText             []*CT_Text       `xml:"-"`
+	DelText               []*CT_Text       `xml:"-"` // w:delText - tracked-deletion text
+	CommentReference      []*CT_Markup     `xml:"-"`
+	Ptab                  []*CT_Ptab       `xml:"-"`
+	Pict                  []*CT_RawElement `xml:"-"` // w:pict - VML content, raw
+	Object                []*CT_RawElement `xml:"-"` // w:object - OLE wrapper, raw
+	// AlternateContent holds mc:AlternateContent children (drawings with VML
+	// fallbacks, textboxes). Captured raw like Pict/Object: Word emits
+	// mc:Choice/mc:Fallback with inline xmlns declarations and no xmlns=""
+	// reset, which the typed common/oxml AlternateContent would not reproduce.
+	AlternateContent []*CT_RawElement `xml:"-"`
+	childOrder       []runChildRef
 }
 
 // runChildKind identifies a run child element type.
@@ -139,6 +149,7 @@ const (
 	runChildPtab
 	runChildPict
 	runChildObject
+	runChildAlternateContent
 )
 
 // runChildRef references a child element by kind and index.
@@ -299,6 +310,13 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				r.childOrder = append(r.childOrder, runChildRef{runChildObject, len(r.Object)})
 				r.Object = append(r.Object, v)
+			case "AlternateContent":
+				v := &CT_RawElement{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, len(r.AlternateContent)})
+				r.AlternateContent = append(r.AlternateContent, v)
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -403,6 +421,10 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.index < len(r.Object) {
 					r.Object[ref.index].MarshalToBuilder(b, ns, "object")
 				}
+			case runChildAlternateContent:
+				if ref.index < len(r.AlternateContent) {
+					r.AlternateContent[ref.index].MarshalToBuilder(b, xmlb.NSMarkupCompatibility, "AlternateContent")
+				}
 			}
 		}
 	} else {
@@ -479,6 +501,9 @@ func (r *CT_R) backfillChildOrder() {
 	}
 	for i := range r.Object {
 		r.childOrder = append(r.childOrder, runChildRef{runChildObject, i})
+	}
+	for i := range r.AlternateContent {
+		r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, i})
 	}
 }
 
@@ -558,6 +583,7 @@ func (r *CT_R) ClearContent() {
 	r.Ptab = nil
 	r.Pict = nil
 	r.Object = nil
+	r.AlternateContent = nil
 	r.childOrder = nil
 }
 
