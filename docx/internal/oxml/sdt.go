@@ -26,18 +26,19 @@ type CT_SdtContentBlock struct {
 	SdtBlock       []*CT_SdtBlock       `xml:"-"`
 	BookmarkStart  []*CT_BookmarkStart  `xml:"-"`
 	BookmarkEnd    []*CT_BookmarkEnd    `xml:"-"`
+	Raw            []*CT_RawNamedElement `xml:"-"`
 	childOrder     []bodyChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_SdtContentBlock.
 func (sc *CT_SdtContentBlock) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	return unmarshalBodyContent(d, &sc.P, &sc.Tbl, &sc.SdtBlock, &sc.BookmarkStart, &sc.BookmarkEnd, &sc.childOrder)
+	return unmarshalBodyContent(d, &sc.P, &sc.Tbl, &sc.SdtBlock, &sc.BookmarkStart, &sc.BookmarkEnd, &sc.Raw, &sc.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SdtContentBlock.
 func (sc *CT_SdtContentBlock) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
-	marshalBodyContent(b, ns, sc.P, sc.Tbl, sc.SdtBlock, sc.BookmarkStart, sc.BookmarkEnd, sc.childOrder)
+	marshalBodyContent(b, ns, sc.P, sc.Tbl, sc.SdtBlock, sc.BookmarkStart, sc.BookmarkEnd, sc.Raw, sc.childOrder)
 	b.EndElement(ns, localName)
 }
 
@@ -80,19 +81,20 @@ type CT_SdtContentRun struct {
 	Del            []*CT_RunTrackChange `xml:"-"`
 	FldSimple      []*CT_SimpleField    `xml:"-"`
 	SdtRun         []*CT_SdtRun         `xml:"-"`
+	Raw            []*CT_RawNamedElement `xml:"-"`
 	childOrder     []pChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_SdtContentRun.
 func (sc *CT_SdtContentRun) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return unmarshalPContent(d, &sc.R, &sc.Hyperlink, &sc.BookmarkStart, &sc.BookmarkEnd,
-		&sc.ProofErr, &sc.PermStart, &sc.PermEnd, &sc.Ins, &sc.Del, &sc.FldSimple, &sc.SdtRun, &sc.childOrder)
+		&sc.ProofErr, &sc.PermStart, &sc.PermEnd, &sc.Ins, &sc.Del, &sc.FldSimple, &sc.SdtRun, &sc.Raw, &sc.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SdtContentRun.
 func (sc *CT_SdtContentRun) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
 	marshalPContent(b, ns, sc.R, sc.Hyperlink, sc.BookmarkStart, sc.BookmarkEnd,
-		sc.ProofErr, sc.PermStart, sc.PermEnd, sc.Ins, sc.Del, sc.FldSimple, sc.SdtRun, sc.childOrder)
+		sc.ProofErr, sc.PermStart, sc.PermEnd, sc.Ins, sc.Del, sc.FldSimple, sc.SdtRun, sc.Raw, sc.childOrder)
 	b.EndElement(ns, localName)
 }

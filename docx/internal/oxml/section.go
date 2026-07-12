@@ -32,7 +32,11 @@ type CT_SectPr struct {
 	Bidi        *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,omitempty"`
 	RtlGutter   *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtlGutter,omitempty"`
 	DocGrid     *CT_DocGrid     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docGrid,omitempty"`
-	SectPrChange *CT_SectPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPrChange,omitempty"`
+	// PrinterSettings (w:printerSettings, a CT_Rel carrying r:id) is preserved
+	// raw: the model does not interpret it, but stripping it would orphan the
+	// printer-settings part.
+	PrinterSettings *CT_RawElement   `xml:"-"`
+	SectPrChange    *CT_SectPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPrChange,omitempty"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_SectPr to handle r:id attributes.
@@ -95,9 +99,19 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				if err := d.DecodeElement(sp.PgMar, &t); err != nil {
 					return err
 				}
+			case "paperSrc":
+				sp.PaperSrc = &CT_PaperSrc{}
+				if err := d.DecodeElement(sp.PaperSrc, &t); err != nil {
+					return err
+				}
 			case "pgBorders":
 				sp.PgBorders = &CT_PgBorders{}
 				if err := d.DecodeElement(sp.PgBorders, &t); err != nil {
+					return err
+				}
+			case "lnNumType":
+				sp.LnNumType = &CT_LnNumType{}
+				if err := d.DecodeElement(sp.LnNumType, &t); err != nil {
 					return err
 				}
 			case "pgNumType":
@@ -110,11 +124,39 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				if err := d.DecodeElement(sp.Cols, &t); err != nil {
 					return err
 				}
+			case "formProt":
+				sp.FormProt = UnmarshalOnOff(d, &t)
+			case "vAlign":
+				sp.VAlign = &CT_String{}
+				if err := d.DecodeElement(sp.VAlign, &t); err != nil {
+					return err
+				}
+			case "noEndnote":
+				sp.NoEndnote = UnmarshalOnOff(d, &t)
 			case "titlePg":
 				sp.TitlePg = UnmarshalOnOff(d, &t)
+			case "textDirection":
+				sp.TextDirection = &CT_String{}
+				if err := d.DecodeElement(sp.TextDirection, &t); err != nil {
+					return err
+				}
+			case "bidi":
+				sp.Bidi = UnmarshalOnOff(d, &t)
+			case "rtlGutter":
+				sp.RtlGutter = UnmarshalOnOff(d, &t)
 			case "docGrid":
 				sp.DocGrid = &CT_DocGrid{}
 				if err := d.DecodeElement(sp.DocGrid, &t); err != nil {
+					return err
+				}
+			case "printerSettings":
+				sp.PrinterSettings = &CT_RawElement{}
+				if err := d.DecodeElement(sp.PrinterSettings, &t); err != nil {
+					return err
+				}
+			case "sectPrChange":
+				sp.SectPrChange = &CT_SectPrChange{}
+				if err := d.DecodeElement(sp.SectPrChange, &t); err != nil {
 					return err
 				}
 			default:
@@ -164,8 +206,14 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if sp.PgMar != nil {
 		b.MarshalElement(ns, "pgMar", sp.PgMar)
 	}
+	if sp.PaperSrc != nil {
+		b.MarshalElement(ns, "paperSrc", sp.PaperSrc)
+	}
 	if sp.PgBorders != nil {
 		b.MarshalElement(ns, "pgBorders", sp.PgBorders)
+	}
+	if sp.LnNumType != nil {
+		b.MarshalElement(ns, "lnNumType", sp.LnNumType)
 	}
 	if sp.PgNumType != nil {
 		b.MarshalElement(ns, "pgNumType", sp.PgNumType)
@@ -173,11 +221,32 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if sp.Cols != nil {
 		b.MarshalElement(ns, "cols", sp.Cols)
 	}
+	if sp.FormProt != nil {
+		b.MarshalElement(ns, "formProt", sp.FormProt)
+	}
+	if sp.VAlign != nil {
+		b.MarshalElement(ns, "vAlign", sp.VAlign)
+	}
+	if sp.NoEndnote != nil {
+		b.MarshalElement(ns, "noEndnote", sp.NoEndnote)
+	}
 	if sp.TitlePg != nil {
 		b.MarshalElement(ns, "titlePg", sp.TitlePg)
 	}
+	if sp.TextDirection != nil {
+		b.MarshalElement(ns, "textDirection", sp.TextDirection)
+	}
+	if sp.Bidi != nil {
+		b.MarshalElement(ns, "bidi", sp.Bidi)
+	}
+	if sp.RtlGutter != nil {
+		b.MarshalElement(ns, "rtlGutter", sp.RtlGutter)
+	}
 	if sp.DocGrid != nil {
 		b.MarshalElement(ns, "docGrid", sp.DocGrid)
+	}
+	if sp.PrinterSettings != nil {
+		sp.PrinterSettings.MarshalToBuilder(b, ns, "printerSettings")
 	}
 	if sp.SectPrChange != nil {
 		b.MarshalElement(ns, "sectPrChange", sp.SectPrChange)
