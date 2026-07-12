@@ -37,7 +37,27 @@ type NvPr struct {
 	AudioFile     *dml.AudioFile      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main audioFile,omitempty"`
 	VideoFile     *dml.VideoFile      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main videoFile,omitempty"`
 	QuickTimeFile *dml.QuickTimeFile  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main quickTimeFile,omitempty"`
+	CustDataLst   *CustDataLst        `xml:"custDataLst,omitempty"`
 	ExtLst        *ExtensionList      `xml:"extLst,omitempty"`
+}
+
+// CustDataLst specifies customer data references (p:custDataLst).
+// This is CT_CustomerDataList in the PML XSD.
+type CustDataLst struct {
+	CustData []*CustData `xml:"custData,omitempty"`
+	Tags     *TagsData   `xml:"tags,omitempty"`
+}
+
+// CustData references a customer data part (p:custData).
+// This is CT_CustomerData in the PML XSD.
+type CustData struct {
+	Id string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+}
+
+// TagsData references a tags part (p:tags).
+// This is CT_TagsData in the PML XSD.
+type TagsData struct {
+	Id string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 }
 
 // Placeholder specifies placeholder information.
