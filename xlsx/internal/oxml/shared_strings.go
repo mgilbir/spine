@@ -93,6 +93,39 @@ type CT_RElt struct {
 	T   string     `xml:"t"`
 }
 
+// MarshalToBuilder writes a rich-text run, emitting xml:space="preserve" on the
+// text element when the run has leading or trailing whitespace so a strict
+// reader (Excel) does not trim it — the "Total: " label case.
+func (r *CT_RElt) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
+	if r.RPr != nil {
+		b.MarshalElement(ns, "rPr", r.RPr)
+	}
+	var attrs []xmlb.Attr
+	if needsSpacePreserve(r.T) {
+		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: "preserve"})
+	}
+	b.WriteElement(ns, "t", r.T, attrs...)
+	b.EndElement(ns, localName)
+}
+
+// needsSpacePreserve reports whether text has leading/trailing whitespace that
+// an XML reader may collapse without xml:space="preserve".
+func needsSpacePreserve(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch {
+	case s[0] == ' ', s[0] == '\t', s[0] == '\n', s[0] == '\r':
+		return true
+	}
+	switch last := s[len(s)-1]; last {
+	case ' ', '\t', '\n', '\r':
+		return true
+	}
+	return false
+}
+
 // CT_RPrElt represents run properties for rich text.
 type CT_RPrElt struct {
 	B         *CT_BooleanProperty            `xml:"b,omitempty"`
