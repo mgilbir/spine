@@ -191,7 +191,7 @@ func TestHeaderWithSdtRoundTrips(t *testing.T) {
 	before := strings.Index(out, "before")
 	sdt := strings.Index(out, "HDRSDT")
 	after := strings.Index(out, "after")
-	if !(before < sdt && sdt < after) {
+	if before >= sdt || sdt >= after {
 		t.Fatalf("header children out of order:\n%s", out)
 	}
 }
