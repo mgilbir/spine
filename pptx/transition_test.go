@@ -130,8 +130,8 @@ func TestTransitionAdvanceAfterMs(t *testing.T) {
 	})
 
 	// Check internal representation
-	if slide.slideXML.Transition.AdvTm != 3500 {
-		t.Errorf("AdvTm = %d, want 3500", slide.slideXML.Transition.AdvTm)
+	if slide.slideXML.Transition.AdvTm == nil || *slide.slideXML.Transition.AdvTm != 3500 {
+		t.Errorf("AdvTm = %v, want 3500", slide.slideXML.Transition.AdvTm)
 	}
 
 	// Check public API round-trip

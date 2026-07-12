@@ -359,19 +359,22 @@ type CommonTimeNode struct {
 	Spd            string          `xml:"spd,attr,omitempty"` // percentage
 	Accel          string          `xml:"accel,attr,omitempty"`
 	Decel          string          `xml:"decel,attr,omitempty"`
-	AutoRev        bool            `xml:"autoRev,attr,omitempty"`
+	// AutoRev, Display, AfterEffect, and NodePh have no XSD default, so an
+	// explicit "0" must round-trip on the always-remarshaled timing path
+	// instead of being deleted (C224).
+	AutoRev        *bool           `xml:"autoRev,attr,omitempty"`
 	Restart        string          `xml:"restart,attr,omitempty"` // always, whenNotActive, never
 	Fill           string          `xml:"fill,attr,omitempty"`    // remove, freeze, hold, transition
 	SyncBehavior   string          `xml:"syncBehavior,attr,omitempty"`
 	TmFilter       string          `xml:"tmFilter,attr,omitempty"`
 	EvtFilter      string          `xml:"evtFilter,attr,omitempty"`
-	Display        bool            `xml:"display,attr,omitempty"`
+	Display        *bool           `xml:"display,attr,omitempty"`
 	MasterRel      string          `xml:"masterRel,attr,omitempty"` // sameClick, lastClick, nextClick
 	BldLvl         int32           `xml:"bldLvl,attr,omitempty"`
 	GrpId          *uint32         `xml:"grpId,attr,omitempty"`
-	AfterEffect    bool            `xml:"afterEffect,attr,omitempty"`
+	AfterEffect    *bool           `xml:"afterEffect,attr,omitempty"`
 	NodeType       string          `xml:"nodeType,attr,omitempty"` // clickEffect, withEffect, afterEffect, mainSeq, interactiveSeq, clickPar, withGroup, afterGroup, tmRoot
-	NodePh         bool            `xml:"nodePh,attr,omitempty"`
+	NodePh         *bool           `xml:"nodePh,attr,omitempty"`
 	StCondLst      *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main stCondLst,omitempty"`
 	EndCondLst     *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endCondLst,omitempty"`
 	EndSync        *Condition      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main endSync,omitempty"`
