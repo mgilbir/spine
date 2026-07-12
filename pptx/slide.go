@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -92,8 +93,23 @@ func (s *Slide) Shapes() []Shape {
 	return s.shapes
 }
 
-// AddShape adds a shape to the slide.
-func (s *Slide) AddShape(shape Shape) {
+// AddShape adds a shape to the slide. It returns an error for shape types the
+// library cannot serialize (previously such shapes were accepted and then
+// silently dropped on save). All shape types constructible through this
+// package — TextBox, PlaceholderShape, AutoShape, Table, Picture, Video,
+// Audio, and GroupShape — are supported.
+func (s *Slide) AddShape(shape Shape) error {
+	switch shape.(type) {
+	case *TextBox, *PlaceholderShape, *AutoShape, *Table, *Picture, *Video, *Audio, *GroupShape:
+		s.addShape(shape)
+		return nil
+	default:
+		return fmt.Errorf("pptx: AddShape: unsupported shape type %T", shape)
+	}
+}
+
+// addShape appends a shape the sync paths know how to serialize.
+func (s *Slide) addShape(shape Shape) {
 	s.setShapeBackRef(shape)
 	s.shapes = append(s.shapes, shape)
 	s.shapesModified = true
@@ -134,7 +150,7 @@ func (s *Slide) RemoveShape(shape Shape) {
 // AddTextBox adds a text box shape to the slide.
 func (s *Slide) AddTextBox() *TextBox {
 	tb := NewTextBox()
-	s.AddShape(tb)
+	s.addShape(tb)
 	return tb
 }
 
@@ -158,14 +174,14 @@ func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
 	} else {
 		pic.SetSize(dml.Inches(4), dml.Inches(3))
 	}
-	s.AddShape(pic)
+	s.addShape(pic)
 	return pic, nil
 }
 
 // AddTable adds a table to the slide.
 func (s *Slide) AddTable(rows, cols int) *Table {
 	table := NewTable(rows, cols)
-	s.AddShape(table)
+	s.addShape(table)
 	return table
 }
 
@@ -177,7 +193,7 @@ func (s *Slide) AddTable(rows, cols int) *Table {
 // empty or the content type is neither given nor recognizable.
 func (s *Slide) AddVideo(data []byte, contentType string) *Video {
 	v := NewVideo(data, contentType)
-	s.AddShape(v)
+	s.addShape(v)
 	return v
 }
 
@@ -188,7 +204,7 @@ func (s *Slide) AddVideo(data []byte, contentType string) *Video {
 // data is empty or the content type is neither given nor recognizable.
 func (s *Slide) AddAudio(data []byte, contentType string) *Audio {
 	a := NewAudio(data, contentType)
-	s.AddShape(a)
+	s.addShape(a)
 	return a
 }
 
@@ -357,6 +373,11 @@ func (s *Slide) syncShapesToXML() {
 	if shapeID < 2 {
 		shapeID = 2 // 1 belongs to the shape tree itself
 	}
+	allocID := func() uint32 {
+		id := shapeID
+		shapeID++
+		return id
+	}
 	for _, shape := range s.shapes {
 		switch sh := shape.(type) {
 		case *TextBox:
@@ -385,6 +406,11 @@ func (s *Slide) syncShapesToXML() {
 		case *Audio:
 			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, shapeID, mediaAudio))
 			shapeID++
+		case *GroupShape:
+			// A domain-built group serializes as a real p:grpSp with its
+			// children, ids allocated slide-wide (previously groups added via
+			// AddShape were silently never written, C85).
+			spTree.GrpSp = append(spTree.GrpSp, s.buildGroupNode(sh, allocID))
 		}
 	}
 
@@ -432,6 +458,11 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 	if id < 2 {
 		id = 2 // 1 belongs to the shape tree itself
 	}
+	allocID := func() uint32 {
+		next := id
+		id++
+		return next
+	}
 	for _, shape := range shapes {
 		ref := oxml.ChildRef{Index: -1}
 		switch sh := shape.(type) {
@@ -459,6 +490,14 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 		case *Audio:
 			spTree.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
 			ref = oxml.ChildRef{Kind: oxml.ChildPic, Index: len(spTree.Pic) - 1}
+		case *GroupShape:
+			// Serialize a domain-built group appended to a loaded slide as a
+			// real p:grpSp (previously a sentinel ref: silently never written,
+			// C85). buildGroupNode allocates the ids itself, so the post-switch
+			// id++ is skipped via continue-style handling below.
+			spTree.AppendGrpSp(s.buildGroupNode(sh, allocID))
+			s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: len(spTree.GrpSp) - 1})
+			continue
 		}
 		if ref.Index >= 0 {
 			id++

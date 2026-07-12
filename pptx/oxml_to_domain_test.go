@@ -50,7 +50,7 @@ func TestMaterializeShapes_Placeholder(t *testing.T) {
 	title.SetText("Hello World")
 	title.SetPosition(dml.Inches(0.5), dml.Inches(0.3))
 	title.SetSize(dml.Inches(9), dml.Inches(1.2))
-	slide.AddShape(title)
+	_ = slide.AddShape(title)
 
 	// Add a body placeholder
 	body := NewPlaceholderShape(PlaceholderBody)
@@ -58,7 +58,7 @@ func TestMaterializeShapes_Placeholder(t *testing.T) {
 	body.SetText("Body text here")
 	body.SetPosition(dml.Inches(0.5), dml.Inches(1.6))
 	body.SetSize(dml.Inches(9), dml.Inches(5.1))
-	slide.AddShape(body)
+	_ = slide.AddShape(body)
 
 	// Save to temp file
 	tmpDir := t.TempDir()
@@ -161,7 +161,7 @@ func TestMaterializeShapes_AutoShape(t *testing.T) {
 	as.SetName("Ellipse 1")
 	as.SetPosition(dml.Inches(2), dml.Inches(2))
 	as.SetSize(dml.Inches(2), dml.Inches(2))
-	slide.AddShape(as)
+	_ = slide.AddShape(as)
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test_autoshape.pptx")
@@ -300,7 +300,7 @@ func TestReplaceText_SingleRun(t *testing.T) {
 
 	ph := NewPlaceholderShape(PlaceholderTitle)
 	ph.SetText("Hello {{name}}")
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	// Save and reopen so that XML is populated
 	tmpDir := t.TempDir()
@@ -337,7 +337,7 @@ func TestReplaceText_MultipleKeys(t *testing.T) {
 
 	ph := NewPlaceholderShape(PlaceholderTitle)
 	ph.SetText("{{greeting}} {{name}}, welcome to {{place}}")
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "multi_template.pptx")
@@ -374,7 +374,7 @@ func TestReplaceText_NoMatch(t *testing.T) {
 
 	ph := NewPlaceholderShape(PlaceholderTitle)
 	ph.SetText("No templates here")
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "no_match.pptx")
@@ -449,7 +449,7 @@ func TestReplaceText_SaveAndReopen(t *testing.T) {
 
 	ph := NewPlaceholderShape(PlaceholderTitle)
 	ph.SetText("Company: {{company}}")
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	tmpDir := t.TempDir()
 	path1 := filepath.Join(tmpDir, "before.pptx")
@@ -586,7 +586,7 @@ func TestImageReplacement_EndToEnd(t *testing.T) {
 	picPh.SetIndex(10)
 	picPh.SetPosition(dml.Inches(1), dml.Inches(1))
 	picPh.SetSize(dml.Inches(5), dml.Inches(4))
-	slide.AddShape(picPh)
+	_ = slide.AddShape(picPh)
 
 	// Save
 	tmpDir := t.TempDir()
@@ -668,7 +668,7 @@ func TestImageReplacement_NewSlidePlaceholder(t *testing.T) {
 	placeholder := NewPlaceholderShape(PlaceholderPicture)
 	placeholder.SetName("Direct Placeholder")
 	placeholder.SetIndex(1)
-	slide.AddShape(placeholder)
+	_ = slide.AddShape(placeholder)
 
 	if err := placeholder.SetImageData(createMinimalPNG(), "image/png"); err != nil {
 		t.Fatalf("SetImageData failed: %v", err)
@@ -795,7 +795,7 @@ func TestPictureImageReplacement_NewSlidePicture(t *testing.T) {
 	pic.SetPosition(dml.Inches(1), dml.Inches(1))
 	pic.SetSize(dml.Inches(2), dml.Inches(2))
 	pic.SetImageData(createMinimalPNG(), "image/png")
-	slide.AddShape(pic)
+	_ = slide.AddShape(pic)
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "new_slide_picture_image.pptx")
@@ -835,7 +835,7 @@ func TestPictureSVGReplacement_NewSlidePicture(t *testing.T) {
 	pic.SetPosition(dml.Inches(1), dml.Inches(1))
 	pic.SetSize(dml.Inches(2), dml.Inches(2))
 	pic.SetSVGData(createMinimalSVG())
-	slide.AddShape(pic)
+	_ = slide.AddShape(pic)
 
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "new_slide_picture_svg.pptx")
@@ -907,7 +907,7 @@ func TestImageReplacement_SVGPlaceholderEndToEnd(t *testing.T) {
 	picPh.SetIndex(10)
 	picPh.SetPosition(dml.Inches(1), dml.Inches(1))
 	picPh.SetSize(dml.Inches(5), dml.Inches(4))
-	slide.AddShape(picPh)
+	_ = slide.AddShape(picPh)
 
 	tmpDir := t.TempDir()
 	path1 := filepath.Join(tmpDir, "with_svg_pic_ph.pptx")
@@ -1049,7 +1049,7 @@ func TestReplaceTextInShape(t *testing.T) {
 	title := NewPlaceholderShape(PlaceholderTitle)
 	title.SetName("Title 2")
 	title.SetText("#TITLE#")
-	slide.AddShape(title)
+	_ = slide.AddShape(title)
 
 	body := slide.AddTextBox()
 	body.SetName("Body 1")
@@ -1099,7 +1099,7 @@ func TestShapeByName(t *testing.T) {
 	ph := NewPlaceholderShape(PlaceholderTitle)
 	ph.SetName("MyTitle")
 	ph.SetText("Title")
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	// Find by name
 	found := slide.ShapeByName("MyTextBox")

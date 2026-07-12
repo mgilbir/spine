@@ -60,7 +60,7 @@ func TestSlide_AddShape(t *testing.T) {
 	slide := p.AddSlide()
 
 	tb := NewTextBox()
-	slide.AddShape(tb)
+	_ = slide.AddShape(tb)
 
 	if len(slide.Shapes()) != 1 {
 		t.Errorf("After AddShape, Shapes() has %d shapes, want 1", len(slide.Shapes()))
@@ -73,8 +73,8 @@ func TestSlide_RemoveShape(t *testing.T) {
 
 	tb1 := NewTextBox()
 	tb2 := NewTextBox()
-	slide.AddShape(tb1)
-	slide.AddShape(tb2)
+	_ = slide.AddShape(tb1)
+	_ = slide.AddShape(tb2)
 
 	slide.RemoveShape(tb1)
 
@@ -132,9 +132,9 @@ func TestSlide_Placeholders(t *testing.T) {
 	bodyPh := NewPlaceholderShape(PlaceholderBody)
 	tb := NewTextBox() // Not a placeholder
 
-	slide.AddShape(titlePh)
-	slide.AddShape(bodyPh)
-	slide.AddShape(tb)
+	_ = slide.AddShape(titlePh)
+	_ = slide.AddShape(bodyPh)
+	_ = slide.AddShape(tb)
 
 	placeholders := slide.Placeholders()
 	if len(placeholders) != 2 {
@@ -149,8 +149,8 @@ func TestSlide_GetPlaceholder(t *testing.T) {
 	titlePh := NewPlaceholderShape(PlaceholderTitle)
 	bodyPh := NewPlaceholderShape(PlaceholderBody)
 
-	slide.AddShape(titlePh)
-	slide.AddShape(bodyPh)
+	_ = slide.AddShape(titlePh)
+	_ = slide.AddShape(bodyPh)
 
 	// Find title placeholder
 	found := slide.GetPlaceholder(PlaceholderTitle)
@@ -176,7 +176,7 @@ func TestSlide_TitlePlaceholder(t *testing.T) {
 	slide := p.AddSlide()
 
 	titlePh := NewPlaceholderShape(PlaceholderTitle)
-	slide.AddShape(titlePh)
+	_ = slide.AddShape(titlePh)
 
 	found := slide.TitlePlaceholder()
 	if found != titlePh {
@@ -189,7 +189,7 @@ func TestSlide_BodyPlaceholder(t *testing.T) {
 	slide := p.AddSlide()
 
 	bodyPh := NewPlaceholderShape(PlaceholderBody)
-	slide.AddShape(bodyPh)
+	_ = slide.AddShape(bodyPh)
 
 	found := slide.BodyPlaceholder()
 	if found != bodyPh {
@@ -204,7 +204,7 @@ func TestSlide_Duplicate(t *testing.T) {
 	title := NewPlaceholderShape(PlaceholderTitle)
 	title.SetName("Title 2")
 	title.SetText("Hello {{name}}")
-	original.AddShape(title)
+	_ = original.AddShape(title)
 
 	duplicate := original.Duplicate()
 
@@ -355,7 +355,7 @@ func TestSlide_marshalWithPlaceholder(t *testing.T) {
 	ph.SetText("Title Text")
 	ph.SetPosition(100000, 100000)
 	ph.SetSize(5000000, 1000000)
-	slide.AddShape(ph)
+	_ = slide.AddShape(ph)
 
 	data, err := slide.marshal()
 	if err != nil {
@@ -387,7 +387,7 @@ func TestSlide_marshalWithAutoShape(t *testing.T) {
 	as.SetName("Rectangle")
 	as.SetPosition(100000, 100000)
 	as.SetSize(1000000, 1000000)
-	slide.AddShape(as)
+	_ = slide.AddShape(as)
 
 	data, err := slide.marshal()
 	if err != nil {

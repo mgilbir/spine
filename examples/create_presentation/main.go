@@ -45,7 +45,9 @@ func main() {
 		dml.GradientStop{Position: 1, Color: dml.NewRGB(68, 114, 196).ToColor()},
 	))
 	bgShape.SetLine(dml.Line{Width: 0}) // no outline
-	slide1.AddShape(bgShape)
+	if err := slide1.AddShape(bgShape); err != nil {
+		log.Fatalf("Failed to add shape: %v", err)
+	}
 
 	// Title text
 	titleBox := slide1.AddTextBox()
@@ -140,7 +142,9 @@ func main() {
 	shapeRun.SetFontSize(20)
 	shapeRun.SetBold(true)
 	shapeRun.SetColor(dml.ColorWhite)
-	slide2.AddShape(accentShape)
+	if err := slide2.AddShape(accentShape); err != nil {
+		log.Fatalf("Failed to add shape: %v", err)
+	}
 
 	// ── Slide 3: Comparison Table ────────────────────────────────────
 
