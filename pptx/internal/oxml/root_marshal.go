@@ -306,6 +306,10 @@ func (sl *SlideLayout) rootAttrs() []xmlb.Attr {
 	if sl.ShowMasterPhAnim != nil {
 		attrs = append(attrs, xmlb.BoolAttr("showMasterPhAnim", *sl.ShowMasterPhAnim))
 	}
+	// PowerPoint's attribute order: matchingName, type, preserve, userDrawn.
+	if sl.MatchingName != "" {
+		attrs = append(attrs, xmlb.StrAttr("matchingName", sl.MatchingName))
+	}
 	if sl.Type != "" {
 		attrs = append(attrs, xmlb.StrAttr("type", sl.Type))
 	}
@@ -314,9 +318,6 @@ func (sl *SlideLayout) rootAttrs() []xmlb.Attr {
 	}
 	if sl.UserDrawn {
 		attrs = append(attrs, xmlb.BoolAttr("userDrawn", true))
-	}
-	if sl.MatchingName != "" {
-		attrs = append(attrs, xmlb.StrAttr("matchingName", sl.MatchingName))
 	}
 	return attrs
 }

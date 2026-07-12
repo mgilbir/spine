@@ -68,27 +68,13 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	b.SetCollapseEmptyElements(pres.CollapseEmpty)
 	b.WriteProlog(pres.Prolog)
 
-	// Build presentation attributes
+	// Build presentation attributes in PowerPoint's emission order (the XSD
+	// attribute order): serverZoom, firstSlideNum, showSpecialPlsOnTitleSld,
+	// rtl, removePersonalInfoOnSave, compatMode, strictFirstAndLastChars,
+	// embedTrueTypeFonts, saveSubsetFonts, autoCompressPictures,
+	// bookmarkIdSeed, conformance.
 	var presAttrs []xmlb.Attr
 
-	// Add presentation-level attributes from parsed data
-	if pres.SaveSubsetFonts != nil && *pres.SaveSubsetFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("saveSubsetFonts", "1"))
-	}
-	if pres.AutoCompressPictures != nil {
-		if *pres.AutoCompressPictures {
-			presAttrs = append(presAttrs, xmlb.StrAttr("autoCompressPictures", "1"))
-		} else {
-			presAttrs = append(presAttrs, xmlb.StrAttr("autoCompressPictures", "0"))
-		}
-	}
-	if pres.EmbedTrueTypeFonts != nil && *pres.EmbedTrueTypeFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
-	}
-
-	// Emit the remaining CT_Presentation attributes when present (previously
-	// parsed but never written, so e.g. firstSlideNum or a modify password
-	// verifier was silently dropped on every save).
 	appendBool := func(name string, v *bool) {
 		if v == nil {
 			return
@@ -110,6 +96,13 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	appendBool("removePersonalInfoOnSave", pres.RemovePersonalInfoOnSave)
 	appendBool("compatMode", pres.CompatMode)
 	appendBool("strictFirstAndLastChars", pres.StrictFirstAndLastChars)
+	if pres.EmbedTrueTypeFonts != nil && *pres.EmbedTrueTypeFonts {
+		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
+	}
+	if pres.SaveSubsetFonts != nil && *pres.SaveSubsetFonts {
+		presAttrs = append(presAttrs, xmlb.StrAttr("saveSubsetFonts", "1"))
+	}
+	appendBool("autoCompressPictures", pres.AutoCompressPictures)
 	if pres.BookmarkIdSeed != nil {
 		presAttrs = append(presAttrs, xmlb.UintAttr("bookmarkIdSeed", *pres.BookmarkIdSeed))
 	}
