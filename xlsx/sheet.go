@@ -25,14 +25,31 @@ func (s *Sheet) Name() string {
 	return s.name
 }
 
-// SetName sets the sheet name.
-func (s *Sheet) SetName(name string) {
+// SetName renames the sheet. The name must be a legal Excel sheet name (see
+// ValidateSheetName) and must not collide (case-insensitively) with another
+// sheet in the workbook; invalid or duplicate names are rejected with an
+// error and the sheet is left unchanged (C71).
+//
+// Limitation: renaming does not rewrite references to the old name held in
+// formulas or defined names; those still refer to the previous name.
+func (s *Sheet) SetName(name string) error {
+	if err := ValidateSheetName(name); err != nil {
+		return err
+	}
+	if s.workbook != nil {
+		for _, other := range s.workbook.sheets {
+			if other != s && strings.EqualFold(other.name, name) {
+				return fmt.Errorf("xlsx: sheet name %q already exists", name)
+			}
+		}
+	}
 	s.name = name
 	// Update the workbook model if within bounds
 	if s.workbook != nil && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
 	}
 	s.markDirty()
+	return nil
 }
 
 // Index returns the sheet index within the workbook.
@@ -42,6 +59,8 @@ func (s *Sheet) Index() int {
 
 // Cell returns the cell at the specified reference (e.g., "A1").
 // If the cell doesn't exist in the worksheet data, it is created.
+// The reference is canonicalized (case and leading zeros normalized), so
+// "a1" and "A01" address the same cell as "A1" (C126).
 func (s *Sheet) Cell(ref string) (*Cell, error) {
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
@@ -51,10 +70,13 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	s.worksheet.EnsureChildOrder("sheetData")
 
 	// Parse the reference to get row and column
-	row, _, err := ParseCellRef(ref)
+	row, col, err := ParseCellRef(ref)
 	if err != nil {
 		return nil, err
 	}
+	// Canonicalize: "A01" must address the same cell as "A1", not create a
+	// phantom sibling with a non-canonical r attribute.
+	ref = FormatCellRef(row, col)
 
 	// Find or create the row
 	var targetRow *oxml.CT_Row
@@ -72,7 +94,6 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 
 	// Find or create the cell. Cells are stored as pointers so this handle
 	// remains valid even if later cells are appended to the same row.
-	ref = strings.ToUpper(ref)
 	for _, cell := range targetRow.C {
 		if strings.EqualFold(cell.R, ref) {
 			return &Cell{sheet: s, cell: cell}, nil
@@ -124,11 +145,11 @@ func (s *Sheet) GetCellValue(ref string) (string, error) {
 		return "", nil
 	}
 
-	ref = strings.ToUpper(ref)
-	row, _, err := ParseCellRef(ref)
+	row, col, err := ParseCellRef(ref)
 	if err != nil {
 		return "", err
 	}
+	ref = FormatCellRef(row, col)
 
 	for i := range s.worksheet.SheetData.Row {
 		r := &s.worksheet.SheetData.Row[i]
@@ -171,9 +192,13 @@ func (s *Sheet) Cols() int {
 	return maxCol
 }
 
-// SetColWidth sets the width of a column (1-based).
+// SetColWidth sets the width of a column (1-based). Existing <col> entries
+// covering a range of columns (min < max) are split so the target column is
+// carved out with the new width while the rest of the range keeps its
+// original properties; appending an overlapping entry would be ambiguous and
+// is rejected by Excel (C127).
 func (s *Sheet) SetColWidth(col int, width float64) error {
-	if col < 1 {
+	if col < 1 || col > MaxCol {
 		return ErrInvalidCell
 	}
 	s.markDirty()
@@ -193,21 +218,45 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 	}
 	s.worksheet.EnsureChildOrder("cols")
 
-	// Find existing col entry or create new
-	for i := range s.worksheet.Cols[0].Col {
-		if s.worksheet.Cols[0].Col[i].Min == c && s.worksheet.Cols[0].Col[i].Max == c {
-			s.worksheet.Cols[0].Col[i].Width = &w
-			s.worksheet.Cols[0].Col[i].CustomWidth = &customWidth
-			return nil
+	// Carve the target column out of any entry covering it. The [c,c] slice of
+	// a covering range inherits that range's other properties (style, hidden,
+	// ...) with the new width applied; the remainder keeps its properties.
+	cols := s.worksheet.Cols[0].Col
+	rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
+	placed := false
+	for _, entry := range cols {
+		if entry.Min > c || entry.Max < c {
+			rebuilt = append(rebuilt, entry)
+			continue
+		}
+		if entry.Min < c {
+			left := entry
+			left.Max = c - 1
+			rebuilt = append(rebuilt, left)
+		}
+		if !placed {
+			target := entry
+			target.Min, target.Max = c, c
+			target.Width = &w
+			target.CustomWidth = &customWidth
+			rebuilt = append(rebuilt, target)
+			placed = true
+		}
+		if entry.Max > c {
+			right := entry
+			right.Min = c + 1
+			rebuilt = append(rebuilt, right)
 		}
 	}
-
-	s.worksheet.Cols[0].Col = append(s.worksheet.Cols[0].Col, oxml.CT_Col{
-		Min:         c,
-		Max:         c,
-		Width:       &w,
-		CustomWidth: &customWidth,
-	})
+	if !placed {
+		rebuilt = append(rebuilt, oxml.CT_Col{
+			Min:         c,
+			Max:         c,
+			Width:       &w,
+			CustomWidth: &customWidth,
+		})
+	}
+	s.worksheet.Cols[0].Col = rebuilt
 
 	return nil
 }
@@ -249,8 +298,71 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 	return nil
 }
 
-// MergeCells merges a range of cells.
+// cellRange is a rectangular cell range with 1-based inclusive bounds.
+type cellRange struct {
+	minRow, minCol, maxRow, maxCol int
+}
+
+// normalizeCellRange parses two cell references and returns the normalized
+// top-left:bottom-right rectangle. Invalid references yield ErrInvalidRange.
+func normalizeCellRange(startRef, endRef string) (cellRange, error) {
+	r1, c1, err := ParseCellRef(startRef)
+	if err != nil {
+		return cellRange{}, ErrInvalidRange
+	}
+	r2, c2, err := ParseCellRef(endRef)
+	if err != nil {
+		return cellRange{}, ErrInvalidRange
+	}
+	return cellRange{
+		minRow: min(r1, r2), minCol: min(c1, c2),
+		maxRow: max(r1, r2), maxCol: max(c1, c2),
+	}, nil
+}
+
+// ref renders the range as "A1:B2".
+func (r cellRange) ref() string {
+	return FormatCellRef(r.minRow, r.minCol) + ":" + FormatCellRef(r.maxRow, r.maxCol)
+}
+
+// overlaps reports whether the two rectangles intersect.
+func (r cellRange) overlaps(o cellRange) bool {
+	return r.minRow <= o.maxRow && o.minRow <= r.maxRow &&
+		r.minCol <= o.maxCol && o.minCol <= r.maxCol
+}
+
+// parseCellRangeRef parses a stored "A1:B2" range reference.
+func parseCellRangeRef(ref string) (cellRange, error) {
+	start, end, ok := strings.Cut(ref, ":")
+	if !ok {
+		// A single-cell merge reference is legal; treat it as a 1x1 range.
+		start, end = ref, ref
+	}
+	return normalizeCellRange(start, end)
+}
+
+// MergeCells merges a range of cells. The references are validated and
+// normalized to top-left:bottom-right order; invalid references return
+// ErrInvalidRange. A merge that duplicates or overlaps an existing merged
+// range is rejected — Excel refuses overlapping merges (C128).
 func (s *Sheet) MergeCells(startRef, endRef string) error {
+	rng, err := normalizeCellRange(startRef, endRef)
+	if err != nil {
+		return err
+	}
+
+	if s.worksheet != nil && s.worksheet.MergeCells != nil {
+		for _, mc := range s.worksheet.MergeCells.MergeCell {
+			existing, err := parseCellRangeRef(mc.Ref)
+			if err != nil {
+				continue // unparseable existing entry imposes no constraint
+			}
+			if rng.overlaps(existing) {
+				return fmt.Errorf("xlsx: merge range %s overlaps existing merge %s", rng.ref(), mc.Ref)
+			}
+		}
+	}
+
 	s.markDirty()
 	if s.worksheet == nil {
 		s.worksheet = &oxml.CT_Worksheet{
@@ -258,14 +370,12 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 		}
 	}
 
-	ref := strings.ToUpper(startRef) + ":" + strings.ToUpper(endRef)
-
 	if s.worksheet.MergeCells == nil {
 		s.worksheet.MergeCells = &oxml.CT_MergeCells{}
 	}
 	s.worksheet.EnsureChildOrder("mergeCells")
 
-	s.worksheet.MergeCells.MergeCell = append(s.worksheet.MergeCells.MergeCell, oxml.CT_MergeCell{Ref: ref})
+	s.worksheet.MergeCells.MergeCell = append(s.worksheet.MergeCells.MergeCell, oxml.CT_MergeCell{Ref: rng.ref()})
 	count := uint32(len(s.worksheet.MergeCells.MergeCell))
 	s.worksheet.MergeCells.Count = &count
 
@@ -278,7 +388,11 @@ func (s *Sheet) UnmergeCells(startRef, endRef string) error {
 		return nil
 	}
 
-	ref := strings.ToUpper(startRef) + ":" + strings.ToUpper(endRef)
+	rng, err := normalizeCellRange(startRef, endRef)
+	if err != nil {
+		return err
+	}
+	ref := rng.ref()
 
 	for i, mc := range s.worksheet.MergeCells.MergeCell {
 		if strings.EqualFold(mc.Ref, ref) {
