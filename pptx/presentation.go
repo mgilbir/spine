@@ -76,6 +76,10 @@ type Presentation struct {
 	// (C221). It stays false on zero-modification saves so those remain
 	// byte-identical.
 	mediaGCNeeded bool
+
+	// dirEntries preserves the source archive's zip directory entries
+	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
+	dirEntries []string
 }
 
 // Open opens a PowerPoint presentation from a file path.
@@ -144,6 +148,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		printerSettings: make(map[string][]byte),
 		otherParts:      make(map[string]*coxml.RawPart),
 		relationships:   make(map[string][]*opc.Relationship),
+		dirEntries:      reader.DirectoryEntries,
 	}
 
 	// Copy properties
@@ -750,6 +755,12 @@ func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// Set properties
 	writer.Properties = &p.Properties
+
+	// Re-emit the source archive's directory entries (some producers write
+	// them; OPC ignores them but a faithful save keeps the entry listing).
+	if err := writer.WriteDirectoryEntries(p.dirEntries); err != nil {
+		return err
+	}
 
 	currentSlideParts := make(map[string]bool, len(p.slides))
 	for _, slide := range p.slides {
