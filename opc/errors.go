@@ -1,5 +1,3 @@
-// Package opc implements the Open Packaging Conventions (OPC) specification
-// as defined in ECMA-376 Part 2.
 package opc
 
 import "errors"
