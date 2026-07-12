@@ -18,8 +18,9 @@ const (
 // siblings in their parsed positions (C223).
 func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.WriteProlog(slide.Prolog)
 	slide.MarshalRootToBuilder(b)
+	b.WriteTrailer(slide.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide: %w", err)
 	}
@@ -29,8 +30,9 @@ func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 // marshalSlideLayout marshals a slide layout to XML (see marshalSlide).
 func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.WriteProlog(layout.Prolog)
 	layout.MarshalRootToBuilder(b)
+	b.WriteTrailer(layout.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide layout: %w", err)
 	}
@@ -40,8 +42,9 @@ func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 // marshalSlideMaster marshals a slide master to XML (see marshalSlide).
 func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.WriteProlog(master.Prolog)
 	master.MarshalRootToBuilder(b)
+	b.WriteTrailer(master.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide master: %w", err)
 	}
@@ -55,7 +58,7 @@ func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 // defaultTextStyle must not gain invented document-wide text defaults on save).
 func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.WriteProlog(pres.Prolog)
 
 	// Build presentation attributes
 	var presAttrs []xmlb.Attr
@@ -230,6 +233,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	}
 
 	b.EndElement(nsP, "presentation")
+	b.WriteTrailer(pres.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal presentation.xml: %w", err)
 	}

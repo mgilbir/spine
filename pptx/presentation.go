@@ -23,6 +23,7 @@ import (
 
 	"github.com/mgilbir/spine/common/dml"
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -61,6 +62,10 @@ type Presentation struct {
 	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin
 	otherParts      map[string]*coxml.RawPart      // Any other parts (media, custom XML, etc.)
 	relationships   map[string][]*opc.Relationship // Relationships for each part
+	// rawRels keeps the source bytes of each parsed .rels part (keyed by
+	// source part name) so an unmodified relationship set is written back
+	// verbatim, preserving producer formatting.
+	rawRels map[string][]byte
 
 	// unreferencedSlides records slide parts present in the opened package but
 	// absent from presentation.xml's sldIdLst. They are preserved verbatim
@@ -136,6 +141,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		_ = reader.Close()
 		return nil, err
 	}
+	pres.Prolog = xmlb.CaptureProlog(data)
 
 	p := &Presentation{
 		reader:          reader,
@@ -148,6 +154,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		printerSettings: make(map[string][]byte),
 		otherParts:      make(map[string]*coxml.RawPart),
 		relationships:   make(map[string][]*opc.Relationship),
+		rawRels:         make(map[string][]byte),
 		dirEntries:      reader.DirectoryEntries,
 	}
 
@@ -358,6 +365,7 @@ func (p *Presentation) loadAllRelationships() {
 		// e.g., "/ppt/_rels/presentation.xml.rels" -> relationships for /ppt/presentation.xml
 		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		p.relationships[sourcePart] = rels
+		p.rawRels[sourcePart] = data
 	}
 }
 
@@ -401,6 +409,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		if err := xml.Unmarshal(data, &slideXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
+		slideXML.Prolog = xmlb.CaptureProlog(data)
 
 		slide := &Slide{
 			presentation: p,
@@ -455,6 +464,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 		if err := xml.Unmarshal(data, &masterXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide master part %s: %w", masterName, err)
 		}
+		masterXML.Prolog = xmlb.CaptureProlog(data)
 
 		master := &SlideMaster{
 			presentation: p,
@@ -514,6 +524,7 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 			if err := xml.Unmarshal(data, &layoutXML); err != nil {
 				return fmt.Errorf("pptx: parsing slide layout part %s: %w", layoutName, err)
 			}
+			layoutXML.Prolog = xmlb.CaptureProlog(data)
 
 			layout := &SlideLayout{
 				presentation: p,
@@ -1013,11 +1024,19 @@ func (p *Presentation) unreferencedMediaParts() map[string]bool {
 	return dead
 }
 
-// writePartRelationships writes the relationships file for a given part.
+// writePartRelationships writes the relationships file for a given part. When
+// the relationship set is unchanged from the opened package, the source .rels
+// bytes are preserved verbatim so producer formatting (declaration style, line
+// endings, trailing newline) survives the round trip.
 func (p *Presentation) writePartRelationships(writer *opc.Writer, partName string) error {
 	rels, ok := p.relationships[partName]
 	if !ok || len(rels) == 0 {
 		return nil
+	}
+
+	relsPath := partNameToRelsPath(partName)
+	if data := p.unchangedRawRels(partName, rels); data != nil {
+		return writer.WritePreservedPart(relsPath, opc.ContentTypeRelationships, data)
 	}
 
 	data, err := opc.MarshalRelationships(rels)
@@ -1025,8 +1044,21 @@ func (p *Presentation) writePartRelationships(writer *opc.Writer, partName strin
 		return err
 	}
 
-	relsPath := partNameToRelsPath(partName)
 	return writer.WritePart(relsPath, opc.ContentTypeRelationships, data)
+}
+
+// unchangedRawRels returns the source .rels bytes for partName when the
+// current relationship set still matches what was parsed from them, or nil.
+func (p *Presentation) unchangedRawRels(partName string, rels []*opc.Relationship) []byte {
+	raw, ok := p.rawRels[partName]
+	if !ok {
+		return nil
+	}
+	orig, err := opc.UnmarshalRelationships(raw)
+	if err != nil || !opc.RelationshipsEqual(orig, rels) {
+		return nil
+	}
+	return raw
 }
 
 // resolveSlideLayout maps a loaded slide's slideLayout relationship back to its
@@ -1188,6 +1220,10 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 				Target: target,
 			})
 		}
+	}
+
+	if data := p.unchangedRawRels("/ppt/presentation.xml", rels); data != nil {
+		return writer.WritePreservedPart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
 	}
 
 	data, err := opc.MarshalRelationships(rels)

@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
@@ -99,7 +100,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	}
 
 	// Extract formatting details from the raw XML for byte-identical round-trip.
-	wb.OriginalXMLSep = extractXMLSeparator(data)
+	wb.Prolog = xmlb.CaptureProlog(data)
 	wb.SelfClosingSpace = detectSelfClosingSpace(data)
 
 	w := &Workbook{
@@ -1306,28 +1307,4 @@ func detectSelfClosingSpace(data []byte) bool {
 	}
 	absIdx := searchFrom + idx
 	return absIdx > 0 && data[absIdx-1] == ' '
-}
-
-// extractXMLSeparator extracts the bytes between the XML declaration "?>" and
-// the root element "<" for preserving the exact whitespace during round-trip.
-// Returns empty string if the standard "\r\n" separator is used (our default).
-func extractXMLSeparator(data []byte) string {
-	declEnd := bytes.Index(data, []byte("?>"))
-	if declEnd < 0 {
-		return ""
-	}
-	declEnd += 2 // past "?>"
-
-	rootStart := bytes.IndexByte(data[declEnd:], '<')
-	if rootStart < 0 {
-		return ""
-	}
-
-	sep := string(data[declEnd : declEnd+rootStart])
-	// Our builder's WriteHeader already writes "\r\n", so if the separator
-	// matches we don't need to store it.
-	if sep == "\r\n" {
-		return ""
-	}
-	return sep
 }

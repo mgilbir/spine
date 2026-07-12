@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -130,6 +131,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	}
 
 	var doc oxml.CT_Document
+	doc.Prolog = xmlb.CaptureProlog(data)
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		_ = reader.Close()
 		// Deliberately strict: some wild files carry XML that is not
@@ -694,11 +696,20 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	return nil
 }
 
-// writeDocumentRelationships writes the main document part's .rels file.
+// writeDocumentRelationships writes the main document part's .rels file. When
+// the relationship set is unchanged from the opened package, the source .rels
+// bytes are preserved verbatim so producer formatting (declaration style, line
+// endings, trailing newline) survives the round trip.
 func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
 	rels, ok := d.relationships[d.mainPart()]
 	if !ok || len(rels) == 0 {
 		return nil
+	}
+	relsName := opc.GetRelationshipsPartName(d.mainPart())
+	if part, ok := d.preservedParts[relsName]; ok {
+		if orig, err := opc.UnmarshalRelationships(part.Data); err == nil && opc.RelationshipsEqual(orig, rels) {
+			return writer.WritePreservedPart(relsName, part.ContentType, part.Data)
+		}
 	}
 	return writer.WritePartRelationships(d.mainPart(), rels)
 }
