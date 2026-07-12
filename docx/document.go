@@ -665,13 +665,15 @@ func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
 	return writer.WritePart("/word/_rels/document.xml.rels", opc.ContentTypeRelationships, data)
 }
 
-// Paragraphs returns all paragraphs in the document body.
+// Paragraphs returns all paragraphs in the document body in document order,
+// including paragraphs wrapped in body-level structured document tags.
 func (d *Document) Paragraphs() []*Paragraph {
 	if d.document == nil || d.document.Body == nil {
 		return nil
 	}
-	result := make([]*Paragraph, len(d.document.Body.P))
-	for i, p := range d.document.Body.P {
+	paras := d.document.Body.Paragraphs()
+	result := make([]*Paragraph, len(paras))
+	for i, p := range paras {
 		result[i] = &Paragraph{document: d, p: p}
 	}
 	return result
@@ -729,7 +731,7 @@ func (d *Document) Tables() []*Table {
 	}
 	result := make([]*Table, len(d.document.Body.Tbl))
 	for i, tbl := range d.document.Body.Tbl {
-		result[i] = &Table{tbl: tbl}
+		result[i] = &Table{document: d, tbl: tbl}
 	}
 	return result
 }
@@ -760,7 +762,7 @@ func (d *Document) AddTable(rows, cols int) *Table {
 		tbl.AppendRow(tr)
 	}
 	d.document.Body.AppendTbl(tbl)
-	return &Table{tbl: tbl}
+	return &Table{document: d, tbl: tbl}
 }
 
 // nextRelID returns the next available relationship ID number.
@@ -802,6 +804,10 @@ func (d *Document) nextImageNumber() int {
 	used := make(map[int]bool)
 	mark := func(name string) {
 		const prefix = "/word/media/image"
+		// OPC part names are case-insensitive: /word/media/IMAGE1.PNG occupies
+		// the same name as image1.png, so match case-insensitively or the
+		// generated name would collide at save time.
+		name = strings.ToLower(name)
 		if !strings.HasPrefix(name, prefix) {
 			return
 		}
@@ -930,7 +936,10 @@ func (d *Document) DefaultSection() *Section {
 }
 
 // AddSectionBreak adds a section break by setting section properties on the
-// last paragraph and creating a new default section.
+// last block-level paragraph and creating a new default section. When the
+// body's last block is not a paragraph (e.g. the document ends with a table),
+// a new paragraph is appended after it to carry the section properties —
+// attaching them to an earlier paragraph would move the section boundary.
 func (d *Document) AddSectionBreak() *Section {
 	if d.document.Body == nil {
 		d.document.Body = &oxml.CT_Body{}
@@ -942,12 +951,11 @@ func (d *Document) AddSectionBreak() *Section {
 		oldSectPr = &oxml.CT_SectPr{}
 	}
 
-	// Ensure there's at least one paragraph to attach the section break to
-	if len(d.document.Body.P) == 0 {
-		d.AddParagraph()
+	lastP := d.document.Body.LastBlockParagraph()
+	if lastP == nil {
+		lastP = &oxml.CT_P{}
+		d.document.Body.AppendP(lastP)
 	}
-
-	lastP := d.document.Body.P[len(d.document.Body.P)-1]
 	if lastP.PPr == nil {
 		lastP.PPr = &oxml.CT_PPr{}
 	}

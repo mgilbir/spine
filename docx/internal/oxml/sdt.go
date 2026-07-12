@@ -42,6 +42,36 @@ func (sc *CT_SdtContentBlock) MarshalToBuilder(b *xmlb.Builder, ns, localName st
 	b.EndElement(ns, localName)
 }
 
+// contentParagraphs returns the paragraphs inside this block-level SDT in
+// document order, descending into nested SDT blocks.
+func (s *CT_SdtBlock) contentParagraphs() []*CT_P {
+	if s.SdtContent == nil {
+		return nil
+	}
+	sc := s.SdtContent
+	if len(sc.childOrder) == 0 {
+		result := append([]*CT_P{}, sc.P...)
+		for _, nested := range sc.SdtBlock {
+			result = append(result, nested.contentParagraphs()...)
+		}
+		return result
+	}
+	var result []*CT_P
+	for _, ref := range sc.childOrder {
+		switch ref.kind {
+		case bodyChildP:
+			if ref.index < len(sc.P) {
+				result = append(result, sc.P[ref.index])
+			}
+		case bodyChildSdt:
+			if ref.index < len(sc.SdtBlock) {
+				result = append(result, sc.SdtBlock[ref.index].contentParagraphs()...)
+			}
+		}
+	}
+	return result
+}
+
 // CT_SdtRun represents an inline/run-level structured document tag.
 type CT_SdtRun struct {
 	SdtPr      *CT_SdtPr        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sdtPr,omitempty"`

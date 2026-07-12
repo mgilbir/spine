@@ -231,6 +231,33 @@ func (body *CT_Body) AppendTbl(t *CT_Tbl) {
 	appendBodyTbl(&body.Tbl, &body.childOrder, t)
 }
 
+// Paragraphs returns the body's paragraphs in document order, including
+// paragraphs nested in body-level structured document tags — the read API
+// otherwise under-reports SDT-wrapped content.
+func (body *CT_Body) Paragraphs() []*CT_P {
+	if len(body.childOrder) == 0 {
+		result := append([]*CT_P{}, body.P...)
+		for _, s := range body.SdtBlock {
+			result = append(result, s.contentParagraphs()...)
+		}
+		return result
+	}
+	var result []*CT_P
+	for _, ref := range body.childOrder {
+		switch ref.kind {
+		case bodyChildP:
+			if ref.index < len(body.P) {
+				result = append(result, body.P[ref.index])
+			}
+		case bodyChildSdt:
+			if ref.index < len(body.SdtBlock) {
+				result = append(result, body.SdtBlock[ref.index].contentParagraphs()...)
+			}
+		}
+	}
+	return result
+}
+
 // LastBlockParagraph returns the last block-level child of the body if that
 // child is a paragraph, and nil otherwise (body empty, or ends with a table,
 // SDT, or raw-preserved block). Bookmark markers are not blocks and are

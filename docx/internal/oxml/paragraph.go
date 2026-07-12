@@ -788,6 +788,32 @@ func (p *CT_P) backfillChildOrder() {
 	}
 }
 
+// ClearContent removes every content child of the paragraph (runs,
+// hyperlinks, SDTs, tracked changes, fields, comment/bookmark markers, math,
+// AlternateContent, and raw-preserved inline elements), resetting the recorded
+// child order so later appends do not resolve stale references. Paragraph
+// properties (PPr) are kept.
+func (p *CT_P) ClearContent() {
+	p.R = nil
+	p.Hyperlink = nil
+	p.BookmarkStart = nil
+	p.BookmarkEnd = nil
+	p.ProofErr = nil
+	p.PermStart = nil
+	p.PermEnd = nil
+	p.Ins = nil
+	p.Del = nil
+	p.FldSimple = nil
+	p.SdtRun = nil
+	p.CommentRangeStart = nil
+	p.CommentRangeEnd = nil
+	p.OMath = nil
+	p.OMathPara = nil
+	p.AlternateContent = nil
+	p.Raw = nil
+	p.childOrder = nil
+}
+
 // AppendR appends a run to this paragraph, maintaining child order so it is
 // marshaled even on a paragraph parsed from a file (whose order is already
 // populated). Existing untracked children are backfilled into the order first
