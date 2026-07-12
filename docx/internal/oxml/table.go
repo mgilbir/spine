@@ -357,18 +357,19 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Tr.
 func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	// Word's attribute order: rsidR, rsidRPr, w14:paraId, w14:textId, rsidTr.
 	var attrs []xmlb.Attr
-	if tr.ParaId != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "paraId", Value: tr.ParaId})
-	}
-	if tr.TextId != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "textId", Value: tr.TextId})
-	}
 	if tr.RsidR != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: tr.RsidR})
 	}
 	if tr.RsidRPr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: tr.RsidRPr})
+	}
+	if tr.ParaId != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "paraId", Value: tr.ParaId})
+	}
+	if tr.TextId != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWord2010, Name: "textId", Value: tr.TextId})
 	}
 	if tr.RsidTr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidTr", Value: tr.RsidTr})

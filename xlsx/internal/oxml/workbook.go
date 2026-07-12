@@ -402,13 +402,13 @@ type CT_WorkbookPr struct {
 	BackupFile                 *bool   `xml:"backupFile,attr,omitempty"`
 	SaveExternalLinkValues     *bool   `xml:"saveExternalLinkValues,attr,omitempty"`
 	UpdateLinks                string  `xml:"updateLinks,attr,omitempty"`
+	CodeName                   string  `xml:"codeName,attr,omitempty"`
 	HidePivotFieldList         *bool   `xml:"hidePivotFieldList,attr,omitempty"`
 	ShowPivotChartFilter       *bool   `xml:"showPivotChartFilter,attr,omitempty"`
 	AllowRefreshQuery          *bool   `xml:"allowRefreshQuery,attr,omitempty"`
+	CheckCompatibility         *bool   `xml:"checkCompatibility,attr,omitempty"`
 	AutoCompressPictures       *bool   `xml:"autoCompressPictures,attr,omitempty"`
 	DefaultThemeVersion        *uint32 `xml:"defaultThemeVersion,attr,omitempty"`
-	CodeName                   string  `xml:"codeName,attr,omitempty"`
-	CheckCompatibility         *bool   `xml:"checkCompatibility,attr,omitempty"`
 }
 
 // CT_BookViews represents the bookViews element.
@@ -742,13 +742,13 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 type CT_CalcPr struct {
 	CalcId                *uint32  `xml:"calcId,attr,omitempty"`
 	CalcMode              string   `xml:"calcMode,attr,omitempty"`
+	CalcCompleted         *bool    `xml:"calcCompleted,attr,omitempty"`
 	FullCalcOnLoad        *bool    `xml:"fullCalcOnLoad,attr,omitempty"`
 	RefMode               string   `xml:"refMode,attr,omitempty"`
 	Iterate               *bool    `xml:"iterate,attr,omitempty"`
 	IterateCount          *uint32  `xml:"iterateCount,attr,omitempty"`
 	IterateDelta          *float64 `xml:"iterateDelta,attr,omitempty"`
 	FullPrecision         *bool    `xml:"fullPrecision,attr,omitempty"`
-	CalcCompleted         *bool    `xml:"calcCompleted,attr,omitempty"`
 	CalcOnSave            *bool    `xml:"calcOnSave,attr,omitempty"`
 	ConcurrentCalc        *bool    `xml:"concurrentCalc,attr,omitempty"`
 	ConcurrentManualCount *uint32  `xml:"concurrentManualCount,attr,omitempty"`

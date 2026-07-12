@@ -330,15 +330,16 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler to preserve child element order.
 func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	// Word's attribute order: rsidDel, rsidR, rsidRPr (not the XSD order).
 	var attrs []xmlb.Attr
-	if r.RsidRPr != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: r.RsidRPr})
-	}
 	if r.RsidDel != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidDel", Value: r.RsidDel})
 	}
 	if r.RsidR != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidR", Value: r.RsidR})
+	}
+	if r.RsidRPr != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: r.RsidRPr})
 	}
 	b.StartElement(ns, localName, attrs...)
 
