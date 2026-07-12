@@ -8,15 +8,6 @@ import (
 type Options struct {
 	// SlideSize specifies the slide dimensions.
 	SlideSize SlideSize
-
-	// DefaultFont specifies the default font for text.
-	DefaultFont string
-
-	// DefaultFontSize specifies the default font size in points.
-	DefaultFontSize float64
-
-	// Locale specifies the locale for the presentation (e.g., "en-US").
-	Locale string
 }
 
 // SlideSize specifies predefined slide dimensions.
@@ -51,7 +42,8 @@ func (ss SlideSize) Dimensions() (width, height dml.EMU) {
 	case SlideSizeStandard:
 		return dml.Inches(10), dml.Inches(7.5)
 	case SlideSizeWidescreen:
-		return dml.Inches(13.333), dml.Inches(7.5)
+		// 13 1/3" x 7.5": the canonical widescreen 12192000 x 6858000 EMU.
+		return dml.EMU(12192000), dml.Inches(7.5)
 	case SlideSizeA4Portrait:
 		return dml.Millimeters(210), dml.Millimeters(297)
 	case SlideSizeA4Landscape:
@@ -88,12 +80,10 @@ func (ss SlideSize) String() string {
 }
 
 // DefaultOptions returns the default options for creating a presentation.
+// The default slide size is 4:3, matching Create.
 func DefaultOptions() Options {
 	return Options{
-		SlideSize:       SlideSizeWidescreen,
-		DefaultFont:     "Calibri",
-		DefaultFontSize: 18,
-		Locale:          "en-US",
+		SlideSize: SlideSizeStandard,
 	}
 }
 
@@ -103,9 +93,6 @@ type CreateOptions struct {
 
 	// IncludeDefaultLayouts includes standard slide layouts.
 	IncludeDefaultLayouts bool
-
-	// IncludeDefaultTheme includes the default Office theme.
-	IncludeDefaultTheme bool
 }
 
 // DefaultCreateOptions returns the default options for creating a presentation.
@@ -113,89 +100,5 @@ func DefaultCreateOptions() CreateOptions {
 	return CreateOptions{
 		Options:               DefaultOptions(),
 		IncludeDefaultLayouts: true,
-		IncludeDefaultTheme:   true,
-	}
-}
-
-// OpenOptions are options for opening an existing presentation.
-type OpenOptions struct {
-	// ReadOnly opens the presentation in read-only mode.
-	ReadOnly bool
-
-	// Password is the password for encrypted presentations.
-	Password string
-}
-
-// SaveOptions are options for saving a presentation.
-type SaveOptions struct {
-	// Compression specifies the compression level (0-9).
-	// 0 = no compression, 9 = maximum compression.
-	Compression int
-
-	// Password encrypts the presentation with the specified password.
-	Password string
-
-	// RemovePersonalInfo removes personal information from properties.
-	RemovePersonalInfo bool
-}
-
-// DefaultSaveOptions returns the default options for saving a presentation.
-func DefaultSaveOptions() SaveOptions {
-	return SaveOptions{
-		Compression: 6, // Default deflate compression
-	}
-}
-
-// ExportOptions are options for exporting a presentation.
-type ExportOptions struct {
-	// Format specifies the export format.
-	Format ExportFormat
-
-	// Quality specifies the image quality for raster formats (1-100).
-	Quality int
-
-	// DPI specifies the resolution for raster formats.
-	DPI int
-}
-
-// ExportFormat specifies the export format.
-type ExportFormat int
-
-const (
-	ExportFormatPDF ExportFormat = iota
-	ExportFormatPNG
-	ExportFormatJPEG
-	ExportFormatSVG
-)
-
-// String returns the string representation of the export format.
-func (f ExportFormat) String() string {
-	switch f {
-	case ExportFormatPDF:
-		return "PDF"
-	case ExportFormatPNG:
-		return "PNG"
-	case ExportFormatJPEG:
-		return "JPEG"
-	case ExportFormatSVG:
-		return "SVG"
-	default:
-		return "Unknown"
-	}
-}
-
-// Extension returns the file extension for the export format.
-func (f ExportFormat) Extension() string {
-	switch f {
-	case ExportFormatPDF:
-		return ".pdf"
-	case ExportFormatPNG:
-		return ".png"
-	case ExportFormatJPEG:
-		return ".jpg"
-	case ExportFormatSVG:
-		return ".svg"
-	default:
-		return ""
 	}
 }
