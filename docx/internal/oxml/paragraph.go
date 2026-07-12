@@ -10,40 +10,40 @@ import (
 
 // CT_PPr represents paragraph properties (w:pPr).
 type CT_PPr struct {
-	PStyle            *CT_String           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pStyle,omitempty"`
-	KeepNext          *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepNext,omitempty"`
-	KeepLines         *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepLines,omitempty"`
-	PageBreakBefore   *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pageBreakBefore,omitempty"`
-	FramePr           *CT_FramePr          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main framePr,omitempty"`
-	WidowControl      *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main widowControl,omitempty"`
-	NumPr             *CT_NumPr            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numPr,omitempty"`
-	SuppressLineNumbers *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressLineNumbers,omitempty"`
-	PBdr              *CT_PBdr             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pBdr,omitempty"`
-	Shd               *CT_Shd              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
-	Tabs              *CT_Tabs             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tabs,omitempty"`
-	SuppressAutoHyphens *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressAutoHyphens,omitempty"`
-	Kinsoku           *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main kinsoku,omitempty"`
-	WordWrap          *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wordWrap,omitempty"`
-	OverflowPunct     *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main overflowPunct,omitempty"`
-	TopLinePunct      *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main topLinePunct,omitempty"`
-	AutoSpaceDE       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoSpaceDE,omitempty"`
-	AutoSpaceDN       *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoSpaceDN,omitempty"`
-	Bidi              *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,omitempty"`
-	AdjustRightInd    *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main adjustRightInd,omitempty"`
-	SnapToGrid        *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main snapToGrid,omitempty"`
-	Spacing           *CT_Spacing          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main spacing,omitempty"`
-	Ind               *CT_Ind              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ind,omitempty"`
-	ContextualSpacing *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main contextualSpacing,omitempty"`
-	MirrorIndents     *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mirrorIndents,omitempty"`
-	SuppressOverlap   *CT_OnOff            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressOverlap,omitempty"`
-	Jc                *CT_Jc               `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
-	TextDirection     *CT_String           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
-	TextAlignment     *CT_String           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textAlignment,omitempty"`
-	OutlineLvl        *CT_DecimalNumber    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outlineLvl,omitempty"`
-	DivId             *CT_DecimalNumber    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
-	RPr               *CT_RPr              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
-	SectPr            *CT_SectPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
-	PPrChange         *CT_PPrChange        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
+	PStyle              *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pStyle,omitempty"`
+	KeepNext            *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepNext,omitempty"`
+	KeepLines           *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepLines,omitempty"`
+	PageBreakBefore     *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pageBreakBefore,omitempty"`
+	FramePr             *CT_FramePr       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main framePr,omitempty"`
+	WidowControl        *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main widowControl,omitempty"`
+	NumPr               *CT_NumPr         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numPr,omitempty"`
+	SuppressLineNumbers *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressLineNumbers,omitempty"`
+	PBdr                *CT_PBdr          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pBdr,omitempty"`
+	Shd                 *CT_Shd           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
+	Tabs                *CT_Tabs          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tabs,omitempty"`
+	SuppressAutoHyphens *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressAutoHyphens,omitempty"`
+	Kinsoku             *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main kinsoku,omitempty"`
+	WordWrap            *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wordWrap,omitempty"`
+	OverflowPunct       *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main overflowPunct,omitempty"`
+	TopLinePunct        *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main topLinePunct,omitempty"`
+	AutoSpaceDE         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoSpaceDE,omitempty"`
+	AutoSpaceDN         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoSpaceDN,omitempty"`
+	Bidi                *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,omitempty"`
+	AdjustRightInd      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main adjustRightInd,omitempty"`
+	SnapToGrid          *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main snapToGrid,omitempty"`
+	Spacing             *CT_Spacing       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main spacing,omitempty"`
+	Ind                 *CT_Ind           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ind,omitempty"`
+	ContextualSpacing   *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main contextualSpacing,omitempty"`
+	MirrorIndents       *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mirrorIndents,omitempty"`
+	SuppressOverlap     *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main suppressOverlap,omitempty"`
+	Jc                  *CT_Jc            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
+	TextDirection       *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
+	TextAlignment       *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textAlignment,omitempty"`
+	OutlineLvl          *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outlineLvl,omitempty"`
+	DivId               *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
+	RPr                 *CT_RPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	SectPr              *CT_SectPr        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
+	PPrChange           *CT_PPrChange     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
 }
 
 // pChildKind identifies paragraph content child element types.
@@ -147,33 +147,33 @@ func writeRunsText(sb *strings.Builder, runs []*CT_R) {
 
 // CT_P represents a paragraph (w:p).
 type CT_P struct {
-	RsidR           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidRDefault    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRDefault,attr,omitempty"`
-	RsidP           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidP,attr,omitempty"`
-	RsidDel         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
-	ParaId          string `xml:"-"` // w14:paraId - custom unmarshal
-	TextId          string `xml:"-"` // w14:textId - custom unmarshal
+	RsidR        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidRDefault string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRDefault,attr,omitempty"`
+	RsidP        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidP,attr,omitempty"`
+	RsidDel      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
+	ParaId       string `xml:"-"` // w14:paraId - custom unmarshal
+	TextId       string `xml:"-"` // w14:textId - custom unmarshal
 
-	PPr             *CT_PPr              `xml:"-"`
-	R               []*CT_R              `xml:"-"`
-	Hyperlink       []*CT_Hyperlink      `xml:"-"`
-	BookmarkStart   []*CT_BookmarkStart  `xml:"-"`
-	BookmarkEnd     []*CT_BookmarkEnd    `xml:"-"`
-	ProofErr        []*CT_ProofErr       `xml:"-"`
-	PermStart       []*CT_PermStart      `xml:"-"`
-	PermEnd         []*CT_PermEnd        `xml:"-"`
-	Ins             []*CT_RunTrackChange `xml:"-"`
-	Del             []*CT_RunTrackChange `xml:"-"`
-	FldSimple       []*CT_SimpleField    `xml:"-"`
-	SdtRun          []*CT_SdtRun         `xml:"-"`
-	CommentRangeStart []*CT_CommentRangeStart `xml:"-"`
-	CommentRangeEnd   []*CT_CommentRangeEnd   `xml:"-"`
-	OMath           [][]byte             `xml:"-"` // raw m:oMath elements
-	OMathPara       [][]byte             `xml:"-"` // raw m:oMathPara elements
-	AlternateContent []*coxml.AlternateContent `xml:"-"`
-	Raw             []*CT_RawNamedElement `xml:"-"` // see isRawPChild
-	childOrder      []pChildRef
+	PPr               *CT_PPr                   `xml:"-"`
+	R                 []*CT_R                   `xml:"-"`
+	Hyperlink         []*CT_Hyperlink           `xml:"-"`
+	BookmarkStart     []*CT_BookmarkStart       `xml:"-"`
+	BookmarkEnd       []*CT_BookmarkEnd         `xml:"-"`
+	ProofErr          []*CT_ProofErr            `xml:"-"`
+	PermStart         []*CT_PermStart           `xml:"-"`
+	PermEnd           []*CT_PermEnd             `xml:"-"`
+	Ins               []*CT_RunTrackChange      `xml:"-"`
+	Del               []*CT_RunTrackChange      `xml:"-"`
+	FldSimple         []*CT_SimpleField         `xml:"-"`
+	SdtRun            []*CT_SdtRun              `xml:"-"`
+	CommentRangeStart []*CT_CommentRangeStart   `xml:"-"`
+	CommentRangeEnd   []*CT_CommentRangeEnd     `xml:"-"`
+	OMath             [][]byte                  `xml:"-"` // raw m:oMath elements
+	OMathPara         [][]byte                  `xml:"-"` // raw m:oMathPara elements
+	AlternateContent  []*coxml.AlternateContent `xml:"-"`
+	Raw               []*CT_RawNamedElement     `xml:"-"` // see isRawPChild
+	childOrder        []pChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_P to preserve child order.
@@ -822,6 +822,24 @@ func (p *CT_P) AppendR(r *CT_R) {
 	p.backfillChildOrder()
 	p.childOrder = append(p.childOrder, pChildRef{pChildR, len(p.R)})
 	p.R = append(p.R, r)
+}
+
+// AppendOMath appends a raw-captured m:oMath child — the element's inner XML
+// with m:/w:-prefixed names, exactly the form UnmarshalXML captures and the
+// omml marshaler produces — maintaining child order. Existing untracked
+// children are backfilled first so they are not dropped by the
+// childOrder-gated marshal.
+func (p *CT_P) AppendOMath(raw []byte) {
+	p.backfillChildOrder()
+	p.childOrder = append(p.childOrder, pChildRef{pChildOMath, len(p.OMath)})
+	p.OMath = append(p.OMath, raw)
+}
+
+// AppendOMathPara appends a raw-captured m:oMathPara child (see AppendOMath).
+func (p *CT_P) AppendOMathPara(raw []byte) {
+	p.backfillChildOrder()
+	p.childOrder = append(p.childOrder, pChildRef{pChildOMathPara, len(p.OMathPara)})
+	p.OMathPara = append(p.OMathPara, raw)
 }
 
 // SetRuns replaces the paragraph's top-level runs with rs, keeping childOrder
