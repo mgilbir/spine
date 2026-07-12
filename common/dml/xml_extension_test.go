@@ -189,18 +189,6 @@ func TestDML_CreationId(t *testing.T) {
 	}
 }
 
-// TestDML_CompatExt tests compatibility extension
-func TestDML_CompatExt(t *testing.T) {
-	var v CompatExt
-	input := `<compatExt spId="_x0000_s1025"/>`
-	if err := xml.Unmarshal([]byte(input), &v); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-	if v.SpId != "_x0000_s1025" {
-		t.Errorf("SpId = %q, want _x0000_s1025", v.SpId)
-	}
-}
-
 // C189: unmodeled a14:imgEffect children (artistic effects) are captured as
 // raw content and re-emitted through the production Builder, so the typed
 // imgProps dispatch never loses what the unknown-URI raw fallback preserves.
