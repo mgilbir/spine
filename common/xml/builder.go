@@ -810,6 +810,21 @@ func RelAttr(name, value string) Attr {
 	return Attr{Namespace: NSOfficeDocumentRels, Name: name, Value: value}
 }
 
+// NSDeclAttrs converts captured inline namespace declarations back into
+// literal xmlns attributes (xmlns:prefix="uri", or xmlns="uri" for a default
+// declaration), appending them to attrs. Raw child content re-emitted inside
+// the carrying element then resolves its prefixes exactly as in the source.
+func NSDeclAttrs(attrs []Attr, decls []NSDecl) []Attr {
+	for _, d := range decls {
+		name := "xmlns"
+		if d.Prefix != "" {
+			name = "xmlns:" + d.Prefix
+		}
+		attrs = append(attrs, Attr{Name: name, Value: d.URI})
+	}
+	return attrs
+}
+
 // itoa converts int64 to string.
 func itoa(n int64) string {
 	if n == 0 {

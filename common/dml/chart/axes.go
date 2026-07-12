@@ -26,7 +26,7 @@ type ValAx struct {
 	MajorUnit    *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart majorUnit,omitempty"`
 	MinorUnit    *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart minorUnit,omitempty"`
 	DispUnits    *DispUnits   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dispUnits,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // CatAx represents CT_CatAx (c:catAx) - category axis
@@ -53,7 +53,7 @@ type CatAx struct {
 	TickLblSkip  *Skip        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart tickLblSkip,omitempty"`
 	TickMarkSkip *Skip        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart tickMarkSkip,omitempty"`
 	NoMultiLvlLbl *Boolean    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart noMultiLvlLbl,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // DateAx represents CT_DateAx (c:dateAx) - date axis
@@ -81,7 +81,7 @@ type DateAx struct {
 	MajorTimeUnit *TimeUnit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart majorTimeUnit,omitempty"`
 	MinorUnit    *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart minorUnit,omitempty"`
 	MinorTimeUnit *TimeUnit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart minorTimeUnit,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // SerAx represents CT_SerAx (c:serAx) - series axis (3D charts)
@@ -104,7 +104,7 @@ type SerAx struct {
 	CrossesAt    *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart crossesAt,omitempty"`
 	TickLblSkip  *Skip        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart tickLblSkip,omitempty"`
 	TickMarkSkip *Skip        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart tickMarkSkip,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // Scaling represents CT_Scaling (c:scaling) - axis scaling
@@ -113,7 +113,7 @@ type Scaling struct {
 	Orientation *Orientation `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart orientation,omitempty"`
 	Max         *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart max,omitempty"`
 	Min         *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart min,omitempty"`
-	ExtLst      *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst      *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // DispUnits represents CT_DispUnits (c:dispUnits) - display units
@@ -121,7 +121,7 @@ type DispUnits struct {
 	BuiltInUnit *BuiltInUnit `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart builtInUnit,omitempty"`
 	CustUnit    *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart custUnit,omitempty"`
 	DispUnitsLbl *DispUnitsLbl `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dispUnitsLbl,omitempty"`
-	ExtLst      *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst      *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // DispUnitsLbl represents CT_DispUnitsLbl

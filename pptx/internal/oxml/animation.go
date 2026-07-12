@@ -15,7 +15,7 @@ import (
 type Timing struct {
 	TnLst  *TimeNodeList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tnLst,omitempty"`
 	BldLst *BuildList    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldLst,omitempty"`
-	ExtLst *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // TimeNodeList represents CT_TimeNodeList (p:tnLst, p:childTnLst, p:subTnLst).

@@ -11,7 +11,7 @@ type PresentationProperties struct {
 	PrnPr        *PrintProperties         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main prnPr,omitempty"`
 	ShowPr       *ShowProperties          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main showPr,omitempty"`
 	ClrMru       *ColorMRU                `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMru,omitempty"`
-	ExtLst       *dml.ExtLst              `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst       *ExtensionList              `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // HtmlPublishProperties represents CT_HtmlPublishProperties (p:htmlPubPr)
@@ -20,7 +20,7 @@ type HtmlPublishProperties struct {
 	PubBrowser       string  `xml:"pubBrowser,attr,omitempty"` // v4, v3, v3v4
 	Title            string  `xml:"title,attr,omitempty"`
 	Id               string  `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
-	ExtLst           *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst           *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // WebProperties represents CT_WebProperties (p:webPr)
@@ -34,7 +34,7 @@ type WebProperties struct {
 	ImgSz             string `xml:"imgSz,attr,omitempty"` // screen640x480, screen800x600, screen1024x768, screen1152x882, screen1152x900, screen1280x1024, screen1600x1200, screen1800x1440, screen1920x1200
 	Encoding          string `xml:"encoding,attr,omitempty"`
 	Clr               string `xml:"clr,attr,omitempty"` // none, browser, presentationText, presentationAccent, whiteTextOnBlack, blackTextOnWhite
-	ExtLst            *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst            *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // PrintProperties represents CT_PrintProperties (p:prnPr)
@@ -44,7 +44,7 @@ type PrintProperties struct {
 	HiddenSlides    bool   `xml:"hiddenSlides,attr,omitempty"`
 	ScaleToFitPaper bool   `xml:"scaleToFitPaper,attr,omitempty"`
 	FrameSlides     bool   `xml:"frameSlides,attr,omitempty"`
-	ExtLst          *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst          *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // ShowProperties represents CT_ShowProperties (p:showPr)
@@ -60,7 +60,7 @@ type ShowProperties struct {
 	SldRg        *IndexRange      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldRg,omitempty"`
 	CustShow     *CustomShowRef   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main custShow,omitempty"`
 	PenClr       *dml.ColorChoice `xml:"http://schemas.openxmlformats.org/presentationml/2006/main penClr,omitempty"`
-	ExtLst       *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst       *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // EmptyElement represents CT_Empty

@@ -18,7 +18,7 @@ type Comment struct {
 	Idx      uint32 `xml:"idx,attr"`          // comment index
 	Pos      *Point2D `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pos,omitempty"`
 	Text     string   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main text,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // Point2D represents CT_Point2D for comment position (x,y in EMUs)
@@ -39,7 +39,7 @@ type CommentAuthor struct {
 	Initials string `xml:"initials,attr,omitempty"`
 	LastIdx  uint32 `xml:"lastIdx,attr,omitempty"`
 	ClrIdx   uint32 `xml:"clrIdx,attr,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // CommentText represents the text content of a comment (p:text).
@@ -53,7 +53,7 @@ type CommentText struct {
 type NotesSlide struct {
 	CSld       *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
 	ClrMapOvr  *dml.ClrMapOvr   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMapOvr,omitempty"`
-	ExtLst     *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst     *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 	ShowMasterSp bool `xml:"showMasterSp,attr,omitempty"`
 	ShowMasterPhAnim bool `xml:"showMasterPhAnim,attr,omitempty"`
 }
@@ -64,7 +64,7 @@ type NotesMaster struct {
 	ClrMap    *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
 	Hf        *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
 	NotesStyle *dml.LstStyle   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main notesStyle,omitempty"`
-	ExtLst    *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst    *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // --- Handout Master ---
@@ -74,7 +74,7 @@ type HandoutMaster struct {
 	CSld      *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
 	ClrMap    *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
 	Hf        *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
-	ExtLst    *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst    *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // HeaderFooter represents CT_HeaderFooter (p:hf)

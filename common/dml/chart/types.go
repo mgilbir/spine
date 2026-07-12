@@ -213,7 +213,7 @@ type DataLabels struct {
 	Separator    string       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart separator,omitempty"`
 	ShowLeaderLines *Boolean  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart showLeaderLines,omitempty"`
 	LeaderLines  *ChartLines  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart leaderLines,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // DataLabel represents CT_DLbl (c:dLbl) - individual data label
@@ -232,7 +232,7 @@ type DataLabel struct {
 	ShowPercent  *Boolean     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart showPercent,omitempty"`
 	ShowBubbleSize *Boolean   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart showBubbleSize,omitempty"`
 	Separator    string       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart separator,omitempty"`
-	ExtLst       *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // DLblPos represents CT_DLblPos
@@ -258,7 +258,7 @@ type Legend struct {
 	Overlay     *Boolean      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart overlay,omitempty"`
 	SpPr        *dml.SpPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	TxPr        *dml.TxBody   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart txPr,omitempty"`
-	ExtLst      *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst      *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // LegendPos represents CT_LegendPos
@@ -271,7 +271,7 @@ type LegendEntry struct {
 	Idx    *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart idx,omitempty"`
 	Delete *Boolean     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart delete,omitempty"`
 	TxPr   *dml.TxBody  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart txPr,omitempty"`
-	ExtLst *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // --- Layout ---
@@ -279,7 +279,7 @@ type LegendEntry struct {
 // Layout represents CT_Layout (c:layout)
 type Layout struct {
 	ManualLayout *ManualLayout `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart manualLayout,omitempty"`
-	ExtLst       *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // ManualLayout represents CT_ManualLayout
@@ -293,7 +293,7 @@ type ManualLayout struct {
 	Y            *Double       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart y,omitempty"`
 	W            *Double       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart w,omitempty"`
 	H            *Double       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart h,omitempty"`
-	ExtLst       *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst       *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // LayoutTarget represents CT_LayoutTarget
@@ -316,7 +316,7 @@ type View3D struct {
 	DepthPercent *DepthPercent `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart depthPercent,omitempty"`
 	RAngAx     *Boolean    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart rAngAx,omitempty"`
 	Perspective *Perspective `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart perspective,omitempty"`
-	ExtLst     *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst     *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 type RotX struct{ Val int32 `xml:"val,attr"` }           // -90 to 90
@@ -330,7 +330,7 @@ type Surface struct {
 	Thickness *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart thickness,omitempty"`
 	SpPr      *dml.SpPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	PictureOptions *PictureOptions `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart pictureOptions,omitempty"`
-	ExtLst    *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst    *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // PictureOptions represents CT_PictureOptions
@@ -357,7 +357,7 @@ type UpDownBars struct {
 	GapWidth *GapAmount  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart gapWidth,omitempty"`
 	UpBars   *UpDownBar  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart upBars,omitempty"`
 	DownBars *UpDownBar  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart downBars,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst   *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // UpDownBar represents CT_UpDownBar
@@ -378,7 +378,7 @@ type Trendline struct {
 	DispRSqr      *Boolean      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dispRSqr,omitempty"`
 	DispEq        *Boolean      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dispEq,omitempty"`
 	TrendlineLbl  *TrendlineLbl `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart trendlineLbl,omitempty"`
-	ExtLst        *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst        *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // TrendlineType represents CT_TrendlineType
@@ -393,7 +393,7 @@ type TrendlineLbl struct {
 	NumFmt *NumFmt     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart numFmt,omitempty"`
 	SpPr   *dml.SpPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	TxPr   *dml.TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart txPr,omitempty"`
-	ExtLst *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // ErrBars represents CT_ErrBars (c:errBars) - error bars
@@ -406,7 +406,7 @@ type ErrBars struct {
 	Minus     *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart minus,omitempty"`
 	Val       *Double      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
 	SpPr      *dml.SpPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
-	ExtLst    *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst    *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 type ErrDir struct{ Val string `xml:"val,attr"` }      // x, y
@@ -421,14 +421,14 @@ type DataTable struct {
 	ShowKeys       *Boolean    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart showKeys,omitempty"`
 	SpPr           *dml.SpPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	TxPr           *dml.TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart txPr,omitempty"`
-	ExtLst         *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst         *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // PivotSource represents CT_PivotSource
 type PivotSource struct {
 	Name   string       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart name,omitempty"`
 	FmtId  *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart fmtId,omitempty"`
-	ExtLst *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // PivotFormats represents CT_PivotFmts
@@ -443,7 +443,7 @@ type PivotFormat struct {
 	TxPr   *dml.TxBody  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart txPr,omitempty"`
 	Marker *Marker      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart marker,omitempty"`
 	DLbl   *DataLabel   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dLbl,omitempty"`
-	ExtLst *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // Protection represents CT_Protection
