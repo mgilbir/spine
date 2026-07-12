@@ -61,6 +61,21 @@ type Presentation struct {
 	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin
 	otherParts      map[string]*coxml.RawPart      // Any other parts (media, custom XML, etc.)
 	relationships   map[string][]*opc.Relationship // Relationships for each part
+
+	// unreferencedSlides records slide parts present in the opened package but
+	// absent from presentation.xml's sldIdLst. They are preserved verbatim
+	// (written back from otherParts, C118) and are not part of p.slides.
+	unreferencedSlides map[string]bool
+	// removedParts records part names deleted by this session's mutations
+	// (RemoveSlide and the parts it owns), so the save drops their lingering
+	// content-type overrides.
+	removedParts map[string]bool
+	// mediaGCNeeded marks that relationships were dropped this session
+	// (RemoveSlide, RemoveShape sync, poster swaps), allowing the save to
+	// garbage-collect /ppt/media/ parts no relationship references anymore
+	// (C221). It stays false on zero-modification saves so those remain
+	// byte-identical.
+	mediaGCNeeded bool
 }
 
 // Open opens a PowerPoint presentation from a file path.
@@ -264,8 +279,21 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 			// Already loaded into p.presentation
 			continue
 		case strings.HasPrefix(name, "/ppt/slides/") && !strings.Contains(name, "_rels"):
-			// Already loaded into p.slides
-			continue
+			if p.slidePartLoaded(name) {
+				// Already loaded into p.slides
+				continue
+			}
+			// A slide part not referenced by presentation.xml's sldIdLst
+			// (valid packages can carry them). Preserve it verbatim as a raw
+			// part instead of dropping it (C118); it is not added to p.slides.
+			p.otherParts[name] = &coxml.RawPart{
+				ContentType: file.ContentType,
+				Data:        data,
+			}
+			if p.unreferencedSlides == nil {
+				p.unreferencedSlides = make(map[string]bool)
+			}
+			p.unreferencedSlides[name] = true
 		case strings.HasPrefix(name, "/ppt/slideMasters/") && !strings.Contains(name, "_rels"):
 			// Already loaded into p.slideMasters
 			continue
@@ -287,6 +315,17 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 	}
 
 	return nil
+}
+
+// slidePartLoaded reports whether the named part is one of the slides loaded
+// from presentation.xml's sldIdLst.
+func (p *Presentation) slidePartLoaded(name string) bool {
+	for _, slide := range p.slides {
+		if slide.partName == name {
+			return true
+		}
+	}
+	return false
 }
 
 // loadAllRelationships loads all relationship files into the model.
@@ -740,6 +779,12 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// saves race.
 	if p.reader != nil && p.reader.ContentTypes != nil {
 		writer.ContentTypes = p.reader.ContentTypes.Clone()
+		// Drop overrides for parts removed this session (C88): the parts are
+		// not written, so their overrides would dangle. A later part reusing
+		// the name gets its override re-registered by WritePart.
+		for name := range p.removedParts {
+			writer.ContentTypes.RemoveOverride(name)
+		}
 	}
 
 	// Track which parts have had their rels written explicitly
@@ -860,8 +905,15 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write other parts (sorted for deterministic package output)
+	// Write other parts (sorted for deterministic package output), skipping
+	// media parts no relationship references anymore (C221). The slides were
+	// marshaled above, so every relationship drop from this session's shape
+	// removals has already been applied.
+	deadMedia := p.unreferencedMediaParts()
 	for _, name := range sortedKeys(p.otherParts) {
+		if deadMedia[name] {
+			continue
+		}
 		part := p.otherParts[name]
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
@@ -876,7 +928,9 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		if writtenRels[partName] || len(rels) == 0 {
 			continue
 		}
-		if strings.HasPrefix(partName, "/ppt/slides/") && !currentSlideParts[partName] {
+		// Skip rels for slide part names no longer written — unless the part
+		// is a preserved unreferenced slide (C118), whose rels must survive.
+		if strings.HasPrefix(partName, "/ppt/slides/") && !currentSlideParts[partName] && !p.unreferencedSlides[partName] {
 			continue
 		}
 		if err := p.writePartRelationships(writer, partName); err != nil {
@@ -904,6 +958,38 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	return nil
+}
+
+// unreferencedMediaParts returns the /ppt/media/ parts that no relationship
+// in the package references (C221). It returns nil unless relationships were
+// dropped this session (mediaGCNeeded), so a zero-modification save never
+// garbage-collects anything and stays byte-identical. The scan is
+// package-global and exact: p.relationships holds every parsed .rels file, so
+// a part referenced from any slide, layout, master, notes slide, or the
+// presentation itself is kept.
+func (p *Presentation) unreferencedMediaParts() map[string]bool {
+	if !p.mediaGCNeeded {
+		return nil
+	}
+	referenced := make(map[string]bool)
+	for src, rels := range p.relationships {
+		for _, rel := range rels {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			referenced[opc.ResolvePartName(src, rel.Target)] = true
+		}
+	}
+	var dead map[string]bool
+	for name := range p.otherParts {
+		if strings.HasPrefix(name, "/ppt/media/") && !referenced[name] {
+			if dead == nil {
+				dead = make(map[string]bool)
+			}
+			dead[name] = true
+		}
+	}
+	return dead
 }
 
 // writePartRelationships writes the relationships file for a given part.
@@ -1357,8 +1443,13 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	})
 
 	// Write media and other auxiliary parts created while marshaling slides
-	// (sorted for deterministic package output).
+	// (sorted for deterministic package output), skipping media parts no
+	// relationship references anymore (C221).
+	deadMedia := p.unreferencedMediaParts()
 	for _, name := range sortedKeys(p.otherParts) {
+		if deadMedia[name] {
+			continue
+		}
 		part := p.otherParts[name]
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
@@ -1644,7 +1735,13 @@ func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 	return slide
 }
 
-// RemoveSlide removes the slide at the specified index.
+// RemoveSlide removes the slide at the specified index. Parts owned
+// exclusively by the slide — its notes slide and comments part, along with
+// their relationships and content-type overrides — are removed with it
+// (previously the orphaned notes part kept a slide back-reference that ended
+// up pointing at whatever unrelated slide later reused the freed part name,
+// C88). Media and image parts may be shared between slides, so they are
+// garbage-collected at save time instead (C221).
 func (p *Presentation) RemoveSlide(index int) error {
 	if index < 0 || index >= len(p.slides) {
 		return ErrSlideIndex
@@ -1653,8 +1750,11 @@ func (p *Presentation) RemoveSlide(index int) error {
 	// Clean up relationships for the removed slide to prevent stale entries from
 	// leaking into a new slide that may later reuse the same part name during save.
 	if partName := p.slides[index].partName; partName != "" {
+		p.removeSlideOwnedParts(partName)
 		delete(p.relationships, partName)
+		p.markPartRemoved(partName)
 	}
+	p.mediaGCNeeded = true
 
 	// Remove the slide
 	p.slides = append(p.slides[:index], p.slides[index+1:]...)
@@ -1665,6 +1765,56 @@ func (p *Presentation) RemoveSlide(index int) error {
 	}
 
 	return nil
+}
+
+// removeSlideOwnedParts deletes the parts only the given slide references:
+// its notes slide and comments part. Their own relationships (e.g. the notes
+// part's notes-master and slide back-reference rels) go with them. A part
+// also referenced by any other part's relationships is kept.
+func (p *Presentation) removeSlideOwnedParts(slidePart string) {
+	for _, rel := range p.relationships[slidePart] {
+		if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+			continue
+		}
+		if rel.Type != opc.RelTypeNotesSlide && rel.Type != opc.RelTypeComments {
+			continue
+		}
+		target := opc.ResolvePartName(slidePart, rel.Target)
+		if p.partReferencedElsewhere(target, slidePart) {
+			continue
+		}
+		delete(p.otherParts, target)
+		delete(p.relationships, target)
+		p.markPartRemoved(target)
+	}
+}
+
+// partReferencedElsewhere reports whether any part other than exclude has an
+// internal relationship resolving to target.
+func (p *Presentation) partReferencedElsewhere(target, exclude string) bool {
+	for src, rels := range p.relationships {
+		if src == exclude {
+			continue
+		}
+		for _, rel := range rels {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			if opc.ResolvePartName(src, rel.Target) == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// markPartRemoved records a part deleted this session so the save can drop
+// its content-type override.
+func (p *Presentation) markPartRemoved(name string) {
+	if p.removedParts == nil {
+		p.removedParts = make(map[string]bool)
+	}
+	p.removedParts[name] = true
 }
 
 // MoveSlide moves a slide from one position to another.

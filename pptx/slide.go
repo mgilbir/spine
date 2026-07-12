@@ -414,6 +414,21 @@ func (s *Slide) syncShapesToXML() {
 		}
 	}
 
+	// The rebuild regenerated the tree from the domain model, so media/image
+	// relationships belonging to shapes that are gone are no longer referenced
+	// by the slide XML — drop them so their parts can be garbage-collected at
+	// save time (C221). gcSlideRels keeps every id the regenerated XML still
+	// references.
+	if s.partName != "" && s.presentation != nil {
+		var removable []string
+		for _, rel := range s.presentation.relationships[s.partName] {
+			if rel != nil && removableRelType(rel.Type) {
+				removable = append(removable, rel.ID)
+			}
+		}
+		s.gcSlideRels(removable)
+	}
+
 	// The rebuild regenerates the whole tree from the domain model, so any
 	// surgical bookkeeping recorded against the old tree is void. Leaving
 	// syncedShapes at 0 keeps the slide in rebuild mode, where every domain
