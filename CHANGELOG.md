@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-User-visible changes from the audit remediation series (#59–#74).
+User-visible changes from the audit remediation series (#59–#75).
 
 ### Fixed
 
@@ -39,6 +39,9 @@ User-visible changes from the audit remediation series (#59–#74).
   workbook mutators persist on files that lacked the target element;
   data-validation alerts, freeze panes, dimension refresh, date detection,
   and sheet-deletion cleanup fixed (#63, #73).
+- common/omml: the old `OMath` model never worked in either direction —
+  unmarshal left every element empty and re-marshal emitted garbage; it is
+  replaced by a working, order-preserving typed model (#75).
 
 ### Changed
 
@@ -59,6 +62,15 @@ User-visible changes from the audit remediation series (#59–#74).
 - pptx: read-only `Placeholders()` and `Theme()` (color and font schemes)
   on slide masters and layouts (#71).
 - xlsx: exported builtin number-format ids (#73).
+- common/omml: a typed model of the full Office Math (OMML) element set —
+  math zones and paragraphs, runs, fractions, radicals, scripts, n-ary
+  operators, delimiters, equation arrays, matrices, functions, limits, and
+  the accent/bar/box family — with ordered content sequences, in-position
+  raw capture of WordprocessingML and unknown children, and Builder-based
+  serialization; docx gains `Paragraph.MathZones`/`MathParas` for typed
+  on-demand access to stored equations and `Paragraph.AddMath`/`AddMathPara`
+  for writing typed math, while raw bytes remain the storage format so byte
+  fidelity is unaffected (#75).
 
 ### Removed
 
