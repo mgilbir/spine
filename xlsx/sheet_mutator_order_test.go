@@ -227,7 +227,11 @@ func TestMutatorKeepsUnknownChildrenOrdered(t *testing.T) {
 		t.Fatalf("SetColWidth: %v", err)
 	}
 
-	out := string(marshalWorksheetXML(&ws))
+	data, err := marshalWorksheetXML(&ws)
+	if err != nil {
+		t.Fatalf("marshalWorksheetXML: %v", err)
+	}
+	out := string(data)
 
 	for _, want := range []string{
 		"<customSheetViews>", `guid="{123}"`, // unknown children preserved

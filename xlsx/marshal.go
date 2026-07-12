@@ -11,11 +11,11 @@ import (
 
 const (
 	nsSML = xmlb.NSSpreadsheetML
-	nsR   = xmlb.NSPresentationRels
+	nsR   = xmlb.NSOfficeDocumentRels
 )
 
 // marshalWorkbookXML marshals a workbook to XML.
-func marshalWorkbookXML(wb *oxml.CT_Workbook) []byte {
+func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.SetSelfClosingSpace(wb.SelfClosingSpace)
 	b.SetElementSeparator(wb.ElemSeparator)
@@ -53,7 +53,10 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) []byte {
 	}
 
 	b.EndElement(nsSML, "workbook")
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("xlsx: marshal workbook.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalWorkbookChildrenOrdered marshals workbook children in their original order.
@@ -142,7 +145,7 @@ func marshalWorkbookExtLst(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 }
 
 // marshalStylesheetXML marshals a stylesheet to XML.
-func marshalStylesheetXML(ss *oxml.CT_Stylesheet) []byte {
+func marshalStylesheetXML(ss *oxml.CT_Stylesheet) ([]byte, error) {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.WriteHeader()
 
@@ -196,11 +199,14 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) []byte {
 	}
 
 	b.EndElement(nsSML, "styleSheet")
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("xlsx: marshal styles.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalWorksheetXML marshals a worksheet to XML.
-func marshalWorksheetXML(ws *oxml.CT_Worksheet) []byte {
+func marshalWorksheetXML(ws *oxml.CT_Worksheet) ([]byte, error) {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.WriteHeader()
 
@@ -224,7 +230,10 @@ func marshalWorksheetXML(ws *oxml.CT_Worksheet) []byte {
 	}
 
 	b.EndElement(nsSML, "worksheet")
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("xlsx: marshal worksheet part: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalWorksheetChild emits a single known worksheet child by local name,

@@ -150,7 +150,7 @@ func (sl *SlideLayout) marshal() ([]byte, error) {
 	}
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
-	return marshalSlideLayout(sl.layoutXML), nil
+	return marshalSlideLayout(sl.layoutXML)
 }
 
 // newLayoutXML creates a new slide layout XML structure.

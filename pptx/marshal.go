@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"fmt"
+
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -9,31 +11,40 @@ import (
 const (
 	nsP = xmlb.NSPresentationML
 	nsA = xmlb.NSDrawingML
-	nsR = xmlb.NSPresentationRels
+	nsR = xmlb.NSOfficeDocumentRels
 )
 
 // marshalSlide marshals a slide to XML using the reflection-based marshaler.
-func marshalSlide(slide *oxml.Slide) []byte {
+func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sld", slide, xmlb.PresentationMLNamespaces())
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("pptx: marshal slide: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalSlideLayout marshals a slide layout to XML using the reflection-based marshaler.
-func marshalSlideLayout(layout *oxml.SlideLayout) []byte {
+func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldLayout", layout, xmlb.PresentationMLNamespaces())
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("pptx: marshal slide layout: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalSlideMaster marshals a slide master to XML using the reflection-based marshaler.
-func marshalSlideMaster(master *oxml.SlideMaster) []byte {
+func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsP, "sldMaster", master, xmlb.PresentationMLNamespaces())
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("pptx: marshal slide master: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalPresentation marshals the presentation.xml using proper namespace prefixes.
@@ -41,7 +52,7 @@ func marshalSlideMaster(master *oxml.SlideMaster) []byte {
 // model has none: true for decks created programmatically (PowerPoint expects
 // one in new files), false for opened decks (a deck that never had a
 // defaultTextStyle must not gain invented document-wide text defaults on save).
-func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) []byte {
+func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 
@@ -203,7 +214,10 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) []
 	}
 
 	b.EndElement(nsP, "presentation")
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("pptx: marshal presentation.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalParsedDefaultTextStyle writes the defaultTextStyle element from parsed data.
