@@ -53,7 +53,8 @@ type NotesMasterIDs struct {
 
 // NotesMasterID references a notes master.
 type NotesMasterID struct {
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // HandoutMasterIDs contains a list of handout master ID references.
@@ -63,7 +64,8 @@ type HandoutMasterIDs struct {
 
 // HandoutMasterID references a handout master.
 type HandoutMasterID struct {
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // SmartTags placeholder for smart tags.
@@ -95,10 +97,19 @@ type CustomShowList struct {
 	CustShow []CustomShow `xml:"custShow,omitempty"`
 }
 
-// CustomShow represents a custom slide show.
+// CustomShow represents CT_CustomShow (p:custShow). Its sldLst child is
+// XSD-required; modeling it (C4) keeps parsed custom shows schema-valid
+// instead of re-emitting an empty <p:custShow name id/>.
 type CustomShow struct {
-	Name string `xml:"name,attr"`
-	ID   uint32 `xml:"id,attr"`
+	Name   string                 `xml:"name,attr"`
+	ID     uint32                 `xml:"id,attr"`
+	SldLst *SlideRelationshipList `xml:"sldLst"`
+	ExtLst *ExtensionList         `xml:"extLst,omitempty"`
+}
+
+// SlideRelationshipList represents CT_SlideRelationshipList (p:sldLst).
+type SlideRelationshipList struct {
+	Sld []RelationshipRef `xml:"sld,omitempty"`
 }
 
 // PhotoAlbum contains photo album settings.
@@ -107,6 +118,7 @@ type PhotoAlbum struct {
 	ShowCaptions *bool `xml:"showCaptions,attr,omitempty"`
 	Layout   string `xml:"layout,attr,omitempty"`
 	Frame    string `xml:"frame,attr,omitempty"`
+	ExtLst   *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // CustomerDataList contains custom data.
@@ -157,8 +169,9 @@ type SlideMasterIDs struct {
 
 // SlideMasterID references a slide master.
 type SlideMasterID struct {
-	ID  uint32 `xml:"id,attr,omitempty"`
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ID     uint32         `xml:"id,attr,omitempty"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideMasterID.
@@ -173,7 +186,8 @@ func (s SlideMasterID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideMasterID.
-// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats,
+// and captures the optional extLst child (C225).
 func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
@@ -190,7 +204,7 @@ func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			s.RID = attr.Value
 		}
 	}
-	return d.Skip()
+	return unmarshalIDEntryChildren(d, &s.ExtLst)
 }
 
 // SlideIDs contains a list of slide ID references.
@@ -200,8 +214,37 @@ type SlideIDs struct {
 
 // SlideID references a slide.
 type SlideID struct {
-	ID  uint32 `xml:"id,attr"`
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	ID     uint32         `xml:"id,attr"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
+}
+
+// unmarshalIDEntryChildren consumes the children of an sldId-family entry,
+// decoding the optional extLst child into dst (previously the whole subtree
+// was skipped, deleting parsed extensions on save — C225).
+func unmarshalIDEntryChildren(d *xml.Decoder, dst **ExtensionList) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "extLst" {
+				el := &ExtensionList{}
+				if err := d.DecodeElement(el, &t); err != nil {
+					return err
+				}
+				*dst = el
+				continue
+			}
+			if err := d.Skip(); err != nil {
+				return err
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
 }
 
 // MarshalXML implements custom XML marshaling for SlideID.
@@ -231,7 +274,7 @@ func (s *SlideID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			s.RID = attr.Value
 		}
 	}
-	return d.Skip()
+	return unmarshalIDEntryChildren(d, &s.ExtLst)
 }
 
 // SlideSize specifies the size of slides.

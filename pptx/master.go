@@ -18,7 +18,10 @@ type SlideMaster struct {
 	layouts         []*SlideLayout
 	relID           string
 	numericID       uint32 // original numeric ID from presentation.xml
-	layoutsModified bool   // true if layouts changed via Go API
+	// idExtLst preserves the extLst child of this master's p:sldMasterId
+	// entry in presentation.xml, which is regenerated on every save (C225).
+	idExtLst        *oxml.ExtensionList
+	layoutsModified bool // true if layouts changed via Go API
 }
 
 // Name returns the name of the slide master.

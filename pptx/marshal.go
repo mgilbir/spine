@@ -109,11 +109,23 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	// Start root element with namespace declarations and attributes
 	b.StartElementWithNS(nsP, "presentation", xmlb.PresentationMLNamespaces(), presAttrs...)
 
+	// idEntry writes an sldId-family list entry, emitting the optional extLst
+	// child when the parsed entry carried one (C225).
+	idEntry := func(name string, extLst *oxml.ExtensionList, attrs ...xmlb.Attr) {
+		if extLst == nil {
+			b.EmptyElement(nsP, name, attrs...)
+			return
+		}
+		b.StartElement(nsP, name, attrs...)
+		b.MarshalElement(nsP, "extLst", extLst)
+		b.EndElement(nsP, name)
+	}
+
 	// sldMasterIdLst
 	if pres.SlideMasterIDs != nil && len(pres.SlideMasterIDs.SlideMasterID) > 0 {
 		b.StartElement(nsP, "sldMasterIdLst")
 		for _, master := range pres.SlideMasterIDs.SlideMasterID {
-			b.EmptyElement(nsP, "sldMasterId",
+			idEntry("sldMasterId", master.ExtLst,
 				xmlb.UintAttr("id", master.ID),
 				xmlb.RelAttr("id", master.RID),
 			)
@@ -125,7 +137,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	if pres.NotesMasterIDs != nil && len(pres.NotesMasterIDs.NotesMasterID) > 0 {
 		b.StartElement(nsP, "notesMasterIdLst")
 		for _, nm := range pres.NotesMasterIDs.NotesMasterID {
-			b.EmptyElement(nsP, "notesMasterId", xmlb.RelAttr("id", nm.RID))
+			idEntry("notesMasterId", nm.ExtLst, xmlb.RelAttr("id", nm.RID))
 		}
 		b.EndElement(nsP, "notesMasterIdLst")
 	}
@@ -134,7 +146,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	if pres.HandoutMasterIDs != nil && len(pres.HandoutMasterIDs.HandoutMasterID) > 0 {
 		b.StartElement(nsP, "handoutMasterIdLst")
 		for _, hm := range pres.HandoutMasterIDs.HandoutMasterID {
-			b.EmptyElement(nsP, "handoutMasterId", xmlb.RelAttr("id", hm.RID))
+			idEntry("handoutMasterId", hm.ExtLst, xmlb.RelAttr("id", hm.RID))
 		}
 		b.EndElement(nsP, "handoutMasterIdLst")
 	}
@@ -143,7 +155,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	if pres.SlideIDs != nil && len(pres.SlideIDs.SlideID) > 0 {
 		b.StartElement(nsP, "sldIdLst")
 		for _, slide := range pres.SlideIDs.SlideID {
-			b.EmptyElement(nsP, "sldId",
+			idEntry("sldId", slide.ExtLst,
 				xmlb.UintAttr("id", slide.ID),
 				xmlb.RelAttr("id", slide.RID),
 			)

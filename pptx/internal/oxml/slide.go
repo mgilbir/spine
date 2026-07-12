@@ -73,8 +73,9 @@ type SlideLayoutIDs struct {
 
 // SlideLayoutID references a slide layout.
 type SlideLayoutID struct {
-	ID  uint32 `xml:"id,attr,omitempty"`
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ID     uint32         `xml:"id,attr,omitempty"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideLayoutID.
@@ -89,7 +90,8 @@ func (s SlideLayoutID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideLayoutID.
-// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats,
+// and captures the optional extLst child (C225).
 func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
@@ -106,7 +108,7 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			s.RID = attr.Value
 		}
 	}
-	return d.Skip()
+	return unmarshalIDEntryChildren(d, &s.ExtLst)
 }
 
 // CommonSlideData contains elements common to slides, layouts, and masters.

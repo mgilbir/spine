@@ -16,6 +16,9 @@ type Slide struct {
 	index          int
 	id             uint32
 	relID          string
+	// idExtLst preserves the extLst child of this slide's p:sldId entry in
+	// presentation.xml, which is regenerated on every save (C225).
+	idExtLst       *oxml.ExtensionList
 	shapes         []Shape
 	shapesModified bool // true if shapes changed via Go API
 
