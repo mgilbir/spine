@@ -309,7 +309,7 @@ func TestPresentation_OpenAddSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test_slides.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	originalCount := p.SlideCount()
 	if originalCount == 0 {
@@ -329,7 +329,7 @@ func TestPresentation_OpenAddSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer reopened.Close()
+	defer mustClose(t, reopened)
 
 	if reopened.SlideCount() != originalCount+1 {
 		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount+1)
@@ -352,7 +352,7 @@ func TestPresentation_OpenRemoveSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test_slides.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	originalCount := p.SlideCount()
 	if originalCount < 2 {
@@ -376,7 +376,7 @@ func TestPresentation_OpenRemoveSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer reopened.Close()
+	defer mustClose(t, reopened)
 
 	if reopened.SlideCount() != originalCount-1 {
 		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount-1)
@@ -399,7 +399,7 @@ func TestPresentation_OpenRemoveThenAddSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test_slides.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	originalCount := p.SlideCount()
 	if originalCount < 1 {
@@ -423,7 +423,7 @@ func TestPresentation_OpenRemoveThenAddSlideSaveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	defer reopened.Close()
+	defer mustClose(t, reopened)
 
 	if reopened.SlideCount() != originalCount {
 		t.Fatalf("SlideCount() after reopen = %d, want %d", reopened.SlideCount(), originalCount)

@@ -73,7 +73,7 @@ func parseTag(tag string, fieldName string) tagInfo {
 // isZeroValue reports whether v is the zero value for its type (for omitempty).
 func isZeroValue(v reflect.Value) bool {
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return v.IsNil()
 	case reflect.Slice, reflect.Map:
 		return v.IsNil() || v.Len() == 0
@@ -94,7 +94,7 @@ func isZeroValue(v reflect.Value) bool {
 
 // formatValue formats a reflect.Value as a string for XML output.
 func formatValue(v reflect.Value) string {
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return ""
 		}
@@ -126,7 +126,7 @@ var xmlNameType = reflect.TypeOf(xml.Name{})
 // This is used for top-level elements like <p:sld>, <p:sldLayout>, <p:sldMaster>.
 func (b *Builder) MarshalRoot(ns, localName string, v interface{}, nsDecls []NSDecl, extraAttrs ...Attr) {
 	val := reflect.ValueOf(v)
-	for val.Kind() == reflect.Ptr {
+	for val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return
 		}
@@ -154,7 +154,7 @@ func (b *Builder) MarshalElement(ns, localName string, v interface{}) {
 // MarshalChildren marshals the child elements of a struct (without the enclosing element).
 func (b *Builder) MarshalChildren(parentNS string, v interface{}) {
 	val := reflect.ValueOf(v)
-	for val.Kind() == reflect.Ptr {
+	for val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return
 		}
@@ -169,7 +169,7 @@ func (b *Builder) MarshalChildren(parentNS string, v interface{}) {
 // marshalReflect marshals a value as an XML element, dispatching based on kind.
 func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 	// Dereference pointer
-	for val.Kind() == reflect.Ptr {
+	for val.Kind() == reflect.Pointer {
 		if val.IsNil() {
 			return
 		}
@@ -255,7 +255,7 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 		// A nil pointer has no value to emit: omit the attribute even without
 		// omitempty, matching encoding/xml (previously the Builder diverged
 		// and emitted attr="").
-		if fval.Kind() == reflect.Ptr && fval.IsNil() {
+		if fval.Kind() == reflect.Pointer && fval.IsNil() {
 			continue
 		}
 		if info.omitempty && isZeroValue(fval) {
@@ -319,7 +319,7 @@ func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
 		// mandatory zero-valued scalar or struct still produces an element, so
 		// the parent must not self-close (previously such a child was dropped).
 		switch fval.Kind() {
-		case reflect.Ptr, reflect.Interface:
+		case reflect.Pointer, reflect.Interface:
 			if fval.IsNil() {
 				continue
 			}

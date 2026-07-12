@@ -649,15 +649,17 @@ func TestRoundTripAddStylesToWorkbookWithoutStylesPart(t *testing.T) {
 	}
 	if err := wb.saveNew(writer); err != nil {
 		_ = writer.Close()
-		f.Close()
+		_ = f.Close() // already failing; the saveNew error is the one to report
 		t.Fatalf("saveNew error: %v", err)
 	}
 	delete(writer.ContentTypes.Overrides, "/xl/styles.xml")
 	if err := writer.Close(); err != nil {
-		f.Close()
+		_ = f.Close() // already failing; the writer.Close error is the one to report
 		t.Fatalf("writer.Close error: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("file Close error: %v", err)
+	}
 
 	loaded, err := Open(path)
 	if err != nil {
