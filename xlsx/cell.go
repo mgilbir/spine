@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
@@ -168,8 +169,19 @@ func (c *Cell) String() string {
 		}
 		return ""
 	case "inlineStr":
-		if c.cell.Is != nil && c.cell.Is.T != nil {
+		if c.cell.Is == nil {
+			return ""
+		}
+		if c.cell.Is.T != nil {
 			return *c.cell.Is.T
+		}
+		// Rich inline string: concatenate the run texts.
+		if len(c.cell.Is.R) > 0 {
+			var sb strings.Builder
+			for i := range c.cell.Is.R {
+				sb.WriteString(c.cell.Is.R[i].T)
+			}
+			return sb.String()
 		}
 		return ""
 	case "str":

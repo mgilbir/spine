@@ -128,23 +128,39 @@ type CT_RElt struct {
 	T   string     `xml:"t"`
 }
 
+// MarshalToBuilder writes a rich-text run, emitting xml:space="preserve" on the
+// text element when the run has leading or trailing whitespace so a strict
+// reader (Excel) does not trim it — the "Total: " label case.
+func (r *CT_RElt) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
+	if r.RPr != nil {
+		b.MarshalElement(ns, "rPr", r.RPr)
+	}
+	var attrs []xmlb.Attr
+	if needsSpacePreserve(r.T) {
+		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: "preserve"})
+	}
+	b.WriteElement(ns, "t", r.T, attrs...)
+	b.EndElement(ns, localName)
+}
+
 // CT_RPrElt represents run properties for rich text.
 type CT_RPrElt struct {
-	B         *CT_BooleanProperty            `xml:"b,omitempty"`
-	I         *CT_BooleanProperty            `xml:"i,omitempty"`
-	Strike    *CT_BooleanProperty            `xml:"strike,omitempty"`
-	Condense  *CT_BooleanProperty            `xml:"condense,omitempty"`
-	Extend    *CT_BooleanProperty            `xml:"extend,omitempty"`
-	Outline   *CT_BooleanProperty            `xml:"outline,omitempty"`
-	Shadow    *CT_BooleanProperty            `xml:"shadow,omitempty"`
-	U         *CT_UnderlineProperty          `xml:"u,omitempty"`
-	VertAlign *CT_VerticalAlignFontProperty  `xml:"vertAlign,omitempty"`
-	Sz        *CT_FontSize                   `xml:"sz,omitempty"`
-	Color     *CT_Color                      `xml:"color,omitempty"`
-	RFont     *CT_FontName                   `xml:"rFont,omitempty"`
-	Family    *CT_IntProperty                `xml:"family,omitempty"`
-	Charset   *CT_IntProperty                `xml:"charset,omitempty"`
-	Scheme    *CT_FontScheme                 `xml:"scheme,omitempty"`
+	B         *CT_BooleanProperty           `xml:"b,omitempty"`
+	I         *CT_BooleanProperty           `xml:"i,omitempty"`
+	Strike    *CT_BooleanProperty           `xml:"strike,omitempty"`
+	Condense  *CT_BooleanProperty           `xml:"condense,omitempty"`
+	Extend    *CT_BooleanProperty           `xml:"extend,omitempty"`
+	Outline   *CT_BooleanProperty           `xml:"outline,omitempty"`
+	Shadow    *CT_BooleanProperty           `xml:"shadow,omitempty"`
+	U         *CT_UnderlineProperty         `xml:"u,omitempty"`
+	VertAlign *CT_VerticalAlignFontProperty `xml:"vertAlign,omitempty"`
+	Sz        *CT_FontSize                  `xml:"sz,omitempty"`
+	Color     *CT_Color                     `xml:"color,omitempty"`
+	RFont     *CT_FontName                  `xml:"rFont,omitempty"`
+	Family    *CT_IntProperty               `xml:"family,omitempty"`
+	Charset   *CT_IntProperty               `xml:"charset,omitempty"`
+	Scheme    *CT_FontScheme                `xml:"scheme,omitempty"`
 }
 
 // CT_BooleanProperty represents a boolean property element.
