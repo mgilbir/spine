@@ -458,7 +458,7 @@ type Callout struct {
 	Length       string `xml:"length,attr,omitempty"`
 	AccentBar    string `xml:"accentbar,attr,omitempty"`    // t, f
 	TextBorder   string `xml:"textborder,attr,omitempty"`   // t, f
-	MiniGo       string `xml:"minusx,attr,omitempty"`
+	MinusX       string `xml:"minusx,attr,omitempty"`
 	MinusY       string `xml:"minusy,attr,omitempty"`
 }
 
@@ -487,7 +487,7 @@ type Extrusion struct {
 	Diffusity       string `xml:"diffusity,attr,omitempty"`
 	Metal           string `xml:"metal,attr,omitempty"`           // t, f
 	Edge            string `xml:"edge,attr,omitempty"`
-	FaceAt          string `xml:"facet,attr,omitempty"`
+	Facet           string `xml:"facet,attr,omitempty"`
 	LightFace       string `xml:"lightface,attr,omitempty"`       // t, f
 	Brightness      string `xml:"brightness,attr,omitempty"`
 	LightPosition   string `xml:"lightposition,attr,omitempty"`
@@ -504,9 +504,9 @@ type SignatureLine struct {
 	ID                    string `xml:"id,attr,omitempty"`
 	ProvID                string `xml:"provid,attr,omitempty"`
 	SigProvURL            string `xml:"sigprovurl,attr,omitempty"`
-	IsSigned              string `xml:"issignatureline,attr,omitempty"`        // t, f
-	IsSignedDateTimeSet   string `xml:"issigneddatetimeset,attr,omitempty"`   // t, f
-	SignatureSetupCertSrc string `xml:"sigsetupallowcomments,attr,omitempty"` // t, f
+	IsSignatureLine        string `xml:"issignatureline,attr,omitempty"`       // t, f
+	SigningInstructionsSet string `xml:"signinginstructionsset,attr,omitempty"` // t, f
+	AllowComments          string `xml:"allowcomments,attr,omitempty"`          // t, f
 	ShowSignDate          string `xml:"showsigndate,attr,omitempty"`          // t, f
 	ShowSignTitle         string `xml:"showsigntitle,attr,omitempty"`         // t, f
 	SuggestedSigner       string `xml:"suggestedsigner,attr,omitempty"`
