@@ -135,3 +135,42 @@ func TestZeroModSavePreservesTimingAnimationModel(t *testing.T) {
 		t.Errorf("timing subtree not preserved byte-faithfully:\n%s", slideXML)
 	}
 }
+
+// presModelTextStyle is a defaultTextStyle exercising the C91 gaps: an
+// srgbClr solid fill, schemeClr tint/shade transform children, line spacing,
+// bullet color/char, and tab stops.
+const presModelTextStyle = `<p:defaultTextStyle>` +
+	`<a:defPPr><a:defRPr lang="en-US"/></a:defPPr>` +
+	`<a:lvl1pPr marL="0" algn="l">` +
+	`<a:lnSpc><a:spcPct val="150000"/></a:lnSpc>` +
+	`<a:spcBef><a:spcPts val="600"/></a:spcBef>` +
+	`<a:buClr><a:schemeClr val="accent1"><a:tint val="75000"/><a:shade val="25000"/></a:schemeClr></a:buClr>` +
+	`<a:buChar char="-"/>` +
+	`<a:tabLst><a:tab pos="914400" algn="l"/></a:tabLst>` +
+	`<a:defRPr sz="1800"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:defRPr>` +
+	`</a:lvl1pPr>` +
+	`</p:defaultTextStyle>`
+
+// C91: the presentation.xml writer no longer drops srgbClr solid fills,
+// schemeClr tint/shade transforms, or bullet/spacing/tab paragraph children
+// from a parsed defaultTextStyle (presentation.xml is regenerated on every
+// save, so any writer gap is live data loss).
+func TestDefaultTextStyleFullFidelityRoundTrip(t *testing.T) {
+	deck := deckWithPresentationXMLRewrite(t, func(xml []byte) []byte {
+		start := bytes.Index(xml, []byte(`<p:defaultTextStyle>`))
+		end := bytes.Index(xml, []byte(`</p:defaultTextStyle>`))
+		if start < 0 || end < 0 {
+			t.Fatal("created deck has no defaultTextStyle")
+		}
+		var out []byte
+		out = append(out, xml[:start]...)
+		out = append(out, presModelTextStyle...)
+		out = append(out, xml[end+len(`</p:defaultTextStyle>`):]...)
+		return out
+	})
+
+	presXML := openAndResave(t, deck)
+	if !strings.Contains(presXML, presModelTextStyle) {
+		t.Errorf("defaultTextStyle not preserved byte-faithfully:\n%s", presXML)
+	}
+}

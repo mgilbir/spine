@@ -4,6 +4,8 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+
+	"github.com/mgilbir/spine/common/dml"
 )
 
 // Presentation is the root element of presentation.xml.
@@ -41,7 +43,7 @@ type Presentation struct {
 	PhotoAlbum       *PhotoAlbum      `xml:"photoAlbum,omitempty"`
 	CustDataLst      *CustomerDataList `xml:"custDataLst,omitempty"`
 	Kinsoku          *Kinsoku         `xml:"kinsoku,omitempty"`
-	DefaultTextStyle *TextListStyle   `xml:"defaultTextStyle,omitempty"`
+	DefaultTextStyle *dml.LstStyle    `xml:"defaultTextStyle,omitempty"`
 	ModifyVerifier   *ModifyVerifier  `xml:"modifyVerifier,omitempty"`
 	ExtLst           *ExtensionList   `xml:"extLst,omitempty"`
 }
@@ -282,86 +284,6 @@ type SlideSize struct {
 	Cx   int64  `xml:"cx,attr"`
 	Cy   int64  `xml:"cy,attr"`
 	Type string `xml:"type,attr,omitempty"`
-}
-
-// TextListStyle contains text styling for different paragraph levels.
-type TextListStyle struct {
-	DefPPr *TextParagraphProperties `xml:"defPPr,omitempty"`
-	Lvl1PPr *TextParagraphProperties `xml:"lvl1pPr,omitempty"`
-	Lvl2PPr *TextParagraphProperties `xml:"lvl2pPr,omitempty"`
-	Lvl3PPr *TextParagraphProperties `xml:"lvl3pPr,omitempty"`
-	Lvl4PPr *TextParagraphProperties `xml:"lvl4pPr,omitempty"`
-	Lvl5PPr *TextParagraphProperties `xml:"lvl5pPr,omitempty"`
-	Lvl6PPr *TextParagraphProperties `xml:"lvl6pPr,omitempty"`
-	Lvl7PPr *TextParagraphProperties `xml:"lvl7pPr,omitempty"`
-	Lvl8PPr *TextParagraphProperties `xml:"lvl8pPr,omitempty"`
-	Lvl9PPr *TextParagraphProperties `xml:"lvl9pPr,omitempty"`
-}
-
-// TextParagraphProperties contains paragraph-level text properties.
-type TextParagraphProperties struct {
-	MarL         *int64  `xml:"marL,attr,omitempty"`
-	MarR         *int64  `xml:"marR,attr,omitempty"`
-	Indent       *int64  `xml:"indent,attr,omitempty"`
-	Algn         string  `xml:"algn,attr,omitempty"`
-	DefTabSz     *int64  `xml:"defTabSz,attr,omitempty"`
-	Rtl          *bool   `xml:"rtl,attr,omitempty"`
-	EaLnBrk      *bool   `xml:"eaLnBrk,attr,omitempty"`
-	FontAlgn     string  `xml:"fontAlgn,attr,omitempty"`
-	LatinLnBrk   *bool   `xml:"latinLnBrk,attr,omitempty"`
-	HangingPunct *bool   `xml:"hangingPunct,attr,omitempty"`
-	SpcBef       *TextSpacing `xml:"spcBef,omitempty"`
-	SpcAft       *TextSpacing `xml:"spcAft,omitempty"`
-	DefRPr       *TextCharacterProperties `xml:"defRPr,omitempty"`
-}
-
-// TextSpacing represents CT_TextSpacing (a:spcBef, a:spcAft)
-type TextSpacing struct {
-	SpcPct *TextSpacingValue `xml:"spcPct,omitempty"`
-	SpcPts *TextSpacingValue `xml:"spcPts,omitempty"`
-}
-
-// TextSpacingValue represents the val attribute for spacing elements.
-type TextSpacingValue struct {
-	Val int32 `xml:"val,attr"`
-}
-
-// TextCharacterProperties contains character-level text properties.
-type TextCharacterProperties struct {
-	Kumimoji   *bool   `xml:"kumimoji,attr,omitempty"`
-	Lang       string  `xml:"lang,attr,omitempty"`
-	AltLang    string  `xml:"altLang,attr,omitempty"`
-	Sz         *int32  `xml:"sz,attr,omitempty"`
-	B          *bool   `xml:"b,attr,omitempty"`
-	I          *bool   `xml:"i,attr,omitempty"`
-	U          string  `xml:"u,attr,omitempty"`
-	Strike     string  `xml:"strike,attr,omitempty"`
-	Kern       *int32  `xml:"kern,attr,omitempty"`
-	Cap        string  `xml:"cap,attr,omitempty"`
-	Spc        *int32  `xml:"spc,attr,omitempty"`
-	Baseline   *int32  `xml:"baseline,attr,omitempty"`
-	SolidFill  *SolidFill `xml:"solidFill,omitempty"`
-	Latin      *TextFont  `xml:"latin,omitempty"`
-	Ea         *TextFont  `xml:"ea,omitempty"`
-	Cs         *TextFont  `xml:"cs,omitempty"`
-}
-
-// SolidFill specifies a solid color fill.
-type SolidFill struct {
-	SrgbClr   *SrgbColor   `xml:"srgbClr,omitempty"`
-	SchemeClr *SchemeColor `xml:"schemeClr,omitempty"`
-}
-
-// SrgbColor specifies an RGB color.
-type SrgbColor struct {
-	Val string `xml:"val,attr"`
-}
-
-// SchemeColor specifies a theme/scheme color.
-type SchemeColor struct {
-	Val   string  `xml:"val,attr"`
-	Tint  *int32  `xml:"tint>val,omitempty"`
-	Shade *int32  `xml:"shade>val,omitempty"`
 }
 
 // TextFont specifies a font.
