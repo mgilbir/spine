@@ -78,3 +78,60 @@ func TestZeroModSavePreservesSlideModelingGaps(t *testing.T) {
 		}
 	}
 }
+
+// slideModelTiming is a p:timing subtree exercising the C34 shapes: graphicEl
+// with a:chart and a:dgm (DrawingML namespace), progress as CT_TLAnimVariant,
+// and bldSub with a:bldChart/a:bldDgm.
+const slideModelTiming = `<p:timing>` +
+	`<p:tnLst><p:par>` +
+	`<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot">` +
+	`<p:childTnLst>` +
+	`<p:animEffect transition="in" filter="fade">` +
+	`<p:cBhvr><p:cTn id="2" dur="500"/>` +
+	`<p:tgtEl><p:spTgt spid="4"><p:graphicEl><a:chart seriesIdx="0" categoryIdx="2" bldStep="series"/></p:graphicEl></p:spTgt></p:tgtEl>` +
+	`</p:cBhvr>` +
+	`<p:progress><p:fltVal val="0.5"/></p:progress>` +
+	`</p:animEffect>` +
+	`<p:animEffect transition="out">` +
+	`<p:cBhvr><p:cTn id="3"/>` +
+	`<p:tgtEl><p:spTgt spid="5"><p:graphicEl><a:dgm id="{9B21C3C5-3B29-4004-8908-573A0F6BD9F5}" bldStep="bg"/></p:graphicEl></p:spTgt></p:tgtEl>` +
+	`</p:cBhvr>` +
+	`</p:animEffect>` +
+	`</p:childTnLst>` +
+	`</p:cTn>` +
+	`</p:par></p:tnLst>` +
+	`<p:bldLst>` +
+	`<p:bldGraphic spid="4" grpId="0"><p:bldSub><a:bldChart bld="category" animBg="0"/></p:bldSub></p:bldGraphic>` +
+	`<p:bldGraphic spid="5" grpId="1"><p:bldSub><a:bldDgm bld="lvlOne" rev="1"/></p:bldSub></p:bldGraphic>` +
+	`</p:bldLst>` +
+	`</p:timing>`
+
+// C34: chart/diagram animation targets and builds survive a zero-modification
+// Open+Save byte-faithfully, with children in the DrawingML namespace.
+func TestZeroModSavePreservesTimingAnimationModel(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	box := slide.AddTextBox()
+	box.TextFrame().SetText("keeper")
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deck := rewriteZipPart(t, data, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		return bytes.Replace(xml, []byte(`</p:sld>`), []byte(slideModelTiming+`</p:sld>`), 1)
+	})
+
+	opened, err := OpenReader(bytes.NewReader(deck), int64(len(deck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := opened.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := string(zipPart(t, saved, "ppt/slides/slide1.xml"))
+
+	if !strings.Contains(slideXML, slideModelTiming) {
+		t.Errorf("timing subtree not preserved byte-faithfully:\n%s", slideXML)
+	}
+}

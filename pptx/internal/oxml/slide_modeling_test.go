@@ -92,3 +92,45 @@ func TestGroupShapePropertiesFills_RoundTrip(t *testing.T) {
 		`</p:sld>`
 	roundTripSlideBytes(t, src)
 }
+
+// C34: p:graphicEl carries a:dgm/a:chart in the DrawingML namespace,
+// p:bldSub carries a:bldDgm/a:bldChart, and p:progress is a CT_TLAnimVariant
+// choice; all round-trip byte-faithfully.
+func TestTimingAnimationModel_RoundTrip(t *testing.T) {
+	src := sldOpen + `>` +
+		`<p:cSld><p:spTree>` +
+		`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+		`<p:grpSpPr/>` +
+		`</p:spTree></p:cSld>` +
+		`<p:timing>` +
+		`<p:tnLst><p:par>` +
+		`<p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot">` +
+		`<p:childTnLst>` +
+		`<p:animEffect transition="in" filter="fade">` +
+		`<p:cBhvr>` +
+		`<p:cTn id="2" dur="500"/>` +
+		`<p:tgtEl><p:spTgt spid="4"><p:graphicEl>` +
+		`<a:chart seriesIdx="0" categoryIdx="2" bldStep="series"/>` +
+		`</p:graphicEl></p:spTgt></p:tgtEl>` +
+		`</p:cBhvr>` +
+		`<p:progress><p:fltVal val="0.5"/></p:progress>` +
+		`</p:animEffect>` +
+		`<p:animEffect transition="out">` +
+		`<p:cBhvr>` +
+		`<p:cTn id="3"/>` +
+		`<p:tgtEl><p:spTgt spid="5"><p:graphicEl>` +
+		`<a:dgm id="{9B21C3C5-3B29-4004-8908-573A0F6BD9F5}" bldStep="bg"/>` +
+		`</p:graphicEl></p:spTgt></p:tgtEl>` +
+		`</p:cBhvr>` +
+		`</p:animEffect>` +
+		`</p:childTnLst>` +
+		`</p:cTn>` +
+		`</p:par></p:tnLst>` +
+		`<p:bldLst>` +
+		`<p:bldGraphic spid="4" grpId="0"><p:bldSub><a:bldChart bld="category" animBg="0"/></p:bldSub></p:bldGraphic>` +
+		`<p:bldGraphic spid="5" grpId="1"><p:bldSub><a:bldDgm bld="lvlOne" rev="1"/></p:bldSub></p:bldGraphic>` +
+		`</p:bldLst>` +
+		`</p:timing>` +
+		`</p:sld>`
+	roundTripSlideBytes(t, src)
+}

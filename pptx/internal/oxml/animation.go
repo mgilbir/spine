@@ -456,22 +456,40 @@ type TextElement struct {
 	PRg    *IndexRange `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pRg,omitempty"`
 }
 
-// GraphicElement represents CT_AnimationGraphicalObjectBuildProperties
+// GraphicElement represents a:CT_AnimationElementChoice (p:graphicEl).
+// Its children live in the DrawingML namespace (a:dgm/a:chart), not the
+// PresentationML one, and carry element-target types — not the build-property
+// types this type previously (incorrectly) used (C34).
 type GraphicElement struct {
-	Chart *AnimationChartBuildProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main chart,omitempty"`
-	Dgm   *AnimationDgmBuildProperties   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main dgm,omitempty"`
+	Dgm   *AnimationDgmElement   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main dgm,omitempty"`
+	Chart *AnimationChartElement `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chart,omitempty"`
 }
 
-// AnimationChartBuildProperties represents animation build for charts
+// AnimationDgmElement represents a:CT_AnimationDgmElement (a:dgm)
+type AnimationDgmElement struct {
+	Id      string `xml:"id,attr,omitempty"`      // GUID, defaults to the zero GUID
+	BldStep string `xml:"bldStep,attr,omitempty"` // sp, bg
+}
+
+// AnimationChartElement represents a:CT_AnimationChartElement (a:chart).
+// seriesIdx/categoryIdx default to -1, so explicit zeros must round-trip.
+type AnimationChartElement struct {
+	SeriesIdx   *int32 `xml:"seriesIdx,attr,omitempty"`
+	CategoryIdx *int32 `xml:"categoryIdx,attr,omitempty"`
+	BldStep     string `xml:"bldStep,attr"` // category, categoryEl, series, seriesEl, allPts, gridLegend
+}
+
+// AnimationChartBuildProperties represents a:CT_AnimationChartBuildProperties
+// (a:bldChart). animBg defaults to true, so an explicit false must be emitted.
 type AnimationChartBuildProperties struct {
-	Bld         string `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
-	AnimBg      bool   `xml:"animBg,attr,omitempty"`
+	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
+	AnimBg *bool  `xml:"animBg,attr,omitempty"`
 }
 
-// AnimationDgmBuildProperties represents animation build for diagrams
+// AnimationDgmBuildProperties represents a:CT_AnimationDgmBuildProperties (a:bldDgm)
 type AnimationDgmBuildProperties struct {
-	Bld    string `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
-	Rev    bool   `xml:"rev,attr,omitempty"`
+	Bld string `xml:"bld,attr,omitempty"` // allAtOnce, one, lvlOne, lvlAtOnce
+	Rev bool   `xml:"rev,attr,omitempty"`
 }
 
 // InkTarget represents CT_TLInkTargetElement (p:inkTgt)
@@ -552,12 +570,9 @@ type AnimateEffect struct {
 	Filter     string `xml:"filter,attr,omitempty"`
 	PrLst      string `xml:"prLst,attr,omitempty"`
 	CBhvr      *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	Progress   *AnimateProgress `xml:"http://schemas.openxmlformats.org/presentationml/2006/main progress,omitempty"`
-}
-
-// AnimateProgress represents animation progress element
-type AnimateProgress struct {
-	TavLst *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	// Progress is CT_TLAnimVariant per the XSD (boolVal/intVal/fltVal/strVal/
+	// clrVal choice), not a tavLst container (C34).
+	Progress *AnimVariant `xml:"http://schemas.openxmlformats.org/presentationml/2006/main progress,omitempty"`
 }
 
 // AnimateMotion represents CT_TLAnimateMotionBehavior (p:animMotion)
@@ -752,10 +767,12 @@ type BuildGraphic struct {
 // BuildAsOne represents CT_Empty (p:bldAsOne)
 type BuildAsOne struct{}
 
-// BuildSub represents CT_AnimationGraphicalObjectBuildProperties (p:bldSub)
+// BuildSub represents a:CT_AnimationGraphicalObjectBuildProperties (p:bldSub).
+// Its children are a:bldDgm/a:bldChart in the DrawingML namespace — not
+// dgm/chart in the PresentationML one (C34).
 type BuildSub struct {
-	Chart *AnimationChartBuildProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main chart,omitempty"`
-	Dgm   *AnimationDgmBuildProperties   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main dgm,omitempty"`
+	BldDgm   *AnimationDgmBuildProperties   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bldDgm,omitempty"`
+	BldChart *AnimationChartBuildProperties `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bldChart,omitempty"`
 }
 
 // TemplateList represents CT_TLTemplateList (p:tmplLst)
