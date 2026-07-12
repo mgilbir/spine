@@ -464,7 +464,10 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		syncWorkbookSheetRefs(w.workbook, w.sheets)
 
 		if stylesDirty {
-			stylesData := marshalStylesheetXML(w.stylesheet)
+			stylesData, err := marshalStylesheetXML(w.stylesheet)
+			if err != nil {
+				return err
+			}
 			if err := writer.WritePart("/xl/styles.xml", opc.ContentTypeStyles, stylesData); err != nil {
 				return err
 			}
@@ -477,7 +480,10 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Write workbook.xml (always regenerated from parsed model)
-	wbData := marshalWorkbookXML(w.workbook)
+	wbData, err := marshalWorkbookXML(w.workbook)
+	if err != nil {
+		return err
+	}
 	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
 		return err
 	}
@@ -592,7 +598,10 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// Write styles.xml if a stylesheet exists
 	if w.stylesheet != nil {
 		stylesPartName := "/xl/styles.xml"
-		stylesData := marshalStylesheetXML(w.stylesheet)
+		stylesData, err := marshalStylesheetXML(w.stylesheet)
+		if err != nil {
+			return err
+		}
 		if err := writer.WritePart(stylesPartName, opc.ContentTypeStyles, stylesData); err != nil {
 			return err
 		}
@@ -606,7 +615,10 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	}
 
 	// Write workbook.xml
-	wbData := marshalWorkbookXML(w.workbook)
+	wbData, err := marshalWorkbookXML(w.workbook)
+	if err != nil {
+		return err
+	}
 	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
 		return err
 	}
@@ -632,7 +644,10 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 		}
 	}
 
-	wsData := marshalWorksheetXML(sheet.worksheet)
+	wsData, err := marshalWorksheetXML(sheet.worksheet)
+	if err != nil {
+		return err
+	}
 	return writer.WritePart(partName, opc.ContentTypeWorksheet, wsData)
 }
 

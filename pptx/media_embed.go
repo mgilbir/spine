@@ -404,7 +404,12 @@ func (s *Slide) gcSlideRels(relIDs []string) {
 	if len(candidates) == 0 {
 		return
 	}
-	slideXML := marshalSlide(s.slideXML)
+	slideXML, err := marshalSlide(s.slideXML)
+	if err != nil {
+		// A slide that fails to marshal keeps its relationships; the error
+		// surfaces from the Save path that marshals the slide part itself.
+		return
+	}
 	rels := s.presentation.relationships[s.partName]
 	kept := rels[:0]
 	changed := false

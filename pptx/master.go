@@ -170,7 +170,7 @@ func (sm *SlideMaster) marshal() ([]byte, error) {
 	}
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
-	return marshalSlideMaster(sm.masterXML), nil
+	return marshalSlideMaster(sm.masterXML)
 }
 
 // newMasterXML creates a new slide master XML structure.
