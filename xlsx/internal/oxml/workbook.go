@@ -393,22 +393,22 @@ type CT_FileVersion struct {
 
 // CT_WorkbookPr represents the workbookPr element.
 type CT_WorkbookPr struct {
-	Date1904                   *bool   `xml:"date1904,attr,omitempty"`
-	ShowObjects                string  `xml:"showObjects,attr,omitempty"`
-	ShowBorderUnselectedTables *bool   `xml:"showBorderUnselectedTables,attr,omitempty"`
-	FilterPrivacy              *bool   `xml:"filterPrivacy,attr,omitempty"`
-	PromptedSolutions          *bool   `xml:"promptedSolutions,attr,omitempty"`
-	ShowInkAnnotation          *bool   `xml:"showInkAnnotation,attr,omitempty"`
-	BackupFile                 *bool   `xml:"backupFile,attr,omitempty"`
-	SaveExternalLinkValues     *bool   `xml:"saveExternalLinkValues,attr,omitempty"`
-	UpdateLinks                string  `xml:"updateLinks,attr,omitempty"`
-	CodeName                   string  `xml:"codeName,attr,omitempty"`
-	HidePivotFieldList         *bool   `xml:"hidePivotFieldList,attr,omitempty"`
-	ShowPivotChartFilter       *bool   `xml:"showPivotChartFilter,attr,omitempty"`
-	AllowRefreshQuery          *bool   `xml:"allowRefreshQuery,attr,omitempty"`
-	CheckCompatibility         *bool   `xml:"checkCompatibility,attr,omitempty"`
-	AutoCompressPictures       *bool   `xml:"autoCompressPictures,attr,omitempty"`
-	DefaultThemeVersion        *uint32 `xml:"defaultThemeVersion,attr,omitempty"`
+	Date1904                   *BoolLex `xml:"date1904,attr,omitempty"`
+	ShowObjects                string   `xml:"showObjects,attr,omitempty"`
+	ShowBorderUnselectedTables *BoolLex `xml:"showBorderUnselectedTables,attr,omitempty"`
+	FilterPrivacy              *BoolLex `xml:"filterPrivacy,attr,omitempty"`
+	PromptedSolutions          *BoolLex `xml:"promptedSolutions,attr,omitempty"`
+	ShowInkAnnotation          *BoolLex `xml:"showInkAnnotation,attr,omitempty"`
+	BackupFile                 *BoolLex `xml:"backupFile,attr,omitempty"`
+	SaveExternalLinkValues     *BoolLex `xml:"saveExternalLinkValues,attr,omitempty"`
+	UpdateLinks                string   `xml:"updateLinks,attr,omitempty"`
+	CodeName                   string   `xml:"codeName,attr,omitempty"`
+	HidePivotFieldList         *BoolLex `xml:"hidePivotFieldList,attr,omitempty"`
+	ShowPivotChartFilter       *BoolLex `xml:"showPivotChartFilter,attr,omitempty"`
+	AllowRefreshQuery          *BoolLex `xml:"allowRefreshQuery,attr,omitempty"`
+	CheckCompatibility         *BoolLex `xml:"checkCompatibility,attr,omitempty"`
+	AutoCompressPictures       *BoolLex `xml:"autoCompressPictures,attr,omitempty"`
+	DefaultThemeVersion        *uint32  `xml:"defaultThemeVersion,attr,omitempty"`
 }
 
 // CT_BookViews represents the bookViews element.
@@ -420,10 +420,10 @@ type CT_BookViews struct {
 // to handle extension attributes (e.g., xr2:uid) for round-trip preservation.
 type CT_BookView struct {
 	Visibility             string      `xml:"-"`
-	Minimized              *bool       `xml:"-"`
-	ShowHorizontalScroll   *bool       `xml:"-"`
-	ShowVerticalScroll     *bool       `xml:"-"`
-	ShowSheetTabs          *bool       `xml:"-"`
+	Minimized              *BoolLex    `xml:"-"`
+	ShowHorizontalScroll   *BoolLex    `xml:"-"`
+	ShowVerticalScroll     *BoolLex    `xml:"-"`
+	ShowSheetTabs          *BoolLex    `xml:"-"`
 	XWindow                *int32      `xml:"-"`
 	YWindow                *int32      `xml:"-"`
 	WindowWidth            *uint32     `xml:"-"`
@@ -431,28 +431,64 @@ type CT_BookView struct {
 	TabRatio               *uint32     `xml:"-"`
 	FirstSheet             *uint32     `xml:"-"`
 	ActiveTab              *uint32     `xml:"-"`
-	AutoFilterDateGrouping *bool       `xml:"-"`
+	AutoFilterDateGrouping *BoolLex    `xml:"-"`
 	ExtAttrs               []xmlb.Attr `xml:"-"` // extension attrs (e.g., xr2:uid)
+	// attrOrder records the source order of the known attributes above:
+	// Excel writes them in XSD order but Apache POI writes them
+	// alphabetically, so a fixed emission order cannot serve both.
+	attrOrder []string
 }
+
+// bookViewAttrOrder lists the modeled workbookView attribute names in
+// canonical (XSD) emission order.
+var bookViewAttrOrder = []string{
+	"visibility", "minimized", "showHorizontalScroll", "showVerticalScroll",
+	"showSheetTabs", "xWindow", "yWindow", "windowWidth", "windowHeight",
+	"tabRatio", "firstSheet", "activeTab", "autoFilterDateGrouping",
+}
+
+// bookViewAttrNames is the set of modeled workbookView attribute names.
+var bookViewAttrNames = func() map[string]bool {
+	m := make(map[string]bool, len(bookViewAttrOrder))
+	for _, n := range bookViewAttrOrder {
+		m[n] = true
+	}
+	return m
+}()
 
 // UnmarshalXML implements custom unmarshaling for CT_BookView.
 func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && bookViewAttrNames[attr.Name.Local] {
+			bv.attrOrder = append(bv.attrOrder, attr.Name.Local)
+		}
 		switch attr.Name.Local {
 		case "visibility":
 			bv.Visibility = attr.Value
 		case "minimized":
-			b := attr.Value == "1" || attr.Value == "true"
-			bv.Minimized = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			bv.Minimized = v
 		case "showHorizontalScroll":
-			b := attr.Value == "1" || attr.Value == "true"
-			bv.ShowHorizontalScroll = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			bv.ShowHorizontalScroll = v
 		case "showVerticalScroll":
-			b := attr.Value == "1" || attr.Value == "true"
-			bv.ShowVerticalScroll = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			bv.ShowVerticalScroll = v
 		case "showSheetTabs":
-			b := attr.Value == "1" || attr.Value == "true"
-			bv.ShowSheetTabs = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			bv.ShowSheetTabs = v
 		case "xWindow":
 			if n, err := strconv.ParseInt(attr.Value, 10, 32); err == nil {
 				v := int32(n)
@@ -489,8 +525,11 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				bv.ActiveTab = &v
 			}
 		case "autoFilterDateGrouping":
-			b := attr.Value == "1" || attr.Value == "true"
-			bv.AutoFilterDateGrouping = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			bv.AutoFilterDateGrouping = v
 		default:
 			if attr.Name.Space == "xmlns" || (attr.Name.Space == "" && attr.Name.Local == "xmlns") {
 				continue // skip namespace declarations
@@ -507,22 +546,46 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_BookView.
+// Attributes are written in the captured source order (Excel uses XSD order,
+// POI alphabetical); values built programmatically use the fixed XSD order.
 func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	if len(bv.attrOrder) > 0 {
+		attrs := make([]xmlb.Attr, 0, len(bv.attrOrder)+len(bv.ExtAttrs))
+		seen := make(map[string]bool, len(bv.attrOrder))
+		for _, name := range bv.attrOrder {
+			seen[name] = true
+			if a, ok := bv.namedAttr(name); ok {
+				attrs = append(attrs, a)
+			}
+		}
+		// Fields set after parse (mutation API) follow in canonical order.
+		for _, name := range bookViewAttrOrder {
+			if seen[name] {
+				continue
+			}
+			if a, ok := bv.namedAttr(name); ok {
+				attrs = append(attrs, a)
+			}
+		}
+		attrs = append(attrs, bv.ExtAttrs...)
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
 	var attrs []xmlb.Attr
 	if bv.Visibility != "" {
 		attrs = append(attrs, xmlb.StrAttr("visibility", bv.Visibility))
 	}
 	if bv.Minimized != nil {
-		attrs = append(attrs, xmlb.BoolAttr("minimized", *bv.Minimized))
+		attrs = append(attrs, xmlb.StrAttr("minimized", bv.Minimized.AttrValue()))
 	}
 	if bv.ShowHorizontalScroll != nil {
-		attrs = append(attrs, xmlb.BoolAttr("showHorizontalScroll", *bv.ShowHorizontalScroll))
+		attrs = append(attrs, xmlb.StrAttr("showHorizontalScroll", bv.ShowHorizontalScroll.AttrValue()))
 	}
 	if bv.ShowVerticalScroll != nil {
-		attrs = append(attrs, xmlb.BoolAttr("showVerticalScroll", *bv.ShowVerticalScroll))
+		attrs = append(attrs, xmlb.StrAttr("showVerticalScroll", bv.ShowVerticalScroll.AttrValue()))
 	}
 	if bv.ShowSheetTabs != nil {
-		attrs = append(attrs, xmlb.BoolAttr("showSheetTabs", *bv.ShowSheetTabs))
+		attrs = append(attrs, xmlb.StrAttr("showSheetTabs", bv.ShowSheetTabs.AttrValue()))
 	}
 	if bv.XWindow != nil {
 		attrs = append(attrs, xmlb.Int32Attr("xWindow", *bv.XWindow))
@@ -546,11 +609,71 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.UintAttr("activeTab", *bv.ActiveTab))
 	}
 	if bv.AutoFilterDateGrouping != nil {
-		attrs = append(attrs, xmlb.BoolAttr("autoFilterDateGrouping", *bv.AutoFilterDateGrouping))
+		attrs = append(attrs, xmlb.StrAttr("autoFilterDateGrouping", bv.AutoFilterDateGrouping.AttrValue()))
 	}
 	// Append extension attributes (e.g., xr2:uid)
 	attrs = append(attrs, bv.ExtAttrs...)
 	b.EmptyElement(ns, localName, attrs...)
+}
+
+// namedAttr returns the Attr for one modeled workbookView attribute, or
+// ok=false when the field is unset.
+func (bv *CT_BookView) namedAttr(name string) (xmlb.Attr, bool) {
+	switch name {
+	case "visibility":
+		if bv.Visibility != "" {
+			return xmlb.StrAttr("visibility", bv.Visibility), true
+		}
+	case "minimized":
+		if bv.Minimized != nil {
+			return xmlb.StrAttr("minimized", bv.Minimized.AttrValue()), true
+		}
+	case "showHorizontalScroll":
+		if bv.ShowHorizontalScroll != nil {
+			return xmlb.StrAttr("showHorizontalScroll", bv.ShowHorizontalScroll.AttrValue()), true
+		}
+	case "showVerticalScroll":
+		if bv.ShowVerticalScroll != nil {
+			return xmlb.StrAttr("showVerticalScroll", bv.ShowVerticalScroll.AttrValue()), true
+		}
+	case "showSheetTabs":
+		if bv.ShowSheetTabs != nil {
+			return xmlb.StrAttr("showSheetTabs", bv.ShowSheetTabs.AttrValue()), true
+		}
+	case "xWindow":
+		if bv.XWindow != nil {
+			return xmlb.Int32Attr("xWindow", *bv.XWindow), true
+		}
+	case "yWindow":
+		if bv.YWindow != nil {
+			return xmlb.Int32Attr("yWindow", *bv.YWindow), true
+		}
+	case "windowWidth":
+		if bv.WindowWidth != nil {
+			return xmlb.UintAttr("windowWidth", *bv.WindowWidth), true
+		}
+	case "windowHeight":
+		if bv.WindowHeight != nil {
+			return xmlb.UintAttr("windowHeight", *bv.WindowHeight), true
+		}
+	case "tabRatio":
+		if bv.TabRatio != nil {
+			return xmlb.UintAttr("tabRatio", *bv.TabRatio), true
+		}
+	case "firstSheet":
+		if bv.FirstSheet != nil {
+			return xmlb.UintAttr("firstSheet", *bv.FirstSheet), true
+		}
+	case "activeTab":
+		if bv.ActiveTab != nil {
+			return xmlb.UintAttr("activeTab", *bv.ActiveTab), true
+		}
+	case "autoFilterDateGrouping":
+		if bv.AutoFilterDateGrouping != nil {
+			return xmlb.StrAttr("autoFilterDateGrouping", bv.AutoFilterDateGrouping.AttrValue()), true
+		}
+	}
+	return xmlb.Attr{}, false
 }
 
 // CT_Sheets represents the sheets element.
@@ -740,19 +863,19 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 
 // CT_CalcPr represents the calcPr element.
 type CT_CalcPr struct {
-	CalcId                *uint32  `xml:"calcId,attr,omitempty"`
-	CalcMode              string   `xml:"calcMode,attr,omitempty"`
-	CalcCompleted         *bool    `xml:"calcCompleted,attr,omitempty"`
-	FullCalcOnLoad        *bool    `xml:"fullCalcOnLoad,attr,omitempty"`
-	RefMode               string   `xml:"refMode,attr,omitempty"`
-	Iterate               *bool    `xml:"iterate,attr,omitempty"`
-	IterateCount          *uint32  `xml:"iterateCount,attr,omitempty"`
-	IterateDelta          *float64 `xml:"iterateDelta,attr,omitempty"`
-	FullPrecision         *bool    `xml:"fullPrecision,attr,omitempty"`
-	CalcOnSave            *bool    `xml:"calcOnSave,attr,omitempty"`
-	ConcurrentCalc        *bool    `xml:"concurrentCalc,attr,omitempty"`
-	ConcurrentManualCount *uint32  `xml:"concurrentManualCount,attr,omitempty"`
-	ForceFullCalc         *bool    `xml:"forceFullCalc,attr,omitempty"`
+	CalcId                *uint32   `xml:"calcId,attr,omitempty"`
+	CalcMode              string    `xml:"calcMode,attr,omitempty"`
+	CalcCompleted         *BoolLex  `xml:"calcCompleted,attr,omitempty"`
+	FullCalcOnLoad        *BoolLex  `xml:"fullCalcOnLoad,attr,omitempty"`
+	RefMode               string    `xml:"refMode,attr,omitempty"`
+	Iterate               *BoolLex  `xml:"iterate,attr,omitempty"`
+	IterateCount          *uint32   `xml:"iterateCount,attr,omitempty"`
+	IterateDelta          *FloatLex `xml:"iterateDelta,attr,omitempty"`
+	FullPrecision         *BoolLex  `xml:"fullPrecision,attr,omitempty"`
+	CalcOnSave            *BoolLex  `xml:"calcOnSave,attr,omitempty"`
+	ConcurrentCalc        *BoolLex  `xml:"concurrentCalc,attr,omitempty"`
+	ConcurrentManualCount *uint32   `xml:"concurrentManualCount,attr,omitempty"`
+	ForceFullCalc         *BoolLex  `xml:"forceFullCalc,attr,omitempty"`
 }
 
 // CT_ExtensionList represents the extLst element.

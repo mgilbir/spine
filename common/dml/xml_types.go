@@ -52,6 +52,7 @@ type SrgbClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // SystemClr represents CT_SystemColor (a:sysClr) for XML serialization.
@@ -87,6 +88,7 @@ type SystemClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // HslClr represents CT_HslColor (a:hslClr) for XML serialization.
@@ -123,6 +125,7 @@ type HslClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // PrstClr represents CT_PresetColor (a:prstClr) for XML serialization.
@@ -157,6 +160,7 @@ type PrstClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // ScRgbClr represents CT_ScRgbColor (a:scrgbClr) for XML serialization.
@@ -193,6 +197,7 @@ type ScRgbClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // clrTransformKind identifies a color transform element type.
