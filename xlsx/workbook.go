@@ -686,6 +686,10 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 		}
 	}
 
+	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
+	// recorded used range must reflect any cells written since open (C117).
+	updateSheetDimension(sheet.worksheet)
+
 	wsData, err := marshalWorksheetXML(sheet.worksheet)
 	if err != nil {
 		return err
