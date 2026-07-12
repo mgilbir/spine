@@ -66,7 +66,24 @@ const (
 	pChildOMath
 	pChildOMathPara
 	pChildAlternateContent
+	pChildRaw
 )
+
+// isRawPChild reports whether an inline (paragraph-content) child element the
+// model does not type must be preserved verbatim instead of skipped: inline
+// w:customXml and w:smartTag (whose runs would otherwise lose their text),
+// tracked-move containers w:moveTo/w:moveFrom (whose loss deletes the moved
+// text entirely), and the move range markers. The captured content is opaque
+// to the model: Text() does not descend into it and SetText() removes it along
+// with the other content children.
+func isRawPChild(local string) bool {
+	switch local {
+	case "customXml", "smartTag", "moveTo", "moveFrom",
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		return true
+	}
+	return false
+}
 
 // pChildRef references a paragraph content child.
 type pChildRef struct {
@@ -155,6 +172,7 @@ type CT_P struct {
 	OMath           [][]byte             `xml:"-"` // raw m:oMath elements
 	OMathPara       [][]byte             `xml:"-"` // raw m:oMathPara elements
 	AlternateContent []*coxml.AlternateContent `xml:"-"`
+	Raw             []*CT_RawNamedElement `xml:"-"` // see isRawPChild
 	childOrder      []pChildRef
 }
 
@@ -309,6 +327,15 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				p.childOrder = append(p.childOrder, pChildRef{pChildAlternateContent, len(p.AlternateContent)})
 				p.AlternateContent = append(p.AlternateContent, v)
 			default:
+				if isRawPChild(t.Name.Local) {
+					v := &CT_RawNamedElement{Local: t.Name.Local}
+					if err := d.DecodeElement(&v.CT_RawElement, &t); err != nil {
+						return err
+					}
+					p.childOrder = append(p.childOrder, pChildRef{pChildRaw, len(p.Raw)})
+					p.Raw = append(p.Raw, v)
+					continue
+				}
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -416,6 +443,10 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.index < len(p.AlternateContent) {
 					p.AlternateContent[ref.index].MarshalToBuilder(b, ns, "AlternateContent")
 				}
+			case pChildRaw:
+				if ref.index < len(p.Raw) {
+					p.Raw[ref.index].MarshalToBuilder(b, ns, p.Raw[ref.index].Local)
+				}
 			}
 		}
 	} else {
@@ -455,6 +486,7 @@ func unmarshalPContent(d *xml.Decoder,
 	proofErr *[]*CT_ProofErr, permStart *[]*CT_PermStart, permEnd *[]*CT_PermEnd,
 	ins *[]*CT_RunTrackChange, del *[]*CT_RunTrackChange,
 	fldSimple *[]*CT_SimpleField, sdtRun *[]*CT_SdtRun,
+	raw *[]*CT_RawNamedElement,
 	childOrder *[]pChildRef,
 ) error {
 	for {
@@ -605,6 +637,15 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 				}
 			default:
+				if raw != nil && isRawPChild(t.Name.Local) {
+					v := &CT_RawNamedElement{Local: t.Name.Local}
+					if err := d.DecodeElement(&v.CT_RawElement, &t); err != nil {
+						return err
+					}
+					*childOrder = append(*childOrder, pChildRef{pChildRaw, len(*raw)})
+					*raw = append(*raw, v)
+					continue
+				}
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -622,6 +663,7 @@ func marshalPContent(b *xmlb.Builder, ns string,
 	proofErr []*CT_ProofErr, permStart []*CT_PermStart, permEnd []*CT_PermEnd,
 	ins []*CT_RunTrackChange, del []*CT_RunTrackChange,
 	fldSimple []*CT_SimpleField, sdtRun []*CT_SdtRun,
+	raw []*CT_RawNamedElement,
 	childOrder []pChildRef,
 ) {
 	if len(childOrder) > 0 {
@@ -670,6 +712,10 @@ func marshalPContent(b *xmlb.Builder, ns string,
 			case pChildSdtRun:
 				if ref.index < len(sdtRun) {
 					sdtRun[ref.index].MarshalToBuilder(b, ns, "sdt")
+				}
+			case pChildRaw:
+				if ref.index < len(raw) {
+					raw[ref.index].MarshalToBuilder(b, ns, raw[ref.index].Local)
 				}
 			}
 		}
@@ -736,6 +782,9 @@ func (p *CT_P) backfillChildOrder() {
 	}
 	for i := range p.AlternateContent {
 		p.childOrder = append(p.childOrder, pChildRef{pChildAlternateContent, i})
+	}
+	for i := range p.Raw {
+		p.childOrder = append(p.childOrder, pChildRef{pChildRaw, i})
 	}
 }
 

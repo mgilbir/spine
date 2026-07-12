@@ -55,6 +55,16 @@ func (re *CT_RawElement) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 	return nil
 }
 
+// CT_RawNamedElement pairs a raw-captured element with the local name it was
+// read under. It is used by containers that funnel several raw-preserved
+// child kinds into a single ordered slice (body-level w:altChunk/w:customXml,
+// inline w:customXml/w:smartTag/w:moveTo/w:moveFrom and their range markers),
+// so a regenerated document.xml re-emits each element under its own name.
+type CT_RawNamedElement struct {
+	Local string `xml:"-"`
+	CT_RawElement
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_RawElement.
 func (re *CT_RawElement) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	attrs := make([]xmlb.Attr, 0, len(re.Attrs))
