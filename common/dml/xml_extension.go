@@ -34,9 +34,9 @@ type Ext struct {
 	ImgProps       *A14ImgProps       `xml:"-"`
 
 	// Other extensions
-	SvgBlip      *ASvgBlip          `xml:"-"`
-	ThemeFamily  *Thm15ThemeFamily  `xml:"-"`
-	DataModelExt *DspDataModelExt   `xml:"-"`
+	SvgBlip      *ASvgBlip         `xml:"-"`
+	ThemeFamily  *Thm15ThemeFamily `xml:"-"`
+	DataModelExt *DspDataModelExt  `xml:"-"`
 
 	// Fallback for unrecognized extensions (xsd:any)
 	RawContent []byte `xml:"-"`
@@ -127,16 +127,48 @@ type A14ImgProps struct {
 
 // A14ImgLayer represents a14:imgLayer element.
 type A14ImgLayer struct {
-	Embed    string          `xml:"-"` // r:embed attribute (namespaced)
+	Embed      string          `xml:"-"` // r:embed attribute (namespaced)
 	ImgEffects []*A14ImgEffect `xml:"http://schemas.microsoft.com/office/drawing/2010/main imgEffect,omitempty"`
 }
 
-// A14ImgEffect represents a14:imgEffect element.
+// A14ImgEffect represents a14:imgEffect element. Each imgEffect wraps exactly
+// one effect child (a choice); the four common adjustment effects are typed.
+// Any other effect (a14:artisticChalkSketch and the rest of the ~30 artistic
+// effects) is preserved as raw bytes in Raw so the typed imgProps dispatch
+// never loses what the unknown-URI raw fallback would have kept.
 type A14ImgEffect struct {
-	Saturation    *A14Saturation    `xml:"http://schemas.microsoft.com/office/drawing/2010/main saturation,omitempty"`
-	Brightness    *A14Brightness    `xml:"http://schemas.microsoft.com/office/drawing/2010/main brightnessContrast,omitempty"`
-	Sharpen       *A14Sharpen       `xml:"http://schemas.microsoft.com/office/drawing/2010/main sharpenSoften,omitempty"`
-	ColorTemp     *A14ColorTemp     `xml:"http://schemas.microsoft.com/office/drawing/2010/main colorTemperature,omitempty"`
+	Saturation *A14Saturation `xml:"http://schemas.microsoft.com/office/drawing/2010/main saturation,omitempty"`
+	Brightness *A14Brightness `xml:"http://schemas.microsoft.com/office/drawing/2010/main brightnessContrast,omitempty"`
+	Sharpen    *A14Sharpen    `xml:"http://schemas.microsoft.com/office/drawing/2010/main sharpenSoften,omitempty"`
+	ColorTemp  *A14ColorTemp  `xml:"http://schemas.microsoft.com/office/drawing/2010/main colorTemperature,omitempty"`
+
+	// Raw holds the original inner XML when no typed field matched,
+	// mirroring Ext.RawContent for unknown extension URIs.
+	Raw []byte `xml:"-"`
+}
+
+// UnmarshalXML decodes the known effect kinds into typed fields and falls back
+// to capturing the raw inner XML for unmodeled effects, so they survive
+// re-marshal instead of being deleted.
+func (v *A14ImgEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var aux struct {
+		Saturation *A14Saturation `xml:"http://schemas.microsoft.com/office/drawing/2010/main saturation,omitempty"`
+		Brightness *A14Brightness `xml:"http://schemas.microsoft.com/office/drawing/2010/main brightnessContrast,omitempty"`
+		Sharpen    *A14Sharpen    `xml:"http://schemas.microsoft.com/office/drawing/2010/main sharpenSoften,omitempty"`
+		ColorTemp  *A14ColorTemp  `xml:"http://schemas.microsoft.com/office/drawing/2010/main colorTemperature,omitempty"`
+		Inner      []byte         `xml:",innerxml"`
+	}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	v.Saturation = aux.Saturation
+	v.Brightness = aux.Brightness
+	v.Sharpen = aux.Sharpen
+	v.ColorTemp = aux.ColorTemp
+	if v.Saturation == nil && v.Brightness == nil && v.Sharpen == nil && v.ColorTemp == nil {
+		v.Raw = aux.Inner
+	}
+	return nil
 }
 
 // A14Saturation represents a14:saturation element.
@@ -474,7 +506,13 @@ func marshalImgLayer(b *xmlb.Builder, layer *A14ImgLayer) {
 	b.StartElement(nsA14, "imgLayer", attrs...)
 	for _, eff := range layer.ImgEffects {
 		b.StartElement(nsA14, "imgEffect")
-		b.MarshalChildren(nsA14, eff)
+		if len(eff.Raw) > 0 {
+			// Unmodeled effect (e.g. artistic effects): re-emit the
+			// captured raw bytes, as the unknown-URI Ext fallback does.
+			b.WriteRaw(eff.Raw)
+		} else {
+			b.MarshalChildren(nsA14, eff)
+		}
 		b.EndElement(nsA14, "imgEffect")
 	}
 	b.EndElement(nsA14, "imgLayer")
