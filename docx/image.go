@@ -15,12 +15,16 @@ import (
 
 // InlineImage represents an inline image in a document.
 type InlineImage struct {
-	relID         string
-	widthEMU      int64
-	heightEMU     int64
-	altText       string
-	drawingID     uint32
-	run           *Run
+	relID     string
+	widthEMU  int64
+	heightEMU int64
+	altText   string
+	drawingID uint32
+	run       *Run
+	// drawing is the w:drawing element this handle was created for. Updates
+	// are applied to it directly: matching by position in the run would let a
+	// handle for the second image overwrite the first one's drawing.
+	drawing *oxml.CT_Drawing
 }
 
 // SetSize sets the image size in points.
@@ -37,16 +41,12 @@ func (img *InlineImage) SetAltText(text string) {
 }
 
 func (img *InlineImage) updateDrawingXML() {
-	if img.run == nil {
+	if img.drawing == nil {
 		return
 	}
-	// Find and update the drawing in the run
-	for _, d := range img.run.r.Drawing {
-		if d.RawContent != nil {
-			d.RawContent = img.buildInlineXML()
-			return
-		}
-	}
+	// Regenerate the drawing this handle owns; other drawings in the same run
+	// are untouched.
+	img.drawing.RawContent = img.buildInlineXML()
 }
 
 func (img *InlineImage) buildInlineXML() []byte {
@@ -195,10 +195,13 @@ func (r *Run) addImageData(data []byte, contentType, ext string) (*InlineImage, 
 		run:       r,
 	}
 
-	// Add drawing element to run
+	// Add drawing element to run and bind the handle to it, so later
+	// SetSize/SetAltText calls update this drawing and not another one in the
+	// same run.
 	drawing := &oxml.CT_Drawing{
 		RawContent: img.buildInlineXML(),
 	}
+	img.drawing = drawing
 	r.r.AppendDrawing(drawing)
 
 	return img, nil

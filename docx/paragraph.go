@@ -24,11 +24,15 @@ func (p *Paragraph) Text() string {
 	return p.p.Text()
 }
 
-// SetText sets the text content, replacing all runs.
+// SetText sets the text content, replacing ALL content children — runs,
+// hyperlinks, structured document tags, tracked changes, fields, and
+// raw-preserved inline elements — so no stale text (e.g. hyperlink display
+// text) survives next to the new content. Paragraph properties are kept.
 func (p *Paragraph) SetText(text string) {
-	p.p.SetRuns([]*oxml.CT_R{{
+	p.p.ClearContent()
+	p.p.AppendR(&oxml.CT_R{
 		T: []*oxml.CT_Text{{Space: "preserve", Text: text}},
-	}})
+	})
 }
 
 // Runs returns all runs in the paragraph.

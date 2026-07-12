@@ -269,21 +269,14 @@ func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) ([]byte, error) {
 
 	nsDecls := xmlb.WordprocessingMLNamespaces()
 	b.StartElementWithNS(xmlb.NSWordprocessingML, rootElement, nsDecls)
-	marshalHdrFtrContent(b, xmlb.NSWordprocessingML, hf)
+	// Route through the childOrder-driven body-content marshal so SDT blocks,
+	// bookmarks, and raw-preserved children in a header/footer are emitted in
+	// document order instead of being dropped.
+	hf.MarshalContent(b, xmlb.NSWordprocessingML)
 	b.EndElement(xmlb.NSWordprocessingML, rootElement)
 
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("docx: marshal %s part: %w", rootElement, err)
 	}
 	return b.Bytes(), nil
-}
-
-// marshalHdrFtrContent marshals the body content of a header/footer.
-func marshalHdrFtrContent(b *xmlb.Builder, ns string, hf *oxml.CT_HdrFtr) {
-	for _, p := range hf.P {
-		p.MarshalToBuilder(b, ns, "p")
-	}
-	for _, tbl := range hf.Tbl {
-		tbl.MarshalToBuilder(b, ns, "tbl")
-	}
 }
