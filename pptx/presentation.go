@@ -683,9 +683,13 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		currentSlideParts[slideName] = true
 	}
 
-	// Use original content types to preserve ordering and avoid extra entries
+	// Use original content types to preserve ordering and avoid extra entries.
+	// Hand the writer a clone: Close mutates its ContentTypes (SetOverride for
+	// regenerated metadata parts), so sharing the reader's instance would let
+	// repeated saves observe each other's side effects and make concurrent
+	// saves race.
 	if p.reader != nil && p.reader.ContentTypes != nil {
-		writer.ContentTypes = p.reader.ContentTypes
+		writer.ContentTypes = p.reader.ContentTypes.Clone()
 	}
 
 	// Track which parts have had their rels written explicitly

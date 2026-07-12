@@ -30,6 +30,7 @@ type Workbook struct {
 	preservedParts map[string]*coxml.RawPart
 	relationships  map[string][]*opc.Relationship
 	hasCoreProps   bool
+	propsSnapshot  *opc.CoreProperties // Properties as loaded at open; detects edits at save
 	stylesDirty    bool
 	sheetsDirty    bool
 	stringTable    []string // plain text values extracted from shared strings
@@ -103,6 +104,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	if reader.Properties != nil {
 		w.Properties = *reader.Properties
 		w.hasCoreProps = true
+		w.propsSnapshot = reader.Properties.Clone()
 	}
 
 	if err := w.loadAllParts(mainPartName); err != nil {
@@ -335,21 +337,6 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.Properties = &w.Properties
 	}
 
-	// Preserve original content types (captured at open so this still works
-	// after Close has released the reader).
-	if w.contentTypes != nil {
-		writer.ContentTypes = w.contentTypes
-	}
-
-	// Write core.xml as preserved raw bytes if original had it
-	if w.hasCoreProps {
-		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
-			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
-				return err
-			}
-		}
-	}
-
 	worksheetParts := make(map[string]struct{}, len(w.sheets))
 	anySheetDirty := w.sheetsDirty
 	for _, sheet := range w.sheets {
@@ -367,10 +354,34 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// Excel "we found a problem" repair class (C198). Drop the part together
 	// with its content-type override and workbook relationship; Excel rebuilds
 	// the calculation chain transparently on next open. Untouched workbooks
-	// keep their calcChain byte-identical.
+	// keep their calcChain byte-identical. This mutates the durable model
+	// (preserved parts and w.contentTypes), so it must run before the writer
+	// snapshots the content types below.
 	dropCalcChain := anySheetDirty
 	if dropCalcChain {
 		w.dropCalcChainParts("/xl/workbook.xml")
+	}
+
+	// Preserve original content types (captured at open so this still works
+	// after Close has released the reader). Hand the writer a clone: Close
+	// mutates its ContentTypes (SetOverride for regenerated metadata parts),
+	// so sharing the captured instance would let repeated saves observe each
+	// other's side effects and make concurrent saves race.
+	if w.contentTypes != nil {
+		writer.ContentTypes = w.contentTypes.Clone()
+	}
+
+	// Write core.xml as preserved raw bytes only when the in-memory
+	// properties still match the snapshot taken at open. Writing the raw part
+	// first would win under the opc writer's skip-if-written rule and
+	// silently drop any edits; when the properties changed, skip the raw copy
+	// so Close regenerates core.xml from w.Properties.
+	if w.hasCoreProps && w.Properties.Equal(w.propsSnapshot) {
+		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
+			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
