@@ -432,8 +432,9 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // builder's namespace table (registered by NewWordprocessingMLBuilder), so the
 // element is emitted prefixed instead of as unprefixed <oMath>. When the root
 // element did not declare the math namespace, the declaration is emitted
-// inline on the element itself (and reset afterwards so a later sibling gets
-// its own declaration) — the output stays well-formed in every context.
+// inline on the element itself; the Builder scopes it to the element, so a
+// later sibling gets its own declaration — the output stays well-formed in
+// every context.
 func marshalMathElement(b *xmlb.Builder, localName string, raw []byte) {
 	if b.IsNamespaceDeclared(xmlb.NSMath) {
 		b.StartElement(xmlb.NSMath, localName)
@@ -444,7 +445,6 @@ func marshalMathElement(b *xmlb.Builder, localName string, raw []byte) {
 	b.StartElementInlineNS(xmlb.NSMath, xmlb.PrefixMath, localName)
 	b.WriteRaw(raw)
 	b.EndElementInlineNS(xmlb.PrefixMath, localName)
-	b.ResetNamespaceDeclaration(xmlb.NSMath)
 }
 
 // unmarshalPContent is a shared helper for unmarshaling paragraph-level content children
