@@ -146,24 +146,34 @@ type ATable struct {
 // the XSD sequence: fill choice, effect choice, tableStyle|tableStyleId,
 // extLst.
 type ATblPr struct {
-	Rtl          bool             `xml:"rtl,attr,omitempty"`
-	FirstRow     bool             `xml:"firstRow,attr,omitempty"`
-	FirstCol     bool             `xml:"firstCol,attr,omitempty"`
-	LastRow      bool             `xml:"lastRow,attr,omitempty"`
-	LastCol      bool             `xml:"lastCol,attr,omitempty"`
-	BandRow      bool             `xml:"bandRow,attr,omitempty"`
-	BandCol      bool             `xml:"bandCol,attr,omitempty"`
-	NoFill       *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill    *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill     *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill     *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill     *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill      *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
-	EffectLst    *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	EffectDag    *dml.EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
-	TableStyle   *dml.TableStyle  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyle,omitempty"`
-	TableStyleId string           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
-	ExtLst       *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	Rtl           bool             `xml:"rtl,attr,omitempty"`
+	FirstRow      bool             `xml:"firstRow,attr,omitempty"`
+	FirstCol      bool             `xml:"firstCol,attr,omitempty"`
+	LastRow       bool             `xml:"lastRow,attr,omitempty"`
+	LastCol       bool             `xml:"lastCol,attr,omitempty"`
+	BandRow       bool             `xml:"bandRow,attr,omitempty"`
+	BandCol       bool             `xml:"bandCol,attr,omitempty"`
+	NoFill        *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill     *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill      *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill      *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill      *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill       *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	EffectLst     *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	EffectDag     *dml.EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	TableStyle    *dml.TableStyle  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyle,omitempty"`
+	TableStyleId  string           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
+	ExtLst        *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr  `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (atb *ATblPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	atb.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ATblPr
+	return d.DecodeElement((*alias)(atb), &start)
 }
 
 // ATblGrid contains table grid column definitions.

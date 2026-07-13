@@ -681,8 +681,18 @@ type TabLst struct {
 // Tab represents CT_TextTabStop (a:tab)
 type Tab struct {
 	// Pos is a pointer so an explicit pos="0" survives the round trip.
-	Pos  *int32 `xml:"pos,attr,omitempty"`
-	Algn string `xml:"algn,attr,omitempty"`
+	Pos           *int32          `xml:"pos,attr,omitempty"`
+	Algn          string          `xml:"algn,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tab *Tab) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tab.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Tab
+	return d.DecodeElement((*alias)(tab), &start)
 }
 
 // ULnTx represents CT_TextUnderlineLineFollowText (a:uLnTx)

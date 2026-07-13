@@ -87,6 +87,17 @@ type CT_RPrChange struct {
 type CT_Text struct {
 	Space string `xml:"http://www.w3.org/XML/1998/namespace space,attr,omitempty"`
 	Text  string `xml:",chardata"`
+	// CapturedEmptyTag records how an empty text element was written
+	// (<w:t/> vs <w:t></w:t>); see common/xml.CaptureEmptyTagStyle.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (t *CT_Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	t.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Text
+	return d.DecodeElement((*alias)(t), &start)
 }
 
 // CT_Br represents a break element.
@@ -639,6 +650,10 @@ func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
+	}
+	if t.Text == "" && t.CapturedEmptyTag == xmlb.EmptyTagExpanded {
+		b.EmptyElementStyled(t.CapturedEmptyTag, ns, localName, attrs...)
+		return
 	}
 	b.WriteElement(ns, localName, t.Text, attrs...)
 }

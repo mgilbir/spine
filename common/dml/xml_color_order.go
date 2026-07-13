@@ -192,6 +192,7 @@ func (c *SystemClr) sysSlots() []clrXfSlot {
 
 // UnmarshalXML implements xml.Unmarshaler, capturing transform order.
 func (c *SystemClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	return unmarshalClrColor(d, start, func(attr xml.Attr) error {
 		switch attr.Name.Local {
 		case "val":
@@ -208,6 +209,9 @@ func (c *SystemClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	attrs := []xmlb.Attr{xmlb.StrAttr("val", c.Val)}
 	if c.LastClr != "" {
 		attrs = append(attrs, xmlb.StrAttr("lastClr", c.LastClr))
+	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
 	marshalClrColor(b, ns, localName, attrs, c.sysSlots(), c.xfOrder)
 }
@@ -306,6 +310,7 @@ func (c *ScRgbClr) scrgbSlots() []clrXfSlot {
 
 // UnmarshalXML implements xml.Unmarshaler, capturing transform order.
 func (c *ScRgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	return unmarshalClrColor(d, start, func(attr xml.Attr) error {
 		switch attr.Name.Local {
 		case "r":
@@ -325,6 +330,9 @@ func (c *ScRgbClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		xmlb.StrAttr("r", c.R.AttrValue()),
 		xmlb.StrAttr("g", c.G.AttrValue()),
 		xmlb.StrAttr("b", c.B.AttrValue()),
+	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
 	marshalClrColor(b, ns, localName, attrs, c.scrgbSlots(), c.xfOrder)
 }

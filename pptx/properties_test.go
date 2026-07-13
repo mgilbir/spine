@@ -98,7 +98,7 @@ func TestUnmodifiedCorePropertiesPreserveRawBytes(t *testing.T) {
 				t.Fatalf("open part: %v", err)
 			}
 			saved, err = io.ReadAll(rc)
-			rc.Close()
+			_ = rc.Close()
 			if err != nil {
 				t.Fatalf("read part: %v", err)
 			}
