@@ -246,6 +246,16 @@ type CT_PBdr struct {
 	Right   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
 	Between *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main between,omitempty"`
 	Bar     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bar,omitempty"`
+	// CapturedEmptyTag records how an empty w:pBdr was written in the source.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_PBdr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_PBdr
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TblBorders represents table borders.
@@ -256,6 +266,16 @@ type CT_TblBorders struct {
 	Right   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
 	InsideH *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideH,omitempty"`
 	InsideV *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
+	// CapturedEmptyTag records how an empty w:tblBorders was written in the source.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_TblBorders) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TblBorders
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TcBorders represents table cell borders.
@@ -268,6 +288,16 @@ type CT_TcBorders struct {
 	InsideV *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
 	Tl2Br   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tl2br,omitempty"`
 	Tr2Bl   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tr2bl,omitempty"`
+	// CapturedEmptyTag records how an empty w:tcBorders was written in the source.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_TcBorders) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TcBorders
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Spacing represents paragraph spacing. Field order follows Word's

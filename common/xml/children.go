@@ -137,6 +137,23 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 					cap.Raw = append(cap.Raw, src[pre:post])
 				}
 			}
+		case xml.CharData:
+			// Whitespace between children (pretty-printed property bags) is
+			// captured verbatim from the raw source — the token itself is
+			// EOL-normalized by the decoder — and replayed as a raw child.
+			if src == nil {
+				continue
+			}
+			post := d.InputOffset()
+			if pre < 0 || post > int64(len(src)) || pre >= post {
+				continue
+			}
+			raw := src[pre:post]
+			if !isWhitespace(raw) {
+				continue
+			}
+			cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+			cap.Raw = append(cap.Raw, raw)
 		case xml.EndElement:
 			if len(cap.Order) > 0 {
 				setCapturedChildren(val, cap)
@@ -144,6 +161,16 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			return nil
 		}
 	}
+}
+
+// isWhitespace reports whether every byte is XML whitespace.
+func isWhitespace(b []byte) bool {
+	for _, c := range b {
+		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+			return false
+		}
+	}
+	return len(b) > 0
 }
 
 // decodeChildInto decodes one element into a singleton field (pointer or

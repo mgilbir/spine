@@ -85,6 +85,17 @@ type CT_RPrChange struct {
 	Author string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	RPr    *CT_RPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list (order and
+	// unmodeled attributes such as w16du:dateUtc); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (rc *CT_RPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_RPrChange
+	return d.DecodeElement((*alias)(rc), &start)
 }
 
 // CT_Text represents text content with xml:space attribute.
@@ -94,14 +105,28 @@ type CT_Text struct {
 	// CapturedEmptyTag records how an empty text element was written
 	// (<w:t/> vs <w:t></w:t>); see common/xml.CaptureEmptyTagStyle.
 	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// rawText preserves the verbatim source form of the text content —
+	// producer entity choices (&apos;, &#039;) and raw CR/LF bytes the
+	// decoder's XML EOL handling would otherwise rewrite. Replayed only
+	// while Text still equals origText, so edits win.
+	rawText  []byte
+	origText string
 }
 
-// UnmarshalXML captures the element's empty-tag style before decoding
-// through the struct tags.
+// UnmarshalXML captures the element's empty-tag style and the verbatim source
+// form of its text before decoding through the struct tags.
 func (t *CT_Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	t.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	innerStart, hasSrc := xmlb.InputOffsetOf(d)
 	type alias CT_Text
-	return d.DecodeElement((*alias)(t), &start)
+	if err := d.DecodeElement((*alias)(t), &start); err != nil {
+		return err
+	}
+	if hasSrc && t.CapturedEmptyTag != xmlb.EmptyTagSelfClose {
+		t.rawText = xmlb.CaptureRawInner(d, innerStart)
+		t.origText = t.Text
+	}
+	return nil
 }
 
 // CT_Br represents a break element.
@@ -165,7 +190,10 @@ type CT_R struct {
 	// mc:Choice/mc:Fallback with inline xmlns declarations and no xmlns=""
 	// reset, which the typed common/oxml AlternateContent would not reproduce.
 	AlternateContent []*CT_RawElement `xml:"-"`
-	childOrder       []runChildRef
+	// Raw preserves run children the model does not type (w:pgNum, w:ruby,
+	// w:footnoteRef, w:separator, ...) verbatim; they were silently dropped.
+	Raw        []*CT_RawNamedElement `xml:"-"`
+	childOrder []runChildRef
 }
 
 // runChildKind identifies a run child element type.
@@ -191,6 +219,7 @@ const (
 	runChildPict
 	runChildObject
 	runChildAlternateContent
+	runChildRaw
 )
 
 // runChildRef references a child element by kind and index.
@@ -471,6 +500,10 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.index < len(r.AlternateContent) {
 					r.AlternateContent[ref.index].MarshalToBuilder(b, xmlb.NSMarkupCompatibility, "AlternateContent")
 				}
+			case runChildRaw:
+				if ref.index < len(r.Raw) {
+					r.Raw[ref.index].MarshalNamed(b, ns)
+				}
 			}
 		}
 	} else {
@@ -550,6 +583,9 @@ func (r *CT_R) backfillChildOrder() {
 	}
 	for i := range r.AlternateContent {
 		r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, i})
+	}
+	for i := range r.Raw {
+		r.childOrder = append(r.childOrder, runChildRef{runChildRaw, i})
 	}
 }
 
@@ -646,14 +682,23 @@ func (r *CT_R) ClearContent() {
 	r.Pict = nil
 	r.Object = nil
 	r.AlternateContent = nil
+	r.Raw = nil
 	r.childOrder = nil
 }
 
-// marshalText writes a text element with xml:space handling.
+// marshalText writes a text element with xml:space handling. Unedited text
+// with a captured source form replays it verbatim, keeping producer entity
+// choices and raw line endings.
 func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
+	}
+	if t.rawText != nil && t.Text == t.origText {
+		b.StartElement(ns, localName, attrs...)
+		b.WriteRaw(t.rawText)
+		b.EndElement(ns, localName)
+		return
 	}
 	if t.Text == "" && t.CapturedEmptyTag == xmlb.EmptyTagExpanded {
 		b.EmptyElementStyled(t.CapturedEmptyTag, ns, localName, attrs...)

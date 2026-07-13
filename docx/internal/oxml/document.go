@@ -100,6 +100,34 @@ type CT_Background struct {
 	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
 	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
 	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	// CapturedChildren preserves the VML fill child (v:background), which the
+	// model does not type and previously dropped on save.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+	CapturedAttrs    []xmlb.RootAttr    `xml:"-"` // verbatim source attrs
+}
+
+// UnmarshalXML captures the verbatim attribute list and child sequence.
+func (bg *CT_Background) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bg.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	if err := xmlb.UnmarshalOrderedChildren(d, bg); err != nil {
+		return err
+	}
+	for _, attr := range start.Attr {
+		if attr.Name.Space != NsWml {
+			continue
+		}
+		switch attr.Name.Local {
+		case "color":
+			bg.Color = attr.Value
+		case "themeColor":
+			bg.ThemeColor = attr.Value
+		case "themeTint":
+			bg.ThemeTint = attr.Value
+		case "themeShade":
+			bg.ThemeShade = attr.Value
+		}
+	}
+	return nil
 }
 
 // bodyChildKind identifies body-level child element types.

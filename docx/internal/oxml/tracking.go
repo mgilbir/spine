@@ -8,28 +8,32 @@ import (
 
 // CT_RunTrackChange represents an insertion/deletion of run content (w:ins, w:del).
 type CT_RunTrackChange struct {
-	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
-	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
-	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list (order and
+	// unmodeled attributes such as w16du:dateUtc); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	Id            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	Author        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
+	Date          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 
 	// Child content (same as paragraph content)
-	R              []*CT_R              `xml:"-"`
-	Hyperlink      []*CT_Hyperlink      `xml:"-"`
-	BookmarkStart  []*CT_BookmarkStart  `xml:"-"`
-	BookmarkEnd    []*CT_BookmarkEnd    `xml:"-"`
-	ProofErr       []*CT_ProofErr       `xml:"-"`
-	PermStart      []*CT_PermStart      `xml:"-"`
-	PermEnd        []*CT_PermEnd        `xml:"-"`
-	Del            []*CT_RunTrackChange `xml:"-"`
-	Ins            []*CT_RunTrackChange `xml:"-"`
-	FldSimple      []*CT_SimpleField    `xml:"-"`
-	SdtRun         []*CT_SdtRun         `xml:"-"`
-	Raw            []*CT_RawNamedElement `xml:"-"`
-	childOrder     []pChildRef
+	R             []*CT_R               `xml:"-"`
+	Hyperlink     []*CT_Hyperlink       `xml:"-"`
+	BookmarkStart []*CT_BookmarkStart   `xml:"-"`
+	BookmarkEnd   []*CT_BookmarkEnd     `xml:"-"`
+	ProofErr      []*CT_ProofErr        `xml:"-"`
+	PermStart     []*CT_PermStart       `xml:"-"`
+	PermEnd       []*CT_PermEnd         `xml:"-"`
+	Del           []*CT_RunTrackChange  `xml:"-"`
+	Ins           []*CT_RunTrackChange  `xml:"-"`
+	FldSimple     []*CT_SimpleField     `xml:"-"`
+	SdtRun        []*CT_SdtRun          `xml:"-"`
+	Raw           []*CT_RawNamedElement `xml:"-"`
+	childOrder    []pChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_RunTrackChange.
 func (tc *CT_RunTrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "id":
@@ -53,6 +57,9 @@ func (tc *CT_RunTrackChange) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 	if tc.Date != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "date", Value: tc.Date})
 	}
+	if tc.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(tc.CapturedAttrs, attrs)
+	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, tc.R, tc.Hyperlink, tc.BookmarkStart, tc.BookmarkEnd,
 		tc.ProofErr, tc.PermStart, tc.PermEnd, tc.Ins, tc.Del, tc.FldSimple, tc.SdtRun, tc.Raw, tc.childOrder)
@@ -69,9 +76,9 @@ type CT_PPrChange struct {
 
 // CT_SectPrChange represents a revision of section properties.
 type CT_SectPrChange struct {
-	Id     string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
-	Author string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
-	Date   string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	Id     string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	Author string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
+	Date   string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	SectPr *CT_SectPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
 }
 
