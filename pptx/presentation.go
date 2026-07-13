@@ -856,9 +856,16 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		writtenRels[slideName] = true
 	}
 
-	// Write all themes (sorted for deterministic package output)
+	// Write all themes (sorted for deterministic package output). Theme
+	// override parts share the /ppt/theme/ directory but have their own
+	// content type; registering them as theme+xml corrupts
+	// [Content_Types].xml.
 	for _, themeName := range sortedKeys(p.themeData) {
-		if err := writer.WritePart(themeName, opc.ContentTypeTheme, p.themeData[themeName]); err != nil {
+		contentType := opc.ContentTypeTheme
+		if strings.HasPrefix(path.Base(themeName), "themeOverride") {
+			contentType = opc.ContentTypeThemeOverride
+		}
+		if err := writer.WritePart(themeName, contentType, p.themeData[themeName]); err != nil {
 			return err
 		}
 	}

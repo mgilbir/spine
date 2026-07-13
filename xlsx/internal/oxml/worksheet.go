@@ -19,35 +19,35 @@ const nsX14AC = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"
 
 // CT_Worksheet is the root element of a worksheet part (sheet*.xml).
 type CT_Worksheet struct {
-	XMLName                 xml.Name                     `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main worksheet"`
-	SheetPr                 *CT_SheetPr                  `xml:"sheetPr,omitempty"`
-	Dimension               *CT_SheetDimension           `xml:"dimension,omitempty"`
-	SheetViews              *CT_SheetViews               `xml:"sheetViews,omitempty"`
-	SheetFormatPr           *CT_SheetFormatPr            `xml:"sheetFormatPr,omitempty"`
-	Cols                    []CT_Cols                    `xml:"cols"`
-	SheetData               CT_SheetData                 `xml:"sheetData"`
-	SheetCalcPr             *CT_SheetCalcPr              `xml:"sheetCalcPr,omitempty"`
-	SheetProtection         *CT_SheetProtection          `xml:"sheetProtection,omitempty"`
-	AutoFilter              *CT_AutoFilter               `xml:"autoFilter,omitempty"`
-	SortState               *CT_SortState                `xml:"sortState,omitempty"`
-	DataConsolidate         *struct{}                    `xml:"-"`
-	CustomSheetViews        *struct{}                    `xml:"-"`
-	MergeCells              *CT_MergeCells               `xml:"mergeCells,omitempty"`
-	PhoneticPr              *CT_PhoneticPr               `xml:"phoneticPr,omitempty"`
-	ConditionalFormatting   []CT_ConditionalFormatting   `xml:"conditionalFormatting"`
-	DataValidations         *CT_DataValidations          `xml:"dataValidations,omitempty"`
-	Hyperlinks              *CT_Hyperlinks               `xml:"hyperlinks,omitempty"`
-	PrintOptions            *CT_PrintOptions             `xml:"printOptions,omitempty"`
-	PageMargins             *CT_PageMargins              `xml:"pageMargins,omitempty"`
-	PageSetup               *CT_PageSetup                `xml:"pageSetup,omitempty"`
-	HeaderFooter            *CT_HeaderFooter             `xml:"headerFooter,omitempty"`
-	RowBreaks               *CT_PageBreak                `xml:"rowBreaks,omitempty"`
-	ColBreaks               *CT_PageBreak                `xml:"colBreaks,omitempty"`
-	Drawing                 *CT_Drawing                  `xml:"drawing,omitempty"`
-	LegacyDrawing           *CT_LegacyDrawing            `xml:"legacyDrawing,omitempty"`
-	TableParts              *CT_TableParts               `xml:"tableParts,omitempty"`
-	ExtLst                  *CT_ExtensionList            `xml:"extLst,omitempty"`
-	OriginalNSDecls         []xmlb.NSDecl                `xml:"-"`
+	XMLName               xml.Name                   `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main worksheet"`
+	SheetPr               *CT_SheetPr                `xml:"sheetPr,omitempty"`
+	Dimension             *CT_SheetDimension         `xml:"dimension,omitempty"`
+	SheetViews            *CT_SheetViews             `xml:"sheetViews,omitempty"`
+	SheetFormatPr         *CT_SheetFormatPr          `xml:"sheetFormatPr,omitempty"`
+	Cols                  []CT_Cols                  `xml:"cols"`
+	SheetData             CT_SheetData               `xml:"sheetData"`
+	SheetCalcPr           *CT_SheetCalcPr            `xml:"sheetCalcPr,omitempty"`
+	SheetProtection       *CT_SheetProtection        `xml:"sheetProtection,omitempty"`
+	AutoFilter            *CT_AutoFilter             `xml:"autoFilter,omitempty"`
+	SortState             *CT_SortState              `xml:"sortState,omitempty"`
+	DataConsolidate       *struct{}                  `xml:"-"`
+	CustomSheetViews      *struct{}                  `xml:"-"`
+	MergeCells            *CT_MergeCells             `xml:"mergeCells,omitempty"`
+	PhoneticPr            *CT_PhoneticPr             `xml:"phoneticPr,omitempty"`
+	ConditionalFormatting []CT_ConditionalFormatting `xml:"conditionalFormatting"`
+	DataValidations       *CT_DataValidations        `xml:"dataValidations,omitempty"`
+	Hyperlinks            *CT_Hyperlinks             `xml:"hyperlinks,omitempty"`
+	PrintOptions          *CT_PrintOptions           `xml:"printOptions,omitempty"`
+	PageMargins           *CT_PageMargins            `xml:"pageMargins,omitempty"`
+	PageSetup             *CT_PageSetup              `xml:"pageSetup,omitempty"`
+	HeaderFooter          *CT_HeaderFooter           `xml:"headerFooter,omitempty"`
+	RowBreaks             *CT_PageBreak              `xml:"rowBreaks,omitempty"`
+	ColBreaks             *CT_PageBreak              `xml:"colBreaks,omitempty"`
+	Drawing               *CT_Drawing                `xml:"drawing,omitempty"`
+	LegacyDrawing         *CT_LegacyDrawing          `xml:"legacyDrawing,omitempty"`
+	TableParts            *CT_TableParts             `xml:"tableParts,omitempty"`
+	ExtLst                *CT_ExtensionList          `xml:"extLst,omitempty"`
+	OriginalNSDecls       []xmlb.NSDecl              `xml:"-"`
 	// OriginalRootAttrs preserves all root-element attributes (namespace
 	// declarations and regular attributes like mc:Ignorable / xr:uid) in order.
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
@@ -86,6 +86,9 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				prefix = xmlb.PrefixMarkupCompatibility
 			case nsR:
 				prefix = "r"
+			case xmlb.NSXML:
+				// Reserved prefix, never declared: xml:space etc.
+				prefix = "xml"
 			case "":
 				// no prefix
 			default:
@@ -387,17 +390,17 @@ func unknownElementLocalName(raw []byte) string {
 
 // CT_SheetPr represents the sheetPr element.
 type CT_SheetPr struct {
-	CodeName                             string         `xml:"codeName,attr,omitempty"`
-	EnableFormatConditionsCalculation     *bool          `xml:"enableFormatConditionsCalculation,attr,omitempty"`
-	FilterMode                           *bool          `xml:"filterMode,attr,omitempty"`
-	Published                            *bool          `xml:"published,attr,omitempty"`
-	SyncHorizontal                       *bool          `xml:"syncHorizontal,attr,omitempty"`
-	SyncVertical                         *bool          `xml:"syncVertical,attr,omitempty"`
-	TransitionEntry                      *bool          `xml:"transitionEntry,attr,omitempty"`
-	TransitionEvaluation                 *bool          `xml:"transitionEvaluation,attr,omitempty"`
-	TabColor                             *CT_Color      `xml:"tabColor,omitempty"`
-	OutlinePr                            *CT_OutlinePr  `xml:"outlinePr,omitempty"`
-	PageSetUpPr                          *CT_PageSetUpPr `xml:"pageSetUpPr,omitempty"`
+	CodeName                          string          `xml:"codeName,attr,omitempty"`
+	EnableFormatConditionsCalculation *bool           `xml:"enableFormatConditionsCalculation,attr,omitempty"`
+	FilterMode                        *bool           `xml:"filterMode,attr,omitempty"`
+	Published                         *bool           `xml:"published,attr,omitempty"`
+	SyncHorizontal                    *bool           `xml:"syncHorizontal,attr,omitempty"`
+	SyncVertical                      *bool           `xml:"syncVertical,attr,omitempty"`
+	TransitionEntry                   *bool           `xml:"transitionEntry,attr,omitempty"`
+	TransitionEvaluation              *bool           `xml:"transitionEvaluation,attr,omitempty"`
+	TabColor                          *CT_Color       `xml:"tabColor,omitempty"`
+	OutlinePr                         *CT_OutlinePr   `xml:"outlinePr,omitempty"`
+	PageSetUpPr                       *CT_PageSetUpPr `xml:"pageSetUpPr,omitempty"`
 }
 
 // CT_OutlinePr represents the outlinePr element.
@@ -439,26 +442,26 @@ type CT_SheetViews struct {
 
 // CT_SheetView represents a sheetView element.
 type CT_SheetView struct {
-	WindowProtection         *bool      `xml:"windowProtection,attr,omitempty"`
-	ShowFormulas             *bool      `xml:"showFormulas,attr,omitempty"`
-	ShowGridLines            *bool      `xml:"showGridLines,attr,omitempty"`
-	ShowRowColHeaders        *bool      `xml:"showRowColHeaders,attr,omitempty"`
-	ShowZeros                *bool      `xml:"showZeros,attr,omitempty"`
-	RightToLeft              *bool      `xml:"rightToLeft,attr,omitempty"`
-	TabSelected              *bool      `xml:"tabSelected,attr,omitempty"`
-	ShowRuler                *bool      `xml:"showRuler,attr,omitempty"`
-	ShowOutlineSymbols       *bool      `xml:"showOutlineSymbols,attr,omitempty"`
-	DefaultGridColor         *bool      `xml:"defaultGridColor,attr,omitempty"`
-	ShowWhiteSpace           *bool      `xml:"showWhiteSpace,attr,omitempty"`
-	View                     string     `xml:"view,attr,omitempty"`
-	TopLeftCell              string     `xml:"topLeftCell,attr,omitempty"`
-	ColorId                  *uint32    `xml:"colorId,attr,omitempty"`
-	ZoomScale                *uint32    `xml:"zoomScale,attr,omitempty"`
-	ZoomScaleNormal          *uint32    `xml:"zoomScaleNormal,attr,omitempty"`
-	ZoomScaleSheetLayoutView *uint32    `xml:"zoomScaleSheetLayoutView,attr,omitempty"`
-	ZoomScalePageLayoutView  *uint32    `xml:"zoomScalePageLayoutView,attr,omitempty"`
-	WorkbookViewId           uint32     `xml:"workbookViewId,attr"`
-	Pane                     *CT_Pane   `xml:"pane,omitempty"`
+	WindowProtection         *bool          `xml:"windowProtection,attr,omitempty"`
+	ShowFormulas             *bool          `xml:"showFormulas,attr,omitempty"`
+	ShowGridLines            *bool          `xml:"showGridLines,attr,omitempty"`
+	ShowRowColHeaders        *bool          `xml:"showRowColHeaders,attr,omitempty"`
+	ShowZeros                *bool          `xml:"showZeros,attr,omitempty"`
+	RightToLeft              *bool          `xml:"rightToLeft,attr,omitempty"`
+	TabSelected              *bool          `xml:"tabSelected,attr,omitempty"`
+	ShowRuler                *bool          `xml:"showRuler,attr,omitempty"`
+	ShowOutlineSymbols       *bool          `xml:"showOutlineSymbols,attr,omitempty"`
+	DefaultGridColor         *bool          `xml:"defaultGridColor,attr,omitempty"`
+	ShowWhiteSpace           *bool          `xml:"showWhiteSpace,attr,omitempty"`
+	View                     string         `xml:"view,attr,omitempty"`
+	TopLeftCell              string         `xml:"topLeftCell,attr,omitempty"`
+	ColorId                  *uint32        `xml:"colorId,attr,omitempty"`
+	ZoomScale                *uint32        `xml:"zoomScale,attr,omitempty"`
+	ZoomScaleNormal          *uint32        `xml:"zoomScaleNormal,attr,omitempty"`
+	ZoomScaleSheetLayoutView *uint32        `xml:"zoomScaleSheetLayoutView,attr,omitempty"`
+	ZoomScalePageLayoutView  *uint32        `xml:"zoomScalePageLayoutView,attr,omitempty"`
+	WorkbookViewId           uint32         `xml:"workbookViewId,attr"`
+	Pane                     *CT_Pane       `xml:"pane,omitempty"`
 	Selection                []CT_Selection `xml:"selection"`
 }
 
@@ -649,17 +652,17 @@ func (sd *CT_SheetData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 // CT_Row represents a row element.
 // It has a custom x14ac:dyDescent attribute that requires custom marshal/unmarshal.
 type CT_Row struct {
-	R            *uint32    `xml:"-"`
-	Spans        string     `xml:"-"`
-	S            *uint32    `xml:"-"`
-	Ht           *float64   `xml:"-"`
-	Hidden       *bool      `xml:"-"`
-	CustomHeight *bool      `xml:"-"`
-	OutlineLevel *uint8     `xml:"-"`
-	Collapsed    *bool      `xml:"-"`
-	ThickTop     *bool      `xml:"-"`
-	ThickBot     *bool      `xml:"-"`
-	Ph           *bool      `xml:"-"`
+	R            *uint32  `xml:"-"`
+	Spans        string   `xml:"-"`
+	S            *uint32  `xml:"-"`
+	Ht           *float64 `xml:"-"`
+	Hidden       *bool    `xml:"-"`
+	CustomHeight *bool    `xml:"-"`
+	OutlineLevel *uint8   `xml:"-"`
+	Collapsed    *bool    `xml:"-"`
+	ThickTop     *bool    `xml:"-"`
+	ThickBot     *bool    `xml:"-"`
+	Ph           *bool    `xml:"-"`
 	// C holds pointers so that a *Cell handle obtained from the public API
 	// stays valid when later cells are appended to the same row (appending a
 	// value slice would reallocate its backing array and detach prior
@@ -1219,17 +1222,17 @@ func (tp *CT_TablePart) MarshalToBuilder(b *xmlb.Builder, ns, localName string) 
 
 // CT_AutoFilter represents the autoFilter element.
 type CT_AutoFilter struct {
-	Ref          string             `xml:"ref,attr,omitempty"`
-	FilterColumn []CT_FilterColumn  `xml:"filterColumn"`
-	SortState    *CT_SortState      `xml:"sortState,omitempty"`
+	Ref          string            `xml:"ref,attr,omitempty"`
+	FilterColumn []CT_FilterColumn `xml:"filterColumn"`
+	SortState    *CT_SortState     `xml:"sortState,omitempty"`
 }
 
 // CT_FilterColumn represents a filterColumn element.
 type CT_FilterColumn struct {
-	ColId         uint32           `xml:"colId,attr"`
-	HiddenButton  *bool            `xml:"hiddenButton,attr,omitempty"`
-	ShowButton    *bool            `xml:"showButton,attr,omitempty"`
-	Filters       *CT_Filters      `xml:"filters,omitempty"`
+	ColId         uint32            `xml:"colId,attr"`
+	HiddenButton  *bool             `xml:"hiddenButton,attr,omitempty"`
+	ShowButton    *bool             `xml:"showButton,attr,omitempty"`
+	Filters       *CT_Filters       `xml:"filters,omitempty"`
 	CustomFilters *CT_CustomFilters `xml:"customFilters,omitempty"`
 }
 
@@ -1246,8 +1249,8 @@ type CT_Filter struct {
 
 // CT_CustomFilters represents the customFilters element.
 type CT_CustomFilters struct {
-	And          *bool              `xml:"and,attr,omitempty"`
-	CustomFilter []CT_CustomFilter  `xml:"customFilter"`
+	And          *bool             `xml:"and,attr,omitempty"`
+	CustomFilter []CT_CustomFilter `xml:"customFilter"`
 }
 
 // CT_CustomFilter represents a customFilter element.
@@ -1290,23 +1293,23 @@ type CT_ConditionalFormatting struct {
 
 // CT_CfRule represents a cfRule element.
 type CT_CfRule struct {
-	Type         string        `xml:"type,attr,omitempty"`
-	DxfId        *uint32       `xml:"dxfId,attr,omitempty"`
-	Priority     int32         `xml:"priority,attr"`
-	StopIfTrue   *bool         `xml:"stopIfTrue,attr,omitempty"`
-	AboveAverage *bool         `xml:"aboveAverage,attr,omitempty"`
-	Percent      *bool         `xml:"percent,attr,omitempty"`
-	Bottom       *bool         `xml:"bottom,attr,omitempty"`
-	Operator     string        `xml:"operator,attr,omitempty"`
-	Text         string        `xml:"text,attr,omitempty"`
-	TimePeriod   string        `xml:"timePeriod,attr,omitempty"`
-	Rank         *uint32       `xml:"rank,attr,omitempty"`
-	StdDev       *int32        `xml:"stdDev,attr,omitempty"`
-	EqualAverage *bool         `xml:"equalAverage,attr,omitempty"`
-	Formula      []string      `xml:"formula"`
+	Type         string         `xml:"type,attr,omitempty"`
+	DxfId        *uint32        `xml:"dxfId,attr,omitempty"`
+	Priority     int32          `xml:"priority,attr"`
+	StopIfTrue   *bool          `xml:"stopIfTrue,attr,omitempty"`
+	AboveAverage *bool          `xml:"aboveAverage,attr,omitempty"`
+	Percent      *bool          `xml:"percent,attr,omitempty"`
+	Bottom       *bool          `xml:"bottom,attr,omitempty"`
+	Operator     string         `xml:"operator,attr,omitempty"`
+	Text         string         `xml:"text,attr,omitempty"`
+	TimePeriod   string         `xml:"timePeriod,attr,omitempty"`
+	Rank         *uint32        `xml:"rank,attr,omitempty"`
+	StdDev       *int32         `xml:"stdDev,attr,omitempty"`
+	EqualAverage *bool          `xml:"equalAverage,attr,omitempty"`
+	Formula      []string       `xml:"formula"`
 	ColorScale   *CT_ColorScale `xml:"colorScale,omitempty"`
-	DataBar      *CT_DataBar   `xml:"dataBar,omitempty"`
-	IconSet      *CT_IconSet   `xml:"iconSet,omitempty"`
+	DataBar      *CT_DataBar    `xml:"dataBar,omitempty"`
+	IconSet      *CT_IconSet    `xml:"iconSet,omitempty"`
 }
 
 // CT_ColorScale represents the colorScale element.
@@ -1345,9 +1348,9 @@ type CT_Cfvo struct {
 
 // CT_DataValidations represents the dataValidations element.
 type CT_DataValidations struct {
-	DisablePrompts *bool                `xml:"disablePrompts,attr,omitempty"`
-	Count          *uint32              `xml:"count,attr,omitempty"`
-	DataValidation []CT_DataValidation  `xml:"dataValidation"`
+	DisablePrompts *bool               `xml:"disablePrompts,attr,omitempty"`
+	Count          *uint32             `xml:"count,attr,omitempty"`
+	DataValidation []CT_DataValidation `xml:"dataValidation"`
 }
 
 // CT_DataValidation represents a dataValidation element.
@@ -1375,26 +1378,26 @@ type CT_DataValidation struct {
 
 // CT_SheetProtection represents the sheetProtection element.
 type CT_SheetProtection struct {
-	Sheet               *bool  `xml:"sheet,attr,omitempty"`
-	Objects             *bool  `xml:"objects,attr,omitempty"`
-	Scenarios           *bool  `xml:"scenarios,attr,omitempty"`
-	FormatCells         *bool  `xml:"formatCells,attr,omitempty"`
-	FormatColumns       *bool  `xml:"formatColumns,attr,omitempty"`
-	FormatRows          *bool  `xml:"formatRows,attr,omitempty"`
-	InsertColumns       *bool  `xml:"insertColumns,attr,omitempty"`
-	InsertRows          *bool  `xml:"insertRows,attr,omitempty"`
-	InsertHyperlinks    *bool  `xml:"insertHyperlinks,attr,omitempty"`
-	DeleteColumns       *bool  `xml:"deleteColumns,attr,omitempty"`
-	DeleteRows          *bool  `xml:"deleteRows,attr,omitempty"`
-	SelectLockedCells   *bool  `xml:"selectLockedCells,attr,omitempty"`
-	Sort                *bool  `xml:"sort,attr,omitempty"`
-	AutoFilter          *bool  `xml:"autoFilter,attr,omitempty"`
-	PivotTables         *bool  `xml:"pivotTables,attr,omitempty"`
-	SelectUnlockedCells *bool  `xml:"selectUnlockedCells,attr,omitempty"`
-	Password            string `xml:"password,attr,omitempty"`
-	AlgorithmName       string `xml:"algorithmName,attr,omitempty"`
-	HashValue           string `xml:"hashValue,attr,omitempty"`
-	SaltValue           string `xml:"saltValue,attr,omitempty"`
+	Sheet               *bool   `xml:"sheet,attr,omitempty"`
+	Objects             *bool   `xml:"objects,attr,omitempty"`
+	Scenarios           *bool   `xml:"scenarios,attr,omitempty"`
+	FormatCells         *bool   `xml:"formatCells,attr,omitempty"`
+	FormatColumns       *bool   `xml:"formatColumns,attr,omitempty"`
+	FormatRows          *bool   `xml:"formatRows,attr,omitempty"`
+	InsertColumns       *bool   `xml:"insertColumns,attr,omitempty"`
+	InsertRows          *bool   `xml:"insertRows,attr,omitempty"`
+	InsertHyperlinks    *bool   `xml:"insertHyperlinks,attr,omitempty"`
+	DeleteColumns       *bool   `xml:"deleteColumns,attr,omitempty"`
+	DeleteRows          *bool   `xml:"deleteRows,attr,omitempty"`
+	SelectLockedCells   *bool   `xml:"selectLockedCells,attr,omitempty"`
+	Sort                *bool   `xml:"sort,attr,omitempty"`
+	AutoFilter          *bool   `xml:"autoFilter,attr,omitempty"`
+	PivotTables         *bool   `xml:"pivotTables,attr,omitempty"`
+	SelectUnlockedCells *bool   `xml:"selectUnlockedCells,attr,omitempty"`
+	Password            string  `xml:"password,attr,omitempty"`
+	AlgorithmName       string  `xml:"algorithmName,attr,omitempty"`
+	HashValue           string  `xml:"hashValue,attr,omitempty"`
+	SaltValue           string  `xml:"saltValue,attr,omitempty"`
 	SpinCount           *uint32 `xml:"spinCount,attr,omitempty"`
 }
 

@@ -13,7 +13,7 @@ import (
 type GraphicFrame struct {
 	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main graphicFrame"`
 	NvGraphicFramePr *NvGraphicFramePr `xml:"nvGraphicFramePr"`
-	Xfrm             *dml.Xfrm        `xml:"xfrm"`
+	Xfrm             *dml.Xfrm         `xml:"xfrm"`
 	Graphic          *AGraphic         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic"`
 	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
 }
@@ -25,15 +25,14 @@ type NvGraphicFramePr struct {
 	NvPr              *NvPr              `xml:"nvPr"`
 }
 
-// CNvGraphicFramePr contains non-visual graphic frame drawing properties.
-type CNvGraphicFramePr struct {
-	GraphicFrameLocks *GraphicFrameLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphicFrameLocks,omitempty"`
-}
+// CNvGraphicFramePr is CT_NonVisualGraphicFrameProperties, shared with
+// common/dml (graphicFrameLocks + extLst).
+type CNvGraphicFramePr = dml.CNvGraphicFramePr
 
-// GraphicFrameLocks contains graphic frame locking properties.
-type GraphicFrameLocks struct {
-	NoGrp bool `xml:"noGrp,attr,omitempty"`
-}
+// GraphicFrameLocks is CT_GraphicalObjectFrameLocking. It is the shared
+// DrawingML type: the previous local model exposed only noGrp and silently
+// dropped noChangeAspect, noDrilldown, noSelect, noMove, noResize and extLst.
+type GraphicFrameLocks = dml.GraphicFrameLocks
 
 // AGraphic represents a DrawingML graphic container.
 type AGraphic struct {
@@ -138,20 +137,33 @@ const TableGraphicDataURI = "http://schemas.openxmlformats.org/drawingml/2006/ta
 
 // ATable represents a DrawingML table.
 type ATable struct {
-	TblPr   *ATblPr  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tblPr,omitempty"`
+	TblPr   *ATblPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tblPr,omitempty"`
 	TblGrid *ATblGrid `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tblGrid"`
-	Tr      []*ATr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tr"`
+	Tr      []*ATr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tr"`
 }
 
-// ATblPr contains table properties.
+// ATblPr contains table properties (CT_TableProperties). Child order follows
+// the XSD sequence: fill choice, effect choice, tableStyle|tableStyleId,
+// extLst.
 type ATblPr struct {
-	FirstRow     bool   `xml:"firstRow,attr,omitempty"`
-	FirstCol     bool   `xml:"firstCol,attr,omitempty"`
-	LastRow      bool   `xml:"lastRow,attr,omitempty"`
-	LastCol      bool   `xml:"lastCol,attr,omitempty"`
-	BandRow      bool   `xml:"bandRow,attr,omitempty"`
-	BandCol      bool   `xml:"bandCol,attr,omitempty"`
-	TableStyleId string `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
+	Rtl          bool             `xml:"rtl,attr,omitempty"`
+	FirstRow     bool             `xml:"firstRow,attr,omitempty"`
+	FirstCol     bool             `xml:"firstCol,attr,omitempty"`
+	LastRow      bool             `xml:"lastRow,attr,omitempty"`
+	LastCol      bool             `xml:"lastCol,attr,omitempty"`
+	BandRow      bool             `xml:"bandRow,attr,omitempty"`
+	BandCol      bool             `xml:"bandCol,attr,omitempty"`
+	NoFill       *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill    *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill     *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill     *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill     *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill      *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	EffectLst    *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	EffectDag    *dml.EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	TableStyle   *dml.TableStyle  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyle,omitempty"`
+	TableStyleId string           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
+	ExtLst       *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ATblGrid contains table grid column definitions.
@@ -177,23 +189,39 @@ type ATr struct {
 type ATc struct {
 	TxBody   *dml.TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txBody,omitempty"`
 	TcPr     *ATcPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcPr,omitempty"`
-	RowSpan  int          `xml:"rowSpan,attr,omitempty"`
-	GridSpan int          `xml:"gridSpan,attr,omitempty"`
-	HMerge   bool         `xml:"hMerge,attr,omitempty"`
-	VMerge   bool         `xml:"vMerge,attr,omitempty"`
+	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	RowSpan  int         `xml:"rowSpan,attr,omitempty"`
+	GridSpan int         `xml:"gridSpan,attr,omitempty"`
+	HMerge   bool        `xml:"hMerge,attr,omitempty"`
+	VMerge   bool        `xml:"vMerge,attr,omitempty"`
+	Id       string      `xml:"id,attr,omitempty"`
 }
 
-// ATcPr contains table cell properties.
+// ATcPr contains table cell properties (CT_TableCellProperties). Child order
+// follows the XSD sequence: lnL, lnR, lnT, lnB, lnTlToBr, lnBlToTr, cell3D,
+// fill choice, headers, extLst.
 type ATcPr struct {
-	MarL      *int64          `xml:"marL,attr,omitempty"`
-	MarR      *int64          `xml:"marR,attr,omitempty"`
-	MarT      *int64          `xml:"marT,attr,omitempty"`
-	MarB      *int64          `xml:"marB,attr,omitempty"`
-	Anchor    string          `xml:"anchor,attr,omitempty"`
-	LnL       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
-	LnR       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`
-	LnT       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnT,omitempty"`
-	LnB       *dml.Ln         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnB,omitempty"`
-	SolidFill *dml.SolidFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	NoFill    *dml.NoFillXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	MarL         *int64           `xml:"marL,attr,omitempty"`
+	MarR         *int64           `xml:"marR,attr,omitempty"`
+	MarT         *int64           `xml:"marT,attr,omitempty"`
+	MarB         *int64           `xml:"marB,attr,omitempty"`
+	Vert         string           `xml:"vert,attr,omitempty"`
+	Anchor       string           `xml:"anchor,attr,omitempty"`
+	AnchorCtr    *bool            `xml:"anchorCtr,attr,omitempty"`
+	HorzOverflow string           `xml:"horzOverflow,attr,omitempty"`
+	LnL          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
+	LnR          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`
+	LnT          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnT,omitempty"`
+	LnB          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnB,omitempty"`
+	LnTlToBr     *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnTlToBr,omitempty"`
+	LnBlToTr     *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnBlToTr,omitempty"`
+	Cell3D       *dml.Cell3D      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cell3D,omitempty"`
+	NoFill       *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill    *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill     *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill     *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill     *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill      *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	Headers      *dml.Headers     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headers,omitempty"`
+	ExtLst       *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }

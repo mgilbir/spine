@@ -8,24 +8,24 @@ import (
 
 // CT_TblPr represents table properties (w:tblPr).
 type CT_TblPr struct {
-	TblStyle         *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStyle,omitempty"`
-	TblpPr           *CT_TblPPr      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpPr,omitempty"`
-	TblOverlap       *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblOverlap,omitempty"`
-	BidiVisual       *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidiVisual,omitempty"`
+	TblStyle            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStyle,omitempty"`
+	TblpPr              *CT_TblPPr        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpPr,omitempty"`
+	TblOverlap          *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblOverlap,omitempty"`
+	BidiVisual          *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidiVisual,omitempty"`
 	TblStyleRowBandSize *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStyleRowBandSize,omitempty"`
 	TblStyleColBandSize *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStyleColBandSize,omitempty"`
-	TblW             *CT_TblWidth    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblW,omitempty"`
-	Jc               *CT_Jc          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
-	TblCellSpacing   *CT_TblWidth    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
-	TblInd           *CT_TblWidth    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblInd,omitempty"`
-	TblBorders       *CT_TblBorders  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblBorders,omitempty"`
-	Shd              *CT_Shd         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
-	TblLayout        *CT_TblLayout   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblLayout,omitempty"`
-	TblCellMar       *CT_TblCellMar  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellMar,omitempty"`
-	TblLook          *CT_TblLook     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblLook,omitempty"`
-	TblCaption       *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCaption,omitempty"`
-	TblDescription   *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblDescription,omitempty"`
-	TblPrChange      *CT_TblPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPrChange,omitempty"`
+	TblW                *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblW,omitempty"`
+	Jc                  *CT_Jc            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
+	TblCellSpacing      *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
+	TblInd              *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblInd,omitempty"`
+	TblBorders          *CT_TblBorders    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblBorders,omitempty"`
+	Shd                 *CT_Shd           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
+	TblLayout           *CT_TblLayout     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblLayout,omitempty"`
+	TblCellMar          *CT_TblCellMar    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellMar,omitempty"`
+	TblLook             *CT_TblLook       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblLook,omitempty"`
+	TblCaption          *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCaption,omitempty"`
+	TblDescription      *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblDescription,omitempty"`
+	TblPrChange         *CT_TblPrChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPrChange,omitempty"`
 }
 
 // CT_TblPPr represents table positioning properties.
@@ -57,13 +57,13 @@ type CT_TblCellMar struct {
 
 // CT_TblLook represents conditional formatting flags for a table.
 type CT_TblLook struct {
-	Val            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	FirstRow       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRow,attr,omitempty"`
-	LastRow        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRow,attr,omitempty"`
-	FirstColumn    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstColumn,attr,omitempty"`
-	LastColumn     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastColumn,attr,omitempty"`
-	NoHBand        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noHBand,attr,omitempty"`
-	NoVBand        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noVBand,attr,omitempty"`
+	Val         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	FirstRow    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRow,attr,omitempty"`
+	LastRow     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRow,attr,omitempty"`
+	FirstColumn string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstColumn,attr,omitempty"`
+	LastColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastColumn,attr,omitempty"`
+	NoHBand     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noHBand,attr,omitempty"`
+	NoVBand     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noVBand,attr,omitempty"`
 }
 
 // CT_TblGrid represents table grid definition.
@@ -76,23 +76,42 @@ type CT_GridCol struct {
 	W string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
 }
 
+// CT_Cnf represents conditional-formatting properties (w:cnfStyle, CT_Cnf).
+// Word writes w:val plus twelve explicit ST_OnOff attributes; they are kept
+// as strings so explicit zeros and lexical forms round-trip.
+type CT_Cnf struct {
+	Val                 string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	FirstRow            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRow,attr,omitempty"`
+	LastRow             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRow,attr,omitempty"`
+	FirstColumn         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstColumn,attr,omitempty"`
+	LastColumn          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastColumn,attr,omitempty"`
+	OddVBand            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oddVBand,attr,omitempty"`
+	EvenVBand           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main evenVBand,attr,omitempty"`
+	OddHBand            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oddHBand,attr,omitempty"`
+	EvenHBand           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main evenHBand,attr,omitempty"`
+	FirstRowFirstColumn string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRowFirstColumn,attr,omitempty"`
+	FirstRowLastColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRowLastColumn,attr,omitempty"`
+	LastRowFirstColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRowFirstColumn,attr,omitempty"`
+	LastRowLastColumn   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRowLastColumn,attr,omitempty"`
+}
+
 // CT_TrPr represents table row properties.
 type CT_TrPr struct {
-	CnfStyle      *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
-	DivId         *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
-	GridBefore    *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
-	GridAfter     *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
-	WBefore       *CT_TblWidth     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
-	WAfter        *CT_TblWidth     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
-	CantSplit     *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
-	TrHeight      *CT_Height       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
-	TblHeader     *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
-	TblCellSpacing *CT_TblWidth    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
-	Jc            *CT_Jc           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
-	Hidden        *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
-	Ins           *CT_TrackChange  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
-	Del           *CT_TrackChange  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
-	TrPrChange    *CT_TrPrChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
+	CnfStyle       *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
+	DivId          *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
+	GridBefore     *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
+	GridAfter      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
+	WBefore        *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
+	WAfter         *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
+	CantSplit      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
+	TrHeight       *CT_Height        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
+	TblHeader      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
+	TblCellSpacing *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
+	Jc             *CT_Jc            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
+	Hidden         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
+	Ins            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
+	Del            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
+	TrPrChange     *CT_TrPrChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
 }
 
 // CT_Height represents a height measurement.
@@ -110,44 +129,44 @@ type CT_TrackChange struct {
 
 // CT_TcPr represents table cell properties.
 type CT_TcPr struct {
-	CnfStyle       *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
-	TcW            *CT_TblWidth     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcW,omitempty"`
-	GridSpan       *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridSpan,omitempty"`
-	HMerge         *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hMerge,omitempty"`
-	VMerge         *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,omitempty"`
-	TcBorders      *CT_TcBorders    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcBorders,omitempty"`
-	Shd            *CT_Shd          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
-	NoWrap         *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noWrap,omitempty"`
-	TcMar          *CT_TblCellMar   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcMar,omitempty"`
-	TextDirection  *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
-	TcFitText      *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcFitText,omitempty"`
-	VAlign         *CT_String       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAlign,omitempty"`
-	HideMark       *CT_OnOff        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hideMark,omitempty"`
-	CellIns        *CT_TrackChange  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellIns,omitempty"`
-	CellDel        *CT_TrackChange  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellDel,omitempty"`
-	CellMerge      *CT_CellMerge    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellMerge,omitempty"`
-	TcPrChange     *CT_TcPrChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPrChange,omitempty"`
+	CnfStyle      *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
+	TcW           *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcW,omitempty"`
+	GridSpan      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridSpan,omitempty"`
+	HMerge        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hMerge,omitempty"`
+	VMerge        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,omitempty"`
+	TcBorders     *CT_TcBorders     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcBorders,omitempty"`
+	Shd           *CT_Shd           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shd,omitempty"`
+	NoWrap        *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noWrap,omitempty"`
+	TcMar         *CT_TblCellMar    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcMar,omitempty"`
+	TextDirection *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
+	TcFitText     *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcFitText,omitempty"`
+	VAlign        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAlign,omitempty"`
+	HideMark      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hideMark,omitempty"`
+	CellIns       *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellIns,omitempty"`
+	CellDel       *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellDel,omitempty"`
+	CellMerge     *CT_CellMerge     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cellMerge,omitempty"`
+	TcPrChange    *CT_TcPrChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPrChange,omitempty"`
 }
 
 // CT_CellMerge represents cell merge revision information.
 type CT_CellMerge struct {
-	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
-	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr,omitempty"`
-	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
-	VMerge string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,attr,omitempty"`
+	Id         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
+	Author     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr,omitempty"`
+	Date       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	VMerge     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,attr,omitempty"`
 	VMergeOrig string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMergeOrig,attr,omitempty"`
 }
 
 // CT_Tc represents a table cell (w:tc).
 type CT_Tc struct {
-	TcPr       *CT_TcPr         `xml:"-"`
-	P          []*CT_P           `xml:"-"`
-	Tbl        []*CT_Tbl         `xml:"-"`
-	SdtBlock   []*CT_SdtBlock    `xml:"-"`
-	BookmarkStart []*CT_BookmarkStart `xml:"-"`
-	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
+	TcPr          *CT_TcPr              `xml:"-"`
+	P             []*CT_P               `xml:"-"`
+	Tbl           []*CT_Tbl             `xml:"-"`
+	SdtBlock      []*CT_SdtBlock        `xml:"-"`
+	BookmarkStart []*CT_BookmarkStart   `xml:"-"`
+	BookmarkEnd   []*CT_BookmarkEnd     `xml:"-"`
 	Raw           []*CT_RawNamedElement `xml:"-"`
-	childOrder []bodyChildRef
+	childOrder    []bodyChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Tc.
@@ -220,21 +239,21 @@ type trChildRef struct {
 
 // CT_Tr represents a table row (w:tr).
 type CT_Tr struct {
-	RsidR    string       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr  string       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidTr   string       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
-	ParaId   string       `xml:"-"` // w14:paraId
-	TextId   string       `xml:"-"` // w14:textId
+	RsidR   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidTr  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
+	ParaId  string `xml:"-"` // w14:paraId
+	TextId  string `xml:"-"` // w14:textId
 	// TblPrEx (w:tblPrEx, table property exceptions for this row) is preserved
 	// raw; it precedes trPr in the schema and is re-emitted in that position.
-	TblPrEx  *CT_RawElement `xml:"-"`
-	TrPr     *CT_TrPr     `xml:"-"`
-	Tc       []*CT_Tc     `xml:"-"`
-	BookmarkStart []*CT_BookmarkStart `xml:"-"`
-	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
-	SdtCell       []*CT_SdtBlock      `xml:"-"`
-	Ins           []*CT_RunTrackChange `xml:"-"`
-	Del           []*CT_RunTrackChange `xml:"-"`
+	TblPrEx       *CT_RawElement        `xml:"-"`
+	TrPr          *CT_TrPr              `xml:"-"`
+	Tc            []*CT_Tc              `xml:"-"`
+	BookmarkStart []*CT_BookmarkStart   `xml:"-"`
+	BookmarkEnd   []*CT_BookmarkEnd     `xml:"-"`
+	SdtCell       []*CT_SdtBlock        `xml:"-"`
+	Ins           []*CT_RunTrackChange  `xml:"-"`
+	Del           []*CT_RunTrackChange  `xml:"-"`
 	Raw           []*CT_RawNamedElement `xml:"-"`
 	childOrder    []trChildRef
 }

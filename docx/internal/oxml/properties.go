@@ -98,13 +98,15 @@ type CT_Border struct {
 
 // CT_Shd represents shading properties.
 type CT_Shd struct {
-	Val        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	Color      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
-	Fill       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fill,attr,omitempty"`
-	ThemeFill  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFill,attr,omitempty"`
-	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
-	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
-	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	Val            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Color          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	Fill           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fill,attr,omitempty"`
+	ThemeFill      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFill,attr,omitempty"`
+	ThemeFillTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillTint,attr,omitempty"`
+	ThemeFillShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillShade,attr,omitempty"`
+	ThemeColor     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeTint      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
+	ThemeShade     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
 }
 
 // CT_Underline represents underline formatting.
@@ -116,9 +118,9 @@ type CT_Underline struct {
 
 // CT_Lang represents language identification.
 type CT_Lang struct {
-	Val   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	Val      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 	EastAsia string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
-	Bidi  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
+	Bidi     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
 }
 
 // CT_Fonts represents font specifications.
@@ -167,47 +169,47 @@ type CT_PBdr struct {
 
 // CT_TblBorders represents table borders.
 type CT_TblBorders struct {
-	Top       *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
-	Left      *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
-	Bottom    *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
-	Right     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
-	InsideH   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideH,omitempty"`
-	InsideV   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
+	Top     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
+	Left    *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
+	Bottom  *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
+	Right   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
+	InsideH *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideH,omitempty"`
+	InsideV *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
 }
 
 // CT_TcBorders represents table cell borders.
 type CT_TcBorders struct {
-	Top       *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
-	Left      *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
-	Bottom    *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
-	Right     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
-	InsideH   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideH,omitempty"`
-	InsideV   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
-	Tl2Br     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tl2br,omitempty"`
-	Tr2Bl     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tr2bl,omitempty"`
+	Top     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
+	Left    *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
+	Bottom  *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
+	Right   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
+	InsideH *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideH,omitempty"`
+	InsideV *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main insideV,omitempty"`
+	Tl2Br   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tl2br,omitempty"`
+	Tr2Bl   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tr2bl,omitempty"`
 }
 
 // CT_Spacing represents paragraph spacing.
 type CT_Spacing struct {
-	Before           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
-	BeforeLines      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeLines,attr,omitempty"`
+	Before            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
+	BeforeLines       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeLines,attr,omitempty"`
 	BeforeAutospacing string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeAutospacing,attr,omitempty"`
-	After            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
-	AfterLines       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterLines,attr,omitempty"`
-	AfterAutospacing string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterAutospacing,attr,omitempty"`
-	Line             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
-	LineRule         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
+	After             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
+	AfterLines        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterLines,attr,omitempty"`
+	AfterAutospacing  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterAutospacing,attr,omitempty"`
+	Line              string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
+	LineRule          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
 }
 
 // CT_Ind represents paragraph indentation.
 type CT_Ind struct {
-	Left       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
-	LeftChars  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftChars,attr,omitempty"`
-	Right      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
-	RightChars string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightChars,attr,omitempty"`
-	Hanging    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
-	HangingChars string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hangingChars,attr,omitempty"`
-	FirstLine  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
+	Left           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
+	LeftChars      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftChars,attr,omitempty"`
+	Right          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
+	RightChars     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightChars,attr,omitempty"`
+	Hanging        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
+	HangingChars   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hangingChars,attr,omitempty"`
+	FirstLine      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
 	FirstLineChars string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLineChars,attr,omitempty"`
 }
 
@@ -218,7 +220,7 @@ type CT_Jc struct {
 
 // CT_NumPr represents numbering properties.
 type CT_NumPr struct {
-	Ilvl *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ilvl,omitempty"`
+	Ilvl  *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ilvl,omitempty"`
 	NumId *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numId,omitempty"`
 }
 
@@ -236,20 +238,20 @@ type CT_TabStop struct {
 
 // CT_FramePr represents frame properties.
 type CT_FramePr struct {
-	DropCap  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dropCap,attr,omitempty"`
-	Lines    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lines,attr,omitempty"`
-	W        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
-	H        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
-	VSpace   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vSpace,attr,omitempty"`
-	HSpace   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hSpace,attr,omitempty"`
-	Wrap     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wrap,attr,omitempty"`
-	HAnchor  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnchor,attr,omitempty"`
-	VAnchor  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAnchor,attr,omitempty"`
-	X        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main x,attr,omitempty"`
-	XAlign   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main xAlign,attr,omitempty"`
-	Y        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main y,attr,omitempty"`
-	YAlign   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main yAlign,attr,omitempty"`
-	HRule    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	DropCap    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dropCap,attr,omitempty"`
+	Lines      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lines,attr,omitempty"`
+	W          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
+	H          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
+	VSpace     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vSpace,attr,omitempty"`
+	HSpace     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hSpace,attr,omitempty"`
+	Wrap       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wrap,attr,omitempty"`
+	HAnchor    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnchor,attr,omitempty"`
+	VAnchor    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAnchor,attr,omitempty"`
+	X          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main x,attr,omitempty"`
+	XAlign     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main xAlign,attr,omitempty"`
+	Y          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main y,attr,omitempty"`
+	YAlign     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main yAlign,attr,omitempty"`
+	HRule      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
 	AnchorLock string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchorLock,attr,omitempty"`
 }
 

@@ -452,6 +452,7 @@ type HlinkXML struct {
 	HighlightClick *bool           `xml:"highlightClick,attr,omitempty"`
 	EndSnd         *bool           `xml:"endSnd,attr,omitempty"`
 	Snd            *EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main snd,omitempty"`
+	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // EmbeddedWAVXML represents CT_EmbeddedWAVAudioFile (a:snd)

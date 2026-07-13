@@ -37,13 +37,15 @@ type TblGrid struct {
 
 // GridCol represents CT_TableCol (a:gridCol)
 type GridCol struct {
-	W int64 `xml:"w,attr"`
+	W      int64   `xml:"w,attr"`
+	ExtLst *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // Tr represents CT_TableRow (a:tr)
 type Tr struct {
-	H  int64 `xml:"h,attr,omitempty"`
-	Tc []*Tc `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc,omitempty"`
+	H      int64   `xml:"h,attr,omitempty"`
+	Tc     []*Tc   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc,omitempty"`
+	ExtLst *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // Tc represents CT_TableCell (a:tc)
@@ -55,6 +57,7 @@ type Tc struct {
 	Id       string  `xml:"id,attr,omitempty"`
 	TxBody   *TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txBody,omitempty"`
 	TcPr     *TcPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcPr,omitempty"`
+	ExtLst   *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TcPr represents CT_TableCellProperties (a:tcPr)
@@ -80,7 +83,14 @@ type TcPr struct {
 	BlipFill     *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
 	PattFill     *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
 	GrpFill      *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	Headers      *Headers     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headers,omitempty"`
 	ExtLst       *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+}
+
+// Headers represents CT_Headers (a:headers), the accessibility header
+// references of a table cell.
+type Headers struct {
+	Header []string `xml:"http://schemas.openxmlformats.org/drawingml/2006/main header"`
 }
 
 // Cell3D represents CT_Cell3D (a:cell3D)
@@ -88,6 +98,7 @@ type Cell3D struct {
 	PrstMaterial string    `xml:"prstMaterial,attr,omitempty"`
 	Bevel        *Bevel3d  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bevel,omitempty"`
 	LightRig     *LightRig `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lightRig,omitempty"`
+	ExtLst       *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // TableStyle represents CT_TableStyle (a:tblStyle)
