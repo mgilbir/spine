@@ -20,6 +20,8 @@ type AlternateContent = coxml.AlternateContent
 // acAnchors; see root_marshal.go.
 type Slide struct {
 	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
 	Show             *bool               `xml:"show,attr,omitempty"`
 	CSld             *CommonSlideData    `xml:"cSld"`
 	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
@@ -112,18 +114,110 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 }
 
 // CommonSlideData contains elements common to slides, layouts, and masters.
+//
+// The optional custDataLst and controls children (the latter holds ActiveX
+// controls) are captured as raw bytes so a save re-emits them instead of
+// deleting them (C33). Their schema position is fixed (bg?, spTree,
+// custDataLst?, controls?, extLst?), so raw fields preserve position too.
 type CommonSlideData struct {
-	Name   string         `xml:"name,attr,omitempty"`
-	Bg     *Background    `xml:"bg,omitempty"`
-	SpTree *ShapeTree     `xml:"spTree"`
-	ExtLst *ExtensionList `xml:"extLst,omitempty"`
+	Name        string         `xml:"name,attr,omitempty"`
+	Bg          *Background    `xml:"bg,omitempty"`
+	SpTree      *ShapeTree     `xml:"spTree"`
+	CustDataLst []byte         `xml:"-"`
+	Controls    []byte         `xml:"-"`
+	ExtLst      *ExtensionList `xml:"extLst,omitempty"`
+}
+
+// UnmarshalXML implements custom unmarshaling for CommonSlideData so the
+// unmodeled custDataLst and controls children are kept as raw bytes.
+func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "name" {
+			c.Name = attr.Value
+		}
+	}
+	captureRaw := func(t xml.StartElement) ([]byte, error) {
+		var inner struct {
+			Content []byte `xml:",innerxml"`
+		}
+		if err := d.DecodeElement(&inner, &t); err != nil {
+			return nil, err
+		}
+		return encodeRawChild(t, inner.Content), nil
+	}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "bg":
+				c.Bg = &Background{}
+				if err := d.DecodeElement(c.Bg, &t); err != nil {
+					return err
+				}
+			case "spTree":
+				c.SpTree = &ShapeTree{}
+				if err := d.DecodeElement(c.SpTree, &t); err != nil {
+					return err
+				}
+			case "custDataLst":
+				if c.CustDataLst, err = captureRaw(t); err != nil {
+					return err
+				}
+			case "controls":
+				if c.Controls, err = captureRaw(t); err != nil {
+					return err
+				}
+			case "extLst":
+				c.ExtLst = &ExtensionList{}
+				if err := d.DecodeElement(c.ExtLst, &t); err != nil {
+					return err
+				}
+			default:
+				if err := d.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler, re-emitting the raw
+// custDataLst and controls children in their schema position.
+func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	var attrs []xmlb.Attr
+	if c.Name != "" {
+		attrs = append(attrs, xmlb.StrAttr("name", c.Name))
+	}
+	b.StartElement(ns, localName, attrs...)
+	if c.Bg != nil {
+		b.MarshalElement(ns, "bg", c.Bg)
+	}
+	if c.SpTree != nil {
+		b.MarshalElement(ns, "spTree", c.SpTree)
+	}
+	if len(c.CustDataLst) > 0 {
+		b.WriteRaw(c.CustDataLst)
+	}
+	if len(c.Controls) > 0 {
+		b.WriteRaw(c.Controls)
+	}
+	if c.ExtLst != nil {
+		b.MarshalElement(ns, "extLst", c.ExtLst)
+	}
+	b.EndElement(ns, localName)
 }
 
 // Background represents a slide background (p:bg).
 type Background struct {
-	BwMode string          `xml:"bwMode,attr,omitempty"`
+	BwMode string           `xml:"bwMode,attr,omitempty"`
 	BgPr   *BackgroundProps `xml:"bgPr,omitempty"`
-	BgRef  *dml.FillRef    `xml:"bgRef,omitempty"`
+	BgRef  *dml.FillRef     `xml:"bgRef,omitempty"`
 }
 
 // BackgroundProps contains background fill properties.
@@ -143,11 +237,11 @@ type BackgroundProps struct {
 type ShapeTree struct {
 	NvGrpSpPr    *NvGrpSpPr         `xml:"nvGrpSpPr"`
 	GrpSpPr      *GrpSpPr           `xml:"grpSpPr"`
-	Sp           []*Shape            `xml:"-"`
-	Pic          []*Picture          `xml:"-"`
-	GraphicFrame []*GraphicFrame     `xml:"-"`
-	GrpSp        []*GroupShape       `xml:"-"`
-	CxnSp        []*ConnectionShape  `xml:"-"`
+	Sp           []*Shape           `xml:"-"`
+	Pic          []*Picture         `xml:"-"`
+	GraphicFrame []*GraphicFrame    `xml:"-"`
+	GrpSp        []*GroupShape      `xml:"-"`
+	CxnSp        []*ConnectionShape `xml:"-"`
 	// AltContent holds mc:AlternateContent children (ink, 2010+ shapes with
 	// fallbacks); RawXML holds any other unmodeled child (p:contentPart,
 	// extLst, ...) as reconstructed raw bytes. Both are kept in childOrder so
@@ -591,4 +685,3 @@ type TxStyles struct {
 	BodyStyle  *dml.LstStyle `xml:"bodyStyle,omitempty"`
 	OtherStyle *dml.LstStyle `xml:"otherStyle,omitempty"`
 }
-

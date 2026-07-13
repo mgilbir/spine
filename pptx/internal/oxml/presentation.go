@@ -4,46 +4,48 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+
+	"github.com/mgilbir/spine/common/dml"
 )
 
 // Presentation is the root element of presentation.xml.
 // Based on CT_Presentation from pml.xsd
 type Presentation struct {
-	XMLName         xml.Name         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
-	XmlnsA          string           `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR          string           `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP          string           `xml:"xmlns:p,attr,omitempty"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
+	XmlnsA  string   `xml:"xmlns:a,attr,omitempty"`
+	XmlnsR  string   `xml:"xmlns:r,attr,omitempty"`
+	XmlnsP  string   `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
-	ServerZoom              string `xml:"serverZoom,attr,omitempty"`
-	FirstSlideNum           *int   `xml:"firstSlideNum,attr,omitempty"`
-	ShowSpecialPlsOnTitleSld *bool  `xml:"showSpecialPlsOnTitleSld,attr,omitempty"`
-	Rtl                     *bool  `xml:"rtl,attr,omitempty"`
-	RemovePersonalInfoOnSave *bool  `xml:"removePersonalInfoOnSave,attr,omitempty"`
-	CompatMode              *bool  `xml:"compatMode,attr,omitempty"`
-	StrictFirstAndLastChars *bool  `xml:"strictFirstAndLastChars,attr,omitempty"`
-	EmbedTrueTypeFonts      *bool  `xml:"embedTrueTypeFonts,attr,omitempty"`
-	SaveSubsetFonts         *bool  `xml:"saveSubsetFonts,attr,omitempty"`
-	AutoCompressPictures    *bool  `xml:"autoCompressPictures,attr,omitempty"`
-	BookmarkIdSeed          *uint32 `xml:"bookmarkIdSeed,attr,omitempty"`
-	Conformance             string `xml:"conformance,attr,omitempty"`
+	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`
+	FirstSlideNum            *int    `xml:"firstSlideNum,attr,omitempty"`
+	ShowSpecialPlsOnTitleSld *bool   `xml:"showSpecialPlsOnTitleSld,attr,omitempty"`
+	Rtl                      *bool   `xml:"rtl,attr,omitempty"`
+	RemovePersonalInfoOnSave *bool   `xml:"removePersonalInfoOnSave,attr,omitempty"`
+	CompatMode               *bool   `xml:"compatMode,attr,omitempty"`
+	StrictFirstAndLastChars  *bool   `xml:"strictFirstAndLastChars,attr,omitempty"`
+	EmbedTrueTypeFonts       *bool   `xml:"embedTrueTypeFonts,attr,omitempty"`
+	SaveSubsetFonts          *bool   `xml:"saveSubsetFonts,attr,omitempty"`
+	AutoCompressPictures     *bool   `xml:"autoCompressPictures,attr,omitempty"`
+	BookmarkIdSeed           *uint32 `xml:"bookmarkIdSeed,attr,omitempty"`
+	Conformance              string  `xml:"conformance,attr,omitempty"`
 
 	// Elements from CT_Presentation (pml.xsd lines 1040-1055)
-	SlideMasterIDs   *SlideMasterIDs  `xml:"sldMasterIdLst,omitempty"`
-	NotesMasterIDs   *NotesMasterIDs  `xml:"notesMasterIdLst,omitempty"`
+	SlideMasterIDs   *SlideMasterIDs   `xml:"sldMasterIdLst,omitempty"`
+	NotesMasterIDs   *NotesMasterIDs   `xml:"notesMasterIdLst,omitempty"`
 	HandoutMasterIDs *HandoutMasterIDs `xml:"handoutMasterIdLst,omitempty"`
-	SlideIDs         *SlideIDs        `xml:"sldIdLst,omitempty"`
-	SlideSize        *SlideSize       `xml:"sldSz,omitempty"`
-	NotesSize        *SlideSize       `xml:"notesSz,omitempty"`
-	SmartTags        *SmartTags       `xml:"smartTags,omitempty"`
+	SlideIDs         *SlideIDs         `xml:"sldIdLst,omitempty"`
+	SlideSize        *SlideSize        `xml:"sldSz,omitempty"`
+	NotesSize        *SlideSize        `xml:"notesSz,omitempty"`
+	SmartTags        *SmartTags        `xml:"smartTags,omitempty"`
 	EmbeddedFontLst  *EmbeddedFontList `xml:"embeddedFontLst,omitempty"`
-	CustShowLst      *CustomShowList  `xml:"custShowLst,omitempty"`
-	PhotoAlbum       *PhotoAlbum      `xml:"photoAlbum,omitempty"`
+	CustShowLst      *CustomShowList   `xml:"custShowLst,omitempty"`
+	PhotoAlbum       *PhotoAlbum       `xml:"photoAlbum,omitempty"`
 	CustDataLst      *CustomerDataList `xml:"custDataLst,omitempty"`
-	Kinsoku          *Kinsoku         `xml:"kinsoku,omitempty"`
-	DefaultTextStyle *TextListStyle   `xml:"defaultTextStyle,omitempty"`
-	ModifyVerifier   *ModifyVerifier  `xml:"modifyVerifier,omitempty"`
-	ExtLst           *ExtensionList   `xml:"extLst,omitempty"`
+	Kinsoku          *Kinsoku          `xml:"kinsoku,omitempty"`
+	DefaultTextStyle *dml.LstStyle     `xml:"defaultTextStyle,omitempty"`
+	ModifyVerifier   *ModifyVerifier   `xml:"modifyVerifier,omitempty"`
+	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
 }
 
 // NotesMasterIDs contains a list of notes master ID references.
@@ -80,10 +82,10 @@ type EmbeddedFontList struct {
 
 // EmbeddedFont represents an embedded font.
 type EmbeddedFont struct {
-	Font    *TextFont `xml:"font,omitempty"`
-	Regular *EmbeddedFontData `xml:"regular,omitempty"`
-	Bold    *EmbeddedFontData `xml:"bold,omitempty"`
-	Italic  *EmbeddedFontData `xml:"italic,omitempty"`
+	Font       *TextFont         `xml:"font,omitempty"`
+	Regular    *EmbeddedFontData `xml:"regular,omitempty"`
+	Bold       *EmbeddedFontData `xml:"bold,omitempty"`
+	Italic     *EmbeddedFontData `xml:"italic,omitempty"`
 	BoldItalic *EmbeddedFontData `xml:"boldItalic,omitempty"`
 }
 
@@ -114,11 +116,11 @@ type SlideRelationshipList struct {
 
 // PhotoAlbum contains photo album settings.
 type PhotoAlbum struct {
-	Bw       *bool  `xml:"bw,attr,omitempty"`
-	ShowCaptions *bool `xml:"showCaptions,attr,omitempty"`
-	Layout   string `xml:"layout,attr,omitempty"`
-	Frame    string `xml:"frame,attr,omitempty"`
-	ExtLst   *ExtensionList `xml:"extLst,omitempty"`
+	Bw           *bool          `xml:"bw,attr,omitempty"`
+	ShowCaptions *bool          `xml:"showCaptions,attr,omitempty"`
+	Layout       string         `xml:"layout,attr,omitempty"`
+	Frame        string         `xml:"frame,attr,omitempty"`
+	ExtLst       *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // CustomerDataList contains custom data.
@@ -139,20 +141,20 @@ type Tags struct {
 
 // Kinsoku contains kinsoku settings for East Asian text.
 type Kinsoku struct {
-	Lang    string `xml:"lang,attr,omitempty"`
-	InvalStChars string `xml:"invalStChars,attr,omitempty"`
+	Lang          string `xml:"lang,attr,omitempty"`
+	InvalStChars  string `xml:"invalStChars,attr,omitempty"`
 	InvalEndChars string `xml:"invalEndChars,attr,omitempty"`
 }
 
 // ModifyVerifier contains modify verification settings.
 type ModifyVerifier struct {
-	CryptProviderType string `xml:"cryptProviderType,attr,omitempty"`
-	CryptAlgorithmClass string `xml:"cryptAlgorithmClass,attr,omitempty"`
-	CryptAlgorithmType string `xml:"cryptAlgorithmType,attr,omitempty"`
-	CryptAlgorithmSid *uint32 `xml:"cryptAlgorithmSid,attr,omitempty"`
-	SpinCount *uint32 `xml:"spinCount,attr,omitempty"`
-	SaltData string `xml:"saltData,attr,omitempty"`
-	HashData string `xml:"hashData,attr,omitempty"`
+	CryptProviderType   string  `xml:"cryptProviderType,attr,omitempty"`
+	CryptAlgorithmClass string  `xml:"cryptAlgorithmClass,attr,omitempty"`
+	CryptAlgorithmType  string  `xml:"cryptAlgorithmType,attr,omitempty"`
+	CryptAlgorithmSid   *uint32 `xml:"cryptAlgorithmSid,attr,omitempty"`
+	SpinCount           *uint32 `xml:"spinCount,attr,omitempty"`
+	SaltData            string  `xml:"saltData,attr,omitempty"`
+	HashData            string  `xml:"hashData,attr,omitempty"`
 }
 
 // PPTX namespace constants
@@ -282,86 +284,6 @@ type SlideSize struct {
 	Cx   int64  `xml:"cx,attr"`
 	Cy   int64  `xml:"cy,attr"`
 	Type string `xml:"type,attr,omitempty"`
-}
-
-// TextListStyle contains text styling for different paragraph levels.
-type TextListStyle struct {
-	DefPPr *TextParagraphProperties `xml:"defPPr,omitempty"`
-	Lvl1PPr *TextParagraphProperties `xml:"lvl1pPr,omitempty"`
-	Lvl2PPr *TextParagraphProperties `xml:"lvl2pPr,omitempty"`
-	Lvl3PPr *TextParagraphProperties `xml:"lvl3pPr,omitempty"`
-	Lvl4PPr *TextParagraphProperties `xml:"lvl4pPr,omitempty"`
-	Lvl5PPr *TextParagraphProperties `xml:"lvl5pPr,omitempty"`
-	Lvl6PPr *TextParagraphProperties `xml:"lvl6pPr,omitempty"`
-	Lvl7PPr *TextParagraphProperties `xml:"lvl7pPr,omitempty"`
-	Lvl8PPr *TextParagraphProperties `xml:"lvl8pPr,omitempty"`
-	Lvl9PPr *TextParagraphProperties `xml:"lvl9pPr,omitempty"`
-}
-
-// TextParagraphProperties contains paragraph-level text properties.
-type TextParagraphProperties struct {
-	MarL         *int64  `xml:"marL,attr,omitempty"`
-	MarR         *int64  `xml:"marR,attr,omitempty"`
-	Indent       *int64  `xml:"indent,attr,omitempty"`
-	Algn         string  `xml:"algn,attr,omitempty"`
-	DefTabSz     *int64  `xml:"defTabSz,attr,omitempty"`
-	Rtl          *bool   `xml:"rtl,attr,omitempty"`
-	EaLnBrk      *bool   `xml:"eaLnBrk,attr,omitempty"`
-	FontAlgn     string  `xml:"fontAlgn,attr,omitempty"`
-	LatinLnBrk   *bool   `xml:"latinLnBrk,attr,omitempty"`
-	HangingPunct *bool   `xml:"hangingPunct,attr,omitempty"`
-	SpcBef       *TextSpacing `xml:"spcBef,omitempty"`
-	SpcAft       *TextSpacing `xml:"spcAft,omitempty"`
-	DefRPr       *TextCharacterProperties `xml:"defRPr,omitempty"`
-}
-
-// TextSpacing represents CT_TextSpacing (a:spcBef, a:spcAft)
-type TextSpacing struct {
-	SpcPct *TextSpacingValue `xml:"spcPct,omitempty"`
-	SpcPts *TextSpacingValue `xml:"spcPts,omitempty"`
-}
-
-// TextSpacingValue represents the val attribute for spacing elements.
-type TextSpacingValue struct {
-	Val int32 `xml:"val,attr"`
-}
-
-// TextCharacterProperties contains character-level text properties.
-type TextCharacterProperties struct {
-	Kumimoji   *bool   `xml:"kumimoji,attr,omitempty"`
-	Lang       string  `xml:"lang,attr,omitempty"`
-	AltLang    string  `xml:"altLang,attr,omitempty"`
-	Sz         *int32  `xml:"sz,attr,omitempty"`
-	B          *bool   `xml:"b,attr,omitempty"`
-	I          *bool   `xml:"i,attr,omitempty"`
-	U          string  `xml:"u,attr,omitempty"`
-	Strike     string  `xml:"strike,attr,omitempty"`
-	Kern       *int32  `xml:"kern,attr,omitempty"`
-	Cap        string  `xml:"cap,attr,omitempty"`
-	Spc        *int32  `xml:"spc,attr,omitempty"`
-	Baseline   *int32  `xml:"baseline,attr,omitempty"`
-	SolidFill  *SolidFill `xml:"solidFill,omitempty"`
-	Latin      *TextFont  `xml:"latin,omitempty"`
-	Ea         *TextFont  `xml:"ea,omitempty"`
-	Cs         *TextFont  `xml:"cs,omitempty"`
-}
-
-// SolidFill specifies a solid color fill.
-type SolidFill struct {
-	SrgbClr   *SrgbColor   `xml:"srgbClr,omitempty"`
-	SchemeClr *SchemeColor `xml:"schemeClr,omitempty"`
-}
-
-// SrgbColor specifies an RGB color.
-type SrgbColor struct {
-	Val string `xml:"val,attr"`
-}
-
-// SchemeColor specifies a theme/scheme color.
-type SchemeColor struct {
-	Val   string  `xml:"val,attr"`
-	Tint  *int32  `xml:"tint>val,omitempty"`
-	Shade *int32  `xml:"shade>val,omitempty"`
 }
 
 // TextFont specifies a font.

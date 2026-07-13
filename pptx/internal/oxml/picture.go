@@ -9,11 +9,12 @@ import (
 
 // Picture represents a picture element (p:pic) in a slide.
 type Picture struct {
-	XMLName  xml.Name      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pic"`
-	NvPicPr  *NvPicPr      `xml:"nvPicPr"`
-	BlipFill *dml.BlipFill `xml:"http://schemas.openxmlformats.org/presentationml/2006/main blipFill"`
-	SpPr     *dml.SpPr     `xml:"spPr"`
-	Style    *dml.Style    `xml:"style,omitempty"`
+	XMLName  xml.Name       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pic"`
+	NvPicPr  *NvPicPr       `xml:"nvPicPr"`
+	BlipFill *dml.BlipFill  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main blipFill"`
+	SpPr     *dml.SpPr      `xml:"spPr"`
+	Style    *dml.Style     `xml:"style,omitempty"`
+	ExtLst   *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // NvPicPr contains non-visual picture properties.
@@ -25,10 +26,11 @@ type NvPicPr struct {
 
 // ConnectionShape represents a connector shape (p:cxnSp).
 type ConnectionShape struct {
-	XMLName   xml.Name   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cxnSp"`
-	NvCxnSpPr *NvCxnSpPr `xml:"nvCxnSpPr"`
-	SpPr      *dml.SpPr  `xml:"spPr"`
-	Style     *dml.Style `xml:"style,omitempty"`
+	XMLName   xml.Name       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cxnSp"`
+	NvCxnSpPr *NvCxnSpPr     `xml:"nvCxnSpPr"`
+	SpPr      *dml.SpPr      `xml:"spPr"`
+	Style     *dml.Style     `xml:"style,omitempty"`
+	ExtLst    *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // NvCxnSpPr contains non-visual connection shape properties.
@@ -361,8 +363,7 @@ type NvGrpSpPr struct {
 	NvPr       *NvPr           `xml:"nvPr"`
 }
 
-// GrpSpPr contains group shape properties.
-type GrpSpPr struct {
-	BwMode string       `xml:"bwMode,attr,omitempty"`
-	Xfrm   *dml.GrpXfrm `xml:"http://schemas.openxmlformats.org/drawingml/2006/main xfrm,omitempty"`
-}
+// GrpSpPr contains group shape properties (a:CT_GroupShapeProperties).
+// It aliases the complete dml type so parsed group fills, effects, scene3d,
+// and extLst round-trip instead of being deleted on save (C33).
+type GrpSpPr = dml.GrpSpPr
