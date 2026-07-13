@@ -19,9 +19,22 @@ func ReadZipParts(path string) (map[string][]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
+	return readZipParts(r.File)
+}
 
+// ReadZipPartsBytes reads all parts from an in-memory ZIP archive into a map.
+// Part names have leading slashes stripped for consistency.
+func ReadZipPartsBytes(data []byte) (map[string][]byte, error) {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	return readZipParts(r.File)
+}
+
+func readZipParts(files []*zip.File) (map[string][]byte, error) {
 	parts := make(map[string][]byte)
-	for _, f := range r.File {
+	for _, f := range files {
 		rc, err := f.Open()
 		if err != nil {
 			return nil, err

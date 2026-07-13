@@ -79,6 +79,16 @@ remediation series (#59–#75).
   on-demand access to stored equations and `Paragraph.AddMath`/`AddMathPara`
   for writing typed math, while raw bytes remain the storage format so byte
   fidelity is unaffected (#75).
+- testdata: a Common Crawl OOXML corpus pipeline — committed manifests
+  pinning real-world candidates per format from crawl CC-MAIN-2026-25
+  (`testdata/cc/sweep.sh`), a resumable stdlib-only fetcher
+  (`tools/ccfetch`, `make fetch-cc`) that validates and classifies each
+  WARC payload — plus a gated live mode that refetches candidates the
+  crawler truncated at 1 MiB from their origin, screened through a
+  DNS-over-HTTPS blocklist resolver — and a corpus test (`cctest`) running
+  open/save/reopen/part-fidelity over every fetched file with a committed
+  quarantine of known failures; the corpus itself stays local and
+  gitignored (#76).
 
 ### Removed
 
