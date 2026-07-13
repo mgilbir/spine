@@ -59,14 +59,18 @@ type CT_RPr struct {
 	// CapturedEmptyTag records how an empty w:rPr was written in the source
 	// (LibreOffice expands it beside self-closed siblings).
 	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// CapturedChildren records the source child sequence: producer child
+	// order, children the model does not type (the w14:* run-property
+	// extensions, tracked-change markers), and duplicated toggles
+	// (<w:b/><w:b/>) all replay verbatim.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
 }
 
-// UnmarshalXML captures the element's empty-tag style before decoding
-// through the struct tags.
+// UnmarshalXML captures the element's empty-tag style and child sequence
+// while decoding the children into the struct fields.
 func (rp *CT_RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	rp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	type alias CT_RPr
-	return d.DecodeElement((*alias)(rp), &start)
+	return xmlb.UnmarshalOrderedChildren(d, rp)
 }
 
 // CT_Word2010Val is a Word 2010 extension element carrying a single w14:val

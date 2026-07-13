@@ -398,6 +398,11 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 
 // hasStructChildren reports whether a struct has any non-empty child elements to write.
 func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
+	// Raw captured children (unmodeled elements, duplicated singletons) are
+	// emitted by marshalCapturedChildren even when every typed field is empty.
+	if hasCapturedRawChildren(val) {
+		return true
+	}
 	typ := val.Type()
 
 	for i := 0; i < typ.NumField(); i++ {
@@ -460,6 +465,14 @@ func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
 
 // marshalStructChildren marshals all child element fields of a struct.
 func (b *Builder) marshalStructChildren(parentNS string, val reflect.Value) {
+	// A struct may carry a `CapturedChildren *ChildCapture` field (tagged
+	// xml:"-") recording the source's child sequence; when set it is replayed
+	// so child order, unmodeled children, and duplicated singletons survive
+	// the round trip (see children.go).
+	if cc := capturedChildrenOf(val); cc != nil {
+		b.marshalCapturedChildren(parentNS, val, cc)
+		return
+	}
 	typ := val.Type()
 
 	for i := 0; i < typ.NumField(); i++ {
