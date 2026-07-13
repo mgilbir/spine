@@ -108,7 +108,7 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 				// encoding/xml (xlsx models rely on the parent default ns).
 				slot, ok = slots[xml.Name{Local: t.Name.Local}]
 			}
-			if ok && !(slot.single && seen[slot.field]) {
+			if ok && (!slot.single || !seen[slot.field]) {
 				fv := val.Field(slot.field)
 				if slot.single {
 					if err := decodeChildInto(d, &t, fv); err != nil {

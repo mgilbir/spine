@@ -534,13 +534,13 @@ func (ex2 *ExtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // GrpXfrm represents CT_GroupTransform2D (a:xfrm for groups)
 type GrpXfrm struct {
-	Rot   int32   `xml:"rot,attr,omitempty"`
-	FlipH bool    `xml:"flipH,attr,omitempty"`
-	FlipV bool    `xml:"flipV,attr,omitempty"`
-	Off   *OffXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
-	Ext   *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
-	ChOff *OffXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chOff,omitempty"`
-	ChExt *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chExt,omitempty"`
+	Rot           int32           `xml:"rot,attr,omitempty"`
+	FlipH         bool            `xml:"flipH,attr,omitempty"`
+	FlipV         bool            `xml:"flipV,attr,omitempty"`
+	Off           *OffXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
+	Ext           *ExtXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
+	ChOff         *OffXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chOff,omitempty"`
+	ChExt         *ExtXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chExt,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
