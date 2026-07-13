@@ -382,6 +382,19 @@ type CommonTimeNode struct {
 	Iterate      *Iterate       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main iterate,omitempty"`
 	ChildTnLst   *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main childTnLst,omitempty"`
 	SubTnLst     *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subTnLst,omitempty"`
+
+	// CapturedAttrs preserves the verbatim source attribute list (attribute
+	// order and inline xmlns declarations such as xmlns:p14, which some
+	// producers hang on p:cTn); replayed by the reflection marshaler.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags.
+func (c *CommonTimeNode) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CommonTimeNode
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // --- Conditions ---

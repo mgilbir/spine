@@ -48,17 +48,6 @@ type Ext struct {
 	InlineNSDecls []xmlb.NSDecl `xml:"-"`
 }
 
-// hasTypedContent reports whether the extension was dispatched to a typed
-// field (known URI). Typed marshaling declares its namespaces inline on the
-// child element, so the captured ext-level declarations are not re-emitted.
-func (e *Ext) hasTypedContent() bool {
-	return e.CreationId != nil || e.ColId != nil || e.RowId != nil ||
-		e.UseLocalDpi != nil || e.ShadowObscured != nil ||
-		e.HiddenFill != nil || e.HiddenLine != nil || e.HiddenEffects != nil ||
-		e.ImgProps != nil || e.SvgBlip != nil || e.ThemeFamily != nil ||
-		e.DataModelExt != nil
-}
-
 // NonVisualDrawingPropsExtension represents extension for non-visual drawing properties
 type NonVisualDrawingPropsExtension struct {
 	CreationId *CreationId `xml:"http://schemas.microsoft.com/office/drawing/2014/main creationId,omitempty"`
@@ -69,16 +58,22 @@ type NonVisualDrawingPropsExtension struct {
 // CreationId represents a16:creationId extension element
 type CreationId struct {
 	Id string `xml:"id,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list (xmlns
+	// declarations interleaved with attributes, e.g. a trailing xmlns="");
+	// nil for values built programmatically.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // A16ColId represents a16:colId extension element (table column identifier)
 type A16ColId struct {
-	Val uint32 `xml:"val,attr"`
+	Val           uint32          `xml:"val,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
 }
 
 // A16RowId represents a16:rowId extension element (table row identifier)
 type A16RowId struct {
-	Val uint32 `xml:"val,attr"`
+	Val           uint32          `xml:"val,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
 }
 
 // --- a14 extensions (Drawing 2010) ---
@@ -87,13 +82,15 @@ type A16RowId struct {
 // attribute is xsd:boolean (e.g. val="0" or val="true"), so it must be modeled
 // as a bool — an int32 fails to parse the lexical "true"/"false" forms.
 type A14UseLocalDpi struct {
-	Val *bool `xml:"val,attr,omitempty"`
+	Val           *bool           `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
 }
 
 // A14ShadowObscured represents a14:shadowObscured extension element. The val
 // attribute is xsd:boolean; see A14UseLocalDpi.
 type A14ShadowObscured struct {
-	Val *bool `xml:"val,attr,omitempty"`
+	Val           *bool           `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
 }
 
 // A14HiddenFill represents a14:hiddenFill extension element.
@@ -103,6 +100,16 @@ type A14HiddenFill struct {
 	GradFill  *GradFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
 	PattFill  *PattFill  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
 	NoFill    *NoFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// children through the struct tags.
+func (v *A14HiddenFill) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14HiddenFill
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14HiddenLine represents a14:hiddenLine extension element.
@@ -123,12 +130,32 @@ type A14HiddenLine struct {
 	Miter     *Miter     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main miter,omitempty"`
 	HeadEnd   *LineEnd   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headEnd,omitempty"`
 	TailEnd   *LineEnd   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tailEnd,omitempty"`
+
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// attributes and children through the struct tags.
+func (v *A14HiddenLine) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14HiddenLine
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14HiddenEffects represents a14:hiddenEffects extension element.
 // Contains an effect list (CT_EffectList).
 type A14HiddenEffects struct {
 	EffectLst *EffectLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// children through the struct tags.
+func (v *A14HiddenEffects) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14HiddenEffects
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14ImgProps represents a14:imgProps extension element.
@@ -223,7 +250,8 @@ type A14ColorTemp struct {
 
 // ASvgBlip represents asvg:svgBlip extension element.
 type ASvgBlip struct {
-	Embed string `xml:"-"` // r:embed attribute (namespaced)
+	Embed         string          `xml:"-"` // r:embed attribute (namespaced)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
 }
 
 // Thm15ThemeFamily represents thm15:themeFamily extension element.
@@ -254,6 +282,7 @@ func (v *A14ImgLayer) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 }
 
 func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
@@ -261,6 +290,45 @@ func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 	}
 	return d.Skip()
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "" && attr.Name.Local == "id" {
+			v.Id = attr.Value
+		}
+	}
+	return d.Skip()
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *A16ColId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A16ColId
+	return d.DecodeElement((*alias)(v), &start)
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *A16RowId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A16RowId
+	return d.DecodeElement((*alias)(v), &start)
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *A14UseLocalDpi) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14UseLocalDpi
+	return d.DecodeElement((*alias)(v), &start)
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *A14ShadowObscured) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14ShadowObscured
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -289,6 +357,10 @@ func (e *Ext) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			nsDecls = append(nsDecls, xmlb.NSDecl{URI: attr.Value})
 		}
 	}
+	// Keep ext-level declarations for typed content too: marshal replays them
+	// on the a:ext element so a source that declared the extension prefix
+	// there (instead of on the child) round-trips.
+	e.InlineNSDecls = nsDecls
 
 	switch e.URI {
 	case xmlb.ExtURICreationId:
@@ -410,7 +482,6 @@ func (e *Ext) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		e.RawContent = inner.Content
-		e.InlineNSDecls = nsDecls
 	}
 
 	return nil
@@ -426,38 +497,80 @@ const (
 )
 
 func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	attrs := []xmlb.Attr{xmlb.StrAttr("uri", e.URI)}
-	if !e.hasTypedContent() {
-		attrs = xmlb.NSDeclAttrs(attrs, e.InlineNSDecls)
-	}
+	// Captured ext-level declarations are replayed for typed content too: a
+	// source that declared the extension prefix on the a:ext element (rather
+	// than on the child) must get it back in the same place. The typed child
+	// only synthesizes its own declaration when it carries no capture.
+	attrs := xmlb.NSDeclAttrs([]xmlb.Attr{xmlb.StrAttr("uri", e.URI)}, e.InlineNSDecls)
 	b.StartElement(ns, localName, attrs...)
 
 	switch {
 	case e.CreationId != nil:
+		if raw := e.CreationId.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "creationId",
+				xmlb.RawAttrListOverride(raw, map[string]string{"id": e.CreationId.Id})...)
+			break
+		}
 		b.EmptyElementInlineNS(nsA16, xmlb.PrefixDrawing2014, "creationId",
 			xmlb.StrAttr("id", e.CreationId.Id))
 
 	case e.ColId != nil:
+		if raw := e.ColId.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "colId",
+				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.ColId.Val).Value})...)
+			break
+		}
 		b.EmptyElementInlineNS(nsA16, xmlb.PrefixDrawing2014, "colId",
 			xmlb.UintAttr("val", e.ColId.Val))
 
 	case e.RowId != nil:
+		if raw := e.RowId.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "rowId",
+				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.RowId.Val).Value})...)
+			break
+		}
 		b.EmptyElementInlineNS(nsA16, xmlb.PrefixDrawing2014, "rowId",
 			xmlb.UintAttr("val", e.RowId.Val))
 
 	case e.UseLocalDpi != nil:
+		if raw := e.UseLocalDpi.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010), "useLocalDpi",
+				xmlb.RawAttrList(raw)...)
+			break
+		}
 		marshalA14Simple(b, "useLocalDpi", e.UseLocalDpi.Val)
 
 	case e.ShadowObscured != nil:
+		if raw := e.ShadowObscured.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010), "shadowObscured",
+				xmlb.RawAttrList(raw)...)
+			break
+		}
 		marshalA14Simple(b, "shadowObscured", e.ShadowObscured.Val)
 
 	case e.HiddenFill != nil:
+		if raw := e.HiddenFill.CapturedAttrs; raw != nil {
+			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			b.StartElementLiteral(prefix, "hiddenFill",
+				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
+			b.MarshalChildren(nsA, e.HiddenFill)
+			b.EndElementLiteral(prefix, "hiddenFill")
+			break
+		}
 		b.StartElementInlineNS(nsA14, xmlb.PrefixDrawing2010, "hiddenFill")
 		b.MarshalChildren(nsA, e.HiddenFill)
 		b.EndElementInlineNS(xmlb.PrefixDrawing2010, "hiddenFill")
 		b.ResetNamespaceDeclaration(nsA14)
 
 	case e.HiddenLine != nil:
+		if raw := e.HiddenLine.CapturedAttrs; raw != nil {
+			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			b.StartElementLiteral(prefix, "hiddenLine",
+				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
+			b.MarshalChildren(nsA, e.HiddenLine)
+			b.EndElementLiteral(prefix, "hiddenLine")
+			break
+		}
 		var attrs []xmlb.Attr
 		if e.HiddenLine.W != nil {
 			attrs = append(attrs, xmlb.IntAttr("w", *e.HiddenLine.W))
@@ -477,6 +590,14 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		b.ResetNamespaceDeclaration(nsA14)
 
 	case e.HiddenEffects != nil:
+		if raw := e.HiddenEffects.CapturedAttrs; raw != nil {
+			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			b.StartElementLiteral(prefix, "hiddenEffects",
+				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
+			b.MarshalChildren(nsA, e.HiddenEffects)
+			b.EndElementLiteral(prefix, "hiddenEffects")
+			break
+		}
 		b.StartElementInlineNS(nsA14, xmlb.PrefixDrawing2010, "hiddenEffects")
 		b.MarshalChildren(nsA, e.HiddenEffects)
 		b.EndElementInlineNS(xmlb.PrefixDrawing2010, "hiddenEffects")
@@ -489,6 +610,11 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		b.ResetNamespaceDeclaration(nsA14)
 
 	case e.SvgBlip != nil:
+		if raw := e.SvgBlip.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, xmlb.NSDrawingSVG2016, xmlb.PrefixDrawingSVG2016), "svgBlip",
+				xmlb.RawAttrListOverride(raw, map[string]string{"r:embed": e.SvgBlip.Embed})...)
+			break
+		}
 		b.EmptyElementInlineNS(xmlb.NSDrawingSVG2016, xmlb.PrefixDrawingSVG2016, "svgBlip",
 			xmlb.RelAttr("embed", e.SvgBlip.Embed))
 

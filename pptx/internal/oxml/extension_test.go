@@ -41,7 +41,9 @@ func TestTransition_ExtLst_UnknownExtRoundTrip(t *testing.T) {
 	if err := b.Finish(); err != nil {
 		t.Fatalf("builder: %v", err)
 	}
-	want := `<p:transition spd="slow">` +
+	// The fragment's own xmlns:p declaration is captured and replayed
+	// verbatim (in a real part the declaration lives on the part root).
+	want := `<p:transition xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" spd="slow">` +
 		`<p:fade/>` +
 		`<p:extLst><p:ext uri="{AAAAAAAA-0000-0000-0000-000000000000}" xmlns:foo="urn:example:foo">` +
 		`<foo:thing a="1"/>` +
@@ -85,8 +87,9 @@ func TestTiming_ExtLst_UnknownExtRoundTrip(t *testing.T) {
 	}
 }
 
-// Known-URI extensions keep their typed dispatch: the inline declaration is
-// re-emitted on the typed child element, not duplicated on the ext element.
+// Known-URI extensions keep their typed dispatch: a declaration the source
+// carried on the p:ext element is replayed there, and the bare typed child
+// stays bare (verbatim placement, no re-homing onto the child).
 func TestExtension_KnownURI_TypedDispatchStillWorks(t *testing.T) {
 	fragment := `<p:extLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
 		`<p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}" xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">` +
@@ -107,12 +110,10 @@ func TestExtension_KnownURI_TypedDispatchStillWorks(t *testing.T) {
 		t.Fatalf("builder: %v", err)
 	}
 	out := b.String()
-	want := `<p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="3813894636"/>`
+	want := `<p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}" xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">` +
+		`<p14:creationId val="3813894636"/></p:ext>`
 	if !strings.Contains(out, want) {
-		t.Errorf("typed child lost its namespace declaration: %s", out)
-	}
-	if strings.Contains(out, `<p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}" xmlns:p14=`) {
-		t.Errorf("ext-level declaration duplicated for typed dispatch: %s", out)
+		t.Errorf("typed dispatch did not preserve the source's declaration placement: %s", out)
 	}
 }
 

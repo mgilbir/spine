@@ -288,3 +288,56 @@ func TestMarshal_ScalarFieldInDeclaredNamespace(t *testing.T) {
 		t.Errorf("scalar in root-declared namespace gained a spurious declaration: %s", got)
 	}
 }
+
+// A struct carrying the conventional CapturedAttrs field replays the source's
+// attribute order, unmodeled attributes, and inline xmlns declarations, while
+// modeled values stay authoritative.
+func TestMarshal_CapturedAttrsReplay(t *testing.T) {
+	type node struct {
+		Id  uint32 `xml:"id,attr,omitempty"`
+		Dur string `xml:"dur,attr,omitempty"`
+
+		CapturedAttrs []RootAttr `xml:"-"`
+	}
+	n := node{
+		Id:  7,
+		Dur: "500",
+		CapturedAttrs: []RootAttr{
+			{LocalName: "dur", Value: "old"},              // modeled: order kept, current value wins
+			{LocalName: "mystery", Value: "kept"},         // unmodeled: survives with captured value
+			{IsNS: true, Prefix: "p14", Value: "urn:p14"}, // inline declaration at its source slot
+			{LocalName: "id", Value: "1"},                 // modeled after the declaration
+		},
+	}
+	b := NewBuilder()
+	b.RegisterNamespace("urn:x", "x")
+	b.MarshalElement("urn:x", "n", &n)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	want := `<x:n dur="500" mystery="kept" xmlns:p14="urn:p14" id="7"/>`
+	if got := b.String(); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// Without a capture (programmatic value), attributes emit in struct order.
+func TestMarshal_CapturedAttrsNilUsesStructOrder(t *testing.T) {
+	type node struct {
+		Id  uint32 `xml:"id,attr,omitempty"`
+		Dur string `xml:"dur,attr,omitempty"`
+
+		CapturedAttrs []RootAttr `xml:"-"`
+	}
+	n := node{Id: 7, Dur: "500"}
+	b := NewBuilder()
+	b.RegisterNamespace("urn:x", "x")
+	b.MarshalElement("urn:x", "n", &n)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	want := `<x:n id="7" dur="500"/>`
+	if got := b.String(); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}

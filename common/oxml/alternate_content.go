@@ -15,6 +15,13 @@ type AlternateContentChoice struct {
 	Requires string
 	// Content is the inner XML of the choice (xsd:any from external schemas).
 	Content []byte
+	// CapturedAttrs preserves the mc:Choice element's verbatim attribute list
+	// (inline xmlns declarations interleaved with Requires, in source order).
+	// PowerPoint declares the required extension namespaces on the mc:Choice
+	// element itself; a fixed emission that hoists them onto the
+	// mc:AlternateContent parent drifts from such sources. Nil for choices
+	// built programmatically.
+	CapturedAttrs []xmlb.RootAttr
 }
 
 // AlternateContent represents mc:AlternateContent from ECMA-376 Part 3.
@@ -28,12 +35,20 @@ type AlternateContent struct {
 	HasFallback bool
 	// Fallback is the inner XML of mc:Fallback (xsd:any).
 	Fallback []byte
+	// FallbackAttrs preserves the mc:Fallback element's verbatim attribute
+	// list; nil when the AlternateContent was built programmatically (the
+	// marshal then applies the xmlns="" Office convention).
+	FallbackAttrs []xmlb.RootAttr
+	// CapturedAttrs preserves the mc:AlternateContent element's own verbatim
+	// attribute list; nil for values built programmatically.
+	CapturedAttrs []xmlb.RootAttr
 }
 
 // UnmarshalXML implements custom XML unmarshaling for AlternateContent.
 // Parses every mc:Choice and the mc:Fallback child, capturing inner content as
 // raw bytes.
 func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ac.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -52,7 +67,7 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 			}
 			switch t.Name.Local {
 			case "Choice":
-				choice := AlternateContentChoice{}
+				choice := AlternateContentChoice{CapturedAttrs: xmlb.CaptureAttrs(t.Attr)}
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "Requires" {
 						choice.Requires = attr.Value
@@ -68,6 +83,7 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 				ac.Choices = append(ac.Choices, choice)
 			case "Fallback":
 				ac.HasFallback = true
+				ac.FallbackAttrs = xmlb.CaptureAttrs(t.Attr)
 				var inner struct {
 					Content []byte `xml:",innerxml"`
 				}
@@ -91,6 +107,32 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	nsMC := xmlb.NSMarkupCompatibility
 	prefixMC := xmlb.PrefixMarkupCompatibility
+
+	// Parsed AlternateContent replays every element's captured attribute list
+	// verbatim: declarations stay on the element that carried them in the
+	// source (PowerPoint puts the extension declarations on mc:Choice, not on
+	// the parent), and mc:Fallback only gets xmlns="" when the source had it.
+	if ac.CapturedAttrs != nil {
+		prefix := xmlb.RawAttrPrefix(ac.CapturedAttrs, nsMC, prefixMC)
+		b.StartElementLiteral(prefix, localName,
+			[]xmlb.NSDecl{{Prefix: prefix, URI: nsMC}}, xmlb.RawAttrList(ac.CapturedAttrs)...)
+		for _, choice := range ac.Choices {
+			attrs := xmlb.RawAttrList(choice.CapturedAttrs)
+			if choice.CapturedAttrs == nil {
+				attrs = []xmlb.Attr{xmlb.StrAttr("Requires", choice.Requires)}
+			}
+			b.StartElementLiteral(prefix, "Choice", nil, attrs...)
+			b.WriteRaw(choice.Content)
+			b.EndElementLiteral(prefix, "Choice")
+		}
+		if ac.HasFallback {
+			b.StartElementLiteral(prefix, "Fallback", nil, xmlb.RawAttrList(ac.FallbackAttrs)...)
+			b.WriteRaw(ac.Fallback)
+			b.EndElementLiteral(prefix, "Fallback")
+		}
+		b.EndElementLiteral(prefix, localName)
+		return
+	}
 
 	// Declare an xmlns for every extension prefix referenced by any choice's
 	// Requires (which may list several prefixes). Only declare a prefix that is

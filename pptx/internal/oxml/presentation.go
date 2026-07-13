@@ -21,10 +21,15 @@ type Presentation struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty bool   `xml:"-"`
-	XmlnsA        string `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR        string `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP        string `xml:"xmlns:p,attr,omitempty"`
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list
+	// (namespace declarations interleaved with attributes); nil for decks
+	// built programmatically, which emit the standard a/r/p declarations and
+	// the XSD attribute order.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	XmlnsA            string          `xml:"xmlns:a,attr,omitempty"`
+	XmlnsR            string          `xml:"xmlns:r,attr,omitempty"`
+	XmlnsP            string          `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
 	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`
@@ -56,6 +61,14 @@ type Presentation struct {
 	DefaultTextStyle *dml.LstStyle     `xml:"defaultTextStyle,omitempty"`
 	ModifyVerifier   *ModifyVerifier   `xml:"modifyVerifier,omitempty"`
 	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
+}
+
+// UnmarshalXML captures the root element's verbatim attribute list before
+// decoding through the struct tags.
+func (p *Presentation) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	p.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Presentation
+	return d.DecodeElement((*alias)(p), &start)
 }
 
 // NotesMasterIDs contains a list of notes master ID references.
