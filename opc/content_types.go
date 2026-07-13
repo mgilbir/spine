@@ -100,6 +100,11 @@ type ContentTypes struct {
 	// each entry's attribute order. Entries added after parse are appended by
 	// Marshal (defaults first, then overrides, each sorted).
 	entryOrder []ctEntry
+
+	// selfCloseSpace records that the source wrote self-closing tags as
+	// " />" (System.IO.Packaging style) rather than "/>", so Marshal can
+	// reproduce the entries byte-for-byte.
+	selfCloseSpace bool
 }
 
 // ctEntry is one <Default> or <Override> element in source document order.
@@ -147,6 +152,7 @@ func (ct *ContentTypes) Clone() *ContentTypes {
 		OriginalXMLSep: ct.OriginalXMLSep,
 		prolog:         ct.prolog,
 		entryOrder:     slices.Clone(ct.entryOrder),
+		selfCloseSpace: ct.selfCloseSpace,
 	}
 	// maps.Clone(nil) is nil; keep the invariant that the maps are usable.
 	if c.Defaults == nil {
@@ -349,7 +355,16 @@ func (ct *ContentTypes) writeDefault(buf *bytes.Buffer, ext, contentType string,
 		buf.WriteString(`" ContentType="`)
 		buf.WriteString(xmlb.EscapeAttrValue(contentType))
 	}
-	buf.WriteString(`"/>`)
+	buf.WriteString(ct.selfCloseEnd())
+}
+
+// selfCloseEnd returns the captured self-closing tag terminator: `" />"` for
+// System.IO.Packaging-produced sources, `"/>"` otherwise.
+func (ct *ContentTypes) selfCloseEnd() string {
+	if ct.selfCloseSpace {
+		return `" />`
+	}
+	return `"/>`
 }
 
 // writeOverride writes one <Override> entry (see writeDefault).
@@ -366,7 +381,7 @@ func (ct *ContentTypes) writeOverride(buf *bytes.Buffer, partName, contentType s
 		buf.WriteString(`" ContentType="`)
 		buf.WriteString(xmlb.EscapeAttrValue(contentType))
 	}
-	buf.WriteString(`"/>`)
+	buf.WriteString(ct.selfCloseEnd())
 }
 
 // orderedDefaults returns default extensions in stable order:
@@ -470,6 +485,7 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 		origExt:        make(map[string]string),
 		OriginalXMLSep: extractXMLSeparator(data),
 		prolog:         xmlb.CaptureProlog(data),
+		selfCloseSpace: xmlb.DetectSelfClosingSpace(data),
 	}
 
 	d := xml.NewDecoder(bytes.NewReader(data))

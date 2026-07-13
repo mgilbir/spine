@@ -43,6 +43,16 @@ remediation series (#59–#75).
 - common/omml: the old `OMath` model never worked in either direction —
   unmarshal left every element empty and re-marshal emitted garbage; it is
   replaced by a working, order-preserving typed model (#75).
+- docx: `w:fldChar` no longer drops its children (`w:ffData` form-field
+  definitions, `w:fldData`); `w:customMarkFollows` and `w14:ligatures`
+  are preserved; hyperlink, paragraph-rsid, and spacing attributes follow
+  Word's order; a bare `<w:vMerge/>` no longer gains `w:val=""` (#81).
+- opc,docx,xlsx,pptx: a zero-modification save no longer synthesizes
+  `docProps/core.xml` for packages that never had one, and a regenerated
+  `[Content_Types].xml` keeps the source's `" />"` self-closing style
+  (#81).
+- xlsx: unknown workbook children round-trip verbatim, and xmlns
+  declarations carried on `<sheet>` elements survive (#81).
 
 ### Changed
 

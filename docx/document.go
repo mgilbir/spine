@@ -350,7 +350,15 @@ func (d *Document) Close() error {
 // saveRoundTrip saves a document opened from a file, preserving all parts.
 // Only document.xml is regenerated; all other parts are preserved as original bytes.
 func (d *Document) saveRoundTrip(writer *opc.Writer) error {
-	if d.hasCoreProps {
+	// Hand the writer core properties only when the source stored them at
+	// /docProps/core.xml (where the preserved raw part plus the writer's
+	// skip-if-written rule keeps fidelity) or when the session edited them.
+	// Some producers (System.IO.Packaging) keep core properties in a
+	// *.psmdcp part instead; that part round-trips verbatim among the
+	// preserved parts, and setting writer.Properties would synthesize a
+	// docProps/core.xml the source never had.
+	_, hasCorePart := d.preservedParts["/docProps/core.xml"]
+	if d.hasCoreProps && (hasCorePart || !d.Properties.Equal(d.propsSnapshot)) {
 		writer.Properties = &d.Properties
 	}
 

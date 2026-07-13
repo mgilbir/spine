@@ -66,6 +66,12 @@ type CT_Workbook struct {
 	Prolog xmlb.Prolog `xml:"-"`
 	// SelfClosingSpace controls whether self-closing elements use " />" (true) or "/>" (false).
 	SelfClosingSpace bool `xml:"-"`
+	// RawSource holds the raw part bytes being unmarshaled. When set before
+	// xml.Unmarshal, unknown children are captured as verbatim source slices
+	// (via decoder offsets) instead of being re-encoded from tokens, which
+	// preserves producer quirks tokens cannot express (" />" self-closing
+	// space, expanded empty elements like <xr:revisionPtr ...></xr:revisionPtr>).
+	RawSource []byte `xml:"-"`
 	// ElemSeparator is whitespace inserted between sibling elements (e.g., " " for spaced format).
 	ElemSeparator string `xml:"-"`
 }
@@ -134,6 +140,7 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	}
 
 	for {
+		tokStart := d.InputOffset()
 		tok, err := d.Token()
 		if err != nil {
 			return err
@@ -210,10 +217,19 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				if err := d.DecodeElement(&raw, &t); err != nil {
 					return err
 				}
+				// Prefer the verbatim source slice (start of the element's
+				// start tag through the end of its end tag): tokens cannot
+				// distinguish <x/> from <x></x> or reproduce " />" styles.
+				var data []byte
+				if end := d.InputOffset(); wb.RawSource != nil &&
+					tokStart >= 0 && end > tokStart && end <= int64(len(wb.RawSource)) {
+					data = append([]byte(nil), wb.RawSource[tokStart:end]...)
+				}
+				if len(data) == 0 || data[0] != '<' {
+					data = encodeUnknownElement(t, raw.Content, nsPrefixMap)
+				}
 				idx := len(wb.UnknownChildren)
-				wb.UnknownChildren = append(wb.UnknownChildren, WbUnknownChild{
-					Data: encodeUnknownElement(t, raw.Content, nsPrefixMap),
-				})
+				wb.UnknownChildren = append(wb.UnknownChildren, WbUnknownChild{Data: data})
 				wb.ChildOrder = append(wb.ChildOrder, fmt.Sprintf("unknown:%d", idx))
 			}
 		case xml.EndElement:
@@ -688,6 +704,12 @@ type CT_Sheet struct {
 	SheetId uint32 `xml:"-"`
 	State   string `xml:"-"`
 	RID     string `xml:"-"`
+	// InlineNSDecls preserves xmlns declarations carried on the sheet
+	// element itself. Some producers (System.IO.Packaging) declare the
+	// relationships namespace inline (<sheet ... r:id="..." xmlns:r="..."/>)
+	// instead of on the workbook root; dropping the declaration leaves r:id
+	// referencing an undeclared prefix.
+	InlineNSDecls []xmlb.NSDecl `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Sheet.
@@ -695,6 +717,10 @@ type CT_Sheet struct {
 func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
+		case attr.Name.Space == "xmlns":
+			s.InlineNSDecls = append(s.InlineNSDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			s.InlineNSDecls = append(s.InlineNSDecls, xmlb.NSDecl{Prefix: "", URI: attr.Value})
 		case attr.Name.Local == "name":
 			s.Name = attr.Value
 		case attr.Name.Local == "sheetId":
@@ -722,6 +748,15 @@ func (s *CT_Sheet) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.StrAttr("state", s.State))
 	}
 	attrs = append(attrs, xmlb.RelAttr("id", s.RID))
+	// Replay inline xmlns declarations after the regular attributes,
+	// matching the position producers that use them write them in.
+	for _, decl := range s.InlineNSDecls {
+		name := "xmlns"
+		if decl.Prefix != "" {
+			name = "xmlns:" + decl.Prefix
+		}
+		attrs = append(attrs, xmlb.Attr{Name: name, Value: decl.URI})
+	}
 	b.EmptyElement(ns, localName, attrs...)
 }
 
@@ -889,15 +924,24 @@ type CT_Extension struct {
 	URI           string        `xml:"uri,attr"`
 	RawContent    []byte        `xml:"-"`
 	InlineNSDecls []xmlb.NSDecl `xml:"-"` // xmlns declarations on the ext element (e.g., xmlns:x15="...")
+	// NSDeclsFirst records that the source wrote the xmlns declarations
+	// before the uri attribute (<ext xmlns:x15="..." uri="...">); Excel
+	// itself writes uri first, but both orders occur in the wild.
+	NSDeclsFirst bool `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Extension.
 func (e *CT_Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	uriSeen := false
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "uri" && attr.Name.Space == "" {
 			e.URI = attr.Value
+			uriSeen = true
 		} else if attr.Name.Space == "xmlns" {
 			// Capture inline namespace declarations (e.g., xmlns:x15="...")
+			if !uriSeen && len(e.InlineNSDecls) == 0 {
+				e.NSDeclsFirst = true
+			}
 			e.InlineNSDecls = append(e.InlineNSDecls, xmlb.NSDecl{
 				Prefix: attr.Name.Local,
 				URI:    attr.Value,
@@ -918,9 +962,15 @@ func (e *CT_Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Extension.
 func (e *CT_Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	attrs := []xmlb.Attr{xmlb.StrAttr("uri", e.URI)}
+	attrs := make([]xmlb.Attr, 0, len(e.InlineNSDecls)+1)
+	if !e.NSDeclsFirst {
+		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))
+	}
 	for _, nsd := range e.InlineNSDecls {
 		attrs = append(attrs, xmlb.Attr{Name: "xmlns:" + nsd.Prefix, Value: nsd.URI})
+	}
+	if e.NSDeclsFirst {
+		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))
 	}
 	b.StartElement(ns, localName, attrs...)
 	if len(e.RawContent) > 0 {
