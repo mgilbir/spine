@@ -273,22 +273,57 @@ func replaceTextInTxBody(txBody *dml.TxBody, replacements map[string]string) boo
 }
 
 // replaceTextInParagraph handles cross-run template replacement within a single paragraph.
+//
+// Paragraphs containing a:br or a:fld children are handled per run segment:
+// each maximal sequence of consecutive a:r children between break/field
+// boundaries is replaced independently, and the br/fld elements stay in place
+// (previously such paragraphs silently reverted every replacement, C87). A
+// key spanning a br or fld boundary is deliberately not matched: a break is a
+// line boundary, so text on either side is distinct content.
 func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 	if p == nil || len(p.R) == 0 {
 		return false
 	}
 
-	origRunCount := len(p.R)
-	origRuns := append([]*dml.R(nil), p.R...)
+	if len(p.Br) > 0 || len(p.Fld) > 0 {
+		changed := false
+		p.MapRunSegments(func(runs []*dml.R) []*dml.R {
+			out, ok := replaceTextInRuns(runs, replacements)
+			if !ok {
+				return runs
+			}
+			changed = true
+			return out
+		})
+		return changed
+	}
 
-	// Build the concatenated paragraph text and track run boundaries.
+	newRuns, ok := replaceTextInRuns(p.R, replacements)
+	if !ok {
+		return false
+	}
+	p.R = newRuns
+	p.ResetRunOrder()
+	return true
+}
+
+// replaceTextInRuns applies the replacements to a sequence of runs, returning
+// the rebuilt run slice and whether anything matched. Formatting of unchanged
+// prefix/suffix runs is preserved; the replaced middle inherits the formatting
+// of the first run that contained part of the match.
+func replaceTextInRuns(runs []*dml.R, replacements map[string]string) ([]*dml.R, bool) {
+	if len(runs) == 0 {
+		return runs, false
+	}
+
+	// Build the concatenated text and track run boundaries.
 	var sb strings.Builder
-	runBoundaries := make([]int, len(p.R)+1) // start position of each run in concatenated text
-	for i, r := range p.R {
+	runBoundaries := make([]int, len(runs)+1) // start position of each run in concatenated text
+	for i, r := range runs {
 		runBoundaries[i] = sb.Len()
 		sb.WriteString(r.T)
 	}
-	runBoundaries[len(p.R)] = sb.Len()
+	runBoundaries[len(runs)] = sb.Len()
 
 	fullText := sb.String()
 
@@ -297,38 +332,16 @@ func replaceTextInParagraph(p *dml.P, replacements map[string]string) bool {
 	// value that happens to contain another key is not re-replaced.
 	newText, hasMatch := applyReplacements(fullText, replacements)
 	if !hasMatch {
-		return false
+		return runs, false
 	}
 
-	// The text has changed. We need to redistribute the new text back into runs.
-	// Strategy: if only a single run, just update its text.
-	if len(p.R) == 1 {
-		p.R[0].T = newText
-		if len(p.Br) == 0 && len(p.Fld) == 0 {
-			p.ResetRunOrder()
-		}
-		return true
+	// Single run: just swap the text, keeping the formatting.
+	if len(runs) == 1 {
+		runs[0].T = newText
+		return runs, true
 	}
 
-	// Multi-run case: We need to figure out which runs were affected and rebuild them.
-	// The simplest correct approach for template replacement:
-	// Collapse all runs into one run (preserving the first run's formatting),
-	// then split on the original non-template text boundaries.
-	//
-	// However, this would lose formatting on non-template parts. A better approach:
-	// Process each replacement key individually, finding which runs contain parts of it.
-	redistributeText(p, fullText, newText, runBoundaries)
-	if len(p.Br) == 0 && len(p.Fld) == 0 {
-		p.ResetRunOrder()
-	} else if len(p.R) != origRunCount {
-		// When paragraphs contain interleaved breaks or fields, changing the run count
-		// would invalidate the preserved child ordering. Keep the original ordering and
-		// run segmentation in those cases.
-		p.R = origRuns
-		return false
-	}
-
-	return true
+	return redistributeRuns(runs, fullText, newText, runBoundaries), true
 }
 
 // applyReplacements applies every key->value replacement to text in a single
@@ -373,10 +386,10 @@ func applyReplacements(text string, replacements map[string]string) (string, boo
 	return sb.String(), true
 }
 
-// redistributeText redistributes replacement text across runs in a paragraph.
+// redistributeRuns redistributes replacement text across a run sequence.
 // It attempts to preserve formatting of runs that were not affected by the replacement,
 // while consolidating runs that contained parts of a template key.
-func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries []int) {
+func redistributeRuns(oldRuns []*dml.R, oldFullText, newFullText string, runBoundaries []int) []*dml.R {
 	// For simple cases where the replacement doesn't change the structure significantly,
 	// we try to map characters from the new text back to the original runs.
 	// However, since replacements can change text length, we use a different approach:
@@ -397,9 +410,8 @@ func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries [
 
 	// For robustness and simplicity, we use the "first run formatting" approach for the
 	// changed segments and preserve formatting for unchanged prefix/suffix.
-	oldRuns := p.R
 	if len(oldRuns) == 0 {
-		return
+		return oldRuns
 	}
 
 	// Find common prefix and suffix between old and new text. Both advance by
@@ -487,7 +499,7 @@ func redistributeText(p *dml.P, oldFullText, newFullText string, runBoundaries [
 		newRuns = []*dml.R{cloneRunWithText(oldRuns[0], newFullText)}
 	}
 
-	p.R = newRuns
+	return newRuns
 }
 
 // commonPrefixLen returns the byte length of the common prefix between two

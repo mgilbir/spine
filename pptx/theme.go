@@ -317,3 +317,99 @@ type LineStyle struct {
 type EffectStyle struct {
 	// Placeholder for effect properties
 }
+
+// themeFromOxml builds a read-only Theme from a parsed a:theme part. The
+// color and font schemes are populated; the format scheme carries its name
+// and line styles only (fill and effect style lists are not modeled). The
+// theme part itself is preserved verbatim for round-trip, so edits made
+// through the Theme accessors are not written back.
+func themeFromOxml(t *dml.Theme) *Theme {
+	if t == nil {
+		return nil
+	}
+	theme := &Theme{name: t.Name}
+	elems := t.ThemeElements
+	if elems == nil {
+		return theme
+	}
+	if cs := elems.ClrScheme; cs != nil {
+		theme.colorScheme = &ColorScheme{
+			name:              cs.Name,
+			dark1:             themeColorValue(cs.Dk1),
+			light1:            themeColorValue(cs.Lt1),
+			dark2:             themeColorValue(cs.Dk2),
+			light2:            themeColorValue(cs.Lt2),
+			accent1:           themeColorValue(cs.Accent1),
+			accent2:           themeColorValue(cs.Accent2),
+			accent3:           themeColorValue(cs.Accent3),
+			accent4:           themeColorValue(cs.Accent4),
+			accent5:           themeColorValue(cs.Accent5),
+			accent6:           themeColorValue(cs.Accent6),
+			hyperlink:         themeColorValue(cs.Hlink),
+			followedHyperlink: themeColorValue(cs.FolHlink),
+		}
+	}
+	if fs := elems.FontScheme; fs != nil {
+		theme.fontScheme = &FontScheme{name: fs.Name}
+		if fs.MajorFont != nil {
+			theme.fontScheme.majorLatin = fontTypeface(fs.MajorFont.Latin)
+			theme.fontScheme.majorEastAsia = fontTypeface(fs.MajorFont.Ea)
+			theme.fontScheme.majorComplexScript = fontTypeface(fs.MajorFont.Cs)
+		}
+		if fs.MinorFont != nil {
+			theme.fontScheme.minorLatin = fontTypeface(fs.MinorFont.Latin)
+			theme.fontScheme.minorEastAsia = fontTypeface(fs.MinorFont.Ea)
+			theme.fontScheme.minorComplexScript = fontTypeface(fs.MinorFont.Cs)
+		}
+	}
+	if fmtScheme := elems.FmtScheme; fmtScheme != nil {
+		format := &FormatScheme{name: fmtScheme.Name}
+		if fmtScheme.LnStyleLst != nil {
+			for _, ln := range fmtScheme.LnStyleLst.Ln {
+				if ln == nil {
+					continue
+				}
+				style := LineStyle{Color: oxmlToColor(ln.SolidFill)}
+				if ln.W != nil {
+					style.Width = dml.EMU(*ln.W)
+				}
+				if ln.PrstDash != nil {
+					style.Dash = ln.PrstDash.Val
+				}
+				format.lineStyles = append(format.lineStyles, style)
+			}
+		}
+		theme.formatScheme = format
+	}
+	return theme
+}
+
+// themeColorValue resolves a theme color slot to a concrete color: srgbClr
+// directly, sysClr via its lastClr rendering. Empty slots resolve to black.
+func themeColorValue(cc *dml.ColorChoice) dml.Color {
+	if cc == nil {
+		return dml.Color{}
+	}
+	if cc.SrgbClr != nil {
+		if rgb, err := dml.ParseRGB(cc.SrgbClr.Val); err == nil {
+			return rgb.ToColor()
+		}
+	}
+	if cc.SysClr != nil && cc.SysClr.LastClr != "" {
+		if rgb, err := dml.ParseRGB(cc.SysClr.LastClr); err == nil {
+			return rgb.ToColor()
+		}
+	}
+	if c := oxmlColorChoiceToColor(cc); c != nil {
+		return *c
+	}
+	return dml.Color{}
+}
+
+// fontTypeface returns the typeface of a theme font slot, or "".
+func fontTypeface(f *dml.TextFont) string {
+	if f == nil {
+		return ""
+	}
+	return f.Typeface
+}

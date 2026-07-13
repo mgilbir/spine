@@ -117,6 +117,52 @@ func (p *P) ResetRunOrder() {
 	}
 }
 
+// MapRunSegments rewrites the paragraph's runs segment by segment: fn is
+// called once for each maximal sequence of consecutive a:r children
+// (uninterrupted by a:br or a:fld) in the preserved child order, and its
+// return value replaces that segment's runs. The run slice and child order
+// are rebuilt accordingly; br and fld children stay in place. A paragraph
+// without recorded child order is treated as a single run segment.
+func (p *P) MapRunSegments(fn func(runs []*R) []*R) {
+	if len(p.childOrder) == 0 {
+		p.R = fn(p.R)
+		if len(p.Br) == 0 && len(p.Fld) == 0 {
+			p.ResetRunOrder()
+		}
+		return
+	}
+
+	var (
+		newR     []*R
+		newOrder []pChildRef
+		segment  []*R
+	)
+	flush := func() {
+		if len(segment) == 0 {
+			return
+		}
+		for _, r := range fn(segment) {
+			newOrder = append(newOrder, pChildRef{pChildR, len(newR)})
+			newR = append(newR, r)
+		}
+		segment = nil
+	}
+	for _, ref := range p.childOrder {
+		switch ref.kind {
+		case pChildR:
+			if ref.index < len(p.R) {
+				segment = append(segment, p.R[ref.index])
+			}
+		default:
+			flush()
+			newOrder = append(newOrder, ref)
+		}
+	}
+	flush()
+	p.R = newR
+	p.childOrder = newOrder
+}
+
 // UnmarshalXML implements custom unmarshaling for P to preserve child order.
 func (p *P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {

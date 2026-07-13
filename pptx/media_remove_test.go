@@ -235,14 +235,110 @@ func TestLoadedSlide_SetPosterAfterSync(t *testing.T) {
 	if strings.Contains(rels, `Id="`+oldEmbed[1]+`"`) {
 		t.Error("old poster relationship was not collected")
 	}
-	// The new poster part must carry the new bytes.
+	// The new poster part must carry the new bytes. The old placeholder
+	// poster part is no longer referenced by anything, so the save-time media
+	// GC (C221) may drop it — probe parts individually instead of requiring
+	// both to exist.
 	found := false
 	for _, name := range []string{"ppt/media/image1.png", "ppt/media/image2.png"} {
-		if strings.Contains(string(zipPart(t, data2, name)), "real-poster-bytes") {
+		if data, ok := zipPartIfExists(t, data2, name); ok && strings.Contains(string(data), "real-poster-bytes") {
 			found = true
 		}
 	}
 	if !found {
 		t.Error("new poster bytes not stored in any media part")
+	}
+}
+
+// C221: removing a media shape garbage-collects its media (and poster) parts
+// at save time once nothing references them anymore.
+func TestRemoveVideoShape_GCsMediaParts(t *testing.T) {
+	p := loadedDeck(t)
+	s := p.Slides()[0]
+	v := s.AddVideo([]byte("gc-video-bytes"), "video/mp4")
+	v.SetName("Vid1")
+	data1, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := zipPartIfExists(t, data1, "ppt/media/media1.mp4"); !ok {
+		t.Fatal("setup: media part missing after first save")
+	}
+
+	s.RemoveShape(v)
+	data2, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := zipPartIfExists(t, data2, "ppt/media/media1.mp4"); ok {
+		t.Error("media part lingers after its only shape was removed")
+	}
+	if _, ok := zipPartIfExists(t, data2, "ppt/media/image1.png"); ok {
+		t.Error("poster part lingers after its only shape was removed")
+	}
+}
+
+// C221: a media part shared by shapes on two slides survives the removal of
+// one of the shapes.
+func TestRemoveSharedMediaShape_KeepsPart(t *testing.T) {
+	p := Create()
+	s1 := p.AddSlide()
+	s2 := p.AddSlide()
+	s1.AddVideo([]byte("shared-video-bytes"), "video/mp4")
+	s2.AddVideo([]byte("shared-video-bytes"), "video/mp4")
+	data1, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := zipPartIfExists(t, data1, "ppt/media/media1.mp4"); !ok {
+		t.Fatal("setup: shared media part missing")
+	}
+
+	// Reopen and remove the media shape from the first slide only.
+	p2 := openBytes(t, data1)
+	slide1 := p2.Slides()[0]
+	var mediaShape Shape
+	for _, sh := range slide1.Shapes() {
+		if _, ok := sh.(*Picture); ok {
+			mediaShape = sh
+			break
+		}
+	}
+	if mediaShape == nil {
+		t.Fatal("setup: media pic not materialized on slide 1")
+	}
+	slide1.RemoveShape(mediaShape)
+
+	data2, err := p2.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := zipPartIfExists(t, data2, "ppt/media/media1.mp4"); !ok {
+		t.Error("shared media part was garbage-collected while slide 2 still references it")
+	}
+	rels1 := string(zipPart(t, data2, "ppt/slides/_rels/slide1.xml.rels"))
+	if strings.Contains(rels1, "media1.mp4") {
+		t.Errorf("slide 1 keeps media rels for the removed shape:\n%s", rels1)
+	}
+	rels2 := string(zipPart(t, data2, "ppt/slides/_rels/slide2.xml.rels"))
+	if !strings.Contains(rels2, "media1.mp4") {
+		t.Errorf("slide 2 lost its media rels:\n%s", rels2)
+	}
+}
+
+// C221: a zero-modification save never garbage-collects, even media parts
+// that were already unreferenced when the package was opened.
+func TestZeroModSave_KeepsUnreferencedMedia(t *testing.T) {
+	deck := addZipParts(t, savedDeck(t), map[string][]byte{
+		"ppt/media/orphan.png": []byte("orphan-image-bytes"),
+	})
+
+	p := openBytes(t, deck)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := zipPartIfExists(t, data, "ppt/media/orphan.png"); !ok {
+		t.Error("zero-modification save dropped a pre-existing unreferenced media part")
 	}
 }
