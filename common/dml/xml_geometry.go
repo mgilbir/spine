@@ -541,6 +541,16 @@ type GrpXfrm struct {
 	Ext   *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
 	ChOff *OffXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chOff,omitempty"`
 	ChExt *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main chExt,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before
+// decoding through the struct tags; the reflection marshaler replays it.
+func (gx *GrpXfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	gx.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias GrpXfrm
+	return d.DecodeElement((*alias)(gx), &start)
 }
 
 // --- Additional Geometry Types ---

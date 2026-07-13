@@ -22,6 +22,7 @@ type Builder struct {
 	openTag            bool              // a start tag has been written but not yet closed with '>'
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
 	trailingWS         bool              // set by WriteRaw when data ends with whitespace
+	rootEndTag         string            // verbatim root end tag override (SetRootEndTag)
 	stack              []elemFrame       // open elements, for balance checking and namespace scoping
 	pendingNSRestores  []nsRestore       // inline decl state to attach to the next opened element
 	err                error             // first structural error encountered
@@ -411,6 +412,12 @@ func (b *Builder) EndElement(namespace, localName string) {
 		return
 	}
 	b.popElem(b.qualifiedName(namespace, localName))
+	if b.rootEndTag != "" && b.level == 0 {
+		// The captured source form of the document element's end tag (some
+		// producers write "</p:sld >").
+		b.buf.WriteString(b.rootEndTag)
+		return
+	}
 	b.writeIndent()
 	b.buf.WriteString("</")
 	b.writeQName(namespace, localName)
@@ -419,6 +426,10 @@ func (b *Builder) EndElement(namespace, localName string) {
 		b.buf.WriteByte('\n')
 	}
 }
+
+// SetRootEndTag overrides the document element's end tag with the captured
+// verbatim source form (Prolog.RootEnd); empty keeps the canonical form.
+func (b *Builder) SetRootEndTag(tag string) { b.rootEndTag = tag }
 
 // EmptyElement writes a self-closing element.
 func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {

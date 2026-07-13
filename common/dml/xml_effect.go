@@ -81,6 +81,16 @@ type ReflectionXML struct {
 	Ky           *int32      `xml:"ky,attr,omitempty"`
 	Algn         string      `xml:"algn,attr,omitempty"`
 	RotWithShape *bool       `xml:"rotWithShape,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before
+// decoding through the struct tags; the reflection marshaler replays it.
+func (rf *ReflectionXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias ReflectionXML
+	return d.DecodeElement((*alias)(rf), &start)
 }
 
 // GlowXML represents CT_GlowEffect (a:glow). All six EG_ColorChoice kinds are
