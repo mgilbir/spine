@@ -318,6 +318,8 @@ This reads `testdata/external.txt` (a list of destination paths and URLs) and do
 
 Tests that depend on an external fixture skip silently when the file is absent, so a green run on a fresh clone exercises fewer cases than one with all fixtures fetched. A few pptx tests additionally use fixtures from the python-pptx test suite; see [`testdata/README.md`](testdata/README.md) for how to obtain that optional corpus.
 
+A much larger optional corpus of real-world files harvested from Common Crawl is available via `make fetch-cc`: committed manifests pin thousands of candidate documents per format from a single crawl, the fetcher materializes up to 1000 of each locally (gitignored, never redistributed) — plus, optionally, files above Common Crawl's 1 MiB truncation limit refetched from their origin behind a DNS-over-HTTPS blocklist gate — and `go test ./cctest` runs the open/save/reopen/part-fidelity discipline over all of them, with known failures cataloged in a quarantine file. See [`testdata/cc/README.md`](testdata/cc/README.md) for the pipeline, politeness, and licensing details.
+
 To run the full test suite (fetches external files first):
 
 ```bash
