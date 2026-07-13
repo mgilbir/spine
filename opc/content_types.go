@@ -19,14 +19,15 @@ const (
 	ContentTypeExtendedProps = "application/vnd.openxmlformats-officedocument.extended-properties+xml"
 
 	// PowerPoint content types
-	ContentTypePresentationMain    = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
-	ContentTypeSlide               = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
-	ContentTypeSlideLayout         = "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
-	ContentTypeSlideMaster         = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
-	ContentTypeTheme               = "application/vnd.openxmlformats-officedocument.theme+xml"
-	ContentTypePresentationProps   = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
-	ContentTypeViewProps           = "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
-	ContentTypeTableStyles         = "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+	ContentTypePresentationMain  = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+	ContentTypeSlide             = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+	ContentTypeSlideLayout       = "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
+	ContentTypeSlideMaster       = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
+	ContentTypeTheme             = "application/vnd.openxmlformats-officedocument.theme+xml"
+	ContentTypeThemeOverride     = "application/vnd.openxmlformats-officedocument.themeOverride+xml"
+	ContentTypePresentationProps = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
+	ContentTypeViewProps         = "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
+	ContentTypeTableStyles       = "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
 
 	// Excel content types
 	ContentTypeWorkbook      = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
@@ -229,10 +230,10 @@ func (ct *ContentTypes) RemoveOverride(partName string) {
 
 // contentTypesXML is the XML structure for [Content_Types].xml
 type contentTypesXML struct {
-	XMLName   xml.Name            `xml:"Types"`
-	Xmlns     string              `xml:"xmlns,attr"`
-	Defaults  []defaultXML        `xml:"Default"`
-	Overrides []overrideXML       `xml:"Override"`
+	XMLName   xml.Name      `xml:"Types"`
+	Xmlns     string        `xml:"xmlns,attr"`
+	Defaults  []defaultXML  `xml:"Default"`
+	Overrides []overrideXML `xml:"Override"`
 }
 
 type defaultXML struct {

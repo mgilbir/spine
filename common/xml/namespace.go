@@ -4,6 +4,11 @@ package xml
 
 // OOXML namespace URIs
 const (
+	// NSXML is the reserved XML namespace, permanently bound to the xml:
+	// prefix without ever being declared. Go's decoder resolves attributes
+	// like xml:space to this URI.
+	NSXML = "http://www.w3.org/XML/1998/namespace"
+
 	// Core namespaces
 	NSRelationships      = "http://schemas.openxmlformats.org/package/2006/relationships"
 	NSContentTypes       = "http://schemas.openxmlformats.org/package/2006/content-types"

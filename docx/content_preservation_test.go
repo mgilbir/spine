@@ -113,6 +113,45 @@ func TestRunLevelContentPreservedOnSave(t *testing.T) {
 	}
 }
 
+// Corpus class F1: mc:AlternateContent inside w:r (the standard Word layout
+// for drawings with VML fallbacks and textboxes) was silently deleted on every
+// regenerated document.xml — up to 1.58 MB of markup lost in one corpus file.
+// It must round-trip verbatim, including inline xmlns declarations on
+// mc:Choice/mc:Fallback and a fallback without an xmlns="" reset.
+func TestRunAlternateContentPreservedOnSave(t *testing.T) {
+	ac := `<mc:AlternateContent>` +
+		`<mc:Choice Requires="wps"><w:drawing><wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" behindDoc="0"/></w:drawing></mc:Choice>` +
+		`<mc:Fallback xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"><w:pict><v:rect xmlns:v="urn:schemas-microsoft-com:vml" id="r1"/></w:pict></mc:Fallback>` +
+		`</mc:AlternateContent>`
+	// Word also wraps w:rFonts in an AlternateContent INSIDE w:rPr for
+	// markup-compat font fallbacks (e.g. emoji fonts via w16se).
+	rprAC := `<mc:AlternateContent>` +
+		`<mc:Choice Requires="w16se"><w:rFonts w:ascii="Segoe UI Emoji"/></mc:Choice>` +
+		`<mc:Fallback><w:rFonts w:ascii="Segoe UI Symbol"/></mc:Fallback>` +
+		`</mc:AlternateContent>`
+	body := `<w:body>` +
+		`<w:p><w:r><w:rPr>` + rprAC + `<w:noProof/></w:rPr>` + ac + `<w:t>tail</w:t></w:r></w:p>` +
+		`<w:sectPr/></w:body>`
+
+	rootAttrs := fixtureWNS + ` xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"`
+	fixture := fixtureWithDocument(t, rootAttrs, body)
+	doc := openSave(t, fixture)
+
+	if !strings.Contains(doc, ac) {
+		t.Errorf("saved document.xml lost or rewrote run-level mc:AlternateContent;\nwant %s\ngot document: %s", ac, doc)
+	}
+	if !strings.Contains(doc, `<w:rPr>`+rprAC+`<w:noProof/></w:rPr>`) {
+		t.Errorf("saved document.xml lost or rewrote rPr-level mc:AlternateContent;\nwant %s\ngot document: %s", rprAC, doc)
+	}
+	// The AlternateContent must stay in position: after rPr, before the text.
+	if i, j := strings.Index(doc, "</w:rPr><mc:AlternateContent>"), strings.Index(doc, ">tail<"); i < 0 || j < 0 || i >= j {
+		t.Errorf("run child order not preserved: ac=%d tail=%d", i, j)
+	}
+	if strings.Count(doc, "<mc:AlternateContent>") != 2 {
+		t.Error("AlternateContent duplicated or dropped")
+	}
+}
+
 // C171: preserved run children must survive additional save cycles and
 // interact correctly with the childOrder bookkeeping when the document is
 // mutated (a tracked append must not drop them, and they must not duplicate).
@@ -409,5 +448,30 @@ func TestAddHeaderDifferentTypesCoexist(t *testing.T) {
 		if got := zipEntryCount(t, saved, name); got != 1 {
 			t.Errorf("%s appears %d times, want 1", name, got)
 		}
+	}
+}
+
+// Corpus class F2 (docx side): w:cnfStyle was bound to CT_String, so its
+// twelve explicit conditional-formatting booleans were dropped from trPr,
+// tcPr, and pPr on save; w:shd lacked themeFillTint/themeFillShade. Word
+// writes explicit zeros, so every attribute must survive verbatim.
+func TestCnfStyleAndShdThemeFillRoundTrip(t *testing.T) {
+	const cnf = `<w:cnfStyle w:val="000010000000" w:firstRow="0" w:lastRow="0" w:firstColumn="0" w:lastColumn="0" w:oddVBand="1" w:evenVBand="0" w:oddHBand="0" w:evenHBand="0" w:firstRowFirstColumn="0" w:firstRowLastColumn="0" w:lastRowFirstColumn="0" w:lastRowLastColumn="0"/>`
+	const shd = `<w:shd w:val="clear" w:color="auto" w:fill="EDEDED" w:themeFill="accent3" w:themeFillTint="33" w:themeFillShade="99"/>`
+	body := `<w:body><w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>` +
+		`<w:tblGrid><w:gridCol w:w="4675"/></w:tblGrid>` +
+		`<w:tr><w:trPr>` + cnf + `</w:trPr>` +
+		`<w:tc><w:tcPr>` + cnf + shd + `</w:tcPr>` +
+		`<w:p><w:pPr>` + cnf + `</w:pPr><w:r><w:t>cell</w:t></w:r></w:p>` +
+		`</w:tc></w:tr></w:tbl><w:p/><w:sectPr/></w:body>`
+
+	fixture := fixtureWithDocument(t, fixtureWNS, body)
+	doc := openSave(t, fixture)
+
+	if got := strings.Count(doc, cnf); got != 3 {
+		t.Errorf("cnfStyle preserved %d/3 times (trPr, tcPr, pPr):\n%s", got, doc)
+	}
+	if !strings.Contains(doc, shd) {
+		t.Errorf("shd themeFillTint/themeFillShade dropped:\n%s", doc)
 	}
 }

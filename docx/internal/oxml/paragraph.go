@@ -10,6 +10,9 @@ import (
 
 // CT_PPr represents paragraph properties (w:pPr).
 type CT_PPr struct {
+	// CnfStyle is first: Word (transitional) emits w:cnfStyle as the first
+	// w:pPr child, before w:pStyle.
+	CnfStyle            *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
 	PStyle              *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pStyle,omitempty"`
 	KeepNext            *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepNext,omitempty"`
 	KeepLines           *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepLines,omitempty"`

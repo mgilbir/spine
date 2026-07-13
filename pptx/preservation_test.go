@@ -2,6 +2,8 @@ package pptx
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -196,5 +198,111 @@ func TestNoFabricatedDefaultTextStyleOnOpenedDeck(t *testing.T) {
 	}
 	if bytes.Contains(zipPart(t, out, "ppt/presentation.xml"), []byte("defaultTextStyle")) {
 		t.Error("unmodified save fabricated a defaultTextStyle into a deck that had none")
+	}
+}
+
+// Theme override parts live under /ppt/theme/ next to regular themes, but
+// their content type is themeOverride+xml. Registering them as theme+xml
+// corrupts [Content_Types].xml: PowerPoint then refuses to apply the
+// per-slide color/font overrides.
+func TestThemeOverridePartKeepsItsContentType(t *testing.T) {
+	const overrideXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<a:themeOverride xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>`
+	data := addZipParts(t, savedDeck(t), map[string][]byte{
+		"ppt/theme/themeOverride1.xml": []byte(overrideXML),
+	})
+	data = rewriteZipPart(t, data, "[Content_Types].xml", func(ct []byte) []byte {
+		override := `<Override PartName="/ppt/theme/themeOverride1.xml" ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml"/></Types>`
+		return bytes.Replace(ct, []byte("</Types>"), []byte(override), 1)
+	})
+
+	p := openBytes(t, data)
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct := zipPart(t, out, "[Content_Types].xml")
+	if !bytes.Contains(ct, []byte(`PartName="/ppt/theme/themeOverride1.xml" ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml"`)) &&
+		!bytes.Contains(ct, []byte(`ContentType="application/vnd.openxmlformats-officedocument.themeOverride+xml" PartName="/ppt/theme/themeOverride1.xml"`)) {
+		t.Errorf("themeOverride1.xml not registered with the themeOverride content type:\n%s", ct)
+	}
+	// The regular theme must still be theme+xml.
+	if !bytes.Contains(ct, []byte(`application/vnd.openxmlformats-officedocument.theme+xml`)) {
+		t.Errorf("theme1.xml lost its theme content type:\n%s", ct)
+	}
+	if got := zipPart(t, out, "ppt/theme/themeOverride1.xml"); !bytes.Equal(got, []byte(overrideXML)) {
+		t.Errorf("themeOverride1.xml content changed:\n%s", got)
+	}
+}
+
+// Corpus class F3 (semantic): the XSD default of preferRelativeResize is
+// TRUE, so an explicit preferRelativeResize="0" carried real information —
+// bool+omitempty dropped it and silently flipped the picture back to
+// relative resizing. The pointer type must round-trip the explicit zero.
+func TestPreferRelativeResizeZeroRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "img.png")
+	if err := os.WriteFile(imgPath, minimalTransparentPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := Create()
+	if _, err := p.AddSlide().AddPicture(imgPath); err != nil {
+		t.Fatalf("AddPicture: %v", err)
+	}
+	deck, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := rewriteZipPart(t, deck, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		out := bytes.Replace(xml, []byte("<p:cNvPicPr>"), []byte(`<p:cNvPicPr preferRelativeResize="0">`), 1)
+		if bytes.Equal(out, xml) {
+			t.Fatal("fixture rewrite matched nothing: <p:cNvPicPr> not found")
+		}
+		return out
+	})
+
+	out, err := openBytes(t, data).SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := zipPart(t, out, "ppt/slides/slide1.xml")
+	if !bytes.Contains(slideXML, []byte(`<p:cNvPicPr preferRelativeResize="0">`)) {
+		t.Errorf("explicit preferRelativeResize=\"0\" dropped on save:\n%s", slideXML)
+	}
+}
+
+// Corpus class F2: a:picLocks modeled only ten of its eleven locking
+// attributes — an explicit noChangeShapeType="1" was dropped on save.
+func TestPicLocksNoChangeShapeTypeRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "img.png")
+	if err := os.WriteFile(imgPath, minimalTransparentPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := Create()
+	if _, err := p.AddSlide().AddPicture(imgPath); err != nil {
+		t.Fatalf("AddPicture: %v", err)
+	}
+	deck, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const locks = `<a:picLocks noChangeAspect="1" noChangeArrowheads="1" noChangeShapeType="1" noCrop="1"/>`
+	data := rewriteZipPart(t, deck, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		out := bytes.Replace(xml, []byte(`<a:picLocks noChangeAspect="1"/>`), []byte(locks), 1)
+		if bytes.Equal(out, xml) {
+			t.Fatal("fixture rewrite matched nothing: default picLocks not found")
+		}
+		return out
+	})
+
+	out, err := openBytes(t, data).SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slideXML := zipPart(t, out, "ppt/slides/slide1.xml"); !bytes.Contains(slideXML, []byte(locks)) {
+		t.Errorf("picLocks attributes dropped on save:\n%s", slideXML)
 	}
 }

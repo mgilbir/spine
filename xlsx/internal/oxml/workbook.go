@@ -37,17 +37,17 @@ type WbUnknownChild struct {
 
 // CT_Workbook is the root element of workbook.xml.
 type CT_Workbook struct {
-	XMLName          xml.Name                   `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
-	Conformance      string                     `xml:"conformance,attr,omitempty"`
-	Ignorable        string                     `xml:"-"` // mc:Ignorable attribute value
-	FileVersion      *CT_FileVersion            `xml:"fileVersion,omitempty"`
-	WorkbookPr       *CT_WorkbookPr             `xml:"workbookPr,omitempty"`
-	AlternateContent *coxml.AlternateContent    `xml:"-"` // mc:AlternateContent child element
-	BookViews        *CT_BookViews              `xml:"bookViews,omitempty"`
-	Sheets           CT_Sheets                  `xml:"sheets"`
-	DefinedNames     *CT_DefinedNames           `xml:"definedNames,omitempty"`
-	CalcPr           *CT_CalcPr                 `xml:"calcPr,omitempty"`
-	ExtLst           *CT_ExtensionList          `xml:"extLst,omitempty"`
+	XMLName          xml.Name                `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
+	Conformance      string                  `xml:"conformance,attr,omitempty"`
+	Ignorable        string                  `xml:"-"` // mc:Ignorable attribute value
+	FileVersion      *CT_FileVersion         `xml:"fileVersion,omitempty"`
+	WorkbookPr       *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
+	AlternateContent *coxml.AlternateContent `xml:"-"` // mc:AlternateContent child element
+	BookViews        *CT_BookViews           `xml:"bookViews,omitempty"`
+	Sheets           CT_Sheets               `xml:"sheets"`
+	DefinedNames     *CT_DefinedNames        `xml:"definedNames,omitempty"`
+	CalcPr           *CT_CalcPr              `xml:"calcPr,omitempty"`
+	ExtLst           *CT_ExtensionList       `xml:"extLst,omitempty"`
 	// UnknownChildren stores extension child elements (like xr:revisionPtr)
 	// that we don't have typed structs for, indexed for child ordering.
 	UnknownChildren []WbUnknownChild `xml:"-"`
@@ -104,6 +104,9 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				prefix = xmlb.PrefixMarkupCompatibility
 			case nsR:
 				prefix = "r"
+			case xmlb.NSXML:
+				// Reserved prefix, never declared: xml:space etc.
+				prefix = "xml"
 			case "":
 				// no prefix
 			default:
@@ -268,6 +271,9 @@ func encodeUnknownElement(start xml.StartElement, innerContent []byte, nsPrefixM
 		buf = append(buf, ' ')
 		if attr.Name.Space == "xmlns" {
 			buf = append(buf, "xmlns:"...)
+		} else if attr.Name.Space == xmlb.NSXML {
+			// Reserved prefix, never declared: xml:space etc.
+			buf = append(buf, "xml:"...)
 		} else if attr.Name.Space != "" {
 			if prefix, ok := prefixes[attr.Name.Space]; ok && prefix != "" {
 				buf = append(buf, prefix...)
@@ -386,22 +392,22 @@ type CT_FileVersion struct {
 
 // CT_WorkbookPr represents the workbookPr element.
 type CT_WorkbookPr struct {
-	Date1904                    *bool   `xml:"date1904,attr,omitempty"`
-	ShowObjects                 string  `xml:"showObjects,attr,omitempty"`
-	ShowBorderUnselectedTables  *bool   `xml:"showBorderUnselectedTables,attr,omitempty"`
-	FilterPrivacy               *bool   `xml:"filterPrivacy,attr,omitempty"`
-	PromptedSolutions           *bool   `xml:"promptedSolutions,attr,omitempty"`
-	ShowInkAnnotation           *bool   `xml:"showInkAnnotation,attr,omitempty"`
-	BackupFile                  *bool   `xml:"backupFile,attr,omitempty"`
-	SaveExternalLinkValues      *bool   `xml:"saveExternalLinkValues,attr,omitempty"`
-	UpdateLinks                 string  `xml:"updateLinks,attr,omitempty"`
-	HidePivotFieldList          *bool   `xml:"hidePivotFieldList,attr,omitempty"`
-	ShowPivotChartFilter        *bool   `xml:"showPivotChartFilter,attr,omitempty"`
-	AllowRefreshQuery           *bool   `xml:"allowRefreshQuery,attr,omitempty"`
-	AutoCompressPictures        *bool   `xml:"autoCompressPictures,attr,omitempty"`
-	DefaultThemeVersion         *uint32 `xml:"defaultThemeVersion,attr,omitempty"`
-	CodeName                    string  `xml:"codeName,attr,omitempty"`
-	CheckCompatibility          *bool   `xml:"checkCompatibility,attr,omitempty"`
+	Date1904                   *bool   `xml:"date1904,attr,omitempty"`
+	ShowObjects                string  `xml:"showObjects,attr,omitempty"`
+	ShowBorderUnselectedTables *bool   `xml:"showBorderUnselectedTables,attr,omitempty"`
+	FilterPrivacy              *bool   `xml:"filterPrivacy,attr,omitempty"`
+	PromptedSolutions          *bool   `xml:"promptedSolutions,attr,omitempty"`
+	ShowInkAnnotation          *bool   `xml:"showInkAnnotation,attr,omitempty"`
+	BackupFile                 *bool   `xml:"backupFile,attr,omitempty"`
+	SaveExternalLinkValues     *bool   `xml:"saveExternalLinkValues,attr,omitempty"`
+	UpdateLinks                string  `xml:"updateLinks,attr,omitempty"`
+	HidePivotFieldList         *bool   `xml:"hidePivotFieldList,attr,omitempty"`
+	ShowPivotChartFilter       *bool   `xml:"showPivotChartFilter,attr,omitempty"`
+	AllowRefreshQuery          *bool   `xml:"allowRefreshQuery,attr,omitempty"`
+	AutoCompressPictures       *bool   `xml:"autoCompressPictures,attr,omitempty"`
+	DefaultThemeVersion        *uint32 `xml:"defaultThemeVersion,attr,omitempty"`
+	CodeName                   string  `xml:"codeName,attr,omitempty"`
+	CheckCompatibility         *bool   `xml:"checkCompatibility,attr,omitempty"`
 }
 
 // CT_BookViews represents the bookViews element.
@@ -733,19 +739,19 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 
 // CT_CalcPr represents the calcPr element.
 type CT_CalcPr struct {
-	CalcId               *uint32  `xml:"calcId,attr,omitempty"`
-	CalcMode             string   `xml:"calcMode,attr,omitempty"`
-	FullCalcOnLoad       *bool    `xml:"fullCalcOnLoad,attr,omitempty"`
-	RefMode              string   `xml:"refMode,attr,omitempty"`
-	Iterate              *bool    `xml:"iterate,attr,omitempty"`
-	IterateCount         *uint32  `xml:"iterateCount,attr,omitempty"`
-	IterateDelta         *float64 `xml:"iterateDelta,attr,omitempty"`
-	FullPrecision        *bool    `xml:"fullPrecision,attr,omitempty"`
-	CalcCompleted        *bool    `xml:"calcCompleted,attr,omitempty"`
-	CalcOnSave           *bool    `xml:"calcOnSave,attr,omitempty"`
-	ConcurrentCalc       *bool    `xml:"concurrentCalc,attr,omitempty"`
-	ConcurrentManualCount *uint32 `xml:"concurrentManualCount,attr,omitempty"`
-	ForceFullCalc        *bool    `xml:"forceFullCalc,attr,omitempty"`
+	CalcId                *uint32  `xml:"calcId,attr,omitempty"`
+	CalcMode              string   `xml:"calcMode,attr,omitempty"`
+	FullCalcOnLoad        *bool    `xml:"fullCalcOnLoad,attr,omitempty"`
+	RefMode               string   `xml:"refMode,attr,omitempty"`
+	Iterate               *bool    `xml:"iterate,attr,omitempty"`
+	IterateCount          *uint32  `xml:"iterateCount,attr,omitempty"`
+	IterateDelta          *float64 `xml:"iterateDelta,attr,omitempty"`
+	FullPrecision         *bool    `xml:"fullPrecision,attr,omitempty"`
+	CalcCompleted         *bool    `xml:"calcCompleted,attr,omitempty"`
+	CalcOnSave            *bool    `xml:"calcOnSave,attr,omitempty"`
+	ConcurrentCalc        *bool    `xml:"concurrentCalc,attr,omitempty"`
+	ConcurrentManualCount *uint32  `xml:"concurrentManualCount,attr,omitempty"`
+	ForceFullCalc         *bool    `xml:"forceFullCalc,attr,omitempty"`
 }
 
 // CT_ExtensionList represents the extLst element.
