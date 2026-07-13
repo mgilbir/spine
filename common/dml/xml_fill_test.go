@@ -47,7 +47,7 @@ func TestDML_CT_GradientFillProperties(t *testing.T) {
 	if v.GsLst == nil || len(v.GsLst.Gs) != 2 {
 		t.Error("GsLst not properly parsed")
 	}
-	if v.Lin == nil || v.Lin.Ang != 5400000 {
+	if v.Lin == nil || v.Lin.Ang == nil || *v.Lin.Ang != 5400000 {
 		t.Error("Lin not properly parsed")
 	}
 }
@@ -98,8 +98,8 @@ func TestDML_CT_LinearShadeProperties(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Ang != 5400000 {
-		t.Errorf("Ang = %d, want 5400000", v.Ang)
+	if v.Ang == nil || *v.Ang != 5400000 {
+		t.Errorf("Ang = %v, want 5400000", v.Ang)
 	}
 	if v.Scaled == nil || !*v.Scaled {
 		t.Error("Scaled should be true")

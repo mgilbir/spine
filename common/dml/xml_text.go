@@ -17,33 +17,36 @@ type TxBody struct {
 
 // BodyPr represents CT_TextBodyProperties (a:bodyPr)
 type BodyPr struct {
-	Rot              int32        `xml:"rot,attr,omitempty"`
-	SpcFirstLastPara *bool        `xml:"spcFirstLastPara,attr,omitempty"`
-	VertOverflow     string       `xml:"vertOverflow,attr,omitempty"`
-	HorzOverflow     string       `xml:"horzOverflow,attr,omitempty"`
-	Vert             string       `xml:"vert,attr,omitempty"`
-	Wrap             string       `xml:"wrap,attr,omitempty"`
-	LIns             *int64       `xml:"lIns,attr,omitempty"`
-	TIns             *int64       `xml:"tIns,attr,omitempty"`
-	RIns             *int64       `xml:"rIns,attr,omitempty"`
-	BIns             *int64       `xml:"bIns,attr,omitempty"`
-	NumCol           int32        `xml:"numCol,attr,omitempty"`
-	SpcCol           int32        `xml:"spcCol,attr,omitempty"`
-	RtlCol           *bool        `xml:"rtlCol,attr,omitempty"`
-	FromWordArt      *bool        `xml:"fromWordArt,attr,omitempty"`
-	Anchor           string       `xml:"anchor,attr,omitempty"`
-	AnchorCtr        *bool        `xml:"anchorCtr,attr,omitempty"`
-	ForceAA          *bool        `xml:"forceAA,attr,omitempty"`
-	UpRight          *bool        `xml:"upright,attr,omitempty"`
-	CompatLnSpc      *bool        `xml:"compatLnSpc,attr,omitempty"`
-	PrstTxWarp       *PrstTxWarp  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
-	NoAutofit        *NoAutofit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
-	NormAutofit      *NormAutofit `xml:"http://schemas.openxmlformats.org/drawingml/2006/main normAutofit,omitempty"`
-	SpAutoFit        *SpAutoFit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
-	Scene3d          *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
-	Sp3d             *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
-	FlatTx           *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
-	ExtLst           *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	// Rot is a pointer so an explicit rot="0" in the source survives the
+	// round trip (omitempty on a value field dropped it).
+	Rot              *int32 `xml:"rot,attr,omitempty"`
+	SpcFirstLastPara *bool  `xml:"spcFirstLastPara,attr,omitempty"`
+	VertOverflow     string `xml:"vertOverflow,attr,omitempty"`
+	HorzOverflow     string `xml:"horzOverflow,attr,omitempty"`
+	Vert             string `xml:"vert,attr,omitempty"`
+	Wrap             string `xml:"wrap,attr,omitempty"`
+	LIns             *int64 `xml:"lIns,attr,omitempty"`
+	TIns             *int64 `xml:"tIns,attr,omitempty"`
+	RIns             *int64 `xml:"rIns,attr,omitempty"`
+	BIns             *int64 `xml:"bIns,attr,omitempty"`
+	NumCol           int32  `xml:"numCol,attr,omitempty"`
+	// SpcCol is a pointer so an explicit spcCol="0" survives the round trip.
+	SpcCol      *int32       `xml:"spcCol,attr,omitempty"`
+	RtlCol      *bool        `xml:"rtlCol,attr,omitempty"`
+	FromWordArt *bool        `xml:"fromWordArt,attr,omitempty"`
+	Anchor      string       `xml:"anchor,attr,omitempty"`
+	AnchorCtr   *bool        `xml:"anchorCtr,attr,omitempty"`
+	ForceAA     *bool        `xml:"forceAA,attr,omitempty"`
+	UpRight     *bool        `xml:"upright,attr,omitempty"`
+	CompatLnSpc *bool        `xml:"compatLnSpc,attr,omitempty"`
+	PrstTxWarp  *PrstTxWarp  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
+	NoAutofit   *NoAutofit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
+	NormAutofit *NormAutofit `xml:"http://schemas.openxmlformats.org/drawingml/2006/main normAutofit,omitempty"`
+	SpAutoFit   *SpAutoFit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
+	Scene3d     *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
+	Sp3d        *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
+	FlatTx      *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	ExtLst      *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // PrstTxWarp represents CT_PresetTextShape (a:prstTxWarp)
@@ -554,7 +557,8 @@ type TabLst struct {
 
 // Tab represents CT_TextTabStop (a:tab)
 type Tab struct {
-	Pos  int32  `xml:"pos,attr,omitempty"`
+	// Pos is a pointer so an explicit pos="0" survives the round trip.
+	Pos  *int32 `xml:"pos,attr,omitempty"`
 	Algn string `xml:"algn,attr,omitempty"`
 }
 

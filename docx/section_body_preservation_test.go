@@ -18,7 +18,7 @@ func TestSectPrChildrenRoundTrip(t *testing.T) {
 		`<w:pgSz w:w="12240" w:h="15840"/>` +
 		`<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>` +
 		`<w:paperSrc w:first="7" w:other="7"/>` +
-		`<w:pgBorders w:offsetFrom="page"><w:top w:val="single" w:color="auto" w:sz="4" w:space="24"/></w:pgBorders>` +
+		`<w:pgBorders w:offsetFrom="page"><w:top w:val="single" w:sz="4" w:space="24" w:color="auto"/></w:pgBorders>` +
 		`<w:lnNumType w:countBy="1" w:start="1" w:restart="continuous"/>` +
 		`<w:pgNumType w:start="1"/>` +
 		`<w:cols w:space="708"/>` +
@@ -114,7 +114,7 @@ func TestTrackedMoveContentPreserved(t *testing.T) {
 // C28: row-level w:tblPrEx (table property exceptions) was dropped.
 func TestRowTblPrExRoundTrip(t *testing.T) {
 	row := `<w:tr>` +
-		`<w:tblPrEx><w:tblBorders><w:top w:val="single" w:color="auto" w:sz="4" w:space="0"/></w:tblBorders></w:tblPrEx>` +
+		`<w:tblPrEx><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tblBorders></w:tblPrEx>` +
 		`<w:tc><w:p><w:r><w:t>CELL</w:t></w:r></w:p></w:tc>` +
 		`</w:tr>`
 	body := `<w:body><w:tbl><w:tblGrid><w:gridCol/></w:tblGrid>` + row + `</w:tbl><w:p/></w:body>`

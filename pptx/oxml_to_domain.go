@@ -505,7 +505,9 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 		if i >= len(tbl.rows) {
 			break
 		}
-		tbl.rows[i].height = dml.EMU(tr.H)
+		if tr.H != nil {
+			tbl.rows[i].height = dml.EMU(*tr.H)
+		}
 		tbl.rows[i].sourceTr = tr
 
 		for j, tc := range tr.Tc {

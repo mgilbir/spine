@@ -302,6 +302,13 @@ type Reader struct {
 	// Properties contains the core properties of the package.
 	Properties *CoreProperties
 
+	// DirectoryEntries lists the zip directory entries ("_rels/", "word/", …)
+	// present in the source archive, in archive order. OPC ignores directory
+	// entries, but some producers (WPS, Apache POI, some Excel builds) emit
+	// them; a byte-faithful save re-emits the same set via
+	// Writer.WriteDirectoryEntries.
+	DirectoryEntries []string
+
 	zipReader *zip.Reader
 	budget    *decompressionBudget
 }
@@ -388,8 +395,10 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 		// match), consistent with existing duplicate handling.
 		name := canonicalZipEntryName(zf.Name)
 
-		// Skip directories
+		// Directory entries carry no part data, but record them so a save can
+		// reproduce the source archive's directory listing.
 		if strings.HasSuffix(zf.Name, "/") || strings.HasSuffix(name, "/") {
+			reader.DirectoryEntries = append(reader.DirectoryEntries, zf.Name)
 			continue
 		}
 

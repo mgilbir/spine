@@ -179,7 +179,8 @@ type AGridCol struct {
 
 // ATr represents a table row.
 type ATr struct {
-	H      int64       `xml:"h,attr,omitempty"`
+	// H is a pointer so an explicit h="0" survives the round trip.
+	H      *int64      `xml:"h,attr,omitempty"`
 	Tc     []*ATc      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc"`
 	ExtLst *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }

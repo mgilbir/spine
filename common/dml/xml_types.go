@@ -52,6 +52,7 @@ type SrgbClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // SystemClr represents CT_SystemColor (a:sysClr) for XML serialization.
@@ -87,6 +88,7 @@ type SystemClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // HslClr represents CT_HslColor (a:hslClr) for XML serialization.
@@ -123,6 +125,7 @@ type HslClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // PrstClr represents CT_PresetColor (a:prstClr) for XML serialization.
@@ -157,6 +160,7 @@ type PrstClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // ScRgbClr represents CT_ScRgbColor (a:scrgbClr) for XML serialization.
@@ -193,6 +197,7 @@ type ScRgbClr struct {
 	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder  []clrTransformKind // captured source order of the transform children
 }
 
 // clrTransformKind identifies a color transform element type.
@@ -575,8 +580,9 @@ type Gs struct {
 // Lin represents CT_LinearShadeProperties (a:lin).
 // scaled is optional with no XSD default, so it is a pointer; see GradFill.
 type Lin struct {
-	Ang    int32 `xml:"ang,attr,omitempty"`
-	Scaled *bool `xml:"scaled,attr,omitempty"`
+	// Ang is a pointer so an explicit ang="0" survives the round trip.
+	Ang    *int32 `xml:"ang,attr,omitempty"`
+	Scaled *bool  `xml:"scaled,attr,omitempty"`
 }
 
 // PathXML represents CT_PathShadeProperties (a:path)
@@ -953,8 +959,9 @@ func fixupRawToken(tok xml.Token) xml.Token {
 
 // TileXML represents CT_TileInfoProperties (a:tile)
 type TileXML struct {
-	Tx   int64      `xml:"tx,attr,omitempty"`
-	Ty   int64      `xml:"ty,attr,omitempty"`
+	// Tx/Ty are pointers so explicit tx="0" ty="0" survive the round trip.
+	Tx   *int64     `xml:"tx,attr,omitempty"`
+	Ty   *int64     `xml:"ty,attr,omitempty"`
 	Sx   Percentage `xml:"sx,attr,omitempty"`
 	Sy   Percentage `xml:"sy,attr,omitempty"`
 	Flip string     `xml:"flip,attr,omitempty"`
