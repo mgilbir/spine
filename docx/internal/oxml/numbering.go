@@ -1,13 +1,117 @@
 package oxml
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // CT_Numbering is the root element of the numbering definitions part.
+//
+// Parsed parts follow the house round-trip pattern: every child element is
+// preserved verbatim in Raw (so numPicBullet entries, extension attributes
+// like w15:restartNumberingAfterBreak, and unknown children survive
+// regeneration byte-for-byte), while only the IDs of the parsed definitions
+// are lifted into ParsedAbstractNumIDs/ParsedNumIDs for allocation. The typed
+// AbstractNum/Num slices hold only definitions added through the API in this
+// session; MarshalContent emits the raw originals first and appends the new
+// definitions in schema position.
 type CT_Numbering struct {
-	XMLName     xml.Name          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numbering"`
-	AbstractNum []*CT_AbstractNum `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main abstractNum"`
-	Num         []*CT_Num         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num"`
-	NumIdMacAtCleanup *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numIdMacAtCleanup,omitempty"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numbering"`
+	// OriginalNSDecls and Ignorable preserve the root attributes of a parsed
+	// part so regeneration keeps its namespace declarations.
+	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
+	Ignorable       string        `xml:"-"`
+	// Raw holds every child of a parsed part verbatim, in document order.
+	Raw []*CT_RawNamedElement `xml:"-"`
+	// ParsedAbstractNumIDs / ParsedNumIDs are the w:abstractNumId / w:numId
+	// values of the parsed definitions kept in Raw.
+	ParsedAbstractNumIDs []string `xml:"-"`
+	ParsedNumIDs         []string `xml:"-"`
+	// Session-added definitions.
+	AbstractNum       []*CT_AbstractNum `xml:"-"`
+	Num               []*CT_Num         `xml:"-"`
+	NumIdMacAtCleanup *CT_DecimalNumber `xml:"-"`
+}
+
+// UnmarshalXML implements custom unmarshaling for CT_Numbering.
+func (n *CT_Numbering) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	n.XMLName = start.Name
+	for _, attr := range start.Attr {
+		switch {
+		case attr.Name.Space == "xmlns":
+			n.OriginalNSDecls = append(n.OriginalNSDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			n.OriginalNSDecls = append(n.OriginalNSDecls, xmlb.NSDecl{Prefix: "", URI: attr.Value})
+		case attr.Name.Local == "Ignorable":
+			n.Ignorable = attr.Value
+		}
+	}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "abstractNum":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "abstractNumId" {
+						n.ParsedAbstractNumIDs = append(n.ParsedAbstractNumIDs, attr.Value)
+					}
+				}
+			case "num":
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "numId" {
+						n.ParsedNumIDs = append(n.ParsedNumIDs, attr.Value)
+					}
+				}
+			}
+			v := &CT_RawNamedElement{}
+			if err := d.DecodeElement(v, &t); err != nil {
+				return err
+			}
+			n.Raw = append(n.Raw, v)
+		case xml.EndElement:
+			return nil
+		}
+	}
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Numbering.
+func (n *CT_Numbering) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
+	n.MarshalContent(b, ns)
+	b.EndElement(ns, localName)
+}
+
+// MarshalContent writes the numbering children: the raw-preserved originals
+// verbatim, with session-added abstractNum/num definitions appended in schema
+// position (all abstractNum elements before all num elements).
+func (n *CT_Numbering) MarshalContent(b *xmlb.Builder, ns string) {
+	emit := func(match func(string) bool) {
+		for _, rc := range n.Raw {
+			if match(rc.Local) {
+				rc.MarshalNamed(b, ns)
+			}
+		}
+	}
+	emit(func(l string) bool { return l == "numPicBullet" })
+	emit(func(l string) bool { return l == "abstractNum" })
+	for _, v := range n.AbstractNum {
+		b.MarshalElement(ns, "abstractNum", v)
+	}
+	emit(func(l string) bool { return l == "num" })
+	for _, v := range n.Num {
+		b.MarshalElement(ns, "num", v)
+	}
+	emit(func(l string) bool {
+		return l != "numPicBullet" && l != "abstractNum" && l != "num"
+	})
+	if n.NumIdMacAtCleanup != nil {
+		b.MarshalElement(ns, "numIdMacAtCleanup", n.NumIdMacAtCleanup)
+	}
 }
 
 // CT_AbstractNum represents an abstract numbering definition.

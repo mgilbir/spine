@@ -146,6 +146,7 @@ type CT_Tc struct {
 	SdtBlock   []*CT_SdtBlock    `xml:"-"`
 	BookmarkStart []*CT_BookmarkStart `xml:"-"`
 	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
+	Raw           []*CT_RawNamedElement `xml:"-"`
 	childOrder []bodyChildRef
 }
 
@@ -165,7 +166,7 @@ func (tc *CT_Tc) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					return err
 				}
 			default:
-				if err := unmarshalBodyChild(d, &t, &tc.P, &tc.Tbl, &tc.SdtBlock, &tc.BookmarkStart, &tc.BookmarkEnd, &tc.childOrder); err != nil {
+				if err := unmarshalBodyChild(d, &t, &tc.P, &tc.Tbl, &tc.SdtBlock, &tc.BookmarkStart, &tc.BookmarkEnd, &tc.Raw, &tc.childOrder); err != nil {
 					return err
 				}
 			}
@@ -181,7 +182,7 @@ func (tc *CT_Tc) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if tc.TcPr != nil {
 		b.MarshalElement(ns, "tcPr", tc.TcPr)
 	}
-	marshalBodyContent(b, ns, tc.P, tc.Tbl, tc.SdtBlock, tc.BookmarkStart, tc.BookmarkEnd, tc.childOrder)
+	marshalBodyContent(b, ns, tc.P, tc.Tbl, tc.SdtBlock, tc.BookmarkStart, tc.BookmarkEnd, tc.Raw, tc.childOrder)
 	b.EndElement(ns, localName)
 }
 
@@ -196,7 +197,20 @@ const (
 	trChildSdtCell
 	trChildIns
 	trChildDel
+	trChildRaw
 )
+
+// isRawRowChild reports whether a row-level child element the model does not
+// type must be preserved verbatim instead of skipped: row-level w:customXml
+// (which wraps whole cells) and the tracked-move range markers.
+func isRawRowChild(local string) bool {
+	switch local {
+	case "customXml",
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		return true
+	}
+	return false
+}
 
 // trChildRef references a table row child.
 type trChildRef struct {
@@ -211,6 +225,9 @@ type CT_Tr struct {
 	RsidTr   string       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
 	ParaId   string       `xml:"-"` // w14:paraId
 	TextId   string       `xml:"-"` // w14:textId
+	// TblPrEx (w:tblPrEx, table property exceptions for this row) is preserved
+	// raw; it precedes trPr in the schema and is re-emitted in that position.
+	TblPrEx  *CT_RawElement `xml:"-"`
 	TrPr     *CT_TrPr     `xml:"-"`
 	Tc       []*CT_Tc     `xml:"-"`
 	BookmarkStart []*CT_BookmarkStart `xml:"-"`
@@ -218,6 +235,7 @@ type CT_Tr struct {
 	SdtCell       []*CT_SdtBlock      `xml:"-"`
 	Ins           []*CT_RunTrackChange `xml:"-"`
 	Del           []*CT_RunTrackChange `xml:"-"`
+	Raw           []*CT_RawNamedElement `xml:"-"`
 	childOrder    []trChildRef
 }
 
@@ -246,6 +264,11 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
+			case "tblPrEx":
+				tr.TblPrEx = &CT_RawElement{}
+				if err := d.DecodeElement(tr.TblPrEx, &t); err != nil {
+					return err
+				}
 			case "trPr":
 				tr.TrPr = &CT_TrPr{}
 				if err := d.DecodeElement(tr.TrPr, &t); err != nil {
@@ -294,6 +317,15 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				tr.childOrder = append(tr.childOrder, trChildRef{trChildDel, len(tr.Del)})
 				tr.Del = append(tr.Del, v)
 			default:
+				if isRawRowChild(t.Name.Local) {
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
+						return err
+					}
+					tr.childOrder = append(tr.childOrder, trChildRef{trChildRaw, len(tr.Raw)})
+					tr.Raw = append(tr.Raw, v)
+					continue
+				}
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -324,6 +356,9 @@ func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	b.StartElement(ns, localName, attrs...)
 
+	if tr.TblPrEx != nil {
+		tr.TblPrEx.MarshalToBuilder(b, ns, "tblPrEx")
+	}
 	if tr.TrPr != nil {
 		b.MarshalElement(ns, "trPr", tr.TrPr)
 	}
@@ -354,6 +389,10 @@ func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			case trChildDel:
 				if ref.index < len(tr.Del) {
 					tr.Del[ref.index].MarshalToBuilder(b, ns, "del")
+				}
+			case trChildRaw:
+				if ref.index < len(tr.Raw) {
+					tr.Raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}
@@ -431,6 +470,9 @@ func (tr *CT_Tr) backfillChildOrder() {
 	}
 	for i := range tr.Del {
 		tr.childOrder = append(tr.childOrder, trChildRef{trChildDel, i})
+	}
+	for i := range tr.Raw {
+		tr.childOrder = append(tr.childOrder, trChildRef{trChildRaw, i})
 	}
 }
 
@@ -545,6 +587,6 @@ func (tbl *CT_Tbl) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // is marshaled even on a cell parsed from a file. Existing untracked children
 // (e.g. a seed paragraph assigned directly) are backfilled into the order first.
 func (tc *CT_Tc) AppendP(p *CT_P) {
-	backfillBodyChildOrder(&tc.childOrder, tc.P, tc.Tbl, tc.SdtBlock, tc.BookmarkStart, tc.BookmarkEnd)
+	backfillBodyChildOrder(&tc.childOrder, tc.P, tc.Tbl, tc.SdtBlock, tc.BookmarkStart, tc.BookmarkEnd, tc.Raw)
 	appendBodyP(&tc.P, &tc.childOrder, p)
 }

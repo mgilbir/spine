@@ -24,6 +24,7 @@ type CT_RunTrackChange struct {
 	Ins            []*CT_RunTrackChange `xml:"-"`
 	FldSimple      []*CT_SimpleField    `xml:"-"`
 	SdtRun         []*CT_SdtRun         `xml:"-"`
+	Raw            []*CT_RawNamedElement `xml:"-"`
 	childOrder     []pChildRef
 }
 
@@ -41,7 +42,7 @@ func (tc *CT_RunTrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 	}
 
 	return unmarshalPContent(d, &tc.R, &tc.Hyperlink, &tc.BookmarkStart, &tc.BookmarkEnd,
-		&tc.ProofErr, &tc.PermStart, &tc.PermEnd, &tc.Ins, &tc.Del, &tc.FldSimple, &tc.SdtRun, &tc.childOrder)
+		&tc.ProofErr, &tc.PermStart, &tc.PermEnd, &tc.Ins, &tc.Del, &tc.FldSimple, &tc.SdtRun, &tc.Raw, &tc.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_RunTrackChange.
@@ -54,7 +55,7 @@ func (tc *CT_RunTrackChange) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, tc.R, tc.Hyperlink, tc.BookmarkStart, tc.BookmarkEnd,
-		tc.ProofErr, tc.PermStart, tc.PermEnd, tc.Ins, tc.Del, tc.FldSimple, tc.SdtRun, tc.childOrder)
+		tc.ProofErr, tc.PermStart, tc.PermEnd, tc.Ins, tc.Del, tc.FldSimple, tc.SdtRun, tc.Raw, tc.childOrder)
 	b.EndElement(ns, localName)
 }
 

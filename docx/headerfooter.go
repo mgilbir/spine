@@ -119,6 +119,11 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	if hType == HeaderFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
+	// An even-page header only renders when settings.xml carries
+	// w:evenAndOddHeaders.
+	if hType == HeaderEven {
+		d.ensureEvenAndOddHeaders()
+	}
 
 	h := &Header{document: d, hdr: hdr, relID: relID, partName: partName}
 
@@ -186,6 +191,11 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	if fType == FooterFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
+	// An even-page footer only renders when settings.xml carries
+	// w:evenAndOddHeaders (the flag covers both headers and footers).
+	if fType == FooterEven {
+		d.ensureEvenAndOddHeaders()
+	}
 
 	f := &Footer{document: d, ftr: ftr, relID: relID, partName: partName}
 
@@ -208,6 +218,20 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	})
 
 	return f
+}
+
+// ensureEvenAndOddHeaders makes sure settings.xml declares
+// w:evenAndOddHeaders, creating the settings model when the document has
+// none. The modified flag makes the save path regenerate (or newly write) the
+// settings part; a document whose settings already carry the flag is left
+// untouched so a zero-modification save stays byte-identical.
+func (d *Document) ensureEvenAndOddHeaders() {
+	if d.settings == nil {
+		d.settings = &oxml.CT_Settings{}
+	}
+	if d.settings.EnsureEvenAndOddHeaders() {
+		d.settingsModified = true
+	}
 }
 
 // AddParagraph adds a paragraph to the header.
@@ -245,21 +269,14 @@ func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) ([]byte, error) {
 
 	nsDecls := xmlb.WordprocessingMLNamespaces()
 	b.StartElementWithNS(xmlb.NSWordprocessingML, rootElement, nsDecls)
-	marshalHdrFtrContent(b, xmlb.NSWordprocessingML, hf)
+	// Route through the childOrder-driven body-content marshal so SDT blocks,
+	// bookmarks, and raw-preserved children in a header/footer are emitted in
+	// document order instead of being dropped.
+	hf.MarshalContent(b, xmlb.NSWordprocessingML)
 	b.EndElement(xmlb.NSWordprocessingML, rootElement)
 
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("docx: marshal %s part: %w", rootElement, err)
 	}
 	return b.Bytes(), nil
-}
-
-// marshalHdrFtrContent marshals the body content of a header/footer.
-func marshalHdrFtrContent(b *xmlb.Builder, ns string, hf *oxml.CT_HdrFtr) {
-	for _, p := range hf.P {
-		p.MarshalToBuilder(b, ns, "p")
-	}
-	for _, tbl := range hf.Tbl {
-		tbl.MarshalToBuilder(b, ns, "tbl")
-	}
 }
