@@ -205,6 +205,48 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// updateSheetDimension recomputes an existing dimension element from the
+// sheet's cell references. Cell writes past the recorded used range would
+// otherwise leave a stale dimension (e.g. "A1:B2" after writing Z99) (C117).
+// It only rewrites a dimension the sheet already has — the element is
+// optional and absent dimensions stay absent — and leaves it untouched when
+// no cell reference is parseable.
+func updateSheetDimension(ws *oxml.CT_Worksheet) {
+	if ws.Dimension == nil {
+		return
+	}
+	minRow, minCol := 0, 0
+	maxRow, maxCol := 0, 0
+	for i := range ws.SheetData.Row {
+		for _, c := range ws.SheetData.Row[i].C {
+			row, col, err := ParseCellRef(c.R)
+			if err != nil {
+				continue
+			}
+			if minRow == 0 || row < minRow {
+				minRow = row
+			}
+			if minCol == 0 || col < minCol {
+				minCol = col
+			}
+			if row > maxRow {
+				maxRow = row
+			}
+			if col > maxCol {
+				maxCol = col
+			}
+		}
+	}
+	if minRow == 0 || minCol == 0 {
+		return
+	}
+	if minRow == maxRow && minCol == maxCol {
+		ws.Dimension.Ref = FormatCellRef(minRow, minCol)
+		return
+	}
+	ws.Dimension.Ref = FormatCellRef(minRow, minCol) + ":" + FormatCellRef(maxRow, maxCol)
+}
+
 // marshalWorksheetXML marshals a worksheet to XML.
 func marshalWorksheetXML(ws *oxml.CT_Worksheet) ([]byte, error) {
 	b := xmlb.NewSpreadsheetMLBuilder()

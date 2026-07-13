@@ -14,6 +14,7 @@ import (
 // writeQName path from C147).
 func TestSave_MarshalErrorSurfaces(t *testing.T) {
 	wb := Create()
+	wb.AddSheet("Sheet1")
 	wb.workbook.BookViews = &oxml.CT_BookViews{
 		WorkbookView: []oxml.CT_BookView{{
 			ExtAttrs: []xmlb.Attr{{Namespace: "urn:example:unregistered", Name: "uid", Value: "1"}},
