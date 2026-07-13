@@ -2,593 +2,415 @@ package omml
 
 import (
 	"encoding/xml"
+	"reflect"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-func TestRun_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		text string
-	}{
-		{"simple text", "x"},
-		{"equation", "x + y"},
-		{"symbols", "α + β"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Run{T: tt.text}
-			out, err := xml.Marshal(r)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
+// parseFixture decodes a fixture fragment (rooted at any m: element) into v,
+// binding the m: and w: prefixes the way a WML document root does.
+func parseFixture(t *testing.T, fixture string, v interface{}) {
+	t.Helper()
+	wrapped := `<wrap xmlns:m="` + NS + `" xmlns:w="` + xmlb.NSWordprocessingML + `">` +
+		fixture + `</wrap>`
+	dec := xml.NewDecoder(strings.NewReader(wrapped))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("reading wrapper: %v", err)
+		}
+		if _, ok := tok.(xml.StartElement); ok {
+			if err := dec.Decode(v); err != nil {
+				t.Fatalf("Unmarshal failed: %v\nXML: %s", err, fixture)
 			}
-
-			var r2 Run
-			if err := xml.Unmarshal(out, &r2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if r2.T != tt.text {
-				t.Errorf("T = %q, want %q", r2.T, tt.text)
-			}
-		})
+			return
+		}
 	}
 }
 
-func TestRunPr_RoundTrip(t *testing.T) {
-	tests := []struct {
+// marshalFixture renders v through the production Builder with the m: and w:
+// prefixes registered (as the WML document marshaler does).
+func marshalFixture(t *testing.T, v xmlb.BuilderMarshaler, localName string) string {
+	t.Helper()
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NS, xmlb.PrefixMath)
+	b.RegisterNamespace(xmlb.NSWordprocessingML, xmlb.PrefixWordprocessingML)
+	v.MarshalToBuilder(b, NS, localName)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("Builder error: %v", err)
+	}
+	return b.String()
+}
+
+// roundTripBytes asserts unmarshal→marshal reproduces the fixture exactly and
+// returns the parsed value for structural assertions.
+func roundTripOMath(t *testing.T, fixture string) *OMath {
+	t.Helper()
+	m := &OMath{}
+	parseFixture(t, fixture, m)
+	if got := marshalFixture(t, m, "oMath"); got != fixture {
+		t.Errorf("byte round-trip mismatch:\n got: %s\nwant: %s", got, fixture)
+	}
+	return m
+}
+
+const quadraticFormula = `<m:oMath><m:r><m:t>x=</m:t></m:r>` +
+	`<m:f><m:fPr><m:type m:val="bar"/></m:fPr>` +
+	`<m:num><m:r><m:t>−b±</m:t></m:r>` +
+	`<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/>` +
+	`<m:e><m:sSup><m:e><m:r><m:t>b</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup>` +
+	`<m:r><m:t>−4ac</m:t></m:r></m:e></m:rad></m:num>` +
+	`<m:den><m:r><m:t>2a</m:t></m:r></m:den></m:f></m:oMath>`
+
+func TestQuadraticFormulaRoundTrip(t *testing.T) {
+	m := roundTripOMath(t, quadraticFormula)
+
+	if len(m.Items) != 2 {
+		t.Fatalf("Items = %d, want 2", len(m.Items))
+	}
+	f, ok := m.Items[1].(*Fraction)
+	if !ok {
+		t.Fatalf("Items[1] = %T, want *Fraction", m.Items[1])
+	}
+	if f.FPr == nil || f.FPr.Type == nil || f.FPr.Type.Val != "bar" {
+		t.Error("fraction type not parsed")
+	}
+	if len(f.Num.Items) != 2 {
+		t.Fatalf("numerator items = %d, want 2", len(f.Num.Items))
+	}
+	rad, ok := f.Num.Items[1].(*Radical)
+	if !ok {
+		t.Fatalf("numerator Items[1] = %T, want *Radical", f.Num.Items[1])
+	}
+	if rad.RadPr == nil || rad.RadPr.DegHide == nil || rad.RadPr.DegHide.Val != "1" {
+		t.Error("radical degHide not parsed")
+	}
+	if rad.Deg == nil || len(rad.Deg.Items) != 0 {
+		t.Error("empty degree argument not preserved")
+	}
+	if got, want := m.Text(), "x=−b±b2−4ac2a"; got != want {
+		t.Errorf("Text() = %q, want %q", got, want)
+	}
+}
+
+func TestCorpusRoundTrips(t *testing.T) {
+	fixtures := []struct {
 		name string
 		xml  string
+		text string // expected Text(); "-" to skip the check
 	}{
 		{
-			name: "literal",
-			xml:  `<rPr xmlns="http://schemas.openxmlformats.org/officeDocument/2006/math"><lit m:val="on" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"/></rPr>`,
+			name: "nary sum with limits",
+			xml: `<m:oMath><m:nary><m:naryPr><m:chr m:val="∑"/><m:limLoc m:val="undOvr"/></m:naryPr>` +
+				`<m:sub><m:r><m:t>i=1</m:t></m:r></m:sub><m:sup><m:r><m:t>n</m:t></m:r></m:sup>` +
+				`<m:e><m:sSup><m:e><m:r><m:t>i</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:e>` +
+				`</m:nary></m:oMath>`,
+			text: "i=1ni2",
 		},
 		{
-			name: "script style",
-			xml:  `<rPr xmlns="http://schemas.openxmlformats.org/officeDocument/2006/math"><scr m:val="script" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"/></rPr>`,
+			name: "matrix in brackets",
+			xml: `<m:oMath><m:d><m:dPr><m:begChr m:val="["/><m:endChr m:val="]"/></m:dPr>` +
+				`<m:e><m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="2"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>` +
+				`<m:mr><m:e><m:r><m:t>a</m:t></m:r></m:e><m:e><m:r><m:t>b</m:t></m:r></m:e></m:mr>` +
+				`<m:mr><m:e><m:r><m:t>c</m:t></m:r></m:e><m:e><m:r><m:t>d</m:t></m:r></m:e></m:mr>` +
+				`</m:m></m:e></m:d></m:oMath>`,
+			text: "abcd",
 		},
 		{
-			name: "bold italic",
-			xml:  `<rPr xmlns="http://schemas.openxmlformats.org/officeDocument/2006/math"><sty m:val="bi" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"/></rPr>`,
+			name: "delimiter with separator and two args",
+			xml: `<m:oMath><m:d><m:dPr><m:begChr m:val="("/><m:sepChr m:val="|"/><m:endChr m:val=")"/>` +
+				`<m:grow m:val="1"/><m:shp m:val="centered"/></m:dPr>` +
+				`<m:e><m:r><m:t>a</m:t></m:r></m:e><m:e><m:r><m:t>b</m:t></m:r></m:e></m:d></m:oMath>`,
+			text: "ab",
+		},
+		{
+			name: "accent and bar",
+			xml: `<m:oMath><m:acc><m:accPr><m:chr m:val="̂"/></m:accPr><m:e><m:r><m:t>a</m:t></m:r></m:e></m:acc>` +
+				`<m:bar><m:barPr><m:pos m:val="top"/></m:barPr><m:e><m:r><m:t>x</m:t></m:r></m:e></m:bar></m:oMath>`,
+			text: "ax",
+		},
+		{
+			name: "runs with wml rPr styling",
+			xml: `<m:oMath><m:r><m:rPr><m:sty m:val="b"/></m:rPr><w:rPr><w:b/><w:color w:val="FF0000"/></w:rPr><m:t>E</m:t></m:r>` +
+				`<m:r><w:rPr><w:i/></w:rPr><m:t>=mc</m:t></m:r></m:oMath>`,
+			text: "E=mc",
+		},
+		{
+			name: "nested fractions",
+			xml: `<m:oMath><m:f><m:num><m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>x</m:t></m:r></m:den></m:f></m:num>` +
+				`<m:den><m:r><m:t>1+x</m:t></m:r></m:den></m:f></m:oMath>`,
+			text: "1x1+x",
+		},
+		{
+			name: "equation array with spacing",
+			xml: `<m:oMath><m:eqArr><m:eqArrPr><m:baseJc m:val="top"/><m:maxDist m:val="1"/>` +
+				`<m:rSpRule m:val="3"/><m:rSp m:val="720"/></m:eqArrPr>` +
+				`<m:e><m:r><m:t>a</m:t></m:r></m:e><m:e><m:r><m:t>b</m:t></m:r></m:e></m:eqArr></m:oMath>`,
+			text: "ab",
+		},
+		{
+			name: "function with ctrlPr formatting",
+			xml: `<m:oMath><m:func><m:funcPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:funcPr>` +
+				`<m:fName><m:r><m:t>sin</m:t></m:r></m:fName><m:e><m:r><m:t>x</m:t></m:r></m:e></m:func></m:oMath>`,
+			text: "sinx",
+		},
+		{
+			name: "upper limit",
+			xml: `<m:oMath><m:limUpp><m:e><m:r><m:t>x</m:t></m:r></m:e>` +
+				`<m:lim><m:r><m:t>n→∞</m:t></m:r></m:lim></m:limUpp></m:oMath>`,
+			text: "xn→∞",
+		},
+		{
+			name: "lower limit with limLowPr",
+			xml: `<m:oMath><m:limLow><m:limLowPr><m:ctrlPr/></m:limLowPr><m:e><m:r><m:t>lim</m:t></m:r></m:e>` +
+				`<m:lim><m:r><m:t>x→0</m:t></m:r></m:lim></m:limLow></m:oMath>`,
+			text: "limx→0",
+		},
+		{
+			name: "group character underbrace",
+			xml: `<m:oMath><m:groupChr><m:groupChrPr><m:chr m:val="⏟"/><m:pos m:val="bot"/><m:vertJc m:val="top"/></m:groupChrPr>` +
+				`<m:e><m:r><m:t>abc</m:t></m:r></m:e></m:groupChr></m:oMath>`,
+			text: "abc",
+		},
+		{
+			name: "box with manual break",
+			xml: `<m:oMath><m:box><m:boxPr><m:opEmu m:val="1"/><m:brk m:alnAt="2"/></m:boxPr>` +
+				`<m:e><m:r><m:t>+</m:t></m:r></m:e></m:box></m:oMath>`,
+			text: "+",
+		},
+		{
+			name: "border box with strikes",
+			xml: `<m:oMath><m:borderBox><m:borderBoxPr><m:hideTop m:val="1"/><m:strikeH m:val="1"/></m:borderBoxPr>` +
+				`<m:e><m:r><m:t>y</m:t></m:r></m:e></m:borderBox></m:oMath>`,
+			text: "y",
+		},
+		{
+			name: "phantom",
+			xml: `<m:oMath><m:phant><m:phantPr><m:show m:val="0"/><m:zeroWid m:val="1"/></m:phantPr>` +
+				`<m:e><m:r><m:t>y</m:t></m:r></m:e></m:phant></m:oMath>`,
+			text: "y",
+		},
+		{
+			name: "pre-sub-superscript",
+			xml: `<m:oMath><m:sPre><m:sub><m:r><m:t>n</m:t></m:r></m:sub><m:sup><m:r><m:t>p</m:t></m:r></m:sup>` +
+				`<m:e><m:r><m:t>C</m:t></m:r></m:e></m:sPre></m:oMath>`,
+			text: "npC",
+		},
+		{
+			name: "subscript",
+			xml: `<m:oMath><m:sSub><m:e><m:r><m:t>x</m:t></m:r></m:e>` +
+				`<m:sub><m:r><m:t>1</m:t></m:r></m:sub></m:sSub></m:oMath>`,
+			text: "x1",
+		},
+		{
+			name: "sub-superscript with alnScr",
+			xml: `<m:oMath><m:sSubSup><m:sSubSupPr><m:alnScr m:val="1"/></m:sSubSupPr>` +
+				`<m:e><m:r><m:t>f</m:t></m:r></m:e><m:sub><m:r><m:t>2</m:t></m:r></m:sub>` +
+				`<m:sup><m:r><m:t>3</m:t></m:r></m:sup></m:sSubSup></m:oMath>`,
+			text: "f23",
+		},
+		{
+			name: "argument properties",
+			xml: `<m:oMath><m:box><m:boxPr><m:noBreak m:val="0"/><m:ctrlPr/></m:boxPr>` +
+				`<m:e><m:argPr><m:argSz m:val="-1"/></m:argPr><m:r><m:t>abc</m:t></m:r></m:e></m:box></m:oMath>`,
+			text: "abc",
+		},
+		{
+			name: "run properties full set",
+			xml: `<m:oMath><m:r><m:rPr><m:lit m:val="1"/><m:scr m:val="fraktur"/><m:sty m:val="p"/>` +
+				`<m:brk m:alnAt="1"/><m:aln/></m:rPr><m:t>q</m:t></m:r></m:oMath>`,
+			text: "q",
+		},
+		{
+			name: "text with xml:space preserve",
+			xml:  `<m:oMath><m:r><m:t xml:space="preserve"> + </m:t></m:r></m:oMath>`,
+			text: " + ",
+		},
+		{
+			name: "wml run content inside run",
+			xml:  `<m:oMath><m:r><m:rPr><m:sty m:val="p"/></m:rPr><w:br/></m:r></m:oMath>`,
+			text: "",
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range fixtures {
 		t.Run(tt.name, func(t *testing.T) {
-			var rpr RunPr
-			if err := xml.Unmarshal([]byte(tt.xml), &rpr); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			out, err := xml.Marshal(&rpr)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var rpr2 RunPr
-			if err := xml.Unmarshal(out, &rpr2); err != nil {
-				t.Fatalf("Re-unmarshal failed: %v", err)
+			m := roundTripOMath(t, tt.xml)
+			if tt.text != "-" {
+				if got := m.Text(); got != tt.text {
+					t.Errorf("Text() = %q, want %q", got, tt.text)
+				}
 			}
 		})
 	}
 }
 
-func TestFraction_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name     string
-		fracType string
-	}{
-		{"bar fraction", "bar"},
-		{"skewed fraction", "skw"},
-		{"linear fraction", "lin"},
-		{"no bar", "noBar"},
+func TestOrderPreservation(t *testing.T) {
+	fixture := `<m:oMath><m:r><m:t>a</m:t></m:r>` +
+		`<m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>` +
+		`<m:r><m:t>b</m:t></m:r>` +
+		`<m:sSup><m:e><m:r><m:t>c</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath>`
+	m := roundTripOMath(t, fixture)
+
+	wantKinds := []string{"*omml.Run", "*omml.Fraction", "*omml.Run", "*omml.Superscript"}
+	if len(m.Items) != len(wantKinds) {
+		t.Fatalf("Items = %d, want %d", len(m.Items), len(wantKinds))
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := &Fraction{
-				FPr: &FractionPr{
-					Type: &FType{Val: tt.fracType},
-				},
-			}
-			out, err := xml.Marshal(f)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var f2 Fraction
-			if err := xml.Unmarshal(out, &f2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if f2.FPr != nil && f2.FPr.Type != nil && f2.FPr.Type.Val != tt.fracType {
-				t.Errorf("Type = %q, want %q", f2.FPr.Type.Val, tt.fracType)
-			}
-		})
+	for i, it := range m.Items {
+		if got := reflect.TypeOf(it).String(); got != wantKinds[i] {
+			t.Errorf("Items[%d] = %s, want %s", i, got, wantKinds[i])
+		}
+	}
+	if got, want := m.Text(), "a12bc2"; got != want {
+		t.Errorf("Text() = %q, want %q", got, want)
 	}
 }
 
-func TestRadical_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name    string
-		degHide bool
-	}{
-		{"with degree", false},
-		{"square root", true},
+func TestUnknownChildRoundTripsRaw(t *testing.T) {
+	// Unknown element between two runs in a math zone: must be preserved
+	// verbatim, in position.
+	fixture := `<m:oMath><m:r><m:t>a</m:t></m:r>` +
+		`<m:future m:val="x"><m:mystery/></m:future>` +
+		`<m:r><m:t>b</m:t></m:r></m:oMath>`
+	m := roundTripOMath(t, fixture)
+
+	raw, ok := m.Items[1].(*Raw)
+	if !ok {
+		t.Fatalf("Items[1] = %T, want *Raw", m.Items[1])
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := &Radical{
-				RadPr: &RadPr{
-					DegHide: &OnOff{Val: func() string {
-						if tt.degHide {
-							return "on"
-						}
-						return "off"
-					}()},
-				},
-			}
-			out, err := xml.Marshal(r)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var r2 Radical
-			if err := xml.Unmarshal(out, &r2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
+	if raw.Local != "future" || raw.Space != NS {
+		t.Errorf("raw name = {%s %s}, want {future %s}", raw.Space, raw.Local, NS)
+	}
+	if string(raw.Content) != "<m:mystery/>" {
+		t.Errorf("raw content = %q", raw.Content)
 	}
 }
 
-func TestSubscript_RoundTrip(t *testing.T) {
-	s := &Subscript{}
-	out, err := xml.Marshal(s)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+func TestUnknownChildInPropertiesKeepsPosition(t *testing.T) {
+	// Unknown child between the schema children of a fixed-sequence Pr
+	// element: the anchored raw capture must re-emit it in position.
+	fixture := `<m:oMath><m:f><m:fPr><m:type m:val="lin"/><m:future/><m:ctrlPr/></m:fPr>` +
+		`<m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath>`
+	roundTripOMath(t, fixture)
 
-	var s2 Subscript
-	if err := xml.Unmarshal(out, &s2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+	// At the very start of a container, too.
+	fixture = `<m:oMath><m:f><m:fPr><m:future/><m:type m:val="lin"/></m:fPr>` +
+		`<m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath>`
+	roundTripOMath(t, fixture)
+}
+
+func TestOMathParaRoundTrip(t *testing.T) {
+	fixture := `<m:oMathPara><m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr>` +
+		`<m:oMath><m:r><m:t>a</m:t></m:r></m:oMath>` +
+		`<m:oMath><m:r><m:t>b</m:t></m:r></m:oMath></m:oMathPara>`
+	p := &OMathPara{}
+	parseFixture(t, fixture, p)
+	if got := marshalFixture(t, p, "oMathPara"); got != fixture {
+		t.Errorf("byte round-trip mismatch:\n got: %s\nwant: %s", got, fixture)
+	}
+	if p.OMathParaPr == nil || p.OMathParaPr.Jc == nil || p.OMathParaPr.Jc.Val != "center" {
+		t.Error("oMathParaPr/jc not parsed")
+	}
+	if len(p.OMath) != 2 {
+		t.Fatalf("OMath = %d, want 2", len(p.OMath))
+	}
+	if got, want := p.Text(), "ab"; got != want {
+		t.Errorf("Text() = %q, want %q", got, want)
 	}
 }
 
-func TestSuperscript_RoundTrip(t *testing.T) {
-	s := &Superscript{}
-	out, err := xml.Marshal(s)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
+func TestCtrlPrRawCapture(t *testing.T) {
+	fixture := `<m:ctrlPr><w:rPr><w:rFonts w:ascii="Cambria Math"/><w:i/></w:rPr></m:ctrlPr>`
+	c := &CtrlPr{}
+	parseFixture(t, fixture, c)
+	if got := marshalFixture(t, c, "ctrlPr"); got != fixture {
+		t.Errorf("byte round-trip mismatch:\n got: %s\nwant: %s", got, fixture)
 	}
-
-	var s2 Superscript
-	if err := xml.Unmarshal(out, &s2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+	if len(c.Items) != 1 || c.Items[0].Local != "rPr" || c.Items[0].Space != xmlb.NSWordprocessingML {
+		t.Fatalf("ctrlPr content not raw-captured: %+v", c.Items)
 	}
 }
 
-func TestSubSuperscript_RoundTrip(t *testing.T) {
-	s := &SubSuperscript{
-		SSubSupPr: &SSubSupPr{
-			AlnScr: &OnOff{Val: "on"},
+func TestMathPrRoundTrip(t *testing.T) {
+	fixture := `<m:mathPr><m:mathFont m:val="Cambria Math"/><m:brkBin m:val="before"/>` +
+		`<m:brkBinSub m:val="--"/><m:smallFrac m:val="0"/><m:dispDef/>` +
+		`<m:lMargin m:val="0"/><m:rMargin m:val="0"/><m:defJc m:val="centerGroup"/>` +
+		`<m:wrapIndent m:val="1440"/><m:intLim m:val="subSup"/><m:naryLim m:val="undOvr"/></m:mathPr>`
+	p := &MathPr{}
+	parseFixture(t, fixture, p)
+	if got := marshalFixture(t, p, "mathPr"); got != fixture {
+		t.Errorf("byte round-trip mismatch:\n got: %s\nwant: %s", got, fixture)
+	}
+	if p.MathFont == nil || p.MathFont.Val != "Cambria Math" {
+		t.Error("mathFont not parsed")
+	}
+}
+
+func TestEmptyValAttributePreserved(t *testing.T) {
+	// A cases construct: Word writes an empty required delimiter character as
+	// m:val="" (attribute present, value empty). Required-val types must
+	// re-emit it.
+	fixture := `<m:oMath><m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val=""/></m:dPr>` +
+		`<m:e><m:r><m:t>x</m:t></m:r></m:e></m:d></m:oMath>`
+	roundTripOMath(t, fixture)
+}
+
+func TestProgrammaticBuildMarshals(t *testing.T) {
+	// A model built in code (no parse, so no captured ordering) marshals in
+	// schema order.
+	m := &OMath{Items: []MathItem{
+		&Run{Items: []RunChild{&Text{Value: "x="}}},
+		&Fraction{
+			Num: &Element{Items: []MathItem{&Run{Items: []RunChild{&Text{Value: "1"}}}}},
+			Den: &Element{Items: []MathItem{&Run{Items: []RunChild{&Text{Value: "2"}}}}},
 		},
-	}
-	out, err := xml.Marshal(s)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var s2 SubSuperscript
-	if err := xml.Unmarshal(out, &s2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+	}}
+	want := `<m:oMath><m:r><m:t>x=</m:t></m:r>` +
+		`<m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath>`
+	if got := marshalFixture(t, m, "oMath"); got != want {
+		t.Errorf("marshal = %s, want %s", got, want)
 	}
 }
 
-func TestNAry_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name   string
-		chr    string
-		limLoc string
-	}{
-		{"sum", "∑", "undOvr"},
-		{"product", "∏", "subSup"},
-		{"integral", "∫", "subSup"},
-	}
+func TestMutatedParsedModelKeepsNewChildren(t *testing.T) {
+	// Adding a schema child to a parsed container must marshal it at its
+	// schema position even though it is absent from the captured layout.
+	fixture := `<m:oMath><m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath>`
+	m := roundTripOMath(t, fixture)
+	f := m.Items[0].(*Fraction)
+	f.FPr = &FractionPr{Type: &FType{Val: "lin"}}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			n := &NAry{
-				NaryPr: &NaryPr{
-					Chr:    &Char{Val: tt.chr},
-					LimLoc: &LimLoc{Val: tt.limLoc},
-				},
-			}
-			out, err := xml.Marshal(n)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var n2 NAry
-			if err := xml.Unmarshal(out, &n2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
+	want := `<m:oMath><m:f><m:fPr><m:type m:val="lin"/></m:fPr>` +
+		`<m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f></m:oMath>`
+	if got := marshalFixture(t, m, "oMath"); got != want {
+		t.Errorf("marshal = %s, want %s", got, want)
 	}
 }
 
-func TestMatrix_RoundTrip(t *testing.T) {
-	m := &Matrix{
-		MPr: &MatrixPr{
-			BaseJc: &YAlign{Val: "center"},
-		},
-		MR: []*MatrixRow{
-			{},
-			{},
-		},
-	}
-	out, err := xml.Marshal(m)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var m2 Matrix
-	if err := xml.Unmarshal(out, &m2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-
-	if len(m2.MR) != 2 {
-		t.Errorf("Expected 2 rows, got %d", len(m2.MR))
+func TestBuilderErrorOnUnboundRawNamespace(t *testing.T) {
+	// A raw child whose namespace has no registered prefix must surface as a
+	// Builder error, not ship a part with an unbound prefix.
+	m := &OMath{Items: []MathItem{
+		&Raw{Local: "foo", Space: "urn:not-registered"},
+	}}
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NS, xmlb.PrefixMath)
+	m.MarshalToBuilder(b, NS, "oMath")
+	if err := b.Finish(); err == nil {
+		t.Error("expected Builder error for unregistered raw namespace")
 	}
 }
 
-func TestDelimiter_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name   string
-		begChr string
-		endChr string
-	}{
-		{"parentheses", "(", ")"},
-		{"brackets", "[", "]"},
-		{"braces", "{", "}"},
-		{"pipes", "|", "|"},
-		{"double pipes", "‖", "‖"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := &Delimiter{
-				DPr: &DelimiterPr{
-					BegChr: &Char{Val: tt.begChr},
-					EndChr: &Char{Val: tt.endChr},
-				},
-			}
-			out, err := xml.Marshal(d)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var d2 Delimiter
-			if err := xml.Unmarshal(out, &d2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
-	}
-}
-
-func TestAccent_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		chr  string
-	}{
-		{"hat", "̂"},
-		{"tilde", "̃"},
-		{"dot", "̇"},
-		{"double dot", "̈"},
-		{"bar", "̄"},
-		{"arrow", "→"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &Accent{
-				AccPr: &AccentPr{
-					Chr: &Char{Val: tt.chr},
-				},
-			}
-			out, err := xml.Marshal(a)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var a2 Accent
-			if err := xml.Unmarshal(out, &a2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
-	}
-}
-
-func TestBar_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		pos  string
-	}{
-		{"overbar", "top"},
-		{"underbar", "bot"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &Bar{
-				BarPr: &BarPr{
-					Pos: &TopBot{Val: tt.pos},
-				},
-			}
-			out, err := xml.Marshal(b)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var b2 Bar
-			if err := xml.Unmarshal(out, &b2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
-	}
-}
-
-func TestGroupChar_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name string
-		chr  string
-		pos  string
-	}{
-		{"underbrace", "⏟", "bot"},
-		{"overbrace", "⏞", "top"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gc := &GroupChar{
-				GroupChrPr: &GroupChrPr{
-					Chr: &Char{Val: tt.chr},
-					Pos: &TopBot{Val: tt.pos},
-				},
-			}
-			out, err := xml.Marshal(gc)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var gc2 GroupChar
-			if err := xml.Unmarshal(out, &gc2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-		})
-	}
-}
-
-func TestLimitLow_RoundTrip(t *testing.T) {
-	ll := &LimitLow{}
-	out, err := xml.Marshal(ll)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var ll2 LimitLow
-	if err := xml.Unmarshal(out, &ll2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestLimitUpper_RoundTrip(t *testing.T) {
-	lu := &LimitUpper{}
-	out, err := xml.Marshal(lu)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var lu2 LimitUpper
-	if err := xml.Unmarshal(out, &lu2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestFunction_RoundTrip(t *testing.T) {
-	f := &Function{}
-	out, err := xml.Marshal(f)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var f2 Function
-	if err := xml.Unmarshal(out, &f2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestEquationArray_RoundTrip(t *testing.T) {
-	ea := &EquationArray{
-		EqArrPr: &EqArrPr{
-			BaseJc: &YAlign{Val: "center"},
-		},
-	}
-	out, err := xml.Marshal(ea)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var ea2 EquationArray
-	if err := xml.Unmarshal(out, &ea2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestBox_RoundTrip(t *testing.T) {
-	b := &Box{
-		BoxPr: &BoxPr{
-			OpEmu:   &OnOff{Val: "on"},
-			NoBreak: &OnOff{Val: "on"},
-		},
-	}
-	out, err := xml.Marshal(b)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var b2 Box
-	if err := xml.Unmarshal(out, &b2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestBorderBox_RoundTrip(t *testing.T) {
-	bb := &BorderBox{
-		BorderBoxPr: &BorderBoxPr{
-			HideTop:  &OnOff{Val: "off"},
-			HideBot:  &OnOff{Val: "off"},
-			HideLeft: &OnOff{Val: "off"},
-			HideRight: &OnOff{Val: "off"},
-		},
-	}
-	out, err := xml.Marshal(bb)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var bb2 BorderBox
-	if err := xml.Unmarshal(out, &bb2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestPhantom_RoundTrip(t *testing.T) {
-	p := &Phantom{
-		PhantPr: &PhantPr{
-			Show:    &OnOff{Val: "off"},
-			ZeroWid: &OnOff{Val: "on"},
-		},
-	}
-	out, err := xml.Marshal(p)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var p2 Phantom
-	if err := xml.Unmarshal(out, &p2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestOnOff_RoundTrip(t *testing.T) {
-	tests := []struct {
-		val string
-	}{
-		{"on"},
-		{"off"},
-		{"1"},
-		{"0"},
-		{"true"},
-		{"false"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.val, func(t *testing.T) {
-			oo := &OnOff{Val: tt.val}
-			out, err := xml.Marshal(oo)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var oo2 OnOff
-			if err := xml.Unmarshal(out, &oo2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if oo2.Val != tt.val {
-				t.Errorf("Val = %q, want %q", oo2.Val, tt.val)
-			}
-		})
-	}
-}
-
-func TestScript_RoundTrip(t *testing.T) {
-	scripts := []string{"roman", "script", "fraktur", "double-struck", "sans-serif", "monospace"}
-	for _, scr := range scripts {
-		t.Run(scr, func(t *testing.T) {
-			s := &Script{Val: scr}
-			out, err := xml.Marshal(s)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var s2 Script
-			if err := xml.Unmarshal(out, &s2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if s2.Val != scr {
-				t.Errorf("Val = %q, want %q", s2.Val, scr)
-			}
-		})
-	}
-}
-
-func TestStyle_RoundTrip(t *testing.T) {
-	styles := []string{"p", "b", "i", "bi"}
-	for _, sty := range styles {
-		t.Run(sty, func(t *testing.T) {
-			s := &Style{Val: sty}
-			out, err := xml.Marshal(s)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var s2 Style
-			if err := xml.Unmarshal(out, &s2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if s2.Val != sty {
-				t.Errorf("Val = %q, want %q", s2.Val, sty)
-			}
-		})
-	}
-}
-
-func TestMathPr_RoundTrip(t *testing.T) {
-	mp := &MathPr{
-		MathFont: &MathFont{Val: "Cambria Math"},
-		BrkBin:   &BreakBin{Val: "before"},
-		SmallFrac: &OnOff{Val: "off"},
-		DefJc:    &MathJc{Val: "centerGroup"},
-	}
-	out, err := xml.Marshal(mp)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var mp2 MathPr
-	if err := xml.Unmarshal(out, &mp2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-}
-
-func TestOMathPara_RoundTrip(t *testing.T) {
-	omp := &OMathPara{
-		OMathParaPr: &OMathParaPr{
-			Jc: &MathJc{Val: "center"},
-		},
-	}
-	out, err := xml.Marshal(omp)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var omp2 OMathPara
-	if err := xml.Unmarshal(out, &omp2); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+func TestStrayCharDataIgnored(t *testing.T) {
+	// Whitespace / stray text between structural elements (pretty-printed
+	// sources) is not content; it must parse cleanly and normalize away.
+	fixture := "<m:oMath>\n  <m:r>\n    <m:t>a</m:t>\n  </m:r>\n</m:oMath>"
+	m := &OMath{}
+	parseFixture(t, fixture, m)
+	want := `<m:oMath><m:r><m:t>a</m:t></m:r></m:oMath>`
+	if got := marshalFixture(t, m, "oMath"); got != want {
+		t.Errorf("marshal = %s, want %s", got, want)
 	}
 }
