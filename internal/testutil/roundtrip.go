@@ -54,35 +54,6 @@ func readZipParts(files []*zip.File) (map[string][]byte, error) {
 	return parts, nil
 }
 
-// ReadZipPartsBytes reads all parts from an in-memory ZIP archive into a map.
-// Part names have leading slashes stripped for consistency.
-func ReadZipPartsBytes(data []byte) (map[string][]byte, error) {
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return nil, err
-	}
-
-	parts := make(map[string][]byte)
-	for _, f := range r.File {
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-		var buf bytes.Buffer
-		_, err = buf.ReadFrom(rc)
-		_ = rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		name := f.Name
-		if len(name) > 0 && name[0] == '/' {
-			name = name[1:]
-		}
-		parts[name] = buf.Bytes()
-	}
-	return parts, nil
-}
-
 // AppendZipEntry rewrites the ZIP file at path into an in-memory archive with
 // one extra entry appended. It is used to craft fixtures reproducing
 // real-world packages that carry junk entries (e.g. [trash]/0000.dat) without
