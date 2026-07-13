@@ -369,7 +369,15 @@ func (w *Workbook) Close() error {
 
 // saveRoundTrip saves a workbook opened from a file, preserving all parts.
 func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
-	if w.hasCoreProps {
+	// Hand the writer core properties only when the source stored them at
+	// /docProps/core.xml (where the preserved raw part plus the writer's
+	// skip-if-written rule keeps fidelity) or when the session edited them.
+	// Some producers (System.IO.Packaging) keep core properties in a
+	// *.psmdcp part instead; that part round-trips verbatim among the
+	// preserved parts, and setting writer.Properties would synthesize a
+	// docProps/core.xml the source never had.
+	_, hasCorePart := w.preservedParts["/docProps/core.xml"]
+	if w.hasCoreProps && (hasCorePart || !w.Properties.Equal(w.propsSnapshot)) {
 		writer.Properties = &w.Properties
 	}
 
