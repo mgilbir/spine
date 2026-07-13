@@ -3,8 +3,12 @@ package opc
 import (
 	"encoding/xml"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"time"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // CoreProperties contains the core document properties as defined in OPC.
@@ -69,6 +73,53 @@ type CoreProperties struct {
 	// lets Marshal re-emit it verbatim when the value has not been reassigned,
 	// avoiding both data loss and gratuitous reformatting.
 	rawDates map[string]string
+
+	// unknownChildren preserves child elements that marshalCoreElement cannot
+	// regenerate (vendor extensions, foreign-namespace elements) as verbatim
+	// raw XML, keyed by the synthetic "unknown:N" keys recorded in
+	// elementOrder. Marshal re-emits them at their original position so
+	// regenerating core.xml does not drop them.
+	unknownChildren map[string]string
+}
+
+// Clone returns a deep copy of cp, including the unexported round-trip
+// bookkeeping (element order, raw date forms, unknown children). Mutating the
+// clone never affects the original.
+func (cp *CoreProperties) Clone() *CoreProperties {
+	if cp == nil {
+		return nil
+	}
+	c := *cp
+	c.elementOrder = slices.Clone(cp.elementOrder)
+	c.presentFields = maps.Clone(cp.presentFields)
+	c.rawDates = maps.Clone(cp.rawDates)
+	c.unknownChildren = maps.Clone(cp.unknownChildren)
+	return &c
+}
+
+// Equal reports whether cp and o carry the same user-visible property values.
+// It compares only the exported fields — the unexported round-trip bookkeeping
+// is ignored — with date fields compared via time.Time.Equal. Consumers use it
+// to detect whether properties were edited after a package was opened.
+func (cp *CoreProperties) Equal(o *CoreProperties) bool {
+	if cp == nil || o == nil {
+		return cp == o
+	}
+	return cp.Category == o.Category &&
+		cp.ContentStatus == o.ContentStatus &&
+		cp.Created.Equal(o.Created) &&
+		cp.Creator == o.Creator &&
+		cp.Description == o.Description &&
+		cp.Identifier == o.Identifier &&
+		cp.Keywords == o.Keywords &&
+		cp.Language == o.Language &&
+		cp.LastModifiedBy == o.LastModifiedBy &&
+		cp.LastPrinted.Equal(o.LastPrinted) &&
+		cp.Modified.Equal(o.Modified) &&
+		cp.Revision == o.Revision &&
+		cp.Subject == o.Subject &&
+		cp.Title == o.Title &&
+		cp.Version == o.Version
 }
 
 // w3cdtfLayouts lists the date layouts accepted for W3CDTF core-property dates,
@@ -94,26 +145,30 @@ func parseW3CDTF(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// dateContent returns the text to write for a date element, or "" to omit it.
-// When the source preserved a raw lexical form and t still equals it, the raw
-// text is returned verbatim (preserving reduced precision, offset, and
-// sub-second components); otherwise t is formatted as RFC3339 UTC.
-func (cp *CoreProperties) dateContent(key string, t time.Time) string {
+// dateContent returns the text to write for a date element and whether the
+// element should be written at all. When the source preserved a raw lexical
+// form and t still equals it, the raw text is returned verbatim (preserving
+// reduced precision, offset, and sub-second components); a present-but-empty
+// or unparseable source element that was never reassigned is likewise
+// re-emitted verbatim (possibly as an empty element) rather than dropped;
+// otherwise t is formatted as RFC3339 UTC, or the element is omitted when t
+// is the zero time.
+func (cp *CoreProperties) dateContent(key string, t time.Time) (string, bool) {
 	if raw, ok := cp.rawDates[key]; ok {
 		if parsed, pok := parseW3CDTF(raw); pok {
 			if parsed.Equal(t) {
-				return raw
+				return raw, true
 			}
 		} else if t.IsZero() {
-			// Original was present but unparseable and never reassigned:
-			// preserve it verbatim rather than dropping it.
-			return raw
+			// Original was present but unparseable (or empty) and never
+			// reassigned: preserve it verbatim rather than dropping it.
+			return raw, true
 		}
 	}
 	if t.IsZero() {
-		return ""
+		return "", false
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.UTC().Format(time.RFC3339), true
 }
 
 // dcDate represents a Dublin Core date with xsi:type attribute.
@@ -184,19 +239,19 @@ func (cp *CoreProperties) marshalCoreElement(b *strings.Builder, key string) {
 			b.WriteString("<cp:version>" + xmlEscape(cp.Version) + "</cp:version>")
 		}
 	case "dcterms:created":
-		if s := cp.dateContent(key, cp.Created); s != "" {
+		if s, ok := cp.dateContent(key, cp.Created); ok {
 			b.WriteString(`<dcterms:created xsi:type="dcterms:W3CDTF">`)
 			b.WriteString(s)
 			b.WriteString("</dcterms:created>")
 		}
 	case "dcterms:modified":
-		if s := cp.dateContent(key, cp.Modified); s != "" {
+		if s, ok := cp.dateContent(key, cp.Modified); ok {
 			b.WriteString(`<dcterms:modified xsi:type="dcterms:W3CDTF">`)
 			b.WriteString(s)
 			b.WriteString("</dcterms:modified>")
 		}
 	case "cp:lastPrinted":
-		if s := cp.dateContent(key, cp.LastPrinted); s != "" {
+		if s, ok := cp.dateContent(key, cp.LastPrinted); ok {
 			b.WriteString(`<cp:lastPrinted>`)
 			b.WriteString(s)
 			b.WriteString("</cp:lastPrinted>")
@@ -235,7 +290,13 @@ func (cp *CoreProperties) Marshal() ([]byte, error) {
 	// Write elements in the preserved (or default) order
 	written := make(map[string]bool, len(order))
 	for _, key := range order {
-		cp.marshalCoreElement(&b, key)
+		if raw, ok := cp.unknownChildren[key]; ok {
+			// Unknown child captured at parse time: re-emit verbatim at its
+			// original position so vendor extensions survive regeneration.
+			b.WriteString(raw)
+		} else {
+			cp.marshalCoreElement(&b, key)
+		}
 		written[key] = true
 	}
 
@@ -391,6 +452,65 @@ func itoa(n int) string {
 	return string(digits)
 }
 
+// knownCoreKeys lists the element keys marshalCoreElement can regenerate from
+// the typed fields; any other child of cp:coreProperties is captured verbatim
+// as an unknown child and re-emitted as-is.
+var knownCoreKeys = map[string]bool{
+	"dc:title": true, "dc:subject": true, "dc:creator": true,
+	"dc:description": true, "dc:identifier": true, "dc:language": true,
+	"cp:keywords": true, "cp:lastModifiedBy": true, "cp:revision": true,
+	"cp:category": true, "cp:contentStatus": true, "cp:version": true,
+	"dcterms:created": true, "dcterms:modified": true, "cp:lastPrinted": true,
+}
+
+// corePropsRootPrefixes maps the namespace prefixes that Marshal always
+// declares on the regenerated <cp:coreProperties> root to their URIs. An
+// unknown child that relies on one of these declarations round-trips
+// verbatim; any other prefix must carry its own declaration inline.
+var corePropsRootPrefixes = map[string]string{
+	"cp":       nsCoreProperties,
+	"dc":       nsDublinCore,
+	"dcterms":  nsDcTerms,
+	"dcmitype": nsDcmiType,
+	"xsi":      nsXsi,
+}
+
+// ensureSelfContainedNS returns raw — a verbatim-captured child element of
+// cp:coreProperties — with a namespace declaration for its own prefix injected
+// into the start tag when the source declared that prefix on an ancestor
+// (typically the root). The regenerated root only declares the standard
+// prefixes, so without the injection the re-emitted element would reference an
+// undeclared prefix and the output would not be namespace-well-formed.
+func ensureSelfContainedNS(raw, space string) string {
+	if len(raw) < 2 || raw[0] != '<' {
+		return raw
+	}
+	// Locate the end of the element name in the start tag.
+	i := 1
+	for i < len(raw) {
+		c := raw[i]
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '/' || c == '>' {
+			break
+		}
+		i++
+	}
+	name := raw[1:i]
+	prefix := ""
+	if c := strings.IndexByte(name, ':'); c >= 0 {
+		prefix = name[:c]
+	}
+	if prefix == "" {
+		if space == "" || strings.Contains(raw, `xmlns=`) {
+			return raw
+		}
+		return raw[:i] + ` xmlns="` + xmlb.EscapeAttrValue(space) + `"` + raw[i:]
+	}
+	if corePropsRootPrefixes[prefix] == space || strings.Contains(raw, "xmlns:"+prefix+"=") {
+		return raw
+	}
+	return raw[:i] + " xmlns:" + prefix + `="` + xmlb.EscapeAttrValue(space) + `"` + raw[i:]
+}
+
 // coreElementKey returns the prefixed element key (e.g. "dc:title", "cp:keywords")
 // for a given XML element name, mapping namespace URIs to their standard prefixes.
 func coreElementKey(name xml.Name) string {
@@ -406,9 +526,9 @@ func coreElementKey(name xml.Name) string {
 			// Unknown namespace: never map onto the standard dc/dcterms/cp
 			// fields — a foreign-namespace <evil:creator> must not be captured
 			// as, and re-emitted as, a genuine <dc:creator>. The braced key
-			// cannot collide with any "prefix:local" key, so the element is
-			// recorded in elementOrder but populates no field (and, like other
-			// unknown children, is dropped on regeneration).
+			// cannot collide with any "prefix:local" key, so the element
+			// populates no field; UnmarshalCoreProperties preserves it
+			// verbatim as an unknown child instead.
 			return "{" + name.Space + "}" + name.Local
 		}
 		// For non-namespaced elements (legacy format), map to expected prefix
@@ -428,14 +548,21 @@ func coreElementKey(name xml.Name) string {
 // for round-trip fidelity.
 func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 	cp := &CoreProperties{
-		presentFields: make(map[string]bool),
-		rawDates:      make(map[string]string),
+		presentFields:   make(map[string]bool),
+		rawDates:        make(map[string]string),
+		unknownChildren: make(map[string]string),
 	}
 
-	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+	src := string(data)
+	decoder := xml.NewDecoder(strings.NewReader(src))
 	var inRoot bool
 
 	for {
+		// Offset of the upcoming token; for a StartElement this is the byte
+		// position of its '<' in src (any preceding character data is a
+		// separate token), which lets unknown children be captured verbatim.
+		tokStart := decoder.InputOffset()
+
 		tok, err := decoder.Token()
 		if err != nil {
 			if err == io.EOF {
@@ -453,6 +580,19 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 			}
 
 			key := coreElementKey(t.Name)
+			if !knownCoreKeys[key] {
+				// Unknown child (vendor extension or foreign-namespace
+				// element): preserve the raw bytes so regenerating core.xml
+				// re-emits it verbatim instead of dropping it.
+				if err := decoder.Skip(); err != nil {
+					return nil, err
+				}
+				raw := ensureSelfContainedNS(src[tokStart:decoder.InputOffset()], t.Name.Space)
+				ukey := "unknown:" + itoa(len(cp.unknownChildren))
+				cp.elementOrder = append(cp.elementOrder, ukey)
+				cp.unknownChildren[ukey] = raw
+				continue
+			}
 			cp.elementOrder = append(cp.elementOrder, key)
 			cp.presentFields[key] = true
 

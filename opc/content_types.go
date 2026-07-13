@@ -3,7 +3,9 @@ package opc
 import (
 	"bytes"
 	"encoding/xml"
+	"maps"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -105,6 +107,35 @@ func NewContentTypes() *ContentTypes {
 	}
 }
 
+// Clone returns a deep copy of ct. Writers mutate their ContentTypes while
+// finalizing a package (SetOverride for regenerated metadata parts), so a
+// consumer that hands a reader's ContentTypes to successive writers must pass
+// a clone to keep repeated saves independent and race-free.
+func (ct *ContentTypes) Clone() *ContentTypes {
+	if ct == nil {
+		return nil
+	}
+	c := &ContentTypes{
+		Defaults:       maps.Clone(ct.Defaults),
+		Overrides:      maps.Clone(ct.Overrides),
+		defaultOrder:   slices.Clone(ct.defaultOrder),
+		overrideOrder:  slices.Clone(ct.overrideOrder),
+		origExt:        maps.Clone(ct.origExt),
+		OriginalXMLSep: ct.OriginalXMLSep,
+	}
+	// maps.Clone(nil) is nil; keep the invariant that the maps are usable.
+	if c.Defaults == nil {
+		c.Defaults = make(map[string]string)
+	}
+	if c.Overrides == nil {
+		c.Overrides = make(map[string]string)
+	}
+	if c.origExt == nil {
+		c.origExt = make(map[string]string)
+	}
+	return c
+}
+
 // GetContentType returns the content type for a part.
 // It first checks overrides, then defaults by extension.
 func (ct *ContentTypes) GetContentType(partName string) string {
@@ -114,9 +145,15 @@ func (ct *ContentTypes) GetContentType(partName string) string {
 	if contentType, ok := ct.Overrides[partName]; ok {
 		return contentType
 	}
-	for name, contentType := range ct.Overrides {
+	// The case-insensitive fallback walks the ordered override list rather
+	// than ranging over the map: with case-variant duplicate overrides, map
+	// iteration would return a different winner per call. First declared wins,
+	// stably.
+	for _, name := range ct.overrideOrder {
 		if strings.EqualFold(name, partName) {
-			return contentType
+			if contentType, ok := ct.Overrides[name]; ok {
+				return contentType
+			}
 		}
 	}
 

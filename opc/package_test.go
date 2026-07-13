@@ -293,7 +293,10 @@ func TestUnmarshalCoreProperties_InvalidDate(t *testing.T) {
 // TestUnmarshalCoreProperties_ForeignNamespaceNotLaundered verifies that an
 // element in an unknown namespace whose local name collides with a standard
 // property is neither captured into the typed field nor re-emitted as the
-// genuine dc/cp element (C184: metadata laundering).
+// genuine dc/cp element (C184: metadata laundering). Since C48 the element is
+// preserved verbatim under its own namespace instead of being dropped; the
+// prefix declaration it inherited from the source root is injected inline so
+// the regenerated document stays namespace-well-formed.
 func TestUnmarshalCoreProperties_ForeignNamespaceNotLaundered(t *testing.T) {
 	src := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
 		`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"` +
@@ -317,11 +320,13 @@ func TestUnmarshalCoreProperties_ForeignNamespaceNotLaundered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if strings.Contains(string(out), "Mallory") {
-		t.Errorf("foreign-namespace content laundered into output:\n%s", out)
-	}
 	if strings.Contains(string(out), "<dc:creator>") {
 		t.Errorf("foreign-namespace element re-emitted as genuine <dc:creator>:\n%s", out)
+	}
+	// Preserved under its own namespace, made self-contained (C48).
+	want := `<evil:creator xmlns:evil="urn:evil">Mallory</evil:creator>`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("foreign-namespace element not preserved verbatim; want %s in:\n%s", want, out)
 	}
 }
 

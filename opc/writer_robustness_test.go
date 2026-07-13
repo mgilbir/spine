@@ -130,3 +130,37 @@ func TestContentTypes_CaseInsensitiveOverride(t *testing.T) {
 		t.Errorf("case-insensitive override lookup = %q, want %q", got, ContentTypeWorksheet)
 	}
 }
+
+// failingWriter fails every write, simulating a full or broken disk.
+type failingWriter struct{}
+
+func (failingWriter) Write(p []byte) (int, error) {
+	return 0, errors.New("simulated write failure")
+}
+
+// C54: a failure during Close's metadata writes must still surface as an
+// error (with the underlying zip writer closed rather than the stream
+// abandoned mid-entry), and the writer must stay closed afterwards.
+func TestClose_MetadataWriteFailureStillClosesZip(t *testing.T) {
+	w := NewWriter(failingWriter{})
+	w.Properties = &CoreProperties{Title: "T"}
+
+	err := w.Close()
+	if err == nil {
+		t.Fatal("Close() with failing writer returned nil error")
+	}
+	if errors.Is(err, ErrPackageClosed) {
+		t.Fatalf("Close() error = %v, want the underlying write failure", err)
+	}
+	if !strings.Contains(err.Error(), "simulated write failure") {
+		t.Errorf("Close() error = %v, want it to carry the underlying write failure", err)
+	}
+
+	// The writer is closed despite the failure.
+	if err := w.Close(); !errors.Is(err, ErrPackageClosed) {
+		t.Errorf("second Close() error = %v, want ErrPackageClosed", err)
+	}
+	if _, err := w.CreatePart("/x.xml", "application/xml", CompressionDeflate); !errors.Is(err, ErrPackageClosed) {
+		t.Errorf("CreatePart after failed Close error = %v, want ErrPackageClosed", err)
+	}
+}

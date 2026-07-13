@@ -32,6 +32,7 @@ type Document struct {
 	otherParts       map[string]*coxml.RawPart
 	relationships    map[string][]*opc.Relationship
 	hasCoreProps     bool
+	propsSnapshot    *opc.CoreProperties       // Properties as loaded at open; detects edits at save
 	preservedParts   map[string]*coxml.RawPart // all original parts for round-trip
 	contentTypesData []byte                    // raw [Content_Types].xml
 	imageParts       []*imagePart              // images to be written
@@ -122,6 +123,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	if reader.Properties != nil {
 		d.Properties = *reader.Properties
 		d.hasCoreProps = true
+		d.propsSnapshot = reader.Properties.Clone()
 	}
 
 	if err := d.loadAllParts(mainPartName); err != nil {
@@ -315,9 +317,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		writer.Properties = &d.Properties
 	}
 
-	// Preserve original content types
+	// Preserve original content types. Hand the writer a clone: Close mutates
+	// its ContentTypes (SetOverride for regenerated metadata parts), so
+	// sharing the reader's instance would let repeated saves observe each
+	// other's side effects and make concurrent saves race.
 	if d.reader != nil && d.reader.ContentTypes != nil {
-		writer.ContentTypes = d.reader.ContentTypes
+		writer.ContentTypes = d.reader.ContentTypes.Clone()
 	}
 
 	// Write [Content_Types].xml as raw file if preserved. When parts were added
@@ -330,8 +335,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write core.xml as preserved raw bytes if original had it
-	if d.hasCoreProps {
+	// Write core.xml as preserved raw bytes only when the in-memory
+	// properties still match the snapshot taken at open. Writing the raw part
+	// first would win under the opc writer's skip-if-written rule and
+	// silently drop any edits; when the properties changed, skip the raw copy
+	// so Close regenerates core.xml from d.Properties.
+	if d.hasCoreProps && d.Properties.Equal(d.propsSnapshot) {
 		if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
 			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err

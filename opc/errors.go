@@ -8,14 +8,8 @@ var (
 	// ErrInvalidPartName indicates a part name that violates OPC naming rules.
 	ErrInvalidPartName = errors.New("opc: invalid part name")
 
-	// ErrPartNotFound indicates the requested part does not exist in the package.
-	ErrPartNotFound = errors.New("opc: part not found")
-
 	// ErrDuplicatePart indicates an attempt to create a part that already exists.
 	ErrDuplicatePart = errors.New("opc: duplicate part")
-
-	// ErrInvalidRelationship indicates a malformed relationship.
-	ErrInvalidRelationship = errors.New("opc: invalid relationship")
 
 	// ErrInvalidContentType indicates a malformed content type.
 	ErrInvalidContentType = errors.New("opc: invalid content type")

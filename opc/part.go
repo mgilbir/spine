@@ -1,6 +1,7 @@
 package opc
 
 import (
+	"net/url"
 	"path"
 	"strings"
 )
@@ -61,7 +62,19 @@ func NormalizePartName(name string) string {
 }
 
 // ResolvePartName resolves a relative URI against a base part name.
+// Relationship targets are URIs, not plain paths: a fragment ("part.xml#id")
+// addresses content inside the part and is stripped, and percent-escapes
+// ("Some%20Image.png") are decoded so the result matches the literal part
+// name stored in the package. An undecodable escape sequence leaves the
+// target as-is rather than failing resolution outright.
 func ResolvePartName(base, relative string) string {
+	if i := strings.IndexByte(relative, '#'); i >= 0 {
+		relative = relative[:i]
+	}
+	if decoded, err := url.PathUnescape(relative); err == nil {
+		relative = decoded
+	}
+
 	if strings.HasPrefix(relative, "/") {
 		return NormalizePartName(relative)
 	}
