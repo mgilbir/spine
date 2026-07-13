@@ -1,7 +1,9 @@
 package pptx
 
 import (
+	"archive/zip"
 	"bytes"
+	"io"
 	"testing"
 )
 
@@ -63,5 +65,46 @@ func TestSaveTwiceIdenticalAndContentTypesUnmutated(t *testing.T) {
 	}
 	if got := len(p.reader.ContentTypes.Overrides); got != overridesBefore {
 		t.Errorf("reader ContentTypes overrides = %d after saves, want %d (unmutated)", got, overridesBefore)
+	}
+}
+
+// TestUnmodifiedCorePropertiesPreserveRawBytes verifies that a
+// zero-modification save writes the source docProps/core.xml verbatim
+// (producer formatting varies; regenerating the part drifts) while an edit
+// still regenerates it.
+func TestUnmodifiedCorePropertiesPreserveRawBytes(t *testing.T) {
+	p, err := Open("testdata/minimal.pptx")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	if p.corePartRaw == nil {
+		t.Skip("fixture has no docProps/core.xml")
+	}
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes() error = %v", err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("zip: %v", err)
+	}
+	var saved []byte
+	for _, f := range zr.File {
+		if f.Name == "docProps/core.xml" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("open part: %v", err)
+			}
+			saved, err = io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				t.Fatalf("read part: %v", err)
+			}
+		}
+	}
+	if !bytes.Equal(saved, p.corePartRaw.Data) {
+		t.Errorf("unmodified save regenerated docProps/core.xml:\ngot  %q\nwant %q", saved, p.corePartRaw.Data)
 	}
 }
