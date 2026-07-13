@@ -18,7 +18,11 @@ const (
 func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	b := xmlb.NewSpreadsheetMLBuilder()
 	b.SetSelfClosingSpace(wb.SelfClosingSpace)
-	b.SetElementSeparator(wb.ElemSeparator)
+	if !wb.PerGapWS {
+		// With per-gap whitespace captured, the verbatim gaps replay and the
+		// uniform separator must not also fire.
+		b.SetElementSeparator(wb.ElemSeparator)
+	}
 
 	b.WriteProlog(wb.Prolog)
 
@@ -80,6 +84,12 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			if idx < len(wb.UnknownChildren) {
 				b.WriteRaw(wb.UnknownChildren[idx].Data)
 			}
+		case strings.HasPrefix(childName, "ws:"):
+			var idx int
+			_, _ = fmt.Sscanf(childName, "ws:%d", &idx)
+			if idx < len(wb.WsRaw) {
+				b.WriteRaw(wb.WsRaw[idx])
+			}
 		}
 	}
 }
@@ -108,6 +118,11 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 
 // marshalWorkbookSheets marshals the sheets element.
 func marshalWorkbookSheets(b *xmlb.Builder, wb *oxml.CT_Workbook) {
+	if wb.Sheets.CapturedChildren != nil {
+		// Ordered replay (with verbatim inter-child whitespace).
+		b.MarshalElement(nsSML, "sheets", &wb.Sheets)
+		return
+	}
 	b.StartElement(nsSML, "sheets")
 	for i := range wb.Sheets.Sheet {
 		wb.Sheets.Sheet[i].MarshalToBuilder(b, nsSML, "sheet")
@@ -122,8 +137,13 @@ func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	}
 	// An empty <definedNames/> present in the source is kept: dropping the
 	// element on a no-op round trip would drift from the producer's bytes.
-	if len(wb.DefinedNames.DefinedName) == 0 {
+	if len(wb.DefinedNames.DefinedName) == 0 && !hasRawKids(wb.DefinedNames.CapturedChildren) {
 		b.EmptyElementStyled(wb.DefinedNames.CapturedEmptyTag, nsSML, "definedNames")
+		return
+	}
+	if wb.DefinedNames.CapturedChildren != nil {
+		// Ordered replay (with verbatim inter-child whitespace).
+		b.MarshalElement(nsSML, "definedNames", wb.DefinedNames)
 		return
 	}
 	b.StartElement(nsSML, "definedNames")
@@ -131,6 +151,11 @@ func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 		wb.DefinedNames.DefinedName[i].MarshalToBuilder(b, nsSML, "definedName")
 	}
 	b.EndElement(nsSML, "definedNames")
+}
+
+// hasRawKids reports whether a child capture will emit raw children.
+func hasRawKids(cc *xmlb.ChildCapture) bool {
+	return cc != nil && len(cc.Raw) > 0
 }
 
 // marshalWorkbookExtLst marshals the extLst element.
