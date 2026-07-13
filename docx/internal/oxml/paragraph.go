@@ -10,9 +10,6 @@ import (
 
 // CT_PPr represents paragraph properties (w:pPr).
 type CT_PPr struct {
-	// CnfStyle is first: Word (transitional) emits w:cnfStyle as the first
-	// w:pPr child, before w:pStyle.
-	CnfStyle            *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
 	PStyle              *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pStyle,omitempty"`
 	KeepNext            *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepNext,omitempty"`
 	KeepLines           *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main keepLines,omitempty"`
@@ -44,9 +41,13 @@ type CT_PPr struct {
 	TextAlignment       *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textAlignment,omitempty"`
 	OutlineLvl          *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main outlineLvl,omitempty"`
 	DivId               *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
-	RPr                 *CT_RPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
-	SectPr              *CT_SectPr        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
-	PPrChange           *CT_PPrChange     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
+	// CnfStyle sits at its XSD position — after every other pPrBase child and
+	// immediately before w:rPr — which is also where Word emits it (corpus:
+	// the element following w:cnfStyle is always w:rPr content or nothing).
+	CnfStyle  *CT_Cnf       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
+	RPr       *CT_RPr       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	SectPr    *CT_SectPr    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
+	PPrChange *CT_PPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
 }
 
 // pChildKind identifies paragraph content child element types.
@@ -364,14 +365,16 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if p.RsidRPr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: p.RsidRPr})
 	}
+	// Word emits w:rsidDel between w:rsidRPr and w:rsidRDefault (corpus:
+	// every Word-authored w:p carrying rsidDel uses this position).
+	if p.RsidDel != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidDel", Value: p.RsidDel})
+	}
 	if p.RsidRDefault != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRDefault", Value: p.RsidRDefault})
 	}
 	if p.RsidP != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidP", Value: p.RsidP})
-	}
-	if p.RsidDel != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidDel", Value: p.RsidDel})
 	}
 	b.StartElement(ns, localName, attrs...)
 

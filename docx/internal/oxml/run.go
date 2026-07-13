@@ -52,6 +52,16 @@ type CT_RPr struct {
 	SpecVanish       *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main specVanish,omitempty"`
 	OMatch           *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main oMath,omitempty"`
 	RPrChange        *CT_RPrChange          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPrChange,omitempty"`
+	// Ligatures models w14:ligatures (Word 2010 extension). Word emits it as
+	// the last w:rPr child (corpus: 6,530/6,530 instances precede </w:rPr>),
+	// so it sits last here; previously it was silently dropped.
+	Ligatures *CT_Word2010Val `xml:"http://schemas.microsoft.com/office/word/2010/wordml ligatures,omitempty"`
+}
+
+// CT_Word2010Val is a Word 2010 extension element carrying a single w14:val
+// attribute (e.g. w14:ligatures).
+type CT_Word2010Val struct {
+	Val string `xml:"http://schemas.microsoft.com/office/word/2010/wordml val,attr"`
 }
 
 // CT_RPrChange represents a revision of run properties.
@@ -80,9 +90,11 @@ type CT_Sym struct {
 	Char string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main char,attr,omitempty"`
 }
 
-// CT_FtnEdnRef represents a footnote/endnote reference.
+// CT_FtnEdnRef represents a footnote/endnote reference. Word emits
+// w:customMarkFollows before w:id.
 type CT_FtnEdnRef struct {
-	Id string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	CustomMarkFollows string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main customMarkFollows,attr,omitempty"`
+	Id                string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
 }
 
 // CT_Markup represents a markup element carrying only a w:id attribute

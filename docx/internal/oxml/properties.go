@@ -27,7 +27,10 @@ func (o *CT_OnOff) IsOn() bool {
 
 // CT_String represents an element with a w:val string attribute.
 type CT_String struct {
-	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// omitempty: some CT_String-bound elements carry an optional w:val
+	// (e.g. w:vMerge, where a bare <w:vMerge/> means "continue"); emitting
+	// w:val="" for those would both drift bytes and change semantics.
+	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 }
 
 // CT_DecimalNumber represents an element with a w:val integer attribute.
@@ -193,13 +196,15 @@ type CT_TcBorders struct {
 	Tr2Bl   *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tr2bl,omitempty"`
 }
 
-// CT_Spacing represents paragraph spacing.
+// CT_Spacing represents paragraph spacing. Field order follows Word's
+// attribute emission order: the *Lines variant precedes each twip value
+// (w:beforeLines before w:before), matching the CT_Ind Chars-first pattern.
 type CT_Spacing struct {
-	Before            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
 	BeforeLines       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeLines,attr,omitempty"`
+	Before            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
 	BeforeAutospacing string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeAutospacing,attr,omitempty"`
-	After             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
 	AfterLines        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterLines,attr,omitempty"`
+	After             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
 	AfterAutospacing  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterAutospacing,attr,omitempty"`
 	Line              string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
 	LineRule          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
