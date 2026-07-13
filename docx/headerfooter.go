@@ -53,6 +53,7 @@ type Header struct {
 	document *Document
 	hdr      *oxml.CT_HdrFtr
 	relID    string
+	partName string
 }
 
 // Footer represents a document footer.
@@ -60,6 +61,7 @@ type Footer struct {
 	document *Document
 	ftr      *oxml.CT_HdrFtr
 	relID    string
+	partName string
 }
 
 // hdrFtrPart stores header/footer data to be written.
@@ -77,27 +79,48 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
 
+	relID := fmt.Sprintf("rId%d", d.nextRelID())
+
+	// ECMA-376 allows at most one header reference per type in a sectPr:
+	// a repeated AddHeader of the same type replaces the existing reference
+	// instead of appending a duplicate. If the replaced reference pointed at a
+	// header added earlier in this session, that part and its relationship are
+	// dropped so the package carries no orphan.
+	var existingRef *oxml.CT_HdrFtrRef
+	for _, ref := range d.document.Body.SectPr.HeaderReference {
+		if ref.Type == hType.xmlVal() {
+			existingRef = ref
+			break
+		}
+	}
+	if existingRef != nil {
+		d.dropSessionHeader(existingRef.RID)
+	}
+
 	// Derive the part name from the parts already in the package (preserved
 	// parts, parsed headers/footers, and parts added in this session), so a
 	// header added to an opened document that already contains
 	// /word/header1.xml gets the next free name instead of a duplicate.
-	relID := fmt.Sprintf("rId%d", d.nextRelID())
 	partName := d.nextHdrFtrPartName("header")
 
 	hdr := &oxml.CT_HdrFtr{}
 
-	// Add reference to section properties
-	d.document.Body.SectPr.HeaderReference = append(d.document.Body.SectPr.HeaderReference, &oxml.CT_HdrFtrRef{
-		Type: hType.xmlVal(),
-		RID:  relID,
-	})
+	// Add (or repoint) the reference in section properties
+	if existingRef != nil {
+		existingRef.RID = relID
+	} else {
+		d.document.Body.SectPr.HeaderReference = append(d.document.Body.SectPr.HeaderReference, &oxml.CT_HdrFtrRef{
+			Type: hType.xmlVal(),
+			RID:  relID,
+		})
+	}
 
 	// Enable first page header/footer if needed
 	if hType == HeaderFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
 
-	h := &Header{document: d, hdr: hdr, relID: relID}
+	h := &Header{document: d, hdr: hdr, relID: relID, partName: partName}
 
 	// Store for writing during save
 	d.newHeaderParts = append(d.newHeaderParts, &hdrFtrPart{
@@ -130,24 +153,41 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
 
-	// Derive the part name from the parts already in the package (see AddHeader).
 	relID := fmt.Sprintf("rId%d", d.nextRelID())
+
+	// At most one footer reference per type (see AddHeader).
+	var existingRef *oxml.CT_HdrFtrRef
+	for _, ref := range d.document.Body.SectPr.FooterReference {
+		if ref.Type == fType.xmlVal() {
+			existingRef = ref
+			break
+		}
+	}
+	if existingRef != nil {
+		d.dropSessionFooter(existingRef.RID)
+	}
+
+	// Derive the part name from the parts already in the package (see AddHeader).
 	partName := d.nextHdrFtrPartName("footer")
 
 	ftr := &oxml.CT_HdrFtr{}
 
-	// Add reference to section properties
-	d.document.Body.SectPr.FooterReference = append(d.document.Body.SectPr.FooterReference, &oxml.CT_HdrFtrRef{
-		Type: fType.xmlVal(),
-		RID:  relID,
-	})
+	// Add (or repoint) the reference in section properties
+	if existingRef != nil {
+		existingRef.RID = relID
+	} else {
+		d.document.Body.SectPr.FooterReference = append(d.document.Body.SectPr.FooterReference, &oxml.CT_HdrFtrRef{
+			Type: fType.xmlVal(),
+			RID:  relID,
+		})
+	}
 
 	// Enable first page header/footer if needed
 	if fType == FooterFirst {
 		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
 
-	f := &Footer{document: d, ftr: ftr, relID: relID}
+	f := &Footer{document: d, ftr: ftr, relID: relID, partName: partName}
 
 	// Store for writing during save
 	d.newFooterParts = append(d.newFooterParts, &hdrFtrPart{
@@ -174,7 +214,7 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 func (h *Header) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
 	h.hdr.AppendP(p)
-	return &Paragraph{document: h.document, p: p}
+	return &Paragraph{document: h.document, p: p, hfPart: h.partName}
 }
 
 // AddParagraphWithText adds a paragraph with text to the header.
@@ -188,7 +228,7 @@ func (h *Header) AddParagraphWithText(text string) *Paragraph {
 func (f *Footer) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
 	f.ftr.AppendP(p)
-	return &Paragraph{document: f.document, p: p}
+	return &Paragraph{document: f.document, p: p, hfPart: f.partName}
 }
 
 // AddParagraphWithText adds a paragraph with text to the footer.

@@ -713,6 +713,7 @@ func NewWordprocessingMLBuilder() *Builder {
 	b.RegisterNamespace(NSDrawingMLWordprocessing, "wp")
 	b.RegisterNamespace(NSWord2010, PrefixWord2010)
 	b.RegisterNamespace(NSWord2012, PrefixWord2012)
+	b.RegisterNamespace(NSMath, PrefixMath)
 	return b
 }
 
