@@ -97,9 +97,16 @@ func isRawPChild(local string) bool {
 	switch local {
 	case "customXml", "smartTag", "moveTo", "moveFrom",
 		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
-		"br":
+		"customXmlInsRangeStart", "customXmlInsRangeEnd",
+		"customXmlDelRangeStart", "customXmlDelRangeEnd",
+		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
+		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
+		"br",
+		"commentRangeStart", "commentRangeEnd":
 		// w:br is only valid inside w:r, but LibreOffice-era exports place it
 		// directly in w:p; dropping it merged the surrounding lines.
+		// Comment ranges appear inside w:ins/w:del and run-level SDT content,
+		// which type them nowhere (CT_P handles its own before this).
 		return true
 	}
 	return false
@@ -216,7 +223,7 @@ func (p *CT_P) isEmpty() bool {
 // UnmarshalXML implements custom unmarshaling for CT_P to preserve child order.
 func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	p.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	p.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "rsidR" && (attr.Name.Space == NsWml || attr.Name.Space == ""):
@@ -245,6 +252,18 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
+				if p.PPr != nil {
+					// A duplicated w:pPr (invalid but seen in the wild) is
+					// preserved verbatim at its position; the first stays
+					// the typed model.
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
+						return err
+					}
+					p.childOrder = append(p.childOrder, pChildRef{pChildRaw, len(p.Raw)})
+					p.Raw = append(p.Raw, v)
+					continue
+				}
 				p.PPr = &CT_PPr{}
 				if err := d.DecodeElement(p.PPr, &t); err != nil {
 					return err

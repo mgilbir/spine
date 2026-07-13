@@ -93,7 +93,7 @@ type CT_RPrChange struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // through the struct tags; the reflection marshaler replays it.
 func (rc *CT_RPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	rc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	rc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_RPrChange
 	return d.DecodeElement((*alias)(rc), &start)
 }
@@ -111,18 +111,22 @@ type CT_Text struct {
 	// while Text still equals origText, so edits win.
 	rawText  []byte
 	origText string
+	// CapturedAttrs preserves the verbatim attribute rendering (quote style
+	// of xml:space, unmodeled attributes).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML captures the element's empty-tag style and the verbatim source
 // form of its text before decoding through the struct tags.
 func (t *CT_Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	t.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	t.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	innerStart, hasSrc := xmlb.InputOffsetOf(d)
 	type alias CT_Text
 	if err := d.DecodeElement((*alias)(t), &start); err != nil {
 		return err
 	}
-	if hasSrc && t.CapturedEmptyTag != xmlb.EmptyTagSelfClose {
+	if hasSrc && !t.CapturedEmptyTag.IsSelfClose() {
 		t.rawText = xmlb.CaptureRawInner(d, innerStart)
 		t.origText = t.Text
 	}
@@ -230,7 +234,7 @@ type runChildRef struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_R to preserve child order.
 func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	r.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	r.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidRPr":
@@ -389,9 +393,15 @@ func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, len(r.AlternateContent)})
 				r.AlternateContent = append(r.AlternateContent, v)
 			default:
-				if err := d.Skip(); err != nil {
+				// Preserve unmodeled run children (w:pgNum, w:ruby,
+				// w:footnoteRef, w:separator, ...) verbatim instead of
+				// silently dropping them.
+				v := &CT_RawNamedElement{}
+				if err := d.DecodeElement(v, &t); err != nil {
 					return err
 				}
+				r.childOrder = append(r.childOrder, runChildRef{runChildRaw, len(r.Raw)})
+				r.Raw = append(r.Raw, v)
 			}
 		case xml.EndElement:
 			return nil
@@ -693,6 +703,9 @@ func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
+	}
+	if t.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(t.CapturedAttrs, attrs)
 	}
 	if t.rawText != nil && t.Text == t.origText {
 		b.StartElement(ns, localName, attrs...)

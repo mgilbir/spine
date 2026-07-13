@@ -47,7 +47,7 @@ type Gd struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (g *Gd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	g.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	g.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Gd
 	return d.DecodeElement((*alias)(g), &start)
 }
@@ -109,7 +109,7 @@ func boolAttrValue(b bool) string {
 
 // UnmarshalXML implements custom unmarshaling for PathXML2D to preserve command order.
 func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	p.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	// Parse attributes
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
@@ -419,7 +419,7 @@ type PtXML struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (pt *PtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	pt.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	pt.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias PtXML
 	return d.DecodeElement((*alias)(pt), &start)
 }
@@ -437,7 +437,7 @@ type RectXML struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (rx *RectXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	rx.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	rx.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias RectXML
 	return d.DecodeElement((*alias)(rx), &start)
 }
@@ -495,7 +495,7 @@ type Xfrm struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (xf *Xfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	xf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	xf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Xfrm
 	return d.DecodeElement((*alias)(xf), &start)
 }
@@ -511,7 +511,7 @@ type OffXML struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (off *OffXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	off.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	off.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias OffXML
 	return d.DecodeElement((*alias)(off), &start)
 }
@@ -527,7 +527,7 @@ type ExtXML struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ex2 *ExtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ex2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ex2.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ExtXML
 	return d.DecodeElement((*alias)(ex2), &start)
 }
@@ -573,7 +573,7 @@ type SrcRect struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (sr *SrcRect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	sr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	sr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias SrcRect
 	return d.DecodeElement((*alias)(sr), &start)
 }

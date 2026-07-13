@@ -171,7 +171,7 @@ type ATblPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (atb *ATblPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	atb.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	atb.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ATblPr
 	return d.DecodeElement((*alias)(atb), &start)
 }
@@ -213,7 +213,7 @@ type ATc struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (atc *ATc) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	atc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	atc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ATc
 	return d.DecodeElement((*alias)(atc), &start)
 }
@@ -252,7 +252,7 @@ type ATcPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (atp *ATcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	atp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	atp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ATcPr
 	return d.DecodeElement((*alias)(atp), &start)
 }

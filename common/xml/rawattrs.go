@@ -12,6 +12,106 @@ import "encoding/xml"
 // preserves the exact interleaving; marshal replays it when present and falls
 // back to the canonical emission for values built programmatically.
 
+// CaptureAttrsSource is CaptureAttrs augmented with the verbatim source
+// rendering of each attribute. When the decoder has a registered source
+// (UnmarshalWithSource) and is positioned right past the element's start tag
+// — i.e. called at the top of an UnmarshalXML implementation — the tag is
+// re-lexed from the raw bytes to recover what the token stream cannot
+// represent: the producer's original prefix choice (two prefixes bound to one
+// URI, a prefix declared on an ancestor), quote style ('), and spacing around
+// '='. Each captured attribute carries that rendering in Raw; replay writes
+// it verbatim while the attribute's value is unchanged. Without a source (or
+// if the tag cannot be re-lexed consistently) the result equals CaptureAttrs.
+func CaptureAttrsSource(d *xml.Decoder, attrs []xml.Attr) []RootAttr {
+	out := CaptureAttrs(attrs)
+	v, ok := decoderSources.Load(d)
+	if !ok {
+		return out
+	}
+	data := v.([]byte)
+	end := d.InputOffset()
+	if end < 2 || end > int64(len(data)) || data[end-1] != '>' {
+		return out
+	}
+	// The start tag runs from the nearest preceding '<' (a raw '<' cannot
+	// occur inside attribute values) to the '>' just consumed.
+	tagStart := -1
+	for i := end - 2; i >= 0; i-- {
+		if data[i] == '<' {
+			tagStart = int(i)
+			break
+		}
+	}
+	if tagStart < 0 {
+		return out
+	}
+	tag := data[tagStart+1 : end-1]
+	if len(tag) > 0 && tag[len(tag)-1] == '/' {
+		tag = tag[:len(tag)-1]
+	}
+	raws, ok := lexTagAttrs(tag)
+	if !ok || len(raws) != len(out) {
+		return out
+	}
+	for i := range out {
+		out[i].Raw = raws[i]
+	}
+	return out
+}
+
+// lexTagAttrs splits a start tag's content (without '<', '>' and any trailing
+// '/') into per-attribute verbatim slices, each including its leading
+// whitespace. Returns ok=false on any form it does not understand.
+func lexTagAttrs(tag []byte) ([]string, bool) {
+	i := 0
+	// Skip the element name.
+	for i < len(tag) && !isXMLSpace(tag[i]) {
+		i++
+	}
+	var raws []string
+	for {
+		attrStart := i
+		for i < len(tag) && isXMLSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) {
+			return raws, true
+		}
+		// Attribute name.
+		for i < len(tag) && tag[i] != '=' && !isXMLSpace(tag[i]) {
+			i++
+		}
+		for i < len(tag) && isXMLSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) || tag[i] != '=' {
+			return nil, false
+		}
+		i++
+		for i < len(tag) && isXMLSpace(tag[i]) {
+			i++
+		}
+		if i >= len(tag) || (tag[i] != '"' && tag[i] != '\'') {
+			return nil, false
+		}
+		quote := tag[i]
+		i++
+		for i < len(tag) && tag[i] != quote {
+			i++
+		}
+		if i >= len(tag) {
+			return nil, false
+		}
+		i++
+		raws = append(raws, string(tag[attrStart:i]))
+	}
+}
+
+// isXMLSpace reports whether c is XML whitespace.
+func isXMLSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
+}
+
 // CaptureAttrs converts a decoded start element's attributes into an
 // interleaved RootAttr list preserving source order. Prefixes for namespaced
 // attributes are resolved from well-known URIs and from declarations seen
@@ -33,6 +133,7 @@ func CaptureAttrs(attrs []xml.Attr) []RootAttr {
 				Prefix:    prefixForAttr(attr.Name.Space, out),
 				LocalName: attr.Name.Local,
 				Value:     attr.Value,
+				Space:     attr.Name.Space,
 			})
 		}
 	}
@@ -116,8 +217,9 @@ func RawAttrListOverride(raw []RootAttr, override map[string]string) []Attr {
 	for _, ra := range raw {
 		a := ra.attr()
 		if !ra.IsNS {
-			if v, ok := override[a.Name]; ok {
+			if v, ok := override[a.Name]; ok && v != a.Value {
 				a.Value = v
+				a.Raw = ""
 			}
 		}
 		out = append(out, a)
@@ -132,13 +234,13 @@ func (ra RootAttr) attr() Attr {
 		if ra.Prefix != "" {
 			name = "xmlns:" + ra.Prefix
 		}
-		return Attr{Name: name, Value: ra.Value}
+		return Attr{Name: name, Value: ra.Value, Raw: ra.Raw}
 	}
 	name := ra.LocalName
 	if ra.Prefix != "" {
 		name = ra.Prefix + ":" + ra.LocalName
 	}
-	return Attr{Name: name, Value: ra.Value}
+	return Attr{Name: name, Value: ra.Value, Raw: ra.Raw}
 }
 
 // EmptyElementLiteral writes a self-closing element under an explicit prefix,
@@ -225,9 +327,14 @@ func (b *Builder) EndElementLiteral(prefix, localName string) {
 	}
 }
 
-// writeLiteralAttrs writes attributes with their names emitted verbatim.
+// writeLiteralAttrs writes attributes with their names emitted verbatim,
+// preferring a captured verbatim source rendering (Attr.Raw).
 func (b *Builder) writeLiteralAttrs(attrs []Attr) {
 	for _, attr := range attrs {
+		if attr.Raw != "" {
+			b.buf.WriteString(attr.Raw)
+			continue
+		}
 		b.buf.WriteByte(' ')
 		b.buf.WriteString(attr.Name)
 		b.buf.WriteString(`="`)

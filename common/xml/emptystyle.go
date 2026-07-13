@@ -21,11 +21,23 @@ type EmptyTagStyle uint8
 const (
 	// EmptyTagUnknown means no capture: the part-level style applies.
 	EmptyTagUnknown EmptyTagStyle = iota
-	// EmptyTagSelfClose is <name/>.
+	// EmptyTagSelfClose is a self-closing tag with the builder's default
+	// spacing (values built programmatically).
 	EmptyTagSelfClose
 	// EmptyTagExpanded is <name></name>.
 	EmptyTagExpanded
+	// EmptyTagSelfCloseTight is <name/> — no space before the slash — even
+	// when the part-level style writes " />".
+	EmptyTagSelfCloseTight
+	// EmptyTagSelfCloseSpaced is <name /> even when the part-level style
+	// writes "/>".
+	EmptyTagSelfCloseSpaced
 )
+
+// IsSelfClose reports whether the style is any self-closing form.
+func (s EmptyTagStyle) IsSelfClose() bool {
+	return s == EmptyTagSelfClose || s == EmptyTagSelfCloseTight || s == EmptyTagSelfCloseSpaced
+}
 
 // decoderSources maps a live *xml.Decoder to the raw bytes it reads, letting
 // unmarshal hooks inspect the exact source form of the token just consumed.
@@ -58,7 +70,10 @@ func CaptureEmptyTagStyle(d *xml.Decoder) EmptyTagStyle {
 		return EmptyTagUnknown
 	}
 	if data[off-2] == '/' {
-		return EmptyTagSelfClose
+		if off >= 3 && (data[off-3] == ' ' || data[off-3] == '\t') {
+			return EmptyTagSelfCloseSpaced
+		}
+		return EmptyTagSelfCloseTight
 	}
 	return EmptyTagExpanded
 }
@@ -102,16 +117,77 @@ func CaptureRawInner(d *xml.Decoder, startOff int64) []byte {
 	return inner
 }
 
+// ElementPrefix re-lexes the start tag the decoder just consumed and returns
+// the element name's prefix ("" for unprefixed). It recovers the producer's
+// prefix choice when several prefixes bind one URI (Word 2007 files alias the
+// markup-compatibility namespace as both mc and ve). ok is false without a
+// registered source.
+func ElementPrefix(d *xml.Decoder) (string, bool) {
+	v, has := decoderSources.Load(d)
+	if !has {
+		return "", false
+	}
+	data := v.([]byte)
+	end := d.InputOffset()
+	if end < 2 || end > int64(len(data)) || data[end-1] != '>' {
+		return "", false
+	}
+	tagStart := -1
+	for i := end - 2; i >= 0; i-- {
+		if data[i] == '<' {
+			tagStart = int(i)
+			break
+		}
+	}
+	if tagStart < 0 {
+		return "", false
+	}
+	name := data[tagStart+1:]
+	for i, c := range name {
+		if c == ':' {
+			return string(name[:i]), true
+		}
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '>' || c == '/' {
+			return "", true
+		}
+	}
+	return "", false
+}
+
+// RawTokenBytes returns the verbatim source bytes of the token the decoder
+// just consumed, given the input offset taken right before Token(). Returns
+// nil without a registered source or on inconsistent offsets.
+func RawTokenBytes(d *xml.Decoder, pre int64) []byte {
+	v, ok := decoderSources.Load(d)
+	if !ok {
+		return nil
+	}
+	data := v.([]byte)
+	post := d.InputOffset()
+	if pre < 0 || post > int64(len(data)) || pre >= post {
+		return nil
+	}
+	return data[pre:post]
+}
+
 // EmptyElementStyled writes a childless element honoring a captured source
 // style: expanded (<name></name>) when the capture says so, self-closing
 // otherwise (matching the emission the callers used before capture existed).
 func (b *Builder) EmptyElementStyled(style EmptyTagStyle, namespace, localName string, attrs ...Attr) {
-	if style == EmptyTagExpanded {
+	switch style {
+	case EmptyTagExpanded:
 		b.StartElement(namespace, localName, attrs...)
 		// Complete the deferred '>' so the pair cannot collapse.
 		b.flushOpenTag()
 		b.EndElement(namespace, localName)
-		return
+	case EmptyTagSelfCloseTight, EmptyTagSelfCloseSpaced:
+		// Per-instance spacing wins over the part-level flag: producers mix
+		// "/>" and " />" within one part.
+		saved := b.selfClosingSpace
+		b.selfClosingSpace = style == EmptyTagSelfCloseSpaced
+		b.EmptyElement(namespace, localName, attrs...)
+		b.selfClosingSpace = saved
+	default:
+		b.EmptyElement(namespace, localName, attrs...)
 	}
-	b.EmptyElement(namespace, localName, attrs...)
 }

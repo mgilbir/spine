@@ -413,7 +413,7 @@ type CT_FileVersion struct {
 // style before decoding through the struct tags.
 func (fv *CT_FileVersion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	fv.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	fv.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	fv.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_FileVersion
 	return d.DecodeElement((*alias)(fv), &start)
 }
@@ -445,7 +445,7 @@ type CT_WorkbookPr struct {
 // struct tags; the reflection marshaler replays it.
 func (wp *CT_WorkbookPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	wp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	wp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	wp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_WorkbookPr
 	return d.DecodeElement((*alias)(wp), &start)
 }
@@ -745,7 +745,7 @@ type CT_Sheet struct {
 // Handles the r:id attribute which uses the relationships namespace.
 func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	s.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	s.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Space == "xmlns":
@@ -840,7 +840,7 @@ type CT_DefinedName struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_DefinedName.
 func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	dn.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	dn.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "name":
@@ -994,7 +994,7 @@ type CT_CalcPr struct {
 // struct tags; the reflection marshaler replays it.
 func (cp *CT_CalcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	cp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	cp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_CalcPr
 	return d.DecodeElement((*alias)(cp), &start)
 }
@@ -1011,7 +1011,7 @@ type CT_ExtensionList struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // the ext children.
 func (el *CT_ExtensionList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	el.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	el.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_ExtensionList
 	return d.DecodeElement((*alias)(el), &start)
 }

@@ -76,7 +76,7 @@ type Placeholder struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ph *Placeholder) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ph.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ph.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Placeholder
 	return d.DecodeElement((*alias)(ph), &start)
 }

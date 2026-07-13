@@ -55,7 +55,7 @@ type CT_TblPPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tpr *CT_TblPPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tpr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tpr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_TblPPr
 	return d.DecodeElement((*alias)(tpr), &start)
 }
@@ -63,6 +63,16 @@ func (tpr *CT_TblPPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 // CT_TblLayout represents table layout mode.
 type CT_TblLayout struct {
 	Type string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_TblLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TblLayout
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TblCellMar represents table cell margins.
@@ -83,13 +93,16 @@ type CT_TblLook struct {
 	NoHBand       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noHBand,attr,omitempty"`
 	NoVBand       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noVBand,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tl *CT_TblLook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tl.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tl.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	tl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_TblLook
 	return d.DecodeElement((*alias)(tl), &start)
 }
@@ -113,13 +126,16 @@ type CT_TblGridChange struct {
 type CT_GridCol struct {
 	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes, e.g. a transitional w:type)
 // before decoding through the struct tags; the reflection marshaler replays it.
 func (gc *CT_GridCol) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	gc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	gc.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	gc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_GridCol
 	return d.DecodeElement((*alias)(gc), &start)
 }
@@ -141,6 +157,16 @@ type CT_Cnf struct {
 	FirstRowLastColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRowLastColumn,attr,omitempty"`
 	LastRowFirstColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRowFirstColumn,attr,omitempty"`
 	LastRowLastColumn   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRowLastColumn,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_Cnf) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Cnf
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TrPr represents table row properties.
@@ -177,13 +203,16 @@ type CT_Height struct {
 	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 	HRule         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (h *CT_Height) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	h.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	h.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Height
 	return d.DecodeElement((*alias)(h), &start)
 }
@@ -200,7 +229,7 @@ type CT_TrackChange struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tc2 *CT_TrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tc2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tc2.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_TrackChange
 	return d.DecodeElement((*alias)(tc2), &start)
 }
@@ -352,7 +381,7 @@ type CT_Tr struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Tr.
 func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidR":
@@ -536,6 +565,7 @@ const (
 	// they are emitted up front, matching the schema.
 	tblChildTblPr
 	tblChildTblGrid
+	tblChildRaw
 )
 
 // tblChildRef references a table child.
@@ -620,7 +650,10 @@ type CT_Tbl struct {
 	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
 	// SdtBlock holds block SDTs wrapping rows (w:sdt inside w:tbl); their
 	// sdtContent carries the w:tr children (previously dropped on save).
-	SdtBlock   []*CT_SdtBlock `xml:"-"`
+	SdtBlock []*CT_SdtBlock `xml:"-"`
+	// Raw preserves table-level children the model does not type (range
+	// permissions like w:permEnd, tracked-move markers) verbatim.
+	Raw        []*CT_RawNamedElement `xml:"-"`
 	childOrder []tblChildRef
 }
 
@@ -674,6 +707,14 @@ func (tbl *CT_Tbl) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildSdt, len(tbl.SdtBlock)})
 				tbl.SdtBlock = append(tbl.SdtBlock, v)
+			case "permStart", "permEnd",
+				"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+				v := &CT_RawNamedElement{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildRaw, len(tbl.Raw)})
+				tbl.Raw = append(tbl.Raw, v)
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -730,6 +771,10 @@ func (tbl *CT_Tbl) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			case tblChildSdt:
 				if ref.index < len(tbl.SdtBlock) {
 					b.MarshalElement(ns, "sdt", tbl.SdtBlock[ref.index])
+				}
+			case tblChildRaw:
+				if ref.index < len(tbl.Raw) {
+					tbl.Raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}

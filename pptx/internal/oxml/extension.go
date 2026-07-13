@@ -58,7 +58,7 @@ type P14CreationId struct {
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *P14CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P14CreationId
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -71,7 +71,7 @@ type P14ModId struct {
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *P14ModId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P14ModId
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -127,7 +127,7 @@ type P15SldGuideLst struct {
 // UnmarshalXML captures the element's verbatim attribute list (some producers
 // carry xmlns="" alongside xmlns:p15) before decoding the guide children.
 func (v *P15SldGuideLst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P15SldGuideLst
 	return d.DecodeElement((*alias)(v), &start)
 }

@@ -996,7 +996,7 @@ type RelRect struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (rr *RelRect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	rr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	rr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias RelRect
 	return d.DecodeElement((*alias)(rr), &start)
 }

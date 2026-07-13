@@ -26,7 +26,8 @@ func TestEmptyTagStyleCaptureAndReplay(t *testing.T) {
 		want EmptyTagStyle
 		out  string
 	}{
-		{`<leaf val="1"/>`, EmptyTagSelfClose, `<leaf val="1"/>`},
+		{`<leaf val="1"/>`, EmptyTagSelfCloseTight, `<leaf val="1"/>`},
+		{`<leaf val="1" />`, EmptyTagSelfCloseSpaced, `<leaf val="1" />`},
 		{`<leaf val="1"></leaf>`, EmptyTagExpanded, `<leaf val="1"></leaf>`},
 	}
 	for _, tc := range cases {

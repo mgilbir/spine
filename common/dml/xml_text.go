@@ -54,7 +54,7 @@ type BodyPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bp *BodyPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BodyPr
 	return d.DecodeElement((*alias)(bp), &start)
 }
@@ -392,7 +392,7 @@ type PPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (pp *PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	pp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	pp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias PPr
 	return d.DecodeElement((*alias)(pp), &start)
 }
@@ -509,7 +509,7 @@ type RPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (rp *RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	rp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	rp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias RPr
 	return d.DecodeElement((*alias)(rp), &start)
 }
@@ -552,7 +552,7 @@ type TextFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tf *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias TextFont
 	return d.DecodeElement((*alias)(tf), &start)
 }
@@ -649,7 +649,7 @@ type BuFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bf *BuFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BuFont
 	return d.DecodeElement((*alias)(bf), &start)
 }
@@ -690,7 +690,7 @@ type Tab struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tab *Tab) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tab.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tab.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Tab
 	return d.DecodeElement((*alias)(tab), &start)
 }

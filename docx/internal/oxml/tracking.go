@@ -33,7 +33,7 @@ type CT_RunTrackChange struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_RunTrackChange.
 func (tc *CT_RunTrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "id":

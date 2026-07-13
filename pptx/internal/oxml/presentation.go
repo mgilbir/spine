@@ -66,7 +66,7 @@ type Presentation struct {
 // UnmarshalXML captures the root element's verbatim attribute list before
 // decoding through the struct tags.
 func (p *Presentation) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	p.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Presentation
 	return d.DecodeElement((*alias)(p), &start)
 }
@@ -314,7 +314,7 @@ type SlideSize struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ssz *SlideSize) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ssz.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ssz.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias SlideSize
 	return d.DecodeElement((*alias)(ssz), &start)
 }
@@ -332,7 +332,7 @@ type TextFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tft *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tft.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tft.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias TextFont
 	return d.DecodeElement((*alias)(tft), &start)
 }
