@@ -38,7 +38,7 @@ type Blip struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bl *Blip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bl.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Blip
 	return d.DecodeElement((*alias)(bl), &start)
 }

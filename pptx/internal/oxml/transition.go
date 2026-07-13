@@ -56,7 +56,7 @@ type Transition struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // through the struct tags.
 func (t *Transition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	t.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	t.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Transition
 	return d.DecodeElement((*alias)(t), &start)
 }

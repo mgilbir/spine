@@ -19,7 +19,7 @@ type CT_HeaderReference struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_HeaderReference to handle r:id attributes.
 func (h *CT_HeaderReference) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	h.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "type":

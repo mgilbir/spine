@@ -107,7 +107,7 @@ type A14HiddenFill struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // children through the struct tags.
 func (v *A14HiddenFill) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14HiddenFill
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -137,7 +137,7 @@ type A14HiddenLine struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // attributes and children through the struct tags.
 func (v *A14HiddenLine) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14HiddenLine
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -153,7 +153,7 @@ type A14HiddenEffects struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // children through the struct tags.
 func (v *A14HiddenEffects) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14HiddenEffects
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -169,7 +169,7 @@ type A14ImgProps struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // children through the struct tags.
 func (v *A14ImgProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14ImgProps
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -292,7 +292,7 @@ func (v *A14ImgLayer) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 }
 
 func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
@@ -304,7 +304,7 @@ func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "id" {
 			v.Id = attr.Value
@@ -315,28 +315,28 @@ func (v *CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *A16ColId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A16ColId
 	return d.DecodeElement((*alias)(v), &start)
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *A16RowId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A16RowId
 	return d.DecodeElement((*alias)(v), &start)
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *A14UseLocalDpi) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14UseLocalDpi
 	return d.DecodeElement((*alias)(v), &start)
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *A14ShadowObscured) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias A14ShadowObscured
 	return d.DecodeElement((*alias)(v), &start)
 }

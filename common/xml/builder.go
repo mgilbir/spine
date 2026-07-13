@@ -214,6 +214,24 @@ func (b *Builder) WriteHeader() {
 	b.buf.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n")
 }
 
+// writeOneAttr writes a single attribute, preferring its verbatim source
+// rendering when captured (Attr.Raw).
+func (b *Builder) writeOneAttr(attr Attr) {
+	if attr.Raw != "" {
+		b.buf.WriteString(attr.Raw)
+		return
+	}
+	b.buf.WriteByte(' ')
+	if attr.Namespace != "" {
+		b.writeQName(attr.Namespace, attr.Name)
+	} else {
+		b.buf.WriteString(attr.Name)
+	}
+	b.buf.WriteString(`="`)
+	b.writeAttrEscaped(attr.Value)
+	b.buf.WriteByte('"')
+}
+
 // StartElement starts an element with the given namespace and local name.
 // If attrs is provided, they are written as attributes.
 func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
@@ -223,15 +241,7 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 	b.writeQName(namespace, localName)
 
 	for _, attr := range attrs {
-		b.buf.WriteByte(' ')
-		if attr.Namespace != "" {
-			b.writeQName(attr.Namespace, attr.Name)
-		} else {
-			b.buf.WriteString(attr.Name)
-		}
-		b.buf.WriteString(`="`)
-		b.writeAttrEscaped(attr.Value)
-		b.buf.WriteByte('"')
+		b.writeOneAttr(attr)
 	}
 
 	if b.collapseEmpty {
@@ -274,15 +284,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 
 	// Write attributes
 	for _, attr := range attrs {
-		b.buf.WriteByte(' ')
-		if attr.Namespace != "" {
-			b.writeQName(attr.Namespace, attr.Name)
-		} else {
-			b.buf.WriteString(attr.Name)
-		}
-		b.buf.WriteString(`="`)
-		b.writeAttrEscaped(attr.Value)
-		b.buf.WriteByte('"')
+		b.writeOneAttr(attr)
 	}
 
 	b.buf.WriteByte('>')
@@ -332,15 +334,19 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	for _, ra := range rootAttrs {
 		if ra.IsNS {
 			// Namespace declaration
-			if ra.Prefix == "" {
-				b.buf.WriteString(` xmlns="`)
+			if ra.Raw != "" {
+				b.buf.WriteString(ra.Raw)
 			} else {
-				b.buf.WriteString(` xmlns:`)
-				b.buf.WriteString(ra.Prefix)
-				b.buf.WriteString(`="`)
+				if ra.Prefix == "" {
+					b.buf.WriteString(` xmlns="`)
+				} else {
+					b.buf.WriteString(` xmlns:`)
+					b.buf.WriteString(ra.Prefix)
+					b.buf.WriteString(`="`)
+				}
+				b.writeAttrEscaped(ra.Value)
+				b.buf.WriteByte('"')
 			}
-			b.writeAttrEscaped(ra.Value)
-			b.buf.WriteByte('"')
 			b.declaredNamespaces[ra.Value] = true
 			// Also register prefix so writeQName can resolve it for extension
 			// attrs — but never clobber the binding chosen for the root's own
@@ -349,6 +355,9 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 			if ra.Prefix != "" && ra.Value != namespace {
 				b.namespaces[ra.Value] = ra.Prefix
 			}
+		} else if ra.Raw != "" {
+			// Regular attribute with a verbatim source rendering.
+			b.buf.WriteString(ra.Raw)
 		} else {
 			// Regular attribute (e.g., mc:Ignorable, conformance)
 			b.buf.WriteByte(' ')
@@ -365,6 +374,10 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 
 	// Write any extra attributes
 	for _, attr := range extraAttrs {
+		if attr.Raw != "" {
+			b.buf.WriteString(attr.Raw)
+			continue
+		}
 		b.buf.WriteByte(' ')
 		if attr.Namespace != "" {
 			b.writeQName(attr.Namespace, attr.Name)
@@ -415,15 +428,7 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 	b.writeQName(namespace, localName)
 
 	for _, attr := range attrs {
-		b.buf.WriteByte(' ')
-		if attr.Namespace != "" {
-			b.writeQName(attr.Namespace, attr.Name)
-		} else {
-			b.buf.WriteString(attr.Name)
-		}
-		b.buf.WriteString(`="`)
-		b.writeAttrEscaped(attr.Value)
-		b.buf.WriteByte('"')
+		b.writeOneAttr(attr)
 	}
 
 	b.writeSelfClose()
@@ -794,6 +799,10 @@ type Attr struct {
 	Namespace string // Namespace URI (empty for no namespace)
 	Name      string // Local name
 	Value     string
+	// Raw, when set, is the verbatim source rendering of this attribute
+	// including its leading whitespace (e.g. ` w:val='x'`); it is written
+	// as-is, preserving the producer's prefix, quote style, and spacing.
+	Raw string
 }
 
 // NSDecl represents a namespace declaration.
@@ -811,6 +820,28 @@ type RootAttr struct {
 	Prefix    string // For NS: the namespace prefix (empty for default xmlns). For attr: the prefix (e.g., "mc")
 	LocalName string // For NS: unused. For attr: the local name (e.g., "Ignorable")
 	Value     string // For NS: the namespace URI. For attr: the attribute value
+	// Space is the attribute's namespace URI (regular attributes only); it
+	// lets replay match a captured attribute to its modeled field even when
+	// no prefix could be resolved from the same element's declarations.
+	Space string
+	// Raw, when set, is the verbatim source rendering including leading
+	// whitespace (see Attr.Raw); captured by CaptureAttrsSource.
+	Raw string
+}
+
+// QualifyAttrs resolves namespace-based attribute names to their registered
+// prefixed literal form (e.g. {NSWordprocessingML, "val"} -> "w:val"), for
+// literal emission paths that write names verbatim.
+func (b *Builder) QualifyAttrs(attrs []Attr) []Attr {
+	out := make([]Attr, len(attrs))
+	for i, a := range attrs {
+		if a.Namespace != "" {
+			a.Name = b.renderedAttrName(a)
+			a.Namespace = ""
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // PresentationMLNamespaces returns the standard namespace declarations for PresentationML.

@@ -37,7 +37,7 @@ type CT_Hyperlink struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Hyperlink.
 func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	h.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:

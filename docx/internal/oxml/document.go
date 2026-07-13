@@ -1,6 +1,7 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -31,12 +32,16 @@ type CT_Document struct {
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
 	CollapseEmpty bool `xml:"-"`
+	// RootExtras preserves comments (Aspose writes a generator comment right
+	// after the root start tag) and whitespace among the root's children,
+	// keyed by position: 0 = before w:background/w:body, 1 = after it.
+	RootExtras [2][][]byte `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Document.
 func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	doc.XMLName = start.Name
-	doc.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	doc.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "Ignorable" {
 			doc.Ignorable = attr.Value
@@ -53,7 +58,9 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		}
 	}
 
+	slot := 0
 	for {
+		pre, hasSrc := xmlb.InputOffsetOf(d)
 		tok, err := d.Token()
 		if err != nil {
 			return err
@@ -66,6 +73,7 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				if err := d.DecodeElement(doc.Body, &t); err != nil {
 					return err
 				}
+				slot = 1
 			case "background":
 				doc.Background = &CT_Background{}
 				if err := d.DecodeElement(doc.Background, &t); err != nil {
@@ -76,6 +84,24 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 					return err
 				}
 			}
+		case xml.Comment:
+			// Preserve comments (e.g. Aspose's generator note after the root
+			// start tag) verbatim.
+			if !hasSrc {
+				continue
+			}
+			if raw := xmlb.RawTokenBytes(d, pre); raw != nil {
+				doc.RootExtras[slot] = append(doc.RootExtras[slot], raw)
+			}
+		case xml.CharData:
+			// Preserve whitespace between the root's children (e.g. a CRLF
+			// before </w:document>) verbatim from the source bytes.
+			if !hasSrc || len(bytes.TrimSpace(t)) > 0 {
+				continue
+			}
+			if raw := xmlb.RawTokenBytes(d, pre); raw != nil {
+				doc.RootExtras[slot] = append(doc.RootExtras[slot], raw)
+			}
 		case xml.EndElement:
 			return nil
 		}
@@ -85,11 +111,17 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Document.
 func (doc *CT_Document) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
+	for _, raw := range doc.RootExtras[0] {
+		b.WriteRaw(raw)
+	}
 	if doc.Background != nil {
 		b.MarshalElement(ns, "background", doc.Background)
 	}
 	if doc.Body != nil {
 		doc.Body.MarshalToBuilder(b, ns, "body")
+	}
+	for _, raw := range doc.RootExtras[1] {
+		b.WriteRaw(raw)
 	}
 	b.EndElement(ns, localName)
 }
@@ -108,7 +140,7 @@ type CT_Background struct {
 
 // UnmarshalXML captures the verbatim attribute list and child sequence.
 func (bg *CT_Background) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bg.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bg.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	if err := xmlb.UnmarshalOrderedChildren(d, bg); err != nil {
 		return err
 	}
@@ -153,7 +185,14 @@ const (
 func isRawBodyChild(local string) bool {
 	switch local {
 	case "altChunk", "customXml",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
+		"customXmlInsRangeStart", "customXmlInsRangeEnd",
+		"customXmlDelRangeStart", "customXmlDelRangeEnd",
+		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
+		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
+		"permStart", "permEnd":
+		// Range permissions can bracket block-level content (a w:permEnd
+		// following a table sits directly in the body).
 		return true
 	}
 	return false

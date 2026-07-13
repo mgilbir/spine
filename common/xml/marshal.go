@@ -377,8 +377,17 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 		}
 		matched := false
 		for i, rn := range rendered {
-			if !used[i] && rn == lit.Name {
-				out = append(out, Attr{Name: lit.Name, Value: modeled[i].Value})
+			// Match by rendered name, or by namespace + local name when the
+			// capture could not resolve a prefix (declared on an ancestor).
+			if !used[i] && (rn == lit.Name ||
+				(ra.Space == modeled[i].Namespace && ra.LocalName == modeled[i].Name)) {
+				a := Attr{Name: lit.Name, Value: modeled[i].Value, Raw: lit.Raw}
+				if modeled[i].Value != ra.Value {
+					// The model changed the value: the verbatim source
+					// rendering is stale, re-render normally.
+					a.Raw = ""
+				}
+				out = append(out, a)
 				used[i] = true
 				matched = true
 				break

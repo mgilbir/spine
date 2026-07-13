@@ -192,7 +192,7 @@ func (c *SystemClr) sysSlots() []clrXfSlot {
 
 // UnmarshalXML implements xml.Unmarshaler, capturing transform order.
 func (c *SystemClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	return unmarshalClrColor(d, start, func(attr xml.Attr) error {
 		switch attr.Name.Local {
 		case "val":
@@ -310,7 +310,7 @@ func (c *ScRgbClr) scrgbSlots() []clrXfSlot {
 
 // UnmarshalXML implements xml.Unmarshaler, capturing transform order.
 func (c *ScRgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	return unmarshalClrColor(d, start, func(attr xml.Attr) error {
 		switch attr.Name.Local {
 		case "r":

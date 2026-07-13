@@ -14,6 +14,19 @@ type CT_Empty struct{}
 // When the element is present without a val attribute, the value is true.
 type CT_OnOff struct {
 	Val *string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// CapturedAttrs preserves the verbatim attribute rendering.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style and verbatim attribute
+// list before decoding through the struct tags.
+func (o *CT_OnOff) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	o.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	o.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_OnOff
+	return d.DecodeElement((*alias)(o), &start)
 }
 
 // IsOn returns whether the toggle is on. Present without val means true,
@@ -31,20 +44,59 @@ func (o *CT_OnOff) IsOn() bool {
 
 // CT_String represents an element with a w:val string attribute.
 type CT_String struct {
+	// CapturedAttrs preserves the verbatim source attribute list (explicit
+	// empty w:val, unmodeled attributes); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 	// omitempty: some CT_String-bound elements carry an optional w:val
 	// (e.g. w:vMerge, where a bare <w:vMerge/> means "continue"); emitting
 	// w:val="" for those would both drift bytes and change semantics.
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 }
 
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (cs *CT_String) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cs.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	cs.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_String
+	return d.DecodeElement((*alias)(cs), &start)
+}
+
 // CT_DecimalNumber represents an element with a w:val integer attribute.
 type CT_DecimalNumber struct {
 	Val int `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's empty-element form (per-instance
+	// "/>" vs " />" spacing survives a spaced part-level style).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// CapturedAttrs preserves the verbatim attribute rendering (quote style,
+	// unmodeled attributes).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style and verbatim attribute
+// list before decoding through the struct tags.
+func (dn *CT_DecimalNumber) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	dn.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	dn.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_DecimalNumber
+	return d.DecodeElement((*alias)(dn), &start)
 }
 
 // CT_UnsignedDecimalNumber represents an element with a w:val unsigned integer attribute.
 type CT_UnsignedDecimalNumber struct {
 	Val uint64 `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_UnsignedDecimalNumber) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_UnsignedDecimalNumber
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TwipsMeasure represents a measurement in twips (1/20 of a point).
@@ -55,16 +107,46 @@ type CT_TwipsMeasure struct {
 // CT_HpsMeasure represents a measurement in half-points.
 type CT_HpsMeasure struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_HpsMeasure) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_HpsMeasure
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_SignedTwipsMeasure represents a signed measurement in twips.
 type CT_SignedTwipsMeasure struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_SignedTwipsMeasure) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_SignedTwipsMeasure
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_SignedHpsMeasure represents a signed half-point measurement.
 type CT_SignedHpsMeasure struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_SignedHpsMeasure) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_SignedHpsMeasure
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_LongHexNumber represents a 4-byte hex number (e.g., rsidR).
@@ -75,11 +157,31 @@ type CT_LongHexNumber struct {
 // CT_TextScale represents text scaling percentage.
 type CT_TextScale struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_TextScale) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TextScale
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Highlight represents a text highlight color.
 type CT_Highlight struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_Highlight) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Highlight
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Color represents a color value with optional theme color.
@@ -89,13 +191,16 @@ type CT_Color struct {
 	ThemeTint     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
 	ThemeShade    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (clr *CT_Color) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	clr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	clr.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	clr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Color
 	return d.DecodeElement((*alias)(clr), &start)
 }
@@ -113,13 +218,16 @@ type CT_Border struct {
 	Shadow        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,attr,omitempty"`
 	Frame         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main frame,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bdr *CT_Border) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bdr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bdr.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	bdr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Border
 	return d.DecodeElement((*alias)(bdr), &start)
 }
@@ -136,13 +244,16 @@ type CT_Shd struct {
 	ThemeTint      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
 	ThemeShade     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
 	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (sh *CT_Shd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	sh.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	sh.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	sh.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Shd
 	return d.DecodeElement((*alias)(sh), &start)
 }
@@ -153,13 +264,16 @@ type CT_Underline struct {
 	Color         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
 	ThemeColor    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (u *CT_Underline) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	u.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	u.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	u.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Underline
 	return d.DecodeElement((*alias)(u), &start)
 }
@@ -170,13 +284,16 @@ type CT_Lang struct {
 	EastAsia      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
 	Bidi          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (lg *CT_Lang) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	lg.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	lg.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	lg.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Lang
 	return d.DecodeElement((*alias)(lg), &start)
 }
@@ -195,13 +312,16 @@ type CT_Fonts struct {
 	CsTheme       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cstheme,attr,omitempty"`
 	Hint          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hint,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (f *CT_Fonts) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	f.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	f.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	f.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Fonts
 	return d.DecodeElement((*alias)(f), &start)
 }
@@ -210,16 +330,46 @@ func (f *CT_Fonts) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 type CT_FitText struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
 	ID  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_FitText) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_FitText
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Em represents emphasis mark type.
 type CT_Em struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_Em) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Em
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_VerticalAlignRun represents vertical character alignment.
 type CT_VerticalAlignRun struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_VerticalAlignRun) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_VerticalAlignRun
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TblWidth represents table width/measurement.
@@ -227,13 +377,16 @@ type CT_TblWidth struct {
 	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
 	Type          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
-// attribute order and any unmodeled attributes) before decoding through the
-// struct tags; the reflection marshaler replays it.
+// attribute order and any unmodeled attributes) and empty-tag form before
+// decoding through the struct tags; the reflection marshaler replays them.
 func (tw *CT_TblWidth) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tw.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tw.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	tw.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_TblWidth
 	return d.DecodeElement((*alias)(tw), &start)
 }
@@ -313,13 +466,16 @@ type CT_Spacing struct {
 	Line              string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
 	LineRule          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
 	CapturedAttrs     []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (sp *CT_Spacing) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	sp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	sp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	sp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Spacing
 	return d.DecodeElement((*alias)(sp), &start)
 }
@@ -336,13 +492,16 @@ type CT_Ind struct {
 	FirstLineChars string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLineChars,attr,omitempty"`
 	FirstLine      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
 	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ind *CT_Ind) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ind.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ind.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	ind.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Ind
 	return d.DecodeElement((*alias)(ind), &start)
 }
@@ -350,17 +509,47 @@ func (ind *CT_Ind) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // CT_Jc represents paragraph justification.
 type CT_Jc struct {
 	Val string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_Jc) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Jc
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_NumPr represents numbering properties.
 type CT_NumPr struct {
 	Ilvl  *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ilvl,omitempty"`
 	NumId *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numId,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_NumPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_NumPr
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Tabs represents a set of tab stops.
 type CT_Tabs struct {
 	Tab []CT_TabStop `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tab"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_Tabs) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Tabs
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_TabStop represents a single tab stop. Field order follows Word's
@@ -370,13 +559,16 @@ type CT_TabStop struct {
 	Leader        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leader,attr,omitempty"`
 	Pos           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,attr"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ts *CT_TabStop) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ts.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ts.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	ts.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_TabStop
 	return d.DecodeElement((*alias)(ts), &start)
 }
@@ -399,13 +591,16 @@ type CT_FramePr struct {
 	HRule         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
 	AnchorLock    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchorLock,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (fp *CT_FramePr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	fp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	fp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	fp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_FramePr
 	return d.DecodeElement((*alias)(fp), &start)
 }
@@ -415,6 +610,16 @@ type CT_DocGrid struct {
 	Type      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
 	LinePitch string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main linePitch,attr,omitempty"`
 	CharSpace string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main charSpace,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_DocGrid) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_DocGrid
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_Columns represents column definitions. Field order follows Word's
@@ -426,21 +631,37 @@ type CT_Columns struct {
 	Sep           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sep,attr,omitempty"`
 	Col           []CT_Column     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main col,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (c *CT_Columns) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	c.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_Columns
 	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_Column represents a single column definition.
 type CT_Column struct {
-	W     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
-	Space string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
+	Space         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (c *CT_Column) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_Column
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // NsWml is the WML namespace constant used throughout this package.
@@ -453,6 +674,8 @@ const NsRelationships = "http://schemas.openxmlformats.org/officeDocument/2006/r
 // Returns a pointer to CT_OnOff or nil if the element is not found at the current position.
 func UnmarshalOnOff(d *xml.Decoder, start *xml.StartElement) *CT_OnOff {
 	o := &CT_OnOff{}
+	o.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	o.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "val" {
 			val := attr.Value

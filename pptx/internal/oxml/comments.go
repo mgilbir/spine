@@ -96,7 +96,7 @@ type HeaderFooter struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (hf *HeaderFooter) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	hf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	hf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias HeaderFooter
 	return d.DecodeElement((*alias)(hf), &start)
 }

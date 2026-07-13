@@ -273,7 +273,7 @@ type BackgroundProps struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bgp *BackgroundProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bgp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bgp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BackgroundProps
 	return d.DecodeElement((*alias)(bgp), &start)
 }
@@ -730,7 +730,7 @@ type ColorMap struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cmp *ColorMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	cmp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cmp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ColorMap
 	return d.DecodeElement((*alias)(cmp), &start)
 }

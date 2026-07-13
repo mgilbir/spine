@@ -4,10 +4,10 @@ import "encoding/xml"
 
 // CT_Styles is the root element of the styles part (w:styles).
 type CT_Styles struct {
-	XMLName      xml.Name        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main styles"`
-	DocDefaults  *CT_DocDefaults `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docDefaults,omitempty"`
+	XMLName      xml.Name         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main styles"`
+	DocDefaults  *CT_DocDefaults  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docDefaults,omitempty"`
 	LatentStyles *CT_LatentStyles `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main latentStyles,omitempty"`
-	Style        []*CT_Style     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main style"`
+	Style        []*CT_Style      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main style"`
 }
 
 // CT_DocDefaults represents document-wide default properties.
@@ -28,39 +28,39 @@ type CT_PPrDefault struct {
 
 // CT_Style represents a single style definition.
 type CT_Style struct {
-	Type      string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
-	StyleId   string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main styleId,attr,omitempty"`
-	Default   string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main default,attr,omitempty"`
-	CustomStyle string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main customStyle,attr,omitempty"`
-	Name      *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,omitempty"`
-	Aliases   *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main aliases,omitempty"`
-	BasedOn   *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main basedOn,omitempty"`
-	Next      *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main next,omitempty"`
-	Link      *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main link,omitempty"`
-	AutoRedefine *CT_OnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoRedefine,omitempty"`
-	Hidden    *CT_OnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
-	UiPriority *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main uiPriority,omitempty"`
-	SemiHidden *CT_OnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main semiHidden,omitempty"`
-	UnhideWhenUsed *CT_OnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main unhideWhenUsed,omitempty"`
-	QFormat   *CT_OnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main qFormat,omitempty"`
-	Locked    *CT_OnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main locked,omitempty"`
-	Personal  *CT_OnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personal,omitempty"`
-	PersonalCompose *CT_OnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personalCompose,omitempty"`
-	PersonalReply   *CT_OnOff `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personalReply,omitempty"`
-	RsId      *CT_LongHexNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsid,omitempty"`
-	PPr       *CT_PPr    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPr,omitempty"`
-	RPr       *CT_RPr    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
-	TblPr     *CT_TblPr  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPr,omitempty"`
-	TrPr      *CT_TrPr   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPr,omitempty"`
-	TcPr      *CT_TcPr   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPr,omitempty"`
-	TblStylePr []*CT_TblStylePr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStylePr,omitempty"`
+	Type            string            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
+	StyleId         string            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main styleId,attr,omitempty"`
+	Default         string            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main default,attr,omitempty"`
+	CustomStyle     string            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main customStyle,attr,omitempty"`
+	Name            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,omitempty"`
+	Aliases         *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main aliases,omitempty"`
+	BasedOn         *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main basedOn,omitempty"`
+	Next            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main next,omitempty"`
+	Link            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main link,omitempty"`
+	AutoRedefine    *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main autoRedefine,omitempty"`
+	Hidden          *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
+	UiPriority      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main uiPriority,omitempty"`
+	SemiHidden      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main semiHidden,omitempty"`
+	UnhideWhenUsed  *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main unhideWhenUsed,omitempty"`
+	QFormat         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main qFormat,omitempty"`
+	Locked          *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main locked,omitempty"`
+	Personal        *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personal,omitempty"`
+	PersonalCompose *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personalCompose,omitempty"`
+	PersonalReply   *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main personalReply,omitempty"`
+	RsId            *CT_LongHexNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsid,omitempty"`
+	PPr             *CT_PPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPr,omitempty"`
+	RPr             *CT_RPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	TblPr           *CT_TblPr         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPr,omitempty"`
+	TrPr            *CT_TrPr          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPr,omitempty"`
+	TcPr            *CT_TcPr          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPr,omitempty"`
+	TblStylePr      []*CT_TblStylePr  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblStylePr,omitempty"`
 }
 
 // CT_TblStylePr represents table style conditional formatting.
 type CT_TblStylePr struct {
-	Type  string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr"`
-	PPr   *CT_PPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPr,omitempty"`
-	RPr   *CT_RPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
+	Type  string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr"`
+	PPr   *CT_PPr   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPr,omitempty"`
+	RPr   *CT_RPr   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
 	TblPr *CT_TblPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPr,omitempty"`
 	TrPr  *CT_TrPr  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPr,omitempty"`
 	TcPr  *CT_TcPr  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPr,omitempty"`

@@ -82,7 +82,7 @@ type Bevel3d struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (b3 *Bevel3d) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	b3.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	b3.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Bevel3d
 	return d.DecodeElement((*alias)(b3), &start)
 }

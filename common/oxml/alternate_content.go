@@ -48,7 +48,7 @@ type AlternateContent struct {
 // Parses every mc:Choice and the mc:Fallback child, capturing inner content as
 // raw bytes.
 func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ac.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ac.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for {
 		tok, err := d.Token()
 		if err != nil {

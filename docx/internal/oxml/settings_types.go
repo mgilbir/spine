@@ -66,24 +66,24 @@ type CT_CompatSetting struct {
 
 // CT_ClrSchemeMapping represents color scheme mapping (w:clrSchemeMapping).
 type CT_ClrSchemeMapping struct {
-	Bg1      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bg1,attr,omitempty"`
-	T1       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main t1,attr,omitempty"`
-	Bg2      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bg2,attr,omitempty"`
-	T2       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main t2,attr,omitempty"`
-	Accent1  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent1,attr,omitempty"`
-	Accent2  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent2,attr,omitempty"`
-	Accent3  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent3,attr,omitempty"`
-	Accent4  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent4,attr,omitempty"`
-	Accent5  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent5,attr,omitempty"`
-	Accent6  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent6,attr,omitempty"`
-	Hyperlink string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hyperlink,attr,omitempty"`
+	Bg1               string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bg1,attr,omitempty"`
+	T1                string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main t1,attr,omitempty"`
+	Bg2               string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bg2,attr,omitempty"`
+	T2                string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main t2,attr,omitempty"`
+	Accent1           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent1,attr,omitempty"`
+	Accent2           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent2,attr,omitempty"`
+	Accent3           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent3,attr,omitempty"`
+	Accent4           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent4,attr,omitempty"`
+	Accent5           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent5,attr,omitempty"`
+	Accent6           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main accent6,attr,omitempty"`
+	Hyperlink         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hyperlink,attr,omitempty"`
 	FollowedHyperlink string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main followedHyperlink,attr,omitempty"`
 }
 
 // CT_WebSettings represents web settings (w:webSettings).
 // Children are various CT_OnOff and other elements; captured as a map.
 type CT_WebSettings struct {
-	XMLName xml.Name           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webSettings"`
+	XMLName xml.Name             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webSettings"`
 	Options map[string]*CT_OnOff `xml:"-"`
 }
 
@@ -187,7 +187,7 @@ type CT_DocVar struct {
 
 // CT_Rsids represents revision save IDs (w:rsids).
 type CT_Rsids struct {
-	RsidRoot *CT_LongHexNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRoot,omitempty"`
+	RsidRoot *CT_LongHexNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRoot,omitempty"`
 	Rsid     []CT_LongHexNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsid,omitempty"`
 }
 
@@ -230,11 +230,11 @@ type CT_WriteProtection struct {
 
 // CT_ActiveWritingStyle represents an active writing style (w:activeWritingStyle).
 type CT_ActiveWritingStyle struct {
-	AppName  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main appName,attr,omitempty"`
-	Lang     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,attr,omitempty"`
-	VendorID string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vendorID,attr,omitempty"`
+	AppName    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main appName,attr,omitempty"`
+	Lang       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lang,attr,omitempty"`
+	VendorID   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vendorID,attr,omitempty"`
 	DllVersion string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dllVersion,attr,omitempty"`
-	NlCheck  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main nlCheck,attr,omitempty"`
+	NlCheck    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main nlCheck,attr,omitempty"`
 	CheckStyle string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main checkStyle,attr,omitempty"`
 }
 
@@ -269,23 +269,23 @@ type CT_SmartTagAttr struct {
 
 // CT_SdtDate represents a structured document tag date element (w:date).
 type CT_SdtDate struct {
-	FullDate   string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fullDate,attr,omitempty"`
-	DateFormat *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dateFormat,omitempty"`
-	Lid        *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lid,omitempty"`
+	FullDate          string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fullDate,attr,omitempty"`
+	DateFormat        *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dateFormat,omitempty"`
+	Lid               *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lid,omitempty"`
 	StoreMappedDataAs *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main storeMappedDataAs,omitempty"`
-	Calendar   *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main calendar,omitempty"`
+	Calendar          *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main calendar,omitempty"`
 }
 
 // CT_StylePaneFormatFilter represents style pane format filter (w:stylePaneFormatFilter).
 type CT_StylePaneFormatFilter struct {
-	Val                   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	AllStyles             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main allStyles,attr,omitempty"`
-	CustomStyles          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main customStyles,attr,omitempty"`
-	LatentStyles          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main latentStyles,attr,omitempty"`
-	StylesInUse           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main stylesInUse,attr,omitempty"`
-	HeadingStyles         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main headingStyles,attr,omitempty"`
-	NumberingStyles       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numberingStyles,attr,omitempty"`
-	TableStyles           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tableStyles,attr,omitempty"`
+	Val                          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	AllStyles                    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main allStyles,attr,omitempty"`
+	CustomStyles                 string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main customStyles,attr,omitempty"`
+	LatentStyles                 string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main latentStyles,attr,omitempty"`
+	StylesInUse                  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main stylesInUse,attr,omitempty"`
+	HeadingStyles                string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main headingStyles,attr,omitempty"`
+	NumberingStyles              string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numberingStyles,attr,omitempty"`
+	TableStyles                  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tableStyles,attr,omitempty"`
 	DirectFormattingOnRuns       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main directFormattingOnRuns,attr,omitempty"`
 	DirectFormattingOnParagraphs string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main directFormattingOnParagraphs,attr,omitempty"`
 	DirectFormattingOnNumbering  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main directFormattingOnNumbering,attr,omitempty"`

@@ -44,7 +44,7 @@ type OuterShdw struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (osh *OuterShdw) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	osh.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	osh.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias OuterShdw
 	return d.DecodeElement((*alias)(osh), &start)
 }
