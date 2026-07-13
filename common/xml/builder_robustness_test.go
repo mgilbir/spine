@@ -30,6 +30,7 @@ func TestMarshal_MandatoryZeroChildNotDropped(t *testing.T) {
 // C104: the Builder reports unbalanced and mismatched elements.
 func TestBuilder_FinishBalanced(t *testing.T) {
 	b := NewBuilder()
+	b.RegisterNamespace("ns", "n")
 	b.StartElement("ns", "root")
 	b.EndElement("ns", "root")
 	if err := b.Finish(); err != nil {
@@ -39,6 +40,7 @@ func TestBuilder_FinishBalanced(t *testing.T) {
 
 func TestBuilder_FinishUnclosed(t *testing.T) {
 	b := NewBuilder()
+	b.RegisterNamespace("ns", "n")
 	b.StartElement("ns", "root")
 	b.StartElement("ns", "child")
 	b.EndElement("ns", "child")
@@ -49,6 +51,7 @@ func TestBuilder_FinishUnclosed(t *testing.T) {
 
 func TestBuilder_MismatchedClose(t *testing.T) {
 	b := NewBuilder()
+	b.RegisterNamespace("ns", "n")
 	b.StartElement("ns", "a")
 	b.EndElement("ns", "b") // wrong name
 	if b.Err() == nil {

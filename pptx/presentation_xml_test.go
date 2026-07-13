@@ -29,7 +29,11 @@ func TestMarshalPresentationXML_PreservesAttrsAndChildren(t *testing.T) {
 		},
 	}
 
-	out := string(marshalPresentationXML(pres, false))
+	data, err := marshalPresentationXML(pres, false)
+	if err != nil {
+		t.Fatalf("marshalPresentationXML: %v", err)
+	}
+	out := string(data)
 
 	for _, want := range []string{
 		`firstSlideNum="5"`,

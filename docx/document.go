@@ -385,7 +385,10 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Write document.xml (regenerated)
-	docData := marshalDocumentXML(d.document)
+	docData, err := marshalDocumentXML(d.document)
+	if err != nil {
+		return err
+	}
 	if err := writer.WritePart("/word/document.xml", opc.ContentTypeDocument, docData); err != nil {
 		return err
 	}
@@ -418,7 +421,10 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		if !ok {
 			continue
 		}
-		data := marshalHdrFtrXML(hdrPart.hdr, "hdr")
+		data, err := marshalHdrFtrXML(hdrPart.hdr, "hdr")
+		if err != nil {
+			return err
+		}
 		if err := writer.WritePart(hp.partName, opc.ContentTypeDocHeader, data); err != nil {
 			return err
 		}
@@ -431,7 +437,10 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		if !ok {
 			continue
 		}
-		data := marshalHdrFtrXML(ftrPart.ftr, "ftr")
+		data, err := marshalHdrFtrXML(ftrPart.ftr, "ftr")
+		if err != nil {
+			return err
+		}
 		if err := writer.WritePart(fp.partName, opc.ContentTypeDocFooter, data); err != nil {
 			return err
 		}
@@ -464,7 +473,10 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	writer.Properties = &d.Properties
 
 	// Write document.xml
-	docData := marshalDocumentXML(d.document)
+	docData, err := marshalDocumentXML(d.document)
+	if err != nil {
+		return err
+	}
 	if err := writer.WritePart("/word/document.xml", opc.ContentTypeDocument, docData); err != nil {
 		return err
 	}
@@ -474,7 +486,10 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 
 	// Write default styles
 	if d.styles != nil {
-		data := marshalStylesXML(d.styles)
+		data, err := marshalStylesXML(d.styles)
+		if err != nil {
+			return err
+		}
 		if err := writer.WritePart("/word/styles.xml", opc.ContentTypeDocStyles, data); err != nil {
 			return err
 		}
@@ -487,7 +502,10 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 
 	// Write numbering definitions
 	if d.numbering != nil && (len(d.numbering.AbstractNum) > 0 || len(d.numbering.Num) > 0) {
-		data := marshalNumberingXML(d.numbering)
+		data, err := marshalNumberingXML(d.numbering)
+		if err != nil {
+			return err
+		}
 		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
 			return err
 		}

@@ -217,7 +217,7 @@ type DspDataModelExt struct {
 func (v *A14ImgLayer) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
-		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSPresentationRels:
+		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
 			v.Embed = attr.Value
 		}
 	}
@@ -229,7 +229,7 @@ func (v *A14ImgLayer) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
-		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSPresentationRels:
+		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
 			v.Embed = attr.Value
 		}
 	}
@@ -239,7 +239,7 @@ func (v *ASvgBlip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
-		case attr.Name.Local == "relId" && attr.Name.Space == xmlb.NSPresentationRels:
+		case attr.Name.Local == "relId" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
 			v.RelId = attr.Value
 		case attr.Name.Local == "minVer":
 			v.MinVer = attr.Value
@@ -386,7 +386,7 @@ const (
 	nsA   = xmlb.NSDrawingML
 	nsA14 = xmlb.NSDrawing2010
 	nsA16 = xmlb.NSDrawing2014
-	nsR   = xmlb.NSPresentationRels
+	nsR   = xmlb.NSOfficeDocumentRels
 )
 
 func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {

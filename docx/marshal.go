@@ -1,6 +1,8 @@
 package docx
 
 import (
+	"fmt"
+
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
@@ -8,7 +10,7 @@ import (
 const nsW = xmlb.NSWordprocessingML
 
 // marshalDocumentXML marshals a document to XML.
-func marshalDocumentXML(doc *oxml.CT_Document) []byte {
+func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
 
@@ -57,22 +59,30 @@ func marshalDocumentXML(doc *oxml.CT_Document) []byte {
 	}
 
 	b.EndElement(nsW, "document")
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal document.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalStylesXML marshals styles to XML.
-func marshalStylesXML(styles *oxml.CT_Styles) []byte {
+func marshalStylesXML(styles *oxml.CT_Styles) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsW, "styles", styles, xmlb.WordprocessingMLNamespaces())
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal styles.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalNumberingXML marshals numbering definitions to XML.
-func marshalNumberingXML(numbering *oxml.CT_Numbering) []byte {
+func marshalNumberingXML(numbering *oxml.CT_Numbering) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
 	b.MarshalRoot(nsW, "numbering", numbering, xmlb.WordprocessingMLNamespaces())
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal numbering.xml: %w", err)
+	}
+	return b.Bytes(), nil
 }
-

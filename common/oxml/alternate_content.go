@@ -41,6 +41,15 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			// Choice/Fallback are only meaningful in the mc namespace; an
+			// element with the same local name from any other namespace is
+			// foreign content and must not be captured as a branch.
+			if t.Name.Space != xmlb.NSMarkupCompatibility {
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				continue
+			}
 			switch t.Name.Local {
 			case "Choice":
 				choice := AlternateContentChoice{}
@@ -86,9 +95,10 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 	// Declare an xmlns for every extension prefix referenced by any choice's
 	// Requires (which may list several prefixes). Only declare a prefix that is
 	// not already in scope, and register all of them so raw child content using
-	// those prefixes resolves correctly.
+	// those prefixes resolves correctly. Namespaces that were already declared
+	// (e.g. at the root) are left untouched: this element declares nothing for
+	// them, so it must not reset their state afterwards either.
 	var nsAttrs []xmlb.Attr
-	var registered []string // extension NS URIs registered here, reset afterward
 	seen := make(map[string]bool)
 	for _, choice := range ac.Choices {
 		for _, prefix := range strings.Fields(choice.Requires) {
@@ -104,7 +114,6 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 				nsAttrs = append(nsAttrs, xmlb.Attr{Name: "xmlns:" + prefix, Value: extNS})
 			}
 			b.RegisterNamespace(extNS, prefix)
-			registered = append(registered, extNS)
 		}
 	}
 
@@ -124,11 +133,9 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 		b.EndElement(nsMC, "Fallback")
 	}
 
+	// The mc declaration is scoped to this element by the Builder and its
+	// previous declared-state is restored here. The extension declarations
+	// were emitted as plain xmlns attributes (never recorded in the Builder's
+	// declared set), so their scope ends with the element as well.
 	b.EndElementInlineNS(prefixMC, "AlternateContent")
-
-	// Reset so the next usage gets fresh inline declarations.
-	b.ResetNamespaceDeclaration(nsMC)
-	for _, extNS := range registered {
-		b.ResetNamespaceDeclaration(extNS)
-	}
 }
