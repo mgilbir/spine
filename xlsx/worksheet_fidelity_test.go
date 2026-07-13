@@ -42,3 +42,30 @@ func TestWorksheetPreservesUnknownChildren(t *testing.T) {
 		t.Errorf("unknown children not in original position:\n%s", out)
 	}
 }
+
+// C201: an unknown child that declares its namespace prefix inline (rather
+// than at the root) must be re-encoded with its element and attribute
+// prefixes intact — stripping them would silently move the content into the
+// default sml namespace.
+func TestWorksheetPreservesUnknownChildWithInlineNamespace(t *testing.T) {
+	const src = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<sheetData/>` +
+		`<foo:custom xmlns:foo="urn:foo" foo:val="1"><foo:inner/></foo:custom>` +
+		`</worksheet>`
+
+	var ws oxml.CT_Worksheet
+	if err := xml.Unmarshal([]byte(src), &ws); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	out := string(marshalWorksheetXML(&ws))
+
+	if !strings.Contains(out, `<foo:custom xmlns:foo="urn:foo" foo:val="1"><foo:inner/></foo:custom>`) {
+		t.Errorf("inline-namespaced unknown child not re-encoded byte-faithfully:\n%s", out)
+	}
+	for _, banned := range []string{"<custom", ` val="1"`} {
+		if strings.Contains(out, banned) {
+			t.Errorf("unknown child lost its prefix (%q found):\n%s", banned, out)
+		}
+	}
+}

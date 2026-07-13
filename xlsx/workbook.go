@@ -365,12 +365,27 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	worksheetParts := make(map[string]struct{}, len(w.sheets))
+	anySheetDirty := w.sheetsDirty
 	for _, sheet := range w.sheets {
+		if sheet.dirty {
+			anySheetDirty = true
+		}
 		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
 			worksheetParts[sheet.partName] = struct{}{}
 		}
 	}
 	stylesDirty := w.stylesDirty
+
+	// A dirty sheet can add, move or remove formulas, so a preserved
+	// calcChain.xml may reference cells that no longer hold one — a known
+	// Excel "we found a problem" repair class (C198). Drop the part together
+	// with its content-type override and workbook relationship; Excel rebuilds
+	// the calculation chain transparently on next open. Untouched workbooks
+	// keep their calcChain byte-identical.
+	dropCalcChain := anySheetDirty
+	if dropCalcChain {
+		w.dropCalcChainParts("/xl/workbook.xml")
+	}
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
 	// any sheet was modified/added/deleted or if styles were changed.
@@ -435,6 +450,9 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		if existing := w.relationships[mainPartName]; len(existing) > 0 {
 			wbRels = cloneRelationships(existing)
 		}
+		if dropCalcChain {
+			wbRels = dropRelationshipsOfType(wbRels, opc.RelTypeCalcChain)
+		}
 		worksheetTargets := make(map[string]struct{}, len(w.sheets))
 		for i, sheet := range w.sheets {
 			partName, target := w.roundTripSheetPartName(sheet, i+1)
@@ -477,6 +495,41 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	return nil
+}
+
+// dropCalcChainParts removes the calculation-chain part(s) from the preserved
+// part set along with their content-type overrides, so a save that rewrote
+// sheet data does not re-emit a stale calcChain.xml (C198). Part names are
+// resolved from the workbook's calcChain relationships, with the conventional
+// /xl/calcChain.xml as a fallback.
+func (w *Workbook) dropCalcChainParts(mainPartName string) {
+	names := map[string]struct{}{"/xl/calcChain.xml": {}}
+	for _, rel := range w.relationships[mainPartName] {
+		if rel != nil && rel.Type == opc.RelTypeCalcChain {
+			names[opc.ResolvePartName(mainPartName, rel.Target)] = struct{}{}
+		}
+	}
+	for name := range names {
+		if _, ok := w.preservedParts[name]; !ok {
+			continue
+		}
+		delete(w.preservedParts, name)
+		if w.contentTypes != nil {
+			w.contentTypes.RemoveOverride(name)
+		}
+	}
+}
+
+// dropRelationshipsOfType removes every relationship of the given type.
+func dropRelationshipsOfType(rels []*opc.Relationship, relType string) []*opc.Relationship {
+	filtered := rels[:0]
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType {
+			continue
+		}
+		filtered = append(filtered, rel)
+	}
+	return filtered
 }
 
 func (w *Workbook) roundTripSheetPartName(sheet *Sheet, fallbackIndex int) (string, string) {
@@ -850,6 +903,7 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 	// Update the workbook model. SheetId must be unique across the workbook's
 	// lifetime — allocating len(sheets) collides after a delete+add, so use one
 	// past the current maximum.
+	w.workbook.EnsureChildOrder("sheets")
 	sheetID := w.nextSheetID()
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet, oxml.CT_Sheet{
 		Name:    name,
@@ -994,6 +1048,10 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	if w.workbook.BookViews == nil {
 		w.workbook.BookViews = &oxml.CT_BookViews{}
 	}
+	// Workbook marshaling is ChildOrder-gated for opened files: a bookViews
+	// element the original lacked must be inserted at its schema position or
+	// it would be silently dropped on save (C12).
+	w.workbook.EnsureChildOrder("bookViews")
 	if len(w.workbook.BookViews.WorkbookView) == 0 {
 		w.workbook.BookViews.WorkbookView = append(w.workbook.BookViews.WorkbookView, oxml.CT_BookView{})
 	}
@@ -1079,6 +1137,8 @@ func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
 	if w.workbook.DefinedNames == nil {
 		w.workbook.DefinedNames = &oxml.CT_DefinedNames{}
 	}
+	// See SetActiveSheet: insert the child kind into the preserved order (C12).
+	w.workbook.EnsureChildOrder("definedNames")
 
 	dn := oxml.CT_DefinedName{
 		Name:  name,

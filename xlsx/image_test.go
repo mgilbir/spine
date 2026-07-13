@@ -373,3 +373,54 @@ func TestAddImageOnOpenedWorkbook(t *testing.T) {
 		t.Fatalf("reopen after adding image: %v", err)
 	}
 }
+
+// C200 (updated for opened-workbook image support): AddImage after Close()
+// must not silently drop the image. The reader is nil after Close, but the
+// preserved parts are durable and the round-trip save path writes images
+// added to opened workbooks, so the image must land in the output.
+func TestAddImageOpenedWorkbookAfterClose(t *testing.T) {
+	wb := Create()
+	wb.AddSheet("Sheet1")
+	buf, err := wb.WriteToBuffer()
+	if err != nil {
+		t.Fatalf("WriteToBuffer: %v", err)
+	}
+	data := buf.Bytes()
+
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sheet, err := reopened.Sheet(0)
+	if err != nil {
+		t.Fatalf("Sheet(0): %v", err)
+	}
+	if err := sheet.AddImage("A1", testPNG(t, 10, 10), ImageOptions{}); err != nil {
+		t.Fatalf("AddImage after Open→Close: %v", err)
+	}
+
+	// The image must not be silently dropped on save.
+	out, err := reopened.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	var haveDrawing, haveMedia bool
+	for name := range zipNames(t, out) {
+		if strings.Contains(name, "drawings/drawing") {
+			haveDrawing = true
+		}
+		if strings.Contains(name, "media/") {
+			haveMedia = true
+		}
+	}
+	if !haveDrawing || !haveMedia {
+		t.Fatalf("image silently dropped on save after Close: drawing=%v media=%v", haveDrawing, haveMedia)
+	}
+	if _, err := OpenReader(bytes.NewReader(out), int64(len(out))); err != nil {
+		t.Fatalf("reopen after save: %v", err)
+	}
+}
