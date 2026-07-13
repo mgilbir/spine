@@ -7,12 +7,16 @@ import (
 )
 
 // Shape represents a shape element (p:sp) in a slide.
+// useBgFill defaults to false, so bool+omitempty round-trips every
+// non-default value (C29 rule).
 type Shape struct {
-	XMLName xml.Name    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sp"`
-	NvSpPr  *NvSpPr     `xml:"nvSpPr"`
-	SpPr    *dml.SpPr   `xml:"spPr"`
-	Style   *dml.Style  `xml:"style,omitempty"`
-	TxBody  *dml.TxBody `xml:"txBody,omitempty"`
+	XMLName   xml.Name       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sp"`
+	UseBgFill bool           `xml:"useBgFill,attr,omitempty"`
+	NvSpPr    *NvSpPr        `xml:"nvSpPr"`
+	SpPr      *dml.SpPr      `xml:"spPr"`
+	Style     *dml.Style     `xml:"style,omitempty"`
+	TxBody    *dml.TxBody    `xml:"txBody,omitempty"`
+	ExtLst    *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // NvSpPr contains non-visual shape properties.
