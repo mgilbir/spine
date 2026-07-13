@@ -375,9 +375,11 @@ type Br struct {
 	RPr *RPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rPr,omitempty"`
 }
 
-// Fld represents CT_TextField (a:fld)
+// Fld represents CT_TextField (a:fld). id is required by the XSD (ST_Guid),
+// so it carries no omitempty: an API-constructed field must not silently emit
+// a schema-invalid <a:fld> without it.
 type Fld struct {
-	Id   string `xml:"id,attr,omitempty"`
+	Id   string `xml:"id,attr"`
 	Type string `xml:"type,attr,omitempty"`
 	RPr  *RPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rPr,omitempty"`
 	PPr  *PPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pPr,omitempty"`
@@ -524,24 +526,6 @@ type UFill struct {
 	GrpFill   *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
 }
 
-// --- OpenType Feature Types ---
-
-// NumSpacing represents OpenType number spacing settings (a:numSpacing)
-type NumSpacing struct {
-	Val string `xml:"val,attr,omitempty"` // default, proportional, tabular
-}
-
-// StylisticSet represents OpenType stylistic set (a:stylisticSet)
-type StylisticSet struct {
-	Id  int32 `xml:"id,attr,omitempty"` // 1-20
-	Val bool  `xml:"val,attr,omitempty"`
-}
-
-// Cntxt represents contextual alternates setting (a:cntxtAlts)
-type Cntxt struct {
-	Val bool `xml:"val,attr,omitempty"`
-}
-
 // --- Additional Text Body Types ---
 
 // TcTxStyle already defined in xml_table.go
@@ -553,27 +537,6 @@ type DefPPr = PPr
 
 // FldType represents field type values
 // Common values: slidenum, datetime, datetime1-datetime13
-
-// --- Additional Spacing Types ---
-
-// TabLstEx represents extended tab list
-type TabLstEx struct {
-	Tab []*TabEx `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tab,omitempty"`
-}
-
-// TabEx represents extended tab stop with leader
-type TabEx struct {
-	Pos    int32  `xml:"pos,attr,omitempty"`
-	Algn   string `xml:"algn,attr,omitempty"`
-	Leader string `xml:"leader,attr,omitempty"` // none, dot, hyphen, underscore, heavy, middleDot
-}
-
-// --- Font Substitution Types ---
-
-// FontSubstitute represents font substitution for missing fonts
-type FontSubstitute struct {
-	Typeface string `xml:"typeface,attr"`
-}
 
 // --- Text Anchor Types ---
 

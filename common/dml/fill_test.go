@@ -150,7 +150,7 @@ func TestNewGradientFill(t *testing.T) {
 	if gf.Lin.Ang != 5400000 {
 		t.Errorf("Lin.Ang = %d, want 5400000", gf.Lin.Ang)
 	}
-	if !gf.Lin.Scaled {
+	if gf.Lin.Scaled == nil || !*gf.Lin.Scaled {
 		t.Error("expected Scaled to be true")
 	}
 

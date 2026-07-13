@@ -4,6 +4,7 @@ package dml
 import (
 	"encoding/xml"
 	"fmt"
+	"strconv"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -98,9 +99,17 @@ func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "w":
-			_, _ = fmt.Sscanf(attr.Value, "%d", &p.W)
+			n, err := strconv.ParseInt(attr.Value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("dml: a:path w attribute %q: %w", attr.Value, err)
+			}
+			p.W = n
 		case "h":
-			_, _ = fmt.Sscanf(attr.Value, "%d", &p.H)
+			n, err := strconv.ParseInt(attr.Value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("dml: a:path h attribute %q: %w", attr.Value, err)
+			}
+			p.H = n
 		case "fill":
 			p.Fill = attr.Value
 		case "stroke":

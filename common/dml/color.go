@@ -24,6 +24,10 @@ type Color struct {
 
 	// Alpha is the opacity (0-100000, where 100000 = 100%).
 	Alpha int
+
+	// alphaSet records that Alpha was explicitly specified via WithAlpha,
+	// distinguishing WithAlpha(0) (fully transparent) from the unset zero value.
+	alphaSet bool
 }
 
 // ColorType indicates how a color is specified.
@@ -155,7 +159,9 @@ var (
 
 // WithAlpha returns a copy of the color with the specified alpha percentage,
 // clamped to the valid 0-100 range so out-of-range inputs cannot produce an
-// invalid opacity value.
+// invalid opacity value. WithAlpha(0) means fully transparent: the explicit
+// setting is recorded so it emits <a:alpha val="0"/> rather than being
+// treated as unspecified.
 func (c Color) WithAlpha(alphaPercent int) Color {
 	if alphaPercent < 0 {
 		alphaPercent = 0
@@ -164,6 +170,7 @@ func (c Color) WithAlpha(alphaPercent int) Color {
 	}
 	copy := c
 	copy.Alpha = alphaPercent * 1000
+	copy.alphaSet = true
 	return copy
 }
 
