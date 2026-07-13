@@ -1,4 +1,5 @@
-// Package oxml contains the XML schema types for PPTX documents.
+// This file contains the XML schema types for PPTX documents.
+
 package oxml
 
 import (

@@ -1,5 +1,6 @@
-// Package dml provides ChartDrawing types from dml-chartDrawing.xsd.
+// This file provides ChartDrawing types from dml-chartDrawing.xsd.
 // These types represent cdr: namespace elements used for drawings in charts.
+
 package dml
 
 // CDRRelSizeAnchor represents CT_RelSizeAnchor (cdr:relSizeAnchor)

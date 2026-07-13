@@ -6,14 +6,15 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
+- **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
-  - Work with slide masters and layouts
-  - Add shapes, text, tables, and images
+  - Add shapes, text, tables, and images — including SVG images with a raster fallback
+  - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
+  - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Slide transitions (fade, push, wipe, and more)
-  - Support for placeholders and themes
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables
@@ -21,7 +22,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Paragraph alignment, spacing, and indentation
   - Bullet and numbered lists
   - Headers and footers
-  - Inline images
+  - Inline and floating (anchored) images — including SVG images with a raster fallback
+  - Fields (PAGE/NUMPAGES) and a table of contents
   - Page setup (size, margins)
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
@@ -31,6 +33,10 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Freeze panes, auto-filter, and data validation
   - Merged cells and named ranges
   - Column widths and row heights
+  - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
+  - Rich text (per-run formatting) within a cell
+
+Runnable programs for all three formats live in [`examples/`](examples/).
 
 ## Installation
 
@@ -144,7 +150,9 @@ func main() {
 }
 ```
 
-### Writing an XLSX Workbook to Memory
+### Working with Documents in Memory
+
+All three formats can be saved to and opened from memory. `SaveBytes` exists on `pptx.Presentation`, `docx.Document`, and `xlsx.Workbook`; each package also provides `OpenReader`:
 
 ```go
 package main
@@ -157,37 +165,24 @@ import (
 func main() {
     wb := xlsx.Create()
     sheet := wb.AddSheet("Export")
-    sheet.SetCellValue("A1", "hello")
+    if err := sheet.SetCellValue("A1", "hello"); err != nil {
+        panic(err)
+    }
 
-    buf, err := wb.WriteToBuffer()
+    data, err := wb.SaveBytes()
     if err != nil {
         panic(err)
     }
 
-    _ = bytes.NewReader(buf.Bytes())
-}
-```
-
-### Opening an XLSX Workbook from Memory
-
-```go
-package main
-
-import (
-    "bytes"
-    "github.com/mgilbir/spine/xlsx"
-)
-
-func main() {
-    data := []byte{ /* xlsx bytes */ }
-
-    wb, err := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
+    wb2, err := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
     if err != nil {
         panic(err)
     }
-    defer wb.Close()
+    defer wb2.Close()
 }
 ```
+
+For xlsx, `WriteToBuffer` remains as a convenience wrapper around `SaveBytes` that returns a `*bytes.Buffer`.
 
 ### Opening and Modifying a Presentation
 
@@ -248,6 +243,14 @@ func main() {
 }
 ```
 
+## Opening vs. Creating Documents
+
+`Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts you did not touch are preserved byte-for-byte. Known asymmetries that remain:
+
+- pptx: `Create()` produces a 4:3 deck (use `CreateWithOptions` with `SlideSizeWidescreen` for 16:9). Some built-in layouts place placeholders with widescreen geometry, which can overflow the 4:3 default slide.
+- docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
+- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts.
+
 ## Package Structure
 
 - `opc/` - Open Packaging Conventions implementation
@@ -255,7 +258,6 @@ func main() {
   - `dml/` - DrawingML types (colors, geometry, fills, lines)
     - `chart/` - Chart types
     - `diagram/` - Diagram types
-  - `docprops/` - Document properties (core and extended)
   - `enum/` - Common enumerations
   - `omml/` - Office Math Markup Language types
   - `oxml/` - Shared Office XML types
@@ -267,7 +269,7 @@ func main() {
 
 ## Units
 
-The library uses EMUs (English Metric Units) internally, which is the standard unit in Office Open XML. Helper functions are provided for common conversions:
+Positions and sizes take EMUs (English Metric Units), the standard unit in Office Open XML. Helper functions are provided for common conversions:
 
 ```go
 import "github.com/mgilbir/spine/common/dml"
@@ -278,9 +280,11 @@ width := dml.Inches(10.5)
 // Convert from centimeters to EMUs
 height := dml.Centimeters(5.0)
 
-// Convert from points to EMUs
-fontSize := dml.Points(12)
+// Convert from points to EMUs (e.g. for line widths)
+lineWidth := dml.Points(2)
 ```
+
+Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use `run.SetFontSize(12)` for 12pt text.
 
 ## Slide Layouts
 
@@ -310,7 +314,9 @@ External fixtures are not checked into the repository. To download them:
 make fetch
 ```
 
-This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Use `bash testdata/fetch.sh --force` to re-download all of them.
+This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt` with `# URL unknown`) and cannot be fetched at all.
+
+Tests that depend on an external fixture skip silently when the file is absent, so a green run on a fresh clone exercises fewer cases than one with all fixtures fetched. A few pptx tests additionally use fixtures from the python-pptx test suite; see [`testdata/README.md`](testdata/README.md) for how to obtain that optional corpus.
 
 To run the full test suite (fetches external files first):
 
@@ -318,7 +324,7 @@ To run the full test suite (fetches external files first):
 make test
 ```
 
-To lint:
+To lint (requires golangci-lint v2.x):
 
 ```bash
 make lint
@@ -334,4 +340,4 @@ MIT License - see LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and fixture instructions, and please feel free to submit issues and pull requests.

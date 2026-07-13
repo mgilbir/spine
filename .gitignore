@@ -33,3 +33,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Optional python-pptx test corpus (see testdata/README.md); not redistributed
+python-tests/

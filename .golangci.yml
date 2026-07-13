@@ -1,1 +1,18 @@
+# Requires golangci-lint v2.x (a v1 binary rejects this file's schema).
 version: "2"
+
+linters:
+  # The standard default set, pinned explicitly. In v2, gosimple and
+  # stylecheck's checks are bundled into staticcheck.
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+issues:
+  # Report every occurrence; the default per-issue caps can hide regressions.
+  max-issues-per-linter: 0
+  max-same-issues: 0

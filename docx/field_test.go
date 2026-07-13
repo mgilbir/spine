@@ -63,7 +63,7 @@ func TestFooterPageFields(t *testing.T) {
 	iPage := strings.Index(ftr, `w:instr=" PAGE "`)
 	iOf := strings.Index(ftr, ">Page <")
 	iNum := strings.Index(ftr, `w:instr=" NUMPAGES "`)
-	if !(iOf < iPage && iPage < iNum) {
+	if iOf >= iPage || iPage >= iNum {
 		t.Errorf("field/text order wrong: %q", ftr)
 	}
 
@@ -144,7 +144,7 @@ func TestFieldSurvivesOpenedDocumentEdit(t *testing.T) {
 	}
 	iText := strings.Index(body, ">Page <")
 	iFld := strings.Index(body, "<w:fldSimple")
-	if !(iText >= 0 && iText < iFld) {
+	if iText < 0 || iText >= iFld {
 		t.Errorf("text/field order lost on reopen+save")
 	}
 }

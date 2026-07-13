@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML 3D types from dml-main.xsd.
+// This file provides DrawingML XML 3D types from dml-main.xsd.
+
 package dml
 
 // Scene3d represents CT_Scene3D (a:scene3d)

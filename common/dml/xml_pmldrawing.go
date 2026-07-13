@@ -1,6 +1,7 @@
-// Package dml provides lightweight PML shape types for spec test validation.
+// This file provides lightweight PML shape types for spec test validation.
 // These mirror the PML internal types (pptx/internal/oxml) but are public
 // and live in the DML package since PML shapes reference DML types extensively.
+
 package dml
 
 // PMLShape represents CT_Shape (p:sp) - PML shape for spec testing

@@ -26,7 +26,7 @@ func (p *Presentation) SetSlideFooter(text string) {
 		}
 		ph := newFurniturePlaceholder(PlaceholderFooter)
 		ph.SetText(text)
-		s.AddShape(ph)
+		s.addShape(ph)
 	}
 }
 
@@ -54,7 +54,7 @@ func (p *Presentation) ShowSlideNumbers(show bool) {
 		ph := newFurniturePlaceholder(PlaceholderSlideNumber)
 		ph.fieldType = "slidenum"
 		ph.fieldText = slideNumberGlyph
-		s.AddShape(ph)
+		s.addShape(ph)
 	}
 }
 
@@ -71,7 +71,7 @@ func (p *Presentation) SetSlideDate(text string) {
 		}
 		ph := newFurniturePlaceholder(PlaceholderDateTime)
 		ph.SetText(text)
-		s.AddShape(ph)
+		s.addShape(ph)
 	}
 }
 
@@ -88,7 +88,7 @@ func (p *Presentation) SetSlideDateAuto() {
 		}
 		ph := newFurniturePlaceholder(PlaceholderDateTime)
 		ph.fieldType = "datetime"
-		s.AddShape(ph)
+		s.addShape(ph)
 	}
 }
 

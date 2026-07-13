@@ -27,6 +27,15 @@ func mustParseShapeTree(t *testing.T, src string) *oxml.ShapeTree {
 	return &st
 }
 
+// mustClose is a test helper that closes p and fails the test if Close
+// reports an error. Intended for use with defer.
+func mustClose(t *testing.T, p *Presentation) {
+	t.Helper()
+	if err := p.Close(); err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+}
+
 // mustSlide is a test helper that calls Slide and fails on error.
 func mustSlide(t *testing.T, p *Presentation, index int) *Slide {
 	t.Helper()
@@ -72,7 +81,7 @@ func TestMaterializeShapes_Placeholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	if p2.SlideCount() != 1 {
 		t.Fatalf("SlideCount = %d, want 1", p2.SlideCount())
@@ -134,7 +143,7 @@ func TestMaterializeShapes_TextBox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	shapes := slide2.Shapes()
@@ -173,7 +182,7 @@ func TestMaterializeShapes_AutoShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	shapes := slide2.Shapes()
@@ -212,7 +221,7 @@ func TestMaterializeShapes_Table(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	shapes := slide2.Shapes()
@@ -241,7 +250,7 @@ func TestMaterializeShapes_ExistingFile(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test_slides.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	for i := 0; i < p.SlideCount(); i++ {
 		slide := mustSlide(t, p, i)
@@ -260,7 +269,7 @@ func TestMaterializeShapes_PreservesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	// Verify shapes are materialized
 	for i := 0; i < p.SlideCount(); i++ {
@@ -285,7 +294,7 @@ func TestMaterializeShapes_PreservesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Could not reopen saved file: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	if p2.SlideCount() != p.SlideCount() {
 		t.Errorf("Slide count mismatch: got %d, want %d", p2.SlideCount(), p.SlideCount())
@@ -313,7 +322,7 @@ func TestReplaceText_SingleRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	// Perform replacement
 	p2.ReplaceText(map[string]string{
@@ -349,7 +358,7 @@ func TestReplaceText_MultipleKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	p2.ReplaceText(map[string]string{
 		"{{greeting}}": "Hi",
@@ -386,7 +395,7 @@ func TestReplaceText_NoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	// Should not crash or modify text
 	p2.ReplaceText(map[string]string{
@@ -420,7 +429,7 @@ func TestReplaceText_TextBox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	slide2.ReplaceText(map[string]string{
@@ -470,14 +479,16 @@ func TestReplaceText_SaveAndReopen(t *testing.T) {
 	if err := p2.Save(path2); err != nil {
 		t.Fatalf("Save after replacement failed: %v", err)
 	}
-	p2.Close()
+	if err := p2.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	// Reopen the replaced file
 	p3, err := Open(path2)
 	if err != nil {
 		t.Fatalf("Open replaced file failed: %v", err)
 	}
-	defer p3.Close()
+	defer mustClose(t, p3)
 
 	slide3 := mustSlide(t, p3, 0)
 	titlePh := slide3.TitlePlaceholder()
@@ -507,7 +518,7 @@ func TestReplaceText_Table(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	slide2.ReplaceText(map[string]string{
@@ -525,7 +536,7 @@ func TestReplaceText_Table(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open replaced file failed: %v", err)
 	}
-	defer p3.Close()
+	defer mustClose(t, p3)
 
 	// Find the table
 	slide3 := mustSlide(t, p3, 0)
@@ -621,14 +632,16 @@ func TestImageReplacement_EndToEnd(t *testing.T) {
 	if err := p2.Save(path2); err != nil {
 		t.Fatalf("Save with image failed: %v", err)
 	}
-	p2.Close()
+	if err := p2.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	// Verify the saved file can be opened and contains the image
 	p3, err := Open(path2)
 	if err != nil {
 		t.Fatalf("Open file with image failed: %v", err)
 	}
-	defer p3.Close()
+	defer mustClose(t, p3)
 
 	// The picture placeholder should now be a Picture shape
 	slide3 := mustSlide(t, p3, 0)
@@ -684,7 +697,7 @@ func TestImageReplacement_NewSlidePlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	loaded := mustSlide(t, p2, 0)
 	shape := loaded.ShapeByName("Direct Placeholder")
@@ -734,14 +747,16 @@ func TestPictureImageReplacement_EndToEnd(t *testing.T) {
 	if err := p.Save(path); err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
-	p.Close()
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	// Reopen and verify
 	p2, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 
@@ -807,7 +822,7 @@ func TestPictureImageReplacement_NewSlidePicture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	loaded := mustSlide(t, p2, 0)
 	shape := loaded.ShapeByName("Generated Picture")
@@ -847,7 +862,7 @@ func TestPictureSVGReplacement_NewSlidePicture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	loaded := mustSlide(t, p2, 0)
 	shape := loaded.ShapeByName("SVG Picture")
@@ -933,13 +948,15 @@ func TestImageReplacement_SVGPlaceholderEndToEnd(t *testing.T) {
 	if err := p2.Save(path2); err != nil {
 		t.Fatalf("Save with SVG image failed: %v", err)
 	}
-	p2.Close()
+	if err := p2.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
 
 	p3, err := Open(path2)
 	if err != nil {
 		t.Fatalf("Open file with SVG image failed: %v", err)
 	}
-	defer p3.Close()
+	defer mustClose(t, p3)
 
 	slide3 := mustSlide(t, p3, 0)
 	shape := slide3.ShapeByName("SVG Placeholder")
@@ -986,7 +1003,7 @@ func TestMaterializeShapes_ExistingSVGPicture(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open svg_test.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	foundSVGPicture := false
 	for i := 0; i < p.SlideCount(); i++ {
@@ -1065,7 +1082,7 @@ func TestReplaceTextInShape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer p2.Close()
+	defer mustClose(t, p2)
 
 	slide2 := mustSlide(t, p2, 0)
 	slide2.ReplaceTextInShape("Title 2", map[string]string{"#TITLE#": "Updated Title"})
@@ -1162,7 +1179,7 @@ func TestShapeByName_AfterLoad(t *testing.T) {
 	if err != nil {
 		t.Skipf("Could not open test_slides.pptx: %v", err)
 	}
-	defer p.Close()
+	defer mustClose(t, p)
 
 	slide := mustSlide(t, p, 0)
 

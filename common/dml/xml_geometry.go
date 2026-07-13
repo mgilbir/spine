@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML geometry types from dml-main.xsd.
+// This file provides DrawingML XML geometry types from dml-main.xsd.
+
 package dml
 
 import (

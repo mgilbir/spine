@@ -1,5 +1,6 @@
-// Package dml provides Picture namespace types from dml-picture.xsd.
+// This file provides Picture namespace types from dml-picture.xsd.
 // These types represent pic: namespace elements.
+
 package dml
 
 // PicPic represents CT_Picture (pic:pic) - standalone picture element

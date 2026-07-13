@@ -4,3 +4,6 @@ part2/
 part3/
 part4/
 msoi29500/
+
+# Optional local shape-type generator derived from python-pptx tooling (MIT)
+gen_spec/

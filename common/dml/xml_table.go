@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML table types from dml-main.xsd.
+// This file provides DrawingML XML table types from dml-main.xsd.
+
 package dml
 
 // Tbl represents CT_Table (a:tbl)
