@@ -103,8 +103,20 @@ type ContentTypes struct {
 
 	// selfCloseSpace records that the source wrote self-closing tags as
 	// " />" (System.IO.Packaging style) rather than "/>", so Marshal can
-	// reproduce the entries byte-for-byte.
+	// reproduce the entries byte-for-byte. It seeds entries added after
+	// parse; parsed entries carry their own per-entry style (sources mix
+	// both forms in one file).
 	selfCloseSpace bool
+
+	// rootTag is the verbatim <Types ...> open tag from the source,
+	// preserving namespace declarations beyond the default one (e.g.
+	// xmlns:xsd/xmlns:xsi). Empty for a ContentTypes built from scratch.
+	rootTag string
+
+	// closeSep is the raw whitespace between the last entry and </Types>
+	// (pretty-printing producers put a newline there); captured from source
+	// bytes so CRLF survives the decoder's EOL normalization.
+	closeSep string
 }
 
 // ctEntry is one <Default> or <Override> element in source document order.
@@ -115,6 +127,12 @@ type ctEntry struct {
 	// contentTypeFirst records that the source wrote the ContentType
 	// attribute before Extension/PartName.
 	contentTypeFirst bool
+	// sep is the raw whitespace preceding this entry in the source
+	// (pretty-printing producers indent each entry).
+	sep string
+	// space records this entry's self-closing style (" />" vs "/>");
+	// producers mix both forms within one file.
+	space bool
 }
 
 // NewContentTypes creates a new ContentTypes with default extension mappings.
@@ -153,6 +171,8 @@ func (ct *ContentTypes) Clone() *ContentTypes {
 		prolog:         ct.prolog,
 		entryOrder:     slices.Clone(ct.entryOrder),
 		selfCloseSpace: ct.selfCloseSpace,
+		rootTag:        ct.rootTag,
+		closeSep:       ct.closeSep,
 	}
 	// maps.Clone(nil) is nil; keep the invariant that the maps are usable.
 	if c.Defaults == nil {
@@ -280,9 +300,15 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 		}
 		buf.WriteString(sep)
 	}
-	buf.WriteString(`<Types xmlns="`)
-	buf.WriteString(ContentTypesNamespace)
-	buf.WriteString(`">`)
+	if ct.rootTag != "" {
+		// Verbatim source root tag: preserves declarations beyond the default
+		// namespace (xmlns:xsd, xmlns:xsi) and their order.
+		buf.WriteString(ct.rootTag)
+	} else {
+		buf.WriteString(`<Types xmlns="`)
+		buf.WriteString(ContentTypesNamespace)
+		buf.WriteString(`">`)
+	}
 
 	// Replay the source entries in document order, skipping entries that were
 	// removed since parse and duplicates (OPC requires unique entries).
@@ -295,7 +321,8 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 			}
 			if contentType, ok := ct.Defaults[e.key]; ok {
 				seenDefault[e.key] = true
-				ct.writeDefault(&buf, e.key, contentType, e.contentTypeFirst)
+				buf.WriteString(e.sep)
+				ct.writeDefault(&buf, e.key, contentType, e.contentTypeFirst, e.space)
 			}
 		} else {
 			if seenOverride[e.key] {
@@ -303,7 +330,8 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 			}
 			if contentType, ok := ct.Overrides[e.key]; ok {
 				seenOverride[e.key] = true
-				ct.writeOverride(&buf, e.key, contentType, e.contentTypeFirst)
+				buf.WriteString(e.sep)
+				ct.writeOverride(&buf, e.key, contentType, e.contentTypeFirst, e.space)
 			}
 		}
 	}
@@ -316,7 +344,7 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 		}
 		if contentType, ok := ct.Defaults[ext]; ok {
 			seenDefault[ext] = true
-			ct.writeDefault(&buf, ext, contentType, false)
+			ct.writeDefault(&buf, ext, contentType, false, ct.selfCloseSpace)
 		}
 	}
 
@@ -327,10 +355,11 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 		}
 		if contentType, ok := ct.Overrides[partName]; ok {
 			seenOverride[partName] = true
-			ct.writeOverride(&buf, partName, contentType, false)
+			ct.writeOverride(&buf, partName, contentType, false, ct.selfCloseSpace)
 		}
 	}
 
+	buf.WriteString(ct.closeSep)
 	buf.WriteString("</Types>")
 	if ct.prolog.Captured {
 		buf.WriteString(ct.prolog.Trailer)
@@ -342,7 +371,7 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 // original case (OPC matches case-insensitively, but round-trip must preserve
 // the source spelling), and contentTypeFirst reproduces the source's
 // attribute order.
-func (ct *ContentTypes) writeDefault(buf *bytes.Buffer, ext, contentType string, contentTypeFirst bool) {
+func (ct *ContentTypes) writeDefault(buf *bytes.Buffer, ext, contentType string, contentTypeFirst, space bool) {
 	buf.WriteString(`<Default `)
 	if contentTypeFirst {
 		buf.WriteString(`ContentType="`)
@@ -355,20 +384,20 @@ func (ct *ContentTypes) writeDefault(buf *bytes.Buffer, ext, contentType string,
 		buf.WriteString(`" ContentType="`)
 		buf.WriteString(xmlb.EscapeAttrValue(contentType))
 	}
-	buf.WriteString(ct.selfCloseEnd())
+	buf.WriteString(selfCloseEnd(space))
 }
 
-// selfCloseEnd returns the captured self-closing tag terminator: `" />"` for
-// System.IO.Packaging-produced sources, `"/>"` otherwise.
-func (ct *ContentTypes) selfCloseEnd() string {
-	if ct.selfCloseSpace {
+// selfCloseEnd returns the self-closing tag terminator for one entry: `" />"`
+// (System.IO.Packaging style) or `"/>"`.
+func selfCloseEnd(space bool) string {
+	if space {
 		return `" />`
 	}
 	return `"/>`
 }
 
 // writeOverride writes one <Override> entry (see writeDefault).
-func (ct *ContentTypes) writeOverride(buf *bytes.Buffer, partName, contentType string, contentTypeFirst bool) {
+func (ct *ContentTypes) writeOverride(buf *bytes.Buffer, partName, contentType string, contentTypeFirst, space bool) {
 	buf.WriteString(`<Override `)
 	if contentTypeFirst {
 		buf.WriteString(`ContentType="`)
@@ -381,7 +410,7 @@ func (ct *ContentTypes) writeOverride(buf *bytes.Buffer, partName, contentType s
 		buf.WriteString(`" ContentType="`)
 		buf.WriteString(xmlb.EscapeAttrValue(contentType))
 	}
-	buf.WriteString(ct.selfCloseEnd())
+	buf.WriteString(selfCloseEnd(space))
 }
 
 // orderedDefaults returns default extensions in stable order:
@@ -488,8 +517,14 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 		selfCloseSpace: xmlb.DetectSelfClosingSpace(data),
 	}
 
+	// The parse tracks decoder byte offsets so raw source spans survive: the
+	// verbatim <Types ...> open tag, each entry's leading whitespace and
+	// self-closing style, and the whitespace before </Types>. CharData values
+	// cannot serve here — the decoder EOL-normalizes them, losing CRLF.
 	d := xml.NewDecoder(bytes.NewReader(data))
 	sawTypes := false
+	last := int64(0)
+	pendingSep := ""
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -498,13 +533,43 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 			}
 			return nil, err
 		}
-		se, ok := tok.(xml.StartElement)
-		if !ok {
+		cur := d.InputOffset()
+		raw := ""
+		if last >= 0 && cur >= last && cur <= int64(len(data)) {
+			raw = string(data[last:cur])
+		}
+		last = cur
+
+		if cd, ok := tok.(xml.CharData); ok {
+			if len(bytes.TrimSpace(cd)) == 0 {
+				pendingSep = raw
+			} else {
+				pendingSep = ""
+			}
 			continue
 		}
+		if ee, ok := tok.(xml.EndElement); ok {
+			if ee.Name.Local == "Types" {
+				ct.closeSep = pendingSep
+			}
+			pendingSep = ""
+			continue
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			pendingSep = ""
+			continue
+		}
+		sep := pendingSep
+		pendingSep = ""
+		// raw holds this element's verbatim tag text; a self-closing tag ends
+		// in "/>" and its style is " />" when a space precedes the slash.
+		space := strings.HasSuffix(raw, "/>") && strings.HasSuffix(raw, " />")
+
 		switch se.Name.Local {
 		case "Types":
 			sawTypes = true
+			ct.rootTag = strings.TrimLeft(raw, " \t\r\n")
 		case "Default":
 			var ext, contentType string
 			ctFirst := false
@@ -525,7 +590,7 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 			if _, exists := ct.origExt[key]; !exists {
 				ct.origExt[key] = ext
 			}
-			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: true, key: key, contentTypeFirst: ctFirst})
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: true, key: key, contentTypeFirst: ctFirst, sep: sep, space: space})
 		case "Override":
 			var partName, contentType string
 			ctFirst := false
@@ -542,7 +607,7 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 				ct.overrideOrder = append(ct.overrideOrder, partName)
 			}
 			ct.Overrides[partName] = contentType
-			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: false, key: partName, contentTypeFirst: ctFirst})
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: false, key: partName, contentTypeFirst: ctFirst, sep: sep, space: space})
 		}
 	}
 	if !sawTypes {

@@ -23,13 +23,13 @@ type Extension struct {
 	URI string `xml:"uri,attr"`
 
 	// p14 extensions (PowerPoint 2010)
-	CreationId        *P14CreationId        `xml:"-"`
-	ModId             *P14ModId             `xml:"-"`
-	Media             *P14Media             `xml:"-"`
-	ShowMediaCtrls    *P14ShowMediaCtrls    `xml:"-"`
-	DefaultImageDpi   *P14DefaultImageDpi   `xml:"-"`
-	DiscardImageEdit  *P14DiscardImageEdit  `xml:"-"`
-	LaserClr          *P14LaserClr          `xml:"-"`
+	CreationId       *P14CreationId       `xml:"-"`
+	ModId            *P14ModId            `xml:"-"`
+	Media            *P14Media            `xml:"-"`
+	ShowMediaCtrls   *P14ShowMediaCtrls   `xml:"-"`
+	DefaultImageDpi  *P14DefaultImageDpi  `xml:"-"`
+	DiscardImageEdit *P14DiscardImageEdit `xml:"-"`
+	LaserClr         *P14LaserClr         `xml:"-"`
 
 	// p15 extensions (PowerPoint 2012)
 	PresenceInfo          *P15PresenceInfo          `xml:"-"`
@@ -45,27 +45,35 @@ type Extension struct {
 	InlineNSDecls []xmlb.NSDecl `xml:"-"`
 }
 
-// hasTypedContent reports whether the extension was dispatched to a typed
-// field (known URI). Typed marshaling declares its namespaces inline on the
-// child element, so the captured ext-level declarations are not re-emitted.
-func (e *Extension) hasTypedContent() bool {
-	return e.CreationId != nil || e.ModId != nil || e.Media != nil ||
-		e.ShowMediaCtrls != nil || e.DefaultImageDpi != nil ||
-		e.DiscardImageEdit != nil || e.LaserClr != nil ||
-		e.PresenceInfo != nil || e.SldGuideLst != nil ||
-		e.ChartTrackingRefBased != nil
-}
-
 // --- p14 extensions (PowerPoint 2010) ---
 
 // P14CreationId represents p14:creationId extension element.
 type P14CreationId struct {
 	Val uint32 `xml:"val,attr"`
+	// CapturedAttrs preserves the verbatim source attribute list (xmlns
+	// declarations interleaved with attributes, in source order); nil for
+	// values built programmatically.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P14CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias P14CreationId
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14ModId represents p14:modId extension element.
 type P14ModId struct {
-	Val uint32 `xml:"val,attr"`
+	Val           uint32          `xml:"val,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P14ModId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias P14ModId
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14Media represents the p14:media extension element, whose r:embed attribute
@@ -112,16 +120,25 @@ type P15PresenceInfo struct {
 
 // P15SldGuideLst represents p15:sldGuideLst extension element.
 type P15SldGuideLst struct {
-	Guide []*P15Guide `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main guide,omitempty"`
+	Guide         []*P15Guide     `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main guide,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (some producers
+// carry xmlns="" alongside xmlns:p15) before decoding the guide children.
+func (v *P15SldGuideLst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias P15SldGuideLst
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P15Guide represents p15:guide element.
 type P15Guide struct {
-	Id        string    `xml:"id,attr,omitempty"`
-	Orient    string    `xml:"orient,attr,omitempty"`
-	Pos       string    `xml:"pos,attr,omitempty"`
-	UserDrawn string    `xml:"userDrawn,attr,omitempty"`
-	Clr       *P15Clr   `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main clr,omitempty"`
+	Id        string  `xml:"id,attr,omitempty"`
+	Orient    string  `xml:"orient,attr,omitempty"`
+	Pos       string  `xml:"pos,attr,omitempty"`
+	UserDrawn string  `xml:"userDrawn,attr,omitempty"`
+	Clr       *P15Clr `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main clr,omitempty"`
 }
 
 // P15Clr represents p15:clr element (contains a DML color choice).
@@ -154,6 +171,10 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			nsDecls = append(nsDecls, xmlb.NSDecl{URI: attr.Value})
 		}
 	}
+	// Keep ext-level declarations for typed content too: marshal replays them
+	// on the p:ext element so a source that declared the extension prefix
+	// there (instead of on the child) round-trips.
+	e.InlineNSDecls = nsDecls
 
 	switch e.URI {
 	case xmlb.ExtURIPMLCreationId:
@@ -269,7 +290,6 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		e.RawContent = inner.Content
-		e.InlineNSDecls = nsDecls
 	}
 
 	return nil
@@ -278,18 +298,29 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // --- MarshalToBuilder for Extension ---
 
 func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	attrs := []xmlb.Attr{xmlb.StrAttr("uri", e.URI)}
-	if !e.hasTypedContent() {
-		attrs = xmlb.NSDeclAttrs(attrs, e.InlineNSDecls)
-	}
+	// Captured ext-level declarations are replayed for typed content too: a
+	// source that declared the extension prefix on the p:ext element (rather
+	// than on the child) must get it back in the same place. The typed child
+	// only synthesizes its own declaration when it carries no capture.
+	attrs := xmlb.NSDeclAttrs([]xmlb.Attr{xmlb.StrAttr("uri", e.URI)}, e.InlineNSDecls)
 	b.StartElement(ns, localName, attrs...)
 
 	switch {
 	case e.CreationId != nil:
+		if raw := e.CreationId.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010), "creationId",
+				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.CreationId.Val).Value})...)
+			break
+		}
 		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "creationId",
 			xmlb.UintAttr("val", e.CreationId.Val))
 
 	case e.ModId != nil:
+		if raw := e.ModId.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010), "modId",
+				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.ModId.Val).Value})...)
+			break
+		}
 		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "modId",
 			xmlb.UintAttr("val", e.ModId.Val))
 
@@ -407,11 +438,30 @@ func marshalColorChoice(b *xmlb.Builder, cc *dml.ColorChoice) {
 
 // marshalSldGuideLst writes p15:sldGuideLst element.
 func marshalSldGuideLst(b *xmlb.Builder, g *P15SldGuideLst) {
+	if raw := g.CapturedAttrs; raw != nil {
+		prefix := xmlb.RawAttrPrefix(raw, nsP15, xmlb.PrefixPowerPoint2012)
+		if len(g.Guide) == 0 {
+			b.EmptyElementLiteral(prefix, "sldGuideLst", xmlb.RawAttrList(raw)...)
+			return
+		}
+		b.StartElementLiteral(prefix, "sldGuideLst",
+			[]xmlb.NSDecl{{Prefix: prefix, URI: nsP15}}, xmlb.RawAttrList(raw)...)
+		marshalSldGuides(b, g)
+		b.EndElementLiteral(prefix, "sldGuideLst")
+		return
+	}
 	if len(g.Guide) == 0 {
 		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, "sldGuideLst")
 		return
 	}
 	b.StartElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, "sldGuideLst")
+	marshalSldGuides(b, g)
+	b.EndElementInlineNS(xmlb.PrefixPowerPoint2012, "sldGuideLst")
+	b.ResetNamespaceDeclaration(nsP15)
+}
+
+// marshalSldGuides writes the p15:guide children of a sldGuideLst.
+func marshalSldGuides(b *xmlb.Builder, g *P15SldGuideLst) {
 	for _, guide := range g.Guide {
 		var attrs []xmlb.Attr
 		if guide.Id != "" {
@@ -436,6 +486,4 @@ func marshalSldGuideLst(b *xmlb.Builder, g *P15SldGuideLst) {
 			b.EmptyElement(nsP15, "guide", attrs...)
 		}
 	}
-	b.EndElementInlineNS(xmlb.PrefixPowerPoint2012, "sldGuideLst")
-	b.ResetNamespaceDeclaration(nsP15)
 }

@@ -916,6 +916,18 @@ type CT_CalcPr struct {
 // CT_ExtensionList represents the extLst element.
 type CT_ExtensionList struct {
 	Ext []CT_Extension `xml:"ext"`
+	// CapturedAttrs preserves the extLst element's verbatim attribute list
+	// (some producers declare the extension namespace here, e.g.
+	// <extLst xmlns:x15="...">); nil for lists built programmatically.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// the ext children.
+func (el *CT_ExtensionList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	el.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_ExtensionList
+	return d.DecodeElement((*alias)(el), &start)
 }
 
 // CT_Extension represents a single ext element with URI-based dispatch.

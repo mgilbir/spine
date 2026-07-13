@@ -27,17 +27,21 @@ type Slide struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool                `xml:"-"`
-	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
-	Show             *bool               `xml:"show,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list
+	// (namespace declarations interleaved with attributes); nil for slides
+	// built programmatically, which emit the standard a/r/p declarations.
+	OriginalRootAttrs []xmlb.RootAttr     `xml:"-"`
+	ShowMasterSp      *bool               `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim  *bool               `xml:"showMasterPhAnim,attr,omitempty"`
+	Show              *bool               `xml:"show,attr,omitempty"`
+	CSld              *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr         *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition        *Transition         `xml:"transition,omitempty"`
+	AlternateContent  []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing            *Timing             `xml:"timing,omitempty"`
+	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors         []string
 }
 
 // SlideLayout is the root element of a slide layout part.
@@ -51,13 +55,16 @@ type SlideLayout struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool   `xml:"-"`
-	ShowMasterSp     *bool  `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool  `xml:"showMasterPhAnim,attr,omitempty"`
-	Type             string `xml:"type,attr,omitempty"`
-	Preserve         bool   `xml:"preserve,attr,omitempty"`
-	UserDrawn        bool   `xml:"userDrawn,attr,omitempty"`
-	MatchingName     string `xml:"matchingName,attr,omitempty"`
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list;
+	// see Slide.OriginalRootAttrs.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	ShowMasterSp      *bool           `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim  *bool           `xml:"showMasterPhAnim,attr,omitempty"`
+	Type              string          `xml:"type,attr,omitempty"`
+	Preserve          bool            `xml:"preserve,attr,omitempty"`
+	UserDrawn         bool            `xml:"userDrawn,attr,omitempty"`
+	MatchingName      string          `xml:"matchingName,attr,omitempty"`
 	// MatchingNamePresent records that the source carried the attribute,
 	// so an explicit matchingName="" survives the round trip.
 	MatchingNamePresent bool                `xml:"-"`
@@ -81,18 +88,21 @@ type SlideMaster struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool                `xml:"-"`
-	Preserve         bool                `xml:"preserve,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`
-	SlideLayoutIDs   *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	Hf               *HeaderFooter       `xml:"hf,omitempty"`
-	TxStyles         *TxStyles           `xml:"txStyles,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list;
+	// see Slide.OriginalRootAttrs.
+	OriginalRootAttrs []xmlb.RootAttr     `xml:"-"`
+	Preserve          bool                `xml:"preserve,attr,omitempty"`
+	CSld              *CommonSlideData    `xml:"cSld"`
+	ClrMap            *ColorMap           `xml:"clrMap,omitempty"`
+	SlideLayoutIDs    *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
+	Transition        *Transition         `xml:"transition,omitempty"`
+	AlternateContent  []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing            *Timing             `xml:"timing,omitempty"`
+	Hf                *HeaderFooter       `xml:"hf,omitempty"`
+	TxStyles          *TxStyles           `xml:"txStyles,omitempty"`
+	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors         []string
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.

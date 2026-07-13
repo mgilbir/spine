@@ -339,3 +339,46 @@ func TestContentTypes_Clone(t *testing.T) {
 		t.Error("nil Clone() != nil")
 	}
 }
+
+// A pretty-printed [Content_Types].xml round-trips byte-identically: the
+// verbatim root tag (extra xmlns declarations), each entry's leading
+// whitespace and self-closing style (sources mix " />" and "/>"), and the
+// whitespace before </Types> are all captured and replayed.
+func TestContentTypes_ByteFaithfulFormatting(t *testing.T) {
+	src := "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n" +
+		"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n" +
+		"  <Default Extension=\"xml\" ContentType=\"application/xml\"/>\r\n" +
+		"  <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.test+xml\" />\r\n" +
+		"</Types>\r\n"
+
+	ct, err := UnmarshalContentTypes([]byte(src))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	out, err := ct.Marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(out) != src {
+		t.Errorf("round-trip mismatch:\ngot  %q\nwant %q", out, src)
+	}
+}
+
+// A trailing newline before </Types> in an otherwise compact file survives.
+func TestContentTypes_TrailingNewlineBeforeClose(t *testing.T) {
+	src := "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+		"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+		"<Default Extension=\"xml\" ContentType=\"application/xml\"/>\n</Types>"
+
+	ct, err := UnmarshalContentTypes([]byte(src))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	out, err := ct.Marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(out) != src {
+		t.Errorf("round-trip mismatch:\ngot  %q\nwant %q", out, src)
+	}
+}

@@ -261,14 +261,29 @@ func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 	}
 }
 
-// collectStructAttrs collects all attribute fields from a struct as Attr values.
+// rootAttrSliceType identifies the conventional CapturedAttrs field.
+var rootAttrSliceType = reflect.TypeOf([]RootAttr(nil))
+
+// collectStructAttrs collects all attribute fields from a struct as Attr
+// values. A struct may carry a `CapturedAttrs []RootAttr` field (tagged
+// xml:"-") holding the verbatim source attribute list; when non-nil it is
+// replayed via ReplayCapturedAttrs so the source's attribute order, inline
+// xmlns declarations, and unmodeled attributes survive the round trip.
 func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 	var attrs []Attr
+	var captured []RootAttr
 	typ := val.Type()
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		if !field.IsExported() {
+			continue
+		}
+
+		if field.Name == "CapturedAttrs" && field.Type == rootAttrSliceType {
+			if fv := val.Field(i); !fv.IsNil() {
+				captured = fv.Interface().([]RootAttr)
+			}
 			continue
 		}
 
@@ -297,7 +312,72 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 		})
 	}
 
+	if captured != nil {
+		return b.ReplayCapturedAttrs(captured, attrs)
+	}
 	return attrs
+}
+
+// renderedAttrName returns the name an attribute is written with: the
+// registered prefix joined to the local name, or the local name alone.
+func (b *Builder) renderedAttrName(a Attr) string {
+	if a.Namespace == "" {
+		return a.Name
+	}
+	if prefix, ok := b.namespaces[a.Namespace]; ok && prefix != "" {
+		return prefix + ":" + a.Name
+	}
+	return a.Name
+}
+
+// ReplayCapturedAttrs merges a captured source attribute list with the
+// modeled attributes derived from struct fields, preserving fidelity on a
+// no-op round trip while keeping model edits authoritative:
+//
+//   - captured entries are emitted in source order;
+//   - a captured declaration (xmlns / xmlns:prefix) is emitted verbatim;
+//   - a captured attribute that matches a modeled one (by rendered name)
+//     takes the modeled value, so post-parse mutations win;
+//   - a captured attribute with no modeled match is emitted with its captured
+//     value — this keeps unmodeled attributes and explicit zero values that
+//     omitempty fields cannot represent;
+//   - modeled attributes absent from the capture (set after parse) follow in
+//     model order.
+//
+// The returned attributes carry literal names (Namespace empty), ready for
+// StartElement/EmptyElement.
+func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Attr {
+	used := make([]bool, len(modeled))
+	rendered := make([]string, len(modeled))
+	for i, a := range modeled {
+		rendered[i] = b.renderedAttrName(a)
+	}
+	out := make([]Attr, 0, len(captured)+len(modeled))
+	for _, ra := range captured {
+		lit := ra.attr()
+		if ra.IsNS {
+			out = append(out, lit)
+			continue
+		}
+		matched := false
+		for i, rn := range rendered {
+			if !used[i] && rn == lit.Name {
+				out = append(out, Attr{Name: lit.Name, Value: modeled[i].Value})
+				used[i] = true
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			out = append(out, lit)
+		}
+	}
+	for i, a := range modeled {
+		if !used[i] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // hasStructChildren reports whether a struct has any non-empty child elements to write.
