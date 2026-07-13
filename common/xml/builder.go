@@ -254,7 +254,33 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 // StartElementWithRootAttrs starts a root element writing all attributes in the
 // exact order provided. Each RootAttr is either a namespace declaration or a
 // regular attribute, preserving the interleaved ordering from the original XML.
+//
+// The root element's own namespace binding is resolved from the declarations
+// before the tag name is written: a source whose root is namespace-prefixed
+// (e.g. <x:workbook xmlns:x="…spreadsheetml…">) must re-emit the prefixed
+// form. Writing the name first and registering prefixes while emitting the
+// declarations would produce an unprefixed open tag whose children and close
+// tag then resolve to the prefixed form — malformed XML. A default (xmlns=)
+// declaration for the root's namespace wins over a prefixed one, matching the
+// unprefixed element names such a source uses.
 func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAttrs []RootAttr, extraAttrs ...Attr) {
+	rootNSBound := false
+	for _, ra := range rootAttrs {
+		if !ra.IsNS || ra.Value != namespace {
+			continue
+		}
+		if ra.Prefix == "" {
+			// A default declaration covers the root's namespace: element
+			// names stay unprefixed, regardless of any prefixed alias.
+			b.namespaces[namespace] = ""
+			break
+		}
+		if !rootNSBound {
+			b.namespaces[namespace] = ra.Prefix
+			rootNSBound = true
+		}
+	}
+
 	b.writeIndent()
 	b.hasRoot = true
 	b.buf.WriteByte('<')
@@ -273,8 +299,11 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 			b.writeAttrEscaped(ra.Value)
 			b.buf.WriteByte('"')
 			b.declaredNamespaces[ra.Value] = true
-			// Also register prefix so writeQName can resolve it for extension attrs.
-			if ra.Prefix != "" {
+			// Also register prefix so writeQName can resolve it for extension
+			// attrs — but never clobber the binding chosen for the root's own
+			// namespace above (a default declaration must keep element names
+			// unprefixed even when a prefixed alias for the same URI exists).
+			if ra.Prefix != "" && ra.Value != namespace {
 				b.namespaces[ra.Value] = ra.Prefix
 			}
 		} else {

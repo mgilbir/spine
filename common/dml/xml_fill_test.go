@@ -83,8 +83,8 @@ func TestDML_CT_GradientStop(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Pos != 50000 {
-		t.Errorf("Pos = %d, want 50000", v.Pos)
+	if v.Pos.Int32() != 50000 {
+		t.Errorf("Pos = %d, want 50000", v.Pos.Int32())
 	}
 	if v.SrgbClr == nil || v.SrgbClr.Val != "FF0000" {
 		t.Error("SrgbClr not properly parsed")
@@ -118,7 +118,7 @@ func TestDML_CT_PathShadeProperties(t *testing.T) {
 	if v.Path != "circle" {
 		t.Errorf("Path = %q, want circle", v.Path)
 	}
-	if v.FillToRect == nil || v.FillToRect.L != 50000 {
+	if v.FillToRect == nil || v.FillToRect.L.Int32() != 50000 {
 		t.Error("FillToRect not properly parsed")
 	}
 }
@@ -171,7 +171,7 @@ func TestDML_CT_BlipFillProperties(t *testing.T) {
 	if v.Blip == nil {
 		t.Error("Blip is nil")
 	}
-	if v.SrcRect == nil || v.SrcRect.L != 10000 {
+	if v.SrcRect == nil || v.SrcRect.L.Int32() != 10000 {
 		t.Error("SrcRect not properly parsed")
 	}
 	if v.Stretch == nil {
@@ -187,8 +187,8 @@ func TestDML_CT_TileInfoProperties(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Sx != 100000 {
-		t.Errorf("Sx = %d, want 100000", v.Sx)
+	if v.Sx.Int32() != 100000 {
+		t.Errorf("Sx = %d, want 100000", v.Sx.Int32())
 	}
 	if v.Algn != "tl" {
 		t.Errorf("Algn = %q, want tl", v.Algn)
@@ -236,16 +236,16 @@ func TestDML_CT_RelativeRect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.L != 10000 {
-		t.Errorf("L = %d, want 10000", v.L)
+	if v.L.Int32() != 10000 {
+		t.Errorf("L = %d, want 10000", v.L.Int32())
 	}
-	if v.T != 20000 {
-		t.Errorf("T = %d, want 20000", v.T)
+	if v.T.Int32() != 20000 {
+		t.Errorf("T = %d, want 20000", v.T.Int32())
 	}
-	if v.R != 30000 {
-		t.Errorf("R = %d, want 30000", v.R)
+	if v.R.Int32() != 30000 {
+		t.Errorf("R = %d, want 30000", v.R.Int32())
 	}
-	if v.B != 40000 {
-		t.Errorf("B = %d, want 40000", v.B)
+	if v.B.Int32() != 40000 {
+		t.Errorf("B = %d, want 40000", v.B.Int32())
 	}
 }

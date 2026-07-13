@@ -424,7 +424,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// so Close regenerates core.xml from w.Properties.
 	if w.hasCoreProps && w.Properties.Equal(w.propsSnapshot) {
 		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
-			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
 			}
 		}
@@ -482,7 +482,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/xl/styles.xml" && stylesDirty {
 			continue
 		}
-		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+		if err := writer.WritePreservedPart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}
@@ -500,7 +500,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		part := w.preservedParts[name]
-		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+		if err := writer.WritePreservedPart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}

@@ -54,6 +54,13 @@ func NewWriter(w io.Writer) *Writer {
 
 // CreatePart creates a new part in the package.
 func (w *Writer) CreatePart(name, contentType string, compression CompressionOption) (io.Writer, error) {
+	return w.createPart(name, contentType, compression, false)
+}
+
+// createPart is the shared implementation behind CreatePart and
+// WritePreservedPart. preserved marks parts carried over verbatim from a
+// source package, which are exempt from the missing-content-type check.
+func (w *Writer) createPart(name, contentType string, compression CompressionOption, preserved bool) (io.Writer, error) {
 	if w.closed {
 		return nil, ErrPackageClosed
 	}
@@ -67,14 +74,20 @@ func (w *Writer) CreatePart(name, contentType string, compression CompressionOpt
 		return nil, ErrDuplicatePart
 	}
 
-	// Every part must resolve to a content type — either the explicit one
+	// Every new part must resolve to a content type — either the explicit one
 	// passed here (emitted as an Override) or a Default mapping covering its
 	// extension. A part with neither would silently be absent from
 	// [Content_Types].xml, making the package OPC-invalid (Office shows a
 	// repair prompt). Checked at part-creation time rather than at Close:
 	// Defaults are registered before parts are written in every supported
 	// flow, and failing here names the offending call site.
-	if contentType == "" && w.ContentTypes.GetContentType(normalizedName) == "" {
+	//
+	// Preserved parts are exempt: real-world packages contain entries (e.g.
+	// /[trash]/0000.dat from some producers) with no [Content_Types].xml
+	// entry at all. The source package already lacked the mapping, so
+	// requiring one on write would both break round-trip fidelity and fail
+	// the save of an otherwise valid package.
+	if !preserved && contentType == "" && w.ContentTypes.GetContentType(normalizedName) == "" {
 		return nil, fmt.Errorf("%w: part %q has no content type and no default mapping covers its extension", ErrInvalidContentType, normalizedName)
 	}
 
@@ -112,6 +125,23 @@ func (w *Writer) CreatePart(name, contentType string, compression CompressionOpt
 // WritePart writes a complete part to the package.
 func (w *Writer) WritePart(name, contentType string, data []byte) error {
 	writer, err := w.CreatePart(name, contentType, CompressionDeflate)
+	if err != nil {
+		return err
+	}
+
+	_, err = writer.Write(data)
+	return err
+}
+
+// WritePreservedPart writes a part carried over unchanged from a source
+// package. It behaves like WritePart except that a part whose content type is
+// empty and whose extension has no Default mapping is written as-is instead of
+// being rejected: the source package legitimately lacked a content-type entry
+// for it, and preserving the part must preserve that status exactly (no entry
+// in the source → none written → no error). New parts must go through
+// WritePart/CreatePart, which keep the strict check.
+func (w *Writer) WritePreservedPart(name, contentType string, data []byte) error {
+	writer, err := w.createPart(name, contentType, CompressionDeflate, true)
 	if err != nil {
 		return err
 	}

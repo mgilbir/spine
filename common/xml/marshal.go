@@ -17,6 +17,16 @@ type BuilderMarshaler interface {
 
 var builderMarshalerType = reflect.TypeOf((*BuilderMarshaler)(nil)).Elem()
 
+// AttrValuer is the interface implemented by attribute value types that
+// render their own lexical form in reflection-based marshaling (e.g.
+// percentage values that re-emit a transitional "n%" source form verbatim).
+// IsZeroAttr reports the type's zero value for omitempty handling, replacing
+// the kind-based check that cannot see inside a struct.
+type AttrValuer interface {
+	AttrValue() string
+	IsZeroAttr() bool
+}
+
 // tagInfo holds parsed xml struct tag information.
 type tagInfo struct {
 	ns        string // namespace URI (empty = inherit parent)
@@ -87,9 +97,23 @@ func isZeroValue(v reflect.Value) bool {
 		return v.Uint() == 0
 	case reflect.Float32, reflect.Float64:
 		return v.Float() == 0
+	case reflect.Struct:
+		if av, ok := valueAsAttrValuer(v); ok {
+			return av.IsZeroAttr()
+		}
+		return false
 	default:
 		return false
 	}
+}
+
+// valueAsAttrValuer returns v's AttrValuer implementation, if any.
+func valueAsAttrValuer(v reflect.Value) (AttrValuer, bool) {
+	if !v.CanInterface() {
+		return nil, false
+	}
+	av, ok := v.Interface().(AttrValuer)
+	return av, ok
 }
 
 // formatValue formats a reflect.Value as a string for XML output.
@@ -99,6 +123,10 @@ func formatValue(v reflect.Value) string {
 			return ""
 		}
 		v = v.Elem()
+	}
+
+	if av, ok := valueAsAttrValuer(v); ok {
+		return av.AttrValue()
 	}
 
 	switch v.Kind() {

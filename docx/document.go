@@ -129,7 +129,12 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	var doc oxml.CT_Document
 	if err := xml.Unmarshal(data, &doc); err != nil {
 		_ = reader.Close()
-		return nil, err
+		// Deliberately strict: some wild files carry XML that is not
+		// well-formed (unescaped '&', control characters like U+001F). Word
+		// silently repairs those; accepting and re-emitting them here would
+		// launder invalid XML through the library, so they are rejected with
+		// the part name for context.
+		return nil, fmt.Errorf("docx: parsing %s: %w", mainPartName, err)
 	}
 
 	d := &Document{
@@ -366,7 +371,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// so Close regenerates core.xml from d.Properties.
 	if d.hasCoreProps && d.Properties.Equal(d.propsSnapshot) {
 		if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
-			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
 			}
 		}
@@ -400,7 +405,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
-		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
+		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}
@@ -414,7 +419,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == mainRelsName {
 			continue
 		}
-		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
+		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}

@@ -52,6 +52,55 @@ func TestCreatePart_EmptyContentTypeNoDefault(t *testing.T) {
 	}
 }
 
+// A part preserved verbatim from a source package is exempt from the
+// missing-content-type check: real-world packages carry junk entries (e.g.
+// /[trash]/0000.dat) with no [Content_Types].xml entry, and round-tripping
+// them must preserve that status exactly instead of failing the save.
+func TestWritePreservedPart_EmptyContentTypeNoDefault(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+
+	if err := w.WritePreservedPart("/[trash]/0000.dat", "", []byte("x")); err != nil {
+		t.Fatalf("WritePreservedPart with uncovered empty content type = %v, want nil", err)
+	}
+
+	// No override may be registered for it either: the source package had no
+	// entry, so the output must not grow one.
+	if ctype, ok := w.ContentTypes.Overrides["/[trash]/0000.dat"]; ok {
+		t.Errorf("preserved part with empty content type registered an override = %q", ctype)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("reopen zip: %v", err)
+	}
+	found := false
+	for _, f := range zr.File {
+		if f.Name == "[trash]/0000.dat" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("preserved part missing from output zip")
+	}
+}
+
+// A preserved part with a non-empty content type behaves exactly like
+// WritePart: the type is registered when not already covered.
+func TestWritePreservedPart_NonEmptyContentType(t *testing.T) {
+	w := NewWriter(&bytes.Buffer{})
+	if err := w.WritePreservedPart("/xl/custom.bin", "application/x-custom", []byte("x")); err != nil {
+		t.Fatalf("WritePreservedPart: %v", err)
+	}
+	if got := w.ContentTypes.GetContentType("/xl/custom.bin"); got != "application/x-custom" {
+		t.Errorf("content type = %q, want %q", got, "application/x-custom")
+	}
+}
+
 // C207: adding a package-level relationship after Close must fail — the
 // package-level .rels part has already been written, so the relationship
 // could never be persisted and its r:id would silently dangle.

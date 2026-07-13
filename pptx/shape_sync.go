@@ -258,10 +258,10 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 	if domainPic != nil && pic.BlipFill != nil {
 		if domainPic.cropLeft > 0 || domainPic.cropTop > 0 || domainPic.cropRight > 0 || domainPic.cropBottom > 0 {
 			pic.BlipFill.SrcRect = &dml.SrcRect{
-				L: int32(domainPic.cropLeft * 100000),
-				T: int32(domainPic.cropTop * 100000),
-				R: int32(domainPic.cropRight * 100000),
-				B: int32(domainPic.cropBottom * 100000),
+				L: dml.NewPercentage(int32(domainPic.cropLeft * 100000)),
+				T: dml.NewPercentage(int32(domainPic.cropTop * 100000)),
+				R: dml.NewPercentage(int32(domainPic.cropRight * 100000)),
+				B: dml.NewPercentage(int32(domainPic.cropBottom * 100000)),
 			}
 		} else {
 			pic.BlipFill.SrcRect = nil

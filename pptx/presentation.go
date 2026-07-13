@@ -908,14 +908,17 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// Write other parts (sorted for deterministic package output), skipping
 	// media parts no relationship references anymore (C221). The slides were
 	// marshaled above, so every relationship drop from this session's shape
-	// removals has already been applied.
+	// removals has already been applied. These are preserved source parts:
+	// some (e.g. /[trash]/0000.dat junk emitted by certain producers) have no
+	// content-type entry in the source, so they bypass the new-part
+	// content-type requirement.
 	deadMedia := p.unreferencedMediaParts()
 	for _, name := range sortedKeys(p.otherParts) {
 		if deadMedia[name] {
 			continue
 		}
 		part := p.otherParts[name]
-		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+		if err := writer.WritePreservedPart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
 	}

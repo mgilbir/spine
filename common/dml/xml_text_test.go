@@ -63,11 +63,11 @@ func TestDML_CT_TextNormalAutofit(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.FontScale != 90000 {
-		t.Errorf("FontScale = %d, want 90000", v.FontScale)
+	if v.FontScale.Int32() != 90000 {
+		t.Errorf("FontScale = %d, want 90000", v.FontScale.Int32())
 	}
-	if v.LnSpcReduction != 10000 {
-		t.Errorf("LnSpcReduction = %d, want 10000", v.LnSpcReduction)
+	if v.LnSpcReduction.Int32() != 10000 {
+		t.Errorf("LnSpcReduction = %d, want 10000", v.LnSpcReduction.Int32())
 	}
 }
 
@@ -256,8 +256,8 @@ func TestDML_CT_TextSpacingPercent(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Val != 100000 {
-		t.Errorf("Val = %d, want 100000", v.Val)
+	if v.Val.Int32() != 100000 {
+		t.Errorf("Val = %d, want 100000", v.Val.Int32())
 	}
 }
 
@@ -307,8 +307,8 @@ func TestDML_CT_TextBulletSizePercent(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Val != 100000 {
-		t.Errorf("Val = %d, want 100000", v.Val)
+	if v.Val.Int32() != 100000 {
+		t.Errorf("Val = %d, want 100000", v.Val.Int32())
 	}
 }
 

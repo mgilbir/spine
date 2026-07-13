@@ -7,7 +7,6 @@ package dml
 import (
 	"bytes"
 	"encoding/xml"
-	"fmt"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -448,7 +447,7 @@ func writeClrTransform(b *xmlb.Builder, ns string, kind clrTransformKind, ct *Co
 		b.EmptyElement(ns, name)
 		return
 	}
-	b.EmptyElement(ns, name, xmlb.Int32Attr("val", int32(ct.Val)))
+	b.EmptyElement(ns, name, xmlb.StrAttr("val", ct.Val.AttrValue()))
 }
 
 // hasAnyTransforms returns true if any color transforms are set.
@@ -475,7 +474,7 @@ func (s *SchemeClrTransform) writeAllTransforms(b *xmlb.Builder, ns string) {
 func encodeClrTransform(e *xml.Encoder, kind clrTransformKind, ct *ColorTransform) error {
 	elem := xml.StartElement{Name: xml.Name{Local: clrTransformKindName[kind]}}
 	if !clrTransformArgless[kind] {
-		elem.Attr = append(elem.Attr, xml.Attr{Name: xml.Name{Local: "val"}, Value: fmt.Sprintf("%d", ct.Val)})
+		elem.Attr = append(elem.Attr, xml.Attr{Name: xml.Name{Local: "val"}, Value: ct.Val.AttrValue()})
 	}
 	return e.EncodeElement(struct{}{}, elem)
 }
@@ -564,7 +563,7 @@ type GsLst struct {
 // child; all six color kinds must be supported or a stop using, e.g., a scheme
 // or system color would be dropped, leaving <a:gs> with no color child.
 type Gs struct {
-	Pos       int32               `xml:"pos,attr"`
+	Pos       Percentage          `xml:"pos,attr"`
 	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
 	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
 	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
@@ -595,11 +594,11 @@ type PattFill struct {
 
 // BlipFillXML represents CT_BlipFillProperties (a:blipFill)
 type BlipFillXML struct {
-	Dpi          *int32   `xml:"dpi,attr,omitempty"`
-	RotWithShape *bool    `xml:"rotWithShape,attr,omitempty"`
-	Blip         *BlipXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
-	SrcRect      *RelRect `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
-	Tile         *TileXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
+	Dpi          *int32      `xml:"dpi,attr,omitempty"`
+	RotWithShape *bool       `xml:"rotWithShape,attr,omitempty"`
+	Blip         *BlipXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
+	SrcRect      *RelRect    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
+	Tile         *TileXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
 	Stretch      *StretchXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
 }
 
@@ -954,12 +953,12 @@ func fixupRawToken(tok xml.Token) xml.Token {
 
 // TileXML represents CT_TileInfoProperties (a:tile)
 type TileXML struct {
-	Tx   int64  `xml:"tx,attr,omitempty"`
-	Ty   int64  `xml:"ty,attr,omitempty"`
-	Sx   int32  `xml:"sx,attr,omitempty"`
-	Sy   int32  `xml:"sy,attr,omitempty"`
-	Flip string `xml:"flip,attr,omitempty"`
-	Algn string `xml:"algn,attr,omitempty"`
+	Tx   int64      `xml:"tx,attr,omitempty"`
+	Ty   int64      `xml:"ty,attr,omitempty"`
+	Sx   Percentage `xml:"sx,attr,omitempty"`
+	Sy   Percentage `xml:"sy,attr,omitempty"`
+	Flip string     `xml:"flip,attr,omitempty"`
+	Algn string     `xml:"algn,attr,omitempty"`
 }
 
 // StretchXML represents CT_StretchInfoProperties (a:stretch)
@@ -973,10 +972,12 @@ type NoFillXML struct{}
 // GrpFill represents CT_GroupFillProperties (a:grpFill)
 type GrpFill struct{}
 
-// RelRect represents CT_RelativeRect
+// RelRect represents CT_RelativeRect. Its edges are ST_Percentage values:
+// transitional producers write them as "n%" strings (e.g. fillToRect
+// t="50%"), which must parse and re-emit verbatim.
 type RelRect struct {
-	L int32 `xml:"l,attr,omitempty"`
-	T int32 `xml:"t,attr,omitempty"`
-	R int32 `xml:"r,attr,omitempty"`
-	B int32 `xml:"b,attr,omitempty"`
+	L Percentage `xml:"l,attr,omitempty"`
+	T Percentage `xml:"t,attr,omitempty"`
+	R Percentage `xml:"r,attr,omitempty"`
+	B Percentage `xml:"b,attr,omitempty"`
 }

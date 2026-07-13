@@ -59,8 +59,8 @@ func TestShadow_ApplyToSpPr(t *testing.T) {
 	if os.SrgbClr.Alpha == nil {
 		t.Fatal("expected Alpha to be set")
 	}
-	if os.SrgbClr.Alpha.Val != 50000 {
-		t.Errorf("Alpha.Val = %d, want 50000", os.SrgbClr.Alpha.Val)
+	if os.SrgbClr.Alpha.Val.Int32() != 50000 {
+		t.Errorf("Alpha.Val = %d, want 50000", os.SrgbClr.Alpha.Val.Int32())
 	}
 }
 
@@ -127,7 +127,7 @@ func TestShadow_ThemeColorAndAngleNormalization(t *testing.T) {
 	if os.SchemeClr.Val != "accent1" {
 		t.Errorf("SchemeClr.Val = %q, want accent1", os.SchemeClr.Val)
 	}
-	if len(os.SchemeClr.Alpha) != 1 || os.SchemeClr.Alpha[0].Val != 50000 {
+	if len(os.SchemeClr.Alpha) != 1 || os.SchemeClr.Alpha[0].Val.Int32() != 50000 {
 		t.Errorf("alpha not carried on schemeClr: %+v", os.SchemeClr.Alpha)
 	}
 
