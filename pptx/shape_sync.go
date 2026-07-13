@@ -37,13 +37,13 @@ func shapeDirty(shape Shape) bool {
 	case *Picture:
 		return sh.dirty
 	case *Video:
-		return sh.dirty
+		return sh.dirty || sh.hasPendingProps()
 	case *Audio:
-		return sh.dirty
+		return sh.dirty || sh.hasPendingProps()
 	case *Table:
 		return sh.isDirty()
 	case *GroupShape:
-		return sh.dirty
+		return sh.isDirty()
 	}
 	return false
 }
@@ -71,12 +71,19 @@ func clearShapeDirty(shape Shape) {
 		sh.dirty = false
 	case *Video:
 		sh.dirty = false
+		sh.timingDirty, sh.posterDirty = false, false
 	case *Audio:
 		sh.dirty = false
+		sh.timingDirty, sh.posterDirty = false, false
 	case *Table:
 		sh.clearDirty()
 	case *GroupShape:
 		sh.dirty = false
+		sh.childrenModified = false
+		sh.removedChildIDs = nil
+		for _, child := range sh.children {
+			clearShapeDirty(child)
+		}
 	}
 }
 
@@ -105,6 +112,7 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 		case oxml.ChildPic:
 			if ref.Index < len(spTree.Pic) {
 				updatePictureNode(spTree.Pic[ref.Index], shape)
+				s.flushMediaShapeProps(spTree.Pic[ref.Index], shape)
 			}
 		case oxml.ChildGraphicFrame:
 			if ref.Index < len(spTree.GraphicFrame) {
@@ -112,7 +120,7 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 			}
 		case oxml.ChildGrpSp:
 			if ref.Index < len(spTree.GrpSp) {
-				updateGroupNode(spTree.GrpSp[ref.Index], shape)
+				s.updateGroupNode(spTree.GrpSp[ref.Index], shape, spTree)
 			}
 		}
 	}
@@ -262,9 +270,12 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 }
 
 // updateGraphicFrameNode flushes a dirty table into its parsed p:graphicFrame
-// node. Content edits regenerate the a:tbl from the domain — the same
-// modeled-bits-only serialization Table.SyncXML performs. Non-table graphic
-// frames are never dirty (they are not materialized), so they are untouched.
+// node. Text and property edits patch the parsed a:tbl in place, so untouched
+// cells keep everything the domain model does not represent (margins, borders,
+// fills, table style references). Only structural changes (rows/columns added
+// or removed) regenerate the node — and even then parsed styling is carried
+// over for surviving cells (see regenerateTableNode). Non-table graphic frames
+// are never dirty (they are not materialized), so they are untouched.
 func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 	tbl, ok := shape.(*Table)
 	if !ok {
@@ -281,24 +292,321 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(tbl.width), Cy: int64(tbl.height)}
 	}
 	if tbl.contentDirty() && gf.Graphic != nil && gf.Graphic.GraphicData != nil && gf.Graphic.GraphicData.Table != nil {
-		gf.Graphic.GraphicData.Table = tableDataToOxml(tbl)
+		atbl := gf.Graphic.GraphicData.Table
+		if !tbl.structDirty && tableShapeMatches(tbl, atbl) {
+			patchTableNode(atbl, tbl)
+		} else {
+			gf.Graphic.GraphicData.Table = regenerateTableNode(tbl, atbl)
+		}
 	}
 }
 
-// updateGroupNode flushes a dirty group's name and placement into its parsed
-// p:grpSp node. Group content is not materialized for mutation, so only the
-// group-level frame is synced; the child coordinate space (chOff/chExt) is
-// preserved.
-func updateGroupNode(gs *oxml.GroupShape, shape Shape) {
+// tableShapeMatches reports whether the domain table and the parsed a:tbl have
+// the same grid shape, so per-cell patching can pair them up by index.
+func tableShapeMatches(t *Table, atbl *oxml.ATable) bool {
+	if atbl == nil || len(t.rows) != len(atbl.Tr) {
+		return false
+	}
+	for i, row := range t.rows {
+		if len(row.cells) != len(atbl.Tr[i].Tc) {
+			return false
+		}
+	}
+	return atbl.TblGrid != nil && len(t.colWidths) == len(atbl.TblGrid.GridCol)
+}
+
+// patchTableNode flushes non-structural table edits into the parsed a:tbl in
+// place: table-level properties and column widths when they were set, row
+// heights of dirty rows, and per-cell text/properties of dirty cells. Cells
+// without unflushed edits are not touched at all.
+func patchTableNode(atbl *oxml.ATable, t *Table) {
+	if t.propsDirty {
+		if atbl.TblPr == nil {
+			atbl.TblPr = &oxml.ATblPr{}
+		}
+		pr := atbl.TblPr
+		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
+		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
+		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
+		for i, gc := range atbl.TblGrid.GridCol {
+			gc.W = int64(t.colWidths[i])
+		}
+	}
+	for i, row := range t.rows {
+		tr := atbl.Tr[i]
+		if row.dirty {
+			tr.H = int64(row.height)
+		}
+		row.sourceTr = tr
+		for j, cell := range row.cells {
+			tc := tr.Tc[j]
+			if cell.textFrame != nil && cell.textFrame.isDirty() {
+				updateTxBody(&tc.TxBody, cell.textFrame)
+			}
+			if cell.dirty {
+				applyCellProps(tc, cell)
+			}
+			cell.sourceTc = tc
+		}
+	}
+}
+
+// applyCellProps writes the cell properties the domain API models into the
+// parsed a:tc node, leaving everything it does not model (margins, per-cell
+// extension content) alone. Borders are written only for edges the domain
+// carries a border for: the parse does not materialize borders, so a non-nil
+// edge always means an explicit SetBorder call.
+func applyCellProps(tc *oxml.ATc, cell *TableCell) {
+	if tc.TcPr == nil {
+		tc.TcPr = &oxml.ATcPr{}
+	}
+	pr := tc.TcPr
+	if cell.vertAlign != "" {
+		pr.Anchor = string(cell.vertAlign)
+	}
+	if cell.borderLeft != nil {
+		pr.LnL = tableBorderToLn(cell.borderLeft)
+	}
+	if cell.borderRight != nil {
+		pr.LnR = tableBorderToLn(cell.borderRight)
+	}
+	if cell.borderTop != nil {
+		pr.LnT = tableBorderToLn(cell.borderTop)
+	}
+	if cell.borderBottom != nil {
+		pr.LnB = tableBorderToLn(cell.borderBottom)
+	}
+	if cell.fill != nil {
+		pr.SolidFill = colorToOxml(cell.fill)
+		pr.NoFill = nil
+	} else {
+		// ClearFill and never-filled both hold nil: either way the domain
+		// says the cell has no solid fill.
+		pr.SolidFill = nil
+	}
+	if cell.rowSpan > 1 {
+		tc.RowSpan = cell.rowSpan
+	} else {
+		tc.RowSpan = 0
+	}
+	if cell.colSpan > 1 {
+		tc.GridSpan = cell.colSpan
+	} else {
+		tc.GridSpan = 0
+	}
+	tc.HMerge = cell.hMerge
+	tc.VMerge = cell.vMerge
+}
+
+// updateGroupNode flushes a dirty group into its parsed p:grpSp node: the
+// group's own name and placement (the child coordinate space chOff/chExt is
+// preserved), removals of children, in-place edits to children, and appends
+// of children added via AddChild. Children are matched to their nodes by
+// cNvPr id — slice indices shift as siblings come and go. Nested groups are
+// flushed recursively.
+func (s *Slide) updateGroupNode(gs *oxml.GroupShape, shape Shape, spTree *oxml.ShapeTree) {
 	grp, ok := shape.(*GroupShape)
-	if !ok || !grp.dirty {
+	if !ok {
 		return
 	}
-	if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil && grp.name != "" {
-		gs.NvGrpSpPr.CNvPr.Name = grp.name
+	if grp.dirty {
+		if gs.NvGrpSpPr != nil && gs.NvGrpSpPr.CNvPr != nil && grp.name != "" {
+			gs.NvGrpSpPr.CNvPr.Name = grp.name
+		}
+		if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
+			gs.GrpSpPr.Xfrm.Off = &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)}
+			gs.GrpSpPr.Xfrm.Ext = &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)}
+		}
 	}
-	if gs.GrpSpPr != nil && gs.GrpSpPr.Xfrm != nil {
-		gs.GrpSpPr.Xfrm.Off = &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)}
-		gs.GrpSpPr.Xfrm.Ext = &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)}
+
+	// Apply removals surgically, matched by cNvPr id.
+	if len(grp.removedChildIDs) > 0 {
+		removeGroupChildrenByID(gs, grp.removedChildIDs)
+		grp.removedChildIDs = nil
 	}
+
+	// Flush dirty synced children by locating their nodes inside this grpSp.
+	n := grp.syncedChildren
+	if n > len(grp.children) {
+		n = len(grp.children)
+	}
+	for i := 0; i < n; i++ {
+		if child := grp.children[i]; shapeDirty(child) {
+			s.flushGroupChild(gs, child, spTree)
+		}
+	}
+
+	// Append children added via AddChild, with slide-wide unique ids.
+	if len(grp.children) > n {
+		id := spTree.MaxShapeID()
+		alloc := func() uint32 { id++; return id }
+		for _, child := range grp.children[n:] {
+			s.appendGroupChild(gs, child, alloc)
+		}
+	}
+	grp.syncedChildren = len(grp.children)
+	grp.childrenModified = false
+}
+
+// flushGroupChild updates the parsed node of a dirty group child in place,
+// locating it among the group's children of the matching kind by cNvPr id.
+// Children without a recorded id (never written) are skipped — they are
+// handled by the append path.
+func (s *Slide) flushGroupChild(gs *oxml.GroupShape, child Shape, spTree *oxml.ShapeTree) {
+	base := baseShapeOf(child)
+	if base == nil || base.sourceID == 0 {
+		return
+	}
+	switch sh := child.(type) {
+	case *TextBox, *PlaceholderShape, *AutoShape:
+		for _, sp := range gs.Shapes {
+			if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && sp.NvSpPr.CNvPr.Id == base.sourceID {
+				updateShapeNode(sp, child)
+				return
+			}
+		}
+	case *Picture, *Video, *Audio:
+		for _, pic := range gs.Pictures {
+			if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil && pic.NvPicPr.CNvPr.Id == base.sourceID {
+				updatePictureNode(pic, child)
+				s.flushMediaShapeProps(pic, child)
+				return
+			}
+		}
+	case *Table:
+		for _, gf := range gs.GraphicFrames {
+			if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && gf.NvGraphicFramePr.CNvPr.Id == base.sourceID {
+				updateGraphicFrameNode(gf, sh)
+				return
+			}
+		}
+	case *GroupShape:
+		for _, sub := range gs.GroupShapes {
+			if sub.NvGrpSpPr != nil && sub.NvGrpSpPr.CNvPr != nil && sub.NvGrpSpPr.CNvPr.Id == base.sourceID {
+				s.updateGroupNode(sub, sh, spTree)
+				return
+			}
+		}
+	}
+}
+
+// removeGroupChildrenByID deletes the group children whose cNvPr ids are in
+// ids, preserving all other children in order.
+func removeGroupChildrenByID(gs *oxml.GroupShape, ids []uint32) {
+	var refs []oxml.ChildRef
+	for _, id := range ids {
+		if ref, ok := groupChildRefByID(gs, id); ok {
+			refs = append(refs, ref)
+		}
+	}
+	gs.RemoveChildren(refs)
+}
+
+// groupChildRefByID locates a direct child of the group by its cNvPr id.
+func groupChildRefByID(gs *oxml.GroupShape, id uint32) (oxml.ChildRef, bool) {
+	for i, sp := range gs.Shapes {
+		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && sp.NvSpPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildSp, Index: i}, true
+		}
+	}
+	for i, pic := range gs.Pictures {
+		if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil && pic.NvPicPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildPic, Index: i}, true
+		}
+	}
+	for i, gf := range gs.GraphicFrames {
+		if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && gf.NvGraphicFramePr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: i}, true
+		}
+	}
+	for i, sub := range gs.GroupShapes {
+		if sub.NvGrpSpPr != nil && sub.NvGrpSpPr.CNvPr != nil && sub.NvGrpSpPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i}, true
+		}
+	}
+	return oxml.ChildRef{Index: -1}, false
+}
+
+// appendGroupChild marshals a child added via GroupShape.AddChild into the
+// parsed p:grpSp, assigning it the next slide-wide unique id and recording it
+// as the child's node identity for later in-place edits and removals.
+func (s *Slide) appendGroupChild(gs *oxml.GroupShape, child Shape, alloc func() uint32) {
+	switch sh := child.(type) {
+	case *TextBox:
+		id := alloc()
+		gs.AppendSp(textBoxToOxml(sh, id))
+		sh.sourceID = id
+	case *PlaceholderShape:
+		id := alloc()
+		gs.AppendSp(placeholderToOxml(sh, id))
+		sh.sourceID = id
+	case *AutoShape:
+		id := alloc()
+		gs.AppendSp(autoShapeToOxml(sh, id))
+		sh.sourceID = id
+	case *Table:
+		id := alloc()
+		gf := tableToOxml(sh, id)
+		gs.AppendGraphicFrame(gf)
+		sh.sourceFrame = gf
+		sh.sourceID = id
+	case *Picture:
+		id := alloc()
+		if len(sh.imageData) > 0 {
+			sh.relID = s.embedImageData(sh.imageData, sh.contentType)
+			sh.imageData = nil
+			sh.imagePath = ""
+		}
+		pic := pictureToOxml(sh, id)
+		if len(sh.svgData) > 0 {
+			sh.svgRelID = s.embedImageData(sh.svgData, sh.svgContentType)
+			setBlipSVGExtension(pic.BlipFill.Blip, sh.svgRelID)
+			sh.svgData = nil
+			sh.svgContentType = ""
+		}
+		gs.AppendPic(pic)
+		sh.sourceID = id
+	case *Video:
+		id := alloc()
+		gs.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+		sh.sourceID = id
+	case *Audio:
+		id := alloc()
+		gs.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
+		sh.sourceID = id
+	case *GroupShape:
+		gs.AppendGrpSp(s.buildGroupNode(sh, alloc))
+	}
+}
+
+// buildGroupNode marshals an API-created GroupShape (added to a loaded group
+// via AddChild) into a p:grpSp node, recursing into its children. The child
+// coordinate space is seeded from the group's own frame.
+func (s *Slide) buildGroupNode(grp *GroupShape, alloc func() uint32) *oxml.GroupShape {
+	name := grp.Name()
+	if name == "" {
+		name = "Group"
+	}
+	id := alloc()
+	node := &oxml.GroupShape{
+		NvGrpSpPr: &oxml.NvGrpSpPr{
+			CNvPr:      &dml.CNvPr{Id: id, Name: name},
+			CNvGrpSpPr: &dml.CNvGrpSpPr{},
+			NvPr:       &oxml.NvPr{},
+		},
+		GrpSpPr: &oxml.GrpSpPr{Xfrm: &dml.GrpXfrm{
+			Off:   &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)},
+			Ext:   &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)},
+			ChOff: &dml.OffXML{X: int64(grp.x), Y: int64(grp.y)},
+			ChExt: &dml.ExtXML{Cx: int64(grp.width), Cy: int64(grp.height)},
+		}},
+	}
+	grp.sourceID = id
+	grp.sourceGrp = node
+	for _, child := range grp.children {
+		s.appendGroupChild(node, child, alloc)
+	}
+	grp.syncedChildren = len(grp.children)
+	grp.childrenModified = false
+	return node
 }

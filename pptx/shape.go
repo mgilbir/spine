@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"github.com/mgilbir/spine/common/dml"
+	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
 // Shape is the interface implemented by all shape types.
@@ -85,6 +86,36 @@ type BaseShape struct {
 	// place (see syncDirtyShapes); without the flag those edits would be
 	// silently dropped, since parsed trees are never rebuilt wholesale.
 	dirty bool
+
+	// sourceID is the cNvPr id of the node this shape was materialized from
+	// (0 for API-created shapes until they are first written). cNvPr ids are
+	// slide-wide unique and stable across save cycles, so they identify the
+	// exact node to update — in particular inside group shapes, where slice
+	// indices shift as siblings come and go.
+	sourceID uint32
+}
+
+// baseShapeOf returns the embedded BaseShape of any concrete shape type.
+func baseShapeOf(shape Shape) *BaseShape {
+	switch sh := shape.(type) {
+	case *TextBox:
+		return &sh.BaseShape
+	case *PlaceholderShape:
+		return &sh.BaseShape
+	case *AutoShape:
+		return &sh.BaseShape
+	case *Picture:
+		return &sh.BaseShape
+	case *Video:
+		return &sh.BaseShape
+	case *Audio:
+		return &sh.BaseShape
+	case *Table:
+		return &sh.BaseShape
+	case *GroupShape:
+		return &sh.BaseShape
+	}
+	return nil
 }
 
 // Name returns the name of the shape.
@@ -180,6 +211,21 @@ func (t *TextBox) Text() string {
 type GroupShape struct {
 	BaseShape
 	children []Shape
+
+	// sourceGrp is the parsed p:grpSp node this group was materialized from
+	// (nil for API-created groups). Child edits, additions, and removals are
+	// flushed into it at sync time.
+	sourceGrp *oxml.GroupShape
+	// syncedChildren counts the leading children already represented in
+	// sourceGrp; children beyond it were added via AddChild and are appended
+	// to the parsed node on the next sync.
+	syncedChildren int
+	// removedChildIDs collects the cNvPr ids of removed synced children,
+	// applied surgically at sync time (id-matched: slice indices shift).
+	removedChildIDs []uint32
+	// childrenModified is set when children were added or removed via the
+	// API, so the dirty scan flushes the group even when no child is dirty.
+	childrenModified bool
 }
 
 // NewGroupShape creates a new group shape.
@@ -199,19 +245,49 @@ func (g *GroupShape) Children() []Shape {
 	return g.children
 }
 
-// AddChild adds a shape to the group.
+// AddChild adds a shape to the group. On a group loaded from a file the
+// child is appended to the parsed p:grpSp on save, with a fresh slide-wide
+// unique id; its position and size are interpreted in the group's child
+// coordinate space (chOff/chExt).
 func (g *GroupShape) AddChild(shape Shape) {
 	g.children = append(g.children, shape)
+	g.childrenModified = true
 }
 
-// RemoveChild removes a shape from the group.
+// RemoveChild removes a shape from the group. On a group loaded from a file
+// the child's parsed node is deleted surgically from the p:grpSp on save;
+// other children (including kinds the domain model does not represent) are
+// preserved.
 func (g *GroupShape) RemoveChild(shape Shape) {
 	for i, child := range g.children {
-		if child == shape {
-			g.children = append(g.children[:i], g.children[i+1:]...)
-			return
+		if child != shape {
+			continue
+		}
+		if i < g.syncedChildren {
+			if base := baseShapeOf(child); base != nil && base.sourceID != 0 {
+				g.removedChildIDs = append(g.removedChildIDs, base.sourceID)
+			}
+			g.syncedChildren--
+		}
+		g.children = append(g.children[:i], g.children[i+1:]...)
+		g.childrenModified = true
+		return
+	}
+}
+
+// isDirty reports whether the group carries unflushed mutations: its own
+// frame, structural child changes, or edits to any (transitively nested)
+// child shape.
+func (g *GroupShape) isDirty() bool {
+	if g.dirty || g.childrenModified || len(g.removedChildIDs) > 0 {
+		return true
+	}
+	for _, child := range g.children {
+		if shapeDirty(child) {
+			return true
 		}
 	}
+	return false
 }
 
 // AutoShape represents a preset geometric shape.
