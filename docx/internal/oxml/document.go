@@ -97,7 +97,21 @@ const (
 	bodyChildSdt
 	bodyChildBookmarkStart
 	bodyChildBookmarkEnd
+	bodyChildRaw
 )
+
+// isRawBodyChild reports whether a block-level child element the model does
+// not type must be preserved verbatim instead of skipped: w:altChunk (imported
+// external content reference), block-level w:customXml (whose paragraphs would
+// otherwise lose their text), and the tracked-move range markers.
+func isRawBodyChild(local string) bool {
+	switch local {
+	case "altChunk", "customXml",
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		return true
+	}
+	return false
+}
 
 // bodyChildRef references a body child element.
 type bodyChildRef struct {
@@ -112,7 +126,9 @@ type CT_Body struct {
 	SdtBlock      []*CT_SdtBlock      `xml:"-"`
 	BookmarkStart []*CT_BookmarkStart  `xml:"-"`
 	BookmarkEnd   []*CT_BookmarkEnd    `xml:"-"`
-	SectPr        *CT_SectPr          `xml:"-"`
+	// Raw holds block-level children preserved verbatim (see isRawBodyChild).
+	Raw    []*CT_RawNamedElement `xml:"-"`
+	SectPr *CT_SectPr            `xml:"-"`
 	childOrder    []bodyChildRef
 }
 
@@ -132,7 +148,7 @@ func (body *CT_Body) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 					return err
 				}
 			default:
-				if err := unmarshalBodyChild(d, &t, &body.P, &body.Tbl, &body.SdtBlock, &body.BookmarkStart, &body.BookmarkEnd, &body.childOrder); err != nil {
+				if err := unmarshalBodyChild(d, &t, &body.P, &body.Tbl, &body.SdtBlock, &body.BookmarkStart, &body.BookmarkEnd, &body.Raw, &body.childOrder); err != nil {
 					return err
 				}
 			}
@@ -145,7 +161,7 @@ func (body *CT_Body) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Body.
 func (body *CT_Body) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
-	marshalBodyContent(b, ns, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.childOrder)
+	marshalBodyContent(b, ns, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.Raw, body.childOrder)
 	if body.SectPr != nil {
 		body.SectPr.MarshalToBuilder(b, ns, "sectPr")
 	}
@@ -161,6 +177,7 @@ func (body *CT_Body) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 func backfillBodyChildOrder(childOrder *[]bodyChildRef,
 	p []*CT_P, tbl []*CT_Tbl, sdtBlock []*CT_SdtBlock,
 	bookmarkStart []*CT_BookmarkStart, bookmarkEnd []*CT_BookmarkEnd,
+	raw []*CT_RawNamedElement,
 ) {
 	if len(*childOrder) > 0 {
 		return
@@ -179,6 +196,9 @@ func backfillBodyChildOrder(childOrder *[]bodyChildRef,
 	}
 	for i := range bookmarkEnd {
 		*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkEnd, i})
+	}
+	for i := range raw {
+		*childOrder = append(*childOrder, bodyChildRef{bodyChildRaw, i})
 	}
 }
 
@@ -201,14 +221,76 @@ func appendBodyTbl(tbl *[]*CT_Tbl, childOrder *[]bodyChildRef, t *CT_Tbl) {
 
 // AppendP appends a paragraph to the document body, maintaining child order.
 func (body *CT_Body) AppendP(p *CT_P) {
-	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.Raw)
 	appendBodyP(&body.P, &body.childOrder, p)
 }
 
 // AppendTbl appends a table to the document body, maintaining child order.
 func (body *CT_Body) AppendTbl(t *CT_Tbl) {
-	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.Raw)
 	appendBodyTbl(&body.Tbl, &body.childOrder, t)
+}
+
+// Paragraphs returns the body's paragraphs in document order, including
+// paragraphs nested in body-level structured document tags — the read API
+// otherwise under-reports SDT-wrapped content.
+func (body *CT_Body) Paragraphs() []*CT_P {
+	if len(body.childOrder) == 0 {
+		result := append([]*CT_P{}, body.P...)
+		for _, s := range body.SdtBlock {
+			result = append(result, s.contentParagraphs()...)
+		}
+		return result
+	}
+	var result []*CT_P
+	for _, ref := range body.childOrder {
+		switch ref.kind {
+		case bodyChildP:
+			if ref.index < len(body.P) {
+				result = append(result, body.P[ref.index])
+			}
+		case bodyChildSdt:
+			if ref.index < len(body.SdtBlock) {
+				result = append(result, body.SdtBlock[ref.index].contentParagraphs()...)
+			}
+		}
+	}
+	return result
+}
+
+// LastBlockParagraph returns the last block-level child of the body if that
+// child is a paragraph, and nil otherwise (body empty, or ends with a table,
+// SDT, or raw-preserved block). Bookmark markers are not blocks and are
+// skipped. AddSectionBreak uses this to decide whether the closing sectPr can
+// be attached to the existing final paragraph or a new one must be appended.
+func (body *CT_Body) LastBlockParagraph() *CT_P {
+	if len(body.childOrder) == 0 {
+		// Untracked body: paragraphs and tables cannot be interleaved, and the
+		// fallback marshal writes tables after paragraphs, so the last block is
+		// a paragraph only when there are no tables or other blocks.
+		if len(body.Tbl) > 0 || len(body.SdtBlock) > 0 || len(body.Raw) > 0 {
+			return nil
+		}
+		if n := len(body.P); n > 0 {
+			return body.P[n-1]
+		}
+		return nil
+	}
+	for i := len(body.childOrder) - 1; i >= 0; i-- {
+		ref := body.childOrder[i]
+		switch ref.kind {
+		case bodyChildBookmarkStart, bodyChildBookmarkEnd:
+			continue
+		case bodyChildP:
+			if ref.index < len(body.P) {
+				return body.P[ref.index]
+			}
+			return nil
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 // appendBodySdt appends a block-level SDT to a body-level container, recording
@@ -221,7 +303,7 @@ func appendBodySdt(sdt *[]*CT_SdtBlock, childOrder *[]bodyChildRef, s *CT_SdtBlo
 // AppendSdtBlock appends a block-level structured document tag to the document
 // body, maintaining child order.
 func (body *CT_Body) AppendSdtBlock(s *CT_SdtBlock) {
-	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd)
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.Raw)
 	appendBodySdt(&body.SdtBlock, &body.childOrder, s)
 }
 
@@ -230,6 +312,7 @@ func (body *CT_Body) AppendSdtBlock(s *CT_SdtBlock) {
 func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 	p *[]*CT_P, tbl *[]*CT_Tbl, sdtBlock *[]*CT_SdtBlock,
 	bookmarkStart *[]*CT_BookmarkStart, bookmarkEnd *[]*CT_BookmarkEnd,
+	raw *[]*CT_RawNamedElement,
 	childOrder *[]bodyChildRef,
 ) error {
 	switch t.Name.Local {
@@ -287,6 +370,15 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			}
 		}
 	default:
+		if raw != nil && isRawBodyChild(t.Name.Local) {
+			v := &CT_RawNamedElement{}
+			if err := d.DecodeElement(v, t); err != nil {
+				return err
+			}
+			*childOrder = append(*childOrder, bodyChildRef{bodyChildRaw, len(*raw)})
+			*raw = append(*raw, v)
+			return nil
+		}
 		if err := d.Skip(); err != nil {
 			return err
 		}
@@ -298,6 +390,7 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 func marshalBodyContent(b *xmlb.Builder, ns string,
 	p []*CT_P, tbl []*CT_Tbl, sdtBlock []*CT_SdtBlock,
 	bookmarkStart []*CT_BookmarkStart, bookmarkEnd []*CT_BookmarkEnd,
+	raw []*CT_RawNamedElement,
 	childOrder []bodyChildRef,
 ) {
 	if len(childOrder) > 0 {
@@ -322,6 +415,10 @@ func marshalBodyContent(b *xmlb.Builder, ns string,
 			case bodyChildBookmarkEnd:
 				if ref.index < len(bookmarkEnd) {
 					b.MarshalElement(ns, "bookmarkEnd", bookmarkEnd[ref.index])
+				}
+			case bodyChildRaw:
+				if ref.index < len(raw) {
+					raw[ref.index].MarshalNamed(b, ns)
 				}
 			}
 		}

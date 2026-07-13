@@ -27,6 +27,7 @@ type CT_Hyperlink struct {
 	Del            []*CT_RunTrackChange `xml:"-"`
 	FldSimple      []*CT_SimpleField    `xml:"-"`
 	SdtRun         []*CT_SdtRun         `xml:"-"`
+	Raw            []*CT_RawNamedElement `xml:"-"`
 	childOrder     []pChildRef
 }
 
@@ -52,7 +53,7 @@ func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	}
 
 	return unmarshalPContent(d, &h.R, &h.Hyperlink, &h.BookmarkStart, &h.BookmarkEnd,
-		&h.ProofErr, &h.PermStart, &h.PermEnd, &h.Ins, &h.Del, &h.FldSimple, &h.SdtRun, &h.childOrder)
+		&h.ProofErr, &h.PermStart, &h.PermEnd, &h.Ins, &h.Del, &h.FldSimple, &h.SdtRun, &h.Raw, &h.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Hyperlink.
@@ -78,7 +79,7 @@ func (h *CT_Hyperlink) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, h.R, h.Hyperlink, h.BookmarkStart, h.BookmarkEnd,
-		h.ProofErr, h.PermStart, h.PermEnd, h.Ins, h.Del, h.FldSimple, h.SdtRun, h.childOrder)
+		h.ProofErr, h.PermStart, h.PermEnd, h.Ins, h.Del, h.FldSimple, h.SdtRun, h.Raw, h.childOrder)
 	b.EndElement(ns, localName)
 }
 
@@ -94,6 +95,7 @@ type CT_SimpleField struct {
 	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
 	ProofErr      []*CT_ProofErr      `xml:"-"`
 	FldSimple     []*CT_SimpleField   `xml:"-"`
+	Raw           []*CT_RawNamedElement `xml:"-"`
 	childOrder    []pChildRef
 }
 
@@ -111,7 +113,7 @@ func (f *CT_SimpleField) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 	}
 
 	return unmarshalPContent(d, &f.R, &f.Hyperlink, &f.BookmarkStart, &f.BookmarkEnd,
-		&f.ProofErr, nil, nil, nil, nil, &f.FldSimple, nil, &f.childOrder)
+		&f.ProofErr, nil, nil, nil, nil, &f.FldSimple, nil, &f.Raw, &f.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SimpleField.
@@ -126,7 +128,7 @@ func (f *CT_SimpleField) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, f.R, f.Hyperlink, f.BookmarkStart, f.BookmarkEnd,
-		f.ProofErr, nil, nil, nil, nil, f.FldSimple, nil, f.childOrder)
+		f.ProofErr, nil, nil, nil, nil, f.FldSimple, nil, f.Raw, f.childOrder)
 	b.EndElement(ns, localName)
 }
 

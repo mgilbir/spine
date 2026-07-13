@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -19,8 +20,14 @@ type Document struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader           *opc.ReadCloser
-	document         *oxml.CT_Document
+	reader   *opc.ReadCloser
+	document *oxml.CT_Document
+	// mainPartName is the resolved name of the main document part from the
+	// package root relationships (usually /word/document.xml, but e.g.
+	// /word/document2.xml occurs in the wild). The save paths regenerate THIS
+	// part; hardcoding /word/document.xml would preserve the stale original
+	// and silently drop every edit.
+	mainPartName     string
 	styles           *oxml.CT_Styles
 	numbering        *oxml.CT_Numbering
 	settings         *oxml.CT_Settings
@@ -39,12 +46,27 @@ type Document struct {
 	nextRelIDVal     int                       // counter for relationship IDs
 	newHeaderParts   []*hdrFtrPart             // new headers to be written
 	newFooterParts   []*hdrFtrPart             // new footers to be written
+	// numberingModified / settingsModified record that the session changed the
+	// numbering or settings model, so the round-trip save regenerates that part
+	// (with its relationship and content-type override) instead of writing the
+	// preserved original bytes.
+	numberingModified bool
+	settingsModified  bool
 }
 
-// mainDocumentPart is the part name of the main document part. Image
-// relationships default to this scope unless the image is placed in a
-// header/footer part.
+// mainDocumentPart is the default name of the main document part. Image
+// relationships default to the main-part scope unless the image is placed in
+// a header/footer part.
 const mainDocumentPart = "/word/document.xml"
+
+// mainPart returns the name of the main document part: the one resolved from
+// the root relationships at open, or the default for created documents.
+func (d *Document) mainPart() string {
+	if d.mainPartName != "" {
+		return d.mainPartName
+	}
+	return mainDocumentPart
+}
 
 // headerPart stores a parsed header.
 type headerPart struct {
@@ -113,6 +135,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	d := &Document{
 		reader:         reader,
 		document:       &doc,
+		mainPartName:   mainPartName,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
 		otherParts:     make(map[string]*coxml.RawPart),
@@ -260,6 +283,7 @@ func Create() *Document {
 
 	return &Document{
 		document:       doc,
+		mainPartName:   mainDocumentPart,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
 		otherParts:     make(map[string]*coxml.RawPart),
@@ -348,33 +372,49 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write all preserved parts except document.xml (which is regenerated),
-	// core.xml (handled above), and .rels files (handled separately)
-	mainPartName := "/word/document.xml"
-	for name, part := range d.preservedParts {
+	// Write all preserved parts except the main document part (which is
+	// regenerated), core.xml (handled above), and .rels files (handled
+	// separately). Names are sorted so the zip entry order is deterministic
+	// across saves and processes instead of following map iteration order.
+	mainPartName := d.mainPart()
+	mainRelsName := opc.GetRelationshipsPartName(mainPartName)
+	preservedNames := make([]string, 0, len(d.preservedParts))
+	for name := range d.preservedParts {
+		preservedNames = append(preservedNames, name)
+	}
+	sort.Strings(preservedNames)
+	for _, name := range preservedNames {
 		if name == mainPartName {
 			continue
 		}
 		if name == "/docProps/core.xml" {
 			continue
 		}
+		// Regenerated below from the (possibly extended) parsed model.
+		if name == "/word/numbering.xml" && d.numberingModified {
+			continue
+		}
+		if name == "/word/settings.xml" && d.settingsModified {
+			continue
+		}
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
-		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}
 
-	// Write all .rels files from preserved parts (except document.xml.rels which is regenerated)
-	for name, part := range d.preservedParts {
+	// Write all .rels files from preserved parts (except the main part's rels,
+	// which are regenerated).
+	for _, name := range preservedNames {
 		if !strings.HasSuffix(name, ".rels") {
 			continue
 		}
-		if name == "/word/_rels/document.xml.rels" {
+		if name == mainRelsName {
 			continue
 		}
-		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
+		if err := writer.WritePart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
 	}
@@ -384,12 +424,23 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		return err
 	}
 
-	// Write document.xml (regenerated)
+	// Write the numbering/settings parts when the session modified them, and
+	// make sure document.xml carries a relationship to each. A document opened
+	// without the part gets a fresh part, relationship, and content-type
+	// override; one that already had it gets the parsed-and-extended content
+	// in place of the preserved bytes.
+	if err := d.writeModifiedMetadataParts(writer); err != nil {
+		return err
+	}
+
+	// Write the main document part (regenerated) under its resolved name:
+	// writing to a hardcoded /word/document.xml while the package's root
+	// relationship points elsewhere would orphan the edits.
 	docData, err := marshalDocumentXML(d.document)
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart("/word/document.xml", opc.ContentTypeDocument, docData); err != nil {
+	if err := writer.WritePart(mainPartName, opc.ContentTypeDocument, docData); err != nil {
 		return err
 	}
 
@@ -399,7 +450,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "word/document.xml", opc.TargetModeInternal); err != nil {
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, strings.TrimPrefix(mainPartName, "/"), opc.TargetModeInternal); err != nil {
 		return err
 	}
 
@@ -463,14 +514,66 @@ func (d *Document) writeHdrFtrRelationships(writer *opc.Writer, partName string)
 	return writer.WritePartRelationships(partName, rels)
 }
 
-// hasAddedParts reports whether any parts were added through the mutation API.
+// writeModifiedMetadataParts regenerates the numbering and settings parts on
+// the round-trip path when the session modified them, registering the
+// document.xml relationship if the opened package did not already carry one.
+func (d *Document) writeModifiedMetadataParts(writer *opc.Writer) error {
+	if d.numberingModified && d.numbering != nil {
+		data, err := marshalNumberingXML(d.numbering)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeNumbering, "numbering.xml")
+	}
+	if d.settingsModified && d.settings != nil {
+		data, err := marshalSettingsXML(d.settings)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeSettings, "settings.xml")
+	}
+	return nil
+}
+
+// ensureDocRelationship adds a document.xml relationship of the given type
+// unless one already exists.
+func (d *Document) ensureDocRelationship(relType, target string) {
+	for _, rel := range d.relationships[d.mainPart()] {
+		if rel.Type == relType {
+			return
+		}
+	}
+	d.addDocRelationship(&opc.Relationship{
+		ID:     fmt.Sprintf("rId%d", d.nextRelID()),
+		Type:   relType,
+		Target: target,
+	})
+}
+
+// hasAddedParts reports whether the mutation API added parts or modified a
+// metadata part, requiring [Content_Types].xml to be regenerated so the new
+// parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
-	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0
+	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
+		d.numberingModified || d.settingsModified
 }
 
 // saveNew saves a newly created document.
 func (d *Document) saveNew(writer *opc.Writer) error {
 	writer.Properties = &d.Properties
+
+	// A created document always gets a styles part: AddHeading references
+	// "Heading1".."Heading9", which would otherwise be undefined and render as
+	// plain text.
+	if d.styles == nil {
+		d.styles = defaultStyles()
+	}
 
 	// Write document.xml
 	docData, err := marshalDocumentXML(d.document)
@@ -516,6 +619,23 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		})
 	}
 
+	// Write settings (created when the API needs a document-level flag, e.g.
+	// evenAndOddHeaders for even headers/footers).
+	if d.settings != nil {
+		data, err := marshalSettingsXML(d.settings)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
+			return err
+		}
+		docRels = append(docRels, &opc.Relationship{
+			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
+			Type:   opc.RelTypeSettings,
+			Target: "settings.xml",
+		})
+	}
+
 	// Write the media/header/footer parts, then record their relationships.
 	if err := d.writeAddedParts(writer); err != nil {
 		return err
@@ -523,7 +643,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	for _, img := range d.imageParts {
 		// Images placed in a header/footer paragraph are related from that
 		// part's own rels (written in writeAddedParts), not from document.xml.
-		if img.owner != mainDocumentPart {
+		if img.owner != d.mainPart() {
 			continue
 		}
 		docRels = append(docRels, &opc.Relationship{
@@ -559,28 +679,24 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	return nil
 }
 
-// writeDocumentRelationships writes the document.xml.rels file.
+// writeDocumentRelationships writes the main document part's .rels file.
 func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
-	rels, ok := d.relationships["/word/document.xml"]
+	rels, ok := d.relationships[d.mainPart()]
 	if !ok || len(rels) == 0 {
 		return nil
 	}
-
-	data, err := opc.MarshalRelationships(rels)
-	if err != nil {
-		return err
-	}
-
-	return writer.WritePart("/word/_rels/document.xml.rels", opc.ContentTypeRelationships, data)
+	return writer.WritePartRelationships(d.mainPart(), rels)
 }
 
-// Paragraphs returns all paragraphs in the document body.
+// Paragraphs returns all paragraphs in the document body in document order,
+// including paragraphs wrapped in body-level structured document tags.
 func (d *Document) Paragraphs() []*Paragraph {
 	if d.document == nil || d.document.Body == nil {
 		return nil
 	}
-	result := make([]*Paragraph, len(d.document.Body.P))
-	for i, p := range d.document.Body.P {
+	paras := d.document.Body.Paragraphs()
+	result := make([]*Paragraph, len(paras))
+	for i, p := range paras {
 		result[i] = &Paragraph{document: d, p: p}
 	}
 	return result
@@ -638,7 +754,7 @@ func (d *Document) Tables() []*Table {
 	}
 	result := make([]*Table, len(d.document.Body.Tbl))
 	for i, tbl := range d.document.Body.Tbl {
-		result[i] = &Table{tbl: tbl}
+		result[i] = &Table{document: d, tbl: tbl}
 	}
 	return result
 }
@@ -669,7 +785,7 @@ func (d *Document) AddTable(rows, cols int) *Table {
 		tbl.AppendRow(tr)
 	}
 	d.document.Body.AppendTbl(tbl)
-	return &Table{tbl: tbl}
+	return &Table{document: d, tbl: tbl}
 }
 
 // nextRelID returns the next available relationship ID number.
@@ -679,7 +795,7 @@ func (d *Document) nextRelID() int {
 		// often non-contiguous after Word edits (e.g. rId1, rId3), so seeding
 		// from the count would collide with an existing id.
 		max := 0
-		for _, rel := range d.relationships["/word/document.xml"] {
+		for _, rel := range d.relationships[d.mainPart()] {
 			if n := relIDNumber(rel.ID); n > max {
 				max = n
 			}
@@ -711,6 +827,10 @@ func (d *Document) nextImageNumber() int {
 	used := make(map[int]bool)
 	mark := func(name string) {
 		const prefix = "/word/media/image"
+		// OPC part names are case-insensitive: /word/media/IMAGE1.PNG occupies
+		// the same name as image1.png, so match case-insensitively or the
+		// generated name would collide at save time.
+		name = strings.ToLower(name)
 		if !strings.HasPrefix(name, prefix) {
 			return
 		}
@@ -771,9 +891,10 @@ func (d *Document) nextHdrFtrPartName(kind string) string {
 	}
 }
 
-// addDocRelationship adds a relationship to the document.xml relationships.
+// addDocRelationship adds a relationship to the main document part's
+// relationships.
 func (d *Document) addDocRelationship(rel *opc.Relationship) {
-	d.addPartRelationship(mainDocumentPart, rel)
+	d.addPartRelationship(d.mainPart(), rel)
 }
 
 // addPartRelationship adds a relationship to the given source part's
@@ -785,10 +906,11 @@ func (d *Document) addPartRelationship(partName string, rel *opc.Relationship) {
 // removeDocRelationship removes the document.xml relationship with the given
 // ID, if present.
 func (d *Document) removeDocRelationship(relID string) {
-	rels := d.relationships[mainDocumentPart]
+	main := d.mainPart()
+	rels := d.relationships[main]
 	for i, rel := range rels {
 		if rel.ID == relID {
-			d.relationships[mainDocumentPart] = append(rels[:i], rels[i+1:]...)
+			d.relationships[main] = append(rels[:i], rels[i+1:]...)
 			return
 		}
 	}
@@ -839,7 +961,10 @@ func (d *Document) DefaultSection() *Section {
 }
 
 // AddSectionBreak adds a section break by setting section properties on the
-// last paragraph and creating a new default section.
+// last block-level paragraph and creating a new default section. When the
+// body's last block is not a paragraph (e.g. the document ends with a table),
+// a new paragraph is appended after it to carry the section properties —
+// attaching them to an earlier paragraph would move the section boundary.
 func (d *Document) AddSectionBreak() *Section {
 	if d.document.Body == nil {
 		d.document.Body = &oxml.CT_Body{}
@@ -851,12 +976,11 @@ func (d *Document) AddSectionBreak() *Section {
 		oldSectPr = &oxml.CT_SectPr{}
 	}
 
-	// Ensure there's at least one paragraph to attach the section break to
-	if len(d.document.Body.P) == 0 {
-		d.AddParagraph()
+	lastP := d.document.Body.LastBlockParagraph()
+	if lastP == nil {
+		lastP = &oxml.CT_P{}
+		d.document.Body.AppendP(lastP)
 	}
-
-	lastP := d.document.Body.P[len(d.document.Body.P)-1]
 	if lastP.PPr == nil {
 		lastP.PPr = &oxml.CT_PPr{}
 	}

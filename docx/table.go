@@ -27,7 +27,11 @@ type CellBorders struct {
 
 // Table represents a table in a Word document.
 type Table struct {
-	tbl *oxml.CT_Tbl
+	// document is the owning document, propagated to rows, cells, and cell
+	// paragraphs so document-scoped operations (e.g. adding an image to a run
+	// in a table cell) can register parts and relationships.
+	document *Document
+	tbl      *oxml.CT_Tbl
 }
 
 // Rows returns all rows in the table.
@@ -176,20 +180,29 @@ type TableCell struct {
 	tc  *oxml.CT_Tc
 }
 
+// document returns the owning document (nil for a detached table).
+func (tc *TableCell) document() *Document {
+	if tc.row == nil || tc.row.table == nil {
+		return nil
+	}
+	return tc.row.table.document
+}
+
 // Paragraphs returns all paragraphs in the cell.
 func (tc *TableCell) Paragraphs() []*Paragraph {
 	result := make([]*Paragraph, len(tc.tc.P))
 	for i, p := range tc.tc.P {
-		result[i] = &Paragraph{p: p}
+		result[i] = &Paragraph{document: tc.document(), p: p}
 	}
 	return result
 }
 
-// AddParagraph adds a new paragraph to the cell.
+// AddParagraph adds a new paragraph to the cell. The paragraph carries the
+// document backref, so runs created in it can add images end-to-end.
 func (tc *TableCell) AddParagraph() *Paragraph {
 	p := &oxml.CT_P{}
 	tc.tc.AppendP(p)
-	return &Paragraph{p: p}
+	return &Paragraph{document: tc.document(), p: p}
 }
 
 // Text returns the text content of the cell.

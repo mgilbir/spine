@@ -32,6 +32,10 @@ type InlineImage struct {
 	altText   string
 	drawingID uint32
 	run       *Run
+	// drawing is the w:drawing element this handle was created for. Updates
+	// are applied to it directly: matching by position in the run would let a
+	// handle for the second image overwrite the first one's drawing.
+	drawing *oxml.CT_Drawing
 
 	floating bool
 	anchor   Anchor
@@ -65,16 +69,12 @@ func (img *InlineImage) SetAltText(text string) {
 }
 
 func (img *InlineImage) updateDrawingXML() {
-	if img.run == nil {
+	if img.drawing == nil {
 		return
 	}
-	// Find and update the drawing in the run.
-	for _, d := range img.run.r.Drawing {
-		if d.RawContent != nil {
-			d.RawContent = img.buildDrawingXML()
-			return
-		}
-	}
+	// Regenerate the drawing this handle owns (inline or anchored); other
+	// drawings in the same run are untouched.
+	img.drawing.RawContent = img.buildDrawingXML()
 }
 
 // pointsToEMU converts points to EMU (914400 EMU per inch, 72 pt per inch).
@@ -305,7 +305,7 @@ func (r *Run) ownerPart() string {
 	if r.paragraph.hfPart != "" {
 		return r.paragraph.hfPart
 	}
-	return mainDocumentPart
+	return r.paragraph.document.mainPart()
 }
 
 // registerImagePart stores an image part and registers its relationship in
@@ -365,7 +365,12 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 		floating:  floating,
 		anchor:    anchor,
 	}
-	r.r.AppendDrawing(&oxml.CT_Drawing{RawContent: img.buildDrawingXML()})
+	// Add drawing element to run and bind the handle to it, so later
+	// SetSize/SetAltText calls update this drawing and not another one in the
+	// same run (C25).
+	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
+	img.drawing = drawing
+	r.r.AppendDrawing(drawing)
 	return img, nil
 }
 
@@ -403,7 +408,11 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 		floating:  floating,
 		anchor:    anchor,
 	}
-	r.r.AppendDrawing(&oxml.CT_Drawing{RawContent: img.buildDrawingXML()})
+	// Bind the handle to its own drawing (C25), covering anchored drawings
+	// too via buildDrawingXML.
+	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
+	img.drawing = drawing
+	r.r.AppendDrawing(drawing)
 	return img, nil
 }
 
