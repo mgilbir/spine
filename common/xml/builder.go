@@ -117,8 +117,11 @@ func (b *Builder) Finish() error {
 // NewBuilder creates a new XML builder.
 func NewBuilder() *Builder {
 	return &Builder{
-		namespaces:         make(map[string]string),
-		declaredNamespaces: make(map[string]bool),
+		// The xml: prefix is permanently bound to the reserved XML namespace
+		// and must never be declared, so every builder resolves it out of the
+		// box (xml:space="preserve" would otherwise lose its prefix).
+		namespaces:         map[string]string{NSXML: "xml"},
+		declaredNamespaces: map[string]bool{NSXML: true},
 	}
 }
 
@@ -184,12 +187,17 @@ func (b *Builder) SetElementSeparator(sep string) { b.elemSeparator = sep }
 
 // WriteRaw writes raw content directly to the output buffer without escaping.
 func (b *Builder) WriteRaw(data []byte) {
+	// An empty write carries no content, so it must not complete a deferred
+	// start tag: marshal code that unconditionally writes captured raw
+	// content (e.g. an empty w:sdtEndPr) would otherwise defeat the
+	// collapse-empty capture and expand the producer's self-closed element.
+	if len(data) == 0 {
+		return
+	}
 	b.flushOpenTag()
 	b.buf.Write(data)
-	if len(data) > 0 {
-		last := data[len(data)-1]
-		b.trailingWS = last == ' ' || last == '\t' || last == '\n' || last == '\r'
-	}
+	last := data[len(data)-1]
+	b.trailingWS = last == ' ' || last == '\t' || last == '\n' || last == '\r'
 }
 
 // writeSelfClose writes the self-closing tag end ("/>" or " />").

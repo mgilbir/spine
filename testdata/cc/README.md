@@ -33,11 +33,16 @@ sweep.sh  ──►  manifest-{pptx,xlsx,docx}.tsv  ──►  tools/ccfetch  �
    `testdata/corpus/cc/<type>/<sha16>.<type>`. The run is resumable: progress
    is journaled to `testdata/corpus/cc/fetched.tsv` and consulted on restart.
 
-3. **Test** — `go test ./cctest` opens every corpus file, saves it without
+3. **Test** — `go test ./cctest` opens corpus files, saves them without
    modifications, reopens the output, and compares the original and saved
-   packages part by part. When the corpus directory is absent the test skips
-   (same philosophy as the `testdata/external/` fixtures). Set
-   `SPINE_CC_CORPUS` to point at a corpus in a non-default location.
+   packages part by part. By default it checks a fast deterministic subset
+   (the first 60 files per type in sha16 order) so a plain `go test ./...`
+   finishes well inside Go's default 10-minute package timeout; run the
+   complete corpus with `make test-corpus` (which sets `SPINE_CC_FULL=1` and
+   a 45-minute timeout — the full pass needs ~15-20 minutes). When the corpus
+   directory is absent the test skips (same philosophy as the
+   `testdata/external/` fixtures). Set `SPINE_CC_CORPUS` to point at a corpus
+   in a non-default location.
 
 ## Live fetch of truncated candidates
 
@@ -77,9 +82,12 @@ stage are skip-counted; **new** failures fail the test with the file's hash,
 source URL, stage, and error. The quarantine is the running catalog of
 compatibility work: fixing a bug means deleting its rows.
 
-To regenerate quarantine rows after a fix wave, run the corpus test with
-`SPINE_CC_EMIT_QUARANTINE=1` and collect the `CCQUARANTINE` lines from the
-output.
+To regenerate the quarantine after a fix wave, run the full corpus test with
+`SPINE_CC_UPDATE_QUARANTINE=1 go test ./cctest -count=1 -timeout 45m`: the
+committed quarantine is ignored, every failure becomes a fresh row, and
+`known_failures.tsv` is rewritten in place (sorted, ready to commit). The
+older `SPINE_CC_EMIT_QUARANTINE=1` mode still prints `CCQUARANTINE` lines
+for ad-hoc collection.
 
 ## Reproducibility and politeness
 

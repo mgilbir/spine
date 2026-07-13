@@ -41,6 +41,14 @@ type Presentation struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
+	// hasCorePart records that the opened package stored core properties at
+	// /docProps/core.xml; propsSnapshot is Properties as loaded at open, so
+	// the save can tell user edits apart. Together they keep a round-trip
+	// save from synthesizing a core.xml the source never had (e.g. sources
+	// with *.psmdcp core properties or none at all).
+	hasCorePart   bool
+	propsSnapshot *opc.CoreProperties
+
 	slides       []*Slide
 	slideMasters []*SlideMaster
 	slideLayouts []*SlideLayout
@@ -160,10 +168,11 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		dirEntries:      reader.DirectoryEntries,
 	}
 
-	// Copy properties
+	// Copy properties and snapshot them so the save can detect edits.
 	if reader.Properties != nil {
 		p.Properties = *reader.Properties
 	}
+	p.propsSnapshot = p.Properties.Clone()
 
 	// Determine next slide ID and relationship ID
 	if pres.SlideIDs != nil {
@@ -315,7 +324,9 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 			// Already loaded into p.slideLayouts
 			continue
 		case name == "/docProps/core.xml":
-			// Already loaded into p.Properties
+			// Already loaded into p.Properties; the save regenerates it from
+			// there, but only because the source actually had this part.
+			p.hasCorePart = true
 			continue
 		case name == "/docProps/app.xml":
 			p.appPropsData = data
@@ -772,8 +783,13 @@ func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 
 // saveRoundTrip saves a presentation by serializing all parts from the model.
 func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
-	// Set properties
-	writer.Properties = &p.Properties
+	// Set properties, but only when the source package had a
+	// /docProps/core.xml part or the session edited them: synthesizing the
+	// part on a zero-modification save would add a part (and content-type
+	// override) the source never had.
+	if p.hasCorePart || (p.propsSnapshot != nil && !p.Properties.Equal(p.propsSnapshot)) {
+		writer.Properties = &p.Properties
+	}
 
 	// Re-emit the source archive's directory entries (some producers write
 	// them; OPC ignores them but a faithful save keeps the entry listing).
