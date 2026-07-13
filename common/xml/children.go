@@ -102,7 +102,13 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if slot, ok := slots[t.Name]; ok && !(slot.single && seen[slot.field]) {
+			slot, ok := slots[t.Name]
+			if !ok {
+				// A tag without a namespace matches any namespace, mirroring
+				// encoding/xml (xlsx models rely on the parent default ns).
+				slot, ok = slots[xml.Name{Local: t.Name.Local}]
+			}
+			if ok && !(slot.single && seen[slot.field]) {
 				fv := val.Field(slot.field)
 				if slot.single {
 					if err := decodeChildInto(d, &t, fv); err != nil {

@@ -130,6 +130,15 @@ type ctEntry struct {
 	// sep is the raw whitespace preceding this entry in the source
 	// (pretty-printing producers indent each entry).
 	sep string
+	// raw is the verbatim source start tag; replayed while the entry's
+	// content type is unchanged, preserving lexical forms the regenerated
+	// tag cannot (spaces around '=', expanded </Default> close).
+	raw string
+	// expanded records that the source wrote an open/close pair instead of
+	// a self-closing tag.
+	expanded bool
+	// origCT is the content type at parse time, to detect edits.
+	origCT string
 	// space records this entry's self-closing style (" />" vs "/>");
 	// producers mix both forms within one file.
 	space bool
@@ -322,6 +331,14 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 			if contentType, ok := ct.Defaults[e.key]; ok {
 				seenDefault[e.key] = true
 				buf.WriteString(e.sep)
+				if e.raw != "" && contentType == e.origCT {
+					// Verbatim replay of the unchanged source entry.
+					buf.WriteString(e.raw)
+					if e.expanded {
+						buf.WriteString("</Default>")
+					}
+					continue
+				}
 				ct.writeDefault(&buf, e.key, contentType, e.contentTypeFirst, e.space)
 			}
 		} else {
@@ -331,6 +348,14 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 			if contentType, ok := ct.Overrides[e.key]; ok {
 				seenOverride[e.key] = true
 				buf.WriteString(e.sep)
+				if e.raw != "" && contentType == e.origCT {
+					// Verbatim replay of the unchanged source entry.
+					buf.WriteString(e.raw)
+					if e.expanded {
+						buf.WriteString("</Override>")
+					}
+					continue
+				}
 				ct.writeOverride(&buf, e.key, contentType, e.contentTypeFirst, e.space)
 			}
 		}
@@ -590,7 +615,8 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 			if _, exists := ct.origExt[key]; !exists {
 				ct.origExt[key] = ext
 			}
-			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: true, key: key, contentTypeFirst: ctFirst, sep: sep, space: space})
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: true, key: key, contentTypeFirst: ctFirst, sep: sep, space: space,
+				raw: raw, expanded: !strings.HasSuffix(raw, "/>"), origCT: contentType})
 		case "Override":
 			var partName, contentType string
 			ctFirst := false
@@ -607,7 +633,8 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 				ct.overrideOrder = append(ct.overrideOrder, partName)
 			}
 			ct.Overrides[partName] = contentType
-			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: false, key: partName, contentTypeFirst: ctFirst, sep: sep, space: space})
+			ct.entryOrder = append(ct.entryOrder, ctEntry{isDefault: false, key: partName, contentTypeFirst: ctFirst, sep: sep, space: space,
+				raw: raw, expanded: !strings.HasSuffix(raw, "/>"), origCT: contentType})
 		}
 	}
 	if !sawTypes {
