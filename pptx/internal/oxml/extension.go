@@ -2,6 +2,7 @@ package oxml
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -52,11 +53,17 @@ type P14ModId struct {
 // references the embedded media part of a video or audio p:pic.
 type P14Media struct {
 	Embed string // r:embed relationship ID
+	// RawContent preserves child elements (p14:trim, p14:fade, p14:bmkLst)
+	// verbatim so trim/fade points and bookmarks survive re-marshaling.
+	// Empty for media constructed programmatically.
+	RawContent []byte
 }
 
 // P14ShowMediaCtrls represents p14:showMediaCtrls extension element.
+// Val holds the original xsd:boolean lexical form ("0", "1", "true", "false")
+// so it round-trips byte-faithfully; empty means the attribute was absent.
 type P14ShowMediaCtrls struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val string `xml:"val,attr,omitempty"`
 }
 
 // P14DefaultImageDpi represents p14:defaultImageDpi extension element.
@@ -65,8 +72,9 @@ type P14DefaultImageDpi struct {
 }
 
 // P14DiscardImageEdit represents p14:discardImageEditData extension element.
+// Val holds the original xsd:boolean lexical form; see P14ShowMediaCtrls.
 type P14DiscardImageEdit struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val string `xml:"val,attr,omitempty"`
 }
 
 // P14LaserClr represents p14:laserClr extension element.
@@ -103,8 +111,9 @@ type P15Clr struct {
 }
 
 // P15ChartTrackingRefBased represents p15:chartTrackingRefBased extension element.
+// Val holds the original xsd:boolean lexical form; see P14ShowMediaCtrls.
 type P15ChartTrackingRefBased struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val string `xml:"val,attr,omitempty"`
 }
 
 // --- Custom UnmarshalXML for Extension ---
@@ -143,19 +152,23 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	case xmlb.ExtURIMedia:
 		var w struct {
 			V struct {
-				Embed string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr"`
+				Embed   string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr"`
+				Content []byte `xml:",innerxml"`
 			} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.Media = &P14Media{Embed: w.V.Embed}
+		e.Media = &P14Media{Embed: w.V.Embed, RawContent: w.V.Content}
 
 	case xmlb.ExtURIShowMediaCtrls:
 		var w struct {
 			V P14ShowMediaCtrls `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main showMediaCtrls"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
+			return err
+		}
+		if err := validateXSDBoolean("p14:showMediaCtrls", w.V.Val); err != nil {
 			return err
 		}
 		e.ShowMediaCtrls = &w.V
@@ -174,6 +187,9 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			V P14DiscardImageEdit `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main discardImageEditData"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
+			return err
+		}
+		if err := validateXSDBoolean("p14:discardImageEditData", w.V.Val); err != nil {
 			return err
 		}
 		e.DiscardImageEdit = &w.V
@@ -212,6 +228,9 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
+		if err := validateXSDBoolean("p15:chartTrackingRefBased", w.V.Val); err != nil {
+			return err
+		}
 		e.ChartTrackingRefBased = &w.V
 
 	default:
@@ -243,17 +262,25 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			xmlb.UintAttr("val", e.ModId.Val))
 
 	case e.Media != nil:
-		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
-			xmlb.RelAttr("embed", e.Media.Embed))
+		if len(e.Media.RawContent) > 0 {
+			b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
+				xmlb.RelAttr("embed", e.Media.Embed))
+			b.WriteRaw(e.Media.RawContent)
+			b.EndElementInlineNS(xmlb.PrefixPowerPoint2010, "media")
+			b.ResetNamespaceDeclaration(nsP14)
+		} else {
+			b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
+				xmlb.RelAttr("embed", e.Media.Embed))
+		}
 
 	case e.ShowMediaCtrls != nil:
-		marshalP14Simple(b, "showMediaCtrls", e.ShowMediaCtrls.Val)
+		marshalP14Bool(b, "showMediaCtrls", e.ShowMediaCtrls.Val)
 
 	case e.DefaultImageDpi != nil:
 		marshalP14Simple(b, "defaultImageDpi", e.DefaultImageDpi.Val)
 
 	case e.DiscardImageEdit != nil:
-		marshalP14Simple(b, "discardImageEditData", e.DiscardImageEdit.Val)
+		marshalP14Bool(b, "discardImageEditData", e.DiscardImageEdit.Val)
 
 	case e.LaserClr != nil:
 		b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "laserClr")
@@ -275,7 +302,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		marshalSldGuideLst(b, e.SldGuideLst)
 
 	case e.ChartTrackingRefBased != nil:
-		marshalP15Simple(b, "chartTrackingRefBased", e.ChartTrackingRefBased.Val)
+		marshalP15Bool(b, "chartTrackingRefBased", e.ChartTrackingRefBased.Val)
 
 	default:
 		if len(e.RawContent) > 0 {
@@ -296,14 +323,36 @@ func marshalP14Simple(b *xmlb.Builder, localName string, val *int32) {
 	}
 }
 
-// marshalP15Simple writes a simple p15 extension element with an optional val attribute.
-func marshalP15Simple(b *xmlb.Builder, localName string, val *int32) {
-	if val != nil {
+// marshalP14Bool writes a p14 extension element with an optional xsd:boolean
+// val attribute, re-emitting the original lexical form verbatim.
+func marshalP14Bool(b *xmlb.Builder, localName, val string) {
+	if val != "" {
+		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName,
+			xmlb.StrAttr("val", val))
+	} else {
+		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName)
+	}
+}
+
+// marshalP15Bool writes a p15 extension element with an optional xsd:boolean
+// val attribute, re-emitting the original lexical form verbatim.
+func marshalP15Bool(b *xmlb.Builder, localName, val string) {
+	if val != "" {
 		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, localName,
-			xmlb.Int32Attr("val", *val))
+			xmlb.StrAttr("val", val))
 	} else {
 		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, localName)
 	}
+}
+
+// validateXSDBoolean checks that val is within the xsd:boolean lexical space
+// ("0", "1", "true", "false") or absent (empty string).
+func validateXSDBoolean(elem, val string) error {
+	switch val {
+	case "", "0", "1", "true", "false":
+		return nil
+	}
+	return fmt.Errorf("%s: invalid xsd:boolean value %q for val attribute", elem, val)
 }
 
 // marshalColorChoice writes a DML color choice (a:srgbClr, a:schemeClr, etc.).

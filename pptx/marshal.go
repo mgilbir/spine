@@ -37,7 +37,11 @@ func marshalSlideMaster(master *oxml.SlideMaster) []byte {
 }
 
 // marshalPresentation marshals the presentation.xml using proper namespace prefixes.
-func marshalPresentationXML(pres *oxml.Presentation) []byte {
+// synthesizeDefaults controls whether a defaultTextStyle is fabricated when the
+// model has none: true for decks created programmatically (PowerPoint expects
+// one in new files), false for opened decks (a deck that never had a
+// defaultTextStyle must not gain invented document-wide text defaults on save).
+func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) []byte {
 	b := xmlb.NewPresentationMLBuilder()
 	b.WriteHeader()
 
@@ -176,10 +180,11 @@ func marshalPresentationXML(pres *oxml.Presentation) []byte {
 		b.MarshalElement(nsP, "kinsoku", pres.Kinsoku)
 	}
 
-	// defaultTextStyle - use parsed data if available, otherwise default
+	// defaultTextStyle - use parsed data if available; fabricate one only for
+	// newly created decks.
 	if pres.DefaultTextStyle != nil {
 		marshalParsedDefaultTextStyle(b, pres.DefaultTextStyle)
-	} else {
+	} else if synthesizeDefaults {
 		marshalDefaultTextStyle(b)
 	}
 
