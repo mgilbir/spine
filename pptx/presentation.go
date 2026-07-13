@@ -496,6 +496,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 			masterXML:    &masterXML,
 			relID:        masterRef.RID,
 			numericID:    masterRef.ID,
+			idOmitted:    masterRef.IDOmitted,
 			idExtLst:     masterRef.ExtLst,
 			layouts:      make([]*SlideLayout, 0),
 		}
@@ -1633,13 +1634,14 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 		}
 		for i, master := range p.slideMasters {
 			id := master.numericID
-			if id == 0 {
+			if id == 0 && !master.idOmitted {
 				id = uint32(2147483648 + i) // High IDs as per spec
 			}
 			p.presentation.SlideMasterIDs.SlideMasterID[i] = oxml.SlideMasterID{
-				ID:     id,
-				RID:    master.relID,
-				ExtLst: master.idExtLst,
+				ID:        id,
+				IDOmitted: master.idOmitted && master.numericID == 0,
+				RID:       master.relID,
+				ExtLst:    master.idExtLst,
 			}
 		}
 	}

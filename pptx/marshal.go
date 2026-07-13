@@ -21,6 +21,7 @@ func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b.SetSelfClosingSpace(slide.SelfClosingSpace)
 	b.SetCollapseEmptyElements(slide.CollapseEmpty)
 	b.WriteProlog(slide.Prolog)
+	b.SetRootEndTag(slide.Prolog.RootEnd)
 	slide.MarshalRootToBuilder(b)
 	b.WriteTrailer(slide.Prolog)
 	if err := b.Finish(); err != nil {
@@ -35,6 +36,7 @@ func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b.SetSelfClosingSpace(layout.SelfClosingSpace)
 	b.SetCollapseEmptyElements(layout.CollapseEmpty)
 	b.WriteProlog(layout.Prolog)
+	b.SetRootEndTag(layout.Prolog.RootEnd)
 	layout.MarshalRootToBuilder(b)
 	b.WriteTrailer(layout.Prolog)
 	if err := b.Finish(); err != nil {
@@ -49,6 +51,7 @@ func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b.SetSelfClosingSpace(master.SelfClosingSpace)
 	b.SetCollapseEmptyElements(master.CollapseEmpty)
 	b.WriteProlog(master.Prolog)
+	b.SetRootEndTag(master.Prolog.RootEnd)
 	master.MarshalRootToBuilder(b)
 	b.WriteTrailer(master.Prolog)
 	if err := b.Finish(); err != nil {
@@ -67,6 +70,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	b.SetSelfClosingSpace(pres.SelfClosingSpace)
 	b.SetCollapseEmptyElements(pres.CollapseEmpty)
 	b.WriteProlog(pres.Prolog)
+	b.SetRootEndTag(pres.Prolog.RootEnd)
 
 	// Build presentation attributes in PowerPoint's emission order (the XSD
 	// attribute order): serverZoom, firstSlideNum, showSpecialPlsOnTitleSld,
@@ -136,10 +140,14 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	if pres.SlideMasterIDs != nil && len(pres.SlideMasterIDs.SlideMasterID) > 0 {
 		b.StartElement(nsP, "sldMasterIdLst")
 		for _, master := range pres.SlideMasterIDs.SlideMasterID {
-			idEntry("sldMasterId", master.ExtLst,
-				xmlb.UintAttr("id", master.ID),
-				xmlb.RelAttr("id", master.RID),
-			)
+			attrs := []xmlb.Attr{xmlb.UintAttr("id", master.ID)}
+			if master.IDOmitted {
+				// The source entry had no id (optional per schema): do not
+				// synthesize one on a byte-faithful regeneration.
+				attrs = attrs[:0]
+			}
+			attrs = append(attrs, xmlb.RelAttr("id", master.RID))
+			idEntry("sldMasterId", master.ExtLst, attrs...)
 		}
 		b.EndElement(nsP, "sldMasterIdLst")
 	}

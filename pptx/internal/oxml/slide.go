@@ -163,11 +163,15 @@ type CommonSlideData struct {
 	CustDataLst []byte         `xml:"-"`
 	Controls    []byte         `xml:"-"`
 	ExtLst      *ExtensionList `xml:"extLst,omitempty"`
+	// CapturedAttrs preserves the verbatim name attribute rendering (raw
+	// newlines, &#10; entity forms, explicit name=""); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CommonSlideData so the
 // unmodeled custDataLst and controls children are kept as raw bytes.
 func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "name" {
 			c.Name = attr.Value
@@ -230,6 +234,9 @@ func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 	var attrs []xmlb.Attr
 	if c.Name != "" {
 		attrs = append(attrs, xmlb.StrAttr("name", c.Name))
+	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 	if c.Bg != nil {

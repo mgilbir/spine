@@ -383,9 +383,15 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 				(ra.Space == modeled[i].Namespace && ra.LocalName == modeled[i].Name)) {
 				a := Attr{Name: lit.Name, Value: modeled[i].Value, Raw: lit.Raw}
 				if modeled[i].Value != ra.Value {
-					// The model changed the value: the verbatim source
-					// rendering is stale, re-render normally.
-					a.Raw = ""
+					if boolLexEquivalent(modeled[i].Value, ra.Value) {
+						// Same boolean, different lexical form ("false" vs
+						// "0"): keep the producer's form.
+						a.Value = ra.Value
+					} else {
+						// The model changed the value: the verbatim source
+						// rendering is stale, re-render normally.
+						a.Raw = ""
+					}
 				}
 				out = append(out, a)
 				used[i] = true
@@ -403,6 +409,22 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 		}
 	}
 	return out
+}
+
+// boolLexEquivalent reports whether two attribute values are the same
+// xsd:boolean under different lexical forms ("0"/"false", "1"/"true").
+func boolLexEquivalent(a, b string) bool {
+	norm := func(v string) string {
+		switch v {
+		case "0", "false":
+			return "0"
+		case "1", "true":
+			return "1"
+		}
+		return v
+	}
+	na, nb := norm(a), norm(b)
+	return na == nb && (na == "0" || na == "1")
 }
 
 // hasStructChildren reports whether a struct has any non-empty child elements to write.

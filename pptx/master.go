@@ -18,6 +18,7 @@ type SlideMaster struct {
 	layouts      []*SlideLayout
 	relID        string
 	numericID    uint32 // original numeric ID from presentation.xml
+	idOmitted    bool   // the source entry carried no id attribute
 	// idExtLst preserves the extLst child of this master's p:sldMasterId
 	// entry in presentation.xml, which is regenerated on every save (C225).
 	idExtLst        *oxml.ExtensionList

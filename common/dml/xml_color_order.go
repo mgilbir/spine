@@ -38,7 +38,11 @@ func (s clrXfSlot) isSet() bool {
 
 // unmarshalClrColor parses a color element: attributes via setAttr, transform
 // children into slots, recording their document order in *order.
-func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.Attr) error, slots []clrXfSlot, order *[]clrTransformKind) error {
+// clrRawKindBase marks order entries that reference a raw-preserved
+// duplicate transform: kind clrRawKindBase+i replays raws[i] verbatim.
+const clrRawKindBase clrTransformKind = 1 << 16
+
+func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.Attr) error, slots []clrXfSlot, order *[]clrTransformKind, raws *[][]byte) error {
 	for _, attr := range start.Attr {
 		if err := setAttr(attr); err != nil {
 			return err
@@ -49,6 +53,7 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 		byKind[s.kind] = s
 	}
 	for {
+		pre := d.InputOffset()
 		tok, err := d.Token()
 		if err != nil {
 			return err
@@ -63,7 +68,20 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 				continue
 			}
 			slot := byKind[kind]
-			wasSet := slot.isSet()
+			if slot.isSet() {
+				// A duplicated transform kind: the single-occurrence model
+				// keeps the first value; preserve the duplicate verbatim at
+				// its position (first-wins matches the order replay, which
+				// previously silently dropped the repeat).
+				if err := d.Skip(); err != nil {
+					return err
+				}
+				if raw := xmlb.RawTokenBytes(d, pre); raw != nil {
+					*order = append(*order, clrRawKindBase+clrTransformKind(len(*raws)))
+					*raws = append(*raws, raw)
+				}
+				continue
+			}
 			if slot.val != nil {
 				ct := &ColorTransform{}
 				if err := d.DecodeElement(ct, &t); err != nil {
@@ -76,11 +94,7 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 				}
 				*slot.empty = &EmptyClrTransform{}
 			}
-			// A duplicate kind keeps the single-occurrence model's last-wins
-			// value but is recorded once, so the order replay emits it once.
-			if !wasSet {
-				*order = append(*order, kind)
-			}
+			*order = append(*order, kind)
 		case xml.EndElement:
 			return nil
 		}
@@ -89,8 +103,8 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 
 // marshalClrColor writes a color element with its attributes and transform
 // children, replaying the captured source order when present.
-func marshalClrColor(b *xmlb.Builder, ns, localName string, attrs []xmlb.Attr, slots []clrXfSlot, order []clrTransformKind) {
-	any := false
+func marshalClrColor(b *xmlb.Builder, ns, localName string, attrs []xmlb.Attr, slots []clrXfSlot, order []clrTransformKind, raws [][]byte) {
+	any := len(raws) > 0
 	for _, s := range slots {
 		if s.isSet() {
 			any = true
@@ -108,6 +122,12 @@ func marshalClrColor(b *xmlb.Builder, ns, localName string, attrs []xmlb.Attr, s
 			byKind[s.kind] = s
 		}
 		for _, kind := range order {
+			if kind >= clrRawKindBase {
+				if i := int(kind - clrRawKindBase); i < len(raws) {
+					b.WriteRaw(raws[i])
+				}
+				continue
+			}
 			writeClrXfSlot(b, ns, byKind[kind])
 		}
 	} else {
@@ -165,12 +185,12 @@ func (c *SrgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			c.Val = attr.Value
 		}
 		return nil
-	}, c.srgbSlots(), &c.xfOrder)
+	}, c.srgbSlots(), &c.xfOrder, &c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
 func (c *SrgbClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	marshalClrColor(b, ns, localName, []xmlb.Attr{xmlb.StrAttr("val", c.Val)}, c.srgbSlots(), c.xfOrder)
+	marshalClrColor(b, ns, localName, []xmlb.Attr{xmlb.StrAttr("val", c.Val)}, c.srgbSlots(), c.xfOrder, c.xfRaws)
 }
 
 // sysSlots returns the transform slots of a SystemClr in field order.
@@ -201,7 +221,7 @@ func (c *SystemClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			c.LastClr = attr.Value
 		}
 		return nil
-	}, c.sysSlots(), &c.xfOrder)
+	}, c.sysSlots(), &c.xfOrder, &c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -213,7 +233,7 @@ func (c *SystemClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if c.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
-	marshalClrColor(b, ns, localName, attrs, c.sysSlots(), c.xfOrder)
+	marshalClrColor(b, ns, localName, attrs, c.sysSlots(), c.xfOrder, c.xfRaws)
 }
 
 // hslSlots returns the transform slots of an HslClr in field order.
@@ -248,7 +268,7 @@ func (c *HslClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return c.Lum.UnmarshalXMLAttr(attr)
 		}
 		return nil
-	}, c.hslSlots(), &c.xfOrder)
+	}, c.hslSlots(), &c.xfOrder, &c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -258,7 +278,7 @@ func (c *HslClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		xmlb.StrAttr("sat", c.Sat.AttrValue()),
 		xmlb.StrAttr("lum", c.Lum.AttrValue()),
 	}
-	marshalClrColor(b, ns, localName, attrs, c.hslSlots(), c.xfOrder)
+	marshalClrColor(b, ns, localName, attrs, c.hslSlots(), c.xfOrder, c.xfRaws)
 }
 
 // prstSlots returns the transform slots of a PrstClr in field order.
@@ -284,12 +304,12 @@ func (c *PrstClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			c.Val = attr.Value
 		}
 		return nil
-	}, c.prstSlots(), &c.xfOrder)
+	}, c.prstSlots(), &c.xfOrder, &c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
 func (c *PrstClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	marshalClrColor(b, ns, localName, []xmlb.Attr{xmlb.StrAttr("val", c.Val)}, c.prstSlots(), c.xfOrder)
+	marshalClrColor(b, ns, localName, []xmlb.Attr{xmlb.StrAttr("val", c.Val)}, c.prstSlots(), c.xfOrder, c.xfRaws)
 }
 
 // scrgbSlots returns the transform slots of a ScRgbClr in field order.
@@ -321,7 +341,7 @@ func (c *ScRgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return c.B.UnmarshalXMLAttr(attr)
 		}
 		return nil
-	}, c.scrgbSlots(), &c.xfOrder)
+	}, c.scrgbSlots(), &c.xfOrder, &c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -334,5 +354,5 @@ func (c *ScRgbClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if c.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
-	marshalClrColor(b, ns, localName, attrs, c.scrgbSlots(), c.xfOrder)
+	marshalClrColor(b, ns, localName, attrs, c.scrgbSlots(), c.xfOrder, c.xfRaws)
 }

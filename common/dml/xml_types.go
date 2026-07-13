@@ -53,6 +53,7 @@ type SrgbClr struct {
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
 	xfOrder  []clrTransformKind // captured source order of the transform children
+	xfRaws   [][]byte           // raw duplicated transforms referenced from xfOrder
 }
 
 // SystemClr represents CT_SystemColor (a:sysClr) for XML serialization.
@@ -89,6 +90,7 @@ type SystemClr struct {
 	Gamma         *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
 	xfOrder       []clrTransformKind // captured source order of the transform children
+	xfRaws        [][]byte           // raw duplicated transforms referenced from xfOrder
 	CapturedAttrs []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
@@ -127,6 +129,7 @@ type HslClr struct {
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
 	xfOrder  []clrTransformKind // captured source order of the transform children
+	xfRaws   [][]byte           // raw duplicated transforms referenced from xfOrder
 }
 
 // PrstClr represents CT_PresetColor (a:prstClr) for XML serialization.
@@ -162,6 +165,7 @@ type PrstClr struct {
 	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
 	xfOrder  []clrTransformKind // captured source order of the transform children
+	xfRaws   [][]byte           // raw duplicated transforms referenced from xfOrder
 }
 
 // ScRgbClr represents CT_ScRgbColor (a:scrgbClr) for XML serialization.
@@ -199,6 +203,7 @@ type ScRgbClr struct {
 	Gamma         *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
 	InvGamma      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
 	xfOrder       []clrTransformKind // captured source order of the transform children
+	xfRaws        [][]byte           // raw duplicated transforms referenced from xfOrder
 	CapturedAttrs []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 

@@ -32,15 +32,28 @@ type Blip struct {
 	Tint          *TintEffectXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
 	ExtLst        *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedChildren records the source child sequence: the effect children
+	// form a repeated xs:choice whose order is significant (effects compose),
+	// and grouped singleton fields alone would reorder them on save.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
-// attribute order and any unmodeled attributes) before decoding through the
-// struct tags; the reflection marshaler replays it.
+// attribute order and any unmodeled attributes) and child sequence while
+// decoding the children into the struct fields.
 func (bl *Blip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	bl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
-	type alias Blip
-	return d.DecodeElement((*alias)(bl), &start)
+	for _, attr := range start.Attr {
+		switch {
+		case attr.Name.Local == "embed" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
+			bl.Embed = attr.Value
+		case attr.Name.Local == "link" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
+			bl.Link = attr.Value
+		case attr.Name.Local == "cstate" && attr.Name.Space == "":
+			bl.Cstate = attr.Value
+		}
+	}
+	return xmlb.UnmarshalOrderedChildren(d, bl)
 }
 
 // BlipFill represents CT_BlipFillProperties (a:blipFill) - complete blip fill

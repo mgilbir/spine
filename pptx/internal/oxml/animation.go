@@ -566,6 +566,16 @@ type Animate struct {
 	ValueType string                `xml:"valueType,attr,omitempty"` // str, num, clr
 	CBhvr     *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
 	TavLst    *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit empty values) before
+// decoding through the struct tags; the reflection marshaler replays it.
+func (an *Animate) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	an.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Animate
+	return d.DecodeElement((*alias)(an), &start)
 }
 
 // AnimateColor represents CT_TLAnimateColorBehavior (p:animClr)
@@ -776,6 +786,16 @@ type BuildList struct {
 	BldDgm      []*BuildDiagram   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldDgm,omitempty"`
 	BldOleChart []*BuildOleChart  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldOleChart,omitempty"`
 	BldGraphic  []*BuildGraphic   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldGraphic,omitempty"`
+	// CapturedChildren records the source child sequence: the four build
+	// kinds form a repeated xs:choice that producers interleave (a bldGraphic
+	// between bldP entries), which grouped slices alone would reorder.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the child sequence while decoding the children into
+// the struct fields.
+func (bl *BuildList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	return xmlb.UnmarshalOrderedChildren(d, bl)
 }
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
