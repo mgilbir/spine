@@ -48,6 +48,19 @@ type CT_PPr struct {
 	RPr       *CT_RPr       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
 	SectPr    *CT_SectPr    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
 	PPrChange *CT_PPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
+	// CapturedChildren records the source child sequence (see CT_RPr):
+	// producer child order, unmodeled children, and duplicated toggles all
+	// replay verbatim.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+	// CapturedEmptyTag records how an empty w:pPr was written in the source.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style and child sequence
+// while decoding the children into the struct fields.
+func (pp *CT_PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	return xmlb.UnmarshalOrderedChildren(d, pp)
 }
 
 // pChildKind identifies paragraph content child element types.
