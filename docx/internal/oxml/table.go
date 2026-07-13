@@ -97,21 +97,30 @@ type CT_Cnf struct {
 
 // CT_TrPr represents table row properties.
 type CT_TrPr struct {
-	CnfStyle       *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
-	DivId          *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
-	GridBefore     *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
-	GridAfter      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
-	WBefore        *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
-	WAfter         *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
-	CantSplit      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
-	TrHeight       *CT_Height        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
-	TblHeader      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
-	TblCellSpacing *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
-	Jc             *CT_Jc            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
-	Hidden         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
-	Ins            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
-	Del            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
-	TrPrChange     *CT_TrPrChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
+	CnfStyle         *CT_Cnf            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
+	DivId            *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
+	GridBefore       *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
+	GridAfter        *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
+	WBefore          *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
+	WAfter           *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
+	CantSplit        *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
+	TrHeight         *CT_Height         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
+	TblHeader        *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
+	TblCellSpacing   *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
+	Jc               *CT_Jc             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
+	Hidden           *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
+	Ins              *CT_TrackChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
+	Del              *CT_TrackChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
+	TrPrChange       *CT_TrPrChange     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (tp2 *CT_TrPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tp2.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TrPr
+	return d.DecodeElement((*alias)(tp2), &start)
 }
 
 // CT_Height represents a height measurement.

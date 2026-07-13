@@ -134,7 +134,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	doc.Prolog = xmlb.CaptureProlog(data)
 	doc.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 	doc.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
-	if err := xml.Unmarshal(data, &doc); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &doc); err != nil {
 		_ = reader.Close()
 		// Deliberately strict: some wild files carry XML that is not
 		// well-formed (unescaped '&', control characters like U+001F). Word

@@ -150,7 +150,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	}
 
 	var pres oxml.Presentation
-	if err := xml.Unmarshal(data, &pres); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &pres); err != nil {
 		_ = reader.Close()
 		return nil, err
 	}
@@ -426,7 +426,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		}
 
 		var slideXML oxml.Slide
-		if err := xml.Unmarshal(data, &slideXML); err != nil {
+		if err := xmlb.UnmarshalWithSource(data, &slideXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
 		slideXML.Prolog = xmlb.CaptureProlog(data)
@@ -483,7 +483,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 		}
 
 		var masterXML oxml.SlideMaster
-		if err := xml.Unmarshal(data, &masterXML); err != nil {
+		if err := xmlb.UnmarshalWithSource(data, &masterXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide master part %s: %w", masterName, err)
 		}
 		masterXML.Prolog = xmlb.CaptureProlog(data)
@@ -545,7 +545,7 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 			}
 
 			var layoutXML oxml.SlideLayout
-			if err := xml.Unmarshal(data, &layoutXML); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, &layoutXML); err != nil {
 				return fmt.Errorf("pptx: parsing slide layout part %s: %w", layoutName, err)
 			}
 			layoutXML.Prolog = xmlb.CaptureProlog(data)
