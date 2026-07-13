@@ -25,6 +25,14 @@ import (
 // reasonable (some spreadsheets decompress large).
 const maxParallel = 4
 
+// subsetPerType is how many files per document type the default (fast) mode
+// checks. The full corpus needs ~15-20 minutes — past Go's default 10m
+// package timeout — so a plain `go test ./...` runs this deterministic
+// subset instead (the first N per type in sha16 order, still catching gross
+// regressions); set SPINE_CC_FULL=1 (or use `make test-corpus`) for the
+// complete corpus.
+const subsetPerType = 60
+
 var docTypes = []string{"pptx", "xlsx", "docx"}
 
 // saver is the save surface shared by the three document types.
@@ -117,6 +125,8 @@ type typeStats struct {
 type aggregate struct {
 	mu    sync.Mutex
 	stats map[string]*typeStats
+	// rows collects quarantine lines when SPINE_CC_UPDATE_QUARANTINE is set.
+	rows []string
 }
 
 func (a *aggregate) add(typ string, f func(*typeStats)) {
@@ -125,14 +135,32 @@ func (a *aggregate) add(typ string, f func(*typeStats)) {
 	f(a.stats[typ])
 }
 
-// TestCCCorpus opens, saves, reopens, and part-compares every corpus file.
+func (a *aggregate) record(row string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rows = append(a.rows, row)
+}
+
+// TestCCCorpus opens, saves, reopens, and part-compares corpus files. By
+// default it checks a fast deterministic subset (subsetPerType files per
+// type); SPINE_CC_FULL=1 runs the complete corpus, and
+// SPINE_CC_UPDATE_QUARANTINE=1 additionally ignores the committed quarantine
+// and rewrites testdata/cc/known_failures.tsv from the observed failures.
 func TestCCCorpus(t *testing.T) {
 	dir := corpusDir()
 	if _, err := os.Stat(dir); err != nil {
 		t.Skipf("Common Crawl corpus not present at %s (run 'make fetch-cc'); skipping", dir)
 	}
 
+	update := os.Getenv("SPINE_CC_UPDATE_QUARANTINE") != ""
+	full := update || os.Getenv("SPINE_CC_FULL") != ""
+
 	quarantine := loadQuarantine(t)
+	if update {
+		// Regeneration judges every file afresh; the old quarantine must not
+		// mask entries that would now pass (or fail at a different stage).
+		quarantine = make(map[string]map[string]quarantineEntry)
+	}
 	urls := loadURLs(dir)
 	agg := &aggregate{stats: make(map[string]*typeStats)}
 	for _, typ := range docTypes {
@@ -145,6 +173,13 @@ func TestCCCorpus(t *testing.T) {
 			t.Logf("  %-5s %5d / %5d / %5d / %5d",
 				typ, s.total, s.pass, s.quarantined, s.newFail)
 		}
+		if update {
+			if err := writeQuarantine(agg.rows); err != nil {
+				t.Errorf("writing refreshed quarantine: %v", err)
+			} else {
+				t.Logf("wrote %d rows to testdata/cc/known_failures.tsv", len(agg.rows))
+			}
+		}
 	})
 
 	sem := make(chan struct{}, maxParallel)
@@ -154,6 +189,9 @@ func TestCCCorpus(t *testing.T) {
 			t.Fatal(err)
 		}
 		sort.Strings(files)
+		if !full && len(files) > subsetPerType {
+			files = files[:subsetPerType]
+		}
 		t.Run(typ, func(t *testing.T) {
 			for _, path := range files {
 				sha16 := strings.TrimSuffix(filepath.Base(path), "."+typ)
@@ -162,19 +200,39 @@ func TestCCCorpus(t *testing.T) {
 					sem <- struct{}{}
 					defer func() { <-sem }()
 					agg.add(typ, func(s *typeStats) { s.total++ })
-					checkFile(t, agg, typ, sha16, path, quarantine[sha16], urls[sha16])
+					checkFile(t, agg, typ, sha16, path, update, quarantine[sha16], urls[sha16])
 				})
 			}
 		})
 	}
 }
 
+// writeQuarantine rewrites testdata/cc/known_failures.tsv from the collected
+// rows, sorted for a stable diff.
+func writeQuarantine(rows []string) error {
+	sort.Strings(rows)
+	var b strings.Builder
+	b.WriteString("sha16\ttype\tstage\tnote\n")
+	for _, row := range rows {
+		b.WriteString(row)
+		b.WriteByte('\n')
+	}
+	return os.WriteFile(filepath.Join("..", "testdata", "cc", "known_failures.tsv"), []byte(b.String()), 0o644)
+}
+
 // checkFile runs the four-stage discipline over one corpus file.
-func checkFile(t *testing.T, agg *aggregate, typ, sha16, path string, quarantined map[string]quarantineEntry, url string) {
+func checkFile(t *testing.T, agg *aggregate, typ, sha16, path string, update bool, quarantined map[string]quarantineEntry, url string) {
 	fail := func(stage string, err error) {
 		if _, ok := quarantined[stage]; ok {
 			agg.add(typ, func(s *typeStats) { s.quarantined++ })
 			t.Skipf("quarantined at stage %s: %v", stage, err)
+		}
+		if update {
+			// Regeneration run: the failure becomes a fresh quarantine row
+			// instead of failing the test.
+			agg.add(typ, func(s *typeStats) { s.quarantined++ })
+			agg.record(fmt.Sprintf("%s\t%s\t%s\t%s", sha16, typ, stage, signature(err)))
+			t.Skipf("quarantining at stage %s: %v", stage, err)
 		}
 		agg.add(typ, func(s *typeStats) { s.newFail++ })
 		if os.Getenv("SPINE_CC_EMIT_QUARANTINE") != "" {
