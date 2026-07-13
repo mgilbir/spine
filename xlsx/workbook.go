@@ -94,6 +94,9 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	}
 
 	var wb oxml.CT_Workbook
+	// Give the unmarshal access to the raw part bytes so unknown children
+	// (e.g. xr:revisionPtr) are captured verbatim instead of re-encoded.
+	wb.RawSource = data
 	if err := xml.Unmarshal(data, &wb); err != nil {
 		_ = reader.Close()
 		return nil, err
