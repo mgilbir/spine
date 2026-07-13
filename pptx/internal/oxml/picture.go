@@ -15,6 +15,16 @@ type Picture struct {
 	SpPr     *dml.SpPr      `xml:"spPr"`
 	Style    *dml.Style     `xml:"style,omitempty"`
 	ExtLst   *ExtensionList `xml:"extLst,omitempty"`
+	// CapturedChildren records the source child sequence; children the model
+	// does not type — a mc:AlternateContent wrapping the blip fill in
+	// Mac-authored decks — are preserved verbatim instead of dropped.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the child sequence while decoding the children into
+// the struct fields.
+func (p *Picture) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	return xmlb.UnmarshalOrderedChildren(d, p)
 }
 
 // NvPicPr contains non-visual picture properties.
