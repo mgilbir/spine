@@ -43,7 +43,10 @@ type GridCol struct {
 
 // Tr represents CT_TableRow (a:tr)
 type Tr struct {
-	H      int64   `xml:"h,attr,omitempty"`
+	// H is a pointer so an explicit h="0" survives the round trip (the
+	// attribute is required by the XSD, but sloppy producers omit it, so
+	// presence is tracked rather than always emitting).
+	H      *int64  `xml:"h,attr,omitempty"`
 	Tc     []*Tc   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tc,omitempty"`
 	ExtLst *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }

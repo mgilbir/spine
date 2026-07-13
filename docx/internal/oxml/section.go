@@ -14,24 +14,29 @@ type CT_SectPr struct {
 
 	HeaderReference []*CT_HdrFtrRef `xml:"-"`
 	FooterReference []*CT_HdrFtrRef `xml:"-"`
-	FootnoteProperties *CT_FtnProps `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footnotePr,omitempty"`
-	EndnoteProperties  *CT_EdnProps `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main endnotePr,omitempty"`
-	Type        *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
-	PgSz        *CT_PgSz        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgSz,omitempty"`
-	PgMar       *CT_PgMar       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgMar,omitempty"`
-	PaperSrc    *CT_PaperSrc    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main paperSrc,omitempty"`
-	PgBorders   *CT_PgBorders   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgBorders,omitempty"`
-	LnNumType   *CT_LnNumType   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lnNumType,omitempty"`
-	PgNumType   *CT_PgNumType   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgNumType,omitempty"`
-	Cols        *CT_Columns     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cols,omitempty"`
-	FormProt    *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main formProt,omitempty"`
-	VAlign      *CT_String      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAlign,omitempty"`
-	NoEndnote   *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noEndnote,omitempty"`
-	TitlePg     *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main titlePg,omitempty"`
-	TextDirection *CT_String    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
-	Bidi        *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,omitempty"`
-	RtlGutter   *CT_OnOff       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtlGutter,omitempty"`
-	DocGrid     *CT_DocGrid     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docGrid,omitempty"`
+	// hdrFtrOrder records the interleaved document order of the
+	// headerReference/footerReference children: EG_HdrFtrReferences is an
+	// ordered choice and Word interleaves the two kinds, so emitting all
+	// headers then all footers drifts from the source.
+	hdrFtrOrder        []hdrFtrOrderRef
+	FootnoteProperties *CT_FtnProps  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footnotePr,omitempty"`
+	EndnoteProperties  *CT_EdnProps  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main endnotePr,omitempty"`
+	Type               *CT_String    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
+	PgSz               *CT_PgSz      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgSz,omitempty"`
+	PgMar              *CT_PgMar     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgMar,omitempty"`
+	PaperSrc           *CT_PaperSrc  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main paperSrc,omitempty"`
+	PgBorders          *CT_PgBorders `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgBorders,omitempty"`
+	LnNumType          *CT_LnNumType `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lnNumType,omitempty"`
+	PgNumType          *CT_PgNumType `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pgNumType,omitempty"`
+	Cols               *CT_Columns   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cols,omitempty"`
+	FormProt           *CT_OnOff     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main formProt,omitempty"`
+	VAlign             *CT_String    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAlign,omitempty"`
+	NoEndnote          *CT_OnOff     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noEndnote,omitempty"`
+	TitlePg            *CT_OnOff     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main titlePg,omitempty"`
+	TextDirection      *CT_String    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main textDirection,omitempty"`
+	Bidi               *CT_OnOff     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,omitempty"`
+	RtlGutter          *CT_OnOff     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rtlGutter,omitempty"`
+	DocGrid            *CT_DocGrid   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docGrid,omitempty"`
 	// PrinterSettings (w:printerSettings, a CT_Rel carrying r:id) is preserved
 	// raw: the model does not interpret it, but stripping it would orphan the
 	// printer-settings part.
@@ -66,6 +71,7 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				if err := d.Skip(); err != nil {
 					return err
 				}
+				sp.hdrFtrOrder = append(sp.hdrFtrOrder, hdrFtrOrderRef{footer: false, index: len(sp.HeaderReference)})
 				sp.HeaderReference = append(sp.HeaderReference, v)
 			case "footerReference":
 				v := &CT_HdrFtrRef{}
@@ -73,6 +79,7 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				if err := d.Skip(); err != nil {
 					return err
 				}
+				sp.hdrFtrOrder = append(sp.hdrFtrOrder, hdrFtrOrderRef{footer: true, index: len(sp.FooterReference)})
 				sp.FooterReference = append(sp.FooterReference, v)
 			case "footnotePr":
 				sp.FootnoteProperties = &CT_FtnProps{}
@@ -184,12 +191,7 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	b.StartElement(ns, localName, attrs...)
 
-	for _, h := range sp.HeaderReference {
-		h.marshalTo(b, ns, "headerReference")
-	}
-	for _, f := range sp.FooterReference {
-		f.marshalTo(b, ns, "footerReference")
-	}
+	sp.marshalHdrFtrReferences(b, ns)
 
 	if sp.FootnoteProperties != nil {
 		b.MarshalElement(ns, "footnotePr", sp.FootnoteProperties)
@@ -337,22 +339,56 @@ type CT_LnNumType struct {
 
 // CT_FtnProps represents footnote properties.
 type CT_FtnProps struct {
-	Pos    *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,omitempty"`
-	NumFmt *CT_NumFmt `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numFmt,omitempty"`
-	NumStart *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numStart,omitempty"`
-	NumRestart *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numRestart,omitempty"`
+	Pos        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,omitempty"`
+	NumFmt     *CT_NumFmt        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numFmt,omitempty"`
+	NumStart   *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numStart,omitempty"`
+	NumRestart *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numRestart,omitempty"`
 }
 
 // CT_EdnProps represents endnote properties.
 type CT_EdnProps struct {
-	Pos    *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,omitempty"`
-	NumFmt *CT_NumFmt `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numFmt,omitempty"`
-	NumStart *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numStart,omitempty"`
-	NumRestart *CT_String `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numRestart,omitempty"`
+	Pos        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,omitempty"`
+	NumFmt     *CT_NumFmt        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numFmt,omitempty"`
+	NumStart   *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numStart,omitempty"`
+	NumRestart *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main numRestart,omitempty"`
 }
 
 // CT_NumFmt represents a number format.
 type CT_NumFmt struct {
 	Val    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
 	Format string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main format,attr,omitempty"`
+}
+
+// hdrFtrOrderRef locates one entry of the interleaved header/footer
+// reference sequence: which slice it lives in and at what index.
+type hdrFtrOrderRef struct {
+	footer bool
+	index  int
+}
+
+// marshalHdrFtrReferences writes the headerReference/footerReference children
+// in their captured document order; references added after parse (or on a
+// programmatically built section) follow, headers first.
+func (sp *CT_SectPr) marshalHdrFtrReferences(b *xmlb.Builder, ns string) {
+	writtenHdr := 0
+	writtenFtr := 0
+	for _, ref := range sp.hdrFtrOrder {
+		if ref.footer {
+			if ref.index < len(sp.FooterReference) {
+				sp.FooterReference[ref.index].marshalTo(b, ns, "footerReference")
+				writtenFtr++
+			}
+			continue
+		}
+		if ref.index < len(sp.HeaderReference) {
+			sp.HeaderReference[ref.index].marshalTo(b, ns, "headerReference")
+			writtenHdr++
+		}
+	}
+	for _, h := range sp.HeaderReference[min(writtenHdr, len(sp.HeaderReference)):] {
+		h.marshalTo(b, ns, "headerReference")
+	}
+	for _, f := range sp.FooterReference[min(writtenFtr, len(sp.FooterReference)):] {
+		f.marshalTo(b, ns, "footerReference")
+	}
 }

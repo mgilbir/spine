@@ -7,15 +7,24 @@ import (
 	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Presentation is the root element of presentation.xml.
 // Based on CT_Presentation from pml.xsd
 type Presentation struct {
 	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main presentation"`
-	XmlnsA  string   `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR  string   `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP  string   `xml:"xmlns:p,attr,omitempty"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration.
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty bool   `xml:"-"`
+	XmlnsA        string `xml:"xmlns:a,attr,omitempty"`
+	XmlnsR        string `xml:"xmlns:r,attr,omitempty"`
+	XmlnsP        string `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
 	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`

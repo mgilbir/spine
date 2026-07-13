@@ -1,7 +1,6 @@
 package opc
 
 import (
-	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -153,9 +152,8 @@ func TestContentTypes_Marshal(t *testing.T) {
 		t.Error("Missing slide override")
 	}
 
-	// Verify it's valid XML
-	var parsed contentTypesXML
-	if err := xml.Unmarshal(data, &parsed); err != nil {
+	// Verify it's valid XML by re-parsing it
+	if _, err := UnmarshalContentTypes(data); err != nil {
 		t.Errorf("Output is not valid XML: %v", err)
 	}
 }

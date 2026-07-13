@@ -18,8 +18,11 @@ const (
 // siblings in their parsed positions (C223).
 func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.SetSelfClosingSpace(slide.SelfClosingSpace)
+	b.SetCollapseEmptyElements(slide.CollapseEmpty)
+	b.WriteProlog(slide.Prolog)
 	slide.MarshalRootToBuilder(b)
+	b.WriteTrailer(slide.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide: %w", err)
 	}
@@ -29,8 +32,11 @@ func marshalSlide(slide *oxml.Slide) ([]byte, error) {
 // marshalSlideLayout marshals a slide layout to XML (see marshalSlide).
 func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.SetSelfClosingSpace(layout.SelfClosingSpace)
+	b.SetCollapseEmptyElements(layout.CollapseEmpty)
+	b.WriteProlog(layout.Prolog)
 	layout.MarshalRootToBuilder(b)
+	b.WriteTrailer(layout.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide layout: %w", err)
 	}
@@ -40,8 +46,11 @@ func marshalSlideLayout(layout *oxml.SlideLayout) ([]byte, error) {
 // marshalSlideMaster marshals a slide master to XML (see marshalSlide).
 func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.SetSelfClosingSpace(master.SelfClosingSpace)
+	b.SetCollapseEmptyElements(master.CollapseEmpty)
+	b.WriteProlog(master.Prolog)
 	master.MarshalRootToBuilder(b)
+	b.WriteTrailer(master.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal slide master: %w", err)
 	}
@@ -55,29 +64,17 @@ func marshalSlideMaster(master *oxml.SlideMaster) ([]byte, error) {
 // defaultTextStyle must not gain invented document-wide text defaults on save).
 func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
-	b.WriteHeader()
+	b.SetSelfClosingSpace(pres.SelfClosingSpace)
+	b.SetCollapseEmptyElements(pres.CollapseEmpty)
+	b.WriteProlog(pres.Prolog)
 
-	// Build presentation attributes
+	// Build presentation attributes in PowerPoint's emission order (the XSD
+	// attribute order): serverZoom, firstSlideNum, showSpecialPlsOnTitleSld,
+	// rtl, removePersonalInfoOnSave, compatMode, strictFirstAndLastChars,
+	// embedTrueTypeFonts, saveSubsetFonts, autoCompressPictures,
+	// bookmarkIdSeed, conformance.
 	var presAttrs []xmlb.Attr
 
-	// Add presentation-level attributes from parsed data
-	if pres.SaveSubsetFonts != nil && *pres.SaveSubsetFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("saveSubsetFonts", "1"))
-	}
-	if pres.AutoCompressPictures != nil {
-		if *pres.AutoCompressPictures {
-			presAttrs = append(presAttrs, xmlb.StrAttr("autoCompressPictures", "1"))
-		} else {
-			presAttrs = append(presAttrs, xmlb.StrAttr("autoCompressPictures", "0"))
-		}
-	}
-	if pres.EmbedTrueTypeFonts != nil && *pres.EmbedTrueTypeFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
-	}
-
-	// Emit the remaining CT_Presentation attributes when present (previously
-	// parsed but never written, so e.g. firstSlideNum or a modify password
-	// verifier was silently dropped on every save).
 	appendBool := func(name string, v *bool) {
 		if v == nil {
 			return
@@ -99,6 +96,13 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	appendBool("removePersonalInfoOnSave", pres.RemovePersonalInfoOnSave)
 	appendBool("compatMode", pres.CompatMode)
 	appendBool("strictFirstAndLastChars", pres.StrictFirstAndLastChars)
+	if pres.EmbedTrueTypeFonts != nil && *pres.EmbedTrueTypeFonts {
+		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
+	}
+	if pres.SaveSubsetFonts != nil && *pres.SaveSubsetFonts {
+		presAttrs = append(presAttrs, xmlb.StrAttr("saveSubsetFonts", "1"))
+	}
+	appendBool("autoCompressPictures", pres.AutoCompressPictures)
 	if pres.BookmarkIdSeed != nil {
 		presAttrs = append(presAttrs, xmlb.UintAttr("bookmarkIdSeed", *pres.BookmarkIdSeed))
 	}
@@ -230,6 +234,7 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	}
 
 	b.EndElement(nsP, "presentation")
+	b.WriteTrailer(pres.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("pptx: marshal presentation.xml: %w", err)
 	}

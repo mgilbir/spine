@@ -83,15 +83,16 @@ type CT_Color struct {
 	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
 }
 
-// CT_Border represents a border definition.
+// CT_Border represents a border definition. Field order follows Word's
+// attribute emission order (val, sz, space, color, theme*), not the XSD.
 type CT_Border struct {
 	Val        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Sz         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,attr,omitempty"`
+	Space      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
 	Color      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
 	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
 	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
 	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
-	Sz         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,attr,omitempty"`
-	Space      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
 	Shadow     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,attr,omitempty"`
 	Frame      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main frame,attr,omitempty"`
 }
@@ -123,16 +124,19 @@ type CT_Lang struct {
 	Bidi     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
 }
 
-// CT_Fonts represents font specifications.
+// CT_Fonts represents font specifications. Field order follows Word's
+// attribute emission order: each script slot (ascii, eastAsia, hAnsi, cs)
+// with its theme twin adjacent, and hint last.
 type CT_Fonts struct {
 	Ascii         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ascii,attr,omitempty"`
-	HAnsi         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsi,attr,omitempty"`
-	EastAsia      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
-	Cs            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,attr,omitempty"`
 	AsciiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main asciiTheme,attr,omitempty"`
-	HAnsiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsiTheme,attr,omitempty"`
+	EastAsia      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
 	EastAsiaTheme string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsiaTheme,attr,omitempty"`
+	HAnsi         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsi,attr,omitempty"`
+	HAnsiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsiTheme,attr,omitempty"`
+	Cs            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,attr,omitempty"`
 	CsTheme       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cstheme,attr,omitempty"`
+	Hint          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hint,attr,omitempty"`
 }
 
 // CT_FitText represents text fitting properties.
@@ -201,16 +205,17 @@ type CT_Spacing struct {
 	LineRule          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
 }
 
-// CT_Ind represents paragraph indentation.
+// CT_Ind represents paragraph indentation. Field order follows Word's
+// attribute emission order: the Chars variant precedes each twip value.
 type CT_Ind struct {
-	Left           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
 	LeftChars      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftChars,attr,omitempty"`
-	Right          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
+	Left           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
 	RightChars     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightChars,attr,omitempty"`
-	Hanging        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
+	Right          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
 	HangingChars   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hangingChars,attr,omitempty"`
-	FirstLine      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
+	Hanging        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
 	FirstLineChars string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLineChars,attr,omitempty"`
+	FirstLine      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
 }
 
 // CT_Jc represents paragraph justification.
@@ -229,11 +234,12 @@ type CT_Tabs struct {
 	Tab []CT_TabStop `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tab"`
 }
 
-// CT_TabStop represents a single tab stop.
+// CT_TabStop represents a single tab stop. Field order follows Word's
+// attribute emission order (val, leader, pos).
 type CT_TabStop struct {
 	Val    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	Pos    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,attr"`
 	Leader string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leader,attr,omitempty"`
+	Pos    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,attr"`
 }
 
 // CT_FramePr represents frame properties.
@@ -262,11 +268,12 @@ type CT_DocGrid struct {
 	CharSpace string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main charSpace,attr,omitempty"`
 }
 
-// CT_Columns represents column definitions.
+// CT_Columns represents column definitions. Field order follows Word's
+// attribute emission order (num, space, equalWidth).
 type CT_Columns struct {
-	EqualWidth string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
-	Space      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
 	Num        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num,attr,omitempty"`
+	Space      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	EqualWidth string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
 	Sep        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sep,attr,omitempty"`
 	Col        []CT_Column `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main col,omitempty"`
 }

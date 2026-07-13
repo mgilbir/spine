@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
@@ -41,6 +42,9 @@ type Workbook struct {
 	stylesDirty    bool
 	sheetsDirty    bool
 	stringTable    []string // plain text values extracted from shared strings
+	// dirEntries preserves the source archive's zip directory entries
+	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
+	dirEntries []string
 }
 
 // Open opens an Excel workbook from a file path.
@@ -96,8 +100,8 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	}
 
 	// Extract formatting details from the raw XML for byte-identical round-trip.
-	wb.OriginalXMLSep = extractXMLSeparator(data)
-	wb.SelfClosingSpace = detectSelfClosingSpace(data)
+	wb.Prolog = xmlb.CaptureProlog(data)
+	wb.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 
 	w := &Workbook{
 		reader:         reader,
@@ -107,6 +111,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
+		dirEntries:     reader.DirectoryEntries,
 	}
 
 	if reader.Properties != nil {
@@ -366,6 +371,12 @@ func (w *Workbook) Close() error {
 func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	if w.hasCoreProps {
 		writer.Properties = &w.Properties
+	}
+
+	// Re-emit the source archive's directory entries (some producers write
+	// them; OPC ignores them but a faithful save keeps the entry listing).
+	if err := writer.WriteDirectoryEntries(w.dirEntries); err != nil {
+		return err
 	}
 
 	// A dirty sheet can add, move or remove formulas, so a preserved
@@ -1323,52 +1334,4 @@ func (w *Workbook) DefinedNames() []DefinedName {
 		}
 	}
 	return result
-}
-
-// detectSelfClosingSpace detects whether the XML uses " />" (space before close)
-// for self-closing elements, vs "/>" (no space).
-func detectSelfClosingSpace(data []byte) bool {
-	// Look for the first self-closing element after the root element's opening tag.
-	// Find end of XML declaration, then find end of root opening tag.
-	start := bytes.Index(data, []byte("?>"))
-	if start < 0 {
-		start = 0
-	}
-	// Find root element's closing >
-	rootOpen := bytes.Index(data[start:], []byte(">"))
-	if rootOpen < 0 {
-		return false
-	}
-	searchFrom := start + rootOpen + 1
-	// Find first /> in the body
-	idx := bytes.Index(data[searchFrom:], []byte("/>"))
-	if idx < 0 {
-		return false
-	}
-	absIdx := searchFrom + idx
-	return absIdx > 0 && data[absIdx-1] == ' '
-}
-
-// extractXMLSeparator extracts the bytes between the XML declaration "?>" and
-// the root element "<" for preserving the exact whitespace during round-trip.
-// Returns empty string if the standard "\r\n" separator is used (our default).
-func extractXMLSeparator(data []byte) string {
-	declEnd := bytes.Index(data, []byte("?>"))
-	if declEnd < 0 {
-		return ""
-	}
-	declEnd += 2 // past "?>"
-
-	rootStart := bytes.IndexByte(data[declEnd:], '<')
-	if rootStart < 0 {
-		return ""
-	}
-
-	sep := string(data[declEnd : declEnd+rootStart])
-	// Our builder's WriteHeader already writes "\r\n", so if the separator
-	// matches we don't need to store it.
-	if sep == "\r\n" {
-		return ""
-	}
-	return sep
 }

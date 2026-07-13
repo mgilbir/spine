@@ -476,8 +476,8 @@ func TestNewGradientFill_NegativeAngleNormalized(t *testing.T) {
 		GradientStop{Position: 0, Color: ColorRed},
 		GradientStop{Position: 1, Color: ColorBlue},
 	).ApplyToSpPr(spPr)
-	if got := spPr.GradFill.Lin.Ang; got != 18900000 {
-		t.Errorf("Lin.Ang = %d, want 18900000 (-45deg normalized to 315deg)", got)
+	if got := spPr.GradFill.Lin.Ang; got == nil || *got != 18900000 {
+		t.Errorf("Lin.Ang = %v, want 18900000 (-45deg normalized to 315deg)", got)
 	}
 }
 

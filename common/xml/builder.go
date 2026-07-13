@@ -18,6 +18,8 @@ type Builder struct {
 	declaredNamespaces map[string]bool   // URIs that have been declared (root or inline)
 	hasRoot            bool              // true after StartElementWithNS is called
 	selfClosingSpace   bool              // true: " />" false: "/>"
+	collapseEmpty      bool              // write empty Start/End pairs as self-closing elements
+	openTag            bool              // a start tag has been written but not yet closed with '>'
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
 	trailingWS         bool              // set by WriteRaw when data ends with whitespace
 	stack              []elemFrame       // open elements, for balance checking and namespace scoping
@@ -154,11 +156,35 @@ func (b *Builder) Bytes() []byte {
 // SetSelfClosingSpace controls whether self-closing elements use " />" (true) or "/>" (false).
 func (b *Builder) SetSelfClosingSpace(v bool) { b.selfClosingSpace = v }
 
+// SetCollapseEmptyElements controls whether an element opened with
+// StartElement and closed without any intervening content is written as a
+// self-closing tag (<name/>) instead of an open/close pair (<name></name>).
+// Producers that self-close their empty elements (Word, PowerPoint, Excel)
+// get this enabled from per-part capture; the default (false) preserves the
+// expanded style.
+func (b *Builder) SetCollapseEmptyElements(v bool) { b.collapseEmpty = v }
+
+// flushOpenTag completes a deferred start tag ('>' not yet written) before
+// any other content is emitted. Every output method calls it first, so the
+// only way a start tag is still open when its EndElement arrives is that the
+// element is empty — which is exactly when it may collapse to self-closing.
+func (b *Builder) flushOpenTag() {
+	if !b.openTag {
+		return
+	}
+	b.openTag = false
+	b.buf.WriteByte('>')
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+}
+
 // SetElementSeparator sets a string to insert between sibling elements (e.g., " " for spaced format).
 func (b *Builder) SetElementSeparator(sep string) { b.elemSeparator = sep }
 
 // WriteRaw writes raw content directly to the output buffer without escaping.
 func (b *Builder) WriteRaw(data []byte) {
+	b.flushOpenTag()
 	b.buf.Write(data)
 	if len(data) > 0 {
 		last := data[len(data)-1]
@@ -183,6 +209,7 @@ func (b *Builder) WriteHeader() {
 // StartElement starts an element with the given namespace and local name.
 // If attrs is provided, they are written as attributes.
 func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
+	b.flushOpenTag()
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
@@ -199,9 +226,15 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 		b.buf.WriteByte('"')
 	}
 
-	b.buf.WriteByte('>')
-	if b.indent != "" {
-		b.buf.WriteByte('\n')
+	if b.collapseEmpty {
+		// Defer the '>' so an element that turns out to be empty can be
+		// written self-closing, matching producers that never expand empties.
+		b.openTag = true
+	} else {
+		b.buf.WriteByte('>')
+		if b.indent != "" {
+			b.buf.WriteByte('\n')
+		}
 	}
 	b.pushElem(b.qualifiedName(namespace, localName))
 	b.level++
@@ -210,6 +243,7 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 // StartElementWithNS starts an element and declares namespaces.
 // This is typically used for the root element.
 func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NSDecl, attrs ...Attr) {
+	b.flushOpenTag()
 	b.writeIndent()
 	b.hasRoot = true
 	b.buf.WriteByte('<')
@@ -281,6 +315,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 		}
 	}
 
+	b.flushOpenTag()
 	b.writeIndent()
 	b.hasRoot = true
 	b.buf.WriteByte('<')
@@ -341,8 +376,19 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	b.level++
 }
 
-// EndElement ends the current element.
+// EndElement ends the current element. If the element's start tag is still
+// open (collapse-empty mode and no content was written), it is completed as a
+// self-closing tag instead of an open/close pair.
 func (b *Builder) EndElement(namespace, localName string) {
+	if b.openTag {
+		b.openTag = false
+		b.popElem(b.qualifiedName(namespace, localName))
+		b.writeSelfClose()
+		if b.indent != "" {
+			b.buf.WriteByte('\n')
+		}
+		return
+	}
 	b.popElem(b.qualifiedName(namespace, localName))
 	b.writeIndent()
 	b.buf.WriteString("</")
@@ -355,6 +401,7 @@ func (b *Builder) EndElement(namespace, localName string) {
 
 // EmptyElement writes a self-closing element.
 func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
+	b.flushOpenTag()
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
@@ -380,6 +427,7 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 
 // WriteElement writes a complete element with text content.
 func (b *Builder) WriteElement(namespace, localName, content string, attrs ...Attr) {
+	b.flushOpenTag()
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
@@ -502,6 +550,7 @@ func (b *Builder) writeQName(namespace, localName string) {
 // EmptyElementInlineNS writes a self-closing element with an inline namespace declaration.
 // This is used for extension elements that carry their own namespace declaration.
 func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
+	b.flushOpenTag()
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.buf.WriteString(prefix)
@@ -537,6 +586,7 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 // this element: the matching EndElementInlineNS restores the namespace's
 // previous declared-state automatically.
 func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
+	b.flushOpenTag()
 	b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: nsURI, wasDeclared: b.declaredNamespaces[nsURI]})
 	b.namespaces[nsURI] = prefix
 	b.declaredNamespaces[nsURI] = true

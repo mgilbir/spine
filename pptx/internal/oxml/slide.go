@@ -19,7 +19,15 @@ type AlternateContent = coxml.AlternateContent
 // Each element's position relative to the typed children is tracked by
 // acAnchors; see root_marshal.go.
 type Slide struct {
-	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration.
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool                `xml:"-"`
 	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
 	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
 	Show             *bool               `xml:"show,attr,omitempty"`
@@ -35,26 +43,45 @@ type Slide struct {
 // SlideLayout is the root element of a slide layout part.
 // Attribute order matches XSD CT_SlideLayout definition.
 type SlideLayout struct {
-	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
-	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
-	Type             string              `xml:"type,attr,omitempty"`
-	Preserve         bool                `xml:"preserve,attr,omitempty"`
-	UserDrawn        bool                `xml:"userDrawn,attr,omitempty"`
-	MatchingName     string              `xml:"matchingName,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	Hf               *HeaderFooter       `xml:"hf,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration.
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool   `xml:"-"`
+	ShowMasterSp     *bool  `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool  `xml:"showMasterPhAnim,attr,omitempty"`
+	Type             string `xml:"type,attr,omitempty"`
+	Preserve         bool   `xml:"preserve,attr,omitempty"`
+	UserDrawn        bool   `xml:"userDrawn,attr,omitempty"`
+	MatchingName     string `xml:"matchingName,attr,omitempty"`
+	// MatchingNamePresent records that the source carried the attribute,
+	// so an explicit matchingName="" survives the round trip.
+	MatchingNamePresent bool                `xml:"-"`
+	CSld                *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr           *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition          *Transition         `xml:"transition,omitempty"`
+	AlternateContent    []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing              *Timing             `xml:"timing,omitempty"`
+	Hf                  *HeaderFooter       `xml:"hf,omitempty"`
+	ExtLst              *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors           []string
 }
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
-	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	XMLName xml.Name `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	// Prolog preserves the source part's XML declaration and surrounding
+	// whitespace for byte-faithful regeneration.
+	Prolog xmlb.Prolog `xml:"-"`
+	// SelfClosingSpace records whether the source writes " />" instead of "/>".
+	SelfClosingSpace bool `xml:"-"`
+	// CollapseEmpty records whether the source writes empty elements
+	// self-closing, so empty open/close pairs collapse on regeneration.
+	CollapseEmpty    bool                `xml:"-"`
 	Preserve         bool                `xml:"preserve,attr,omitempty"`
 	CSld             *CommonSlideData    `xml:"cSld"`
 	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`

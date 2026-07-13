@@ -20,13 +20,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	b.SetSelfClosingSpace(wb.SelfClosingSpace)
 	b.SetElementSeparator(wb.ElemSeparator)
 
-	if wb.OriginalXMLSep != "" {
-		// Use original separator between XML declaration and root element
-		b.WriteRaw([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"))
-		b.WriteRaw([]byte(wb.OriginalXMLSep))
-	} else {
-		b.WriteHeader()
-	}
+	b.WriteProlog(wb.Prolog)
 
 	if len(wb.OriginalRootAttrs) > 0 {
 		// Use preserved root attributes in their original order
@@ -53,6 +47,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	}
 
 	b.EndElement(nsSML, "workbook")
+	b.WriteTrailer(wb.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("xlsx: marshal workbook.xml: %w", err)
 	}
@@ -122,7 +117,13 @@ func marshalWorkbookSheets(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 
 // marshalWorkbookDefinedNames marshals the definedNames element.
 func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
-	if wb.DefinedNames == nil || len(wb.DefinedNames.DefinedName) == 0 {
+	if wb.DefinedNames == nil {
+		return
+	}
+	// An empty <definedNames/> present in the source is kept: dropping the
+	// element on a no-op round trip would drift from the producer's bytes.
+	if len(wb.DefinedNames.DefinedName) == 0 {
+		b.EmptyElement(nsSML, "definedNames")
 		return
 	}
 	b.StartElement(nsSML, "definedNames")

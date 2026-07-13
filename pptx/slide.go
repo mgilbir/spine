@@ -967,8 +967,9 @@ func tableDataToOxml(t *Table) *oxml.ATable {
 
 	// Convert rows
 	for i, row := range t.rows {
+		rowH := int64(row.height)
 		tr := &oxml.ATr{
-			H:  int64(row.height),
+			H:  &rowH,
 			Tc: make([]*oxml.ATc, len(row.cells)),
 		}
 

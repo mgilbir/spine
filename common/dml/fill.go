@@ -176,10 +176,11 @@ func (g *gradientFillDef) toXML() *GradFill {
 		ang += 360
 	}
 	scaled := true
+	linAng := int32(math.Round(ang*60000)) % 21600000 // degrees to 60000ths
 	gf := &GradFill{
 		GsLst: &GsLst{},
 		Lin: &Lin{
-			Ang:    int32(math.Round(ang*60000)) % 21600000, // degrees to 60000ths
+			Ang:    &linAng,
 			Scaled: &scaled,
 		},
 	}

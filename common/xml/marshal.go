@@ -393,6 +393,7 @@ func (b *Builder) marshalStructChildren(parentNS string, val reflect.Value) {
 		// innerxml: write raw bytes
 		if info.innerxml {
 			if fval.Kind() == reflect.Slice && fval.Type().Elem().Kind() == reflect.Uint8 && fval.Len() > 0 {
+				b.flushOpenTag()
 				b.buf.Write(fval.Bytes())
 			}
 			continue
