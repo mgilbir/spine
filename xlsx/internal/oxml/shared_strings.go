@@ -84,7 +84,42 @@ func parseUint32(s string, v *uint32) (int, error) {
 type CT_Rst struct {
 	T          *string        `xml:"t,omitempty"`
 	R          []CT_RElt      `xml:"r,omitempty"`
-	PhoneticPr *CT_PhoneticPr `xml:"rPh,omitempty"`
+	PhoneticPr *CT_PhoneticPr `xml:"phoneticPr,omitempty"`
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Rst. The plain
+// text element carries xml:space="preserve" when the value has leading or
+// trailing whitespace, which XML processors would otherwise strip.
+func (rst *CT_Rst) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	if rst.T == nil && len(rst.R) == 0 && rst.PhoneticPr == nil {
+		b.EmptyElement(ns, localName)
+		return
+	}
+	b.StartElement(ns, localName)
+	if rst.T != nil {
+		var attrs []xmlb.Attr
+		if needsSpacePreserve(*rst.T) {
+			attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: "preserve"})
+		}
+		b.WriteElement(ns, "t", *rst.T, attrs...)
+	}
+	for i := range rst.R {
+		b.MarshalElement(ns, "r", &rst.R[i])
+	}
+	if rst.PhoneticPr != nil {
+		b.MarshalElement(ns, "phoneticPr", rst.PhoneticPr)
+	}
+	b.EndElement(ns, localName)
+}
+
+// needsSpacePreserve reports whether s would lose whitespace without
+// xml:space="preserve".
+func needsSpacePreserve(s string) bool {
+	if s == "" {
+		return false
+	}
+	isWS := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+	return isWS(s[0]) || isWS(s[len(s)-1])
 }
 
 // CT_RElt represents a rich text run element (r).
@@ -109,40 +144,23 @@ func (r *CT_RElt) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// needsSpacePreserve reports whether text has leading/trailing whitespace that
-// an XML reader may collapse without xml:space="preserve".
-func needsSpacePreserve(s string) bool {
-	if s == "" {
-		return false
-	}
-	switch {
-	case s[0] == ' ', s[0] == '\t', s[0] == '\n', s[0] == '\r':
-		return true
-	}
-	switch last := s[len(s)-1]; last {
-	case ' ', '\t', '\n', '\r':
-		return true
-	}
-	return false
-}
-
 // CT_RPrElt represents run properties for rich text.
 type CT_RPrElt struct {
-	B         *CT_BooleanProperty            `xml:"b,omitempty"`
-	I         *CT_BooleanProperty            `xml:"i,omitempty"`
-	Strike    *CT_BooleanProperty            `xml:"strike,omitempty"`
-	Condense  *CT_BooleanProperty            `xml:"condense,omitempty"`
-	Extend    *CT_BooleanProperty            `xml:"extend,omitempty"`
-	Outline   *CT_BooleanProperty            `xml:"outline,omitempty"`
-	Shadow    *CT_BooleanProperty            `xml:"shadow,omitempty"`
-	U         *CT_UnderlineProperty          `xml:"u,omitempty"`
-	VertAlign *CT_VerticalAlignFontProperty  `xml:"vertAlign,omitempty"`
-	Sz        *CT_FontSize                   `xml:"sz,omitempty"`
-	Color     *CT_Color                      `xml:"color,omitempty"`
-	RFont     *CT_FontName                   `xml:"rFont,omitempty"`
-	Family    *CT_IntProperty                `xml:"family,omitempty"`
-	Charset   *CT_IntProperty                `xml:"charset,omitempty"`
-	Scheme    *CT_FontScheme                 `xml:"scheme,omitempty"`
+	B         *CT_BooleanProperty           `xml:"b,omitempty"`
+	I         *CT_BooleanProperty           `xml:"i,omitempty"`
+	Strike    *CT_BooleanProperty           `xml:"strike,omitempty"`
+	Condense  *CT_BooleanProperty           `xml:"condense,omitempty"`
+	Extend    *CT_BooleanProperty           `xml:"extend,omitempty"`
+	Outline   *CT_BooleanProperty           `xml:"outline,omitempty"`
+	Shadow    *CT_BooleanProperty           `xml:"shadow,omitempty"`
+	U         *CT_UnderlineProperty         `xml:"u,omitempty"`
+	VertAlign *CT_VerticalAlignFontProperty `xml:"vertAlign,omitempty"`
+	Sz        *CT_FontSize                  `xml:"sz,omitempty"`
+	Color     *CT_Color                     `xml:"color,omitempty"`
+	RFont     *CT_FontName                  `xml:"rFont,omitempty"`
+	Family    *CT_IntProperty               `xml:"family,omitempty"`
+	Charset   *CT_IntProperty               `xml:"charset,omitempty"`
+	Scheme    *CT_FontScheme                `xml:"scheme,omitempty"`
 }
 
 // CT_BooleanProperty represents a boolean property element.

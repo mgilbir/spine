@@ -14,9 +14,9 @@ const (
 	NumberFormatDecimal  = 2  // "0.00"
 	NumberFormatComma    = 3  // "#,##0"
 	NumberFormatPercent  = 9  // "0%"
-	NumberFormatDate     = 14 // "m/d/yyyy"
+	NumberFormatDate     = 14 // "mm-dd-yy"
 	NumberFormatTime     = 20 // "h:mm"
-	NumberFormatDateTime = 22 // "m/d/yyyy h:mm"
+	NumberFormatDateTime = 22 // "m/d/yy h:mm"
 	NumberFormatText     = 49 // "@"
 )
 
@@ -129,6 +129,9 @@ func defaultStylesheet() *oxml.CT_Stylesheet {
 // returns its 0-based index into cellXfs. The cell format index can be applied
 // to cells via Cell.SetStyleIndex.
 func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
+	if err := validateCellStyle(&style); err != nil {
+		return 0, err
+	}
 	sm.markModified()
 	ss := sm.stylesheet
 
@@ -153,10 +156,13 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 		borderID = sm.findOrAddBorder(border)
 	}
 
-	// Resolve number format
+	// Resolve number format: a format code string wins over a raw id.
 	numFmtID := uint32(0)
-	if style.Format != "" {
+	switch {
+	case style.Format != "":
 		numFmtID = sm.resolveNumberFormat(style.Format)
+	case style.NumberFormatID != 0:
+		numFmtID = uint32(style.NumberFormatID)
 	}
 
 	// Build the Xf record
@@ -181,7 +187,7 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 		t := true
 		xf.ApplyBorder = &t
 	}
-	if style.Format != "" {
+	if style.Format != "" || style.NumberFormatID != 0 {
 		t := true
 		xf.ApplyNumberFormat = &t
 	}
@@ -206,11 +212,29 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	}
 	ss.CellXfs.Xf = append(ss.CellXfs.Xf, xf)
 	idx := uint32(len(ss.CellXfs.Xf) - 1)
-	ss.CellXfs.Count = &idx // Note: Count is set but Excel doesn't strictly require it
 	count := uint32(len(ss.CellXfs.Xf))
 	ss.CellXfs.Count = &count
 
 	return idx, nil
+}
+
+// validateCellStyle rejects style values that would be silently corrupted on
+// serialization. Alignment indent and rotation are unsigned in the schema, so
+// negative Go values would wrap to huge numbers via uint conversion (C133);
+// text rotation must be 0-180 or the special value 255 (vertical text).
+func validateCellStyle(style *CellStyle) error {
+	if style.NumberFormatID < 0 {
+		return fmt.Errorf("xlsx: number format id %d must not be negative", style.NumberFormatID)
+	}
+	if a := style.Alignment; a != nil {
+		if a.Indent < 0 || a.Indent > 250 {
+			return fmt.Errorf("xlsx: alignment indent %d out of range 0-250", a.Indent)
+		}
+		if a.Rotation < 0 || (a.Rotation > 180 && a.Rotation != 255) {
+			return fmt.Errorf("xlsx: text rotation %d out of range (0-180 or 255)", a.Rotation)
+		}
+	}
+	return nil
 }
 
 // GetCellStyle returns the CellStyle for the given style index.
@@ -241,6 +265,7 @@ func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 
 	// Number format
 	if xf.NumFmtId != nil && *xf.NumFmtId != 0 {
+		style.NumberFormatID = int(*xf.NumFmtId)
 		style.Format = sm.resolveNumFmtCode(*xf.NumFmtId)
 	}
 
@@ -567,18 +592,37 @@ func oxmlToAlignmentStyle(a *oxml.CT_CellAlignment) *AlignmentStyle {
 
 // --- Equality helpers for de-duplication ---
 
+// xfEqual compares every CT_Xf field. NewCellStyle dedupes against parsed
+// xfs, so skipping fields (quotePrefix, pivotButton, protection) would let a
+// plain style silently reuse an xf carrying locked/hidden protection or a
+// quote prefix (C232).
 func xfEqual(a, b *oxml.CT_Xf) bool {
 	return ptrUint32Equal(a.NumFmtId, b.NumFmtId) &&
 		ptrUint32Equal(a.FontId, b.FontId) &&
 		ptrUint32Equal(a.FillId, b.FillId) &&
 		ptrUint32Equal(a.BorderId, b.BorderId) &&
 		ptrUint32Equal(a.XfId, b.XfId) &&
+		ptrBoolEqual(a.QuotePrefix, b.QuotePrefix) &&
+		ptrBoolEqual(a.PivotButton, b.PivotButton) &&
 		ptrBoolEqual(a.ApplyNumberFormat, b.ApplyNumberFormat) &&
 		ptrBoolEqual(a.ApplyFont, b.ApplyFont) &&
 		ptrBoolEqual(a.ApplyFill, b.ApplyFill) &&
 		ptrBoolEqual(a.ApplyBorder, b.ApplyBorder) &&
 		ptrBoolEqual(a.ApplyAlignment, b.ApplyAlignment) &&
-		cellAlignmentEqual(a.Alignment, b.Alignment)
+		ptrBoolEqual(a.ApplyProtection, b.ApplyProtection) &&
+		cellAlignmentEqual(a.Alignment, b.Alignment) &&
+		cellProtectionEqual(a.Protection, b.Protection)
+}
+
+// cellProtectionEqual compares optional cell protection blocks.
+func cellProtectionEqual(a, b *oxml.CT_CellProtection) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return ptrBoolEqual(a.Locked, b.Locked) && ptrBoolEqual(a.Hidden, b.Hidden)
 }
 
 func fontEqual(a, b *oxml.CT_Font) bool {

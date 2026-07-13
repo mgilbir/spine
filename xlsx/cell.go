@@ -41,6 +41,8 @@ func (c *Cell) Value() interface{} {
 		return c.String()
 	case CellTypeNumber:
 		return c.Float()
+	case CellTypeDate:
+		return c.Time()
 	case CellTypeBoolean:
 		return c.Bool()
 	case CellTypeFormula:
@@ -119,6 +121,9 @@ func (c *Cell) Type() CellType {
 		if c.cell.V == nil {
 			return CellTypeEmpty
 		}
+		if c.hasDateNumberFormat() {
+			return CellTypeDate
+		}
 		return CellTypeNumber
 	default:
 		if c.cell.V == nil {
@@ -126,6 +131,29 @@ func (c *Cell) Type() CellType {
 		}
 		return CellTypeString
 	}
+}
+
+// hasDateNumberFormat reports whether the cell's style applies one of the
+// built-in date/time number formats (ids 14-22 and 45-47), which is how Excel
+// distinguishes date cells from plain numbers (C132).
+func (c *Cell) hasDateNumberFormat() bool {
+	if c.cell.S == nil || c.sheet == nil || c.sheet.workbook == nil {
+		return false
+	}
+	ss := c.sheet.workbook.stylesheet
+	if ss == nil || ss.CellXfs == nil {
+		return false
+	}
+	idx := int(*c.cell.S)
+	if idx < 0 || idx >= len(ss.CellXfs.Xf) {
+		return false
+	}
+	xf := &ss.CellXfs.Xf[idx]
+	if xf.NumFmtId == nil {
+		return false
+	}
+	id := *xf.NumFmtId
+	return (id >= 14 && id <= 22) || (id >= 45 && id <= 47)
 }
 
 // String returns the cell value as a string.
@@ -169,11 +197,16 @@ func (c *Cell) String() string {
 	}
 }
 
-// SetString sets the cell value to an inline string.
+// SetString sets the cell value to a literal string, stored as an inline
+// string (t="inlineStr"). The previous encoding t="str" is the CACHED
+// FORMULA RESULT type and is not valid for literal strings (C129). Strings
+// with leading or trailing whitespace are marshaled with
+// xml:space="preserve" so the spaces survive an Excel round-trip.
 func (c *Cell) SetString(value string) {
 	c.markSheetDirty()
-	c.cell.T = "str"
-	c.cell.V = &value
+	c.cell.T = "inlineStr"
+	c.cell.V = nil
+	c.cell.Is = &oxml.CT_Rst{T: &value}
 	c.clearFormula()
 }
 
@@ -198,6 +231,7 @@ func (c *Cell) SetFloat(value float64) {
 		c.cell.T = "e"
 		v := "#NUM!"
 		c.cell.V = &v
+		c.cell.Is = nil
 		c.clearFormula()
 		return
 	}
@@ -208,6 +242,7 @@ func (c *Cell) SetFloat(value float64) {
 func (c *Cell) setNumeric(v string) {
 	c.cell.T = "n"
 	c.cell.V = &v
+	c.cell.Is = nil
 	c.clearFormula()
 }
 
@@ -252,6 +287,7 @@ func (c *Cell) SetBool(value bool) {
 		v = "1"
 	}
 	c.cell.V = &v
+	c.cell.Is = nil
 	c.clearFormula()
 }
 
@@ -296,6 +332,7 @@ func (c *Cell) SetFormula(formula string) {
 	c.cell.T = ""
 	c.cell.F = &oxml.CT_CellFormula{Value: formula}
 	c.cell.V = nil
+	c.cell.Is = nil
 }
 
 // Style returns the cell's style index, or nil if not set.
@@ -389,7 +426,13 @@ type CellStyle struct {
 	Fill      *FillStyle
 	Border    *BorderStyle
 	Alignment *AlignmentStyle
-	Format    string // number format
+	// Format is a number format code string (e.g. "0.00" or a custom code).
+	// It takes precedence over NumberFormatID when both are set.
+	Format string
+	// NumberFormatID applies a number format by its id, letting callers use
+	// the built-in NumberFormat* constants (e.g. NumberFormatDate) directly
+	// without spelling out the format code (C131). Zero means General.
+	NumberFormatID int
 }
 
 // FontStyle represents font styling.

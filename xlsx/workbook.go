@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -20,8 +21,14 @@ type Workbook struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader         *opc.ReadCloser
-	opened         bool // true if this workbook was loaded from an existing package
+	reader *opc.ReadCloser
+	opened bool // true if this workbook was loaded from an existing package
+	// mainPartName is the resolved name of the main workbook part from the
+	// package root relationships (usually /xl/workbook.xml, but non-standard
+	// names such as /xl/book.xml occur in the wild). The save paths regenerate
+	// THIS part; hardcoding /xl/workbook.xml would preserve the stale original
+	// and silently drop every edit (C231).
+	mainPartName   string
 	contentTypes   *opc.ContentTypes
 	workbook       *oxml.CT_Workbook
 	sharedStrings  *oxml.CT_Sst
@@ -95,6 +102,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	w := &Workbook{
 		reader:         reader,
 		opened:         true,
+		mainPartName:   mainPartName,
 		contentTypes:   reader.ContentTypes,
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
@@ -164,9 +172,7 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 	w.buildStringTable()
 
 	// Load worksheets using the sheet order from workbook.xml
-	w.loadSheets(mainPartName)
-
-	return nil
+	return w.loadSheets(mainPartName)
 }
 
 // loadAllRelationships loads all relationship files into the model.
@@ -195,8 +201,12 @@ func (w *Workbook) loadAllRelationships() {
 	}
 }
 
-// loadSheets loads worksheets in the order defined by workbook.xml sheets element.
-func (w *Workbook) loadSheets(mainPartName string) {
+// loadSheets loads worksheets in the order defined by workbook.xml sheets
+// element. A referenced sheet part that fails to parse is an Open error: a
+// silently-empty sheet model would replace the original part with a fabricated
+// near-empty sheet on the first save after any mutation, destroying the
+// original data (C78).
+func (w *Workbook) loadSheets(mainPartName string) error {
 	wbRels := w.relationships[mainPartName]
 
 	for i, sheetDef := range w.workbook.Sheets.Sheet {
@@ -220,14 +230,16 @@ func (w *Workbook) loadSheets(mainPartName string) {
 		if partName != "" {
 			if part, ok := w.preservedParts[partName]; ok {
 				ws := &oxml.CT_Worksheet{}
-				if err := xml.Unmarshal(part.Data, ws); err == nil {
-					sheet.worksheet = ws
+				if err := xml.Unmarshal(part.Data, ws); err != nil {
+					return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
 				}
+				sheet.worksheet = ws
 			}
 		}
 
 		w.sheets = append(w.sheets, sheet)
 	}
+	return nil
 }
 
 // buildStringTable extracts plain text from the shared string table.
@@ -267,9 +279,23 @@ func Create() *Workbook {
 
 	return &Workbook{
 		workbook:       wb,
+		mainPartName:   defaultMainPartName,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
 	}
+}
+
+// defaultMainPartName is the conventional name of the main workbook part,
+// used for created workbooks.
+const defaultMainPartName = "/xl/workbook.xml"
+
+// mainPart returns the name of the main workbook part: the one resolved from
+// the root relationships at open, or the default for created workbooks.
+func (w *Workbook) mainPart() string {
+	if w.mainPartName != "" {
+		return w.mainPartName
+	}
+	return defaultMainPartName
 }
 
 // Save saves the workbook to a file.
@@ -290,8 +316,13 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SaveTo saves the workbook to an arbitrary writer.
+// SaveTo saves the workbook to an arbitrary writer. A workbook must contain
+// at least one sheet (Excel refuses zero-sheet files), so saving an empty
+// workbook returns ErrNoSheets (C130).
 func (w *Workbook) SaveTo(dst io.Writer) error {
+	if len(w.sheets) == 0 {
+		return ErrNoSheets
+	}
 	writer := opc.NewWriter(dst)
 	var err error
 	// Use the durable opened flag, not w.reader: Close() releases the reader
@@ -357,7 +388,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 	if dropCalcChain {
-		w.dropCalcChainParts("/xl/workbook.xml")
+		w.dropCalcChainParts(w.mainPart())
 	}
 
 	// Preserve original content types (captured at open so this still works
@@ -419,12 +450,20 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write all preserved parts except workbook.xml (which is regenerated),
-	// core.xml (handled above), rewritten worksheet/style parts, and workbook/.rels
-	// files (handled separately when rebuilt)
-	mainPartName := "/xl/workbook.xml"
-	workbookRelsName := "/xl/_rels/workbook.xml.rels"
-	for name, part := range w.preservedParts {
+	// Write all preserved parts except the main workbook part (which is
+	// regenerated), core.xml (handled above), rewritten worksheet/style parts,
+	// and workbook/.rels files (handled separately when rebuilt). Names are
+	// sorted so the zip entry order is deterministic across saves and
+	// processes instead of following map iteration order.
+	mainPartName := w.mainPart()
+	workbookRelsName := opc.GetRelationshipsPartName(mainPartName)
+	preservedNames := make([]string, 0, len(w.preservedParts))
+	for name := range w.preservedParts {
+		preservedNames = append(preservedNames, name)
+	}
+	sort.Strings(preservedNames)
+	for _, name := range preservedNames {
+		part := w.preservedParts[name]
 		if name == mainPartName {
 			continue
 		}
@@ -450,7 +489,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write non-workbook .rels files from preserved parts, except any sheet
 	// .rels rebuilt above to carry a new drawing relationship.
-	for name, part := range w.preservedParts {
+	for _, name := range preservedNames {
 		if !strings.HasSuffix(name, ".rels") {
 			continue
 		}
@@ -460,6 +499,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		if rebuiltRels[name] {
 			continue
 		}
+		part := w.preservedParts[name]
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
@@ -506,7 +546,9 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write workbook.xml (always regenerated from parsed model)
+	// Write the main workbook part (always regenerated from the parsed model)
+	// under its resolved name: writing to a hardcoded /xl/workbook.xml while
+	// the package's root relationship points elsewhere would orphan the edits.
 	wbData, err := marshalWorkbookXML(w.workbook)
 	if err != nil {
 		return err
@@ -516,7 +558,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal); err != nil {
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, strings.TrimPrefix(mainPartName, "/"), opc.TargetModeInternal); err != nil {
 		return err
 	}
 
@@ -571,7 +613,7 @@ func (w *Workbook) roundTripSheetPartName(sheet *Sheet, fallbackIndex int) (stri
 func (w *Workbook) saveNew(writer *opc.Writer) error {
 	writer.Properties = &w.Properties
 
-	mainPartName := "/xl/workbook.xml"
+	mainPartName := w.mainPart()
 	var wbRels []*opc.Relationship
 	relID := 1
 	drawingCount := 0
@@ -656,7 +698,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	}
 
 	// Add main relationship
-	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, "xl/workbook.xml", opc.TargetModeInternal); err != nil {
+	if _, err := writer.AddRelationship(opc.RelTypeOfficeDocument, strings.TrimPrefix(mainPartName, "/"), opc.TargetModeInternal); err != nil {
 		return err
 	}
 
@@ -670,6 +712,10 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 			SheetData: oxml.CT_SheetData{},
 		}
 	}
+
+	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
+	// recorded used range must reflect any cells written since open (C117).
+	updateSheetDimension(sheet.worksheet)
 
 	wsData, err := marshalWorksheetXML(sheet.worksheet)
 	if err != nil {
@@ -1033,13 +1079,25 @@ func truncateRunes(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-// DeleteSheet removes the sheet at the specified index.
+// DeleteSheet removes the sheet at the specified index, together with its
+// preserved part, its content-type override, and its own .rels part (C75).
+// Workbook state that indexes sheets by position is adjusted: the active tab
+// is shifted/clamped and sheet-scoped defined names are re-pointed (names
+// scoped to the deleted sheet are dropped).
 func (w *Workbook) DeleteSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex
 	}
 	if sheet := w.sheets[index]; sheet != nil && sheet.partName != "" {
-		delete(w.preservedParts, sheet.partName)
+		partName := sheet.partName
+		relsName := opc.GetRelationshipsPartName(partName)
+		delete(w.preservedParts, partName)
+		delete(w.preservedParts, relsName)
+		delete(w.relationships, partName)
+		if w.contentTypes != nil {
+			w.contentTypes.RemoveOverride(partName)
+			w.contentTypes.RemoveOverride(relsName)
+		}
 	}
 	w.sheets = append(w.sheets[:index], w.sheets[index+1:]...)
 	for i := index; i < len(w.sheets); i++ {
@@ -1050,7 +1108,66 @@ func (w *Workbook) DeleteSheet(index int) error {
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
 
+	w.adjustActiveTabAfterDelete(index)
+	w.adjustDefinedNamesAfterDelete(index)
+
 	return nil
+}
+
+// adjustActiveTabAfterDelete shifts workbookView activeTab indices down when
+// they pointed past the deleted sheet and clamps them into the remaining
+// range; a stale index would select the wrong sheet or fall off the end.
+func (w *Workbook) adjustActiveTabAfterDelete(index int) {
+	if w.workbook.BookViews == nil {
+		return
+	}
+	for i := range w.workbook.BookViews.WorkbookView {
+		bv := &w.workbook.BookViews.WorkbookView[i]
+		if bv.ActiveTab == nil {
+			continue
+		}
+		tab := int(*bv.ActiveTab)
+		if tab > index {
+			tab--
+		}
+		if tab >= len(w.sheets) {
+			tab = len(w.sheets) - 1
+		}
+		if tab < 0 {
+			bv.ActiveTab = nil
+			continue
+		}
+		v := uint32(tab)
+		bv.ActiveTab = &v
+	}
+}
+
+// adjustDefinedNamesAfterDelete drops defined names scoped to the deleted
+// sheet and shifts the localSheetId of names scoped to later sheets, which
+// would otherwise point at the wrong sheet (or beyond the sheet list).
+func (w *Workbook) adjustDefinedNamesAfterDelete(index int) {
+	if w.workbook.DefinedNames == nil {
+		return
+	}
+	names := w.workbook.DefinedNames.DefinedName
+	kept := names[:0]
+	for _, dn := range names {
+		if dn.LocalSheetId != nil {
+			id := int(*dn.LocalSheetId)
+			if id == index {
+				continue // scoped to the deleted sheet
+			}
+			if id > index {
+				v := uint32(id - 1)
+				dn.LocalSheetId = &v
+			}
+		}
+		kept = append(kept, dn)
+	}
+	w.workbook.DefinedNames.DefinedName = kept
+	if len(kept) == 0 {
+		w.workbook.DefinedNames = nil
+	}
 }
 
 // ActiveSheet returns the currently active sheet.
