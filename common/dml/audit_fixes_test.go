@@ -115,7 +115,7 @@ func TestGradFill_Flip(t *testing.T) {
 
 // C97: ArcTo start/sweep angles are emitted even when zero.
 func TestArcTo_ZeroAnglesEmitted(t *testing.T) {
-	arc := ArcToXML{WR: 100, HR: 100, StAng: 0, SwAng: 0}
+	arc := ArcToXML{WR: "100", HR: "100", StAng: "0", SwAng: "0"}
 	out, err := xml.Marshal(&arc)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -310,7 +310,7 @@ func TestSchemeClrTransform_RGBFamily(t *testing.T) {
 func TestWithAlpha_ZeroIsTransparentNotUnset(t *testing.T) {
 	spPr := &SpPr{}
 	NewSolidFill(ColorRed.WithAlpha(0)).ApplyToSpPr(spPr)
-	if spPr.SolidFill.SrgbClr.Alpha == nil || spPr.SolidFill.SrgbClr.Alpha.Val != 0 {
+	if spPr.SolidFill.SrgbClr.Alpha == nil || spPr.SolidFill.SrgbClr.Alpha.Val.Int32() != 0 {
 		t.Errorf("WithAlpha(0) did not emit alpha val=0: %+v", spPr.SolidFill.SrgbClr.Alpha)
 	}
 
@@ -322,7 +322,7 @@ func TestWithAlpha_ZeroIsTransparentNotUnset(t *testing.T) {
 
 	spPr = &SpPr{}
 	NewSolidFill(ColorRed.WithAlpha(50)).ApplyToSpPr(spPr)
-	if spPr.SolidFill.SrgbClr.Alpha == nil || spPr.SolidFill.SrgbClr.Alpha.Val != 50000 {
+	if spPr.SolidFill.SrgbClr.Alpha == nil || spPr.SolidFill.SrgbClr.Alpha.Val.Int32() != 50000 {
 		t.Errorf("WithAlpha(50) = %+v, want val=50000", spPr.SolidFill.SrgbClr.Alpha)
 	}
 }

@@ -12,18 +12,18 @@ import (
 
 // PrstGeom represents CT_PresetGeometry2D (a:prstGeom)
 type PrstGeom struct {
-	Prst  string   `xml:"prst,attr"`
-	AvLst *AvLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main avLst,omitempty"`
+	Prst  string `xml:"prst,attr"`
+	AvLst *AvLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main avLst,omitempty"`
 }
 
 // CustGeom represents CT_CustomGeometry2D (a:custGeom)
 type CustGeom struct {
-	AvLst   *AvLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main avLst,omitempty"`
-	GdLst   *GdLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gdLst,omitempty"`
-	AhLst   *AhLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ahLst,omitempty"`
-	CxnLst  *CxnLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cxnLst,omitempty"`
-	RectXML *RectXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rect,omitempty"`
-	PathLst *PathLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pathLst,omitempty"`
+	AvLst   *AvLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main avLst,omitempty"`
+	GdLst   *GdLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gdLst,omitempty"`
+	AhLst   *AhLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ahLst,omitempty"`
+	CxnLst  *CxnLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cxnLst,omitempty"`
+	RectXML *RectXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rect,omitempty"`
+	PathLst *PathLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pathLst,omitempty"`
 }
 
 // AvLst represents CT_GeomGuideList (a:avLst)
@@ -69,8 +69,8 @@ type pathCmdRef struct {
 // Uses custom unmarshal/marshal to preserve interleaved command ordering
 // (per XSD: xs:choice maxOccurs="unbounded").
 type PathXML2D struct {
-	W           int64            `xml:"w,attr,omitempty"`
-	H           int64            `xml:"h,attr,omitempty"`
+	W    int64  `xml:"w,attr,omitempty"`
+	H    int64  `xml:"h,attr,omitempty"`
 	Fill string `xml:"fill,attr,omitempty"`
 	// Stroke and ExtrusionOk default to true when absent, so they are pointers:
 	// nil means "unspecified" and an explicit false must be emitted as "0"
@@ -372,10 +372,10 @@ type LnToXML struct {
 // required by the schema; stAng/swAng must not be omitted when zero (a
 // zero-angle arc is valid), so they carry no omitempty.
 type ArcToXML struct {
-	WR    int64 `xml:"wR,attr"`
-	HR    int64 `xml:"hR,attr"`
-	StAng int32 `xml:"stAng,attr"`
-	SwAng int32 `xml:"swAng,attr"`
+	WR    string `xml:"wR,attr"`
+	HR    string `xml:"hR,attr"`
+	StAng string `xml:"stAng,attr"`
+	SwAng string `xml:"swAng,attr"`
 }
 
 // QuadBezToXML represents CT_Path2DQuadBezierTo (a:quadBezTo)
@@ -446,11 +446,11 @@ type AhPolar struct {
 
 // Xfrm represents CT_Transform2D (a:xfrm)
 type Xfrm struct {
-	Rot   int32    `xml:"rot,attr,omitempty"`
-	FlipH bool     `xml:"flipH,attr,omitempty"`
-	FlipV bool     `xml:"flipV,attr,omitempty"`
-	Off   *OffXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
-	Ext   *ExtXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
+	Rot   int32   `xml:"rot,attr,omitempty"`
+	FlipH bool    `xml:"flipH,attr,omitempty"`
+	FlipV bool    `xml:"flipV,attr,omitempty"`
+	Off   *OffXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
+	Ext   *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
 }
 
 // OffXML represents CT_Point2D (a:off)
@@ -495,10 +495,10 @@ type Stretch struct {
 
 // SrcRect represents CT_RelativeRect for source rectangle (a:srcRect)
 type SrcRect struct {
-	L int32 `xml:"l,attr,omitempty"`
-	T int32 `xml:"t,attr,omitempty"`
-	R int32 `xml:"r,attr,omitempty"`
-	B int32 `xml:"b,attr,omitempty"`
+	L Percentage `xml:"l,attr,omitempty"`
+	T Percentage `xml:"t,attr,omitempty"`
+	R Percentage `xml:"r,attr,omitempty"`
+	B Percentage `xml:"b,attr,omitempty"`
 }
 
 // --- Preset Shape Types ---

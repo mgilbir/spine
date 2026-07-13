@@ -803,7 +803,7 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 		// Spacing (symmetric with the oxml->domain read): line spacing is a
 		// percentage, space before/after are point values.
 		if p.lineSpacing != 0 {
-			ap.PPr.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.Percentage(p.lineSpacing)}}
+			ap.PPr.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.NewPercentage(p.lineSpacing)}}
 		}
 		if p.spaceBefore != 0 {
 			ap.PPr.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
@@ -1144,10 +1144,10 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 	// Apply cropping if set
 	if p.cropLeft > 0 || p.cropTop > 0 || p.cropRight > 0 || p.cropBottom > 0 {
 		pic.BlipFill.SrcRect = &dml.SrcRect{
-			L: int32(p.cropLeft * 100000),
-			T: int32(p.cropTop * 100000),
-			R: int32(p.cropRight * 100000),
-			B: int32(p.cropBottom * 100000),
+			L: dml.NewPercentage(int32(p.cropLeft * 100000)),
+			T: dml.NewPercentage(int32(p.cropTop * 100000)),
+			R: dml.NewPercentage(int32(p.cropRight * 100000)),
+			B: dml.NewPercentage(int32(p.cropBottom * 100000)),
 		}
 	}
 

@@ -18,7 +18,7 @@ func TestParagraphToOxml_Spacing(t *testing.T) {
 	if ap.PPr == nil {
 		t.Fatal("no paragraph properties emitted for spacing")
 	}
-	if ap.PPr.LnSpc == nil || ap.PPr.LnSpc.SpcPct == nil || int32(ap.PPr.LnSpc.SpcPct.Val) != 150000 {
+	if ap.PPr.LnSpc == nil || ap.PPr.LnSpc.SpcPct == nil || ap.PPr.LnSpc.SpcPct.Val.Int32() != 150000 {
 		t.Errorf("line spacing not serialized: %+v", ap.PPr.LnSpc)
 	}
 	if ap.PPr.SpcBef == nil || ap.PPr.SpcBef.SpcPts == nil || ap.PPr.SpcBef.SpcPts.Val != 1200 {

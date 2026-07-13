@@ -160,11 +160,11 @@ func TestDML_CT_Path2DArcTo(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.WR != 50000 {
-		t.Errorf("WR = %d, want 50000", v.WR)
+	if v.WR != "50000" {
+		t.Errorf("WR = %s, want 50000", v.WR)
 	}
-	if v.SwAng != 5400000 {
-		t.Errorf("SwAng = %d, want 5400000", v.SwAng)
+	if v.SwAng != "5400000" {
+		t.Errorf("SwAng = %s, want 5400000", v.SwAng)
 	}
 }
 
