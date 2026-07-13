@@ -121,3 +121,35 @@ func TestRunSdtEndPrSelfCloses(t *testing.T) {
 		t.Fatalf("empty sdtEndPr expanded:\n%s", out)
 	}
 }
+
+// A block SDT wrapping a table cell (w:sdt inside w:tr with w:tc in its
+// sdtContent) lost the cell entirely on save: CT_SdtContentBlock followed the
+// body content model, which has no w:tc, so the cell — and its text — was
+// silently dropped. Same for an SDT wrapping whole rows inside w:tbl.
+func TestSdtWrappedTableCellRoundTrip(t *testing.T) {
+	sdt := `<w:sdt><w:sdtPr><w:id w:val="7"/></w:sdtPr><w:sdtEndPr/>` +
+		`<w:sdtContent><w:tc><w:tcPr><w:tcW w:w="1425" w:type="dxa"/></w:tcPr>` +
+		`<w:p><w:r><w:t>CELLTEXT</w:t></w:r></w:p></w:tc></w:sdtContent></w:sdt>`
+	tbl := `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>` +
+		`<w:tblGrid><w:gridCol w:w="1425"/></w:tblGrid>` +
+		`<w:tr>` + sdt + `</w:tr></w:tbl>`
+	fixture := fixtureWithDocument(t, fixtureWNS, `<w:body>`+tbl+`</w:body>`)
+	out := openSave(t, fixture)
+	if !strings.Contains(out, sdt) {
+		t.Fatalf("sdt-wrapped table cell not preserved.\nwant substring:\n%s\ngot document:\n%s", sdt, out)
+	}
+}
+
+func TestSdtWrappedTableRowRoundTrip(t *testing.T) {
+	sdt := `<w:sdt><w:sdtPr><w:id w:val="8"/></w:sdtPr>` +
+		`<w:sdtContent><w:tr><w:tc><w:tcPr><w:tcW w:w="1425" w:type="dxa"/></w:tcPr>` +
+		`<w:p><w:r><w:t>ROWTEXT</w:t></w:r></w:p></w:tc></w:tr></w:sdtContent></w:sdt>`
+	tbl := `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>` +
+		`<w:tblGrid><w:gridCol w:w="1425"/></w:tblGrid>` +
+		sdt + `</w:tbl>`
+	fixture := fixtureWithDocument(t, fixtureWNS, `<w:body>`+tbl+`</w:body>`)
+	out := openSave(t, fixture)
+	if !strings.Contains(out, sdt) {
+		t.Fatalf("sdt-wrapped table row not preserved.\nwant substring:\n%s\ngot document:\n%s", sdt, out)
+	}
+}
