@@ -401,37 +401,50 @@ func (wb *CT_Workbook) childOrderEntryRank(entry string) (int, bool) {
 
 // CT_FileVersion represents the fileVersion element.
 type CT_FileVersion struct {
-	AppName      string `xml:"appName,attr,omitempty"`
-	LastEdited   string `xml:"lastEdited,attr,omitempty"`
-	LowestEdited string `xml:"lowestEdited,attr,omitempty"`
-	RupBuild     string `xml:"rupBuild,attr,omitempty"`
+	AppName          string             `xml:"appName,attr,omitempty"`
+	LastEdited       string             `xml:"lastEdited,attr,omitempty"`
+	LowestEdited     string             `xml:"lowestEdited,attr,omitempty"`
+	RupBuild         string             `xml:"rupBuild,attr,omitempty"`
+	CapturedAttrs    []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
+}
+
+// UnmarshalXML captures the element's verbatim attribute list and empty-tag
+// style before decoding through the struct tags.
+func (fv *CT_FileVersion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	fv.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	fv.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_FileVersion
+	return d.DecodeElement((*alias)(fv), &start)
 }
 
 // CT_WorkbookPr represents the workbookPr element.
 type CT_WorkbookPr struct {
-	Date1904                   *BoolLex        `xml:"date1904,attr,omitempty"`
-	ShowObjects                string          `xml:"showObjects,attr,omitempty"`
-	ShowBorderUnselectedTables *BoolLex        `xml:"showBorderUnselectedTables,attr,omitempty"`
-	FilterPrivacy              *BoolLex        `xml:"filterPrivacy,attr,omitempty"`
-	PromptedSolutions          *BoolLex        `xml:"promptedSolutions,attr,omitempty"`
-	ShowInkAnnotation          *BoolLex        `xml:"showInkAnnotation,attr,omitempty"`
-	BackupFile                 *BoolLex        `xml:"backupFile,attr,omitempty"`
-	SaveExternalLinkValues     *BoolLex        `xml:"saveExternalLinkValues,attr,omitempty"`
-	UpdateLinks                string          `xml:"updateLinks,attr,omitempty"`
-	CodeName                   string          `xml:"codeName,attr,omitempty"`
-	HidePivotFieldList         *BoolLex        `xml:"hidePivotFieldList,attr,omitempty"`
-	ShowPivotChartFilter       *BoolLex        `xml:"showPivotChartFilter,attr,omitempty"`
-	AllowRefreshQuery          *BoolLex        `xml:"allowRefreshQuery,attr,omitempty"`
-	CheckCompatibility         *BoolLex        `xml:"checkCompatibility,attr,omitempty"`
-	AutoCompressPictures       *BoolLex        `xml:"autoCompressPictures,attr,omitempty"`
-	DefaultThemeVersion        *uint32         `xml:"defaultThemeVersion,attr,omitempty"`
-	CapturedAttrs              []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	Date1904                   *BoolLex           `xml:"date1904,attr,omitempty"`
+	ShowObjects                string             `xml:"showObjects,attr,omitempty"`
+	ShowBorderUnselectedTables *BoolLex           `xml:"showBorderUnselectedTables,attr,omitempty"`
+	FilterPrivacy              *BoolLex           `xml:"filterPrivacy,attr,omitempty"`
+	PromptedSolutions          *BoolLex           `xml:"promptedSolutions,attr,omitempty"`
+	ShowInkAnnotation          *BoolLex           `xml:"showInkAnnotation,attr,omitempty"`
+	BackupFile                 *BoolLex           `xml:"backupFile,attr,omitempty"`
+	SaveExternalLinkValues     *BoolLex           `xml:"saveExternalLinkValues,attr,omitempty"`
+	UpdateLinks                string             `xml:"updateLinks,attr,omitempty"`
+	CodeName                   string             `xml:"codeName,attr,omitempty"`
+	HidePivotFieldList         *BoolLex           `xml:"hidePivotFieldList,attr,omitempty"`
+	ShowPivotChartFilter       *BoolLex           `xml:"showPivotChartFilter,attr,omitempty"`
+	AllowRefreshQuery          *BoolLex           `xml:"allowRefreshQuery,attr,omitempty"`
+	CheckCompatibility         *BoolLex           `xml:"checkCompatibility,attr,omitempty"`
+	AutoCompressPictures       *BoolLex           `xml:"autoCompressPictures,attr,omitempty"`
+	DefaultThemeVersion        *uint32            `xml:"defaultThemeVersion,attr,omitempty"`
+	CapturedAttrs              []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	CapturedEmptyTag           xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (wp *CT_WorkbookPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	wp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	wp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	type alias CT_WorkbookPr
 	return d.DecodeElement((*alias)(wp), &start)
@@ -462,7 +475,8 @@ type CT_BookView struct {
 	// attrOrder records the source order of the known attributes above:
 	// Excel writes them in XSD order but Apache POI writes them
 	// alphabetically, so a fixed emission order cannot serve both.
-	attrOrder []string
+	attrOrder        []string
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
 }
 
 // bookViewAttrOrder lists the modeled workbookView attribute names in
@@ -484,6 +498,7 @@ var bookViewAttrNames = func() map[string]bool {
 
 // UnmarshalXML implements custom unmarshaling for CT_BookView.
 func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bv.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && bookViewAttrNames[attr.Name.Local] {
 			bv.attrOrder = append(bv.attrOrder, attr.Name.Local)
@@ -594,7 +609,7 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			}
 		}
 		attrs = append(attrs, bv.ExtAttrs...)
-		b.EmptyElement(ns, localName, attrs...)
+		b.EmptyElementStyled(bv.CapturedEmptyTag, ns, localName, attrs...)
 		return
 	}
 	var attrs []xmlb.Attr
@@ -639,7 +654,7 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	// Append extension attributes (e.g., xr2:uid)
 	attrs = append(attrs, bv.ExtAttrs...)
-	b.EmptyElement(ns, localName, attrs...)
+	b.EmptyElementStyled(bv.CapturedEmptyTag, ns, localName, attrs...)
 }
 
 // namedAttr returns the Attr for one modeled workbookView attribute, or
@@ -722,12 +737,14 @@ type CT_Sheet struct {
 	InlineNSDecls []xmlb.NSDecl `xml:"-"`
 	// CapturedAttrs preserves the verbatim source attribute list; replayed
 	// on marshal (LibreOffice writes state before name).
-	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	CapturedAttrs    []xmlb.RootAttr    `xml:"-"`
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Sheet.
 // Handles the r:id attribute which uses the relationships namespace.
 func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	s.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
@@ -765,7 +782,7 @@ func (s *CT_Sheet) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if s.CapturedAttrs != nil {
 		// Verbatim replay: producer attribute order and inline declarations
 		// (which the capture already contains) both survive.
-		b.EmptyElement(ns, localName, b.ReplayCapturedAttrs(s.CapturedAttrs, attrs)...)
+		b.EmptyElementStyled(s.CapturedEmptyTag, ns, localName, b.ReplayCapturedAttrs(s.CapturedAttrs, attrs)...)
 		return
 	}
 	// Replay inline xmlns declarations after the regular attributes,
@@ -783,6 +800,16 @@ func (s *CT_Sheet) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // CT_DefinedNames represents the definedNames element.
 type CT_DefinedNames struct {
 	DefinedName []CT_DefinedName `xml:"definedName"`
+	// CapturedEmptyTag records how an empty <definedNames> was written.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding the
+// definedName children.
+func (dns *CT_DefinedNames) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	dns.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_DefinedNames
+	return d.DecodeElement((*alias)(dns), &start)
 }
 
 // CT_DefinedName represents a definedName element. It has chardata value plus
@@ -945,26 +972,28 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 
 // CT_CalcPr represents the calcPr element.
 type CT_CalcPr struct {
-	CalcId                *uint32         `xml:"calcId,attr,omitempty"`
-	CalcMode              string          `xml:"calcMode,attr,omitempty"`
-	CalcCompleted         *BoolLex        `xml:"calcCompleted,attr,omitempty"`
-	FullCalcOnLoad        *BoolLex        `xml:"fullCalcOnLoad,attr,omitempty"`
-	RefMode               string          `xml:"refMode,attr,omitempty"`
-	Iterate               *BoolLex        `xml:"iterate,attr,omitempty"`
-	IterateCount          *uint32         `xml:"iterateCount,attr,omitempty"`
-	IterateDelta          *FloatLex       `xml:"iterateDelta,attr,omitempty"`
-	FullPrecision         *BoolLex        `xml:"fullPrecision,attr,omitempty"`
-	CalcOnSave            *BoolLex        `xml:"calcOnSave,attr,omitempty"`
-	ConcurrentCalc        *BoolLex        `xml:"concurrentCalc,attr,omitempty"`
-	ConcurrentManualCount *uint32         `xml:"concurrentManualCount,attr,omitempty"`
-	ForceFullCalc         *BoolLex        `xml:"forceFullCalc,attr,omitempty"`
-	CapturedAttrs         []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	CalcId                *uint32            `xml:"calcId,attr,omitempty"`
+	CalcMode              string             `xml:"calcMode,attr,omitempty"`
+	CalcCompleted         *BoolLex           `xml:"calcCompleted,attr,omitempty"`
+	FullCalcOnLoad        *BoolLex           `xml:"fullCalcOnLoad,attr,omitempty"`
+	RefMode               string             `xml:"refMode,attr,omitempty"`
+	Iterate               *BoolLex           `xml:"iterate,attr,omitempty"`
+	IterateCount          *uint32            `xml:"iterateCount,attr,omitempty"`
+	IterateDelta          *FloatLex          `xml:"iterateDelta,attr,omitempty"`
+	FullPrecision         *BoolLex           `xml:"fullPrecision,attr,omitempty"`
+	CalcOnSave            *BoolLex           `xml:"calcOnSave,attr,omitempty"`
+	ConcurrentCalc        *BoolLex           `xml:"concurrentCalc,attr,omitempty"`
+	ConcurrentManualCount *uint32            `xml:"concurrentManualCount,attr,omitempty"`
+	ForceFullCalc         *BoolLex           `xml:"forceFullCalc,attr,omitempty"`
+	CapturedAttrs         []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	CapturedEmptyTag      xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cp *CT_CalcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	cp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	type alias CT_CalcPr
 	return d.DecodeElement((*alias)(cp), &start)

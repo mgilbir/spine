@@ -228,7 +228,10 @@ func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 			b.marshalStructChildren(ns, val)
 			b.EndElement(ns, localName)
 		} else {
-			b.EmptyElement(ns, localName, attrs...)
+			// A struct may carry a `CapturedEmptyTag EmptyTagStyle` field
+			// recording whether the source wrote <name/> or <name></name>;
+			// producers mix both forms within one part.
+			b.EmptyElementStyled(capturedEmptyTagOf(val), ns, localName, attrs...)
 		}
 
 	case reflect.Slice:
@@ -263,6 +266,19 @@ func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 
 // rootAttrSliceType identifies the conventional CapturedAttrs field.
 var rootAttrSliceType = reflect.TypeOf([]RootAttr(nil))
+
+// emptyTagStyleType identifies the conventional CapturedEmptyTag field.
+var emptyTagStyleType = reflect.TypeOf(EmptyTagStyle(0))
+
+// capturedEmptyTagOf returns the struct's CapturedEmptyTag field value, or
+// EmptyTagUnknown when the struct does not carry one.
+func capturedEmptyTagOf(val reflect.Value) EmptyTagStyle {
+	f, ok := val.Type().FieldByName("CapturedEmptyTag")
+	if !ok || f.Type != emptyTagStyleType || len(f.Index) != 1 {
+		return EmptyTagUnknown
+	}
+	return val.Field(f.Index[0]).Interface().(EmptyTagStyle)
+}
 
 // collectStructAttrs collects all attribute fields from a struct as Attr
 // values. A struct may carry a `CapturedAttrs []RootAttr` field (tagged

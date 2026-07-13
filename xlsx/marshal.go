@@ -123,7 +123,7 @@ func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	// An empty <definedNames/> present in the source is kept: dropping the
 	// element on a no-op round trip would drift from the producer's bytes.
 	if len(wb.DefinedNames.DefinedName) == 0 {
-		b.EmptyElement(nsSML, "definedNames")
+		b.EmptyElementStyled(wb.DefinedNames.CapturedEmptyTag, nsSML, "definedNames")
 		return
 	}
 	b.StartElement(nsSML, "definedNames")

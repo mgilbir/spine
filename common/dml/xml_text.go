@@ -106,6 +106,9 @@ type P struct {
 	Fld        []*Fld      `xml:"-"`
 	EndParaRPr *RPr        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main endParaRPr,omitempty"`
 	childOrder []pChildRef // tracks interleaved child order
+	// CapturedEmptyTag records whether an empty source paragraph was written
+	// self-closing or expanded (producers mix both in one part).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 type pChildKind int
@@ -177,8 +180,15 @@ func (p *P) MapRunSegments(fn func(runs []*R) []*R) {
 	p.childOrder = newOrder
 }
 
+// isEmpty reports whether the paragraph has no children to marshal.
+func (p *P) isEmpty() bool {
+	return p.PPr == nil && len(p.R) == 0 && len(p.Br) == 0 && len(p.Fld) == 0 &&
+		p.EndParaRPr == nil && len(p.childOrder) == 0
+}
+
 // UnmarshalXML implements custom unmarshaling for P to preserve child order.
 func (p *P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	p.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -231,6 +241,13 @@ func (p *P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler to preserve child element order.
 func (p *P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	// An empty paragraph replays its captured source form: the part-level
+	// collapse flag cannot express producers that self-close <a:p/> while
+	// expanding other empties (or vice versa) in the same part.
+	if p.CapturedEmptyTag != xmlb.EmptyTagUnknown && p.isEmpty() {
+		b.EmptyElementStyled(p.CapturedEmptyTag, ns, localName)
+		return
+	}
 	b.StartElement(ns, localName)
 
 	if p.PPr != nil {
@@ -384,6 +401,62 @@ func (pp *PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 type R struct {
 	RPr *RPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rPr,omitempty"`
 	T   string `xml:"http://schemas.openxmlformats.org/drawingml/2006/main t"`
+	// TEmptyTag records how an empty a:t was written in the source
+	// (<a:t/> vs <a:t></a:t>); WPS expands it beside self-closed siblings.
+	TEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML decodes the run and captures the empty-tag style of a:t.
+func (r *R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "rPr":
+				r.RPr = &RPr{}
+				if err := d.DecodeElement(r.RPr, &t); err != nil {
+					return err
+				}
+			case "t":
+				style := xmlb.CaptureEmptyTagStyle(d)
+				var content struct {
+					Value string `xml:",chardata"`
+				}
+				if err := d.DecodeElement(&content, &t); err != nil {
+					return err
+				}
+				r.T = content.Value
+				if r.T == "" {
+					r.TEmptyTag = style
+				}
+			default:
+				if err := d.Skip(); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
+}
+
+// MarshalToBuilder writes the run, replaying the captured a:t style for an
+// empty text element.
+func (r *R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	b.StartElement(ns, localName)
+	if r.RPr != nil {
+		b.MarshalElement(ns, "rPr", r.RPr)
+	}
+	if r.T == "" && r.TEmptyTag == xmlb.EmptyTagExpanded {
+		b.EmptyElementStyled(r.TEmptyTag, ns, "t")
+	} else {
+		b.WriteElement(ns, "t", r.T)
+	}
+	b.EndElement(ns, localName)
 }
 
 // RPr represents CT_TextCharacterProperties (a:rPr)

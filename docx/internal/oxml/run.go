@@ -56,6 +56,17 @@ type CT_RPr struct {
 	// the last w:rPr child (corpus: 6,530/6,530 instances precede </w:rPr>),
 	// so it sits last here; previously it was silently dropped.
 	Ligatures *CT_Word2010Val `xml:"http://schemas.microsoft.com/office/word/2010/wordml ligatures,omitempty"`
+	// CapturedEmptyTag records how an empty w:rPr was written in the source
+	// (LibreOffice expands it beside self-closed siblings).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (rp *CT_RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_RPr
+	return d.DecodeElement((*alias)(rp), &start)
 }
 
 // CT_Word2010Val is a Word 2010 extension element carrying a single w14:val
