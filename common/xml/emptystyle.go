@@ -63,6 +63,45 @@ func CaptureEmptyTagStyle(d *xml.Decoder) EmptyTagStyle {
 	return EmptyTagExpanded
 }
 
+// InputOffsetOf returns the decoder's current input offset when it has a
+// registered source (UnmarshalWithSource), for callers that capture raw
+// source slices around a child decode. ok is false without a source.
+func InputOffsetOf(d *xml.Decoder) (off int64, ok bool) {
+	if _, has := decoderSources.Load(d); !has {
+		return 0, false
+	}
+	return d.InputOffset(), true
+}
+
+// CaptureRawInner returns the verbatim inner bytes of the element the decoder
+// just fully consumed: startOff is the offset taken right after its start tag
+// (InputOffsetOf before decoding the content). The trailing end tag is
+// stripped; a self-closed element yields nil. The slice aliases the registered
+// source and must be treated as read-only.
+func CaptureRawInner(d *xml.Decoder, startOff int64) []byte {
+	v, ok := decoderSources.Load(d)
+	if !ok {
+		return nil
+	}
+	data := v.([]byte)
+	end := d.InputOffset()
+	if startOff < 0 || end > int64(len(data)) || startOff >= end {
+		return nil
+	}
+	inner := data[startOff:end]
+	// Strip the end tag (the last '<' begins it); text content cannot contain
+	// a raw '<', so anything before it is the verbatim inner form.
+	if i := bytes.LastIndexByte(inner, '<'); i >= 0 {
+		inner = inner[:i]
+	} else {
+		return nil
+	}
+	if len(inner) == 0 {
+		return nil
+	}
+	return inner
+}
+
 // EmptyElementStyled writes a childless element honoring a captured source
 // style: expanded (<name></name>) when the capture says so, self-closing
 // otherwise (matching the emission the callers used before capture existed).

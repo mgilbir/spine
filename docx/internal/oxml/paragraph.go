@@ -96,7 +96,10 @@ const (
 func isRawPChild(local string) bool {
 	switch local {
 	case "customXml", "smartTag", "moveTo", "moveFrom",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
+		"br":
+		// w:br is only valid inside w:r, but LibreOffice-era exports place it
+		// directly in w:p; dropping it merged the surrounding lines.
 		return true
 	}
 	return false
@@ -194,11 +197,25 @@ type CT_P struct {
 	OMathPara         [][]byte                  `xml:"-"` // raw m:oMathPara elements
 	AlternateContent  []*coxml.AlternateContent `xml:"-"`
 	Raw               []*CT_RawNamedElement     `xml:"-"` // see isRawPChild
-	childOrder        []pChildRef
+	// CapturedEmptyTag records how an empty w:p was written in the source
+	// (<w:p/> vs <w:p></w:p>; producers mix both forms in one part).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	childOrder       []pChildRef
+}
+
+// isEmpty reports whether the paragraph has no children to write.
+func (p *CT_P) isEmpty() bool {
+	return p.PPr == nil && len(p.childOrder) == 0 && len(p.R) == 0 &&
+		len(p.Hyperlink) == 0 && len(p.BookmarkStart) == 0 && len(p.BookmarkEnd) == 0 &&
+		len(p.ProofErr) == 0 && len(p.PermStart) == 0 && len(p.PermEnd) == 0 &&
+		len(p.Ins) == 0 && len(p.Del) == 0 && len(p.FldSimple) == 0 &&
+		len(p.SdtRun) == 0 && len(p.CommentRangeStart) == 0 && len(p.CommentRangeEnd) == 0 &&
+		len(p.OMath) == 0 && len(p.OMathPara) == 0 && len(p.AlternateContent) == 0 && len(p.Raw) == 0
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_P to preserve child order.
 func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	p.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
@@ -396,6 +413,10 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if p.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(p.CapturedAttrs, attrs)
+	}
+	if p.isEmpty() {
+		b.EmptyElementStyled(p.CapturedEmptyTag, ns, localName, attrs...)
+		return
 	}
 	b.StartElement(ns, localName, attrs...)
 
