@@ -286,19 +286,39 @@ func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 }
 
 // clearRoundTripFields zeroes out fields that exist solely for byte-identical
-// round-trip preservation (e.g., OriginalNSDecls, OriginalRootAttrs, XMLName).
-// These fields capture the original file's namespace representation and attribute
-// ordering, which may differ between Strict and Transitional conformance classes.
+// round-trip preservation (e.g., OriginalNSDecls, OriginalRootAttrs, XMLName,
+// CapturedAttrs). These fields capture the original file's namespace
+// representation and attribute ordering, which may differ between Strict and
+// Transitional conformance classes (and between a source and its re-marshaled
+// form). The walk recurses through pointers, slices, and nested structs
+// because capture fields live on leaf types too.
 func clearRoundTripFields(v reflect.Value) {
-	if v.Kind() != reflect.Struct {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			clearRoundTripFields(v.Elem())
+		}
+		return
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			clearRoundTripFields(v.Index(i))
+		}
+		return
+	case reflect.Struct:
+	default:
 		return
 	}
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
+		if !f.IsExported() {
+			continue
+		}
 		switch f.Name {
-		case "XMLName", "OriginalNSDecls", "OriginalRootAttrs":
+		case "XMLName", "OriginalNSDecls", "OriginalRootAttrs", "CapturedAttrs":
 			v.Field(i).Set(reflect.Zero(f.Type))
+		default:
+			clearRoundTripFields(v.Field(i))
 		}
 	}
 }

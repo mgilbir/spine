@@ -1,7 +1,11 @@
 // Package oxml provides internal XML types for WordprocessingML (WML) documents.
 package oxml
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // CT_Empty represents a WML empty element (e.g., <w:noProof/>).
 type CT_Empty struct{}
@@ -80,66 +84,126 @@ type CT_Highlight struct {
 
 // CT_Color represents a color value with optional theme color.
 type CT_Color struct {
-	Val        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
-	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
-	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	ThemeColor    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeTint     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
+	ThemeShade    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (clr *CT_Color) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	clr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Color
+	return d.DecodeElement((*alias)(clr), &start)
 }
 
 // CT_Border represents a border definition. Field order follows Word's
 // attribute emission order (val, sz, space, color, theme*), not the XSD.
 type CT_Border struct {
-	Val        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	Sz         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,attr,omitempty"`
-	Space      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
-	Color      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
-	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
-	ThemeTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
-	ThemeShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
-	Shadow     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,attr,omitempty"`
-	Frame      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main frame,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Sz            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sz,attr,omitempty"`
+	Space         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	Color         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	ThemeColor    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeTint     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
+	ThemeShade    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	Shadow        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main shadow,attr,omitempty"`
+	Frame         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main frame,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bdr *CT_Border) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bdr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Border
+	return d.DecodeElement((*alias)(bdr), &start)
 }
 
 // CT_Shd represents shading properties.
 type CT_Shd struct {
-	Val            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	Color          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
-	Fill           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fill,attr,omitempty"`
-	ThemeFill      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFill,attr,omitempty"`
-	ThemeFillTint  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillTint,attr,omitempty"`
-	ThemeFillShade string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillShade,attr,omitempty"`
-	ThemeColor     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
-	ThemeTint      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
-	ThemeShade     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	Val            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Color          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	Fill           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fill,attr,omitempty"`
+	ThemeFill      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFill,attr,omitempty"`
+	ThemeFillTint  string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillTint,attr,omitempty"`
+	ThemeFillShade string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeFillShade,attr,omitempty"`
+	ThemeColor     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	ThemeTint      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeTint,attr,omitempty"`
+	ThemeShade     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeShade,attr,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (sh *CT_Shd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	sh.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Shd
+	return d.DecodeElement((*alias)(sh), &start)
 }
 
 // CT_Underline represents underline formatting.
 type CT_Underline struct {
-	Val        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	Color      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
-	ThemeColor string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	Color         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main color,attr,omitempty"`
+	ThemeColor    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main themeColor,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (u *CT_Underline) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	u.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Underline
+	return d.DecodeElement((*alias)(u), &start)
 }
 
 // CT_Lang represents language identification.
 type CT_Lang struct {
-	Val      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	EastAsia string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
-	Bidi     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	EastAsia      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
+	Bidi          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bidi,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (lg *CT_Lang) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	lg.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Lang
+	return d.DecodeElement((*alias)(lg), &start)
 }
 
 // CT_Fonts represents font specifications. Field order follows Word's
 // attribute emission order: each script slot (ascii, eastAsia, hAnsi, cs)
 // with its theme twin adjacent, and hint last.
 type CT_Fonts struct {
-	Ascii         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ascii,attr,omitempty"`
-	AsciiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main asciiTheme,attr,omitempty"`
-	EastAsia      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
-	EastAsiaTheme string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsiaTheme,attr,omitempty"`
-	HAnsi         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsi,attr,omitempty"`
-	HAnsiTheme    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsiTheme,attr,omitempty"`
-	Cs            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,attr,omitempty"`
-	CsTheme       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cstheme,attr,omitempty"`
-	Hint          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hint,attr,omitempty"`
+	Ascii         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ascii,attr,omitempty"`
+	AsciiTheme    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main asciiTheme,attr,omitempty"`
+	EastAsia      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsia,attr,omitempty"`
+	EastAsiaTheme string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main eastAsiaTheme,attr,omitempty"`
+	HAnsi         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsi,attr,omitempty"`
+	HAnsiTheme    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnsiTheme,attr,omitempty"`
+	Cs            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cs,attr,omitempty"`
+	CsTheme       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cstheme,attr,omitempty"`
+	Hint          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hint,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (f *CT_Fonts) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	f.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Fonts
+	return d.DecodeElement((*alias)(f), &start)
 }
 
 // CT_FitText represents text fitting properties.
@@ -200,27 +264,47 @@ type CT_TcBorders struct {
 // attribute emission order: the *Lines variant precedes each twip value
 // (w:beforeLines before w:before), matching the CT_Ind Chars-first pattern.
 type CT_Spacing struct {
-	BeforeLines       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeLines,attr,omitempty"`
-	Before            string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
-	BeforeAutospacing string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeAutospacing,attr,omitempty"`
-	AfterLines        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterLines,attr,omitempty"`
-	After             string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
-	AfterAutospacing  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterAutospacing,attr,omitempty"`
-	Line              string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
-	LineRule          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
+	BeforeLines       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeLines,attr,omitempty"`
+	Before            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main before,attr,omitempty"`
+	BeforeAutospacing string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main beforeAutospacing,attr,omitempty"`
+	AfterLines        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterLines,attr,omitempty"`
+	After             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main after,attr,omitempty"`
+	AfterAutospacing  string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main afterAutospacing,attr,omitempty"`
+	Line              string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main line,attr,omitempty"`
+	LineRule          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lineRule,attr,omitempty"`
+	CapturedAttrs     []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (sp *CT_Spacing) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	sp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Spacing
+	return d.DecodeElement((*alias)(sp), &start)
 }
 
 // CT_Ind represents paragraph indentation. Field order follows Word's
 // attribute emission order: the Chars variant precedes each twip value.
 type CT_Ind struct {
-	LeftChars      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftChars,attr,omitempty"`
-	Left           string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
-	RightChars     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightChars,attr,omitempty"`
-	Right          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
-	HangingChars   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hangingChars,attr,omitempty"`
-	Hanging        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
-	FirstLineChars string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLineChars,attr,omitempty"`
-	FirstLine      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
+	LeftChars      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftChars,attr,omitempty"`
+	Left           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
+	RightChars     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightChars,attr,omitempty"`
+	Right          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
+	HangingChars   string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hangingChars,attr,omitempty"`
+	Hanging        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hanging,attr,omitempty"`
+	FirstLineChars string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLineChars,attr,omitempty"`
+	FirstLine      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstLine,attr,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ind *CT_Ind) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ind.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Ind
+	return d.DecodeElement((*alias)(ind), &start)
 }
 
 // CT_Jc represents paragraph justification.
@@ -242,28 +326,48 @@ type CT_Tabs struct {
 // CT_TabStop represents a single tab stop. Field order follows Word's
 // attribute emission order (val, leader, pos).
 type CT_TabStop struct {
-	Val    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
-	Leader string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leader,attr,omitempty"`
-	Pos    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,attr"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr"`
+	Leader        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leader,attr,omitempty"`
+	Pos           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pos,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ts *CT_TabStop) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ts.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TabStop
+	return d.DecodeElement((*alias)(ts), &start)
 }
 
 // CT_FramePr represents frame properties.
 type CT_FramePr struct {
-	DropCap    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dropCap,attr,omitempty"`
-	Lines      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lines,attr,omitempty"`
-	W          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
-	H          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
-	VSpace     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vSpace,attr,omitempty"`
-	HSpace     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hSpace,attr,omitempty"`
-	Wrap       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wrap,attr,omitempty"`
-	HAnchor    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnchor,attr,omitempty"`
-	VAnchor    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAnchor,attr,omitempty"`
-	X          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main x,attr,omitempty"`
-	XAlign     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main xAlign,attr,omitempty"`
-	Y          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main y,attr,omitempty"`
-	YAlign     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main yAlign,attr,omitempty"`
-	HRule      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
-	AnchorLock string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchorLock,attr,omitempty"`
+	DropCap       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dropCap,attr,omitempty"`
+	Lines         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lines,attr,omitempty"`
+	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
+	H             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
+	VSpace        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vSpace,attr,omitempty"`
+	HSpace        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hSpace,attr,omitempty"`
+	Wrap          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wrap,attr,omitempty"`
+	HAnchor       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hAnchor,attr,omitempty"`
+	VAnchor       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vAnchor,attr,omitempty"`
+	X             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main x,attr,omitempty"`
+	XAlign        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main xAlign,attr,omitempty"`
+	Y             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main y,attr,omitempty"`
+	YAlign        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main yAlign,attr,omitempty"`
+	HRule         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	AnchorLock    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchorLock,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (fp *CT_FramePr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	fp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_FramePr
+	return d.DecodeElement((*alias)(fp), &start)
 }
 
 // CT_DocGrid represents the document grid.
@@ -276,11 +380,21 @@ type CT_DocGrid struct {
 // CT_Columns represents column definitions. Field order follows Word's
 // attribute emission order (num, space, equalWidth).
 type CT_Columns struct {
-	Num        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num,attr,omitempty"`
-	Space      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
-	EqualWidth string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
-	Sep        string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sep,attr,omitempty"`
-	Col        []CT_Column `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main col,omitempty"`
+	Num           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num,attr,omitempty"`
+	Space         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main space,attr,omitempty"`
+	EqualWidth    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main equalWidth,attr,omitempty"`
+	Sep           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sep,attr,omitempty"`
+	Col           []CT_Column     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main col,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (c *CT_Columns) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Columns
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_Column represents a single column definition.

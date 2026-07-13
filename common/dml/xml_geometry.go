@@ -38,8 +38,18 @@ type GdLst struct {
 
 // Gd represents CT_GeomGuide (a:gd)
 type Gd struct {
-	Name string `xml:"name,attr"`
-	Fmla string `xml:"fmla,attr"`
+	Name          string          `xml:"name,attr"`
+	Fmla          string          `xml:"fmla,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (g *Gd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	g.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Gd
+	return d.DecodeElement((*alias)(g), &start)
 }
 
 // PathLst represents CT_Path2DList (a:pathLst)
@@ -75,15 +85,18 @@ type PathXML2D struct {
 	// Stroke and ExtrusionOk default to true when absent, so they are pointers:
 	// nil means "unspecified" and an explicit false must be emitted as "0"
 	// rather than omitted (which readers treat as true).
-	Stroke      *bool            `xml:"-"`
-	ExtrusionOk *bool            `xml:"-"`
-	MoveTo      []*MoveToXML     `xml:"-"`
-	LnTo        []*LnToXML       `xml:"-"`
-	ArcTo       []*ArcToXML      `xml:"-"`
-	QuadBezTo   []*QuadBezToXML  `xml:"-"`
-	CubicBezTo  []*CubicBezToXML `xml:"-"`
-	Close       []*CloseXML      `xml:"-"`
-	cmdOrder    []pathCmdRef
+	Stroke      *bool `xml:"-"`
+	ExtrusionOk *bool `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal.
+	CapturedAttrs []xmlb.RootAttr  `xml:"-"`
+	MoveTo        []*MoveToXML     `xml:"-"`
+	LnTo          []*LnToXML       `xml:"-"`
+	ArcTo         []*ArcToXML      `xml:"-"`
+	QuadBezTo     []*QuadBezToXML  `xml:"-"`
+	CubicBezTo    []*CubicBezToXML `xml:"-"`
+	Close         []*CloseXML      `xml:"-"`
+	cmdOrder      []pathCmdRef
 }
 
 // boolAttrValue formats a boolean as the canonical OOXML attribute value.
@@ -96,6 +109,7 @@ func boolAttrValue(b bool) string {
 
 // UnmarshalXML implements custom unmarshaling for PathXML2D to preserve command order.
 func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	// Parse attributes
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
@@ -200,6 +214,9 @@ func (p *PathXML2D) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if p.ExtrusionOk != nil {
 		attrs = append(attrs, xmlb.Attr{Name: "extrusionOk", Value: boolAttrValue(*p.ExtrusionOk)})
+	}
+	if p.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(p.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 
@@ -393,16 +410,36 @@ type CloseXML struct{}
 
 // PtXML represents CT_AdjPoint2D (a:pt)
 type PtXML struct {
-	X string `xml:"x,attr"`
-	Y string `xml:"y,attr"`
+	X             string          `xml:"x,attr"`
+	Y             string          `xml:"y,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (pt *PtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pt.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias PtXML
+	return d.DecodeElement((*alias)(pt), &start)
 }
 
 // RectXML represents CT_GeomRect (a:rect)
 type RectXML struct {
-	L string `xml:"l,attr"`
-	T string `xml:"t,attr"`
-	R string `xml:"r,attr"`
-	B string `xml:"b,attr"`
+	L             string          `xml:"l,attr"`
+	T             string          `xml:"t,attr"`
+	R             string          `xml:"r,attr"`
+	B             string          `xml:"b,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (rx *RectXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rx.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias RectXML
+	return d.DecodeElement((*alias)(rx), &start)
 }
 
 // CxnLst represents CT_ConnectionSiteList (a:cxnLst)
@@ -446,23 +483,53 @@ type AhPolar struct {
 
 // Xfrm represents CT_Transform2D (a:xfrm)
 type Xfrm struct {
-	Rot   int32   `xml:"rot,attr,omitempty"`
-	FlipH bool    `xml:"flipH,attr,omitempty"`
-	FlipV bool    `xml:"flipV,attr,omitempty"`
-	Off   *OffXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
-	Ext   *ExtXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
+	Rot           int32           `xml:"rot,attr,omitempty"`
+	FlipH         bool            `xml:"flipH,attr,omitempty"`
+	FlipV         bool            `xml:"flipV,attr,omitempty"`
+	Off           *OffXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main off,omitempty"`
+	Ext           *ExtXML         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ext,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (xf *Xfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	xf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Xfrm
+	return d.DecodeElement((*alias)(xf), &start)
 }
 
 // OffXML represents CT_Point2D (a:off)
 type OffXML struct {
-	X int64 `xml:"x,attr"`
-	Y int64 `xml:"y,attr"`
+	X             int64           `xml:"x,attr"`
+	Y             int64           `xml:"y,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (off *OffXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	off.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias OffXML
+	return d.DecodeElement((*alias)(off), &start)
 }
 
 // ExtXML represents CT_PositiveSize2D (a:ext)
 type ExtXML struct {
-	Cx int64 `xml:"cx,attr"`
-	Cy int64 `xml:"cy,attr"`
+	Cx            int64           `xml:"cx,attr"`
+	Cy            int64           `xml:"cy,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ex2 *ExtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ex2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ExtXML
+	return d.DecodeElement((*alias)(ex2), &start)
 }
 
 // GrpXfrm represents CT_GroupTransform2D (a:xfrm for groups)
@@ -495,10 +562,20 @@ type Stretch struct {
 
 // SrcRect represents CT_RelativeRect for source rectangle (a:srcRect)
 type SrcRect struct {
-	L Percentage `xml:"l,attr,omitempty"`
-	T Percentage `xml:"t,attr,omitempty"`
-	R Percentage `xml:"r,attr,omitempty"`
-	B Percentage `xml:"b,attr,omitempty"`
+	L             Percentage      `xml:"l,attr,omitempty"`
+	T             Percentage      `xml:"t,attr,omitempty"`
+	R             Percentage      `xml:"r,attr,omitempty"`
+	B             Percentage      `xml:"b,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (sr *SrcRect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	sr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias SrcRect
+	return d.DecodeElement((*alias)(sr), &start)
 }
 
 // --- Preset Shape Types ---

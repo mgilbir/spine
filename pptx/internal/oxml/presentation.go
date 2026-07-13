@@ -304,17 +304,37 @@ func (s *SlideID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // SlideSize specifies the size of slides.
 type SlideSize struct {
-	Cx   int64  `xml:"cx,attr"`
-	Cy   int64  `xml:"cy,attr"`
-	Type string `xml:"type,attr,omitempty"`
+	Cx            int64           `xml:"cx,attr"`
+	Cy            int64           `xml:"cy,attr"`
+	Type          string          `xml:"type,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ssz *SlideSize) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ssz.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias SlideSize
+	return d.DecodeElement((*alias)(ssz), &start)
 }
 
 // TextFont specifies a font.
 type TextFont struct {
-	Typeface    string `xml:"typeface,attr"`
-	Panose      string `xml:"panose,attr,omitempty"`
-	PitchFamily *int8  `xml:"pitchFamily,attr,omitempty"`
-	Charset     *int8  `xml:"charset,attr,omitempty"`
+	Typeface      string          `xml:"typeface,attr"`
+	Panose        string          `xml:"panose,attr,omitempty"`
+	PitchFamily   *int8           `xml:"pitchFamily,attr,omitempty"`
+	Charset       *int8           `xml:"charset,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tft *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tft.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias TextFont
+	return d.DecodeElement((*alias)(tft), &start)
 }
 
 // DefaultSlideSize returns the default slide size (10" x 7.5" at 96 DPI).

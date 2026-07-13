@@ -8,12 +8,16 @@ import (
 
 // CT_Hyperlink represents a hyperlink (w:hyperlink).
 type CT_Hyperlink struct {
-	RID         string `xml:"-"` // r:id - custom marshal
-	Anchor      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchor,attr,omitempty"`
-	History     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main history,attr,omitempty"`
-	TgtFrame    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tgtFrame,attr,omitempty"`
-	Tooltip     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tooltip,attr,omitempty"`
-	DocLocation string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docLocation,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal so producer attribute order and unmodeled attributes
+	// survive.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RID           string          `xml:"-"` // r:id - custom marshal
+	Anchor        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main anchor,attr,omitempty"`
+	History       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main history,attr,omitempty"`
+	TgtFrame      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tgtFrame,attr,omitempty"`
+	Tooltip       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tooltip,attr,omitempty"`
+	DocLocation   string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docLocation,attr,omitempty"`
 
 	// Child content (same as paragraph content)
 	R             []*CT_R               `xml:"-"`
@@ -33,6 +37,7 @@ type CT_Hyperlink struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Hyperlink.
 func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
@@ -79,6 +84,9 @@ func (h *CT_Hyperlink) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if h.DocLocation != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "docLocation", Value: h.DocLocation})
+	}
+	if h.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(h.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, h.R, h.Hyperlink, h.BookmarkStart, h.BookmarkEnd,

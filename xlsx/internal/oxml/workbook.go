@@ -409,22 +409,32 @@ type CT_FileVersion struct {
 
 // CT_WorkbookPr represents the workbookPr element.
 type CT_WorkbookPr struct {
-	Date1904                   *BoolLex `xml:"date1904,attr,omitempty"`
-	ShowObjects                string   `xml:"showObjects,attr,omitempty"`
-	ShowBorderUnselectedTables *BoolLex `xml:"showBorderUnselectedTables,attr,omitempty"`
-	FilterPrivacy              *BoolLex `xml:"filterPrivacy,attr,omitempty"`
-	PromptedSolutions          *BoolLex `xml:"promptedSolutions,attr,omitempty"`
-	ShowInkAnnotation          *BoolLex `xml:"showInkAnnotation,attr,omitempty"`
-	BackupFile                 *BoolLex `xml:"backupFile,attr,omitempty"`
-	SaveExternalLinkValues     *BoolLex `xml:"saveExternalLinkValues,attr,omitempty"`
-	UpdateLinks                string   `xml:"updateLinks,attr,omitempty"`
-	CodeName                   string   `xml:"codeName,attr,omitempty"`
-	HidePivotFieldList         *BoolLex `xml:"hidePivotFieldList,attr,omitempty"`
-	ShowPivotChartFilter       *BoolLex `xml:"showPivotChartFilter,attr,omitempty"`
-	AllowRefreshQuery          *BoolLex `xml:"allowRefreshQuery,attr,omitempty"`
-	CheckCompatibility         *BoolLex `xml:"checkCompatibility,attr,omitempty"`
-	AutoCompressPictures       *BoolLex `xml:"autoCompressPictures,attr,omitempty"`
-	DefaultThemeVersion        *uint32  `xml:"defaultThemeVersion,attr,omitempty"`
+	Date1904                   *BoolLex        `xml:"date1904,attr,omitempty"`
+	ShowObjects                string          `xml:"showObjects,attr,omitempty"`
+	ShowBorderUnselectedTables *BoolLex        `xml:"showBorderUnselectedTables,attr,omitempty"`
+	FilterPrivacy              *BoolLex        `xml:"filterPrivacy,attr,omitempty"`
+	PromptedSolutions          *BoolLex        `xml:"promptedSolutions,attr,omitempty"`
+	ShowInkAnnotation          *BoolLex        `xml:"showInkAnnotation,attr,omitempty"`
+	BackupFile                 *BoolLex        `xml:"backupFile,attr,omitempty"`
+	SaveExternalLinkValues     *BoolLex        `xml:"saveExternalLinkValues,attr,omitempty"`
+	UpdateLinks                string          `xml:"updateLinks,attr,omitempty"`
+	CodeName                   string          `xml:"codeName,attr,omitempty"`
+	HidePivotFieldList         *BoolLex        `xml:"hidePivotFieldList,attr,omitempty"`
+	ShowPivotChartFilter       *BoolLex        `xml:"showPivotChartFilter,attr,omitempty"`
+	AllowRefreshQuery          *BoolLex        `xml:"allowRefreshQuery,attr,omitempty"`
+	CheckCompatibility         *BoolLex        `xml:"checkCompatibility,attr,omitempty"`
+	AutoCompressPictures       *BoolLex        `xml:"autoCompressPictures,attr,omitempty"`
+	DefaultThemeVersion        *uint32         `xml:"defaultThemeVersion,attr,omitempty"`
+	CapturedAttrs              []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (wp *CT_WorkbookPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	wp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_WorkbookPr
+	return d.DecodeElement((*alias)(wp), &start)
 }
 
 // CT_BookViews represents the bookViews element.
@@ -710,11 +720,15 @@ type CT_Sheet struct {
 	// instead of on the workbook root; dropping the declaration leaves r:id
 	// referencing an undeclared prefix.
 	InlineNSDecls []xmlb.NSDecl `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal (LibreOffice writes state before name).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Sheet.
 // Handles the r:id attribute which uses the relationships namespace.
 func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Space == "xmlns":
@@ -748,6 +762,12 @@ func (s *CT_Sheet) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.StrAttr("state", s.State))
 	}
 	attrs = append(attrs, xmlb.RelAttr("id", s.RID))
+	if s.CapturedAttrs != nil {
+		// Verbatim replay: producer attribute order and inline declarations
+		// (which the capture already contains) both survive.
+		b.EmptyElement(ns, localName, b.ReplayCapturedAttrs(s.CapturedAttrs, attrs)...)
+		return
+	}
 	// Replay inline xmlns declarations after the regular attributes,
 	// matching the position producers that use them write them in.
 	for _, decl := range s.InlineNSDecls {
@@ -768,26 +788,32 @@ type CT_DefinedNames struct {
 // CT_DefinedName represents a definedName element. It has chardata value plus
 // attributes, requiring custom UnmarshalXML and MarshalToBuilder.
 type CT_DefinedName struct {
-	Name              string  `xml:"-"`
-	Comment           string  `xml:"-"`
-	CustomMenu        string  `xml:"-"`
-	Description       string  `xml:"-"`
-	Help              string  `xml:"-"`
-	StatusBar         string  `xml:"-"`
-	LocalSheetId      *uint32 `xml:"-"`
-	Hidden            *bool   `xml:"-"`
-	Function          *bool   `xml:"-"`
-	VbProcedure       *bool   `xml:"-"`
-	Xlm               *bool   `xml:"-"`
-	FunctionGroupId   *uint32 `xml:"-"`
-	ShortcutKey       string  `xml:"-"`
-	PublishToServer   *bool   `xml:"-"`
-	WorkbookParameter *bool   `xml:"-"`
-	Value             string  `xml:"-"`
+	Name         string  `xml:"-"`
+	Comment      string  `xml:"-"`
+	CustomMenu   string  `xml:"-"`
+	Description  string  `xml:"-"`
+	Help         string  `xml:"-"`
+	StatusBar    string  `xml:"-"`
+	LocalSheetId *uint32 `xml:"-"`
+	// The boolean attributes hold BoolLex so a source's lexical form
+	// ("true"/"false" from LibreOffice vs "1"/"0" from Excel) round-trips.
+	Hidden            *BoolLex `xml:"-"`
+	Function          *BoolLex `xml:"-"`
+	VbProcedure       *BoolLex `xml:"-"`
+	Xlm               *BoolLex `xml:"-"`
+	FunctionGroupId   *uint32  `xml:"-"`
+	ShortcutKey       string   `xml:"-"`
+	PublishToServer   *BoolLex `xml:"-"`
+	WorkbookParameter *BoolLex `xml:"-"`
+	Value             string   `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_DefinedName.
 func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	dn.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "name":
@@ -808,17 +834,29 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 				dn.LocalSheetId = &v
 			}
 		case "hidden":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.Hidden = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.Hidden = v
 		case "function":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.Function = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.Function = v
 		case "vbProcedure":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.VbProcedure = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.VbProcedure = v
 		case "xlm":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.Xlm = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.Xlm = v
 		case "functionGroupId":
 			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
 				v := uint32(n)
@@ -827,11 +865,17 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 		case "shortcutKey":
 			dn.ShortcutKey = attr.Value
 		case "publishToServer":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.PublishToServer = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.PublishToServer = v
 		case "workbookParameter":
-			b := attr.Value == "1" || attr.Value == "true"
-			dn.WorkbookParameter = &b
+			v := &BoolLex{}
+			if err := v.UnmarshalXMLAttr(attr); err != nil {
+				return err
+			}
+			dn.WorkbookParameter = v
 		}
 	}
 
@@ -870,16 +914,16 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 		attrs = append(attrs, xmlb.UintAttr("localSheetId", *dn.LocalSheetId))
 	}
 	if dn.Hidden != nil {
-		attrs = append(attrs, xmlb.BoolAttr("hidden", *dn.Hidden))
+		attrs = append(attrs, xmlb.StrAttr("hidden", dn.Hidden.AttrValue()))
 	}
 	if dn.Function != nil {
-		attrs = append(attrs, xmlb.BoolAttr("function", *dn.Function))
+		attrs = append(attrs, xmlb.StrAttr("function", dn.Function.AttrValue()))
 	}
 	if dn.VbProcedure != nil {
-		attrs = append(attrs, xmlb.BoolAttr("vbProcedure", *dn.VbProcedure))
+		attrs = append(attrs, xmlb.StrAttr("vbProcedure", dn.VbProcedure.AttrValue()))
 	}
 	if dn.Xlm != nil {
-		attrs = append(attrs, xmlb.BoolAttr("xlm", *dn.Xlm))
+		attrs = append(attrs, xmlb.StrAttr("xlm", dn.Xlm.AttrValue()))
 	}
 	if dn.FunctionGroupId != nil {
 		attrs = append(attrs, xmlb.UintAttr("functionGroupId", *dn.FunctionGroupId))
@@ -888,29 +932,42 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 		attrs = append(attrs, xmlb.StrAttr("shortcutKey", dn.ShortcutKey))
 	}
 	if dn.PublishToServer != nil {
-		attrs = append(attrs, xmlb.BoolAttr("publishToServer", *dn.PublishToServer))
+		attrs = append(attrs, xmlb.StrAttr("publishToServer", dn.PublishToServer.AttrValue()))
 	}
 	if dn.WorkbookParameter != nil {
-		attrs = append(attrs, xmlb.BoolAttr("workbookParameter", *dn.WorkbookParameter))
+		attrs = append(attrs, xmlb.StrAttr("workbookParameter", dn.WorkbookParameter.AttrValue()))
+	}
+	if dn.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(dn.CapturedAttrs, attrs)
 	}
 	b.WriteElement(ns, localName, dn.Value, attrs...)
 }
 
 // CT_CalcPr represents the calcPr element.
 type CT_CalcPr struct {
-	CalcId                *uint32   `xml:"calcId,attr,omitempty"`
-	CalcMode              string    `xml:"calcMode,attr,omitempty"`
-	CalcCompleted         *BoolLex  `xml:"calcCompleted,attr,omitempty"`
-	FullCalcOnLoad        *BoolLex  `xml:"fullCalcOnLoad,attr,omitempty"`
-	RefMode               string    `xml:"refMode,attr,omitempty"`
-	Iterate               *BoolLex  `xml:"iterate,attr,omitempty"`
-	IterateCount          *uint32   `xml:"iterateCount,attr,omitempty"`
-	IterateDelta          *FloatLex `xml:"iterateDelta,attr,omitempty"`
-	FullPrecision         *BoolLex  `xml:"fullPrecision,attr,omitempty"`
-	CalcOnSave            *BoolLex  `xml:"calcOnSave,attr,omitempty"`
-	ConcurrentCalc        *BoolLex  `xml:"concurrentCalc,attr,omitempty"`
-	ConcurrentManualCount *uint32   `xml:"concurrentManualCount,attr,omitempty"`
-	ForceFullCalc         *BoolLex  `xml:"forceFullCalc,attr,omitempty"`
+	CalcId                *uint32         `xml:"calcId,attr,omitempty"`
+	CalcMode              string          `xml:"calcMode,attr,omitempty"`
+	CalcCompleted         *BoolLex        `xml:"calcCompleted,attr,omitempty"`
+	FullCalcOnLoad        *BoolLex        `xml:"fullCalcOnLoad,attr,omitempty"`
+	RefMode               string          `xml:"refMode,attr,omitempty"`
+	Iterate               *BoolLex        `xml:"iterate,attr,omitempty"`
+	IterateCount          *uint32         `xml:"iterateCount,attr,omitempty"`
+	IterateDelta          *FloatLex       `xml:"iterateDelta,attr,omitempty"`
+	FullPrecision         *BoolLex        `xml:"fullPrecision,attr,omitempty"`
+	CalcOnSave            *BoolLex        `xml:"calcOnSave,attr,omitempty"`
+	ConcurrentCalc        *BoolLex        `xml:"concurrentCalc,attr,omitempty"`
+	ConcurrentManualCount *uint32         `xml:"concurrentManualCount,attr,omitempty"`
+	ForceFullCalc         *BoolLex        `xml:"forceFullCalc,attr,omitempty"`
+	CapturedAttrs         []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (cp *CT_CalcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_CalcPr
+	return d.DecodeElement((*alias)(cp), &start)
 }
 
 // CT_ExtensionList represents the extLst element.

@@ -31,22 +31,32 @@ type BodyPr struct {
 	BIns             *int64 `xml:"bIns,attr,omitempty"`
 	NumCol           int32  `xml:"numCol,attr,omitempty"`
 	// SpcCol is a pointer so an explicit spcCol="0" survives the round trip.
-	SpcCol      *int32       `xml:"spcCol,attr,omitempty"`
-	RtlCol      *bool        `xml:"rtlCol,attr,omitempty"`
-	FromWordArt *bool        `xml:"fromWordArt,attr,omitempty"`
-	Anchor      string       `xml:"anchor,attr,omitempty"`
-	AnchorCtr   *bool        `xml:"anchorCtr,attr,omitempty"`
-	ForceAA     *bool        `xml:"forceAA,attr,omitempty"`
-	UpRight     *bool        `xml:"upright,attr,omitempty"`
-	CompatLnSpc *bool        `xml:"compatLnSpc,attr,omitempty"`
-	PrstTxWarp  *PrstTxWarp  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
-	NoAutofit   *NoAutofit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
-	NormAutofit *NormAutofit `xml:"http://schemas.openxmlformats.org/drawingml/2006/main normAutofit,omitempty"`
-	SpAutoFit   *SpAutoFit   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
-	Scene3d     *Scene3d     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
-	Sp3d        *Sp3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
-	FlatTx      *FlatTx      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
-	ExtLst      *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	SpcCol        *int32          `xml:"spcCol,attr,omitempty"`
+	RtlCol        *bool           `xml:"rtlCol,attr,omitempty"`
+	FromWordArt   *bool           `xml:"fromWordArt,attr,omitempty"`
+	Anchor        string          `xml:"anchor,attr,omitempty"`
+	AnchorCtr     *bool           `xml:"anchorCtr,attr,omitempty"`
+	ForceAA       *bool           `xml:"forceAA,attr,omitempty"`
+	UpRight       *bool           `xml:"upright,attr,omitempty"`
+	CompatLnSpc   *bool           `xml:"compatLnSpc,attr,omitempty"`
+	PrstTxWarp    *PrstTxWarp     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstTxWarp,omitempty"`
+	NoAutofit     *NoAutofit      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noAutofit,omitempty"`
+	NormAutofit   *NormAutofit    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main normAutofit,omitempty"`
+	SpAutoFit     *SpAutoFit      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spAutoFit,omitempty"`
+	Scene3d       *Scene3d        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scene3d,omitempty"`
+	Sp3d          *Sp3d           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
+	FlatTx        *FlatTx         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main flatTx,omitempty"`
+	ExtLst        *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bp *BodyPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias BodyPr
+	return d.DecodeElement((*alias)(bp), &start)
 }
 
 // PrstTxWarp represents CT_PresetTextShape (a:prstTxWarp)
@@ -330,34 +340,44 @@ func (p *P) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 
 // PPr represents CT_TextParagraphProperties (a:pPr)
 type PPr struct {
-	MarL         *int32     `xml:"marL,attr,omitempty"`
-	MarR         *int32     `xml:"marR,attr,omitempty"`
-	Lvl          *int32     `xml:"lvl,attr,omitempty"`
-	Indent       *int32     `xml:"indent,attr,omitempty"`
-	Algn         string     `xml:"algn,attr,omitempty"`
-	DefTabSz     *int32     `xml:"defTabSz,attr,omitempty"`
-	Rtl          *bool      `xml:"rtl,attr,omitempty"`
-	EaLnBrk      *bool      `xml:"eaLnBrk,attr,omitempty"`
-	FontAlgn     string     `xml:"fontAlgn,attr,omitempty"`
-	LatinLnBrk   *bool      `xml:"latinLnBrk,attr,omitempty"`
-	HangingPunct *bool      `xml:"hangingPunct,attr,omitempty"`
-	LnSpc        *LnSpc     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnSpc,omitempty"`
-	SpcBef       *SpcBef    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcBef,omitempty"`
-	SpcAft       *SpcAft    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcAft,omitempty"`
-	BuClrTx      *BuClrTx   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClrTx,omitempty"`
-	BuClr        *BuClr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClr,omitempty"`
-	BuSzTx       *BuSzTx    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzTx,omitempty"`
-	BuSzPct      *BuSzPct   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPct,omitempty"`
-	BuSzPts      *BuSzPts   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPts,omitempty"`
-	BuFontTx     *BuFontTx  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFontTx,omitempty"`
-	BuFont       *BuFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFont,omitempty"`
-	BuNone       *BuNone    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buNone,omitempty"`
-	BuAutoNum    *BuAutoNum `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buAutoNum,omitempty"`
-	BuChar       *BuChar    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buChar,omitempty"`
-	BuBlip       *BuBlip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
-	TabLst       *TabLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
-	DefRPr       *RPr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
-	ExtLst       *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	MarL          *int32          `xml:"marL,attr,omitempty"`
+	MarR          *int32          `xml:"marR,attr,omitempty"`
+	Lvl           *int32          `xml:"lvl,attr,omitempty"`
+	Indent        *int32          `xml:"indent,attr,omitempty"`
+	Algn          string          `xml:"algn,attr,omitempty"`
+	DefTabSz      *int32          `xml:"defTabSz,attr,omitempty"`
+	Rtl           *bool           `xml:"rtl,attr,omitempty"`
+	EaLnBrk       *bool           `xml:"eaLnBrk,attr,omitempty"`
+	FontAlgn      string          `xml:"fontAlgn,attr,omitempty"`
+	LatinLnBrk    *bool           `xml:"latinLnBrk,attr,omitempty"`
+	HangingPunct  *bool           `xml:"hangingPunct,attr,omitempty"`
+	LnSpc         *LnSpc          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnSpc,omitempty"`
+	SpcBef        *SpcBef         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcBef,omitempty"`
+	SpcAft        *SpcAft         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spcAft,omitempty"`
+	BuClrTx       *BuClrTx        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClrTx,omitempty"`
+	BuClr         *BuClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buClr,omitempty"`
+	BuSzTx        *BuSzTx         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzTx,omitempty"`
+	BuSzPct       *BuSzPct        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPct,omitempty"`
+	BuSzPts       *BuSzPts        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buSzPts,omitempty"`
+	BuFontTx      *BuFontTx       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFontTx,omitempty"`
+	BuFont        *BuFont         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buFont,omitempty"`
+	BuNone        *BuNone         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buNone,omitempty"`
+	BuAutoNum     *BuAutoNum      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buAutoNum,omitempty"`
+	BuChar        *BuChar         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buChar,omitempty"`
+	BuBlip        *BuBlip         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main buBlip,omitempty"`
+	TabLst        *TabLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tabLst,omitempty"`
+	DefRPr        *RPr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main defRPr,omitempty"`
+	ExtLst        *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (pp *PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias PPr
+	return d.DecodeElement((*alias)(pp), &start)
 }
 
 // R represents CT_RegularTextRun (a:r)
@@ -368,47 +388,57 @@ type R struct {
 
 // RPr represents CT_TextCharacterProperties (a:rPr)
 type RPr struct {
-	Kumimoji       *bool        `xml:"kumimoji,attr,omitempty"`
-	Lang           string       `xml:"lang,attr,omitempty"`
-	AltLang        string       `xml:"altLang,attr,omitempty"`
-	Sz             int32        `xml:"sz,attr,omitempty"`
-	B              *bool        `xml:"b,attr,omitempty"`
-	I              *bool        `xml:"i,attr,omitempty"`
-	U              string       `xml:"u,attr,omitempty"`
-	Strike         string       `xml:"strike,attr,omitempty"`
-	Kern           *int32       `xml:"kern,attr,omitempty"`
-	Cap            string       `xml:"cap,attr,omitempty"`
-	Spc            *int32       `xml:"spc,attr,omitempty"`
-	NormalizeH     *bool        `xml:"normalizeH,attr,omitempty"`
-	Baseline       *int32       `xml:"baseline,attr,omitempty"`
-	NoProof        *bool        `xml:"noProof,attr,omitempty"`
-	Dirty          *bool        `xml:"dirty,attr,omitempty"`
-	Err            *bool        `xml:"err,attr,omitempty"`
-	SmtClean       *bool        `xml:"smtClean,attr,omitempty"`
-	SmtId          uint32       `xml:"smtId,attr,omitempty"`
-	Bmk            string       `xml:"bmk,attr,omitempty"`
-	Ln             *Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ln,omitempty"`
-	NoFill         *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill      *SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill       *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill       *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill       *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill        *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
-	EffectLst      *EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	EffectDag      *EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
-	Highlight      *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main highlight,omitempty"`
-	ULnTx          *ULnTx       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLnTx,omitempty"`
-	ULn            *Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLn,omitempty"`
-	UFillTx        *UFillTx     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFillTx,omitempty"`
-	UFill          *UFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFill,omitempty"`
-	Latin          *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
-	Ea             *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
-	Cs             *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
-	Sym            *TextFont    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sym,omitempty"`
-	HlinkClick     *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
-	HlinkMouseOver *HlinkXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
-	Rtl            *TextRtl     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
-	ExtLst         *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	Kumimoji       *bool           `xml:"kumimoji,attr,omitempty"`
+	Lang           string          `xml:"lang,attr,omitempty"`
+	AltLang        string          `xml:"altLang,attr,omitempty"`
+	Sz             int32           `xml:"sz,attr,omitempty"`
+	B              *bool           `xml:"b,attr,omitempty"`
+	I              *bool           `xml:"i,attr,omitempty"`
+	U              string          `xml:"u,attr,omitempty"`
+	Strike         string          `xml:"strike,attr,omitempty"`
+	Kern           *int32          `xml:"kern,attr,omitempty"`
+	Cap            string          `xml:"cap,attr,omitempty"`
+	Spc            *int32          `xml:"spc,attr,omitempty"`
+	NormalizeH     *bool           `xml:"normalizeH,attr,omitempty"`
+	Baseline       *int32          `xml:"baseline,attr,omitempty"`
+	NoProof        *bool           `xml:"noProof,attr,omitempty"`
+	Dirty          *bool           `xml:"dirty,attr,omitempty"`
+	Err            *bool           `xml:"err,attr,omitempty"`
+	SmtClean       *bool           `xml:"smtClean,attr,omitempty"`
+	SmtId          uint32          `xml:"smtId,attr,omitempty"`
+	Bmk            string          `xml:"bmk,attr,omitempty"`
+	Ln             *Ln             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ln,omitempty"`
+	NoFill         *NoFillXML      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill      *SolidFill      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill       *GradFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill       *BlipFillXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill       *PattFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill        *GrpFill        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	EffectLst      *EffectLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	EffectDag      *EffectDag      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	Highlight      *ColorChoice    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main highlight,omitempty"`
+	ULnTx          *ULnTx          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLnTx,omitempty"`
+	ULn            *Ln             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uLn,omitempty"`
+	UFillTx        *UFillTx        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFillTx,omitempty"`
+	UFill          *UFill          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main uFill,omitempty"`
+	Latin          *TextFont       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
+	Ea             *TextFont       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
+	Cs             *TextFont       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
+	Sym            *TextFont       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sym,omitempty"`
+	HlinkClick     *HlinkXML       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkClick,omitempty"`
+	HlinkMouseOver *HlinkXML       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlinkMouseOver,omitempty"`
+	Rtl            *TextRtl        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rtl,omitempty"`
+	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (rp *RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias RPr
+	return d.DecodeElement((*alias)(rp), &start)
 }
 
 // TextRtl represents the a:rtl element (CT_Boolean): the value is carried in a
@@ -438,10 +468,20 @@ type Fld struct {
 
 // TextFont represents CT_TextFont (a:latin, a:ea, a:cs, a:sym)
 type TextFont struct {
-	Typeface    string `xml:"typeface,attr"`
-	Panose      string `xml:"panose,attr,omitempty"`
-	PitchFamily *int32 `xml:"pitchFamily,attr,omitempty"`
-	Charset     *int32 `xml:"charset,attr,omitempty"`
+	Typeface      string          `xml:"typeface,attr"`
+	Panose        string          `xml:"panose,attr,omitempty"`
+	PitchFamily   *int32          `xml:"pitchFamily,attr,omitempty"`
+	Charset       *int32          `xml:"charset,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tf *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias TextFont
+	return d.DecodeElement((*alias)(tf), &start)
 }
 
 // HlinkXML represents CT_Hyperlink (a:hlinkClick, a:hlinkMouseOver)
@@ -525,10 +565,20 @@ type BuFontTx struct{}
 
 // BuFont represents CT_TextFont (a:buFont)
 type BuFont struct {
-	Typeface    string `xml:"typeface,attr"`
-	Panose      string `xml:"panose,attr,omitempty"`
-	PitchFamily *int32 `xml:"pitchFamily,attr,omitempty"`
-	Charset     *int32 `xml:"charset,attr,omitempty"`
+	Typeface      string          `xml:"typeface,attr"`
+	Panose        string          `xml:"panose,attr,omitempty"`
+	PitchFamily   *int32          `xml:"pitchFamily,attr,omitempty"`
+	Charset       *int32          `xml:"charset,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bf *BuFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias BuFont
+	return d.DecodeElement((*alias)(bf), &start)
 }
 
 // BuNone represents CT_TextNoBullet (a:buNone)

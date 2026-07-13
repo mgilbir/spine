@@ -20,6 +20,10 @@ func TestOMathMarshalInlineDeclarationWhenRootLacksIt(t *testing.T) {
 	if err := xml.Unmarshal([]byte(src), &p); err != nil {
 		t.Fatal(err)
 	}
+	// Drop the fragment-scaffolding attribute capture (the xmlns declarations
+	// exist only to make the standalone fragment parseable): this test checks
+	// the synthesized-declaration path.
+	p.CapturedAttrs = nil
 
 	b := xmlb.NewWordprocessingMLBuilder()
 	// Root element without a math namespace declaration (e.g. a header part).
@@ -52,6 +56,7 @@ func TestOMathMarshalUsesRootDeclaration(t *testing.T) {
 	if err := xml.Unmarshal([]byte(src), &p); err != nil {
 		t.Fatal(err)
 	}
+	p.CapturedAttrs = nil // see TestOMathMarshalInlineDeclarationWhenRootLacksIt
 
 	b := xmlb.NewWordprocessingMLBuilder()
 	decls := append(xmlb.WordprocessingMLNamespaces(),

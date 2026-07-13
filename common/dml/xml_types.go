@@ -983,8 +983,18 @@ type GrpFill struct{}
 // transitional producers write them as "n%" strings (e.g. fillToRect
 // t="50%"), which must parse and re-emit verbatim.
 type RelRect struct {
-	L Percentage `xml:"l,attr,omitempty"`
-	T Percentage `xml:"t,attr,omitempty"`
-	R Percentage `xml:"r,attr,omitempty"`
-	B Percentage `xml:"b,attr,omitempty"`
+	L             Percentage      `xml:"l,attr,omitempty"`
+	T             Percentage      `xml:"t,attr,omitempty"`
+	R             Percentage      `xml:"r,attr,omitempty"`
+	B             Percentage      `xml:"b,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (rr *RelRect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias RelRect
+	return d.DecodeElement((*alias)(rr), &start)
 }
