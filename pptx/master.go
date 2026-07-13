@@ -68,7 +68,11 @@ func (sm *SlideMaster) GetLayoutByName(name string) *SlideLayout {
 	return nil
 }
 
-// Theme returns the theme associated with this master.
+// Theme returns the theme associated with this master, parsed from its theme
+// part when the presentation was opened. It is a read-only view: the theme
+// part is preserved verbatim on save, so edits made through the returned
+// value are not written back. It returns nil for masters created
+// programmatically or whose theme part could not be parsed.
 func (sm *SlideMaster) Theme() *Theme {
 	return sm.theme
 }
@@ -94,10 +98,41 @@ func (sm *SlideMaster) ColorMap() *ColorMap {
 	}
 }
 
-// Placeholders returns the placeholders defined in this master.
+// Placeholders returns the placeholder shapes defined in this master's shape
+// tree, materialized read-only from the parsed XML: mutating the returned
+// shapes does not modify the master part, which is written from its parsed
+// tree on save.
 func (sm *SlideMaster) Placeholders() []*PlaceholderShape {
-	// Placeholder implementation - would parse shapes from masterXML
+	if sm.masterXML == nil || sm.masterXML.CSld == nil {
+		return nil
+	}
+	return placeholdersFromSpTree(sm.masterXML.CSld.SpTree)
+}
+
+// GetPlaceholder returns the master placeholder with the specified type, or nil.
+func (sm *SlideMaster) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
+	for _, ph := range sm.Placeholders() {
+		if ph.PlaceholderType() == phType {
+			return ph
+		}
+	}
 	return nil
+}
+
+// placeholdersFromSpTree materializes the placeholder shapes (p:sp children
+// carrying a p:ph) of a master or layout shape tree.
+func placeholdersFromSpTree(spTree *oxml.ShapeTree) []*PlaceholderShape {
+	if spTree == nil {
+		return nil
+	}
+	var placeholders []*PlaceholderShape
+	for _, sp := range spTree.Sp {
+		if sp == nil || sp.NvSpPr == nil || sp.NvSpPr.NvPr == nil || sp.NvSpPr.NvPr.Ph == nil {
+			continue
+		}
+		placeholders = append(placeholders, oxmlShapeToPlaceholder(sp))
+	}
+	return placeholders
 }
 
 // ColorMap represents the mapping of semantic colors to theme colors.

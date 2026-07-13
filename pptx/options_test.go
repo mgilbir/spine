@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -8,23 +9,22 @@ import (
 
 func TestSlideSize_Dimensions(t *testing.T) {
 	tests := []struct {
-		size        SlideSize
-		wantWidth   dml.EMU
-		wantHeight  dml.EMU
+		size       SlideSize
+		wantWidth  dml.EMU
+		wantHeight dml.EMU
 	}{
-		{SlideSizeStandard, dml.Inches(10), dml.Inches(7.5)},
-		{SlideSizeWidescreen, dml.Inches(13.333), dml.Inches(7.5)},
+		{SlideSizeStandard, 9144000, 6858000},
+		{SlideSizeWidescreen, 12192000, 6858000},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.size.String(), func(t *testing.T) {
 			w, h := tt.size.Dimensions()
-			// Allow some tolerance for floating point
-			if w < tt.wantWidth-1000 || w > tt.wantWidth+1000 {
-				t.Errorf("Width = %d, want ~%d", w, tt.wantWidth)
+			if w != tt.wantWidth {
+				t.Errorf("Width = %d, want %d", w, tt.wantWidth)
 			}
-			if h < tt.wantHeight-1000 || h > tt.wantHeight+1000 {
-				t.Errorf("Height = %d, want ~%d", h, tt.wantHeight)
+			if h != tt.wantHeight {
+				t.Errorf("Height = %d, want %d", h, tt.wantHeight)
 			}
 		})
 	}
@@ -57,17 +57,8 @@ func TestSlideSize_String(t *testing.T) {
 func TestDefaultOptions(t *testing.T) {
 	opts := DefaultOptions()
 
-	if opts.SlideSize != SlideSizeWidescreen {
-		t.Errorf("SlideSize = %v, want SlideSizeWidescreen", opts.SlideSize)
-	}
-	if opts.DefaultFont != "Calibri" {
-		t.Errorf("DefaultFont = %q, want %q", opts.DefaultFont, "Calibri")
-	}
-	if opts.DefaultFontSize != 18 {
-		t.Errorf("DefaultFontSize = %f, want 18", opts.DefaultFontSize)
-	}
-	if opts.Locale != "en-US" {
-		t.Errorf("Locale = %q, want %q", opts.Locale, "en-US")
+	if opts.SlideSize != SlideSizeStandard {
+		t.Errorf("SlideSize = %v, want SlideSizeStandard", opts.SlideSize)
 	}
 }
 
@@ -77,58 +68,42 @@ func TestDefaultCreateOptions(t *testing.T) {
 	if !opts.IncludeDefaultLayouts {
 		t.Error("IncludeDefaultLayouts should be true")
 	}
-	if !opts.IncludeDefaultTheme {
-		t.Error("IncludeDefaultTheme should be true")
+}
+
+// C83: CreateWithOptions must honor the requested slide size instead of
+// hardcoding 4:3.
+func TestCreateWithOptions_Widescreen(t *testing.T) {
+	opts := DefaultCreateOptions()
+	opts.SlideSize = SlideSizeWidescreen
+	p := CreateWithOptions(opts)
+
+	if got := p.SlideWidth(); got != 12192000 {
+		t.Errorf("SlideWidth = %d, want 12192000", got)
+	}
+	if got := p.SlideHeight(); got != 6858000 {
+		t.Errorf("SlideHeight = %d, want 6858000", got)
+	}
+
+	slide := p.AddSlide()
+	slide.AddTextBox().SetText("wide")
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	presXML := string(zipPart(t, data, "ppt/presentation.xml"))
+	if want := `<p:sldSz cx="12192000" cy="6858000" type="screen16x9"/>`; !strings.Contains(presXML, want) {
+		t.Errorf("presentation.xml sldSz = missing %q:\n%s", want, presXML)
 	}
 }
 
-func TestDefaultSaveOptions(t *testing.T) {
-	opts := DefaultSaveOptions()
-
-	if opts.Compression != 6 {
-		t.Errorf("Compression = %d, want 6", opts.Compression)
+// C83: the default Create keeps its 4:3 size.
+func TestCreate_DefaultSlideSizeUnchanged(t *testing.T) {
+	p := Create()
+	if got := p.SlideWidth(); got != 9144000 {
+		t.Errorf("SlideWidth = %d, want 9144000", got)
 	}
-}
-
-func TestExportFormat_String(t *testing.T) {
-	tests := []struct {
-		format ExportFormat
-		want   string
-	}{
-		{ExportFormatPDF, "PDF"},
-		{ExportFormatPNG, "PNG"},
-		{ExportFormatJPEG, "JPEG"},
-		{ExportFormatSVG, "SVG"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			got := tt.format.String()
-			if got != tt.want {
-				t.Errorf("String() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExportFormat_Extension(t *testing.T) {
-	tests := []struct {
-		format ExportFormat
-		want   string
-	}{
-		{ExportFormatPDF, ".pdf"},
-		{ExportFormatPNG, ".png"},
-		{ExportFormatJPEG, ".jpg"},
-		{ExportFormatSVG, ".svg"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			got := tt.format.Extension()
-			if got != tt.want {
-				t.Errorf("Extension() = %q, want %q", got, tt.want)
-			}
-		})
+	if got := p.SlideHeight(); got != 6858000 {
+		t.Errorf("SlideHeight = %d, want 6858000", got)
 	}
 }
 

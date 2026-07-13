@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -179,5 +180,86 @@ func TestReplaceText_MultiByteMultiRunSavesValidXML(t *testing.T) {
 	p2 := openBytes(t, out)
 	if got := shapeText(t, p2.Slides()[0]); got != "αγ" {
 		t.Errorf("reopened text = %q, want %q", got, "αγ")
+	}
+}
+
+// breakDeck returns an opened deck whose slide 1 paragraph is
+// "Hello"<a:br/>"World" (two runs separated by a line break).
+func breakDeck(t *testing.T) *Presentation {
+	t.Helper()
+	deck := rewriteZipPart(t, savedDeck(t), "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		return bytes.Replace(xml,
+			[]byte(`<a:r><a:t>content</a:t></a:r>`),
+			[]byte(`<a:r><a:t>Hello</a:t></a:r><a:br/><a:r><a:t>World</a:t></a:r>`), 1)
+	})
+	return openBytes(t, deck)
+}
+
+// C87: replacements in paragraphs containing a:br apply to the runs and keep
+// the break in place (previously the whole paragraph silently reverted).
+func TestReplaceText_ParagraphWithBreak(t *testing.T) {
+	p := breakDeck(t)
+	p.ReplaceText(map[string]string{"World": "Earth"})
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	want := `<a:r><a:t>Hello</a:t></a:r><a:br/><a:r><a:t>Earth</a:t></a:r>`
+	if !strings.Contains(xml, want) {
+		t.Errorf("slide XML missing %q:\n%s", want, xml)
+	}
+}
+
+// C87: a key spanning a line break is deliberately not matched — a break is a
+// line boundary.
+func TestReplaceText_NoMatchAcrossBreak(t *testing.T) {
+	p := breakDeck(t)
+	p.ReplaceText(map[string]string{"HelloWorld": "X"})
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	want := `<a:r><a:t>Hello</a:t></a:r><a:br/><a:r><a:t>World</a:t></a:r>`
+	if !strings.Contains(xml, want) {
+		t.Errorf("paragraph changed although the key spans a break:\n%s", xml)
+	}
+}
+
+// C87: a paragraph containing an a:fld gets its plain runs replaced while the
+// field element stays in place, including a multi-run match after the field.
+func TestReplaceText_ParagraphWithField(t *testing.T) {
+	fld := `<a:fld id="{11111111-2222-3333-4444-555555555555}" type="slidenum"><a:t>1</a:t></a:fld>`
+	deck := rewriteZipPart(t, savedDeck(t), "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		return bytes.Replace(xml,
+			[]byte(`<a:r><a:t>content</a:t></a:r>`),
+			[]byte(fld+`<a:r><a:t>Page {{ti</a:t></a:r><a:r><a:t>tle}}</a:t></a:r>`), 1)
+	})
+	p := openBytes(t, deck)
+	p.ReplaceText(map[string]string{"{{title}}": "Overview"})
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if !strings.Contains(xml, `type="slidenum"`) {
+		t.Errorf("field element lost:\n%s", xml)
+	}
+	// The replacement keeps the unchanged prefix in its own run, so the text
+	// spans two runs.
+	want := `<a:r><a:t>Page </a:t></a:r><a:r><a:t>Overview</a:t></a:r>`
+	if !strings.Contains(xml, want) {
+		t.Errorf("multi-run replacement after a field did not apply, want %q:\n%s", want, xml)
+	}
+	if strings.Contains(xml, "{{ti") {
+		t.Errorf("template key fragments linger:\n%s", xml)
+	}
+	// The field must still precede the runs.
+	if fldIdx, runIdx := strings.Index(xml, "<a:fld"), strings.Index(xml, "Overview"); fldIdx > runIdx {
+		t.Errorf("field/run order changed: fld at %d, runs at %d", fldIdx, runIdx)
 	}
 }
