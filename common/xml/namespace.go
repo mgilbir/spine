@@ -27,6 +27,9 @@ const (
 	// WordprocessingML namespaces
 	NSWordprocessingML    = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
+	// Office Math namespace (OMML, used by m:oMath / m:oMathPara)
+	NSMath                = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+
 	// Dublin Core namespaces
 	NSDublinCore          = "http://purl.org/dc/elements/1.1/"
 	NSDcTerms             = "http://purl.org/dc/terms/"
@@ -74,6 +77,7 @@ const (
 	PrefixDrawingDiagram2008  = "dsp"
 	PrefixPowerPoint2010      = "p14"
 	PrefixPowerPoint2012      = "p15"
+	PrefixMath                = "m"
 	PrefixWord2010            = "w14"
 	PrefixWord2012            = "w15"
 	PrefixMarkupCompatibility = "mc"

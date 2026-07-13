@@ -1,10 +1,12 @@
 package docx
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
@@ -214,6 +216,7 @@ type imagePart struct {
 	contentType string
 	partName    string
 	relID       string
+	owner       string // source part of the relationship (document or header/footer part)
 }
 
 // AddImage adds an inline image from a file path to the run. SVG files are
@@ -294,27 +297,55 @@ func (r *Run) AddFloatingSVGImage(svgData, fallbackData []byte, fallbackContentT
 	return r.addSVGImageData(svgData, fallbackData, fallbackContentType, anchor, true)
 }
 
-// registerImagePart stores an image part and its document relationship,
-// returning the relationship id. The part number is derived from parts already
-// in the package, so adding to an opened document that already carries
-// media/imageN.* does not collide (audit C155).
-func (doc *Document) registerImagePart(data []byte, contentType, ext string) (relID string, num int) {
-	num = doc.nextImageNumber()
-	relID = fmt.Sprintf("rId%d", doc.nextRelID())
-	partName := fmt.Sprintf("/word/media/image%d%s", num, ext)
+// ownerPart names the part that contains the run's drawing: document.xml for
+// body paragraphs, the header/footer part for paragraphs in a header or
+// footer — an r:embed only resolves through the rels of the part it appears
+// in.
+func (r *Run) ownerPart() string {
+	if r.paragraph.hfPart != "" {
+		return r.paragraph.hfPart
+	}
+	return mainDocumentPart
+}
 
-	doc.imageParts = append(doc.imageParts, &imagePart{
-		data:        data,
-		contentType: contentType,
-		partName:    partName,
-		relID:       relID,
-	})
-	doc.addDocRelationship(&opc.Relationship{
+// registerImagePart stores an image part and registers its relationship in
+// the owning part's scope (document.xml or a header/footer part), returning
+// the relationship id and the image number. The part number is derived from
+// parts already in the package, so adding to an opened document that already
+// carries media/imageN.* does not collide (audit C155).
+func (doc *Document) registerImagePart(owner string, data []byte, contentType, ext string) (relID string, num int) {
+	relID = fmt.Sprintf("rId%d", doc.nextRelID())
+
+	// Reuse an identical image already added in this session (e.g. the same
+	// picture in the body and a header) instead of writing a duplicate media
+	// part; each placement still gets its own relationship in its own part.
+	partName := ""
+	for _, existing := range doc.imageParts {
+		if existing.contentType == contentType && bytes.Equal(existing.data, data) {
+			partName = existing.partName
+			break
+		}
+	}
+	if partName == "" {
+		partName = fmt.Sprintf("/word/media/image%d%s", doc.nextImageNumber(), ext)
+		doc.imageParts = append(doc.imageParts, &imagePart{
+			data:        data,
+			contentType: contentType,
+			partName:    partName,
+			relID:       relID,
+			owner:       owner,
+		})
+	}
+
+	// Add relationship in the owning part's scope. Header/footer parts live in
+	// /word/ like document.xml, so the media target is relative to /word/ in
+	// both cases.
+	doc.addPartRelationship(owner, &opc.Relationship{
 		ID:     relID,
 		Type:   opc.RelTypeImage,
-		Target: fmt.Sprintf("media/image%d%s", num, ext),
+		Target: partName[len("/word/"):],
 	})
-	return relID, num
+	return relID, imageNumberFromPartName(partName)
 }
 
 func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, floating bool) (*InlineImage, error) {
@@ -323,7 +354,7 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 		return nil, fmt.Errorf("run is not attached to a document")
 	}
 
-	relID, num := doc.registerImagePart(data, contentType, ext)
+	relID, num := doc.registerImagePart(r.ownerPart(), data, contentType, ext)
 
 	img := &InlineImage{
 		relID:     relID,
@@ -355,8 +386,12 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	}
 
 	// Raster fallback part first (the primary r:embed), then the SVG part.
-	rasterRelID, num := doc.registerImagePart(fallbackData, fallbackCT, fallbackExt)
-	svgRelID, _ := doc.registerImagePart(svgData, opc.ContentTypeSVG, ".svg")
+	// Both relationships are registered on the owning part, so an SVG image
+	// placed in a header resolves both the raster and SVG rels from the
+	// header part's own rels.
+	owner := r.ownerPart()
+	rasterRelID, num := doc.registerImagePart(owner, fallbackData, fallbackCT, fallbackExt)
+	svgRelID, _ := doc.registerImagePart(owner, svgData, opc.ContentTypeSVG, ".svg")
 
 	img := &InlineImage{
 		relID:     rasterRelID,
@@ -370,6 +405,25 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	}
 	r.r.AppendDrawing(&oxml.CT_Drawing{RawContent: img.buildDrawingXML()})
 	return img, nil
+}
+
+// imageNumberFromPartName extracts N from /word/media/imageN.ext, returning 0
+// if the name does not have that form.
+func imageNumberFromPartName(partName string) int {
+	const prefix = "/word/media/image"
+	if !strings.HasPrefix(partName, prefix) {
+		return 0
+	}
+	rest := partName[len(prefix):]
+	dot := strings.IndexByte(rest, '.')
+	if dot <= 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(rest[:dot])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func contentTypeForExt(ext string) string {

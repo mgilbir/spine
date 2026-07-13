@@ -40,6 +40,11 @@ type Document struct {
 	newFooterParts   []*hdrFtrPart             // new footers to be written
 }
 
+// mainDocumentPart is the part name of the main document part. Image
+// relationships default to this scope unless the image is placed in a
+// header/footer part.
+const mainDocumentPart = "/word/document.xml"
+
 // headerPart stores a parsed header.
 type headerPart struct {
 	hdr         *oxml.CT_HdrFtr
@@ -408,6 +413,9 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		if err := writer.WritePart(hp.partName, opc.ContentTypeDocHeader, data); err != nil {
 			return err
 		}
+		if err := d.writeHdrFtrRelationships(writer, hp.partName); err != nil {
+			return err
+		}
 	}
 	for _, fp := range d.newFooterParts {
 		ftrPart, ok := d.footers[fp.partName]
@@ -418,8 +426,23 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		if err := writer.WritePart(fp.partName, opc.ContentTypeDocFooter, data); err != nil {
 			return err
 		}
+		if err := d.writeHdrFtrRelationships(writer, fp.partName); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// writeHdrFtrRelationships writes the .rels part for a header/footer added in
+// this session, so relationships registered against that part (e.g. images in
+// the header) resolve. Parts without registered relationships get no rels
+// part, matching Word's output for plain headers.
+func (d *Document) writeHdrFtrRelationships(writer *opc.Writer, partName string) error {
+	rels := d.relationships[partName]
+	if len(rels) == 0 {
+		return nil
+	}
+	return writer.WritePartRelationships(partName, rels)
 }
 
 // hasAddedParts reports whether any parts were added through the mutation API.
@@ -471,6 +494,11 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		return err
 	}
 	for _, img := range d.imageParts {
+		// Images placed in a header/footer paragraph are related from that
+		// part's own rels (written in writeAddedParts), not from document.xml.
+		if img.owner != mainDocumentPart {
+			continue
+		}
 		docRels = append(docRels, &opc.Relationship{
 			ID:     img.relID,
 			Type:   opc.RelTypeImage,
@@ -718,7 +746,57 @@ func (d *Document) nextHdrFtrPartName(kind string) string {
 
 // addDocRelationship adds a relationship to the document.xml relationships.
 func (d *Document) addDocRelationship(rel *opc.Relationship) {
-	d.relationships["/word/document.xml"] = append(d.relationships["/word/document.xml"], rel)
+	d.addPartRelationship(mainDocumentPart, rel)
+}
+
+// addPartRelationship adds a relationship to the given source part's
+// relationship set (e.g. a header part's own rels for images placed in it).
+func (d *Document) addPartRelationship(partName string, rel *opc.Relationship) {
+	d.relationships[partName] = append(d.relationships[partName], rel)
+}
+
+// removeDocRelationship removes the document.xml relationship with the given
+// ID, if present.
+func (d *Document) removeDocRelationship(relID string) {
+	rels := d.relationships[mainDocumentPart]
+	for i, rel := range rels {
+		if rel.ID == relID {
+			d.relationships[mainDocumentPart] = append(rels[:i], rels[i+1:]...)
+			return
+		}
+	}
+}
+
+// dropSessionHeader removes a header added earlier in this session, identified
+// by its document relationship ID: the pending part, its part-scoped
+// relationships, and its document.xml relationship. A relID that does not
+// match a session-added header (e.g. one parsed from the original package) is
+// left untouched — preserved parts are never dropped.
+func (d *Document) dropSessionHeader(relID string) {
+	for i, hp := range d.newHeaderParts {
+		if hp.relID != relID {
+			continue
+		}
+		delete(d.headers, hp.partName)
+		delete(d.relationships, hp.partName)
+		d.newHeaderParts = append(d.newHeaderParts[:i], d.newHeaderParts[i+1:]...)
+		d.removeDocRelationship(relID)
+		return
+	}
+}
+
+// dropSessionFooter is the footer counterpart of dropSessionHeader.
+func (d *Document) dropSessionFooter(relID string) {
+	for i, fp := range d.newFooterParts {
+		if fp.relID != relID {
+			continue
+		}
+		delete(d.footers, fp.partName)
+		delete(d.relationships, fp.partName)
+		d.newFooterParts = append(d.newFooterParts[:i], d.newFooterParts[i+1:]...)
+		d.removeDocRelationship(relID)
+		return
+	}
 }
 
 // DefaultSection returns the document's default (last) section.
