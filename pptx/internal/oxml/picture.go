@@ -49,7 +49,11 @@ type GroupShape struct {
 	GraphicFrames    []*GraphicFrame    `xml:"-"`
 	GroupShapes      []*GroupShape      `xml:"-"`
 	ConnectionShapes []*ConnectionShape `xml:"-"`
-	childOrder       []ChildRef
+	// AltContent and RawXML preserve unmodeled children in childOrder position
+	// (see ShapeTree).
+	AltContent []*AlternateContent `xml:"-"`
+	RawXML     [][]byte            `xml:"-"`
+	childOrder []ChildRef
 }
 
 // ChildOrder returns the child order tracking slice.
@@ -146,6 +150,8 @@ func (gs *GroupShape) RemoveChildren(refs []ChildRef) {
 		gf    []*GraphicFrame
 		grp   []*GroupShape
 		cxn   []*ConnectionShape
+		ac    []*AlternateContent
+		raw   [][]byte
 		order []ChildRef
 	)
 	for _, ref := range gs.childOrder {
@@ -178,9 +184,20 @@ func (gs *GroupShape) RemoveChildren(refs []ChildRef) {
 				order = append(order, ChildRef{ChildCxnSp, len(cxn)})
 				cxn = append(cxn, gs.ConnectionShapes[ref.Index])
 			}
+		case ChildAltContent:
+			if ref.Index < len(gs.AltContent) {
+				order = append(order, ChildRef{ChildAltContent, len(ac)})
+				ac = append(ac, gs.AltContent[ref.Index])
+			}
+		case ChildRawXML:
+			if ref.Index < len(gs.RawXML) {
+				order = append(order, ChildRef{ChildRawXML, len(raw)})
+				raw = append(raw, gs.RawXML[ref.Index])
+			}
 		}
 	}
 	gs.Shapes, gs.Pictures, gs.GraphicFrames, gs.GroupShapes, gs.ConnectionShapes = sp, pic, gf, grp, cxn
+	gs.AltContent, gs.RawXML = ac, raw
 	gs.childOrder = order
 }
 
@@ -240,9 +257,25 @@ func (gs *GroupShape) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 				gs.childOrder = append(gs.childOrder, ChildRef{ChildCxnSp, len(gs.ConnectionShapes)})
 				gs.ConnectionShapes = append(gs.ConnectionShapes, cs)
 			default:
-				if err := d.Skip(); err != nil {
+				if t.Name.Space == xmlb.NSMarkupCompatibility && t.Name.Local == "AlternateContent" {
+					ac := &AlternateContent{}
+					if err := d.DecodeElement(ac, &t); err != nil {
+						return err
+					}
+					gs.childOrder = append(gs.childOrder, ChildRef{ChildAltContent, len(gs.AltContent)})
+					gs.AltContent = append(gs.AltContent, ac)
+					continue
+				}
+				// Unmodeled child (p:contentPart, extLst, ...): capture the
+				// whole element raw so a save re-emits it in position (C32).
+				var inner struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&inner, &t); err != nil {
 					return err
 				}
+				gs.childOrder = append(gs.childOrder, ChildRef{ChildRawXML, len(gs.RawXML)})
+				gs.RawXML = append(gs.RawXML, encodeRawChild(t, inner.Content))
 			}
 		case xml.EndElement:
 			return nil
@@ -280,6 +313,14 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.Index < len(gs.GroupShapes) {
 					b.MarshalElement(ns, "grpSp", gs.GroupShapes[ref.Index])
 				}
+			case ChildAltContent:
+				if ref.Index < len(gs.AltContent) {
+					b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", gs.AltContent[ref.Index])
+				}
+			case ChildRawXML:
+				if ref.Index < len(gs.RawXML) {
+					b.WriteRaw(gs.RawXML[ref.Index])
+				}
 			case ChildCxnSp:
 				if ref.Index < len(gs.ConnectionShapes) {
 					b.MarshalElement(ns, "cxnSp", gs.ConnectionShapes[ref.Index])
@@ -301,6 +342,12 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		}
 		for _, cs := range gs.ConnectionShapes {
 			b.MarshalElement(ns, "cxnSp", cs)
+		}
+		for _, ac := range gs.AltContent {
+			b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
+		}
+		for _, raw := range gs.RawXML {
+			b.WriteRaw(raw)
 		}
 	}
 

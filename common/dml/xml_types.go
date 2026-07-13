@@ -827,14 +827,38 @@ func (v *BlipEffect) marshalToBuilder(b *xmlb.Builder, ns string) {
 	if rns == "" {
 		rns = ns
 	}
+	// Replay xmlns declarations the element carried as literal attributes so
+	// prefixes used by the element name, its attributes, or Raw stay bound.
+	// If a declaration binds the element's own namespace, emit through the
+	// inline-NS path so the Builder resolves the element name to that prefix
+	// (an unregistered namespace would otherwise be an error).
 	var attrs []xmlb.Attr
+	inlinePrefix := ""
+	hasInline := false
 	for _, a := range v.RawAttrs {
-		// Namespace declarations cannot be replayed through the Builder's
-		// prefix model; skip them (same limitation as Ext.RawContent).
-		if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
-			continue
+		switch {
+		case a.Name.Space == "xmlns":
+			if a.Value == rns && !hasInline {
+				inlinePrefix, hasInline = a.Name.Local, true
+				continue // StartElementInlineNS writes this declaration itself
+			}
+			attrs = append(attrs, xmlb.Attr{Name: "xmlns:" + a.Name.Local, Value: a.Value})
+		case a.Name.Space == "" && a.Name.Local == "xmlns":
+			attrs = append(attrs, xmlb.Attr{Name: "xmlns", Value: a.Value})
+		default:
+			attrs = append(attrs, xmlb.Attr{Namespace: a.Name.Space, Name: a.Name.Local, Value: a.Value})
 		}
-		attrs = append(attrs, xmlb.Attr{Namespace: a.Name.Space, Name: a.Name.Local, Value: a.Value})
+	}
+	if hasInline && inlinePrefix != "" {
+		if len(v.Raw) == 0 {
+			b.EmptyElementInlineNS(rns, inlinePrefix, v.RawName.Local, attrs...)
+			return
+		}
+		b.StartElementInlineNS(rns, inlinePrefix, v.RawName.Local, attrs...)
+		b.WriteRaw(v.Raw)
+		b.EndElementInlineNS(inlinePrefix, v.RawName.Local)
+		b.ResetNamespaceDeclaration(rns)
+		return
 	}
 	if len(v.Raw) == 0 {
 		b.EmptyElement(rns, v.RawName.Local, attrs...)

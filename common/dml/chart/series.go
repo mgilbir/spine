@@ -19,7 +19,7 @@ type BarSer struct {
 	Cat           *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val           *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
 	Shape         *BarShape    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart shape,omitempty"`
-	ExtLst        *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst        *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // LineSer represents CT_LineSer (c:ser in lineChart)
@@ -36,7 +36,7 @@ type LineSer struct {
 	Cat      *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val      *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
 	Smooth   *Boolean     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart smooth,omitempty"`
-	ExtLst   *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst   *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // PieSer represents CT_PieSer (c:ser in pieChart)
@@ -50,7 +50,7 @@ type PieSer struct {
 	DLbls      *DataLabels  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dLbls,omitempty"`
 	Cat        *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val        *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
-	ExtLst     *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst     *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // AreaSer represents CT_AreaSer (c:ser in areaChart)
@@ -66,7 +66,7 @@ type AreaSer struct {
 	ErrBars    []*ErrBars    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart errBars,omitempty"`
 	Cat        *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val        *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
-	ExtLst     *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst     *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // ScatterSer represents CT_ScatterSer (c:ser in scatterChart)
@@ -83,7 +83,7 @@ type ScatterSer struct {
 	XVal       *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart xVal,omitempty"`
 	YVal       *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart yVal,omitempty"`
 	Smooth     *Boolean      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart smooth,omitempty"`
-	ExtLst     *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst     *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // BubbleSer represents CT_BubbleSer (c:ser in bubbleChart)
@@ -101,7 +101,7 @@ type BubbleSer struct {
 	YVal          *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart yVal,omitempty"`
 	BubbleSize    *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart bubbleSize,omitempty"`
 	Bubble3D      *Boolean      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart bubble3D,omitempty"`
-	ExtLst        *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst        *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // RadarSer represents CT_RadarSer (c:ser in radarChart)
@@ -115,7 +115,7 @@ type RadarSer struct {
 	DLbls  *DataLabels   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart dLbls,omitempty"`
 	Cat    *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val    *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
-	ExtLst *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // SurfaceSer represents CT_SurfaceSer (c:ser in surfaceChart)
@@ -126,7 +126,7 @@ type SurfaceSer struct {
 	SpPr   *dml.SpPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	Cat    *AxDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart cat,omitempty"`
 	Val    *NumDataSource `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart val,omitempty"`
-	ExtLst *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // SerTx represents CT_SerTx - series text (name)
@@ -144,7 +144,7 @@ type DataPoint struct {
 	Explosion     *UnsignedInt   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart explosion,omitempty"`
 	SpPr          *dml.SpPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
 	PictureOptions *PictureOptions `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart pictureOptions,omitempty"`
-	ExtLst        *dml.ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst        *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // Marker represents CT_Marker (c:marker) - data point marker
@@ -152,7 +152,7 @@ type Marker struct {
 	Symbol *MarkerStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart symbol,omitempty"`
 	Size   *MarkerSize  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart size,omitempty"`
 	SpPr   *dml.SpPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart spPr,omitempty"`
-	ExtLst *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // --- Data Sources ---
@@ -176,7 +176,7 @@ type NumDataSource struct {
 type NumRef struct {
 	F        string   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart f,omitempty"` // formula
 	NumCache *NumData `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart numCache,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst   *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // NumData represents CT_NumData (c:numCache, c:numLit)
@@ -184,7 +184,7 @@ type NumData struct {
 	FormatCode string    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart formatCode,omitempty"`
 	PtCount    *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart ptCount,omitempty"`
 	Pt         []*NumVal `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart pt,omitempty"`
-	ExtLst     *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst     *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // NumVal represents CT_NumVal (c:pt) - a numeric value
@@ -198,14 +198,14 @@ type NumVal struct {
 type StrRef struct {
 	F        string   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart f,omitempty"`
 	StrCache *StrData `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart strCache,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst   *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // StrData represents CT_StrData (c:strCache, c:strLit)
 type StrData struct {
 	PtCount *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart ptCount,omitempty"`
 	Pt      []*StrVal    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart pt,omitempty"`
-	ExtLst  *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst  *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // StrVal represents CT_StrVal (c:pt) - a string value
@@ -218,14 +218,14 @@ type StrVal struct {
 type MultiLvlStrRef struct {
 	F              string         `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart f,omitempty"`
 	MultiLvlStrCache *MultiLvlStrData `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart multiLvlStrCache,omitempty"`
-	ExtLst         *dml.ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst         *ExtLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // MultiLvlStrData represents CT_MultiLvlStrData
 type MultiLvlStrData struct {
 	PtCount *UnsignedInt `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart ptCount,omitempty"`
 	Lvl     []*Level     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart lvl,omitempty"`
-	ExtLst  *dml.ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
+	ExtLst  *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chart extLst,omitempty"`
 }
 
 // Level represents CT_Lvl

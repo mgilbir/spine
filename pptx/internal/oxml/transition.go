@@ -11,7 +11,10 @@ type Transition struct {
 	// "unspecified" (advance-on-click enabled), and an explicit false must be
 	// emitted as advClick="0" rather than omitted (which readers treat as true).
 	AdvClick    *bool  `xml:"advClick,attr,omitempty"`
-	AdvTm       uint32 `xml:"advTm,attr,omitempty"`     // advance time in ms
+	// AdvTm has no XSD default: an explicit advTm="0" (advance immediately)
+	// is meaningful, so the field is a pointer — plain uint32,omitempty
+	// deleted it on every save (C29).
+	AdvTm       *uint32 `xml:"advTm,attr,omitempty"` // advance time in ms
 	// Choice of transition type
 	Blinds      *OrientationTransition    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main blinds,omitempty"`
 	Checker     *OrientationTransition    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main checker,omitempty"`
@@ -36,7 +39,7 @@ type Transition struct {
 	Zoom        *InOutTransition          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main zoom,omitempty"`
 	// Sound action
 	SndAc       *TransitionSoundAction    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sndAc,omitempty"`
-	ExtLst      *dml.ExtLst               `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ExtLst      *ExtensionList               `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // EmptyTransition represents CT_Empty for transitions with no parameters

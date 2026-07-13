@@ -68,7 +68,8 @@ func (s *Slide) SetTransition(t Transition) {
 
 	// Convert advance after to milliseconds
 	if t.AdvanceAfter > 0 {
-		tr.AdvTm = uint32(t.AdvanceAfter * 1000)
+		advTm := uint32(t.AdvanceAfter * 1000)
+		tr.AdvTm = &advTm
 	}
 
 	// Set transition type
@@ -129,8 +130,8 @@ func (s *Slide) Transition() *Transition {
 	}
 
 	// Convert advance time from ms to seconds
-	if tr.AdvTm > 0 {
-		t.AdvanceAfter = float64(tr.AdvTm) / 1000.0
+	if tr.AdvTm != nil && *tr.AdvTm > 0 {
+		t.AdvanceAfter = float64(*tr.AdvTm) / 1000.0
 	}
 
 	// Detect type

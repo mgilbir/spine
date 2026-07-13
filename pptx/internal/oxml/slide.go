@@ -13,49 +13,57 @@ import (
 type AlternateContent = coxml.AlternateContent
 
 // Slide is the root element of a slide part.
+//
+// AlternateContent holds every root-level mc:AlternateContent in document
+// order (C223: a single pointer collapsed multiple siblings to the last).
+// Each element's position relative to the typed children is tracked by
+// acAnchors; see root_marshal.go.
 type Slide struct {
-	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
-	Show             *bool             `xml:"show,attr,omitempty"`
-	CSld             *CommonSlideData  `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition       `xml:"transition,omitempty"`
-	AlternateContent *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing           `xml:"timing,omitempty"`
-	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sld"`
+	Show             *bool               `xml:"show,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideLayout is the root element of a slide layout part.
 // Attribute order matches XSD CT_SlideLayout definition.
 type SlideLayout struct {
-	XMLName            xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
-	ShowMasterSp       *bool             `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim   *bool             `xml:"showMasterPhAnim,attr,omitempty"`
-	Type               string            `xml:"type,attr,omitempty"`
-	Preserve           bool              `xml:"preserve,attr,omitempty"`
-	UserDrawn          bool              `xml:"userDrawn,attr,omitempty"`
-	MatchingName       string            `xml:"matchingName,attr,omitempty"`
-	CSld               *CommonSlideData  `xml:"cSld"`
-	ClrMapOvr          *ColorMapOverride `xml:"clrMapOvr,omitempty"`
-	Transition         *Transition       `xml:"transition,omitempty"`
-	AlternateContent   *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing             *Timing           `xml:"timing,omitempty"`
-	Hf                 *HeaderFooter     `xml:"hf,omitempty"`
-	ExtLst             *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldLayout"`
+	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
+	Type             string              `xml:"type,attr,omitempty"`
+	Preserve         bool                `xml:"preserve,attr,omitempty"`
+	UserDrawn        bool                `xml:"userDrawn,attr,omitempty"`
+	MatchingName     string              `xml:"matchingName,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	Hf               *HeaderFooter       `xml:"hf,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideMaster is the root element of a slide master part.
 type SlideMaster struct {
-	XMLName          xml.Name          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
-	Preserve         bool              `xml:"preserve,attr,omitempty"`
-	CSld             *CommonSlideData  `xml:"cSld"`
-	ClrMap           *ColorMap         `xml:"clrMap,omitempty"`
-	SlideLayoutIDs   *SlideLayoutIDs   `xml:"sldLayoutIdLst,omitempty"`
-	Transition       *Transition       `xml:"transition,omitempty"`
-	AlternateContent *AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing           `xml:"timing,omitempty"`
-	Hf               *HeaderFooter     `xml:"hf,omitempty"`
-	TxStyles         *TxStyles         `xml:"txStyles,omitempty"`
-	ExtLst           *ExtensionList    `xml:"extLst,omitempty"`
+	XMLName          xml.Name            `xml:"http://schemas.openxmlformats.org/presentationml/2006/main sldMaster"`
+	Preserve         bool                `xml:"preserve,attr,omitempty"`
+	CSld             *CommonSlideData    `xml:"cSld"`
+	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`
+	SlideLayoutIDs   *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
+	Transition       *Transition         `xml:"transition,omitempty"`
+	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing           *Timing             `xml:"timing,omitempty"`
+	Hf               *HeaderFooter       `xml:"hf,omitempty"`
+	TxStyles         *TxStyles           `xml:"txStyles,omitempty"`
+	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors        []string
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.
@@ -65,8 +73,9 @@ type SlideLayoutIDs struct {
 
 // SlideLayoutID references a slide layout.
 type SlideLayoutID struct {
-	ID  uint32 `xml:"id,attr,omitempty"`
-	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ID     uint32         `xml:"id,attr,omitempty"`
+	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideLayoutID.
@@ -81,7 +90,8 @@ func (s SlideLayoutID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideLayoutID.
-// Handles both namespaced (relationships:id) and prefixed (r:id) formats.
+// Handles both namespaced (relationships:id) and prefixed (r:id) formats,
+// and captures the optional extLst child (C225).
 func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
@@ -98,7 +108,7 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			s.RID = attr.Value
 		}
 	}
-	return d.Skip()
+	return unmarshalIDEntryChildren(d, &s.ExtLst)
 }
 
 // CommonSlideData contains elements common to slides, layouts, and masters.
@@ -138,7 +148,14 @@ type ShapeTree struct {
 	GraphicFrame []*GraphicFrame     `xml:"-"`
 	GrpSp        []*GroupShape       `xml:"-"`
 	CxnSp        []*ConnectionShape  `xml:"-"`
-	childOrder   []ChildRef          // tracks interleaved child order
+	// AltContent holds mc:AlternateContent children (ink, 2010+ shapes with
+	// fallbacks); RawXML holds any other unmodeled child (p:contentPart,
+	// extLst, ...) as reconstructed raw bytes. Both are kept in childOrder so
+	// a save re-emits them in position instead of deleting them (C32). They
+	// are never referenced by the domain model's shapeRefs.
+	AltContent []*AlternateContent `xml:"-"`
+	RawXML     [][]byte            `xml:"-"`
+	childOrder []ChildRef          // tracks interleaved child order
 }
 
 // ChildKind identifies a shape child element type.
@@ -150,6 +167,10 @@ const (
 	ChildGraphicFrame
 	ChildGrpSp
 	ChildCxnSp
+	// ChildAltContent and ChildRawXML index the AltContent and RawXML slices:
+	// preserved content the domain model never materializes or removes.
+	ChildAltContent
+	ChildRawXML
 )
 
 // ChildRef references a child element by kind and index into its typed slice.
@@ -232,6 +253,8 @@ func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
 		gf    []*GraphicFrame
 		grp   []*GroupShape
 		cxn   []*ConnectionShape
+		ac    []*AlternateContent
+		raw   [][]byte
 		order []ChildRef
 	)
 	for _, ref := range st.childOrder {
@@ -264,9 +287,20 @@ func (st *ShapeTree) RemoveChildren(refs []ChildRef) {
 				order = append(order, ChildRef{ChildCxnSp, len(cxn)})
 				cxn = append(cxn, st.CxnSp[ref.Index])
 			}
+		case ChildAltContent:
+			if ref.Index < len(st.AltContent) {
+				order = append(order, ChildRef{ChildAltContent, len(ac)})
+				ac = append(ac, st.AltContent[ref.Index])
+			}
+		case ChildRawXML:
+			if ref.Index < len(st.RawXML) {
+				order = append(order, ChildRef{ChildRawXML, len(raw)})
+				raw = append(raw, st.RawXML[ref.Index])
+			}
 		}
 	}
 	st.Sp, st.Pic, st.GraphicFrame, st.GrpSp, st.CxnSp = sp, pic, gf, grp, cxn
+	st.AltContent, st.RawXML = ac, raw
 	st.childOrder = order
 }
 
@@ -427,9 +461,25 @@ func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				st.childOrder = append(st.childOrder, ChildRef{ChildCxnSp, len(st.CxnSp)})
 				st.CxnSp = append(st.CxnSp, cs)
 			default:
-				if err := d.Skip(); err != nil {
+				if t.Name.Space == xmlb.NSMarkupCompatibility && t.Name.Local == "AlternateContent" {
+					ac := &AlternateContent{}
+					if err := d.DecodeElement(ac, &t); err != nil {
+						return err
+					}
+					st.childOrder = append(st.childOrder, ChildRef{ChildAltContent, len(st.AltContent)})
+					st.AltContent = append(st.AltContent, ac)
+					continue
+				}
+				// Unmodeled child (p:contentPart, extLst, ...): capture the
+				// whole element raw so a save re-emits it in position (C32).
+				var inner struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&inner, &t); err != nil {
 					return err
 				}
+				st.childOrder = append(st.childOrder, ChildRef{ChildRawXML, len(st.RawXML)})
+				st.RawXML = append(st.RawXML, encodeRawChild(t, inner.Content))
 			}
 		case xml.EndElement:
 			return nil
@@ -472,6 +522,14 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				if ref.Index < len(st.CxnSp) {
 					b.MarshalElement(ns, "cxnSp", st.CxnSp[ref.Index])
 				}
+			case ChildAltContent:
+				if ref.Index < len(st.AltContent) {
+					b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", st.AltContent[ref.Index])
+				}
+			case ChildRawXML:
+				if ref.Index < len(st.RawXML) {
+					b.WriteRaw(st.RawXML[ref.Index])
+				}
 			}
 		}
 	} else {
@@ -490,6 +548,12 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		}
 		for _, cs := range st.CxnSp {
 			b.MarshalElement(ns, "cxnSp", cs)
+		}
+		for _, ac := range st.AltContent {
+			b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
+		}
+		for _, raw := range st.RawXML {
+			b.WriteRaw(raw)
 		}
 	}
 
