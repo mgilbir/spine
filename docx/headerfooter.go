@@ -239,7 +239,7 @@ func (f *Footer) AddParagraphWithText(text string) *Paragraph {
 }
 
 // marshalHdrFtrXML marshals a header/footer to XML.
-func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) []byte {
+func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
 
@@ -248,7 +248,10 @@ func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) []byte {
 	marshalHdrFtrContent(b, xmlb.NSWordprocessingML, hf)
 	b.EndElement(xmlb.NSWordprocessingML, rootElement)
 
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal %s part: %w", rootElement, err)
+	}
+	return b.Bytes(), nil
 }
 
 // marshalHdrFtrContent marshals the body content of a header/footer.

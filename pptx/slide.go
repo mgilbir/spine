@@ -301,7 +301,7 @@ func (s *Slide) marshal() ([]byte, error) {
 	s.applyMediaTiming()
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
-	return marshalSlide(s.slideXML), nil
+	return marshalSlide(s.slideXML)
 }
 
 // syncShapesToXML converts Go shapes to oxml types in the shape tree.
@@ -1117,10 +1117,11 @@ func (s *Slide) Duplicate() *Slide {
 
 	// Copy slide XML and slide-level relationships so the duplicate remains self-contained.
 	if s.slideXML != nil {
-		data := marshalSlide(s.slideXML)
-		var copyXML oxml.Slide
-		if err := xml.Unmarshal(data, &copyXML); err == nil {
-			newSlide.slideXML = &copyXML
+		if data, err := marshalSlide(s.slideXML); err == nil {
+			var copyXML oxml.Slide
+			if err := xml.Unmarshal(data, &copyXML); err == nil {
+				newSlide.slideXML = &copyXML
+			}
 		}
 	}
 	if s.partName != "" {

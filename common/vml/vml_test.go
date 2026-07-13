@@ -733,3 +733,32 @@ func TestBorderTop_RoundTrip(t *testing.T) {
 		t.Errorf("Type = %q, want %q", bt2.Type, "single")
 	}
 }
+
+// C148: mismapped VML attribute names — Callout minusx, Extrusion facet, and
+// the o:signatureline attributes must map to the names in vml-officeDrawing.xsd.
+func TestVMLAttributeMappings(t *testing.T) {
+	var co Callout
+	if err := xml.Unmarshal([]byte(`<callout minusx="t" minusy="f"/>`), &co); err != nil {
+		t.Fatalf("unmarshal callout: %v", err)
+	}
+	if co.MinusX != "t" || co.MinusY != "f" {
+		t.Errorf("callout minusx/minusy not captured: %+v", co)
+	}
+
+	var ex Extrusion
+	if err := xml.Unmarshal([]byte(`<extrusion facet="30000"/>`), &ex); err != nil {
+		t.Fatalf("unmarshal extrusion: %v", err)
+	}
+	if ex.Facet != "30000" {
+		t.Errorf("extrusion facet not captured: %+v", ex)
+	}
+
+	var sl SignatureLine
+	src := `<signatureline issignatureline="t" signinginstructionsset="t" allowcomments="f" showsigndate="t"/>`
+	if err := xml.Unmarshal([]byte(src), &sl); err != nil {
+		t.Fatalf("unmarshal signatureline: %v", err)
+	}
+	if sl.IsSignatureLine != "t" || sl.SigningInstructionsSet != "t" || sl.AllowComments != "f" || sl.ShowSignDate != "t" {
+		t.Errorf("signatureline attributes not captured: %+v", sl)
+	}
+}

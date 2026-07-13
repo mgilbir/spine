@@ -2,6 +2,7 @@ package xml
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 )
@@ -19,8 +20,25 @@ type Builder struct {
 	selfClosingSpace   bool              // true: " />" false: "/>"
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
 	trailingWS         bool              // set by WriteRaw when data ends with whitespace
-	stack              []string          // open element qualified names (prefix:local), for balance checking
+	stack              []elemFrame       // open elements, for balance checking and namespace scoping
+	pendingNSRestores  []nsRestore       // inline decl state to attach to the next opened element
 	err                error             // first structural error encountered
+}
+
+// elemFrame records an open element: its qualified name (for balance checking)
+// and the namespace-declaration state to restore when it closes. An inline
+// xmlns declaration is lexically scoped to the element that carries it, so a
+// later sibling in the same namespace must get its own declaration.
+type elemFrame struct {
+	qname    string
+	restores []nsRestore
+}
+
+// nsRestore captures the declared-state of a namespace before an element
+// declared it inline, so closing the element restores the previous state.
+type nsRestore struct {
+	uri         string
+	wasDeclared bool
 }
 
 // qualifiedName returns the name as it is written to the output:
@@ -34,13 +52,28 @@ func (b *Builder) qualifiedName(namespace, localName string) string {
 }
 
 // pushElem records an opened element's qualified name for balance checking.
+// Any pending inline namespace declarations are attached to the new frame so
+// they are un-declared (restored) when the element closes.
 func (b *Builder) pushElem(qname string) {
-	b.stack = append(b.stack, qname)
+	b.stack = append(b.stack, elemFrame{qname: qname, restores: b.pendingNSRestores})
+	b.pendingNSRestores = nil
+}
+
+// applyNSRestores restores the declared-namespace state captured in restores.
+func (b *Builder) applyNSRestores(restores []nsRestore) {
+	for _, r := range restores {
+		if r.wasDeclared {
+			b.declaredNamespaces[r.uri] = true
+		} else {
+			delete(b.declaredNamespaces, r.uri)
+		}
+	}
 }
 
 // popElem matches a closing element's qualified name against the open-element
 // stack, recording the first structural error and preventing the indentation
-// level from going negative on an unbalanced close.
+// level from going negative on an unbalanced close. Inline namespace
+// declarations carried by the closing element go out of scope here.
 func (b *Builder) popElem(qname string) {
 	if len(b.stack) == 0 {
 		if b.err == nil {
@@ -50,8 +83,9 @@ func (b *Builder) popElem(qname string) {
 	}
 	top := b.stack[len(b.stack)-1]
 	b.stack = b.stack[:len(b.stack)-1]
-	if top != qname && b.err == nil {
-		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", qname, top)
+	b.applyNSRestores(top.restores)
+	if top.qname != qname && b.err == nil {
+		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", qname, top.qname)
 	}
 	if b.level > 0 {
 		b.level--
@@ -59,20 +93,21 @@ func (b *Builder) popElem(qname string) {
 }
 
 // Err returns the first structural error the Builder encountered (an unbalanced
-// or mismatched element), or nil.
+// or mismatched element, or a name written in an unregistered namespace), or nil.
 func (b *Builder) Err() error {
 	return b.err
 }
 
 // Finish reports any structural error, including elements left unclosed. Call it
 // after building to validate that every StartElement was matched by an
-// EndElement.
+// EndElement. Production marshal entry points must consult it before shipping
+// the built bytes into a package.
 func (b *Builder) Finish() error {
 	if b.err != nil {
 		return b.err
 	}
 	if len(b.stack) > 0 {
-		return fmt.Errorf("xml: %d unclosed element(s), innermost <%s>", len(b.stack), b.stack[len(b.stack)-1])
+		return fmt.Errorf("xml: %d unclosed element(s), innermost <%s>", len(b.stack), b.stack[len(b.stack)-1].qname)
 	}
 	return nil
 }
@@ -90,7 +125,7 @@ func NewPresentationMLBuilder() *Builder {
 	b := NewBuilder()
 	b.RegisterNamespace(NSPresentationML, PrefixPresentationML)
 	b.RegisterNamespace(NSDrawingML, PrefixDrawingML)
-	b.RegisterNamespace(NSPresentationRels, PrefixRelationships)
+	b.RegisterNamespace(NSOfficeDocumentRels, PrefixRelationships)
 	b.RegisterNamespace(NSDrawingMLChart, PrefixDrawingMLChart)
 	b.RegisterNamespace(NSDrawingMLDiagram, PrefixDrawingMLDiagram)
 	return b
@@ -311,6 +346,7 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.endPendingNSScope()
 }
 
 // WriteElement writes a complete element with text content.
@@ -344,19 +380,31 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.endPendingNSScope()
 }
 
 // declareNamespaceIfNeeded checks if a namespace needs an inline xmlns declaration
 // and marks it as declared. Returns true if a declaration was needed.
+// The declaration is lexically scoped to the element it is emitted on: a
+// restore entry is queued so the namespace is un-declared again when that
+// element closes (or immediately, for a self-closing element).
 func (b *Builder) declareNamespaceIfNeeded(namespace string) bool {
 	if namespace == "" || b.declaredNamespaces[namespace] {
 		return false
 	}
 	if _, ok := b.namespaces[namespace]; ok {
 		b.declaredNamespaces[namespace] = true
+		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: namespace, wasDeclared: false})
 		return true
 	}
 	return false
+}
+
+// endPendingNSScope closes the scope of inline declarations that were queued
+// for an element that does not remain open (self-closing or text element).
+func (b *Builder) endPendingNSScope() {
+	b.applyNSRestores(b.pendingNSRestores)
+	b.pendingNSRestores = nil
 }
 
 // prependNamespaceDecls checks if the element namespace or any attribute
@@ -406,10 +454,18 @@ func (b *Builder) prependNamespaceDecls(elemNS string, attrs []Attr) []Attr {
 }
 
 // writeQName writes a qualified name (prefix:localName or just localName).
+// A non-empty namespace with no registered prefix is a caller bug: the name is
+// still written unprefixed (keeping the output well-formed), but the error is
+// recorded on the Builder so Err/Finish surface it instead of shipping a part
+// whose element silently landed in the wrong namespace.
 func (b *Builder) writeQName(namespace, localName string) {
-	if prefix, ok := b.namespaces[namespace]; ok && prefix != "" {
+	prefix, ok := b.namespaces[namespace]
+	if ok && prefix != "" {
 		b.buf.WriteString(prefix)
 		b.buf.WriteByte(':')
+	}
+	if !ok && namespace != "" && b.err == nil {
+		b.err = fmt.Errorf("xml: no prefix registered for namespace %q (writing %q)", namespace, localName)
 	}
 	b.buf.WriteString(localName)
 }
@@ -448,9 +504,11 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 
 // StartElementInlineNS starts an element with an inline namespace declaration.
 // The namespace is registered in the builder so child elements using the same
-// namespace can resolve the prefix. Call ResetNamespaceDeclaration after EndElement
-// to allow the next usage to get its own inline declaration.
+// namespace can resolve the prefix. The declaration is lexically scoped to
+// this element: the matching EndElementInlineNS restores the namespace's
+// previous declared-state automatically.
 func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
+	b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: nsURI, wasDeclared: b.declaredNamespaces[nsURI]})
 	b.namespaces[nsURI] = prefix
 	b.declaredNamespaces[nsURI] = true
 
@@ -462,7 +520,7 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 	b.buf.WriteString(` xmlns:`)
 	b.buf.WriteString(prefix)
 	b.buf.WriteString(`="`)
-	b.buf.WriteString(nsURI)
+	b.writeAttrEscaped(nsURI)
 	b.buf.WriteByte('"')
 
 	for _, attr := range attrs {
@@ -672,7 +730,7 @@ type RootAttr struct {
 func PresentationMLNamespaces() []NSDecl {
 	return []NSDecl{
 		{PrefixDrawingML, NSDrawingML},
-		{PrefixRelationships, NSPresentationRels},
+		{PrefixRelationships, NSOfficeDocumentRels},
 		{PrefixPresentationML, NSPresentationML},
 	}
 }
@@ -681,7 +739,7 @@ func PresentationMLNamespaces() []NSDecl {
 func WordprocessingMLNamespaces() []NSDecl {
 	return []NSDecl{
 		{PrefixWordprocessingML, NSWordprocessingML},
-		{PrefixRelationships, NSPresentationRels},
+		{PrefixRelationships, NSOfficeDocumentRels},
 		{PrefixMarkupCompatibility, NSMarkupCompatibility},
 	}
 }
@@ -690,7 +748,7 @@ func WordprocessingMLNamespaces() []NSDecl {
 func SpreadsheetMLNamespaces() []NSDecl {
 	return []NSDecl{
 		{"", NSSpreadsheetML},
-		{PrefixRelationships, NSPresentationRels},
+		{PrefixRelationships, NSOfficeDocumentRels},
 	}
 }
 
@@ -698,7 +756,7 @@ func SpreadsheetMLNamespaces() []NSDecl {
 func NewSpreadsheetMLBuilder() *Builder {
 	b := NewBuilder()
 	b.RegisterNamespace(NSSpreadsheetML, "")
-	b.RegisterNamespace(NSPresentationRels, PrefixRelationships)
+	b.RegisterNamespace(NSOfficeDocumentRels, PrefixRelationships)
 	b.RegisterNamespace(NSMarkupCompatibility, PrefixMarkupCompatibility)
 	return b
 }
@@ -707,7 +765,7 @@ func NewSpreadsheetMLBuilder() *Builder {
 func NewWordprocessingMLBuilder() *Builder {
 	b := NewBuilder()
 	b.RegisterNamespace(NSWordprocessingML, PrefixWordprocessingML)
-	b.RegisterNamespace(NSPresentationRels, PrefixRelationships)
+	b.RegisterNamespace(NSOfficeDocumentRels, PrefixRelationships)
 	b.RegisterNamespace(NSDrawingML, PrefixDrawingML)
 	b.RegisterNamespace(NSMarkupCompatibility, PrefixMarkupCompatibility)
 	b.RegisterNamespace(NSDrawingMLWordprocessing, "wp")
@@ -749,13 +807,18 @@ func StrAttr(name, value string) Attr {
 
 // RelAttr creates a relationship ID attribute (r:id).
 func RelAttr(name, value string) Attr {
-	return Attr{Namespace: NSPresentationRels, Name: name, Value: value}
+	return Attr{Namespace: NSOfficeDocumentRels, Name: name, Value: value}
 }
 
 // itoa converts int64 to string.
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"
+	}
+	// math.MinInt64 has no positive counterpart in int64: negating it
+	// overflows back to itself and the digit loop would never run.
+	if n == math.MinInt64 {
+		return "-9223372036854775808"
 	}
 	neg := n < 0
 	if neg {

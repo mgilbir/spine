@@ -129,10 +129,10 @@ type RelIds struct {
 func (r *RelIds) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EmptyElement(ns, localName,
 		xmlb.Attr{Name: "xmlns:dgm", Value: xmlb.NSDrawingMLDiagram},
-		xmlb.Attr{Name: "xmlns:r", Value: xmlb.NSPresentationRels},
-		xmlb.Attr{Namespace: xmlb.NSPresentationRels, Name: "dm", Value: r.Dm},
-		xmlb.Attr{Namespace: xmlb.NSPresentationRels, Name: "lo", Value: r.Lo},
-		xmlb.Attr{Namespace: xmlb.NSPresentationRels, Name: "qs", Value: r.Qs},
-		xmlb.Attr{Namespace: xmlb.NSPresentationRels, Name: "cs", Value: r.Cs},
+		xmlb.Attr{Name: "xmlns:r", Value: xmlb.NSOfficeDocumentRels},
+		xmlb.Attr{Namespace: xmlb.NSOfficeDocumentRels, Name: "dm", Value: r.Dm},
+		xmlb.Attr{Namespace: xmlb.NSOfficeDocumentRels, Name: "lo", Value: r.Lo},
+		xmlb.Attr{Namespace: xmlb.NSOfficeDocumentRels, Name: "qs", Value: r.Qs},
+		xmlb.Attr{Namespace: xmlb.NSOfficeDocumentRels, Name: "cs", Value: r.Cs},
 	)
 }

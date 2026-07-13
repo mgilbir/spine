@@ -42,8 +42,8 @@ type RelId struct {
 func (r *RelId) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EmptyElement(ns, localName,
 		xmlb.Attr{Name: "xmlns:c", Value: xmlb.NSDrawingMLChart},
-		xmlb.Attr{Name: "xmlns:r", Value: xmlb.NSPresentationRels},
-		xmlb.Attr{Namespace: xmlb.NSPresentationRels, Name: "id", Value: r.Id},
+		xmlb.Attr{Name: "xmlns:r", Value: xmlb.NSOfficeDocumentRels},
+		xmlb.Attr{Namespace: xmlb.NSOfficeDocumentRels, Name: "id", Value: r.Id},
 	)
 }
 

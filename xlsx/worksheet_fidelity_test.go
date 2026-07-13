@@ -24,7 +24,11 @@ func TestWorksheetPreservesUnknownChildren(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	out := string(marshalWorksheetXML(&ws))
+	data, merr := marshalWorksheetXML(&ws)
+	if merr != nil {
+		t.Fatalf("marshalWorksheetXML: %v", merr)
+	}
+	out := string(data)
 
 	for _, want := range []string{
 		"<oleObjects>", `progId="Excel.Sheet"`, "<objectPr", // unknown subtree preserved verbatim
@@ -58,7 +62,11 @@ func TestWorksheetPreservesUnknownChildWithInlineNamespace(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	out := string(marshalWorksheetXML(&ws))
+	data, merr := marshalWorksheetXML(&ws)
+	if merr != nil {
+		t.Fatalf("marshalWorksheetXML: %v", merr)
+	}
+	out := string(data)
 
 	if !strings.Contains(out, `<foo:custom xmlns:foo="urn:foo" foo:val="1"><foo:inner/></foo:custom>`) {
 		t.Errorf("inline-namespaced unknown child not re-encoded byte-faithfully:\n%s", out)
