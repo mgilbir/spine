@@ -559,14 +559,14 @@ type TimePercent struct {
 
 // Animate represents CT_TLAnimateBehavior (p:anim)
 type Animate struct {
-	By        string                `xml:"by,attr,omitempty"`
-	From      string                `xml:"from,attr,omitempty"`
-	To        string                `xml:"to,attr,omitempty"`
-	CalcMode  string                `xml:"calcmode,attr,omitempty"`  // discrete, lin, fmla
-	ValueType string                `xml:"valueType,attr,omitempty"` // str, num, clr
-	CBhvr     *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	TavLst    *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
-	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	By            string                `xml:"by,attr,omitempty"`
+	From          string                `xml:"from,attr,omitempty"`
+	To            string                `xml:"to,attr,omitempty"`
+	CalcMode      string                `xml:"calcmode,attr,omitempty"`  // discrete, lin, fmla
+	ValueType     string                `xml:"valueType,attr,omitempty"` // str, num, clr
+	CBhvr         *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	TavLst        *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr       `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source

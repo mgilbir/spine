@@ -67,20 +67,20 @@ type InnerShdw struct {
 
 // ReflectionXML represents CT_ReflectionEffect (a:reflection)
 type ReflectionXML struct {
-	BlurRad      *int64      `xml:"blurRad,attr,omitempty"`
-	StA          *Percentage `xml:"stA,attr,omitempty"`
-	StPos        *Percentage `xml:"stPos,attr,omitempty"`
-	EndA         *Percentage `xml:"endA,attr,omitempty"`
-	EndPos       *Percentage `xml:"endPos,attr,omitempty"`
-	Dist         *int64      `xml:"dist,attr,omitempty"`
-	Dir          *int32      `xml:"dir,attr,omitempty"`
-	FadeDir      *int32      `xml:"fadeDir,attr,omitempty"`
-	Sx           *Percentage `xml:"sx,attr,omitempty"`
-	Sy           *Percentage `xml:"sy,attr,omitempty"`
-	Kx           *int32      `xml:"kx,attr,omitempty"`
-	Ky           *int32      `xml:"ky,attr,omitempty"`
-	Algn         string      `xml:"algn,attr,omitempty"`
-	RotWithShape *bool       `xml:"rotWithShape,attr,omitempty"`
+	BlurRad       *int64          `xml:"blurRad,attr,omitempty"`
+	StA           *Percentage     `xml:"stA,attr,omitempty"`
+	StPos         *Percentage     `xml:"stPos,attr,omitempty"`
+	EndA          *Percentage     `xml:"endA,attr,omitempty"`
+	EndPos        *Percentage     `xml:"endPos,attr,omitempty"`
+	Dist          *int64          `xml:"dist,attr,omitempty"`
+	Dir           *int32          `xml:"dir,attr,omitempty"`
+	FadeDir       *int32          `xml:"fadeDir,attr,omitempty"`
+	Sx            *Percentage     `xml:"sx,attr,omitempty"`
+	Sy            *Percentage     `xml:"sy,attr,omitempty"`
+	Kx            *int32          `xml:"kx,attr,omitempty"`
+	Ky            *int32          `xml:"ky,attr,omitempty"`
+	Algn          string          `xml:"algn,attr,omitempty"`
+	RotWithShape  *bool           `xml:"rotWithShape,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 

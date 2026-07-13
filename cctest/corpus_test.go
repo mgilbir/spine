@@ -66,6 +66,13 @@ type quarantineEntry struct {
 	typ, note string
 }
 
+// stageWontfix marks a quarantine row as permanent-by-design: the file cannot
+// round-trip byte-identically for a reason outside the library's control
+// (corrupt source zip, XML the decoder normalizes before the model sees it).
+// It matches a failure at any stage and is skip-counted like a quarantined
+// row, but reported separately in the stats block.
+const stageWontfix = "wontfix"
+
 // loadQuarantine reads known_failures.tsv into sha16 -> stage -> entry.
 // A missing file is an empty quarantine.
 func loadQuarantine(t *testing.T) map[string]map[string]quarantineEntry {
@@ -119,7 +126,7 @@ func loadURLs(dir string) map[string]string {
 // survived all four stages, i.e. its zero-modification save is part-for-part
 // byte-identical to the original.
 type typeStats struct {
-	total, pass, quarantined, newFail int
+	total, pass, quarantined, wontfix, newFail int
 }
 
 type aggregate struct {
@@ -159,7 +166,16 @@ func TestCCCorpus(t *testing.T) {
 	if update {
 		// Regeneration judges every file afresh; the old quarantine must not
 		// mask entries that would now pass (or fail at a different stage).
-		quarantine = make(map[string]map[string]quarantineEntry)
+		// Curated wontfix rows survive: their reason is hand-written and the
+		// regeneration would otherwise demote them to plain failure rows. A
+		// wontfix file that now passes emits no row and drops out anyway.
+		kept := make(map[string]map[string]quarantineEntry)
+		for sha16, stages := range quarantine {
+			if e, ok := stages[stageWontfix]; ok {
+				kept[sha16] = map[string]quarantineEntry{stageWontfix: e}
+			}
+		}
+		quarantine = kept
 	}
 	urls := loadURLs(dir)
 	agg := &aggregate{stats: make(map[string]*typeStats)}
@@ -167,11 +183,11 @@ func TestCCCorpus(t *testing.T) {
 		agg.stats[typ] = &typeStats{}
 	}
 	t.Cleanup(func() {
-		t.Log("CC corpus stats (total / pass / quarantined / new-fail):")
+		t.Log("CC corpus stats (total / pass / quarantined / wontfix / new-fail):")
 		for _, typ := range docTypes {
 			s := agg.stats[typ]
-			t.Logf("  %-5s %5d / %5d / %5d / %5d",
-				typ, s.total, s.pass, s.quarantined, s.newFail)
+			t.Logf("  %-5s %5d / %5d / %5d / %5d / %5d",
+				typ, s.total, s.pass, s.quarantined, s.wontfix, s.newFail)
 		}
 		if update {
 			if err := writeQuarantine(agg.rows); err != nil {
@@ -223,6 +239,14 @@ func writeQuarantine(rows []string) error {
 // checkFile runs the four-stage discipline over one corpus file.
 func checkFile(t *testing.T, agg *aggregate, typ, sha16, path string, update bool, quarantined map[string]quarantineEntry, url string) {
 	fail := func(stage string, err error) {
+		if e, ok := quarantined[stageWontfix]; ok {
+			// Permanent-by-design: matches a failure at any stage.
+			agg.add(typ, func(s *typeStats) { s.wontfix++ })
+			if update {
+				agg.record(fmt.Sprintf("%s\t%s\t%s\t%s", sha16, typ, stageWontfix, e.note))
+			}
+			t.Skipf("wontfix (%s): %v", e.note, err)
+		}
 		if _, ok := quarantined[stage]; ok {
 			agg.add(typ, func(s *typeStats) { s.quarantined++ })
 			t.Skipf("quarantined at stage %s: %v", stage, err)

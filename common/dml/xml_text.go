@@ -70,9 +70,9 @@ type NoAutofit struct{}
 
 // NormAutofit represents CT_TextNormalAutofit (a:normAutofit)
 type NormAutofit struct {
-	FontScale      Percentage `xml:"fontScale,attr,omitempty"`
-	LnSpcReduction Percentage `xml:"lnSpcReduction,attr,omitempty"`
-	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	FontScale      Percentage      `xml:"fontScale,attr,omitempty"`
+	LnSpcReduction Percentage      `xml:"lnSpcReduction,attr,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
@@ -609,7 +609,7 @@ type HlinkXML struct {
 	EndSnd         *bool           `xml:"endSnd,attr,omitempty"`
 	Snd            *EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main snd,omitempty"`
 	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
-	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source attribute order, unmodeled attributes, explicit empty values)
