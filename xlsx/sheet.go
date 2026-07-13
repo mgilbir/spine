@@ -229,9 +229,11 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 	r := uint32(row)
 	customHeight := true
 
-	// Find or create the row
+	// Find or create the row. Look rows up via rowNumberOf, not the raw r
+	// attribute: a row may legally omit r (C73), and matching on the attribute
+	// alone would append a duplicate row for the same row number (C230).
 	for i := range s.worksheet.SheetData.Row {
-		if s.worksheet.SheetData.Row[i].R != nil && *s.worksheet.SheetData.Row[i].R == r {
+		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == r {
 			s.worksheet.SheetData.Row[i].Ht = &height
 			s.worksheet.SheetData.Row[i].CustomHeight = &customHeight
 			return nil

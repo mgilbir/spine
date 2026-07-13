@@ -24,21 +24,45 @@ type CT_Stylesheet struct {
 	// OriginalNSDecls preserves the namespace declarations from the original XML
 	// for byte-identical round-trip of styles.xml.
 	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
+	// OriginalRootAttrs preserves all root-element attributes (namespace
+	// declarations and regular attributes like mc:Ignorable) in their original
+	// order, so regenerating a dirty styles.xml does not drop them (C199).
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Stylesheet.
 func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ss.XMLName = start.Name
+	// Capture all root-element attributes in order for round-trip preservation,
+	// distinguishing namespace declarations from regular attributes (the same
+	// treatment CT_Worksheet got for C74).
 	for _, attr := range start.Attr {
-		// Capture namespace declarations for round-trip preservation
-		if attr.Name.Space == "xmlns" {
-			ss.OriginalNSDecls = append(ss.OriginalNSDecls, xmlb.NSDecl{
-				Prefix: attr.Name.Local,
-				URI:    attr.Value,
-			})
-		} else if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
+		switch {
+		case attr.Name.Space == "xmlns":
+			ss.OriginalNSDecls = append(ss.OriginalNSDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+			ss.OriginalRootAttrs = append(ss.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: attr.Name.Local, Value: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
 			// Default namespace: xmlns="URI"
 			ss.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, ss.OriginalNSDecls...)
+			ss.OriginalRootAttrs = append(ss.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: "", Value: attr.Value})
+		default:
+			prefix := ""
+			switch attr.Name.Space {
+			case xmlb.NSMarkupCompatibility:
+				prefix = xmlb.PrefixMarkupCompatibility
+			case nsR:
+				prefix = "r"
+			case "":
+				// no prefix
+			default:
+				for _, ra := range ss.OriginalRootAttrs {
+					if ra.IsNS && ra.Value == attr.Name.Space {
+						prefix = ra.Prefix
+						break
+					}
+				}
+			}
+			ss.OriginalRootAttrs = append(ss.OriginalRootAttrs, xmlb.RootAttr{IsNS: false, Prefix: prefix, LocalName: attr.Name.Local, Value: attr.Value})
 		}
 	}
 
@@ -137,6 +161,33 @@ type CT_Fonts struct {
 	Count      *uint32 `xml:"count,attr,omitempty"`
 	KnownFonts *bool   `xml:"knownFonts,attr,omitempty"`
 	Font       []CT_Font `xml:"font"`
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Fonts. knownFonts
+// is not a CT_Fonts attribute in the sml schema — it is the x14ac extension
+// attribute x14ac:knownFonts — so it must be emitted with the x14ac prefix
+// (the way CT_SheetFormatPr emits dyDescent), not as a bare attribute (C199).
+func (f *CT_Fonts) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	var attrs []xmlb.Attr
+	if f.Count != nil {
+		attrs = append(attrs, xmlb.UintAttr("count", *f.Count))
+	}
+	if f.KnownFonts != nil {
+		v := "0"
+		if *f.KnownFonts {
+			v = "1"
+		}
+		attrs = append(attrs, xmlb.Attr{Namespace: nsX14AC, Name: "knownFonts", Value: v})
+	}
+	if len(f.Font) == 0 {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	for i := range f.Font {
+		b.MarshalElement(ns, "font", &f.Font[i])
+	}
+	b.EndElement(ns, localName)
 }
 
 // CT_Font represents a single font definition with optional property child elements.

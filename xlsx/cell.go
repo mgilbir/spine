@@ -174,7 +174,7 @@ func (c *Cell) SetString(value string) {
 	c.markSheetDirty()
 	c.cell.T = "str"
 	c.cell.V = &value
-	c.cell.F = nil
+	c.clearFormula()
 }
 
 // Float returns the cell value as a float64.
@@ -198,7 +198,7 @@ func (c *Cell) SetFloat(value float64) {
 		c.cell.T = "e"
 		v := "#NUM!"
 		c.cell.V = &v
-		c.cell.F = nil
+		c.clearFormula()
 		return
 	}
 	c.setNumeric(strconv.FormatFloat(value, 'f', -1, 64))
@@ -208,7 +208,7 @@ func (c *Cell) SetFloat(value float64) {
 func (c *Cell) setNumeric(v string) {
 	c.cell.T = "n"
 	c.cell.V = &v
-	c.cell.F = nil
+	c.clearFormula()
 }
 
 // Int returns the cell value as an int.
@@ -252,7 +252,7 @@ func (c *Cell) SetBool(value bool) {
 		v = "1"
 	}
 	c.cell.V = &v
-	c.cell.F = nil
+	c.clearFormula()
 }
 
 // Time returns the cell value as a time.Time.
@@ -287,9 +287,12 @@ func (c *Cell) Formula() string {
 	return ""
 }
 
-// SetFormula sets the cell formula.
+// SetFormula sets the cell formula. If the cell was the master of a shared
+// formula group, the group's followers are first converted to plain formulas
+// (see clearFormula) so replacing the master does not orphan them.
 func (c *Cell) SetFormula(formula string) {
 	c.markSheetDirty()
+	c.detachSharedGroup()
 	c.cell.T = ""
 	c.cell.F = &oxml.CT_CellFormula{Value: formula}
 	c.cell.V = nil
@@ -315,9 +318,32 @@ func (c *Cell) IsEmpty() bool {
 func (c *Cell) Clear() {
 	c.markSheetDirty()
 	c.cell.V = nil
-	c.cell.F = nil
+	c.clearFormula()
 	c.cell.T = ""
 	c.cell.Is = nil
+}
+
+// clearFormula removes the cell's formula. If the cell is the master of a
+// shared-formula group (`<f t="shared" ref="..." si="N">`), the group's
+// followers are first materialized as plain formulas: silently nilling the
+// master would leave them as si-only stubs with no master anywhere, which is
+// spec-invalid and triggers Excel's repair prompt (C176).
+func (c *Cell) clearFormula() {
+	c.detachSharedGroup()
+	c.cell.F = nil
+}
+
+// detachSharedGroup materializes the followers of this cell's shared-formula
+// group when the cell is the group's master. Overwriting a follower needs no
+// handling: it just drops that follower's stub and the group stays intact.
+func (c *Cell) detachSharedGroup() {
+	f := c.cell.F
+	if f == nil || f.T != "shared" || f.Ref == "" {
+		return
+	}
+	if c.sheet != nil {
+		c.sheet.materializeSharedGroup(c.cell)
+	}
 }
 
 // excelEpoch is the base date of the Excel 1900 serial-date system. Serials
