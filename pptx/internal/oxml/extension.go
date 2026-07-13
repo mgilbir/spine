@@ -9,7 +9,10 @@ import (
 )
 
 // ExtensionList contains PresentationML extension elements (p:extLst).
+// It models both CT_ExtensionList and CT_ExtensionListModify from pml.xsd:
+// Mod carries the latter's optional mod attribute and stays nil elsewhere.
 type ExtensionList struct {
+	Mod *bool       `xml:"mod,attr,omitempty"`
 	Ext []Extension `xml:"ext"`
 }
 
@@ -35,6 +38,22 @@ type Extension struct {
 
 	// Fallback for unrecognized extensions (xsd:any)
 	RawContent []byte `xml:"-"`
+
+	// InlineNSDecls preserves xmlns declarations carried on the ext element
+	// itself (e.g. <p:ext uri="..." xmlns:foo="urn:foo">). They are re-emitted
+	// for unknown-URI extensions so prefixes used by RawContent stay bound.
+	InlineNSDecls []xmlb.NSDecl `xml:"-"`
+}
+
+// hasTypedContent reports whether the extension was dispatched to a typed
+// field (known URI). Typed marshaling declares its namespaces inline on the
+// child element, so the captured ext-level declarations are not re-emitted.
+func (e *Extension) hasTypedContent() bool {
+	return e.CreationId != nil || e.ModId != nil || e.Media != nil ||
+		e.ShowMediaCtrls != nil || e.DefaultImageDpi != nil ||
+		e.DiscardImageEdit != nil || e.LaserClr != nil ||
+		e.PresenceInfo != nil || e.SldGuideLst != nil ||
+		e.ChartTrackingRefBased != nil
 }
 
 // --- p14 extensions (PowerPoint 2010) ---
@@ -124,9 +143,15 @@ const (
 )
 
 func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var nsDecls []xmlb.NSDecl
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "uri" {
+		switch {
+		case attr.Name.Local == "uri" && attr.Name.Space == "":
 			e.URI = attr.Value
+		case attr.Name.Space == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{Prefix: attr.Name.Local, URI: attr.Value})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			nsDecls = append(nsDecls, xmlb.NSDecl{URI: attr.Value})
 		}
 	}
 
@@ -234,7 +259,9 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		e.ChartTrackingRefBased = &w.V
 
 	default:
-		// Unknown extension - preserve raw bytes
+		// Unknown extension - preserve raw bytes along with any xmlns
+		// declarations the ext element carried, so re-emitted content
+		// keeps its prefixes bound.
 		var inner struct {
 			Content []byte `xml:",innerxml"`
 		}
@@ -242,6 +269,7 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		e.RawContent = inner.Content
+		e.InlineNSDecls = nsDecls
 	}
 
 	return nil
@@ -250,7 +278,11 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // --- MarshalToBuilder for Extension ---
 
 func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName, xmlb.StrAttr("uri", e.URI))
+	attrs := []xmlb.Attr{xmlb.StrAttr("uri", e.URI)}
+	if !e.hasTypedContent() {
+		attrs = xmlb.NSDeclAttrs(attrs, e.InlineNSDecls)
+	}
+	b.StartElement(ns, localName, attrs...)
 
 	switch {
 	case e.CreationId != nil:

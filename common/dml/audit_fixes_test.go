@@ -480,3 +480,25 @@ func TestNewGradientFill_NegativeAngleNormalized(t *testing.T) {
 		t.Errorf("Lin.Ang = %d, want 18900000 (-45deg normalized to 315deg)", got)
 	}
 }
+
+// C36 follow-up: a raw-captured blip effect child in a foreign namespace
+// keeps its xmlns declarations bound on Builder re-marshal.
+func TestBlipXML_RawEffectInlineNSPreserved(t *testing.T) {
+	in := `<a:blip xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+		`<foo:customFx xmlns:foo="urn:example:foo" amt="5"><foo:sub val="1"/></foo:customFx>` +
+		`</a:blip>`
+	var v BlipXML
+	if err := xml.Unmarshal([]byte(in), &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(v.Effects) != 1 || v.Effects[0].RawName.Local != "customFx" {
+		t.Fatalf("raw effect not captured: %+v", v.Effects)
+	}
+	out := buildFragment(t, "blip", &v)
+	want := `<a:blip>` +
+		`<foo:customFx xmlns:foo="urn:example:foo" amt="5"><foo:sub val="1"/></foo:customFx>` +
+		`</a:blip>`
+	if out != want {
+		t.Errorf("raw effect xmlns lost:\n got: %s\nwant: %s", out, want)
+	}
+}

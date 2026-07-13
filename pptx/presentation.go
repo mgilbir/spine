@@ -334,6 +334,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			index:        i,
 			id:           slideRef.ID,
 			relID:        slideRef.RID,
+			idExtLst:     slideRef.ExtLst,
 		}
 
 		// Materialize Go-level shape objects from the parsed XML.
@@ -386,6 +387,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 			masterXML:    &masterXML,
 			relID:        masterRef.RID,
 			numericID:    masterRef.ID,
+			idExtLst:     masterRef.ExtLst,
 			layouts:      make([]*SlideLayout, 0),
 		}
 
@@ -1397,8 +1399,9 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 				id = uint32(2147483648 + i) // High IDs as per spec
 			}
 			p.presentation.SlideMasterIDs.SlideMasterID[i] = oxml.SlideMasterID{
-				ID:  id,
-				RID: master.relID,
+				ID:     id,
+				RID:    master.relID,
+				ExtLst: master.idExtLst,
 			}
 		}
 	}
@@ -1409,8 +1412,9 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 	}
 	for i, slide := range p.slides {
 		p.presentation.SlideIDs.SlideID[i] = oxml.SlideID{
-			ID:  slide.id,
-			RID: slide.relID,
+			ID:     slide.id,
+			RID:    slide.relID,
+			ExtLst: slide.idExtLst,
 		}
 	}
 
