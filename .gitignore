@@ -30,6 +30,9 @@ go.work.sum
 # External test fixtures (downloaded, not committed)
 **/testdata/external/
 
+# Common Crawl test corpus (fetched via `make fetch-cc`, never committed)
+testdata/corpus/
+
 # Editor/IDE
 # .idea/
 # .vscode/
