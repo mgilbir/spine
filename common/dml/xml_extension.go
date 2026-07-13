@@ -42,11 +42,6 @@ type Ext struct {
 	RawContent []byte `xml:"-"`
 }
 
-// CompatExt represents compatibility extension wrapper
-type CompatExt struct {
-	SpId string `xml:"spId,attr,omitempty"`
-}
-
 // NonVisualDrawingPropsExtension represents extension for non-visual drawing properties
 type NonVisualDrawingPropsExtension struct {
 	CreationId *CreationId `xml:"http://schemas.microsoft.com/office/drawing/2014/main creationId,omitempty"`
