@@ -488,6 +488,9 @@ const (
 	tblChildTr tblChildKind = iota
 	tblChildBookmarkStart
 	tblChildBookmarkEnd
+	// tblChildSdt is a block SDT wrapping table rows (w:sdt inside w:tbl);
+	// its sdtContent carries w:tr children.
+	tblChildSdt
 )
 
 // tblChildRef references a table child.
@@ -512,6 +515,9 @@ func (tbl *CT_Tbl) backfillChildOrder() {
 	}
 	for i := range tbl.BookmarkEnd {
 		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildBookmarkEnd, i})
+	}
+	for i := range tbl.SdtBlock {
+		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildSdt, i})
 	}
 }
 
@@ -567,7 +573,10 @@ type CT_Tbl struct {
 	Tr            []*CT_Tr            `xml:"-"`
 	BookmarkStart []*CT_BookmarkStart `xml:"-"`
 	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
-	childOrder    []tblChildRef
+	// SdtBlock holds block SDTs wrapping rows (w:sdt inside w:tbl); their
+	// sdtContent carries the w:tr children (previously dropped on save).
+	SdtBlock   []*CT_SdtBlock `xml:"-"`
+	childOrder []tblChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Tbl.
@@ -611,6 +620,13 @@ func (tbl *CT_Tbl) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildBookmarkEnd, len(tbl.BookmarkEnd)})
 				tbl.BookmarkEnd = append(tbl.BookmarkEnd, v)
+			case "sdt":
+				v := &CT_SdtBlock{}
+				if err := d.DecodeElement(v, &t); err != nil {
+					return err
+				}
+				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildSdt, len(tbl.SdtBlock)})
+				tbl.SdtBlock = append(tbl.SdtBlock, v)
 			default:
 				if err := d.Skip(); err != nil {
 					return err
@@ -647,6 +663,10 @@ func (tbl *CT_Tbl) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			case tblChildBookmarkEnd:
 				if ref.index < len(tbl.BookmarkEnd) {
 					b.MarshalElement(ns, "bookmarkEnd", tbl.BookmarkEnd[ref.index])
+				}
+			case tblChildSdt:
+				if ref.index < len(tbl.SdtBlock) {
+					b.MarshalElement(ns, "sdt", tbl.SdtBlock[ref.index])
 				}
 			}
 		}

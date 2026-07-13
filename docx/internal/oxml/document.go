@@ -112,6 +112,10 @@ const (
 	bodyChildBookmarkStart
 	bodyChildBookmarkEnd
 	bodyChildRaw
+	// bodyChildTc and bodyChildTr only occur inside w:sdtContent, where a
+	// block SDT wraps table cells or rows (see CT_SdtContentBlock).
+	bodyChildTc
+	bodyChildTr
 )
 
 // isRawBodyChild reports whether a block-level child element the model does
