@@ -40,7 +40,7 @@ func TestAddTableOfContents(t *testing.T) {
 	iInstr := strings.Index(body, `<w:instrText`)
 	iSep := strings.Index(body, `w:fldCharType="separate"`)
 	iEnd := strings.Index(body, `w:fldCharType="end"`)
-	if !(iBegin < iInstr && iInstr < iSep && iSep < iEnd) {
+	if iBegin >= iInstr || iInstr >= iSep || iSep >= iEnd {
 		t.Errorf("field character sequence out of order: begin=%d instr=%d sep=%d end=%d", iBegin, iInstr, iSep, iEnd)
 	}
 
@@ -105,7 +105,7 @@ func TestTOCOrderInBody(t *testing.T) {
 	iBefore := strings.Index(body, "before toc")
 	iSdt := strings.Index(body, "<w:sdt>")
 	iAfter := strings.Index(body, "after toc")
-	if !(iBefore < iSdt && iSdt < iAfter) {
+	if iBefore >= iSdt || iSdt >= iAfter {
 		t.Errorf("body order wrong: before=%d sdt=%d after=%d", iBefore, iSdt, iAfter)
 	}
 }

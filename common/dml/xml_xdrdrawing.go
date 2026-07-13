@@ -1,5 +1,6 @@
-// Package dml provides SpreadsheetDrawing types from dml-spreadsheetDrawing.xsd.
+// This file provides SpreadsheetDrawing types from dml-spreadsheetDrawing.xsd.
 // These types represent xdr: namespace elements used for drawings in SML.
+
 package dml
 
 // XDRTwoCellAnchor represents CT_TwoCellAnchor (xdr:twoCellAnchor)

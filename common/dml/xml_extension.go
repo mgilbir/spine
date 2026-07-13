@@ -1,5 +1,6 @@
-// Package dml provides DrawingML XML extension types from dml-main.xsd.
+// This file provides DrawingML XML extension types from dml-main.xsd.
 // These types handle forward/backward compatibility with Office document versions.
+
 package dml
 
 import (

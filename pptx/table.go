@@ -75,7 +75,7 @@ func (t *Table) contentDirty() bool {
 
 // clearDirty resets all modification flags after a sync flushed them.
 func (t *Table) clearDirty() {
-	t.BaseShape.dirty = false
+	t.dirty = false
 	t.structDirty = false
 	t.propsDirty = false
 	for _, row := range t.rows {

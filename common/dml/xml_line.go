@@ -1,4 +1,5 @@
-// Package dml provides DrawingML XML line/stroke types from dml-main.xsd.
+// This file provides DrawingML XML line/stroke types from dml-main.xsd.
+
 package dml
 
 // Ln represents CT_LineProperties (a:ln)

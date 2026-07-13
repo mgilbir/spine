@@ -197,7 +197,7 @@ func (s *Slide) AddPictureFromBytes(data []byte, contentType string) (*Picture, 
 	} else {
 		pic.SetSize(dml.Inches(4), dml.Inches(3))
 	}
-	s.AddShape(pic)
+	s.addShape(pic)
 	return pic, nil
 }
 

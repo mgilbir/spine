@@ -281,7 +281,7 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 	if !ok {
 		return
 	}
-	if tbl.BaseShape.dirty {
+	if tbl.dirty {
 		if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && tbl.name != "" {
 			gf.NvGraphicFramePr.CNvPr.Name = tbl.name
 		}

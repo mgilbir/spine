@@ -82,10 +82,12 @@ func readZipPart(t *testing.T, data []byte, name string) []byte {
 			if err != nil {
 				t.Fatalf("open %s: %v", name, err)
 			}
-			defer rc.Close()
 			var b bytes.Buffer
 			if _, err := b.ReadFrom(rc); err != nil {
 				t.Fatalf("read %s: %v", name, err)
+			}
+			if err := rc.Close(); err != nil {
+				t.Fatalf("close %s: %v", name, err)
 			}
 			return b.Bytes()
 		}
@@ -245,10 +247,10 @@ func TestMutatorKeepsUnknownChildrenOrdered(t *testing.T) {
 
 	// Schema order: cols < sheetData < customSheetViews < mergeCells < oleObjects.
 	idx := func(tag string) int { return strings.Index(out, tag) }
-	if !(idx("<cols>") < idx("<sheetData>") &&
-		idx("<sheetData>") < idx("<customSheetViews>") &&
-		idx("<customSheetViews>") < idx("<mergeCells") &&
-		idx("<mergeCells") < idx("<oleObjects>")) {
+	if idx("<cols>") >= idx("<sheetData>") ||
+		idx("<sheetData>") >= idx("<customSheetViews>") ||
+		idx("<customSheetViews>") >= idx("<mergeCells") ||
+		idx("<mergeCells") >= idx("<oleObjects>") {
 		t.Errorf("children not in schema order:\n%s", out)
 	}
 }

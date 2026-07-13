@@ -1,5 +1,6 @@
-// Package oxml provides PresentationML presentation property types from pml.xsd.
+// This file provides PresentationML presentation property types from pml.xsd.
 // These types implement the p: namespace presProps elements.
+
 package oxml
 
 import "github.com/mgilbir/spine/common/dml"

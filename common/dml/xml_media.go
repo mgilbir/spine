@@ -1,5 +1,6 @@
-// Package dml provides DrawingML XML media types from dml-main.xsd.
+// This file provides DrawingML XML media types from dml-main.xsd.
 // These types handle audio, video, and OLE object embedding.
+
 package dml
 
 import "encoding/xml"
