@@ -183,15 +183,22 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 		if pres.SlideSize.Type != "" {
 			sldSzAttrs = append(sldSzAttrs, xmlb.StrAttr("type", pres.SlideSize.Type))
 		}
+		if pres.SlideSize.CapturedAttrs != nil {
+			sldSzAttrs = b.ReplayCapturedAttrs(pres.SlideSize.CapturedAttrs, sldSzAttrs)
+		}
 		b.EmptyElement(nsP, "sldSz", sldSzAttrs...)
 	}
 
 	// notesSz
 	if pres.NotesSize != nil {
-		b.EmptyElement(nsP, "notesSz",
+		notesSzAttrs := []xmlb.Attr{
 			xmlb.IntAttr("cx", pres.NotesSize.Cx),
 			xmlb.IntAttr("cy", pres.NotesSize.Cy),
-		)
+		}
+		if pres.NotesSize.CapturedAttrs != nil {
+			notesSzAttrs = b.ReplayCapturedAttrs(pres.NotesSize.CapturedAttrs, notesSzAttrs)
+		}
+		b.EmptyElement(nsP, "notesSz", notesSzAttrs...)
 	}
 
 	// smartTags .. kinsoku: parsed-but-previously-dropped children, emitted in

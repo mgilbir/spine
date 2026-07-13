@@ -701,18 +701,28 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 // ColorMap defines the color mapping for a slide master.
 type ColorMap struct {
-	Bg1      string `xml:"bg1,attr"`
-	Tx1      string `xml:"tx1,attr"`
-	Bg2      string `xml:"bg2,attr"`
-	Tx2      string `xml:"tx2,attr"`
-	Accent1  string `xml:"accent1,attr"`
-	Accent2  string `xml:"accent2,attr"`
-	Accent3  string `xml:"accent3,attr"`
-	Accent4  string `xml:"accent4,attr"`
-	Accent5  string `xml:"accent5,attr"`
-	Accent6  string `xml:"accent6,attr"`
-	Hlink    string `xml:"hlink,attr"`
-	FolHlink string `xml:"folHlink,attr"`
+	Bg1           string          `xml:"bg1,attr"`
+	Tx1           string          `xml:"tx1,attr"`
+	Bg2           string          `xml:"bg2,attr"`
+	Tx2           string          `xml:"tx2,attr"`
+	Accent1       string          `xml:"accent1,attr"`
+	Accent2       string          `xml:"accent2,attr"`
+	Accent3       string          `xml:"accent3,attr"`
+	Accent4       string          `xml:"accent4,attr"`
+	Accent5       string          `xml:"accent5,attr"`
+	Accent6       string          `xml:"accent6,attr"`
+	Hlink         string          `xml:"hlink,attr"`
+	FolHlink      string          `xml:"folHlink,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (cmp *ColorMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cmp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ColorMap
+	return d.DecodeElement((*alias)(cmp), &start)
 }
 
 // ColorMapOverride specifies a color map override.

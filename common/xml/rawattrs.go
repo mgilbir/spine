@@ -60,6 +60,14 @@ func prefixForAttr(space string, seen []RootAttr) string {
 		return PrefixMarkupCompatibility
 	case NSOfficeDocumentRels:
 		return PrefixRelationships
+	case NSWordprocessingML:
+		return PrefixWordprocessingML
+	case NSDrawingML:
+		return PrefixDrawingML
+	case NSPresentationML:
+		return PrefixPresentationML
+	case NSMath:
+		return PrefixMath
 	}
 	for p, uri := range ExtensionPrefixToNS {
 		if uri == space {

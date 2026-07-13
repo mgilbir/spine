@@ -162,6 +162,16 @@ func (v *A14HiddenEffects) UnmarshalXML(d *xml.Decoder, start xml.StartElement) 
 // Contains image processing properties.
 type A14ImgProps struct {
 	ImgLayer *A14ImgLayer `xml:"http://schemas.microsoft.com/office/drawing/2010/main imgLayer,omitempty"`
+
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// children through the struct tags.
+func (v *A14ImgProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14ImgProps
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14ImgLayer represents a14:imgLayer element.
@@ -604,6 +614,14 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		b.ResetNamespaceDeclaration(nsA14)
 
 	case e.ImgProps != nil:
+		if raw := e.ImgProps.CapturedAttrs; raw != nil {
+			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			b.StartElementLiteral(prefix, "imgProps",
+				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
+			marshalImgLayer(b, e.ImgProps.ImgLayer)
+			b.EndElementLiteral(prefix, "imgProps")
+			break
+		}
 		b.StartElementInlineNS(nsA14, xmlb.PrefixDrawing2010, "imgProps")
 		marshalImgLayer(b, e.ImgProps.ImgLayer)
 		b.EndElementInlineNS(xmlb.PrefixDrawing2010, "imgProps")

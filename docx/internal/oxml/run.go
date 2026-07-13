@@ -107,10 +107,13 @@ type CT_Markup struct {
 // CT_R represents a run of content (w:r).
 // Uses custom UnmarshalXML/MarshalToBuilder for child ordering.
 type CT_R struct {
-	RsidRPr string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidDel string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
-	RsidR   string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RPr     *CT_RPr `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list (producer
+	// rsid order varies; unmodeled attributes survive); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidDel       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RPr           *CT_RPr         `xml:"-"`
 
 	// Content children tracked in order
 	T                     []*CT_Text       `xml:"-"`
@@ -172,6 +175,7 @@ type runChildRef struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_R to preserve child order.
 func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	r.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidRPr":
@@ -352,6 +356,9 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if r.RsidRPr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: r.RsidRPr})
+	}
+	if r.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(r.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 

@@ -188,41 +188,61 @@ type ATr struct {
 // ATc represents a table cell (CT_TableCell).
 // Field order matches XSD sequence: txBody, tcPr, extLst.
 type ATc struct {
-	TxBody   *dml.TxBody `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txBody,omitempty"`
-	TcPr     *ATcPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcPr,omitempty"`
-	ExtLst   *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
-	RowSpan  int         `xml:"rowSpan,attr,omitempty"`
-	GridSpan int         `xml:"gridSpan,attr,omitempty"`
-	HMerge   bool        `xml:"hMerge,attr,omitempty"`
-	VMerge   bool        `xml:"vMerge,attr,omitempty"`
-	Id       string      `xml:"id,attr,omitempty"`
+	TxBody        *dml.TxBody     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txBody,omitempty"`
+	TcPr          *ATcPr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tcPr,omitempty"`
+	ExtLst        *dml.ExtLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	RowSpan       int             `xml:"rowSpan,attr,omitempty"`
+	GridSpan      int             `xml:"gridSpan,attr,omitempty"`
+	HMerge        bool            `xml:"hMerge,attr,omitempty"`
+	VMerge        bool            `xml:"vMerge,attr,omitempty"`
+	Id            string          `xml:"id,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (atc *ATc) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	atc.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ATc
+	return d.DecodeElement((*alias)(atc), &start)
 }
 
 // ATcPr contains table cell properties (CT_TableCellProperties). Child order
 // follows the XSD sequence: lnL, lnR, lnT, lnB, lnTlToBr, lnBlToTr, cell3D,
 // fill choice, headers, extLst.
 type ATcPr struct {
-	MarL         *int64           `xml:"marL,attr,omitempty"`
-	MarR         *int64           `xml:"marR,attr,omitempty"`
-	MarT         *int64           `xml:"marT,attr,omitempty"`
-	MarB         *int64           `xml:"marB,attr,omitempty"`
-	Vert         string           `xml:"vert,attr,omitempty"`
-	Anchor       string           `xml:"anchor,attr,omitempty"`
-	AnchorCtr    *bool            `xml:"anchorCtr,attr,omitempty"`
-	HorzOverflow string           `xml:"horzOverflow,attr,omitempty"`
-	LnL          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
-	LnR          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`
-	LnT          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnT,omitempty"`
-	LnB          *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnB,omitempty"`
-	LnTlToBr     *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnTlToBr,omitempty"`
-	LnBlToTr     *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnBlToTr,omitempty"`
-	Cell3D       *dml.Cell3D      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cell3D,omitempty"`
-	NoFill       *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill    *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill     *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill     *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill     *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill      *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
-	Headers      *dml.Headers     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headers,omitempty"`
-	ExtLst       *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	MarL          *int64           `xml:"marL,attr,omitempty"`
+	MarR          *int64           `xml:"marR,attr,omitempty"`
+	MarT          *int64           `xml:"marT,attr,omitempty"`
+	MarB          *int64           `xml:"marB,attr,omitempty"`
+	Vert          string           `xml:"vert,attr,omitempty"`
+	Anchor        string           `xml:"anchor,attr,omitempty"`
+	AnchorCtr     *bool            `xml:"anchorCtr,attr,omitempty"`
+	HorzOverflow  string           `xml:"horzOverflow,attr,omitempty"`
+	LnL           *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnL,omitempty"`
+	LnR           *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnR,omitempty"`
+	LnT           *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnT,omitempty"`
+	LnB           *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnB,omitempty"`
+	LnTlToBr      *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnTlToBr,omitempty"`
+	LnBlToTr      *dml.Ln          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnBlToTr,omitempty"`
+	Cell3D        *dml.Cell3D      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cell3D,omitempty"`
+	NoFill        *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill     *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill      *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill      *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill      *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill       *dml.GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	Headers       *dml.Headers     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main headers,omitempty"`
+	ExtLst        *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr  `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (atp *ATcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	atp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ATcPr
+	return d.DecodeElement((*alias)(atp), &start)
 }

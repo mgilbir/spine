@@ -116,15 +116,35 @@ type CT_TrPr struct {
 
 // CT_Height represents a height measurement.
 type CT_Height struct {
-	Val   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	HRule string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	HRule         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (h *CT_Height) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Height
+	return d.DecodeElement((*alias)(h), &start)
 }
 
 // CT_TrackChange represents a simple track change marker (no content).
 type CT_TrackChange struct {
-	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
-	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
-	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	Id            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	Author        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
+	Date          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tc2 *CT_TrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tc2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TrackChange
+	return d.DecodeElement((*alias)(tc2), &start)
 }
 
 // CT_TcPr represents table cell properties.
@@ -239,11 +259,14 @@ type trChildRef struct {
 
 // CT_Tr represents a table row (w:tr).
 type CT_Tr struct {
-	RsidR   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidTr  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
-	ParaId  string `xml:"-"` // w14:paraId
-	TextId  string `xml:"-"` // w14:textId
+	// CapturedAttrs preserves the verbatim source attribute list; replayed on
+	// marshal (producer rsid order varies, e.g. rsidDel is not modeled).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidTr        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
+	ParaId        string          `xml:"-"` // w14:paraId
+	TextId        string          `xml:"-"` // w14:textId
 	// TblPrEx (w:tblPrEx, table property exceptions for this row) is preserved
 	// raw; it precedes trPr in the schema and is re-emitted in that position.
 	TblPrEx       *CT_RawElement        `xml:"-"`
@@ -260,6 +283,7 @@ type CT_Tr struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Tr.
 func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidR":
@@ -373,6 +397,9 @@ func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if tr.RsidTr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidTr", Value: tr.RsidTr})
+	}
+	if tr.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(tr.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 
