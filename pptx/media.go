@@ -43,11 +43,9 @@ type Picture struct {
 	cropTop        float64
 	cropBottom     float64
 	slide          *Slide // back-reference to owning slide (set during materialization)
-	// sourceID is the cNvPr id of the oxml picture this shape was materialized
-	// from (0 for API-created pictures). It gives a stable identity for locating
-	// the exact picture node on save, so replacing one of two pictures that
-	// share an image reference updates the right one.
-	sourceID uint32
+	// The picture's stable node identity (used e.g. by replacePictureImage to
+	// locate the exact node when two pictures share an image reference) lives
+	// in BaseShape.sourceID.
 }
 
 // NewPicture creates a new picture shape.
@@ -218,7 +216,17 @@ type mediaShape struct {
 	mediaRelID  string // r:embed on p14:media (Microsoft "media" reltype)
 	linkRelID   string // r:link on a:videoFile/a:audioFile ("video"/"audio" reltype)
 	posterRelID string // r:embed on the poster blip (image reltype)
+
+	// timingDirty/posterDirty mark SetPlayMode/SetPoster edits made after the
+	// shape was synced into the slide XML; the shape sync flushes them into
+	// the parsed node and the timing bookkeeping (see flushMediaProps).
+	// Without them such edits were silent no-ops on already-saved shapes.
+	timingDirty bool
+	posterDirty bool
 }
+
+// hasPendingProps reports whether SetPlayMode/SetPoster edits await a flush.
+func (m *mediaShape) hasPendingProps() bool { return m.timingDirty || m.posterDirty }
 
 // PlayMode controls when embedded media starts playing.
 type PlayMode int
@@ -235,8 +243,17 @@ const (
 // PlayMode returns the media's play mode.
 func (m *mediaShape) PlayMode() PlayMode { return m.playMode }
 
-// SetPlayMode sets when the media starts playing.
-func (m *mediaShape) SetPlayMode(mode PlayMode) { m.playMode = mode }
+// SetPlayMode sets when the media starts playing. It also applies to media
+// already written by an earlier save: the generated timing tree is updated
+// (or created/dropped) on the next save. Slides whose timing tree was parsed
+// from a file are left untouched.
+func (m *mediaShape) SetPlayMode(mode PlayMode) {
+	if m.playMode == mode {
+		return
+	}
+	m.playMode = mode
+	m.timingDirty = true
+}
 
 // MediaData returns the raw media bytes.
 func (m *mediaShape) MediaData() []byte { return m.mediaData }
@@ -251,9 +268,12 @@ func (m *mediaShape) Poster() (data []byte, contentType string) {
 
 // SetPoster sets the poster/preview image shown before playback. When unset, a
 // minimal placeholder image is generated on save so the file stays valid.
+// Setting a poster on media already written by an earlier save swaps the
+// poster blip on the next save.
 func (m *mediaShape) SetPoster(data []byte, contentType string) {
 	m.posterData = data
 	m.posterCT = contentType
+	m.posterDirty = true
 }
 
 // effectivePoster returns the caller-provided poster, or a generated placeholder

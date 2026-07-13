@@ -323,6 +323,10 @@ func (s *Slide) syncShapesToXML() {
 	// not represent), then append any new shapes. Avoids the destructive full
 	// rebuild below.
 	if len(s.removedRefs) > 0 && !s.forceShapeRebuild {
+		// Capture what the removed pic nodes reference before they go: their
+		// shape ids (a generated timing tree must stop targeting them) and
+		// their relationship ids (media/poster rels to garbage collect).
+		removedSpids, removedRelIDs := collectRemovedPicRefs(spTree, s.removedRefs)
 		spTree.RemoveChildren(s.removedRefs)
 		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
@@ -330,6 +334,8 @@ func (s *Slide) syncShapesToXML() {
 		if len(s.shapes) > s.syncedShapes {
 			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
 		}
+		s.pruneAutoTiming(removedSpids)
+		s.gcSlideRels(removedRelIDs)
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
 		s.clearShapeDirt()
@@ -946,11 +952,67 @@ func tableDataToOxml(t *Table) *oxml.ATable {
 			}
 
 			tr.Tc[j] = tc
+			cell.sourceTc = tc
 		}
 
 		tbl.Tr[i] = tr
+		row.sourceTr = tr
 	}
 
+	return tbl
+}
+
+// regenerateTableNode rebuilds the a:tbl from the domain model after a
+// structural change (rows/columns added or removed), carrying parsed content
+// over for surviving rows and cells: their tcPr (margins, borders, fills the
+// domain does not track per edge) and, when the cell text was not edited,
+// their txBody are reused verbatim, and the table keeps its tableStyleId.
+// Cells the caller explicitly restyled get those edits applied on top of the
+// parsed properties.
+func regenerateTableNode(t *Table, old *oxml.ATable) *oxml.ATable {
+	// Capture the parsed source nodes before tableDataToOxml re-points every
+	// row/cell at its freshly built node.
+	oldTr := make([]*oxml.ATr, len(t.rows))
+	oldTc := make([][]*oxml.ATc, len(t.rows))
+	for i, row := range t.rows {
+		oldTr[i] = row.sourceTr
+		oldTc[i] = make([]*oxml.ATc, len(row.cells))
+		for j, c := range row.cells {
+			oldTc[i][j] = c.sourceTc
+		}
+	}
+
+	tbl := tableDataToOxml(t)
+	if old != nil && old.TblPr != nil && tbl.TblPr != nil {
+		tbl.TblPr.TableStyleId = old.TblPr.TableStyleId
+	}
+	if old != nil && old.TblGrid != nil && tbl.TblGrid != nil &&
+		len(old.TblGrid.GridCol) == len(tbl.TblGrid.GridCol) {
+		for i, gc := range tbl.TblGrid.GridCol {
+			gc.ExtLst = old.TblGrid.GridCol[i].ExtLst
+		}
+	}
+
+	for i, tr := range tbl.Tr {
+		if src := oldTr[i]; src != nil {
+			tr.ExtLst = src.ExtLst
+		}
+		for j, tc := range tr.Tc {
+			src := oldTc[i][j]
+			if src == nil {
+				continue // new cell: keep the generated node
+			}
+			cell := t.rows[i].cells[j]
+			tc.TcPr = src.TcPr
+			if cell.dirty {
+				applyCellProps(tc, cell)
+			}
+			tc.TxBody = src.TxBody
+			if cell.textFrame != nil && cell.textFrame.isDirty() {
+				updateTxBody(&tc.TxBody, cell.textFrame)
+			}
+		}
+	}
 	return tbl
 }
 
@@ -1041,6 +1103,13 @@ func (s *Slide) Duplicate() *Slide {
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
+	// Build any pending auto-play timing tree now, before the XML snapshot
+	// below: timing is normally built at save, so duplicating an unsaved
+	// slide with auto-play media would otherwise snapshot a tree-less slide
+	// and the duplicate would silently lose autoplay (C193). The copied tree
+	// targets the same shape ids the copied shapes carry, so it is valid for
+	// the duplicate as-is.
+	s.applyMediaTiming()
 
 	// AddSlide assigned the duplicate its own part name.
 	newSlide := s.presentation.AddSlide()

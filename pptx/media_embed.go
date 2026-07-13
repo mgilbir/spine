@@ -38,18 +38,29 @@ func mediaShapeOf(shape Shape) (*mediaShape, string) {
 	return nil, ""
 }
 
+// forEachShape calls fn for every shape in shapes, descending into group
+// shapes (media can live inside groups via GroupShape.AddChild).
+func forEachShape(shapes []Shape, fn func(Shape)) {
+	for _, shape := range shapes {
+		fn(shape)
+		if grp, ok := shape.(*GroupShape); ok {
+			forEachShape(grp.children, fn)
+		}
+	}
+}
+
 // resolveMediaContentTypes fills in the content type of media shapes the
 // caller added without one, by sniffing the leading magic bytes. Called before
 // any shape sync so the media part is never stored under an unregistered
 // extension.
 func (s *Slide) resolveMediaContentTypes() {
-	for _, shape := range s.shapes {
+	forEachShape(s.shapes, func(shape Shape) {
 		m, _ := mediaShapeOf(shape)
 		if m == nil || m.mediaRelID != "" || m.contentType != "" {
-			continue
+			return
 		}
 		m.contentType = sniffMediaContentType(m.mediaData)
-	}
+	})
 }
 
 // validateMediaShapes rejects media that cannot be embedded as a valid OPC
@@ -59,19 +70,24 @@ func (s *Slide) resolveMediaContentTypes() {
 // invalid package that PowerPoint asks to repair.
 func (s *Slide) validateMediaShapes() error {
 	s.resolveMediaContentTypes()
-	for _, shape := range s.shapes {
+	var err error
+	forEachShape(s.shapes, func(shape Shape) {
+		if err != nil {
+			return
+		}
 		m, kind := mediaShapeOf(shape)
 		if m == nil || m.mediaRelID != "" {
-			continue
+			return
 		}
 		if len(m.mediaData) == 0 {
-			return fmt.Errorf("pptx: slide %d: %s has no media data", s.index+1, kind)
+			err = fmt.Errorf("pptx: slide %d: %s has no media data", s.index+1, kind)
+			return
 		}
 		if m.contentType == "" {
-			return fmt.Errorf("pptx: slide %d: %s has no content type and the media format was not recognized", s.index+1, kind)
+			err = fmt.Errorf("pptx: slide %d: %s has no content type and the media format was not recognized", s.index+1, kind)
 		}
-	}
-	return nil
+	})
+	return err
 }
 
 // sniffMediaContentType infers a media MIME type from the leading bytes of the
@@ -212,6 +228,12 @@ func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Pi
 	w, h := m.Size()
 	if w <= 0 || h <= 0 {
 		w, h = defaultMediaWidth, defaultMediaHeight
+		// Write the default back into the domain shape so both
+		// representations agree: otherwise a later SetPosition/SetName flush
+		// (updateXfrm) would write the domain's 0x0 into the node, collapsing
+		// the shape (C192). Assigned directly — this is a sync, not a caller
+		// mutation, so it must not set the dirty flag.
+		m.width, m.height = w, h
 	}
 
 	nvPr := &oxml.NvPr{
@@ -254,6 +276,148 @@ func (s *Slide) buildMediaPic(m *mediaShape, id uint32, kind mediaKind) *oxml.Pi
 				AvLst: &dml.AvLst{},
 			},
 		},
+	}
+}
+
+// flushMediaShapeProps applies SetPlayMode/SetPoster edits made after the
+// shape was synced to its parsed p:pic node and the timing bookkeeping
+// (previously such edits were silent no-ops on already-saved shapes, C220).
+func (s *Slide) flushMediaShapeProps(pic *oxml.Picture, shape Shape) {
+	switch sh := shape.(type) {
+	case *Video:
+		s.flushMediaProps(pic, &sh.mediaShape, mediaVideo)
+	case *Audio:
+		s.flushMediaProps(pic, &sh.mediaShape, mediaAudio)
+	}
+}
+
+func (s *Slide) flushMediaProps(pic *oxml.Picture, m *mediaShape, kind mediaKind) {
+	if m.posterDirty {
+		m.posterDirty = false
+		// Only media already embedded needs an explicit swap; before the
+		// first embed, buildMediaPic reads the current poster anyway.
+		if m.mediaRelID != "" {
+			oldID := ""
+			if pic.BlipFill != nil && pic.BlipFill.Blip != nil {
+				oldID = pic.BlipFill.Blip.Embed
+			}
+			data, ct := m.effectivePoster()
+			newID := s.embedImageData(data, ct)
+			if pic.BlipFill == nil {
+				pic.BlipFill = &dml.BlipFill{Stretch: &dml.Stretch{FillRect: &dml.RelRect{}}}
+			}
+			if pic.BlipFill.Blip == nil {
+				pic.BlipFill.Blip = &dml.Blip{}
+			}
+			pic.BlipFill.Blip.Embed = newID
+			m.posterRelID = newID
+			if oldID != "" && oldID != newID {
+				s.gcSlideRels([]string{oldID})
+			}
+		}
+	}
+	if m.timingDirty {
+		m.timingDirty = false
+		var spid uint32
+		if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
+			spid = pic.NvPicPr.CNvPr.Id
+		}
+		s.syncPlayMode(spid, kind, m.playMode)
+	}
+}
+
+// collectRemovedPicRefs gathers, for each removed p:pic node, its shape id
+// and the relationship ids it references (poster/image blip, svg blip,
+// p14:media embed, video/audio file link). Called before the nodes are
+// deleted from the tree; whether a rel id is safe to drop is decided later by
+// gcSlideRels, which checks the remaining slide XML for other references.
+func collectRemovedPicRefs(spTree *oxml.ShapeTree, refs []oxml.ChildRef) (spids []uint32, relIDs []string) {
+	for _, ref := range refs {
+		if ref.Kind != oxml.ChildPic || ref.Index < 0 || ref.Index >= len(spTree.Pic) {
+			continue
+		}
+		pic := spTree.Pic[ref.Index]
+		if pic.NvPicPr != nil {
+			if pic.NvPicPr.CNvPr != nil {
+				spids = append(spids, pic.NvPicPr.CNvPr.Id)
+			}
+			if nv := pic.NvPicPr.NvPr; nv != nil {
+				if nv.VideoFile != nil && nv.VideoFile.Link != "" {
+					relIDs = append(relIDs, nv.VideoFile.Link)
+				}
+				if nv.AudioFile != nil && nv.AudioFile.Link != "" {
+					relIDs = append(relIDs, nv.AudioFile.Link)
+				}
+				if nv.ExtLst != nil {
+					for _, ext := range nv.ExtLst.Ext {
+						if ext.Media != nil && ext.Media.Embed != "" {
+							relIDs = append(relIDs, ext.Media.Embed)
+						}
+					}
+				}
+			}
+		}
+		if pic.BlipFill != nil && pic.BlipFill.Blip != nil {
+			if pic.BlipFill.Blip.Embed != "" {
+				relIDs = append(relIDs, pic.BlipFill.Blip.Embed)
+			}
+			if pic.BlipFill.Blip.ExtLst != nil {
+				for _, ext := range pic.BlipFill.Blip.ExtLst.Ext {
+					if ext != nil && ext.SvgBlip != nil && ext.SvgBlip.Embed != "" {
+						relIDs = append(relIDs, ext.SvgBlip.Embed)
+					}
+				}
+			}
+		}
+	}
+	return spids, relIDs
+}
+
+// removableRelType reports whether a slide relationship type may be garbage
+// collected once its id is no longer referenced by the slide XML. Only the
+// per-shape media/image types are removable; everything else (layout, notes,
+// hyperlinks, ...) is kept.
+func removableRelType(relType string) bool {
+	switch relType {
+	case opc.RelTypeMedia, opc.RelTypeVideo, opc.RelTypeAudio, opc.RelTypeImage:
+		return true
+	}
+	return false
+}
+
+// gcSlideRels removes this slide's media/image relationships with the given
+// ids when the current slide XML no longer references them — e.g. after a
+// media shape was surgically removed. Ids still referenced by any remaining
+// node are kept: parts and rels can be shared by several shapes on one slide.
+// Package-level parts are never touched here (they may be shared across
+// slides).
+func (s *Slide) gcSlideRels(relIDs []string) {
+	if len(relIDs) == 0 || s.presentation == nil || s.slideXML == nil {
+		return
+	}
+	candidates := make(map[string]bool, len(relIDs))
+	for _, id := range relIDs {
+		if id != "" {
+			candidates[id] = true
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	slideXML := marshalSlide(s.slideXML)
+	rels := s.presentation.relationships[s.partName]
+	kept := rels[:0]
+	changed := false
+	for _, rel := range rels {
+		if candidates[rel.ID] && removableRelType(rel.Type) &&
+			!bytes.Contains(slideXML, []byte(`"`+rel.ID+`"`)) {
+			changed = true
+			continue
+		}
+		kept = append(kept, rel)
+	}
+	if changed {
+		s.presentation.relationships[s.partName] = kept
 	}
 }
 
