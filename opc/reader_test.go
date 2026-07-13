@@ -358,3 +358,98 @@ func TestReader_SkipsDirectories(t *testing.T) {
 		}
 	}
 }
+
+// TestNewReader_HostileEntryNames verifies that zip entries whose names are
+// not in canonical form ("./"-prefixed, backslash separators, doubled
+// slashes) are still reachable through GetFile under their canonical part
+// names, and that the raw entries remain accessible under their original
+// names (C51).
+func TestNewReader_HostileEntryNames(t *testing.T) {
+	contentTypes := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+		`<Default Extension="xml" ContentType="application/xml"/></Types>`
+
+	entries := map[string]string{
+		"[Content_Types].xml":    contentTypes,
+		"./ppt/presentation.xml": "<presentation/>",
+		`word\document.xml`:      "<document/>",
+		"a//b.xml":               "<b/>",
+	}
+
+	buf := &bytes.Buffer{}
+	zw := zip.NewWriter(buf)
+	for name, content := range entries {
+		fw, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			t.Fatalf("CreateHeader(%q) error = %v", name, err)
+		}
+		if _, err := fw.Write([]byte(content)); err != nil {
+			t.Fatalf("Write(%q) error = %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close error = %v", err)
+	}
+
+	reader, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+
+	cases := []struct {
+		rawName   string
+		canonical string
+	}{
+		{"./ppt/presentation.xml", "/ppt/presentation.xml"},
+		{`word\document.xml`, "/word/document.xml"},
+		{"a//b.xml", "/a/b.xml"},
+	}
+	for _, tc := range cases {
+		f := reader.GetFile(tc.canonical)
+		if f == nil {
+			t.Errorf("GetFile(%q) = nil; raw entry %q unreachable", tc.canonical, tc.rawName)
+			continue
+		}
+		if f.Name != tc.canonical {
+			t.Errorf("File.Name = %q, want canonical %q", f.Name, tc.canonical)
+		}
+		got, err := f.ReadAll()
+		if err != nil {
+			t.Errorf("ReadAll(%q) error = %v", tc.canonical, err)
+			continue
+		}
+		if string(got) != entries[tc.rawName] {
+			t.Errorf("ReadAll(%q) = %q, want %q", tc.canonical, got, entries[tc.rawName])
+		}
+
+		// The raw entry keeps its original name for byte-preserving paths.
+		raw, err := reader.GetRawZipFile(tc.rawName)
+		if err != nil {
+			t.Errorf("GetRawZipFile(%q) error = %v", tc.rawName, err)
+			continue
+		}
+		if string(raw) != entries[tc.rawName] {
+			t.Errorf("GetRawZipFile(%q) = %q, want %q", tc.rawName, raw, entries[tc.rawName])
+		}
+	}
+}
+
+func TestCanonicalZipEntryName(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"ppt/presentation.xml", "/ppt/presentation.xml"},
+		{"./ppt/presentation.xml", "/ppt/presentation.xml"},
+		{"././a.xml", "/a.xml"},
+		{`word\document.xml`, "/word/document.xml"},
+		{"a//b.xml", "/a/b.xml"},
+		{"/leading.xml", "/leading.xml"},
+		{"dir/", "/dir/"},
+	}
+	for _, tt := range tests {
+		if got := canonicalZipEntryName(tt.in); got != tt.want {
+			t.Errorf("canonicalZipEntryName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

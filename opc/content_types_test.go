@@ -260,3 +260,84 @@ func TestContentTypeConstants(t *testing.T) {
 		}
 	}
 }
+
+// TestContentTypes_CaseVariantDuplicateOverridesStable verifies that when a
+// hostile [Content_Types].xml carries two overrides differing only in case,
+// the case-insensitive fallback deterministically returns the first-declared
+// one on every call instead of a per-call-random map-iteration winner (C211).
+func TestContentTypes_CaseVariantDuplicateOverridesStable(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+		`<Override PartName="/Part.xml" ContentType="application/first"/>` +
+		`<Override PartName="/part.XML" ContentType="application/second"/>` +
+		`</Types>`)
+
+	ct, err := UnmarshalContentTypes(data)
+	if err != nil {
+		t.Fatalf("UnmarshalContentTypes() error = %v", err)
+	}
+
+	// Query with a third casing so neither exact-match entry hits.
+	for i := 0; i < 100; i++ {
+		if got := ct.GetContentType("/PART.xml"); got != "application/first" {
+			t.Fatalf("GetContentType iteration %d = %q, want stable first-declared %q", i, got, "application/first")
+		}
+	}
+}
+
+// TestContentTypes_Clone verifies that Clone produces an independent deep
+// copy: mutations of the clone are invisible to the original and vice versa
+// (C53).
+func TestContentTypes_Clone(t *testing.T) {
+	data := []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+		`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+		`<Default Extension="JPG" ContentType="image/jpeg"/>` +
+		`<Override PartName="/a.xml" ContentType="application/a"/>` +
+		`</Types>`)
+
+	ct, err := UnmarshalContentTypes(data)
+	if err != nil {
+		t.Fatalf("UnmarshalContentTypes() error = %v", err)
+	}
+
+	clone := ct.Clone()
+
+	origOut, err := ct.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	cloneOut, err := clone.Marshal()
+	if err != nil {
+		t.Fatalf("clone Marshal() error = %v", err)
+	}
+	if string(origOut) != string(cloneOut) {
+		t.Errorf("clone marshals differently:\n%s\nvs\n%s", origOut, cloneOut)
+	}
+
+	clone.SetOverride("/b.xml", "application/b")
+	clone.SetDefault("png", "image/png")
+	if _, ok := ct.Overrides["/b.xml"]; ok {
+		t.Error("clone SetOverride mutated original Overrides")
+	}
+	if _, ok := ct.Defaults["png"]; ok {
+		t.Error("clone SetDefault mutated original Defaults")
+	}
+	if len(ct.overrideOrder) != 1 {
+		t.Errorf("original overrideOrder len = %d, want 1", len(ct.overrideOrder))
+	}
+
+	ct.SetOverride("/c.xml", "application/c")
+	if _, ok := clone.Overrides["/c.xml"]; ok {
+		t.Error("original SetOverride mutated clone Overrides")
+	}
+
+	// Original-cased extension survives the clone (JPG, not jpg).
+	if got := clone.displayExtension("jpg"); got != "JPG" {
+		t.Errorf("clone displayExtension = %q, want %q", got, "JPG")
+	}
+
+	var nilCT *ContentTypes
+	if nilCT.Clone() != nil {
+		t.Error("nil Clone() != nil")
+	}
+}

@@ -115,3 +115,54 @@ func TestResolvePartName(t *testing.T) {
 }
 
 // Part-type tests removed along with the dead Part abstraction (C121).
+
+// TestResolvePartName_URITargets verifies that relationship targets are
+// treated as URIs: percent-escapes are decoded and fragments stripped before
+// resolution (C208).
+func TestResolvePartName_URITargets(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     string
+		relative string
+		want     string
+	}{
+		{
+			name:     "percent-encoded space",
+			base:     "/ppt/slides/slide1.xml",
+			relative: "../media/Some%20Image.png",
+			want:     "/ppt/media/Some Image.png",
+		},
+		{
+			name:     "fragment stripped",
+			base:     "/word/document.xml",
+			relative: "styles.xml#heading1",
+			want:     "/word/styles.xml",
+		},
+		{
+			name:     "percent-encoded and fragment",
+			base:     "/word/document.xml",
+			relative: "My%20File.xml#frag",
+			want:     "/word/My File.xml",
+		},
+		{
+			name:     "absolute target with escape",
+			base:     "/",
+			relative: "/docProps/My%20Props.xml",
+			want:     "/docProps/My Props.xml",
+		},
+		{
+			name:     "invalid escape left as-is",
+			base:     "/",
+			relative: "a%2zb.xml",
+			want:     "/a%2zb.xml",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ResolvePartName(tt.base, tt.relative); got != tt.want {
+				t.Errorf("ResolvePartName(%q, %q) = %q, want %q", tt.base, tt.relative, got, tt.want)
+			}
+		})
+	}
+}

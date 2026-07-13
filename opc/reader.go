@@ -377,10 +377,19 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 
 	// Second pass: create File entries for all parts (excluding special files)
 	for _, zf := range zr.File {
-		name := "/" + zf.Name
+		// Index parts under a canonical part name: zip producers (and hostile
+		// packages) emit entry names like "./ppt/presentation.xml",
+		// "word\document.xml" or "a//b.xml", which would otherwise be
+		// unreachable through GetFile and silently droppable on round-trip.
+		// The zip entry itself keeps its original raw name, so
+		// GetRawZipFile(zf.Name) and preserved-part paths still see the
+		// original bytes under the original name. When two entries collapse to
+		// the same canonical name, the first wins (GetFile returns the first
+		// match), consistent with existing duplicate handling.
+		name := canonicalZipEntryName(zf.Name)
 
 		// Skip directories
-		if strings.HasSuffix(zf.Name, "/") {
+		if strings.HasSuffix(zf.Name, "/") || strings.HasSuffix(name, "/") {
 			continue
 		}
 
@@ -408,6 +417,23 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 	reader.parseCoreProperties()
 
 	return reader, nil
+}
+
+// canonicalZipEntryName converts a raw zip entry name into the canonical
+// leading-slash part name used for lookups: backslash separators become
+// forward slashes, leading "./" segments are stripped, and empty segments
+// ("//") are collapsed. The original raw entry name is untouched — it remains
+// the key for GetRawZipFile and the name under which the entry's bytes were
+// stored.
+func canonicalZipEntryName(name string) string {
+	s := strings.ReplaceAll(name, `\`, "/")
+	for strings.HasPrefix(s, "./") {
+		s = strings.TrimPrefix(s, "./")
+	}
+	for strings.Contains(s, "//") {
+		s = strings.ReplaceAll(s, "//", "/")
+	}
+	return "/" + strings.TrimPrefix(s, "/")
 }
 
 // parsePackageRelationships reads the package-level .rels file.

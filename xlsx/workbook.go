@@ -30,6 +30,7 @@ type Workbook struct {
 	preservedParts map[string]*coxml.RawPart
 	relationships  map[string][]*opc.Relationship
 	hasCoreProps   bool
+	propsSnapshot  *opc.CoreProperties // Properties as loaded at open; detects edits at save
 	stylesDirty    bool
 	sheetsDirty    bool
 	stringTable    []string // plain text values extracted from shared strings
@@ -103,6 +104,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	if reader.Properties != nil {
 		w.Properties = *reader.Properties
 		w.hasCoreProps = true
+		w.propsSnapshot = reader.Properties.Clone()
 	}
 
 	if err := w.loadAllParts(mainPartName); err != nil {
@@ -335,10 +337,39 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.Properties = &w.Properties
 	}
 
+	// A dirty sheet can add, move or remove formulas, so a preserved
+	// calcChain.xml may reference cells that no longer hold one — a known
+	// Excel "we found a problem" repair class (C198). Drop the part together
+	// with its content-type override and workbook relationship; Excel rebuilds
+	// the calculation chain transparently on next open. Untouched workbooks
+	// keep their calcChain byte-identical. Sheets that receive images in
+	// saveOpenedSheetImages below count as dirty: attaching the drawing
+	// reference re-marshals them. This mutates the durable model (preserved
+	// parts and w.contentTypes), so it must run before the writer clones the
+	// content types below.
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages()
+	if !dropCalcChain {
+		for _, sheet := range w.sheets {
+			if sheet.dirty {
+				dropCalcChain = true
+				break
+			}
+		}
+	}
+	if dropCalcChain {
+		w.dropCalcChainParts("/xl/workbook.xml")
+	}
+
 	// Preserve original content types (captured at open so this still works
-	// after Close has released the reader).
+	// after Close has released the reader). Hand the writer a clone: Close
+	// mutates its ContentTypes (SetOverride for regenerated metadata parts),
+	// so sharing the captured instance would let repeated saves observe each
+	// other's side effects and make concurrent saves race. The clone must be
+	// in place before any part is written, so overrides recorded by WritePart
+	// (e.g. for the image drawing/media parts below) land in this save's
+	// content types instead of being discarded.
 	if w.contentTypes != nil {
-		writer.ContentTypes = w.contentTypes
+		writer.ContentTypes = w.contentTypes.Clone()
 	}
 
 	// Images added to the opened workbook: write their drawing/media/rels
@@ -355,8 +386,12 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write core.xml as preserved raw bytes if original had it
-	if w.hasCoreProps {
+	// Write core.xml as preserved raw bytes only when the in-memory
+	// properties still match the snapshot taken at open. Writing the raw part
+	// first would win under the opc writer's skip-if-written rule and
+	// silently drop any edits; when the properties changed, skip the raw copy
+	// so Close regenerates core.xml from w.Properties.
+	if w.hasCoreProps && w.Properties.Equal(w.propsSnapshot) {
 		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
 			if err := writer.WritePart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
@@ -365,27 +400,12 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	worksheetParts := make(map[string]struct{}, len(w.sheets))
-	anySheetDirty := w.sheetsDirty
 	for _, sheet := range w.sheets {
-		if sheet.dirty {
-			anySheetDirty = true
-		}
 		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
 			worksheetParts[sheet.partName] = struct{}{}
 		}
 	}
 	stylesDirty := w.stylesDirty
-
-	// A dirty sheet can add, move or remove formulas, so a preserved
-	// calcChain.xml may reference cells that no longer hold one — a known
-	// Excel "we found a problem" repair class (C198). Drop the part together
-	// with its content-type override and workbook relationship; Excel rebuilds
-	// the calculation chain transparently on next open. Untouched workbooks
-	// keep their calcChain byte-identical.
-	dropCalcChain := anySheetDirty
-	if dropCalcChain {
-		w.dropCalcChainParts("/xl/workbook.xml")
-	}
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
 	// any sheet was modified/added/deleted or if styles were changed.
