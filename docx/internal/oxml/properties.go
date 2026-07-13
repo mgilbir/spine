@@ -224,8 +224,18 @@ type CT_VerticalAlignRun struct {
 
 // CT_TblWidth represents table width/measurement.
 type CT_TblWidth struct {
-	W    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
-	Type string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
+	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
+	Type          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tw *CT_TblWidth) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tw.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TblWidth
+	return d.DecodeElement((*alias)(tw), &start)
 }
 
 // CT_PBdr represents paragraph borders.

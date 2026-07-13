@@ -58,11 +58,31 @@ type Ds struct {
 type Round struct{}
 
 // Bevel represents CT_LineJoinBevel (a:bevel)
-type Bevel struct{}
+type Bevel struct {
+	// CapturedAttrs preserves unmodeled attributes; see common/xml.CaptureAttrs.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list.
+func (bv2 *Bevel) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bv2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Bevel
+	return d.DecodeElement((*alias)(bv2), &start)
+}
 
 // Miter represents CT_LineJoinMiterProperties (a:miter)
 type Miter struct {
-	Lim int32 `xml:"lim,attr,omitempty"`
+	Lim           int32           `xml:"lim,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (mi *Miter) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	mi.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Miter
+	return d.DecodeElement((*alias)(mi), &start)
 }
 
 // LineEnd represents CT_LineEndProperties (a:headEnd, a:tailEnd)

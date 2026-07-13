@@ -58,37 +58,38 @@ type SrgbClr struct {
 // SystemClr represents CT_SystemColor (a:sysClr) for XML serialization.
 // All EG_ColorTransform kinds are modeled (single occurrence each); see SrgbClr.
 type SystemClr struct {
-	Val      string             `xml:"val,attr"`
-	LastClr  string             `xml:"lastClr,attr,omitempty"`
-	Tint     *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
-	Shade    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main shade,omitempty"`
-	SatMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satMod,omitempty"`
-	Alpha    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alpha,omitempty"`
-	LumMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumMod,omitempty"`
-	LumOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumOff,omitempty"`
-	Comp     *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main comp,omitempty"`
-	Inv      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main inv,omitempty"`
-	Gray     *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gray,omitempty"`
-	AlphaOff *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaOff,omitempty"`
-	AlphaMod *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
-	Hue      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hue,omitempty"`
-	HueOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueOff,omitempty"`
-	HueMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueMod,omitempty"`
-	Sat      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sat,omitempty"`
-	SatOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satOff,omitempty"`
-	Lum      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
-	Red      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main red,omitempty"`
-	RedOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redOff,omitempty"`
-	RedMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redMod,omitempty"`
-	Green    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main green,omitempty"`
-	GreenOff *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenOff,omitempty"`
-	GreenMod *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenMod,omitempty"`
-	Blue     *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blue,omitempty"`
-	BlueOff  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueOff,omitempty"`
-	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
-	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
-	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
-	xfOrder  []clrTransformKind // captured source order of the transform children
+	Val           string             `xml:"val,attr"`
+	LastClr       string             `xml:"lastClr,attr,omitempty"`
+	Tint          *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
+	Shade         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main shade,omitempty"`
+	SatMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satMod,omitempty"`
+	Alpha         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alpha,omitempty"`
+	LumMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumMod,omitempty"`
+	LumOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumOff,omitempty"`
+	Comp          *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main comp,omitempty"`
+	Inv           *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main inv,omitempty"`
+	Gray          *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gray,omitempty"`
+	AlphaOff      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaOff,omitempty"`
+	AlphaMod      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
+	Hue           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hue,omitempty"`
+	HueOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueOff,omitempty"`
+	HueMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueMod,omitempty"`
+	Sat           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sat,omitempty"`
+	SatOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satOff,omitempty"`
+	Lum           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
+	Red           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main red,omitempty"`
+	RedOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redOff,omitempty"`
+	RedMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redMod,omitempty"`
+	Green         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main green,omitempty"`
+	GreenOff      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenOff,omitempty"`
+	GreenMod      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenMod,omitempty"`
+	Blue          *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blue,omitempty"`
+	BlueOff       *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueOff,omitempty"`
+	BlueMod       *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
+	Gamma         *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
+	InvGamma      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder       []clrTransformKind // captured source order of the transform children
+	CapturedAttrs []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
 // HslClr represents CT_HslColor (a:hslClr) for XML serialization.
@@ -166,38 +167,39 @@ type PrstClr struct {
 // ScRgbClr represents CT_ScRgbColor (a:scrgbClr) for XML serialization.
 // All EG_ColorTransform kinds are modeled (single occurrence each); see SrgbClr.
 type ScRgbClr struct {
-	R        Percentage         `xml:"r,attr"`
-	G        Percentage         `xml:"g,attr"`
-	B        Percentage         `xml:"b,attr"`
-	Tint     *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
-	Shade    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main shade,omitempty"`
-	Comp     *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main comp,omitempty"`
-	Inv      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main inv,omitempty"`
-	Gray     *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gray,omitempty"`
-	Alpha    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alpha,omitempty"`
-	AlphaOff *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaOff,omitempty"`
-	AlphaMod *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
-	Hue      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hue,omitempty"`
-	HueOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueOff,omitempty"`
-	HueMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueMod,omitempty"`
-	Sat      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sat,omitempty"`
-	SatOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satOff,omitempty"`
-	SatMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satMod,omitempty"`
-	Lum      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
-	LumOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumOff,omitempty"`
-	LumMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumMod,omitempty"`
-	Red      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main red,omitempty"`
-	RedOff   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redOff,omitempty"`
-	RedMod   *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redMod,omitempty"`
-	Green    *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main green,omitempty"`
-	GreenOff *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenOff,omitempty"`
-	GreenMod *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenMod,omitempty"`
-	Blue     *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blue,omitempty"`
-	BlueOff  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueOff,omitempty"`
-	BlueMod  *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
-	Gamma    *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
-	InvGamma *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
-	xfOrder  []clrTransformKind // captured source order of the transform children
+	R             Percentage         `xml:"r,attr"`
+	G             Percentage         `xml:"g,attr"`
+	B             Percentage         `xml:"b,attr"`
+	Tint          *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tint,omitempty"`
+	Shade         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main shade,omitempty"`
+	Comp          *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main comp,omitempty"`
+	Inv           *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main inv,omitempty"`
+	Gray          *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gray,omitempty"`
+	Alpha         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alpha,omitempty"`
+	AlphaOff      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaOff,omitempty"`
+	AlphaMod      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main alphaMod,omitempty"`
+	Hue           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hue,omitempty"`
+	HueOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueOff,omitempty"`
+	HueMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hueMod,omitempty"`
+	Sat           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sat,omitempty"`
+	SatOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satOff,omitempty"`
+	SatMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main satMod,omitempty"`
+	Lum           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lum,omitempty"`
+	LumOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumOff,omitempty"`
+	LumMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lumMod,omitempty"`
+	Red           *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main red,omitempty"`
+	RedOff        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redOff,omitempty"`
+	RedMod        *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main redMod,omitempty"`
+	Green         *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main green,omitempty"`
+	GreenOff      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenOff,omitempty"`
+	GreenMod      *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main greenMod,omitempty"`
+	Blue          *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blue,omitempty"`
+	BlueOff       *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueOff,omitempty"`
+	BlueMod       *ColorTransform    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blueMod,omitempty"`
+	Gamma         *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gamma,omitempty"`
+	InvGamma      *EmptyClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main invGamma,omitempty"`
+	xfOrder       []clrTransformKind // captured source order of the transform children
+	CapturedAttrs []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
 // clrTransformKind identifies a color transform element type.

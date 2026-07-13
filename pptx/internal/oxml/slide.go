@@ -259,13 +259,23 @@ type Background struct {
 
 // BackgroundProps contains background fill properties.
 type BackgroundProps struct {
-	NoFill    *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill  *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	EffectLst *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	ExtLst    *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	NoFill        *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill     *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill      *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill      *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill      *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	EffectLst     *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	ExtLst        *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr  `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bgp *BackgroundProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bgp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias BackgroundProps
+	return d.DecodeElement((*alias)(bgp), &start)
 }
 
 // ShapeTree is the container for shapes on a slide.
