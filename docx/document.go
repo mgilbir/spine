@@ -386,12 +386,14 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write core.xml as preserved raw bytes only when the in-memory
-	// properties still match the snapshot taken at open. Writing the raw part
-	// first would win under the opc writer's skip-if-written rule and
-	// silently drop any edits; when the properties changed, skip the raw copy
-	// so Close regenerates core.xml from d.Properties.
-	if d.hasCoreProps && d.Properties.Equal(d.propsSnapshot) {
+	// Write core.xml as preserved raw bytes when the in-memory properties
+	// still match the snapshot taken at open — or when the part was never
+	// parsed at all (some producers write a malformed core-properties
+	// relationship type, so the reader finds no properties; the part must
+	// still round-trip verbatim). Writing the raw part first wins under the
+	// opc writer's skip-if-written rule; when the properties changed, skip
+	// the raw copy so Close regenerates core.xml from d.Properties.
+	if !d.hasCoreProps || d.Properties.Equal(d.propsSnapshot) {
 		if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
 			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err

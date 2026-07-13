@@ -444,7 +444,9 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// first would win under the opc writer's skip-if-written rule and
 	// silently drop any edits; when the properties changed, skip the raw copy
 	// so Close regenerates core.xml from w.Properties.
-	if w.hasCoreProps && w.Properties.Equal(w.propsSnapshot) {
+	// Also write the raw part when it was never parsed (malformed
+	// core-properties relationship type): it must round-trip verbatim.
+	if !w.hasCoreProps || w.Properties.Equal(w.propsSnapshot) {
 		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
 			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
