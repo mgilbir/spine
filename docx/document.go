@@ -738,32 +738,13 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	if err := d.writeAddedParts(writer); err != nil {
 		return err
 	}
-	for _, img := range d.imageParts {
-		// Images placed in a header/footer paragraph are related from that
-		// part's own rels (written in writeAddedParts), not from document.xml.
-		if img.owner != d.mainPart() {
-			continue
-		}
-		docRels = append(docRels, &opc.Relationship{
-			ID:     img.relID,
-			Type:   opc.RelTypeImage,
-			Target: img.partName[len("/word/"):], // relative to /word/
-		})
-	}
-	for _, hp := range d.newHeaderParts {
-		docRels = append(docRels, &opc.Relationship{
-			ID:     hp.relID,
-			Type:   opc.RelTypeHeader,
-			Target: hp.partName[len("/word/"):],
-		})
-	}
-	for _, fp := range d.newFooterParts {
-		docRels = append(docRels, &opc.Relationship{
-			ID:     fp.relID,
-			Type:   opc.RelTypeFooter,
-			Target: fp.partName[len("/word/"):],
-		})
-	}
+	// Emit every relationship registered against the main part by the
+	// mutation API (images, headers, footers). Rebuilding this list from
+	// imageParts instead would drop the relationship of a deduplicated image
+	// placement: adding the same image bytes twice stores one part but two
+	// relationships, and only the first lives in imageParts — the second
+	// placement's r:embed would dangle.
+	docRels = append(docRels, d.relationships[d.mainPart()]...)
 
 	if err := writer.WritePartRelationships("/word/document.xml", docRels); err != nil {
 		return err
@@ -788,7 +769,11 @@ func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
 	}
 	relsName := opc.GetRelationshipsPartName(d.mainPart())
 	if part, ok := d.preservedParts[relsName]; ok {
-		if orig, err := opc.UnmarshalRelationships(part.Data); err == nil && opc.RelationshipsEqual(orig, rels) {
+		orig, err := opc.UnmarshalRelationships(part.Data)
+		// Exact order match, or the same set in a different order — OPC
+		// assigns no meaning to .rels element order, so either way the source
+		// bytes are a faithful serialization of the current set.
+		if err == nil && (opc.RelationshipsEqual(orig, rels) || opc.RelationshipsEquivalent(orig, rels)) {
 			return writer.WritePreservedPart(relsName, part.ContentType, part.Data)
 		}
 	}
