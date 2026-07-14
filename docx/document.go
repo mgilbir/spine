@@ -28,7 +28,14 @@ type Document struct {
 	// /word/document2.xml occurs in the wild). The save paths regenerate THIS
 	// part; hardcoding /word/document.xml would preserve the stale original
 	// and silently drop every edit.
-	mainPartName     string
+	mainPartName string
+	// flavor is the main part's content type as recorded at open: one of the
+	// WordprocessingML main-part flavors (document, template, or their
+	// macro-enabled variants). Empty for a created document, which saves as a
+	// regular document. The save paths re-emit this content type so e.g. a
+	// macro-enabled document (.docm) is not silently retyped to a regular
+	// document while still carrying its vbaProject part.
+	flavor           string
 	styles           *oxml.CT_Styles
 	numbering        *oxml.CT_Numbering
 	settings         *oxml.CT_Settings
@@ -70,6 +77,29 @@ func (d *Document) mainPart() string {
 		return d.mainPartName
 	}
 	return mainDocumentPart
+}
+
+// documentFlavors is the set of WordprocessingML main-part content types
+// (ECMA-376 and [MS-OFFDI]) that Open accepts: regular document (.docx),
+// template (.dotx), and their macro-enabled variants (.docm/.dotm).
+var documentFlavors = map[string]bool{
+	opc.ContentTypeDocument:                  true,
+	opc.ContentTypeDocumentTemplateMain:      true,
+	opc.ContentTypeDocumentMacroMain:         true,
+	opc.ContentTypeDocumentTemplateMacroMain: true,
+}
+
+// Flavor returns the main part's content type: one of the WordprocessingML
+// flavors (opc.ContentTypeDocument, opc.ContentTypeDocumentTemplateMain, or a
+// macro-enabled variant). An opened file reports the flavor it was opened
+// with — a template (.dotx) stays a template across a save — and a created
+// document reports opc.ContentTypeDocument. There is no conversion API:
+// retyping a file to another flavor is out of scope.
+func (d *Document) Flavor() string {
+	if d.flavor != "" {
+		return d.flavor
+	}
+	return opc.ContentTypeDocument
 }
 
 // headerPart stores a parsed header.
@@ -119,7 +149,10 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		return nil, ErrNotDOCX
 	}
 
-	if mainPart.ContentType != opc.ContentTypeDocument {
+	// Any WordprocessingML main-part flavor is accepted (regular document,
+	// template, and their macro-enabled variants); the flavor is recorded so
+	// the save re-emits it.
+	if !documentFlavors[mainPart.ContentType] {
 		_ = reader.Close()
 		return nil, ErrNotDOCX
 	}
@@ -148,6 +181,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		reader:         reader,
 		document:       &doc,
 		mainPartName:   mainPartName,
+		flavor:         mainPart.ContentType,
 		dirEntries:     reader.DirectoryEntries,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
@@ -538,7 +572,7 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart(mainPartName, opc.ContentTypeDocument, docData); err != nil {
+	if err := writer.WritePart(mainPartName, d.Flavor(), docData); err != nil {
 		return err
 	}
 
@@ -678,7 +712,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart("/word/document.xml", opc.ContentTypeDocument, docData); err != nil {
+	if err := writer.WritePart("/word/document.xml", d.Flavor(), docData); err != nil {
 		return err
 	}
 

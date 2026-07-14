@@ -251,6 +251,18 @@ func main() {
 - docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
 - pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts.
 
+## Supported Flavors
+
+Each format family comes in several ECMA-376 flavors, distinguished only by the main part's content type. `Open` accepts all of them and a save re-emits the flavor the file was opened with — a slideshow stays a slideshow, and a macro-enabled workbook keeps both its `vbaProject.bin` (preserved verbatim) and its macro-enabled content type. The `Flavor()` accessor on `Presentation`, `Document`, and `Workbook` reports the main part's content type (`opc.ContentType*` constants).
+
+| Package | Flavors opened and round-tripped |
+|---------|----------------------------------|
+| `pptx`  | presentation (.pptx), slideshow (.ppsx), template (.potx), macro-enabled presentation (.pptm), slideshow (.ppsm), and template (.potm) |
+| `docx`  | document (.docx), template (.dotx), macro-enabled document (.docm), and template (.dotm) |
+| `xlsx`  | workbook (.xlsx), template (.xltx), macro-enabled workbook (.xlsm), template (.xltm), and add-in (.xlam) |
+
+Documents built with `Create` always save as the regular flavor. Converting a file from one flavor to another (e.g. saving an `.xlsm` as a plain `.xlsx`, which would also need its macro parts stripped) is not supported.
+
 ## Package Structure
 
 - `opc/` - Open Packaging Conventions implementation
