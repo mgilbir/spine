@@ -5,11 +5,13 @@ package enum
 type TextAlign string
 
 const (
-	TextAlignLeft      TextAlign = "l"
-	TextAlignCenter    TextAlign = "ctr"
-	TextAlignRight     TextAlign = "r"
-	TextAlignJustify   TextAlign = "just"
-	TextAlignDistribute TextAlign = "dist"
+	TextAlignLeft           TextAlign = "l"
+	TextAlignCenter         TextAlign = "ctr"
+	TextAlignRight          TextAlign = "r"
+	TextAlignJustify        TextAlign = "just"
+	TextAlignJustifyLow     TextAlign = "justLow"
+	TextAlignDistribute     TextAlign = "dist"
+	TextAlignThaiDistribute TextAlign = "thaiDist"
 )
 
 // VerticalAlign specifies vertical text alignment within a container.
@@ -25,9 +27,9 @@ const (
 type TextAnchor string
 
 const (
-	TextAnchorTop     TextAnchor = "t"
-	TextAnchorMiddle  TextAnchor = "ctr"
-	TextAnchorBottom  TextAnchor = "b"
+	TextAnchorTop    TextAnchor = "t"
+	TextAnchorMiddle TextAnchor = "ctr"
+	TextAnchorBottom TextAnchor = "b"
 )
 
 // TextWrapping specifies how text wraps within a container.
@@ -41,9 +43,15 @@ const (
 // FontStyle represents text styling options.
 type FontStyle int
 
+// FontStyleNormal is the zero value: no styling flags set.
+const FontStyleNormal FontStyle = 0
+
 const (
-	FontStyleNormal FontStyle = 0
-	FontStyleBold   FontStyle = 1 << iota
+	// FontStyleBold is bit 0. The flags start at 1<<0 so no bit is wasted;
+	// they are never serialized as their integer value (they map to boolean
+	// XML attributes), so the specific bit positions are an implementation
+	// detail callers reach only through the named constants.
+	FontStyleBold FontStyle = 1 << iota
 	FontStyleItalic
 	FontStyleUnderline
 	FontStyleStrikethrough
@@ -68,18 +76,24 @@ func (fs FontStyle) Without(flag FontStyle) FontStyle {
 type UnderlineStyle string
 
 const (
-	UnderlineNone          UnderlineStyle = "none"
-	UnderlineSingle        UnderlineStyle = "sng"
-	UnderlineDouble        UnderlineStyle = "dbl"
-	UnderlineHeavy         UnderlineStyle = "heavy"
-	UnderlineDotted        UnderlineStyle = "dotted"
-	UnderlineDash          UnderlineStyle = "dash"
-	UnderlineDashLong      UnderlineStyle = "dashLong"
-	UnderlineDotDash       UnderlineStyle = "dotDash"
-	UnderlineDotDotDash    UnderlineStyle = "dotDotDash"
-	UnderlineWavy          UnderlineStyle = "wavy"
-	UnderlineWavyHeavy     UnderlineStyle = "wavyHeavy"
-	UnderlineWavyDouble    UnderlineStyle = "wavyDbl"
+	UnderlineNone            UnderlineStyle = "none"
+	UnderlineWords           UnderlineStyle = "words"
+	UnderlineSingle          UnderlineStyle = "sng"
+	UnderlineDouble          UnderlineStyle = "dbl"
+	UnderlineHeavy           UnderlineStyle = "heavy"
+	UnderlineDotted          UnderlineStyle = "dotted"
+	UnderlineDottedHeavy     UnderlineStyle = "dottedHeavy"
+	UnderlineDash            UnderlineStyle = "dash"
+	UnderlineDashHeavy       UnderlineStyle = "dashHeavy"
+	UnderlineDashLong        UnderlineStyle = "dashLong"
+	UnderlineDashLongHeavy   UnderlineStyle = "dashLongHeavy"
+	UnderlineDotDash         UnderlineStyle = "dotDash"
+	UnderlineDotDashHeavy    UnderlineStyle = "dotDashHeavy"
+	UnderlineDotDotDash      UnderlineStyle = "dotDotDash"
+	UnderlineDotDotDashHeavy UnderlineStyle = "dotDotDashHeavy"
+	UnderlineWavy            UnderlineStyle = "wavy"
+	UnderlineWavyHeavy       UnderlineStyle = "wavyHeavy"
+	UnderlineWavyDouble      UnderlineStyle = "wavyDbl"
 )
 
 // StrikeStyle specifies the type of strikethrough.
