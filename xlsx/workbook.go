@@ -383,8 +383,24 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 
 // SaveTo saves the workbook to an arbitrary writer. A workbook must contain
 // at least one sheet (Excel refuses zero-sheet files), so saving an empty
-// workbook returns ErrNoSheets (C130).
+// workbook returns ErrNoSheets (C130). It also runs Validate first and refuses
+// to write (returning the Report as an error) when any error-severity finding
+// is present, so a structurally corrupt package is never produced. Use
+// SaveToUnvalidated to bypass the validation check.
 func (w *Workbook) SaveTo(dst io.Writer) error {
+	if len(w.sheets) == 0 {
+		return ErrNoSheets
+	}
+	if report := w.Validate(); report.HasErrors() {
+		return report
+	}
+	return w.SaveToUnvalidated(dst)
+}
+
+// SaveToUnvalidated saves the workbook without running the pre-save validation
+// pass (it still enforces the non-empty-sheet invariant). Prefer SaveTo; use
+// this only when a finding is known to be advisory for the caller's use case.
+func (w *Workbook) SaveToUnvalidated(dst io.Writer) error {
 	if len(w.sheets) == 0 {
 		return ErrNoSheets
 	}
