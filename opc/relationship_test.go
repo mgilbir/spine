@@ -263,3 +263,35 @@ func TestMarshalRelationships_AttrEscaping(t *testing.T) {
 		t.Errorf("round-trip Target = %+v, want %q", parsed, rels[0].Target)
 	}
 }
+
+// TestRelationshipsEquivalent verifies the order-insensitive set comparison
+// used to decide whether source .rels bytes may be preserved verbatim.
+func TestRelationshipsEquivalent(t *testing.T) {
+	a := []*Relationship{
+		{ID: "rId1", Type: RelTypeWorksheet, Target: "worksheets/sheet1.xml", TargetMode: TargetModeInternal},
+		{ID: "rId2", Type: RelTypeStyles, Target: "styles.xml", TargetMode: TargetModeInternal},
+	}
+	reordered := []*Relationship{a[1], a[0]}
+	if !RelationshipsEquivalent(a, reordered) {
+		t.Error("RelationshipsEquivalent(reordered) = false, want true")
+	}
+	if RelationshipsEqual(a, reordered) {
+		t.Error("RelationshipsEqual(reordered) = true, want false (order-sensitive)")
+	}
+
+	changedTarget := []*Relationship{a[0], {ID: "rId2", Type: RelTypeStyles, Target: "styles2.xml", TargetMode: TargetModeInternal}}
+	if RelationshipsEquivalent(a, changedTarget) {
+		t.Error("RelationshipsEquivalent(changed target) = true, want false")
+	}
+
+	missing := []*Relationship{a[0]}
+	if RelationshipsEquivalent(a, missing) {
+		t.Error("RelationshipsEquivalent(different length) = true, want false")
+	}
+
+	// Duplicate IDs make the comparison conservatively fail.
+	dup := []*Relationship{a[0], a[0]}
+	if RelationshipsEquivalent(dup, dup) {
+		t.Error("RelationshipsEquivalent(duplicate ids) = true, want false")
+	}
+}

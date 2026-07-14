@@ -187,6 +187,14 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		name := file.Name
 		data, err := file.ReadAll()
 		if err != nil {
+			// A part the model parses must not silently vanish (C60): it
+			// would be dropped from the saved package (or regenerated from an
+			// empty model), losing content. Other unreadable parts are
+			// tolerated: they only fall out of the preserved set, and
+			// referenced-part absences are checked after the sweep.
+			if isModelParsedDocxPart(name) {
+				return fmt.Errorf("docx: reading part %s: %w", name, err)
+			}
 			continue
 		}
 
@@ -208,47 +216,47 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		case name == "/word/styles.xml":
 			d.styles = &oxml.CT_Styles{}
 			if err := xml.Unmarshal(data, d.styles); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/numbering.xml":
 			d.numbering = &oxml.CT_Numbering{}
 			if err := xml.Unmarshal(data, d.numbering); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/settings.xml":
 			d.settings = &oxml.CT_Settings{}
 			if err := xml.Unmarshal(data, d.settings); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/footnotes.xml":
 			d.footnotes = &oxml.CT_Footnotes{}
 			if err := xml.Unmarshal(data, d.footnotes); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/endnotes.xml":
 			d.endnotes = &oxml.CT_Endnotes{}
 			if err := xml.Unmarshal(data, d.endnotes); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/comments.xml":
 			d.comments = &oxml.CT_Comments{}
 			if err := xml.Unmarshal(data, d.comments); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/fontTable.xml":
 			// preserved in preservedParts
 		case name == "/word/webSettings.xml":
 			// preserved in preservedParts
-		case strings.HasPrefix(name, "/word/header") && strings.HasSuffix(name, ".xml"):
+		case isDocxHeaderPartName(name):
 			hdr := &oxml.CT_HdrFtr{}
 			if err := xml.Unmarshal(data, hdr); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.headers[name] = &headerPart{hdr: hdr, contentType: file.ContentType}
-		case strings.HasPrefix(name, "/word/footer") && strings.HasSuffix(name, ".xml"):
+		case isDocxFooterPartName(name):
 			ftr := &oxml.CT_HdrFtr{}
 			if err := xml.Unmarshal(data, ftr); err != nil {
-				return err
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.footers[name] = &footerPart{ftr: ftr, contentType: file.ContentType}
 		default:
@@ -259,6 +267,65 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		}
 	}
 
+	// A header, footer, or numbering part referenced from the main document
+	// part must exist (C60): the reference means the document displays that
+	// content, so a dangling target is a broken document rather than an
+	// optional absence. Genuinely optional parts (unreferenced headers, a
+	// numbering.xml no relationship points to) stay tolerated.
+	return d.checkReferencedParts(mainPartName)
+}
+
+// isModelParsedDocxPart reports whether the named part is parsed into the
+// document model at open (as opposed to preserved raw), so a read failure
+// must fail the open instead of silently dropping the part.
+func isModelParsedDocxPart(name string) bool {
+	switch name {
+	case "/word/styles.xml", "/word/numbering.xml", "/word/settings.xml",
+		"/word/footnotes.xml", "/word/endnotes.xml", "/word/comments.xml":
+		return true
+	}
+	return isDocxHeaderPartName(name) || isDocxFooterPartName(name)
+}
+
+// isDocxHeaderPartName matches the conventional /word/headerN.xml names.
+func isDocxHeaderPartName(name string) bool {
+	return strings.HasPrefix(name, "/word/header") && strings.HasSuffix(name, ".xml")
+}
+
+// isDocxFooterPartName matches the conventional /word/footerN.xml names.
+func isDocxFooterPartName(name string) bool {
+	return strings.HasPrefix(name, "/word/footer") && strings.HasSuffix(name, ".xml")
+}
+
+// checkReferencedParts verifies that every header, footer, and numbering part
+// referenced from the main document part's relationships is present in the
+// package (C60). The error names the missing part and the relationship that
+// references it.
+func (d *Document) checkReferencedParts(mainPartName string) error {
+	kind := map[string]string{
+		opc.RelTypeHeader:    "header",
+		opc.RelTypeFooter:    "footer",
+		opc.RelTypeNumbering: "numbering",
+	}
+	for _, rel := range d.relationships[mainPartName] {
+		what, ok := kind[rel.Type]
+		if !ok || rel.TargetMode == opc.TargetModeExternal {
+			continue
+		}
+		target := opc.ResolvePartName(mainPartName, rel.Target)
+		if _, ok := d.preservedParts[target]; ok {
+			continue
+		}
+		// Distinguish an unreadable part from a missing one so the error
+		// names the actual failure.
+		if f := d.reader.GetFile(target); f != nil {
+			if _, err := f.ReadAll(); err != nil {
+				return fmt.Errorf("docx: reading %s part %s (relationship %s): %w", what, target, rel.ID, err)
+			}
+			continue
+		}
+		return fmt.Errorf("docx: document references missing %s part %s (relationship %s)", what, target, rel.ID)
+	}
 	return nil
 }
 
@@ -333,7 +400,9 @@ func (d *Document) SaveTo(dst io.Writer) error {
 		err = d.saveNew(writer)
 	}
 	if err != nil {
-		_ = writer.Close()
+		// Abort, not Close: Close would finalize the half-written package as
+		// if it were good; the output must be discarded either way.
+		_ = writer.Abort()
 		return err
 	}
 	return writer.Close()
@@ -669,32 +738,13 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	if err := d.writeAddedParts(writer); err != nil {
 		return err
 	}
-	for _, img := range d.imageParts {
-		// Images placed in a header/footer paragraph are related from that
-		// part's own rels (written in writeAddedParts), not from document.xml.
-		if img.owner != d.mainPart() {
-			continue
-		}
-		docRels = append(docRels, &opc.Relationship{
-			ID:     img.relID,
-			Type:   opc.RelTypeImage,
-			Target: img.partName[len("/word/"):], // relative to /word/
-		})
-	}
-	for _, hp := range d.newHeaderParts {
-		docRels = append(docRels, &opc.Relationship{
-			ID:     hp.relID,
-			Type:   opc.RelTypeHeader,
-			Target: hp.partName[len("/word/"):],
-		})
-	}
-	for _, fp := range d.newFooterParts {
-		docRels = append(docRels, &opc.Relationship{
-			ID:     fp.relID,
-			Type:   opc.RelTypeFooter,
-			Target: fp.partName[len("/word/"):],
-		})
-	}
+	// Emit every relationship registered against the main part by the
+	// mutation API (images, headers, footers). Rebuilding this list from
+	// imageParts instead would drop the relationship of a deduplicated image
+	// placement: adding the same image bytes twice stores one part but two
+	// relationships, and only the first lives in imageParts — the second
+	// placement's r:embed would dangle.
+	docRels = append(docRels, d.relationships[d.mainPart()]...)
 
 	if err := writer.WritePartRelationships("/word/document.xml", docRels); err != nil {
 		return err
@@ -719,7 +769,11 @@ func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
 	}
 	relsName := opc.GetRelationshipsPartName(d.mainPart())
 	if part, ok := d.preservedParts[relsName]; ok {
-		if orig, err := opc.UnmarshalRelationships(part.Data); err == nil && opc.RelationshipsEqual(orig, rels) {
+		orig, err := opc.UnmarshalRelationships(part.Data)
+		// Exact order match, or the same set in a different order — OPC
+		// assigns no meaning to .rels element order, so either way the source
+		// bytes are a faithful serialization of the current set.
+		if err == nil && (opc.RelationshipsEqual(orig, rels) || opc.RelationshipsEquivalent(orig, rels)) {
 			return writer.WritePreservedPart(relsName, part.ContentType, part.Data)
 		}
 	}

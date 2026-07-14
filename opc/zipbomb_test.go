@@ -409,3 +409,90 @@ func TestFileOpen_ChargesOnce(t *testing.T) {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 }
+
+// TestReaderOptions_OverridesGlobalLimits verifies that per-Reader options
+// override the package-level decompression limits (C169): a stricter per-call
+// part limit rejects a part the global would allow, and a negative option
+// disables the bound for that Reader alone, leaving the globals untouched.
+func TestReaderOptions_OverridesGlobalLimits(t *testing.T) {
+	big := bytes.Repeat([]byte("A"), 64*1024)
+	parts := map[string][]byte{
+		"/ppt/presentation.xml": big,
+	}
+	contentTypes := map[string]string{
+		"/ppt/presentation.xml": ContentTypePresentationMain,
+	}
+	data := createTestPackage(t, parts, contentTypes)
+
+	// Stricter than the global default: the part must be rejected.
+	reader, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)),
+		ReaderOptions{MaxDecompressedPartSize: 1024})
+	if err != nil {
+		t.Fatalf("NewReaderWithOptions() error = %v", err)
+	}
+	f := reader.GetFile("/ppt/presentation.xml")
+	if f == nil {
+		t.Fatal("part not found")
+	}
+	if _, err := f.ReadAll(); err == nil {
+		t.Fatal("expected ReadAll to reject a part over the per-Reader limit, got nil error")
+	} else if !strings.Contains(err.Error(), "decompression limit") {
+		t.Errorf("expected a decompression-limit error, got: %v", err)
+	}
+
+	// Zero fields fall back to the globals: with a tiny global and zero
+	// options the part is rejected; with a negative option it is allowed.
+	oldPart := MaxDecompressedPartSize
+	MaxDecompressedPartSize = 1024
+	defer func() { MaxDecompressedPartSize = oldPart }()
+
+	reader, err = NewReaderWithOptions(bytes.NewReader(data), int64(len(data)), ReaderOptions{})
+	if err != nil {
+		t.Fatalf("NewReaderWithOptions() error = %v", err)
+	}
+	if _, err := reader.GetFile("/ppt/presentation.xml").ReadAll(); err == nil {
+		t.Fatal("zero options must inherit the global limit; ReadAll succeeded")
+	}
+
+	reader, err = NewReaderWithOptions(bytes.NewReader(data), int64(len(data)),
+		ReaderOptions{MaxDecompressedPartSize: -1})
+	if err != nil {
+		t.Fatalf("NewReaderWithOptions() error = %v", err)
+	}
+	got, err := reader.GetFile("/ppt/presentation.xml").ReadAll()
+	if err != nil {
+		t.Fatalf("negative option must disable the bound; ReadAll error = %v", err)
+	}
+	if !bytes.Equal(got, big) {
+		t.Error("part content mismatch under disabled bound")
+	}
+
+	// The global itself is unchanged by the per-Reader overrides.
+	if MaxDecompressedPartSize != 1024 {
+		t.Errorf("global MaxDecompressedPartSize mutated to %d", MaxDecompressedPartSize)
+	}
+}
+
+// TestReaderOptions_PackageLimit verifies the package-total override.
+func TestReaderOptions_PackageLimit(t *testing.T) {
+	big := bytes.Repeat([]byte("B"), 32*1024)
+	parts := map[string][]byte{
+		"/p/one.xml": big,
+		"/p/two.xml": big,
+	}
+	data := createTestPackage(t, parts, nil)
+
+	reader, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)),
+		ReaderOptions{MaxDecompressedPackageSize: 40 * 1024})
+	if err != nil {
+		t.Fatalf("NewReaderWithOptions() error = %v", err)
+	}
+	if _, err := reader.GetFile("/p/one.xml").ReadAll(); err != nil {
+		t.Fatalf("first part should fit the package budget: %v", err)
+	}
+	if _, err := reader.GetFile("/p/two.xml").ReadAll(); err == nil {
+		t.Fatal("second part should exceed the per-Reader package budget")
+	} else if !strings.Contains(err.Error(), "package decompression limit") {
+		t.Errorf("expected a package-limit error, got: %v", err)
+	}
+}

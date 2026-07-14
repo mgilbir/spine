@@ -453,3 +453,35 @@ func TestCanonicalZipEntryName(t *testing.T) {
 		}
 	}
 }
+
+// TestReader_ExtendedProperties verifies that a package's docProps/app.xml is
+// parsed into Reader.ExtendedProperties (C55: previously there was no
+// unmarshal at all, so opened values could not survive).
+func TestReader_ExtendedProperties(t *testing.T) {
+	buf := &bytes.Buffer{}
+	w := NewWriter(buf)
+	w.ExtendedProperties = &ExtendedProperties{
+		Application: "TestApp",
+		TotalTime:   15,
+		Words:       250,
+		ScaleCrop:   true,
+	}
+	if err := w.WritePart("/test/part.xml", "application/xml", []byte("<root/>")); err != nil {
+		t.Fatalf("WritePart() error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	r, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	ep := r.ExtendedProperties
+	if ep == nil {
+		t.Fatal("Reader.ExtendedProperties = nil, want parsed app.xml")
+	}
+	if ep.Application != "TestApp" || ep.TotalTime != 15 || ep.Words != 250 || !ep.ScaleCrop {
+		t.Errorf("parsed %+v, want Application=TestApp TotalTime=15 Words=250 ScaleCrop=true", ep)
+	}
+}

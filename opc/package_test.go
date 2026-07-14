@@ -359,3 +359,120 @@ func TestUnmarshalCoreProperties_LegacyNoNamespace(t *testing.T) {
 		t.Errorf("legacy creator not re-emitted as dc:creator:\n%s", out)
 	}
 }
+
+// TestExtendedProperties_MarshalZeroValues locks the byte output for
+// zero-valued counters and false booleans: it must be identical to the
+// historical hardcoded output, so packages that never touch these fields
+// marshal exactly as before the fields became honest (C55).
+func TestExtendedProperties_MarshalZeroValues(t *testing.T) {
+	ep := &ExtendedProperties{Slides: 3, PresentationFormat: "Widescreen"}
+	out, err := ep.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, want := range []string{
+		"<TotalTime>0</TotalTime>",
+		"<Words>0</Words>",
+		"<Paragraphs>0</Paragraphs>",
+		"<Slides>3</Slides>",
+		"<Notes>0</Notes>",
+		"<HiddenSlides>0</HiddenSlides>",
+		"<MMClips>0</MMClips>",
+		"<ScaleCrop>false</ScaleCrop>",
+		"<LinksUpToDate>false</LinksUpToDate>",
+		"<SharedDoc>false</SharedDoc>",
+		"<HyperlinksChanged>false</HyperlinksChanged>",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("Marshal() missing %s in:\n%s", want, out)
+		}
+	}
+}
+
+// TestExtendedProperties_MarshalSetValues verifies that the previously
+// hardcoded fields now emit the values the caller set (C55).
+func TestExtendedProperties_MarshalSetValues(t *testing.T) {
+	ep := &ExtendedProperties{
+		TotalTime:         42,
+		Words:             1200,
+		Paragraphs:        17,
+		Slides:            9,
+		Notes:             4,
+		HiddenSlides:      2,
+		MMClips:           1,
+		ScaleCrop:         true,
+		LinksUpToDate:     true,
+		SharedDoc:         true,
+		HyperlinksChanged: true,
+	}
+	out, err := ep.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, want := range []string{
+		"<TotalTime>42</TotalTime>",
+		"<Words>1200</Words>",
+		"<Paragraphs>17</Paragraphs>",
+		"<Slides>9</Slides>",
+		"<Notes>4</Notes>",
+		"<HiddenSlides>2</HiddenSlides>",
+		"<MMClips>1</MMClips>",
+		"<ScaleCrop>true</ScaleCrop>",
+		"<LinksUpToDate>true</LinksUpToDate>",
+		"<SharedDoc>true</SharedDoc>",
+		"<HyperlinksChanged>true</HyperlinksChanged>",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("Marshal() missing %s in:\n%s", want, out)
+		}
+	}
+}
+
+// TestExtendedProperties_MarshalUnmarshalRoundTrip verifies that values
+// written by Marshal survive UnmarshalExtendedProperties.
+func TestExtendedProperties_MarshalUnmarshalRoundTrip(t *testing.T) {
+	ep := &ExtendedProperties{
+		Application:        "TestApp",
+		AppVersion:         "16.0000",
+		TotalTime:          7,
+		Words:              300,
+		Paragraphs:         5,
+		Slides:             12,
+		Notes:              3,
+		HiddenSlides:       1,
+		MMClips:            2,
+		PresentationFormat: "On-screen Show (4:3)",
+		ScaleCrop:          true,
+		SharedDoc:          true,
+	}
+	data, err := ep.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	got, err := UnmarshalExtendedProperties(data)
+	if err != nil {
+		t.Fatalf("UnmarshalExtendedProperties() error = %v", err)
+	}
+	if *got != *ep {
+		t.Errorf("round-trip mismatch:\ngot  %+v\nwant %+v", got, ep)
+	}
+}
+
+// TestUnmarshalExtendedProperties_ToleratesEmptyElements verifies that empty
+// or malformed counter elements (seen in wild files) do not fail the parse.
+func TestUnmarshalExtendedProperties_ToleratesEmptyElements(t *testing.T) {
+	src := `<?xml version="1.0"?>` +
+		`<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">` +
+		`<Application>WildApp</Application>` +
+		`<Words/>` +
+		`<TotalTime>bogus</TotalTime>` +
+		`<Slides> 8 </Slides>` +
+		`</Properties>`
+	got, err := UnmarshalExtendedProperties([]byte(src))
+	if err != nil {
+		t.Fatalf("UnmarshalExtendedProperties() error = %v", err)
+	}
+	if got.Application != "WildApp" || got.Words != 0 || got.TotalTime != 0 || got.Slides != 8 {
+		t.Errorf("parsed %+v, want Application=WildApp Words=0 TotalTime=0 Slides=8", got)
+	}
+}

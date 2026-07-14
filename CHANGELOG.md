@@ -7,6 +7,28 @@ remediation series (#59–#75).
 
 ### Fixed
 
+- docx,xlsx: `Open` fails, naming the part, when a part referenced from the
+  document is missing or unreadable — a worksheet reached through a dangling
+  `r:id`, a missing referenced header/footer/numbering part — instead of
+  silently materializing empty content that the next save would write over
+  the original data; read and parse failures of model-parsed parts also
+  surface with the part name (#85).
+- opc: content types registered after a raw `[Content_Types].xml` write are
+  merged into the emitted file (preserving the raw formatting) instead of
+  silently never being serialized, which left later-created parts without a
+  content-type entry; the raw bytes still win verbatim when nothing new was
+  registered (#85).
+- opc: extended properties (`docProps/app.xml`) marshal the actual field
+  values instead of hardcoded zeros and falses, and are parsed into
+  `Reader.ExtendedProperties` at open (#85).
+- docx: in a new document, adding the same image bytes twice no longer
+  leaves the second placement's `r:embed` dangling (#85).
+- fidelity: unchanged `.rels` sets are written back verbatim (BOM, prolog
+  form, attribute order) even when a save rebuilt the set in a different
+  order or the source spelled slide targets in absolute form; the last
+  fidelity quarantine row now passes, leaving zero fidelity residuals over
+  the 3,600-file corpus (#85).
+
 - Property edits made through `Properties` after `Open` now persist on save
   in docx and xlsx; previously they were silently dropped (#66).
 - opc: decompression limits are enforced per reader and are safe under
@@ -82,6 +104,16 @@ remediation series (#59–#75).
 
 ### Changed
 
+- opc: `ValidatePartName` enforces the OPC part-name grammar for newly
+  created parts (backslash, space, unencoded `%`, control characters,
+  non-ASCII bytes, and trailing-dot segments are rejected); parts preserved
+  verbatim from a source package keep the lenient structural rules so wild
+  names like `/[trash]/0000.dat` still round-trip (#85).
+- opc: a failed save now aborts the package instead of finalizing it — the
+  new `Writer.Abort` discards the output without emitting metadata, and the
+  three formats' error paths use it; `Close` documents that a failed close's
+  output must be discarded, and `CreatePart` documents that each new entry
+  invalidates the previously returned part writer (#85).
 - Save fails loudly instead of writing corrupt output: saving a workbook
   with zero sheets is an error, and unbalanced marshals abort the save
   (#67, #73).
@@ -96,6 +128,9 @@ remediation series (#59–#75).
 
 ### Added
 
+- opc: `ReaderOptions` with `NewReaderWithOptions`/`OpenReaderWithOptions`
+  override the decompression limits for a single Reader; the package-level
+  variables remain the documented defaults (#85).
 - docx: public field API (PAGE/NUMPAGES), table of contents, floating and
   anchored images, and SVG images with a raster fallback (#54, #56).
 - pptx: slide furniture API (footers, dates, slide numbers) and
