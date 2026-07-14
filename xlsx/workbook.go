@@ -587,7 +587,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			wbRels = ensureRelationship(wbRels, opc.RelTypeStyles, "styles.xml")
 		}
 
-		if err := writer.WritePartRelationships(mainPartName, wbRels); err != nil {
+		if err := w.writeWorkbookRelationships(writer, mainPartName, workbookRelsName, wbRels); err != nil {
 			return err
 		}
 	}
@@ -609,6 +609,21 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	return nil
+}
+
+// writeWorkbookRelationships writes the workbook part's .rels. When the
+// rebuilt relationship set still matches what was parsed from the source —
+// exactly, or as the same set in a different order (OPC assigns no meaning to
+// .rels element order) — the source bytes are preserved verbatim, keeping
+// producer formatting (prolog form, BOM, attribute order) intact.
+func (w *Workbook) writeWorkbookRelationships(writer *opc.Writer, mainPartName, workbookRelsName string, wbRels []*opc.Relationship) error {
+	if part, ok := w.preservedParts[workbookRelsName]; ok {
+		orig, err := opc.UnmarshalRelationships(part.Data)
+		if err == nil && (opc.RelationshipsEqual(orig, wbRels) || opc.RelationshipsEquivalent(orig, wbRels)) {
+			return writer.WritePreservedPart(workbookRelsName, part.ContentType, part.Data)
+		}
+	}
+	return writer.WritePartRelationships(mainPartName, wbRels)
 }
 
 // dropCalcChainParts removes the calculation-chain part(s) from the preserved
@@ -886,9 +901,10 @@ func rebuildWorksheetRelationships(existing []*opc.Relationship, sheets []*Sheet
 		usedIDs[id] = struct{}{}
 		sheet.relID = id
 		filtered = append(filtered, &opc.Relationship{
-			ID:     id,
-			Type:   opc.RelTypeWorksheet,
-			Target: target,
+			ID:         id,
+			Type:       opc.RelTypeWorksheet,
+			Target:     target,
+			TargetMode: opc.TargetModeInternal,
 		})
 	}
 
@@ -908,9 +924,10 @@ func ensureRelationship(rels []*opc.Relationship, relType, target string) []*opc
 		}
 	}
 	return append(rels, &opc.Relationship{
-		ID:     fmt.Sprintf("rId%d", nextRelationshipID(usedIDs)),
-		Type:   relType,
-		Target: target,
+		ID:         fmt.Sprintf("rId%d", nextRelationshipID(usedIDs)),
+		Type:       relType,
+		Target:     target,
+		TargetMode: opc.TargetModeInternal,
 	})
 }
 
