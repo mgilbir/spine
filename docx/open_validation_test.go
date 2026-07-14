@@ -84,3 +84,55 @@ func TestOpenReferencedHeaderPresentSucceeds(t *testing.T) {
 		t.Fatalf("Open failed on an external hyperlink relationship: %v", err)
 	}
 }
+
+// saveNew dedup-rel gap: adding the same image bytes twice to a NEW document
+// dedupes to one media part, but the second placement's relationship was
+// registered only in d.relationships, which saveNew did not emit — leaving
+// the second r:embed dangling.
+func TestNewDocumentDuplicateImageRelsResolve(t *testing.T) {
+	doc := Create()
+	png := append([]byte(nil), minimalTransparentPNG...)
+
+	img1, err := doc.AddParagraph().AddRun().AddImageFromBytes(png, "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img2, err := doc.AddParagraph().AddRun().AddImageFromBytes(png, "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img1.relID == img2.relID {
+		t.Fatalf("both placements share relationship %s; want distinct ids", img1.relID)
+	}
+
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One deduplicated media part...
+	if n := zipEntryCount(t, saved, "word/media/image1.png"); n != 1 {
+		t.Fatalf("media part count = %d, want 1", n)
+	}
+
+	// ...but both r:embed ids resolve through document.xml.rels.
+	rels := string(readZipPart(t, saved, "word/_rels/document.xml.rels"))
+	for _, id := range []string{img1.relID, img2.relID} {
+		if !strings.Contains(rels, `Id="`+id+`"`) {
+			t.Errorf("relationship %s missing from document rels:\n%s", id, rels)
+		}
+	}
+
+	// Both drawings reference their own relationship id.
+	docXML := string(readZipPart(t, saved, "word/document.xml"))
+	for _, id := range []string{img1.relID, img2.relID} {
+		if !strings.Contains(docXML, `r:embed="`+id+`"`) {
+			t.Errorf("document.xml missing r:embed %s", id)
+		}
+	}
+
+	// The saved package reopens cleanly.
+	if _, err := OpenReader(bytes.NewReader(saved), int64(len(saved))); err != nil {
+		t.Fatalf("saved document does not reopen: %v", err)
+	}
+}
