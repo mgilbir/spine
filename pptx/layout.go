@@ -9,15 +9,15 @@ import (
 type SlideLayoutType string
 
 const (
-	LayoutTitle             SlideLayoutType = "title"
-	LayoutTitleAndContent   SlideLayoutType = "obj"
-	LayoutSectionHeader     SlideLayoutType = "secHead"
-	LayoutTwoContent        SlideLayoutType = "twoObj"
-	LayoutComparison        SlideLayoutType = "twoTxTwoObj"
-	LayoutTitleOnly         SlideLayoutType = "titleOnly"
-	LayoutBlank             SlideLayoutType = "blank"
-	LayoutContentWithCaption SlideLayoutType = "objTx"
-	LayoutPictureWithCaption SlideLayoutType = "picTx"
+	LayoutTitle                SlideLayoutType = "title"
+	LayoutTitleAndContent      SlideLayoutType = "obj"
+	LayoutSectionHeader        SlideLayoutType = "secHead"
+	LayoutTwoContent           SlideLayoutType = "twoObj"
+	LayoutComparison           SlideLayoutType = "twoTxTwoObj"
+	LayoutTitleOnly            SlideLayoutType = "titleOnly"
+	LayoutBlank                SlideLayoutType = "blank"
+	LayoutContentWithCaption   SlideLayoutType = "objTx"
+	LayoutPictureWithCaption   SlideLayoutType = "picTx"
 	LayoutTitleAndVerticalText SlideLayoutType = "vertTx"
 	LayoutVerticalTitleAndText SlideLayoutType = "vertTitleAndTx"
 )
@@ -174,7 +174,7 @@ func newLayoutXML(layoutType SlideLayoutType) *oxml.SlideLayout {
 }
 
 // createDefaultLayout creates a slide layout with default placeholders.
-func createDefaultLayout(layoutType SlideLayoutType, master *SlideMaster) *SlideLayout {
+func createDefaultLayout(layoutType SlideLayoutType, master *SlideMaster, w, h dml.EMU) *SlideLayout {
 	layout := &SlideLayout{
 		master:     master,
 		layoutType: layoutType,
@@ -182,29 +182,35 @@ func createDefaultLayout(layoutType SlideLayoutType, master *SlideMaster) *Slide
 		layoutXML:  newLayoutXML(layoutType),
 	}
 
-	// Add placeholders based on layout type
+	// Add placeholders based on layout type. All geometry is derived from the
+	// slide size (w, h) so a created deck is internally consistent (C139).
 	var placeholders []*PlaceholderShape
 
 	switch layoutType {
 	case LayoutTitle:
 		// Title slide: centered title and subtitle
-		titlePh := DefaultCenteredTitlePlaceholder()
+		titlePh := NewPlaceholderShape(PlaceholderCenteredTitle)
+		centeredTitleRect(w, h).apply(titlePh)
 		titlePh.SetIndex(0)
-		subtitlePh := DefaultSubtitlePlaceholder()
+		subtitlePh := NewPlaceholderShape(PlaceholderSubtitle)
+		subtitleRect(w, h).apply(subtitlePh)
 		subtitlePh.SetIndex(1)
 		placeholders = append(placeholders, titlePh, subtitlePh)
 
 	case LayoutTitleAndContent:
 		// Title and content layout
-		titlePh := DefaultTitlePlaceholder()
+		titlePh := NewPlaceholderShape(PlaceholderTitle)
+		titleRect(w, h).apply(titlePh)
 		titlePh.SetIndex(0)
-		bodyPh := DefaultBodyPlaceholder()
+		bodyPh := NewPlaceholderShape(PlaceholderBody)
+		bodyRect(w, h).apply(bodyPh)
 		bodyPh.SetIndex(1)
 		placeholders = append(placeholders, titlePh, bodyPh)
 
 	case LayoutTitleOnly:
 		// Title only layout
-		titlePh := DefaultTitlePlaceholder()
+		titlePh := NewPlaceholderShape(PlaceholderTitle)
+		titleRect(w, h).apply(titlePh)
 		titlePh.SetIndex(0)
 		placeholders = append(placeholders, titlePh)
 
@@ -214,29 +220,26 @@ func createDefaultLayout(layoutType SlideLayoutType, master *SlideMaster) *Slide
 	case LayoutSectionHeader:
 		// Section header: centered title and text
 		titlePh := NewPlaceholderShape(PlaceholderTitle)
-		titlePh.SetPosition(dml.Inches(0.5), dml.Inches(2.5))
-		titlePh.SetSize(dml.Inches(12.33), dml.Inches(1.5))
+		sectionTitleRect(w, h).apply(titlePh)
 		titlePh.SetIndex(0)
 
 		textPh := NewPlaceholderShape(PlaceholderBody)
-		textPh.SetPosition(dml.Inches(0.5), dml.Inches(4.5))
-		textPh.SetSize(dml.Inches(12.33), dml.Inches(1.5))
+		sectionTextRect(w, h).apply(textPh)
 		textPh.SetIndex(1)
 		placeholders = append(placeholders, titlePh, textPh)
 
 	case LayoutTwoContent:
 		// Title and two content areas side by side
-		titlePh := DefaultTitlePlaceholder()
+		titlePh := NewPlaceholderShape(PlaceholderTitle)
+		titleRect(w, h).apply(titlePh)
 		titlePh.SetIndex(0)
 
 		leftPh := NewPlaceholderShape(PlaceholderBody)
-		leftPh.SetPosition(dml.Inches(0.5), dml.Inches(1.6))
-		leftPh.SetSize(dml.Inches(5.92), dml.Inches(5.1))
+		leftContentRect(w, h).apply(leftPh)
 		leftPh.SetIndex(1)
 
 		rightPh := NewPlaceholderShape(PlaceholderBody)
-		rightPh.SetPosition(dml.Inches(6.92), dml.Inches(1.6))
-		rightPh.SetSize(dml.Inches(5.92), dml.Inches(5.1))
+		rightContentRect(w, h).apply(rightPh)
 		rightPh.SetIndex(2)
 		placeholders = append(placeholders, titlePh, leftPh, rightPh)
 	}
