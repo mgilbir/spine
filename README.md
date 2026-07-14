@@ -338,6 +338,8 @@ To run the full test suite (fetches external files first):
 make test
 ```
 
+Native Go fuzz targets cover the Open paths of `opc`, `pptx`, `docx`, and `xlsx` (malformed zip archives and hostile XML inside otherwise-valid packages must produce errors, never panics). `make fuzz` runs a short smoke pass over every target; see [CONTRIBUTING.md](CONTRIBUTING.md) for deeper `-fuzztime`-driven runs.
+
 To lint (requires golangci-lint v2.x):
 
 ```bash
