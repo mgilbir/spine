@@ -1,4 +1,4 @@
-.PHONY: build vet fetch fetch-strict fetch-cc test test-corpus lint
+.PHONY: build vet fetch fetch-strict fetch-cc test test-corpus lint fuzz
 
 build:
 	go build ./...
@@ -25,6 +25,19 @@ test: fetch
 # wave with SPINE_CC_UPDATE_QUARANTINE=1 instead of SPINE_CC_FULL=1.
 test-corpus:
 	SPINE_CC_FULL=1 go test ./cctest -count=1 -timeout 45m
+
+# Fuzz smoke run: every fuzz target for a short fixed time. Deeper fuzzing is
+# -fuzztime-driven; see CONTRIBUTING.md ("Fuzzing").
+FUZZTIME ?= 30s
+fuzz:
+	go test ./opc -run '^$$' -fuzz '^FuzzNewReader$$' -fuzztime $(FUZZTIME)
+	go test ./opc -run '^$$' -fuzz '^FuzzOpcMetadataXML$$' -fuzztime $(FUZZTIME)
+	go test ./pptx -run '^$$' -fuzz '^FuzzOpenPptx$$' -fuzztime $(FUZZTIME)
+	go test ./pptx -run '^$$' -fuzz '^FuzzPptxSlideXML$$' -fuzztime $(FUZZTIME)
+	go test ./docx -run '^$$' -fuzz '^FuzzOpenDocx$$' -fuzztime $(FUZZTIME)
+	go test ./docx -run '^$$' -fuzz '^FuzzDocxDocumentXML$$' -fuzztime $(FUZZTIME)
+	go test ./xlsx -run '^$$' -fuzz '^FuzzOpenXlsx$$' -fuzztime $(FUZZTIME)
+	go test ./xlsx -run '^$$' -fuzz '^FuzzXlsxWorksheetXML$$' -fuzztime $(FUZZTIME)
 
 # Requires golangci-lint v2.x; a v1 binary rejects .golangci.yml.
 # Lint covers the whole module, including tools/ccfetch and cctest.
