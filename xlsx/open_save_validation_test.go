@@ -234,3 +234,60 @@ func TestOpenErrorsOnDanglingSheetRelationship(t *testing.T) {
 		t.Errorf("error does not name the dangling relationship: %v", err)
 	}
 }
+
+// Raw .rels preservation: when a save rebuilds the workbook relationship set
+// but ends up with the same set that was parsed, the source bytes — BOM,
+// non-canonical prolog, producer attribute order — must be written verbatim
+// instead of regenerated in canonical form.
+func TestWorkbookRelsPreservedVerbatimOnUnchangedSet(t *testing.T) {
+	rawRels := "\xef\xbb\xbf" + `<?xml version="1.0" encoding="utf-8"?>` +
+		`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+		`<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml" Id="rId1" />` +
+		`</Relationships>`
+	full := buildBookXlsx(t)
+	zr, err := zip.NewReader(bytes.NewReader(full), int64(len(full)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []struct{ name, data string }
+	for _, f := range zr.File {
+		data := ""
+		if f.Name == "xl/_rels/book.xml.rels" {
+			data = rawRels
+		} else {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var b bytes.Buffer
+			if _, err := b.ReadFrom(rc); err != nil {
+				t.Fatal(err)
+			}
+			_ = rc.Close()
+			data = b.String()
+		}
+		files = append(files, struct{ name, data string }{f.Name, data})
+	}
+	fixture := buildFixtureXlsxParts(t, files)
+
+	wb, err := OpenReader(bytes.NewReader(fixture), int64(len(fixture)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sheet, err := wb.Sheet(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dirty the sheet so the save takes the rels-rebuild path.
+	if err := sheet.SetCellValue("B1", 7); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(readZipPart(t, saved, "xl/_rels/book.xml.rels"))
+	if got != rawRels {
+		t.Errorf("workbook .rels regenerated despite unchanged set:\ngot  %q\nwant %q", got, rawRels)
+	}
+}

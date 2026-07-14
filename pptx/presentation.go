@@ -1095,7 +1095,13 @@ func (p *Presentation) unchangedRawRels(partName string, rels []*opc.Relationshi
 		return nil
 	}
 	orig, err := opc.UnmarshalRelationships(raw)
-	if err != nil || !opc.RelationshipsEqual(orig, rels) {
+	if err != nil {
+		return nil
+	}
+	// Exact order match, or the same set in a different order — OPC assigns
+	// no meaning to .rels element order, so either way the source bytes are a
+	// faithful serialization of the current set.
+	if !opc.RelationshipsEqual(orig, rels) && !opc.RelationshipsEquivalent(orig, rels) {
 		return nil
 	}
 	return raw
@@ -1207,7 +1213,16 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 					continue
 				}
 				copied := *rel
-				copied.Target = target
+				// Keep the source's target spelling when it still resolves to
+				// the same slide part: some producers write absolute targets
+				// ("/ppt/slides/slide1.xml"), and rewriting them to the
+				// relative form would make an otherwise unmodified set differ
+				// from the parsed original, forcing the .rels part to be
+				// regenerated (with a canonical prolog) instead of preserved
+				// verbatim.
+				if opc.ResolvePartName("/ppt/presentation.xml", rel.Target) != opc.ResolvePartName("/ppt/presentation.xml", target) {
+					copied.Target = target
+				}
 				rels = append(rels, &copied)
 				existingIDs[rel.ID] = true
 				continue

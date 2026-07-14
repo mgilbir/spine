@@ -21,7 +21,6 @@ sha16	type	stage	note
 b55ad2c12c938549	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 be7b7b389d22ae85	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 c80542f5b7d14881	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-ce12f59b488bdab6	pptx	fidelity	N identical, N changed, N missing, N extra parts (first: changed ppt/_rels/presentation.xml.rels)
 d4ad2cefc9ea900d	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 dd49be7af892e40b	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 ddd8d553cdb47681	xlsx	open	xlsx: not a valid Excel file
