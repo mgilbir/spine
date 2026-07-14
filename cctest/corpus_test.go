@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mgilbir/spine/common/validate"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/internal/testutil"
 	"github.com/mgilbir/spine/pptx"
@@ -38,6 +39,12 @@ var docTypes = []string{"pptx", "xlsx", "docx"}
 // saver is the save surface shared by the three document types.
 type saver interface {
 	SaveBytes() ([]byte, error)
+}
+
+// validator is the pre-save validation surface shared by the three document
+// types (Wave F).
+type validator interface {
+	Validate() validate.Report
 }
 
 func openDoc(typ string, data []byte) (saver, error) {
@@ -127,6 +134,11 @@ func loadURLs(dir string) map[string]string {
 // byte-identical to the original.
 type typeStats struct {
 	total, pass, quarantined, wontfix, newFail int
+	// validateWarn counts files that emitted at least one warning-severity
+	// validation finding (never a failure); validateWarnFindings is the total
+	// warning count across all files. Error-severity findings are not counted
+	// here — they surface as a save-stage failure.
+	validateWarn, validateWarnFindings int
 }
 
 type aggregate struct {
@@ -188,6 +200,11 @@ func TestCCCorpus(t *testing.T) {
 			s := agg.stats[typ]
 			t.Logf("  %-5s %5d / %5d / %5d / %5d / %5d",
 				typ, s.total, s.pass, s.quarantined, s.wontfix, s.newFail)
+		}
+		t.Log("Validate() warnings (files-with-warnings / total-warning-findings; zero error-severity findings):")
+		for _, typ := range docTypes {
+			s := agg.stats[typ]
+			t.Logf("  %-5s %5d / %5d", typ, s.validateWarn, s.validateWarnFindings)
 		}
 		if update {
 			if err := writeQuarantine(agg.rows); err != nil {
@@ -275,6 +292,25 @@ func checkFile(t *testing.T, agg *aggregate, typ, sha16, path string, update boo
 	if err != nil {
 		fail("open", err)
 		return
+	}
+
+	// (a2) Validate the freshly opened model. No error-severity finding may
+	// appear on a file the corpus accepts (that would mean a check is wrong);
+	// warnings are tallied for the stats block. SaveBytes re-runs Validate and
+	// would reject an error-severity finding anyway, but checking here pins the
+	// failure to the validate stage with the finding detail.
+	if v, ok := doc.(validator); ok {
+		report := v.Validate()
+		if report.HasErrors() {
+			fail("validate", report)
+			return
+		}
+		if w := report.Warnings(); len(w) > 0 {
+			agg.add(typ, func(s *typeStats) {
+				s.validateWarn++
+				s.validateWarnFindings += len(w)
+			})
+		}
 	}
 
 	// (b) Zero-modification save succeeds.
