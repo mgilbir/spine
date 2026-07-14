@@ -87,7 +87,7 @@ type PicLocks struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (plk *PicLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	plk.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	plk.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias PicLocks
 	return d.DecodeElement((*alias)(plk), &start)
 }
@@ -113,7 +113,7 @@ type SpLocks struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (slk *SpLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	slk.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	slk.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias SpLocks
 	return d.DecodeElement((*alias)(slk), &start)
 }
@@ -155,16 +155,26 @@ type CNvPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cn *CNvPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	cn.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cn.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CNvPr
 	return d.DecodeElement((*alias)(cn), &start)
 }
 
 // CNvSpPr represents CT_NonVisualDrawingShapeProps (a:cNvSpPr)
 type CNvSpPr struct {
-	TxBox   bool     `xml:"txBox,attr,omitempty"`
-	SpLocks *SpLocks `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spLocks,omitempty"`
-	ExtLst  *ExtLst  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	TxBox         bool            `xml:"txBox,attr,omitempty"`
+	SpLocks       *SpLocks        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spLocks,omitempty"`
+	ExtLst        *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (boolean
+// lexical forms like txBox="true") before decoding through the struct tags;
+// the reflection marshaler replays it.
+func (cs *CNvSpPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cs.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CNvSpPr
+	return d.DecodeElement((*alias)(cs), &start)
 }
 
 // CNvPicPr represents CT_NonVisualPictureProperties (a:cNvPicPr).

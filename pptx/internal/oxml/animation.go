@@ -392,7 +392,7 @@ type CommonTimeNode struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // through the struct tags.
 func (c *CommonTimeNode) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CommonTimeNode
 	return d.DecodeElement((*alias)(c), &start)
 }
@@ -418,7 +418,7 @@ type Condition struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cnd *Condition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	cnd.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cnd.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Condition
 	return d.DecodeElement((*alias)(cnd), &start)
 }
@@ -532,7 +532,7 @@ type IndexRange struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ir *IndexRange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ir.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ir.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias IndexRange
 	return d.DecodeElement((*alias)(ir), &start)
 }
@@ -559,13 +559,23 @@ type TimePercent struct {
 
 // Animate represents CT_TLAnimateBehavior (p:anim)
 type Animate struct {
-	By        string                `xml:"by,attr,omitempty"`
-	From      string                `xml:"from,attr,omitempty"`
-	To        string                `xml:"to,attr,omitempty"`
-	CalcMode  string                `xml:"calcmode,attr,omitempty"`  // discrete, lin, fmla
-	ValueType string                `xml:"valueType,attr,omitempty"` // str, num, clr
-	CBhvr     *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	TavLst    *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	By            string                `xml:"by,attr,omitempty"`
+	From          string                `xml:"from,attr,omitempty"`
+	To            string                `xml:"to,attr,omitempty"`
+	CalcMode      string                `xml:"calcmode,attr,omitempty"`  // discrete, lin, fmla
+	ValueType     string                `xml:"valueType,attr,omitempty"` // str, num, clr
+	CBhvr         *CommonBehavior       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	TavLst        *TimeAnimateValueList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tavLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr       `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit empty values) before
+// decoding through the struct tags; the reflection marshaler replays it.
+func (an *Animate) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	an.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Animate
+	return d.DecodeElement((*alias)(an), &start)
 }
 
 // AnimateColor represents CT_TLAnimateColorBehavior (p:animClr)
@@ -614,7 +624,7 @@ type AnimateEffect struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ae *AnimateEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ae.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ae.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias AnimateEffect
 	return d.DecodeElement((*alias)(ae), &start)
 }
@@ -639,7 +649,7 @@ type AnimateMotion struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (am *AnimateMotion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	am.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	am.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias AnimateMotion
 	return d.DecodeElement((*alias)(am), &start)
 }
@@ -776,6 +786,16 @@ type BuildList struct {
 	BldDgm      []*BuildDiagram   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldDgm,omitempty"`
 	BldOleChart []*BuildOleChart  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldOleChart,omitempty"`
 	BldGraphic  []*BuildGraphic   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main bldGraphic,omitempty"`
+	// CapturedChildren records the source child sequence: the four build
+	// kinds form a repeated xs:choice that producers interleave (a bldGraphic
+	// between bldP entries), which grouped slices alone would reorder.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the child sequence while decoding the children into
+// the struct fields.
+func (bl *BuildList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	return xmlb.UnmarshalOrderedChildren(d, bl)
 }
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
@@ -797,7 +817,7 @@ type BuildParagraph struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bpr *BuildParagraph) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bpr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bpr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BuildParagraph
 	return d.DecodeElement((*alias)(bpr), &start)
 }

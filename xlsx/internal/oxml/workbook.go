@@ -52,9 +52,15 @@ type CT_Workbook struct {
 	// that we don't have typed structs for, indexed for child ordering.
 	UnknownChildren []WbUnknownChild `xml:"-"`
 	// ChildOrder preserves the order of child elements for round-trip.
-	// Each entry is either a known element name (e.g., "fileVersion") or
-	// "unknown:N" where N is the index into UnknownChildren.
+	// Each entry is either a known element name (e.g., "fileVersion"),
+	// "unknown:N" where N is the index into UnknownChildren, or "ws:N"
+	// where N indexes WsRaw (verbatim inter-child whitespace).
 	ChildOrder []string `xml:"-"`
+	// WsRaw holds the verbatim whitespace between root children; PerGapWS
+	// reports that gaps were captured, so the uniform ElemSeparator must not
+	// also fire.
+	WsRaw    [][]byte `xml:"-"`
+	PerGapWS bool     `xml:"-"`
 	// OriginalRootAttrs preserves all root element attributes (namespace declarations
 	// and regular attributes like mc:Ignorable) in their original order for round-trip.
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
@@ -80,54 +86,16 @@ type CT_Workbook struct {
 func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	wb.XMLName = start.Name
 
-	// Capture all root element attributes in order for round-trip preservation.
+	// Capture all root element attributes in order for round-trip
+	// preservation, with their verbatim source rendering (leading whitespace,
+	// quote style, prefix choice).
+	wb.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "conformance" && attr.Name.Space == "" {
 			wb.Conformance = attr.Value
 		}
 		if attr.Name.Local == "Ignorable" {
 			wb.Ignorable = attr.Value
-		}
-
-		// Build ordered RootAttr list
-		if attr.Name.Space == "xmlns" {
-			// Prefixed namespace: xmlns:prefix="URI"
-			wb.OriginalRootAttrs = append(wb.OriginalRootAttrs, xmlb.RootAttr{
-				IsNS: true, Prefix: attr.Name.Local, Value: attr.Value,
-			})
-		} else if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
-			// Default namespace: xmlns="URI"
-			wb.OriginalRootAttrs = append(wb.OriginalRootAttrs, xmlb.RootAttr{
-				IsNS: true, Prefix: "", Value: attr.Value,
-			})
-		} else {
-			// Regular attribute (conformance, mc:Ignorable, etc.)
-			prefix := ""
-			localName := attr.Name.Local
-			// Go's xml decoder puts the full namespace URI in Space for namespaced attrs.
-			// We need the prefix. Check for known namespace URIs.
-			switch attr.Name.Space {
-			case xmlb.NSMarkupCompatibility:
-				prefix = xmlb.PrefixMarkupCompatibility
-			case nsR:
-				prefix = "r"
-			case xmlb.NSXML:
-				// Reserved prefix, never declared: xml:space etc.
-				prefix = "xml"
-			case "":
-				// no prefix
-			default:
-				// For unknown namespaces, try to find the prefix from already-seen xmlns decls
-				for _, ra := range wb.OriginalRootAttrs {
-					if ra.IsNS && ra.Value == attr.Name.Space {
-						prefix = ra.Prefix
-						break
-					}
-				}
-			}
-			wb.OriginalRootAttrs = append(wb.OriginalRootAttrs, xmlb.RootAttr{
-				IsNS: false, Prefix: prefix, LocalName: localName, Value: attr.Value,
-			})
 		}
 	}
 
@@ -148,17 +116,26 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		switch t := tok.(type) {
 		case xml.CharData:
 			// Capture inter-element whitespace for round-trip formatting.
-			if wb.ElemSeparator == "" && len(t) > 0 {
-				isWS := true
-				for _, b := range t {
-					if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
-						isWS = false
-						break
-					}
+			isWS := len(t) > 0
+			for _, b := range t {
+				if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+					isWS = false
+					break
 				}
-				if isWS {
-					wb.ElemSeparator = string(t)
-				}
+			}
+			if !isWS {
+				continue
+			}
+			if wb.ElemSeparator == "" {
+				wb.ElemSeparator = string(t)
+			}
+			// Per-gap verbatim capture: producers mix inline and separated
+			// children in one workbook (and use CRLF the decoder normalizes),
+			// which a single uniform separator cannot express.
+			if raw := xmlb.RawTokenBytes(d, tokStart); raw != nil {
+				wb.ChildOrder = append(wb.ChildOrder, fmt.Sprintf("ws:%d", len(wb.WsRaw)))
+				wb.WsRaw = append(wb.WsRaw, raw)
+				wb.PerGapWS = true
 			}
 		case xml.StartElement:
 			switch t.Name.Local {
@@ -413,7 +390,7 @@ type CT_FileVersion struct {
 // style before decoding through the struct tags.
 func (fv *CT_FileVersion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	fv.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	fv.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	fv.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_FileVersion
 	return d.DecodeElement((*alias)(fv), &start)
 }
@@ -445,7 +422,7 @@ type CT_WorkbookPr struct {
 // struct tags; the reflection marshaler replays it.
 func (wp *CT_WorkbookPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	wp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	wp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	wp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_WorkbookPr
 	return d.DecodeElement((*alias)(wp), &start)
 }
@@ -453,6 +430,14 @@ func (wp *CT_WorkbookPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 // CT_BookViews represents the bookViews element.
 type CT_BookViews struct {
 	WorkbookView []CT_BookView `xml:"workbookView"`
+	// CapturedChildren records the child sequence including verbatim
+	// inter-child whitespace (pretty-printed producers).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the child sequence (and whitespace) while decoding.
+func (bv *CT_BookViews) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	return xmlb.UnmarshalOrderedChildren(d, bv)
 }
 
 // CT_BookView represents a workbookView element. Has custom UnmarshalXML/MarshalToBuilder
@@ -720,6 +705,14 @@ func (bv *CT_BookView) namedAttr(name string) (xmlb.Attr, bool) {
 // CT_Sheets represents the sheets element.
 type CT_Sheets struct {
 	Sheet []CT_Sheet `xml:"sheet"`
+	// CapturedChildren records the child sequence including verbatim
+	// inter-child whitespace (pretty-printed producers).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the child sequence (and whitespace) while decoding.
+func (sh *CT_Sheets) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	return xmlb.UnmarshalOrderedChildren(d, sh)
 }
 
 // CT_Sheet represents a sheet element. It has an r:id attribute that requires
@@ -745,7 +738,7 @@ type CT_Sheet struct {
 // Handles the r:id attribute which uses the relationships namespace.
 func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	s.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	s.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Space == "xmlns":
@@ -802,14 +795,16 @@ type CT_DefinedNames struct {
 	DefinedName []CT_DefinedName `xml:"definedName"`
 	// CapturedEmptyTag records how an empty <definedNames> was written.
 	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// CapturedChildren records the child sequence including verbatim
+	// inter-child whitespace (pretty-printed producers).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
 }
 
 // UnmarshalXML captures the element's empty-tag style before decoding the
 // definedName children.
 func (dns *CT_DefinedNames) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	dns.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	type alias CT_DefinedNames
-	return d.DecodeElement((*alias)(dns), &start)
+	return xmlb.UnmarshalOrderedChildren(d, dns)
 }
 
 // CT_DefinedName represents a definedName element. It has chardata value plus
@@ -836,11 +831,17 @@ type CT_DefinedName struct {
 	// CapturedAttrs preserves the verbatim source attribute list; replayed
 	// on marshal.
 	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// rawValue preserves the verbatim source form of the value — producer
+	// entity choices (&apos;, &#039;, &quot;) and raw CR bytes in _x000D_
+	// sequences the decoder normalizes. Replayed only while Value still
+	// equals origValue, so edits win.
+	rawValue  []byte
+	origValue string
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_DefinedName.
 func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	dn.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	dn.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "name":
@@ -906,7 +907,9 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 		}
 	}
 
-	// Read chardata content
+	// Read chardata content, keeping its verbatim source form for replay.
+	style := xmlb.CaptureEmptyTagStyle(d)
+	innerStart, hasSrc := xmlb.InputOffsetOf(d)
 	var content struct {
 		Value string `xml:",chardata"`
 	}
@@ -914,6 +917,10 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 		return err
 	}
 	dn.Value = content.Value
+	if hasSrc && !style.IsSelfClose() {
+		dn.rawValue = xmlb.CaptureRawInner(d, innerStart)
+		dn.origValue = dn.Value
+	}
 	return nil
 }
 
@@ -967,6 +974,14 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 	if dn.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(dn.CapturedAttrs, attrs)
 	}
+	if dn.rawValue != nil && dn.Value == dn.origValue {
+		// Unedited value: replay the verbatim source form (entity choices,
+		// raw CR bytes).
+		b.StartElement(ns, localName, attrs...)
+		b.WriteRaw(dn.rawValue)
+		b.EndElement(ns, localName)
+		return
+	}
 	b.WriteElement(ns, localName, dn.Value, attrs...)
 }
 
@@ -994,7 +1009,7 @@ type CT_CalcPr struct {
 // struct tags; the reflection marshaler replays it.
 func (cp *CT_CalcPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	cp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
-	cp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_CalcPr
 	return d.DecodeElement((*alias)(cp), &start)
 }
@@ -1011,7 +1026,7 @@ type CT_ExtensionList struct {
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // the ext children.
 func (el *CT_ExtensionList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	el.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	el.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_ExtensionList
 	return d.DecodeElement((*alias)(el), &start)
 }
@@ -1026,10 +1041,16 @@ type CT_Extension struct {
 	// before the uri attribute (<ext xmlns:x15="..." uri="...">); Excel
 	// itself writes uri first, but both orders occur in the wild.
 	NSDeclsFirst bool `xml:"-"`
+	// ElemPrefix is the element name's verbatim source prefix (some
+	// producers write <x:ext> with xmlns:x bound to the SpreadsheetML
+	// namespace on the element itself).
+	ElemPrefix         string `xml:"-"`
+	elemPrefixCaptured bool
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Extension.
 func (e *CT_Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	e.ElemPrefix, e.elemPrefixCaptured = xmlb.ElementPrefix(d)
 	uriSeen := false
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "uri" && attr.Name.Space == "" {
@@ -1069,6 +1090,18 @@ func (e *CT_Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if e.NSDeclsFirst {
 		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))
+	}
+	if e.elemPrefixCaptured && e.ElemPrefix != "" {
+		// Replay the element under its verbatim source prefix (<x:ext>).
+		lit := b.QualifyAttrs(attrs)
+		if len(e.RawContent) == 0 {
+			b.EmptyElementLiteral(e.ElemPrefix, localName, lit...)
+			return
+		}
+		b.StartElementLiteral(e.ElemPrefix, localName, nil, lit...)
+		b.WriteRaw(e.RawContent)
+		b.EndElementLiteral(e.ElemPrefix, localName)
+		return
 	}
 	b.StartElement(ns, localName, attrs...)
 	if len(e.RawContent) > 0 {

@@ -155,7 +155,7 @@ type ClrMap struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cm *ClrMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	cm.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cm.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ClrMap
 	return d.DecodeElement((*alias)(cm), &start)
 }

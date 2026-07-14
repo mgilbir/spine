@@ -54,7 +54,7 @@ type BodyPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bp *BodyPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BodyPr
 	return d.DecodeElement((*alias)(bp), &start)
 }
@@ -70,8 +70,18 @@ type NoAutofit struct{}
 
 // NormAutofit represents CT_TextNormalAutofit (a:normAutofit)
 type NormAutofit struct {
-	FontScale      Percentage `xml:"fontScale,attr,omitempty"`
-	LnSpcReduction Percentage `xml:"lnSpcReduction,attr,omitempty"`
+	FontScale      Percentage      `xml:"fontScale,attr,omitempty"`
+	LnSpcReduction Percentage      `xml:"lnSpcReduction,attr,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before
+// decoding through the struct tags; the reflection marshaler replays it.
+func (na *NormAutofit) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	na.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias NormAutofit
+	return d.DecodeElement((*alias)(na), &start)
 }
 
 // SpAutoFit represents CT_TextShapeAutofit (a:spAutoFit)
@@ -94,6 +104,19 @@ type LstStyle struct {
 	Lvl7pPr *PPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lvl7pPr,omitempty"`
 	Lvl8pPr *PPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lvl8pPr,omitempty"`
 	Lvl9pPr *PPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lvl9pPr,omitempty"`
+	// CapturedChildren records the source child sequence; it preserves
+	// a:extLst (dropped before, even when empty its presence is meaningful
+	// to producers) and any other unmodeled child verbatim.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+	// CapturedEmptyTag records the source's empty-element form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style and child sequence
+// while decoding the children into the struct fields.
+func (ls *LstStyle) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ls.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	return xmlb.UnmarshalOrderedChildren(d, ls)
 }
 
 // P represents CT_TextParagraph (a:p).
@@ -392,7 +415,7 @@ type PPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (pp *PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	pp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	pp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias PPr
 	return d.DecodeElement((*alias)(pp), &start)
 }
@@ -404,6 +427,11 @@ type R struct {
 	// TEmptyTag records how an empty a:t was written in the source
 	// (<a:t/> vs <a:t></a:t>); WPS expands it beside self-closed siblings.
 	TEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	// tRaw preserves the verbatim source form of the text — producer entity
+	// choices (&quot;) and raw CR/LF bytes the decoder's XML EOL handling
+	// would otherwise rewrite. Replayed only while T equals tOrig.
+	tRaw  []byte
+	tOrig string
 }
 
 // UnmarshalXML decodes the run and captures the empty-tag style of a:t.
@@ -423,6 +451,7 @@ func (r *R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 			case "t":
 				style := xmlb.CaptureEmptyTagStyle(d)
+				innerStart, hasSrc := xmlb.InputOffsetOf(d)
 				var content struct {
 					Value string `xml:",chardata"`
 				}
@@ -432,6 +461,10 @@ func (r *R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				r.T = content.Value
 				if r.T == "" {
 					r.TEmptyTag = style
+				}
+				if hasSrc && !style.IsSelfClose() {
+					r.tRaw = xmlb.CaptureRawInner(d, innerStart)
+					r.tOrig = r.T
 				}
 			default:
 				if err := d.Skip(); err != nil {
@@ -451,9 +484,16 @@ func (r *R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if r.RPr != nil {
 		b.MarshalElement(ns, "rPr", r.RPr)
 	}
-	if r.T == "" && r.TEmptyTag == xmlb.EmptyTagExpanded {
+	switch {
+	case r.tRaw != nil && r.T == r.tOrig:
+		// Unedited text replays its verbatim source form (entity choices,
+		// raw CR/LF bytes).
+		b.StartElement(ns, "t")
+		b.WriteRaw(r.tRaw)
+		b.EndElement(ns, "t")
+	case r.T == "" && r.TEmptyTag == xmlb.EmptyTagExpanded:
 		b.EmptyElementStyled(r.TEmptyTag, ns, "t")
-	} else {
+	default:
 		b.WriteElement(ns, "t", r.T)
 	}
 	b.EndElement(ns, localName)
@@ -509,7 +549,7 @@ type RPr struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (rp *RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	rp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	rp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias RPr
 	return d.DecodeElement((*alias)(rp), &start)
 }
@@ -552,7 +592,7 @@ type TextFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tf *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias TextFont
 	return d.DecodeElement((*alias)(tf), &start)
 }
@@ -569,6 +609,15 @@ type HlinkXML struct {
 	EndSnd         *bool           `xml:"endSnd,attr,omitempty"`
 	Snd            *EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main snd,omitempty"`
 	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source attribute order, unmodeled attributes, explicit empty values)
+// before decoding through the struct tags; the reflection marshaler replays it.
+func (hl *HlinkXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	hl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias HlinkXML
+	return d.DecodeElement((*alias)(hl), &start)
 }
 
 // EmbeddedWAVXML represents CT_EmbeddedWAVAudioFile (a:snd)
@@ -649,7 +698,7 @@ type BuFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bf *BuFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BuFont
 	return d.DecodeElement((*alias)(bf), &start)
 }
@@ -690,7 +739,7 @@ type Tab struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tab *Tab) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tab.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tab.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Tab
 	return d.DecodeElement((*alias)(tab), &start)
 }

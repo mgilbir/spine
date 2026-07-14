@@ -377,8 +377,23 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 		}
 		matched := false
 		for i, rn := range rendered {
-			if !used[i] && rn == lit.Name {
-				out = append(out, Attr{Name: lit.Name, Value: modeled[i].Value})
+			// Match by rendered name, or by namespace + local name when the
+			// capture could not resolve a prefix (declared on an ancestor).
+			if !used[i] && (rn == lit.Name ||
+				(ra.Space == modeled[i].Namespace && ra.LocalName == modeled[i].Name)) {
+				a := Attr{Name: lit.Name, Value: modeled[i].Value, Raw: lit.Raw}
+				if modeled[i].Value != ra.Value {
+					if boolLexEquivalent(modeled[i].Value, ra.Value) {
+						// Same boolean, different lexical form ("false" vs
+						// "0"): keep the producer's form.
+						a.Value = ra.Value
+					} else {
+						// The model changed the value: the verbatim source
+						// rendering is stale, re-render normally.
+						a.Raw = ""
+					}
+				}
+				out = append(out, a)
 				used[i] = true
 				matched = true
 				break
@@ -396,8 +411,29 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 	return out
 }
 
+// boolLexEquivalent reports whether two attribute values are the same
+// xsd:boolean under different lexical forms ("0"/"false", "1"/"true").
+func boolLexEquivalent(a, b string) bool {
+	norm := func(v string) string {
+		switch v {
+		case "0", "false":
+			return "0"
+		case "1", "true":
+			return "1"
+		}
+		return v
+	}
+	na, nb := norm(a), norm(b)
+	return na == nb && (na == "0" || na == "1")
+}
+
 // hasStructChildren reports whether a struct has any non-empty child elements to write.
 func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
+	// Raw captured children (unmodeled elements, duplicated singletons) are
+	// emitted by marshalCapturedChildren even when every typed field is empty.
+	if hasCapturedRawChildren(val) {
+		return true
+	}
 	typ := val.Type()
 
 	for i := 0; i < typ.NumField(); i++ {
@@ -460,6 +496,14 @@ func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
 
 // marshalStructChildren marshals all child element fields of a struct.
 func (b *Builder) marshalStructChildren(parentNS string, val reflect.Value) {
+	// A struct may carry a `CapturedChildren *ChildCapture` field (tagged
+	// xml:"-") recording the source's child sequence; when set it is replayed
+	// so child order, unmodeled children, and duplicated singletons survive
+	// the round trip (see children.go).
+	if cc := capturedChildrenOf(val); cc != nil {
+		b.marshalCapturedChildren(parentNS, val, cc)
+		return
+	}
 	typ := val.Type()
 
 	for i := 0; i < typ.NumField(); i++ {

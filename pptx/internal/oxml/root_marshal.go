@@ -43,7 +43,7 @@ func parseXSDBool(v string) *bool {
 // mc:AlternateContent relative to the typed children.
 func (s *Slide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.XMLName = start.Name
-	s.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	s.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space != "" {
 			continue
@@ -184,7 +184,7 @@ func (s *Slide) MarshalRootToBuilder(b *xmlb.Builder) {
 // UnmarshalXML parses a p:sldLayout root (see Slide.UnmarshalXML).
 func (sl *SlideLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sl.XMLName = start.Name
-	sl.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	sl.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space != "" {
 			continue
@@ -354,7 +354,7 @@ func (sl *SlideLayout) MarshalRootToBuilder(b *xmlb.Builder) {
 // UnmarshalXML parses a p:sldMaster root (see Slide.UnmarshalXML).
 func (sm *SlideMaster) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sm.XMLName = start.Name
-	sm.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	sm.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "preserve" {
 			if v := parseXSDBool(attr.Value); v != nil {

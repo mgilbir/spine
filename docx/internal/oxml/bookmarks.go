@@ -20,15 +20,25 @@ type CT_BookmarkStart struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bs *CT_BookmarkStart) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bs.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bs.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_BookmarkStart
 	return d.DecodeElement((*alias)(bs), &start)
 }
 
 // CT_BookmarkEnd represents a bookmark end marker.
 type CT_BookmarkEnd struct {
-	Id                   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
-	DisplacedByCustomXml string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main displacedByCustomXml,attr,omitempty"`
+	Id                   string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	DisplacedByCustomXml string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main displacedByCustomXml,attr,omitempty"`
+	CapturedAttrs        []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order) before decoding through the struct tags; the reflection
+// marshaler replays it.
+func (be *CT_BookmarkEnd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	be.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_BookmarkEnd
+	return d.DecodeElement((*alias)(be), &start)
 }
 
 // CT_ProofErr represents a proofing error marker (w:proofErr).

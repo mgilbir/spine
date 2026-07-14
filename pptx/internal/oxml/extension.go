@@ -58,7 +58,7 @@ type P14CreationId struct {
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *P14CreationId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P14CreationId
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -71,7 +71,7 @@ type P14ModId struct {
 
 // UnmarshalXML captures the element's verbatim attribute list (leaf element).
 func (v *P14ModId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P14ModId
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -80,10 +80,39 @@ func (v *P14ModId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // references the embedded media part of a video or audio p:pic.
 type P14Media struct {
 	Embed string // r:embed relationship ID
+	Link  string // r:link relationship ID (externally linked media)
+	// CapturedAttrs preserves the verbatim source attribute list (r:link,
+	// xmlns="" resets, declaration order); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr
 	// RawContent preserves child elements (p14:trim, p14:fade, p14:bmkLst)
 	// verbatim so trim/fade points and bookmarks survive re-marshaling.
 	// Empty for media constructed programmatically.
 	RawContent []byte
+}
+
+// UnmarshalXML captures the media element's verbatim attribute list and raw
+// content.
+func (m *P14Media) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	m.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	for _, attr := range start.Attr {
+		if attr.Name.Space != xmlb.NSOfficeDocumentRels {
+			continue
+		}
+		switch attr.Name.Local {
+		case "embed":
+			m.Embed = attr.Value
+		case "link":
+			m.Link = attr.Value
+		}
+	}
+	var inner struct {
+		Content []byte `xml:",innerxml"`
+	}
+	if err := d.DecodeElement(&inner, &start); err != nil {
+		return err
+	}
+	m.RawContent = inner.Content
+	return nil
 }
 
 // P14ShowMediaCtrls represents p14:showMediaCtrls extension element.
@@ -127,7 +156,7 @@ type P15SldGuideLst struct {
 // UnmarshalXML captures the element's verbatim attribute list (some producers
 // carry xmlns="" alongside xmlns:p15) before decoding the guide children.
 func (v *P15SldGuideLst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias P15SldGuideLst
 	return d.DecodeElement((*alias)(v), &start)
 }
@@ -197,15 +226,12 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 	case xmlb.ExtURIMedia:
 		var w struct {
-			V struct {
-				Embed   string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr"`
-				Content []byte `xml:",innerxml"`
-			} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
+			V P14Media `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.Media = &P14Media{Embed: w.V.Embed, RawContent: w.V.Content}
+		e.Media = &w.V
 
 	case xmlb.ExtURIShowMediaCtrls:
 		var w struct {
@@ -325,6 +351,24 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			xmlb.UintAttr("val", e.ModId.Val))
 
 	case e.Media != nil:
+		if raw := e.Media.CapturedAttrs; raw != nil {
+			// Verbatim replay: keeps r:link references, xmlns="" resets, and
+			// the source's declaration placement; a mutated r:embed value
+			// still wins via the override.
+			override := map[string]string{}
+			if e.Media.Embed != "" {
+				override["r:embed"] = e.Media.Embed
+			}
+			prefix := xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010)
+			if len(e.Media.RawContent) > 0 {
+				b.StartElementLiteral(prefix, "media", nil, xmlb.RawAttrListOverride(raw, override)...)
+				b.WriteRaw(e.Media.RawContent)
+				b.EndElementLiteral(prefix, "media")
+			} else {
+				b.EmptyElementLiteral(prefix, "media", xmlb.RawAttrListOverride(raw, override)...)
+			}
+			break
+		}
 		if len(e.Media.RawContent) > 0 {
 			b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
 				xmlb.RelAttr("embed", e.Media.Embed))

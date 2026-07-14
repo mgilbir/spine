@@ -33,7 +33,7 @@ type Ln struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ln *Ln) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ln.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ln.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Ln
 	return d.DecodeElement((*alias)(ln), &start)
 }
@@ -65,7 +65,7 @@ type Bevel struct {
 
 // UnmarshalXML captures the element's verbatim attribute list.
 func (bv2 *Bevel) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bv2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bv2.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Bevel
 	return d.DecodeElement((*alias)(bv2), &start)
 }
@@ -80,7 +80,7 @@ type Miter struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (mi *Miter) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	mi.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	mi.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Miter
 	return d.DecodeElement((*alias)(mi), &start)
 }
@@ -97,7 +97,7 @@ type LineEnd struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (le *LineEnd) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	le.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	le.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias LineEnd
 	return d.DecodeElement((*alias)(le), &start)
 }
