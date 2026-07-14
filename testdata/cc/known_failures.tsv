@@ -1,20 +1,13 @@
 sha16	type	stage	note
 0c104a77d3dc1bef	docx	wontfix	source part is not well-formed XML (illegal character codes); the library deliberately rejects it rather than launder invalid XML through a save
 1611b83e61fb9e6a	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
-1e5d0600c33238e2	pptx	open	pptx: not a valid PowerPoint file
 252d70e22a796e16	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-28533af02bc46f06	docx	open	docx: not a valid Word document
 2d0f0f1c5a078d24	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 33b9a24c6b3cf429	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-392f4a31e2c37ac1	pptx	open	pptx: not a valid PowerPoint file
-43621abcf294ca96	pptx	open	pptx: not a valid PowerPoint file
 4c43182bde7eb64a	docx	wontfix	decoder XML EOL normalization: the part is CRLF pretty-printed and XML 1.0 §2.11 folds CRLF to LF before the model sees it; byte-identical output would need raw-token decoding
-5769b9743e80bc1c	xlsx	open	xlsx: not a valid Excel file
-5b6d37c706110030	pptx	open	pptx: not a valid PowerPoint file
 6086ecc20d693c5e	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 72ad36899df04e5d	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 7477497e97243151	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-779de584b7f145e0	docx	open	docx: not a valid Word document
 7ee5b8f527473d7e	docx	wontfix	source part is not well-formed XML (illegal character codes); the library deliberately rejects it rather than launder invalid XML through a save
 93946cedae14472c	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 95af7570f3d04866	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
@@ -23,9 +16,5 @@ be7b7b389d22ae85	pptx	wontfix	whitespace-preserving producer: the pml part tree 
 c80542f5b7d14881	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 d4ad2cefc9ea900d	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 dd49be7af892e40b	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-ddd8d553cdb47681	xlsx	open	xlsx: not a valid Excel file
-df849ea239b8ca3f	xlsx	open	xlsx: not a valid Excel file
 ee6822eda1bd390c	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-ee75a566f07805e8	pptx	open	pptx: not a valid PowerPoint file
-f0b6e8473af7e903	docx	open	docx: not a valid Word document
 fa8f1b9fcb96c53b	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
