@@ -3,7 +3,12 @@
 
 package oxml
 
-import "github.com/mgilbir/spine/common/dml"
+import (
+	"encoding/xml"
+
+	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // --- Comments ---
 
@@ -14,11 +19,11 @@ type CommentList struct {
 
 // Comment represents CT_Comment (p:cm)
 type Comment struct {
-	AuthorId uint32 `xml:"authorId,attr"`
-	Dt       string `xml:"dt,attr,omitempty"` // datetime
-	Idx      uint32 `xml:"idx,attr"`          // comment index
-	Pos      *Point2D `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pos,omitempty"`
-	Text     string   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main text,omitempty"`
+	AuthorId uint32         `xml:"authorId,attr"`
+	Dt       string         `xml:"dt,attr,omitempty"` // datetime
+	Idx      uint32         `xml:"idx,attr"`          // comment index
+	Pos      *Point2D       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pos,omitempty"`
+	Text     string         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main text,omitempty"`
 	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
@@ -35,11 +40,11 @@ type CommentAuthorList struct {
 
 // CommentAuthor represents CT_CommentAuthor (p:cmAuthor)
 type CommentAuthor struct {
-	Id       uint32 `xml:"id,attr"`
-	Name     string `xml:"name,attr"`
-	Initials string `xml:"initials,attr,omitempty"`
-	LastIdx  uint32 `xml:"lastIdx,attr,omitempty"`
-	ClrIdx   uint32 `xml:"clrIdx,attr,omitempty"`
+	Id       uint32         `xml:"id,attr"`
+	Name     string         `xml:"name,attr"`
+	Initials string         `xml:"initials,attr,omitempty"`
+	LastIdx  uint32         `xml:"lastIdx,attr,omitempty"`
+	ClrIdx   uint32         `xml:"clrIdx,attr,omitempty"`
 	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
@@ -52,38 +57,48 @@ type CommentText struct {
 
 // NotesSlide represents CT_NotesSlide (p:notes)
 type NotesSlide struct {
-	CSld       *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
-	ClrMapOvr  *dml.ClrMapOvr   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMapOvr,omitempty"`
-	ExtLst     *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
-	ShowMasterSp bool `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim bool `xml:"showMasterPhAnim,attr,omitempty"`
+	CSld             *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
+	ClrMapOvr        *dml.ClrMapOvr   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMapOvr,omitempty"`
+	ExtLst           *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	ShowMasterSp     bool             `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim bool             `xml:"showMasterPhAnim,attr,omitempty"`
 }
 
 // NotesMaster represents CT_NotesMaster (p:notesMaster)
 type NotesMaster struct {
-	CSld      *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
-	ClrMap    *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
-	Hf        *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
-	NotesStyle *dml.LstStyle   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main notesStyle,omitempty"`
-	ExtLst    *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	CSld       *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
+	ClrMap     *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
+	Hf         *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
+	NotesStyle *dml.LstStyle    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main notesStyle,omitempty"`
+	ExtLst     *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // --- Handout Master ---
 
 // HandoutMaster represents CT_HandoutMaster (p:handoutMaster)
 type HandoutMaster struct {
-	CSld      *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
-	ClrMap    *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
-	Hf        *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
-	ExtLst    *ExtensionList      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	CSld   *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
+	ClrMap *dml.ClrMap      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMap,omitempty"`
+	Hf     *HeaderFooter    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main hf,omitempty"`
+	ExtLst *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
 // HeaderFooter represents CT_HeaderFooter (p:hf)
 type HeaderFooter struct {
-	SldNum *bool `xml:"sldNum,attr,omitempty"`
-	Hdr    *bool `xml:"hdr,attr,omitempty"`
-	Ftr    *bool `xml:"ftr,attr,omitempty"`
-	Dt     *bool `xml:"dt,attr,omitempty"`
+	SldNum        *bool           `xml:"sldNum,attr,omitempty"`
+	Hdr           *bool           `xml:"hdr,attr,omitempty"`
+	Ftr           *bool           `xml:"ftr,attr,omitempty"`
+	Dt            *bool           `xml:"dt,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (hf *HeaderFooter) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	hf.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias HeaderFooter
+	return d.DecodeElement((*alias)(hf), &start)
 }
 
 // --- Tags ---

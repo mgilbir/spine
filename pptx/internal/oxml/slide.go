@@ -27,17 +27,21 @@ type Slide struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool                `xml:"-"`
-	ShowMasterSp     *bool               `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool               `xml:"showMasterPhAnim,attr,omitempty"`
-	Show             *bool               `xml:"show,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMapOvr        *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list
+	// (namespace declarations interleaved with attributes); nil for slides
+	// built programmatically, which emit the standard a/r/p declarations.
+	OriginalRootAttrs []xmlb.RootAttr     `xml:"-"`
+	ShowMasterSp      *bool               `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim  *bool               `xml:"showMasterPhAnim,attr,omitempty"`
+	Show              *bool               `xml:"show,attr,omitempty"`
+	CSld              *CommonSlideData    `xml:"cSld"`
+	ClrMapOvr         *ColorMapOverride   `xml:"clrMapOvr,omitempty"`
+	Transition        *Transition         `xml:"transition,omitempty"`
+	AlternateContent  []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing            *Timing             `xml:"timing,omitempty"`
+	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors         []string
 }
 
 // SlideLayout is the root element of a slide layout part.
@@ -51,13 +55,16 @@ type SlideLayout struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool   `xml:"-"`
-	ShowMasterSp     *bool  `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim *bool  `xml:"showMasterPhAnim,attr,omitempty"`
-	Type             string `xml:"type,attr,omitempty"`
-	Preserve         bool   `xml:"preserve,attr,omitempty"`
-	UserDrawn        bool   `xml:"userDrawn,attr,omitempty"`
-	MatchingName     string `xml:"matchingName,attr,omitempty"`
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list;
+	// see Slide.OriginalRootAttrs.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	ShowMasterSp      *bool           `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim  *bool           `xml:"showMasterPhAnim,attr,omitempty"`
+	Type              string          `xml:"type,attr,omitempty"`
+	Preserve          bool            `xml:"preserve,attr,omitempty"`
+	UserDrawn         bool            `xml:"userDrawn,attr,omitempty"`
+	MatchingName      string          `xml:"matchingName,attr,omitempty"`
 	// MatchingNamePresent records that the source carried the attribute,
 	// so an explicit matchingName="" survives the round trip.
 	MatchingNamePresent bool                `xml:"-"`
@@ -81,18 +88,21 @@ type SlideMaster struct {
 	SelfClosingSpace bool `xml:"-"`
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
-	CollapseEmpty    bool                `xml:"-"`
-	Preserve         bool                `xml:"preserve,attr,omitempty"`
-	CSld             *CommonSlideData    `xml:"cSld"`
-	ClrMap           *ColorMap           `xml:"clrMap,omitempty"`
-	SlideLayoutIDs   *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
-	Transition       *Transition         `xml:"transition,omitempty"`
-	AlternateContent []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
-	Timing           *Timing             `xml:"timing,omitempty"`
-	Hf               *HeaderFooter       `xml:"hf,omitempty"`
-	TxStyles         *TxStyles           `xml:"txStyles,omitempty"`
-	ExtLst           *ExtensionList      `xml:"extLst,omitempty"`
-	acAnchors        []string
+	CollapseEmpty bool `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list;
+	// see Slide.OriginalRootAttrs.
+	OriginalRootAttrs []xmlb.RootAttr     `xml:"-"`
+	Preserve          bool                `xml:"preserve,attr,omitempty"`
+	CSld              *CommonSlideData    `xml:"cSld"`
+	ClrMap            *ColorMap           `xml:"clrMap,omitempty"`
+	SlideLayoutIDs    *SlideLayoutIDs     `xml:"sldLayoutIdLst,omitempty"`
+	Transition        *Transition         `xml:"transition,omitempty"`
+	AlternateContent  []*AlternateContent `xml:"http://schemas.openxmlformats.org/markup-compatibility/2006 AlternateContent,omitempty"`
+	Timing            *Timing             `xml:"timing,omitempty"`
+	Hf                *HeaderFooter       `xml:"hf,omitempty"`
+	TxStyles          *TxStyles           `xml:"txStyles,omitempty"`
+	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
+	acAnchors         []string
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.
@@ -249,13 +259,23 @@ type Background struct {
 
 // BackgroundProps contains background fill properties.
 type BackgroundProps struct {
-	NoFill    *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill  *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	EffectLst *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	ExtLst    *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	NoFill        *dml.NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill     *dml.SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill      *dml.GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill      *dml.BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill      *dml.PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	EffectLst     *dml.EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	ExtLst        *dml.ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr  `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bgp *BackgroundProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bgp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias BackgroundProps
+	return d.DecodeElement((*alias)(bgp), &start)
 }
 
 // ShapeTree is the container for shapes on a slide.
@@ -691,18 +711,28 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 // ColorMap defines the color mapping for a slide master.
 type ColorMap struct {
-	Bg1      string `xml:"bg1,attr"`
-	Tx1      string `xml:"tx1,attr"`
-	Bg2      string `xml:"bg2,attr"`
-	Tx2      string `xml:"tx2,attr"`
-	Accent1  string `xml:"accent1,attr"`
-	Accent2  string `xml:"accent2,attr"`
-	Accent3  string `xml:"accent3,attr"`
-	Accent4  string `xml:"accent4,attr"`
-	Accent5  string `xml:"accent5,attr"`
-	Accent6  string `xml:"accent6,attr"`
-	Hlink    string `xml:"hlink,attr"`
-	FolHlink string `xml:"folHlink,attr"`
+	Bg1           string          `xml:"bg1,attr"`
+	Tx1           string          `xml:"tx1,attr"`
+	Bg2           string          `xml:"bg2,attr"`
+	Tx2           string          `xml:"tx2,attr"`
+	Accent1       string          `xml:"accent1,attr"`
+	Accent2       string          `xml:"accent2,attr"`
+	Accent3       string          `xml:"accent3,attr"`
+	Accent4       string          `xml:"accent4,attr"`
+	Accent5       string          `xml:"accent5,attr"`
+	Accent6       string          `xml:"accent6,attr"`
+	Hlink         string          `xml:"hlink,attr"`
+	FolHlink      string          `xml:"folHlink,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (cmp *ColorMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cmp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias ColorMap
+	return d.DecodeElement((*alias)(cmp), &start)
 }
 
 // ColorMapOverride specifies a color map override.

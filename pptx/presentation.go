@@ -48,6 +48,11 @@ type Presentation struct {
 	// with *.psmdcp core properties or none at all).
 	hasCorePart   bool
 	propsSnapshot *opc.CoreProperties
+	// corePartRaw preserves the source /docProps/core.xml bytes (and content
+	// type) so an unmodified save reproduces the part verbatim instead of
+	// regenerating it (declaration form, element order, and formatting all
+	// vary by producer).
+	corePartRaw *coxml.RawPart
 
 	slides       []*Slide
 	slideMasters []*SlideMaster
@@ -145,7 +150,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	}
 
 	var pres oxml.Presentation
-	if err := xml.Unmarshal(data, &pres); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &pres); err != nil {
 		_ = reader.Close()
 		return nil, err
 	}
@@ -324,9 +329,11 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 			// Already loaded into p.slideLayouts
 			continue
 		case name == "/docProps/core.xml":
-			// Already loaded into p.Properties; the save regenerates it from
-			// there, but only because the source actually had this part.
+			// Already loaded into p.Properties. Keep the raw bytes too: an
+			// unmodified save writes them verbatim; only edited properties
+			// regenerate the part.
 			p.hasCorePart = true
+			p.corePartRaw = &coxml.RawPart{ContentType: file.ContentType, Data: data}
 			continue
 		case name == "/docProps/app.xml":
 			p.appPropsData = data
@@ -419,7 +426,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		}
 
 		var slideXML oxml.Slide
-		if err := xml.Unmarshal(data, &slideXML); err != nil {
+		if err := xmlb.UnmarshalWithSource(data, &slideXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
 		slideXML.Prolog = xmlb.CaptureProlog(data)
@@ -476,7 +483,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 		}
 
 		var masterXML oxml.SlideMaster
-		if err := xml.Unmarshal(data, &masterXML); err != nil {
+		if err := xmlb.UnmarshalWithSource(data, &masterXML); err != nil {
 			return fmt.Errorf("pptx: parsing slide master part %s: %w", masterName, err)
 		}
 		masterXML.Prolog = xmlb.CaptureProlog(data)
@@ -538,7 +545,7 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 			}
 
 			var layoutXML oxml.SlideLayout
-			if err := xml.Unmarshal(data, &layoutXML); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, &layoutXML); err != nil {
 				return fmt.Errorf("pptx: parsing slide layout part %s: %w", layoutName, err)
 			}
 			layoutXML.Prolog = xmlb.CaptureProlog(data)
@@ -783,11 +790,17 @@ func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 
 // saveRoundTrip saves a presentation by serializing all parts from the model.
 func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
-	// Set properties, but only when the source package had a
-	// /docProps/core.xml part or the session edited them: synthesizing the
-	// part on a zero-modification save would add a part (and content-type
-	// override) the source never had.
-	if p.hasCorePart || (p.propsSnapshot != nil && !p.Properties.Equal(p.propsSnapshot)) {
+	// Core properties: an unmodified /docProps/core.xml round-trips as the
+	// preserved raw bytes (producer formatting varies; regenerating drifts).
+	// Edited properties regenerate the part via the writer; a source without
+	// the part never gains one on a zero-modification save (some producers
+	// keep core properties in a *.psmdcp part or have none).
+	propsEdited := p.propsSnapshot != nil && !p.Properties.Equal(p.propsSnapshot)
+	if p.hasCorePart && p.corePartRaw != nil && !propsEdited {
+		if err := writer.WritePreservedPart("/docProps/core.xml", p.corePartRaw.ContentType, p.corePartRaw.Data); err != nil {
+			return err
+		}
+	} else if p.hasCorePart || propsEdited {
 		writer.Properties = &p.Properties
 	}
 

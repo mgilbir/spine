@@ -42,19 +42,38 @@ func TestAlternateContent_MultipleChoices(t *testing.T) {
 	}
 }
 
-// C41: a Requires listing several prefixes declares each namespace.
+// C41: a programmatically built Choice whose Requires lists several prefixes
+// declares each namespace. (A parsed AlternateContent replays its captured
+// attribute lists verbatim instead — see the round-trip tests.)
 func TestAlternateContent_MultiPrefixRequires(t *testing.T) {
-	src := `<AlternateContent xmlns="http://schemas.openxmlformats.org/markup-compatibility/2006">` +
-		`<Choice Requires="p14 p15"><p14:x/></Choice>` +
-		`</AlternateContent>`
+	ac := AlternateContent{
+		Choices: []AlternateContentChoice{
+			{Requires: "p14 p15", Content: []byte("<p14:x/>")},
+		},
+	}
+	out := marshalAC(&ac)
+	if !strings.Contains(out, "xmlns:p14=") || !strings.Contains(out, "xmlns:p15=") {
+		t.Errorf("multi-prefix Requires left a prefix undeclared:\n%s", out)
+	}
+}
+
+// A parsed AlternateContent replays each element's attribute list verbatim:
+// declarations stay on the mc:Choice that carried them and mc:Fallback does
+// not gain the xmlns="" convention the source never had.
+func TestAlternateContent_ParsedReplaysAttrPlacement(t *testing.T) {
+	src := `<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">` +
+		`<mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14">` +
+		`<p14:x/></mc:Choice>` +
+		`<mc:Fallback><y/></mc:Fallback>` +
+		`</mc:AlternateContent>`
 
 	var ac AlternateContent
 	if err := xml.Unmarshal([]byte(src), &ac); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	out := marshalAC(&ac)
-	if !strings.Contains(out, "xmlns:p14=") || !strings.Contains(out, "xmlns:p15=") {
-		t.Errorf("multi-prefix Requires left a prefix undeclared:\n%s", out)
+	if out != src {
+		t.Errorf("parsed AlternateContent did not round-trip verbatim:\ngot  %s\nwant %s", out, src)
 	}
 }
 

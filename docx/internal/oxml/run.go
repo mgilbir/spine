@@ -56,6 +56,17 @@ type CT_RPr struct {
 	// the last w:rPr child (corpus: 6,530/6,530 instances precede </w:rPr>),
 	// so it sits last here; previously it was silently dropped.
 	Ligatures *CT_Word2010Val `xml:"http://schemas.microsoft.com/office/word/2010/wordml ligatures,omitempty"`
+	// CapturedEmptyTag records how an empty w:rPr was written in the source
+	// (LibreOffice expands it beside self-closed siblings).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (rp *CT_RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	rp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_RPr
+	return d.DecodeElement((*alias)(rp), &start)
 }
 
 // CT_Word2010Val is a Word 2010 extension element carrying a single w14:val
@@ -76,6 +87,17 @@ type CT_RPrChange struct {
 type CT_Text struct {
 	Space string `xml:"http://www.w3.org/XML/1998/namespace space,attr,omitempty"`
 	Text  string `xml:",chardata"`
+	// CapturedEmptyTag records how an empty text element was written
+	// (<w:t/> vs <w:t></w:t>); see common/xml.CaptureEmptyTagStyle.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (t *CT_Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	t.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_Text
+	return d.DecodeElement((*alias)(t), &start)
 }
 
 // CT_Br represents a break element.
@@ -107,10 +129,13 @@ type CT_Markup struct {
 // CT_R represents a run of content (w:r).
 // Uses custom UnmarshalXML/MarshalToBuilder for child ordering.
 type CT_R struct {
-	RsidRPr string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidDel string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
-	RsidR   string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RPr     *CT_RPr `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list (producer
+	// rsid order varies; unmodeled attributes survive); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidDel       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RPr           *CT_RPr         `xml:"-"`
 
 	// Content children tracked in order
 	T                     []*CT_Text       `xml:"-"`
@@ -172,6 +197,7 @@ type runChildRef struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_R to preserve child order.
 func (r *CT_R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	r.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidRPr":
@@ -352,6 +378,9 @@ func (r *CT_R) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if r.RsidRPr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidRPr", Value: r.RsidRPr})
+	}
+	if r.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(r.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 
@@ -621,6 +650,10 @@ func marshalText(b *xmlb.Builder, ns, localName string, t *CT_Text) {
 	var attrs []xmlb.Attr
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
+	}
+	if t.Text == "" && t.CapturedEmptyTag == xmlb.EmptyTagExpanded {
+		b.EmptyElementStyled(t.CapturedEmptyTag, ns, localName, attrs...)
+		return
 	}
 	b.WriteElement(ns, localName, t.Text, attrs...)
 }

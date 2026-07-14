@@ -110,8 +110,15 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 		presAttrs = append(presAttrs, xmlb.StrAttr("conformance", pres.Conformance))
 	}
 
-	// Start root element with namespace declarations and attributes
-	b.StartElementWithNS(nsP, "presentation", xmlb.PresentationMLNamespaces(), presAttrs...)
+	// Start root element with namespace declarations and attributes. A parsed
+	// deck replays the source's verbatim attribute list (declarations beyond
+	// a/r/p, producer attribute order, mc:Ignorable and friends); the
+	// XSD-order emission above serves programmatically built decks.
+	if pres.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsP, "presentation", pres.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(nsP, "presentation", xmlb.PresentationMLNamespaces(), presAttrs...)
+	}
 
 	// idEntry writes an sldId-family list entry, emitting the optional extLst
 	// child when the parsed entry carried one (C225).
@@ -176,15 +183,22 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 		if pres.SlideSize.Type != "" {
 			sldSzAttrs = append(sldSzAttrs, xmlb.StrAttr("type", pres.SlideSize.Type))
 		}
+		if pres.SlideSize.CapturedAttrs != nil {
+			sldSzAttrs = b.ReplayCapturedAttrs(pres.SlideSize.CapturedAttrs, sldSzAttrs)
+		}
 		b.EmptyElement(nsP, "sldSz", sldSzAttrs...)
 	}
 
 	// notesSz
 	if pres.NotesSize != nil {
-		b.EmptyElement(nsP, "notesSz",
+		notesSzAttrs := []xmlb.Attr{
 			xmlb.IntAttr("cx", pres.NotesSize.Cx),
 			xmlb.IntAttr("cy", pres.NotesSize.Cy),
-		)
+		}
+		if pres.NotesSize.CapturedAttrs != nil {
+			notesSzAttrs = b.ReplayCapturedAttrs(pres.NotesSize.CapturedAttrs, notesSzAttrs)
+		}
+		b.EmptyElement(nsP, "notesSz", notesSzAttrs...)
 	}
 
 	// smartTags .. kinsoku: parsed-but-previously-dropped children, emitted in

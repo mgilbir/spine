@@ -382,6 +382,19 @@ type CommonTimeNode struct {
 	Iterate      *Iterate       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main iterate,omitempty"`
 	ChildTnLst   *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main childTnLst,omitempty"`
 	SubTnLst     *TimeNodeList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main subTnLst,omitempty"`
+
+	// CapturedAttrs preserves the verbatim source attribute list (attribute
+	// order and inline xmlns declarations such as xmlns:p14, which some
+	// producers hang on p:cTn); replayed by the reflection marshaler.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags.
+func (c *CommonTimeNode) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CommonTimeNode
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // --- Conditions ---
@@ -393,11 +406,21 @@ type ConditionList struct {
 
 // Condition represents CT_TLTimeCondition (p:cond)
 type Condition struct {
-	Evt   string         `xml:"evt,attr,omitempty"`   // onBegin, onEnd, begin, end, onClick, onDblClick, onMouseOver, onMouseOut, onNext, onPrev, onStopAudio
-	Delay string         `xml:"delay,attr,omitempty"` // indefinite or time in ms
-	TgtEl *TargetElement `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
-	Tn    *TimeNode      `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tn,omitempty"`
-	Rtn   *RuntimeNode   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rtn,omitempty"`
+	Evt           string          `xml:"evt,attr,omitempty"`   // onBegin, onEnd, begin, end, onClick, onDblClick, onMouseOver, onMouseOut, onNext, onPrev, onStopAudio
+	Delay         string          `xml:"delay,attr,omitempty"` // indefinite or time in ms
+	TgtEl         *TargetElement  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tgtEl,omitempty"`
+	Tn            *TimeNode       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tn,omitempty"`
+	Rtn           *RuntimeNode    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rtn,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (cnd *Condition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cnd.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Condition
+	return d.DecodeElement((*alias)(cnd), &start)
 }
 
 // TimeNode represents CT_TLTimeNodeId (p:tn)
@@ -500,8 +523,18 @@ type InkTarget struct {
 
 // IndexRange represents CT_IndexRange (p:charRg, p:pRg)
 type IndexRange struct {
-	St  uint32 `xml:"st,attr"`
-	End uint32 `xml:"end,attr"`
+	St            uint32          `xml:"st,attr"`
+	End           uint32          `xml:"end,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ir *IndexRange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ir.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias IndexRange
+	return d.DecodeElement((*alias)(ir), &start)
 }
 
 // Iterate represents CT_TLIterateData (p:iterate)
@@ -573,7 +606,17 @@ type AnimateEffect struct {
 	CBhvr      *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
 	// Progress is CT_TLAnimVariant per the XSD (boolVal/intVal/fltVal/strVal/
 	// clrVal choice), not a tavLst container (C34).
-	Progress *AnimVariant `xml:"http://schemas.openxmlformats.org/presentationml/2006/main progress,omitempty"`
+	Progress      *AnimVariant    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main progress,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ae *AnimateEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ae.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias AnimateEffect
+	return d.DecodeElement((*alias)(ae), &start)
 }
 
 // AnimateMotion represents CT_TLAnimateMotionBehavior (p:animMotion)
@@ -582,13 +625,23 @@ type AnimateMotion struct {
 	Path         string `xml:"path,attr,omitempty"`
 	PathEditMode string `xml:"pathEditMode,attr,omitempty"` // relative, fixed
 	// RAng is a pointer so an explicit rAng="0" survives the round trip.
-	RAng     *int32          `xml:"rAng,attr,omitempty"`
-	PtsTypes string          `xml:"ptsTypes,attr,omitempty"`
-	CBhvr    *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
-	By       *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
-	From     *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
-	To       *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
-	RCtr     *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
+	RAng          *int32          `xml:"rAng,attr,omitempty"`
+	PtsTypes      string          `xml:"ptsTypes,attr,omitempty"`
+	CBhvr         *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	By            *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
+	From          *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
+	To            *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	RCtr          *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main rCtr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (am *AnimateMotion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	am.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias AnimateMotion
+	return d.DecodeElement((*alias)(am), &start)
 }
 
 // Point represents CT_TLPoint (p:by, p:from, p:to, p:rCtr)
@@ -727,16 +780,26 @@ type BuildList struct {
 
 // BuildParagraph represents CT_TLBuildParagraph (p:bldP)
 type BuildParagraph struct {
-	SpId             string        `xml:"spid,attr"`
-	GrpId            *uint32       `xml:"grpId,attr,omitempty"`
-	UiExpand         *bool         `xml:"uiExpand,attr,omitempty"`
-	Build            string        `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
-	BldLvl           *int32        `xml:"bldLvl,attr,omitempty"`
-	AnimBg           *bool         `xml:"animBg,attr,omitempty"`
-	AutoUpdateAnimBg *bool         `xml:"autoUpdateAnimBg,attr,omitempty"`
-	Rev              *bool         `xml:"rev,attr,omitempty"`
-	AdvAuto          string        `xml:"advAuto,attr,omitempty"` // time in ms or "indefinite"
-	TmplLst          *TemplateList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmplLst,omitempty"`
+	SpId             string          `xml:"spid,attr"`
+	GrpId            *uint32         `xml:"grpId,attr,omitempty"`
+	UiExpand         *bool           `xml:"uiExpand,attr,omitempty"`
+	Build            string          `xml:"build,attr,omitempty"` // allAtOnce, p, cust, whole
+	BldLvl           *int32          `xml:"bldLvl,attr,omitempty"`
+	AnimBg           *bool           `xml:"animBg,attr,omitempty"`
+	AutoUpdateAnimBg *bool           `xml:"autoUpdateAnimBg,attr,omitempty"`
+	Rev              *bool           `xml:"rev,attr,omitempty"`
+	AdvAuto          string          `xml:"advAuto,attr,omitempty"` // time in ms or "indefinite"
+	TmplLst          *TemplateList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main tmplLst,omitempty"`
+	CapturedAttrs    []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (bpr *BuildParagraph) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	bpr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias BuildParagraph
+	return d.DecodeElement((*alias)(bpr), &start)
 }
 
 // BuildDiagram represents CT_TLBuildDiagram (p:bldDgm)

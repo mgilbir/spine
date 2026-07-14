@@ -151,13 +151,17 @@ func writeRunsText(sb *strings.Builder, runs []*CT_R) {
 
 // CT_P represents a paragraph (w:p).
 type CT_P struct {
-	RsidR        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidRDefault string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRDefault,attr,omitempty"`
-	RsidP        string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidP,attr,omitempty"`
-	RsidDel      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
-	ParaId       string `xml:"-"` // w14:paraId - custom unmarshal
-	TextId       string `xml:"-"` // w14:textId - custom unmarshal
+	// CapturedAttrs preserves the verbatim source attribute list (producer
+	// rsid/paraId order varies; unmodeled attributes survive); replayed on
+	// marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidRDefault  string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRDefault,attr,omitempty"`
+	RsidP         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidP,attr,omitempty"`
+	RsidDel       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidDel,attr,omitempty"`
+	ParaId        string          `xml:"-"` // w14:paraId - custom unmarshal
+	TextId        string          `xml:"-"` // w14:textId - custom unmarshal
 
 	PPr               *CT_PPr                   `xml:"-"`
 	R                 []*CT_R                   `xml:"-"`
@@ -182,6 +186,7 @@ type CT_P struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_P to preserve child order.
 func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "rsidR" && (attr.Name.Space == NsWml || attr.Name.Space == ""):
@@ -375,6 +380,9 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if p.RsidP != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidP", Value: p.RsidP})
+	}
+	if p.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(p.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 

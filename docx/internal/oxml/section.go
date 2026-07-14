@@ -8,9 +8,13 @@ import (
 
 // CT_SectPr represents section properties (w:sectPr).
 type CT_SectPr struct {
-	RsidR    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidSect string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidSect,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal so producer attribute order and unmodeled attributes
+	// survive.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidSect      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidSect,attr,omitempty"`
 
 	HeaderReference []*CT_HdrFtrRef `xml:"-"`
 	FooterReference []*CT_HdrFtrRef `xml:"-"`
@@ -46,6 +50,7 @@ type CT_SectPr struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_SectPr to handle r:id attributes.
 func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	sp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidR":
@@ -189,6 +194,9 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if sp.RsidSect != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidSect", Value: sp.RsidSect})
 	}
+	if sp.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(sp.CapturedAttrs, attrs)
+	}
 	b.StartElement(ns, localName, attrs...)
 
 	sp.marshalHdrFtrReferences(b, ns)
@@ -261,9 +269,13 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 type CT_HdrFtrRef struct {
 	Type string `xml:"-"` // w:type attr
 	RID  string `xml:"-"` // r:id attr
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal (producers disagree on r:id vs w:type order).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 func (h *CT_HdrFtrRef) unmarshalAttrs(attrs []xml.Attr) {
+	h.CapturedAttrs = xmlb.CaptureAttrs(attrs)
 	for _, attr := range attrs {
 		switch {
 		case attr.Name.Local == "type":
@@ -284,35 +296,68 @@ func (h *CT_HdrFtrRef) marshalTo(b *xmlb.Builder, ns, localName string) {
 	if h.RID != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
 	}
+	if h.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(h.CapturedAttrs, attrs)
+	}
 	b.EmptyElement(ns, localName, attrs...)
 }
 
 // CT_PgSz represents page size.
 type CT_PgSz struct {
-	W      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
-	H      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
-	Orient string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main orient,attr,omitempty"`
-	Code   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main code,attr,omitempty"`
+	W             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main w,attr,omitempty"`
+	H             string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main h,attr,omitempty"`
+	Orient        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main orient,attr,omitempty"`
+	Code          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main code,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ps *CT_PgSz) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ps.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_PgSz
+	return d.DecodeElement((*alias)(ps), &start)
 }
 
 // CT_PgMar represents page margins.
 type CT_PgMar struct {
-	Top    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,attr,omitempty"`
-	Right  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
-	Bottom string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,attr,omitempty"`
-	Left   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
-	Header string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main header,attr,omitempty"`
-	Footer string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footer,attr,omitempty"`
-	Gutter string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gutter,attr,omitempty"`
+	Top           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,attr,omitempty"`
+	Right         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,attr,omitempty"`
+	Bottom        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,attr,omitempty"`
+	Left          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,attr,omitempty"`
+	Header        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main header,attr,omitempty"`
+	Footer        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footer,attr,omitempty"`
+	Gutter        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gutter,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (pm *CT_PgMar) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pm.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_PgMar
+	return d.DecodeElement((*alias)(pm), &start)
 }
 
 // CT_PgBorders represents page borders.
 type CT_PgBorders struct {
-	OffsetFrom string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main offsetFrom,attr,omitempty"`
-	Top        *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
-	Left       *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
-	Bottom     *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
-	Right      *CT_Border `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
+	OffsetFrom    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main offsetFrom,attr,omitempty"`
+	Top           *CT_Border      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main top,omitempty"`
+	Left          *CT_Border      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main left,omitempty"`
+	Bottom        *CT_Border      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottom,omitempty"`
+	Right         *CT_Border      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main right,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (pb *CT_PgBorders) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pb.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_PgBorders
+	return d.DecodeElement((*alias)(pb), &start)
 }
 
 // CT_PgNumType represents page numbering settings.

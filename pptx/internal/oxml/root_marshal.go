@@ -43,6 +43,7 @@ func parseXSDBool(v string) *bool {
 // mc:AlternateContent relative to the typed children.
 func (s *Slide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.XMLName = start.Name
+	s.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space != "" {
 			continue
@@ -169,7 +170,11 @@ func (s *Slide) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // MarshalRootToBuilder writes the p:sld root element with the standard
 // PresentationML namespace declarations.
 func (s *Slide) MarshalRootToBuilder(b *xmlb.Builder) {
-	b.StartElementWithNS(xmlb.NSPresentationML, "sld", xmlb.PresentationMLNamespaces(), s.rootAttrs()...)
+	if s.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sld", s.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(xmlb.NSPresentationML, "sld", xmlb.PresentationMLNamespaces(), s.rootAttrs()...)
+	}
 	s.marshalRootChildren(b)
 	b.EndElement(xmlb.NSPresentationML, "sld")
 }
@@ -179,6 +184,7 @@ func (s *Slide) MarshalRootToBuilder(b *xmlb.Builder) {
 // UnmarshalXML parses a p:sldLayout root (see Slide.UnmarshalXML).
 func (sl *SlideLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sl.XMLName = start.Name
+	sl.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space != "" {
 			continue
@@ -334,7 +340,11 @@ func (sl *SlideLayout) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // MarshalRootToBuilder writes the p:sldLayout root element with the standard
 // PresentationML namespace declarations.
 func (sl *SlideLayout) MarshalRootToBuilder(b *xmlb.Builder) {
-	b.StartElementWithNS(xmlb.NSPresentationML, "sldLayout", xmlb.PresentationMLNamespaces(), sl.rootAttrs()...)
+	if sl.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sldLayout", sl.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(xmlb.NSPresentationML, "sldLayout", xmlb.PresentationMLNamespaces(), sl.rootAttrs()...)
+	}
 	sl.marshalRootChildren(b)
 	b.EndElement(xmlb.NSPresentationML, "sldLayout")
 }
@@ -344,6 +354,7 @@ func (sl *SlideLayout) MarshalRootToBuilder(b *xmlb.Builder) {
 // UnmarshalXML parses a p:sldMaster root (see Slide.UnmarshalXML).
 func (sm *SlideMaster) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sm.XMLName = start.Name
+	sm.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "preserve" {
 			if v := parseXSDBool(attr.Value); v != nil {
@@ -483,7 +494,11 @@ func (sm *SlideMaster) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // MarshalRootToBuilder writes the p:sldMaster root element with the standard
 // PresentationML namespace declarations.
 func (sm *SlideMaster) MarshalRootToBuilder(b *xmlb.Builder) {
-	b.StartElementWithNS(xmlb.NSPresentationML, "sldMaster", xmlb.PresentationMLNamespaces(), sm.rootAttrs()...)
+	if sm.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sldMaster", sm.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(xmlb.NSPresentationML, "sldMaster", xmlb.PresentationMLNamespaces(), sm.rootAttrs()...)
+	}
 	sm.marshalRootChildren(b)
 	b.EndElement(xmlb.NSPresentationML, "sldMaster")
 }
