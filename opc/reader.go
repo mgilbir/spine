@@ -22,7 +22,9 @@ import (
 // opened afterwards, never a Reader that is already open. Set them during
 // program setup, before packages are opened: they are plain package-level
 // variables, so mutating one concurrently with OpenReader/NewReader in
-// another goroutine is a data race.
+// another goroutine is a data race. To override the limits for a single
+// Reader without touching the globals, pass ReaderOptions to
+// NewReaderWithOptions/OpenReaderWithOptions instead.
 var MaxDecompressedPartSize int64 = 1 << 30 // 1 GiB
 
 // MaxDecompressedPackageSize bounds the total number of bytes a single Reader
@@ -55,13 +57,39 @@ type decompressionBudget struct {
 	charged map[*zip.File]bool
 }
 
-// newDecompressionBudget snapshots the package-level limits for one Reader.
-func newDecompressionBudget() *decompressionBudget {
-	return &decompressionBudget{
+// ReaderOptions configures a single Reader, overriding the package-level
+// defaults. The zero value means "use the defaults", so ReaderOptions{} is
+// always safe to pass.
+type ReaderOptions struct {
+	// MaxDecompressedPartSize overrides the package-level
+	// MaxDecompressedPartSize for this Reader: it bounds how many bytes any
+	// single part may decompress to. Zero uses the package-level default; a
+	// negative value disables the bound.
+	MaxDecompressedPartSize int64
+
+	// MaxDecompressedPackageSize overrides the package-level
+	// MaxDecompressedPackageSize for this Reader: it bounds the total bytes
+	// the Reader may decompress across all parts. Zero uses the package-level
+	// default; a negative value disables the bound.
+	MaxDecompressedPackageSize int64
+}
+
+// newDecompressionBudget snapshots the limits for one Reader: each option
+// field overrides the corresponding package-level variable when non-zero,
+// with negative meaning unbounded (the budget treats <= 0 as disabled).
+func newDecompressionBudget(opts ReaderOptions) *decompressionBudget {
+	b := &decompressionBudget{
 		maxPart:    MaxDecompressedPartSize,
 		maxPackage: MaxDecompressedPackageSize,
 		charged:    make(map[*zip.File]bool),
 	}
+	if opts.MaxDecompressedPartSize != 0 {
+		b.maxPart = opts.MaxDecompressedPartSize
+	}
+	if opts.MaxDecompressedPackageSize != 0 {
+		b.maxPackage = opts.MaxDecompressedPackageSize
+	}
+	return b
 }
 
 // admit performs the declared-size pre-checks for one zip entry and returns
@@ -335,6 +363,12 @@ func (rc *ReadCloser) Close() error {
 
 // OpenReader opens an OPC package from a file path.
 func OpenReader(path string) (*ReadCloser, error) {
+	return OpenReaderWithOptions(path, ReaderOptions{})
+}
+
+// OpenReaderWithOptions opens an OPC package from a file path with per-Reader
+// options (e.g. decompression limits overriding the package-level defaults).
+func OpenReaderWithOptions(path string, opts ReaderOptions) (*ReadCloser, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -346,7 +380,7 @@ func OpenReader(path string) (*ReadCloser, error) {
 		return nil, err
 	}
 
-	r, err := NewReader(f, fi.Size())
+	r, err := NewReaderWithOptions(f, fi.Size(), opts)
 	if err != nil {
 		_ = f.Close()
 		return nil, err
@@ -357,6 +391,15 @@ func OpenReader(path string) (*ReadCloser, error) {
 
 // NewReader creates a Reader from an io.ReaderAt.
 func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
+	return NewReaderWithOptions(r, size, ReaderOptions{})
+}
+
+// NewReaderWithOptions creates a Reader from an io.ReaderAt with per-Reader
+// options. Unlike the package-level MaxDecompressedPartSize and
+// MaxDecompressedPackageSize variables — which remain the documented defaults
+// and require setup-time mutation — the options apply to this Reader alone,
+// so concurrent opens with different limits need no global coordination.
+func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, err
@@ -365,7 +408,7 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 	reader := &Reader{
 		zipReader: zr,
 		Files:     make([]*File, 0, len(zr.File)),
-		budget:    newDecompressionBudget(),
+		budget:    newDecompressionBudget(opts),
 	}
 
 	// First pass: find and parse [Content_Types].xml
