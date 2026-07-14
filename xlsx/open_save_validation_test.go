@@ -179,3 +179,58 @@ func TestXlsxSaveIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// buildBookXlsxWithout rebuilds the buildBookXlsx fixture, dropping the named
+// entry.
+func buildBookXlsxWithout(t *testing.T, drop string) []byte {
+	t.Helper()
+	full := buildBookXlsx(t)
+	zr, err := zip.NewReader(bytes.NewReader(full), int64(len(full)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []struct{ name, data string }
+	for _, f := range zr.File {
+		if f.Name == drop {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b bytes.Buffer
+		if _, err := b.ReadFrom(rc); err != nil {
+			t.Fatal(err)
+		}
+		_ = rc.Close()
+		files = append(files, struct{ name, data string }{f.Name, b.String()})
+	}
+	return buildFixtureXlsxParts(t, files)
+}
+
+// C60: a worksheet referenced from workbook.xml but absent from the package
+// must fail Open. Previously an empty sheet model was materialized, and the
+// first save wrote a fabricated near-empty sheet part in its place.
+func TestOpenErrorsOnMissingReferencedSheetPart(t *testing.T) {
+	data := buildBookXlsxWithout(t, "xl/worksheets/sheet1.xml")
+	_, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err == nil {
+		t.Fatal("Open succeeded on a workbook whose referenced sheet part is missing")
+	}
+	if !strings.Contains(err.Error(), "/xl/worksheets/sheet1.xml") {
+		t.Errorf("error does not name the missing part: %v", err)
+	}
+}
+
+// C60: a sheet whose r:id has no matching relationship must fail Open for the
+// same reason (nothing to load, so saving would fabricate an empty sheet).
+func TestOpenErrorsOnDanglingSheetRelationship(t *testing.T) {
+	data := buildBookXlsxWithout(t, "xl/_rels/book.xml.rels")
+	_, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err == nil {
+		t.Fatal("Open succeeded on a workbook whose sheet r:id resolves to no relationship")
+	}
+	if !strings.Contains(err.Error(), "rId1") {
+		t.Errorf("error does not name the dangling relationship: %v", err)
+	}
+}
