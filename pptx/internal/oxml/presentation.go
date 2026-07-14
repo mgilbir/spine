@@ -214,6 +214,26 @@ func (s SlideMasterID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 	return e.EncodeElement(struct{}{}, start)
 }
 
+// MarshalToBuilder implements xmlb.BuilderMarshaler (see SlideLayoutID). The
+// presentation.xml writer emits sldMasterId entries explicitly, so this is a
+// safety net for any reflection path and to satisfy the Builder's C106 guard.
+func (s SlideMasterID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	var attrs []xmlb.Attr
+	if !s.IDOmitted {
+		attrs = append(attrs, xmlb.UintAttr("id", s.ID))
+	}
+	if s.RID != "" {
+		attrs = append(attrs, xmlb.RelAttr("id", s.RID))
+	}
+	if s.ExtLst == nil {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	b.MarshalElement(ns, "extLst", s.ExtLst)
+	b.EndElement(ns, localName)
+}
+
 // UnmarshalXML implements custom XML unmarshaling for SlideMasterID.
 // Handles both namespaced (relationships:id) and prefixed (r:id) formats,
 // and captures the optional extLst child (C225).
@@ -285,6 +305,23 @@ func (s SlideID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	// Use r:id directly - the r prefix is declared in the root presentation element
 	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
 	return e.EncodeElement(struct{}{}, start)
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler (see SlideLayoutID). The
+// presentation.xml writer emits sldId entries explicitly, so this is a safety
+// net for any reflection path and to satisfy the Builder's C106 guard.
+func (s SlideID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	attrs := []xmlb.Attr{xmlb.UintAttr("id", s.ID)}
+	if s.RID != "" {
+		attrs = append(attrs, xmlb.RelAttr("id", s.RID))
+	}
+	if s.ExtLst == nil {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	b.MarshalElement(ns, "extLst", s.ExtLst)
+	b.EndElement(ns, localName)
 }
 
 // UnmarshalXML implements custom XML unmarshaling for SlideID.
