@@ -36,6 +36,19 @@ var (
 	ErrInvalidSlide = errors.New("pptx: invalid slide")
 )
 
+// presentationFlavors is the set of PresentationML main-part content types
+// (ECMA-376 and [MS-OFFDI]) that Open accepts: regular presentation (.pptx),
+// slideshow (.ppsx), template (.potx), and their macro-enabled variants
+// (.pptm/.ppsm/.potm).
+var presentationFlavors = map[string]bool{
+	opc.ContentTypePresentationMain:              true,
+	opc.ContentTypeSlideshowMain:                 true,
+	opc.ContentTypePresentationTemplateMain:      true,
+	opc.ContentTypePresentationMacroMain:         true,
+	opc.ContentTypeSlideshowMacroMain:            true,
+	opc.ContentTypePresentationTemplateMacroMain: true,
+}
+
 // Presentation represents a PowerPoint presentation.
 type Presentation struct {
 	// Properties contains the document properties.
@@ -64,6 +77,14 @@ type Presentation struct {
 	nextSlideID  uint32
 	nextRelID    int
 	templatePath string // Path to template file if using one
+
+	// flavor is the main part's content type as recorded at open: one of the
+	// PresentationML main-part flavors (presentation, slideshow, template, or
+	// their macro-enabled variants). Empty for a created presentation, which
+	// saves as a regular presentation. The save paths re-emit this content
+	// type so e.g. a slideshow (.ppsx) is not silently retyped to a regular
+	// presentation on save.
+	flavor string
 
 	// Raw data for parts we serialize but don't fully parse
 	presPropsData   []byte                         // /ppt/presProps.xml
@@ -136,8 +157,10 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, ErrNotPPTX
 	}
 
-	// Verify content type
-	if mainPart.ContentType != opc.ContentTypePresentationMain {
+	// Verify content type: any PresentationML main-part flavor is accepted
+	// (regular presentation, slideshow, template, and their macro-enabled
+	// variants); the flavor is recorded so the save re-emits it.
+	if !presentationFlavors[mainPart.ContentType] {
 		_ = reader.Close()
 		return nil, ErrNotPPTX
 	}
@@ -160,6 +183,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 
 	p := &Presentation{
 		reader:          reader,
+		flavor:          mainPart.ContentType,
 		presentation:    &pres,
 		nextSlideID:     256,
 		nextRelID:       1,
@@ -764,6 +788,20 @@ func (p *Presentation) TemplatePath() string {
 	return p.templatePath
 }
 
+// Flavor returns the main part's content type: one of the PresentationML
+// flavors (opc.ContentTypePresentationMain, opc.ContentTypeSlideshowMain,
+// opc.ContentTypePresentationTemplateMain, or a macro-enabled variant). An
+// opened file reports the flavor it was opened with — a slideshow (.ppsx)
+// stays a slideshow across a save — and a created presentation reports
+// opc.ContentTypePresentationMain. There is no conversion API: retyping a
+// file to another flavor is out of scope.
+func (p *Presentation) Flavor() string {
+	if p.flavor != "" {
+		return p.flavor
+	}
+	return opc.ContentTypePresentationMain
+}
+
 // GetLayoutByType returns the first slide layout matching the specified type.
 func (p *Presentation) GetLayoutByType(layoutType SlideLayoutType) *SlideLayout {
 	for _, layout := range p.slideLayouts {
@@ -1010,12 +1048,14 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write presentation.xml (regenerated to reflect current slide list)
+	// Write presentation.xml (regenerated to reflect current slide list),
+	// keeping the flavor recorded at open (slideshow/template/macro-enabled
+	// sources must not be retyped to a regular presentation).
 	presData, err := p.marshalPresentation()
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart("/ppt/presentation.xml", opc.ContentTypePresentationMain, presData); err != nil {
+	if err := writer.WritePart("/ppt/presentation.xml", p.Flavor(), presData); err != nil {
 		return err
 	}
 
@@ -1337,7 +1377,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		return err
 	}
 
-	if err := writer.WritePart("/ppt/presentation.xml", opc.ContentTypePresentationMain, presData); err != nil {
+	if err := writer.WritePart("/ppt/presentation.xml", p.Flavor(), presData); err != nil {
 		return err
 	}
 
