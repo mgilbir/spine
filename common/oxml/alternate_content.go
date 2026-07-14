@@ -22,6 +22,10 @@ type AlternateContentChoice struct {
 	// mc:AlternateContent parent drifts from such sources. Nil for choices
 	// built programmatically.
 	CapturedAttrs []xmlb.RootAttr
+	// LeadSep is the whitespace between the previous sibling (or the
+	// mc:AlternateContent start tag) and this mc:Choice, for spaced-format
+	// producers (e.g. excelize writes "> <mc:Choice").
+	LeadSep string
 }
 
 // AlternateContent represents mc:AlternateContent from ECMA-376 Part 3.
@@ -42,6 +46,11 @@ type AlternateContent struct {
 	// CapturedAttrs preserves the mc:AlternateContent element's own verbatim
 	// attribute list; nil for values built programmatically.
 	CapturedAttrs []xmlb.RootAttr
+	// FallbackLeadSep is the whitespace immediately before mc:Fallback.
+	FallbackLeadSep string
+	// TrailSep is the whitespace between the last child and the
+	// mc:AlternateContent end tag.
+	TrailSep string
 }
 
 // UnmarshalXML implements custom XML unmarshaling for AlternateContent.
@@ -49,12 +58,21 @@ type AlternateContent struct {
 // raw bytes.
 func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ac.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	var pendingSep string
 	for {
 		tok, err := d.Token()
 		if err != nil {
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			// Spaced-format producers (excelize) put whitespace between the
+			// AlternateContent start tag and its children; keep it so the
+			// captured-attrs replay reproduces the source bytes.
+			if s := string(t); strings.TrimSpace(s) == "" {
+				pendingSep = s
+			}
+			continue
 		case xml.StartElement:
 			// Choice/Fallback are only meaningful in the mc namespace; an
 			// element with the same local name from any other namespace is
@@ -67,7 +85,8 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 			}
 			switch t.Name.Local {
 			case "Choice":
-				choice := AlternateContentChoice{CapturedAttrs: xmlb.CaptureAttrs(t.Attr)}
+				choice := AlternateContentChoice{CapturedAttrs: xmlb.CaptureAttrs(t.Attr), LeadSep: pendingSep}
+				pendingSep = ""
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "Requires" {
 						choice.Requires = attr.Value
@@ -83,6 +102,8 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 				ac.Choices = append(ac.Choices, choice)
 			case "Fallback":
 				ac.HasFallback = true
+				ac.FallbackLeadSep = pendingSep
+				pendingSep = ""
 				ac.FallbackAttrs = xmlb.CaptureAttrs(t.Attr)
 				var inner struct {
 					Content []byte `xml:",innerxml"`
@@ -97,6 +118,7 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 				}
 			}
 		case xml.EndElement:
+			ac.TrailSep = pendingSep
 			return nil
 		}
 	}
@@ -121,14 +143,23 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 			if choice.CapturedAttrs == nil {
 				attrs = []xmlb.Attr{xmlb.StrAttr("Requires", choice.Requires)}
 			}
+			if choice.LeadSep != "" {
+				b.WriteRaw([]byte(choice.LeadSep))
+			}
 			b.StartElementLiteral(prefix, "Choice", nil, attrs...)
 			b.WriteRaw(choice.Content)
 			b.EndElementLiteral(prefix, "Choice")
 		}
 		if ac.HasFallback {
+			if ac.FallbackLeadSep != "" {
+				b.WriteRaw([]byte(ac.FallbackLeadSep))
+			}
 			b.StartElementLiteral(prefix, "Fallback", nil, xmlb.RawAttrList(ac.FallbackAttrs)...)
 			b.WriteRaw(ac.Fallback)
 			b.EndElementLiteral(prefix, "Fallback")
+		}
+		if ac.TrailSep != "" {
+			b.WriteRaw([]byte(ac.TrailSep))
 		}
 		b.EndElementLiteral(prefix, localName)
 		return
