@@ -341,3 +341,72 @@ func TestMarshal_CapturedAttrsNilUsesStructOrder(t *testing.T) {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }
+
+// --- C106: Builder honors BuilderMarshaler and refuses stdlib-only marshalers ---
+
+// bmType implements BuilderMarshaler and is dispatched through the Builder.
+type bmType struct{ V string }
+
+func (t bmType) MarshalToBuilder(b *Builder, ns, localName string) {
+	b.WriteElement(ns, localName, t.V)
+}
+
+// stdlibOnly implements the stdlib xml.Marshaler but NOT BuilderMarshaler.
+// Reaching the Builder's reflection path with such a type must fail loudly
+// rather than silently discarding MarshalXML (C106).
+type stdlibOnly struct{ V string }
+
+func (t stdlibOnly) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return e.EncodeElement(t.V, start)
+}
+
+func TestMarshal_C106_BuilderMarshalerDispatched(t *testing.T) {
+	type wrap struct {
+		Item bmType `xml:"item"`
+	}
+	b := NewPresentationMLBuilder()
+	b.MarshalElement(NSDrawingML, "root", &wrap{Item: bmType{V: "hello"}})
+	if err := b.Finish(); err != nil {
+		t.Fatalf("Finish reported error for BuilderMarshaler type: %v", err)
+	}
+	if got := b.String(); !contains(got, "hello") {
+		t.Errorf("BuilderMarshaler output missing content: %s", got)
+	}
+}
+
+func TestMarshal_C106_StdlibMarshalerFailsLoudly(t *testing.T) {
+	type wrap struct {
+		Item stdlibOnly `xml:"item"`
+	}
+	b := NewPresentationMLBuilder()
+	b.MarshalElement(NSDrawingML, "root", &wrap{Item: stdlibOnly{V: "hi"}})
+	err := b.Finish()
+	if err == nil {
+		t.Fatal("expected Finish to report an error for a stdlib-only xml.Marshaler reaching the Builder")
+	}
+	if !contains(err.Error(), "xml.Marshaler") {
+		t.Errorf("error should mention xml.Marshaler, got: %v", err)
+	}
+}
+
+// attrMarshalerOnly implements the stdlib xml.MarshalerAttr but not AttrValuer.
+type attrMarshalerOnly struct{ V string }
+
+func (a attrMarshalerOnly) MarshalXMLAttr(name xml.Name) (xml.Attr, error) {
+	return xml.Attr{Name: name, Value: a.V}, nil
+}
+
+func TestMarshal_C106_StdlibAttrMarshalerFailsLoudly(t *testing.T) {
+	type wrap struct {
+		A attrMarshalerOnly `xml:"a,attr"`
+	}
+	b := NewPresentationMLBuilder()
+	b.MarshalElement(NSDrawingML, "root", &wrap{A: attrMarshalerOnly{V: "x"}})
+	err := b.Finish()
+	if err == nil {
+		t.Fatal("expected Finish to report an error for a stdlib-only xml.MarshalerAttr reaching the Builder")
+	}
+	if !contains(err.Error(), "xml.MarshalerAttr") {
+		t.Errorf("error should mention xml.MarshalerAttr, got: %v", err)
+	}
+}

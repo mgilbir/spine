@@ -125,8 +125,42 @@ remediation series (#59–#75).
   had no effect, is replaced by `HideDropDown` (#73).
 - pptx: `CreateWithOptions` honors `Options.SlideSize` (widescreen and
   paper sizes included); `Create` keeps its documented 4:3 default (#71).
+- pptx: the baked default master and layouts derive their placeholder
+  geometry from the slide size, so `Create` (4:3) and `CreateWidescreen`
+  (16:9) both produce internally consistent decks; previously the master and
+  several layouts hardcoded widescreen extents (12.33" wide) that overflowed a
+  4:3 slide (C139, #88).
+- enum: `UnderlineStyle` gains the ECMA `ST_TextUnderlineType` values it was
+  missing (`words`, `dottedHeavy`, `dashHeavy`, `dashLongHeavy`,
+  `dotDashHeavy`, `dotDotDashHeavy`) and `TextAlign` gains `justLow` and
+  `thaiDist`; `FontStyle`'s flags now start at bit 0 (the zero-value
+  `FontStyleNormal` was moved out of the `1<<iota` block, which had left bit 0
+  unused). The flags are never serialized as their integer value, so callers
+  using the named constants are unaffected (C148, #88).
+- common/xml: the reflection marshaler no longer silently ignores a type that
+  implements the stdlib `xml.Marshaler` / `xml.MarshalerAttr` but not the
+  Builder's `BuilderMarshaler` / `AttrValuer`; it records an error surfaced via
+  `Builder.Err`/`Finish` instead of emitting likely-wrong bytes. This flushed
+  out a latent case (`SlideLayoutID`), now given a `MarshalToBuilder` that
+  preserves byte-identical output (C106, #88).
 
 ### Added
+
+- validation: each format's top-level type (`docx.Document`, `xlsx.Workbook`,
+  `pptx.Presentation`) exposes `Validate() validate.Report`, a pre-save pass
+  over the in-memory model that reports structural problems as a slice of
+  structured findings (`common/validate.Error`: stable `Code`, `Severity`
+  error/warning, `Part`, human `Detail`). `Save`/`SaveBytes`/`SaveTo` run it
+  first and refuse to write when any error-severity finding is present, so a
+  structurally corrupt package is never produced; `SaveToUnvalidated` bypasses
+  the gate for advisory cases. Error-severity checks (no false positives across
+  the 3,600-file corpus): duplicate shape ids per slide, dangling
+  sldLayoutId/sheet/header/footer references, orphaned shared-formula
+  followers, duplicate sheetId, out-of-range definedName scope, overlapping
+  merged ranges, numPr referencing an undefined numbering definition, and
+  duplicate part names. Missing relationship targets, parts without a content
+  type, dangling image/hyperlink references, and undefined style references are
+  reported as warnings (Office tolerates them) (#88).
 
 - docx,xlsx,pptx: `Open` accepts every ECMA-376 main-part flavor of its
   family — templates (.dotx/.xltx/.potx), slideshows (.ppsx), and the
