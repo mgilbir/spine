@@ -86,7 +86,15 @@ func (w *Writer) createPart(name, contentType string, compression CompressionOpt
 		return nil, ErrPackageClosed
 	}
 
-	if err := ValidatePartName(name); err != nil {
+	// New parts must satisfy the full OPC part-name grammar; parts preserved
+	// verbatim from a source package only need the structural rules, since
+	// wild packages carry entries (e.g. /[trash]/0000.dat) whose names violate
+	// the grammar and must still round-trip.
+	if preserved {
+		if err := validatePartNameShape(name); err != nil {
+			return nil, err
+		}
+	} else if err := ValidatePartName(name); err != nil {
 		return nil, err
 	}
 
