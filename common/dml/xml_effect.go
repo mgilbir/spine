@@ -22,21 +22,31 @@ type EffectLst struct {
 
 // OuterShdw represents CT_OuterShadowEffect (a:outerShdw)
 type OuterShdw struct {
-	BlurRad      *int64              `xml:"blurRad,attr,omitempty"`
-	Dist         *int64              `xml:"dist,attr,omitempty"`
-	Dir          *int32              `xml:"dir,attr,omitempty"`
-	Sx           *Percentage         `xml:"sx,attr,omitempty"`
-	Sy           *Percentage         `xml:"sy,attr,omitempty"`
-	Kx           *int32              `xml:"kx,attr,omitempty"`
-	Ky           *int32              `xml:"ky,attr,omitempty"`
-	Algn         string              `xml:"algn,attr,omitempty"`
-	RotWithShape *bool               `xml:"rotWithShape,attr,omitempty"`
-	ScRgbClr     *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
-	SrgbClr      *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	HslClr       *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
-	SysClr       *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
-	SchemeClr    *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
-	PrstClr      *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
+	BlurRad       *int64              `xml:"blurRad,attr,omitempty"`
+	Dist          *int64              `xml:"dist,attr,omitempty"`
+	Dir           *int32              `xml:"dir,attr,omitempty"`
+	Sx            *Percentage         `xml:"sx,attr,omitempty"`
+	Sy            *Percentage         `xml:"sy,attr,omitempty"`
+	Kx            *int32              `xml:"kx,attr,omitempty"`
+	Ky            *int32              `xml:"ky,attr,omitempty"`
+	Algn          string              `xml:"algn,attr,omitempty"`
+	RotWithShape  *bool               `xml:"rotWithShape,attr,omitempty"`
+	ScRgbClr      *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr       *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr        *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr        *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr     *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr       *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr     `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (osh *OuterShdw) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	osh.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias OuterShdw
+	return d.DecodeElement((*alias)(osh), &start)
 }
 
 // InnerShdw represents CT_InnerShadowEffect (a:innerShdw). Its color is an

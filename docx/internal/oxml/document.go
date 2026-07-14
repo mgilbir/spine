@@ -18,6 +18,11 @@ type CT_Document struct {
 	// OriginalNSDecls preserves the namespace declarations from the original XML
 	// for byte-identical round-trip of document.xml.
 	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list
+	// (declarations interleaved with attributes, including xmlns="" and
+	// xml:space, which the NSDecl capture cannot represent); nil for
+	// documents built programmatically.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration.
 	Prolog xmlb.Prolog `xml:"-"`
@@ -31,6 +36,7 @@ type CT_Document struct {
 // UnmarshalXML implements custom unmarshaling for CT_Document.
 func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	doc.XMLName = start.Name
+	doc.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "Ignorable" {
 			doc.Ignorable = attr.Value

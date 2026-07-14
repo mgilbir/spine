@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Shape represents a shape element (p:sp) in a slide.
@@ -63,9 +64,19 @@ type TagsData struct {
 // Placeholder specifies placeholder information.
 // This is CT_Placeholder in the PML XSD.
 type Placeholder struct {
-	Type            string `xml:"type,attr,omitempty"`
-	Orient          string `xml:"orient,attr,omitempty"`
-	Sz              string `xml:"sz,attr,omitempty"`
-	Idx             uint32 `xml:"idx,attr,omitempty"`
-	HasCustomPrompt bool   `xml:"hasCustomPrompt,attr,omitempty"`
+	Type            string          `xml:"type,attr,omitempty"`
+	Orient          string          `xml:"orient,attr,omitempty"`
+	Sz              string          `xml:"sz,attr,omitempty"`
+	Idx             uint32          `xml:"idx,attr,omitempty"`
+	HasCustomPrompt bool            `xml:"hasCustomPrompt,attr,omitempty"`
+	CapturedAttrs   []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (ph *Placeholder) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ph.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias Placeholder
+	return d.DecodeElement((*alias)(ph), &start)
 }

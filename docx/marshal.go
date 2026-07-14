@@ -51,7 +51,18 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 			xmlb.NSDecl{Prefix: xmlb.PrefixMath, URI: xmlb.NSMath})
 	}
 
-	b.StartElementWithNS(nsW, "document", nsDecls, attrs...)
+	if doc.OriginalRootAttrs != nil {
+		// Verbatim root replay: keeps xmlns="", xml:space, and the source's
+		// declaration/attribute interleaving. A math declaration the source
+		// lacked is still appended when captured math requires it.
+		var extra []xmlb.Attr
+		if !mathDeclared && doc.ContainsMath() {
+			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixMath, Value: xmlb.NSMath})
+		}
+		b.StartElementWithRootAttrs(nsW, "document", doc.OriginalRootAttrs, extra...)
+	} else {
+		b.StartElementWithNS(nsW, "document", nsDecls, attrs...)
+	}
 
 	if doc.Background != nil {
 		b.MarshalElement(nsW, "background", doc.Background)

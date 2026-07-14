@@ -30,16 +30,26 @@ type CT_TblPr struct {
 
 // CT_TblPPr represents table positioning properties.
 type CT_TblPPr struct {
-	LeftFromText   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftFromText,attr,omitempty"`
-	RightFromText  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightFromText,attr,omitempty"`
-	TopFromText    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main topFromText,attr,omitempty"`
-	BottomFromText string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottomFromText,attr,omitempty"`
-	VertAnchor     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertAnchor,attr,omitempty"`
-	HorzAnchor     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main horzAnchor,attr,omitempty"`
-	TblpXSpec      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpXSpec,attr,omitempty"`
-	TblpYSpec      string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpYSpec,attr,omitempty"`
-	TblpX          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpX,attr,omitempty"`
-	TblpY          string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpY,attr,omitempty"`
+	LeftFromText   string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main leftFromText,attr,omitempty"`
+	RightFromText  string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rightFromText,attr,omitempty"`
+	TopFromText    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main topFromText,attr,omitempty"`
+	BottomFromText string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main bottomFromText,attr,omitempty"`
+	VertAnchor     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vertAnchor,attr,omitempty"`
+	HorzAnchor     string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main horzAnchor,attr,omitempty"`
+	TblpXSpec      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpXSpec,attr,omitempty"`
+	TblpYSpec      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpYSpec,attr,omitempty"`
+	TblpX          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpX,attr,omitempty"`
+	TblpY          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblpY,attr,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tpr *CT_TblPPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tpr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TblPPr
+	return d.DecodeElement((*alias)(tpr), &start)
 }
 
 // CT_TblLayout represents table layout mode.
@@ -57,13 +67,23 @@ type CT_TblCellMar struct {
 
 // CT_TblLook represents conditional formatting flags for a table.
 type CT_TblLook struct {
-	Val         string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	FirstRow    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRow,attr,omitempty"`
-	LastRow     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRow,attr,omitempty"`
-	FirstColumn string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstColumn,attr,omitempty"`
-	LastColumn  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastColumn,attr,omitempty"`
-	NoHBand     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noHBand,attr,omitempty"`
-	NoVBand     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noVBand,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	FirstRow      string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstRow,attr,omitempty"`
+	LastRow       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastRow,attr,omitempty"`
+	FirstColumn   string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main firstColumn,attr,omitempty"`
+	LastColumn    string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lastColumn,attr,omitempty"`
+	NoHBand       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noHBand,attr,omitempty"`
+	NoVBand       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main noVBand,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tl *CT_TblLook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tl.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TblLook
+	return d.DecodeElement((*alias)(tl), &start)
 }
 
 // CT_TblGrid represents table grid definition.
@@ -97,34 +117,63 @@ type CT_Cnf struct {
 
 // CT_TrPr represents table row properties.
 type CT_TrPr struct {
-	CnfStyle       *CT_Cnf           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
-	DivId          *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
-	GridBefore     *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
-	GridAfter      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
-	WBefore        *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
-	WAfter         *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
-	CantSplit      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
-	TrHeight       *CT_Height        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
-	TblHeader      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
-	TblCellSpacing *CT_TblWidth      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
-	Jc             *CT_Jc            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
-	Hidden         *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
-	Ins            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
-	Del            *CT_TrackChange   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
-	TrPrChange     *CT_TrPrChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
+	CnfStyle         *CT_Cnf            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cnfStyle,omitempty"`
+	DivId            *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main divId,omitempty"`
+	GridBefore       *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridBefore,omitempty"`
+	GridAfter        *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gridAfter,omitempty"`
+	WBefore          *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wBefore,omitempty"`
+	WAfter           *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main wAfter,omitempty"`
+	CantSplit        *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main cantSplit,omitempty"`
+	TrHeight         *CT_Height         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trHeight,omitempty"`
+	TblHeader        *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblHeader,omitempty"`
+	TblCellSpacing   *CT_TblWidth       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblCellSpacing,omitempty"`
+	Jc               *CT_Jc             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main jc,omitempty"`
+	Hidden           *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hidden,omitempty"`
+	Ins              *CT_TrackChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main ins,omitempty"`
+	Del              *CT_TrackChange    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main del,omitempty"`
+	TrPrChange       *CT_TrPrChange     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPrChange,omitempty"`
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (tp2 *CT_TrPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tp2.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_TrPr
+	return d.DecodeElement((*alias)(tp2), &start)
 }
 
 // CT_Height represents a height measurement.
 type CT_Height struct {
-	Val   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
-	HRule string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	Val           string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
+	HRule         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main hRule,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (h *CT_Height) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_Height
+	return d.DecodeElement((*alias)(h), &start)
 }
 
 // CT_TrackChange represents a simple track change marker (no content).
 type CT_TrackChange struct {
-	Id     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
-	Author string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
-	Date   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	Id            string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
+	Author        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
+	Date          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes) before decoding through the
+// struct tags; the reflection marshaler replays it.
+func (tc2 *CT_TrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tc2.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias CT_TrackChange
+	return d.DecodeElement((*alias)(tc2), &start)
 }
 
 // CT_TcPr represents table cell properties.
@@ -239,11 +288,14 @@ type trChildRef struct {
 
 // CT_Tr represents a table row (w:tr).
 type CT_Tr struct {
-	RsidR   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
-	RsidRPr string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
-	RsidTr  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
-	ParaId  string `xml:"-"` // w14:paraId
-	TextId  string `xml:"-"` // w14:textId
+	// CapturedAttrs preserves the verbatim source attribute list; replayed on
+	// marshal (producer rsid order varies, e.g. rsidDel is not modeled).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	RsidR         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidR,attr,omitempty"`
+	RsidRPr       string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidRPr,attr,omitempty"`
+	RsidTr        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rsidTr,attr,omitempty"`
+	ParaId        string          `xml:"-"` // w14:paraId
+	TextId        string          `xml:"-"` // w14:textId
 	// TblPrEx (w:tblPrEx, table property exceptions for this row) is preserved
 	// raw; it precedes trPr in the schema and is re-emitted in that position.
 	TblPrEx       *CT_RawElement        `xml:"-"`
@@ -260,6 +312,7 @@ type CT_Tr struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Tr.
 func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tr.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidR":
@@ -373,6 +426,9 @@ func (tr *CT_Tr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if tr.RsidTr != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "rsidTr", Value: tr.RsidTr})
+	}
+	if tr.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(tr.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 

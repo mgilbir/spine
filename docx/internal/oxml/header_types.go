@@ -12,10 +12,14 @@ import (
 type CT_HeaderReference struct {
 	Type string `xml:"-"` // w:type attr
 	RID  string `xml:"-"` // r:id attr
+	// CapturedAttrs preserves the verbatim source attribute list; replayed
+	// on marshal (producers disagree on r:id vs w:type order).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_HeaderReference to handle r:id attributes.
 func (h *CT_HeaderReference) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	h.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "type":
@@ -37,6 +41,9 @@ func (h *CT_HeaderReference) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 	}
 	if h.Type != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "type", Value: h.Type})
+	}
+	if h.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(h.CapturedAttrs, attrs)
 	}
 	b.EmptyElement(ns, localName, attrs...)
 }

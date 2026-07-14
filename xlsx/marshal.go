@@ -123,7 +123,7 @@ func marshalWorkbookDefinedNames(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	// An empty <definedNames/> present in the source is kept: dropping the
 	// element on a no-op round trip would drift from the producer's bytes.
 	if len(wb.DefinedNames.DefinedName) == 0 {
-		b.EmptyElement(nsSML, "definedNames")
+		b.EmptyElementStyled(wb.DefinedNames.CapturedEmptyTag, nsSML, "definedNames")
 		return
 	}
 	b.StartElement(nsSML, "definedNames")
@@ -138,7 +138,9 @@ func marshalWorkbookExtLst(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	if wb.ExtLst == nil || len(wb.ExtLst.Ext) == 0 {
 		return
 	}
-	b.StartElement(nsSML, "extLst")
+	// Replay declarations the source carried on the extLst element itself
+	// (e.g. <extLst xmlns:x15="...">).
+	b.StartElement(nsSML, "extLst", xmlb.RawAttrList(wb.ExtLst.CapturedAttrs)...)
 	for i := range wb.ExtLst.Ext {
 		wb.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
 	}
