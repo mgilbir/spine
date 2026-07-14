@@ -1,6 +1,8 @@
 package opc
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 )
 
@@ -164,5 +166,64 @@ func TestResolvePartName_URITargets(t *testing.T) {
 				t.Errorf("ResolvePartName(%q, %q) = %q, want %q", tt.base, tt.relative, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestValidatePartName_StrictGrammar covers the OPC part-name grammar rules
+// enforced for writer-side validation (C119): backslash, space, unencoded
+// '%', control characters, non-ASCII bytes, encoded path separators, and
+// trailing-dot segments are rejected for new parts.
+func TestValidatePartName_StrictGrammar(t *testing.T) {
+	valid := []string{
+		"/media/image%20one.png", // encoded space
+		"/a/b!$&'()*+,;=.xml",    // sub-delims
+		"/a/b:@c.xml",            // ':' and '@'
+		"/a/%C3%A9.xml",          // encoded non-ASCII
+	}
+	for _, name := range valid {
+		if err := ValidatePartName(name); err != nil {
+			t.Errorf("ValidatePartName(%q) = %v, want nil", name, err)
+		}
+	}
+
+	invalid := []string{
+		"/a b.xml",             // unencoded space
+		`/a\b.xml`,             // backslash
+		"/a%2.xml",             // truncated escape
+		"/a%zz.xml",            // non-hex escape
+		"/a%2Fb.xml",           // encoded slash
+		"/a%5cb.xml",           // encoded backslash
+		"/a\x01b.xml",          // control character
+		"/caf\xc3\xa9.xml",     // raw non-ASCII (must be percent-encoded)
+		"/dir./file.xml",       // segment ending with dot
+		"/file.xml.",           // final segment ending with dot
+		"/[trash]/0000.dat",    // '[' outside the grammar (preserved-only name)
+		"/a<b.xml", "/a>b:xml", // reserved-ish characters outside pchar
+	}
+	for _, name := range invalid {
+		if err := ValidatePartName(name); !errors.Is(err, ErrInvalidPartName) {
+			t.Errorf("ValidatePartName(%q) = %v, want ErrInvalidPartName", name, err)
+		}
+	}
+}
+
+// TestWritePreservedPart_LenientNames verifies that parts carried over from a
+// source package bypass the strict grammar (wild packages contain names like
+// /[trash]/0000.dat that must keep round-tripping), while CreatePart rejects
+// the same names for new parts.
+func TestWritePreservedPart_LenientNames(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	if err := w.WritePreservedPart("/[trash]/0000.dat", "", []byte{0x00}); err != nil {
+		t.Fatalf("WritePreservedPart([trash] name) error = %v", err)
+	}
+	if err := w.WritePreservedPart("/word/media/wild name.png", "image/png", []byte("x")); err != nil {
+		t.Fatalf("WritePreservedPart(space name) error = %v", err)
+	}
+	if _, err := w.CreatePart("/word/media/wild name2.png", "image/png", CompressionDeflate); !errors.Is(err, ErrInvalidPartName) {
+		t.Errorf("CreatePart(space name) = %v, want ErrInvalidPartName", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }
