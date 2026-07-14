@@ -128,6 +128,15 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx,xlsx,pptx: `Open` accepts every ECMA-376 main-part flavor of its
+  family — templates (.dotx/.xltx/.potx), slideshows (.ppsx), and the
+  macro-enabled variants (.docm/.dotm, .xlsm/.xltm/.xlam,
+  .pptm/.ppsm/.potm) — instead of only the regular document type, and a
+  save re-emits the recorded flavor so e.g. an .xlsm is not silently
+  retyped to .xlsx while still carrying its `vbaProject.bin`; the new
+  `Flavor()` accessor reports the main part's content type, and the flavor
+  content types are exported as `opc.ContentType*` constants. Converting a
+  file to another flavor remains out of scope (#86).
 - opc: `ReaderOptions` with `NewReaderWithOptions`/`OpenReaderWithOptions`
   override the decompression limits for a single Reader; the package-level
   variables remain the documented defaults (#85).
