@@ -178,6 +178,40 @@ func RelationshipsEqual(a, b []*Relationship) bool {
 	return true
 }
 
+// RelationshipsEquivalent reports whether a and b contain the same
+// relationship set regardless of document order: the same IDs, each mapping
+// to the same Type, Target, and TargetMode. Under OPC the order of
+// <Relationship> elements in a .rels part carries no meaning, so a save path
+// that reconstructed the same set in a different order may still write the
+// source bytes verbatim. Duplicate or nil entries make the comparison fail
+// (conservatively) rather than guess.
+func RelationshipsEquivalent(a, b []*Relationship) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	index := make(map[string]*Relationship, len(a))
+	for _, rel := range a {
+		if rel == nil {
+			return false
+		}
+		if _, dup := index[rel.ID]; dup {
+			return false
+		}
+		index[rel.ID] = rel
+	}
+	for _, rel := range b {
+		if rel == nil {
+			return false
+		}
+		orig, ok := index[rel.ID]
+		if !ok || *orig != *rel {
+			return false
+		}
+		delete(index, rel.ID)
+	}
+	return true
+}
+
 // UnmarshalRelationships parses relationship XML into a slice of relationships.
 func UnmarshalRelationships(data []byte) ([]*Relationship, error) {
 	var relsXML relationshipsXML

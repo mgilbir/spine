@@ -143,6 +143,15 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 		name := file.Name
 		data, err := file.ReadAll()
 		if err != nil {
+			// A part the model parses must not silently vanish (C60): its
+			// absence would fabricate content on the next save (an empty
+			// string table, default styles). Other unreadable parts are
+			// tolerated here — worksheets referenced from workbook.xml are
+			// checked in loadSheets, and genuinely unreferenced damaged
+			// entries only drop out of the preserved set.
+			if name == "/xl/sharedStrings.xml" || name == "/xl/styles.xml" || name == mainPartName {
+				return fmt.Errorf("xlsx: reading part %s: %w", name, err)
+			}
 			continue
 		}
 
@@ -164,12 +173,12 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 		case name == "/xl/sharedStrings.xml":
 			w.sharedStrings = &oxml.CT_Sst{}
 			if err := xml.Unmarshal(data, w.sharedStrings); err != nil {
-				return err
+				return fmt.Errorf("xlsx: parsing %s: %w", name, err)
 			}
 		case name == "/xl/styles.xml":
 			w.stylesheet = &oxml.CT_Stylesheet{}
 			if err := xml.Unmarshal(data, w.stylesheet); err != nil {
-				return err
+				return fmt.Errorf("xlsx: parsing %s: %w", name, err)
 			}
 		default:
 			// preserved in preservedParts
@@ -210,10 +219,10 @@ func (w *Workbook) loadAllRelationships() {
 }
 
 // loadSheets loads worksheets in the order defined by workbook.xml sheets
-// element. A referenced sheet part that fails to parse is an Open error: a
-// silently-empty sheet model would replace the original part with a fabricated
-// near-empty sheet on the first save after any mutation, destroying the
-// original data (C78).
+// element. A referenced sheet part that fails to resolve, read, or parse is an
+// Open error (C60/C78): a silently-empty sheet model would replace the
+// original part with a fabricated near-empty sheet on the first save after
+// any mutation, destroying the original data.
 func (w *Workbook) loadSheets(mainPartName string) error {
 	wbRels := w.relationships[mainPartName]
 
@@ -226,6 +235,21 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 				break
 			}
 		}
+		if partName == "" {
+			return fmt.Errorf("xlsx: sheet %q references relationship %q, which does not exist in the workbook relationships", sheetDef.Name, sheetDef.RID)
+		}
+
+		part, ok := w.preservedParts[partName]
+		if !ok {
+			// Distinguish an unreadable part from a missing one so the error
+			// names the actual failure.
+			if f := w.reader.GetFile(partName); f != nil {
+				if _, err := f.ReadAll(); err != nil {
+					return fmt.Errorf("xlsx: reading sheet part %s: %w", partName, err)
+				}
+			}
+			return fmt.Errorf("xlsx: sheet %q references missing worksheet part %s", sheetDef.Name, partName)
+		}
 
 		sheet := &Sheet{
 			workbook: w,
@@ -235,15 +259,11 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 			relID:    sheetDef.RID,
 		}
 
-		if partName != "" {
-			if part, ok := w.preservedParts[partName]; ok {
-				ws := &oxml.CT_Worksheet{}
-				if err := xml.Unmarshal(part.Data, ws); err != nil {
-					return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
-				}
-				sheet.worksheet = ws
-			}
+		ws := &oxml.CT_Worksheet{}
+		if err := xml.Unmarshal(part.Data, ws); err != nil {
+			return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
 		}
+		sheet.worksheet = ws
 
 		w.sheets = append(w.sheets, sheet)
 	}
@@ -343,7 +363,9 @@ func (w *Workbook) SaveTo(dst io.Writer) error {
 		err = w.saveNew(writer)
 	}
 	if err != nil {
-		_ = writer.Close()
+		// Abort, not Close: Close would finalize the half-written package as
+		// if it were good; the output must be discarded either way.
+		_ = writer.Abort()
 		return err
 	}
 	return writer.Close()
@@ -565,7 +587,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			wbRels = ensureRelationship(wbRels, opc.RelTypeStyles, "styles.xml")
 		}
 
-		if err := writer.WritePartRelationships(mainPartName, wbRels); err != nil {
+		if err := w.writeWorkbookRelationships(writer, mainPartName, workbookRelsName, wbRels); err != nil {
 			return err
 		}
 	}
@@ -587,6 +609,21 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	}
 
 	return nil
+}
+
+// writeWorkbookRelationships writes the workbook part's .rels. When the
+// rebuilt relationship set still matches what was parsed from the source —
+// exactly, or as the same set in a different order (OPC assigns no meaning to
+// .rels element order) — the source bytes are preserved verbatim, keeping
+// producer formatting (prolog form, BOM, attribute order) intact.
+func (w *Workbook) writeWorkbookRelationships(writer *opc.Writer, mainPartName, workbookRelsName string, wbRels []*opc.Relationship) error {
+	if part, ok := w.preservedParts[workbookRelsName]; ok {
+		orig, err := opc.UnmarshalRelationships(part.Data)
+		if err == nil && (opc.RelationshipsEqual(orig, wbRels) || opc.RelationshipsEquivalent(orig, wbRels)) {
+			return writer.WritePreservedPart(workbookRelsName, part.ContentType, part.Data)
+		}
+	}
+	return writer.WritePartRelationships(mainPartName, wbRels)
 }
 
 // dropCalcChainParts removes the calculation-chain part(s) from the preserved
@@ -864,9 +901,10 @@ func rebuildWorksheetRelationships(existing []*opc.Relationship, sheets []*Sheet
 		usedIDs[id] = struct{}{}
 		sheet.relID = id
 		filtered = append(filtered, &opc.Relationship{
-			ID:     id,
-			Type:   opc.RelTypeWorksheet,
-			Target: target,
+			ID:         id,
+			Type:       opc.RelTypeWorksheet,
+			Target:     target,
+			TargetMode: opc.TargetModeInternal,
 		})
 	}
 
@@ -886,9 +924,10 @@ func ensureRelationship(rels []*opc.Relationship, relType, target string) []*opc
 		}
 	}
 	return append(rels, &opc.Relationship{
-		ID:     fmt.Sprintf("rId%d", nextRelationshipID(usedIDs)),
-		Type:   relType,
-		Target: target,
+		ID:         fmt.Sprintf("rId%d", nextRelationshipID(usedIDs)),
+		Type:       relType,
+		Target:     target,
+		TargetMode: opc.TargetModeInternal,
 	})
 }
 
