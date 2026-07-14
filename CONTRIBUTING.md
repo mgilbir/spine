@@ -21,6 +21,35 @@ fails on any download error. A few fixtures have no known public URL and
 always skip. See `testdata/README.md`, including how to obtain the
 optional python-pptx fixture corpus.
 
+## Fuzzing
+
+Native Go fuzz targets cover the Open paths: `FuzzNewReader` and
+`FuzzOpcMetadataXML` in `opc`, plus `FuzzOpenPptx`/`FuzzPptxSlideXML`,
+`FuzzOpenDocx`/`FuzzDocxDocumentXML`, and
+`FuzzOpenXlsx`/`FuzzXlsxWorksheetXML` in the format packages. Each opens
+the fuzzed bytes as a package and, on success, walks a bounded slice of
+the model and round-trips it (SaveBytes, then re-open). The `*XML`
+variants pack the fuzzed bytes into the main part of an otherwise-valid
+package so the XML parsers see hostile input directly instead of the
+fuzzer having to invent whole zip archives. Errors are the expected
+outcome on malformed input; any panic is a bug.
+
+`make fuzz` is a short smoke run (30s per target; override with
+`FUZZTIME=5m make fuzz`). Deeper fuzzing is `-fuzztime`-driven per
+target, e.g.:
+
+```bash
+go test ./xlsx -run '^$' -fuzz '^FuzzXlsxWorksheetXML$' -fuzztime 30m
+```
+
+Seeds are generated in-process, so plain `go test` exercises them without
+any fixtures. When the Common Crawl corpus is present (or
+`SPINE_FUZZ_CORPUS` points at a directory with `docx`/`pptx`/`xlsx`
+subdirectories), a handful of small real files are added as extra seeds
+at runtime. Never commit corpus binaries or large seed files; minimized
+crashers that Go writes under `testdata/fuzz/<Target>/` are tiny and
+should be committed as regression seeds alongside the fix.
+
 ## Round-trip philosophy
 
 The core invariant of this library is byte-identity for untouched
