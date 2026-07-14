@@ -426,6 +426,16 @@ func (d *Document) SaveBytes() ([]byte, error) {
 
 // SaveTo saves the document to an arbitrary writer.
 func (d *Document) SaveTo(dst io.Writer) error {
+	if report := d.Validate(); report.HasErrors() {
+		return report
+	}
+	return d.SaveToUnvalidated(dst)
+}
+
+// SaveToUnvalidated saves the document without running the pre-save validation
+// pass. Prefer SaveTo; use this only when a finding is known to be advisory for
+// the caller's use case.
+func (d *Document) SaveToUnvalidated(dst io.Writer) error {
 	writer := opc.NewWriter(dst)
 	var err error
 	if d.reader != nil {
