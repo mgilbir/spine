@@ -53,6 +53,14 @@ func NewWriter(w io.Writer) *Writer {
 }
 
 // CreatePart creates a new part in the package.
+//
+// The returned io.Writer is only valid until the next call that adds an entry
+// to the package (CreatePart, WritePart, WritePreservedPart, WriteRawFile,
+// WritePartRelationships, WriteDirectoryEntries) or finalizes it (Close,
+// Abort): the underlying zip stream is sequential, so each new entry
+// invalidates the previous part's writer. Writing to an invalidated writer
+// does not interleave into the next part; it fails with an error from
+// archive/zip.
 func (w *Writer) CreatePart(name, contentType string, compression CompressionOption) (io.Writer, error) {
 	return w.createPart(name, contentType, compression, false)
 }
@@ -414,6 +422,21 @@ func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) e
 	return nil
 }
 
+// Abort discards the package being written: it closes the underlying zip
+// writer without emitting any package metadata (core/extended properties,
+// package relationships, [Content_Types].xml) and marks the Writer closed, so
+// every subsequent call fails with ErrPackageClosed. The bytes already written
+// to the output are not a valid OPC package and must be discarded — Abort
+// exists so an error path can terminate the writer without Close finalizing a
+// half-written package as if it were good.
+func (w *Writer) Abort() error {
+	if w.closed {
+		return ErrPackageClosed
+	}
+	w.closed = true
+	return w.zipWriter.Close()
+}
+
 // Close finalizes the package and writes all metadata.
 //
 // If Close returns an error the output is incomplete and must be discarded:
@@ -421,7 +444,8 @@ func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) e
 // reflect what was written. Even when a metadata write fails, Close still
 // closes the underlying zip writer (so the stream is flushed and not left as
 // a truncated non-zip with no central directory) and reports every error via
-// errors.Join.
+// errors.Join. Callers abandoning a package after a part-write error should
+// call Abort instead, which skips the metadata writes entirely.
 func (w *Writer) Close() error {
 	if w.closed {
 		return ErrPackageClosed

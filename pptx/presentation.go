@@ -693,7 +693,9 @@ func (p *Presentation) SaveTo(dst io.Writer) error {
 		err = p.saveNew(writer)
 	}
 	if err != nil {
-		_ = writer.Close()
+		// Abort, not Close: Close would finalize the half-written package as
+		// if it were good; the output must be discarded either way.
+		_ = writer.Abort()
 		return err
 	}
 	return writer.Close()
