@@ -651,10 +651,21 @@ func slideSizeToOxml(ss SlideSize) *oxml.SlideSize {
 	}
 }
 
+// slideDimensions returns the presentation's slide width and height in EMU,
+// falling back to the 4:3 default when no size is set.
+func (p *Presentation) slideDimensions() (w, h dml.EMU) {
+	if p.presentation != nil && p.presentation.SlideSize != nil {
+		return dml.EMU(p.presentation.SlideSize.Cx), dml.EMU(p.presentation.SlideSize.Cy)
+	}
+	return dml.EMU(9144000), dml.EMU(6858000)
+}
+
 // initializeDefaultMasterAndLayouts creates the default slide master and layouts.
 func (p *Presentation) initializeDefaultMasterAndLayouts() {
-	// Create default master
-	master := createDefaultMaster()
+	w, h := p.slideDimensions()
+
+	// Create default master, sized to the slide (C139).
+	master := createDefaultMaster(w, h)
 	master.presentation = p
 	master.partName = "/ppt/slideMasters/slideMaster1.xml"
 	master.relID = fmt.Sprintf("rId%d", p.nextRelID)
@@ -671,7 +682,7 @@ func (p *Presentation) initializeDefaultMasterAndLayouts() {
 	}
 
 	for i, lt := range defaultLayouts {
-		layout := createDefaultLayout(lt, master)
+		layout := createDefaultLayout(lt, master, w, h)
 		layout.presentation = p
 		layout.partName = fmt.Sprintf("/ppt/slideLayouts/slideLayout%d.xml", i+1)
 		layout.relID = fmt.Sprintf("rId%d", i+1) // Layout relationships are relative to master
@@ -707,8 +718,21 @@ func (p *Presentation) SaveBytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SaveTo saves the presentation to an arbitrary writer.
+// SaveTo saves the presentation to an arbitrary writer. It first runs Validate
+// and refuses to write (returning the Report as an error) when any
+// error-severity finding is present, so a structurally corrupt package is never
+// produced. Use SaveToUnvalidated to bypass the check.
 func (p *Presentation) SaveTo(dst io.Writer) error {
+	if report := p.Validate(); report.HasErrors() {
+		return report
+	}
+	return p.SaveToUnvalidated(dst)
+}
+
+// SaveToUnvalidated saves the presentation without running the pre-save
+// validation pass. Prefer SaveTo; use this only when a finding is known to be
+// advisory for the caller's use case.
+func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 	writer := opc.NewWriter(dst)
 	var err error
 	if p.reader != nil {
