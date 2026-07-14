@@ -264,22 +264,20 @@ func newDefaultLevelPPr(fontSize int32, marginLeft int32) *dml.PPr {
 }
 
 // createDefaultMaster creates a slide master with default settings.
-func createDefaultMaster() *SlideMaster {
+func createDefaultMaster(w, h dml.EMU) *SlideMaster {
 	master := &SlideMaster{
 		masterXML: newMasterXML(),
 		layouts:   make([]*SlideLayout, 0),
 	}
 
-	// Add title placeholder to master
+	// Add title placeholder to master, sized to the slide (C139).
 	titlePh := NewPlaceholderShape(PlaceholderTitle)
-	titlePh.SetPosition(dml.Inches(0.5), dml.Inches(0.3))
-	titlePh.SetSize(dml.Inches(12.33), dml.Inches(1.2))
+	titleRect(w, h).apply(titlePh)
 	titlePh.SetIndex(0)
 
-	// Add body placeholder to master
+	// Add body placeholder to master.
 	bodyPh := NewPlaceholderShape(PlaceholderBody)
-	bodyPh.SetPosition(dml.Inches(0.5), dml.Inches(1.6))
-	bodyPh.SetSize(dml.Inches(12.33), dml.Inches(5.1))
+	bodyRect(w, h).apply(bodyPh)
 	bodyPh.SetIndex(1)
 
 	// Add placeholders to master shape tree
@@ -298,7 +296,11 @@ func createDefaultMaster() *SlideMaster {
 // this the output contains <p:sldLayoutId r:id=""/> and an empty
 // <Relationship Id=""/> — a corrupt package.
 func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
-	layout := createDefaultLayout(layoutType, sm)
+	w, h := dml.EMU(9144000), dml.EMU(6858000)
+	if sm.presentation != nil {
+		w, h = sm.presentation.slideDimensions()
+	}
+	layout := createDefaultLayout(layoutType, sm, w, h)
 	layout.presentation = sm.presentation
 	layout.relID = fmt.Sprintf("rId%d", sm.nextLayoutRelIDNum())
 
