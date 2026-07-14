@@ -38,6 +38,19 @@ type Writer struct {
 	parts     map[string]bool
 	nextRelID int
 	closed    bool
+
+	// rawContentTypes holds [Content_Types].xml bytes handed to WriteRawFile.
+	// The entry is deferred to Close so content types registered after the raw
+	// write (CreatePart overrides, metadata-part registrations) can still be
+	// merged in instead of silently never being serialized (C46).
+	rawContentTypes []byte
+
+	// ctAtRawWrite snapshots ContentTypes at the moment the raw
+	// [Content_Types].xml was handed in. At Close, entries present in
+	// ContentTypes but not in this snapshot were registered after the raw
+	// write and are merged into the raw bytes when they are not already
+	// covered by them.
+	ctAtRawWrite *ContentTypes
 }
 
 // NewWriter creates a new Writer that writes to the provided io.Writer.
@@ -192,6 +205,14 @@ func (w *Writer) WriteDirectoryEntries(names []string) error {
 // WriteRawFile writes a raw file to the package without part name validation.
 // This is used for special files like [Content_Types].xml that don't follow
 // OPC part naming rules.
+//
+// A raw [Content_Types].xml is special-cased: its zip entry is emitted during
+// Close rather than immediately, so content types registered afterwards (e.g.
+// by CreatePart for a new part) are merged into the raw bytes instead of
+// accumulating in memory and never being serialized — which would leave the
+// new parts without a content-type entry, a silently OPC-invalid package
+// (C46). When nothing was registered after the raw write, the bytes are
+// emitted verbatim.
 func (w *Writer) WriteRawFile(name string, data []byte) error {
 	if w.closed {
 		return ErrPackageClosed
@@ -201,6 +222,15 @@ func (w *Writer) WriteRawFile(name string, data []byte) error {
 	key := strings.ToLower("/" + strings.TrimPrefix(name, "/"))
 	if w.parts[key] {
 		return ErrDuplicatePart
+	}
+
+	if key == "/[content_types].xml" {
+		// Defer to Close (see above). Copy the bytes so a caller reusing the
+		// buffer cannot corrupt the deferred write.
+		w.rawContentTypes = append([]byte(nil), data...)
+		w.ctAtRawWrite = w.ContentTypes.Clone()
+		w.parts[key] = true
+		return nil
 	}
 
 	header := &zip.FileHeader{
@@ -251,6 +281,16 @@ func (w *Writer) addRelationship(relType, target string, targetMode TargetMode) 
 
 // writeContentTypes writes the [Content_Types].xml file.
 func (w *Writer) writeContentTypes() error {
+	// A raw-written [Content_Types].xml was deferred to this point: emit it
+	// now, merging in any content types registered after the raw write (C46).
+	if w.rawContentTypes != nil {
+		data, err := w.mergedRawContentTypes()
+		if err != nil {
+			return err
+		}
+		return w.writeMetadataEntry("[Content_Types].xml", data)
+	}
+
 	// Skip if already written (for round-trip support)
 	if w.parts[strings.ToLower("/[content_types].xml")] {
 		return nil
@@ -260,17 +300,90 @@ func (w *Writer) writeContentTypes() error {
 	if err != nil {
 		return err
 	}
+	return w.writeMetadataEntry("[Content_Types].xml", data)
+}
 
-	header := &zip.FileHeader{
-		Name:   "[Content_Types].xml",
-		Method: zip.Deflate,
+// mergedRawContentTypes returns the raw [Content_Types].xml bytes handed to
+// WriteRawFile, with content types registered after that raw write merged in.
+// The raw bytes are returned verbatim when nothing new was registered or when
+// every late registration is already covered by them; otherwise the raw file
+// is parsed, extended, and re-marshaled — the parse captures the source
+// formatting (prolog, entry order, attribute order, self-closing style), so
+// the original entries are reproduced byte-for-byte and the new ones are
+// appended.
+func (w *Writer) mergedRawContentTypes() ([]byte, error) {
+	// Collect registrations made after the raw write: entries in the live
+	// ContentTypes that the snapshot taken at WriteRawFile time did not carry.
+	var newDefaults, newOverrides []string
+	for _, ext := range w.ContentTypes.orderedDefaults() {
+		if prev, ok := w.ctAtRawWrite.Defaults[ext]; ok && prev == w.ContentTypes.Defaults[ext] {
+			continue
+		}
+		newDefaults = append(newDefaults, ext)
+	}
+	for _, name := range w.ContentTypes.orderedOverrides() {
+		if prev, ok := w.ctAtRawWrite.Overrides[name]; ok && prev == w.ContentTypes.Overrides[name] {
+			continue
+		}
+		newOverrides = append(newOverrides, name)
+	}
+	if len(newDefaults) == 0 && len(newOverrides) == 0 {
+		return w.rawContentTypes, nil
 	}
 
+	parsed, err := UnmarshalContentTypes(w.rawContentTypes)
+	if err != nil {
+		// The raw bytes need additions but cannot be parsed: failing loudly
+		// beats emitting a package whose new parts have no content type.
+		return nil, fmt.Errorf("opc: content types were registered after WriteRawFile(\"[Content_Types].xml\") but the raw bytes do not parse, so they cannot be merged (first unmergeable: %s): %w",
+			firstNewContentTypeEntry(newDefaults, newOverrides), err)
+	}
+
+	merged := false
+	for _, ext := range newDefaults {
+		ct := w.ContentTypes.Defaults[ext]
+		if parsed.Defaults[ext] == ct {
+			continue // the raw file already carries it
+		}
+		parsed.SetDefault(w.ContentTypes.displayExtension(ext), ct)
+		merged = true
+	}
+	for _, name := range newOverrides {
+		ct := w.ContentTypes.Overrides[name]
+		if parsed.GetContentType(name) == ct {
+			continue // already covered by a raw override or default
+		}
+		parsed.SetOverride(name, ct)
+		merged = true
+	}
+	if !merged {
+		return w.rawContentTypes, nil
+	}
+	return parsed.Marshal()
+}
+
+// firstNewContentTypeEntry names one late-registered entry for error messages.
+func firstNewContentTypeEntry(newDefaults, newOverrides []string) string {
+	if len(newOverrides) > 0 {
+		return "override for " + newOverrides[0]
+	}
+	if len(newDefaults) > 0 {
+		return "default for extension ." + newDefaults[0]
+	}
+	return "none"
+}
+
+// writeMetadataEntry emits one deflate-compressed zip entry for a package
+// metadata file written during Close.
+func (w *Writer) writeMetadataEntry(name string, data []byte) error {
+	header := &zip.FileHeader{
+		Name:   name,
+		Method: zip.Deflate,
+	}
 	writer, err := w.zipWriter.CreateHeader(header)
 	if err != nil {
 		return err
 	}
-
 	_, err = writer.Write(data)
 	return err
 }
