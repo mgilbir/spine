@@ -302,6 +302,12 @@ type Reader struct {
 	// Properties contains the core properties of the package.
 	Properties *CoreProperties
 
+	// ExtendedProperties contains the extended properties (docProps/app.xml)
+	// of the package, or nil when the package has none or they fail to parse.
+	// Like Properties, the parse is best-effort and feeds the typed API only;
+	// consumers that preserve parts byte-for-byte keep the raw app.xml part.
+	ExtendedProperties *ExtendedProperties
+
 	// DirectoryEntries lists the zip directory entries ("_rels/", "word/", …)
 	// present in the source archive, in archive order. OPC ignores directory
 	// entries, but some producers (WPS, Apache POI, some Excel builds) emit
@@ -422,8 +428,9 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 		return nil, err
 	}
 
-	// Parse core properties if they exist
+	// Parse core and extended properties if they exist
 	reader.parseCoreProperties()
+	reader.parseExtendedProperties()
 
 	return reader, nil
 }
@@ -491,6 +498,35 @@ func (r *Reader) parseCoreProperties() {
 			r.Properties = props
 			return
 		}
+	}
+}
+
+// parseExtendedProperties reads the extended properties (app.xml) if they
+// exist. Like parseCoreProperties it is best-effort: a missing part or a
+// parse failure leaves ExtendedProperties nil rather than failing the open.
+func (r *Reader) parseExtendedProperties() {
+	for _, rel := range r.Relationships {
+		if rel.Type != RelTypeExtended {
+			continue
+		}
+		target := ResolvePartName("/", rel.Target)
+		f := r.GetFile(target)
+		if f == nil {
+			continue
+		}
+
+		data, err := f.ReadAll()
+		if err != nil {
+			continue
+		}
+
+		props, err := UnmarshalExtendedProperties(data)
+		if err != nil {
+			continue
+		}
+
+		r.ExtendedProperties = props
+		return
 	}
 }
 

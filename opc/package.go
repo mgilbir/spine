@@ -5,6 +5,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -386,7 +387,10 @@ const (
 	nsDocPropsVTypes     = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
 )
 
-// Marshal converts ExtendedProperties to XML bytes.
+// Marshal converts ExtendedProperties to XML bytes. Every settable field is
+// emitted with its actual value; zero-valued counters and false booleans
+// produce the same bytes as before they were settable, so packages that never
+// touch these fields marshal identically.
 func (ep *ExtendedProperties) Marshal() ([]byte, error) {
 	var b strings.Builder
 
@@ -396,8 +400,8 @@ func (ep *ExtendedProperties) Marshal() ([]byte, error) {
 	b.WriteString(">\n")
 
 	// Add properties in the expected order
-	b.WriteString("  <TotalTime>0</TotalTime>\n")
-	b.WriteString("  <Words>0</Words>\n")
+	b.WriteString("  <TotalTime>" + itoa(ep.TotalTime) + "</TotalTime>\n")
+	b.WriteString("  <Words>" + itoa(ep.Words) + "</Words>\n")
 
 	if ep.Application != "" {
 		b.WriteString("  <Application>" + xmlEscape(ep.Application) + "</Application>\n")
@@ -409,21 +413,15 @@ func (ep *ExtendedProperties) Marshal() ([]byte, error) {
 		b.WriteString("  <PresentationFormat>" + xmlEscape(ep.PresentationFormat) + "</PresentationFormat>\n")
 	}
 
-	b.WriteString("  <Paragraphs>0</Paragraphs>\n")
-
-	if ep.Slides > 0 {
-		b.WriteString("  <Slides>" + itoa(ep.Slides) + "</Slides>\n")
-	} else {
-		b.WriteString("  <Slides>0</Slides>\n")
-	}
-
-	b.WriteString("  <Notes>0</Notes>\n")
-	b.WriteString("  <HiddenSlides>0</HiddenSlides>\n")
-	b.WriteString("  <MMClips>0</MMClips>\n")
-	b.WriteString("  <ScaleCrop>false</ScaleCrop>\n")
-	b.WriteString("  <LinksUpToDate>false</LinksUpToDate>\n")
-	b.WriteString("  <SharedDoc>false</SharedDoc>\n")
-	b.WriteString("  <HyperlinksChanged>false</HyperlinksChanged>\n")
+	b.WriteString("  <Paragraphs>" + itoa(ep.Paragraphs) + "</Paragraphs>\n")
+	b.WriteString("  <Slides>" + itoa(ep.Slides) + "</Slides>\n")
+	b.WriteString("  <Notes>" + itoa(ep.Notes) + "</Notes>\n")
+	b.WriteString("  <HiddenSlides>" + itoa(ep.HiddenSlides) + "</HiddenSlides>\n")
+	b.WriteString("  <MMClips>" + itoa(ep.MMClips) + "</MMClips>\n")
+	b.WriteString("  <ScaleCrop>" + xmlBool(ep.ScaleCrop) + "</ScaleCrop>\n")
+	b.WriteString("  <LinksUpToDate>" + xmlBool(ep.LinksUpToDate) + "</LinksUpToDate>\n")
+	b.WriteString("  <SharedDoc>" + xmlBool(ep.SharedDoc) + "</SharedDoc>\n")
+	b.WriteString("  <HyperlinksChanged>" + xmlBool(ep.HyperlinksChanged) + "</HyperlinksChanged>\n")
 
 	if ep.AppVersion != "" {
 		b.WriteString("  <AppVersion>" + xmlEscape(ep.AppVersion) + "</AppVersion>\n")
@@ -434,6 +432,74 @@ func (ep *ExtendedProperties) Marshal() ([]byte, error) {
 	b.WriteString("</Properties>")
 
 	return []byte(b.String()), nil
+}
+
+// xmlBool renders a bool in the lowercase form OOXML uses for the extended
+// properties booleans.
+func xmlBool(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
+
+// UnmarshalExtendedProperties parses extended properties (docProps/app.xml)
+// into an ExtendedProperties struct. It is deliberately minimal: only the
+// fields ExtendedProperties models are populated, and element values that do
+// not parse as their expected type are skipped rather than failing the whole
+// part (wild files carry empty <Words/> elements and similar). Consumers that
+// need byte-level fidelity for app.xml should preserve the raw part; this
+// parse only feeds the typed API.
+func UnmarshalExtendedProperties(data []byte) (*ExtendedProperties, error) {
+	// All values decode as strings first: an empty or malformed counter
+	// element must not fail the parse.
+	var raw struct {
+		Application        string `xml:"Application"`
+		AppVersion         string `xml:"AppVersion"`
+		TotalTime          string `xml:"TotalTime"`
+		Words              string `xml:"Words"`
+		Paragraphs         string `xml:"Paragraphs"`
+		Slides             string `xml:"Slides"`
+		Notes              string `xml:"Notes"`
+		HiddenSlides       string `xml:"HiddenSlides"`
+		MMClips            string `xml:"MMClips"`
+		PresentationFormat string `xml:"PresentationFormat"`
+		ScaleCrop          string `xml:"ScaleCrop"`
+		LinksUpToDate      string `xml:"LinksUpToDate"`
+		SharedDoc          string `xml:"SharedDoc"`
+		HyperlinksChanged  string `xml:"HyperlinksChanged"`
+	}
+	if err := xml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	ep := &ExtendedProperties{
+		Application:        raw.Application,
+		AppVersion:         raw.AppVersion,
+		PresentationFormat: raw.PresentationFormat,
+	}
+	setInt := func(dst *int, s string) {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			*dst = n
+		}
+	}
+	setBool := func(dst *bool, s string) {
+		if v, err := strconv.ParseBool(strings.TrimSpace(s)); err == nil {
+			*dst = v
+		}
+	}
+	setInt(&ep.TotalTime, raw.TotalTime)
+	setInt(&ep.Words, raw.Words)
+	setInt(&ep.Paragraphs, raw.Paragraphs)
+	setInt(&ep.Slides, raw.Slides)
+	setInt(&ep.Notes, raw.Notes)
+	setInt(&ep.HiddenSlides, raw.HiddenSlides)
+	setInt(&ep.MMClips, raw.MMClips)
+	setBool(&ep.ScaleCrop, raw.ScaleCrop)
+	setBool(&ep.LinksUpToDate, raw.LinksUpToDate)
+	setBool(&ep.SharedDoc, raw.SharedDoc)
+	setBool(&ep.HyperlinksChanged, raw.HyperlinksChanged)
+	return ep, nil
 }
 
 // itoa converts an integer to a string without importing strconv.
