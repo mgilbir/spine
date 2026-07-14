@@ -17,6 +17,20 @@ type BuilderMarshaler interface {
 
 var builderMarshalerType = reflect.TypeOf((*BuilderMarshaler)(nil)).Elem()
 
+// xmlMarshalerType and xmlMarshalerAttrType identify the stdlib
+// encoding/xml marshaling interfaces. The Builder cannot honor them (their
+// output is written to an *xml.Encoder with the stdlib's own namespace
+// bookkeeping, which does not compose with the Builder's prefix scheme), so a
+// type that implements one of them but not the Builder's own marshaling
+// interface is a latent footgun: it would be silently reflection-marshaled,
+// ignoring its MarshalXML/MarshalXMLAttr. The Builder detects that case and
+// records an error (surfaced via Err/Finish) instead of shipping wrong bytes.
+var (
+	xmlMarshalerType     = reflect.TypeOf((*xml.Marshaler)(nil)).Elem()
+	xmlMarshalerAttrType = reflect.TypeOf((*xml.MarshalerAttr)(nil)).Elem()
+	attrValuerType       = reflect.TypeOf((*AttrValuer)(nil)).Elem()
+)
+
 // AttrValuer is the interface implemented by attribute value types that
 // render their own lexical form in reflection-based marshaling (e.g.
 // percentage values that re-emit a transitional "n%" source form verbatim).
@@ -214,6 +228,23 @@ func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
 		return
 	}
 
+	// A type that implements the stdlib xml.Marshaler but not BuilderMarshaler
+	// would fall through to reflection below, silently discarding its
+	// MarshalXML. Refuse to emit likely-wrong bytes; the caller must implement
+	// MarshalToBuilder. (Types marshaled through the stdlib encoder elsewhere
+	// never reach this path, so this stays inert for them.)
+	if b.err == nil {
+		var mt reflect.Type
+		if val.CanAddr() {
+			mt = val.Addr().Type()
+		}
+		if (mt != nil && mt.Implements(xmlMarshalerType)) || val.Type().Implements(xmlMarshalerType) {
+			b.err = fmt.Errorf("xml: type %s implements xml.Marshaler but not xmlb.BuilderMarshaler; "+
+				"the Builder cannot marshal it (implement MarshalToBuilder)", val.Type())
+			return
+		}
+	}
+
 	switch val.Kind() {
 	case reflect.Struct:
 		if val.Type() == xmlNameType {
@@ -321,6 +352,15 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 			continue
 		}
 
+		// An attribute type implementing the stdlib xml.MarshalerAttr but not
+		// the Builder's AttrValuer would be formatted by formatValue's generic
+		// fallback, ignoring its MarshalXMLAttr. Fail loudly (see marshalReflect).
+		if b.err == nil && implementsMarshalerAttr(fval) && !implementsAttrValuer(fval) {
+			b.err = fmt.Errorf("xml: attribute type %s implements xml.MarshalerAttr but not xmlb.AttrValuer; "+
+				"the Builder cannot marshal it (implement AttrValue/IsZeroAttr)", fval.Type())
+			continue
+		}
+
 		attrs = append(attrs, Attr{
 			Namespace: info.ns,
 			Name:      info.name,
@@ -332,6 +372,24 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 		return b.ReplayCapturedAttrs(captured, attrs)
 	}
 	return attrs
+}
+
+// implementsMarshalerAttr reports whether v (or its addressable pointer)
+// implements the stdlib xml.MarshalerAttr interface.
+func implementsMarshalerAttr(v reflect.Value) bool {
+	if v.Type().Implements(xmlMarshalerAttrType) {
+		return true
+	}
+	return v.CanAddr() && v.Addr().Type().Implements(xmlMarshalerAttrType)
+}
+
+// implementsAttrValuer reports whether v (or its addressable pointer)
+// implements the Builder's AttrValuer interface.
+func implementsAttrValuer(v reflect.Value) bool {
+	if v.Type().Implements(attrValuerType) {
+		return true
+	}
+	return v.CanAddr() && v.Addr().Type().Implements(attrValuerType)
 }
 
 // renderedAttrName returns the name an attribute is written with: the

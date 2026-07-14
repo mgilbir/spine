@@ -128,6 +128,27 @@ func (s SlideLayoutID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 	return e.EncodeElement(struct{}{}, start)
 }
 
+// MarshalToBuilder implements xmlb.BuilderMarshaler so the Builder emits this
+// entry through its own namespace/prefix bookkeeping (r:id) rather than the
+// stdlib encoder. Without it the reflection marshaler would ignore MarshalXML
+// and the Builder now refuses to marshal xml.Marshaler types silently (C106).
+func (s SlideLayoutID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	var attrs []xmlb.Attr
+	if s.ID > 0 {
+		attrs = append(attrs, xmlb.UintAttr("id", s.ID))
+	}
+	if s.RID != "" {
+		attrs = append(attrs, xmlb.RelAttr("id", s.RID))
+	}
+	if s.ExtLst == nil {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	b.MarshalElement(ns, "extLst", s.ExtLst)
+	b.EndElement(ns, localName)
+}
+
 // UnmarshalXML implements custom XML unmarshaling for SlideLayoutID.
 // Handles both namespaced (relationships:id) and prefixed (r:id) formats,
 // and captures the optional extLst child (C225).
