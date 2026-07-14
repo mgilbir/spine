@@ -213,3 +213,60 @@ func TestClose_MetadataWriteFailureStillClosesZip(t *testing.T) {
 		t.Errorf("CreatePart after failed Close error = %v, want ErrPackageClosed", err)
 	}
 }
+
+// C54: Abort discards the package without emitting metadata, marks the writer
+// closed, and makes every subsequent call fail with ErrPackageClosed.
+func TestAbort_DiscardsWithoutMetadata(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	if err := w.WritePart("/test/part.xml", "application/xml", []byte("<root/>")); err != nil {
+		t.Fatalf("WritePart() error = %v", err)
+	}
+	if err := w.Abort(); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+
+	// No metadata entries were emitted.
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("reading aborted output: %v", err)
+	}
+	for _, f := range zr.File {
+		switch f.Name {
+		case "[Content_Types].xml", "_rels/.rels", "docProps/core.xml", "docProps/app.xml":
+			t.Errorf("Abort() emitted metadata entry %s", f.Name)
+		}
+	}
+
+	// Subsequent calls error.
+	if _, err := w.CreatePart("/x.xml", "application/xml", CompressionDeflate); !errors.Is(err, ErrPackageClosed) {
+		t.Errorf("CreatePart after Abort: error = %v, want ErrPackageClosed", err)
+	}
+	if err := w.Close(); !errors.Is(err, ErrPackageClosed) {
+		t.Errorf("Close after Abort: error = %v, want ErrPackageClosed", err)
+	}
+	if err := w.Abort(); !errors.Is(err, ErrPackageClosed) {
+		t.Errorf("second Abort: error = %v, want ErrPackageClosed", err)
+	}
+}
+
+// C123: the writer returned by CreatePart is invalidated by the next part
+// write; writing through it must error rather than silently interleave bytes
+// into the following entry.
+func TestCreatePart_InvalidatedWriterErrors(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	first, err := w.CreatePart("/a.xml", "application/xml", CompressionDeflate)
+	if err != nil {
+		t.Fatalf("CreatePart() error = %v", err)
+	}
+	if _, err := first.Write([]byte("<a/>")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if _, err := w.CreatePart("/b.xml", "application/xml", CompressionDeflate); err != nil {
+		t.Fatalf("CreatePart() error = %v", err)
+	}
+	if _, err := first.Write([]byte("stale")); err == nil {
+		t.Error("Write to invalidated part writer succeeded, want error")
+	}
+}
