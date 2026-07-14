@@ -19,35 +19,55 @@ const (
 	ContentTypeCoreProps     = "application/vnd.openxmlformats-package.core-properties+xml"
 	ContentTypeExtendedProps = "application/vnd.openxmlformats-officedocument.extended-properties+xml"
 
-	// PowerPoint content types
-	ContentTypePresentationMain  = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
-	ContentTypeSlide             = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
-	ContentTypeSlideLayout       = "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
-	ContentTypeSlideMaster       = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
-	ContentTypeTheme             = "application/vnd.openxmlformats-officedocument.theme+xml"
-	ContentTypeThemeOverride     = "application/vnd.openxmlformats-officedocument.themeOverride+xml"
-	ContentTypePresentationProps = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
-	ContentTypeViewProps         = "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
-	ContentTypeTableStyles       = "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+	// PowerPoint content types. The main part of a PresentationML package
+	// comes in one flavor per file type (ECMA-376 and [MS-OFFDI]): regular
+	// presentation (.pptx), slideshow (.ppsx), template (.potx), and the
+	// macro-enabled variant of each (.pptm/.ppsm/.potm).
+	ContentTypePresentationMain              = "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+	ContentTypeSlideshowMain                 = "application/vnd.openxmlformats-officedocument.presentationml.slideshow.main+xml"
+	ContentTypePresentationTemplateMain      = "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"
+	ContentTypePresentationMacroMain         = "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml"
+	ContentTypeSlideshowMacroMain            = "application/vnd.ms-powerpoint.slideshow.macroEnabled.main+xml"
+	ContentTypePresentationTemplateMacroMain = "application/vnd.ms-powerpoint.template.macroEnabled.main+xml"
+	ContentTypeSlide                         = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+	ContentTypeSlideLayout                   = "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"
+	ContentTypeSlideMaster                   = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
+	ContentTypeTheme                         = "application/vnd.openxmlformats-officedocument.theme+xml"
+	ContentTypeThemeOverride                 = "application/vnd.openxmlformats-officedocument.themeOverride+xml"
+	ContentTypePresentationProps             = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
+	ContentTypeViewProps                     = "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
+	ContentTypeTableStyles                   = "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
 
-	// Excel content types
-	ContentTypeWorkbook      = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
-	ContentTypeWorksheet     = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
-	ContentTypeSharedStrings = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
-	ContentTypeStyles        = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
+	// Excel content types. SpreadsheetML main-part flavors: regular workbook
+	// (.xlsx), template (.xltx), and the macro-enabled workbook (.xlsm),
+	// template (.xltm), and add-in (.xlam) variants.
+	ContentTypeWorkbook                  = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+	ContentTypeWorkbookTemplateMain      = "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml"
+	ContentTypeWorkbookMacroMain         = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
+	ContentTypeWorkbookTemplateMacroMain = "application/vnd.ms-excel.template.macroEnabled.main+xml"
+	ContentTypeWorkbookAddinMacroMain    = "application/vnd.ms-excel.addin.macroEnabled.main+xml"
+	ContentTypeWorksheet                 = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+	ContentTypeSharedStrings             = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
+	ContentTypeStyles                    = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
 
-	// Word content types
-	ContentTypeDocument       = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
-	ContentTypeDocStyles      = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
-	ContentTypeNumbering      = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
-	ContentTypeDocSettings    = "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
-	ContentTypeDocFontTable   = "application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"
-	ContentTypeDocFootnotes   = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
-	ContentTypeDocEndnotes    = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
-	ContentTypeDocComments    = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
-	ContentTypeDocHeader      = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
-	ContentTypeDocFooter      = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
-	ContentTypeDocWebSettings = "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"
+	// Word content types. WordprocessingML main-part flavors: regular
+	// document (.docx), template (.dotx), and the macro-enabled document
+	// (.docm) and template (.dotm) variants. The .dotm spelling
+	// ("macroEnabledTemplate") is [MS-OFFDI]'s, not a typo.
+	ContentTypeDocument                  = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+	ContentTypeDocumentTemplateMain      = "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"
+	ContentTypeDocumentMacroMain         = "application/vnd.ms-word.document.macroEnabled.main+xml"
+	ContentTypeDocumentTemplateMacroMain = "application/vnd.ms-word.template.macroEnabledTemplate.main+xml"
+	ContentTypeDocStyles                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
+	ContentTypeNumbering                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
+	ContentTypeDocSettings               = "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
+	ContentTypeDocFontTable              = "application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"
+	ContentTypeDocFootnotes              = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+	ContentTypeDocEndnotes               = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
+	ContentTypeDocComments               = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+	ContentTypeDocHeader                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+	ContentTypeDocFooter                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
+	ContentTypeDocWebSettings            = "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"
 
 	// Drawing content type (SpreadsheetML/DrawingML drawing part)
 	ContentTypeDrawing = "application/vnd.openxmlformats-officedocument.drawing+xml"

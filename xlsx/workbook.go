@@ -29,7 +29,15 @@ type Workbook struct {
 	// names such as /xl/book.xml occur in the wild). The save paths regenerate
 	// THIS part; hardcoding /xl/workbook.xml would preserve the stale original
 	// and silently drop every edit (C231).
-	mainPartName   string
+	mainPartName string
+	// flavor is the main part's content type as recorded at open: one of the
+	// SpreadsheetML main-part flavors (workbook, template, or a macro-enabled
+	// workbook/template/add-in). Empty for a created workbook, which saves as
+	// a regular workbook. The save paths re-emit this content type so e.g. a
+	// macro-enabled workbook (.xlsm) is not silently retyped to a regular
+	// workbook while still carrying its vbaProject part — a combination that
+	// makes Excel flag the file.
+	flavor         string
 	contentTypes   *opc.ContentTypes
 	workbook       *oxml.CT_Workbook
 	sharedStrings  *oxml.CT_Sst
@@ -82,7 +90,10 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 		return nil, ErrNotXLSX
 	}
 
-	if mainPart.ContentType != opc.ContentTypeWorkbook {
+	// Any SpreadsheetML main-part flavor is accepted (regular workbook,
+	// template, and the macro-enabled workbook/template/add-in variants); the
+	// flavor is recorded so the save re-emits it.
+	if !workbookFlavors[mainPart.ContentType] {
 		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}
@@ -110,6 +121,7 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 		reader:         reader,
 		opened:         true,
 		mainPartName:   mainPartName,
+		flavor:         mainPart.ContentType,
 		contentTypes:   reader.ContentTypes,
 		workbook:       &wb,
 		preservedParts: make(map[string]*coxml.RawPart),
@@ -324,6 +336,31 @@ func (w *Workbook) mainPart() string {
 		return w.mainPartName
 	}
 	return defaultMainPartName
+}
+
+// workbookFlavors is the set of SpreadsheetML main-part content types
+// (ECMA-376 and [MS-OFFDI]) that Open accepts: regular workbook (.xlsx),
+// template (.xltx), and the macro-enabled workbook (.xlsm), template (.xltm),
+// and add-in (.xlam) variants.
+var workbookFlavors = map[string]bool{
+	opc.ContentTypeWorkbook:                  true,
+	opc.ContentTypeWorkbookTemplateMain:      true,
+	opc.ContentTypeWorkbookMacroMain:         true,
+	opc.ContentTypeWorkbookTemplateMacroMain: true,
+	opc.ContentTypeWorkbookAddinMacroMain:    true,
+}
+
+// Flavor returns the main part's content type: one of the SpreadsheetML
+// flavors (opc.ContentTypeWorkbook, opc.ContentTypeWorkbookTemplateMain, or a
+// macro-enabled variant). An opened file reports the flavor it was opened
+// with — a macro-enabled workbook (.xlsm) stays macro-enabled across a save —
+// and a created workbook reports opc.ContentTypeWorkbook. There is no
+// conversion API: retyping a file to another flavor is out of scope.
+func (w *Workbook) Flavor() string {
+	if w.flavor != "" {
+		return w.flavor
+	}
+	return opc.ContentTypeWorkbook
 }
 
 // Save saves the workbook to a file.
@@ -599,7 +636,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
+	if err := writer.WritePart(mainPartName, w.Flavor(), wbData); err != nil {
 		return err
 	}
 
@@ -749,7 +786,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart(mainPartName, opc.ContentTypeWorkbook, wbData); err != nil {
+	if err := writer.WritePart(mainPartName, w.Flavor(), wbData); err != nil {
 		return err
 	}
 
