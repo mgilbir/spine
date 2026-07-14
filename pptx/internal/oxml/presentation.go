@@ -66,7 +66,7 @@ type Presentation struct {
 // UnmarshalXML captures the root element's verbatim attribute list before
 // decoding through the struct tags.
 func (p *Presentation) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
+	p.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias Presentation
 	return d.DecodeElement((*alias)(p), &start)
 }
@@ -194,9 +194,13 @@ type SlideMasterIDs struct {
 
 // SlideMasterID references a slide master.
 type SlideMasterID struct {
-	ID     uint32         `xml:"id,attr,omitempty"`
-	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
-	ExtLst *ExtensionList `xml:"extLst,omitempty"`
+	ID  uint32 `xml:"id,attr,omitempty"`
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	// IDOmitted records that the source entry had no id attribute (it is
+	// optional in the schema); the regenerated entry then omits it too
+	// instead of synthesizing one.
+	IDOmitted bool           `xml:"-"`
+	ExtLst    *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // MarshalXML implements custom XML marshaling for SlideMasterID.
@@ -214,6 +218,7 @@ func (s SlideMasterID) MarshalXML(e *xml.Encoder, start xml.StartElement) error 
 // Handles both namespaced (relationships:id) and prefixed (r:id) formats,
 // and captures the optional extLst child (C225).
 func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.IDOmitted = true
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
@@ -221,6 +226,7 @@ func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			var id uint32
 			_, _ = fmt.Sscanf(attr.Value, "%d", &id)
 			s.ID = id
+			s.IDOmitted = false
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			// Relationship ID with full namespace
 			s.RID = attr.Value
@@ -314,7 +320,7 @@ type SlideSize struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ssz *SlideSize) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ssz.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ssz.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias SlideSize
 	return d.DecodeElement((*alias)(ssz), &start)
 }
@@ -332,7 +338,7 @@ type TextFont struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (tft *TextFont) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	tft.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	tft.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias TextFont
 	return d.DecodeElement((*alias)(tft), &start)
 }

@@ -163,11 +163,15 @@ type CommonSlideData struct {
 	CustDataLst []byte         `xml:"-"`
 	Controls    []byte         `xml:"-"`
 	ExtLst      *ExtensionList `xml:"extLst,omitempty"`
+	// CapturedAttrs preserves the verbatim name attribute rendering (raw
+	// newlines, &#10; entity forms, explicit name=""); replayed on marshal.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CommonSlideData so the
 // unmodeled custDataLst and controls children are kept as raw bytes.
 func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		if attr.Name.Space == "" && attr.Name.Local == "name" {
 			c.Name = attr.Value
@@ -231,6 +235,9 @@ func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 	if c.Name != "" {
 		attrs = append(attrs, xmlb.StrAttr("name", c.Name))
 	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
+	}
 	b.StartElement(ns, localName, attrs...)
 	if c.Bg != nil {
 		b.MarshalElement(ns, "bg", c.Bg)
@@ -273,7 +280,7 @@ type BackgroundProps struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (bgp *BackgroundProps) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	bgp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	bgp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias BackgroundProps
 	return d.DecodeElement((*alias)(bgp), &start)
 }
@@ -730,7 +737,7 @@ type ColorMap struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (cmp *ColorMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	cmp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	cmp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias ColorMap
 	return d.DecodeElement((*alias)(cmp), &start)
 }

@@ -77,17 +77,33 @@ committed manifest still pins exactly what was attempted.
 Wild files exercise corners the library does not handle yet — failures are
 expected and are the point of the corpus. Known failures are recorded in
 `known_failures.tsv` (columns: `sha16`, `type`, `stage`, `note`; stage is one
-of `open`, `save`, `reopen`, `fidelity`). Files failing at a quarantined
-stage are skip-counted; **new** failures fail the test with the file's hash,
-source URL, stage, and error. The quarantine is the running catalog of
-compatibility work: fixing a bug means deleting its rows.
+of `open`, `save`, `reopen`, `fidelity`, or `wontfix`). Files failing at a
+quarantined stage are skip-counted; **new** failures fail the test with the
+file's hash, source URL, stage, and error. The quarantine is the running
+catalog of compatibility work: fixing a bug means deleting its rows.
+
+The `wontfix` stage marks a row as **permanent-by-design**: the file cannot
+round-trip byte-identically for a reason outside the library's control, and
+the note carries the hand-written reason instead of an error signature.
+Current reasons fall into three families: corrupt source archives (a stored
+CRC that does not match the data — the library tolerates the part, a strict
+re-read cannot), the decoder's mandatory XML end-of-line normalization
+(pretty-printed parts whose CRLF inter-element text reaches the model as
+LF), and whitespace-preserving producers (parts pretty-printed with
+inter-element whitespace at every level of the tree, which the typed model
+does not capture). A `wontfix` row matches a failure at *any* stage and is
+skip-counted like a quarantined row, but reported in its own column of the
+stats block, so the actionable quarantine and the permanent tail stay
+separately visible. `wontfix` rows survive quarantine regeneration verbatim;
+if the file starts passing they drop out like any other row.
 
 To regenerate the quarantine after a fix wave, run the full corpus test with
 `SPINE_CC_UPDATE_QUARANTINE=1 go test ./cctest -count=1 -timeout 45m`: the
-committed quarantine is ignored, every failure becomes a fresh row, and
-`known_failures.tsv` is rewritten in place (sorted, ready to commit). The
-older `SPINE_CC_EMIT_QUARANTINE=1` mode still prints `CCQUARANTINE` lines
-for ad-hoc collection.
+committed quarantine is ignored (except `wontfix` rows, whose curated notes
+are kept), every failure becomes a fresh row, and `known_failures.tsv` is
+rewritten in place (sorted, ready to commit). The older
+`SPINE_CC_EMIT_QUARANTINE=1` mode still prints `CCQUARANTINE` lines for
+ad-hoc collection.
 
 ## Reproducibility and politeness
 

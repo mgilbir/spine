@@ -48,6 +48,19 @@ type CT_PPr struct {
 	RPr       *CT_RPr       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main rPr,omitempty"`
 	SectPr    *CT_SectPr    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
 	PPrChange *CT_PPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPrChange,omitempty"`
+	// CapturedChildren records the source child sequence (see CT_RPr):
+	// producer child order, unmodeled children, and duplicated toggles all
+	// replay verbatim.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+	// CapturedEmptyTag records how an empty w:pPr was written in the source.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style and child sequence
+// while decoding the children into the struct fields.
+func (pp *CT_PPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	pp.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	return xmlb.UnmarshalOrderedChildren(d, pp)
 }
 
 // pChildKind identifies paragraph content child element types.
@@ -83,7 +96,17 @@ const (
 func isRawPChild(local string) bool {
 	switch local {
 	case "customXml", "smartTag", "moveTo", "moveFrom",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
+		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
+		"customXmlInsRangeStart", "customXmlInsRangeEnd",
+		"customXmlDelRangeStart", "customXmlDelRangeEnd",
+		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
+		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
+		"br",
+		"commentRangeStart", "commentRangeEnd":
+		// w:br is only valid inside w:r, but LibreOffice-era exports place it
+		// directly in w:p; dropping it merged the surrounding lines.
+		// Comment ranges appear inside w:ins/w:del and run-level SDT content,
+		// which type them nowhere (CT_P handles its own before this).
 		return true
 	}
 	return false
@@ -181,12 +204,26 @@ type CT_P struct {
 	OMathPara         [][]byte                  `xml:"-"` // raw m:oMathPara elements
 	AlternateContent  []*coxml.AlternateContent `xml:"-"`
 	Raw               []*CT_RawNamedElement     `xml:"-"` // see isRawPChild
-	childOrder        []pChildRef
+	// CapturedEmptyTag records how an empty w:p was written in the source
+	// (<w:p/> vs <w:p></w:p>; producers mix both forms in one part).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+	childOrder       []pChildRef
+}
+
+// isEmpty reports whether the paragraph has no children to write.
+func (p *CT_P) isEmpty() bool {
+	return p.PPr == nil && len(p.childOrder) == 0 && len(p.R) == 0 &&
+		len(p.Hyperlink) == 0 && len(p.BookmarkStart) == 0 && len(p.BookmarkEnd) == 0 &&
+		len(p.ProofErr) == 0 && len(p.PermStart) == 0 && len(p.PermEnd) == 0 &&
+		len(p.Ins) == 0 && len(p.Del) == 0 && len(p.FldSimple) == 0 &&
+		len(p.SdtRun) == 0 && len(p.CommentRangeStart) == 0 && len(p.CommentRangeEnd) == 0 &&
+		len(p.OMath) == 0 && len(p.OMathPara) == 0 && len(p.AlternateContent) == 0 && len(p.Raw) == 0
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_P to preserve child order.
 func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	p.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	p.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	p.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "rsidR" && (attr.Name.Space == NsWml || attr.Name.Space == ""):
@@ -215,6 +252,18 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "pPr":
+				if p.PPr != nil {
+					// A duplicated w:pPr (invalid but seen in the wild) is
+					// preserved verbatim at its position; the first stays
+					// the typed model.
+					v := &CT_RawNamedElement{}
+					if err := d.DecodeElement(v, &t); err != nil {
+						return err
+					}
+					p.childOrder = append(p.childOrder, pChildRef{pChildRaw, len(p.Raw)})
+					p.Raw = append(p.Raw, v)
+					continue
+				}
 				p.PPr = &CT_PPr{}
 				if err := d.DecodeElement(p.PPr, &t); err != nil {
 					return err
@@ -383,6 +432,10 @@ func (p *CT_P) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if p.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(p.CapturedAttrs, attrs)
+	}
+	if p.isEmpty() {
+		b.EmptyElementStyled(p.CapturedEmptyTag, ns, localName, attrs...)
+		return
 	}
 	b.StartElement(ns, localName, attrs...)
 

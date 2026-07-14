@@ -53,6 +53,32 @@ remediation series (#59–#75).
   (#81).
 - xlsx: unknown workbook children round-trip verbatim, and xmlns
   declarations carried on `<sheet>` elements survive (#81).
+- fidelity: a zero-modification save now reproduces the producer's bytes
+  across the wild-file corpus. Capture mechanisms record what the source
+  wrote and replay it — per-element attribute order, inline xmlns
+  declarations, per-instance empty-element style (#82); per-instance child
+  order with verbatim raw preservation of unmodeled children, duplicated
+  singletons, and inter-child whitespace; verbatim attribute renderings
+  (producer prefix aliases like `ve:`/`wp14:`, quote style, spacing,
+  boolean lexical forms); verbatim text forms (entity choices, raw CR/LF);
+  prolog comments, byte-order marks, and non-canonical root end tags (#83).
+- docx: table cells and rows wrapped in structured document tags are no
+  longer dropped on save (a data-loss bug: `w:tc`/`w:tr` inside
+  `w:sdtContent`, `w:sdt` inside `w:tbl`); unmodeled run children
+  (`w:pgNum`, `w:ruby`, `w:footnoteRef`), the `w14:*` run-property
+  extensions, rPr-level tracked-change markers, `w:tblGridChange`,
+  body/table-level `w:permStart`/`w:permEnd`, the `customXml*Range*`
+  markers, and the `v:background` VML fill now survive round trips (#83).
+- pptx: a `mc:AlternateContent` wrapping a picture's blip fill
+  (Mac-authored decks) is no longer dropped; `a14:hiddenFill` keeps
+  blip/group fill payloads; `p14:media` keeps `r:link` references;
+  `a:lstStyle` keeps its `a:extLst`; `p:sldMasterId` entries without an id
+  no longer gain a synthesized one (#83).
+- cctest: quarantine rows can be classified `wontfix` (permanent-by-design:
+  corrupt source archives, XML the decoder normalizes before the model sees
+  it, whitespace-preserving producers) with a curated reason; they are
+  skip-counted like quarantined rows but reported separately, and survive
+  quarantine regeneration (#83).
 
 ### Changed
 

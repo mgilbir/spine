@@ -11,10 +11,14 @@ import (
 // The drawing content is preserved as raw XML.
 type CT_Drawing struct {
 	RawContent []byte `xml:"-"`
+	// CapturedAttrs preserves the verbatim attribute list of the w:drawing
+	// element itself (some producers declare xmlns:a inline on it).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Drawing.
 func (dr *CT_Drawing) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	dr.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	var inner struct {
 		Content []byte `xml:",innerxml"`
 	}
@@ -27,7 +31,11 @@ func (dr *CT_Drawing) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Drawing.
 func (dr *CT_Drawing) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName)
+	var attrs []xmlb.Attr
+	if dr.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(dr.CapturedAttrs, attrs)
+	}
+	b.StartElement(ns, localName, attrs...)
 	b.WriteRaw(dr.RawContent)
 	b.EndElement(ns, localName)
 }
@@ -40,10 +48,16 @@ func (dr *CT_Drawing) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 type CT_RawElement struct {
 	Attrs      []xml.Attr `xml:"-"`
 	RawContent []byte     `xml:"-"`
+	// ElemPrefix is the element name's verbatim source prefix. It preserves
+	// the producer's choice when several prefixes bind one URI (Word 2007
+	// files alias markup-compatibility as both mc and ve).
+	ElemPrefix         string `xml:"-"`
+	elemPrefixCaptured bool
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_RawElement.
 func (re *CT_RawElement) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	re.ElemPrefix, re.elemPrefixCaptured = xmlb.ElementPrefix(d)
 	re.Attrs = append(re.Attrs[:0], start.Attr...)
 	var inner struct {
 		Content []byte `xml:",innerxml"`
@@ -99,6 +113,19 @@ func (re *CT_RawElement) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 		default:
 			attrs = append(attrs, xmlb.Attr{Namespace: a.Name.Space, Name: a.Name.Local, Value: a.Value})
 		}
+	}
+	if re.elemPrefixCaptured && re.ElemPrefix != "" {
+		// Replay the element under its verbatim source prefix: with two
+		// prefixes bound to one URI the resolver could pick the other one.
+		lit := b.QualifyAttrs(attrs)
+		if len(re.RawContent) == 0 {
+			b.EmptyElementLiteral(re.ElemPrefix, localName, lit...)
+			return
+		}
+		b.StartElementLiteral(re.ElemPrefix, localName, nil, lit...)
+		b.WriteRaw(re.RawContent)
+		b.EndElementLiteral(re.ElemPrefix, localName)
+		return
 	}
 	if len(re.RawContent) == 0 {
 		b.EmptyElement(ns, localName, attrs...)

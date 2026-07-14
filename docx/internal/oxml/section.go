@@ -22,7 +22,11 @@ type CT_SectPr struct {
 	// headerReference/footerReference children: EG_HdrFtrReferences is an
 	// ordered choice and Word interleaves the two kinds, so emitting all
 	// headers then all footers drifts from the source.
-	hdrFtrOrder        []hdrFtrOrderRef
+	hdrFtrOrder []hdrFtrOrderRef
+	// childSeq records the local names of all children in source order, so a
+	// producer that deviates from the schema sequence (w:pgNumType after
+	// w:cols) replays its order. Empty for programmatic sections.
+	childSeq           []string
 	FootnoteProperties *CT_FtnProps  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footnotePr,omitempty"`
 	EndnoteProperties  *CT_EdnProps  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main endnotePr,omitempty"`
 	Type               *CT_String    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
@@ -50,7 +54,7 @@ type CT_SectPr struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_SectPr to handle r:id attributes.
 func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	sp.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	sp.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "rsidR":
@@ -69,10 +73,12 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
+			sp.childSeq = append(sp.childSeq, t.Name.Local)
 			switch t.Name.Local {
 			case "headerReference":
 				v := &CT_HdrFtrRef{}
 				v.unmarshalAttrs(t.Attr)
+				v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -81,6 +87,7 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 			case "footerReference":
 				v := &CT_HdrFtrRef{}
 				v.unmarshalAttrs(t.Attr)
+				v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 				if err := d.Skip(); err != nil {
 					return err
 				}
@@ -199,67 +206,137 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	b.StartElement(ns, localName, attrs...)
 
-	sp.marshalHdrFtrReferences(b, ns)
+	emit := map[string]func(){
+		"footnotePr": func() {
+			if sp.FootnoteProperties != nil {
+				b.MarshalElement(ns, "footnotePr", sp.FootnoteProperties)
+			}
+		},
+		"endnotePr": func() {
+			if sp.EndnoteProperties != nil {
+				b.MarshalElement(ns, "endnotePr", sp.EndnoteProperties)
+			}
+		},
+		"type": func() {
+			if sp.Type != nil {
+				b.MarshalElement(ns, "type", sp.Type)
+			}
+		},
+		"pgSz": func() {
+			if sp.PgSz != nil {
+				b.MarshalElement(ns, "pgSz", sp.PgSz)
+			}
+		},
+		"pgMar": func() {
+			if sp.PgMar != nil {
+				b.MarshalElement(ns, "pgMar", sp.PgMar)
+			}
+		},
+		"paperSrc": func() {
+			if sp.PaperSrc != nil {
+				b.MarshalElement(ns, "paperSrc", sp.PaperSrc)
+			}
+		},
+		"pgBorders": func() {
+			if sp.PgBorders != nil {
+				b.MarshalElement(ns, "pgBorders", sp.PgBorders)
+			}
+		},
+		"lnNumType": func() {
+			if sp.LnNumType != nil {
+				b.MarshalElement(ns, "lnNumType", sp.LnNumType)
+			}
+		},
+		"pgNumType": func() {
+			if sp.PgNumType != nil {
+				b.MarshalElement(ns, "pgNumType", sp.PgNumType)
+			}
+		},
+		"cols": func() {
+			if sp.Cols != nil {
+				b.MarshalElement(ns, "cols", sp.Cols)
+			}
+		},
+		"formProt": func() {
+			if sp.FormProt != nil {
+				b.MarshalElement(ns, "formProt", sp.FormProt)
+			}
+		},
+		"vAlign": func() {
+			if sp.VAlign != nil {
+				b.MarshalElement(ns, "vAlign", sp.VAlign)
+			}
+		},
+		"noEndnote": func() {
+			if sp.NoEndnote != nil {
+				b.MarshalElement(ns, "noEndnote", sp.NoEndnote)
+			}
+		},
+		"titlePg": func() {
+			if sp.TitlePg != nil {
+				b.MarshalElement(ns, "titlePg", sp.TitlePg)
+			}
+		},
+		"textDirection": func() {
+			if sp.TextDirection != nil {
+				b.MarshalElement(ns, "textDirection", sp.TextDirection)
+			}
+		},
+		"bidi": func() {
+			if sp.Bidi != nil {
+				b.MarshalElement(ns, "bidi", sp.Bidi)
+			}
+		},
+		"rtlGutter": func() {
+			if sp.RtlGutter != nil {
+				b.MarshalElement(ns, "rtlGutter", sp.RtlGutter)
+			}
+		},
+		"docGrid": func() {
+			if sp.DocGrid != nil {
+				b.MarshalElement(ns, "docGrid", sp.DocGrid)
+			}
+		},
+		"printerSettings": func() {
+			if sp.PrinterSettings != nil {
+				sp.PrinterSettings.MarshalToBuilder(b, ns, "printerSettings")
+			}
+		},
+		"sectPrChange": func() {
+			if sp.SectPrChange != nil {
+				b.MarshalElement(ns, "sectPrChange", sp.SectPrChange)
+			}
+		},
+	}
+	// canonical is the schema emission order used for children the captured
+	// sequence does not cover (programmatic sections, post-parse additions).
+	canonical := []string{"footnotePr", "endnotePr", "type", "pgSz", "pgMar",
+		"paperSrc", "pgBorders", "lnNumType", "pgNumType", "cols", "formProt",
+		"vAlign", "noEndnote", "titlePg", "textDirection", "bidi", "rtlGutter",
+		"docGrid", "printerSettings", "sectPrChange"}
 
-	if sp.FootnoteProperties != nil {
-		b.MarshalElement(ns, "footnotePr", sp.FootnoteProperties)
+	hdrFtrDone := false
+	emitted := make(map[string]bool)
+	for _, name := range sp.childSeq {
+		if name == "headerReference" || name == "footerReference" {
+			if !hdrFtrDone {
+				sp.marshalHdrFtrReferences(b, ns)
+				hdrFtrDone = true
+			}
+			continue
+		}
+		if f, ok := emit[name]; ok && !emitted[name] {
+			emitted[name] = true
+			f()
+		}
 	}
-	if sp.EndnoteProperties != nil {
-		b.MarshalElement(ns, "endnotePr", sp.EndnoteProperties)
+	if !hdrFtrDone {
+		sp.marshalHdrFtrReferences(b, ns)
 	}
-	if sp.Type != nil {
-		b.MarshalElement(ns, "type", sp.Type)
-	}
-	if sp.PgSz != nil {
-		b.MarshalElement(ns, "pgSz", sp.PgSz)
-	}
-	if sp.PgMar != nil {
-		b.MarshalElement(ns, "pgMar", sp.PgMar)
-	}
-	if sp.PaperSrc != nil {
-		b.MarshalElement(ns, "paperSrc", sp.PaperSrc)
-	}
-	if sp.PgBorders != nil {
-		b.MarshalElement(ns, "pgBorders", sp.PgBorders)
-	}
-	if sp.LnNumType != nil {
-		b.MarshalElement(ns, "lnNumType", sp.LnNumType)
-	}
-	if sp.PgNumType != nil {
-		b.MarshalElement(ns, "pgNumType", sp.PgNumType)
-	}
-	if sp.Cols != nil {
-		b.MarshalElement(ns, "cols", sp.Cols)
-	}
-	if sp.FormProt != nil {
-		b.MarshalElement(ns, "formProt", sp.FormProt)
-	}
-	if sp.VAlign != nil {
-		b.MarshalElement(ns, "vAlign", sp.VAlign)
-	}
-	if sp.NoEndnote != nil {
-		b.MarshalElement(ns, "noEndnote", sp.NoEndnote)
-	}
-	if sp.TitlePg != nil {
-		b.MarshalElement(ns, "titlePg", sp.TitlePg)
-	}
-	if sp.TextDirection != nil {
-		b.MarshalElement(ns, "textDirection", sp.TextDirection)
-	}
-	if sp.Bidi != nil {
-		b.MarshalElement(ns, "bidi", sp.Bidi)
-	}
-	if sp.RtlGutter != nil {
-		b.MarshalElement(ns, "rtlGutter", sp.RtlGutter)
-	}
-	if sp.DocGrid != nil {
-		b.MarshalElement(ns, "docGrid", sp.DocGrid)
-	}
-	if sp.PrinterSettings != nil {
-		sp.PrinterSettings.MarshalToBuilder(b, ns, "printerSettings")
-	}
-	if sp.SectPrChange != nil {
-		b.MarshalElement(ns, "sectPrChange", sp.SectPrChange)
+	for _, name := range canonical {
+		if !emitted[name] {
+			emit[name]()
+		}
 	}
 
 	b.EndElement(ns, localName)
@@ -272,6 +349,9 @@ type CT_HdrFtrRef struct {
 	// CapturedAttrs preserves the verbatim source attribute list; replayed
 	// on marshal (producers disagree on r:id vs w:type order).
 	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedEmptyTag records the source's empty-element style (some
+	// producers write <w:headerReference ...></w:headerReference>).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 func (h *CT_HdrFtrRef) unmarshalAttrs(attrs []xml.Attr) {
@@ -299,7 +379,7 @@ func (h *CT_HdrFtrRef) marshalTo(b *xmlb.Builder, ns, localName string) {
 	if h.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(h.CapturedAttrs, attrs)
 	}
-	b.EmptyElement(ns, localName, attrs...)
+	b.EmptyElementStyled(h.CapturedEmptyTag, ns, localName, attrs...)
 }
 
 // CT_PgSz represents page size.
@@ -309,13 +389,16 @@ type CT_PgSz struct {
 	Orient        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main orient,attr,omitempty"`
 	Code          string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main code,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (ps *CT_PgSz) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	ps.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	ps.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	ps.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_PgSz
 	return d.DecodeElement((*alias)(ps), &start)
 }
@@ -330,13 +413,16 @@ type CT_PgMar struct {
 	Footer        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main footer,attr,omitempty"`
 	Gutter        string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main gutter,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (pm *CT_PgMar) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	pm.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	pm.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	pm.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_PgMar
 	return d.DecodeElement((*alias)(pm), &start)
 }
@@ -355,7 +441,7 @@ type CT_PgBorders struct {
 // attribute order and any unmodeled attributes) before decoding through the
 // struct tags; the reflection marshaler replays it.
 func (pb *CT_PgBorders) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	pb.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	pb.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_PgBorders
 	return d.DecodeElement((*alias)(pb), &start)
 }
@@ -366,12 +452,32 @@ type CT_PgNumType struct {
 	Start     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main start,attr,omitempty"`
 	ChapStyle string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main chapStyle,attr,omitempty"`
 	ChapSep   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main chapSep,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_PgNumType) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_PgNumType
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_PaperSrc represents paper source settings.
 type CT_PaperSrc struct {
 	First string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main first,attr,omitempty"`
 	Other string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main other,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_PaperSrc) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_PaperSrc
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_LnNumType represents line numbering settings.
@@ -380,6 +486,16 @@ type CT_LnNumType struct {
 	Start    string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main start,attr,omitempty"`
 	Distance string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main distance,attr,omitempty"`
 	Restart  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main restart,attr,omitempty"`
+	// CapturedEmptyTag records the source's per-instance "/>" vs " />" form.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
+}
+
+// UnmarshalXML captures the element's empty-tag style before decoding
+// through the struct tags.
+func (v *CT_LnNumType) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	type alias CT_LnNumType
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CT_FtnProps represents footnote properties.
