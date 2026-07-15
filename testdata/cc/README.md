@@ -116,6 +116,156 @@ ad-hoc collection.
   with a per-worker politeness delay, and backs off exponentially on
   429/5xx/timeouts. Please keep those defaults when scaling up.
 
+## Batched multi-crawl harvest (scaled, reference-only)
+
+The single-crawl `sweep.sh` + `ccfetch` pipeline above keeps every fetched
+binary on disk, which does not scale to a 10k/type corpus. The batched
+pipeline instead treats binaries as **transient**: it commits only
+*references*, downloads a file, tests it, records the outcome, and discards
+the binary. Disk is not a constraint because nothing is kept.
+
+```
+sweep-multi.sh ─► manifest-{type}[-truncated].tsv ─► tools/ccrun ─► ledger + quarantine
+ (several crawls)      (committed, 6-column)         (systemd-run scope)   (references only)
+                                                     fetch→test→record→discard
+```
+
+### Reference-only manifests (`sweep-multi.sh`)
+
+`sweep-multi.sh` sweeps a **list** of recent crawls (one crawl's warc subset
+yields only a few thousand distinct pptx, so reaching 10k needs several),
+deduplicates candidates **across all of them** by `content_digest`, applies
+the per-registered-domain cap globally, and writes manifests with a leading
+**`crawl` column** so every row is a self-contained reference:
+
+```
+crawl  url  warc_filename  warc_record_offset  warc_record_length  content_digest
+```
+
+Scanning stops early once every complete manifest has reached the target, so
+listing extra crawls is harmless. Complete and truncated manifests are both
+emitted. Regenerate with `make harvest-sweep` (override `HARVEST_CRAWLS`,
+`HARVEST_TARGET`); get the current crawl ids from
+<https://index.commoncrawl.org/collinfo.json>. These manifests are committed
+(references only, ~9.6 MB total). `ccfetch` and `ccrun` both accept the new
+6-column layout and the legacy 5-column one.
+
+**URL sanitization (query strings are stripped).** The `url` column keeps only
+`scheme://host/path` — the entire `?query` is removed at manifest-write time.
+Crawled presigned S3/MinIO document URLs carry AWS credentials in the query
+(`AWSAccessKeyId`, `X-Amz-Signature`, `Signature=`), which must never be
+committed or redistributed. Stripping the query is safe for the harvest:
+WARC-complete rows are fetched by `warc_filename`+offset+length and verified by
+`content_digest` (the URL is provenance only), so nothing breaks. The one
+tradeoff is that a *truncated* row's live refetch can no longer replay a
+presigned URL — but those signatures are short-lived and had almost always
+expired anyway, so this is a minor, documented limitation of the reference-only
+manifest, not a regression.
+
+The committed set uses a **per-type domain cap and a per-type crawl span**,
+because pptx is much scarcer than xlsx/docx:
+
+| type | crawls | domain cap | complete | truncated |
+| ---- | -----: | ---------: | -------: | --------: |
+| docx | 4      | 15         | 10000    | 2107      |
+| xlsx | 4      | 15         | 10000    | 1054      |
+| pptx | 6      | 25         | 10000    | 6591      |
+
+- **docx / xlsx** — swept from the 4 newest crawls (CC-MAIN-2026-25 / -21 /
+  -17 / -12) at `-d 15`. They are abundant (tens of thousands of distinct per
+  crawl), so they hit the 10k target from the first crawl and the sweep stopped
+  early; a higher cap or more crawls would only cost them source diversity.
+- **pptx** — swept from **6 crawls** (the same four plus the two next-older,
+  CC-MAIN-2026-08 / -04) at `-p 25`, deduplicated across all six by
+  `content_digest`. pptx is diversity-limited: distinct pptx are scarce
+  (~1.5–1.8k per crawl after the cap), so the count climbed 5830 (cap 5, 4
+  crawls) → 8063 (cap 15) → 8892 (cap 25) → **10000 (cap 25, 6 crawls)**, at
+  which point it hit the target and was cut. Un-capped distinct pptx across the
+  six crawls is 18840, so there is ample headroom to grow further with a higher
+  `-p` or more crawls.
+
+Reproduce with `sweep-multi.sh -d 15 -p 25 <crawls>`: the four newest crawls
+give the docx/xlsx manifests; sweeping the six crawls (and taking the pptx
+manifests from that run) gives pptx. The sweep is resumable, so pptx was topped
+up incrementally by sweeping the two older crawls and merging. The default cap
+stays 5 (diversity-first).
+
+### Sharded fetch → test → record → discard (`tools/ccrun`)
+
+`ccrun` processes the manifests **one bounded batch per invocation**. The
+**orchestrator** loads the durable ledger, selects the next `-batch` (default
+2000) references not already in it, and for each spawns a **worker
+subprocess** with a per-file timeout. The **worker** fetches that one file
+(WARC range read, or DoH-gated live refetch for a truncated row), runs the
+library round-trip discipline — `Open`, `Validate()` (the pre-save check; an
+error-severity finding is a `validate`-stage failure), `SaveBytes`, reopen,
+and part-by-part byte fidelity — prints one result line, and **deletes its
+scratch file**. The orchestrator appends the outcome to the ledger and, on
+failure, to the quarantine, then makes sure the scratch file is gone.
+
+One invocation = one batch; the maintainer loops it. Because each reference is
+processed in its own short-lived subprocess, a single pathological file cannot
+take down the run.
+
+### Resource isolation with `systemd-run` (and *why*)
+
+`make harvest-batch` runs one batch inside a resource-capped scope:
+
+```
+systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% \
+  ccrun -manifest testdata/cc -ledger … -quarantine … -scratch … -batch 2000 -workers 2 -timeout 90s
+```
+
+The worker-subprocess-per-file boundary is the whole point. Under a
+`MemoryMax` cgroup, a file that decompresses to gigabytes makes the **kernel
+OOM-kill the worker** (the largest process in the scope) — not the
+orchestrator, which holds almost nothing. The worker exits with a nonzero /
+signal status; the orchestrator reads that (or a per-file-timeout kill, or a
+panic) as a `resource:{killed,timeout,panic}` outcome and turns one poison
+file into **one quarantine row, not a dead batch**. A worker only ever exits
+nonzero on a genuine crash/OOM/hang: every ordinary test outcome (pass or a
+staged failure) is a clean `exit 0` with a result line.
+
+### Resumable ledger
+
+The ledger (`testdata/corpus/cc-batch/ledger.tsv`, gitignored — it lives under
+the ignored `testdata/corpus/`) has one append-only row per processed
+reference (`digest  outcome  stage  signature  timestamp`; outcome is `pass`,
+`fail`, `skip`, or `resource`) and is flushed per row. On restart `ccrun` skips
+every digest already present, so an interrupted or OOM-killed batch loses at
+most the in-flight file. A *transient* fetch failure (CDN throttling, timeout)
+is **deferred** — left out of the ledger so a later run retries the reference
+instead of burning it; only terminal outcomes are recorded. Resume loop:
+
+```sh
+# Repeat until a batch reports 0 remaining.
+while :; do
+  out=$(make harvest-batch 2>&1); echo "$out"
+  echo "$out" | grep -q "0 remaining" && break
+done
+```
+
+### Reference-keyed quarantine and refetch-for-debug
+
+Failures accumulate in `testdata/cc/batch-quarantine.tsv`
+(`digest  crawl  url  stage  signature`) — the growing cross-batch,
+cross-run catalog. This is distinct from `known_failures.tsv` /
+cctest's sha16-on-disk quarantine (whose files are **kept**): the batched
+quarantine references files that were already discarded. To debug one, refetch
+it to a named path (it is **not** deleted):
+
+```sh
+go run ./tools/ccrun -refetch <content_digest> -manifest testdata/cc -out /tmp/bad.docx
+```
+
+### Scaling beyond 10k
+
+Raise `-t` on `sweep-multi.sh` and list more crawls (`make harvest-sweep
+HARVEST_TARGET=20000 HARVEST_CRAWLS="CC-MAIN-2026-25 CC-MAIN-2026-21 …"`),
+commit the larger manifests, and keep looping `harvest-batch` — the runner is
+unchanged. More workers or a larger `MemoryMax` trade throughput for headroom;
+the isolation model is identical at any size.
+
 ## Licensing
 
 The fetched files are third-party web content retrieved locally from Common

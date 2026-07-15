@@ -1,4 +1,4 @@
-package main
+package ccharvest
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestEncodeDNSQuery(t *testing.T) {
-	got, err := encodeDNSQuery("example.com")
+	got, err := EncodeDNSQuery("example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,8 +24,8 @@ func TestEncodeDNSQuery(t *testing.T) {
 	}
 
 	for _, bad := range []string{"", ".", "a..b"} {
-		if _, err := encodeDNSQuery(bad); err == nil {
-			t.Errorf("encodeDNSQuery(%q): expected error", bad)
+		if _, err := EncodeDNSQuery(bad); err == nil {
+			t.Errorf("EncodeDNSQuery(%q): expected error", bad)
 		}
 	}
 }
@@ -64,7 +64,7 @@ func buildDNSResponse(t *testing.T, rcode int, addrs ...netip.Addr) []byte {
 func TestParseDNSResponse(t *testing.T) {
 	addr := netip.MustParseAddr("93.184.216.34")
 	msg := buildDNSResponse(t, 0, addr)
-	rcode, addrs, err := parseDNSResponse(msg)
+	rcode, addrs, err := ParseDNSResponse(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestParseDNSResponse(t *testing.T) {
 
 	// NXDOMAIN with no answers.
 	msg = buildDNSResponse(t, 3)
-	rcode, addrs, err = parseDNSResponse(msg)
+	rcode, addrs, err = ParseDNSResponse(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +84,8 @@ func TestParseDNSResponse(t *testing.T) {
 
 	// Truncated packets must error, not panic.
 	for cut := 1; cut < len(msg); cut += 3 {
-		if _, _, err := parseDNSResponse(msg[:cut]); err == nil && cut < 12 {
-			t.Errorf("parseDNSResponse on %d-byte prefix: expected error", cut)
+		if _, _, err := ParseDNSResponse(msg[:cut]); err == nil && cut < 12 {
+			t.Errorf("ParseDNSResponse on %d-byte prefix: expected error", cut)
 		}
 	}
 }
@@ -95,19 +95,19 @@ func TestClassifyAnswer(t *testing.T) {
 		name  string
 		rcode int
 		addrs []netip.Addr
-		want  verdict
+		want  Verdict
 	}{
-		{"allow", 0, []netip.Addr{netip.MustParseAddr("93.184.216.34")}, verdictAllow},
-		{"blocked v4", 0, []netip.Addr{netip.MustParseAddr("0.0.0.0")}, verdictBlocked},
-		{"blocked v6", 0, []netip.Addr{netip.MustParseAddr("::")}, verdictBlocked},
-		{"blocked among allowed", 0, []netip.Addr{netip.MustParseAddr("1.2.3.4"), netip.MustParseAddr("0.0.0.0")}, verdictBlocked},
-		{"nxdomain", 3, nil, verdictDead},
-		{"servfail", 2, nil, verdictDead},
-		{"no answers", 0, nil, verdictDead},
+		{"allow", 0, []netip.Addr{netip.MustParseAddr("93.184.216.34")}, VerdictAllow},
+		{"blocked v4", 0, []netip.Addr{netip.MustParseAddr("0.0.0.0")}, VerdictBlocked},
+		{"blocked v6", 0, []netip.Addr{netip.MustParseAddr("::")}, VerdictBlocked},
+		{"blocked among allowed", 0, []netip.Addr{netip.MustParseAddr("1.2.3.4"), netip.MustParseAddr("0.0.0.0")}, VerdictBlocked},
+		{"nxdomain", 3, nil, VerdictDead},
+		{"servfail", 2, nil, VerdictDead},
+		{"no answers", 0, nil, VerdictDead},
 	}
 	for _, tt := range tests {
-		if got := classifyAnswer(tt.rcode, tt.addrs); got != tt.want {
-			t.Errorf("%s: classifyAnswer = %v, want %v", tt.name, got, tt.want)
+		if got := ClassifyAnswer(tt.rcode, tt.addrs); got != tt.want {
+			t.Errorf("%s: ClassifyAnswer = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }
@@ -128,13 +128,13 @@ func TestHostGateCachesVerdicts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := newHostGate(srv.Client(), srv.URL)
+	g := NewHostGate(srv.Client(), srv.URL)
 	for i := 0; i < 3; i++ {
-		v, err := g.check(context.Background(), "Blocked.example.")
+		v, err := g.Check(context.Background(), "Blocked.example.")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v != verdictBlocked {
+		if v != VerdictBlocked {
 			t.Fatalf("verdict = %v, want blocked", v)
 		}
 	}

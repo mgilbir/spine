@@ -1,4 +1,4 @@
-package main
+package ccharvest
 
 import (
 	"bytes"
@@ -15,42 +15,43 @@ import (
 
 // The live-fetch path (truncated candidates refetched from their origin)
 // resolves every contacted host through a filtering DNS-over-HTTPS resolver
-// (RFC 8484) before any HTTP request is made. The resolver URL is supplied
-// at runtime (-doh-url flag or SPINE_DOH_URL env var; e.g. a NextDNS profile
-// endpoint) and is never baked into the repository. A host whose answer is
-// the unspecified address (0.0.0.0 / ::) is blocked by the resolver's
-// filter and skipped; NXDOMAIN/SERVFAIL hosts are dead and equally skipped.
+// (RFC 8484) before any HTTP request is made. The resolver URL is supplied at
+// runtime (never baked into the repository; e.g. a NextDNS profile endpoint).
+// A host whose answer is the unspecified address (0.0.0.0 / ::) is blocked by
+// the resolver's filter and skipped; NXDOMAIN/SERVFAIL hosts are dead and
+// equally skipped.
 
-type verdict int
+// Verdict is the gate's decision for a host.
+type Verdict int
 
 const (
-	verdictAllow verdict = iota
-	verdictBlocked
-	verdictDead
+	VerdictAllow Verdict = iota
+	VerdictBlocked
+	VerdictDead
 )
 
-func (v verdict) String() string {
+func (v Verdict) String() string {
 	switch v {
-	case verdictAllow:
+	case VerdictAllow:
 		return "allow"
-	case verdictBlocked:
+	case VerdictBlocked:
 		return "blocked"
 	default:
 		return "dead"
 	}
 }
 
-// Sentinel errors surfaced from redirect re-gating, so the caller can
-// classify a blocked/dead redirect target (http.Client wraps them in
-// *url.Error, which errors.Is unwraps).
+// Sentinel errors surfaced from redirect re-gating, so the caller can classify
+// a blocked/dead redirect target (http.Client wraps them in *url.Error, which
+// errors.Is unwraps).
 var (
-	errGateBlocked = errors.New("host is blocked by the DNS filter")
-	errGateDead    = errors.New("host does not resolve")
+	ErrGateBlocked = errors.New("host is blocked by the DNS filter")
+	ErrGateDead    = errors.New("host does not resolve")
 )
 
-// encodeDNSQuery builds a wire-format DNS query (RD set, one question) for
-// an A record of host.
-func encodeDNSQuery(host string) ([]byte, error) {
+// EncodeDNSQuery builds a wire-format DNS query (RD set, one question) for an A
+// record of host.
+func EncodeDNSQuery(host string) ([]byte, error) {
 	host = strings.TrimSuffix(host, ".")
 	if host == "" {
 		return nil, errors.New("dns: empty host")
@@ -70,8 +71,8 @@ func encodeDNSQuery(host string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// skipName advances past a (possibly compressed) DNS name starting at off
-// and returns the offset of the following byte.
+// skipName advances past a (possibly compressed) DNS name starting at off and
+// returns the offset of the following byte.
 func skipName(msg []byte, off int) (int, error) {
 	for {
 		if off >= len(msg) {
@@ -94,9 +95,9 @@ func skipName(msg []byte, off int) (int, error) {
 	}
 }
 
-// parseDNSResponse returns the response code and every A/AAAA address in the
+// ParseDNSResponse returns the response code and every A/AAAA address in the
 // answer section. Non-address records (e.g. CNAMEs) are skipped.
-func parseDNSResponse(msg []byte) (rcode int, addrs []netip.Addr, err error) {
+func ParseDNSResponse(msg []byte) (rcode int, addrs []netip.Addr, err error) {
 	if len(msg) < 12 {
 		return 0, nil, errors.New("dns: message shorter than header")
 	}
@@ -135,37 +136,39 @@ func parseDNSResponse(msg []byte) (rcode int, addrs []netip.Addr, err error) {
 	return rcode, addrs, nil
 }
 
-// classifyAnswer maps a parsed DNS response to a gate verdict.
-func classifyAnswer(rcode int, addrs []netip.Addr) verdict {
+// ClassifyAnswer maps a parsed DNS response to a gate verdict.
+func ClassifyAnswer(rcode int, addrs []netip.Addr) Verdict {
 	if rcode != 0 { // NXDOMAIN, SERVFAIL, ...
-		return verdictDead
+		return VerdictDead
 	}
 	if len(addrs) == 0 {
-		return verdictDead
+		return VerdictDead
 	}
 	for _, a := range addrs {
 		if a.IsUnspecified() { // filtering resolvers answer 0.0.0.0 / :: for blocked hosts
-			return verdictBlocked
+			return VerdictBlocked
 		}
 	}
-	return verdictAllow
+	return VerdictAllow
 }
 
-// hostGate resolves hosts through the configured DoH endpoint and caches the
+// HostGate resolves hosts through the configured DoH endpoint and caches the
 // verdict per host for the length of the run.
-type hostGate struct {
+type HostGate struct {
 	client   *http.Client
 	endpoint string
 
 	mu    sync.Mutex
-	cache map[string]verdict
+	cache map[string]Verdict
 }
 
-func newHostGate(client *http.Client, endpoint string) *hostGate {
-	return &hostGate{client: client, endpoint: endpoint, cache: map[string]verdict{}}
+// NewHostGate returns a gate that resolves through endpoint using client.
+func NewHostGate(client *http.Client, endpoint string) *HostGate {
+	return &HostGate{client: client, endpoint: endpoint, cache: map[string]Verdict{}}
 }
 
-func (g *hostGate) check(ctx context.Context, host string) (verdict, error) {
+// Check resolves host through the DoH endpoint and returns its verdict.
+func (g *HostGate) Check(ctx context.Context, host string) (Verdict, error) {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	g.mu.Lock()
 	if v, ok := g.cache[host]; ok {
@@ -174,19 +177,19 @@ func (g *hostGate) check(ctx context.Context, host string) (verdict, error) {
 	}
 	g.mu.Unlock()
 
-	query, err := encodeDNSQuery(host)
+	query, err := EncodeDNSQuery(host)
 	if err != nil {
-		return verdictDead, err
+		return VerdictDead, err
 	}
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.endpoint, bytes.NewReader(query))
 		if err != nil {
-			return verdictDead, err
+			return VerdictDead, err
 		}
 		req.Header.Set("Content-Type", "application/dns-message")
 		req.Header.Set("Accept", "application/dns-message")
-		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("User-Agent", UserAgent)
 
 		resp, err := g.client.Do(req)
 		if err != nil {
@@ -203,16 +206,16 @@ func (g *hostGate) check(ctx context.Context, host string) (verdict, error) {
 			lastErr = fmt.Errorf("doh: status %s", resp.Status)
 			continue
 		}
-		rcode, addrs, err := parseDNSResponse(body)
+		rcode, addrs, err := ParseDNSResponse(body)
 		if err != nil {
 			lastErr = err
 			continue
 		}
-		v := classifyAnswer(rcode, addrs)
+		v := ClassifyAnswer(rcode, addrs)
 		g.mu.Lock()
 		g.cache[host] = v
 		g.mu.Unlock()
 		return v, nil
 	}
-	return verdictDead, fmt.Errorf("doh: query for %s failed: %w", host, lastErr)
+	return VerdictDead, fmt.Errorf("doh: query for %s failed: %w", host, lastErr)
 }
