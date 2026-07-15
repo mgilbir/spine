@@ -133,7 +133,7 @@ func runRefetch(manifestArgs []string, digest, out, dohURL string, timeout time.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+15*time.Second)
 	defer cancel()
-	data, err := fetchRef(ctx, *found, dohURL, timeout)
+	data, _, err := fetchRef(ctx, *found, dohURL, timeout)
 	if err != nil {
 		return fmt.Errorf("refetch: %w", err)
 	}
@@ -166,6 +166,7 @@ type batchStats struct {
 	pass          int
 	failByStage   map[string]int
 	resource      map[string]int
+	deferred      int // transient fetch failures, left for a later run
 	noDohSkips    int
 	manifestDupes int
 }
@@ -254,8 +255,13 @@ func runOrchestrator(cfg orchConfig) error {
 			for r := range jobs {
 				outcome, stage, sig := processRef(self, r, cfg)
 				mu.Lock()
-				_ = ledger.Append(r.Digest, outcome, stage, sig, now())
 				switch outcome {
+				case outcomeRetry:
+					// Transient fetch failure: leave it out of the ledger so a
+					// later run retries it. Not a processed reference.
+					stats.deferred++
+					mu.Unlock()
+					continue
 				case outcomePass:
 					stats.pass++
 				case outcomeFail:
@@ -265,6 +271,7 @@ func runOrchestrator(cfg orchConfig) error {
 					stats.resource[stage]++
 					_ = quarantine.Append(r, "resource:"+stage, sig)
 				}
+				_ = ledger.Append(r.Digest, outcome, stage, sig, now())
 				stats.processed++
 				mu.Unlock()
 			}
@@ -363,6 +370,12 @@ func parseResultLine(line string) (outcome, stage, sig string) {
 	switch fields[1] {
 	case outcomePass:
 		return outcomePass, "", ""
+	case outcomeRetry:
+		st := ""
+		if len(fields) >= 3 {
+			st = fields[2]
+		}
+		return outcomeRetry, st, ""
 	case outcomeFail:
 		st, s := "", ""
 		if len(fields) >= 3 {
@@ -395,6 +408,7 @@ func printStats(s *batchStats, selected int) {
 	fmt.Printf("  selected        %d\n", selected)
 	fmt.Printf("  processed       %d\n", s.processed)
 	fmt.Printf("  pass            %d\n", s.pass)
+	fmt.Printf("  deferred        %d (transient fetch; retried next run)\n", s.deferred)
 	fmt.Printf("  no-DoH skips    %d\n", s.noDohSkips)
 	fmt.Printf("  manifest dupes  %d\n", s.manifestDupes)
 

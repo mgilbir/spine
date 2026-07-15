@@ -117,60 +117,68 @@ func testBytes(typ string, data []byte) result {
 // fetchRef downloads the file a Ref points at and returns its bytes. WARC refs
 // are read by range from the archive and decoded; live (truncated) refs are
 // refetched from the origin URL through the DoH blocklist gate. dohURL may be
-// empty only for WARC refs.
-func fetchRef(ctx context.Context, ref Ref, dohURL string, timeout time.Duration) ([]byte, error) {
+// empty only for WARC refs. The retryable bool distinguishes a transient
+// failure (CDN throttling, timeout, network) — which the orchestrator defers
+// so a later run retries it — from a terminal one (dead record, gate block).
+func fetchRef(ctx context.Context, ref Ref, dohURL string, timeout time.Duration) (data []byte, retryable bool, err error) {
 	if ref.Kind == kindLive {
 		return fetchLive(ctx, ref, dohURL, timeout)
 	}
 	return fetchWARC(ctx, ref, timeout)
 }
 
-func fetchWARC(ctx context.Context, ref Ref, timeout time.Duration) ([]byte, error) {
+func fetchWARC(ctx context.Context, ref Ref, timeout time.Duration) ([]byte, bool, error) {
 	client := &http.Client{Timeout: timeout, Transport: ccharvest.NewWARCTransport(1)}
 	var lastErr error
+	lastRetryable := true
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			select {
 			case <-time.After(time.Duration(attempt) * time.Second):
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, true, ctx.Err()
 			}
 		}
 		raw, retryable, err := ccharvest.TryFetchRange(ctx, client, ref.WARCFile, ref.Offset, ref.Length)
 		if err == nil {
-			return ccharvest.DecodeRecord(raw)
+			payload, derr := ccharvest.DecodeRecord(raw)
+			if derr != nil {
+				// A decode failure (e.g. a truncated/rotten record) is terminal.
+				return nil, false, fmt.Errorf("warc decode: %w", derr)
+			}
+			return payload, false, nil
 		}
-		lastErr = err
+		lastErr, lastRetryable = err, retryable
 		if !retryable || ctx.Err() != nil {
 			break
 		}
 	}
-	return nil, fmt.Errorf("warc fetch: %w", lastErr)
+	return nil, lastRetryable, fmt.Errorf("warc fetch: %w", lastErr)
 }
 
 const liveMaxSize = 50 << 20 // 50 MiB cap for live refetches
 
-func fetchLive(ctx context.Context, ref Ref, dohURL string, timeout time.Duration) ([]byte, error) {
+func fetchLive(ctx context.Context, ref Ref, dohURL string, timeout time.Duration) ([]byte, bool, error) {
 	if dohURL == "" {
-		return nil, errors.New("live fetch requires a DoH resolver (-doh-url / SPINE_DOH_URL)")
+		return nil, false, errors.New("live fetch requires a DoH resolver (-doh-url / SPINE_DOH_URL)")
 	}
 	u, err := url.Parse(ref.URL)
 	if err != nil {
-		return nil, fmt.Errorf("live: bad url: %w", err)
+		return nil, false, fmt.Errorf("live: bad url: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("live: unsupported scheme %q", u.Scheme)
+		return nil, false, fmt.Errorf("live: unsupported scheme %q", u.Scheme)
 	}
 	gate := ccharvest.NewHostGate(&http.Client{Timeout: timeout}, dohURL)
 	v, err := gate.Check(ctx, u.Hostname())
 	if err != nil {
-		return nil, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateDead, err)
+		return nil, true, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateDead, err)
 	}
 	switch v {
 	case ccharvest.VerdictBlocked:
-		return nil, ccharvest.ErrGateBlocked
+		return nil, false, ccharvest.ErrGateBlocked
 	case ccharvest.VerdictDead:
-		return nil, ccharvest.ErrGateDead
+		return nil, false, ccharvest.ErrGateDead
 	}
 	client := &http.Client{
 		Timeout: timeout,
@@ -196,11 +204,11 @@ func fetchLive(ctx context.Context, ref Ref, dohURL string, timeout time.Duratio
 			return nil
 		},
 	}
-	data, _, err := ccharvest.TryFetchLive(ctx, client, ref.URL, liveMaxSize)
+	data, retryable, err := ccharvest.TryFetchLive(ctx, client, ref.URL, liveMaxSize)
 	if err != nil {
-		return nil, fmt.Errorf("live fetch: %w", err)
+		return nil, retryable, fmt.Errorf("live fetch: %w", err)
 	}
-	return data, nil
+	return data, false, nil
 }
 
 // runWorker fetches one Ref to the scratch file, tests it, prints exactly one
@@ -217,7 +225,7 @@ func runWorker(ref Ref, scratch, dohURL string, timeout time.Duration) {
 	}
 
 	// Fetch to scratch, and always remove it before returning.
-	data, ferr := fetchRef(ctx, ref, dohURL, timeout)
+	data, retryable, ferr := fetchRef(ctx, ref, dohURL, timeout)
 	if scratch != "" && len(data) > 0 {
 		_ = os.WriteFile(scratch, data, 0o644)
 	}
@@ -228,6 +236,13 @@ func runWorker(ref Ref, scratch, dohURL string, timeout time.Duration) {
 	}()
 
 	if ferr != nil {
+		if retryable {
+			// Transient (throttle/timeout/network): tell the orchestrator to
+			// defer this reference so a later run retries it, rather than
+			// burning it as a permanent failure.
+			fmt.Printf("%s\t%s\t%s\t%s\n", ref.Digest, outcomeRetry, "fetch", signature(ferr))
+			return
+		}
 		emitResult(ref.Digest, result{stage: "fetch", signature: signature(ferr)})
 		return
 	}

@@ -190,9 +190,12 @@ staged failure) is a clean `exit 0` with a result line.
 
 The ledger (`testdata/corpus/cc-batch/ledger.tsv`, gitignored — it lives under
 the ignored `testdata/corpus/`) has one append-only row per processed
-reference (`digest  outcome  stage  signature  timestamp`) and is flushed per
-row. On restart `ccrun` skips every digest already present, so an interrupted
-or OOM-killed batch loses at most the in-flight file. Resume loop:
+reference (`digest  outcome  stage  signature  timestamp`; outcome is `pass`,
+`fail`, `skip`, or `resource`) and is flushed per row. On restart `ccrun` skips
+every digest already present, so an interrupted or OOM-killed batch loses at
+most the in-flight file. A *transient* fetch failure (CDN throttling, timeout)
+is **deferred** — left out of the ledger so a later run retries the reference
+instead of burning it; only terminal outcomes are recorded. Resume loop:
 
 ```sh
 # Repeat until a batch reports 0 remaining.

@@ -140,6 +140,7 @@ func TestParseResultLine(t *testing.T) {
 		sig            string
 	}{
 		{"D1\tpass", outcomePass, "", ""},
+		{"D1\tretry\tfetch\tthrottled N", outcomeRetry, "fetch", ""},
 		{"D1\tfail\tsave\tboom N", outcomeFail, "save", "boom N"},
 		{"D1\tfail\tvalidate", outcomeFail, "validate", ""},
 		{"D1", outcomeResource, "panic", "malformed result line"},
