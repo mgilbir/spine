@@ -14,6 +14,9 @@ const (
 	outcomeFail     = "fail"
 	outcomeSkip     = "skip"     // recorded but not processed (e.g. no DoH for a live row)
 	outcomeResource = "resource" // worker killed/timed-out/panicked
+	// outcomeRetry is a transient fetch failure. It is NOT written to the
+	// ledger, so a later run retries the reference instead of burning it.
+	outcomeRetry = "retry"
 )
 
 // Ledger is the durable per-reference progress journal: one row per processed
