@@ -147,8 +147,48 @@ listing extra crawls is harmless. Complete and truncated manifests are both
 emitted. Regenerate with `make harvest-sweep` (override `HARVEST_CRAWLS`,
 `HARVEST_TARGET`); get the current crawl ids from
 <https://index.commoncrawl.org/collinfo.json>. These manifests are committed
-(references only, a few MB/type). `ccfetch` and `ccrun` both accept the new
+(references only, ~9.6 MB total). `ccfetch` and `ccrun` both accept the new
 6-column layout and the legacy 5-column one.
+
+**URL sanitization (query strings are stripped).** The `url` column keeps only
+`scheme://host/path` — the entire `?query` is removed at manifest-write time.
+Crawled presigned S3/MinIO document URLs carry AWS credentials in the query
+(`AWSAccessKeyId`, `X-Amz-Signature`, `Signature=`), which must never be
+committed or redistributed. Stripping the query is safe for the harvest:
+WARC-complete rows are fetched by `warc_filename`+offset+length and verified by
+`content_digest` (the URL is provenance only), so nothing breaks. The one
+tradeoff is that a *truncated* row's live refetch can no longer replay a
+presigned URL — but those signatures are short-lived and had almost always
+expired anyway, so this is a minor, documented limitation of the reference-only
+manifest, not a regression.
+
+The committed set uses a **per-type domain cap and a per-type crawl span**,
+because pptx is much scarcer than xlsx/docx:
+
+| type | crawls | domain cap | complete | truncated |
+| ---- | -----: | ---------: | -------: | --------: |
+| docx | 4      | 15         | 10000    | 2107      |
+| xlsx | 4      | 15         | 10000    | 1054      |
+| pptx | 6      | 25         | 10000    | 6591      |
+
+- **docx / xlsx** — swept from the 4 newest crawls (CC-MAIN-2026-25 / -21 /
+  -17 / -12) at `-d 15`. They are abundant (tens of thousands of distinct per
+  crawl), so they hit the 10k target from the first crawl and the sweep stopped
+  early; a higher cap or more crawls would only cost them source diversity.
+- **pptx** — swept from **6 crawls** (the same four plus the two next-older,
+  CC-MAIN-2026-08 / -04) at `-p 25`, deduplicated across all six by
+  `content_digest`. pptx is diversity-limited: distinct pptx are scarce
+  (~1.5–1.8k per crawl after the cap), so the count climbed 5830 (cap 5, 4
+  crawls) → 8063 (cap 15) → 8892 (cap 25) → **10000 (cap 25, 6 crawls)**, at
+  which point it hit the target and was cut. Un-capped distinct pptx across the
+  six crawls is 18840, so there is ample headroom to grow further with a higher
+  `-p` or more crawls.
+
+Reproduce with `sweep-multi.sh -d 15 -p 25 <crawls>`: the four newest crawls
+give the docx/xlsx manifests; sweeping the six crawls (and taking the pptx
+manifests from that run) gives pptx. The sweep is resumable, so pptx was topped
+up incrementally by sweeping the two older crawls and merging. The default cap
+stays 5 (diversity-first).
 
 ### Sharded fetch → test → record → discard (`tools/ccrun`)
 
