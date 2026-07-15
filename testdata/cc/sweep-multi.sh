@@ -21,6 +21,8 @@
 #   -t  distinct candidates to keep per complete manifest (default 10000)
 #   -o  output directory for the manifests (default: this script's directory)
 #   -d  per-registered-domain cap applied globally (default 5)
+#   -p  pptx-only per-registered-domain cap (default: same as -d). pptx is
+#       scarcer, so it can take a higher cap without touching the other types.
 #   -w  persistent work dir for the accumulating DuckDB db + scan progress
 #       (default: $TMPDIR/spine-sweep-work). See "Resumable" below.
 #   CRAWL ...  crawl ids to sweep, most-recent first. With none given, a recent
@@ -45,22 +47,25 @@ set -euo pipefail
 TARGET=10000
 OUTDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOMAIN_CAP=5
+PPTX_CAP=""     # optional pptx-only domain cap; empty => use DOMAIN_CAP
 WORKDIR="${TMPDIR:-/tmp}/spine-sweep-work"
 BATCH=10        # index parts per DuckDB invocation
 MAX_RETRIES=12  # per-batch retries: sweeping many crawls guarantees heavy
                 # data.commoncrawl.org throttling (403/503/500), so be patient
 
-while getopts "t:o:d:w:h" opt; do
+while getopts "t:o:d:p:w:h" opt; do
   case "$opt" in
     t) TARGET="$OPTARG" ;;
     o) OUTDIR="$(cd "$OPTARG" && pwd)" ;;
     d) DOMAIN_CAP="$OPTARG" ;;
+    p) PPTX_CAP="$OPTARG" ;;
     w) WORKDIR="$OPTARG" ;;
     h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [-w workdir] [CRAWL ...]" >&2; exit 2 ;;
+    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [-p pptx_cap] [-w workdir] [CRAWL ...]" >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
+: "${PPTX_CAP:=$DOMAIN_CAP}"
 
 CRAWLS=("$@")
 if [ "${#CRAWLS[@]}" -eq 0 ]; then
@@ -92,7 +97,7 @@ SET http_retry_wait_ms = 1000;
 SET http_retry_backoff = 2;"
 
 echo "== crawls: ${CRAWLS[*]}"
-echo "== target/type: $TARGET  domain cap: $DOMAIN_CAP  out: $OUTDIR  work: $WORKDIR"
+echo "== target/type: $TARGET  domain cap: $DOMAIN_CAP (pptx: $PPTX_CAP)  out: $OUTDIR  work: $WORKDIR"
 if [ -s "$DONE" ]; then
   echo "== resuming: $(wc -l < "$DONE") batches already scanned"
 fi
@@ -212,6 +217,10 @@ done
 # which crawl contributed it.
 for spec in "pptx:$MIME_PPTX" "xlsx:$MIME_XLSX" "docx:$MIME_DOCX"; do
   ext="${spec%%:*}"; mime="${spec#*:}"
+  # pptx is scarcer than xlsx/docx, so it accepts its own (usually higher)
+  # per-domain cap: distinct pptx are diversity-limited, and a higher cap trades
+  # some source diversity for volume without affecting the target-limited types.
+  cap="$DOMAIN_CAP"; [ "$ext" = "pptx" ] && cap="$PPTX_CAP"
   for variant in "complete" "truncated"; do
     if [ "$variant" = "truncated" ]; then
       suffix="-truncated"; pred="is_truncated"
@@ -236,9 +245,19 @@ COPY (
     FROM dedup
     WHERE rn = 1
   )
-  SELECT crawl, url, warc_filename, warc_record_offset, warc_record_length, content_digest
+  -- Strip the entire query string from the url. Crawled presigned S3/MinIO
+  -- document URLs carry AWS credentials there (AWSAccessKeyId / X-Amz-Signature
+  -- / Signature=), which must never be committed or redistributed. The query is
+  -- not needed to fetch: WARC-complete refs read by warc_filename+offset+length
+  -- and are verified by content_digest, and a truncated live-refetch presigned
+  -- URL has almost always expired anyway (documented in README). Rows are kept
+  -- (sanitized), not dropped, so counts are unaffected. A vanishingly rare
+  -- access-key id embedded in the path (not the query) still drops the row.
+  SELECT crawl, regexp_replace(url, '[?].*', '') AS url,
+         warc_filename, warc_record_offset, warc_record_length, content_digest
   FROM capped
-  WHERE dn <= $DOMAIN_CAP
+  WHERE dn <= $cap
+    AND NOT regexp_matches(regexp_replace(url, '[?].*', ''), '(AKIA|ASIA)[0-9A-Z]{16}')
   ORDER BY content_digest, url
   LIMIT $TARGET
 ) TO '$OUTDIR/manifest-$ext$suffix.tsv' (FORMAT csv, DELIMITER '\\t', HEADER, QUOTE '');
