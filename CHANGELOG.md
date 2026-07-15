@@ -146,6 +146,22 @@ remediation series (#59–#75).
 
 ### Added
 
+- testdata,tools: a scaled, batched Common Crawl harvest pipeline that commits
+  only *references* (crawl id + WARC filename/offset/length + content_digest +
+  URL), never binaries. Shared harvest logic (WARC range fetch/decode,
+  OPC/OOXML classification, the DoH blocklist gate, digest helpers) moved into
+  a stdlib-only `internal/ccharvest` package. `testdata/cc/sweep-multi.sh`
+  sweeps several recent crawls, deduplicates across them by `content_digest`,
+  and writes 10k/type manifests with a self-describing `crawl` column. A new
+  `tools/ccrun` runner processes those manifests one bounded batch per
+  invocation: it fetches, tests (`Open`/`Validate`/`SaveBytes`/reopen/part
+  fidelity), records the outcome to a durable resumable ledger, catalogs
+  failures in a reference-keyed quarantine, and discards the binary. Each file
+  is tested in a separate worker subprocess so a pathological file — under a
+  `systemd-run` `MemoryMax` cgroup — is OOM-killed and recorded as one
+  quarantine row instead of killing the batch (`make harvest-sweep`,
+  `make harvest-batch`; see testdata/cc/README.md) (#89).
+
 - validation: each format's top-level type (`docx.Document`, `xlsx.Workbook`,
   `pptx.Presentation`) exposes `Validate() validate.Report`, a pre-save pass
   over the in-memory model that reports structural problems as a slice of
