@@ -152,7 +152,10 @@ remediation series (#59–#75).
   OPC/OOXML classification, the DoH blocklist gate, digest helpers) moved into
   a stdlib-only `internal/ccharvest` package. `testdata/cc/sweep-multi.sh`
   sweeps several recent crawls, deduplicates across them by `content_digest`,
-  and writes 10k/type manifests with a self-describing `crawl` column. A new
+  and writes 10k/type manifests with a self-describing `crawl` column (the
+  committed set: docx/xlsx 10000 each from 4 crawls at `-d 15`; pptx 10000 from
+  6 crawls at `-p 25`, since pptx is scarcer and diversity-limited by the
+  per-domain cap). A new
   `tools/ccrun` runner processes those manifests one bounded batch per
   invocation: it fetches, tests (`Open`/`Validate`/`SaveBytes`/reopen/part
   fidelity), records the outcome to a durable resumable ledger, catalogs
