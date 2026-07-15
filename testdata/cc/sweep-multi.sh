@@ -17,14 +17,24 @@
 # content_digest. The manifests are committed; tools/ccrun (or tools/ccfetch)
 # turns them into a transient local corpus — only the references live in git.
 #
-# Usage: sweep-multi.sh [-t TARGET_PER_TYPE] [-o OUTDIR] [-d DOMAIN_CAP] [CRAWL ...]
+# Usage: sweep-multi.sh [-t TARGET] [-o OUTDIR] [-d DOMAIN_CAP] [-w WORKDIR] [CRAWL ...]
 #   -t  distinct candidates to keep per complete manifest (default 10000)
 #   -o  output directory for the manifests (default: this script's directory)
 #   -d  per-registered-domain cap applied globally (default 5)
+#   -w  persistent work dir for the accumulating DuckDB db + scan progress
+#       (default: $TMPDIR/spine-sweep-work). See "Resumable" below.
 #   CRAWL ...  crawl ids to sweep, most-recent first. With none given, a recent
 #              default list is used. Crawls are swept in order and scanning
 #              stops early once every complete manifest has reached TARGET
 #              distinct candidates, so listing extras is harmless.
+#
+# Resumable: sweeping many crawls guarantees heavy CDN throttling and can take
+# a long time, so progress is durable. The accumulated candidate table lives in
+# WORKDIR/sweep.db and every scanned batch is recorded in WORKDIR/done.txt; a
+# rerun with the same -w skips completed batches and continues where it left
+# off (each parquet-scan INSERT is atomic, so an interrupted run loses at most
+# the in-flight batch). Re-run the script until it prints "manifests written".
+# Delete WORKDIR to start clean.
 #
 # Get the current crawl list from https://index.commoncrawl.org/collinfo.json.
 #
@@ -35,17 +45,19 @@ set -euo pipefail
 TARGET=10000
 OUTDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOMAIN_CAP=5
+WORKDIR="${TMPDIR:-/tmp}/spine-sweep-work"
 BATCH=10        # index parts per DuckDB invocation
 MAX_RETRIES=12  # per-batch retries: sweeping many crawls guarantees heavy
                 # data.commoncrawl.org throttling (403/503/500), so be patient
 
-while getopts "t:o:d:h" opt; do
+while getopts "t:o:d:w:h" opt; do
   case "$opt" in
     t) TARGET="$OPTARG" ;;
     o) OUTDIR="$(cd "$OPTARG" && pwd)" ;;
     d) DOMAIN_CAP="$OPTARG" ;;
+    w) WORKDIR="$OPTARG" ;;
     h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [CRAWL ...]" >&2; exit 2 ;;
+    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [-w workdir] [CRAWL ...]" >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -59,9 +71,15 @@ fi
 
 command -v duckdb >/dev/null || { echo "error: duckdb CLI not found" >&2; exit 1; }
 
+# Per-run scratch (part lists, batch splits) is disposable; the accumulating
+# candidate DB and scan-progress ledger persist in WORKDIR so a killed run
+# resumes.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-DB="$WORK/sweep.db"
+mkdir -p "$WORKDIR"
+DB="$WORKDIR/sweep.db"
+DONE="$WORKDIR/done.txt"
+touch "$DONE"
 
 MIME_PPTX="application/vnd.openxmlformats-officedocument.presentationml.presentation"
 MIME_XLSX="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -74,9 +92,12 @@ SET http_retry_wait_ms = 1000;
 SET http_retry_backoff = 2;"
 
 echo "== crawls: ${CRAWLS[*]}"
-echo "== target/type: $TARGET  domain cap: $DOMAIN_CAP  out: $OUTDIR"
+echo "== target/type: $TARGET  domain cap: $DOMAIN_CAP  out: $OUTDIR  work: $WORKDIR"
+if [ -s "$DONE" ]; then
+  echo "== resuming: $(wc -l < "$DONE") batches already scanned"
+fi
 
-duckdb "$DB" "CREATE TABLE candidates (
+duckdb "$DB" "CREATE TABLE IF NOT EXISTS candidates (
   crawl VARCHAR, url VARCHAR, url_host_registered_domain VARCHAR,
   content_digest VARCHAR, mime VARCHAR, warc_filename VARCHAR,
   warc_record_offset BIGINT, warc_record_length BIGINT, is_truncated BOOLEAN);"
@@ -97,6 +118,10 @@ enough_complete() {
 }
 
 for CRAWL in "${CRAWLS[@]}"; do
+  if enough_complete; then
+    echo "== all complete types already at $TARGET distinct; skipping $CRAWL"
+    continue
+  fi
   echo "== sweeping $CRAWL"
   # 1. Part list for the warc subset of the columnar index (throttled: retry).
   attempt=1
@@ -125,6 +150,11 @@ for CRAWL in "${CRAWLS[@]}"; do
   split -l "$BATCH" "$WORK/parts.txt" "$WORK/batch-"
   for batch in "$WORK"/batch-*; do
     batch_no=$((batch_no + 1))
+    # Resume: skip a batch already recorded as scanned in a previous run.
+    key="$CRAWL batch $batch_no"
+    if grep -qxF "$key" "$DONE"; then
+      continue
+    fi
     {
       echo "$SETTINGS"
       echo "INSERT INTO candidates"
@@ -158,6 +188,9 @@ for CRAWL in "${CRAWLS[@]}"; do
       attempt=$((attempt + 1))
       echo "   batch $batch_no: retry $attempt"
     done
+    # Record only after the atomic INSERT committed, so a kill mid-batch
+    # leaves the batch un-done and it is re-scanned on the next run.
+    echo "$key" >> "$DONE"
     if [ $((batch_no % 10)) -eq 0 ]; then
       echo "   batch $batch_no/$(( (NPARTS + BATCH - 1) / BATCH )) done"
     fi
