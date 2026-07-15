@@ -22,16 +22,10 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -44,12 +38,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mgilbir/spine/internal/ccharvest"
 )
 
 const (
-	ccBaseURL = "https://data.commoncrawl.org/"
-	userAgent = "spine-corpus-fetch/1.0 (+github.com/mgilbir/spine)"
-
 	maxAttempts     = 3
 	politenessDelay = 150 * time.Millisecond
 
@@ -63,13 +56,14 @@ const (
 	sourceLive = "live"
 )
 
-var docTypes = []string{"pptx", "xlsx", "docx"}
+var docTypes = ccharvest.DocTypes
 
 // row is one manifest line: a pointer at a single WARC response record and
 // the URL it was crawled from.
 type row struct {
 	source       string // sourceWARC or sourceLive
 	manifestType string // type the manifest filed this row under
+	crawl        string // crawl id (multi-crawl manifests only; "" for legacy)
 	url          string
 	warcFile     string
 	offset       int64
@@ -106,7 +100,7 @@ type stats struct {
 type fetcher struct {
 	client      *http.Client
 	liveClient  *http.Client
-	gate        *hostGate
+	gate        *ccharvest.HostGate
 	outDir      string
 	limit       int // per-type cap for WARC-sourced files
 	liveLimit   int // per-type cap for live-sourced files
@@ -160,19 +154,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Force HTTP/1.1 towards the WARC archive: with HTTP/2 every worker
-	// multiplexes over one TCP connection, and the CDN throttling that
-	// single connection stalls the whole pool. Separate HTTP/1.1
-	// connections degrade independently.
-	warcTransport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		ForceAttemptHTTP2:   false,
-		TLSNextProto:        map[string]func(string, *tls.Conn) http.RoundTripper{},
-		MaxIdleConnsPerHost: *concurrency,
-		IdleConnTimeout:     90 * time.Second,
-	}
+	// Force HTTP/1.1 towards the WARC archive so throttling on one connection
+	// does not stall the whole worker pool (see ccharvest.NewWARCTransport).
 	f := &fetcher{
-		client:      &http.Client{Timeout: *timeout, Transport: warcTransport},
+		client:      &http.Client{Timeout: *timeout, Transport: ccharvest.NewWARCTransport(*concurrency)},
 		outDir:      *outDir,
 		limit:       *limit,
 		liveLimit:   *liveLimit,
@@ -182,7 +167,7 @@ func run() error {
 		counts:      map[string]int{},
 		stats:       map[string]*stats{},
 	}
-	f.gate = newHostGate(&http.Client{Timeout: *timeout}, *dohURL)
+	f.gate = ccharvest.NewHostGate(&http.Client{Timeout: *timeout}, *dohURL)
 	f.liveClient = &http.Client{
 		Timeout: *timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -195,15 +180,15 @@ func run() error {
 			if strings.EqualFold(prev, next) {
 				return nil
 			}
-			v, err := f.gate.check(req.Context(), next)
+			v, err := f.gate.Check(req.Context(), next)
 			if err != nil {
 				return err
 			}
 			switch v {
-			case verdictBlocked:
-				return fmt.Errorf("redirect to %s: %w", next, errGateBlocked)
-			case verdictDead:
-				return fmt.Errorf("redirect to %s: %w", next, errGateDead)
+			case ccharvest.VerdictBlocked:
+				return fmt.Errorf("redirect to %s: %w", next, ccharvest.ErrGateBlocked)
+			case ccharvest.VerdictDead:
+				return fmt.Errorf("redirect to %s: %w", next, ccharvest.ErrGateDead)
 			}
 			return nil
 		},
@@ -365,8 +350,13 @@ func loadManifest(path, typ, source string) ([]row, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) != 5 {
-			return nil, fmt.Errorf("%s:%d: want 5 tab-separated fields, got %d", path, lineNo, len(fields))
+		// Legacy single-crawl manifests have 5 columns; multi-crawl manifests
+		// (testdata/cc/sweep-multi.sh) prepend a self-describing crawl column.
+		var crawl string
+		if len(fields) == 6 {
+			crawl, fields = fields[0], fields[1:]
+		} else if len(fields) != 5 {
+			return nil, fmt.Errorf("%s:%d: want 5 or 6 tab-separated fields, got %d", path, lineNo, len(fields))
 		}
 		off, err := strconv.ParseInt(fields[2], 10, 64)
 		if err != nil {
@@ -379,6 +369,7 @@ func loadManifest(path, typ, source string) ([]row, error) {
 		rows = append(rows, row{
 			source:       source,
 			manifestType: typ,
+			crawl:        crawl,
 			url:          fields[0],
 			warcFile:     fields[1],
 			offset:       off,
@@ -392,14 +383,7 @@ func loadManifest(path, typ, source string) ([]row, error) {
 	return rows, nil
 }
 
-func isDocType(t string) bool {
-	for _, d := range docTypes {
-		if t == d {
-			return true
-		}
-	}
-	return false
-}
+func isDocType(t string) bool { return ccharvest.IsDocType(t) }
 
 func (f *fetcher) limitFor(source string) int {
 	if source == sourceLive {
@@ -545,11 +529,11 @@ func (f *fetcher) process(ctx context.Context, r row) {
 			f.mu.Unlock()
 			return
 		}
-		data, err := decodeRecord(raw)
+		data, err := ccharvest.DecodeRecord(raw)
 		if err != nil {
 			f.mu.Lock()
 			defer f.mu.Unlock()
-			if errors.Is(err, errTruncated) {
+			if errors.Is(err, ccharvest.ErrTruncated) {
 				st.truncated++
 				f.journal("-", "truncated", r, 0)
 			} else {
@@ -572,13 +556,13 @@ func (f *fetcher) recordLiveFailure(ctx context.Context, st *stats, r row, err e
 		return // interrupted: leave the row retryable
 	}
 	switch {
-	case errors.Is(err, errGateBlocked):
+	case errors.Is(err, ccharvest.ErrGateBlocked):
 		st.blocked++
 		f.journal("-", "blocked", r, 0)
-	case errors.Is(err, errGateDead):
+	case errors.Is(err, ccharvest.ErrGateDead):
 		st.dead++
 		f.journal("-", "dead", r, 0)
-	case errors.Is(err, errTooLarge):
+	case errors.Is(err, ccharvest.ErrTooLarge):
 		st.tooLarge++
 		f.journal("-", "too-large", r, 0)
 	default:
@@ -589,7 +573,7 @@ func (f *fetcher) recordLiveFailure(ctx context.Context, st *stats, r row, err e
 
 // store validates, classifies, dedups, and writes one payload.
 func (f *fetcher) store(st *stats, r row, payload []byte) {
-	actual, err := classifyOOXML(payload)
+	actual, err := ccharvest.ClassifyOOXML(payload)
 	if err != nil {
 		f.mu.Lock()
 		st.invalid++
@@ -598,8 +582,7 @@ func (f *fetcher) store(st *stats, r row, payload []byte) {
 		return
 	}
 
-	sum := sha256.Sum256(payload)
-	sha := hex.EncodeToString(sum[:])
+	sha := ccharvest.Digest(payload)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -629,9 +612,6 @@ func (f *fetcher) store(st *stats, r row, payload []byte) {
 	f.journal(sha, actual, r, len(payload))
 }
 
-// errTooLarge marks live payloads exceeding -live-max-size.
-var errTooLarge = errors.New("live: payload exceeds the size cap")
-
 // fetchLive refetches a truncated candidate from its original URL, gated by
 // the DoH blocklist check on the initial host and on every cross-host
 // redirect. One retry on transient failures.
@@ -643,15 +623,15 @@ func (f *fetcher) fetchLive(ctx context.Context, r row) ([]byte, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("live: unsupported scheme %q", u.Scheme)
 	}
-	v, err := f.gate.check(ctx, u.Hostname())
+	v, err := f.gate.Check(ctx, u.Hostname())
 	if err != nil {
-		return nil, fmt.Errorf("%w (gate: %v)", errGateDead, err)
+		return nil, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateDead, err)
 	}
 	switch v {
-	case verdictBlocked:
-		return nil, errGateBlocked
-	case verdictDead:
-		return nil, errGateDead
+	case ccharvest.VerdictBlocked:
+		return nil, ccharvest.ErrGateBlocked
+	case ccharvest.VerdictDead:
+		return nil, ccharvest.ErrGateDead
 	}
 
 	var lastErr error
@@ -663,7 +643,7 @@ func (f *fetcher) fetchLive(ctx context.Context, r row) ([]byte, error) {
 				return nil, ctx.Err()
 			}
 		}
-		data, retryable, err := f.tryFetchLive(ctx, r.url)
+		data, retryable, err := ccharvest.TryFetchLive(ctx, f.liveClient, r.url, f.liveMaxSize)
 		if err == nil {
 			select {
 			case <-time.After(livePolitenessDelay):
@@ -677,48 +657,6 @@ func (f *fetcher) fetchLive(ctx context.Context, r row) ([]byte, error) {
 		}
 	}
 	return nil, lastErr
-}
-
-func (f *fetcher) tryFetchLive(ctx context.Context, rawURL string) (data []byte, retryable bool, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, false, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := f.liveClient.Do(req)
-	if err != nil {
-		// Gate sentinels from CheckRedirect arrive wrapped in *url.Error.
-		if errors.Is(err, errGateBlocked) || errors.Is(err, errGateDead) {
-			return nil, false, err
-		}
-		return nil, true, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return nil, retry, fmt.Errorf("GET %s: status %s", rawURL, resp.Status)
-	}
-	data, err = io.ReadAll(io.LimitReader(resp.Body, f.liveMaxSize+1))
-	if err != nil {
-		return nil, true, err
-	}
-	if int64(len(data)) > f.liveMaxSize {
-		return nil, false, errTooLarge
-	}
-	return data, false, nil
-}
-
-// decodeRecord gunzips the raw WARC record bytes and extracts the payload.
-func decodeRecord(raw []byte) ([]byte, error) {
-	gz, err := gzip.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("warc: record gzip: %w", err)
-	}
-	gz.Multistream(false)
-	return extractPayload(gz)
 }
 
 // fetchRange issues the ranged request for one WARC record with retry on
@@ -737,7 +675,7 @@ func (f *fetcher) fetchRange(ctx context.Context, r row) ([]byte, bool, error) {
 				return nil, true, ctx.Err()
 			}
 		}
-		data, retryable, err := f.tryFetch(ctx, r)
+		data, retryable, err := ccharvest.TryFetchRange(ctx, f.client, r.warcFile, r.offset, r.length)
 		if err == nil {
 			// Small politeness delay so each worker paces its requests.
 			select {
@@ -752,38 +690,6 @@ func (f *fetcher) fetchRange(ctx context.Context, r row) ([]byte, bool, error) {
 		}
 	}
 	return nil, lastRetryable, lastErr
-}
-
-func (f *fetcher) tryFetch(ctx context.Context, r row) (data []byte, retryable bool, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ccBaseURL+r.warcFile, nil)
-	if err != nil {
-		return nil, false, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", r.offset, r.offset+r.length-1))
-
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return nil, true, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusPartialContent {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		// data.commoncrawl.org throttles with 403 as well as 429.
-		retry := resp.StatusCode == http.StatusTooManyRequests ||
-			resp.StatusCode == http.StatusForbidden ||
-			resp.StatusCode >= 500
-		return nil, retry, fmt.Errorf("GET %s range %d+%d: status %s", r.warcFile, r.offset, r.length, resp.Status)
-	}
-	data, err = io.ReadAll(io.LimitReader(resp.Body, r.length+1))
-	if err != nil {
-		return nil, true, err
-	}
-	if int64(len(data)) != r.length {
-		return nil, true, fmt.Errorf("GET %s: got %d bytes, want %d", r.warcFile, len(data), r.length)
-	}
-	return data, false, nil
 }
 
 func (f *fetcher) printSummary() {
