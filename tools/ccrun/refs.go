@@ -135,18 +135,34 @@ func loadManifest(path, typ, kind string) ([]Ref, error) {
 	return refs, nil
 }
 
-// loadAllRefs reads every manifest file and returns the concatenated refs in a
-// stable order (manifest file order, then row order), with duplicate digests
-// removed (first occurrence wins). The returned count reports how many
-// duplicate rows were dropped.
+// loadAllRefs reads every manifest file and returns the concatenated refs with
+// duplicate digests removed (first occurrence wins). The returned count reports
+// how many duplicate rows were dropped.
+//
+// WARC (complete) manifests are read before live (truncated) ones so a batch
+// makes real progress even when no DoH resolver is configured (without which
+// live rows only skip). Within a kind, files keep their sorted-name order and
+// rows their file order.
 func loadAllRefs(files []string) (refs []Ref, dupes int, err error) {
-	seen := map[string]bool{}
+	type mf struct {
+		path, typ, kind string
+	}
+	var parsed []mf
 	for _, path := range files {
 		typ, kind, err := parseManifestName(filepath.Base(path))
 		if err != nil {
 			return nil, 0, err
 		}
-		rows, err := loadManifest(path, typ, kind)
+		parsed = append(parsed, mf{path, typ, kind})
+	}
+	sort.SliceStable(parsed, func(i, j int) bool {
+		// WARC before live; otherwise preserve the incoming (sorted) order.
+		return parsed[i].kind == kindWARC && parsed[j].kind == kindLive
+	})
+
+	seen := map[string]bool{}
+	for _, m := range parsed {
+		rows, err := loadManifest(m.path, m.typ, m.kind)
 		if err != nil {
 			return nil, 0, err
 		}
