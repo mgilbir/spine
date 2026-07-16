@@ -469,7 +469,7 @@ func UnmarshalExtendedProperties(data []byte) (*ExtendedProperties, error) {
 		SharedDoc          string `xml:"SharedDoc"`
 		HyperlinksChanged  string `xml:"HyperlinksChanged"`
 	}
-	if err := xml.Unmarshal(data, &raw); err != nil {
+	if err := xmlb.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 
@@ -620,7 +620,7 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 	}
 
 	src := string(data)
-	decoder := xml.NewDecoder(strings.NewReader(src))
+	decoder := xmlb.NewDecoder(strings.NewReader(src))
 	var inRoot bool
 
 	for {

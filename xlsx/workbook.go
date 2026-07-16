@@ -2,7 +2,6 @@ package xlsx
 
 import (
 	"bytes"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
@@ -184,12 +183,12 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case name == "/xl/sharedStrings.xml":
 			w.sharedStrings = &oxml.CT_Sst{}
-			if err := xml.Unmarshal(data, w.sharedStrings); err != nil {
+			if err := xmlb.Unmarshal(data, w.sharedStrings); err != nil {
 				return fmt.Errorf("xlsx: parsing %s: %w", name, err)
 			}
 		case name == "/xl/styles.xml":
 			w.stylesheet = &oxml.CT_Stylesheet{}
-			if err := xml.Unmarshal(data, w.stylesheet); err != nil {
+			if err := xmlb.Unmarshal(data, w.stylesheet); err != nil {
 				return fmt.Errorf("xlsx: parsing %s: %w", name, err)
 			}
 		default:
@@ -272,7 +271,7 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 		}
 
 		ws := &oxml.CT_Worksheet{}
-		if err := xml.Unmarshal(part.Data, ws); err != nil {
+		if err := xmlb.Unmarshal(part.Data, ws); err != nil {
 			return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
 		}
 		sheet.worksheet = ws

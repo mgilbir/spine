@@ -2,7 +2,6 @@ package docx
 
 import (
 	"bytes"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
@@ -249,32 +248,32 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case name == "/word/styles.xml":
 			d.styles = &oxml.CT_Styles{}
-			if err := xml.Unmarshal(data, d.styles); err != nil {
+			if err := xmlb.Unmarshal(data, d.styles); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/numbering.xml":
 			d.numbering = &oxml.CT_Numbering{}
-			if err := xml.Unmarshal(data, d.numbering); err != nil {
+			if err := xmlb.Unmarshal(data, d.numbering); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/settings.xml":
 			d.settings = &oxml.CT_Settings{}
-			if err := xml.Unmarshal(data, d.settings); err != nil {
+			if err := xmlb.Unmarshal(data, d.settings); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/footnotes.xml":
 			d.footnotes = &oxml.CT_Footnotes{}
-			if err := xml.Unmarshal(data, d.footnotes); err != nil {
+			if err := xmlb.Unmarshal(data, d.footnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/endnotes.xml":
 			d.endnotes = &oxml.CT_Endnotes{}
-			if err := xml.Unmarshal(data, d.endnotes); err != nil {
+			if err := xmlb.Unmarshal(data, d.endnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/comments.xml":
 			d.comments = &oxml.CT_Comments{}
-			if err := xml.Unmarshal(data, d.comments); err != nil {
+			if err := xmlb.Unmarshal(data, d.comments); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/fontTable.xml":
@@ -283,13 +282,13 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case isDocxHeaderPartName(name):
 			hdr := &oxml.CT_HdrFtr{}
-			if err := xml.Unmarshal(data, hdr); err != nil {
+			if err := xmlb.Unmarshal(data, hdr); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.headers[name] = &headerPart{hdr: hdr, contentType: file.ContentType}
 		case isDocxFooterPartName(name):
 			ftr := &oxml.CT_HdrFtr{}
-			if err := xml.Unmarshal(data, ftr); err != nil {
+			if err := xmlb.Unmarshal(data, ftr); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.footers[name] = &footerPart{ftr: ftr, contentType: file.ContentType}

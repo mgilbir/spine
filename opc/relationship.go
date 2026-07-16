@@ -215,7 +215,7 @@ func RelationshipsEquivalent(a, b []*Relationship) bool {
 // UnmarshalRelationships parses relationship XML into a slice of relationships.
 func UnmarshalRelationships(data []byte) ([]*Relationship, error) {
 	var relsXML relationshipsXML
-	if err := xml.Unmarshal(data, &relsXML); err != nil {
+	if err := xmlb.Unmarshal(data, &relsXML); err != nil {
 		return nil, err
 	}
 

@@ -48,6 +48,7 @@ var decoderSources sync.Map
 // details the token stream hides (self-closing vs expanded empty elements).
 func UnmarshalWithSource(data []byte, v interface{}) error {
 	d := xml.NewDecoder(bytes.NewReader(data))
+	d.CharsetReader = CharsetReader
 	decoderSources.Store(d, data)
 	defer decoderSources.Delete(d)
 	return d.Decode(v)

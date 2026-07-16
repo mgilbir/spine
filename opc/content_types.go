@@ -566,7 +566,7 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	// verbatim <Types ...> open tag, each entry's leading whitespace and
 	// self-closing style, and the whitespace before </Types>. CharData values
 	// cannot serve here — the decoder EOL-normalizes them, losing CRLF.
-	d := xml.NewDecoder(bytes.NewReader(data))
+	d := xmlb.NewDecoder(bytes.NewReader(data))
 	sawTypes := false
 	last := int64(0)
 	pendingSep := ""
