@@ -233,9 +233,38 @@ the ignored `testdata/corpus/`) has one append-only row per processed
 reference (`digest  outcome  stage  signature  timestamp`; outcome is `pass`,
 `fail`, `skip`, or `resource`) and is flushed per row. On restart `ccrun` skips
 every digest already present, so an interrupted or OOM-killed batch loses at
-most the in-flight file. A *transient* fetch failure (CDN throttling, timeout)
-is **deferred** — left out of the ledger so a later run retries the reference
-instead of burning it; only terminal outcomes are recorded. Resume loop:
+most the in-flight file.
+
+**Fetch failures are classified permanent vs transient, and the retry is
+capped, so a batch always makes forward progress.** Every fetch outcome is
+bucketed before it touches the ledger:
+
+- **Permanent** — a DNS NXDOMAIN / no-such-host, a connection refused, a TLS or
+  certificate failure, an HTTP 4xx (404/410/403/401 and most others), a blocked
+  or dead DoH-gate verdict, an over-cap body, or a payload that is **not a valid
+  OOXML package** (see below). A permanent failure is written to the ledger
+  **immediately** as a terminal `fail` at `stage=fetch` with a specific
+  signature (`fetch:dns`, `fetch:http-404`, `fetch:not-ooxml`, `fetch:tls`,
+  `fetch:conn-refused`, …) and is **never retried**. A dead origin therefore
+  terminates on its first attempt instead of being re-selected every batch.
+- **Transient** — a timeout, HTTP 429, an HTTP 5xx, a connection reset, or a
+  temporary DNS failure (SERVFAIL). A transient failure is **deferred** (left
+  out of the ledger so a later batch retries it), but only up to
+  `maxFetchAttempts` (3). The count is persisted in a sidecar
+  (`testdata/corpus/cc-batch/attempts.tsv`, gitignored) so the cap survives
+  restarts; once it is reached the reference is retired terminally as
+  `fetch:transient-exhausted` — with no further fetch — so the queue strictly
+  drains rather than looping for weeks on a flaky tail. (A WARC-CDN throttling
+  403 is transient on the archive path but a permanent refusal at a live
+  origin; the low-level layer's path-specific retryable flag disambiguates.)
+
+**Non-OOXML bodies are fetch failures, not open failures.** A dead origin can
+answer a live refetch with an HTML error page or a login redirect (HTTP 200
+with a non-file body). Before handing any fetched payload to the library `Open`,
+the worker validates it is a real OPC package (starts with `PK\x03\x04`, opens
+as a zip, contains `[Content_Types].xml`); a body that fails is recorded as a
+permanent `fetch:not-ooxml` at `stage=fetch`, not as a spurious `open` failure,
+and no `Open` attempt is wasted on it. Resume loop:
 
 ```sh
 # Repeat until a batch reports 0 remaining.

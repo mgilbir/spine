@@ -167,9 +167,14 @@ type batchStats struct {
 	failByStage   map[string]int
 	resource      map[string]int
 	deferred      int // transient fetch failures, left for a later run
+	exhausted     int // transient failures that hit the retry cap and terminated
 	noDohSkips    int
 	manifestDupes int
 }
+
+// sigExhausted is the terminal signature for a reference retired after its
+// transient failures reached maxFetchAttempts.
+const sigExhausted = "fetch:transient-exhausted"
 
 func runOrchestrator(cfg orchConfig) error {
 	if len(cfg.manifests) == 0 {
@@ -203,6 +208,14 @@ func runOrchestrator(cfg orchConfig) error {
 		return err
 	}
 	defer func() { _ = quarantine.Close() }()
+	// The transient-retry counter lives beside the ledger (both under the
+	// gitignored testdata/corpus/ tree) so the retry cap is durable across
+	// batches and restarts.
+	attempts, err := openAttempts(filepath.Join(filepath.Dir(cfg.ledger), "attempts.tsv"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = attempts.Close() }()
 
 	self, err := os.Executable()
 	if err != nil {
@@ -229,6 +242,17 @@ func runOrchestrator(cfg orchConfig) error {
 		if r.Kind == kindLive && cfg.dohURL == "" {
 			_ = ledger.Append(r.Digest, outcomeSkip, "no-doh", "", now())
 			stats.noDohSkips++
+			continue
+		}
+		// A reference whose transient failures already reached the retry cap in
+		// earlier batches is retired terminally now, without another expensive
+		// fetch, so the queue drains instead of looping on a flaky origin.
+		if attempts.Exhausted(r.Digest) {
+			_ = ledger.Append(r.Digest, outcomeFail, "fetch", sigExhausted, now())
+			_ = quarantine.Append(r, "fetch", sigExhausted)
+			stats.failByStage["fetch"]++
+			stats.processed++
+			stats.exhausted++
 			continue
 		}
 		work = append(work, r)
@@ -258,7 +282,10 @@ func runOrchestrator(cfg orchConfig) error {
 				switch outcome {
 				case outcomeRetry:
 					// Transient fetch failure: leave it out of the ledger so a
-					// later run retries it. Not a processed reference.
+					// later run retries it, but record the attempt so the retry
+					// cap (enforced at selection) can eventually retire it. Not a
+					// processed reference.
+					_, _ = attempts.Bump(r.Digest)
 					stats.deferred++
 					mu.Unlock()
 					continue
@@ -409,6 +436,7 @@ func printStats(s *batchStats, selected int) {
 	fmt.Printf("  processed       %d\n", s.processed)
 	fmt.Printf("  pass            %d\n", s.pass)
 	fmt.Printf("  deferred        %d (transient fetch; retried next run)\n", s.deferred)
+	fmt.Printf("  exhausted       %d (transient retry cap hit; terminal fetch)\n", s.exhausted)
 	fmt.Printf("  no-DoH skips    %d\n", s.noDohSkips)
 	fmt.Printf("  manifest dupes  %d\n", s.manifestDupes)
 
