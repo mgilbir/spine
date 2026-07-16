@@ -11,7 +11,6 @@ package pptx
 
 import (
 	"bytes"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -270,7 +269,7 @@ func (p *Presentation) resolveThemes() {
 				break
 			}
 			var themeXML dml.Theme
-			if err := xml.Unmarshal(data, &themeXML); err != nil {
+			if err := xmlb.Unmarshal(data, &themeXML); err != nil {
 				break
 			}
 			master.theme = themeFromOxml(&themeXML)

@@ -85,4 +85,19 @@ func TestValidate_MergeOverlap(t *testing.T) {
 	if r := w.Validate(); hasCode(r, codeMergeOverlap, validate.SeverityError) {
 		t.Fatalf("did not expect merge-overlap for disjoint ranges, got: %v", r)
 	}
+
+	// Adjacent-but-not-overlapping ranges must NOT be flagged: the inclusive
+	// intersection test only fires when the rectangles share at least one cell.
+	adjacency := []struct{ a, b string }{
+		{"A1:A2", "A3:A4"}, // vertically adjacent (row edge touches)
+		{"A1:B1", "C1:D1"}, // horizontally adjacent (col edge touches)
+		{"A1:B2", "C3:D4"}, // corner-adjacent (diagonal touch)
+	}
+	for _, tc := range adjacency {
+		ws.MergeCells.MergeCell[0].Ref = tc.a
+		ws.MergeCells.MergeCell[1].Ref = tc.b
+		if r := w.Validate(); hasCode(r, codeMergeOverlap, validate.SeverityError) {
+			t.Errorf("adjacent ranges %s / %s wrongly flagged as overlap: %v", tc.a, tc.b, r)
+		}
+	}
 }

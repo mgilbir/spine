@@ -389,6 +389,22 @@ func OpenReaderWithOptions(path string, opts ReaderOptions) (*ReadCloser, error)
 	return &ReadCloser{Reader: *r, file: f}, nil
 }
 
+// guardedReaderAt wraps the caller's io.ReaderAt so a corrupt package that
+// drives archive/zip to read at a negative offset — e.g. a zip64 entry whose
+// local-header offset has the high bit set, which archive/zip stores as a
+// negative int64 and then passes straight to ReadAt — fails with a clean,
+// named package error instead of the underlying reader's raw
+// "bytes.Reader.ReadAt: negative offset". Non-negative reads pass through
+// untouched, so valid packages are unaffected.
+type guardedReaderAt struct{ r io.ReaderAt }
+
+func (g guardedReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off < 0 {
+		return 0, fmt.Errorf("%w: zip entry has a negative offset (%d)", ErrCorruptedPackage, off)
+	}
+	return g.r.ReadAt(p, off)
+}
+
 // NewReader creates a Reader from an io.ReaderAt.
 func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 	return NewReaderWithOptions(r, size, ReaderOptions{})
@@ -400,7 +416,7 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 // and require setup-time mutation — the options apply to this Reader alone,
 // so concurrent opens with different limits need no global coordination.
 func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
-	zr, err := zip.NewReader(r, size)
+	zr, err := zip.NewReader(guardedReaderAt{r}, size)
 	if err != nil {
 		return nil, err
 	}

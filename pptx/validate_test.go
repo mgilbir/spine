@@ -49,6 +49,39 @@ func TestValidate_DuplicateShapeID(t *testing.T) {
 	}
 }
 
+// The id collector must count each shape exactly once across nested groups: a
+// shape that appears once inside a nested group must not be mistaken for a
+// duplicate (no false positive), while a genuine collision across a group
+// boundary must still be reported.
+func TestValidate_ShapeIDNestedGroups(t *testing.T) {
+	// Top-level shape id 1; a group (id 2) containing a subgroup (id 3) with a
+	// shape id 4. All distinct -> clean, and no id is double-counted.
+	inner := &oxml.GroupShape{
+		NvGrpSpPr: &oxml.NvGrpSpPr{CNvPr: &dml.CNvPr{Id: 3}},
+		Shapes:    []*oxml.Shape{{NvSpPr: &oxml.NvSpPr{CNvPr: &dml.CNvPr{Id: 4}}}},
+	}
+	outer := &oxml.GroupShape{
+		NvGrpSpPr:   &oxml.NvGrpSpPr{CNvPr: &dml.CNvPr{Id: 2}},
+		GroupShapes: []*oxml.GroupShape{inner},
+	}
+	tree := &oxml.ShapeTree{
+		Sp:    []*oxml.Shape{{NvSpPr: &oxml.NvSpPr{CNvPr: &dml.CNvPr{Id: 1}}}},
+		GrpSp: []*oxml.GroupShape{outer},
+	}
+	slide := &Slide{partName: "/ppt/slides/slide1.xml", slideXML: &oxml.Slide{CSld: &oxml.CommonSlideData{SpTree: tree}}}
+	p := &Presentation{slides: []*Slide{slide}}
+	if r := p.Validate(); hasCode(r, codeShapeIDDup, validate.SeverityError) {
+		t.Fatalf("distinct ids across nested groups wrongly flagged: %v", r)
+	}
+
+	// A collision between a top-level shape and one buried in a nested group is
+	// a real duplicate.
+	inner.Shapes[0].NvSpPr.CNvPr.Id = 1
+	if r := p.Validate(); !hasCode(r, codeShapeIDDup, validate.SeverityError) {
+		t.Fatalf("cross-group duplicate id not reported: %v", r)
+	}
+}
+
 // C139: created 4:3 and 16:9 decks have baked layouts/master whose placeholder
 // extents fit within the slide, and span (roughly) the content width.
 func TestC139_CreatedLayoutGeometryFitsSlide(t *testing.T) {

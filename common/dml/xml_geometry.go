@@ -5,10 +5,63 @@ package dml
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"strconv"
+	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// roundInt64 parses an OOXML integer attribute value leniently. Conformant
+// files write plain integers, but wild files harvested from the web write a
+// fractional lexical form (e.g. "-1.5") for an EMU coordinate or angle that
+// the schema types as an integer. Office tolerates these, so rather than fail
+// the whole Open on one odd value (the graceful-degradation policy), the value
+// is parsed as a float and rounded; a truly unparseable value degrades to 0.
+// The verbatim source attribute is preserved separately (CapturedAttrs) and
+// replayed on save, so this lenience does not perturb round-trip fidelity.
+func roundInt64(s string) int64 {
+	s = strings.TrimSpace(s)
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return n
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		return int64(math.Round(f))
+	}
+	return 0
+}
+
+// coerceIntAttrs returns start.Attr with each listed integer-typed attribute
+// whose value is not already a valid integer rewritten to its rounded integer
+// form, so the reflection decoder's strconv.ParseInt does not fail the whole
+// Open on one non-integer value. A copy is made only when a rewrite is needed;
+// the verbatim originals live in CapturedAttrs and are replayed on save.
+func coerceIntAttrs(attrs []xml.Attr, names ...string) []xml.Attr {
+	out := attrs
+	copied := false
+	for i := range attrs {
+		matched := false
+		for _, n := range names {
+			if attrs[i].Name.Local == n {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		v := strings.TrimSpace(attrs[i].Value)
+		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+			continue
+		}
+		if !copied {
+			out = append([]xml.Attr(nil), attrs...)
+			copied = true
+		}
+		out[i].Value = strconv.FormatInt(roundInt64(v), 10)
+	}
+	return out
+}
 
 // PrstGeom represents CT_PresetGeometry2D (a:prstGeom)
 type PrstGeom struct {
@@ -114,17 +167,11 @@ func (p *PathXML2D) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "w":
-			n, err := strconv.ParseInt(attr.Value, 10, 64)
-			if err != nil {
-				return fmt.Errorf("dml: a:path w attribute %q: %w", attr.Value, err)
-			}
-			p.W = n
+			// Lenient parse: a wild file's fractional coordinate must not fail
+			// the whole Open. The verbatim value round-trips via CapturedAttrs.
+			p.W = roundInt64(attr.Value)
 		case "h":
-			n, err := strconv.ParseInt(attr.Value, 10, 64)
-			if err != nil {
-				return fmt.Errorf("dml: a:path h attribute %q: %w", attr.Value, err)
-			}
-			p.H = n
+			p.H = roundInt64(attr.Value)
 		case "fill":
 			p.Fill = attr.Value
 		case "stroke":
@@ -496,6 +543,7 @@ type Xfrm struct {
 // struct tags; the reflection marshaler replays it.
 func (xf *Xfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	xf.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	start.Attr = coerceIntAttrs(start.Attr, "rot")
 	type alias Xfrm
 	return d.DecodeElement((*alias)(xf), &start)
 }
@@ -512,6 +560,7 @@ type OffXML struct {
 // struct tags; the reflection marshaler replays it.
 func (off *OffXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	off.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	start.Attr = coerceIntAttrs(start.Attr, "x", "y")
 	type alias OffXML
 	return d.DecodeElement((*alias)(off), &start)
 }
@@ -528,6 +577,7 @@ type ExtXML struct {
 // struct tags; the reflection marshaler replays it.
 func (ex2 *ExtXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ex2.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	start.Attr = coerceIntAttrs(start.Attr, "cx", "cy")
 	type alias ExtXML
 	return d.DecodeElement((*alias)(ex2), &start)
 }
@@ -549,6 +599,7 @@ type GrpXfrm struct {
 // decoding through the struct tags; the reflection marshaler replays it.
 func (gx *GrpXfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	gx.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	start.Attr = coerceIntAttrs(start.Attr, "rot")
 	type alias GrpXfrm
 	return d.DecodeElement((*alias)(gx), &start)
 }

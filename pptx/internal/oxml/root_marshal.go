@@ -3,6 +3,7 @@ package oxml
 import (
 	"encoding/xml"
 	"strconv"
+	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -26,11 +27,20 @@ func acAnchorAt(anchors []string, i int) string {
 	return acDefaultAnchor
 }
 
-// parseXSDBool parses an xsd:boolean attribute value, ignoring invalid input
-// (matching encoding/xml, which leaves the field untouched on parse errors
-// only for pointers; invalid values are rare enough to treat as absent).
+// parseXSDBool parses an ST_OnOff / xsd:boolean attribute value, ignoring
+// input outside the schema (leaving the field absent). ECMA-376 ST_OnOff
+// admits on/off in addition to the xsd:boolean 1/0/true/false, which
+// strconv.ParseBool rejects, so those are recognized explicitly.
 func parseXSDBool(v string) *bool {
-	b, err := strconv.ParseBool(v)
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on":
+		t := true
+		return &t
+	case "off":
+		f := false
+		return &f
+	}
+	b, err := strconv.ParseBool(strings.TrimSpace(v))
 	if err != nil {
 		return nil
 	}

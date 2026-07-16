@@ -413,3 +413,61 @@ type CT_RgbColor struct {
 type CT_MRUColors struct {
 	Color []CT_Color `xml:"color"`
 }
+
+// The following custom UnmarshalXML methods coerce the ST_OnOff boolean
+// attributes of styles.xml to canonical "1"/"0" before the reflection decoder
+// parses them, so a wild file's non-standard boolean spelling (e.g. "on" or
+// "N") does not fail the whole Open with a bare strconv.ParseBool error. The
+// verbatim source is preserved on a zero-mod save (styles.xml is re-emitted
+// raw unless a style edit marks it dirty), so this only affects the model.
+
+// UnmarshalXML coerces the knownFonts boolean before decoding.
+func (f *CT_Fonts) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "knownFonts")
+	type alias CT_Fonts
+	return d.DecodeElement((*alias)(f), &start)
+}
+
+// UnmarshalXML coerces the diagonalUp/diagonalDown/outline booleans.
+func (bd *CT_Border) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "diagonalUp", "diagonalDown", "outline")
+	type alias CT_Border
+	return d.DecodeElement((*alias)(bd), &start)
+}
+
+// UnmarshalXML coerces the quotePrefix/pivotButton/apply* booleans.
+func (xf *CT_Xf) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "quotePrefix", "pivotButton",
+		"applyNumberFormat", "applyFont", "applyFill", "applyBorder",
+		"applyAlignment", "applyProtection")
+	type alias CT_Xf
+	return d.DecodeElement((*alias)(xf), &start)
+}
+
+// UnmarshalXML coerces the wrapText/justifyLastLine/shrinkToFit booleans.
+func (a *CT_CellAlignment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "wrapText", "justifyLastLine", "shrinkToFit")
+	type alias CT_CellAlignment
+	return d.DecodeElement((*alias)(a), &start)
+}
+
+// UnmarshalXML coerces the locked/hidden booleans.
+func (p *CT_CellProtection) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "locked", "hidden")
+	type alias CT_CellProtection
+	return d.DecodeElement((*alias)(p), &start)
+}
+
+// UnmarshalXML coerces the hidden/customBuiltin booleans.
+func (cs *CT_CellStyle) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "hidden", "customBuiltin")
+	type alias CT_CellStyle
+	return d.DecodeElement((*alias)(cs), &start)
+}
+
+// UnmarshalXML coerces the pivot/table booleans.
+func (ts *CT_TableStyle) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "pivot", "table")
+	type alias CT_TableStyle
+	return d.DecodeElement((*alias)(ts), &start)
+}
