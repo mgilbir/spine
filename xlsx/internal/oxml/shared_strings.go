@@ -170,6 +170,16 @@ type CT_BooleanProperty struct {
 	Val *bool `xml:"val,attr,omitempty"`
 }
 
+// UnmarshalXML coerces the val ST_OnOff boolean before decoding, so a wild
+// font property such as <b val="on"/> does not fail the whole Open. The
+// original bytes round-trip on a zero-mod save (styles/sharedStrings are
+// re-emitted raw unless edited).
+func (bp *CT_BooleanProperty) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	start.Attr = coerceBoolAttrs(start.Attr, "val")
+	type alias CT_BooleanProperty
+	return d.DecodeElement((*alias)(bp), &start)
+}
+
 // CT_FontSize represents a font size property element.
 type CT_FontSize struct {
 	Val float64 `xml:"val,attr"`
