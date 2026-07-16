@@ -7,6 +7,22 @@ remediation series (#59–#75).
 
 ### Fixed
 
+- tools/ccrun: the batched harvest now classifies every fetch outcome as
+  permanent or transient and caps the retry, so a batch always makes forward
+  progress. Permanent failures (DNS NXDOMAIN, connection refused, TLS failure,
+  HTTP 4xx, a blocked/dead gate verdict, a non-OOXML body) terminate on the
+  first attempt with a specific `fetch:*` signature; transient failures
+  (timeout, 429, 5xx, connection reset, temporary DNS) are deferred at most
+  three times — the count persisted in a durable sidecar — then retired as
+  `fetch:transient-exhausted`. Previously dead origins were re-selected and
+  re-timed-out every batch, so the tail of a large harvest could loop for weeks
+  without draining (#90).
+- tools/ccrun,internal/ccharvest: fetched payloads are validated as real OOXML
+  packages (zip magic, readable zip, `[Content_Types].xml`) before the library
+  `Open`, on both the WARC-decode and live-HTTP paths. A dead origin's HTML
+  error page or login redirect (HTTP 200, non-file body) is now recorded as a
+  `fetch:not-ooxml` fetch failure instead of being mis-categorized as an `open`
+  failure and wasting an `Open` attempt on non-zip bytes (#90).
 - docx,xlsx: `Open` fails, naming the part, when a part referenced from the
   document is missing or unreadable — a worksheet reached through a dangling
   `r:id`, a missing referenced header/footer/numbering part — instead of

@@ -236,14 +236,17 @@ func runWorker(ref Ref, scratch, dohURL string, timeout time.Duration) {
 	}()
 
 	if ferr != nil {
-		if retryable {
-			// Transient (throttle/timeout/network): tell the orchestrator to
-			// defer this reference so a later run retries it, rather than
-			// burning it as a permanent failure.
-			fmt.Printf("%s\t%s\t%s\t%s\n", ref.Digest, outcomeRetry, "fetch", signature(ferr))
+		// Classify the failure durably: a transient outcome (throttle, timeout,
+		// 429/5xx, connection reset, temporary DNS) is deferred for a later
+		// batch; a permanent one (dead host, connection refused, TLS failure,
+		// 4xx, gate block) is burned now with a specific fetch:* signature so a
+		// dead origin never loops.
+		disp, sig := ccharvest.ClassifyFetchError(ferr, retryable)
+		if disp == ccharvest.DispTransient {
+			fmt.Printf("%s\t%s\t%s\t%s\n", ref.Digest, outcomeRetry, "fetch", sig)
 			return
 		}
-		emitResult(ref.Digest, result{stage: "fetch", signature: signature(ferr)})
+		emitResult(ref.Digest, result{stage: "fetch", signature: sig})
 		return
 	}
 	// Re-read from scratch when present, exercising the real on-disk path.
@@ -251,6 +254,14 @@ func runWorker(ref Ref, scratch, dohURL string, timeout time.Duration) {
 		if b, err := os.ReadFile(scratch); err == nil {
 			data = b
 		}
+	}
+	// A dead origin can answer a live refetch with an HTML error page or a
+	// login redirect (HTTP 200, non-file body). Reject any non-OOXML payload at
+	// the fetch stage — as a permanent failure — before handing it to Open, so
+	// it is categorized as a fetch failure, not a spurious open failure.
+	if err := ccharvest.ValidateOOXMLPackage(data); err != nil {
+		emitResult(ref.Digest, result{stage: "fetch", signature: "fetch:not-ooxml"})
+		return
 	}
 	emitResult(ref.Digest, testBytes(ref.Type, data))
 }
