@@ -162,6 +162,17 @@ remediation series (#59–#75).
 
 ### Added
 
+- testdata: a second, fully distinct 10k-each docx/xlsx Common Crawl corpus
+  under `testdata/cc/stress/` for library stress testing — a fresh batch of
+  real-world files that shares **no `content_digest`** with the canonical set,
+  so `ccrun` exercises 10k new docx and 10k new xlsx without re-testing anything
+  already covered. Swept from the same six crawls, deduplicated across them, at
+  the same `-d 15` per-domain cap, with every canonical docx/xlsx digest
+  excluded up front. `sweep-multi.sh` gained two flags to make this
+  reproducible: `-T <types>` sweeps/emits a subset of `pptx,xlsx,docx`, and
+  `-x <digest-file>` excludes a list of `content_digest`s from every emitted
+  manifest and from the early-stop count (a DuckDB anti-join). `ccrun`/`ccfetch`
+  read the stress manifests via `-manifest testdata/cc/stress` unchanged (#92).
 - testdata,tools: a scaled, batched Common Crawl harvest pipeline that commits
   only *references* (crawl id + WARC filename/offset/length + content_digest +
   URL), never binaries. Shared harvest logic (WARC range fetch/decode,

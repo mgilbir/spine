@@ -190,6 +190,78 @@ manifests from that run) gives pptx. The sweep is resumable, so pptx was topped
 up incrementally by sweeping the two older crawls and merging. The default cap
 stays 5 (diversity-first).
 
+### Second distinct set — the docx/xlsx stress set (`testdata/cc/stress/`)
+
+`testdata/cc/stress/manifest-{docx,xlsx}[-truncated].tsv` is a **second, fully
+distinct** 10k-each corpus of docx and xlsx that **shares no `content_digest`
+with the canonical set above**. Its purpose is a library stress test: a fresh
+10k/type of real-world files to run through the same `ccrun` round-trip
+discipline without re-testing anything the first set already covers. The
+canonical manifests are left untouched; the stress set is purely additional and
+lives in its own subdirectory so the two never mix.
+
+| type | crawls swept | domain cap | complete | truncated |
+| ---- | -----------: | ---------: | -------: | --------: |
+| docx | 6 available  | 15         | 10000    | 52        |
+| xlsx | 6 available  | 15         | 10000    | 80        |
+
+It was swept from the same six crawls as the pptx set (CC-MAIN-2026-25 / -21 /
+-17 / -12 / -08 / -04), deduplicated across them by `content_digest`, at the
+same `-d 15` per-registered-domain cap as the canonical docx/xlsx set — but with
+**every canonical docx/xlsx digest excluded up front**. docx and xlsx are so
+abundant (the newest crawl alone holds ~61k distinct docx and ~34k distinct
+xlsx) that even after removing the ~23k canonical digests the first crawl still
+yields well over 10k *new* distinct of each type, so the sweep hit the target
+and stopped early on CC-MAIN-2026-25 — the remaining five crawls were available
+as deeper sources but not needed (the same early-stop the canonical docx/xlsx
+set took). Truncated (>1 MiB) candidates are much rarer once the canonical set
+is excluded, hence the small truncated counts.
+
+**Two new `sweep-multi.sh` flags make this reproducible:**
+
+- `-T <types>` — a comma-separated subset of `pptx,xlsx,docx` to sweep and emit
+  (default all three). The stress sweep used `-T docx,xlsx`, so pptx MIME rows
+  were never scanned, emitted, or counted toward the early-stop.
+- `-x <digest-file>` — a newline-delimited list of `content_digest`s to exclude
+  from every emitted manifest **and** from the early-stop count (a DuckDB
+  anti-join). This is what guarantees zero overlap with the canonical set.
+
+Regenerate the exclusion list from the committed canonical manifests, then
+sweep into the `stress/` subdirectory:
+
+```sh
+# 1. every canonical docx/xlsx digest -> exclusion file (not committed)
+tail -q -n+2 manifest-docx.tsv manifest-docx-truncated.tsv \
+             manifest-xlsx.tsv manifest-xlsx-truncated.tsv \
+  | cut -f6 | sort -u > /tmp/exclude-digests.txt
+
+# 2. sweep docx+xlsx across the six crawls, cap 15, excluding the first set
+mkdir -p stress
+bash sweep-multi.sh -t 10000 -d 15 -T docx,xlsx -x /tmp/exclude-digests.txt \
+  -o stress -w /tmp/spine-stress-work \
+  CC-MAIN-2026-25 CC-MAIN-2026-21 CC-MAIN-2026-17 \
+  CC-MAIN-2026-12 CC-MAIN-2026-08 CC-MAIN-2026-04
+```
+
+`ccrun`/`ccfetch` read the stress manifests exactly like the canonical ones —
+point `-manifest` at `testdata/cc/stress` and give the run its **own** ledger
+and quarantine so the two corpora stay separate:
+
+`make harvest-batch` hardcodes `-manifest testdata/cc`, so invoke the runner
+directly with the same resource-capped scope (loop it until a batch reports
+`0 remaining`):
+
+```sh
+go build -o testdata/corpus/cc-stress/ccrun ./tools/ccrun
+systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% \
+  testdata/corpus/cc-stress/ccrun \
+  -manifest   testdata/cc/stress \
+  -ledger     testdata/corpus/cc-stress/ledger.tsv \
+  -quarantine testdata/cc/stress/batch-quarantine.tsv \
+  -scratch    testdata/corpus/cc-stress/scratch \
+  -batch 2000 -workers 2 -timeout 90s
+```
+
 ### Sharded fetch → test → record → discard (`tools/ccrun`)
 
 `ccrun` processes the manifests **one bounded batch per invocation**. The

@@ -17,7 +17,8 @@
 # content_digest. The manifests are committed; tools/ccrun (or tools/ccfetch)
 # turns them into a transient local corpus — only the references live in git.
 #
-# Usage: sweep-multi.sh [-t TARGET] [-o OUTDIR] [-d DOMAIN_CAP] [-w WORKDIR] [CRAWL ...]
+# Usage: sweep-multi.sh [-t TARGET] [-o OUTDIR] [-d DOMAIN_CAP] [-w WORKDIR]
+#                       [-T TYPES] [-x DIGEST_FILE] [CRAWL ...]
 #   -t  distinct candidates to keep per complete manifest (default 10000)
 #   -o  output directory for the manifests (default: this script's directory)
 #   -d  per-registered-domain cap applied globally (default 5)
@@ -25,6 +26,15 @@
 #       scarcer, so it can take a higher cap without touching the other types.
 #   -w  persistent work dir for the accumulating DuckDB db + scan progress
 #       (default: $TMPDIR/spine-sweep-work). See "Resumable" below.
+#   -T  comma-separated document types to sweep and emit (default pptx,xlsx,docx).
+#       Only these MIME types are scanned, emitted, and counted for the
+#       early-stop check. Use e.g. `-T docx,xlsx` to sweep just those two.
+#   -x  exclusion digest file: a newline-delimited list of content_digests to
+#       exclude from every emitted manifest (and from the early-stop count).
+#       This yields a *second, distinct* set that does not overlap an existing
+#       one — regenerate the file from a prior manifest set with e.g.
+#         tail -q -n +2 manifest-docx.tsv manifest-xlsx.tsv | cut -f6 | sort -u
+#       See the "stress set" section in README.md.
 #   CRAWL ...  crawl ids to sweep, most-recent first. With none given, a recent
 #              default list is used. Crawls are swept in order and scanning
 #              stops early once every complete manifest has reached TARGET
@@ -49,23 +59,58 @@ OUTDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOMAIN_CAP=5
 PPTX_CAP=""     # optional pptx-only domain cap; empty => use DOMAIN_CAP
 WORKDIR="${TMPDIR:-/tmp}/spine-sweep-work"
+TYPES="pptx,xlsx,docx"  # document types to sweep/emit (comma-separated)
+XFILE=""        # optional exclusion digest file (one content_digest per line)
 BATCH=10        # index parts per DuckDB invocation
 MAX_RETRIES=12  # per-batch retries: sweeping many crawls guarantees heavy
                 # data.commoncrawl.org throttling (403/503/500), so be patient
 
-while getopts "t:o:d:p:w:h" opt; do
+while getopts "t:o:d:p:w:T:x:h" opt; do
   case "$opt" in
     t) TARGET="$OPTARG" ;;
     o) OUTDIR="$(cd "$OPTARG" && pwd)" ;;
     d) DOMAIN_CAP="$OPTARG" ;;
     p) PPTX_CAP="$OPTARG" ;;
     w) WORKDIR="$OPTARG" ;;
+    T) TYPES="$OPTARG" ;;
+    x) XFILE="$(cd "$(dirname "$OPTARG")" && pwd)/$(basename "$OPTARG")" ;;
     h) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [-p pptx_cap] [-w workdir] [CRAWL ...]" >&2; exit 2 ;;
+    *) echo "usage: $0 [-t target] [-o outdir] [-d domain_cap] [-p pptx_cap] [-w workdir] [-T types] [-x digest_file] [CRAWL ...]" >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
 : "${PPTX_CAP:=$DOMAIN_CAP}"
+
+if [ -n "$XFILE" ] && [ ! -f "$XFILE" ]; then
+  echo "error: exclusion digest file not found: $XFILE" >&2; exit 1
+fi
+
+# Map the requested types to their MIME strings and build:
+#   MIME_LIST  a SQL IN-list used to restrict scanning/selection to the wanted
+#              types (so `-T docx,xlsx` never scans or emits pptx), and
+#   WANT_TYPES the ext:mime specs the emit loop iterates over.
+declare -A MIME_OF
+MIME_OF[pptx]="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+MIME_OF[xlsx]="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MIME_OF[docx]="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+WANT_TYPES=()
+MIME_LIST=""
+IFS=',' read -ra _types <<< "$TYPES"
+for _t in "${_types[@]}"; do
+  [ -z "$_t" ] && continue
+  [ -n "${MIME_OF[$_t]:-}" ] || { echo "error: unknown type '$_t' (want pptx, xlsx, or docx)" >&2; exit 2; }
+  WANT_TYPES+=("$_t:${MIME_OF[$_t]}")
+  MIME_LIST="$MIME_LIST${MIME_LIST:+, }'${MIME_OF[$_t]}'"
+done
+NWANT=${#WANT_TYPES[@]}
+[ "$NWANT" -gt 0 ] || { echo "error: -T selected no types" >&2; exit 2; }
+
+# Exclusion predicate, spliced into the early-stop count and the final COPY.
+# Empty when no -x file is given, so default behavior is unchanged.
+EXCL_PRED=""
+if [ -n "$XFILE" ]; then
+  EXCL_PRED="AND content_digest NOT IN (SELECT column0 FROM read_csv('$XFILE', header=false, columns={'column0':'VARCHAR'}))"
+fi
 
 CRAWLS=("$@")
 if [ "${#CRAWLS[@]}" -eq 0 ]; then
@@ -86,10 +131,6 @@ DB="$WORKDIR/sweep.db"
 DONE="$WORKDIR/done.txt"
 touch "$DONE"
 
-MIME_PPTX="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-MIME_XLSX="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-MIME_DOCX="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-
 # httpfs + retry settings prepended to every DuckDB invocation.
 SETTINGS="INSTALL httpfs; LOAD httpfs;
 SET http_retries = 6;
@@ -107,19 +148,22 @@ duckdb "$DB" "CREATE TABLE IF NOT EXISTS candidates (
   content_digest VARCHAR, mime VARCHAR, warc_filename VARCHAR,
   warc_record_offset BIGINT, warc_record_length BIGINT, is_truncated BOOLEAN);"
 
-# enough_complete reports whether every complete-payload type has reached
-# TARGET distinct content_digests, so we can stop sweeping further crawls.
+# enough_complete reports whether every requested complete-payload type has
+# reached TARGET distinct content_digests, so we can stop sweeping further
+# crawls. Only the -T types are counted, and any -x excluded digests are
+# discounted, so the early-stop tracks exactly what will be emitted.
 enough_complete() {
   local n
   n="$(duckdb "$DB" -noheader -list "
     SELECT count(*) FROM (
       SELECT mime FROM candidates
       WHERE NOT is_truncated
-        AND mime IN ('$MIME_PPTX', '$MIME_XLSX', '$MIME_DOCX')
+        AND mime IN ($MIME_LIST)
+        $EXCL_PRED
       GROUP BY mime
       HAVING count(DISTINCT content_digest) >= $TARGET
     );")"
-  [ "$n" = "3" ]
+  [ "$n" = "$NWANT" ]
 }
 
 for CRAWL in "${CRAWLS[@]}"; do
@@ -174,8 +218,8 @@ for CRAWL in "${CRAWLS[@]}"; do
         | sed -e '$ s/,$//'
       echo "])"
       echo "WHERE fetch_status = 200"
-      echo "  AND ((content_truncated IS NULL AND content_mime_detected IN ('$MIME_PPTX', '$MIME_XLSX', '$MIME_DOCX'))"
-      echo "    OR (content_truncated IS NOT NULL AND content_mime_type IN ('$MIME_PPTX', '$MIME_XLSX', '$MIME_DOCX')))"
+      echo "  AND ((content_truncated IS NULL AND content_mime_detected IN ($MIME_LIST))"
+      echo "    OR (content_truncated IS NOT NULL AND content_mime_type IN ($MIME_LIST)))"
       # Manifests are unquoted TSV: drop the vanishingly rare URL that would
       # break that framing.
       echo "  AND NOT regexp_matches(url, '[\\t\\n\\r\"]');"
@@ -215,7 +259,7 @@ done
 # cut — once for complete payloads and once for truncated ones. The winning
 # reference for a digest is chosen by a deterministic order, independent of
 # which crawl contributed it.
-for spec in "pptx:$MIME_PPTX" "xlsx:$MIME_XLSX" "docx:$MIME_DOCX"; do
+for spec in "${WANT_TYPES[@]}"; do
   ext="${spec%%:*}"; mime="${spec#*:}"
   # pptx is scarcer than xlsx/docx, so it accepts its own (usually higher)
   # per-domain cap: distinct pptx are diversity-limited, and a higher cap trades
@@ -236,6 +280,7 @@ COPY (
     ) AS rn
     FROM candidates
     WHERE mime = '$mime' AND $pred
+      $EXCL_PRED
   ),
   capped AS (
     SELECT *, row_number() OVER (
@@ -266,8 +311,11 @@ SQL
 done
 
 echo "== manifests written:"
-for ext in pptx xlsx docx pptx-truncated xlsx-truncated docx-truncated; do
-  f="$OUTDIR/manifest-$ext.tsv"
-  rows=$(( $(wc -l < "$f") - 1 ))
-  echo "   $f: $rows candidates"
+for spec in "${WANT_TYPES[@]}"; do
+  ext="${spec%%:*}"
+  for suffix in "" "-truncated"; do
+    f="$OUTDIR/manifest-$ext$suffix.tsv"
+    rows=$(( $(wc -l < "$f") - 1 ))
+    echo "   $f: $rows candidates"
+  done
 done
