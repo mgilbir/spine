@@ -43,22 +43,20 @@ func TestOpenErrorsOnMissingReferencedHeader(t *testing.T) {
 	}
 }
 
-// C60: same for a referenced-but-missing footer and numbering part.
-func TestOpenErrorsOnMissingReferencedFooterAndNumbering(t *testing.T) {
-	for _, tc := range []struct{ relType, target, wantPart string }{
-		{"footer", "footer2.xml", "/word/footer2.xml"},
-		{"numbering", "numbering.xml", "/word/numbering.xml"},
-	} {
-		fixture := fixtureWithDocRels(t,
-			`<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/`+tc.relType+`" Target="`+tc.target+`"/>`,
-			nil)
-		_, err := OpenReader(bytes.NewReader(fixture), int64(len(fixture)))
-		if err == nil {
-			t.Fatalf("Open succeeded on a document referencing a missing %s part", tc.relType)
-		}
-		if !strings.Contains(err.Error(), tc.wantPart) {
-			t.Errorf("%s: error does not name the missing part: %v", tc.relType, err)
-		}
+// C60: a referenced-but-missing footer part is still an Open error (footers,
+// like headers, render visible page furniture and stay essential). Numbering is
+// covered separately as an OPTIONAL part that is now tolerated — see
+// TestOpenToleratesMissingNumberingPart.
+func TestOpenErrorsOnMissingReferencedFooter(t *testing.T) {
+	fixture := fixtureWithDocRels(t,
+		`<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>`,
+		nil)
+	_, err := OpenReader(bytes.NewReader(fixture), int64(len(fixture)))
+	if err == nil {
+		t.Fatal("Open succeeded on a document referencing a missing footer part")
+	}
+	if !strings.Contains(err.Error(), "/word/footer2.xml") {
+		t.Errorf("error does not name the missing part: %v", err)
 	}
 }
 

@@ -300,11 +300,14 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		}
 	}
 
-	// A header, footer, or numbering part referenced from the main document
-	// part must exist (C60): the reference means the document displays that
-	// content, so a dangling target is a broken document rather than an
-	// optional absence. Genuinely optional parts (unreferenced headers, a
-	// numbering.xml no relationship points to) stay tolerated.
+	// A referenced header or footer part must exist (C60): the reference means
+	// the document displays that page furniture, so a dangling target is a
+	// broken document rather than an optional absence. A referenced-but-absent
+	// numbering part is tolerated instead (see checkReferencedParts): numbering
+	// is a supplementary definition part, and Word opens such files — list
+	// paragraphs simply render without their numbering definition. Genuinely
+	// optional parts (unreferenced headers, a numbering.xml no relationship
+	// points to) stay tolerated.
 	return d.checkReferencedParts(mainPartName)
 }
 
@@ -330,15 +333,26 @@ func isDocxFooterPartName(name string) bool {
 	return strings.HasPrefix(name, "/word/footer") && strings.HasSuffix(name, ".xml")
 }
 
-// checkReferencedParts verifies that every header, footer, and numbering part
-// referenced from the main document part's relationships is present in the
-// package (C60). The error names the missing part and the relationship that
-// references it.
+// checkReferencedParts verifies that every referenced ESSENTIAL part present in
+// the main document part's relationships is actually in the package (C60). The
+// error names the missing part and the relationship that references it.
+//
+// Essential-vs-optional boundary: the main document.xml part is essential and
+// its absence fails the open earlier (main-part resolution). Among parts
+// referenced from it, headers and footers render visible page furniture and are
+// treated as essential here — a dangling target is a broken document. Numbering
+// is OPTIONAL: it is a supplementary definition part, and Word opens files whose
+// numbering rel dangles (real Common Crawl files do exactly this) by rendering
+// list paragraphs without their numbering definition. A dangling numbering rel
+// is therefore tolerated at open, surfaced instead as a Validate warning, and
+// preserved raw so a zero-modification save re-emits the dead rel byte-for-byte.
+// (Other supplementary parts — styles, fontTable, settings, webSettings,
+// footnotes/endnotes — are not checked here at all, so they are already
+// tolerant when referenced but absent.)
 func (d *Document) checkReferencedParts(mainPartName string) error {
 	kind := map[string]string{
-		opc.RelTypeHeader:    "header",
-		opc.RelTypeFooter:    "footer",
-		opc.RelTypeNumbering: "numbering",
+		opc.RelTypeHeader: "header",
+		opc.RelTypeFooter: "footer",
 	}
 	for _, rel := range d.relationships[mainPartName] {
 		what, ok := kind[rel.Type]
