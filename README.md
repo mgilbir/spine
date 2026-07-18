@@ -7,7 +7,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
-- **Charts (preview)**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. The `xlsx` package wires it in with `Sheet.AddChart` / `Sheet.Charts` (referencing the host workbook's cells); `docx` and `pptx` integrations follow
+- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
@@ -494,6 +494,46 @@ for _, ch := range opened.Charts() {
 A zero-modification open→save of a chart-bearing document is byte-identical:
 the chart and embedded-workbook parts round-trip verbatim, and are regenerated
 only when a chart is added.
+
+#### Charts in PowerPoint
+
+`Slide.AddChart` places a chart on a slide. Because a presentation has no host
+workbook, the chart's data is embedded as a small `.xlsx` package that Office
+can open to edit the data; the chart part, the embedded workbook, the wiring
+relationships, and the content-type overrides are all created for you. Position
+and size are given in EMUs.
+
+```go
+package main
+
+import (
+	"github.com/mgilbir/spine/chart"
+	"github.com/mgilbir/spine/pptx"
+)
+
+func main() {
+	p := pptx.Create()
+	slide := p.AddSlide()
+
+	c := chart.NewColumn().
+		SetTitle("Quarterly Revenue").
+		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
+	c.AddSeries("2024", []float64{10, 20, 15, 25})
+	c.AddSeries("2025", []float64{12, 18, 22, 30})
+
+	// x, y, width, height in EMUs (914400 EMU = 1 inch).
+	if err := slide.AddChart(c, 914400, 1828800, 5486400, 3657600); err != nil {
+		panic(err)
+	}
+	_ = p.Save("charts.pptx")
+}
+```
+
+Read charts back with `Slide.Charts()` or `Presentation.Charts()`, which return
+the parsed `*chart.Chart` definitions (type, title, categories, and series).
+A chart added this way coexists with the slide's existing shapes, and opening
+and re-saving a chart-bearing deck without changes preserves the chart and
+embedding parts byte-for-byte.
 
 ### Working with Documents in Memory
 

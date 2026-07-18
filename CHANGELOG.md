@@ -176,6 +176,21 @@ remediation series (#59–#75).
   regenerated only when a chart is added). `Validate` warns on a chart drawing
   whose relationship has no target part. `opc` gains `RelTypePackage`,
   `ContentTypeChart`, and `ContentTypeSpreadsheetPackage`.
+- pptx: `Slide.AddChart(c *chart.Chart, x, y, width, height int64)` adds a chart
+  to a slide (position and size in EMUs), and `Slide.Charts()` /
+  `Presentation.Charts()` read the chart definitions back. This is the Phase B
+  PowerPoint integration of the shared `chart` package: since a presentation has
+  no host workbook, the chart's data is embedded as an `.xlsx` package under
+  `ppt/embeddings/` (from `chart.EmbeddedWorkbook`) whose `Sheet1` ranges match
+  the chart's `c:f` references, and the chart part serialized from
+  `MarshalChartXML` references it via `c:externalData`. AddChart creates the
+  chart part, the embedded workbook, the chart→workbook package relationship,
+  the slide→chart relationship, the slide `p:graphicFrame`, and the content-type
+  overrides — on both created and opened decks. The chart's graphic frame is
+  appended through the shape sync, so it coexists with the slide's existing
+  shapes; a zero-modification open→save of a chart-bearing deck preserves the
+  chart and embedding parts byte-for-byte. `Validate()` warns when a chart
+  graphic frame's relationship has no target part.
 - chart: a new public, format-agnostic `chart` package for building DrawingML
   charts and serializing them to a `chart.xml` part (`c:chartSpace`) reusable by
   the xlsx, docx, and pptx integrations. Build a chart with a constructor

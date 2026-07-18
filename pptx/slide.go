@@ -424,6 +424,9 @@ func (s *Slide) syncShapesToXML() {
 			gf := tableToOxml(sh, shapeID)
 			spTree.GraphicFrame = append(spTree.GraphicFrame, gf)
 			shapeID++
+		case *ChartFrame:
+			spTree.GraphicFrame = append(spTree.GraphicFrame, chartFrameToOxml(sh, shapeID))
+			shapeID++
 		case *Picture:
 			pic := pictureToOxml(sh, shapeID)
 			spTree.Pic = append(spTree.Pic, pic)
@@ -523,6 +526,9 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 			spTree.AppendGraphicFrame(gf)
 			// Later row/cell mutations reach the XML via SyncXML.
 			sh.sourceFrame = gf
+			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
+		case *ChartFrame:
+			spTree.AppendGraphicFrame(chartFrameToOxml(sh, id))
 			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *Picture:
 			spTree.AppendPic(pictureToOxml(sh, id))

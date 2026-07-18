@@ -144,6 +144,8 @@ func baseShapeOf(shape Shape) *BaseShape {
 		return &sh.BaseShape
 	case *GroupShape:
 		return &sh.BaseShape
+	case *ChartFrame:
+		return &sh.BaseShape
 	}
 	return nil
 }
@@ -419,32 +421,32 @@ func (t *TextBox) SetHyperlinkToSlide(index int) *Hyperlink { return t.setSlideL
 
 // Common preset geometry names
 const (
-	PresetRect           = "rect"
-	PresetRoundRect      = "roundRect"
-	PresetEllipse        = "ellipse"
-	PresetTriangle       = "triangle"
-	PresetRightTriangle  = "rtTriangle"
-	PresetParallelogram  = "parallelogram"
-	PresetTrapezoid      = "trapezoid"
-	PresetDiamond        = "diamond"
-	PresetPentagon       = "pentagon"
-	PresetHexagon        = "hexagon"
-	PresetHeptagon       = "heptagon"
-	PresetOctagon        = "octagon"
-	PresetStar4          = "star4"
-	PresetStar5          = "star5"
-	PresetStar6          = "star6"
-	PresetArrowRight     = "rightArrow"
-	PresetArrowLeft      = "leftArrow"
-	PresetArrowUp        = "upArrow"
-	PresetArrowDown      = "downArrow"
-	PresetCloud          = "cloud"
-	PresetHeart          = "heart"
-	PresetLightningBolt  = "lightningBolt"
-	PresetSun            = "sun"
-	PresetMoon           = "moon"
-	PresetSmileyFace     = "smileyFace"
-	PresetCallout1       = "wedgeRectCallout"
-	PresetCallout2       = "wedgeRoundRectCallout"
-	PresetCallout3       = "wedgeEllipseCallout"
+	PresetRect          = "rect"
+	PresetRoundRect     = "roundRect"
+	PresetEllipse       = "ellipse"
+	PresetTriangle      = "triangle"
+	PresetRightTriangle = "rtTriangle"
+	PresetParallelogram = "parallelogram"
+	PresetTrapezoid     = "trapezoid"
+	PresetDiamond       = "diamond"
+	PresetPentagon      = "pentagon"
+	PresetHexagon       = "hexagon"
+	PresetHeptagon      = "heptagon"
+	PresetOctagon       = "octagon"
+	PresetStar4         = "star4"
+	PresetStar5         = "star5"
+	PresetStar6         = "star6"
+	PresetArrowRight    = "rightArrow"
+	PresetArrowLeft     = "leftArrow"
+	PresetArrowUp       = "upArrow"
+	PresetArrowDown     = "downArrow"
+	PresetCloud         = "cloud"
+	PresetHeart         = "heart"
+	PresetLightningBolt = "lightningBolt"
+	PresetSun           = "sun"
+	PresetMoon          = "moon"
+	PresetSmileyFace    = "smileyFace"
+	PresetCallout1      = "wedgeRectCallout"
+	PresetCallout2      = "wedgeRoundRectCallout"
+	PresetCallout3      = "wedgeEllipseCallout"
 )
