@@ -50,11 +50,15 @@ func TestCommentsRead(t *testing.T) {
 	defer func() { _ = doc.Close() }()
 
 	comments := doc.Comments()
-	if len(comments) != 2 {
-		t.Fatalf("Comments() = %d, want 2", len(comments))
+	if len(comments) != 1 {
+		t.Fatalf("Comments() = %d, want 1 (top-level thread root)", len(comments))
 	}
 
-	parent, reply := comments[0], comments[1]
+	parent := comments[0]
+	if len(parent.Replies()) != 1 {
+		t.Fatalf("parent.Replies() = %d, want 1", len(parent.Replies()))
+	}
+	reply := parent.Replies()[0]
 	if parent.Author() != "Alice" || parent.Text() != "First comment" {
 		t.Errorf("parent = %q/%q, want Alice/First comment", parent.Author(), parent.Text())
 	}
@@ -164,8 +168,8 @@ func TestCommentsAddReplyResolve(t *testing.T) {
 	doc2 := openFixture(t, saved)
 	defer func() { _ = doc2.Close() }()
 	got := doc2.Comments()
-	if len(got) != 2 {
-		t.Fatalf("reopened Comments() = %d, want 2", len(got))
+	if len(got) != 1 {
+		t.Fatalf("reopened Comments() = %d, want 1 (top-level thread root)", len(got))
 	}
 	root := got[0]
 	if root.Author() != "Reviewer One" || root.Text() != "Please rephrase this." {
