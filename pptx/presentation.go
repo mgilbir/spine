@@ -1640,6 +1640,14 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		if err := writer.WritePart(name, part.ContentType, part.Data); err != nil {
 			return err
 		}
+		// Write this part's own relationships (e.g. a chart part's link to its
+		// embedded workbook). Slide/master/layout/presentation rels are handled
+		// above; auxiliary parts are not, so their .rels would otherwise be lost.
+		if len(p.relationships[name]) > 0 {
+			if err := p.writePartRelationships(writer, name); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Write presentation relationships

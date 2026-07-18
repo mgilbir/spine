@@ -44,6 +44,8 @@ func shapeDirty(shape Shape) bool {
 		return sh.isDirty()
 	case *GroupShape:
 		return sh.isDirty()
+	case *ChartFrame:
+		return sh.dirty
 	}
 	return false
 }
@@ -84,6 +86,8 @@ func clearShapeDirty(shape Shape) {
 		for _, child := range sh.children {
 			clearShapeDirty(child)
 		}
+	case *ChartFrame:
+		sh.dirty = false
 	}
 }
 
@@ -283,6 +287,20 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 // over for surviving cells (see regenerateTableNode). Non-table graphic frames
 // are never dirty (they are not materialized), so they are untouched.
 func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
+	if cf, ok := shape.(*ChartFrame); ok {
+		if !cf.dirty {
+			return
+		}
+		if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && cf.name != "" {
+			gf.NvGraphicFramePr.CNvPr.Name = cf.name
+		}
+		if gf.Xfrm == nil {
+			gf.Xfrm = &dml.Xfrm{}
+		}
+		gf.Xfrm.Off = &dml.OffXML{X: int64(cf.x), Y: int64(cf.y)}
+		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(cf.width), Cy: int64(cf.height)}
+		return
+	}
 	tbl, ok := shape.(*Table)
 	if !ok {
 		return
