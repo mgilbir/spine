@@ -39,3 +39,6 @@ testdata/corpus/
 
 # Optional python-pptx test corpus (see testdata/README.md); not redistributed
 python-tests/
+
+# Harvest failure catalogs are ccrun output (regenerable), never committed
+batch-quarantine.tsv
