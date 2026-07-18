@@ -103,6 +103,10 @@ const (
 	RelTypeDrawing       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
 	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
 	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
+
+	// RelTypePackage links a part to an embedded OPC package, e.g. a chart part
+	// to the .xlsx workbook holding its editable data (c:externalData r:id).
+	RelTypePackage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
 	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 
 	// SpreadsheetML comment relationship types. RelTypeComments (the shared

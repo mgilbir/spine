@@ -95,6 +95,17 @@ const (
 	// Drawing content type (SpreadsheetML/DrawingML drawing part)
 	ContentTypeDrawing = "application/vnd.openxmlformats-officedocument.drawing+xml"
 
+	// DrawingML chart part content type (c:chartSpace), used by the ppt/xl/word
+	// charts/chartN.xml override.
+	ContentTypeChart = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+
+	// ContentTypeEmbeddedPackage is the content type of an embedded .xlsx
+	// workbook (a whole OPC package carried as one opaque part), e.g. a chart's
+	// editable data source under ppt/embeddings/. Note it is the "sheet"
+	// package type, not the "sheet.main+xml" main-part type used inside an
+	// .xlsx.
+	ContentTypeEmbeddedPackage = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
 	// Image content types
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"
