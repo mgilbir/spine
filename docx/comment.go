@@ -29,14 +29,21 @@ type Comment struct {
 	c        *oxml.CT_Comment
 }
 
-// Comments returns every comment in the document, in the order they appear in
-// the comments part.
+// Comments returns the document's top-level comments (thread roots), in the
+// order they appear in the comments part. Replies are reached through
+// Comment.Replies() rather than appearing in this list, matching the xlsx and
+// pptx comment APIs.
 func (d *Document) Comments() []*Comment {
 	if d.comments == nil {
 		return nil
 	}
 	out := make([]*Comment, 0, len(d.comments.Comment))
 	for _, c := range d.comments.Comment {
+		// Skip replies: a comment with a commentsExtended paraIdParent is
+		// nested under its parent and surfaced via Replies().
+		if ce := d.commentExFor(c); ce != nil && ce.ParaIdParent != "" {
+			continue
+		}
 		out = append(out, &Comment{document: d, c: c})
 	}
 	return out
