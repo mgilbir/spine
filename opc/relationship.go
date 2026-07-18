@@ -102,6 +102,9 @@ const (
 	RelTypeCalcChain     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain"
 	RelTypeDrawing       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
 	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
+	// RelTypePackage links a chart part to its embedded workbook package (the
+	// .xlsx that holds the chart's data so Office can edit it).
+	RelTypePackage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
 	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 
