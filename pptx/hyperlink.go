@@ -84,17 +84,15 @@ func (h *Hyperlink) Tooltip() string {
 	return h.tooltip
 }
 
-// SetTooltip sets the hyperlink's screen-tip text and returns the hyperlink for
-// chaining.
-func (h *Hyperlink) SetTooltip(tooltip string) *Hyperlink {
+// SetTooltip sets the hyperlink's screen-tip text.
+func (h *Hyperlink) SetTooltip(tooltip string) {
 	if h == nil {
-		return h
+		return
 	}
 	h.tooltip = tooltip
 	if h.markDirty != nil {
 		h.markDirty()
 	}
-	return h
 }
 
 // --- constructors used by the run/shape setters ---

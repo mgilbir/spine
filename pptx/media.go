@@ -162,6 +162,13 @@ func (p *Picture) AltText() string {
 	return p.description
 }
 
+// WidthEMU returns the picture frame's width in EMUs, the OOXML-native unit
+// shared with the docx and xlsx image readers.
+func (p *Picture) WidthEMU() int64 { w, _ := p.Size(); return int64(w) }
+
+// HeightEMU returns the picture frame's height in EMUs.
+func (p *Picture) HeightEMU() int64 { _, h := p.Size(); return int64(h) }
+
 // SetHyperlink attaches an external-URL hyperlink to the picture. The External
 // relationship is allocated on save.
 func (p *Picture) SetHyperlink(url string) *Hyperlink { return p.setHyperlinkURL(url) }

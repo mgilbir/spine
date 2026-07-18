@@ -26,6 +26,13 @@ func (img *InlineImage) Width() float64 { return emuToPoints(img.widthEMU) }
 // Height returns the image's display height in points.
 func (img *InlineImage) Height() float64 { return emuToPoints(img.heightEMU) }
 
+// WidthEMU returns the image's display width in EMUs, the OOXML-native unit
+// shared with the xlsx and pptx image readers.
+func (img *InlineImage) WidthEMU() int64 { return img.widthEMU }
+
+// HeightEMU returns the image's display height in EMUs.
+func (img *InlineImage) HeightEMU() int64 { return img.heightEMU }
+
 // Floating reports whether the image is floating/anchored (positioned relative
 // to the page or paragraph) rather than inline in the text flow.
 func (img *InlineImage) Floating() bool { return img.floating }
