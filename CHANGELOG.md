@@ -162,6 +162,30 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: read/write APIs for hyperlinks, images, sheet protection, and read
+  accessors for the previously write-only feature surface. Hyperlinks are read
+  and written through one `*Hyperlink` type sharing the cross-format surface
+  (`URL`, `Anchor`, `Tooltip`, `SetTooltip`) plus an xlsx-specific `Ref` for the
+  anchor cell: `Cell.Hyperlink()`, `Sheet.Hyperlinks()`, and
+  `Cell.SetHyperlink(url)` (external, allocating an `External` relationship in
+  the sheet rels on save) / `Cell.SetInternalHyperlink(location)` (an in-workbook
+  jump, no relationship). `Sheet.Images()` enumerates worksheet drawing images as
+  a `*Image` (`AltText`, `Data`, `ContentType`, plus xlsx-specific `AnchorCell`,
+  `WidthEMU`, `HeightEMU`), matching the docx/pptx image readers. Sheet
+  protection is read via `Sheet.Protection()` (a `*SheetProtection` reporting the
+  effective locked/allowed state of each operation and whether a password guard
+  is present) and written via `Sheet.Protect(SheetProtectionOptions)` /
+  `Sheet.Unprotect()`, using Excel's documented legacy 16-bit password hash (a UI
+  guard, not encryption). Read accessors were added for the write-only surface:
+  `Sheet.MergedCells()`, `Sheet.FrozenPanes()`, `Sheet.AutoFilterRange()`,
+  `Sheet.DataValidations()` / `Cell.DataValidation()`, `Sheet.ColumnWidth` /
+  `ColumnHidden` and `Sheet.RowHeight` / `RowHidden`, and read-only
+  `Sheet.ConditionalFormats()` surfacing cellIs/expression/colorScale/dataBar/
+  iconSet/top10 rules. Every write persists on both the `Create` and `Open` save
+  paths; a zero-modification open→save of a feature-bearing workbook stays
+  byte-identical (only modified parts regenerate). `Validate()` warns on a
+  hyperlink whose `r:id` has no matching relationship and on a data validation
+  with a malformed `sqref` (#101).
 - pptx: a slide comments API symmetric with the docx/xlsx comment APIs.
   `Slide.Comments()` and `Presentation.Comments()` read both PowerPoint comment
   mechanisms — legacy per-slide comments and modern (2018) threaded comments —
