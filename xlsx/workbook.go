@@ -754,55 +754,59 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	writer.Properties = &w.Properties
 
 	mainPartName := w.mainPart()
-	var wbRels []*opc.Relationship
-	relID := 1
-	drawingCount := 0
-	mediaCount := 0
 
-	// Write each worksheet
+	// Give every sheet a stable part name and workbook relationship id up front
+	// so the shared attachment writer can wire each sheet's .rels exactly once,
+	// just like the opened save path does.
 	for i, sheet := range w.sheets {
-		sheetPartName := fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
+		sheet.partName = fmt.Sprintf("/xl/worksheets/sheet%d.xml", i+1)
+		sheet.relID = fmt.Sprintf("rId%d", i+1)
+	}
 
-		// Attach a drawing part to the worksheet model before it is marshalled
-		// so the <drawing> element is emitted.
-		if len(sheet.images) > 0 {
-			drawingCount++
-			if sheet.worksheet == nil {
-				sheet.worksheet = &oxml.CT_Worksheet{SheetData: oxml.CT_SheetData{}}
-			}
-			sheet.worksheet.Drawing = &oxml.CT_Drawing{RID: "rId1"}
-		}
-
-		if err := writeSheetPart(writer, sheetPartName, sheet); err != nil {
+	// Write the attachment parts — image drawings/media and comment (legacy
+	// comments, VML, threaded comments) parts plus the workbook-shared person
+	// list — and the per-sheet .rels that combine them. Both save paths call the
+	// same code so they cannot drift: saveOpenedSheetAttachments sets each
+	// touched sheet's <drawing>/<legacyDrawing> element and marks the sheet
+	// dirty, so the worksheet parts written below carry those references. It
+	// returns the person list's workbook-relative target ("" if none) to wire
+	// the workbook relationship.
+	var personTarget string
+	if w.sheetsHaveImages() || w.sheetsHaveComments() {
+		var err error
+		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
+		if err != nil {
 			return err
 		}
+	}
 
-		if len(sheet.images) > 0 {
-			if err := writeSheetDrawing(writer, sheetPartName, sheet, drawingCount, &mediaCount); err != nil {
-				return err
-			}
+	// Write each worksheet part (after attachments so any drawing/legacyDrawing
+	// reference is present) and its workbook relationship.
+	var wbRels []*opc.Relationship
+	for i, sheet := range w.sheets {
+		if err := writeSheetPart(writer, sheet.partName, sheet); err != nil {
+			return err
 		}
-
-		rid := fmt.Sprintf("rId%d", relID)
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     rid,
+			ID:     sheet.relID,
 			Type:   opc.RelTypeWorksheet,
 			Target: fmt.Sprintf("worksheets/sheet%d.xml", i+1),
 		})
-		relID++
 	}
 
-	// Rebuild the sheets element in the workbook model
+	// Rebuild the sheets element in the workbook model, keeping the relationship
+	// ids assigned above.
 	w.workbook.Sheets.Sheet = make([]oxml.CT_Sheet, len(w.sheets))
-	sheetRelID := 1
 	for i, sheet := range w.sheets {
 		w.workbook.Sheets.Sheet[i] = oxml.CT_Sheet{
 			Name:    sheet.name,
 			SheetId: uint32(i + 1),
-			RID:     fmt.Sprintf("rId%d", sheetRelID),
+			RID:     sheet.relID,
 		}
-		sheetRelID++
 	}
+
+	// Relationship ids after the worksheets are the next free ones.
+	nextRelID := len(w.sheets) + 1
 
 	// Write styles.xml if a stylesheet exists
 	if w.stylesheet != nil {
@@ -815,11 +819,21 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			return err
 		}
 
-		rid := fmt.Sprintf("rId%d", relID)
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     rid,
+			ID:     fmt.Sprintf("rId%d", nextRelID),
 			Type:   opc.RelTypeStyles,
 			Target: "styles.xml",
+		})
+		nextRelID++
+	}
+
+	// Wire the workbook-shared person list (threaded-comment authors) when the
+	// attachment pass regenerated one.
+	if personTarget != "" {
+		wbRels = append(wbRels, &opc.Relationship{
+			ID:     fmt.Sprintf("rId%d", nextRelID),
+			Type:   opc.RelTypePerson,
+			Target: personTarget,
 		})
 	}
 
@@ -862,74 +876,6 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 		return err
 	}
 	return writer.WritePart(partName, opc.ContentTypeWorksheet, wsData)
-}
-
-// writeSheetDrawing emits the drawing part, the media parts and the
-// relationships that anchor a sheet's images. It writes:
-//   - the worksheet -> drawing relationship (rId1 in the sheet's rels),
-//   - one /xl/media/imageN.<ext> part per image,
-//   - the /xl/drawings/drawing<idx>.xml part, and
-//   - the drawing -> image relationships.
-//
-// mediaCount is a workbook-wide counter so media part names stay unique across
-// sheets.
-func writeSheetDrawing(writer *opc.Writer, sheetPartName string, sheet *Sheet, drawingIndex int, mediaCount *int) error {
-	drawingPartName := fmt.Sprintf("/xl/drawings/drawing%d.xml", drawingIndex)
-
-	// Worksheet -> drawing relationship (matches CT_Drawing.RID = "rId1").
-	if err := writer.WritePartRelationships(sheetPartName, []*opc.Relationship{{
-		ID:     "rId1",
-		Type:   opc.RelTypeDrawing,
-		Target: fmt.Sprintf("../drawings/drawing%d.xml", drawingIndex),
-	}}); err != nil {
-		return err
-	}
-
-	// Media parts + drawing -> image relationships. Relationship ids are
-	// allocated sequentially so SVG images (which need two parts: the raster
-	// fallback and the SVG) don't collide with single-part raster images.
-	drawingRels := make([]*opc.Relationship, 0, len(sheet.images))
-	rels := make([]imageRels, len(sheet.images))
-	relN := 0
-	nextRelID := func() string { relN++; return fmt.Sprintf("rId%d", relN) }
-
-	for i := range sheet.images {
-		img := sheet.images[i]
-
-		*mediaCount++
-		rasterName := fmt.Sprintf("/xl/media/image%d.%s", *mediaCount, img.ext)
-		if err := writer.WritePart(rasterName, img.contentType, img.data); err != nil {
-			return err
-		}
-		rasterRID := nextRelID()
-		drawingRels = append(drawingRels, &opc.Relationship{
-			ID:     rasterRID,
-			Type:   opc.RelTypeImage,
-			Target: fmt.Sprintf("../media/image%d.%s", *mediaCount, img.ext),
-		})
-		rels[i].rasterRID = rasterRID
-
-		if len(img.svgData) > 0 {
-			*mediaCount++
-			svgName := fmt.Sprintf("/xl/media/image%d.svg", *mediaCount)
-			if err := writer.WritePart(svgName, opc.ContentTypeSVG, img.svgData); err != nil {
-				return err
-			}
-			svgRID := nextRelID()
-			drawingRels = append(drawingRels, &opc.Relationship{
-				ID:     svgRID,
-				Type:   opc.RelTypeImage,
-				Target: fmt.Sprintf("../media/image%d.svg", *mediaCount),
-			})
-			rels[i].svgRID = svgRID
-		}
-	}
-
-	// Drawing part + its relationships.
-	if err := writer.WritePart(drawingPartName, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, rels)); err != nil {
-		return err
-	}
-	return writer.WritePartRelationships(drawingPartName, drawingRels)
 }
 
 func cloneRelationships(rels []*opc.Relationship) []*opc.Relationship {
