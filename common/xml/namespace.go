@@ -26,6 +26,11 @@ const (
 	// PresentationML namespaces
 	NSPresentationML = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
+	// NSPowerPointComment2018 is the Microsoft 2018 threaded-comment namespace
+	// (conventionally bound to the p188: prefix) used by authors.xml and the
+	// per-thread modernComment parts.
+	NSPowerPointComment2018 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
+
 	// NSOfficeDocumentRels is the officeDocument relationship namespace
 	// (conventionally bound to the r: prefix). It is shared by every OOXML
 	// document format, not just PresentationML.
@@ -89,6 +94,7 @@ const (
 const (
 	PrefixDrawingML           = "a"
 	PrefixPresentationML      = "p"
+	PrefixPowerPointComment   = "p188"
 	PrefixWordprocessingML    = "w"
 	PrefixRelationships       = "r"
 	PrefixDrawingMLChart      = "c"

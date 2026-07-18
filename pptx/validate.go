@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"encoding/xml"
 	"fmt"
 
 	"github.com/mgilbir/spine/common/validate"
@@ -13,7 +14,8 @@ const presMainPartName = "/ppt/presentation.xml"
 // Validation codes specific to PresentationML (see common/validate for the
 // shared OPC-level codes).
 const (
-	codeShapeIDDup = "shape-id-dup" // duplicate cNvPr id within one slide
+	codeShapeIDDup      = "shape-id-dup"      // duplicate cNvPr id within one slide
+	codeCommentNoAuthor = "comment-no-author" // comment authorId with no matching author
 )
 
 // Validate walks the in-memory presentation model and reports structural
@@ -28,6 +30,7 @@ func (p *Presentation) Validate() validate.Report {
 	c := validate.New()
 	p.validateShapeIDs(c)
 	p.validateIDListReferences(c)
+	p.validateCommentAuthors(c)
 	if p.reader != nil {
 		// Package-level checks compare against the parts the source package
 		// carries. For a freshly created deck the writer synthesizes content
@@ -173,6 +176,65 @@ func (p *Presentation) validateIDListReferences(c *validate.Collector) {
 			}
 		}
 	}
+}
+
+// validateCommentAuthors warns when a comment references an author id that has
+// no matching entry in the author list. A missing author leaves the comment
+// showing as authored by "Unknown" in PowerPoint; it is a warning, not an
+// error, since the file still opens.
+func (p *Presentation) validateCommentAuthors(c *validate.Collector) {
+	legacy := p.legacyAuthorNames()
+	modern := p.modernAuthorNames()
+	for _, s := range p.slides {
+		if s == nil {
+			continue
+		}
+		for _, rel := range p.relationships[s.partName] {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			target := opc.ResolvePartName(s.partName, rel.Target)
+			switch rel.Type {
+			case opc.RelTypeComments:
+				var lst oxml.CommentList
+				if xmlUnmarshal(p.rawPartData(target), &lst) {
+					for _, cm := range lst.Cm {
+						if cm == nil {
+							continue
+						}
+						if _, ok := legacy[cm.AuthorId]; !ok {
+							c.Warnf(codeCommentNoAuthor, target,
+								fmt.Sprintf("comment idx=%d references author id %d with no matching commentAuthor", cm.Idx, cm.AuthorId))
+						}
+					}
+				}
+			case opc.RelTypeModernComments:
+				part, err := oxml.ParseModernCommentPart(p.rawPartData(target))
+				if err != nil || part.Comment == nil {
+					continue
+				}
+				ids := []string{part.Comment.AuthorID}
+				for _, r := range part.Comment.Replies {
+					ids = append(ids, r.AuthorID)
+				}
+				for _, id := range ids {
+					if _, ok := modern[id]; !ok {
+						c.Warnf(codeCommentNoAuthor, target,
+							fmt.Sprintf("comment references author %q with no matching author in authors.xml", id))
+					}
+				}
+			}
+		}
+	}
+}
+
+// xmlUnmarshal reports whether data decodes into v without error (nil data
+// yields false).
+func xmlUnmarshal(data []byte, v any) bool {
+	if data == nil {
+		return false
+	}
+	return xml.Unmarshal(data, v) == nil
 }
 
 // validatePackage runs the shared OPC-level checks against the source package's

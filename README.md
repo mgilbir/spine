@@ -333,6 +333,61 @@ func main() {
 }
 ```
 
+### Reading and Writing Slide Comments
+
+`pptx` reads both PowerPoint comment mechanisms — legacy per-slide comments and
+modern (2018) threaded comments — through one `*Comment` type, and writes modern
+threaded comments (the mechanism current PowerPoint emits, and the only one that
+supports replies and resolution). The API mirrors the `docx` and `xlsx` comment
+APIs; the anchor (a slide plus an optional position or shape) is pptx-specific.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/pptx"
+)
+
+func main() {
+    p, err := pptx.Open("deck.pptx")
+    if err != nil {
+        panic(err)
+    }
+    defer p.Close()
+
+    // Read every comment across the deck.
+    for _, c := range p.Comments() {
+        fmt.Printf("%s: %s\n", c.Author(), c.Text())
+        for _, reply := range c.Replies() {
+            fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
+        }
+    }
+
+    // Add a threaded comment, reply to it, and resolve it. The author is
+    // registered in the author list (deduplicated by name).
+    slide, _ := p.Slide(0)
+    c := slide.AddComment("Reviewer", "Please tighten this section.")
+    c.Reply("Author", "Done in the next revision.")
+    c.Resolve()
+
+    // Precise placement (EMUs) is available via AddCommentAt.
+    slide.AddCommentAt(4572000, 2286000, "Reviewer", "Anchored here.")
+
+    if err := p.Save("deck.pptx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+Newly added comments always use the modern threaded mechanism, even on a deck
+whose existing comments are legacy (both may coexist in one file). Legacy
+comments carry no threading or resolved state, so `Reply` is a no-op returning
+`nil` and `Resolve`/`SetResolved` are no-ops on them. A zero-modification
+open→save of a comment-bearing deck is byte-identical; only the parts a comment
+write touches are regenerated.
+
 ## Opening vs. Creating Documents
 
 `Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts you did not touch are preserved byte-for-byte. Known asymmetries that remain:

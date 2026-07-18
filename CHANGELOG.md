@@ -162,6 +162,20 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: a slide comments API symmetric with the docx/xlsx comment APIs.
+  `Slide.Comments()` and `Presentation.Comments()` read both PowerPoint comment
+  mechanisms — legacy per-slide comments and modern (2018) threaded comments —
+  through one `*Comment` type (`ID`, `Author`, `Text`, `Date`, `Resolved`,
+  `Replies`, `Parent`, plus pptx-specific `Slide`, `Position`, and
+  `AnchorShapeID`). `Slide.AddComment`/`AddCommentAt`, `Comment.Reply`, and
+  `Comment.Resolve`/`SetResolved` write modern threaded comments (the mechanism
+  current PowerPoint emits and the only one supporting replies and resolution),
+  registering authors in `ppt/authors.xml` deduplicated by name. Legacy comments
+  are read-only for threading/resolution (documented no-ops). A
+  zero-modification open→save of a comment-bearing deck stays byte-identical;
+  only the parts a comment write touches are regenerated, and unmodeled modern
+  data (anchor marker lists, task details, reactions) is preserved verbatim.
+  `Validate()` warns when a comment references an author with no matching entry.
 - xlsx: a comments API covering both SpreadsheetML comment mechanisms through
   one unified `Comment` type. `Sheet.Comments()` and `Cell.Comment()` read
   legacy notes (`xl/comments*.xml` + VML drawing) and modern threaded comments
