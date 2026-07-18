@@ -162,6 +162,20 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: charts. `Document.AddChart(c, widthEMU, heightEMU)` appends a paragraph
+  holding an inline chart, and `Paragraph.AddChart(...)` places one inline among
+  a paragraph's other runs. The chart's data is written to an embedded workbook
+  (`word/embeddings/…xlsx`) that the chart part references via a package
+  relationship, so Office can edit the values (a docx has no host worksheet); the
+  chart's `c:f` references line up with the workbook's `Sheet1` ranges.
+  `Document.Charts()` reads every chart in the document back into `chart.Chart`
+  definitions. The chart part, embedded workbook, relationships, inline
+  `w:drawing`, and content-type overrides are written on both the created and
+  opened save paths; a zero-modification open→save of a chart-bearing document
+  stays byte-identical (chart and embedding parts round-trip verbatim, and are
+  regenerated only when a chart is added). `Validate` warns on a chart drawing
+  whose relationship has no target part. `opc` gains `RelTypePackage`,
+  `ContentTypeChart`, and `ContentTypeSpreadsheetPackage`.
 - chart: a new public, format-agnostic `chart` package for building DrawingML
   charts and serializing them to a `chart.xml` part (`c:chartSpace`) reusable by
   the xlsx, docx, and pptx integrations. Build a chart with a constructor
