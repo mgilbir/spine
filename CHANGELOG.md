@@ -162,6 +162,20 @@ remediation series (#59–#75).
 
 ### Added
 
+- chart: a new public, format-agnostic `chart` package for building DrawingML
+  charts and serializing them to a `chart.xml` part (`c:chartSpace`) reusable by
+  the xlsx, docx, and pptx integrations. Build a chart with a constructor
+  (`NewColumn`, `NewBar`, `NewLine`, `NewPie`, `NewScatter`, `NewArea`),
+  configure it (`SetTitle`, `SetCategories`, `AddSeries` / `AddXYSeries`,
+  `SetLegend` / `HideLegend`, `SetAxisTitles`, `SetDataRef`), then serialize with
+  `MarshalChartXML`. Cached values (`c:numCache` / `c:strCache`) are populated
+  from the supplied data so the chart renders standalone, and `c:f` formula
+  references are built against a configurable `DataRef` sheet (default
+  `Sheet1`). `EmbeddedWorkbook` returns a minimal `.xlsx` (bytes) laid out to
+  match those references — what docx/pptx charts embed — together with a
+  `DataLayout` cell-range map. `Parse` reads a `chart.xml` back into the model.
+  This is Phase A (the reusable core); wiring it into each format's Open/Save
+  path (an `AddChart` method per format, a `Charts()` reader) is Phase B.
 - xlsx: read/write APIs for hyperlinks, images, sheet protection, and read
   accessors for the previously write-only feature surface. Hyperlinks are read
   and written through one `*Hyperlink` type sharing the cross-format surface

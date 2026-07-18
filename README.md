@@ -7,6 +7,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
+- **Charts (preview)**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook — the shared core the per-format `AddChart` integrations will build on
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
@@ -357,6 +358,55 @@ legacy 16-bit password hash, which is trivially removed. Every write persists on
 both the `Create` and `Open` save paths, and a zero-modification open→save of a
 feature-bearing workbook stays byte-identical.
 
+### Charts (preview)
+
+The `chart` package builds a DrawingML `chart.xml` part (`c:chartSpace`) that is
+independent of any one document format. Pick a chart type, set categories, add
+series, and serialize:
+
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/mgilbir/spine/chart"
+)
+
+func main() {
+	c := chart.NewColumn().
+		SetTitle("Quarterly Sales").
+		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"}).
+		SetAxisTitles("Quarter", "USD").
+		SetLegend(chart.LegendRight)
+	c.AddSeries("North", []float64{10, 20, 30, 40})
+	c.AddSeries("South", []float64{5, 15, 25, 35})
+
+	// chart.xml with cached values so it renders without a live data source.
+	xmlBytes, _ := c.MarshalChartXML()
+	_ = os.WriteFile("chart1.xml", xmlBytes, 0o644)
+
+	// The workbook docx/pptx charts embed so Office can edit the data. The
+	// returned layout's cell ranges line up with the chart's c:f references.
+	wbBytes, layout, _ := c.EmbeddedWorkbook()
+	_ = wbBytes
+	_ = layout
+
+	// Read a chart.xml back into the model.
+	parsed, _ := chart.Parse(xmlBytes)
+	_ = parsed
+}
+```
+
+Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
+`NewScatter` (via `AddXYSeries`), and `NewArea`. Cached values
+(`c:numCache` / `c:strCache`) are populated from the supplied data; `c:f`
+references are built against a configurable `DataRef` sheet (default `Sheet1`).
+
+This package is the shared core (Phase A). A later phase adds an `AddChart`
+method per format (xlsx references the host sheet; docx and pptx embed the
+workbook from `EmbeddedWorkbook`) plus a `Charts()` reader on each.
+
 ### Working with Documents in Memory
 
 All three formats can be saved to and opened from memory. `SaveBytes` exists on `pptx.Presentation`, `docx.Document`, and `xlsx.Workbook`; each package also provides `OpenReader`:
@@ -603,6 +653,7 @@ Documents built with `Create` always save as the regular flavor. Converting a fi
   - `oxml/` - Shared Office XML types
   - `vml/` - Vector Markup Language types
   - `xml/` - XML namespace handling and Builder-based serialization
+- `chart/` - Public, format-agnostic chart builder, serialization, and reader
 - `pptx/` - PowerPoint document support
 - `docx/` - Word document support
 - `xlsx/` - Excel document support
