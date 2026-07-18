@@ -37,6 +37,14 @@ const (
 	ContentTypePresentationProps             = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
 	ContentTypeViewProps                     = "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
 	ContentTypeTableStyles                   = "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+	// Legacy PresentationML comment parts (pre-2018): a per-slide comment list
+	// and the shared comment-author list.
+	ContentTypePresentationComments       = "application/vnd.openxmlformats-officedocument.presentationml.comments+xml"
+	ContentTypePresentationCommentAuthors = "application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml"
+	// Modern PowerPoint threaded-comment parts (2018 schema): a per-thread
+	// comment part and the shared author list.
+	ContentTypeModernComments = "application/vnd.ms-powerpoint.comments+xml"
+	ContentTypeAuthors        = "application/vnd.ms-powerpoint.authors+xml"
 
 	// Excel content types. SpreadsheetML main-part flavors: regular workbook
 	// (.xlsx), template (.xltx), and the macro-enabled workbook (.xlsm),
