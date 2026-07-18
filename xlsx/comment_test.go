@@ -203,6 +203,144 @@ func TestAddThreadedComment(t *testing.T) {
 	}
 }
 
+// TestAddCommentOnCreatedWorkbook is the Create→AddComment→Save regression: a
+// comment added to a newly created (not opened) workbook must persist its
+// parts on save. The write plumbing originally only ran on the opened save
+// path, so a created workbook silently dropped every comment part.
+func TestAddCommentOnCreatedWorkbook(t *testing.T) {
+	wb := Create()
+	sh := wb.AddSheet("S")
+	cell, err := sh.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell: %v", err)
+	}
+	cell.SetString("x")
+
+	c := cell.AddComment("Reviewer", "check this")
+	if c == nil || !c.Threaded() || c.Ref() != "A1" {
+		t.Fatalf("AddComment returned %+v", c)
+	}
+	reply := c.Reply("Second", "looks fine")
+	if reply == nil {
+		t.Fatal("Reply returned nil")
+	}
+	c.Resolve()
+
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	// The comment attachment parts, the person list and the VML drawing must be
+	// present in the saved package.
+	for _, part := range []string{
+		"xl/comments1.xml",
+		"xl/drawings/vmlDrawing1.vml",
+		"xl/threadedComments/threadedComment1.xml",
+		"xl/persons/person1.xml",
+	} {
+		if !zipHasPart(t, data, part) {
+			t.Errorf("missing part %s", part)
+		}
+	}
+	// The worksheet references the VML via <legacyDrawing>.
+	ws := readZipPart(t, data, "xl/worksheets/sheet1.xml")
+	if !bytes.Contains(ws, []byte("<legacyDrawing")) {
+		t.Errorf("worksheet missing <legacyDrawing>")
+	}
+	// The workbook gained a person relationship.
+	wbRels := readZipPart(t, data, "xl/_rels/workbook.xml.rels")
+	if !bytes.Contains(wbRels, []byte("relationships/person")) {
+		t.Errorf("workbook rels missing person relationship")
+	}
+
+	// Reopen and verify the model round-trips: comment, reply and resolved state.
+	wb2, err := openBytes(t, data)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = wb2.Close() }()
+	if rep := wb2.Validate(); len(rep) != 0 {
+		t.Errorf("validate findings after create+add: %v", rep)
+	}
+	s2, _ := wb2.Sheet(0)
+	comments := s2.Comments()
+	if len(comments) != 1 {
+		t.Fatalf("want 1 comment after reopen, got %d", len(comments))
+	}
+	got := comments[0]
+	if got.Author() != "Reviewer" || got.Text() != "check this" || got.Ref() != "A1" {
+		t.Errorf("root = %q/%q/%q", got.Author(), got.Text(), got.Ref())
+	}
+	if !got.Resolved() {
+		t.Errorf("thread should be resolved")
+	}
+	if len(got.Replies()) != 1 || got.Replies()[0].Author() != "Second" {
+		t.Errorf("reply not persisted: %+v", got.Replies())
+	}
+}
+
+// TestAddImageAndCommentOnCreatedWorkbook exercises a created sheet carrying
+// both an image and a comment: the shared attachment path must write the
+// combined sheet .rels once (drawing + legacy/VML) without clobbering either.
+func TestAddImageAndCommentOnCreatedWorkbook(t *testing.T) {
+	wb := Create()
+	sh := wb.AddSheet("S")
+	cell, err := sh.Cell("A1")
+	if err != nil {
+		t.Fatalf("Cell: %v", err)
+	}
+	cell.SetString("x")
+	cell.AddComment("Reviewer", "check this")
+	if err := sh.AddImage("C3", testPNG(t, 20, 10), ImageOptions{WidthPx: 100, HeightPx: 50}); err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	for _, part := range []string{
+		"xl/comments1.xml",
+		"xl/drawings/vmlDrawing1.vml",
+		"xl/threadedComments/threadedComment1.xml",
+		"xl/persons/person1.xml",
+		"xl/drawings/drawing1.xml",
+		"xl/media/image1.png",
+		"xl/worksheets/_rels/sheet1.xml.rels",
+	} {
+		if !zipHasPart(t, data, part) {
+			t.Errorf("missing part %s", part)
+		}
+	}
+	// The sheet's single .rels must carry both the drawing and the VML.
+	rels := readZipPart(t, data, "xl/worksheets/_rels/sheet1.xml.rels")
+	if !bytes.Contains(rels, []byte("relationships/drawing")) {
+		t.Errorf("sheet rels missing drawing relationship:\n%s", rels)
+	}
+	if !bytes.Contains(rels, []byte("vmlDrawing")) {
+		t.Errorf("sheet rels missing VML relationship:\n%s", rels)
+	}
+	ws := readZipPart(t, data, "xl/worksheets/sheet1.xml")
+	if !bytes.Contains(ws, []byte("<drawing")) || !bytes.Contains(ws, []byte("<legacyDrawing")) {
+		t.Errorf("worksheet missing <drawing>/<legacyDrawing>:\n%s", ws)
+	}
+
+	wb2, err := openBytes(t, data)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = wb2.Close() }()
+	if rep := wb2.Validate(); len(rep) != 0 {
+		t.Errorf("validate findings: %v", rep)
+	}
+	s2, _ := wb2.Sheet(0)
+	if got := len(s2.Comments()); got != 1 {
+		t.Fatalf("want 1 comment after reopen, got %d", got)
+	}
+}
+
 // TestAddCommentPreservesExistingDrawing verifies that adding a comment to a
 // sheet that already has an image/drawing does not clobber the drawing: the
 // DrawingML drawing (images) and the VML/legacy drawing (comments) coexist.
