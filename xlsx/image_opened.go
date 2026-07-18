@@ -8,26 +8,27 @@ import (
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
-// saveOpenedSheetImages writes the drawing, media, and relationship parts for
-// images added to an opened (round-tripped) workbook. Unlike the created-book
-// path (writeSheetDrawing), part names are chosen to avoid the parts the
-// package already carries, and each image-bearing sheet's existing
-// relationships are rebuilt to include the new drawing reference (the raw
-// sheet .rels is streamed verbatim otherwise, so the drawing link must be added
-// here).
+// saveOpenedSheetAttachments writes the drawing/media parts for images and the
+// comment/VML/threaded-comment/person parts for comments added to an opened
+// (round-tripped) workbook. Both attach to a sheet through its .rels, and the
+// OPC writer rejects a duplicate .rels write, so a single per-sheet pass builds
+// the combined relationship set and writes each sheet's .rels exactly once —
+// letting images and comments coexist on the same sheet.
 //
-// It returns the set of sheet .rels part names it rebuilt, so the verbatim
-// preserved-parts loop skips streaming their stale originals. It also sets each
-// sheet's <drawing> element and marks it dirty so the worksheet is re-marshaled
-// with the reference.
+// Part names avoid the parts the package already carries. It returns the set of
+// sheet .rels part names it rebuilt (so the verbatim loop skips their stale
+// originals) and the workbook-relative target of a regenerated person list (so
+// the caller wires the workbook relationship), or "" if none. Each touched
+// sheet is marked dirty so its worksheet is re-marshaled with the new
+// <drawing>/<legacyDrawing> references.
 //
 // Called before the preserved parts are streamed, so worksheetParts and
 // needRelsRebuild see the freshly-dirtied sheets.
-func (w *Workbook) saveOpenedSheetImages(writer *opc.Writer) (rebuiltRels map[string]bool, err error) {
+func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels map[string]bool, personTarget string, err error) {
 	rebuiltRels = make(map[string]bool)
 
-	// Occupied part names, accumulated so multiple image-bearing sheets don't
-	// collide with each other or with existing parts.
+	// Occupied part names, accumulated so multiple attachment-bearing sheets
+	// don't collide with each other or with existing parts.
 	used := make(map[string]struct{}, len(w.preservedParts)+len(w.sheets))
 	for name := range w.preservedParts {
 		used[name] = struct{}{}
@@ -38,9 +39,12 @@ func (w *Workbook) saveOpenedSheetImages(writer *opc.Writer) (rebuiltRels map[st
 		}
 	}
 	drawingSeq, mediaSeq := 1, 1
+	cseq := newCommentSeq()
 
 	for i, sheet := range w.sheets {
-		if len(sheet.images) == 0 {
+		hasImages := len(sheet.images) > 0
+		hasComments := sheet.comments != nil && sheet.comments.mutated
+		if !hasImages && !hasComments {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -51,54 +55,65 @@ func (w *Workbook) saveOpenedSheetImages(writer *opc.Writer) (rebuiltRels map[st
 			used[partName] = struct{}{}
 		}
 		if sheet.worksheet == nil {
-			// Nothing parsed to attach the drawing to; skip rather than
-			// produce a dangling reference.
+			// Nothing parsed to attach to; skip rather than produce a dangling
+			// reference.
 			continue
 		}
 
-		drawingPart, drawingFile := allocDrawingName(used, &drawingSeq)
-
-		// Allocate a drawing relationship id on the sheet that doesn't collide
-		// with the sheet's existing relationships.
 		sheetRels := cloneRelationships(w.relationships[sheet.partName])
-		sheetRelUsed := relIDSet(sheetRels)
-		drawingRID := fmt.Sprintf("rId%d", nextRelationshipID(sheetRelUsed))
+		relUsed := relIDSet(sheetRels)
 
-		// Point the worksheet at the drawing and force a re-marshal so the
-		// <drawing r:id> element is emitted. A sheet parsed from a file
-		// marshals by its captured ChildOrder, which won't contain "drawing"
-		// if the original had none, so the element must be inserted into the
-		// order at its schema position (audit C157 class).
-		sheet.worksheet.Drawing = &oxml.CT_Drawing{RID: drawingRID}
-		ensureDrawingInChildOrder(sheet.worksheet)
-		sheet.dirty = true
+		if hasImages {
+			drawingPart, drawingFile := allocDrawingName(used, &drawingSeq)
+			drawingRID := fmt.Sprintf("rId%d", nextRelationshipID(relUsed))
+			relUsed[drawingRID] = struct{}{}
 
-		// Sheet -> drawing relationship, appended to the sheet's existing rels.
-		sheetRels = append(sheetRels, &opc.Relationship{
-			ID:     drawingRID,
-			Type:   opc.RelTypeDrawing,
-			Target: fmt.Sprintf("../drawings/%s", drawingFile),
-		})
+			// Point the worksheet at the drawing and force a re-marshal so the
+			// <drawing r:id> element is emitted. A sheet parsed from a file
+			// marshals by its captured ChildOrder, which won't contain
+			// "drawing" if the original had none, so the element must be
+			// inserted into the order at its schema position (audit C157).
+			sheet.worksheet.Drawing = &oxml.CT_Drawing{RID: drawingRID}
+			ensureDrawingInChildOrder(sheet.worksheet)
+
+			sheetRels = append(sheetRels, &opc.Relationship{
+				ID:     drawingRID,
+				Type:   opc.RelTypeDrawing,
+				Target: fmt.Sprintf("../drawings/%s", drawingFile),
+			})
+
+			drawingRels, imgRels, werr := w.writeSheetMedia(writer, sheet, used, &mediaSeq)
+			if werr != nil {
+				return nil, "", werr
+			}
+			if err := writer.WritePart(drawingPart, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, imgRels)); err != nil {
+				return nil, "", err
+			}
+			if err := writer.WritePartRelationships(drawingPart, drawingRels); err != nil {
+				return nil, "", err
+			}
+		}
+
+		if hasComments {
+			sheetRels, err = w.writeSheetComments(writer, sheet, sheetRels, relUsed, used, cseq)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+
 		if err := writer.WritePartRelationships(sheet.partName, sheetRels); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		rebuiltRels[relsPartFor(sheet.partName)] = true
-
-		// Media parts + drawing -> image relationships.
-		drawingRels, imgRels, werr := w.writeSheetMedia(writer, sheet, used, &mediaSeq)
-		if werr != nil {
-			return nil, werr
-		}
-
-		// Drawing part + its relationships.
-		if err := writer.WritePart(drawingPart, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, imgRels)); err != nil {
-			return nil, err
-		}
-		if err := writer.WritePartRelationships(drawingPart, drawingRels); err != nil {
-			return nil, err
-		}
+		sheet.dirty = true
 	}
-	return rebuiltRels, nil
+
+	// Workbook-shared person list (threaded comment authors).
+	personTarget, err = w.writeWorkbookPersons(writer, used)
+	if err != nil {
+		return nil, "", err
+	}
+	return rebuiltRels, personTarget, nil
 }
 
 // writeSheetMedia writes the raster (and, for SVG, the svg) media parts for a

@@ -17,6 +17,7 @@ type Sheet struct {
 	relID     string
 	worksheet *oxml.CT_Worksheet
 	images    []sheetImage
+	comments  *sheetComments // lazily loaded comment model (read + write)
 	dirty     bool
 }
 

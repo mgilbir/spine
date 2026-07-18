@@ -16,6 +16,8 @@ const (
 	codeMergeOverlap        = "merge-overlap"         // overlapping merged ranges
 	codeMergeMalformed      = "merge-malformed"       // unparseable merged-range ref
 	codeStylesEmpty         = "styles-empty"          // xl/styles.xml is present but 0-byte/whitespace-only
+	codeCommentPersonOrphan = "comment-person-orphan" // threaded comment personId with no matching person
+	codeCommentRefInvalid   = "comment-ref-invalid"   // comment anchored to an unparseable cell ref
 )
 
 // Validate walks the in-memory workbook model and reports structural problems
@@ -32,10 +34,54 @@ func (w *Workbook) Validate() validate.Report {
 	w.validateDefinedNames(c)
 	w.validateMergedRanges(c)
 	w.validateStyles(c)
+	w.validateComments(c)
 	if w.reader != nil {
 		w.validatePackage(c)
 	}
 	return c.Report()
+}
+
+// validateComments reports comment defects that Open tolerates but that Excel
+// would treat as data loss: a threaded comment whose personId resolves to no
+// person in the workbook person list (the author would show as blank), and a
+// comment anchored to an unparseable cell reference. Both are warning severity
+// — the file still opens and saves — matching the sound-checks policy. The
+// checks read only already-parsed model state, so they cost a lazy parse of the
+// comment parts at most.
+func (w *Workbook) validateComments(c *validate.Collector) {
+	for _, sheet := range w.sheets {
+		if sheet == nil {
+			continue
+		}
+		sheet.loadComments()
+		sc := sheet.comments
+		if sc == nil {
+			continue
+		}
+		if sc.legacy != nil {
+			for i := range sc.legacy.Comments {
+				ref := sc.legacy.Comments[i].Ref
+				if _, _, err := ParseCellRef(ref); err != nil {
+					c.Warnf(codeCommentRefInvalid, sc.commentsPart,
+						fmt.Sprintf("comment anchored to unparseable cell ref %q", ref))
+				}
+			}
+		}
+		if sc.threaded == nil {
+			continue
+		}
+		for i := range sc.threaded.Comments {
+			tc := &sc.threaded.Comments[i]
+			if _, _, err := ParseCellRef(tc.Ref); err != nil {
+				c.Warnf(codeCommentRefInvalid, sc.threadedPart,
+					fmt.Sprintf("threaded comment anchored to unparseable cell ref %q", tc.Ref))
+			}
+			if w.persons == nil || w.persons.FindByID(tc.PersonID) == nil {
+				c.Warnf(codeCommentPersonOrphan, sc.threadedPart,
+					fmt.Sprintf("threaded comment %s references personId %s with no matching person", tc.ID, tc.PersonID))
+			}
+		}
+	}
 }
 
 // validateStyles reports an xl/styles.xml part that is present in the package
