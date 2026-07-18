@@ -48,7 +48,14 @@ type Workbook struct {
 	propsSnapshot  *opc.CoreProperties // Properties as loaded at open; detects edits at save
 	stylesDirty    bool
 	sheetsDirty    bool
-	stringTable    []string // plain text values extracted from shared strings
+	// persons is the workbook-shared threaded-comment author list (loaded
+	// lazily from xl/persons/personN.xml). personsPartName is the existing
+	// part name to reuse when regenerating, or "" if none existed.
+	persons         *oxml.CT_PersonList
+	personsPartName string
+	personsLoaded   bool
+	personsDirty    bool
+	stringTable     []string // plain text values extracted from shared strings
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
 	dirEntries []string
@@ -485,7 +492,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// reference re-marshals them. This mutates the durable model (preserved
 	// parts and w.contentTypes), so it must run before the writer clones the
 	// content types below.
-	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages()
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveComments()
 	if !dropCalcChain {
 		for _, sheet := range w.sheets {
 			if sheet.dirty {
@@ -510,15 +517,17 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		writer.ContentTypes = w.contentTypes.Clone()
 	}
 
-	// Images added to the opened workbook: write their drawing/media/rels
-	// parts first so the sheets they belong to are dirtied before
-	// worksheetParts and needRelsRebuild are computed below. The returned set
-	// names the sheet .rels parts rebuilt here, so the verbatim stream skips
-	// their stale originals.
+	// Images and comments added to the opened workbook: write their parts first
+	// so the sheets they belong to are dirtied before worksheetParts and
+	// needRelsRebuild are computed below. The returned set names the sheet
+	// .rels parts rebuilt here, so the verbatim stream skips their stale
+	// originals; personRelTarget names a regenerated person list to wire into
+	// the workbook .rels.
 	var rebuiltRels map[string]bool
-	if w.sheetsHaveImages() {
+	var personRelTarget string
+	if w.sheetsHaveImages() || w.sheetsHaveComments() {
 		var err error
-		rebuiltRels, err = w.saveOpenedSheetImages(writer)
+		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
@@ -638,6 +647,13 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 		wbRels = rebuildWorksheetRelationships(wbRels, w.sheets, worksheetTargets)
 		syncWorkbookSheetRefs(w.workbook, w.sheets)
+
+		// A regenerated person list (threaded comment authors) needs a workbook
+		// relationship. ensureRelationship keeps the existing one when the part
+		// name is unchanged.
+		if personRelTarget != "" {
+			wbRels = ensureRelationship(wbRels, opc.RelTypePerson, personRelTarget)
+		}
 
 		if stylesDirty {
 			stylesData, err := marshalStylesheetXML(w.stylesheet)

@@ -162,6 +162,26 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: a comments API covering both SpreadsheetML comment mechanisms through
+  one unified `Comment` type. `Sheet.Comments()` and `Cell.Comment()` read
+  legacy notes (`xl/comments*.xml` + VML drawing) and modern threaded comments
+  (`xl/threadedComments/*` + `xl/persons/*`), merging them so a cell's legacy
+  back-compat note is not double-reported alongside its thread. `Comment`
+  exposes the cross-format shared surface (`ID`, `Author`, `Text`, `Date`,
+  `Resolved`, `Replies`, `Parent`) plus xlsx-specific `Ref` and `Threaded`.
+  `Cell.AddComment(author, text)` / `Sheet.AddComment(ref, author, text)` create
+  a threaded comment together with a legacy-note fallback (matching modern
+  Excel, so old Excel still renders the text) — allocating the comments,
+  threaded-comments, person-list and VML-drawing parts, their relationships and
+  content-type overrides, and the worksheet `<legacyDrawing>` reference, and
+  registering the author as a person (deduplicated by display name).
+  `Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
+  legacy-only note) complete the write surface. A zero-modification open→save of
+  a comment-bearing workbook stays byte-identical (comment parts preserved raw);
+  only a touched sheet's comment parts are regenerated. Comments coexist with an
+  image/drawing on the same sheet (distinct VML/legacy vs DrawingML drawings).
+  `Validate()` warns on a threaded comment whose `personId` has no matching
+  person and on a comment anchored to an unparseable cell ref.
 - docx: a comments API for the full review flow — read, add, reply in threads,
   and resolve. `Document.Comments()` returns every comment; each `Comment`
   exposes `ID`, `Author`, `Initials`, `Text`, `Date`, `Paragraphs`, `Resolved`,

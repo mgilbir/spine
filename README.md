@@ -35,6 +35,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Column widths and row heights
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
+  - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
 
 Runnable programs for all three formats live in [`examples/`](examples/).
 
@@ -203,6 +204,41 @@ func main() {
     fmt.Printf("Sheets: %d\n", wb.SheetCount())
 }
 ```
+
+### Reading and Writing Excel Comments
+
+The `xlsx` package reads and writes both comment mechanisms Excel uses — legacy
+notes (`xl/comments*.xml` + a VML drawing) and modern threaded comments
+(`xl/threadedComments/*` + a person list) — through one unified `Comment` type.
+
+```go
+wb, _ := xlsx.Open("review.xlsx")
+sheet, _ := wb.Sheet(0)
+
+// Read every comment on the sheet (legacy notes and threaded comments unified).
+for _, c := range sheet.Comments() {
+    fmt.Printf("%s by %s: %s (resolved=%v)\n", c.Ref(), c.Author(), c.Text(), c.Resolved())
+    for _, reply := range c.Replies() {
+        fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
+    }
+}
+
+// Add a threaded comment (Excel back-compat: a legacy note fallback is written
+// too, so older Excel still renders the text). Then reply and resolve.
+cell, _ := sheet.Cell("B2")
+c := cell.AddComment("Ada Lovelace", "Please double-check this figure.")
+c.Reply("Alan Turing", "Confirmed — updated.")
+c.Resolve()
+
+_ = wb.Save("review.xlsx")
+```
+
+`Sheet.AddComment(ref, author, text)`, `Cell.AddComment(author, text)`,
+`Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
+legacy-only note) are the write entry points; `Sheet.Comments()` and
+`Cell.Comment()` read. A zero-modification open→save preserves comment-bearing
+workbooks byte-for-byte; only the touched sheet's comment parts are regenerated
+when a comment is added.
 
 ### Working with Documents in Memory
 
