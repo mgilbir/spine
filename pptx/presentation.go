@@ -115,6 +115,12 @@ type Presentation struct {
 	// byte-identical.
 	mediaGCNeeded bool
 
+	// modernAuthors caches the parsed ppt/authors.xml (the shared threaded
+	// comment author list). It is loaded lazily and, once a comment write adds
+	// an author, re-marshaled back into otherParts.
+	modernAuthors       *oxml.ModernAuthorList
+	modernAuthorsLoaded bool
+
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
 	dirEntries []string
@@ -1952,7 +1958,8 @@ func (p *Presentation) removeSlideOwnedParts(slidePart string) {
 		if rel == nil || rel.TargetMode == opc.TargetModeExternal {
 			continue
 		}
-		if rel.Type != opc.RelTypeNotesSlide && rel.Type != opc.RelTypeComments {
+		if rel.Type != opc.RelTypeNotesSlide && rel.Type != opc.RelTypeComments &&
+			rel.Type != opc.RelTypeModernComments {
 			continue
 		}
 		target := opc.ResolvePartName(slidePart, rel.Target)
