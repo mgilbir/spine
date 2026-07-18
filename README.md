@@ -15,6 +15,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Slide transitions (fade, push, wipe, and more)
+  - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
+  - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables
@@ -169,6 +171,73 @@ Spine writes and round-trips the modern comment parts (`comments.xml`,
 author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
 verbatim. A zero-modification open→save of a comment-bearing document is
 byte-identical.
+
+### Hyperlinks, Images, Bookmarks, and Footnotes (Word)
+
+Spine reads and writes hyperlinks, inline and floating images, bookmarks, and
+footnotes/endnotes. The `Hyperlink` type (`URL`, `Anchor`, `Tooltip`) and the
+image read accessors are shared with the `xlsx` and `pptx` APIs; bookmarks and
+footnotes/endnotes are Word-specific.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    doc, err := docx.Open("document.docx")
+    if err != nil {
+        panic(err)
+    }
+    defer doc.Close()
+
+    // Read every hyperlink, image, bookmark, and footnote.
+    for _, h := range doc.Hyperlinks() {
+        fmt.Printf("link %q -> url=%q anchor=%q\n", h.Text(), h.URL(), h.Anchor())
+    }
+    for _, img := range doc.Images() {
+        fmt.Printf("image %s (%s) %.0fx%.0fpt alt=%q floating=%v\n",
+            img.PartName(), img.ContentType(), img.Width(), img.Height(),
+            img.AltText(), img.Floating())
+    }
+    for _, b := range doc.Bookmarks() {
+        fmt.Printf("bookmark %q -> %q\n", b.Name(), b.Text())
+    }
+    for _, f := range doc.Footnotes() {
+        fmt.Printf("footnote %s: %s\n", f.ID(), f.Text())
+    }
+
+    // Write: an external and an internal hyperlink, a bookmark they can target,
+    // and a footnote anchored on a run.
+    p := doc.AddParagraph()
+    p.AddRun().SetText("See ")
+    link := p.AddHyperlink("our site", "https://example.com/")
+    link.SetTooltip("Visit us")
+
+    target := doc.AddParagraphWithText("Chapter One")
+    target.AddBookmark("chap1")
+    doc.AddParagraph().AddInternalHyperlink("go to chapter", "chap1")
+
+    note := doc.AddParagraphWithText("A claim.")
+    note.Runs()[0].AddFootnote("Supporting evidence.")
+
+    if err := doc.Save("annotated.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+External hyperlinks allocate an `External` relationship in the part's rels;
+internal ones use `w:anchor`. Adding a footnote or endnote creates
+`word/footnotes.xml` / `word/endnotes.xml` (with the mandatory separator notes,
+the relationship, and the content-type override) on first use. A
+zero-modification open→save of a document using any of these features is
+byte-identical, and the parts are regenerated only when that feature is
+modified.
 
 ### Creating an Excel Spreadsheet
 
@@ -435,6 +504,46 @@ comments carry no threading or resolved state, so `Reply` is a no-op returning
 `nil` and `Resolve`/`SetResolved` are no-ops on them. A zero-modification
 open→save of a comment-bearing deck is byte-identical; only the parts a comment
 write touches are regenerated.
+
+### Hyperlinks and Pictures
+
+Hyperlinks are read and written through one `*Hyperlink` type shared with the
+`docx` and `xlsx` APIs (`URL`, `Anchor`, `Tooltip`, `SetTooltip`). In pptx a
+link lives on a run (`a:hlinkClick` in the run properties) or on a shape
+(`p:cNvPr`); the anchor of an internal link is a destination slide number (a
+slide jump) or a `ppaction://` verb. `Slide.Pictures()` returns every picture on
+a slide with its alt text, bytes, content type, and frame geometry.
+
+```go
+p, _ := pptx.Open("deck.pptx")
+defer p.Close()
+
+// Read: every hyperlink and every picture across the deck.
+for _, h := range p.Hyperlinks() {
+    fmt.Printf("url=%q anchor=%q tip=%q\n", h.URL(), h.Anchor(), h.Tooltip())
+}
+for _, pic := range p.Pictures() {
+    fmt.Printf("%s %s (%d bytes)\n", pic.AltText(), pic.ContentType(), len(pic.Data()))
+}
+
+// Write: an external link on a run, an internal slide jump on a shape.
+slide, _ := p.Slide(0)
+run := slide.AddTextBox().TextFrame().AddParagraph().AddRun()
+run.SetText("Our site")
+run.SetHyperlink("https://example.com").SetTooltip("Open the site")
+
+shape := pptx.NewAutoShape(pptx.PresetRect)
+shape.SetSize(914400, 914400)
+_ = slide.AddShape(shape)
+shape.SetHyperlinkToSlide(2)              // jump to slide 3 (0-based index)
+// shape.SetActionHyperlink(pptx.ActionNextSlide) // or a ppaction:// verb
+```
+
+Writing an external or slide-jump link allocates the backing relationship in the
+slide's rels on save; `ppaction://` verbs need none. A zero-modification
+open→save of a hyperlink- or picture-bearing deck is byte-identical, and setting
+a hyperlink on a run in an opened slide patches that slide in place without
+disturbing the others.
 
 ## Opening vs. Creating Documents
 

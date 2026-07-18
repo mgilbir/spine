@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
 	"github.com/mgilbir/spine/docx/internal/oxml"
@@ -16,6 +17,8 @@ const (
 	codeNumberingMissing = "numbering-missing" // numPr references a numId absent from numbering.xml
 	codeStyleMissing     = "style-missing"     // pStyle/rStyle references an undefined style
 	codeCommentMissing   = "comment-missing"   // comment marker references an absent comment
+	codeBookmarkMissing  = "bookmark-missing"  // internal hyperlink anchors to an absent bookmark
+	codeNoteMissing      = "note-missing"      // footnote/endnote reference has no matching note
 )
 
 // Validate walks the in-memory document model and reports structural problems
@@ -31,6 +34,8 @@ func (d *Document) Validate() validate.Report {
 	d.validateEmbedRefs(c)
 	d.validateStyleRefs(c)
 	d.validateCommentRefs(c)
+	d.validateInternalHyperlinks(c)
+	d.validateNoteRefs(c)
 	if d.reader != nil {
 		d.validatePackage(c)
 	}
@@ -314,6 +319,81 @@ func (d *Document) validateCommentRefs(c *validate.Collector) {
 				if ref != nil && ref.Id != "" && !ids[ref.Id] {
 					c.Warnf(codeCommentMissing, d.mainPart(),
 						fmt.Sprintf("commentReference references comment id %q with no matching comment in comments.xml", ref.Id))
+				}
+			}
+		}
+	}
+}
+
+// validateInternalHyperlinks reports internal hyperlinks (w:anchor, no r:id)
+// whose anchor names no bookmark defined in the document. Findings are warning
+// severity: Word tolerates a dangling internal link (it simply does not
+// navigate), so it must not block a save. Anchors beginning with "_" (Word's
+// built-in and TOC bookmark space, e.g. _top / _Toc...) are skipped to stay
+// sound — those targets are not always materialized as visible bookmarks.
+func (d *Document) validateInternalHyperlinks(c *validate.Collector) {
+	paras := d.allBookmarkParagraphs()
+	names := make(map[string]bool)
+	for _, p := range paras {
+		if p == nil {
+			continue
+		}
+		for _, bs := range p.BookmarkStart {
+			if bs != nil && bs.Name != "" {
+				names[bs.Name] = true
+			}
+		}
+	}
+	for _, p := range paras {
+		if p == nil {
+			continue
+		}
+		for _, h := range p.Hyperlink {
+			if h == nil || h.RID != "" || h.Anchor == "" {
+				continue
+			}
+			if strings.HasPrefix(h.Anchor, "_") || names[h.Anchor] {
+				continue
+			}
+			c.Warnf(codeBookmarkMissing, d.mainPart(),
+				fmt.Sprintf("internal hyperlink anchors to bookmark %q with no matching bookmarkStart", h.Anchor))
+		}
+	}
+}
+
+// validateNoteRefs reports run-level footnote/endnote references whose w:id has
+// no matching note in the footnotes/endnotes part. Findings are warning
+// severity: Word tolerates an orphaned reference (it renders no note mark), so
+// it must not block a save.
+func (d *Document) validateNoteRefs(c *validate.Collector) {
+	ftnIDs := make(map[string]bool)
+	if d.footnotes != nil {
+		for _, n := range d.footnotes.Footnote {
+			if n != nil {
+				ftnIDs[n.Id] = true
+			}
+		}
+	}
+	ednIDs := make(map[string]bool)
+	if d.endnotes != nil {
+		for _, n := range d.endnotes.Endnote {
+			if n != nil {
+				ednIDs[n.Id] = true
+			}
+		}
+	}
+	for _, para := range d.allParagraphs() {
+		for _, r := range collectParagraphRuns(para) {
+			for _, ref := range r.FtnRef {
+				if ref != nil && ref.Id != "" && !ftnIDs[ref.Id] {
+					c.Warnf(codeNoteMissing, d.mainPart(),
+						fmt.Sprintf("footnoteReference references note id %q with no matching footnote", ref.Id))
+				}
+			}
+			for _, ref := range r.EndnoteRef {
+				if ref != nil && ref.Id != "" && !ednIDs[ref.Id] {
+					c.Warnf(codeNoteMissing, d.mainPart(),
+						fmt.Sprintf("endnoteReference references note id %q with no matching endnote", ref.Id))
 				}
 			}
 		}
