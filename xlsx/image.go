@@ -226,8 +226,10 @@ type imageRels struct {
 }
 
 // marshalDrawingXML renders the xl/drawings/drawingN.xml part for a sheet's
-// images, using the supplied per-image relationship ids.
-func marshalDrawingXML(images []sheetImage, rels []imageRels) []byte {
+// images and charts, using the supplied per-image relationship ids and per-chart
+// relationship ids. Images and charts share one drawing part so they coexist on
+// a sheet; shape ids are unique across both.
+func marshalDrawingXML(images []sheetImage, rels []imageRels, charts []sheetChart, chartRIDs []string) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
 	b.WriteString(`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">`)
@@ -252,8 +254,32 @@ func marshalDrawingXML(images []sheetImage, rels []imageRels) []byte {
 			`</xdr:oneCellAnchor>`,
 			img.fromCol, img.fromRow, img.widthEMU, img.heightEMU, pic)
 	}
+	for i, ch := range charts {
+		shapeID := len(images) + i + 1
+		b.WriteString(graphicFrameXML(shapeID, chartRIDs[i], ch))
+	}
 	b.WriteString(`</xdr:wsDr>`)
 	return []byte(b.String())
+}
+
+// graphicFrameXML renders the xdr:twoCellAnchor holding a graphicFrame that
+// references a chart part by relationship id (a:graphicData uri=chart >
+// c:chart r:id). Excel derives the frame size from the from/to cells, so the
+// xfrm extent is a placeholder.
+func graphicFrameXML(shapeID int, chartRID string, ch sheetChart) string {
+	return fmt.Sprintf(`<xdr:twoCellAnchor>`+
+		`<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`+
+		`<xdr:to><xdr:col>%d</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>`+
+		`<xdr:graphicFrame macro="">`+
+		`<xdr:nvGraphicFramePr><xdr:cNvPr id="%d" name="Chart %d"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`+
+		`<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>`+
+		`<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">`+
+		`<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="%s"/>`+
+		`</a:graphicData></a:graphic>`+
+		`</xdr:graphicFrame>`+
+		`<xdr:clientData/>`+
+		`</xdr:twoCellAnchor>`,
+		ch.fromCol, ch.fromRow, ch.toCol, ch.toRow, shapeID, shapeID, chartRID)
 }
 
 // picXML renders the xdr:pic element (blip fill + shape props). For a two-cell

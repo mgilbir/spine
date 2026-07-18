@@ -286,6 +286,7 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 			index:    i,
 			partName: partName,
 			relID:    sheetDef.RID,
+			state:    sheetDef.State,
 		}
 
 		ws := &oxml.CT_Worksheet{}
@@ -492,7 +493,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// reference re-marshals them. This mutates the durable model (preserved
 	// parts and w.contentTypes), so it must run before the writer clones the
 	// content types below.
-	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveComments()
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments()
 	if !dropCalcChain {
 		for _, sheet := range w.sheets {
 			if sheet.dirty {
@@ -525,7 +526,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// the workbook .rels.
 	var rebuiltRels map[string]bool
 	var personRelTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
 		var err error
 		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -772,7 +773,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// returns the person list's workbook-relative target ("" if none) to wire
 	// the workbook relationship.
 	var personTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
 		var err error
 		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -802,6 +803,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			Name:    sheet.name,
 			SheetId: uint32(i + 1),
 			RID:     sheet.relID,
+			State:   sheet.state,
 		}
 	}
 
@@ -966,6 +968,7 @@ func syncWorkbookSheetRefs(wb *oxml.CT_Workbook, sheets []*Sheet) {
 		}
 		wb.Sheets.Sheet[i].Name = sheets[i].name
 		wb.Sheets.Sheet[i].RID = sheets[i].relID
+		wb.Sheets.Sheet[i].State = sheets[i].state
 	}
 }
 

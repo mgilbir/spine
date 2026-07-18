@@ -18,7 +18,11 @@ type Sheet struct {
 	relID     string
 	worksheet *oxml.CT_Worksheet
 	images    []sheetImage
+	charts    []sheetChart   // charts added this session via AddChart
 	comments  *sheetComments // lazily loaded comment model (read + write)
+	// state is the workbook-level sheet visibility ("", "hidden" or
+	// "veryHidden"). AddChart marks its dedicated data sheet "hidden".
+	state string
 	// pendingHyperlinkRels are External hyperlink relationships added via
 	// SetHyperlink that must be merged into the sheet's .rels on save. Their ids
 	// are already baked into the matching <hyperlink r:id> in the worksheet model.

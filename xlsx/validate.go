@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
+	"github.com/mgilbir/spine/opc"
 )
 
 // Validation codes specific to SpreadsheetML (see common/validate for the
@@ -21,6 +22,7 @@ const (
 	codeCommentRefInvalid   = "comment-ref-invalid"   // comment anchored to an unparseable cell ref
 	codeHyperlinkRelMissing = "hyperlink-rel-missing" // <hyperlink r:id=N> with no matching sheet relationship
 	codeDataValidationRange = "data-validation-range" // dataValidation sqref with a malformed range
+	codeChartTargetMissing  = "chart-target-missing"  // drawing chart relationship whose target part is absent
 )
 
 // Validate walks the in-memory workbook model and reports structural problems
@@ -40,6 +42,7 @@ func (w *Workbook) Validate() validate.Report {
 	w.validateComments(c)
 	w.validateHyperlinks(c)
 	w.validateDataValidations(c)
+	w.validateCharts(c)
 	if w.reader != nil {
 		w.validatePackage(c)
 	}
@@ -84,6 +87,36 @@ func (w *Workbook) validateComments(c *validate.Collector) {
 			if w.persons == nil || w.persons.FindByID(tc.PersonID) == nil {
 				c.Warnf(codeCommentPersonOrphan, sc.threadedPart,
 					fmt.Sprintf("threaded comment %s references personId %s with no matching person", tc.ID, tc.PersonID))
+			}
+		}
+	}
+}
+
+// validateCharts reports a chart relationship on a sheet's drawing whose target
+// chart part is absent from the package (Excel would show an empty frame).
+// Warning severity — the file still opens. Checked only for opened workbooks:
+// a created workbook wires chart parts and their relationships together at save
+// time, so there is nothing to cross-check.
+func (w *Workbook) validateCharts(c *validate.Collector) {
+	if !w.opened {
+		return
+	}
+	for _, sheet := range w.sheets {
+		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.Drawing == nil {
+			continue
+		}
+		drawingPart := sheet.resolveRelTarget(sheet.partName, sheet.worksheet.Drawing.RID)
+		if drawingPart == "" {
+			continue
+		}
+		for _, rel := range w.relationships[drawingPart] {
+			if rel == nil || rel.Type != opc.RelTypeChart || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			target := opc.ResolvePartName(drawingPart, rel.Target)
+			if !w.partExists(target) {
+				c.Warnf(codeChartTargetMissing, drawingPart,
+					fmt.Sprintf("chart relationship %q targets %q with no matching part", rel.ID, rel.Target))
 			}
 		}
 	}
@@ -196,7 +229,15 @@ func (w *Workbook) validateSheetRels(c *validate.Collector) {
 			ids[s.relID] = struct{}{}
 		}
 	}
-	for _, s := range w.workbook.Sheets.Sheet {
+	for i, s := range w.workbook.Sheets.Sheet {
+		// A sheet added this session but not yet persisted (no part name) has
+		// its worksheet relationship synthesized at save time, so its
+		// provisional r:id is legitimately absent from the current set — e.g.
+		// the hidden data sheet AddChart adds to an opened workbook. Don't flag
+		// it. w.sheets and w.workbook.Sheets.Sheet are kept index-parallel.
+		if i < len(w.sheets) && w.sheets[i] != nil && w.sheets[i].partName == "" {
+			continue
+		}
 		if _, ok := ids[s.RID]; s.RID != "" && !ok {
 			c.Errorf(validate.CodeDanglingRel, w.mainPart(),
 				fmt.Sprintf("sheet %q references relationship %q with no matching relationship", s.Name, s.RID))

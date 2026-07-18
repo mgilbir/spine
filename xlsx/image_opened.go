@@ -38,14 +38,15 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 			used[sheet.partName] = struct{}{}
 		}
 	}
-	drawingSeq, mediaSeq := 1, 1
+	drawingSeq, mediaSeq, chartSeq := 1, 1, 1
 	cseq := newCommentSeq()
 
 	for i, sheet := range w.sheets {
 		hasImages := len(sheet.images) > 0
+		hasCharts := len(sheet.charts) > 0
 		hasComments := sheet.comments != nil && sheet.comments.mutated
 		hasHyperlinks := len(sheet.pendingHyperlinkRels) > 0
-		if !hasImages && !hasComments && !hasHyperlinks {
+		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -68,7 +69,7 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		sheetRels = append(sheetRels, sheet.pendingHyperlinkRels...)
 		relUsed := relIDSet(sheetRels)
 
-		if hasImages {
+		if hasImages || hasCharts {
 			drawingPart, drawingFile := allocDrawingName(used, &drawingSeq)
 			drawingRID := fmt.Sprintf("rId%d", nextRelationshipID(relUsed))
 			relUsed[drawingRID] = struct{}{}
@@ -87,11 +88,18 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 				Target: fmt.Sprintf("../drawings/%s", drawingFile),
 			})
 
+			// Images and charts share the drawing part; their relationships live
+			// together in the drawing's .rels (image ids first, then charts).
 			drawingRels, imgRels, werr := w.writeSheetMedia(writer, sheet, used, &mediaSeq)
 			if werr != nil {
 				return nil, "", werr
 			}
-			if err := writer.WritePart(drawingPart, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, imgRels)); err != nil {
+			chartRels, chartRIDs, cerr := w.writeSheetCharts(writer, sheet, used, &chartSeq, len(drawingRels))
+			if cerr != nil {
+				return nil, "", cerr
+			}
+			drawingRels = append(drawingRels, chartRels...)
+			if err := writer.WritePart(drawingPart, opc.ContentTypeDrawing, marshalDrawingXML(sheet.images, imgRels, sheet.charts, chartRIDs)); err != nil {
 				return nil, "", err
 			}
 			if err := writer.WritePartRelationships(drawingPart, drawingRels); err != nil {

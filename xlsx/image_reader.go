@@ -157,9 +157,20 @@ type xdrWsDr struct {
 }
 
 type xdrAnchor struct {
-	From *xdrMarker `xml:"from"`
-	Ext  *xdrExt    `xml:"ext"`
-	Pic  *xdrPic    `xml:"pic"`
+	From         *xdrMarker       `xml:"from"`
+	Ext          *xdrExt          `xml:"ext"`
+	Pic          *xdrPic          `xml:"pic"`
+	GraphicFrame *xdrGraphicFrame `xml:"graphicFrame"`
+}
+
+// xdrGraphicFrame carries a chart reference: a:graphic > a:graphicData >
+// c:chart, whose r:id points (via the drawing's .rels) at a chart part.
+type xdrGraphicFrame struct {
+	Chart *xdrChartRef `xml:"graphic>graphicData>chart"`
+}
+
+type xdrChartRef struct {
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 }
 
 type xdrMarker struct {

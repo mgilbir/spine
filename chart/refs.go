@@ -49,6 +49,11 @@ func (c *Chart) pointCount() int {
 	return len(c.categories)
 }
 
+// Layout returns the DataLayout describing where the chart's data lives: the
+// cell ranges its c:f references point at. Format integrations use it to place
+// the data (in a host sheet or an embedded workbook) to match the references.
+func (c *Chart) Layout() DataLayout { return c.layout() }
+
 // layout computes the DataLayout for the chart's current data.
 func (c *Chart) layout() DataLayout {
 	sheet := c.sheet()
