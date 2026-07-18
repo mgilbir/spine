@@ -95,6 +95,9 @@ const (
 	// Drawing content type (SpreadsheetML/DrawingML drawing part)
 	ContentTypeDrawing = "application/vnd.openxmlformats-officedocument.drawing+xml"
 
+	// Chart content type (DrawingML chart part, xl/charts/chartN.xml).
+	ContentTypeChart = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+
 	// Image content types
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"
