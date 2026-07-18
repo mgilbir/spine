@@ -7,7 +7,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
-- **Charts (preview)**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook — the shared core the per-format `AddChart` integrations will build on
+- **Charts (preview)**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. The `xlsx` package wires it in with `Sheet.AddChart` / `Sheet.Charts` (referencing the host workbook's cells); `docx` and `pptx` integrations follow
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
@@ -403,9 +403,60 @@ Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
 (`c:numCache` / `c:strCache`) are populated from the supplied data; `c:f`
 references are built against a configurable `DataRef` sheet (default `Sheet1`).
 
-This package is the shared core (Phase A). A later phase adds an `AddChart`
-method per format (xlsx references the host sheet; docx and pptx embed the
-workbook from `EmbeddedWorkbook`) plus a `Charts()` reader on each.
+This package is the shared core (Phase A). Each format then adds an `AddChart`
+method (xlsx references the host workbook's cells; docx and pptx embed the
+workbook from `EmbeddedWorkbook`) plus a `Charts()` reader.
+
+In `xlsx`, `Sheet.AddChart` anchors a chart on a sheet and `Sheet.Charts` /
+`Workbook.Charts` read the charts back:
+
+```go
+package main
+
+import (
+	"bytes"
+
+	"github.com/mgilbir/spine/chart"
+	"github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+	wb := xlsx.Create()
+	sheet := wb.AddSheet("Sales")
+	_ = sheet.SetCellValue("A1", "Region")
+
+	c := chart.NewColumn().
+		SetTitle("Quarterly Sales").
+		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"}).
+		SetLegend(chart.LegendRight)
+	c.AddSeries("North", []float64{10, 20, 30, 40})
+	c.AddSeries("South", []float64{5, 15, 25, 35})
+
+	// Anchor the chart at E2 (a single cell places a default-sized chart; a
+	// range like "E2:L20" sizes it to that block).
+	_ = sheet.AddChart("E2", c)
+
+	data, _ := wb.SaveBytes()
+
+	wb2, _ := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
+	s2, _ := wb2.SheetByName("Sales")
+	for _, got := range s2.Charts() {
+		_ = got.Title()      // "Quarterly Sales"
+		_ = got.Categories() // ["Q1" "Q2" "Q3" "Q4"]
+		_ = got.SeriesList() // series names + values
+	}
+}
+```
+
+An xlsx chart references cells in the host workbook rather than an embedded
+workbook. `AddChart` writes the chart's data (categories and each series) into a
+dedicated hidden worksheet — one per chart — and points the chart's `c:f`
+references at it, so Excel's "Edit Data" opens real cells while the cached
+values keep the chart rendering standalone; the sheet's own cells are never
+touched. Charts and images coexist in one drawing part per sheet. `AddChart`
+persists on both the `Create` and `Open` save paths, and a zero-modification
+open→save of a chart-bearing workbook stays byte-identical (the chart and
+drawing parts are preserved verbatim unless a chart is added or modified).
 
 ### Working with Documents in Memory
 

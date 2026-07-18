@@ -176,6 +176,23 @@ remediation series (#59–#75).
   `DataLayout` cell-range map. `Parse` reads a `chart.xml` back into the model.
   This is Phase A (the reusable core); wiring it into each format's Open/Save
   path (an `AddChart` method per format, a `Charts()` reader) is Phase B.
+- xlsx: charts (Phase B). `Sheet.AddChart(anchor string, c *chart.Chart)` anchors
+  a chart on a sheet at a cell ("E2") or range ("E2:L20"), and `Sheet.Charts()` /
+  `Workbook.Charts()` read charts back as parsed `*chart.Chart` values (type,
+  title, categories, series). An xlsx chart references the host workbook's cells
+  rather than an embedded workbook: `AddChart` writes the chart's data into a
+  dedicated hidden worksheet (one per chart) and points the chart's `c:f`
+  references at it, so Excel's "Edit Data" opens real cells while the cached
+  values render the chart standalone; the sheet's own cells are untouched.
+  Charts and images coexist in one drawing part per sheet. Charts persist on both
+  the `Create` and `Open` save paths, and a zero-modification open→save of a
+  chart-bearing workbook stays byte-identical (chart and drawing parts preserved
+  verbatim unless a chart is added or modified). `Validate` warns
+  (`chart-target-missing`) on a drawing chart relationship whose target part is
+  absent. To let the xlsx package import `chart` for these APIs,
+  `chart.EmbeddedWorkbook`'s xlsx-backed builder is now installed via
+  `chart.RegisterEmbedder` from the xlsx package (breaking a would-be import
+  cycle); the public `EmbeddedWorkbook` method is unchanged.
 - xlsx: read/write APIs for hyperlinks, images, sheet protection, and read
   accessors for the previously write-only feature surface. Hyperlinks are read
   and written through one `*Hyperlink` type sharing the cross-format surface
