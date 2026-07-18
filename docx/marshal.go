@@ -85,6 +85,120 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// commentsNamespaces is the standard root declaration set for a comments part
+// created from scratch: w plus the extension prefixes the comment bodies and
+// their extensions reference (w14:paraId, w15 threading).
+func commentsNamespaces() []xmlb.NSDecl {
+	return append(xmlb.WordprocessingMLNamespaces(),
+		xmlb.NSDecl{Prefix: xmlb.PrefixWord2010, URI: xmlb.NSWord2010},
+		xmlb.NSDecl{Prefix: xmlb.PrefixWord2012, URI: xmlb.NSWord2012},
+	)
+}
+
+// commentsExtNamespaces is the standard root declaration set for the
+// commentsExtended and people parts (both w15).
+func commentsExtNamespaces() []xmlb.NSDecl {
+	return []xmlb.NSDecl{
+		{Prefix: xmlb.PrefixWordprocessingML, URI: xmlb.NSWordprocessingML},
+		{Prefix: xmlb.PrefixMarkupCompatibility, URI: xmlb.NSMarkupCompatibility},
+		{Prefix: xmlb.PrefixWord2010, URI: xmlb.NSWord2010},
+		{Prefix: xmlb.PrefixWord2012, URI: xmlb.NSWord2012},
+	}
+}
+
+// marshalCommentsXML marshals the comments part (word/comments.xml). A part
+// parsed from an opened package replays its captured root attributes verbatim,
+// with the w14/w15 declarations backfilled if the source lacked them (a newly
+// added comment carries a w14:paraId that must resolve).
+func marshalCommentsXML(comments *oxml.CT_Comments) ([]byte, error) {
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	if comments.OriginalRootAttrs != nil {
+		var extra []xmlb.Attr
+		if !nsDeclsHave(comments.OriginalNSDecls, xmlb.NSWord2010) {
+			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixWord2010, Value: xmlb.NSWord2010})
+		}
+		if !nsDeclsHave(comments.OriginalNSDecls, xmlb.NSWord2012) {
+			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixWord2012, Value: xmlb.NSWord2012})
+		}
+		b.StartElementWithRootAttrs(nsW, "comments", comments.OriginalRootAttrs, extra...)
+	} else {
+		b.StartElementWithNS(nsW, "comments", commentsNamespaces())
+	}
+	for _, c := range comments.Comment {
+		c.MarshalToBuilder(b, nsW, "comment")
+	}
+	b.EndElement(nsW, "comments")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal comments.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// marshalCommentsExtendedXML marshals word/commentsExtended.xml (w15).
+func marshalCommentsExtendedXML(ext *oxml.CT_CommentsEx) ([]byte, error) {
+	const nsW15 = xmlb.NSWord2012
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	if ext.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsW15, "commentsEx", ext.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(nsW15, "commentsEx", commentsExtNamespaces())
+	}
+	for _, ce := range ext.CommentEx {
+		attrs := []xmlb.Attr{{Namespace: nsW15, Name: "paraId", Value: ce.ParaId}}
+		if ce.ParaIdParent != "" {
+			attrs = append(attrs, xmlb.Attr{Namespace: nsW15, Name: "paraIdParent", Value: ce.ParaIdParent})
+		}
+		if ce.Done != "" {
+			attrs = append(attrs, xmlb.Attr{Namespace: nsW15, Name: "done", Value: ce.Done})
+		}
+		b.EmptyElement(nsW15, "commentEx", attrs...)
+	}
+	b.EndElement(nsW15, "commentsEx")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal commentsExtended.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// marshalPeopleXML marshals word/people.xml (w15), the comment-author registry.
+func marshalPeopleXML(people *oxml.CT_People) ([]byte, error) {
+	const nsW15 = xmlb.NSWord2012
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	if people.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsW15, "people", people.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(nsW15, "people", commentsExtNamespaces())
+	}
+	for _, person := range people.Person {
+		b.StartElement(nsW15, "person", xmlb.Attr{Namespace: nsW15, Name: "author", Value: person.Author})
+		if pi := person.PresenceInfo; pi != nil {
+			b.EmptyElement(nsW15, "presenceInfo",
+				xmlb.Attr{Namespace: nsW15, Name: "providerId", Value: pi.ProviderId},
+				xmlb.Attr{Namespace: nsW15, Name: "userId", Value: pi.UserId},
+			)
+		}
+		b.EndElement(nsW15, "person")
+	}
+	b.EndElement(nsW15, "people")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal people.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// nsDeclsHave reports whether decls declares the given namespace URI.
+func nsDeclsHave(decls []xmlb.NSDecl, uri string) bool {
+	for _, d := range decls {
+		if d.URI == uri {
+			return true
+		}
+	}
+	return false
+}
+
 // marshalStylesXML marshals styles to XML.
 func marshalStylesXML(styles *oxml.CT_Styles) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
