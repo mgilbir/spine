@@ -164,6 +164,20 @@ func (p *PlaceholderShape) Text() string {
 	return p.textFrame.Text()
 }
 
+// SetHyperlink attaches an external-URL hyperlink to the placeholder. The
+// External relationship is allocated on save.
+func (p *PlaceholderShape) SetHyperlink(url string) *Hyperlink { return p.setHyperlinkURL(url) }
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the placeholder.
+func (p *PlaceholderShape) SetActionHyperlink(action string) *Hyperlink {
+	return p.setActionHyperlink(action)
+}
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index; the RelTypeSlide relationship is allocated on save.
+func (p *PlaceholderShape) SetHyperlinkToSlide(index int) *Hyperlink { return p.setSlideLink(index) }
+
 // IsTitle returns true if this is a title placeholder.
 func (p *PlaceholderShape) IsTitle() bool {
 	return p.phType == PlaceholderTitle || p.phType == PlaceholderCenteredTitle

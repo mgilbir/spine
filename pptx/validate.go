@@ -16,6 +16,7 @@ const presMainPartName = "/ppt/presentation.xml"
 const (
 	codeShapeIDDup      = "shape-id-dup"      // duplicate cNvPr id within one slide
 	codeCommentNoAuthor = "comment-no-author" // comment authorId with no matching author
+	codeHyperlinkNoRel  = "hyperlink-no-rel"  // hlinkClick r:id with no matching slide rel
 )
 
 // Validate walks the in-memory presentation model and reports structural
@@ -31,6 +32,7 @@ func (p *Presentation) Validate() validate.Report {
 	p.validateShapeIDs(c)
 	p.validateIDListReferences(c)
 	p.validateCommentAuthors(c)
+	p.validateHyperlinks(c)
 	if p.reader != nil {
 		// Package-level checks compare against the parts the source package
 		// carries. For a freshly created deck the writer synthesizes content
@@ -223,6 +225,25 @@ func (p *Presentation) validateCommentAuthors(c *validate.Collector) {
 							fmt.Sprintf("comment references author %q with no matching author in authors.xml", id))
 					}
 				}
+			}
+		}
+	}
+}
+
+// validateHyperlinks warns when a materialized hyperlink references a slide
+// relationship id that has no matching relationship — the dangling-r:id class
+// that leaves the link dead in PowerPoint. Hyperlinks created via the API but
+// not yet saved carry no relID and are skipped (their rel is allocated on save).
+func (p *Presentation) validateHyperlinks(c *validate.Collector) {
+	for _, s := range p.slides {
+		if s == nil {
+			continue
+		}
+		ids := relIDSet(p.relationships[s.partName])
+		for _, h := range s.Hyperlinks() {
+			if h.relID != "" && !ids[h.relID] {
+				c.Warnf(codeHyperlinkNoRel, s.partName,
+					fmt.Sprintf("hyperlink references relationship %q with no matching relationship", h.relID))
 			}
 		}
 	}

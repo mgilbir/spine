@@ -149,6 +149,9 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.name != "" {
 			sp.NvSpPr.CNvPr.Name = base.name
 		}
+		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.hyperlink != nil {
+			sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
+		}
 		if sp.SpPr == nil {
 			sp.SpPr = &dml.SpPr{}
 		}
@@ -249,6 +252,9 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 		}
 		if domainPic != nil {
 			pic.NvPicPr.CNvPr.Descr = domainPic.description
+		}
+		if base.hyperlink != nil {
+			pic.NvPicPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
 		}
 	}
 	if pic.SpPr == nil {

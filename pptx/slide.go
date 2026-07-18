@@ -327,6 +327,11 @@ func (s *Slide) syncShapesToXML() {
 	// Sniff missing media content types first: syncs triggered before the
 	// first save (ReplaceText, Duplicate) embed media parts too.
 	s.resolveMediaContentTypes()
+	// Allocate the relationships API-created hyperlinks need before any shape is
+	// marshaled, so their r:id is present when runToOxml / the shape builders
+	// emit the a:hlinkClick. Idempotent: hyperlinks already backed by a rel are
+	// left alone.
+	s.allocateHyperlinkRels()
 	if s.slideXML.CSld == nil {
 		s.slideXML.CSld = &oxml.CommonSlideData{}
 	}
@@ -582,6 +587,10 @@ func textBoxToOxml(tb *TextBox, id uint32) *oxml.Shape {
 	// silent no-ops).
 	applyShapeStyle(sp.SpPr, &tb.spPr)
 
+	if tb.hyperlink != nil {
+		sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(tb.hyperlink)
+	}
+
 	if tb.textFrame != nil {
 		sp.TxBody = textFrameToOxml(tb.textFrame)
 	}
@@ -663,6 +672,10 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 		}
 	}
 
+	if ph.hyperlink != nil {
+		sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(ph.hyperlink)
+	}
+
 	switch {
 	case ph.fieldType != "":
 		sp.TxBody = fieldTextBody(ph.fieldType, ph.fieldText)
@@ -732,6 +745,10 @@ func autoShapeToOxml(as *AutoShape, id uint32) *oxml.Shape {
 	// Copy every fill kind plus line/effects (previously only SolidFill was
 	// carried, so gradient/pattern/no-fill fills set via SetFill were dropped).
 	applyShapeStyle(sp.SpPr, &as.spPr)
+
+	if as.hyperlink != nil {
+		sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(as.hyperlink)
+	}
 
 	if as.textFrame != nil {
 		sp.TxBody = textFrameToOxml(as.textFrame)
@@ -872,6 +889,15 @@ func runToOxml(r *Run) *dml.R {
 		if r.color != nil {
 			ar.RPr.SolidFill = colorToOxml(r.color)
 		}
+	}
+
+	// A hyperlink lives in a:hlinkClick on the run properties, so it needs an
+	// rPr even when no other formatting is set.
+	if r.hyperlink != nil {
+		if ar.RPr == nil {
+			ar.RPr = &dml.RPr{}
+		}
+		ar.RPr.HlinkClick = hyperlinkToXML(r.hyperlink)
 	}
 
 	return ar
@@ -1140,6 +1166,10 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 				AvLst: &dml.AvLst{},
 			},
 		},
+	}
+
+	if p.hyperlink != nil {
+		pic.NvPicPr.CNvPr.HlinkClick = hyperlinkToXML(p.hyperlink)
 	}
 
 	// Apply cropping if set

@@ -92,6 +92,11 @@ func (s *Slide) materializeShapes() {
 	// Everything materialized so far is already represented in the parsed
 	// XML; marshal() appends only shapes added after this point.
 	s.syncedShapes = len(s.shapes)
+
+	// Resolve hyperlink targets (r:id -> URL / slide number) now that the shapes
+	// and the slide's relationships are both available. This reads only; it never
+	// marks anything dirty, so an unmodified save stays byte-identical.
+	s.resolveHyperlinks()
 }
 
 // rematerializeShapes rebuilds the domain shapes from the slide XML after an
@@ -334,6 +339,10 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 		p.name = pic.NvPicPr.CNvPr.Name
 		p.description = pic.NvPicPr.CNvPr.Descr
 		p.sourceID = pic.NvPicPr.CNvPr.Id
+		if hc := pic.NvPicPr.CNvPr.HlinkClick; hc != nil && !isMediaAction(hc) {
+			p.hyperlink = hyperlinkFromXML(hc)
+			p.hyperlink.markDirty = func() { p.dirty = true }
+		}
 	}
 
 	// Position and size from SpPr
@@ -545,6 +554,10 @@ func populateBaseShapeFromOxml(base *BaseShape, cnvPr *dml.CNvPr, spPr *dml.SpPr
 	if cnvPr != nil {
 		base.name = cnvPr.Name
 		base.sourceID = cnvPr.Id
+		if cnvPr.HlinkClick != nil && !isMediaAction(cnvPr.HlinkClick) {
+			base.hyperlink = hyperlinkFromXML(cnvPr.HlinkClick)
+			base.hyperlink.markDirty = func() { base.dirty = true }
+		}
 	}
 
 	if spPr != nil && spPr.Xfrm != nil {
@@ -706,6 +719,13 @@ func oxmlToRun(r *dml.R) *Run {
 		// Highlight
 		if rpr.Highlight != nil {
 			run.highlight = oxmlColorChoiceToColor(rpr.Highlight)
+		}
+
+		// Hyperlink (a:hlinkClick on the run properties). The URL/anchor are
+		// resolved later, once slide context is available.
+		if rpr.HlinkClick != nil {
+			run.hyperlink = hyperlinkFromXML(rpr.HlinkClick)
+			run.hyperlink.markDirty = func() { run.dirty = true }
 		}
 	}
 

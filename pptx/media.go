@@ -126,6 +126,18 @@ func (p *Picture) ContentType() string {
 	return p.contentType
 }
 
+// SetHyperlink attaches an external-URL hyperlink to the picture. The External
+// relationship is allocated on save.
+func (p *Picture) SetHyperlink(url string) *Hyperlink { return p.setHyperlinkURL(url) }
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the picture.
+func (p *Picture) SetActionHyperlink(action string) *Hyperlink { return p.setActionHyperlink(action) }
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index; the RelTypeSlide relationship is allocated on save.
+func (p *Picture) SetHyperlinkToSlide(index int) *Hyperlink { return p.setSlideLink(index) }
+
 // Description returns the image description (alt text).
 func (p *Picture) Description() string {
 	return p.description
