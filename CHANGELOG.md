@@ -162,6 +162,26 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: a hyperlink API symmetric with the docx/xlsx hyperlink APIs, plus a
+  picture-enumeration reader. Hyperlinks are read and written through one
+  `*Hyperlink` type sharing the cross-format surface (`URL`, `Anchor`,
+  `Tooltip`, `SetTooltip`); pptx anchors are a destination slide number (for an
+  internal slide jump) or a `ppaction://` verb (`ActionNextSlide`,
+  `ActionPreviousSlide`, `ActionFirstSlide`, `ActionLastSlide`, `ActionEndShow`).
+  Read: `Run.Hyperlink()`, a shape-level `Hyperlink()` on every shape (populated
+  for text boxes, auto shapes, placeholders, and pictures), `Slide.Hyperlinks()`
+  and `Presentation.Hyperlinks()` (descending into groups and table cells).
+  Write: `Run`/`TextBox`/`AutoShape`/`PlaceholderShape`/`Picture` each expose
+  `SetHyperlink(url)` (external, allocating an External relationship in the
+  slide rels on save), `SetHyperlinkToSlide(index)` (an internal jump allocating
+  a slide relationship), and `SetActionHyperlink(action)` (a `ppaction://` verb,
+  no relationship). `Slide.Pictures()`/`Presentation.Pictures()` return every
+  picture (excluding video/audio poster images), and `Picture` gains `AltText()`,
+  `Data()`, and content-type resolution from the embedded media part.
+  A zero-modification open→save of a hyperlink- or picture-bearing deck stays
+  byte-identical; setting a hyperlink on a run in an opened slide patches that
+  slide's node in place without regenerating the others. `Validate()` warns when
+  a hyperlink references a slide relationship id with no matching relationship.
 - pptx: a slide comments API symmetric with the docx/xlsx comment APIs.
   `Slide.Comments()` and `Presentation.Comments()` read both PowerPoint comment
   mechanisms — legacy per-slide comments and modern (2018) threaded comments —

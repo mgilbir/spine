@@ -345,6 +345,22 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 		}
 	}
 
+	// A picture that backs embedded video/audio carries a media reference in its
+	// non-visual properties; its blip is a poster, so it is not a real picture.
+	if pic.NvPicPr != nil && pic.NvPicPr.NvPr != nil {
+		nv := pic.NvPicPr.NvPr
+		if nv.VideoFile != nil || nv.AudioFile != nil {
+			p.isMedia = true
+		}
+		if nv.ExtLst != nil {
+			for _, ext := range nv.ExtLst.Ext {
+				if ext.Media != nil {
+					p.isMedia = true
+				}
+			}
+		}
+	}
+
 	// Position and size from SpPr
 	if pic.SpPr != nil && pic.SpPr.Xfrm != nil {
 		if pic.SpPr.Xfrm.Off != nil {

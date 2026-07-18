@@ -15,6 +15,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Slide transitions (fade, push, wipe, and more)
+  - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
+  - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables
@@ -387,6 +389,46 @@ comments carry no threading or resolved state, so `Reply` is a no-op returning
 `nil` and `Resolve`/`SetResolved` are no-ops on them. A zero-modification
 open→save of a comment-bearing deck is byte-identical; only the parts a comment
 write touches are regenerated.
+
+### Hyperlinks and Pictures
+
+Hyperlinks are read and written through one `*Hyperlink` type shared with the
+`docx` and `xlsx` APIs (`URL`, `Anchor`, `Tooltip`, `SetTooltip`). In pptx a
+link lives on a run (`a:hlinkClick` in the run properties) or on a shape
+(`p:cNvPr`); the anchor of an internal link is a destination slide number (a
+slide jump) or a `ppaction://` verb. `Slide.Pictures()` returns every picture on
+a slide with its alt text, bytes, content type, and frame geometry.
+
+```go
+p, _ := pptx.Open("deck.pptx")
+defer p.Close()
+
+// Read: every hyperlink and every picture across the deck.
+for _, h := range p.Hyperlinks() {
+    fmt.Printf("url=%q anchor=%q tip=%q\n", h.URL(), h.Anchor(), h.Tooltip())
+}
+for _, pic := range p.Pictures() {
+    fmt.Printf("%s %s (%d bytes)\n", pic.AltText(), pic.ContentType(), len(pic.Data()))
+}
+
+// Write: an external link on a run, an internal slide jump on a shape.
+slide, _ := p.Slide(0)
+run := slide.AddTextBox().TextFrame().AddParagraph().AddRun()
+run.SetText("Our site")
+run.SetHyperlink("https://example.com").SetTooltip("Open the site")
+
+shape := pptx.NewAutoShape(pptx.PresetRect)
+shape.SetSize(914400, 914400)
+_ = slide.AddShape(shape)
+shape.SetHyperlinkToSlide(2)              // jump to slide 3 (0-based index)
+// shape.SetActionHyperlink(pptx.ActionNextSlide) // or a ppaction:// verb
+```
+
+Writing an external or slide-jump link allocates the backing relationship in the
+slide's rels on save; `ppaction://` verbs need none. A zero-modification
+open→save of a hyperlink- or picture-bearing deck is byte-identical, and setting
+a hyperlink on a run in an opened slide patches that slide in place without
+disturbing the others.
 
 ## Opening vs. Creating Documents
 
