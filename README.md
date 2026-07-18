@@ -113,6 +113,60 @@ func main() {
 }
 ```
 
+### Reading and Writing Comments (Word)
+
+Comments support the full review flow: read the feedback on a document, add
+comments, reply in threads, and resolve. The core method set (`ID`, `Author`,
+`Text`, `Date`, `Resolved`, `Replies`, `Parent`, `AddComment`, `Reply`,
+`Resolve`) is shared with the `xlsx` and `pptx` comment APIs.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    doc, err := docx.Open("document.docx")
+    if err != nil {
+        panic(err)
+    }
+    defer doc.Close()
+
+    // Read existing comments and their threads.
+    for _, c := range doc.Comments() {
+        fmt.Printf("%s on %q: %s (resolved=%v)\n",
+            c.Author(), c.AnchorText(), c.Text(), c.Resolved())
+        for _, reply := range c.Replies() {
+            fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
+        }
+    }
+
+    // Add a comment over a whole paragraph, reply to it, and resolve the thread.
+    p := doc.AddParagraphWithText("The quick brown fox.")
+    c := p.AddComment("Reviewer", "Please rephrase.")
+    reply := c.Reply("Author", "Done.")
+    reply.Resolve()
+
+    // Range-precise anchors are also available:
+    //   run.AddComment(author, text)
+    //   doc.AddCommentOnRange(startRun, endRun, author, text)
+
+    if err := doc.Save("reviewed.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+Spine writes and round-trips the modern comment parts (`comments.xml`,
+`commentsExtended.xml` for threading/resolved state, and `people.xml` for the
+author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
+verbatim. A zero-modification open→save of a comment-bearing document is
+byte-identical.
+
 ### Creating an Excel Spreadsheet
 
 ```go
