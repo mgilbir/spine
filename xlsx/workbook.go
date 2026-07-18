@@ -525,7 +525,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// the workbook .rels.
 	var rebuiltRels map[string]bool
 	var personRelTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveComments() {
+	if w.sheetsHaveImages() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
 		var err error
 		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -772,7 +772,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// returns the person list's workbook-relative target ("" if none) to wire
 	// the workbook relationship.
 	var personTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveComments() {
+	if w.sheetsHaveImages() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
 		var err error
 		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {

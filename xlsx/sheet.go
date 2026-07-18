@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -18,7 +19,11 @@ type Sheet struct {
 	worksheet *oxml.CT_Worksheet
 	images    []sheetImage
 	comments  *sheetComments // lazily loaded comment model (read + write)
-	dirty     bool
+	// pendingHyperlinkRels are External hyperlink relationships added via
+	// SetHyperlink that must be merged into the sheet's .rels on save. Their ids
+	// are already baked into the matching <hyperlink r:id> in the worksheet model.
+	pendingHyperlinkRels []*opc.Relationship
+	dirty                bool
 }
 
 // Name returns the sheet name.
