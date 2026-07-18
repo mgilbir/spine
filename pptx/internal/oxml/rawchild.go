@@ -6,12 +6,17 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-// pmlCorePrefixes maps the namespace URIs that every re-marshaled slide part
-// declares on its root element to their conventional prefixes.
+// pmlCorePrefixes maps namespace URIs a re-marshaled PML part declares on its
+// root element to their conventional prefixes: a/r/p on slide parts, and p188
+// on the modern threaded-comment parts (whose root declares a/r/p188). A raw
+// child in one of these namespaces re-emits with its prefix and no injected
+// inline declaration. p188 never appears in a slide shape tree, so listing it
+// here is safe for both part kinds.
 var pmlCorePrefixes = map[string]string{
-	xmlb.NSPresentationML:     xmlb.PrefixPresentationML,
-	xmlb.NSDrawingML:          xmlb.PrefixDrawingML,
-	xmlb.NSOfficeDocumentRels: xmlb.PrefixRelationships,
+	xmlb.NSPresentationML:        xmlb.PrefixPresentationML,
+	xmlb.NSDrawingML:             xmlb.PrefixDrawingML,
+	xmlb.NSOfficeDocumentRels:    xmlb.PrefixRelationships,
+	xmlb.NSPowerPointComment2018: xmlb.PrefixPowerPointComment,
 }
 
 // pmlExtensionPrefixes maps well-known extension namespace URIs to prefixes.
