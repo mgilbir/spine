@@ -89,6 +89,17 @@ const (
 	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
 	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
+
+	// SpreadsheetML comment relationship types. RelTypeComments (the shared
+	// 2006 comments URI, declared above) links a worksheet to its legacy
+	// comments part; RelTypeVMLDrawing links it to the VML drawing that renders
+	// the note boxes. RelTypeThreadedComment links a worksheet to its threaded
+	// comments part, and RelTypePerson links the workbook to its person-list
+	// part. The threaded/person relationship types are Microsoft 2017/10
+	// extensions.
+	RelTypeVMLDrawing      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing"
+	RelTypeThreadedComment = "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
+	RelTypePerson          = "http://schemas.microsoft.com/office/2017/10/relationships/person"
 )
 
 // Relationship represents a relationship between a source part and a target.
