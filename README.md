@@ -167,6 +167,73 @@ author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
 verbatim. A zero-modification open→save of a comment-bearing document is
 byte-identical.
 
+### Hyperlinks, Images, Bookmarks, and Footnotes (Word)
+
+Spine reads and writes hyperlinks, inline and floating images, bookmarks, and
+footnotes/endnotes. The `Hyperlink` type (`URL`, `Anchor`, `Tooltip`) and the
+image read accessors are shared with the `xlsx` and `pptx` APIs; bookmarks and
+footnotes/endnotes are Word-specific.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    doc, err := docx.Open("document.docx")
+    if err != nil {
+        panic(err)
+    }
+    defer doc.Close()
+
+    // Read every hyperlink, image, bookmark, and footnote.
+    for _, h := range doc.Hyperlinks() {
+        fmt.Printf("link %q -> url=%q anchor=%q\n", h.Text(), h.URL(), h.Anchor())
+    }
+    for _, img := range doc.Images() {
+        fmt.Printf("image %s (%s) %.0fx%.0fpt alt=%q floating=%v\n",
+            img.PartName(), img.ContentType(), img.Width(), img.Height(),
+            img.AltText(), img.Floating())
+    }
+    for _, b := range doc.Bookmarks() {
+        fmt.Printf("bookmark %q -> %q\n", b.Name(), b.Text())
+    }
+    for _, f := range doc.Footnotes() {
+        fmt.Printf("footnote %s: %s\n", f.ID(), f.Text())
+    }
+
+    // Write: an external and an internal hyperlink, a bookmark they can target,
+    // and a footnote anchored on a run.
+    p := doc.AddParagraph()
+    p.AddRun().SetText("See ")
+    link := p.AddHyperlink("our site", "https://example.com/")
+    link.SetTooltip("Visit us")
+
+    target := doc.AddParagraphWithText("Chapter One")
+    target.AddBookmark("chap1")
+    doc.AddParagraph().AddInternalHyperlink("go to chapter", "chap1")
+
+    note := doc.AddParagraphWithText("A claim.")
+    note.Runs()[0].AddFootnote("Supporting evidence.")
+
+    if err := doc.Save("annotated.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+External hyperlinks allocate an `External` relationship in the part's rels;
+internal ones use `w:anchor`. Adding a footnote or endnote creates
+`word/footnotes.xml` / `word/endnotes.xml` (with the mandatory separator notes,
+the relationship, and the content-type override) on first use. A
+zero-modification open→save of a document using any of these features is
+byte-identical, and the parts are regenerated only when that feature is
+modified.
+
 ### Creating an Excel Spreadsheet
 
 ```go

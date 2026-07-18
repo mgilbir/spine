@@ -189,6 +189,47 @@ func marshalPeopleXML(people *oxml.CT_People) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// marshalFootnotesXML marshals the footnotes part (word/footnotes.xml). A part
+// parsed from an opened package replays its captured root attributes verbatim;
+// one created from scratch gets the standard WordprocessingML declarations.
+func marshalFootnotesXML(footnotes *oxml.CT_Footnotes) ([]byte, error) {
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	if footnotes.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsW, "footnotes", footnotes.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(nsW, "footnotes", xmlb.WordprocessingMLNamespaces())
+	}
+	for _, f := range footnotes.Footnote {
+		f.MarshalToBuilder(b, nsW, "footnote")
+	}
+	b.EndElement(nsW, "footnotes")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal footnotes.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
+// marshalEndnotesXML marshals the endnotes part (word/endnotes.xml); see
+// marshalFootnotesXML.
+func marshalEndnotesXML(endnotes *oxml.CT_Endnotes) ([]byte, error) {
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.WriteHeader()
+	if endnotes.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsW, "endnotes", endnotes.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(nsW, "endnotes", xmlb.WordprocessingMLNamespaces())
+	}
+	for _, e := range endnotes.Endnote {
+		e.MarshalToBuilder(b, nsW, "endnote")
+	}
+	b.EndElement(nsW, "endnotes")
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: marshal endnotes.xml: %w", err)
+	}
+	return b.Bytes(), nil
+}
+
 // nsDeclsHave reports whether decls declares the given namespace URI.
 func nsDeclsHave(decls []xmlb.NSDecl, uri string) bool {
 	for _, d := range decls {
