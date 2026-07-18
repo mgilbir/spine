@@ -41,6 +41,8 @@ type Document struct {
 	footnotes        *oxml.CT_Footnotes
 	endnotes         *oxml.CT_Endnotes
 	comments         *oxml.CT_Comments
+	commentsExtended *oxml.CT_CommentsEx
+	people           *oxml.CT_People
 	headers          map[string]*headerPart
 	footers          map[string]*footerPart
 	otherParts       map[string]*coxml.RawPart
@@ -59,6 +61,14 @@ type Document struct {
 	// preserved original bytes.
 	numberingModified bool
 	settingsModified  bool
+	// comment-part modification flags: set when the comments API adds, replies,
+	// resolves, or edits, so the round-trip save regenerates the affected part
+	// (with its relationship and content-type override) instead of writing the
+	// preserved original bytes. A zero-modification save leaves all flags false
+	// and every comment part round-trips byte-for-byte.
+	commentsModified    bool
+	commentsExtModified bool
+	peopleModified      bool
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
 	dirEntries []string
@@ -276,6 +286,16 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			if err := xmlb.Unmarshal(data, d.comments); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
+		case name == "/word/commentsExtended.xml":
+			d.commentsExtended = &oxml.CT_CommentsEx{}
+			if err := xmlb.Unmarshal(data, d.commentsExtended); err != nil {
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
+			}
+		case name == "/word/people.xml":
+			d.people = &oxml.CT_People{}
+			if err := xmlb.Unmarshal(data, d.people); err != nil {
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
+			}
 		case name == "/word/fontTable.xml":
 			// preserved in preservedParts
 		case name == "/word/webSettings.xml":
@@ -317,7 +337,8 @@ func (d *Document) loadAllParts(mainPartName string) error {
 func isModelParsedDocxPart(name string) bool {
 	switch name {
 	case "/word/styles.xml", "/word/numbering.xml", "/word/settings.xml",
-		"/word/footnotes.xml", "/word/endnotes.xml", "/word/comments.xml":
+		"/word/footnotes.xml", "/word/endnotes.xml", "/word/comments.xml",
+		"/word/commentsExtended.xml", "/word/people.xml":
 		return true
 	}
 	return isDocxHeaderPartName(name) || isDocxFooterPartName(name)
@@ -552,6 +573,15 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/word/settings.xml" && d.settingsModified {
 			continue
 		}
+		if name == "/word/comments.xml" && d.commentsModified {
+			continue
+		}
+		if name == "/word/commentsExtended.xml" && d.commentsExtModified {
+			continue
+		}
+		if name == "/word/people.xml" && d.peopleModified {
+			continue
+		}
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
@@ -585,6 +615,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// override; one that already had it gets the parsed-and-extended content
 	// in place of the preserved bytes.
 	if err := d.writeModifiedMetadataParts(writer); err != nil {
+		return err
+	}
+
+	// Write the comment parts (comments/commentsExtended/people) when the
+	// session modified them, creating the part, relationship, and content-type
+	// override if the opened package did not already carry them.
+	if err := d.writeCommentParts(writer, false); err != nil {
 		return err
 	}
 
@@ -696,6 +733,45 @@ func (d *Document) writeModifiedMetadataParts(writer *opc.Writer) error {
 	return nil
 }
 
+// writeCommentParts writes the comments, commentsExtended, and people parts.
+// On the round-trip path (created=false) each part is written only when the
+// session modified it; on the new-document path (created=true) each is written
+// when its model carries content. In both cases the document.xml relationship
+// and the content-type override are registered if absent.
+func (d *Document) writeCommentParts(writer *opc.Writer, created bool) error {
+	if d.comments != nil && len(d.comments.Comment) > 0 && (created || d.commentsModified) {
+		data, err := marshalCommentsXML(d.comments)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/comments.xml", opc.ContentTypeDocComments, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeComments, "comments.xml")
+	}
+	if d.commentsExtended != nil && len(d.commentsExtended.CommentEx) > 0 && (created || d.commentsExtModified) {
+		data, err := marshalCommentsExtendedXML(d.commentsExtended)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/commentsExtended.xml", opc.ContentTypeDocCommentsExtended, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeCommentsExtended, "commentsExtended.xml")
+	}
+	if d.people != nil && len(d.people.Person) > 0 && (created || d.peopleModified) {
+		data, err := marshalPeopleXML(d.people)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/people.xml", opc.ContentTypeDocPeople, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypePeople, "people.xml")
+	}
+	return nil
+}
+
 // ensureDocRelationship adds a document.xml relationship of the given type
 // unless one already exists.
 func (d *Document) ensureDocRelationship(relType, target string) {
@@ -716,7 +792,8 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 // parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
-		d.numberingModified || d.settingsModified
+		d.numberingModified || d.settingsModified ||
+		d.commentsModified || d.commentsExtModified || d.peopleModified
 }
 
 // saveNew saves a newly created document.
@@ -793,6 +870,13 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 
 	// Write the media/header/footer parts, then record their relationships.
 	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
+	// Write the comment parts for a created document (comments added before the
+	// first save), registering their document.xml relationships so the append
+	// below picks them up.
+	if err := d.writeCommentParts(writer, true); err != nil {
 		return err
 	}
 	// Emit every relationship registered against the main part by the
