@@ -35,6 +35,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Column widths and row heights
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
+  - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
 
 Runnable programs for all three formats live in [`examples/`](examples/).
 
@@ -112,6 +113,60 @@ func main() {
 }
 ```
 
+### Reading and Writing Comments (Word)
+
+Comments support the full review flow: read the feedback on a document, add
+comments, reply in threads, and resolve. The core method set (`ID`, `Author`,
+`Text`, `Date`, `Resolved`, `Replies`, `Parent`, `AddComment`, `Reply`,
+`Resolve`) is shared with the `xlsx` and `pptx` comment APIs.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    doc, err := docx.Open("document.docx")
+    if err != nil {
+        panic(err)
+    }
+    defer doc.Close()
+
+    // Read existing comments and their threads.
+    for _, c := range doc.Comments() {
+        fmt.Printf("%s on %q: %s (resolved=%v)\n",
+            c.Author(), c.AnchorText(), c.Text(), c.Resolved())
+        for _, reply := range c.Replies() {
+            fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
+        }
+    }
+
+    // Add a comment over a whole paragraph, reply to it, and resolve the thread.
+    p := doc.AddParagraphWithText("The quick brown fox.")
+    c := p.AddComment("Reviewer", "Please rephrase.")
+    reply := c.Reply("Author", "Done.")
+    reply.Resolve()
+
+    // Range-precise anchors are also available:
+    //   run.AddComment(author, text)
+    //   doc.AddCommentOnRange(startRun, endRun, author, text)
+
+    if err := doc.Save("reviewed.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+Spine writes and round-trips the modern comment parts (`comments.xml`,
+`commentsExtended.xml` for threading/resolved state, and `people.xml` for the
+author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
+verbatim. A zero-modification open→save of a comment-bearing document is
+byte-identical.
+
 ### Creating an Excel Spreadsheet
 
 ```go
@@ -149,6 +204,41 @@ func main() {
     fmt.Printf("Sheets: %d\n", wb.SheetCount())
 }
 ```
+
+### Reading and Writing Excel Comments
+
+The `xlsx` package reads and writes both comment mechanisms Excel uses — legacy
+notes (`xl/comments*.xml` + a VML drawing) and modern threaded comments
+(`xl/threadedComments/*` + a person list) — through one unified `Comment` type.
+
+```go
+wb, _ := xlsx.Open("review.xlsx")
+sheet, _ := wb.Sheet(0)
+
+// Read every comment on the sheet (legacy notes and threaded comments unified).
+for _, c := range sheet.Comments() {
+    fmt.Printf("%s by %s: %s (resolved=%v)\n", c.Ref(), c.Author(), c.Text(), c.Resolved())
+    for _, reply := range c.Replies() {
+        fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
+    }
+}
+
+// Add a threaded comment (Excel back-compat: a legacy note fallback is written
+// too, so older Excel still renders the text). Then reply and resolve.
+cell, _ := sheet.Cell("B2")
+c := cell.AddComment("Ada Lovelace", "Please double-check this figure.")
+c.Reply("Alan Turing", "Confirmed — updated.")
+c.Resolve()
+
+_ = wb.Save("review.xlsx")
+```
+
+`Sheet.AddComment(ref, author, text)`, `Cell.AddComment(author, text)`,
+`Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
+legacy-only note) are the write entry points; `Sheet.Comments()` and
+`Cell.Comment()` read. A zero-modification open→save preserves comment-bearing
+workbooks byte-for-byte; only the touched sheet's comment parts are regenerated
+when a comment is added.
 
 ### Working with Documents in Memory
 

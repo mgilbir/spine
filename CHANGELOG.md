@@ -176,6 +176,47 @@ remediation series (#59–#75).
   only the parts a comment write touches are regenerated, and unmodeled modern
   data (anchor marker lists, task details, reactions) is preserved verbatim.
   `Validate()` warns when a comment references an author with no matching entry.
+- xlsx: a comments API covering both SpreadsheetML comment mechanisms through
+  one unified `Comment` type. `Sheet.Comments()` and `Cell.Comment()` read
+  legacy notes (`xl/comments*.xml` + VML drawing) and modern threaded comments
+  (`xl/threadedComments/*` + `xl/persons/*`), merging them so a cell's legacy
+  back-compat note is not double-reported alongside its thread. `Comment`
+  exposes the cross-format shared surface (`ID`, `Author`, `Text`, `Date`,
+  `Resolved`, `Replies`, `Parent`) plus xlsx-specific `Ref` and `Threaded`.
+  `Cell.AddComment(author, text)` / `Sheet.AddComment(ref, author, text)` create
+  a threaded comment together with a legacy-note fallback (matching modern
+  Excel, so old Excel still renders the text) — allocating the comments,
+  threaded-comments, person-list and VML-drawing parts, their relationships and
+  content-type overrides, and the worksheet `<legacyDrawing>` reference, and
+  registering the author as a person (deduplicated by display name).
+  `Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
+  legacy-only note) complete the write surface. A zero-modification open→save of
+  a comment-bearing workbook stays byte-identical (comment parts preserved raw);
+  only a touched sheet's comment parts are regenerated. Comments coexist with an
+  image/drawing on the same sheet (distinct VML/legacy vs DrawingML drawings).
+  `Validate()` warns on a threaded comment whose `personId` has no matching
+  person and on a comment anchored to an unparseable cell ref.
+- docx: a comments API for the full review flow — read, add, reply in threads,
+  and resolve. `Document.Comments()` returns every comment; each `Comment`
+  exposes `ID`, `Author`, `Initials`, `Text`, `Date`, `Paragraphs`, `Resolved`,
+  `Replies`, `Parent`, and `AnchorText` (the document text the comment brackets).
+  Writers: `Paragraph.AddComment(author, text)` anchors over a paragraph,
+  `Run.AddComment` over a single run, and `Document.AddCommentOnRange(start, end,
+  author, text)` over an arbitrary run span; `Comment.Reply(author, text)` adds a
+  threaded reply and `Comment.Resolve()` / `SetResolved(bool)` set the thread's
+  done state. The core method set (`ID`/`Author`/`Text`/`Date`/`Resolved`/
+  `Replies`/`Parent` plus `AddComment`/`Reply`/`Resolve`) matches the xlsx and
+  pptx comment APIs. Spine writes and round-trips the ECMA-376 comments part
+  along with the Microsoft extensions Word relies on — `commentsExtended.xml`
+  (threading and resolved state, keyed by `w14:paraId`), `people.xml` (author
+  registry) — creating each part with its relationship and content-type override
+  on both the new-document and opened-document save paths, and preserves
+  `commentsIds.xml`/`commentsExtensible.xml` verbatim. A zero-modification
+  open→save of a comment-bearing document is byte-identical; only added or
+  modified comments regenerate the affected parts. New comment ids are the
+  highest existing id plus one and `w14:paraId` values are collision-free 8-hex
+  ids. `Validate()` warns on a `commentRangeStart`/`commentReference` with no
+  matching comment.
 - testdata: a second, fully distinct 10k-each docx/xlsx Common Crawl corpus
   under `testdata/cc/stress/` for library stress testing — a fresh batch of
   real-world files that shares **no `content_digest`** with the canonical set,

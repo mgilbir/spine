@@ -70,22 +70,31 @@ const (
 	// the same media part: a "video"/"audio" link reference (a:videoFile/
 	// a:audioFile r:link) and a Microsoft "media" embed reference (p14:media
 	// r:embed).
-	RelTypeVideo     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
-	RelTypeAudio     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
-	RelTypeMedia     = "http://schemas.microsoft.com/office/2007/relationships/media"
-	RelTypeHeader    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
-	RelTypeFooter    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
-	RelTypeFootnotes = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
-	RelTypeEndnotes  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
-	RelTypeComments  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
-	RelTypeHyperlink = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+	RelTypeVideo       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
+	RelTypeAudio       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
+	RelTypeMedia       = "http://schemas.microsoft.com/office/2007/relationships/media"
+	RelTypeHeader      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+	RelTypeFooter      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+	RelTypeFootnotes   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+	RelTypeEndnotes    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
+	RelTypeComments    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+	RelTypeHyperlink   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
+
+	// Microsoft comment-extension relationship types. Modern Word writes these
+	// alongside the ECMA-376 comments part: commentsExtended carries threading
+	// and resolved state, people the author registry, and commentsIds /
+	// commentsExtensible the durable ids and UTC timestamps.
+	RelTypeCommentsExtended   = "http://schemas.microsoft.com/office/2011/relationships/commentsExtended"
+	RelTypeCommentsIds        = "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds"
+	RelTypeCommentsExtensible = "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible"
+	RelTypePeople             = "http://schemas.microsoft.com/office/2011/relationships/people"
 
 	// Modern PowerPoint threaded-comment relationship types (2018 schema). A
 	// slide references its threaded-comment part with RelTypeModernComments and
 	// the presentation references the shared author list with RelTypeAuthors.
 	RelTypeModernComments = "http://schemas.microsoft.com/office/2018/10/relationships/comments"
 	RelTypeAuthors        = "http://schemas.microsoft.com/office/2018/10/relationships/authors"
-	RelTypeWebSettings    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
 
 	// SpreadsheetML relationship types
 	RelTypeWorksheet     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
@@ -95,6 +104,17 @@ const (
 	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
 	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
+
+	// SpreadsheetML comment relationship types. RelTypeComments (the shared
+	// 2006 comments URI, declared above) links a worksheet to its legacy
+	// comments part; RelTypeVMLDrawing links it to the VML drawing that renders
+	// the note boxes. RelTypeThreadedComment links a worksheet to its threaded
+	// comments part, and RelTypePerson links the workbook to its person-list
+	// part. The threaded/person relationship types are Microsoft 2017/10
+	// extensions.
+	RelTypeVMLDrawing      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing"
+	RelTypeThreadedComment = "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
+	RelTypePerson          = "http://schemas.microsoft.com/office/2017/10/relationships/person"
 )
 
 // Relationship represents a relationship between a source part and a target.

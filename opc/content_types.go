@@ -58,6 +58,17 @@ const (
 	ContentTypeSharedStrings             = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
 	ContentTypeStyles                    = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
 
+	// SpreadsheetML comment content types. Legacy cell comments (a.k.a. notes)
+	// use ContentTypeSheetComments and are rendered by a legacy VML drawing
+	// (ContentTypeVMLDrawing). Modern threaded comments use
+	// ContentTypeThreadedComments, with authors declared in a person-list part
+	// (ContentTypePerson). The threaded/person types are Microsoft extensions
+	// (the [MS-XLSX] "ms-excel" family), not ISO/IEC 29500 base types.
+	ContentTypeSheetComments    = "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"
+	ContentTypeVMLDrawing       = "application/vnd.openxmlformats-officedocument.vmlDrawing"
+	ContentTypeThreadedComments = "application/vnd.ms-excel.threadedcomments+xml"
+	ContentTypePerson           = "application/vnd.ms-excel.person+xml"
+
 	// Word content types. WordprocessingML main-part flavors: regular
 	// document (.docx), template (.dotx), and the macro-enabled document
 	// (.docm) and template (.dotm) variants. The .dotm spelling
@@ -73,6 +84,10 @@ const (
 	ContentTypeDocFootnotes              = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
 	ContentTypeDocEndnotes               = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
 	ContentTypeDocComments               = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+	ContentTypeDocCommentsExtended       = "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml"
+	ContentTypeDocCommentsIds            = "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml"
+	ContentTypeDocCommentsExtensible     = "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml"
+	ContentTypeDocPeople                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml"
 	ContentTypeDocHeader                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
 	ContentTypeDocFooter                 = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
 	ContentTypeDocWebSettings            = "application/vnd.openxmlformats-officedocument.wordprocessingml.webSettings+xml"
