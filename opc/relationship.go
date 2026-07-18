@@ -70,16 +70,24 @@ const (
 	// the same media part: a "video"/"audio" link reference (a:videoFile/
 	// a:audioFile r:link) and a Microsoft "media" embed reference (p14:media
 	// r:embed).
-	RelTypeVideo       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
-	RelTypeAudio       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
-	RelTypeMedia       = "http://schemas.microsoft.com/office/2007/relationships/media"
-	RelTypeHeader      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
-	RelTypeFooter      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
-	RelTypeFootnotes   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
-	RelTypeEndnotes    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
-	RelTypeComments    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
-	RelTypeHyperlink   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
-	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
+	RelTypeVideo     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video"
+	RelTypeAudio     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/audio"
+	RelTypeMedia     = "http://schemas.microsoft.com/office/2007/relationships/media"
+	RelTypeHeader    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+	RelTypeFooter    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+	RelTypeFootnotes = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+	RelTypeEndnotes  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
+	RelTypeComments  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+	// Microsoft comment-extension relationship types. Modern Word writes these
+	// alongside the ECMA-376 comments part: commentsExtended carries threading
+	// and resolved state, people the author registry, and commentsIds /
+	// commentsExtensible the durable ids and UTC timestamps.
+	RelTypeCommentsExtended   = "http://schemas.microsoft.com/office/2011/relationships/commentsExtended"
+	RelTypeCommentsIds        = "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds"
+	RelTypeCommentsExtensible = "http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible"
+	RelTypePeople             = "http://schemas.microsoft.com/office/2011/relationships/people"
+	RelTypeHyperlink          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+	RelTypeWebSettings        = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
 
 	// SpreadsheetML relationship types
 	RelTypeWorksheet     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
