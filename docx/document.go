@@ -52,6 +52,7 @@ type Document struct {
 	preservedParts   map[string]*coxml.RawPart // all original parts for round-trip
 	contentTypesData []byte                    // raw [Content_Types].xml
 	imageParts       []*imagePart              // images to be written
+	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
 	nextRelIDVal     int                       // counter for relationship IDs
 	newHeaderParts   []*hdrFtrPart             // new headers to be written
 	newFooterParts   []*hdrFtrPart             // new footers to be written
@@ -679,6 +680,9 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 			return err
 		}
 	}
+	if err := d.writeChartParts(writer); err != nil {
+		return err
+	}
 	for _, hp := range d.newHeaderParts {
 		hdrPart, ok := d.headers[hp.partName]
 		if !ok {
@@ -840,7 +844,7 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 // metadata part, requiring [Content_Types].xml to be regenerated so the new
 // parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
-	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
+	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
 		d.numberingModified || d.settingsModified ||
 		d.commentsModified || d.commentsExtModified || d.peopleModified ||
 		d.footnotesModified || d.endnotesModified

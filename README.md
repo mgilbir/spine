@@ -26,6 +26,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Bullet and numbered lists
   - Headers and footers
   - Inline and floating (anchored) images — including SVG images with a raster fallback
+  - Charts (column, bar, line, pie, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
   - Fields (PAGE/NUMPAGES) and a table of contents
   - Page setup (size, margins)
 - **Excel (XLSX)**: Create and modify Excel workbooks
@@ -403,9 +404,11 @@ Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
 (`c:numCache` / `c:strCache`) are populated from the supplied data; `c:f`
 references are built against a configurable `DataRef` sheet (default `Sheet1`).
 
-This package is the shared core (Phase A). Each format then adds an `AddChart`
-method (xlsx references the host workbook's cells; docx and pptx embed the
-workbook from `EmbeddedWorkbook`) plus a `Charts()` reader.
+This package is the shared core. Each format wires it in with an `AddChart`
+method and a `Charts()` reader (xlsx references the host sheet; docx and pptx
+embed the workbook from `EmbeddedWorkbook`).
+
+#### Charts in spreadsheets
 
 In `xlsx`, `Sheet.AddChart` anchors a chart on a sheet and `Sheet.Charts` /
 `Workbook.Charts` read the charts back:
@@ -457,6 +460,40 @@ touched. Charts and images coexist in one drawing part per sheet. `AddChart`
 persists on both the `Create` and `Open` save paths, and a zero-modification
 open→save of a chart-bearing workbook stays byte-identical (the chart and
 drawing parts are preserved verbatim unless a chart is added or modified).
+
+#### Charts in Word documents
+
+`docx` inserts a chart inline in the text flow, like an inline image. The
+chart's data is written to an embedded workbook (`word/embeddings/…xlsx`) that
+the chart part references, so Office can open and edit the values — a docx has
+no host worksheet. Sizes are in EMUs (914400 per inch):
+
+```go
+doc := docx.Create()
+doc.AddParagraphWithText("Quarterly revenue:")
+
+c := chart.NewColumn().
+	SetTitle("Revenue by Quarter").
+	SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
+c.AddSeries("North", []float64{10, 20, 30, 40})
+
+// Appends a paragraph holding the chart (~5.5in x 3in). Use
+// Paragraph.AddChart to place a chart inline among other runs.
+if err := doc.AddChart(c, 5029200, 2743200); err != nil {
+	log.Fatal(err)
+}
+_ = doc.Save("charted.docx")
+
+// Read charts back from an opened document.
+opened, _ := docx.Open("charted.docx")
+for _, ch := range opened.Charts() {
+	fmt.Println(ch.Title(), ch.Categories())
+}
+```
+
+A zero-modification open→save of a chart-bearing document is byte-identical:
+the chart and embedded-workbook parts round-trip verbatim, and are regenerated
+only when a chart is added.
 
 ### Working with Documents in Memory
 

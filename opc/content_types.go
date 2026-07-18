@@ -95,8 +95,12 @@ const (
 	// Drawing content type (SpreadsheetML/DrawingML drawing part)
 	ContentTypeDrawing = "application/vnd.openxmlformats-officedocument.drawing+xml"
 
-	// Chart content type (DrawingML chart part, xl/charts/chartN.xml).
-	ContentTypeChart = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+	// ContentTypeChart is the DrawingML chart part content type (word/pptx/xlsx
+	// charts/chartN.xml). ContentTypeSpreadsheetPackage is the whole-package
+	// content type declared for an embedded workbook (.xlsx) that a docx/pptx
+	// chart references to carry its editable data.
+	ContentTypeChart              = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+	ContentTypeSpreadsheetPackage = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 	// Image content types
 	ContentTypePNG  = "image/png"

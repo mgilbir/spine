@@ -170,6 +170,12 @@ func (d *Document) checkParagraphEmbeds(c *validate.Collector, p *oxml.CT_P, par
 						fmt.Sprintf("drawing references image relationship %q with no matching relationship", id))
 				}
 			}
+			// A chart drawing references its chart part via c:chart r:id; a
+			// missing relationship leaves the chart with no target part.
+			if id := scanChartRelID(dr.RawContent); id != "" && !rels[id] {
+				c.Warnf(validate.CodeDanglingRel, part,
+					fmt.Sprintf("chart drawing references relationship %q with no matching relationship", id))
+			}
 		}
 	}
 	for _, h := range p.Hyperlink {
@@ -453,6 +459,11 @@ func (d *Document) partExists(name string) bool {
 	}
 	if _, ok := d.otherParts[name]; ok {
 		return true
+	}
+	for _, cp := range d.chartParts {
+		if cp.partName == name || cp.embedName == name {
+			return true
+		}
 	}
 	if _, ok := d.headers[name]; ok {
 		return true
