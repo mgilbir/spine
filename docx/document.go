@@ -69,6 +69,13 @@ type Document struct {
 	commentsModified    bool
 	commentsExtModified bool
 	peopleModified      bool
+	// footnotesModified / endnotesModified record that the session added a
+	// footnote or endnote, so the round-trip save regenerates that part (with
+	// its relationship and content-type override) instead of writing the
+	// preserved original bytes. A zero-modification save leaves them false and
+	// the note parts round-trip byte-for-byte.
+	footnotesModified bool
+	endnotesModified  bool
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
 	dirEntries []string
@@ -582,6 +589,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/word/people.xml" && d.peopleModified {
 			continue
 		}
+		if name == "/word/footnotes.xml" && d.footnotesModified {
+			continue
+		}
+		if name == "/word/endnotes.xml" && d.endnotesModified {
+			continue
+		}
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
@@ -622,6 +635,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// session modified them, creating the part, relationship, and content-type
 	// override if the opened package did not already carry them.
 	if err := d.writeCommentParts(writer, false); err != nil {
+		return err
+	}
+
+	// Write the footnote/endnote parts when the session added a note, creating
+	// the part, relationship, and content-type override if the opened package
+	// did not already carry them.
+	if err := d.writeNoteParts(writer, false); err != nil {
 		return err
 	}
 
@@ -772,6 +792,35 @@ func (d *Document) writeCommentParts(writer *opc.Writer, created bool) error {
 	return nil
 }
 
+// writeNoteParts writes the footnotes and endnotes parts. On the round-trip
+// path (created=false) each part is written only when the session added a note;
+// on the new-document path (created=true) each is written when its model
+// carries a note. In both cases the document.xml relationship and the
+// content-type override are registered if absent.
+func (d *Document) writeNoteParts(writer *opc.Writer, created bool) error {
+	if d.footnotes != nil && len(d.footnotes.Footnote) > 0 && (created || d.footnotesModified) {
+		data, err := marshalFootnotesXML(d.footnotes)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/footnotes.xml", opc.ContentTypeDocFootnotes, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeFootnotes, "footnotes.xml")
+	}
+	if d.endnotes != nil && len(d.endnotes.Endnote) > 0 && (created || d.endnotesModified) {
+		data, err := marshalEndnotesXML(d.endnotes)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/endnotes.xml", opc.ContentTypeDocEndnotes, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeEndnotes, "endnotes.xml")
+	}
+	return nil
+}
+
 // ensureDocRelationship adds a document.xml relationship of the given type
 // unless one already exists.
 func (d *Document) ensureDocRelationship(relType, target string) {
@@ -793,7 +842,8 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
 		d.numberingModified || d.settingsModified ||
-		d.commentsModified || d.commentsExtModified || d.peopleModified
+		d.commentsModified || d.commentsExtModified || d.peopleModified ||
+		d.footnotesModified || d.endnotesModified
 }
 
 // saveNew saves a newly created document.
@@ -877,6 +927,12 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	// first save), registering their document.xml relationships so the append
 	// below picks them up.
 	if err := d.writeCommentParts(writer, true); err != nil {
+		return err
+	}
+	// Write the footnote/endnote parts for a created document (notes added
+	// before the first save), registering their document.xml relationships so
+	// the append below picks them up.
+	if err := d.writeNoteParts(writer, true); err != nil {
 		return err
 	}
 	// Emit every relationship registered against the main part by the
