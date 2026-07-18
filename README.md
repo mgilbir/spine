@@ -32,9 +32,12 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Read and write cell values (strings, numbers, booleans)
   - Formula support
   - Cell styling (fonts, fills, borders, number formats, alignment)
-  - Freeze panes, auto-filter, and data validation
+  - Freeze panes, auto-filter, and data validation, with read accessors for each
   - Merged cells and named ranges
   - Column widths and row heights
+  - Hyperlinks (external and internal), read and written through the `Hyperlink` type shared with the docx/pptx APIs
+  - Sheet protection (read state and write with the legacy password hash)
+  - Read-only enumeration of worksheet images and conditional-formatting rules
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
   - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
@@ -308,6 +311,51 @@ legacy-only note) are the write entry points; `Sheet.Comments()` and
 `Cell.Comment()` read. A zero-modification open→save preserves comment-bearing
 workbooks byte-for-byte; only the touched sheet's comment parts are regenerated
 when a comment is added.
+
+### Hyperlinks, Images, and Sheet Protection (Excel)
+
+Spine reads and writes cell hyperlinks and sheet protection, and reads back the
+previously write-only feature surface (merged cells, freeze panes, auto-filter,
+data validation) plus worksheet images and conditional-formatting rules. The
+`Hyperlink` type (`URL`, `Anchor`, `Tooltip`, `SetTooltip`) and the image read
+accessors (`AltText`, `Data`, `ContentType`) are shared with the `docx` and
+`pptx` APIs.
+
+```go
+wb, _ := xlsx.Open("book.xlsx")
+sheet, _ := wb.Sheet(0)
+
+// Read hyperlinks, images, protection, and the write-only feature surface.
+for _, h := range sheet.Hyperlinks() {
+    fmt.Printf("%s -> url=%q anchor=%q\n", h.Ref(), h.URL(), h.Anchor())
+}
+for _, img := range sheet.Images() {
+    fmt.Printf("image %s at %s alt=%q\n", img.ContentType(), img.AnchorCell(), img.AltText())
+}
+if p := sheet.Protection(); p != nil {
+    fmt.Printf("protected (password=%v, sort locked=%v)\n", p.HasPassword(), p.Sort())
+}
+fmt.Println("merged:", sheet.MergedCells())
+cols, rows, frozen := sheet.FrozenPanes()
+fmt.Printf("frozen=%v cols=%d rows=%d\n", frozen, cols, rows)
+for _, cf := range sheet.ConditionalFormats() {
+    fmt.Printf("cf %s: %d rules\n", cf.SqRef, len(cf.Rules))
+}
+
+// Write an external hyperlink, an internal jump, and turn on sheet protection.
+cell, _ := sheet.Cell("A1")
+cell.SetHyperlink("https://example.com/").SetTooltip("Visit us")
+nav, _ := sheet.Cell("A2")
+nav.SetInternalHyperlink("Sheet2!A1")
+sheet.Protect(xlsx.SheetProtectionOptions{Password: "secret", AllowSort: true})
+
+_ = wb.Save("book.xlsx")
+```
+
+Sheet protection is a UI guard, not encryption: `Protect` uses Excel's documented
+legacy 16-bit password hash, which is trivially removed. Every write persists on
+both the `Create` and `Open` save paths, and a zero-modification open→save of a
+feature-bearing workbook stays byte-identical.
 
 ### Working with Documents in Memory
 

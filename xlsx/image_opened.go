@@ -44,7 +44,8 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 	for i, sheet := range w.sheets {
 		hasImages := len(sheet.images) > 0
 		hasComments := sheet.comments != nil && sheet.comments.mutated
-		if !hasImages && !hasComments {
+		hasHyperlinks := len(sheet.pendingHyperlinkRels) > 0
+		if !hasImages && !hasComments && !hasHyperlinks {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -61,6 +62,10 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		}
 
 		sheetRels := cloneRelationships(w.relationships[sheet.partName])
+		// Merge external-hyperlink relationships added via SetHyperlink. Their
+		// ids are already baked into the worksheet's <hyperlink r:id>; merge them
+		// before computing relUsed so drawing/comment ids do not collide.
+		sheetRels = append(sheetRels, sheet.pendingHyperlinkRels...)
 		relUsed := relIDSet(sheetRels)
 
 		if hasImages {
