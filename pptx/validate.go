@@ -17,6 +17,7 @@ const (
 	codeShapeIDDup      = "shape-id-dup"      // duplicate cNvPr id within one slide
 	codeCommentNoAuthor = "comment-no-author" // comment authorId with no matching author
 	codeHyperlinkNoRel  = "hyperlink-no-rel"  // hlinkClick r:id with no matching slide rel
+	codeChartNoRel      = "chart-no-rel"      // chart graphicFrame r:id with no target part
 )
 
 // Validate walks the in-memory presentation model and reports structural
@@ -33,6 +34,7 @@ func (p *Presentation) Validate() validate.Report {
 	p.validateIDListReferences(c)
 	p.validateCommentAuthors(c)
 	p.validateHyperlinks(c)
+	p.validateCharts(c)
 	if p.reader != nil {
 		// Package-level checks compare against the parts the source package
 		// carries. For a freshly created deck the writer synthesizes content
@@ -244,6 +246,29 @@ func (p *Presentation) validateHyperlinks(c *validate.Collector) {
 			if h.relID != "" && !ids[h.relID] {
 				c.Warnf(codeHyperlinkNoRel, s.partName,
 					fmt.Sprintf("hyperlink references relationship %q with no matching relationship", h.relID))
+			}
+		}
+	}
+}
+
+// validateCharts warns when a slide graphic frame declares a chart
+// (a:graphicData uri=.../chart) whose c:chart r:id has no backing slide
+// relationship, or whose relationship targets a part the package does not
+// carry. Such a frame renders empty in PowerPoint. The check is cheap: it walks
+// the parsed shape tree already in memory.
+func (p *Presentation) validateCharts(c *validate.Collector) {
+	for _, s := range p.slides {
+		if s == nil || s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+			continue
+		}
+		for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+			relID := chartRelIDOf(gf)
+			if relID == "" {
+				continue
+			}
+			if !p.chartRelHasTarget(s, relID) {
+				c.Warnf(codeChartNoRel, s.partName,
+					fmt.Sprintf("chart graphic frame references relationship %q with no target part", relID))
 			}
 		}
 	}
