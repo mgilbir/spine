@@ -15,6 +15,7 @@ import (
 const (
 	codeNumberingMissing = "numbering-missing" // numPr references a numId absent from numbering.xml
 	codeStyleMissing     = "style-missing"     // pStyle/rStyle references an undefined style
+	codeCommentMissing   = "comment-missing"   // comment marker references an absent comment
 )
 
 // Validate walks the in-memory document model and reports structural problems
@@ -29,6 +30,7 @@ func (d *Document) Validate() validate.Report {
 	d.validateHeaderFooterRefs(c)
 	d.validateEmbedRefs(c)
 	d.validateStyleRefs(c)
+	d.validateCommentRefs(c)
 	if d.reader != nil {
 		d.validatePackage(c)
 	}
@@ -281,6 +283,41 @@ func (d *Document) allParagraphs() []*oxml.CT_P {
 		}
 	}
 	return out
+}
+
+// validateCommentRefs reports document comment markers (commentRangeStart and
+// the run-level commentReference) whose w:id has no matching w:comment in
+// comments.xml — the dangling-comment class. Findings are warning severity:
+// Word tolerates an orphaned marker (it renders no comment), so it must not
+// block a save.
+func (d *Document) validateCommentRefs(c *validate.Collector) {
+	ids := make(map[string]bool)
+	if d.comments != nil {
+		for _, cm := range d.comments.Comment {
+			if cm != nil {
+				ids[cm.Id] = true
+			}
+		}
+	}
+	for _, para := range d.allParagraphs() {
+		if para == nil {
+			continue
+		}
+		for _, rs := range para.CommentRangeStart {
+			if rs != nil && rs.Id != "" && !ids[rs.Id] {
+				c.Warnf(codeCommentMissing, d.mainPart(),
+					fmt.Sprintf("commentRangeStart references comment id %q with no matching comment in comments.xml", rs.Id))
+			}
+		}
+		for _, r := range collectParagraphRuns(para) {
+			for _, ref := range r.CommentReference {
+				if ref != nil && ref.Id != "" && !ids[ref.Id] {
+					c.Warnf(codeCommentMissing, d.mainPart(),
+						fmt.Sprintf("commentReference references comment id %q with no matching comment in comments.xml", ref.Id))
+				}
+			}
+		}
+	}
 }
 
 // validatePackage runs the shared OPC-level checks against the source package.
