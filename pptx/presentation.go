@@ -483,6 +483,11 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 
 	for _, slide := range p.slides {
 		p.resolveSlideLayout(slide)
+		// Re-resolve hyperlinks now that every slide is loaded: a slide-jump
+		// target resolves to a slide number only once the whole slide list
+		// exists (the per-slide materialization above ran before later slides
+		// were appended). Idempotent for external/action links.
+		slide.resolveHyperlinks()
 	}
 
 	return nil
@@ -1774,6 +1779,26 @@ func (p *Presentation) Slide(index int) (*Slide, error) {
 		return nil, ErrSlideIndex
 	}
 	return p.slides[index], nil
+}
+
+// slideIndexByPart returns the 0-based index of the slide stored at partName, or
+// -1 when no loaded slide matches.
+func (p *Presentation) slideIndexByPart(partName string) int {
+	for i, s := range p.slides {
+		if s != nil && s.partName == partName {
+			return i
+		}
+	}
+	return -1
+}
+
+// slidePartByIndex returns the part name of the slide at the 0-based index, or ""
+// when the index is out of range.
+func (p *Presentation) slidePartByIndex(index int) string {
+	if index < 0 || index >= len(p.slides) || p.slides[index] == nil {
+		return ""
+	}
+	return p.slides[index].partName
 }
 
 // AddSlide adds a new blank slide to the presentation.

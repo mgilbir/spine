@@ -93,6 +93,36 @@ type BaseShape struct {
 	// exact node to update — in particular inside group shapes, where slice
 	// indices shift as siblings come and go.
 	sourceID uint32
+
+	// hyperlink is the shape-level hyperlink (a:hlinkClick on p:cNvPr), or nil.
+	hyperlink *Hyperlink
+}
+
+// Hyperlink returns the shape-level hyperlink, or nil when the shape carries
+// none.
+func (s *BaseShape) Hyperlink() *Hyperlink {
+	return s.hyperlink
+}
+
+// setHyperlinkURL attaches an external-URL hyperlink to the shape.
+func (s *BaseShape) setHyperlinkURL(url string) *Hyperlink {
+	s.hyperlink = newExternalHyperlink(url, func() { s.dirty = true })
+	s.dirty = true
+	return s.hyperlink
+}
+
+// setActionHyperlink attaches a ppaction:// action hyperlink to the shape.
+func (s *BaseShape) setActionHyperlink(action string) *Hyperlink {
+	s.hyperlink = newActionHyperlink(action, func() { s.dirty = true })
+	s.dirty = true
+	return s.hyperlink
+}
+
+// setSlideLink attaches an internal slide-jump hyperlink to the shape.
+func (s *BaseShape) setSlideLink(index int) *Hyperlink {
+	s.hyperlink = newSlideJumpHyperlink(index, func() { s.dirty = true })
+	s.dirty = true
+	return s.hyperlink
 }
 
 // baseShapeOf returns the embedded BaseShape of any concrete shape type.
@@ -343,6 +373,18 @@ func (a *AutoShape) SetShadow(shadow dml.Shadow) {
 	a.dirty = true
 }
 
+// SetHyperlink attaches an external-URL hyperlink to the auto shape (clicking the
+// shape opens the URL). The External relationship is allocated on save.
+func (a *AutoShape) SetHyperlink(url string) *Hyperlink { return a.setHyperlinkURL(url) }
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the auto shape.
+func (a *AutoShape) SetActionHyperlink(action string) *Hyperlink { return a.setActionHyperlink(action) }
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index; the RelTypeSlide relationship is allocated on save.
+func (a *AutoShape) SetHyperlinkToSlide(index int) *Hyperlink { return a.setSlideLink(index) }
+
 // --- Fill, Line, Shadow for TextBox ---
 
 // SetFill sets the fill of the text box.
@@ -362,6 +404,18 @@ func (t *TextBox) SetShadow(shadow dml.Shadow) {
 	shadow.ApplyToSpPr(&t.spPr)
 	t.dirty = true
 }
+
+// SetHyperlink attaches an external-URL hyperlink to the text box. The External
+// relationship is allocated on save.
+func (t *TextBox) SetHyperlink(url string) *Hyperlink { return t.setHyperlinkURL(url) }
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the text box.
+func (t *TextBox) SetActionHyperlink(action string) *Hyperlink { return t.setActionHyperlink(action) }
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index; the RelTypeSlide relationship is allocated on save.
+func (t *TextBox) SetHyperlinkToSlide(index int) *Hyperlink { return t.setSlideLink(index) }
 
 // Common preset geometry names
 const (

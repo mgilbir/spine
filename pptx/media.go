@@ -43,6 +43,9 @@ type Picture struct {
 	cropTop        float64
 	cropBottom     float64
 	slide          *Slide // back-reference to owning slide (set during materialization)
+	// isMedia marks a p:pic that backs an embedded video/audio (its blip is a
+	// poster, not a standalone image). Such pics are excluded from Slide.Pictures.
+	isMedia bool
 	// The picture's stable node identity (used e.g. by replacePictureImage to
 	// locate the exact node when two pictures share an image reference) lives
 	// in BaseShape.sourceID.
@@ -121,10 +124,55 @@ func (p *Picture) hasPendingImage() bool {
 	return p.slide != nil && (len(p.imageData) > 0 || len(p.svgData) > 0)
 }
 
-// ContentType returns the MIME type of the image.
+// ContentType returns the MIME type of the image. For a picture read from an
+// opened deck it is resolved from the embedded media part.
 func (p *Picture) ContentType() string {
-	return p.contentType
+	if p.contentType != "" {
+		return p.contentType
+	}
+	if p.slide != nil && p.relID != "" {
+		if name := p.slide.relTargetPart(p.relID); name != "" {
+			if part := p.slide.presentation.otherParts[name]; part != nil {
+				return part.ContentType
+			}
+		}
+	}
+	return ""
 }
+
+// Data returns the raw image bytes: the pending bytes for a picture added via
+// the API, or the embedded media part for a picture read from an opened deck.
+// Returns nil when the bytes cannot be resolved.
+func (p *Picture) Data() []byte {
+	if len(p.imageData) > 0 {
+		return p.imageData
+	}
+	if p.slide != nil && p.relID != "" {
+		if name := p.slide.relTargetPart(p.relID); name != "" {
+			return p.slide.presentation.rawPartData(name)
+		}
+	}
+	return nil
+}
+
+// AltText returns the picture's alternative text (the descr on p:cNvPr). It is
+// the cross-format name shared with the docx and xlsx picture readers; see also
+// Description.
+func (p *Picture) AltText() string {
+	return p.description
+}
+
+// SetHyperlink attaches an external-URL hyperlink to the picture. The External
+// relationship is allocated on save.
+func (p *Picture) SetHyperlink(url string) *Hyperlink { return p.setHyperlinkURL(url) }
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the picture.
+func (p *Picture) SetActionHyperlink(action string) *Hyperlink { return p.setActionHyperlink(action) }
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index; the RelTypeSlide relationship is allocated on save.
+func (p *Picture) SetHyperlinkToSlide(index int) *Hyperlink { return p.setSlideLink(index) }
 
 // Description returns the image description (alt text).
 func (p *Picture) Description() string {
@@ -314,3 +362,26 @@ func NewAudio(data []byte, contentType string) *Audio {
 
 // ShapeType returns ShapeTypeAudio.
 func (a *Audio) ShapeType() ShapeType { return ShapeTypeAudio }
+
+// Pictures returns every picture on the slide, descending into groups, in
+// document order. Pictures that back embedded video/audio (their blip is a
+// poster) are excluded. A slide with no pictures returns nil.
+func (s *Slide) Pictures() []*Picture {
+	var out []*Picture
+	forEachShape(s.shapes, func(shape Shape) {
+		if pic, ok := shape.(*Picture); ok && !pic.isMedia {
+			out = append(out, pic)
+		}
+	})
+	return out
+}
+
+// Pictures returns every picture across all slides, slide by slide in slide
+// order (see Slide.Pictures).
+func (p *Presentation) Pictures() []*Picture {
+	var out []*Picture
+	for _, s := range p.slides {
+		out = append(out, s.Pictures()...)
+	}
+	return out
+}

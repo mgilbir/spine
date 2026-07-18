@@ -325,6 +325,7 @@ type Run struct {
 	color     *dml.Color
 	highlight *dml.Color
 	baseline  int32 // percentage, positive for superscript, negative for subscript
+	hyperlink *Hyperlink
 	dirty     bool
 }
 
@@ -463,4 +464,34 @@ func (r *Run) SetSuperscript() {
 func (r *Run) SetSubscript() {
 	r.baseline = -30000 // -30%
 	r.dirty = true
+}
+
+// Hyperlink returns the run's hyperlink (an a:hlinkClick on the run properties),
+// or nil when the run carries none.
+func (r *Run) Hyperlink() *Hyperlink {
+	return r.hyperlink
+}
+
+// SetHyperlink attaches an external-URL hyperlink to the run and returns it. The
+// External relationship is allocated in the slide's rels on save.
+func (r *Run) SetHyperlink(url string) *Hyperlink {
+	r.hyperlink = newExternalHyperlink(url, func() { r.dirty = true })
+	r.dirty = true
+	return r.hyperlink
+}
+
+// SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
+// to the run and returns it. Action verbs need no relationship.
+func (r *Run) SetActionHyperlink(action string) *Hyperlink {
+	r.hyperlink = newActionHyperlink(action, func() { r.dirty = true })
+	r.dirty = true
+	return r.hyperlink
+}
+
+// SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
+// index and returns it. The RelTypeSlide relationship is allocated on save.
+func (r *Run) SetHyperlinkToSlide(index int) *Hyperlink {
+	r.hyperlink = newSlideJumpHyperlink(index, func() { r.dirty = true })
+	r.dirty = true
+	return r.hyperlink
 }
