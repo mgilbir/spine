@@ -3,6 +3,7 @@ package xlsx
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
 )
@@ -18,6 +19,8 @@ const (
 	codeStylesEmpty         = "styles-empty"          // xl/styles.xml is present but 0-byte/whitespace-only
 	codeCommentPersonOrphan = "comment-person-orphan" // threaded comment personId with no matching person
 	codeCommentRefInvalid   = "comment-ref-invalid"   // comment anchored to an unparseable cell ref
+	codeHyperlinkRelMissing = "hyperlink-rel-missing" // <hyperlink r:id=N> with no matching sheet relationship
+	codeDataValidationRange = "data-validation-range" // dataValidation sqref with a malformed range
 )
 
 // Validate walks the in-memory workbook model and reports structural problems
@@ -35,6 +38,8 @@ func (w *Workbook) Validate() validate.Report {
 	w.validateMergedRanges(c)
 	w.validateStyles(c)
 	w.validateComments(c)
+	w.validateHyperlinks(c)
+	w.validateDataValidations(c)
 	if w.reader != nil {
 		w.validatePackage(c)
 	}
@@ -79,6 +84,56 @@ func (w *Workbook) validateComments(c *validate.Collector) {
 			if w.persons == nil || w.persons.FindByID(tc.PersonID) == nil {
 				c.Warnf(codeCommentPersonOrphan, sc.threadedPart,
 					fmt.Sprintf("threaded comment %s references personId %s with no matching person", tc.ID, tc.PersonID))
+			}
+		}
+	}
+}
+
+// validateHyperlinks reports worksheet hyperlinks that carry an r:id with no
+// matching relationship in the sheet's .rels (nor in the pending set the save
+// would add). Such a link resolves to nothing in Excel. Warning severity — the
+// file still opens and saves.
+func (w *Workbook) validateHyperlinks(c *validate.Collector) {
+	for _, sheet := range w.sheets {
+		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.Hyperlinks == nil {
+			continue
+		}
+		known := relIDSet(w.relationships[sheet.partName])
+		for _, rel := range sheet.pendingHyperlinkRels {
+			if rel != nil {
+				known[rel.ID] = struct{}{}
+			}
+		}
+		for _, hl := range sheet.worksheet.Hyperlinks.Hyperlink {
+			if hl.RID == "" {
+				continue
+			}
+			if _, ok := known[hl.RID]; !ok {
+				c.Warnf(codeHyperlinkRelMissing, sheet.partName,
+					fmt.Sprintf("hyperlink on %s references relationship %q with no matching relationship", hl.Ref, hl.RID))
+			}
+		}
+	}
+}
+
+// validateDataValidations reports data-validation rules whose sqref contains a
+// malformed range reference (Excel would drop the rule). Warning severity.
+func (w *Workbook) validateDataValidations(c *validate.Collector) {
+	for _, sheet := range w.sheets {
+		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.DataValidations == nil {
+			continue
+		}
+		for _, dv := range sheet.worksheet.DataValidations.DataValidation {
+			if strings.TrimSpace(dv.Sqref) == "" {
+				c.Warnf(codeDataValidationRange, sheet.partName,
+					"data validation has an empty sqref")
+				continue
+			}
+			for _, ref := range strings.Fields(dv.Sqref) {
+				if _, err := parseCellRangeRef(ref); err != nil {
+					c.Warnf(codeDataValidationRange, sheet.partName,
+						fmt.Sprintf("data validation sqref %q contains malformed range %q", dv.Sqref, ref))
+				}
 			}
 		}
 	}
