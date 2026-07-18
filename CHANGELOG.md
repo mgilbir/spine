@@ -182,6 +182,25 @@ remediation series (#59–#75).
   byte-identical; setting a hyperlink on a run in an opened slide patches that
   slide's node in place without regenerating the others. `Validate()` warns when
   a hyperlink references a slide relationship id with no matching relationship.
+- docx: read/write APIs for hyperlinks, images, bookmarks, and footnotes.
+  `Document.Hyperlinks()`, `Paragraph.Hyperlinks()`, and `Run.Hyperlink()` read
+  links through a `*Hyperlink` type (`URL`, `Anchor`, `Tooltip`) shared with the
+  xlsx/pptx APIs; `Paragraph.AddHyperlink`/`AddInternalHyperlink` and
+  `Hyperlink.SetTooltip` write external (an `External` relationship) and internal
+  (`w:anchor`) links. `Document.Images()` returns every inline and floating image
+  with read accessors (`AltText`, `Width`/`Height`, `ContentType`, `Data`,
+  `PartName`, `Floating`). `Document.Bookmarks()` reads bookmarks (`Name`,
+  `Text`); `Paragraph.AddBookmark` and `Document.AddBookmarkOnRange` write them,
+  and internal hyperlinks can target them by name. `Document.Footnotes()` /
+  `Document.Endnotes()` read notes through a `*Footnote` type (`ID`, `Text`,
+  `Paragraphs`); `Run.AddFootnote` / `Run.AddEndnote` insert the reference in the
+  run stream and append the note to `word/footnotes.xml` / `word/endnotes.xml`,
+  creating the part — with the mandatory separator notes, the relationship, and
+  the content-type override — on first use across both save lifecycles. `Validate`
+  warns on an internal hyperlink anchoring to an absent bookmark and on a
+  footnote/endnote reference with no matching note. A zero-modification open→save
+  of a document using any of these features stays byte-identical; parts are
+  regenerated only when the feature is modified.
 - pptx: a slide comments API symmetric with the docx/xlsx comment APIs.
   `Slide.Comments()` and `Presentation.Comments()` read both PowerPoint comment
   mechanisms — legacy per-slide comments and modern (2018) threaded comments —
