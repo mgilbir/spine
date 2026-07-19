@@ -137,3 +137,136 @@ func FuzzXlsxWorksheetXML(f *testing.F) {
 		fuzzExerciseXlsx(wrapped)
 	})
 }
+
+// fuzzReparseXlsx saves a workbook and re-opens the bytes, walking the tables
+// and conditional formats of every sheet so the write-then-read path is
+// exercised. Any panic is a bug; errors are expected and fine.
+func fuzzReparseXlsx(w *Workbook) {
+	out, err := w.SaveBytes()
+	if err != nil {
+		return
+	}
+	w2, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		return
+	}
+	defer func() { _ = w2.Close() }()
+	for _, s := range w2.Sheets() {
+		for _, tbl := range s.Tables() {
+			_ = tbl.Name()
+			_ = tbl.Range()
+			_ = tbl.Columns()
+			_, _ = tbl.Style()
+		}
+		_ = s.ConditionalFormats()
+	}
+}
+
+// FuzzXlsxAddTable fuzzes Sheet.AddTable: the range string, the column-name
+// override (comma-separated), the totals-row flag, the style name and banding,
+// and the table name. It creates a fresh workbook with a small grid, adds the
+// table, then saves and re-opens. No panic; a self-consistent read-back.
+func FuzzXlsxAddTable(f *testing.F) {
+	f.Add("A1:C3", "Name,Age,City", false, "TableStyleMedium2", true, "MyTable")
+	f.Add("A1:A2", "", true, "", false, "")
+	f.Add("", "", false, "", false, "")
+	f.Add("A1", "x", false, "", false, "")
+	f.Add("A1:B1", "a,b,c", false, "", false, "R1C1")
+	f.Add("A1:XFD1048576", "a,b", false, "", false, "T")
+	f.Add(":", ",,,", true, "s", true, "1A")
+	f.Add("C3:A1", "  ,  ", true, "TableStyleLight1", false, "Sales 2020")
+
+	f.Fuzz(func(t *testing.T, cellRange, cols string, totals bool, style string, stripes bool, name string) {
+		w := Create()
+		s := w.AddSheet("Sheet1")
+		// A small header + data grid so ranges resolve to real cells and the
+		// header write-back path runs against existing content.
+		for r := 1; r <= 4; r++ {
+			for c := 1; c <= 4; c++ {
+				_ = s.SetCellValue(FormatCellRef(r, c), "v")
+			}
+		}
+
+		var columns []string
+		if cols != "" {
+			columns = strings.Split(cols, ",")
+		}
+		opts := TableOptions{
+			Name:      name,
+			Columns:   columns,
+			TotalsRow: totals,
+			Style:     TableStyle{Name: style, ShowRowStripes: stripes, ShowColumnStripes: !stripes},
+		}
+		if totals {
+			opts.ColumnTotals = map[string]TotalsColumn{
+				"v": {Function: "sum", Label: "Total"},
+			}
+		}
+		tbl, err := s.AddTable(cellRange, opts)
+		if err != nil {
+			return
+		}
+		_ = tbl.Range()
+		_ = tbl.Columns()
+		fuzzReparseXlsx(w)
+	})
+}
+
+// FuzzXlsxAddConditionalFormat fuzzes Sheet.AddConditionalFormat: the range (or
+// space-separated range list), a rule-kind selector, comparison operator,
+// formula operands, colors, search text, rank and time period. It builds one
+// rule of the selected kind from the fuzzed parameters, adds it, then saves and
+// re-opens.
+func FuzzXlsxAddConditionalFormat(f *testing.F) {
+	f.Add("B2:B10", uint8(0), "greaterThan", "100", "", "F8696B", "63BE7B", "done", uint32(10), "today")
+	f.Add("A1:A10 C1:C10", uint8(6), "min", "", "50", "FFAABBCC", "", "x", uint32(0), "num")
+	f.Add("", uint8(3), "containsText", "", "", "", "", "", uint32(0), "")
+	f.Add(":", uint8(5), "percentile", "!!", "??", "zzzzzz", "#GGG", "", uint32(1), "max")
+	f.Add("A1", uint8(1), "between", "1", "9", "", "", "", uint32(3), "yesterday")
+	f.Add("A1:A5", uint8(7), "percent", "0", "100", "", "", "3TrafficLights1", uint32(0), "num")
+	f.Add("A1:A5", uint8(8), "", "", "", "", "", "", uint32(0), "thisMonth")
+
+	f.Fuzz(func(t *testing.T, cellRange string, sel uint8, op, f1, f2, color1, color2, text string, rank uint32, period string) {
+		w := Create()
+		s := w.AddSheet("Sheet1")
+		style := DifferentialStyle{Fill: &FillStyle{FgColor: color1}}
+
+		var rule ConditionalRule
+		switch sel % 10 {
+		case 0:
+			rule = NewCellIsRule(op, style, f1)
+		case 1:
+			rule = NewCellIsRule(op, style, f1, f2)
+		case 2:
+			rule = NewExpressionRule(f1, style)
+		case 3:
+			rule = NewTextRule(op, text, style)
+		case 4:
+			rule = NewTop10Rule(rank, sel&1 == 0, sel&2 == 0, style)
+		case 5:
+			rule = NewColorScaleRule(
+				ColorScalePoint{Type: op, Value: f1, Color: color1},
+				ColorScalePoint{Type: period, Value: f2, Color: color2},
+			)
+		case 6:
+			rule = NewDataBarRule(color1,
+				ConditionalValueObject{Type: op, Value: f1},
+				ConditionalValueObject{Type: period, Value: f2})
+		case 7:
+			rule = NewIconSetRule(text,
+				ConditionalValueObject{Type: op, Value: f1},
+				ConditionalValueObject{Type: period, Value: f2})
+		case 8:
+			rule = NewTimePeriodRule(period, style)
+		case 9:
+			rule = NewAboveAverageRule(sel&1 == 0, style)
+		}
+		if sel&4 == 0 {
+			rule = rule.StopIfTrue()
+		}
+		if err := s.AddConditionalFormat(cellRange, rule); err != nil {
+			return
+		}
+		fuzzReparseXlsx(w)
+	})
+}

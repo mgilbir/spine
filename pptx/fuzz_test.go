@@ -124,3 +124,110 @@ func FuzzPptxSlideXML(f *testing.F) {
 		fuzzExercisePptx(wrapped)
 	})
 }
+
+// fuzzReparsePptx saves a presentation and re-opens the bytes, walking the
+// slides, their animations and the deck's sections. Any panic is a bug; errors
+// are expected and fine.
+func fuzzReparsePptx(p *Presentation) {
+	out, err := p.SaveBytes()
+	if err != nil {
+		return
+	}
+	p2, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		return
+	}
+	defer func() { _ = p2.Close() }()
+	for _, s := range p2.Slides() {
+		for _, a := range s.Animations() {
+			_ = a.ShapeID()
+			_ = a.Effect()
+			_ = a.Trigger()
+			_ = a.ByParagraph()
+		}
+	}
+	for _, sec := range p2.Sections() {
+		_ = sec.Name()
+		_ = sec.ID()
+		_ = sec.Slides()
+	}
+}
+
+// FuzzPptxAddAnimation fuzzes Slide.AddAnimation: the target shape id (including
+// ids that address no shape on the slide), the effect and trigger enum values
+// (including out-of-range ones), and the build-by-paragraph flag. It creates a
+// slide with a multi-paragraph text box, adds the animation, then saves and
+// re-opens.
+func FuzzPptxAddAnimation(f *testing.F) {
+	f.Add(uint32(2), int8(1), int8(0), false, "one\ntwo\nthree")
+	f.Add(uint32(0), int8(0), int8(0), true, "")
+	f.Add(uint32(999999), int8(-5), int8(99), true, "solo")
+	f.Add(uint32(2), int8(6), int8(2), true, "a\nb")
+	f.Add(uint32(2), int8(11), int8(1), false, "x")
+
+	f.Fuzz(func(t *testing.T, shapeID uint32, effect, trigger int8, byPara bool, text string) {
+		p := Create()
+		slide := p.AddSlide()
+		tb := slide.AddTextBox()
+		tb.TextFrame().SetText(text)
+
+		// Prefer a real shape id half the time so the timing tree actually
+		// targets something; otherwise use the fuzzed (possibly absent) id.
+		id := shapeID
+		if shapeID&1 == 0 {
+			for _, sh := range slide.Shapes() {
+				if ided, ok := sh.(interface{ ID() uint32 }); ok {
+					id = ided.ID()
+					break
+				}
+			}
+		}
+
+		a := slide.AddAnimation(id, AnimationEffect(effect), AnimationTrigger(trigger))
+		a.SetByParagraph(byPara)
+		// A second animation exercises the append-into-existing-sequence path.
+		slide.AddAnimation(shapeID, AnimationEffect(effect+1), AnimationTrigger(trigger+1))
+		fuzzReparsePptx(p)
+	})
+}
+
+// FuzzPptxAddSection fuzzes Presentation.AddSection and section membership: the
+// section name, how many slides the deck holds, and a per-slide assignment
+// selector. It creates the slides and sections, assigns membership, then saves
+// and re-opens.
+func FuzzPptxAddSection(f *testing.F) {
+	f.Add("Intro", uint8(3), "Body", []byte{0, 1, 2})
+	f.Add("", uint8(0), "", []byte{})
+	f.Add("Only", uint8(1), "Only", []byte{9})
+	f.Add("A", uint8(5), "B", []byte{0, 0, 0, 1, 1})
+
+	f.Fuzz(func(t *testing.T, name1 string, nSlides uint8, name2 string, assign []byte) {
+		p := Create()
+		// Cap the slide count so a single fuzz iteration stays cheap.
+		n := int(nSlides % 8)
+		slides := make([]*Slide, 0, n)
+		for i := 0; i < n; i++ {
+			slides = append(slides, p.AddSlide())
+		}
+
+		sec1 := p.AddSection(name1)
+		sec2 := p.AddSection(name2)
+		secs := []*Section{sec1, sec2}
+
+		for i, sl := range slides {
+			if i >= len(assign) {
+				break
+			}
+			switch assign[i] % 3 {
+			case 0:
+				sec1.AddSlide(sl)
+			case 1:
+				secs[assign[i]%uint8(len(secs))].AddSlide(sl)
+			case 2:
+				p.MoveSlideToSection(sl, nil)
+			}
+		}
+		sec1.SetName(name2)
+		fuzzReparsePptx(p)
+	})
+}
