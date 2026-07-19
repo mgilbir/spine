@@ -1,6 +1,7 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -158,13 +159,20 @@ func (s *CT_Settings) Child(local string) *CT_RawNamedElement {
 func (s *CT_Settings) SetChild(local string, attrs []xml.Attr) {
 	el := &CT_RawNamedElement{Local: local, Space: NsWml}
 	el.Attrs = attrs
+	s.setChildElement(el)
+}
+
+// setChildElement replaces the first settings child sharing el's local name in
+// place, or inserts el at its schema-valid position among the preserved
+// children (the same insertion rule as EnsureEvenAndOddHeaders).
+func (s *CT_Settings) setChildElement(el *CT_RawNamedElement) {
 	for i, c := range s.Children {
-		if c.Local == local {
+		if c.Local == el.Local {
 			s.Children[i] = el
 			return
 		}
 	}
-	target, known := settingsElementOrder[local]
+	target, known := settingsElementOrder[el.Local]
 	insertAt := len(s.Children)
 	if known {
 		for i, c := range s.Children {
@@ -177,6 +185,70 @@ func (s *CT_Settings) SetChild(local string, attrs []xml.Attr) {
 	s.Children = append(s.Children, nil)
 	copy(s.Children[insertAt+1:], s.Children[insertAt:])
 	s.Children[insertAt] = el
+}
+
+// DocVars parses the document variables (w:docVars/w:docVar) from the preserved
+// settings children, in document order. It returns nil when no w:docVars child
+// is present. The children are stored verbatim; parsing here matches on local
+// names so an unbound prefix in the raw fragment is tolerated.
+func (s *CT_Settings) DocVars() []CT_DocVar {
+	c := s.Child("docVars")
+	if c == nil {
+		return nil
+	}
+	return parseDocVars(c.RawContent)
+}
+
+// parseDocVars extracts the w:docVar name/value pairs from a raw w:docVars inner
+// fragment.
+func parseDocVars(raw []byte) []CT_DocVar {
+	if len(raw) == 0 {
+		return nil
+	}
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	var vars []CT_DocVar
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok || se.Name.Local != "docVar" {
+			continue
+		}
+		var dv CT_DocVar
+		for _, a := range se.Attr {
+			switch a.Name.Local {
+			case "name":
+				dv.Name = a.Value
+			case "val":
+				dv.Val = a.Value
+			}
+		}
+		vars = append(vars, dv)
+	}
+	return vars
+}
+
+// SetDocVars replaces the document variables (w:docVars). An empty slice removes
+// the w:docVars child. The element is regenerated from the given pairs, so after
+// an edit it is schema-valid rather than byte-identical to a parsed original.
+func (s *CT_Settings) SetDocVars(vars []CT_DocVar) {
+	if len(vars) == 0 {
+		s.RemoveChild("docVars")
+		return
+	}
+	var buf bytes.Buffer
+	for _, v := range vars {
+		buf.WriteString(`<w:docVar w:name="`)
+		buf.WriteString(xmlb.EscapeAttrValue(v.Name))
+		buf.WriteString(`" w:val="`)
+		buf.WriteString(xmlb.EscapeAttrValue(v.Val))
+		buf.WriteString(`"/>`)
+	}
+	el := &CT_RawNamedElement{Local: "docVars", Space: NsWml}
+	el.RawContent = buf.Bytes()
+	s.setChildElement(el)
 }
 
 // RemoveChild deletes every settings child with the given local name and

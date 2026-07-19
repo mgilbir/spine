@@ -162,6 +162,29 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: section, table, paragraph, and run **depth** — modeled structures that
+  previously round-tripped but had no public accessor are now read + write.
+  Sections gain page borders (`Section.PageBorders`/`SetPageBorders`), line
+  numbering (`LineNumbering`/`SetLineNumbering`), vertical alignment
+  (`VerticalAlignment`/`SetVerticalAlignment`), paper source
+  (`PaperSource`/`SetPaperSource`), document grid
+  (`DocumentGrid`/`SetDocumentGrid`), and per-section footnote/endnote numbering
+  (`FootnoteProperties`/`EndnoteProperties` and their setters: position, number
+  format, start, restart). Document settings gain `DefaultTabStop`,
+  `EvenAndOddHeaders`, `Zoom`, and document variables (`DocumentVariables`,
+  `DocumentVariable`, `SetDocumentVariable`, `RemoveDocumentVariable`), each with
+  getters and setters. Tables gain **vertical cell merge**
+  (`TableCell.SetVerticalMerge` restart/continue, the counterpart to the existing
+  horizontal `SetGridSpan`), plus table look (`SetTableLook`/`TableLook`), layout
+  (`SetLayout`/`Layout` fixed/autofit), indent (`SetIndent`/`Indent`), and
+  alignment (`SetAlignment`/`Alignment`), and read accessors for the existing
+  border/width/shading setters (`Table.Borders`/`Width`/`Shading`,
+  `TableCell.Borders`/`Width`/`Shading`/`VerticalAlignment`/`GridSpan`).
+  Paragraphs gain borders and shading (`SetBorders`/`Borders`,
+  `SetShading`/`Shading`). Runs gain a character style
+  (`Run.SetStyle`/`Style`) and symbol glyphs (`Run.AddSymbol`). All additions are
+  additive: a file that does not use a feature is not perturbed, and edits
+  round-trip through save/reopen.
 - xlsx: tables (ListObjects) **read + write**. `Sheet.Tables()` and
   `Workbook.Tables()` surface each table's name, range, columns (id, name,
   totals-row function/label, calculated-column formula), header/totals rows and

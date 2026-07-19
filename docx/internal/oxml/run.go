@@ -621,6 +621,14 @@ func (r *CT_R) AppendTab() {
 	r.Tab = append(r.Tab, &CT_Empty{})
 }
 
+// AppendSym appends a symbol glyph (w:sym) to the run, maintaining child order
+// (see AppendDrawing).
+func (r *CT_R) AppendSym(sym *CT_Sym) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildSym, len(r.Sym)})
+	r.Sym = append(r.Sym, sym)
+}
+
 // AppendFldChar appends a field character (w:fldChar begin/separate/end) to
 // the run, maintaining child order (see AppendDrawing).
 func (r *CT_R) AppendFldChar(fc *CT_FldChar) {

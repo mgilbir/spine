@@ -423,6 +423,38 @@ func (r *Run) SetKerning(points float64) {
 	r.r.RPr.Kern = &oxml.CT_HpsMeasure{Val: fmt.Sprintf("%g", points*2)}
 }
 
+// Style returns the run's character style id (w:rStyle), or "" when the run
+// applies no character style.
+func (r *Run) Style() string {
+	if r.r.RPr == nil || r.r.RPr.RStyle == nil {
+		return ""
+	}
+	return r.r.RPr.RStyle.Val
+}
+
+// SetStyle applies the character style with the given id to the run (w:rStyle),
+// complementing the paragraph and style-definition APIs. Passing "" removes the
+// character style so the run inherits from its paragraph style.
+func (r *Run) SetStyle(id string) {
+	if id == "" {
+		if r.r.RPr != nil {
+			r.r.RPr.RStyle = nil
+		}
+		return
+	}
+	r.ensureRPr()
+	r.r.RPr.RStyle = &oxml.CT_String{Val: id}
+}
+
+// AddSymbol appends a symbol glyph (w:sym) to the run: a single character drawn
+// from a specific symbol font, addressed by the font name and the character's
+// code point as a hex string (e.g. font "Wingdings", char "F0E0"). The 0xF000
+// offset Word uses for symbol fonts is part of the stored value and is not added
+// here.
+func (r *Run) AddSymbol(font, char string) {
+	r.r.AppendSym(&oxml.CT_Sym{Font: font, Char: char})
+}
+
 // Clear removes all content from the run.
 func (r *Run) Clear() {
 	r.r.ClearContent()
