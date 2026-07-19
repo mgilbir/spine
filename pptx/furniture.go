@@ -97,6 +97,56 @@ func (p *Presentation) ClearSlideDate() {
 	p.removeFurniture(PlaceholderDateTime)
 }
 
+// SlideFooter returns the footer text shown on slides and whether any slide
+// carries a footer placeholder. The deck-wide setters keep every slide's footer
+// in sync, so the first slide with one is representative. It complements
+// SetSlideFooter / ClearSlideFooter.
+func (p *Presentation) SlideFooter() (string, bool) {
+	for _, s := range p.Slides() {
+		if ph := s.GetPlaceholder(PlaceholderFooter); ph != nil {
+			return ph.Text(), true
+		}
+	}
+	return "", false
+}
+
+// SlideNumbersVisible reports whether slides carry an automatic slide-number
+// placeholder, complementing ShowSlideNumbers.
+func (p *Presentation) SlideNumbersVisible() bool {
+	for _, s := range p.Slides() {
+		if s.GetPlaceholder(PlaceholderSlideNumber) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// SlideDate returns the fixed date/time text shown on slides and whether any
+// slide carries a date placeholder. For an auto-updating date field (set via
+// SetSlideDateAuto) the text is empty; use SlideDateIsAuto to distinguish it.
+// It complements SetSlideDate / SetSlideDateAuto / ClearSlideDate.
+func (p *Presentation) SlideDate() (string, bool) {
+	for _, s := range p.Slides() {
+		if ph := s.GetPlaceholder(PlaceholderDateTime); ph != nil {
+			return ph.Text(), true
+		}
+	}
+	return "", false
+}
+
+// SlideDateIsAuto reports whether the slide date placeholder is an
+// auto-updating field (SetSlideDateAuto) rather than fixed text. This reflects
+// the in-memory model set during the current session; the auto/fixed field
+// state is not repopulated when a deck is reopened from disk.
+func (p *Presentation) SlideDateIsAuto() bool {
+	for _, s := range p.Slides() {
+		if ph := s.GetPlaceholder(PlaceholderDateTime); ph != nil {
+			return ph.fieldType == "datetime"
+		}
+	}
+	return false
+}
+
 // markDirty flags a furniture placeholder so an in-place field/text change on
 // a placeholder parsed from a template is flushed on the next sync (setting a
 // field type directly bypasses the text-frame dirty flag).

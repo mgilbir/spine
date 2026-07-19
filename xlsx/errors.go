@@ -32,4 +32,9 @@ var (
 	// ErrNoSheets indicates an attempt to save a workbook with no sheets,
 	// which Excel does not accept (a workbook requires at least one sheet).
 	ErrNoSheets = errors.New("xlsx: workbook has no sheets")
+
+	// ErrNoWorkbook indicates a sheet is not attached to a workbook, so an
+	// operation that stores state at the workbook level (such as a print area or
+	// print titles, which live in workbook-scoped defined names) cannot proceed.
+	ErrNoWorkbook = errors.New("xlsx: sheet is not attached to a workbook")
 )
