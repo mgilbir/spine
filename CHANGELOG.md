@@ -162,6 +162,23 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: style and auto-filter depth, **read + write**. Named/built-in cell
+  styles — `StyleManager.AddNamedStyle` / `NamedStyles` / `ApplyNamedStyle` /
+  `NamedStyleXfId` and `Cell.SetNamedStyle`, with `BuiltinStyle*` id constants
+  (Good, Bad, Heading 1, …) — wire `cellStyleXfs`/`cellStyles`. `FillStyle`
+  gains a `Gradient` option (`GradientFill`/`GradientStop`, linear and path);
+  `BorderStyle` gains `Diagonal`, `DiagonalUp` and `DiagonalDown`;
+  `AlignmentStyle` gains `ShrinkToFit`, `JustifyLastLine`, `ReadingOrder` and
+  `RelativeIndent`. Auto-filter predicates — `Sheet.SetFilterColumn` /
+  `FilterColumns` / `ClearFilterColumns` read and write per-column value-list
+  filters (`FilterColumn.Values`/`Blank`) and custom comparison filters
+  (`CustomFilter` with the `Filter*` operator constants). Sort state —
+  `Sheet.SetSortState` / `SortState` / `RemoveSortState` read and write
+  `sortState` conditions on a range or auto-filter. Defined names —
+  `Workbook.RemoveDefinedName` / `RemoveDefinedNameScoped` and
+  `AddDefinedNameFull`, and `DefinedName` now surfaces `Hidden`, `Comment` and
+  `Description`. All accessors round-trip through save/reopen; files that use
+  these features and are not modified still round-trip byte-for-byte.
 - xlsx: tables (ListObjects) **read + write**. `Sheet.Tables()` and
   `Workbook.Tables()` surface each table's name, range, columns (id, name,
   totals-row function/label, calculated-column formula), header/totals rows and

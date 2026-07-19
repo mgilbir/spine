@@ -136,74 +136,9 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	sm.markModified()
 	ss := sm.stylesheet
 
-	// Resolve font
-	fontID := uint32(0) // default font
-	if style.Font != nil {
-		font := fontStyleToOxml(style.Font)
-		fontID = sm.findOrAddFont(font)
-	}
-
-	// Resolve fill
-	fillID := uint32(0) // "none" fill
-	if style.Fill != nil {
-		fill := fillStyleToOxml(style.Fill)
-		fillID = sm.findOrAddFill(fill)
-	}
-
-	// Resolve border
-	borderID := uint32(0) // empty border
-	if style.Border != nil {
-		border := borderStyleToOxml(style.Border)
-		borderID = sm.findOrAddBorder(border)
-	}
-
-	// Resolve number format: a format code string wins over a raw id.
-	numFmtID := uint32(0)
-	switch {
-	case style.Format != "":
-		numFmtID = sm.resolveNumberFormat(style.Format)
-	case style.NumberFormatID != 0:
-		numFmtID = uint32(style.NumberFormatID)
-	}
-
-	// Build the Xf record
+	// Build the Xf record, linking it to the default (Normal) named style.
 	xfID := uint32(0)
-	xf := oxml.CT_Xf{
-		NumFmtId: &numFmtID,
-		FontId:   &fontID,
-		FillId:   &fillID,
-		BorderId: &borderID,
-		XfId:     &xfID,
-	}
-
-	if style.Font != nil {
-		t := true
-		xf.ApplyFont = &t
-	}
-	if style.Fill != nil {
-		t := true
-		xf.ApplyFill = &t
-	}
-	if style.Border != nil {
-		t := true
-		xf.ApplyBorder = &t
-	}
-	if style.Format != "" || style.NumberFormatID != 0 {
-		t := true
-		xf.ApplyNumberFormat = &t
-	}
-	if style.Alignment != nil {
-		t := true
-		xf.ApplyAlignment = &t
-		xf.Alignment = alignmentStyleToOxml(style.Alignment)
-	}
-	if style.Protection != nil {
-		t := true
-		locked := style.Protection.Locked
-		hidden := style.Protection.Hidden
-		xf.ApplyProtection = &t
-		xf.Protection = &oxml.CT_CellProtection{Locked: &locked, Hidden: &hidden}
-	}
+	xf := sm.resolveXf(&style, &xfID)
 
 	// De-duplicate: check if an identical xf already exists
 	if ss.CellXfs != nil {
@@ -224,6 +159,279 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	ss.CellXfs.Count = &count
 
 	return idx, nil
+}
+
+// resolveXf builds a CT_Xf for the given style, resolving (and adding when
+// necessary) the font, fill, border and number-format records it references.
+// xfID, when non-nil, is stored as the record's xfId — the link to a named
+// style in cellStyleXfs (0 for the default Normal style). The corresponding
+// applyX flag is set for every component the style specifies.
+func (sm *StyleManager) resolveXf(style *CellStyle, xfID *uint32) oxml.CT_Xf {
+	fontID := uint32(0) // default font
+	if style.Font != nil {
+		fontID = sm.findOrAddFont(fontStyleToOxml(style.Font))
+	}
+
+	fillID := uint32(0) // "none" fill
+	if style.Fill != nil {
+		fillID = sm.findOrAddFill(fillStyleToOxml(style.Fill))
+	}
+
+	borderID := uint32(0) // empty border
+	if style.Border != nil {
+		borderID = sm.findOrAddBorder(borderStyleToOxml(style.Border))
+	}
+
+	// Number format: a format code string wins over a raw id.
+	numFmtID := uint32(0)
+	switch {
+	case style.Format != "":
+		numFmtID = sm.resolveNumberFormat(style.Format)
+	case style.NumberFormatID != 0:
+		numFmtID = uint32(style.NumberFormatID)
+	}
+
+	xf := oxml.CT_Xf{
+		NumFmtId: &numFmtID,
+		FontId:   &fontID,
+		FillId:   &fillID,
+		BorderId: &borderID,
+		XfId:     xfID,
+	}
+
+	t := true
+	if style.Font != nil {
+		xf.ApplyFont = &t
+	}
+	if style.Fill != nil {
+		xf.ApplyFill = &t
+	}
+	if style.Border != nil {
+		xf.ApplyBorder = &t
+	}
+	if style.Format != "" || style.NumberFormatID != 0 {
+		xf.ApplyNumberFormat = &t
+	}
+	if style.Alignment != nil {
+		xf.ApplyAlignment = &t
+		xf.Alignment = alignmentStyleToOxml(style.Alignment)
+	}
+	if style.Protection != nil {
+		locked := style.Protection.Locked
+		hidden := style.Protection.Hidden
+		xf.ApplyProtection = &t
+		xf.Protection = &oxml.CT_CellProtection{Locked: &locked, Hidden: &hidden}
+	}
+	return xf
+}
+
+// Built-in cell style IDs (CT_CellStyle builtinId, ST_BuiltinStyle). These name
+// the styles Excel ships in the Cell Styles gallery ("Good", "Bad", "Heading 1"
+// …); pass one as NamedStyle.BuiltinId when defining a style that mirrors a
+// built-in.
+const (
+	BuiltinStyleNormal            uint32 = 0
+	BuiltinStyleRowLevel          uint32 = 1
+	BuiltinStyleColLevel          uint32 = 2
+	BuiltinStyleComma             uint32 = 3
+	BuiltinStyleCurrency          uint32 = 4
+	BuiltinStylePercent           uint32 = 5
+	BuiltinStyleCommaZero         uint32 = 6
+	BuiltinStyleCurrencyZero      uint32 = 7
+	BuiltinStyleHyperlink         uint32 = 8
+	BuiltinStyleFollowedHyperlink uint32 = 9
+	BuiltinStyleNote              uint32 = 10
+	BuiltinStyleWarningText       uint32 = 11
+	BuiltinStyleTitle             uint32 = 15
+	BuiltinStyleHeading1          uint32 = 16
+	BuiltinStyleHeading2          uint32 = 17
+	BuiltinStyleHeading3          uint32 = 18
+	BuiltinStyleHeading4          uint32 = 19
+	BuiltinStyleInput             uint32 = 20
+	BuiltinStyleOutput            uint32 = 21
+	BuiltinStyleCalculation       uint32 = 22
+	BuiltinStyleCheckCell         uint32 = 23
+	BuiltinStyleLinkedCell        uint32 = 24
+	BuiltinStyleTotal             uint32 = 25
+	BuiltinStyleGood              uint32 = 26
+	BuiltinStyleBad               uint32 = 27
+	BuiltinStyleNeutral           uint32 = 28
+	BuiltinStyleAccent1           uint32 = 29
+	BuiltinStyleExplanatoryText   uint32 = 53
+)
+
+// NamedStyle is a named (or built-in) cell style: a reusable format that shows
+// up in Excel's Cell Styles gallery and can be applied to cells by name.
+type NamedStyle struct {
+	// Name is the style's display name (e.g. "Good", "Heading 1", "My Style").
+	Name string
+	// Style is the formatting the named style applies.
+	Style CellStyle
+	// BuiltinId, when non-nil, links the style to one of Excel's built-in
+	// styles (see the BuiltinStyle* constants).
+	BuiltinId *uint32
+	// Hidden hides the style from the gallery.
+	Hidden bool
+	// CustomBuiltin marks a built-in style that the user has customized.
+	CustomBuiltin bool
+}
+
+// AddNamedStyle defines a named cell style and returns its xfId (its index into
+// cellStyleXfs), the value ApplyNamedStyle and Cell.SetNamedStyle use to apply
+// it. If a style with the same name already exists it is left untouched and its
+// existing xfId is returned.
+func (sm *StyleManager) AddNamedStyle(ns NamedStyle) (uint32, error) {
+	if ns.Name == "" {
+		return 0, fmt.Errorf("xlsx: named style must have a name")
+	}
+	if err := validateCellStyle(&ns.Style); err != nil {
+		return 0, err
+	}
+	if xfID, ok := sm.NamedStyleXfId(ns.Name); ok {
+		return xfID, nil
+	}
+	sm.markModified()
+	ss := sm.stylesheet
+
+	// The named style's master format lives in cellStyleXfs; unlike a cellXfs
+	// record it does not carry an xfId back-reference.
+	xf := sm.resolveXf(&ns.Style, nil)
+	if ss.CellStyleXfs == nil {
+		ss.CellStyleXfs = &oxml.CT_CellStyleXfs{}
+	}
+	ss.CellStyleXfs.Xf = append(ss.CellStyleXfs.Xf, xf)
+	xfID := uint32(len(ss.CellStyleXfs.Xf) - 1)
+	csxfCount := uint32(len(ss.CellStyleXfs.Xf))
+	ss.CellStyleXfs.Count = &csxfCount
+
+	cs := oxml.CT_CellStyle{Name: ns.Name, XfId: xfID}
+	if ns.BuiltinId != nil {
+		b := *ns.BuiltinId
+		cs.BuiltinId = &b
+	}
+	if ns.Hidden {
+		h := true
+		cs.Hidden = &h
+	}
+	if ns.CustomBuiltin {
+		c := true
+		cs.CustomBuiltin = &c
+	}
+	if ss.CellStyles == nil {
+		ss.CellStyles = &oxml.CT_CellStyles{}
+	}
+	ss.CellStyles.CellStyle = append(ss.CellStyles.CellStyle, cs)
+	csCount := uint32(len(ss.CellStyles.CellStyle))
+	ss.CellStyles.Count = &csCount
+
+	return xfID, nil
+}
+
+// NamedStyleXfId returns the xfId of the named style with the given name.
+func (sm *StyleManager) NamedStyleXfId(name string) (uint32, bool) {
+	ss := sm.stylesheet
+	if ss.CellStyles == nil {
+		return 0, false
+	}
+	for _, cs := range ss.CellStyles.CellStyle {
+		if cs.Name == name {
+			return cs.XfId, true
+		}
+	}
+	return 0, false
+}
+
+// NamedStyles returns every named cell style defined in the workbook.
+func (sm *StyleManager) NamedStyles() []NamedStyle {
+	ss := sm.stylesheet
+	if ss.CellStyles == nil {
+		return nil
+	}
+	result := make([]NamedStyle, 0, len(ss.CellStyles.CellStyle))
+	for _, cs := range ss.CellStyles.CellStyle {
+		ns := NamedStyle{
+			Name:          cs.Name,
+			Hidden:        cs.Hidden != nil && *cs.Hidden,
+			CustomBuiltin: cs.CustomBuiltin != nil && *cs.CustomBuiltin,
+		}
+		if cs.BuiltinId != nil {
+			b := *cs.BuiltinId
+			ns.BuiltinId = &b
+		}
+		if ss.CellStyleXfs != nil && int(cs.XfId) < len(ss.CellStyleXfs.Xf) {
+			ns.Style = sm.cellStyleFromXf(&ss.CellStyleXfs.Xf[cs.XfId])
+		}
+		result = append(result, ns)
+	}
+	return result
+}
+
+// ApplyNamedStyle creates (or reuses) a cellXfs record linked to the named
+// style and returns its index, ready to pass to Cell.SetStyleIndex. It fails if
+// no style with that name exists.
+func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
+	xfID, ok := sm.NamedStyleXfId(name)
+	if !ok {
+		return 0, fmt.Errorf("xlsx: named style %q not found", name)
+	}
+	sm.markModified()
+	ss := sm.stylesheet
+
+	master := &ss.CellStyleXfs.Xf[xfID]
+	linkID := xfID
+	xf := oxml.CT_Xf{
+		NumFmtId: cloneUint32(master.NumFmtId),
+		FontId:   cloneUint32(master.FontId),
+		FillId:   cloneUint32(master.FillId),
+		BorderId: cloneUint32(master.BorderId),
+		XfId:     &linkID,
+	}
+
+	if ss.CellXfs != nil {
+		for i, existing := range ss.CellXfs.Xf {
+			if xfEqual(&existing, &xf) {
+				return uint32(i), nil
+			}
+		}
+	}
+	if ss.CellXfs == nil {
+		ss.CellXfs = &oxml.CT_CellXfs{}
+	}
+	ss.CellXfs.Xf = append(ss.CellXfs.Xf, xf)
+	idx := uint32(len(ss.CellXfs.Xf) - 1)
+	count := uint32(len(ss.CellXfs.Xf))
+	ss.CellXfs.Count = &count
+	return idx, nil
+}
+
+// cellStyleFromXf reconstructs the public the public CellStyle carried by an xf record
+// (shared by GetCellStyle and NamedStyles).
+func (sm *StyleManager) cellStyleFromXf(xf *oxml.CT_Xf) CellStyle {
+	ss := sm.stylesheet
+	var style CellStyle
+	if xf.FontId != nil && ss.Fonts != nil && int(*xf.FontId) < len(ss.Fonts.Font) {
+		style.Font = oxmlToFontStyle(&ss.Fonts.Font[*xf.FontId])
+	}
+	if xf.FillId != nil && ss.Fills != nil && int(*xf.FillId) < len(ss.Fills.Fill) {
+		style.Fill = oxmlToFillStyle(&ss.Fills.Fill[*xf.FillId])
+	}
+	if xf.BorderId != nil && ss.Borders != nil && int(*xf.BorderId) < len(ss.Borders.Border) {
+		style.Border = oxmlToBorderStyle(&ss.Borders.Border[*xf.BorderId])
+	}
+	if xf.NumFmtId != nil && *xf.NumFmtId != 0 {
+		style.NumberFormatID = int(*xf.NumFmtId)
+		style.Format = sm.resolveNumFmtCode(*xf.NumFmtId)
+	}
+	if xf.Alignment != nil {
+		style.Alignment = oxmlToAlignmentStyle(xf.Alignment)
+	}
+	if xf.Protection != nil {
+		style.Protection = &ProtectionStyle{
+			Locked: xf.Protection.Locked == nil || *xf.Protection.Locked,
+			Hidden: xf.Protection.Hidden != nil && *xf.Protection.Hidden,
+		}
+	}
+	return style
 }
 
 // validateCellStyle rejects style values that would be silently corrupted on
@@ -253,45 +461,7 @@ func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 		return CellStyle{}, fmt.Errorf("xlsx: style index %d out of range", index)
 	}
 
-	xf := &ss.CellXfs.Xf[index]
-	var style CellStyle
-
-	// Font
-	if xf.FontId != nil && ss.Fonts != nil && int(*xf.FontId) < len(ss.Fonts.Font) {
-		style.Font = oxmlToFontStyle(&ss.Fonts.Font[*xf.FontId])
-	}
-
-	// Fill
-	if xf.FillId != nil && ss.Fills != nil && int(*xf.FillId) < len(ss.Fills.Fill) {
-		style.Fill = oxmlToFillStyle(&ss.Fills.Fill[*xf.FillId])
-	}
-
-	// Border
-	if xf.BorderId != nil && ss.Borders != nil && int(*xf.BorderId) < len(ss.Borders.Border) {
-		style.Border = oxmlToBorderStyle(&ss.Borders.Border[*xf.BorderId])
-	}
-
-	// Number format
-	if xf.NumFmtId != nil && *xf.NumFmtId != 0 {
-		style.NumberFormatID = int(*xf.NumFmtId)
-		style.Format = sm.resolveNumFmtCode(*xf.NumFmtId)
-	}
-
-	// Alignment
-	if xf.Alignment != nil {
-		style.Alignment = oxmlToAlignmentStyle(xf.Alignment)
-	}
-
-	// Protection: absent locked/hidden attributes carry their OOXML defaults
-	// (locked true, hidden false).
-	if xf.Protection != nil {
-		style.Protection = &ProtectionStyle{
-			Locked: xf.Protection.Locked == nil || *xf.Protection.Locked,
-			Hidden: xf.Protection.Hidden != nil && *xf.Protection.Hidden,
-		}
-	}
-
-	return style, nil
+	return sm.cellStyleFromXf(&ss.CellXfs.Xf[index]), nil
 }
 
 // AddNumberFormat registers a custom number format string and returns its ID.
@@ -480,6 +650,9 @@ func applyOxmlUnderline(fs *FontStyle, u *oxml.CT_UnderlineProperty) {
 }
 
 func fillStyleToOxml(fs *FillStyle) oxml.CT_Fill {
+	if fs.Gradient != nil {
+		return oxml.CT_Fill{GradientFill: gradientFillToOxml(fs.Gradient)}
+	}
 	pf := &oxml.CT_PatternFill{}
 	if fs.Pattern != "" {
 		pf.PatternType = fs.Pattern
@@ -495,6 +668,43 @@ func fillStyleToOxml(fs *FillStyle) oxml.CT_Fill {
 	return oxml.CT_Fill{PatternFill: pf}
 }
 
+// gradientFillToOxml converts a public GradientFill to its oxml form. The
+// position attributes (type/degree/left/right/top/bottom) are only emitted
+// when non-zero so a plain linear gradient stays minimal.
+func gradientFillToOxml(g *GradientFill) *oxml.CT_GradientFill {
+	gf := &oxml.CT_GradientFill{}
+	if g.Type != "" {
+		gf.Type = g.Type
+	}
+	if g.Degree != 0 {
+		v := g.Degree
+		gf.Degree = &v
+	}
+	if g.Left != 0 {
+		v := g.Left
+		gf.Left = &v
+	}
+	if g.Right != 0 {
+		v := g.Right
+		gf.Right = &v
+	}
+	if g.Top != 0 {
+		v := g.Top
+		gf.Top = &v
+	}
+	if g.Bottom != 0 {
+		v := g.Bottom
+		gf.Bottom = &v
+	}
+	for _, s := range g.Stops {
+		gf.Stop = append(gf.Stop, oxml.CT_GradientStop{
+			Position: s.Position,
+			Color:    oxml.CT_Color{Rgb: normalizeHexColor(s.Color)},
+		})
+	}
+	return gf
+}
+
 func borderStyleToOxml(bs *BorderStyle) oxml.CT_Border {
 	b := oxml.CT_Border{}
 	if bs.Left != nil {
@@ -508,6 +718,17 @@ func borderStyleToOxml(bs *BorderStyle) oxml.CT_Border {
 	}
 	if bs.Bottom != nil {
 		b.Bottom = borderSideToOxml(bs.Bottom)
+	}
+	if bs.Diagonal != nil {
+		b.Diagonal = borderSideToOxml(bs.Diagonal)
+	}
+	if bs.DiagonalUp {
+		up := true
+		b.DiagonalUp = &up
+	}
+	if bs.DiagonalDown {
+		down := true
+		b.DiagonalDown = &down
 	}
 	return b
 }
@@ -542,6 +763,22 @@ func alignmentStyleToOxml(as *AlignmentStyle) *oxml.CT_CellAlignment {
 	if as.Rotation != 0 {
 		rotation := uint32(as.Rotation)
 		a.TextRotation = &rotation
+	}
+	if as.ShrinkToFit {
+		t := true
+		a.ShrinkToFit = &t
+	}
+	if as.JustifyLastLine {
+		t := true
+		a.JustifyLastLine = &t
+	}
+	if as.ReadingOrder != 0 {
+		ro := as.ReadingOrder
+		a.ReadingOrder = &ro
+	}
+	if as.RelativeIndent != 0 {
+		ri := int32(as.RelativeIndent)
+		a.RelativeIndent = &ri
 	}
 	return a
 }
@@ -581,6 +818,9 @@ func oxmlToFontStyle(f *oxml.CT_Font) *FontStyle {
 }
 
 func oxmlToFillStyle(f *oxml.CT_Fill) *FillStyle {
+	if f.GradientFill != nil {
+		return &FillStyle{Gradient: oxmlToGradientFill(f.GradientFill)}
+	}
 	if f.PatternFill == nil {
 		return nil
 	}
@@ -598,6 +838,33 @@ func oxmlToFillStyle(f *oxml.CT_Fill) *FillStyle {
 	return fs
 }
 
+// oxmlToGradientFill converts an oxml gradient fill to its public form.
+func oxmlToGradientFill(gf *oxml.CT_GradientFill) *GradientFill {
+	g := &GradientFill{Type: gf.Type}
+	if gf.Degree != nil {
+		g.Degree = *gf.Degree
+	}
+	if gf.Left != nil {
+		g.Left = *gf.Left
+	}
+	if gf.Right != nil {
+		g.Right = *gf.Right
+	}
+	if gf.Top != nil {
+		g.Top = *gf.Top
+	}
+	if gf.Bottom != nil {
+		g.Bottom = *gf.Bottom
+	}
+	for _, s := range gf.Stop {
+		g.Stops = append(g.Stops, GradientStop{
+			Position: s.Position,
+			Color:    stripAlphaFromRGB(s.Color.Rgb),
+		})
+	}
+	return g
+}
+
 func oxmlToBorderStyle(b *oxml.CT_Border) *BorderStyle {
 	bs := &BorderStyle{}
 	if b.Left != nil && b.Left.Style != "" {
@@ -612,8 +879,18 @@ func oxmlToBorderStyle(b *oxml.CT_Border) *BorderStyle {
 	if b.Bottom != nil && b.Bottom.Style != "" {
 		bs.Bottom = oxmlToBorderSide(b.Bottom)
 	}
+	if b.Diagonal != nil && b.Diagonal.Style != "" {
+		bs.Diagonal = oxmlToBorderSide(b.Diagonal)
+	}
+	if b.DiagonalUp != nil && *b.DiagonalUp {
+		bs.DiagonalUp = true
+	}
+	if b.DiagonalDown != nil && *b.DiagonalDown {
+		bs.DiagonalDown = true
+	}
 	// Return nil if no sides are set
-	if bs.Left == nil && bs.Right == nil && bs.Top == nil && bs.Bottom == nil {
+	if bs.Left == nil && bs.Right == nil && bs.Top == nil && bs.Bottom == nil &&
+		bs.Diagonal == nil && !bs.DiagonalUp && !bs.DiagonalDown {
 		return nil
 	}
 	return bs
@@ -640,8 +917,22 @@ func oxmlToAlignmentStyle(a *oxml.CT_CellAlignment) *AlignmentStyle {
 	if a.TextRotation != nil {
 		as.Rotation = int(*a.TextRotation)
 	}
+	if a.ShrinkToFit != nil && *a.ShrinkToFit {
+		as.ShrinkToFit = true
+	}
+	if a.JustifyLastLine != nil && *a.JustifyLastLine {
+		as.JustifyLastLine = true
+	}
+	if a.ReadingOrder != nil {
+		as.ReadingOrder = *a.ReadingOrder
+	}
+	if a.RelativeIndent != nil {
+		as.RelativeIndent = int(*a.RelativeIndent)
+	}
 	// Return nil if empty
-	if as.Horizontal == "" && as.Vertical == "" && !as.WrapText && as.Indent == 0 && as.Rotation == 0 {
+	if as.Horizontal == "" && as.Vertical == "" && !as.WrapText && as.Indent == 0 &&
+		as.Rotation == 0 && !as.ShrinkToFit && !as.JustifyLastLine &&
+		as.ReadingOrder == 0 && as.RelativeIndent == 0 {
 		return nil
 	}
 	return as
@@ -718,14 +1009,52 @@ func fillEqual(a, b *oxml.CT_Fill) bool {
 			return false
 		}
 	}
+	return gradientFillEqual(a.GradientFill, b.GradientFill)
+}
+
+func gradientFillEqual(a, b *oxml.CT_GradientFill) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	if a.Type != b.Type ||
+		!ptrFloat64Equal(a.Degree, b.Degree) ||
+		!ptrFloat64Equal(a.Left, b.Left) ||
+		!ptrFloat64Equal(a.Right, b.Right) ||
+		!ptrFloat64Equal(a.Top, b.Top) ||
+		!ptrFloat64Equal(a.Bottom, b.Bottom) ||
+		len(a.Stop) != len(b.Stop) {
+		return false
+	}
+	for i := range a.Stop {
+		if a.Stop[i].Position != b.Stop[i].Position ||
+			!colorEqual(&a.Stop[i].Color, &b.Stop[i].Color) {
+			return false
+		}
+	}
 	return true
+}
+
+func ptrFloat64Equal(a, b *float64) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return *a == *b
 }
 
 func borderEqual(a, b *oxml.CT_Border) bool {
 	return borderPrEqual(a.Left, b.Left) &&
 		borderPrEqual(a.Right, b.Right) &&
 		borderPrEqual(a.Top, b.Top) &&
-		borderPrEqual(a.Bottom, b.Bottom)
+		borderPrEqual(a.Bottom, b.Bottom) &&
+		borderPrEqual(a.Diagonal, b.Diagonal) &&
+		ptrBoolEqual(a.DiagonalUp, b.DiagonalUp) &&
+		ptrBoolEqual(a.DiagonalDown, b.DiagonalDown)
 }
 
 func borderPrEqual(a, b *oxml.CT_BorderPr) bool {
@@ -764,7 +1093,21 @@ func cellAlignmentEqual(a, b *oxml.CT_CellAlignment) bool {
 		a.Vertical == b.Vertical &&
 		ptrBoolEqual(a.WrapText, b.WrapText) &&
 		ptrUint32Equal(a.Indent, b.Indent) &&
-		ptrUint32Equal(a.TextRotation, b.TextRotation)
+		ptrUint32Equal(a.TextRotation, b.TextRotation) &&
+		ptrBoolEqual(a.ShrinkToFit, b.ShrinkToFit) &&
+		ptrBoolEqual(a.JustifyLastLine, b.JustifyLastLine) &&
+		ptrUint32Equal(a.ReadingOrder, b.ReadingOrder) &&
+		ptrInt32Equal(a.RelativeIndent, b.RelativeIndent)
+}
+
+func ptrInt32Equal(a, b *int32) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return *a == *b
 }
 
 func fontNameEqual(a, b *oxml.CT_FontName) bool {
@@ -828,6 +1171,21 @@ func ptrBoolEqual(a, b *bool) bool {
 		return true
 	}
 	return *a == *b
+}
+
+// SetNamedStyle applies a previously defined named style (see
+// StyleManager.AddNamedStyle) to the cell by name.
+func (c *Cell) SetNamedStyle(name string) error {
+	c.markSheetDirty()
+	if c.sheet == nil || c.sheet.workbook == nil {
+		return fmt.Errorf("xlsx: cell is not associated with a workbook")
+	}
+	idx, err := c.sheet.workbook.Styles().ApplyNamedStyle(name)
+	if err != nil {
+		return err
+	}
+	c.SetStyleIndex(idx)
+	return nil
 }
 
 // normalizeHexColor ensures the hex color string is in AARRGGBB format.

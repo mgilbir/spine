@@ -44,6 +44,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Read and write cell values (strings, numbers, booleans)
   - Formula support
   - Cell styling (fonts, fills, borders, number formats, alignment)
+  - Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
+  - Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
   - Freeze panes, auto-filter, and data validation, with read accessors for each
   - Merged cells and named ranges
   - Column widths and row heights

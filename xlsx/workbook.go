@@ -1382,6 +1382,12 @@ type DefinedName struct {
 	Name       string
 	Value      string
 	SheetIndex int // -1 for workbook scope
+	// Hidden hides the name from Excel's Name Manager.
+	Hidden bool
+	// Comment is the name's optional comment.
+	Comment string
+	// Description is the name's optional description.
+	Description string
 }
 
 // AddDefinedName adds a workbook-scoped defined name.
@@ -1426,9 +1432,12 @@ func (w *Workbook) DefinedNames() []DefinedName {
 	result := make([]DefinedName, len(w.workbook.DefinedNames.DefinedName))
 	for i, dn := range w.workbook.DefinedNames.DefinedName {
 		result[i] = DefinedName{
-			Name:       dn.Name,
-			Value:      dn.Value,
-			SheetIndex: -1,
+			Name:        dn.Name,
+			Value:       dn.Value,
+			SheetIndex:  -1,
+			Hidden:      dn.Hidden != nil && dn.Hidden.Val,
+			Comment:     dn.Comment,
+			Description: dn.Description,
 		}
 		if dn.LocalSheetId != nil {
 			result[i].SheetIndex = int(*dn.LocalSheetId)
