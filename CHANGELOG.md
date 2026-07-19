@@ -162,6 +162,18 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: slide animation authoring and reading. `Slide.AddAnimation(shapeID,
+  effect, trigger)` builds the `p:timing` main sequence for the common entrance
+  (appear, fade, fly-in, wipe, zoom), emphasis (pulse, spin, grow/shrink), and
+  exit (disappear, fade, fly-out) effects, with on-click / with-previous /
+  after-previous sequencing (`AnimationEffect`, `AnimationTrigger`). The first
+  animation builds a valid tmRoot→mainSeq tree; further animations append into
+  the existing main sequence. `Animation.SetByParagraph` animates a text
+  placeholder one paragraph at a time (adds a `p:bldP` build entry).
+  `Slide.Animations()` reads existing animations back (effect, trigger, target),
+  and `Shape.ID()` exposes the cNvPr id used to target a shape. A slide whose
+  `p:timing` is never touched round-trips byte-for-byte, and media auto-play
+  timing is unaffected.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,

@@ -155,6 +155,15 @@ func (s *BaseShape) Name() string {
 	return s.name
 }
 
+// ID returns the shape's cNvPr id — the slide-wide unique identifier used to
+// target the shape from a slide animation (see Slide.AddAnimation). For a shape
+// loaded from a file this is its stored id; for a shape created through this
+// package the id is assigned when the deck is saved (sequentially from 2 in the
+// order shapes were added), so ID reports 0 until then.
+func (s *BaseShape) ID() uint32 {
+	return s.sourceID
+}
+
 // SetName sets the name of the shape.
 func (s *BaseShape) SetName(name string) {
 	s.name = name

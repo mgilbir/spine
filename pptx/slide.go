@@ -56,6 +56,10 @@ type Slide struct {
 	// autoplayMedia re-collected from scratch, so any generated timing tree
 	// must be rebuilt (or dropped) from that complete set.
 	timingRegen bool
+	// pendingAnims holds animations added via AddAnimation that have not yet
+	// been serialized into the timing tree; applyAnimations flushes them at
+	// save. A slide with no pending animations never has its timing touched.
+	pendingAnims []*Animation
 }
 
 // Index returns the 0-based index of the slide in the presentation.
@@ -317,6 +321,10 @@ func (s *Slide) marshal() ([]byte, error) {
 	// Build the timing tree for any auto-play media added to the slide (needs the
 	// shape ids assigned during the sync above).
 	s.applyMediaTiming()
+
+	// Flush any authored animations into the timing tree (also after the sync,
+	// so build-by-paragraph can count the target's paragraphs).
+	s.applyAnimations()
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
 	return marshalSlide(s.slideXML)
@@ -1284,6 +1292,7 @@ func (s *Slide) Duplicate() *Slide {
 	// targets the same shape ids the copied shapes carry, so it is valid for
 	// the duplicate as-is.
 	s.applyMediaTiming()
+	s.applyAnimations()
 
 	// AddSlide assigned the duplicate its own part name.
 	newSlide := s.presentation.AddSlide()
