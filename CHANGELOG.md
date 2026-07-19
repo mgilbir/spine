@@ -229,6 +229,18 @@ remediation series (#59–#75).
   tracked moves (`w:moveFrom`/`w:moveTo`) are preserved but not enumerated. A
   revision-bearing file that is opened and saved without accept/reject still
   round-trips byte-for-byte.
+- docx: content controls (structured document tags, `w:sdt`). The previously
+  raw `w:sdtPr` is now typed — `w:alias`, `w:tag`, `w:id`, `w:lock`, and the
+  control-type child (`w:text`, `w:richText`, `w:dropDownList`, `w:comboBox`,
+  `w14:checkbox`, `w:date`, `w:picture`) — while any unmodeled child
+  (`w:rPr`, `w:dataBinding`, `w:placeholder`, ...) is captured and replayed
+  verbatim, so an unmodified content control still round-trips byte-for-byte.
+  `Document.ContentControls()` returns every block-level and inline control in
+  document order (descending into nested controls and tables); each
+  `ContentControl` exposes `Tag`/`SetTag`, `Alias`/`SetAlias`, `ID`, `Type`,
+  `Value`/`SetValue`, `Options` (drop-down/combo items), `DateFormat`,
+  `Checked`, and `IsInline`. `Document.AddContentControl` and
+  `Paragraph.AddContentControl` insert new rich-text controls.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,

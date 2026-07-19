@@ -26,6 +26,11 @@ var testDocxFiles = []struct {
 		path:        "testdata/svg_test.docx",
 		description: "DOCX with embedded SVG images",
 	},
+	{
+		name:        "chart",
+		path:        "testdata/chart.docx",
+		description: "DOCX with charts and inline content controls (w:sdt tags)",
+	},
 }
 
 // TestCreateAndReopen verifies that creating, saving, and reopening a document

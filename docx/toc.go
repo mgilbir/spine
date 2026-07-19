@@ -72,13 +72,16 @@ func (d *Document) AddTableOfContents(opts TOCOptions) error {
 	content := &oxml.CT_SdtContentBlock{}
 	content.AppendP(fieldPara)
 
+	// The docPartObj gallery marks this SDT as a Table of Contents building
+	// block, which is what makes Word show the TOC frame with its update
+	// control. It is not one of the modeled sdtPr properties, so it is carried
+	// verbatim as a raw child.
+	docPartObj := &oxml.CT_RawNamedElement{Local: "docPartObj", Space: oxml.NsWml}
+	docPartObj.RawContent = []byte(
+		`<w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/>`)
+
 	sdt := &oxml.CT_SdtBlock{
-		// The docPartObj gallery marks this SDT as a Table of Contents
-		// building block, which is what makes Word show the TOC frame with
-		// its update control.
-		SdtPr: &oxml.CT_SdtPr{RawContent: []byte(
-			`<w:docPartObj><w:docPartGallery w:val="Table of Contents"/><w:docPartUnique/></w:docPartObj>`,
-		)},
+		SdtPr:      &oxml.CT_SdtPr{Raw: []*oxml.CT_RawNamedElement{docPartObj}},
 		SdtContent: content,
 	}
 
