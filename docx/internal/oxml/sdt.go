@@ -6,12 +6,6 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-// CT_SdtPr represents structured document tag properties (w:sdtPr).
-// Uses innerxml fallback for incremental typing of the many possible properties.
-type CT_SdtPr struct {
-	RawContent []byte `xml:",innerxml"`
-}
-
 // CT_SdtBlock represents a block-level structured document tag (w:sdt in body).
 type CT_SdtBlock struct {
 	SdtPr      *CT_SdtPr           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sdtPr,omitempty"`
@@ -153,14 +147,10 @@ type CT_SdtRun struct {
 func (sr *CT_SdtRun) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
 	if sr.SdtPr != nil {
-		b.StartElement(ns, "sdtPr")
-		b.WriteRaw(sr.SdtPr.RawContent)
-		b.EndElement(ns, "sdtPr")
+		sr.SdtPr.MarshalToBuilder(b, ns, "sdtPr")
 	}
 	if sr.SdtEndPr != nil {
-		b.StartElement(ns, "sdtEndPr")
-		b.WriteRaw(sr.SdtEndPr.RawContent)
-		b.EndElement(ns, "sdtEndPr")
+		sr.SdtEndPr.MarshalToBuilder(b, ns, "sdtEndPr")
 	}
 	if sr.SdtContent != nil {
 		sr.SdtContent.MarshalToBuilder(b, ns, "sdtContent")
