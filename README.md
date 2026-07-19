@@ -16,6 +16,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Slide transitions (fade, push, wipe, and more)
+  - Slide animations: entrance (appear, fade, fly-in, wipe, zoom), emphasis (pulse, spin, grow/shrink), and exit (disappear, fade, fly-out) effects with on-click / with-previous / after-previous sequencing and optional build-by-paragraph, authored via `Slide.AddAnimation` and read back with `Slide.Animations()`
   - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
   - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
   - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops

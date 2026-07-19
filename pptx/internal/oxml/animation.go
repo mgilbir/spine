@@ -108,6 +108,36 @@ func (tnl *TimeNodeList) AppendAudio(a *Audio) {
 	tnl.Audio = append(tnl.Audio, a)
 }
 
+// AppendSet adds a set behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendSet(s *Set) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlSet, len(tnl.Set)})
+	tnl.Set = append(tnl.Set, s)
+}
+
+// AppendAnim adds a generic animate behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnim(a *Animate) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnim, len(tnl.Anim)})
+	tnl.Anim = append(tnl.Anim, a)
+}
+
+// AppendAnimEffect adds an animate-effect behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnimEffect(a *AnimateEffect) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimEffect, len(tnl.AnimEffect)})
+	tnl.AnimEffect = append(tnl.AnimEffect, a)
+}
+
+// AppendAnimRot adds an animate-rotation behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnimRot(a *AnimateRotation) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimRot, len(tnl.AnimRot)})
+	tnl.AnimRot = append(tnl.AnimRot, a)
+}
+
+// AppendAnimScale adds an animate-scale behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnimScale(a *AnimateScale) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimScale, len(tnl.AnimScale)})
+	tnl.AnimScale = append(tnl.AnimScale, a)
+}
+
 func (tnl *TimeNodeList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {
 		tok, err := d.Token()
