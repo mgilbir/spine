@@ -1,6 +1,9 @@
 package oxml
 
 import (
+	"strconv"
+	"strings"
+
 	coxml "github.com/mgilbir/spine/common/oxml"
 )
 
@@ -337,6 +340,150 @@ func (r *CT_R) convertDelTextToText() {
 	r.childOrder = newOrder
 }
 
+// convertTextToDelText relabels the run's w:t children as w:delText, so a run
+// authored into a deletion carries deletion text (the inverse of
+// convertDelTextToText). Both elements are CT_Text, so only the child-order kind
+// and the owning slice change; each text keeps its position among the run's
+// other children.
+func (r *CT_R) convertTextToDelText() {
+	if len(r.T) == 0 {
+		return
+	}
+	r.backfillChildOrder()
+	newDel := make([]*CT_Text, 0, len(r.DelText)+len(r.T))
+	newOrder := make([]runChildRef, 0, len(r.childOrder))
+	for _, ref := range r.childOrder {
+		switch ref.kind {
+		case runChildDelText:
+			newOrder = append(newOrder, runChildRef{runChildDelText, len(newDel)})
+			newDel = append(newDel, r.DelText[ref.index])
+		case runChildT:
+			newOrder = append(newOrder, runChildRef{runChildDelText, len(newDel)})
+			newDel = append(newDel, r.T[ref.index])
+		default:
+			newOrder = append(newOrder, ref)
+		}
+	}
+	r.DelText = newDel
+	r.T = nil
+	r.childOrder = newOrder
+}
+
+// --- Authoring entry points (called from the docx package) ---
+
+// WrapRunInsertion replaces run r (a direct child of c) with an insertion block
+// (w:ins, carrying id/author/date) that wraps r at the same position, so it
+// reads back as a tracked insertion. Returns false when r is not a direct child
+// of c.
+func WrapRunInsertion(c RevContainer, r *CT_R, id, author, date string) bool {
+	return wrapRunInBlock(c, r, id, author, date, pChildIns)
+}
+
+// WrapRunDeletion replaces run r (a direct child of c) with a deletion block
+// (w:del, carrying id/author/date) that wraps r at the same position, first
+// converting the run's w:t children to w:delText so the content reads back as a
+// tracked deletion. Returns false when r is not a direct child of c.
+func WrapRunDeletion(c RevContainer, r *CT_R, id, author, date string) bool {
+	r.convertTextToDelText()
+	return wrapRunInBlock(c, r, id, author, date, pChildDel)
+}
+
+// wrapRunInBlock finds run r among c's children and replaces it, in place, with
+// a new tracked-change block of the given kind wrapping r.
+func wrapRunInBlock(c RevContainer, r *CT_R, id, author, date string, kind pChildKind) bool {
+	items := itemsOf(c)
+	for i, it := range items {
+		if it.kind == pChildR && it.val == any(r) {
+			block := &CT_RunTrackChange{Id: id, Author: author, Date: date}
+			block.AppendR(r)
+			items[i] = pItem{kind, block}
+			setItemsOf(c, items)
+			return true
+		}
+	}
+	return false
+}
+
+// MaxRevisionID returns the highest numeric w:id among every tracked-change
+// element reachable from the body — insertions, deletions, run/paragraph
+// property changes (descending into tables, hyperlinks, fields, and SDTs), plus
+// table/row/cell structural revisions and the section-property change — or 0
+// when none is present or numeric. Authoring assigns the next id above this so a
+// newly created revision never collides with one already in the document.
+func MaxRevisionID(body *CT_Body) int {
+	if body == nil {
+		return 0
+	}
+	maxID := 0
+	consider := func(s string) {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > maxID {
+			maxID = n
+		}
+	}
+	for _, p := range body.AllParagraphs() {
+		for _, rr := range CollectParagraphRevisions(p) {
+			consider(rr.Id)
+		}
+	}
+	for _, tbl := range body.Tbl {
+		maxTableRevisionID(tbl, consider)
+	}
+	if body.SectPr != nil && body.SectPr.SectPrChange != nil {
+		consider(body.SectPr.SectPrChange.Id)
+	}
+	return maxID
+}
+
+// maxTableRevisionID feeds every structural revision id of a table (table/row/
+// cell property changes, row/cell insertions and deletions, and cell merges) to
+// consider, descending into nested tables.
+func maxTableRevisionID(tbl *CT_Tbl, consider func(string)) {
+	if tbl == nil {
+		return
+	}
+	if tbl.TblPr != nil && tbl.TblPr.TblPrChange != nil {
+		consider(tbl.TblPr.TblPrChange.Id)
+	}
+	for _, tr := range tbl.Tr {
+		if tr == nil {
+			continue
+		}
+		if tr.TrPr != nil {
+			if tr.TrPr.Ins != nil {
+				consider(tr.TrPr.Ins.Id)
+			}
+			if tr.TrPr.Del != nil {
+				consider(tr.TrPr.Del.Id)
+			}
+			if tr.TrPr.TrPrChange != nil {
+				consider(tr.TrPr.TrPrChange.Id)
+			}
+		}
+		for _, tc := range tr.Tc {
+			if tc == nil {
+				continue
+			}
+			if tc.TcPr != nil {
+				if tc.TcPr.CellIns != nil {
+					consider(tc.TcPr.CellIns.Id)
+				}
+				if tc.TcPr.CellDel != nil {
+					consider(tc.TcPr.CellDel.Id)
+				}
+				if tc.TcPr.CellMerge != nil {
+					consider(tc.TcPr.CellMerge.Id)
+				}
+				if tc.TcPr.TcPrChange != nil {
+					consider(tc.TcPr.TcPrChange.Id)
+				}
+			}
+			for _, nested := range tc.Tbl {
+				maxTableRevisionID(nested, consider)
+			}
+		}
+	}
+}
+
 // --- Exported transform entry points (called from the docx package) ---
 
 // AcceptInsertion unwraps an insertion (w:ins), keeping its content as normal
@@ -539,6 +686,7 @@ const (
 // for run-format changes, Para for paragraph-format changes.
 type RawRevision struct {
 	Kind      RevKind
+	Id        string
 	Author    string
 	Date      string
 	Text      string
@@ -557,8 +705,9 @@ func CollectParagraphRevisions(p *CT_P) []RawRevision {
 	var dst []RawRevision
 	if p.PPr != nil && p.PPr.PPrChange != nil {
 		dst = append(dst, RawRevision{
-			Kind: RevKindParagraphFormat, Author: p.PPr.PPrChange.Author,
-			Date: p.PPr.PPrChange.Date, Text: p.Text(), Para: p,
+			Kind: RevKindParagraphFormat, Id: p.PPr.PPrChange.Id,
+			Author: p.PPr.PPrChange.Author,
+			Date:   p.PPr.PPrChange.Date, Text: p.Text(), Para: p,
 		})
 	}
 	return collectContainerRevs(dst, p)
@@ -571,8 +720,9 @@ func collectContainerRevs(dst []RawRevision, c RevContainer) []RawRevision {
 			r := it.val.(*CT_R)
 			if r.RPr != nil && r.RPr.RPrChange != nil {
 				dst = append(dst, RawRevision{
-					Kind: RevKindRunFormat, Author: r.RPr.RPrChange.Author,
-					Date: r.RPr.RPrChange.Date, Text: RunText(r), Run: r,
+					Kind: RevKindRunFormat, Id: r.RPr.RPrChange.Id,
+					Author: r.RPr.RPrChange.Author,
+					Date:   r.RPr.RPrChange.Date, Text: RunText(r), Run: r,
 				})
 			}
 		case pChildHyperlink:
@@ -586,14 +736,14 @@ func collectContainerRevs(dst []RawRevision, c RevContainer) []RawRevision {
 		case pChildIns:
 			blk := it.val.(*CT_RunTrackChange)
 			dst = append(dst, RawRevision{
-				Kind: RevKindInsertion, Author: blk.Author, Date: blk.Date,
+				Kind: RevKindInsertion, Id: blk.Id, Author: blk.Author, Date: blk.Date,
 				Text: BlockText(blk), Container: c, Block: blk,
 			})
 			dst = collectContainerRevs(dst, blk)
 		case pChildDel:
 			blk := it.val.(*CT_RunTrackChange)
 			dst = append(dst, RawRevision{
-				Kind: RevKindDeletion, Author: blk.Author, Date: blk.Date,
+				Kind: RevKindDeletion, Id: blk.Id, Author: blk.Author, Date: blk.Date,
 				Text: BlockText(blk), Container: c, Block: blk,
 			})
 			dst = collectContainerRevs(dst, blk)

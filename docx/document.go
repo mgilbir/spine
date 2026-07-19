@@ -55,8 +55,13 @@ type Document struct {
 	imageParts       []*imagePart              // images to be written
 	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
 	nextRelIDVal     int                       // counter for relationship IDs
-	newHeaderParts   []*hdrFtrPart             // new headers to be written
-	newFooterParts   []*hdrFtrPart             // new footers to be written
+	// revisionIDVal is the highest tracked-change id (w:id) handed out so far;
+	// revisionIDInit records that the initial scan of existing ids has run. See
+	// nextRevisionID in revisions.go.
+	revisionIDVal  int
+	revisionIDInit bool
+	newHeaderParts []*hdrFtrPart // new headers to be written
+	newFooterParts []*hdrFtrPart // new footers to be written
 	// numberingModified / settingsModified / stylesModified record that the
 	// session changed the numbering, settings, or styles model, so the
 	// round-trip save regenerates that part (with its relationship and

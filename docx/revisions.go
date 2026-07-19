@@ -2,9 +2,100 @@ package docx
 
 import (
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
+
+// revisionDateFormat is the ISO-8601 form Word records in a revision's w:date
+// attribute (UTC, second precision, "Z" suffix), e.g. 2021-01-02T03:04:05Z.
+const revisionDateFormat = "2006-01-02T15:04:05Z"
+
+// formatRevisionDate renders t as a w:date attribute value in UTC.
+func formatRevisionDate(t time.Time) string {
+	return t.UTC().Format(revisionDateFormat)
+}
+
+// nextRevisionID returns the next unused revision id (w:id) for the document,
+// monotonically increasing across the document's lifetime. The first call scans
+// the body for the highest existing tracked-change id so authored revisions
+// never collide with ones already present.
+func (d *Document) nextRevisionID() int {
+	if !d.revisionIDInit {
+		if d.document != nil {
+			d.revisionIDVal = oxml.MaxRevisionID(d.document.Body)
+		}
+		d.revisionIDInit = true
+	}
+	d.revisionIDVal++
+	return d.revisionIDVal
+}
+
+// --- Authoring tracked changes ---
+
+// AddInsertedRun appends a tracked insertion to the paragraph: a run carrying
+// text wrapped in a w:ins element attributed to author, dated to the current
+// time (UTC). The returned Run wraps the inserted run, so the caller can format
+// it further (bold, color, ...). The insertion is enumerated by
+// Document.Revisions and transformed by Accept/Reject: accepting keeps the text
+// as a normal run, rejecting removes it. For deterministic output (tests), use
+// AddInsertedRunWithDate.
+func (p *Paragraph) AddInsertedRun(author, text string) *Run {
+	return p.AddInsertedRunWithDate(author, text, time.Now())
+}
+
+// AddInsertedRunWithDate is AddInsertedRun with an explicit revision timestamp,
+// recorded in the w:date attribute (converted to UTC). Passing a fixed date
+// makes the emitted markup deterministic.
+func (p *Paragraph) AddInsertedRunWithDate(author, text string, date time.Time) *Run {
+	r := &oxml.CT_R{T: []*oxml.CT_Text{{Space: "preserve", Text: text}}}
+	block := &oxml.CT_RunTrackChange{
+		Id:     strconv.Itoa(p.document.nextRevisionID()),
+		Author: author,
+		Date:   formatRevisionDate(date),
+	}
+	block.AppendR(r)
+	p.p.AppendIns(block)
+	return &Run{paragraph: p, r: r}
+}
+
+// MarkInserted wraps an existing run in a tracked insertion (w:ins) attributed
+// to author, dated to the current time (UTC). The run must be a top-level run of
+// its paragraph (as returned by Paragraph.Runs or Paragraph.AddRun). It returns
+// the run so calls can be chained. The result reads back through
+// Document.Revisions and is transformed by Accept/Reject. Use MarkInsertedWithDate
+// for a fixed timestamp.
+func (r *Run) MarkInserted(author string) *Run {
+	return r.MarkInsertedWithDate(author, time.Now())
+}
+
+// MarkInsertedWithDate is MarkInserted with an explicit revision timestamp
+// (recorded in UTC), for deterministic output.
+func (r *Run) MarkInsertedWithDate(author string, date time.Time) *Run {
+	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
+	oxml.WrapRunInsertion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	return r
+}
+
+// MarkDeleted wraps an existing run in a tracked deletion (w:del) attributed to
+// author, dated to the current time (UTC), converting the run's text (w:t) to
+// deletion text (w:delText). The run must be a top-level run of its paragraph.
+// It returns the run so calls can be chained. The result reads back through
+// Document.Revisions and is transformed by Accept/Reject: accepting removes the
+// text, rejecting restores it as a normal run. Use MarkDeletedWithDate for a
+// fixed timestamp.
+func (r *Run) MarkDeleted(author string) *Run {
+	return r.MarkDeletedWithDate(author, time.Now())
+}
+
+// MarkDeletedWithDate is MarkDeleted with an explicit revision timestamp
+// (recorded in UTC), for deterministic output.
+func (r *Run) MarkDeletedWithDate(author string, date time.Time) *Run {
+	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
+	oxml.WrapRunDeletion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	return r
+}
 
 // RevisionType names the kind of a tracked change (a Word revision).
 type RevisionType string

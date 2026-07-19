@@ -891,6 +891,24 @@ func (p *CT_P) AppendR(r *CT_R) {
 	p.R = append(p.R, r)
 }
 
+// AppendIns appends an insertion block (w:ins) to this paragraph, maintaining
+// child order like AppendR so it survives the childOrder-gated marshal of
+// paragraphs parsed from a file. Existing untracked children are backfilled
+// into the order first so they are not dropped.
+func (p *CT_P) AppendIns(block *CT_RunTrackChange) {
+	p.backfillChildOrder()
+	p.childOrder = append(p.childOrder, pChildRef{pChildIns, len(p.Ins)})
+	p.Ins = append(p.Ins, block)
+}
+
+// AppendDel appends a deletion block (w:del) to this paragraph, maintaining
+// child order like AppendIns.
+func (p *CT_P) AppendDel(block *CT_RunTrackChange) {
+	p.backfillChildOrder()
+	p.childOrder = append(p.childOrder, pChildRef{pChildDel, len(p.Del)})
+	p.Del = append(p.Del, block)
+}
+
 // AppendOMath appends a raw-captured m:oMath child — the element's inner XML
 // with m:/w:-prefixed names, exactly the form UnmarshalXML captures and the
 // omml marshaler produces — maintaining child order. Existing untracked
