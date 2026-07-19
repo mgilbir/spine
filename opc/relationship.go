@@ -41,6 +41,10 @@ const (
 	// Notes slide relationship type
 	RelTypeNotesSlide = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide"
 
+	// RelTypeNotesMaster links a notes slide (or the presentation) to the shared
+	// notes master.
+	RelTypeNotesMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"
+
 	// Slide master relationship type
 	RelTypeSlideMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
 
