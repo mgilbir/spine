@@ -8,19 +8,6 @@ import (
 
 // reopenDoc saves the document to bytes and reopens it, doubling as a
 // Create -> Save -> Open round-trip check.
-func reopenDoc(t *testing.T, d *Document) *Document {
-	t.Helper()
-	data, err := d.SaveBytes()
-	if err != nil {
-		t.Fatalf("SaveBytes: %v", err)
-	}
-	rd, err := OpenReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatalf("OpenReader: %v", err)
-	}
-	return rd
-}
-
 func TestDocumentProtection_DefaultRoundTrip(t *testing.T) {
 	d := Create()
 	d.AddParagraphWithText("hello")

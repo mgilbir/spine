@@ -18,6 +18,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide transitions (fade, push, wipe, and more)
   - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
   - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
+  - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops
+  - Read the presentation's footer, slide-number, and date furniture set on slides
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables
@@ -28,7 +30,9 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Inline and floating (anchored) images — including SVG images with a raster fallback
   - Charts (column, bar, line, pie, doughnut, radar, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
   - Fields (PAGE/NUMPAGES) and a table of contents
-  - Page setup (size, margins)
+  - Page setup (size, margins), multi-column sections, page-number format/start, title-page, and section type; enumerate sections with `Document.Sections()`
+  - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
+  - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
@@ -43,6 +47,10 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
   - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
+  - Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
+  - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
+  - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
+  - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
 
 Runnable programs for all three formats live in [`examples/`](examples/).
 

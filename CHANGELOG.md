@@ -162,6 +162,41 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: conditional-formatting **write** (reading was already supported).
+  `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
+  constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
+  `NewDuplicateValuesRule`/`NewUniqueValuesRule`, `NewTop10Rule`,
+  `NewAboveAverageRule`, `NewTimePeriodRule`, `NewColorScaleRule` (2- and
+  3-color), `NewDataBarRule`, and `NewIconSetRule`. Rules that apply direct
+  formatting allocate a deduplicated `x:dxf` in `x:dxfs` and wire `DxfId`;
+  self-formatting rules carry their own. `ConditionalFormatRule.DifferentialFormat()`
+  resolves a rule's `DxfId` to its fill/font/border on read. An unmodified
+  conditional-format-bearing file still round-trips byte-for-byte.
+- xlsx,docx,pptx: page & print setup, wiring already-modeled structures to public
+  read+write accessors. xlsx `Sheet` gains `PageSetup`/`PageMargins`/
+  `HeaderFooter`/`PrintOptions` (with setters) and `SetPrintArea`/`SetPrintTitles`
+  (stored as the reserved `_xlnm.Print_Area`/`_xlnm.Print_Titles` defined names).
+  docx `Section` gains `Columns` (multi-column layout), `PageNumbering` (format +
+  start), `TitlePage`, and `SectionType`, plus `Document.Sections()`. pptx adds
+  getters (`SlideFooter`, `SlideNumbersVisible`, `SlideDate`, `SlideDateIsAuto`)
+  mirroring the existing furniture writers.
+- docx,xlsx: protection. `Document.Protect`/`Unprotect`/`Protection` enforce
+  Word's editing restrictions (`w:documentProtection`: read-only, comments,
+  tracked-changes, or forms; optional formatting restriction and password),
+  mirroring the shape of xlsx's sheet-protection API. `Workbook.Protect`/
+  `Unprotect`/`Protection` set workbook structure/window locks
+  (`x:workbookProtection`), and `CellStyle.Protection` exposes per-cell
+  locked/hidden (effective when the sheet is protected). The legacy 16-bit
+  password-obfuscation hash (weak by design, not encryption) is shared via
+  `common/crypto`.
+- docx,pptx,xlsx: rich-text formatting depth (additive; existing setters keep
+  working). docx `Run` gains highlight, super/subscript, caps/small-caps,
+  underline style + color, character spacing/position/kerning, and `Paragraph`
+  tab stops. pptx `TextFrame` gains autofit and `Paragraph` gains auto-numbered
+  bullets, bullet color/size/font, and indent/tabs. xlsx `FontStyle` gains
+  strikethrough, sub/superscript, and underline styles (single/double/accounting),
+  on both cell fonts and in-cell rich-text runs. Strike, underline styles, and
+  super/subscript share a vocabulary across the three formats.
 - chart: two new chart types and two formatting controls, all symmetric with the
   existing constructors and setters and read back through `Parse` and every
   format's `Charts()`. `NewDoughnut` builds a `c:doughnutChart` (a pie with a
