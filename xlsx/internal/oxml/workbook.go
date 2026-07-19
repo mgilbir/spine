@@ -20,14 +20,15 @@ const (
 
 // Workbook child element type constants for child ordering.
 const (
-	wbChildFileVersion      = "fileVersion"
-	wbChildWorkbookPr       = "workbookPr"
-	wbChildAlternateContent = "AlternateContent"
-	wbChildBookViews        = "bookViews"
-	wbChildSheets           = "sheets"
-	wbChildDefinedNames     = "definedNames"
-	wbChildCalcPr           = "calcPr"
-	wbChildExtLst           = "extLst"
+	wbChildFileVersion        = "fileVersion"
+	wbChildWorkbookPr         = "workbookPr"
+	wbChildWorkbookProtection = "workbookProtection"
+	wbChildAlternateContent   = "AlternateContent"
+	wbChildBookViews          = "bookViews"
+	wbChildSheets             = "sheets"
+	wbChildDefinedNames       = "definedNames"
+	wbChildCalcPr             = "calcPr"
+	wbChildExtLst             = "extLst"
 )
 
 // WbUnknownChild represents an unknown child element captured as raw bytes.
@@ -37,17 +38,18 @@ type WbUnknownChild struct {
 
 // CT_Workbook is the root element of workbook.xml.
 type CT_Workbook struct {
-	XMLName          xml.Name                `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
-	Conformance      string                  `xml:"conformance,attr,omitempty"`
-	Ignorable        string                  `xml:"-"` // mc:Ignorable attribute value
-	FileVersion      *CT_FileVersion         `xml:"fileVersion,omitempty"`
-	WorkbookPr       *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
-	AlternateContent *coxml.AlternateContent `xml:"-"` // mc:AlternateContent child element
-	BookViews        *CT_BookViews           `xml:"bookViews,omitempty"`
-	Sheets           CT_Sheets               `xml:"sheets"`
-	DefinedNames     *CT_DefinedNames        `xml:"definedNames,omitempty"`
-	CalcPr           *CT_CalcPr              `xml:"calcPr,omitempty"`
-	ExtLst           *CT_ExtensionList       `xml:"extLst,omitempty"`
+	XMLName            xml.Name                `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
+	Conformance        string                  `xml:"conformance,attr,omitempty"`
+	Ignorable          string                  `xml:"-"` // mc:Ignorable attribute value
+	FileVersion        *CT_FileVersion         `xml:"fileVersion,omitempty"`
+	WorkbookPr         *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
+	WorkbookProtection *CT_WorkbookProtection  `xml:"workbookProtection,omitempty"`
+	AlternateContent   *coxml.AlternateContent `xml:"-"` // mc:AlternateContent child element
+	BookViews          *CT_BookViews           `xml:"bookViews,omitempty"`
+	Sheets             CT_Sheets               `xml:"sheets"`
+	DefinedNames       *CT_DefinedNames        `xml:"definedNames,omitempty"`
+	CalcPr             *CT_CalcPr              `xml:"calcPr,omitempty"`
+	ExtLst             *CT_ExtensionList       `xml:"extLst,omitempty"`
 	// UnknownChildren stores extension child elements (like xr:revisionPtr)
 	// that we don't have typed structs for, indexed for child ordering.
 	UnknownChildren []WbUnknownChild `xml:"-"`
@@ -151,6 +153,21 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 					return err
 				}
 				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookPr)
+			case "workbookProtection":
+				wb.WorkbookProtection = &CT_WorkbookProtection{}
+				if err := d.DecodeElement(wb.WorkbookProtection, &t); err != nil {
+					return err
+				}
+				// Preserve the verbatim source slice so an unmodified round trip
+				// re-emits the element byte-for-byte (attribute order, self-closing
+				// style), exactly as the unknown-child path did before this element
+				// gained a typed model. Protect/Unprotect clear Raw so the typed
+				// canonical form is marshaled instead.
+				if end := d.InputOffset(); wb.RawSource != nil &&
+					tokStart >= 0 && end > tokStart && end <= int64(len(wb.RawSource)) {
+					wb.WorkbookProtection.Raw = append([]byte(nil), wb.RawSource[tokStart:end]...)
+				}
+				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookProtection)
 			case "AlternateContent":
 				wb.AlternateContent = &coxml.AlternateContent{}
 				if err := d.DecodeElement(wb.AlternateContent, &t); err != nil {
@@ -393,6 +410,36 @@ func (fv *CT_FileVersion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 	fv.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_FileVersion
 	return d.DecodeElement((*alias)(fv), &start)
+}
+
+// CT_WorkbookProtection represents the workbookProtection element
+// (ECMA-376 §18.2.29). It guards the workbook's structure (adding, deleting,
+// hiding or reordering sheets) and window layout. Excel enforces it only as a
+// UI convenience; the workbook is not encrypted and any tool can clear it.
+//
+// The password/hash attributes carry either Excel's legacy 16-bit obfuscation
+// hash (workbookPassword) or a modern iterated hash (workbookHashValue +
+// workbookSaltValue + workbookSpinCount + workbookAlgorithmName). Neither is
+// exposed once written.
+type CT_WorkbookProtection struct {
+	WorkbookPassword       string `xml:"workbookPassword,attr,omitempty"`
+	WorkbookHashValue      string `xml:"workbookHashValue,attr,omitempty"`
+	WorkbookSaltValue      string `xml:"workbookSaltValue,attr,omitempty"`
+	WorkbookSpinCount      string `xml:"workbookSpinCount,attr,omitempty"`
+	WorkbookAlgorithmName  string `xml:"workbookAlgorithmName,attr,omitempty"`
+	RevisionsPassword      string `xml:"revisionsPassword,attr,omitempty"`
+	RevisionsHashValue     string `xml:"revisionsHashValue,attr,omitempty"`
+	RevisionsSaltValue     string `xml:"revisionsSaltValue,attr,omitempty"`
+	RevisionsSpinCount     string `xml:"revisionsSpinCount,attr,omitempty"`
+	RevisionsAlgorithmName string `xml:"revisionsAlgorithmName,attr,omitempty"`
+	LockStructure          *bool  `xml:"lockStructure,attr,omitempty"`
+	LockWindows            *bool  `xml:"lockWindows,attr,omitempty"`
+	LockRevision           *bool  `xml:"lockRevision,attr,omitempty"`
+	// Raw preserves the verbatim source bytes captured at parse time. When
+	// non-nil (element parsed and not since modified) it is re-emitted as-is for
+	// byte-identical round-trip; Protect/Unprotect set it to nil so the typed
+	// fields are marshaled canonically instead.
+	Raw []byte `xml:"-"`
 }
 
 // CT_WorkbookPr represents the workbookPr element.

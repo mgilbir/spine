@@ -196,6 +196,13 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 		xf.ApplyAlignment = &t
 		xf.Alignment = alignmentStyleToOxml(style.Alignment)
 	}
+	if style.Protection != nil {
+		t := true
+		locked := style.Protection.Locked
+		hidden := style.Protection.Hidden
+		xf.ApplyProtection = &t
+		xf.Protection = &oxml.CT_CellProtection{Locked: &locked, Hidden: &hidden}
+	}
 
 	// De-duplicate: check if an identical xf already exists
 	if ss.CellXfs != nil {
@@ -272,6 +279,15 @@ func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 	// Alignment
 	if xf.Alignment != nil {
 		style.Alignment = oxmlToAlignmentStyle(xf.Alignment)
+	}
+
+	// Protection: absent locked/hidden attributes carry their OOXML defaults
+	// (locked true, hidden false).
+	if xf.Protection != nil {
+		style.Protection = &ProtectionStyle{
+			Locked: xf.Protection.Locked == nil || *xf.Protection.Locked,
+			Hidden: xf.Protection.Hidden != nil && *xf.Protection.Hidden,
+		}
 	}
 
 	return style, nil
