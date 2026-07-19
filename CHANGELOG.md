@@ -162,6 +162,16 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: **speaker notes** read + write on a slide — `Slide.Notes()` returns the
+  notes slide's body-placeholder text (paragraphs joined by `\n`, or `""` when
+  the slide has no notes), and `Slide.SetNotes(text)` writes it. When the slide
+  already has a notes slide, only the body text is rewritten and the rest of the
+  notes slide is preserved; otherwise a new `notesSlideN.xml` part is created,
+  wired to the slide (and to the notes master when the deck has one), given its
+  `[Content_Types].xml` override, and persisted on both the created and opened
+  save paths. Existing notes slides that are not edited still round-trip
+  byte-for-byte (they are preserved as raw parts); `SetNotes` only rewrites the
+  one affected part.
 - docx: section, table, paragraph, and run **depth** — modeled structures that
   previously round-tripped but had no public accessor are now read + write.
   Sections gain page borders (`Section.PageBorders`/`SetPageBorders`), line
