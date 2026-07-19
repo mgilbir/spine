@@ -11,11 +11,6 @@ import (
 	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
-
-	// chart.EmbeddedWorkbook builds an .xlsx and delegates to a builder the
-	// xlsx package installs from an init (RegisterEmbedder); importing xlsx for
-	// its side effect links that builder so pptx chart embedding works.
-	_ "github.com/mgilbir/spine/xlsx"
 )
 
 // ChartFrame is the shape a chart occupies on a slide: a p:graphicFrame whose

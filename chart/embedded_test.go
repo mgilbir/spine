@@ -1,9 +1,10 @@
 package chart_test
 
-// These tests exercise chart.EmbeddedWorkbook, whose builder is installed by
-// the xlsx package. They live in an external test package so they can import
-// xlsx (which imports chart) without an import cycle; importing xlsx also runs
-// its init, registering the embedder.
+// These tests exercise chart.EmbeddedWorkbook. chart builds the minimal
+// workbook itself, so these could live in package chart; they stay in an
+// external test package to open the result with the xlsx reader (an independent
+// check that the bytes are a valid .xlsx) without an import cycle, since xlsx
+// imports chart.
 
 import (
 	"bytes"

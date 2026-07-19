@@ -9,11 +9,6 @@ import (
 	"github.com/mgilbir/spine/chart"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
-
-	// chart.EmbeddedWorkbook builds an .xlsx and delegates to a builder the
-	// xlsx package installs from an init (RegisterEmbedder); importing xlsx for
-	// its side effect links that builder so docx chart embedding works.
-	_ "github.com/mgilbir/spine/xlsx"
 )
 
 // chartPart is a chart added through the mutation API, together with the
