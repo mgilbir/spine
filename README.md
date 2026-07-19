@@ -33,6 +33,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Page setup (size, margins), multi-column sections, page-number format/start, title-page, and section type; enumerate sections with `Document.Sections()`
   - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
   - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
+  - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
@@ -51,6 +52,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
   - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
+  - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
 
 Runnable programs for all three formats live in [`examples/`](examples/).
 

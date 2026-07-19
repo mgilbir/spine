@@ -162,6 +162,15 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx,xlsx: theme **read/write**, mirroring pptx's existing theme accessor for
+  cross-format symmetry. `Document.Theme()` (docx) and `Workbook.Theme()` (xlsx)
+  return a shared `dml.ThemeEditor` over the theme part
+  (`word/theme/theme1.xml`, `xl/theme/theme1.xml` — the same DrawingML
+  `a:theme`), with color-scheme accent read/write (`dk1`/`lt1`/`dk2`/`lt2`/
+  `accent1`–`accent6`/`hlink`/`folHlink`) and font-scheme major/minor Latin
+  typeface read/write. A file created from scratch (no theme part) returns nil,
+  matching pptx. An unmodified theme round-trips byte-for-byte from its
+  preserved source bytes; only an edited theme re-serializes on save.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
