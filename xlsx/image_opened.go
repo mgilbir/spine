@@ -38,7 +38,7 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 			used[sheet.partName] = struct{}{}
 		}
 	}
-	drawingSeq, mediaSeq, chartSeq := 1, 1, 1
+	drawingSeq, mediaSeq, chartSeq, tableSeq := 1, 1, 1, 1
 	cseq := newCommentSeq()
 
 	for i, sheet := range w.sheets {
@@ -46,7 +46,8 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		hasCharts := len(sheet.charts) > 0
 		hasComments := sheet.comments != nil && sheet.comments.mutated
 		hasHyperlinks := len(sheet.pendingHyperlinkRels) > 0
-		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks {
+		hasTables := len(sheet.newTables) > 0
+		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks && !hasTables {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -109,6 +110,13 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 
 		if hasComments {
 			sheetRels, err = w.writeSheetComments(writer, sheet, sheetRels, relUsed, used, cseq)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+
+		if hasTables {
+			sheetRels, err = w.writeSheetTables(writer, sheet, sheetRels, relUsed, used, &tableSeq)
 			if err != nil {
 				return nil, "", err
 			}

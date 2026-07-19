@@ -19,6 +19,7 @@ type Sheet struct {
 	worksheet *oxml.CT_Worksheet
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
+	newTables []*Table       // tables added this session via AddTable (to be written)
 	comments  *sheetComments // lazily loaded comment model (read + write)
 	// state is the workbook-level sheet visibility ("", "hidden" or
 	// "veryHidden"). AddChart marks its dedicated data sheet "hidden".

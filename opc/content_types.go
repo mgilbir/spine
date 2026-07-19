@@ -57,6 +57,9 @@ const (
 	ContentTypeWorksheet                 = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
 	ContentTypeSharedStrings             = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
 	ContentTypeStyles                    = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
+	// ContentTypeTable is the SpreadsheetML table (ListObject) part content
+	// type, used by the xl/tables/tableN.xml override.
+	ContentTypeTable = "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"
 
 	// SpreadsheetML comment content types. Legacy cell comments (a.k.a. notes)
 	// use ContentTypeSheetComments and are rendered by a legacy VML drawing

@@ -493,7 +493,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// reference re-marshals them. This mutates the durable model (preserved
 	// parts and w.contentTypes), so it must run before the writer clones the
 	// content types below.
-	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments()
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHaveTables()
 	if !dropCalcChain {
 		for _, sheet := range w.sheets {
 			if sheet.dirty {
@@ -526,7 +526,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// the workbook .rels.
 	var rebuiltRels map[string]bool
 	var personRelTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() {
 		var err error
 		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -773,7 +773,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// returns the person list's workbook-relative target ("" if none) to wire
 	// the workbook relationship.
 	var personTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() {
 		var err error
 		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {

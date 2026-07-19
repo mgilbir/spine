@@ -48,6 +48,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Rich text (per-run formatting) within a cell
   - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
   - Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
+  - Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
   - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
   - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)

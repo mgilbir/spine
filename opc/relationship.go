@@ -107,6 +107,9 @@ const (
 	RelTypePackage       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"
 	RelTypePivotTable    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	RelTypePivotCacheDef = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
+	// RelTypeTable links a worksheet to a table (ListObject) definition part
+	// (xl/tables/tableN.xml).
+	RelTypeTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"
 
 	// SpreadsheetML comment relationship types. RelTypeComments (the shared
 	// 2006 comments URI, declared above) links a worksheet to its legacy

@@ -162,6 +162,18 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: tables (ListObjects) **read + write**. `Sheet.Tables()` and
+  `Workbook.Tables()` surface each table's name, range, columns (id, name,
+  totals-row function/label, calculated-column formula), header/totals rows and
+  built-in style (`Table.Style()`: style name plus row/column-stripe and
+  first/last-column banding). `Sheet.AddTable(cellRange, TableOptions)` creates a
+  table over a range — writing the `xl/tables/tableN.xml` part, the
+  worksheet→table relationship, the worksheet `<tableParts>` entry and the
+  `[Content_Types].xml` override. It validates the range, derives column names
+  from the header row (or `TableOptions.Columns`), and supports a totals row with
+  per-column functions/labels (`TableOptions.ColumnTotals`) and a built-in
+  `TableStyle`. Tables in an opened workbook are parsed read-only; a table-bearing
+  file that is not modified still round-trips byte-for-byte.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
