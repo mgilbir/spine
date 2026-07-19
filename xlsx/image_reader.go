@@ -6,17 +6,22 @@ import (
 	"github.com/mgilbir/spine/opc"
 )
 
-// Image is a read-only view of an image on a worksheet. The AltText/Data/
-// ContentType surface matches the image readers of the docx and pptx packages;
-// the xlsx-specific anchor is the top-left cell the image is pinned to.
+// Image is a read-only view of an image on a worksheet. The
+// Width/Height/WidthEMU/HeightEMU/AltText/Data/ContentType/PartName surface
+// matches the image readers of the docx and pptx packages; the xlsx-specific
+// anchor is the top-left cell the image is pinned to.
 type Image struct {
 	altText     string
 	data        []byte
 	contentType string
+	partName    string // package part name of the image binary ("" if unresolved)
 	anchorCell  string // top-left anchor cell (e.g. "B2"); "" if not cell-anchored
 	widthEMU    int64  // rendered width in EMU (0 if not readily available)
 	heightEMU   int64  // rendered height in EMU (0 if not readily available)
 }
+
+// emuToPoints converts EMU to points (914400 EMU per inch, 72 pt per inch).
+func emuToPoints(emu int64) float64 { return float64(emu) * 72 / 914400 }
 
 // AltText returns the image's alternative-text description, or "" if none.
 func (i *Image) AltText() string { return i.altText }
@@ -27,9 +32,24 @@ func (i *Image) Data() []byte { return i.data }
 // ContentType returns the image's OPC content type (e.g. "image/png").
 func (i *Image) ContentType() string { return i.contentType }
 
+// PartName returns the package part name of the image's binary (e.g.
+// /xl/media/image1.png), or "" when it cannot be resolved — an image added this
+// session has no part name until the workbook is saved. This matches the docx
+// and pptx image readers.
+func (i *Image) PartName() string { return i.partName }
+
 // AnchorCell returns the top-left cell the image is anchored to (e.g. "B2"), or
 // "" when the image is not anchored to a cell (an absolute-position anchor).
 func (i *Image) AnchorCell() string { return i.anchorCell }
+
+// Width returns the image's rendered width in points, the display unit shared
+// with the docx and pptx image readers, or 0 when the width is not readily
+// available (e.g. a two-cell anchor sizes to the span).
+func (i *Image) Width() float64 { return emuToPoints(i.widthEMU) }
+
+// Height returns the image's rendered height in points, or 0 when not readily
+// available.
+func (i *Image) Height() float64 { return emuToPoints(i.heightEMU) }
 
 // WidthEMU returns the image's rendered width in English Metric Units, or 0 when
 // the width is not readily available (e.g. a two-cell anchor sizes to the span).
@@ -112,6 +132,7 @@ func (s *Sheet) openedImages() []*Image {
 			altText:     a.Pic.NvPicPr.CNvPr.Descr,
 			data:        media.Data,
 			contentType: media.ContentType,
+			partName:    mediaPart,
 		}
 		if a.From != nil {
 			img.anchorCell = FormatCellRef(a.From.Row+1, a.From.Col+1)

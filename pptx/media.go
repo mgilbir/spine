@@ -16,6 +16,9 @@ import (
 // emuPerPixel is the EMU size of one pixel at 96 DPI (914400 EMU per inch / 96).
 const emuPerPixel = 9525
 
+// emuToPoints converts EMU to points (914400 EMU per inch, 72 pt per inch).
+func emuToPoints(emu int64) float64 { return float64(emu) * 72 / 914400 }
+
 // nativeImageSize returns the intrinsic size of the encoded image at 96 DPI.
 // ok is false when the data is not in a decodable format (only the image
 // header is read, never the full pixel data).
@@ -161,6 +164,24 @@ func (p *Picture) Data() []byte {
 func (p *Picture) AltText() string {
 	return p.description
 }
+
+// PartName returns the package part name of the picture's binary (e.g.
+// /ppt/media/image1.png), or "" when it cannot be resolved — a picture added
+// this session has no part name until the presentation is saved. This matches
+// the docx and xlsx image readers.
+func (p *Picture) PartName() string {
+	if p.slide != nil && p.relID != "" {
+		return p.slide.relTargetPart(p.relID)
+	}
+	return ""
+}
+
+// Width returns the picture frame's width in points, the display unit shared
+// with the docx and xlsx image readers.
+func (p *Picture) Width() float64 { return emuToPoints(p.WidthEMU()) }
+
+// Height returns the picture frame's height in points.
+func (p *Picture) Height() float64 { return emuToPoints(p.HeightEMU()) }
 
 // WidthEMU returns the picture frame's width in EMUs, the OOXML-native unit
 // shared with the docx and xlsx image readers.
