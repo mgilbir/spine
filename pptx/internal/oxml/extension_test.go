@@ -117,6 +117,85 @@ func TestExtension_KnownURI_TypedDispatchStillWorks(t *testing.T) {
 	}
 }
 
+// A p14:sectionLst extension parses into the typed Section model and, when
+// unmodified, replays its source bytes verbatim (byte-identical round-trip).
+func TestExtension_SectionLst_RoundTrip(t *testing.T) {
+	sectionExt := `<p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}">` +
+		`<p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">` +
+		`<p14:section name="Default Section" id="{124617AE-E5F0-462F-B980-77B306D58FBF}">` +
+		`<p14:sldIdLst><p14:sldId id="256"/><p14:sldId id="630"/></p14:sldIdLst>` +
+		`</p14:section>` +
+		`<p14:section name="Untitled Section" id="{05E1D2DE-88C5-4E6F-B731-0AEA3E39ACC8}">` +
+		`<p14:sldIdLst/>` +
+		`</p14:section>` +
+		`</p14:sectionLst></p:ext>`
+	fragment := `<p:extLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">` +
+		sectionExt + `</p:extLst>`
+
+	var el ExtensionList
+	if err := xml.Unmarshal([]byte(fragment), &el); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(el.Ext) != 1 || el.Ext[0].SectionLst == nil {
+		t.Fatalf("sectionLst not parsed into typed model: %+v", el.Ext)
+	}
+	sl := el.Ext[0].SectionLst
+	if len(sl.Section) != 2 {
+		t.Fatalf("got %d sections, want 2", len(sl.Section))
+	}
+	if sl.Section[0].Name != "Default Section" ||
+		sl.Section[0].ID != "{124617AE-E5F0-462F-B980-77B306D58FBF}" {
+		t.Errorf("section[0] = %+v", sl.Section[0])
+	}
+	if len(sl.Section[0].SldId) != 2 || sl.Section[0].SldId[0] != 256 || sl.Section[0].SldId[1] != 630 {
+		t.Errorf("section[0].SldId = %v, want [256 630]", sl.Section[0].SldId)
+	}
+	if len(sl.Section[1].SldId) != 0 {
+		t.Errorf("section[1].SldId = %v, want empty", sl.Section[1].SldId)
+	}
+	if sl.Dirty() {
+		t.Errorf("freshly parsed section list should not be dirty")
+	}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(xmlb.NSPresentationML, "extLst", &el)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	if got := b.String(); !strings.Contains(got, sectionExt) {
+		t.Errorf("unmodified section list not replayed verbatim:\n got %s\nwant substring %s", got, sectionExt)
+	}
+}
+
+// A mutated (or programmatically built) section list regenerates the canonical
+// PowerPoint form, with an empty member list emitted self-closing.
+func TestExtension_SectionLst_Regenerate(t *testing.T) {
+	sl := &P14SectionLst{
+		Section: []*P14Section{
+			{Name: "Intro", ID: "{AAAAAAAA-0000-0000-0000-000000000001}", SldId: []uint32{256}},
+			{Name: "Empty", ID: "{AAAAAAAA-0000-0000-0000-000000000002}"},
+		},
+	}
+	sl.MarkDirty()
+	el := &ExtensionList{Ext: []Extension{{URI: xmlb.ExtURISectionLst, SectionLst: sl}}}
+
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(xmlb.NSPresentationML, "extLst", el)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	want := `<p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}">` +
+		`<p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main">` +
+		`<p14:section name="Intro" id="{AAAAAAAA-0000-0000-0000-000000000001}">` +
+		`<p14:sldIdLst><p14:sldId id="256"/></p14:sldIdLst></p14:section>` +
+		`<p14:section name="Empty" id="{AAAAAAAA-0000-0000-0000-000000000002}">` +
+		`<p14:sldIdLst/></p14:section>` +
+		`</p14:sectionLst></p:ext>`
+	if got := b.String(); !strings.Contains(got, want) {
+		t.Errorf("regenerated section list mismatch:\n got %s\nwant substring %s", got, want)
+	}
+}
+
 // Comment extension lists are p:ext extension lists too (C30).
 func TestComment_ExtLst_RoundTrip(t *testing.T) {
 	fragment := `<p:cm xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" authorId="0" idx="1">` +

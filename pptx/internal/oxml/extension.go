@@ -30,6 +30,7 @@ type Extension struct {
 	DefaultImageDpi  *P14DefaultImageDpi  `xml:"-"`
 	DiscardImageEdit *P14DiscardImageEdit `xml:"-"`
 	LaserClr         *P14LaserClr         `xml:"-"`
+	SectionLst       *P14SectionLst       `xml:"-"`
 
 	// p15 extensions (PowerPoint 2012)
 	PresenceInfo          *P15PresenceInfo          `xml:"-"`
@@ -137,6 +138,66 @@ type P14DiscardImageEdit struct {
 // Contains a DML color choice (a:srgbClr, a:schemeClr, etc.).
 type P14LaserClr struct {
 	dml.ColorChoice
+}
+
+// P14SectionLst represents the p14:sectionLst extension element, which holds
+// the slide sections shown in PowerPoint's thumbnail pane. Each section names
+// an ordered list of member slide ids (p14:sldId, referencing p:sldId/@id).
+//
+// For byte-faithful round-tripping, the source element's exact bytes are kept
+// in raw and replayed verbatim on save; the typed Section model is regenerated
+// only after a mutation marks the list Dirty. A programmatically built list
+// (raw nil) always regenerates.
+type P14SectionLst struct {
+	Section []*P14Section
+	raw     []byte
+	dirty   bool
+}
+
+// Dirty reports whether the section list was mutated since it was parsed and so
+// must be regenerated (rather than replayed verbatim) on save.
+func (sl *P14SectionLst) Dirty() bool { return sl.dirty }
+
+// MarkDirty flags the list for regeneration on the next save.
+func (sl *P14SectionLst) MarkDirty() { sl.dirty = true }
+
+// P14Section represents a single p14:section (a named group of slides).
+type P14Section struct {
+	Name string
+	// ID is the section GUID in PowerPoint's brace-wrapped uppercase form,
+	// e.g. "{124617AE-E5F0-462F-B980-77B306D58FBF}".
+	ID string
+	// SldId lists the member slide ids in display order. Each value matches a
+	// p:sldId/@id in the presentation's sldIdLst.
+	SldId []uint32
+}
+
+// parseSectionLst decodes the verbatim p14:sectionLst bytes into the typed
+// model, keeping the raw bytes for byte-faithful replay of an unmodified list.
+func parseSectionLst(raw []byte) (*P14SectionLst, error) {
+	var w struct {
+		Section []struct {
+			Name     string `xml:"name,attr"`
+			ID       string `xml:"id,attr"`
+			SldIdLst struct {
+				SldId []struct {
+					ID uint32 `xml:"id,attr"`
+				} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main sldId"`
+			} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main sldIdLst"`
+		} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main section"`
+	}
+	if err := xml.Unmarshal(raw, &w); err != nil {
+		return nil, err
+	}
+	sl := &P14SectionLst{raw: raw}
+	for _, s := range w.Section {
+		sec := &P14Section{Name: s.Name, ID: s.ID}
+		for _, sid := range s.SldIdLst.SldId {
+			sec.SldId = append(sec.SldId, sid.ID)
+		}
+		sl.Section = append(sl.Section, sec)
+	}
+	return sl, nil
 }
 
 // --- p15 extensions (PowerPoint 2012) ---
@@ -305,6 +366,21 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		e.ChartTrackingRefBased = &w.V
 
+	case xmlb.ExtURISectionLst:
+		// Capture the verbatim sectionLst bytes (for byte-faithful replay of
+		// an unmodified list) and parse the typed model from them.
+		var inner struct {
+			Content []byte `xml:",innerxml"`
+		}
+		if err := d.DecodeElement(&inner, &start); err != nil {
+			return err
+		}
+		sl, err := parseSectionLst(inner.Content)
+		if err != nil {
+			return err
+		}
+		e.SectionLst = sl
+
 	default:
 		// Unknown extension - preserve raw bytes along with any xmlns
 		// declarations the ext element carried, so re-emitted content
@@ -411,6 +487,9 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	case e.ChartTrackingRefBased != nil:
 		marshalP15Bool(b, "chartTrackingRefBased", e.ChartTrackingRefBased.Val)
 
+	case e.SectionLst != nil:
+		marshalSectionLst(b, e.SectionLst)
+
 	default:
 		if len(e.RawContent) > 0 {
 			b.WriteRaw(e.RawContent)
@@ -502,6 +581,38 @@ func marshalSldGuideLst(b *xmlb.Builder, g *P15SldGuideLst) {
 	marshalSldGuides(b, g)
 	b.EndElementInlineNS(xmlb.PrefixPowerPoint2012, "sldGuideLst")
 	b.ResetNamespaceDeclaration(nsP15)
+}
+
+// marshalSectionLst writes the p14:sectionLst extension. An unmodified list
+// replays its source bytes verbatim (byte-identical round-trip); a mutated or
+// programmatically built list regenerates the canonical PowerPoint form.
+func marshalSectionLst(b *xmlb.Builder, sl *P14SectionLst) {
+	if !sl.dirty && len(sl.raw) > 0 {
+		b.WriteRaw(sl.raw)
+		return
+	}
+	prefix := xmlb.PrefixPowerPoint2010
+	if len(sl.Section) == 0 {
+		b.EmptyElementInlineNS(nsP14, prefix, "sectionLst")
+		return
+	}
+	b.StartElementInlineNS(nsP14, prefix, "sectionLst")
+	for _, s := range sl.Section {
+		b.StartElement(nsP14, "section",
+			xmlb.StrAttr("name", s.Name), xmlb.StrAttr("id", s.ID))
+		if len(s.SldId) == 0 {
+			b.EmptyElement(nsP14, "sldIdLst")
+		} else {
+			b.StartElement(nsP14, "sldIdLst")
+			for _, id := range s.SldId {
+				b.EmptyElement(nsP14, "sldId", xmlb.UintAttr("id", id))
+			}
+			b.EndElement(nsP14, "sldIdLst")
+		}
+		b.EndElement(nsP14, "section")
+	}
+	b.EndElementInlineNS(prefix, "sectionLst")
+	b.ResetNamespaceDeclaration(nsP14)
 }
 
 // marshalSldGuides writes the p15:guide children of a sldGuideLst.

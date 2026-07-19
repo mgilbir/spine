@@ -20,6 +20,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
   - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops
   - Read the presentation's footer, slide-number, and date furniture set on slides
+  - Slide sections (the thumbnail-pane groups): read (`Presentation.Sections()`), create (`AddSection`), and assign slides (`Section.AddSlide` / `Presentation.MoveSlideToSection`), stored in the `p14:sectionLst` extension
 - **Word (DOCX)**: Create and modify Word documents
   - Create documents from scratch
   - Add headings, paragraphs, and tables

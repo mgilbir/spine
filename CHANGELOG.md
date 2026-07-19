@@ -162,6 +162,16 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: slide **sections** (the groups shown in PowerPoint's thumbnail pane),
+  stored in the presentation part's `p14:sectionLst` extension.
+  `Presentation.Sections()` reads the existing sections in order; `Section`
+  exposes `Name()`, `SetName()`, `ID()` (the section GUID), and `Slides()`
+  (member slides in order). `Presentation.AddSection(name)` appends a new
+  section, `Section.AddSlide(slide)` / `Presentation.MoveSlideToSection(slide,
+  section)` assign a slide to a section (membership is by slide id, kept
+  consistent with `sldIdLst`, and a slide belongs to at most one section). A
+  presentation with existing sections round-trips byte-for-byte when unmodified,
+  and a presentation without sections never gains an empty `sectionLst`.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
