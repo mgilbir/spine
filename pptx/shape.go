@@ -10,6 +10,11 @@ type Shape interface {
 	// ShapeType returns the type of the shape.
 	ShapeType() ShapeType
 
+	// ID returns the shape's non-visual id (cNvPr id). For a shape loaded from
+	// a file this is its stored id; for a shape created through this package the
+	// id is assigned when the deck is saved, so ID reports 0 until then.
+	ID() uint32
+
 	// Name returns the name of the shape.
 	Name() string
 
