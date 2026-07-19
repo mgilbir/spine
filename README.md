@@ -25,7 +25,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Add headings, paragraphs, and tables
   - Rich text formatting (bold, italic, color, font, size)
   - Paragraph alignment, spacing, and indentation
-  - Bullet and numbered lists
+  - Bullet and numbered lists, plus custom numbering definitions via `Document.Numbering()` (per-level format, level text, start, and indent/hanging)
+  - Style definitions via `Document.Styles()`: create and modify paragraph and character styles (id/name, based-on, next, link, quick-format, and the style's font/size/bold/italic/color, alignment, spacing, and indentation)
   - Headers and footers
   - Inline and floating (anchored) images — including SVG images with a raster fallback
   - Charts (column, bar, line, pie, doughnut, radar, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`

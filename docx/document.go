@@ -56,12 +56,13 @@ type Document struct {
 	nextRelIDVal     int                       // counter for relationship IDs
 	newHeaderParts   []*hdrFtrPart             // new headers to be written
 	newFooterParts   []*hdrFtrPart             // new footers to be written
-	// numberingModified / settingsModified record that the session changed the
-	// numbering or settings model, so the round-trip save regenerates that part
-	// (with its relationship and content-type override) instead of writing the
-	// preserved original bytes.
+	// numberingModified / settingsModified / stylesModified record that the
+	// session changed the numbering, settings, or styles model, so the
+	// round-trip save regenerates that part (with its relationship and
+	// content-type override) instead of writing the preserved original bytes.
 	numberingModified bool
 	settingsModified  bool
+	stylesModified    bool
 	// comment-part modification flags: set when the comments API adds, replies,
 	// resolves, or edits, so the round-trip save regenerates the affected part
 	// (with its relationship and content-type override) instead of writing the
@@ -575,6 +576,9 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		// Regenerated below from the (possibly extended) parsed model.
+		if name == "/word/styles.xml" && d.stylesModified {
+			continue
+		}
 		if name == "/word/numbering.xml" && d.numberingModified {
 			continue
 		}
@@ -734,6 +738,16 @@ func (d *Document) writeHdrFtrRelationships(writer *opc.Writer, partName string)
 // the round-trip path when the session modified them, registering the
 // document.xml relationship if the opened package did not already carry one.
 func (d *Document) writeModifiedMetadataParts(writer *opc.Writer) error {
+	if d.stylesModified && d.styles != nil {
+		data, err := marshalStylesXML(d.styles)
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/word/styles.xml", opc.ContentTypeDocStyles, data); err != nil {
+			return err
+		}
+		d.ensureDocRelationship(opc.RelTypeStyles, "styles.xml")
+	}
 	if d.numberingModified && d.numbering != nil {
 		data, err := marshalNumberingXML(d.numbering)
 		if err != nil {
@@ -845,7 +859,7 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 // parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
-		d.numberingModified || d.settingsModified ||
+		d.numberingModified || d.settingsModified || d.stylesModified ||
 		d.commentsModified || d.commentsExtModified || d.peopleModified ||
 		d.footnotesModified || d.endnotesModified
 }
