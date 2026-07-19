@@ -618,6 +618,14 @@ func oxmlToTextFrame(txBody *dml.TxBody) *TextFrame {
 		if txBody.BodyPr.BIns != nil {
 			tf.margins.Bottom = dml.EMU(*txBody.BodyPr.BIns)
 		}
+		switch {
+		case txBody.BodyPr.SpAutoFit != nil:
+			tf.autofit = AutofitShape
+		case txBody.BodyPr.NormAutofit != nil:
+			tf.autofit = AutofitNormal
+		case txBody.BodyPr.NoAutofit != nil:
+			tf.autofit = AutofitNone
+		}
 	}
 
 	// Paragraphs
@@ -646,6 +654,14 @@ func oxmlToParagraph(p *dml.P) *Paragraph {
 		if p.PPr.Lvl != nil {
 			para.level = int(*p.PPr.Lvl)
 		}
+		if p.PPr.MarL != nil {
+			marL := *p.PPr.MarL
+			para.marL = &marL
+		}
+		if p.PPr.Indent != nil {
+			indent := *p.PPr.Indent
+			para.indent = &indent
+		}
 
 		// Bullet type
 		if p.PPr.BuNone != nil {
@@ -655,6 +671,33 @@ func oxmlToParagraph(p *dml.P) *Paragraph {
 			para.bulletChar = p.PPr.BuChar.Char
 		} else if p.PPr.BuAutoNum != nil {
 			para.bulletType = BulletNumber
+			para.bulletAutoNumType = AutoNumberScheme(p.PPr.BuAutoNum.Type)
+			para.bulletAutoNumStartAt = p.PPr.BuAutoNum.StartAt
+		}
+
+		// Bullet styling
+		if p.PPr.BuClr != nil {
+			para.bulletColor = buClrToColor(p.PPr.BuClr)
+		}
+		if p.PPr.BuSzPct != nil {
+			para.bulletSizePct = p.PPr.BuSzPct.Val.Int32()
+		}
+		if p.PPr.BuFont != nil {
+			para.bulletFont = p.PPr.BuFont.Typeface
+		}
+
+		// Tab stops
+		if p.PPr.TabLst != nil {
+			for _, tab := range p.PPr.TabLst.Tab {
+				if tab == nil {
+					continue
+				}
+				ts := TabStop{Align: TabAlign(tab.Algn)}
+				if tab.Pos != nil {
+					ts.Position = dml.EMU(*tab.Pos)
+				}
+				para.tabStops = append(para.tabStops, ts)
+			}
 		}
 
 		// Line spacing

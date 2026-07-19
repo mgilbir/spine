@@ -226,6 +226,12 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 		r := int64(tf.margins.Right)
 		b := int64(tf.margins.Bottom)
 		bp.LIns, bp.TIns, bp.RIns, bp.BIns = &l, &t, &r, &b
+		// Only rewrite the autofit child when the caller explicitly changed it,
+		// so a parsed a:normAutofit (with its font-scale attributes) survives an
+		// anchor/wrap/margin edit untouched.
+		if tf.autofitDirty {
+			applyAutofit(bp, tf.autofit)
+		}
 	}
 }
 

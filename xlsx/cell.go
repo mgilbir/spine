@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -453,6 +454,18 @@ type ProtectionStyle struct {
 	Hidden bool
 }
 
+// UnderlineStyle names a font underline style (CT_UnderlineProperty val,
+// ST_UnderlineValues). The string values are the SpreadsheetML tokens.
+type UnderlineStyle string
+
+const (
+	UnderlineNone             UnderlineStyle = "none"
+	UnderlineSingle           UnderlineStyle = "single"
+	UnderlineDouble           UnderlineStyle = "double"
+	UnderlineSingleAccounting UnderlineStyle = "singleAccounting"
+	UnderlineDoubleAccounting UnderlineStyle = "doubleAccounting"
+)
+
 // FontStyle represents font styling.
 type FontStyle struct {
 	Name      string
@@ -461,6 +474,15 @@ type FontStyle struct {
 	Italic    bool
 	Underline bool
 	Color     string // hex color
+	// Strike renders the text with a strikethrough (x:strike).
+	Strike bool
+	// UnderlineStyle selects a richer underline than the plain Underline bool
+	// (e.g. UnderlineDouble, UnderlineSingleAccounting). When set it takes
+	// precedence over Underline; the empty value leaves Underline in control.
+	UnderlineStyle UnderlineStyle
+	// VertAlign renders the text as superscript or subscript (x:vertAlign). The
+	// empty value leaves the run on the baseline.
+	VertAlign enum.VerticalAlignRun
 }
 
 // FillStyle represents fill styling.

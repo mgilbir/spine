@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -434,13 +435,48 @@ func fontStyleToOxml(fs *FontStyle) oxml.CT_Font {
 	if fs.Italic {
 		f.I = &oxml.CT_BooleanProperty{}
 	}
-	if fs.Underline {
-		f.U = &oxml.CT_UnderlineProperty{Val: "single"}
+	if fs.Strike {
+		f.Strike = &oxml.CT_BooleanProperty{}
+	}
+	if u := fontUnderlineToOxml(fs); u != nil {
+		f.U = u
+	}
+	if fs.VertAlign != "" {
+		f.VertAlign = &oxml.CT_VerticalAlignFontProperty{Val: string(fs.VertAlign)}
 	}
 	if fs.Color != "" {
 		f.Color = &oxml.CT_Color{Rgb: normalizeHexColor(fs.Color)}
 	}
 	return f
+}
+
+// fontUnderlineToOxml builds the underline property element for a font style,
+// or nil when the style has no underline. UnderlineStyle wins over the plain
+// Underline bool when both are set.
+func fontUnderlineToOxml(fs *FontStyle) *oxml.CT_UnderlineProperty {
+	if fs.UnderlineStyle != "" {
+		if fs.UnderlineStyle == UnderlineNone {
+			return nil
+		}
+		return &oxml.CT_UnderlineProperty{Val: string(fs.UnderlineStyle)}
+	}
+	if fs.Underline {
+		return &oxml.CT_UnderlineProperty{Val: "single"}
+	}
+	return nil
+}
+
+// applyOxmlUnderline reads an underline property element into a FontStyle,
+// setting the plain bool and, when the source names an explicit style, the
+// richer UnderlineStyle.
+func applyOxmlUnderline(fs *FontStyle, u *oxml.CT_UnderlineProperty) {
+	if u == nil {
+		return
+	}
+	fs.Underline = strings.ToLower(u.Val) != "none"
+	if u.Val != "" {
+		fs.UnderlineStyle = UnderlineStyle(u.Val)
+	}
 }
 
 func fillStyleToOxml(fs *FillStyle) oxml.CT_Fill {
@@ -526,14 +562,19 @@ func oxmlToFontStyle(f *oxml.CT_Font) *FontStyle {
 	if f.I != nil {
 		fs.Italic = f.I.Val == nil || *f.I.Val
 	}
-	if f.U != nil {
-		fs.Underline = true
+	if f.Strike != nil {
+		fs.Strike = f.Strike.Val == nil || *f.Strike.Val
+	}
+	applyOxmlUnderline(fs, f.U)
+	if f.VertAlign != nil {
+		fs.VertAlign = enum.VerticalAlignRun(f.VertAlign.Val)
 	}
 	if f.Color != nil && f.Color.Rgb != "" {
 		fs.Color = stripAlphaFromRGB(f.Color.Rgb)
 	}
 	// Return nil if it's just a default font with no user-visible properties
-	if fs.Name == "" && fs.Size == 0 && !fs.Bold && !fs.Italic && !fs.Underline && fs.Color == "" {
+	if fs.Name == "" && fs.Size == 0 && !fs.Bold && !fs.Italic && !fs.Underline &&
+		!fs.Strike && fs.UnderlineStyle == "" && fs.VertAlign == "" && fs.Color == "" {
 		return nil
 	}
 	return fs
@@ -648,7 +689,18 @@ func fontEqual(a, b *oxml.CT_Font) bool {
 		boolPropEqual(a.I, b.I) &&
 		boolPropEqual(a.Strike, b.Strike) &&
 		underlineEqual(a.U, b.U) &&
+		vertAlignFontEqual(a.VertAlign, b.VertAlign) &&
 		colorEqual(a.Color, b.Color)
+}
+
+func vertAlignFontEqual(a, b *oxml.CT_VerticalAlignFontProperty) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if a == nil {
+		return true
+	}
+	return a.Val == b.Val
 }
 
 func fillEqual(a, b *oxml.CT_Fill) bool {

@@ -781,6 +781,7 @@ func textFrameToOxml(tf *TextFrame) *dml.TxBody {
 		LstStyle: &dml.LstStyle{},
 		P:        make([]*dml.P, 0, len(tf.paragraphs)),
 	}
+	applyAutofit(txBody.BodyPr, tf.autofit)
 
 	for _, para := range tf.paragraphs {
 		ap := paragraphToOxml(para)
@@ -803,11 +804,28 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 
 	// Set paragraph properties if needed
 	needSpacing := p.lineSpacing != 0 || p.spaceBefore != 0 || p.spaceAfter != 0
-	if p.alignment != "" || p.level > 0 || p.bulletType != BulletInherit || needSpacing {
+	needBulletStyle := p.bulletColor != nil || p.bulletSizePct != 0 || p.bulletFont != ""
+	needIndent := p.marL != nil || p.indent != nil || len(p.tabStops) > 0
+	if p.alignment != "" || p.level > 0 || p.bulletType != BulletInherit ||
+		needSpacing || needBulletStyle || needIndent {
 		lvl := int32(p.level)
 		ap.PPr = &dml.PPr{
-			Algn: string(p.alignment),
-			Lvl:  &lvl,
+			MarL:   p.marL,
+			Indent: p.indent,
+			Algn:   string(p.alignment),
+			Lvl:    &lvl,
+		}
+
+		// Bullet styling (color/size/font) applies to whichever bullet kind the
+		// paragraph carries, so it is emitted independently of the bullet type.
+		if p.bulletColor != nil {
+			ap.PPr.BuClr = colorToBuClr(p.bulletColor)
+		}
+		if p.bulletSizePct != 0 {
+			ap.PPr.BuSzPct = &dml.BuSzPct{Val: dml.NewPercentage(p.bulletSizePct)}
+		}
+		if p.bulletFont != "" {
+			ap.PPr.BuFont = &dml.BuFont{Typeface: p.bulletFont}
 		}
 
 		// Emit a bullet element only when the bullet was set explicitly.
@@ -820,7 +838,24 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 		case BulletChar:
 			ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
 		case BulletNumber, BulletAuto:
-			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
+			scheme := string(p.bulletAutoNumType)
+			if scheme == "" {
+				scheme = "arabicPeriod"
+			}
+			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: scheme, StartAt: p.bulletAutoNumStartAt}
+		}
+
+		if len(p.tabStops) > 0 {
+			tabLst := &dml.TabLst{Tab: make([]*dml.Tab, 0, len(p.tabStops))}
+			for _, ts := range p.tabStops {
+				pos := int32(ts.Position)
+				algn := ts.Align
+				if algn == "" {
+					algn = TabAlignLeft
+				}
+				tabLst.Tab = append(tabLst.Tab, &dml.Tab{Pos: &pos, Algn: string(algn)})
+			}
+			ap.PPr.TabLst = tabLst
 		}
 
 		// Spacing (symmetric with the oxml->domain read): line spacing is a
@@ -907,6 +942,52 @@ func runToOxml(r *Run) *dml.R {
 	}
 
 	return ar
+}
+
+// applyAutofit sets the body's autofit child to match the domain mode, clearing
+// the others first. AutofitInherit leaves all three unset so the body inherits.
+func applyAutofit(bp *dml.BodyPr, autofit AutofitType) {
+	bp.NoAutofit, bp.NormAutofit, bp.SpAutoFit = nil, nil, nil
+	switch autofit {
+	case AutofitNone:
+		bp.NoAutofit = &dml.NoAutofit{}
+	case AutofitShape:
+		bp.SpAutoFit = &dml.SpAutoFit{}
+	case AutofitNormal:
+		bp.NormAutofit = &dml.NormAutofit{}
+	}
+}
+
+// colorToBuClr converts a Color to a dml.BuClr (a:buClr bullet color).
+func colorToBuClr(c *dml.Color) *dml.BuClr {
+	if c == nil {
+		return nil
+	}
+	bc := &dml.BuClr{}
+	if c.Type == dml.ColorTypeTheme {
+		bc.SchemeClr = &dml.SchemeClrTransform{Val: c.Theme.String()}
+	} else {
+		bc.SrgbClr = &dml.SrgbClr{Val: c.RGB.String()}
+	}
+	return bc
+}
+
+// buClrToColor converts a dml.BuClr bullet color to a dml.Color.
+func buClrToColor(bc *dml.BuClr) *dml.Color {
+	if bc == nil {
+		return nil
+	}
+	if bc.SrgbClr != nil {
+		if rgb, err := dml.ParseRGB(bc.SrgbClr.Val); err == nil {
+			c := rgb.ToColor()
+			return &c
+		}
+	}
+	if bc.SchemeClr != nil {
+		c := parseThemeColorString(bc.SchemeClr.Val).ToColor()
+		return &c
+	}
+	return nil
 }
 
 // colorToColorChoiceOxml converts a Color to a dml.ColorChoice (used where the
