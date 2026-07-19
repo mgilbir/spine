@@ -15,7 +15,11 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
-  - Slide transitions (fade, push, wipe, and more)
+  - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`
+  - Slide and master background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern)
+  - Table styling: built-in/theme table-style reference (`Table.SetStyleID`) and per-cell text insets (`TableCell.SetMargins`)
+  - Embedded fonts (`Presentation.EmbeddedFonts`/`SetEmbeddedFonts`) and custom slide shows (`Presentation.CustomShows`/`AddCustomShow`), read and written
+  - Slide transitions (fade, push, wipe, circle, comb, newsflash, pull, random-bar, strips, wedge, zoom, and more) with direction/orientation, wheel spokes, through-black, and sound-action parameters
   - Slide animations: entrance (appear, fade, fly-in, wipe, zoom), emphasis (pulse, spin, grow/shrink), and exit (disappear, fade, fly-out) effects with on-click / with-previous / after-previous sequencing and optional build-by-paragraph, authored via `Slide.AddAnimation` and read back with `Slide.Animations()`
   - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
   - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size

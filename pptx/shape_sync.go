@@ -358,6 +358,7 @@ func patchTableNode(atbl *oxml.ATable, t *Table) {
 		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
 		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
 		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
+		pr.TableStyleId = t.tableStyleID
 		for i, gc := range atbl.TblGrid.GridCol {
 			gc.W = int64(t.colWidths[i])
 		}
@@ -395,6 +396,7 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	if cell.vertAlign != "" {
 		pr.Anchor = string(cell.vertAlign)
 	}
+	applyCellMargins(pr, cell)
 	if cell.borderLeft != nil {
 		pr.LnL = tableBorderToLn(cell.borderLeft)
 	}
@@ -427,6 +429,20 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	}
 	tc.HMerge = cell.hMerge
 	tc.VMerge = cell.vMerge
+}
+
+// applyCellMargins writes explicit cell text insets into the parsed tcPr, or
+// clears them on a ClearMargins. When neither was set the parsed insets are
+// left untouched, so a cell edited for an unrelated reason keeps its margins.
+func applyCellMargins(pr *oxml.ATcPr, cell *TableCell) {
+	switch {
+	case cell.margins != nil:
+		l, t := int64(cell.margins.left), int64(cell.margins.top)
+		r, b := int64(cell.margins.right), int64(cell.margins.bottom)
+		pr.MarL, pr.MarT, pr.MarR, pr.MarB = &l, &t, &r, &b
+	case cell.marginsCleared:
+		pr.MarL, pr.MarT, pr.MarR, pr.MarB = nil, nil, nil, nil
+	}
 }
 
 // updateGroupNode flushes a dirty group into its parsed p:grpSp node: the

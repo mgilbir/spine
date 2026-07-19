@@ -67,6 +67,15 @@ func (s *Slide) Index() int {
 	return s.index
 }
 
+// RelID returns the slide's presentation-level relationship id (the r:id of its
+// p:sldId entry in presentation.xml). For a slide loaded from a file this is its
+// stored id; for a slide created through this package the id is assigned when
+// the deck is first saved, so RelID reports an empty string until then. It is
+// the identifier a custom show references (see Presentation.AddCustomShow).
+func (s *Slide) RelID() string {
+	return s.relID
+}
+
 // Name returns the name of the slide, if any.
 func (s *Slide) Name() string {
 	if s.slideXML != nil && s.slideXML.CSld != nil {
@@ -647,6 +656,12 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src.EffectDag != nil {
 		dst.EffectDag = src.EffectDag
 	}
+	if src.Scene3d != nil {
+		dst.Scene3d = src.Scene3d
+	}
+	if src.Sp3d != nil {
+		dst.Sp3d = src.Sp3d
+	}
 }
 
 // placeholderToOxml converts a PlaceholderShape to oxml.Shape.
@@ -1068,12 +1083,13 @@ func tableToOxml(t *Table, id uint32) *oxml.GraphicFrame {
 func tableDataToOxml(t *Table) *oxml.ATable {
 	tbl := &oxml.ATable{
 		TblPr: &oxml.ATblPr{
-			FirstRow: t.firstRow,
-			FirstCol: t.firstCol,
-			LastRow:  t.lastRow,
-			LastCol:  t.lastCol,
-			BandRow:  t.bandRow,
-			BandCol:  t.bandCol,
+			FirstRow:     t.firstRow,
+			FirstCol:     t.firstCol,
+			LastRow:      t.lastRow,
+			LastCol:      t.lastCol,
+			BandRow:      t.bandRow,
+			BandCol:      t.bandCol,
+			TableStyleId: t.tableStyleID,
 		},
 		TblGrid: &oxml.ATblGrid{
 			GridCol: make([]*oxml.AGridCol, len(t.colWidths)),
@@ -1100,11 +1116,13 @@ func tableDataToOxml(t *Table) *oxml.ATable {
 			// Set cell properties
 			if cell.fill != nil || cell.vertAlign != "" ||
 				cell.borderLeft != nil || cell.borderRight != nil ||
-				cell.borderTop != nil || cell.borderBottom != nil {
+				cell.borderTop != nil || cell.borderBottom != nil ||
+				cell.margins != nil {
 				tc.TcPr = &oxml.ATcPr{}
 				if cell.vertAlign != "" {
 					tc.TcPr.Anchor = string(cell.vertAlign)
 				}
+				applyCellMargins(tc.TcPr, cell)
 				tc.TcPr.LnL = tableBorderToLn(cell.borderLeft)
 				tc.TcPr.LnR = tableBorderToLn(cell.borderRight)
 				tc.TcPr.LnT = tableBorderToLn(cell.borderTop)
@@ -1161,9 +1179,9 @@ func regenerateTableNode(t *Table, old *oxml.ATable) *oxml.ATable {
 	}
 
 	tbl := tableDataToOxml(t)
-	if old != nil && old.TblPr != nil && tbl.TblPr != nil {
-		tbl.TblPr.TableStyleId = old.TblPr.TableStyleId
-	}
+	// tbl.TblPr.TableStyleId already reflects t.tableStyleID, which was
+	// materialized from the source table (or overridden via SetStyleID), so the
+	// style reference is carried over without re-reading the old node.
 	if old != nil && old.TblGrid != nil && tbl.TblGrid != nil &&
 		len(old.TblGrid.GridCol) == len(tbl.TblGrid.GridCol) {
 		for i, gc := range tbl.TblGrid.GridCol {

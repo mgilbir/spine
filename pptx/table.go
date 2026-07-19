@@ -18,6 +18,10 @@ type Table struct {
 	bandRow   bool // banded rows
 	bandCol   bool // banded columns
 
+	// tableStyleID is the GUID of a built-in or theme table style
+	// (a:tblPr/a:tableStyleId); empty when the table references none.
+	tableStyleID string
+
 	// structDirty is set by mutators that change the table's grid shape (rows
 	// or columns added/removed); the parsed a:tbl must then be regenerated —
 	// with parsed styling carried over for surviving cells (see
@@ -281,6 +285,20 @@ func (t *Table) SetBandedCols(value bool) {
 	t.propsDirty = true
 }
 
+// StyleID returns the table's built-in/theme table-style GUID
+// (a:tblPr/a:tableStyleId), or an empty string when none is set.
+func (t *Table) StyleID() string {
+	return t.tableStyleID
+}
+
+// SetStyleID sets the table's table-style reference to a built-in or theme
+// table-style GUID (e.g. "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}", the
+// "Medium Style 2 - Accent 1" built-in). An empty string clears it.
+func (t *Table) SetStyleID(id string) {
+	t.tableStyleID = id
+	t.propsDirty = true
+}
+
 // TableRow represents a row in a table.
 type TableRow struct {
 	cells  []*TableCell
@@ -344,6 +362,14 @@ type TableCell struct {
 	vMerge       bool // merged with cell above
 	dirty        bool
 
+	// margins holds cell text insets (a:tcPr/@marL,marT,marR,marB) set through
+	// SetMargins; nil when the caller never set them. marginsCleared records a
+	// ClearMargins call so the flush nils the parsed insets. When neither is
+	// set the parsed insets are left untouched, preserving byte fidelity for
+	// cells edited for unrelated reasons.
+	margins        *cellMargins
+	marginsCleared bool
+
 	// sourceTc is the a:tc node this cell was parsed from (or last flushed
 	// into). A structural regeneration reuses its tcPr and txBody for
 	// surviving cells, so parsed styling (margins, borders, fills) is not
@@ -361,9 +387,54 @@ func NewTableCell() *TableCell {
 	}
 }
 
+// cellMargins holds a table cell's four text insets in EMUs.
+type cellMargins struct {
+	left, top, right, bottom dml.EMU
+}
+
+// emuOrZero dereferences an optional EMU-valued attribute, returning 0 for nil.
+func emuOrZero(v *int64) dml.EMU {
+	if v == nil {
+		return 0
+	}
+	return dml.EMU(*v)
+}
+
 // TextFrame returns the text frame for the cell.
 func (c *TableCell) TextFrame() *TextFrame {
 	return c.textFrame
+}
+
+// SetMargins sets the cell's text insets (left, top, right, bottom) in EMUs,
+// overriding the table style's defaults.
+func (c *TableCell) SetMargins(left, top, right, bottom dml.EMU) {
+	c.margins = &cellMargins{left: left, top: top, right: right, bottom: bottom}
+	c.marginsCleared = false
+	c.dirty = true
+}
+
+// Margins returns the cell's text insets (left, top, right, bottom) in EMUs and
+// true when they are set, reading an explicit SetMargins first and otherwise
+// the insets parsed from the source cell. It reports false when no inset was
+// set and the cell inherits its margins.
+func (c *TableCell) Margins() (left, top, right, bottom dml.EMU, set bool) {
+	if c.margins != nil {
+		return c.margins.left, c.margins.top, c.margins.right, c.margins.bottom, true
+	}
+	if !c.marginsCleared && c.sourceTc != nil && c.sourceTc.TcPr != nil {
+		pr := c.sourceTc.TcPr
+		if pr.MarL != nil || pr.MarT != nil || pr.MarR != nil || pr.MarB != nil {
+			return emuOrZero(pr.MarL), emuOrZero(pr.MarT), emuOrZero(pr.MarR), emuOrZero(pr.MarB), true
+		}
+	}
+	return 0, 0, 0, 0, false
+}
+
+// ClearMargins removes explicit cell margins, restoring the inherited defaults.
+func (c *TableCell) ClearMargins() {
+	c.margins = nil
+	c.marginsCleared = true
+	c.dirty = true
 }
 
 // SetText sets the text content of the cell.

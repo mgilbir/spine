@@ -514,6 +514,7 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 		tbl.lastCol = atbl.TblPr.LastCol
 		tbl.bandRow = atbl.TblPr.BandRow
 		tbl.bandCol = atbl.TblPr.BandCol
+		tbl.tableStyleID = atbl.TblPr.TableStyleId
 	}
 
 	// Column widths
