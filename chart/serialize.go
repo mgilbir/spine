@@ -434,7 +434,7 @@ func normalizeHexColor(hex string) string {
 
 func boolElem(v bool) *dmlchart.Boolean { return &dmlchart.Boolean{Val: v} }
 func uintElem(v uint32) *dmlchart.UnsignedInt {
-	return &dmlchart.UnsignedInt{Val: v}
+	return &dmlchart.UnsignedInt{Val: int64(v)}
 }
 func boolPtr(v bool) *bool { return &v }
 
