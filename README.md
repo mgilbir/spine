@@ -36,6 +36,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Page setup (size, margins), multi-column sections, page-number format/start, title-page, and section type; enumerate sections with `Document.Sections()`
   - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
   - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
+  - Tracked changes (revisions): enumerate insertions, deletions, and run/paragraph property changes with `Document.Revisions()` (author, date, type, text), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
