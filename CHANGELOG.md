@@ -196,6 +196,23 @@ remediation series (#59–#75).
   and `Shape.ID()` exposes the cNvPr id used to target a shape. A slide whose
   `p:timing` is never touched round-trips byte-for-byte, and media auto-play
   timing is unaffected.
+- docx: style and numbering definition managers. `Document.Styles()` returns a
+  `StyleManager` to create and modify paragraph/character styles —
+  `AddParagraphStyle`/`AddCharacterStyle`/`AddStyle` return a chainable `Style`
+  builder (id/name, `SetType`/`SetBasedOn`/`SetNext`/`SetLink`/`SetQuickFormat`/
+  `SetUIPriority`, plus the style's paragraph properties `SetAlignment`/
+  `SetSpaceBefore`/`SetSpaceAfter`/`SetLineSpacing`/`SetIndentLeft`/
+  `SetIndentFirstLine`/`SetIndentHanging` and run properties `SetFont`/
+  `SetFontSize`/`SetBold`/`SetItalic`/`SetColor`), with `Style(id)` to
+  fetch/modify and `List()` to enumerate. `Document.Numbering()` (alias
+  `ListDefinitions()`) returns a `NumberingManager` whose `AddDefinition()`
+  builds a custom multi-level `ListDefinition`: `Level(i)`/`SetLevel(i, format,
+  lvlText)` configure per-level `SetFormat` (decimal/bullet/lowerRoman/…),
+  `SetText`, `SetStart`, `SetFont`, `SetIndent`/`SetHanging`, and `SetAlignment`,
+  and `ListStyle()` returns a `ListStyle` that drives paragraphs through the
+  existing `Paragraph.SetListStyle`. Created styles/numbering are written into
+  `word/styles.xml`/`word/numbering.xml` on save; an unmodified styles or
+  numbering part still round-trips byte-for-byte.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
