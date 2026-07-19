@@ -485,19 +485,48 @@ type FontStyle struct {
 	VertAlign enum.VerticalAlignRun
 }
 
-// FillStyle represents fill styling.
+// FillStyle represents fill styling. It carries either a pattern fill (the
+// Pattern/FgColor/BgColor fields) or, when Gradient is set, a gradient fill.
+// A non-nil Gradient takes precedence over the pattern fields.
 type FillStyle struct {
 	Pattern string
 	FgColor string // hex color
 	BgColor string // hex color
+	// Gradient, when non-nil, renders a gradient fill instead of a pattern fill.
+	Gradient *GradientFill
+}
+
+// GradientFill represents a gradient fill (CT_GradientFill). Type is "linear"
+// (the default when empty) or "path". For a linear gradient Degree is the
+// angle; for a path gradient Left/Right/Top/Bottom (0..1) locate the inner
+// rectangle. Stops lists the color stops in ascending position order.
+type GradientFill struct {
+	Type   string // "linear" (default) or "path"
+	Degree float64
+	Left   float64
+	Right  float64
+	Top    float64
+	Bottom float64
+	Stops  []GradientStop
+}
+
+// GradientStop represents a single gradient color stop (CT_GradientStop).
+type GradientStop struct {
+	Position float64 // 0..1
+	Color    string  // hex color
 }
 
 // BorderStyle represents border styling.
 type BorderStyle struct {
-	Left   *BorderSide
-	Right  *BorderSide
-	Top    *BorderSide
-	Bottom *BorderSide
+	Left     *BorderSide
+	Right    *BorderSide
+	Top      *BorderSide
+	Bottom   *BorderSide
+	Diagonal *BorderSide
+	// DiagonalUp / DiagonalDown select which diagonal(s) the Diagonal side is
+	// drawn across (Excel's up/down diagonal border toggles).
+	DiagonalUp   bool
+	DiagonalDown bool
 }
 
 // BorderSide represents one side of a border.
@@ -513,6 +542,16 @@ type AlignmentStyle struct {
 	WrapText   bool
 	Indent     int
 	Rotation   int
+	// ShrinkToFit shrinks the displayed text so it fits within the cell.
+	ShrinkToFit bool
+	// JustifyLastLine justifies the final line of a justified paragraph.
+	JustifyLastLine bool
+	// ReadingOrder controls text direction: 0 context-dependent, 1 left-to-right,
+	// 2 right-to-left.
+	ReadingOrder uint32
+	// RelativeIndent is the relative indent used by dxf (differential) records;
+	// it may be negative.
+	RelativeIndent int
 }
 
 // SetStyle creates a style from the given definition and applies it to the cell.
