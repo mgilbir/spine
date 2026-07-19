@@ -45,6 +45,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Formula support
   - Cell styling (fonts, fills, borders, number formats, alignment)
   - Freeze panes, auto-filter, and data validation, with read accessors for each
+  - Sheet view & structure: sheet visibility (`Sheet.SetVisibility`/`Visible`, refusing to hide the last visible sheet), row/column hide (`SetRowHidden`/`SetColumnHidden`), view toggles (row/column headers, right-to-left, formulas, zeros, ruler, and normal/page-layout/page-break view), scrolling split panes (`Sheet.SplitPanes`, distinct from freeze), row/column grouping & outline levels (`GroupRows`/`GroupColumns`, collapsed flags, outline summary placement), and force-recalc-on-open (`Workbook.SetForceFullCalc`)
   - Merged cells and named ranges
   - Column widths and row heights
   - Hyperlinks (external and internal), read and written through the `Hyperlink` type shared with the docx/pptx APIs
