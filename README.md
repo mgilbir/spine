@@ -71,7 +71,13 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
 
-Runnable programs for all three formats live in [`examples/`](examples/).
+Runnable programs for all three formats live in [`examples/`](examples/):
+
+- [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
+- [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
+- [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
+- [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
+- [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
 
 ## Installation
 
