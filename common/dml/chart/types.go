@@ -14,9 +14,17 @@ type Boolean struct {
 	Val bool `xml:"val,attr"`
 }
 
-// UnsignedInt represents CT_UnsignedInt
+// UnsignedInt represents CT_UnsignedInt. Its val is xsd:unsignedInt per the
+// schema, but the type is modeled as a signed int64 rather than a uint32: the
+// axId/crossAx elements that share this type carry axis identifiers that
+// Microsoft PowerPoint and Excel routinely emit as negative signed int32
+// values (e.g. <c:axId val="-2042759216"/>). A uint32 field makes
+// encoding/xml reject the whole chart part on such an axId; int64 accepts both
+// the full unsignedInt range and those de-facto signed ids, and serializes
+// every value (positive or negative) to the identical text, preserving
+// round-trip fidelity.
 type UnsignedInt struct {
-	Val uint32 `xml:"val,attr"`
+	Val int64 `xml:"val,attr"`
 }
 
 // Double represents CT_Double
