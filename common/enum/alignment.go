@@ -105,6 +105,18 @@ const (
 	StrikeDouble StrikeStyle = "dblStrike"
 )
 
+// VerticalAlignRun specifies the vertical alignment (baseline offset) of a run
+// of characters: normal baseline, superscript, or subscript. The string values
+// are the ST_VerticalAlignRun tokens shared by WordprocessingML (w:vertAlign)
+// and SpreadsheetML (x:vertAlign), so they serialize directly in both formats.
+type VerticalAlignRun string
+
+const (
+	VerticalAlignRunBaseline    VerticalAlignRun = "baseline"
+	VerticalAlignRunSuperscript VerticalAlignRun = "superscript"
+	VerticalAlignRunSubscript   VerticalAlignRun = "subscript"
+)
+
 // Orientation specifies content orientation.
 type Orientation string
 

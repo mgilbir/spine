@@ -14,6 +14,12 @@ type TextFrame struct {
 	wrap       enum.TextWrapping
 	margins    TextMargins
 
+	autofit AutofitType
+	// autofitDirty is set only by SetAutofit so an unmodified (or merely
+	// anchor/wrap/margin-edited) text body leaves its parsed autofit element
+	// untouched — reading the autofit for a getter must not force a rewrite.
+	autofitDirty bool
+
 	// bodyDirty is set when anchor/wrap/margins change; contentDirty when the
 	// paragraph list changes. Together with the per-paragraph and per-run
 	// flags they let the shape sync update only what the caller touched (see
@@ -21,6 +27,23 @@ type TextFrame struct {
 	bodyDirty    bool
 	contentDirty bool
 }
+
+// AutofitType selects how a text body resizes text and shape to fit each other
+// (the a:bodyPr autofit child).
+type AutofitType int
+
+const (
+	// AutofitInherit is the zero value: the text frame emits no autofit element
+	// and inherits the setting from its placeholder/layout/master.
+	AutofitInherit AutofitType = iota
+	// AutofitNone disables autofit (a:noAutofit): text is neither shrunk nor is
+	// the shape resized.
+	AutofitNone
+	// AutofitShape resizes the shape to fit its text (a:spAutoFit).
+	AutofitShape
+	// AutofitNormal shrinks the text so it fits the shape (a:normAutofit).
+	AutofitNormal
+)
 
 // TextMargins specifies the text margins within a text frame.
 type TextMargins struct {
@@ -101,6 +124,20 @@ func (tf *TextFrame) SetWordWrap(wrap enum.TextWrapping) {
 	tf.bodyDirty = true
 }
 
+// Autofit returns the text body's autofit mode.
+func (tf *TextFrame) Autofit() AutofitType {
+	return tf.autofit
+}
+
+// SetAutofit sets the text body's autofit mode (a:noAutofit / a:spAutoFit /
+// a:normAutofit). AutofitInherit clears the setting so the frame inherits its
+// autofit from the placeholder/layout/master.
+func (tf *TextFrame) SetAutofit(autofit AutofitType) {
+	tf.autofit = autofit
+	tf.autofitDirty = true
+	tf.bodyDirty = true
+}
+
 // Margins returns the text margins.
 func (tf *TextFrame) Margins() TextMargins {
 	return tf.margins
@@ -141,6 +178,7 @@ func (tf *TextFrame) clearDirty() {
 	}
 	tf.bodyDirty = false
 	tf.contentDirty = false
+	tf.autofitDirty = false
 	for _, p := range tf.paragraphs {
 		p.dirty = false
 		for _, r := range p.runs {
@@ -159,7 +197,52 @@ type Paragraph struct {
 	spaceAfter  dml.EMU
 	bulletType  BulletType
 	bulletChar  string
-	dirty       bool
+	// Bullet styling (a:buClr / a:buSzPct / a:buFont) applies to whichever
+	// bullet kind the paragraph carries. bulletSizePct is in the dml.Percentage
+	// unit scale (100000 = 100%); 0 means unset.
+	bulletColor          *dml.Color
+	bulletSizePct        int32
+	bulletFont           string
+	bulletAutoNumType    AutoNumberScheme
+	bulletAutoNumStartAt int32
+	// marL / indent (a:pPr@marL/@indent) in EMU; nil means unset. tabStops maps
+	// a:tabLst.
+	marL     *int32
+	indent   *int32
+	tabStops []TabStop
+	dirty    bool
+}
+
+// AutoNumberScheme names an automatic-numbering bullet scheme (a:buAutoNum@type,
+// ST_TextAutonumberScheme). The string values are the DrawingML tokens.
+type AutoNumberScheme string
+
+const (
+	AutoNumberArabicPeriod  AutoNumberScheme = "arabicPeriod"
+	AutoNumberArabicParenR  AutoNumberScheme = "arabicParenR"
+	AutoNumberAlphaLcPeriod AutoNumberScheme = "alphaLcPeriod"
+	AutoNumberAlphaUcPeriod AutoNumberScheme = "alphaUcPeriod"
+	AutoNumberRomanLcPeriod AutoNumberScheme = "romanLcPeriod"
+	AutoNumberRomanUcPeriod AutoNumberScheme = "romanUcPeriod"
+)
+
+// TabAlign names the alignment of a paragraph tab stop (a:tab@algn,
+// ST_TextTabAlignType).
+type TabAlign string
+
+const (
+	TabAlignLeft    TabAlign = "l"
+	TabAlignCenter  TabAlign = "ctr"
+	TabAlignRight   TabAlign = "r"
+	TabAlignDecimal TabAlign = "dec"
+)
+
+// TabStop describes a single paragraph tab stop (a:tab).
+type TabStop struct {
+	// Position is the tab stop position in EMU from the text region's left edge.
+	Position dml.EMU
+	// Align is the tab stop alignment. The empty value is treated as left.
+	Align TabAlign
 }
 
 // BulletType specifies the type of bullet for a paragraph.
@@ -310,6 +393,119 @@ func (p *Paragraph) BulletChar() string {
 func (p *Paragraph) SetBulletChar(char string) {
 	p.bulletChar = char
 	p.bulletType = BulletChar
+	p.dirty = true
+}
+
+// SetBulletAutoNumber sets the paragraph to an automatically numbered bullet
+// using the given scheme, starting at startAt (1-based; pass 0 to omit the
+// start attribute and begin at the scheme default). An empty scheme defaults to
+// AutoNumberArabicPeriod.
+func (p *Paragraph) SetBulletAutoNumber(scheme AutoNumberScheme, startAt int32) {
+	if scheme == "" {
+		scheme = AutoNumberArabicPeriod
+	}
+	p.bulletType = BulletNumber
+	p.bulletAutoNumType = scheme
+	p.bulletAutoNumStartAt = startAt
+	p.dirty = true
+}
+
+// BulletAutoNumberScheme returns the auto-numbering scheme, or an empty string
+// when the paragraph is not auto-numbered.
+func (p *Paragraph) BulletAutoNumberScheme() AutoNumberScheme {
+	return p.bulletAutoNumType
+}
+
+// BulletAutoNumberStart returns the auto-numbering start value, or 0 when unset.
+func (p *Paragraph) BulletAutoNumberStart() int32 {
+	return p.bulletAutoNumStartAt
+}
+
+// BulletColor returns the bullet color (a:buClr), or nil when unset.
+func (p *Paragraph) BulletColor() *dml.Color {
+	return p.bulletColor
+}
+
+// SetBulletColor sets the bullet color (a:buClr), independent of the run text
+// color.
+func (p *Paragraph) SetBulletColor(color dml.Color) {
+	p.bulletColor = &color
+	p.dirty = true
+}
+
+// BulletSizePercent returns the bullet size as a percentage of the text size in
+// the dml.Percentage unit scale (100000 = 100%), or 0 when unset.
+func (p *Paragraph) BulletSizePercent() int32 {
+	return p.bulletSizePct
+}
+
+// SetBulletSizePercent sets the bullet size as a percentage of the text
+// (a:buSzPct), in the dml.Percentage unit scale (100000 = 100%).
+func (p *Paragraph) SetBulletSizePercent(pct int32) {
+	p.bulletSizePct = pct
+	p.dirty = true
+}
+
+// BulletFont returns the bullet font typeface (a:buFont), or an empty string
+// when unset.
+func (p *Paragraph) BulletFont() string {
+	return p.bulletFont
+}
+
+// SetBulletFont sets the bullet font typeface (a:buFont), used by character and
+// numbered bullets.
+func (p *Paragraph) SetBulletFont(typeface string) {
+	p.bulletFont = typeface
+	p.dirty = true
+}
+
+// MarginLeft returns the paragraph left margin in EMU (a:pPr@marL), or 0 when
+// unset.
+func (p *Paragraph) MarginLeft() dml.EMU {
+	if p.marL == nil {
+		return 0
+	}
+	return dml.EMU(*p.marL)
+}
+
+// SetMarginLeft sets the paragraph left margin in EMU (a:pPr@marL).
+func (p *Paragraph) SetMarginLeft(marL dml.EMU) {
+	v := int32(marL)
+	p.marL = &v
+	p.dirty = true
+}
+
+// Indent returns the first-line indent in EMU (a:pPr@indent), or 0 when unset.
+// A negative indent produces a hanging indent.
+func (p *Paragraph) Indent() dml.EMU {
+	if p.indent == nil {
+		return 0
+	}
+	return dml.EMU(*p.indent)
+}
+
+// SetIndent sets the first-line indent in EMU (a:pPr@indent). Negative values
+// produce a hanging indent.
+func (p *Paragraph) SetIndent(indent dml.EMU) {
+	v := int32(indent)
+	p.indent = &v
+	p.dirty = true
+}
+
+// TabStops returns the paragraph's explicit tab stops (a:tabLst), in order.
+func (p *Paragraph) TabStops() []TabStop {
+	return p.tabStops
+}
+
+// SetTabStops replaces the paragraph's explicit tab stops (a:tabLst).
+func (p *Paragraph) SetTabStops(stops []TabStop) {
+	p.tabStops = stops
+	p.dirty = true
+}
+
+// AddTabStop appends a single tab stop to the paragraph (a:tabLst).
+func (p *Paragraph) AddTabStop(stop TabStop) {
+	p.tabStops = append(p.tabStops, stop)
 	p.dirty = true
 }
 

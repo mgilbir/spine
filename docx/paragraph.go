@@ -176,6 +176,92 @@ func (p *Paragraph) SetIndentHanging(points float64) {
 	ind.FirstLine = "" // mutually exclusive with first-line
 }
 
+// --- Tab stops ---
+
+// TabAlignment names the alignment of a paragraph tab stop (w:tab@val,
+// ST_TabJc). The string values are the WordprocessingML tokens.
+type TabAlignment string
+
+const (
+	TabAlignLeft    TabAlignment = "left"
+	TabAlignCenter  TabAlignment = "center"
+	TabAlignRight   TabAlignment = "right"
+	TabAlignDecimal TabAlignment = "decimal"
+	TabAlignBar     TabAlignment = "bar"
+	TabAlignClear   TabAlignment = "clear"
+)
+
+// TabLeader names the leader character drawn in the space a tab stop spans
+// (w:tab@leader, ST_TabTlc). The string values are the WordprocessingML tokens.
+type TabLeader string
+
+const (
+	TabLeaderNone       TabLeader = "none"
+	TabLeaderDot        TabLeader = "dot"
+	TabLeaderHyphen     TabLeader = "hyphen"
+	TabLeaderUnderscore TabLeader = "underscore"
+	TabLeaderHeavy      TabLeader = "heavy"
+	TabLeaderMiddleDot  TabLeader = "middleDot"
+)
+
+// TabStop describes a single paragraph tab stop.
+type TabStop struct {
+	// Position is the tab stop position in points, measured from the paragraph
+	// left margin (or from the value's reference for bar/right stops).
+	Position float64
+	// Alignment is the tab stop alignment. The empty value is treated as left.
+	Alignment TabAlignment
+	// Leader is the leader character; the empty value (or TabLeaderNone) draws
+	// no leader.
+	Leader TabLeader
+}
+
+// Tabs returns the paragraph's explicit tab stops (w:tabs), in document order.
+func (p *Paragraph) Tabs() []TabStop {
+	if p.p.PPr == nil || p.p.PPr.Tabs == nil {
+		return nil
+	}
+	stops := make([]TabStop, 0, len(p.p.PPr.Tabs.Tab))
+	for i := range p.p.PPr.Tabs.Tab {
+		t := &p.p.PPr.Tabs.Tab[i]
+		stops = append(stops, TabStop{
+			Position:  twipsToPoints(t.Pos),
+			Alignment: TabAlignment(t.Val),
+			Leader:    TabLeader(t.Leader),
+		})
+	}
+	return stops
+}
+
+// AddTabStop appends a tab stop at the given position (in points) with the
+// given alignment and leader. A zero Alignment defaults to a left tab; a zero
+// (or TabLeaderNone) Leader draws no leader.
+func (p *Paragraph) AddTabStop(stop TabStop) {
+	p.ensurePPr()
+	if p.p.PPr.Tabs == nil {
+		p.p.PPr.Tabs = &oxml.CT_Tabs{}
+	}
+	align := stop.Alignment
+	if align == "" {
+		align = TabAlignLeft
+	}
+	ts := oxml.CT_TabStop{
+		Val: string(align),
+		Pos: pointsToTwips(stop.Position),
+	}
+	if stop.Leader != "" && stop.Leader != TabLeaderNone {
+		ts.Leader = string(stop.Leader)
+	}
+	p.p.PPr.Tabs.Tab = append(p.p.PPr.Tabs.Tab, ts)
+}
+
+// ClearTabStops removes all explicit tab stops from the paragraph.
+func (p *Paragraph) ClearTabStops() {
+	if p.p.PPr != nil {
+		p.p.PPr.Tabs = nil
+	}
+}
+
 // --- Flow Control ---
 
 // SetKeepWithNext sets whether the paragraph should be kept with the next paragraph.

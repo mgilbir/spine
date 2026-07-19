@@ -1,8 +1,7 @@
 package xlsx
 
 import (
-	"strings"
-
+	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -142,8 +141,16 @@ func fontStyleToRPrElt(fs *FontStyle) *oxml.CT_RPrElt {
 		rpr.I = &oxml.CT_BooleanProperty{}
 		set = true
 	}
-	if fs.Underline {
-		rpr.U = &oxml.CT_UnderlineProperty{Val: "single"}
+	if fs.Strike {
+		rpr.Strike = &oxml.CT_BooleanProperty{}
+		set = true
+	}
+	if u := fontUnderlineToOxml(fs); u != nil {
+		rpr.U = u
+		set = true
+	}
+	if fs.VertAlign != "" {
+		rpr.VertAlign = &oxml.CT_VerticalAlignFontProperty{Val: string(fs.VertAlign)}
 		set = true
 	}
 	if fs.Color != "" {
@@ -171,7 +178,11 @@ func rPrEltToFontStyle(rpr *oxml.CT_RPrElt) *FontStyle {
 	}
 	fs.Bold = boolPropOn(rpr.B)
 	fs.Italic = boolPropOn(rpr.I)
-	fs.Underline = rpr.U != nil && strings.ToLower(rpr.U.Val) != "none"
+	fs.Strike = boolPropOn(rpr.Strike)
+	applyOxmlUnderline(fs, rpr.U)
+	if rpr.VertAlign != nil {
+		fs.VertAlign = enum.VerticalAlignRun(rpr.VertAlign.Val)
+	}
 	if rpr.Color != nil && rpr.Color.Rgb != "" {
 		fs.Color = rpr.Color.Rgb
 	}
