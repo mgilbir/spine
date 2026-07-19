@@ -32,6 +32,8 @@ func TestAddChartRoundTripByKind(t *testing.T) {
 		{"line", chart.KindLine, chart.NewLine},
 		{"area", chart.KindArea, chart.NewArea},
 		{"pie", chart.KindPie, chart.NewPie},
+		{"doughnut", chart.KindDoughnut, chart.NewDoughnut},
+		{"radar", chart.KindRadar, chart.NewRadar},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,9 +69,9 @@ func TestAddChartRoundTripByKind(t *testing.T) {
 				t.Errorf("categories = %v, want %v", got.Categories(), wantCats)
 			}
 			series := got.SeriesList()
-			// A pie chart plots only its first series.
+			// Pie and doughnut charts plot only their first series.
 			wantSeries := 2
-			if tc.kind == chart.KindPie {
+			if tc.kind == chart.KindPie || tc.kind == chart.KindDoughnut {
 				wantSeries = 1
 			}
 			if len(series) != wantSeries {

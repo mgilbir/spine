@@ -3,6 +3,7 @@ package chart
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
 	dmlchart "github.com/mgilbir/spine/common/dml/chart"
@@ -105,6 +106,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			BarDir:     &dmlchart.BarDir{Val: dir},
 			Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
 			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
 			GapWidth:   &dmlchart.GapAmount{Val: 150},
 			AxId:       axIDs(catAxisID, valAxisID),
 		}
@@ -113,6 +115,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 				Idx:              uintElem(uint32(i)),
 				Order:            uintElem(uint32(i)),
 				Tx:               serName(s.Name, dl.Series[i].NameRef),
+				SpPr:             seriesSpPr(s.Color),
 				InvertIfNegative: boolElem(false),
 				Cat:              c.catSource(dl),
 				Val:              numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
@@ -123,6 +126,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		lc := &dmlchart.LineChart{
 			Grouping:   &dmlchart.Grouping{Val: "standard"},
 			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
 			Marker:     boolElem(true),
 			AxId:       axIDs(catAxisID, valAxisID),
 		}
@@ -131,6 +135,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 				Idx:    uintElem(uint32(i)),
 				Order:  uintElem(uint32(i)),
 				Tx:     serName(s.Name, dl.Series[i].NameRef),
+				SpPr:   seriesSpPr(s.Color),
 				Marker: &dmlchart.Marker{Symbol: &dmlchart.MarkerStyle{Val: "none"}},
 				Cat:    c.catSource(dl),
 				Val:    numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
@@ -142,6 +147,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		ac := &dmlchart.AreaChart{
 			Grouping:   &dmlchart.Grouping{Val: "standard"},
 			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
 			AxId:       axIDs(catAxisID, valAxisID),
 		}
 		for i, s := range c.series {
@@ -149,6 +155,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 				Idx:   uintElem(uint32(i)),
 				Order: uintElem(uint32(i)),
 				Tx:    serName(s.Name, dl.Series[i].NameRef),
+				SpPr:  seriesSpPr(s.Color),
 				Cat:   c.catSource(dl),
 				Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
 			})
@@ -157,6 +164,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 	case KindPie:
 		pc := &dmlchart.PieChart{
 			VaryColors: boolElem(true),
+			DLbls:      c.groupDataLabels(),
 		}
 		// A pie chart plots a single series; use the first.
 		s := c.series[0]
@@ -164,14 +172,52 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			Idx:   uintElem(0),
 			Order: uintElem(0),
 			Tx:    serName(s.Name, dl.Series[0].NameRef),
+			SpPr:  seriesSpPr(s.Color),
 			Cat:   c.catSource(dl),
 			Val:   numSource(s.Values, dl.Series[0].ValuesRef, c.numberFormat()),
 		})
 		plot.PieChart = append(plot.PieChart, pc)
+	case KindDoughnut:
+		dc := &dmlchart.DoughnutChart{
+			VaryColors: boolElem(true),
+			DLbls:      c.groupDataLabels(),
+			HoleSize:   &dmlchart.HoleSize{Val: defaultHoleSize},
+		}
+		// Like a pie, a doughnut plots a single series; use the first.
+		s := c.series[0]
+		dc.Ser = append(dc.Ser, &dmlchart.PieSer{
+			Idx:   uintElem(0),
+			Order: uintElem(0),
+			Tx:    serName(s.Name, dl.Series[0].NameRef),
+			SpPr:  seriesSpPr(s.Color),
+			Cat:   c.catSource(dl),
+			Val:   numSource(s.Values, dl.Series[0].ValuesRef, c.numberFormat()),
+		})
+		plot.DoughnutChart = append(plot.DoughnutChart, dc)
+	case KindRadar:
+		rc := &dmlchart.RadarChart{
+			RadarStyle: &dmlchart.RadarStyle{Val: "marker"},
+			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
+			AxId:       axIDs(catAxisID, valAxisID),
+		}
+		for i, s := range c.series {
+			rc.Ser = append(rc.Ser, &dmlchart.RadarSer{
+				Idx:    uintElem(uint32(i)),
+				Order:  uintElem(uint32(i)),
+				Tx:     serName(s.Name, dl.Series[i].NameRef),
+				SpPr:   seriesSpPr(s.Color),
+				Marker: &dmlchart.Marker{Symbol: &dmlchart.MarkerStyle{Val: "none"}},
+				Cat:    c.catSource(dl),
+				Val:    numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+			})
+		}
+		plot.RadarChart = append(plot.RadarChart, rc)
 	case KindScatter:
 		sc := &dmlchart.ScatterChart{
 			ScatterStyle: &dmlchart.ScatterStyle{Val: "lineMarker"},
 			VaryColors:   boolElem(false),
+			DLbls:        c.groupDataLabels(),
 			AxId:         axIDs(xAxisID, yAxisID),
 		}
 		for i, s := range c.series {
@@ -179,6 +225,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 				Idx:    uintElem(uint32(i)),
 				Order:  uintElem(uint32(i)),
 				Tx:     serName(s.Name, dl.Series[i].NameRef),
+				SpPr:   seriesSpPr(s.Color),
 				Marker: &dmlchart.Marker{Symbol: &dmlchart.MarkerStyle{Val: "circle"}},
 				XVal:   axNumSource(s.XValues, dl.Series[i].XValuesRef, "General"),
 				YVal:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
@@ -347,6 +394,42 @@ func axIDs(ids ...uint32) []*dmlchart.UnsignedInt {
 		out[i] = uintElem(id)
 	}
 	return out
+}
+
+// groupDataLabels returns a c:dLbls that turns on value labels for every point
+// in a chart-type group, or nil when the chart has data labels disabled. The
+// show flags are emitted explicitly (only showVal true) so a reader does not
+// fall back to its own defaults for the omitted ones.
+func (c *Chart) groupDataLabels() *dmlchart.DataLabels {
+	if !c.dataLabels {
+		return nil
+	}
+	return &dmlchart.DataLabels{
+		ShowLegendKey:  boolElem(false),
+		ShowVal:        boolElem(true),
+		ShowCatName:    boolElem(false),
+		ShowSerName:    boolElem(false),
+		ShowPercent:    boolElem(false),
+		ShowBubbleSize: boolElem(false),
+	}
+}
+
+// seriesSpPr returns a shape-properties element carrying a solid RGB fill for a
+// series, or nil when hex is empty (leaving the series its automatic color).
+func seriesSpPr(hex string) *dml.SpPr {
+	if hex == "" {
+		return nil
+	}
+	return &dml.SpPr{
+		SolidFill: &dml.SolidFill{SrgbClr: &dml.SrgbClr{Val: hex}},
+	}
+}
+
+// normalizeHexColor trims a leading '#' from an RGB hex string and upper-cases
+// it. It does not validate length: callers pass a 6-digit RGB value.
+func normalizeHexColor(hex string) string {
+	hex = strings.TrimPrefix(hex, "#")
+	return strings.ToUpper(hex)
 }
 
 func boolElem(v bool) *dmlchart.Boolean { return &dmlchart.Boolean{Val: v} }

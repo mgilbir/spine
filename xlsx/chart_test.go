@@ -71,6 +71,17 @@ func TestAddChartCreatePathRoundTrip(t *testing.T) {
 			c.AddSeries("Share", s1)
 			return c
 		}, false},
+		{"doughnut", func() *chart.Chart {
+			c := chart.NewDoughnut().SetTitle("Doughnut").SetCategories(cats)
+			c.AddSeries("Share", s1)
+			return c
+		}, false},
+		{"radar", func() *chart.Chart {
+			c := chart.NewRadar().SetTitle("Radar").SetCategories(cats).SetDataLabels(true)
+			c.AddSeries("North", s1).SetColor("#FF0000")
+			c.AddSeries("South", s2)
+			return c
+		}, false},
 		{"scatter", func() *chart.Chart {
 			c := chart.NewScatter().SetTitle("Scatter")
 			c.AddXYSeries("A", s1, s2)
