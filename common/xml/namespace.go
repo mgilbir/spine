@@ -153,6 +153,7 @@ const (
 	ExtURIDefaultImageDpi      = "{D31A062A-798A-4329-ABDD-BBA856620510}"
 	ExtURIDiscardImageEditData = "{E76CE94A-603C-4142-B9EB-6D1370010A27}"
 	ExtURILaserClr             = "{EC167BDD-8182-4AB7-AECC-EB403E3ABB37}"
+	ExtURISectionLst           = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
 
 	// PresentationML extension URIs (p15 - PowerPoint 2012)
 	ExtURIPresenceInfo          = "{19B8F6BF-5375-455C-9EA6-DF929625EA0E}"
