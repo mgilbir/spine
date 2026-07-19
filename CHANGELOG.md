@@ -162,6 +162,16 @@ remediation series (#59–#75).
 
 ### Added
 
+- chart: two new chart types and two formatting controls, all symmetric with the
+  existing constructors and setters and read back through `Parse` and every
+  format's `Charts()`. `NewDoughnut` builds a `c:doughnutChart` (a pie with a
+  hole; single series) and `NewRadar` builds a `c:radarChart` (category and value
+  axes, multi-series). `Chart.SetDataLabels(true)` emits `c:dLbls` (showVal) so
+  each point's value renders on the chart, recovered via `Chart.DataLabels()`.
+  `Series.SetColor("#1F77B4")` gives a series a solid RGB fill
+  (`c:spPr`/`a:solidFill`/`a:srgbClr`; the leading `#` is optional), recovered as
+  `Series.Color`. The new types and options flow through docx/pptx/xlsx
+  `AddChart` unchanged, since every format serializes via `MarshalChartXML`.
 - docx: charts. `Document.AddChart(c, widthEMU, heightEMU)` appends a paragraph
   holding an inline chart, and `Paragraph.AddChart(...)` places one inline among
   a paragraph's other runs. The chart's data is written to an embedded workbook

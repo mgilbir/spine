@@ -7,7 +7,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
-- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
+- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`) and value data labels (`SetDataLabels`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
@@ -26,7 +26,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Bullet and numbered lists
   - Headers and footers
   - Inline and floating (anchored) images — including SVG images with a raster fallback
-  - Charts (column, bar, line, pie, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
+  - Charts (column, bar, line, pie, doughnut, radar, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
   - Fields (PAGE/NUMPAGES) and a table of contents
   - Page setup (size, margins)
 - **Excel (XLSX)**: Create and modify Excel workbooks
@@ -379,9 +379,10 @@ func main() {
 		SetTitle("Quarterly Sales").
 		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"}).
 		SetAxisTitles("Quarter", "USD").
-		SetLegend(chart.LegendRight)
-	c.AddSeries("North", []float64{10, 20, 30, 40})
-	c.AddSeries("South", []float64{5, 15, 25, 35})
+		SetLegend(chart.LegendRight).
+		SetDataLabels(true) // render each point's value on the chart
+	c.AddSeries("North", []float64{10, 20, 30, 40}).SetColor("#1F77B4")
+	c.AddSeries("South", []float64{5, 15, 25, 35}).SetColor("#FF7F0E")
 
 	// chart.xml with cached values so it renders without a live data source.
 	xmlBytes, _ := c.MarshalChartXML()
@@ -400,9 +401,21 @@ func main() {
 ```
 
 Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
-`NewScatter` (via `AddXYSeries`), and `NewArea`. Cached values
-(`c:numCache` / `c:strCache`) are populated from the supplied data; `c:f`
-references are built against a configurable `DataRef` sheet (default `Sheet1`).
+`NewDoughnut`, `NewRadar`, `NewScatter` (via `AddXYSeries`), and `NewArea`.
+Cached values (`c:numCache` / `c:strCache`) are populated from the supplied
+data; `c:f` references are built against a configurable `DataRef` sheet
+(default `Sheet1`).
+
+Formatting is opt-in and symmetric with the constructors:
+
+- `SetDataLabels(true)` emits `c:dLbls` (showVal) so each point's value renders
+  on the chart. It round-trips through `Charts()` (`Chart.DataLabels()`).
+- `Series.SetColor("#1F77B4")` gives a series a solid RGB fill
+  (`c:spPr` / `a:solidFill` / `a:srgbClr`); the leading `#` is optional and the
+  value is recovered on read as `Series.Color`.
+
+All types (including doughnut and radar) flow through every format's `AddChart`
+and are read back by `Charts()`.
 
 This package is the shared core. Each format wires it in with an `AddChart`
 method and a `Charts()` reader (xlsx references the host sheet; docx and pptx

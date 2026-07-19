@@ -31,6 +31,10 @@ func Parse(chartXML []byte) (*Chart, error) {
 		c = parseLine(pa.LineChart[0])
 	case len(pa.PieChart) > 0:
 		c = parsePie(pa.PieChart[0])
+	case len(pa.DoughnutChart) > 0:
+		c = parseDoughnut(pa.DoughnutChart[0])
+	case len(pa.RadarChart) > 0:
+		c = parseRadar(pa.RadarChart[0])
 	case len(pa.AreaChart) > 0:
 		c = parseArea(pa.AreaChart[0])
 	case len(pa.ScatterChart) > 0:
@@ -66,6 +70,7 @@ func parseBar(bc *dmlchart.BarChart) *Chart {
 	}
 	c := newChart(kind)
 	c.showLegend = false
+	c.dataLabels = dLblsShowVal(bc.DLbls)
 	for i, s := range bc.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -73,6 +78,7 @@ func parseBar(bc *dmlchart.BarChart) *Chart {
 		c.series = append(c.series, &Series{
 			Name:   seriesName(s.Tx),
 			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
 		})
 	}
 	return c
@@ -81,6 +87,7 @@ func parseBar(bc *dmlchart.BarChart) *Chart {
 func parseLine(lc *dmlchart.LineChart) *Chart {
 	c := newChart(KindLine)
 	c.showLegend = false
+	c.dataLabels = dLblsShowVal(lc.DLbls)
 	for i, s := range lc.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -88,6 +95,7 @@ func parseLine(lc *dmlchart.LineChart) *Chart {
 		c.series = append(c.series, &Series{
 			Name:   seriesName(s.Tx),
 			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
 		})
 	}
 	return c
@@ -96,6 +104,7 @@ func parseLine(lc *dmlchart.LineChart) *Chart {
 func parseArea(ac *dmlchart.AreaChart) *Chart {
 	c := newChart(KindArea)
 	c.showLegend = false
+	c.dataLabels = dLblsShowVal(ac.DLbls)
 	for i, s := range ac.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -103,6 +112,7 @@ func parseArea(ac *dmlchart.AreaChart) *Chart {
 		c.series = append(c.series, &Series{
 			Name:   seriesName(s.Tx),
 			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
 		})
 	}
 	return c
@@ -111,6 +121,7 @@ func parseArea(ac *dmlchart.AreaChart) *Chart {
 func parsePie(pc *dmlchart.PieChart) *Chart {
 	c := newChart(KindPie)
 	c.showLegend = false
+	c.dataLabels = dLblsShowVal(pc.DLbls)
 	for i, s := range pc.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -118,6 +129,41 @@ func parsePie(pc *dmlchart.PieChart) *Chart {
 		c.series = append(c.series, &Series{
 			Name:   seriesName(s.Tx),
 			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
+		})
+	}
+	return c
+}
+
+func parseDoughnut(dc *dmlchart.DoughnutChart) *Chart {
+	c := newChart(KindDoughnut)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(dc.DLbls)
+	for i, s := range dc.Ser {
+		if i == 0 {
+			c.categories = categoriesFrom(s.Cat)
+		}
+		c.series = append(c.series, &Series{
+			Name:   seriesName(s.Tx),
+			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
+		})
+	}
+	return c
+}
+
+func parseRadar(rc *dmlchart.RadarChart) *Chart {
+	c := newChart(KindRadar)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(rc.DLbls)
+	for i, s := range rc.Ser {
+		if i == 0 {
+			c.categories = categoriesFrom(s.Cat)
+		}
+		c.series = append(c.series, &Series{
+			Name:   seriesName(s.Tx),
+			Values: numbersFrom(s.Val),
+			Color:  seriesColor(s.SpPr),
 		})
 	}
 	return c
@@ -126,14 +172,31 @@ func parsePie(pc *dmlchart.PieChart) *Chart {
 func parseScatter(sc *dmlchart.ScatterChart) *Chart {
 	c := newChart(KindScatter)
 	c.showLegend = false
+	c.dataLabels = dLblsShowVal(sc.DLbls)
 	for _, s := range sc.Ser {
 		c.series = append(c.series, &Series{
 			Name:    seriesName(s.Tx),
 			XValues: numbersFromAx(s.XVal),
 			Values:  numbersFrom(s.YVal),
+			Color:   seriesColor(s.SpPr),
 		})
 	}
 	return c
+}
+
+// dLblsShowVal reports whether a chart-type group's data labels turn on value
+// display (c:dLbls/c:showVal val="1").
+func dLblsShowVal(d *dmlchart.DataLabels) bool {
+	return d != nil && d.ShowVal != nil && d.ShowVal.Val
+}
+
+// seriesColor recovers a series' solid RGB fill from its shape properties, or
+// "" when it has no solid srgbClr fill.
+func seriesColor(spPr *dml.SpPr) string {
+	if spPr != nil && spPr.SolidFill != nil && spPr.SolidFill.SrgbClr != nil {
+		return spPr.SolidFill.SrgbClr.Val
+	}
+	return ""
 }
 
 // seriesName recovers a series name from its tx (cached strRef or literal v).
@@ -319,6 +382,20 @@ func firstCatRef(pa *dmlchart.PlotArea) string {
 	}
 	for _, pc := range pa.PieChart {
 		for _, s := range pc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, dc := range pa.DoughnutChart {
+		for _, s := range dc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, rc := range pa.RadarChart {
+		for _, s := range rc.Ser {
 			if r := catOf(s.Cat); r != "" {
 				return r
 			}

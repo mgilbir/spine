@@ -32,6 +32,15 @@ func newDocxChart(kind chart.Kind) *chart.Chart {
 		c := chart.NewPie().SetTitle("Pie").SetCategories([]string{"x", "y"})
 		c.AddSeries("P", []float64{60, 40})
 		return c
+	case chart.KindDoughnut:
+		c := chart.NewDoughnut().SetTitle("Doughnut").SetCategories([]string{"x", "y"})
+		c.AddSeries("D", []float64{70, 30})
+		return c
+	case chart.KindRadar:
+		c := chart.NewRadar().SetTitle("Radar").SetCategories([]string{"p", "q", "r"})
+		c.AddSeries("R1", []float64{1, 2, 3})
+		c.AddSeries("R2", []float64{3, 2, 1})
+		return c
 	case chart.KindArea:
 		c := chart.NewArea().SetTitle("Area").SetCategories([]string{"m", "n"})
 		c.AddSeries("A", []float64{7, 8})
@@ -51,7 +60,8 @@ func newDocxChart(kind chart.Kind) *chart.Chart {
 func TestAddChartRoundTrip(t *testing.T) {
 	kinds := []chart.Kind{
 		chart.KindColumn, chart.KindBar, chart.KindLine,
-		chart.KindPie, chart.KindArea, chart.KindScatter,
+		chart.KindPie, chart.KindDoughnut, chart.KindRadar,
+		chart.KindArea, chart.KindScatter,
 	}
 	for _, kind := range kinds {
 		t.Run(kind.String()+"_"+kindSuffix(kind), func(t *testing.T) {

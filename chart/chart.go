@@ -34,6 +34,10 @@ const (
 	KindScatter
 	// KindArea is an area chart (c:areaChart).
 	KindArea
+	// KindDoughnut is a doughnut chart (c:doughnutChart): a pie with a hole.
+	KindDoughnut
+	// KindRadar is a radar (spider) chart (c:radarChart).
+	KindRadar
 )
 
 // String returns the chart kind's element name (without the c: prefix).
@@ -49,10 +53,18 @@ func (k Kind) String() string {
 		return "scatterChart"
 	case KindArea:
 		return "areaChart"
+	case KindDoughnut:
+		return "doughnutChart"
+	case KindRadar:
+		return "radarChart"
 	default:
 		return fmt.Sprintf("Kind(%d)", int(k))
 	}
 }
+
+// defaultHoleSize is the doughnut hole diameter as a percentage of the outer
+// radius (CT_HoleSize, 1-90). 50 matches Office's default for a new doughnut.
+const defaultHoleSize = 50
 
 // LegendPosition is a legend placement (CT_LegendPos values).
 type LegendPosition string
@@ -72,6 +84,20 @@ type Series struct {
 	Name    string
 	Values  []float64
 	XValues []float64 // scatter only
+
+	// Color is an optional solid fill for the series, as a 6-digit hex RGB
+	// string ("FF0000"). Empty leaves the series to the theme's automatic
+	// color. Set it with SetColor.
+	Color string
+}
+
+// SetColor sets the series' solid fill to the given RGB color and returns the
+// series for chaining. hexRGB is a 6-digit hex string, with or without a
+// leading '#' ("#1F77B4" or "1f77b4"); it is normalized to upper-case. An empty
+// string clears the color, restoring the automatic (theme) color.
+func (s *Series) SetColor(hexRGB string) *Series {
+	s.Color = normalizeHexColor(hexRGB)
+	return s
 }
 
 // Chart is a format-agnostic chart definition. Build one with a New*
@@ -87,6 +113,10 @@ type Chart struct {
 	legendPos   LegendPosition
 	catAxisName string
 	valAxisName string
+
+	// dataLabels emits c:dLbls (showVal) so each point's value renders on the
+	// chart. Set with SetDataLabels.
+	dataLabels bool
 
 	// DataRef is the sheet name that c:f formula references are built
 	// against (e.g. "Sheet1" -> "Sheet1!$B$2:$B$5"). Format integrations set
@@ -129,6 +159,13 @@ func NewScatter() *Chart { return newChart(KindScatter) }
 // NewArea returns an area chart.
 func NewArea() *Chart { return newChart(KindArea) }
 
+// NewDoughnut returns a doughnut chart: a pie chart with a hole. Like a pie it
+// plots a single series (its first).
+func NewDoughnut() *Chart { return newChart(KindDoughnut) }
+
+// NewRadar returns a radar (spider) chart.
+func NewRadar() *Chart { return newChart(KindRadar) }
+
 // Kind returns the chart's type.
 func (c *Chart) Kind() Kind { return c.kind }
 
@@ -146,6 +183,9 @@ func (c *Chart) LegendPos() (LegendPosition, bool) { return c.legendPos, c.showL
 
 // AxisTitles returns the category and value axis titles.
 func (c *Chart) AxisTitles() (category, value string) { return c.catAxisName, c.valAxisName }
+
+// DataLabels reports whether value data labels are shown on the chart.
+func (c *Chart) DataLabels() bool { return c.dataLabels }
 
 // SetTitle sets the chart title. An empty string clears it.
 func (c *Chart) SetTitle(title string) *Chart {
@@ -209,8 +249,17 @@ func (c *Chart) SetDataRef(sheet string) *Chart {
 	return c
 }
 
-// usesAxes reports whether the chart type uses axes (everything but pie).
-func (c *Chart) usesAxes() bool { return c.kind != KindPie }
+// SetDataLabels toggles value data labels on the chart: when on, each data
+// point's value is rendered next to it (c:dLbls with showVal). It returns the
+// chart for chaining.
+func (c *Chart) SetDataLabels(show bool) *Chart {
+	c.dataLabels = show
+	return c
+}
+
+// usesAxes reports whether the chart type uses axes. Pie and doughnut charts
+// have none; every other kind (including radar) does.
+func (c *Chart) usesAxes() bool { return c.kind != KindPie && c.kind != KindDoughnut }
 
 func (c *Chart) sheet() string {
 	if c.DataRef == "" {
