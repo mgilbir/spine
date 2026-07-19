@@ -38,6 +38,11 @@ const (
 	KindDoughnut
 	// KindRadar is a radar (spider) chart (c:radarChart).
 	KindRadar
+	// KindCombo is a combination chart: series of mixed types (column, line,
+	// area) sharing one category axis, optionally split across a primary and a
+	// secondary value axis. It has no single c: element of its own — each
+	// series renders in the chart-type group named by its Series.PlotType.
+	KindCombo
 )
 
 // String returns the chart kind's element name (without the c: prefix).
@@ -57,9 +62,18 @@ func (k Kind) String() string {
 		return "doughnutChart"
 	case KindRadar:
 		return "radarChart"
+	case KindCombo:
+		return "combo"
 	default:
 		return fmt.Sprintf("Kind(%d)", int(k))
 	}
+}
+
+// isComboMember reports whether a kind can be a series' plot type inside a
+// combination chart. Only the category chart types that share a value axis
+// combine: column, line, and area.
+func (k Kind) isComboMember() bool {
+	return k == KindColumn || k == KindLine || k == KindArea
 }
 
 // defaultHoleSize is the doughnut hole diameter as a percentage of the outer
@@ -89,6 +103,17 @@ type Series struct {
 	// string ("FF0000"). Empty leaves the series to the theme's automatic
 	// color. Set it with SetColor.
 	Color string
+
+	// PlotType selects how the series renders in a combination chart
+	// (KindColumn, KindLine, or KindArea). It is consulted only for combo
+	// charts (NewCombo); other chart kinds render every series the chart's own
+	// way and ignore it. The zero value is KindColumn. Set it with SetType.
+	PlotType Kind
+
+	// SecondaryAxis places the series on the chart's secondary (right-hand)
+	// value axis in a combination chart. It is consulted only for combo charts.
+	// Set it with SetSecondaryAxis.
+	SecondaryAxis bool
 }
 
 // SetColor sets the series' solid fill to the given RGB color and returns the
@@ -97,6 +122,23 @@ type Series struct {
 // string clears the color, restoring the automatic (theme) color.
 func (s *Series) SetColor(hexRGB string) *Series {
 	s.Color = normalizeHexColor(hexRGB)
+	return s
+}
+
+// SetType sets the series' plot type for a combination chart (NewCombo) and
+// returns the series for chaining. Only KindColumn, KindLine, and KindArea
+// combine; MarshalChartXML reports an error if a combo series carries any other
+// type. It has no effect on single-type charts.
+func (s *Series) SetType(kind Kind) *Series {
+	s.PlotType = kind
+	return s
+}
+
+// SetSecondaryAxis places the series on the secondary (right-hand) value axis of
+// a combination chart and returns the series for chaining. It has no effect on
+// single-type charts.
+func (s *Series) SetSecondaryAxis(secondary bool) *Series {
+	s.SecondaryAxis = secondary
 	return s
 }
 
@@ -165,6 +207,13 @@ func NewDoughnut() *Chart { return newChart(KindDoughnut) }
 
 // NewRadar returns a radar (spider) chart.
 func NewRadar() *Chart { return newChart(KindRadar) }
+
+// NewCombo returns a combination chart. Add series as usual, then give each one
+// a plot type with Series.SetType (KindColumn, KindLine, or KindArea) and,
+// optionally, move it to the secondary value axis with Series.SetSecondaryAxis.
+// Series without an explicit type render as columns. All series share the
+// category axis and, unless moved, the primary value axis.
+func NewCombo() *Chart { return newChart(KindCombo) }
 
 // Kind returns the chart's type.
 func (c *Chart) Kind() Kind { return c.kind }

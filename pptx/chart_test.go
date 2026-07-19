@@ -123,6 +123,43 @@ func TestAddChartScatterRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAddChartComboRoundTrip(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3"})
+	c.AddSeries("Revenue", []float64{10, 20, 30}).SetType(chart.KindColumn)
+	c.AddSeries("Margin", []float64{1, 2, 3}).SetType(chart.KindLine).SetSecondaryAxis(true)
+	if err := s.AddChart(c, 0, 0, 1000, 1000); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	p2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	charts := p2.Charts()
+	if len(charts) != 1 {
+		t.Fatalf("Charts() = %d, want 1", len(charts))
+	}
+	got := charts[0]
+	if got.Kind() != chart.KindCombo {
+		t.Fatalf("kind = %v, want combo", got.Kind())
+	}
+	series := got.SeriesList()
+	if len(series) != 2 {
+		t.Fatalf("series = %d, want 2", len(series))
+	}
+	if series[0].PlotType != chart.KindColumn || series[0].SecondaryAxis {
+		t.Errorf("series 0: type=%v secondary=%v", series[0].PlotType, series[0].SecondaryAxis)
+	}
+	if series[1].PlotType != chart.KindLine || !series[1].SecondaryAxis {
+		t.Errorf("series 1: type=%v secondary=%v", series[1].PlotType, series[1].SecondaryAxis)
+	}
+}
+
 func TestAddChartPackageStructure(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()

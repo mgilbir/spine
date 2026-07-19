@@ -159,6 +159,50 @@ func TestAddChartCreatePathRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAddChartComboRoundTrip adds a combination chart (column + secondary-axis
+// line) to a sheet and verifies each series' plot type and axis survive a
+// save/reopen.
+func TestAddChartComboRoundTrip(t *testing.T) {
+	wb := Create()
+	sheet := wb.AddSheet("Data")
+	c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3"})
+	c.AddSeries("Revenue", []float64{10, 20, 30}).SetType(chart.KindColumn)
+	c.AddSeries("Margin", []float64{1, 2, 3}).SetType(chart.KindLine).SetSecondaryAxis(true)
+	if err := sheet.AddChart("E2", c); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	sheet2, err := wb2.SheetByName("Data")
+	if err != nil {
+		t.Fatalf("SheetByName: %v", err)
+	}
+	got := sheet2.Charts()
+	if len(got) != 1 {
+		t.Fatalf("Charts(): got %d want 1", len(got))
+	}
+	gc := got[0]
+	if gc.Kind() != chart.KindCombo {
+		t.Fatalf("kind: got %v want combo", gc.Kind())
+	}
+	gs := gc.SeriesList()
+	if len(gs) != 2 {
+		t.Fatalf("series count: got %d want 2", len(gs))
+	}
+	if gs[0].PlotType != chart.KindColumn || gs[0].SecondaryAxis {
+		t.Errorf("series 0: type=%v secondary=%v", gs[0].PlotType, gs[0].SecondaryAxis)
+	}
+	if gs[1].PlotType != chart.KindLine || !gs[1].SecondaryAxis {
+		t.Errorf("series 1: type=%v secondary=%v", gs[1].PlotType, gs[1].SecondaryAxis)
+	}
+}
+
 // TestAddChartOpenedPath adds a chart to a workbook opened from an existing
 // package (not Create) and verifies it round-trips, alongside the file's
 // original parts.

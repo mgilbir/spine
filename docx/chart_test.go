@@ -112,6 +112,44 @@ func TestAddChartRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAddChartComboRoundTrip(t *testing.T) {
+	c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3"})
+	c.AddSeries("Revenue", []float64{10, 20, 30}).SetType(chart.KindColumn)
+	c.AddSeries("Margin", []float64{1, 2, 3}).SetType(chart.KindLine).SetSecondaryAxis(true)
+
+	doc := Create()
+	doc.AddParagraphWithText("intro")
+	if err := doc.AddChart(c, 5029200, 2743200); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	rd, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	charts := rd.Charts()
+	if len(charts) != 1 {
+		t.Fatalf("Charts() = %d, want 1", len(charts))
+	}
+	got := charts[0]
+	if got.Kind() != chart.KindCombo {
+		t.Fatalf("Kind = %v, want combo", got.Kind())
+	}
+	gs := got.SeriesList()
+	if len(gs) != 2 {
+		t.Fatalf("series count = %d, want 2", len(gs))
+	}
+	if gs[0].PlotType != chart.KindColumn || gs[0].SecondaryAxis {
+		t.Errorf("series 0: type=%v secondary=%v", gs[0].PlotType, gs[0].SecondaryAxis)
+	}
+	if gs[1].PlotType != chart.KindLine || !gs[1].SecondaryAxis {
+		t.Errorf("series 1: type=%v secondary=%v", gs[1].PlotType, gs[1].SecondaryAxis)
+	}
+}
+
 func kindSuffix(k chart.Kind) string {
 	switch k {
 	case chart.KindColumn:

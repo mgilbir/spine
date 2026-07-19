@@ -7,7 +7,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
-- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`) and value data labels (`SetDataLabels`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
+- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area, and combination charts) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`) and value data labels (`SetDataLabels`); combination charts (`NewCombo`) mix per-series types (`Series.SetType`) across a primary and secondary value axis (`Series.SetSecondaryAxis`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
   - Add, remove, and reorder slides
@@ -401,10 +401,10 @@ func main() {
 ```
 
 Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
-`NewDoughnut`, `NewRadar`, `NewScatter` (via `AddXYSeries`), and `NewArea`.
-Cached values (`c:numCache` / `c:strCache`) are populated from the supplied
-data; `c:f` references are built against a configurable `DataRef` sheet
-(default `Sheet1`).
+`NewDoughnut`, `NewRadar`, `NewScatter` (via `AddXYSeries`), `NewArea`, and
+`NewCombo` (combination). Cached values (`c:numCache` / `c:strCache`) are
+populated from the supplied data; `c:f` references are built against a
+configurable `DataRef` sheet (default `Sheet1`).
 
 Formatting is opt-in and symmetric with the constructors:
 
@@ -414,7 +414,22 @@ Formatting is opt-in and symmetric with the constructors:
   (`c:spPr` / `a:solidFill` / `a:srgbClr`); the leading `#` is optional and the
   value is recovered on read as `Series.Color`.
 
-All types (including doughnut and radar) flow through every format's `AddChart`
+A **combination chart** mixes series types on a shared category axis. Give each
+series a plot type with `Series.SetType` (`KindColumn`, `KindLine`, or
+`KindArea`) and, optionally, move it to the right-hand secondary value axis with
+`Series.SetSecondaryAxis(true)`:
+
+```go
+c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
+c.AddSeries("Revenue", []float64{100, 120, 140, 160}).SetType(chart.KindColumn)
+c.AddSeries("Margin %", []float64{12, 15, 14, 18}).
+    SetType(chart.KindLine).SetSecondaryAxis(true)
+```
+
+`Charts()` reads a combo back as `KindCombo` with each series' `PlotType` and
+`SecondaryAxis` recovered.
+
+All types (including combination charts) flow through every format's `AddChart`
 and are read back by `Charts()`.
 
 This package is the shared core. Each format wires it in with an `AddChart`

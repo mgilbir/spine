@@ -3,6 +3,7 @@ package chart
 import (
 	"encoding/xml"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -25,6 +26,10 @@ func Parse(chartXML []byte) (*Chart, error) {
 
 	var c *Chart
 	switch {
+	case len(pa.BarChart)+len(pa.LineChart)+len(pa.AreaChart) > 1:
+		// More than one category-type group means a combination chart (mixed
+		// series types, or a secondary axis with a repeated type).
+		c = parseCombo(pa)
 	case len(pa.BarChart) > 0:
 		c = parseBar(pa.BarChart[0])
 	case len(pa.LineChart) > 0:
@@ -182,6 +187,126 @@ func parseScatter(sc *dmlchart.ScatterChart) *Chart {
 		})
 	}
 	return c
+}
+
+// parseCombo reconstructs a combination chart: it recovers each series with its
+// plot type (column/line/area) and whether it sits on the secondary value axis,
+// then restores the original series order from the c:idx values. The secondary
+// value axis is identified as the one positioned on the right (axPos="r") or
+// crossing at the maximum.
+func parseCombo(pa *dmlchart.PlotArea) *Chart {
+	c := newChart(KindCombo)
+	c.showLegend = false
+
+	// Identify value-axis ids and, among them, the secondary axis.
+	valAxIDs := map[int64]bool{}
+	var secValID int64
+	hasSec := false
+	for _, ax := range pa.ValAx {
+		if ax == nil || ax.AxId == nil {
+			continue
+		}
+		valAxIDs[ax.AxId.Val] = true
+		if (ax.AxPos != nil && ax.AxPos.Val == "r") || (ax.Crosses != nil && ax.Crosses.Val == "max") {
+			secValID = ax.AxId.Val
+			hasSec = true
+		}
+	}
+	// onSecondary reports whether a group's axId pair binds to the secondary
+	// value axis (matching the value-axis id in the pair against secValID).
+	onSecondary := func(axIDs []*dmlchart.UnsignedInt) bool {
+		if !hasSec {
+			return false
+		}
+		for _, a := range axIDs {
+			if a != nil && valAxIDs[a.Val] {
+				return a.Val == secValID
+			}
+		}
+		return false
+	}
+
+	type indexed struct {
+		idx int
+		s   *Series
+	}
+	var entries []indexed
+	var cats []string
+
+	add := func(order int, idxElem *dmlchart.UnsignedInt, kind Kind, secondary bool, s *Series) {
+		s.PlotType = kind
+		s.SecondaryAxis = secondary
+		entries = append(entries, indexed{idx: serIdx(idxElem, order), s: s})
+	}
+
+	for _, bc := range pa.BarChart {
+		kind := KindColumn
+		if bc.BarDir != nil && bc.BarDir.Val == "bar" {
+			kind = KindBar
+		}
+		if dLblsShowVal(bc.DLbls) {
+			c.dataLabels = true
+		}
+		sec := onSecondary(bc.AxId)
+		for _, s := range bc.Ser {
+			if cats == nil {
+				cats = categoriesFrom(s.Cat)
+			}
+			add(len(entries), s.Idx, kind, sec, &Series{
+				Name:   seriesName(s.Tx),
+				Values: numbersFrom(s.Val),
+				Color:  seriesColor(s.SpPr),
+			})
+		}
+	}
+	for _, lc := range pa.LineChart {
+		if dLblsShowVal(lc.DLbls) {
+			c.dataLabels = true
+		}
+		sec := onSecondary(lc.AxId)
+		for _, s := range lc.Ser {
+			if cats == nil {
+				cats = categoriesFrom(s.Cat)
+			}
+			add(len(entries), s.Idx, KindLine, sec, &Series{
+				Name:   seriesName(s.Tx),
+				Values: numbersFrom(s.Val),
+				Color:  seriesColor(s.SpPr),
+			})
+		}
+	}
+	for _, ac := range pa.AreaChart {
+		if dLblsShowVal(ac.DLbls) {
+			c.dataLabels = true
+		}
+		sec := onSecondary(ac.AxId)
+		for _, s := range ac.Ser {
+			if cats == nil {
+				cats = categoriesFrom(s.Cat)
+			}
+			add(len(entries), s.Idx, KindArea, sec, &Series{
+				Name:   seriesName(s.Tx),
+				Values: numbersFrom(s.Val),
+				Color:  seriesColor(s.SpPr),
+			})
+		}
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].idx < entries[j].idx })
+	c.categories = cats
+	for _, e := range entries {
+		c.series = append(c.series, e.s)
+	}
+	return c
+}
+
+// serIdx returns a series' c:idx value, or the fallback (its appearance order)
+// when the element is absent.
+func serIdx(idx *dmlchart.UnsignedInt, fallback int) int {
+	if idx == nil {
+		return fallback
+	}
+	return int(idx.Val)
 }
 
 // dLblsShowVal reports whether a chart-type group's data labels turn on value

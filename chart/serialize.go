@@ -17,6 +17,10 @@ const (
 	valAxisID uint32 = 222222222
 	xAxisID   uint32 = 111111111
 	yAxisID   uint32 = 222222222
+	// Secondary axis pair for combination charts (series moved to the
+	// right-hand value axis).
+	secCatAxisID uint32 = 333333333
+	secValAxisID uint32 = 444444444
 )
 
 // MarshalChartXML serializes the chart to a DrawingML chart.xml part
@@ -102,65 +106,25 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		if c.kind == KindBar {
 			dir = "bar"
 		}
-		bc := &dmlchart.BarChart{
-			BarDir:     &dmlchart.BarDir{Val: dir},
-			Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
-			VaryColors: boolElem(false),
-			DLbls:      c.groupDataLabels(),
-			GapWidth:   &dmlchart.GapAmount{Val: 150},
-			AxId:       axIDs(catAxisID, valAxisID),
-		}
+		bc := c.newBarChart(dir, axIDs(catAxisID, valAxisID))
 		for i, s := range c.series {
-			bc.Ser = append(bc.Ser, &dmlchart.BarSer{
-				Idx:              uintElem(uint32(i)),
-				Order:            uintElem(uint32(i)),
-				Tx:               serName(s.Name, dl.Series[i].NameRef),
-				SpPr:             seriesSpPr(s.Color),
-				InvertIfNegative: boolElem(false),
-				Cat:              c.catSource(dl),
-				Val:              numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
-			})
+			bc.Ser = append(bc.Ser, c.barSer(i, s, dl))
 		}
 		plot.BarChart = append(plot.BarChart, bc)
 	case KindLine:
-		lc := &dmlchart.LineChart{
-			Grouping:   &dmlchart.Grouping{Val: "standard"},
-			VaryColors: boolElem(false),
-			DLbls:      c.groupDataLabels(),
-			Marker:     boolElem(true),
-			AxId:       axIDs(catAxisID, valAxisID),
-		}
+		lc := c.newLineChart(axIDs(catAxisID, valAxisID))
 		for i, s := range c.series {
-			lc.Ser = append(lc.Ser, &dmlchart.LineSer{
-				Idx:    uintElem(uint32(i)),
-				Order:  uintElem(uint32(i)),
-				Tx:     serName(s.Name, dl.Series[i].NameRef),
-				SpPr:   seriesSpPr(s.Color),
-				Marker: &dmlchart.Marker{Symbol: &dmlchart.MarkerStyle{Val: "none"}},
-				Cat:    c.catSource(dl),
-				Val:    numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
-				Smooth: boolElem(false),
-			})
+			lc.Ser = append(lc.Ser, c.lineSer(i, s, dl))
 		}
 		plot.LineChart = append(plot.LineChart, lc)
 	case KindArea:
-		ac := &dmlchart.AreaChart{
-			Grouping:   &dmlchart.Grouping{Val: "standard"},
-			VaryColors: boolElem(false),
-			DLbls:      c.groupDataLabels(),
-			AxId:       axIDs(catAxisID, valAxisID),
-		}
+		ac := c.newAreaChart(axIDs(catAxisID, valAxisID))
 		for i, s := range c.series {
-			ac.Ser = append(ac.Ser, &dmlchart.AreaSer{
-				Idx:   uintElem(uint32(i)),
-				Order: uintElem(uint32(i)),
-				Tx:    serName(s.Name, dl.Series[i].NameRef),
-				SpPr:  seriesSpPr(s.Color),
-				Cat:   c.catSource(dl),
-				Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
-			})
+			ac.Ser = append(ac.Ser, c.areaSer(i, s, dl))
 		}
 		plot.AreaChart = append(plot.AreaChart, ac)
+	case KindCombo:
+		return c.buildComboPlot(plot, dl)
 	case KindPie:
 		pc := &dmlchart.PieChart{
 			VaryColors: boolElem(true),
@@ -239,8 +203,149 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 	return nil
 }
 
+// --- chart-type group and series builders (shared by the single-type and
+// combination paths) ---
+
+func (c *Chart) newBarChart(dir string, axID []*dmlchart.UnsignedInt) *dmlchart.BarChart {
+	return &dmlchart.BarChart{
+		BarDir:     &dmlchart.BarDir{Val: dir},
+		Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
+		VaryColors: boolElem(false),
+		DLbls:      c.groupDataLabels(),
+		GapWidth:   &dmlchart.GapAmount{Val: 150},
+		AxId:       axID,
+	}
+}
+
+func (c *Chart) newLineChart(axID []*dmlchart.UnsignedInt) *dmlchart.LineChart {
+	return &dmlchart.LineChart{
+		Grouping:   &dmlchart.Grouping{Val: "standard"},
+		VaryColors: boolElem(false),
+		DLbls:      c.groupDataLabels(),
+		Marker:     boolElem(true),
+		AxId:       axID,
+	}
+}
+
+func (c *Chart) newAreaChart(axID []*dmlchart.UnsignedInt) *dmlchart.AreaChart {
+	return &dmlchart.AreaChart{
+		Grouping:   &dmlchart.Grouping{Val: "standard"},
+		VaryColors: boolElem(false),
+		DLbls:      c.groupDataLabels(),
+		AxId:       axID,
+	}
+}
+
+func (c *Chart) barSer(i int, s *Series, dl DataLayout) *dmlchart.BarSer {
+	return &dmlchart.BarSer{
+		Idx:              uintElem(uint32(i)),
+		Order:            uintElem(uint32(i)),
+		Tx:               serName(s.Name, dl.Series[i].NameRef),
+		SpPr:             seriesSpPr(s.Color),
+		InvertIfNegative: boolElem(false),
+		Cat:              c.catSource(dl),
+		Val:              numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+	}
+}
+
+func (c *Chart) lineSer(i int, s *Series, dl DataLayout) *dmlchart.LineSer {
+	return &dmlchart.LineSer{
+		Idx:    uintElem(uint32(i)),
+		Order:  uintElem(uint32(i)),
+		Tx:     serName(s.Name, dl.Series[i].NameRef),
+		SpPr:   seriesSpPr(s.Color),
+		Marker: &dmlchart.Marker{Symbol: &dmlchart.MarkerStyle{Val: "none"}},
+		Cat:    c.catSource(dl),
+		Val:    numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+		Smooth: boolElem(false),
+	}
+}
+
+func (c *Chart) areaSer(i int, s *Series, dl DataLayout) *dmlchart.AreaSer {
+	return &dmlchart.AreaSer{
+		Idx:   uintElem(uint32(i)),
+		Order: uintElem(uint32(i)),
+		Tx:    serName(s.Name, dl.Series[i].NameRef),
+		SpPr:  seriesSpPr(s.Color),
+		Cat:   c.catSource(dl),
+		Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+	}
+}
+
+// comboGroupKey identifies one chart-type group in a combination chart: a plot
+// type on one of the two value axes. Series sharing a key render together.
+type comboGroupKey struct {
+	kind      Kind
+	secondary bool
+}
+
+// buildComboPlot builds the chart-type groups for a combination chart. Series
+// are grouped by (plot type, value axis) preserving their original index, and
+// each group emits the matching bar/line/area element bound to the primary or
+// secondary axis pair. Groups appear in the order their key is first used.
+func (c *Chart) buildComboPlot(plot *dmlchart.PlotArea, dl DataLayout) error {
+	var order []comboGroupKey
+	members := map[comboGroupKey][]int{}
+	for i, s := range c.series {
+		// A combo series with no explicit type (the zero value, KindColumn)
+		// renders as a column.
+		kind := s.PlotType
+		if !kind.isComboMember() {
+			return fmt.Errorf("chart: combo series %q has type %v; only column, line, and area combine", s.Name, kind)
+		}
+		key := comboGroupKey{kind: kind, secondary: s.SecondaryAxis}
+		if _, ok := members[key]; !ok {
+			order = append(order, key)
+		}
+		members[key] = append(members[key], i)
+	}
+
+	for _, key := range order {
+		axID := axIDs(catAxisID, valAxisID)
+		if key.secondary {
+			axID = axIDs(secCatAxisID, secValAxisID)
+		}
+		switch key.kind {
+		case KindColumn:
+			bc := c.newBarChart("col", axID)
+			for _, i := range members[key] {
+				bc.Ser = append(bc.Ser, c.barSer(i, c.series[i], dl))
+			}
+			plot.BarChart = append(plot.BarChart, bc)
+		case KindLine:
+			lc := c.newLineChart(axID)
+			for _, i := range members[key] {
+				lc.Ser = append(lc.Ser, c.lineSer(i, c.series[i], dl))
+			}
+			plot.LineChart = append(plot.LineChart, lc)
+		case KindArea:
+			ac := c.newAreaChart(axID)
+			for _, i := range members[key] {
+				ac.Ser = append(ac.Ser, c.areaSer(i, c.series[i], dl))
+			}
+			plot.AreaChart = append(plot.AreaChart, ac)
+		}
+	}
+	return nil
+}
+
+// hasSecondaryAxis reports whether any series is assigned to the secondary
+// value axis (only meaningful for a combination chart).
+func (c *Chart) hasSecondaryAxis() bool {
+	for _, s := range c.series {
+		if s.SecondaryAxis {
+			return true
+		}
+	}
+	return false
+}
+
 // buildAxes appends the axis definitions to the plot area.
 func (c *Chart) buildAxes(plot *dmlchart.PlotArea) {
+	if c.kind == KindCombo {
+		c.buildComboAxes(plot)
+		return
+	}
 	if c.kind == KindScatter {
 		// Scatter uses two value axes.
 		plot.ValAx = []*dmlchart.ValAx{
@@ -259,8 +364,19 @@ func (c *Chart) buildAxes(plot *dmlchart.PlotArea) {
 }
 
 func (c *Chart) catAx(pos string) *dmlchart.CatAx {
-	ax := &dmlchart.CatAx{
-		AxId:          uintElem(catAxisID),
+	ax := c.catAxWith(catAxisID, valAxisID, pos)
+	if c.catAxisName != "" {
+		ax.Title = axisTitle(c.catAxisName)
+	}
+	return ax
+}
+
+// catAxWith builds a category axis with the given id, crossing axis, and
+// position. Unlike catAx it carries no title (used for the primary combo axis,
+// which titles itself, and the hidden secondary category axis).
+func (c *Chart) catAxWith(id, crossID uint32, pos string) *dmlchart.CatAx {
+	return &dmlchart.CatAx{
+		AxId:          uintElem(id),
 		Scaling:       &dmlchart.Scaling{Orientation: &dmlchart.Orientation{Val: "minMax"}},
 		Delete:        boolElem(false),
 		AxPos:         &dmlchart.AxPos{Val: pos},
@@ -268,17 +384,39 @@ func (c *Chart) catAx(pos string) *dmlchart.CatAx {
 		MajorTickMark: &dmlchart.TickMark{Val: "out"},
 		MinorTickMark: &dmlchart.TickMark{Val: "none"},
 		TickLblPos:    &dmlchart.TickLblPos{Val: "nextTo"},
-		CrossAx:       uintElem(valAxisID),
+		CrossAx:       uintElem(crossID),
 		Crosses:       &dmlchart.Crosses{Val: "autoZero"},
 		Auto:          boolElem(true),
 		LblAlgn:       &dmlchart.LblAlgn{Val: "ctr"},
 		LblOffset:     &dmlchart.LblOffset{Val: 100},
 		NoMultiLvlLbl: boolElem(false),
 	}
+}
+
+// buildComboAxes appends a combination chart's axes: a bottom category axis and
+// a left primary value axis always, plus — when any series is on the secondary
+// axis — a right-hand secondary value axis and a hidden secondary category axis
+// it crosses. The secondary value axis crosses at the maximum so it sits on the
+// right.
+func (c *Chart) buildComboAxes(plot *dmlchart.PlotArea) {
+	catPrimary := c.catAxWith(catAxisID, valAxisID, "b")
 	if c.catAxisName != "" {
-		ax.Title = axisTitle(c.catAxisName)
+		catPrimary.Title = axisTitle(c.catAxisName)
 	}
-	return ax
+	plot.CatAx = []*dmlchart.CatAx{catPrimary}
+	plot.ValAx = []*dmlchart.ValAx{c.valAx(valAxisID, catAxisID, "l", c.valAxisName)}
+
+	if !c.hasSecondaryAxis() {
+		return
+	}
+	secVal := c.valAx(secValAxisID, secCatAxisID, "r", "")
+	secVal.Crosses = &dmlchart.Crosses{Val: "max"}
+	secVal.MajorGridlines = nil // avoid overlaying a second gridline set
+	plot.ValAx = append(plot.ValAx, secVal)
+
+	secCat := c.catAxWith(secCatAxisID, secValAxisID, "b")
+	secCat.Delete = boolElem(true) // the secondary category axis is not drawn
+	plot.CatAx = append(plot.CatAx, secCat)
 }
 
 func (c *Chart) valAx(id, crossID uint32, pos, title string) *dmlchart.ValAx {

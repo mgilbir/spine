@@ -172,6 +172,16 @@ remediation series (#59–#75).
   (`c:spPr`/`a:solidFill`/`a:srgbClr`; the leading `#` is optional), recovered as
   `Series.Color`. The new types and options flow through docx/pptx/xlsx
   `AddChart` unchanged, since every format serializes via `MarshalChartXML`.
+- chart: combination charts. `NewCombo` builds a chart whose series render as
+  mixed types on a shared category axis: give each series a plot type with
+  `Series.SetType` (`KindColumn`, `KindLine`, or `KindArea`) and, optionally,
+  move it to the secondary (right-hand) value axis with
+  `Series.SetSecondaryAxis(true)`. Series are grouped by (type, axis) into the
+  matching `c:barChart`/`c:lineChart`/`c:areaChart` groups; a secondary axis adds
+  a right-crossing value axis and a hidden secondary category axis. `Charts()`
+  reads a combo back as `KindCombo` with each series' `PlotType` and
+  `SecondaryAxis` recovered (a non-combinable series type is rejected at marshal
+  time). Flows through docx/pptx/xlsx `AddChart` unchanged.
 - docx: charts. `Document.AddChart(c, widthEMU, heightEMU)` appends a paragraph
   holding an inline chart, and `Paragraph.AddChart(...)` places one inline among
   a paragraph's other runs. The chart's data is written to an embedded workbook
