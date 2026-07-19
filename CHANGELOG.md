@@ -162,6 +162,22 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: tracked-changes (revisions) read plus accept/reject.
+  `Document.Revisions()` enumerates every tracked change in the document body
+  in document order — descending into tables, hyperlinks, fields, and
+  structured document tags — each `*Revision` reporting `Author`, `Date`,
+  `Type`, and the affected `Text`. `Revision.Accept()`/`Reject()` and
+  `Document.AcceptAllRevisions()`/`RejectAllRevisions()` transform the document:
+  accepting an insertion (`w:ins`) unwraps it to normal runs and rejecting it
+  removes the content; accepting a deletion (`w:del`/`w:delText`) removes it and
+  rejecting it restores the text as normal runs; run- and paragraph-property
+  changes (`w:rPrChange`/`w:pPrChange`) drop the change record on accept and
+  revert to the recorded old properties on reject. Table/row/cell/section
+  property changes, cell merges, and row/cell insertions/deletions are reported
+  read-only (`Revision.Editable()` is false; `Accept`/`Reject` return an error);
+  tracked moves (`w:moveFrom`/`w:moveTo`) are preserved but not enumerated. A
+  revision-bearing file that is opened and saved without accept/reject still
+  round-trips byte-for-byte.
 - xlsx: conditional-formatting **write** (reading was already supported).
   `Sheet.AddConditionalFormat(cellRange, rules...)` takes typed rule
   constructors — `NewCellIsRule`, `NewExpressionRule`, `NewTextRule`,
