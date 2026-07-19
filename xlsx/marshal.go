@@ -66,6 +66,8 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			b.MarshalElement(nsSML, "fileVersion", wb.FileVersion)
 		case childName == "workbookPr" && wb.WorkbookPr != nil:
 			b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
+		case childName == "workbookProtection" && wb.WorkbookProtection != nil:
+			marshalWorkbookProtection(b, wb.WorkbookProtection)
 		case childName == "AlternateContent" && wb.AlternateContent != nil:
 			wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
 		case childName == "bookViews" && wb.BookViews != nil:
@@ -102,6 +104,9 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	if wb.WorkbookPr != nil {
 		b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
 	}
+	if wb.WorkbookProtection != nil {
+		marshalWorkbookProtection(b, wb.WorkbookProtection)
+	}
 	if wb.AlternateContent != nil {
 		wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
 	}
@@ -114,6 +119,17 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 		b.MarshalElement(nsSML, "calcPr", wb.CalcPr)
 	}
 	marshalWorkbookExtLst(b, wb)
+}
+
+// marshalWorkbookProtection writes the workbookProtection element. A parsed,
+// unmodified element is re-emitted from its verbatim source bytes for
+// byte-identical round-trip; an authored one is marshaled from its typed fields.
+func marshalWorkbookProtection(b *xmlb.Builder, wp *oxml.CT_WorkbookProtection) {
+	if wp.Raw != nil {
+		b.WriteRaw(wp.Raw)
+		return
+	}
+	b.MarshalElement(nsSML, "workbookProtection", wp)
 }
 
 // marshalWorkbookSheets marshals the sheets element.

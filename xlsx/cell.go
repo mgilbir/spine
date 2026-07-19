@@ -433,6 +433,24 @@ type CellStyle struct {
 	// the built-in NumberFormat* constants (e.g. NumberFormatDate) directly
 	// without spelling out the format code (C131). Zero means General.
 	NumberFormatID int
+	// Protection controls the cell's locked/hidden flags. It only takes effect
+	// once the sheet itself is protected (see Sheet.Protect); on an unprotected
+	// sheet every cell is editable regardless of this setting. A nil value
+	// leaves the format's protection unset (Excel then treats the cell as
+	// locked by default).
+	Protection *ProtectionStyle
+}
+
+// ProtectionStyle represents a cell format's protection flags (the
+// <protection> child of an xf record). It is only meaningful on a protected
+// sheet.
+type ProtectionStyle struct {
+	// Locked reports whether the cell is locked. Excel locks cells by default,
+	// so set Locked=false to leave specific cells editable on a protected sheet.
+	Locked bool
+	// Hidden reports whether the cell's formula is hidden in the formula bar on
+	// a protected sheet.
+	Hidden bool
 }
 
 // FontStyle represents font styling.

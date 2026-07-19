@@ -17,15 +17,16 @@ var smlTypeMap = map[string]reflect.Type{
 	"sst":       reflect.TypeOf(CT_Sst{}),
 
 	// Workbook elements
-	"bookViews":    reflect.TypeOf(CT_BookViews{}),
-	"workbookPr":   reflect.TypeOf(CT_WorkbookPr{}),
-	"sheets":       reflect.TypeOf(CT_Sheets{}),
-	"sheet":        reflect.TypeOf(CT_Sheet{}),
-	"definedNames": reflect.TypeOf(CT_DefinedNames{}),
-	"definedName":  reflect.TypeOf(CT_DefinedName{}),
-	"calcPr":       reflect.TypeOf(CT_CalcPr{}),
-	"fileVersion":  reflect.TypeOf(CT_FileVersion{}),
-	"extLst":       reflect.TypeOf(CT_ExtensionList{}),
+	"bookViews":          reflect.TypeOf(CT_BookViews{}),
+	"workbookPr":         reflect.TypeOf(CT_WorkbookPr{}),
+	"workbookProtection": reflect.TypeOf(CT_WorkbookProtection{}),
+	"sheets":             reflect.TypeOf(CT_Sheets{}),
+	"sheet":              reflect.TypeOf(CT_Sheet{}),
+	"definedNames":       reflect.TypeOf(CT_DefinedNames{}),
+	"definedName":        reflect.TypeOf(CT_DefinedName{}),
+	"calcPr":             reflect.TypeOf(CT_CalcPr{}),
+	"fileVersion":        reflect.TypeOf(CT_FileVersion{}),
+	"extLst":             reflect.TypeOf(CT_ExtensionList{}),
 
 	// Worksheet elements
 	"sheetPr":               reflect.TypeOf(CT_SheetPr{}),
@@ -70,7 +71,6 @@ var smlTypeMap = map[string]reflect.Type{
 	"borders":      reflect.TypeOf(CT_Borders{}),
 	"cellStyleXfs": reflect.TypeOf(CT_CellStyleXfs{}),
 	"cellStyles":   reflect.TypeOf(CT_CellStyles{}),
-
 }
 
 // smlOutOfScope lists elements that appear in SML spec examples but are not

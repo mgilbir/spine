@@ -3,6 +3,7 @@ package xlsx
 import (
 	"fmt"
 
+	"github.com/mgilbir/spine/common/crypto"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -223,22 +224,100 @@ func (s *Sheet) Unprotect() {
 	s.worksheet.SheetProtection = nil
 }
 
+// WorkbookProtection is a read-only view of a workbook's <workbookProtection>
+// element. It reports whether the workbook's structure (adding, deleting,
+// hiding or reordering sheets) and window layout are locked.
+//
+// Like sheet protection, this is a UI guard, not encryption: the workbook is
+// not protected cryptographically and any tool can clear it. HasPassword only
+// reports that a (weak legacy or hashed) password guard is present; the
+// password itself is never exposed or recovered.
+type WorkbookProtection struct {
+	lockStructure     bool
+	lockWindows       bool
+	passwordProtected bool
+}
+
+// LockStructure reports whether the workbook structure is locked (sheets cannot
+// be added, deleted, hidden, shown or reordered).
+func (p *WorkbookProtection) LockStructure() bool { return p.lockStructure }
+
+// LockWindows reports whether the workbook window layout is locked.
+func (p *WorkbookProtection) LockWindows() bool { return p.lockWindows }
+
+// HasPassword reports whether a password guard is present (either the legacy
+// 16-bit hash or a modern hashValue/saltValue). The password is never exposed.
+func (p *WorkbookProtection) HasPassword() bool { return p.passwordProtected }
+
+// Protection returns the workbook's structure-protection state, or nil when the
+// workbook has no <workbookProtection> element. It is the read counterpart of
+// Protect/Unprotect.
+func (w *Workbook) Protection() *WorkbookProtection {
+	if w.workbook == nil || w.workbook.WorkbookProtection == nil {
+		return nil
+	}
+	wp := w.workbook.WorkbookProtection
+	return &WorkbookProtection{
+		lockStructure: wp.LockStructure != nil && *wp.LockStructure,
+		lockWindows:   wp.LockWindows != nil && *wp.LockWindows,
+		passwordProtected: wp.WorkbookPassword != "" || wp.WorkbookHashValue != "" ||
+			wp.RevisionsPassword != "" || wp.RevisionsHashValue != "",
+	}
+}
+
+// WorkbookProtectionOptions configures Workbook.Protect. The zero value locks
+// the workbook structure (the common case: preventing sheets from being added,
+// deleted, hidden or reordered). Setting LockWindows alone locks only the
+// window layout; set both fields to lock both.
+type WorkbookProtectionOptions struct {
+	// Password, when non-empty, is guarded with Excel's legacy 16-bit password
+	// hash. This is obfuscation, not security — it is trivially removed and must
+	// not be relied on to protect confidential data.
+	Password string
+
+	// LockStructure locks the workbook structure. When neither LockStructure nor
+	// LockWindows is set, Protect locks the structure so the element guards
+	// something rather than being an inert <workbookProtection/>.
+	LockStructure bool
+
+	// LockWindows locks the workbook window layout.
+	LockWindows bool
+}
+
+// Protect turns on workbook-structure protection with the given options,
+// replacing any existing <workbookProtection> element. A save regenerates
+// workbook.xml with the new protection.
+//
+// Excel workbook protection is a UI guard, not encryption. Even with a password
+// it is trivially removed; do not use it to protect confidential data.
+func (w *Workbook) Protect(opts WorkbookProtectionOptions) {
+	yes := true
+	wp := &oxml.CT_WorkbookProtection{}
+	if opts.LockStructure || !opts.LockWindows {
+		wp.LockStructure = &yes
+	}
+	if opts.LockWindows {
+		wp.LockWindows = &yes
+	}
+	if opts.Password != "" {
+		wp.WorkbookPassword = fmt.Sprintf("%04X", legacyPasswordHash(opts.Password))
+	}
+	w.workbook.WorkbookProtection = wp
+	w.workbook.EnsureChildOrder("workbookProtection")
+}
+
+// Unprotect removes workbook-structure protection, if any.
+func (w *Workbook) Unprotect() {
+	if w.workbook == nil {
+		return
+	}
+	w.workbook.WorkbookProtection = nil
+}
+
 // legacyPasswordHash computes Excel's legacy 16-bit worksheet-protection
-// password hash (ECMA-376 §18.3.1.75 / [MS-OFFCRYPTO] §2.3.7.1). It is a simple
-// documented obfuscation, not a cryptographic hash: the 16-bit space is
-// trivially brute-forced and collisions are common. It exists only for
-// compatibility with the <sheetProtection password="..."> attribute.
+// password hash. It delegates to the shared common/crypto implementation, which
+// docx reuses; see crypto.LegacyPasswordHash for the algorithm and its
+// (non-cryptographic) security properties.
 func legacyPasswordHash(password string) uint16 {
-	if password == "" {
-		return 0
-	}
-	var hash uint16
-	for i := len(password) - 1; i >= 0; i-- {
-		hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7fff)
-		hash ^= uint16(password[i])
-	}
-	hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7fff)
-	hash ^= uint16(len(password))
-	hash ^= 0xCE4B
-	return hash
+	return crypto.LegacyPasswordHash(password)
 }

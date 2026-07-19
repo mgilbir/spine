@@ -139,3 +139,69 @@ func (s *CT_Settings) EnsureEvenAndOddHeaders() bool {
 	s.Children[insertAt] = el
 	return true
 }
+
+// Child returns the first settings child with the given local name, or nil.
+func (s *CT_Settings) Child(local string) *CT_RawNamedElement {
+	for _, c := range s.Children {
+		if c.Local == local {
+			return c
+		}
+	}
+	return nil
+}
+
+// SetChild inserts, or replaces in place, a settings child with the given local
+// name (in the WordprocessingML namespace) carrying attrs. A new element is
+// placed at its schema-valid position among the preserved children, using the
+// same insertion rule as EnsureEvenAndOddHeaders. The element is written empty
+// (self-closing), which suits the flag-style settings this package authors.
+func (s *CT_Settings) SetChild(local string, attrs []xml.Attr) {
+	el := &CT_RawNamedElement{Local: local, Space: NsWml}
+	el.Attrs = attrs
+	for i, c := range s.Children {
+		if c.Local == local {
+			s.Children[i] = el
+			return
+		}
+	}
+	target, known := settingsElementOrder[local]
+	insertAt := len(s.Children)
+	if known {
+		for i, c := range s.Children {
+			if pos, ok := settingsElementOrder[c.Local]; ok && pos > target {
+				insertAt = i
+				break
+			}
+		}
+	}
+	s.Children = append(s.Children, nil)
+	copy(s.Children[insertAt+1:], s.Children[insertAt:])
+	s.Children[insertAt] = el
+}
+
+// RemoveChild deletes every settings child with the given local name and
+// reports whether any were removed.
+func (s *CT_Settings) RemoveChild(local string) bool {
+	kept := s.Children[:0]
+	removed := false
+	for _, c := range s.Children {
+		if c.Local == local {
+			removed = true
+			continue
+		}
+		kept = append(kept, c)
+	}
+	s.Children = kept
+	return removed
+}
+
+// Attr returns the value of the named attribute (matched by local name), or the
+// empty string when absent.
+func (rn *CT_RawNamedElement) Attr(local string) string {
+	for _, a := range rn.Attrs {
+		if a.Name.Local == local {
+			return a.Value
+		}
+	}
+	return ""
+}
