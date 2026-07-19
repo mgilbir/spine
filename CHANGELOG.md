@@ -162,6 +162,15 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **author tracked changes** — the revisions API can now create insertions
+  and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
+  appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
+  `Run.MarkDeleted` wraps a run in `w:del`, converting its `w:t` to `w:delText`.
+  Each revision gets a unique, monotonic `w:id` (scanned above any id already in
+  the document) and a `w:date` defaulting to now; `...WithDate` variants pin the
+  timestamp for deterministic output. Authored revisions round-trip through
+  `Document.Revisions()` and `Accept`/`Reject`/`AcceptAllRevisions`/
+  `RejectAllRevisions`.
 - docx: section, table, paragraph, and run **depth** — modeled structures that
   previously round-tripped but had no public accessor are now read + write.
   Sections gain page borders (`Section.PageBorders`/`SetPageBorders`), line

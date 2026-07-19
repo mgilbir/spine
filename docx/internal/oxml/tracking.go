@@ -31,6 +31,14 @@ type CT_RunTrackChange struct {
 	childOrder    []pChildRef
 }
 
+// AppendR appends a run to the tracked-change block, recording its position in
+// the block's child order. Authoring uses this on a freshly created block, so
+// no backfill of pre-existing children is needed.
+func (tc *CT_RunTrackChange) AppendR(r *CT_R) {
+	tc.childOrder = append(tc.childOrder, pChildRef{pChildR, len(tc.R)})
+	tc.R = append(tc.R, r)
+}
+
 // UnmarshalXML implements custom unmarshaling for CT_RunTrackChange.
 func (tc *CT_RunTrackChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	tc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)

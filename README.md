@@ -44,7 +44,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Paragraph borders and shading; run character styles (`Run.SetStyle`) and symbol glyphs (`Run.AddSymbol`)
   - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
   - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
-  - Tracked changes (revisions): enumerate insertions, deletions, and run/paragraph property changes with `Document.Revisions()` (author, date, type, text), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`
+  - Tracked changes (revisions): enumerate insertions, deletions, and run/paragraph property changes with `Document.Revisions()` (author, date, type, text), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`; author new ones with `Paragraph.AddInsertedRun`, `Run.MarkInserted`, and `Run.MarkDeleted` (each assigns a unique `w:id`; `...WithDate` variants pin the timestamp)
   - Content controls (structured document tags): read and edit tag, alias, type, value, and drop-down options through `Document.ContentControls()`; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline)
   - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
 - **Excel (XLSX)**: Create and modify Excel workbooks
