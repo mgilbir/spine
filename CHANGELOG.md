@@ -210,6 +210,28 @@ remediation series (#59–#75).
     `AddCustomShow` and `Slide.RelID` (`p:custShowLst`).
   - All accessors are additive: a file that does not use them round-trips
     byte-for-byte.
+- xlsx: sheet view & structure **read + write**. Sheet visibility
+  (`Sheet.Visibility`/`Visible` and `SetVisibility`/`SetVisible` with the
+  `SheetVisibility` enum — visible, hidden, veryHidden — refusing to hide the
+  workbook's last visible sheet). Row/column hide setters
+  (`SetRowHidden`/`SetColumnHidden`, the write counterparts of the existing
+  `RowHidden`/`ColumnHidden`; the column setter carves the target column out of
+  a spanned `<col>` entry). Sheet-view toggles with getters and setters:
+  `ShowRowColHeaders`, `RightToLeft`, `ShowFormulas`, `ShowZeros`, `ShowRuler`
+  (each honoring its OOXML default when unset) and the view mode
+  (`View`/`SetView`: `ViewNormal`, `ViewPageLayout`, `ViewPageBreakPreview`).
+  Scrolling split panes (`Sheet.SplitPanes`, writing a `state="split"` pane with
+  twip offsets and an active-pane selection, distinct from the row/column-count
+  `FreezePanes`; `SplitPanePosition` reads it back). Row and column grouping and
+  outline levels (`GroupRows`/`UngroupRows`, `GroupColumns`/`UngroupColumns`,
+  `SetRowOutlineLevel`/`RowOutlineLevel`, `SetColumnOutlineLevel`/
+  `ColumnOutlineLevel`, collapsed flags, and `SetOutlineSummary`/`OutlineSummary`
+  for summary-row/column placement). Force recalculation on next open
+  (`Workbook.SetForceFullCalc`/`ForceFullCalc`, the workbook `calcPr`
+  `fullCalcOnLoad` flag) so edited formulas refresh their cached results. All
+  additive: a file that uses none of these round-trips byte-for-byte, and
+  clearing a flag reconciles the captured source attributes so a hidden→visible
+  or force-recalc-off change actually takes effect on save.
 - xlsx: tables (ListObjects) **read + write**. `Sheet.Tables()` and
   `Workbook.Tables()` surface each table's name, range, columns (id, name,
   totals-row function/label, calculated-column formula), header/totals rows and

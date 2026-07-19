@@ -1326,6 +1326,41 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	return nil
 }
 
+// ForceFullCalc reports whether the workbook is marked to recalculate every
+// formula the next time it is opened (calcPr fullCalcOnLoad).
+func (w *Workbook) ForceFullCalc() bool {
+	if w.workbook == nil || w.workbook.CalcPr == nil || w.workbook.CalcPr.FullCalcOnLoad == nil {
+		return false
+	}
+	return w.workbook.CalcPr.FullCalcOnLoad.Val
+}
+
+// SetForceFullCalc controls whether Excel recalculates every formula when the
+// workbook is next opened, by setting the workbook calcPr fullCalcOnLoad flag.
+// Enable it after editing formulas so their cached results are refreshed on
+// open. Disabling clears the flag; when the workbook has no other calcPr
+// settings the (now default-only) element is still emitted, which Excel
+// accepts.
+func (w *Workbook) SetForceFullCalc(force bool) {
+	if w.workbook == nil {
+		return
+	}
+	if !force {
+		if w.workbook.CalcPr != nil {
+			w.workbook.CalcPr.SetFullCalcOnLoad(nil)
+		}
+		return
+	}
+	if w.workbook.CalcPr == nil {
+		w.workbook.CalcPr = &oxml.CT_CalcPr{}
+	}
+	// Marshaling of an opened workbook is ChildOrder-gated: a calcPr element the
+	// source lacked must be inserted at its schema position or it is dropped on
+	// save.
+	w.workbook.EnsureChildOrder("calcPr")
+	w.workbook.CalcPr.SetFullCalcOnLoad(oxml.NewBoolLex(true))
+}
+
 // Worksheet grid limits (Excel 2007+): 1,048,576 rows by 16,384 columns (XFD).
 const (
 	MaxRow = 1048576

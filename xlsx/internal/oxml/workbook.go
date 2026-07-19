@@ -809,6 +809,27 @@ func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return d.Skip()
 }
 
+// SetState updates the sheet's visibility state ("" = visible, "hidden" or
+// "veryHidden") and reconciles the captured source attribute list. A parsed
+// sheet replays its verbatim attributes (CapturedAttrs), where ReplayCapturedAttrs
+// substitutes the modeled State value when a "state" attribute is present but
+// re-emits an unmatched captured attribute verbatim. Making a hidden sheet
+// visible drops the modeled attribute entirely, so the stale captured "state"
+// must be removed here or the sheet would stay hidden on save.
+func (s *CT_Sheet) SetState(state string) {
+	s.State = state
+	if state != "" || s.CapturedAttrs == nil {
+		return
+	}
+	for i := range s.CapturedAttrs {
+		ra := &s.CapturedAttrs[i]
+		if !ra.IsNS && ra.Space == "" && ra.LocalName == "state" {
+			s.CapturedAttrs = append(s.CapturedAttrs[:i], s.CapturedAttrs[i+1:]...)
+			return
+		}
+	}
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Sheet.
 func (s *CT_Sheet) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	attrs := []xmlb.Attr{
@@ -1049,6 +1070,26 @@ type CT_CalcPr struct {
 	ForceFullCalc         *BoolLex           `xml:"forceFullCalc,attr,omitempty"`
 	CapturedAttrs         []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 	CapturedEmptyTag      xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
+}
+
+// SetFullCalcOnLoad sets (v non-nil) or clears (v nil) the fullCalcOnLoad flag,
+// reconciling the captured source attribute list. A parsed calcPr replays its
+// verbatim attributes; ReplayCapturedAttrs substitutes the modeled value when
+// the attribute is present but re-emits an unmatched captured attribute
+// verbatim, so clearing the flag must remove the stale capture or it would
+// persist on save.
+func (cp *CT_CalcPr) SetFullCalcOnLoad(v *BoolLex) {
+	cp.FullCalcOnLoad = v
+	if v != nil || cp.CapturedAttrs == nil {
+		return
+	}
+	for i := range cp.CapturedAttrs {
+		ra := &cp.CapturedAttrs[i]
+		if !ra.IsNS && ra.Space == "" && ra.LocalName == "fullCalcOnLoad" {
+			cp.CapturedAttrs = append(cp.CapturedAttrs[:i], cp.CapturedAttrs[i+1:]...)
+			return
+		}
+	}
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source
