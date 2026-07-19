@@ -7,9 +7,10 @@ import (
 )
 
 // ConditionalFormat is a read-only view of one <conditionalFormatting> block: a
-// set of cell ranges and the rules Excel evaluates against them. Writing
-// conditional formats is not yet supported; a block opened from a file
-// round-trips byte-for-byte when unmodified.
+// set of cell ranges and the rules Excel evaluates against them. To create
+// conditional formats use Sheet.AddConditionalFormat with the New*Rule
+// constructors. A block opened from a file round-trips byte-for-byte when
+// unmodified.
 type ConditionalFormat struct {
 	// SqRef is the raw space-separated range list the block applies to (e.g.
 	// "A1:A10 C1:C10").
@@ -60,6 +61,21 @@ type ConditionalFormatRule struct {
 	ColorScale *ConditionalColorScale
 	DataBar    *ConditionalDataBar
 	IconSet    *ConditionalIconSet
+	// sheet is the owning sheet, used by DifferentialFormat to resolve DxfId
+	// against the workbook stylesheet. It is nil for rules built by hand.
+	sheet *Sheet
+}
+
+// DifferentialFormat returns the resolved differential format (fill/font
+// color/border) a rule applies when it matches, looked up from the workbook
+// stylesheet via the rule's DxfId. It returns nil for rules that carry their
+// own formatting (colorScale/dataBar/iconSet), for rules without a DxfId, or
+// when the referenced dxf is absent or empty.
+func (r *ConditionalFormatRule) DifferentialFormat() *DifferentialStyle {
+	if r == nil || r.DxfId == nil || r.sheet == nil || r.sheet.workbook == nil {
+		return nil
+	}
+	return r.sheet.workbook.dxfStyle(*r.DxfId)
 }
 
 // ConditionalValueObject is a conditional-format value object (<cfvo>): a
@@ -102,8 +118,8 @@ type ConditionalIconSet struct {
 }
 
 // ConditionalFormats returns the sheet's conditional-formatting blocks, in
-// document order. It is read-only (writing conditional formats is deferred); the
-// returned slice is nil when the sheet has none.
+// document order. The returned slice is nil when the sheet has none. To create
+// blocks use Sheet.AddConditionalFormat.
 func (s *Sheet) ConditionalFormats() []*ConditionalFormat {
 	if s.worksheet == nil || len(s.worksheet.ConditionalFormatting) == 0 {
 		return nil
@@ -114,13 +130,13 @@ func (s *Sheet) ConditionalFormats() []*ConditionalFormat {
 		out = append(out, &ConditionalFormat{
 			SqRef:  cf.Sqref,
 			Ranges: strings.Fields(cf.Sqref),
-			Rules:  conditionalRulesFromModel(cf.CfRule),
+			Rules:  conditionalRulesFromModel(s, cf.CfRule),
 		})
 	}
 	return out
 }
 
-func conditionalRulesFromModel(rules []oxml.CT_CfRule) []*ConditionalFormatRule {
+func conditionalRulesFromModel(s *Sheet, rules []oxml.CT_CfRule) []*ConditionalFormatRule {
 	if len(rules) == 0 {
 		return nil
 	}
@@ -140,6 +156,7 @@ func conditionalRulesFromModel(rules []oxml.CT_CfRule) []*ConditionalFormatRule 
 			Percent:      r.Percent != nil && *r.Percent,
 			Bottom:       r.Bottom != nil && *r.Bottom,
 			AboveAverage: r.AboveAverage,
+			sheet:        s,
 		}
 		if r.ColorScale != nil {
 			rule.ColorScale = &ConditionalColorScale{

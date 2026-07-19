@@ -346,6 +346,42 @@ func (ws *CT_Worksheet) EnsureChildOrder(name string) {
 	ws.ChildOrder[insert] = name
 }
 
+// AppendConditionalFormattingOrder records one additional conditionalFormatting
+// entry in ws.ChildOrder so a newly appended CT_ConditionalFormatting block is
+// emitted by the ChildOrder-gated marshaler. Unlike EnsureChildOrder it is not
+// idempotent: conditionalFormatting is a repeatable element and each block needs
+// its own entry (the marshaler consumes one block per entry). A new block is
+// placed immediately after the last existing conditionalFormatting entry, or at
+// its schema position when the sheet had none. It is a no-op when ChildOrder is
+// empty (new sheets marshal in fixed schema order and emit every block).
+func (ws *CT_Worksheet) AppendConditionalFormattingOrder() {
+	if len(ws.ChildOrder) == 0 {
+		return
+	}
+	const name = "conditionalFormatting"
+	lastCF := -1
+	for i, entry := range ws.ChildOrder {
+		if entry == name {
+			lastCF = i
+		}
+	}
+	insert := len(ws.ChildOrder)
+	if lastCF >= 0 {
+		insert = lastCF + 1
+	} else {
+		rank := worksheetChildRank[name]
+		for i, entry := range ws.ChildOrder {
+			if r, ok := ws.childOrderEntryRank(entry); ok && r > rank {
+				insert = i
+				break
+			}
+		}
+	}
+	ws.ChildOrder = append(ws.ChildOrder, "")
+	copy(ws.ChildOrder[insert+1:], ws.ChildOrder[insert:])
+	ws.ChildOrder[insert] = name
+}
+
 // childOrderEntryRank resolves the schema rank of a ChildOrder entry. Known
 // element names are looked up directly; "unknown:N" entries are ranked by the
 // local name of the captured element when it is a standard worksheet child.
