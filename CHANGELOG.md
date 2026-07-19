@@ -162,6 +162,31 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: shape effects & visuals capability bundle (**read + write**).
+  - **Shape effects**: `AutoShape` and `TextBox` gain `SetGlow`/`Glow`,
+    `SetReflection`/`Reflection`, `SetSoftEdge`/`SoftEdge`, and a basic 3D
+    `SetBevel`/`Bevel` (top bevel), alongside the existing `SetShadow`. Each
+    routes through a `dml` value type (`dml.Glow`, `dml.Reflection`,
+    `dml.SoftEdge`, `dml.Bevel3D` with `BevelCircle`/… presets) that writes
+    `a:effectLst`/`a:sp3d` without disturbing effects already present.
+  - **Background formatting**: `Slide` and `SlideMaster` gain
+    `SetBackgroundFill(dml.Fill)`, `BackgroundColor()`, `HasBackground()`, and
+    `ClearBackground()` (`p:bg`/`p:bgPr`), reusing `dml.Fill` so a solid,
+    gradient, or pattern fill can be applied as a background.
+  - **Transitions**: eight new `TransitionType` variants (Circle, Comb,
+    Newsflash, Pull, RandomBar, Strips, Wedge, Zoom) plus `Direction`,
+    `Orientation`, `Spokes`, `ThroughBlack`, and `Sound` (`TransitionSound`,
+    with a settable stop-previous-sound and read-back of a parsed start sound)
+    on the `Transition` struct, all read and written.
+  - **Tables**: `Table.SetStyleID`/`StyleID` for the built-in/theme table-style
+    reference (`a:tblPr/a:tableStyleId`) and `TableCell.SetMargins`/`Margins`/
+    `ClearMargins` for per-cell text insets (`a:tcPr/@marL,marT,marR,marB`).
+  - **Embedded fonts**: `Presentation.EmbeddedFonts`/`SetEmbeddedFonts` and
+    `EmbedTrueTypeFonts`/`SetEmbedTrueTypeFonts` (`p:embeddedFontLst`).
+  - **Custom shows**: `Presentation.CustomShows`/`SetCustomShows`/
+    `AddCustomShow` and `Slide.RelID` (`p:custShowLst`).
+  - All accessors are additive: a file that does not use them round-trips
+    byte-for-byte.
 - xlsx: tables (ListObjects) **read + write**. `Sheet.Tables()` and
   `Workbook.Tables()` surface each table's name, range, columns (id, name,
   totals-row function/label, calculated-column formula), header/totals rows and
