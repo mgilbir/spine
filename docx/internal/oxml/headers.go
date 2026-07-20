@@ -69,3 +69,40 @@ func (hf *CT_HdrFtr) AppendP(p *CT_P) {
 	backfillBodyChildOrder(&hf.childOrder, hf.P, hf.Tbl, hf.SdtBlock, hf.BookmarkStart, hf.BookmarkEnd, hf.Raw)
 	appendBodyP(&hf.P, &hf.childOrder, p)
 }
+
+// Paragraphs returns the header/footer's top-level paragraphs.
+func (hf *CT_HdrFtr) Paragraphs() []*CT_P { return hf.P }
+
+// RemoveP removes the given paragraph from this header/footer, keeping child
+// order consistent: the paragraph is dropped from the P slice and its child
+// reference removed, with the indices of later paragraph references shifted
+// down. It reports whether the paragraph was found. Existing untracked children
+// are backfilled into the order first so nothing is silently dropped.
+func (hf *CT_HdrFtr) RemoveP(target *CT_P) bool {
+	backfillBodyChildOrder(&hf.childOrder, hf.P, hf.Tbl, hf.SdtBlock, hf.BookmarkStart, hf.BookmarkEnd, hf.Raw)
+	idx := -1
+	for i, p := range hf.P {
+		if p == target {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	hf.P = append(hf.P[:idx], hf.P[idx+1:]...)
+	newOrder := hf.childOrder[:0]
+	for _, ref := range hf.childOrder {
+		if ref.kind == bodyChildP {
+			if ref.index == idx {
+				continue
+			}
+			if ref.index > idx {
+				ref.index--
+			}
+		}
+		newOrder = append(newOrder, ref)
+	}
+	hf.childOrder = newOrder
+	return true
+}

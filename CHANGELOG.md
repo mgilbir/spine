@@ -162,6 +162,19 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **watermarks** — `Document.SetTextWatermark(text, WatermarkOptions)`
+  stamps a WordArt text watermark (legacy VML `w:pict`/`v:shape` on the
+  `#_x0000_t136` text-path shape) and `Document.SetImageWatermark(imageBytes,
+  WatermarkOptions)` a washed-out image watermark (`v:imagedata` referencing a
+  media part; PNG/JPEG/GIF content type and size sniffed from the bytes). Both
+  insert the shape into the default header — created if the document has none,
+  reusing the existing header/media/relationship infrastructure — and into any
+  first-page/even-page headers the default section already references, so the
+  watermark shows on every page; calling either again replaces the current
+  watermark. `WatermarkOptions` carries font, color, and diagonal/rotation.
+  `Document.Watermark()` detects and reports an existing text or image
+  watermark, and `Document.RemoveWatermark()` removes it. A document whose
+  header/watermark is left untouched round-trips byte-for-byte.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
