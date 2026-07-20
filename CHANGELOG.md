@@ -211,6 +211,32 @@ remediation series (#59–#75).
   reference and its relationship, and generates a legacy VML Pict shape (with an
   optional preview image) so Excel renders it; the object re-extracts through
   `Workbook.OLEObjects`. (Extraction shipped earlier; this adds authoring.)
+- pptx: **SmartArt cycle and process kinds** — `Slide.AddSmartArt` now accepts
+  `SmartArtProcess` (a left-to-right sequence of rounded-rectangle steps,
+  `dgm:alg type="lin" linDir="fromL"`) and `SmartArtCycle` (ellipse nodes
+  arranged around a circle, `dgm:alg type="cycle"`) in addition to
+  `SmartArtList` and `SmartArtHierarchy`. Each generates a complete, schema-valid
+  `dgm:layoutDef`/`dgm:styleDef`/`dgm:colorsDef` set; the node outline reads
+  back after save and reopen. Additive — existing diagrams are untouched.
+- pptx: **morph transition** — `Slide.SetTransition(Transition{Type:
+  TransitionMorph, MorphOption: …})` writes the PowerPoint 2016+ morph
+  transition. Because morph is not part of the base PresentationML schema, it is
+  emitted as an `mc:AlternateContent` standing in for `p:transition`: an
+  `mc:Choice` (`Requires="p159"`) wrapping a `p:transition` with a
+  `<p159:morph option="byObject|byWord|byChar">` child and the exact duration in
+  `p14:dur`, plus an `mc:Fallback` fade for older readers. `MorphOption` selects
+  object/word/character morphing; `Transition()` reads the morph back. Setting
+  any other transition (or `TransitionNone`) removes the morph wrapper.
+- pptx: **embed OLE objects** — `Slide.AddOLEObject(data, progID, opts…)` embeds
+  an OLE object (its binary payload as an `/ppt/embeddings/oleObjectN.bin` part)
+  and appends a `p:graphicFrame` (`a:graphicData uri=".../ole"`) whose
+  `p:oleObj` references the object by relationship id and carries the required
+  fallback preview picture (a minimal transparent placeholder unless
+  `WithOLEPreviewImage` supplies one). Options set the frame bounds
+  (`WithOLEBounds`), display name (`WithOLEName`), part content type
+  (`WithOLEContentType`), and icon display (`WithOLEShowAsIcon`). `OLEObjects()`
+  reports created objects and recovers their `progID` from the graphic frame.
+  (The prior OLE wave shipped extract-only.)
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
@@ -222,7 +248,7 @@ remediation series (#59–#75).
   `dgm:relIds` ties them together. It returns the diagram as a `SmartArt`, so
   `Nodes()` reads the outline back immediately; `SetBounds` overrides the
   default placement. The additive change leaves diagrams read from a file
-  byte-identical on save. Cycle/process kinds are deferred.
+  byte-identical on save.
 - pptx: **five previously-deferred authoring paths** now write real content
   instead of only round-tripping what a file already had.
   (1) **Connectors inside groups** — `GroupShape.AddConnector` /

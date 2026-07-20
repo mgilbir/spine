@@ -19,7 +19,7 @@ import (
 // an unmodified save reproduces the SmartArt byte-for-byte.
 //
 // Creating SmartArt from scratch is supported through Slide.AddSmartArt for the
-// list and hierarchy kinds: it generates all four definition parts, the
+// list, hierarchy, process, and cycle kinds: it generates all four definition parts, the
 // content-type overrides, the slide relationships, and the graphicFrame so
 // PowerPoint accepts and renders the diagram.
 type SmartArt struct {
@@ -167,13 +167,25 @@ const (
 	// SmartArtHierarchy is a top-down hierarchy / organization chart: the node
 	// tree fans out with each node's children in a row beneath it.
 	SmartArtHierarchy
+	// SmartArtProcess is a left-to-right process: each top-level node becomes a
+	// rounded rectangle laid out horizontally, reading as a sequence of steps.
+	SmartArtProcess
+	// SmartArtCycle is a radial cycle: each top-level node becomes an ellipse
+	// arranged evenly around a circle.
+	SmartArtCycle
 )
 
 func (k SmartArtKind) diagramKind() diagram.Kind {
-	if k == SmartArtHierarchy {
+	switch k {
+	case SmartArtHierarchy:
 		return diagram.KindHierarchy
+	case SmartArtProcess:
+		return diagram.KindProcess
+	case SmartArtCycle:
+		return diagram.KindCycle
+	default:
+		return diagram.KindList
 	}
-	return diagram.KindList
 }
 
 // Default placement for a created diagram: it fills the slide's main content
