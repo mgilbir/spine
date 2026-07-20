@@ -119,6 +119,11 @@ type Document struct {
 	vbaRemove   bool
 	vbaData     []byte // injected/replacement VBA project bytes (nil when removing)
 	vbaPartName string // resolved vbaProject.bin part name
+	// pendingCustomXML holds custom-XML data parts added this session
+	// (customXml/itemN.xml plus their itemProps and relationships), written on
+	// save. Empty on a zero-modification save, so untouched documents round-trip
+	// byte-for-byte. See customxml.go.
+	pendingCustomXML []*pendingCustomXMLPart
 }
 
 // mainDocumentPart is the default name of the main document part. Image
@@ -799,6 +804,9 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 	if err := d.writeChartParts(writer); err != nil {
 		return err
 	}
+	if err := d.writePendingCustomXMLParts(writer); err != nil {
+		return err
+	}
 	for _, hp := range d.newHeaderParts {
 		hdrPart, ok := d.headers[hp.partName]
 		if !ok {
@@ -1029,6 +1037,7 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 // parts' content types are declared.
 func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
+		len(d.pendingCustomXML) > 0 ||
 		d.numberingModified || d.settingsModified || d.stylesModified ||
 		d.commentsModified || d.commentsExtModified || d.peopleModified ||
 		d.footnotesModified || d.endnotesModified || d.vbaModified

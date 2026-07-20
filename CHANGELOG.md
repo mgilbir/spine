@@ -276,6 +276,25 @@ remediation series (#59–#75).
   part and its relationship are preserved, but the run-level `w:contentPart`
   body reference is not yet re-emitted by the paragraph marshaler (a pre-existing
   docx body-preservation limitation).
+- docx: **document structure features** — building blocks, custom-XML data
+  binding, and framesets. `Document.BuildingBlocks()` lists the glossary
+  document's docParts (name, gallery, category, types, description, guid) as
+  read-only `BuildingBlock` values (`Document.HasGlossary()` reports presence);
+  the glossary part is preserved verbatim. `Document.CustomXMLParts()` reads the
+  `customXml/itemN.xml` data parts, resolving each part's datastore item id
+  (`storeItemID`) and schema refs through its itemProps, and
+  `Document.AddCustomXMLPart(data)` adds a new data part — generating its
+  itemProps with a fresh GUID item id, the item→itemProps relationship, the
+  document relationship, and the content-type override. `ContentControl`
+  gains `SetDataBinding(xpath, storeItemID)` (plus
+  `SetDataBindingWithPrefixMappings`, `DataBinding`, and `RemoveDataBinding`) to
+  bind a content control to a custom-XML node via `w:sdtPr/w:dataBinding`, the
+  new element inserted before the control-type child in schema order.
+  `Document.Frameset()` reads the web-settings part's `w:frameset` tree
+  (nested framesets and leaf `Frame`s with name/title/size/scrollbar and the
+  resolved source document). Unmodified glossary, custom-XML, and web-settings
+  parts round-trip byte-for-byte. Authoring building blocks and framesets is
+  deferred — those parts are read-only and preserved verbatim.
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
