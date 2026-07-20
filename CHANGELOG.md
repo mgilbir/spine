@@ -162,6 +162,21 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **visible signature lines** — `Document.AddSignatureLine`/
+  `Paragraph.AddSignatureLine(SignatureLineOptions{Signer, Title, Email,
+  Instructions})` insert a "Microsoft Office Signature Line" placeholder (a VML
+  shape carrying an `o:signatureline` element) into the body, inline or as a
+  fresh paragraph; `Document.SignatureLines()` reads them back with their
+  suggested-signer fields and GUID. This is the in-document request for a
+  signature, distinct from actually signing the package (`opc.SignPackage`).
+- docx: **bibliography and citations** — read/write bibliography sources in
+  `word/bibliography/sources.xml` (`b:Sources`/`b:Source`) with
+  `Document.AddSource(Source{Tag, Type, Author, Title, Year, City, Publisher})`,
+  `Document.Sources()`, and `Document.RemoveSource(tag)`; cite a source with
+  `Paragraph.AddCitation(tag)`, which emits a `CITATION` field (`w:fldSimple`)
+  with a cached `(Author, Year)` placeholder Word replaces on field update. The
+  sources part, its document relationship, and its content-type entry are
+  created on first use; a document with no sources round-trips byte-identically.
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the

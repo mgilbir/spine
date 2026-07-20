@@ -51,6 +51,10 @@ const (
 	// Office Math namespace (OMML, used by m:oMath / m:oMathPara)
 	NSMath = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
+	// Shared bibliography namespace (ECMA-376 §22.5), used by the b:Sources /
+	// b:Source elements of a bibliography sources part and by CITATION fields.
+	NSBibliography = "http://schemas.openxmlformats.org/officeDocument/2006/bibliography"
+
 	// Dublin Core namespaces
 	NSDublinCore = "http://purl.org/dc/elements/1.1/"
 	NSDcTerms    = "http://purl.org/dc/terms/"
@@ -107,6 +111,7 @@ const (
 	PrefixPowerPoint2010      = "p14"
 	PrefixPowerPoint2012      = "p15"
 	PrefixMath                = "m"
+	PrefixBibliography        = "b"
 	PrefixWord2010            = "w14"
 	PrefixWord2012            = "w15"
 	PrefixMarkupCompatibility = "mc"

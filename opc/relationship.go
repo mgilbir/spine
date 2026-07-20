@@ -91,6 +91,10 @@ const (
 	RelTypeComments    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
 	RelTypeHyperlink   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 	RelTypeWebSettings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/webSettings"
+	// RelTypeBibliography links the main document part to its bibliography
+	// sources part (word/bibliography/sources.xml), which holds the b:Sources
+	// referenced by CITATION fields.
+	RelTypeBibliography = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/bibliography"
 
 	// Microsoft comment-extension relationship types. Modern Word writes these
 	// alongside the ECMA-376 comments part: commentsExtended carries threading

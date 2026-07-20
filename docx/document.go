@@ -119,6 +119,13 @@ type Document struct {
 	vbaRemove   bool
 	vbaData     []byte // injected/replacement VBA project bytes (nil when removing)
 	vbaPartName string // resolved vbaProject.bin part name
+	// sources holds the bibliography sources part (word/bibliography/sources.xml)
+	// parsed at open or built by AddSource; sourcesModified records that the
+	// session added, edited, or removed a source, so the round-trip save
+	// regenerates the part (with its relationship and content-type entry)
+	// instead of writing the preserved original bytes. See bibliography.go.
+	sources         *oxml.CT_Sources
+	sourcesModified bool
 }
 
 // mainDocumentPart is the default name of the main document part. Image
@@ -349,6 +356,11 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			if err := xmlb.Unmarshal(data, d.people); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
+		case name == bibliographyPartName:
+			d.sources = &oxml.CT_Sources{}
+			if err := xmlb.Unmarshal(data, d.sources); err != nil {
+				return fmt.Errorf("docx: parsing %s: %w", name, err)
+			}
 		case name == "/word/fontTable.xml":
 			// preserved in preservedParts
 		case name == "/word/webSettings.xml":
@@ -391,7 +403,7 @@ func isModelParsedDocxPart(name string) bool {
 	switch name {
 	case "/word/styles.xml", "/word/numbering.xml", "/word/settings.xml",
 		"/word/footnotes.xml", "/word/endnotes.xml", "/word/comments.xml",
-		"/word/commentsExtended.xml", "/word/people.xml":
+		"/word/commentsExtended.xml", "/word/people.xml", bibliographyPartName:
 		return true
 	}
 	return isDocxHeaderPartName(name) || isDocxFooterPartName(name)
@@ -662,6 +674,9 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == "/word/endnotes.xml" && d.endnotesModified {
 			continue
 		}
+		if name == bibliographyPartName && d.sourcesModified {
+			continue
+		}
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
@@ -759,6 +774,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// the part, relationship, and content-type override if the opened package
 	// did not already carry them.
 	if err := d.writeNoteParts(writer, false); err != nil {
+		return err
+	}
+
+	// Write the bibliography sources part when the session modified sources,
+	// creating the part, relationship, and content-type entry if the opened
+	// package did not already carry them.
+	if err := d.writeBibliographyPart(writer, false); err != nil {
 		return err
 	}
 
@@ -1031,7 +1053,7 @@ func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
 		d.numberingModified || d.settingsModified || d.stylesModified ||
 		d.commentsModified || d.commentsExtModified || d.peopleModified ||
-		d.footnotesModified || d.endnotesModified || d.vbaModified
+		d.footnotesModified || d.endnotesModified || d.vbaModified || d.sourcesModified
 }
 
 // saveNew saves a newly created document.
@@ -1131,6 +1153,12 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	// before the first save), registering their document.xml relationships so
 	// the append below picks them up.
 	if err := d.writeNoteParts(writer, true); err != nil {
+		return err
+	}
+	// Write the bibliography sources part for a created document (sources added
+	// before the first save), registering its document.xml relationship so the
+	// append below picks it up.
+	if err := d.writeBibliographyPart(writer, true); err != nil {
 		return err
 	}
 	// Emit every relationship registered against the main part by the
