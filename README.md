@@ -65,11 +65,11 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
-  - Formula support
+  - Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring
   - Cell styling (fonts, fills, borders, number formats, alignment)
   - Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
   - Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
-  - Freeze panes, auto-filter, and data validation, with read accessors for each
+  - Freeze panes, auto-filter, and data validation (including `errorStyle` and `imeMode`), with read accessors for each
   - Sheet view & structure: sheet visibility (`Sheet.SetVisibility`/`Visible`, refusing to hide the last visible sheet), row/column hide (`SetRowHidden`/`SetColumnHidden`), view toggles (row/column headers, right-to-left, formulas, zeros, ruler, and normal/page-layout/page-break view), scrolling split panes (`Sheet.SplitPanes`, distinct from freeze), row/column grouping & outline levels (`GroupRows`/`GroupColumns`, collapsed flags, outline summary placement), and force-recalc-on-open (`Workbook.SetForceFullCalc`)
   - Merged cells and named ranges
   - Column widths and row heights
@@ -78,12 +78,12 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Read-only enumeration of worksheet images and conditional-formatting rules
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
-  - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type
+  - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type, with per-run rich text on notes (`Comment.RichText`/`Sheet.AddNoteRichText`/`Comment.SetRichText`, alongside the plain `Text()`)
   - Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
   - Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
   - Pivot tables — read and create (`Sheet.PivotTables`/`Workbook.PivotTables`/`Sheet.AddPivotTable`): name, location, source range/cache, and the row/column/value/filter field layout with per-value aggregation (sum/count/average/min/max); creating one builds the pivot cache (definition + records, `refreshOnLoad`), the pivot table definition, the workbook `<pivotCaches>` entry, relationships and content-type overrides. Existing pivots round-trip byte-for-byte
   - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
-  - Sparklines — read and write (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with a series color and one or more (data range, location cell) mappings, stored in the worksheet extension list; unmodified sparklines round-trip byte-for-byte
+  - Sparklines — read, write and mutate (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with one or more (data range, location cell) mappings, stored in the worksheet extension list; live `SparklineGroup` handles set every color slot and per-group point toggles (markers, high/low/first/last/negative) and delete groups; unmodified sparklines round-trip byte-for-byte
   - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs

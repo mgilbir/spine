@@ -40,10 +40,15 @@ type SparklineOptions struct {
 	Data []SparklineData
 }
 
-// SparklineGroup is a read-only view of one x14:sparklineGroup on a sheet,
-// returned by Sheet.Sparklines.
+// SparklineGroup is a live handle on one x14:sparklineGroup on a sheet, returned
+// by Sheet.Sparklines and Sheet.AddSparklineGroup. Its setters and Delete write
+// through to the workbook so a subsequent save persists them. Handles obtained
+// from one Sparklines call share the sheet's parsed model; deleting a group
+// invalidates the other handles from that call (their positions shift), so
+// re-fetch with Sparklines after a Delete.
 type SparklineGroup struct {
-	g *oxml.CT_SparklineGroup
+	sheet *Sheet
+	g     *oxml.CT_SparklineGroup
 }
 
 // Sparkline is one (data range, location cell) mapping within a group.
@@ -85,26 +90,170 @@ func (g *SparklineGroup) Sparklines() []Sparkline {
 	return out
 }
 
+// setColor updates the pointed-to color slot: an empty hex clears it (Excel
+// falls back to its default), otherwise it sets an rgb color. It flushes the
+// change through to the workbook.
+func (g *SparklineGroup) setColor(slot **oxml.SparklineColor, hex string) {
+	if strings.TrimSpace(hex) == "" {
+		*slot = nil
+	} else {
+		*slot = &oxml.SparklineColor{Rgb: normalizeHexColor(hex)}
+	}
+	if g.sheet != nil {
+		g.sheet.flushSparklines()
+	}
+}
+
+// SetSeriesColor sets the group's series color (empty clears it).
+func (g *SparklineGroup) SetSeriesColor(hex string) { g.setColor(&g.g.ColorSeries, hex) }
+
+// SetNegativeColor sets the color of negative points (win/loss and column
+// sparklines). Empty clears it.
+func (g *SparklineGroup) SetNegativeColor(hex string) { g.setColor(&g.g.ColorNegative, hex) }
+
+// SetAxisColor sets the horizontal-axis color. Empty clears it.
+func (g *SparklineGroup) SetAxisColor(hex string) { g.setColor(&g.g.ColorAxis, hex) }
+
+// SetMarkersColor sets the color of the point markers (line sparklines). Empty
+// clears it.
+func (g *SparklineGroup) SetMarkersColor(hex string) { g.setColor(&g.g.ColorMarkers, hex) }
+
+// SetFirstColor sets the color of the first point. Empty clears it.
+func (g *SparklineGroup) SetFirstColor(hex string) { g.setColor(&g.g.ColorFirst, hex) }
+
+// SetLastColor sets the color of the last point. Empty clears it.
+func (g *SparklineGroup) SetLastColor(hex string) { g.setColor(&g.g.ColorLast, hex) }
+
+// SetHighColor sets the color of the highest point. Empty clears it.
+func (g *SparklineGroup) SetHighColor(hex string) { g.setColor(&g.g.ColorHigh, hex) }
+
+// SetLowColor sets the color of the lowest point. Empty clears it.
+func (g *SparklineGroup) SetLowColor(hex string) { g.setColor(&g.g.ColorLow, hex) }
+
+// setBool updates a pointed-to optional boolean slot and flushes the change.
+func (g *SparklineGroup) setBool(slot **bool, v bool) {
+	b := v
+	*slot = &b
+	if g.sheet != nil {
+		g.sheet.flushSparklines()
+	}
+}
+
+// SetMarkers toggles point markers on the group's sparklines (line type).
+func (g *SparklineGroup) SetMarkers(on bool) { g.setBool(&g.g.Markers, on) }
+
+// SetHigh toggles highlighting of the highest point.
+func (g *SparklineGroup) SetHigh(on bool) { g.setBool(&g.g.High, on) }
+
+// SetLow toggles highlighting of the lowest point.
+func (g *SparklineGroup) SetLow(on bool) { g.setBool(&g.g.Low, on) }
+
+// SetFirst toggles highlighting of the first point.
+func (g *SparklineGroup) SetFirst(on bool) { g.setBool(&g.g.First, on) }
+
+// SetLast toggles highlighting of the last point.
+func (g *SparklineGroup) SetLast(on bool) { g.setBool(&g.g.Last, on) }
+
+// SetNegative toggles highlighting of negative points.
+func (g *SparklineGroup) SetNegative(on bool) { g.setBool(&g.g.Negative, on) }
+
+// Markers reports whether point markers are enabled (a line-sparkline group
+// with markers turned on). It is false when the flag is unset.
+func (g *SparklineGroup) Markers() bool { return g.g.Markers != nil && *g.g.Markers }
+
+// Delete removes this sparkline group from its sheet, writing the change through
+// to the workbook. When it was the sheet's only group the sparkline extension is
+// removed entirely. Other handles obtained from the same Sparklines call are
+// invalidated by the removal; re-fetch with Sparklines if more edits are needed.
+func (g *SparklineGroup) Delete() {
+	if g.sheet == nil {
+		return
+	}
+	sg := g.sheet.sparklineGroups()
+	for i := range sg.Groups {
+		if &sg.Groups[i] == g.g {
+			sg.Groups = append(sg.Groups[:i], sg.Groups[i+1:]...)
+			g.sheet.flushSparklines()
+			g.sheet = nil
+			return
+		}
+	}
+}
+
 // Sparklines returns the sparkline groups defined on the sheet (read from the
-// worksheet extension list), or nil when the sheet has none. The returned
-// groups are a read-only snapshot; modifying them does not affect the workbook.
+// worksheet extension list), or nil when the sheet has none. The returned groups
+// are live handles: their setters and Delete write through to the workbook.
 func (s *Sheet) Sparklines() []*SparklineGroup {
-	if s.worksheet == nil || s.worksheet.ExtLst == nil {
-		return nil
-	}
-	ext := findSparklineExt(s.worksheet.ExtLst)
-	if ext == nil {
-		return nil
-	}
-	sg, err := oxml.ParseSparklineGroups(ext.RawContent)
-	if err != nil || sg == nil {
+	sg := s.sparklineGroups()
+	if sg == nil || len(sg.Groups) == 0 {
 		return nil
 	}
 	out := make([]*SparklineGroup, 0, len(sg.Groups))
 	for i := range sg.Groups {
-		out = append(out, &SparklineGroup{g: &sg.Groups[i]})
+		out = append(out, &SparklineGroup{sheet: s, g: &sg.Groups[i]})
 	}
 	return out
+}
+
+// sparklineGroups returns the sheet's parsed sparkline-groups model, loading it
+// lazily from the worksheet extension list on first use and caching it so every
+// handle mutates one shared model. It never returns nil.
+func (s *Sheet) sparklineGroups() *oxml.CT_SparklineGroups {
+	if s.sparklineCache != nil {
+		return s.sparklineCache
+	}
+	if s.worksheet != nil && s.worksheet.ExtLst != nil {
+		if ext := findSparklineExt(s.worksheet.ExtLst); ext != nil {
+			if sg, err := oxml.ParseSparklineGroups(ext.RawContent); err == nil && sg != nil {
+				s.sparklineCache = sg
+				return sg
+			}
+		}
+	}
+	s.sparklineCache = &oxml.CT_SparklineGroups{}
+	return s.sparklineCache
+}
+
+// flushSparklines writes the cached sparkline model back into the worksheet
+// extension list and marks the sheet dirty. When the model is empty it removes
+// the sparkline extension (and the extLst if that empties it) so no stub is
+// left behind; otherwise it creates the extension (with the x14 declaration) if
+// absent and refreshes its raw content.
+func (s *Sheet) flushSparklines() {
+	sg := s.sparklineGroups()
+	s.markDirty()
+	s.ensureWorksheet()
+
+	if len(sg.Groups) == 0 {
+		if s.worksheet.ExtLst == nil {
+			return
+		}
+		kept := s.worksheet.ExtLst.Ext[:0]
+		for _, e := range s.worksheet.ExtLst.Ext {
+			if e.URI != oxml.SparklineExtURI {
+				kept = append(kept, e)
+			}
+		}
+		s.worksheet.ExtLst.Ext = kept
+		if len(s.worksheet.ExtLst.Ext) == 0 {
+			s.worksheet.ExtLst = nil
+		}
+		return
+	}
+
+	if s.worksheet.ExtLst == nil {
+		s.worksheet.ExtLst = &oxml.CT_ExtensionList{}
+	}
+	s.worksheet.EnsureChildOrder("extLst")
+	ext := findSparklineExt(s.worksheet.ExtLst)
+	if ext == nil {
+		s.worksheet.ExtLst.Ext = append(s.worksheet.ExtLst.Ext, oxml.CT_Extension{
+			URI:           oxml.SparklineExtURI,
+			InlineNSDecls: []xmlb.NSDecl{{Prefix: "x14", URI: oxml.NSX14}},
+		})
+		ext = &s.worksheet.ExtLst.Ext[len(s.worksheet.ExtLst.Ext)-1]
+	}
+	ext.RawContent = sg.Marshal()
 }
 
 // AddSparklineGroup adds a sparkline group to the sheet's worksheet extension
@@ -134,37 +283,12 @@ func (s *Sheet) AddSparklineGroup(opts SparklineOptions) (*SparklineGroup, error
 		})
 	}
 
-	s.markDirty()
 	s.ensureWorksheet()
-
-	if s.worksheet.ExtLst == nil {
-		s.worksheet.ExtLst = &oxml.CT_ExtensionList{}
-	}
-	s.worksheet.EnsureChildOrder("extLst")
-
-	ext := findSparklineExt(s.worksheet.ExtLst)
-	var groups *oxml.CT_SparklineGroups
-	if ext == nil {
-		// No sparkline extension yet: create one carrying the x14 declaration.
-		s.worksheet.ExtLst.Ext = append(s.worksheet.ExtLst.Ext, oxml.CT_Extension{
-			URI:           oxml.SparklineExtURI,
-			InlineNSDecls: []xmlb.NSDecl{{Prefix: "x14", URI: oxml.NSX14}},
-		})
-		ext = &s.worksheet.ExtLst.Ext[len(s.worksheet.ExtLst.Ext)-1]
-		groups = &oxml.CT_SparklineGroups{}
-	} else {
-		// Merge into the existing sparkline groups, preserving prior groups.
-		parsed, err := oxml.ParseSparklineGroups(ext.RawContent)
-		if err != nil {
-			return nil, fmt.Errorf("xlsx: AddSparklineGroup: parse existing sparklines: %w", err)
-		}
-		groups = parsed
-	}
-
+	groups := s.sparklineGroups()
 	groups.Groups = append(groups.Groups, group)
-	ext.RawContent = groups.Marshal()
+	s.flushSparklines()
 
-	return &SparklineGroup{g: &groups.Groups[len(groups.Groups)-1]}, nil
+	return &SparklineGroup{sheet: s, g: &groups.Groups[len(groups.Groups)-1]}, nil
 }
 
 // findSparklineExt returns the extension carrying sparkline groups, or nil.

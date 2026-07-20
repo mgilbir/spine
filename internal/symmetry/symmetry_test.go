@@ -108,8 +108,9 @@ var capabilities = []capability{
 		allow: map[string]map[string]bool{
 			// docx: range-precise anchoring, initials, and body paragraphs.
 			"docx": set("AnchorText", "Initials", "Paragraphs", "SetInitials"),
-			// xlsx: cell anchor and the threaded-vs-legacy-note distinction.
-			"xlsx": set("Ref", "Threaded"),
+			// xlsx: cell anchor, the threaded-vs-legacy-note distinction, and
+			// per-run rich text on legacy notes.
+			"xlsx": set("Ref", "Threaded", "RichText", "SetRichText"),
 			// pptx: slide/point/shape anchoring.
 			"pptx": set("AnchorShapeID", "Position", "Slide"),
 		},

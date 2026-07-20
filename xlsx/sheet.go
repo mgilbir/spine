@@ -22,6 +22,10 @@ type Sheet struct {
 	newTables []*Table       // tables added this session via AddTable (to be written)
 	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
 	comments  *sheetComments // lazily loaded comment model (read + write)
+	// sparklineCache is the sheet's parsed sparkline-groups model, loaded lazily
+	// from the worksheet extension list and shared by every SparklineGroup handle
+	// so mutations write through consistently. nil until first accessed.
+	sparklineCache *oxml.CT_SparklineGroups
 	// state is the workbook-level sheet visibility ("", "hidden" or
 	// "veryHidden"). AddChart marks its dedicated data sheet "hidden".
 	state string
@@ -606,7 +610,24 @@ type DataValidation struct {
 	// selected. When either is set, showInputMessage is emitted automatically.
 	PromptTitle   string
 	PromptMessage string
+	// ErrorStyle selects the alert icon/behavior for invalid input:
+	// ValidationErrorStop (the default, rejects the entry), ValidationErrorWarning
+	// (allows it after a prompt) or ValidationErrorInformation (informational
+	// only). Empty leaves the attribute unset, which Excel treats as stop.
+	ErrorStyle string
+	// ImeMode controls the Input Method Editor state for the cell (East-Asian
+	// text entry), e.g. "off", "on", "disabled", "hiragana". Empty leaves it
+	// unset.
+	ImeMode string
 }
+
+// Data-validation errorStyle values (ST_DataValidationErrorStyle): the alert
+// behavior Excel applies when a cell fails validation.
+const (
+	ValidationErrorStop        = "stop"
+	ValidationErrorWarning     = "warning"
+	ValidationErrorInformation = "information"
+)
 
 // AddDataValidation adds a data validation rule to the sheet.
 func (s *Sheet) AddDataValidation(dv DataValidation) error {
@@ -621,6 +642,8 @@ func (s *Sheet) AddDataValidation(dv DataValidation) error {
 		Sqref:       strings.ToUpper(dv.Range),
 		Type:        dv.Type,
 		Operator:    dv.Operator,
+		ErrorStyle:  dv.ErrorStyle,
+		ImeMode:     dv.ImeMode,
 		ErrorTitle:  dv.ErrorTitle,
 		Error:       dv.ErrorMessage,
 		PromptTitle: dv.PromptTitle,

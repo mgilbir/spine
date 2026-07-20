@@ -3,6 +3,7 @@ package xlsx
 import (
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mgilbir/spine/opc"
@@ -31,6 +32,7 @@ type Comment struct {
 	rootID   string // id of the thread root (== id for a root); "" for legacy
 	author   string
 	text     string
+	rich     []TextRun // per-run formatting for a legacy note; nil when plain
 	date     time.Time
 	resolved bool
 	parent   *Comment
@@ -44,8 +46,23 @@ func (c *Comment) ID() string { return c.id }
 // Author returns the display name of the comment's author.
 func (c *Comment) Author() string { return c.author }
 
-// Text returns the comment's plain-text body.
+// Text returns the comment's plain-text body. Rich (per-run) formatting is
+// flattened; use RichText to read the runs with their formatting intact.
 func (c *Comment) Text() string { return c.text }
+
+// RichText returns the comment body as formatting runs. A legacy note carries
+// per-run formatting (bold labels, colored text); a threaded comment and an
+// unformatted note return a single run holding the plain text. It returns nil
+// for an empty body. Text continues to return the flattened plain text.
+func (c *Comment) RichText() []TextRun {
+	if len(c.rich) > 0 {
+		return append([]TextRun(nil), c.rich...)
+	}
+	if c.text == "" {
+		return nil
+	}
+	return []TextRun{{Text: c.text}}
+}
 
 // Date returns the comment's creation time. It is the zero time.Time for a
 // legacy note, which carries no timestamp.
@@ -228,6 +245,7 @@ func (s *Sheet) Comments() []*Comment {
 				ref:      lc.Ref,
 				author:   author,
 				text:     lc.PlainText(),
+				rich:     rstToTextRuns(&lc.Text),
 			})
 		}
 	}
@@ -353,6 +371,67 @@ func (s *Sheet) AddNote(ref, author, text string) *Comment {
 	return &Comment{sheet: s, threaded: false, ref: ref, author: author, text: text}
 }
 
+// AddNoteRichText adds a legacy note whose body carries per-run formatting (a
+// bold label, colored text) to the cell at ref, returning it. Each TextRun may
+// set its own font; a nil run font leaves the run in the note's default font.
+// Text on the returned comment reads back the flattened plain text.
+func (s *Sheet) AddNoteRichText(ref, author string, runs []TextRun) *Comment {
+	s.loadComments()
+	if s.comments.legacy == nil {
+		s.comments.legacy = &oxml.CT_Comments{}
+	}
+	authorID := s.comments.legacy.AuthorIndex(author)
+	s.comments.legacy.Comments = append(s.comments.legacy.Comments, oxml.CT_Comment{
+		Ref:      ref,
+		AuthorID: authorID,
+		Text:     textRunsToRst(runs),
+	})
+	s.markCommentsDirty()
+	return &Comment{
+		sheet:    s,
+		threaded: false,
+		ref:      ref,
+		author:   author,
+		text:     plainTextOfRuns(runs),
+		rich:     append([]TextRun(nil), runs...),
+	}
+}
+
+// SetRichText replaces the comment's body with formatted runs, writing through
+// to the workbook so a subsequent save persists it. For a legacy note the runs
+// are stored with their formatting; for a threaded comment (whose stored body
+// is plain text) the runs are flattened for the thread entry while the note's
+// back-compat fallback keeps the formatting. It is a no-op on a comment not
+// backed by any note or thread entry on its sheet.
+func (c *Comment) SetRichText(runs []TextRun) {
+	if c.sheet == nil {
+		return
+	}
+	s := c.sheet
+	s.loadComments()
+	rst := textRunsToRst(runs)
+	plain := plainTextOfRuns(runs)
+
+	if s.comments.legacy != nil {
+		for i := range s.comments.legacy.Comments {
+			if strings.EqualFold(s.comments.legacy.Comments[i].Ref, c.ref) {
+				s.comments.legacy.Comments[i].Text = rst
+			}
+		}
+	}
+	if c.threaded && s.comments.threaded != nil {
+		for i := range s.comments.threaded.Comments {
+			if s.comments.threaded.Comments[i].ID == c.id {
+				s.comments.threaded.Comments[i].Text = plain
+			}
+		}
+	}
+
+	c.text = plain
+	c.rich = append([]TextRun(nil), runs...)
+	s.markCommentsDirty()
+}
+
 // Reply adds a reply authored by author to the comment's thread, returning the
 // new reply. It is a no-op returning nil for a legacy note, which has no
 // thread. Replies are stored flat with the thread root as parent, matching
@@ -451,6 +530,48 @@ func (w *Workbook) ensurePerson(displayName string) *oxml.CT_Person {
 	})
 	w.personsDirty = true
 	return &w.persons.Persons[len(w.persons.Persons)-1]
+}
+
+// rstToTextRuns converts a comment's stored rich text (CT_Rst) into public
+// TextRuns, or nil when the text is empty. A note with formatting runs yields
+// one TextRun per run; a plain note yields a single unformatted run.
+func rstToTextRuns(rst *oxml.CT_Rst) []TextRun {
+	if rst == nil {
+		return nil
+	}
+	if len(rst.R) > 0 {
+		return reltRunsToTextRuns(rst.R)
+	}
+	if rst.T != nil && *rst.T != "" {
+		return []TextRun{{Text: *rst.T}}
+	}
+	return nil
+}
+
+// textRunsToRst converts public TextRuns into a comment's rich-text body. A
+// single unformatted run collapses to a plain <t>, matching NewCommentText, so
+// simple notes stay byte-identical to the plain-text path.
+func textRunsToRst(runs []TextRun) oxml.CT_Rst {
+	if len(runs) == 1 && runs[0].Font == nil {
+		return oxml.NewCommentText(runs[0].Text)
+	}
+	rst := oxml.CT_Rst{R: make([]oxml.CT_RElt, 0, len(runs))}
+	for _, run := range runs {
+		rst.R = append(rst.R, oxml.CT_RElt{
+			RPr: fontStyleToRPrElt(run.Font),
+			T:   run.Text,
+		})
+	}
+	return rst
+}
+
+// plainTextOfRuns flattens formatting runs to their concatenated text.
+func plainTextOfRuns(runs []TextRun) string {
+	var sb strings.Builder
+	for i := range runs {
+		sb.WriteString(runs[i].Text)
+	}
+	return sb.String()
 }
 
 // newGUID returns a random RFC-4122 v4 GUID in Excel's brace-wrapped uppercase

@@ -336,6 +336,104 @@ func (c *Cell) SetFormula(formula string) {
 	c.cell.Is = nil
 }
 
+// SetArrayFormula sets the cell to a legacy (Ctrl+Shift+Enter) array formula
+// spilling over ref, the range the formula fills — e.g.
+// SetArrayFormula("A1:A3*B1:B3", "C1:C3"). This cell becomes the array master
+// (`<f t="array" ref="C1:C3">`); Excel fills the other cells of ref when it
+// recalculates. If this cell was the master of a shared-formula group its
+// followers are first detached (see clearFormula) so they are not orphaned.
+func (c *Cell) SetArrayFormula(formula, ref string) {
+	c.markSheetDirty()
+	c.detachSharedGroup()
+	c.cell.T = ""
+	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Value: formula}
+	c.cell.V = nil
+	c.cell.Is = nil
+}
+
+// SetDynamicArrayFormula sets the cell to a dynamic-array (spill) formula, the
+// modern spilling form Excel writes for functions such as SORT, FILTER and
+// UNIQUE. ref is the anchor cell (usually this cell's own reference); Excel
+// grows the spill range from the anchor as the result changes. The formula is
+// stored as `<f t="array" ref="…" aca="1" ca="1">`, the alwaysCalcArray /
+// calculateCell marking Excel uses for a dynamic array.
+//
+// Note: the cell-metadata linkage Excel adds for a dynamic array (a `cm`
+// attribute pointing into xl/metadata.xml) is not synthesized here; Excel still
+// evaluates the formula as a spilling array and rewrites the metadata itself on
+// the next save.
+func (c *Cell) SetDynamicArrayFormula(formula, ref string) {
+	c.markSheetDirty()
+	c.detachSharedGroup()
+	if ref == "" {
+		ref = c.cell.R
+	}
+	on := true
+	c.cell.T = ""
+	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Aca: &on, Ca: &on, Value: formula}
+	c.cell.V = nil
+	c.cell.Is = nil
+}
+
+// SetSharedFormula sets the cell to the master of a shared-formula group
+// spanning ref, then fills every other cell of ref with a follower stub
+// (`<f t="shared" si="N"/>`) that shares this master's index. This is the
+// compact encoding Excel uses when one formula is copied down or across a
+// range: only the master carries the formula text, and Excel derives each
+// follower by translating the master's relative references by the follower's
+// offset.
+//
+// This cell must be the top-left (anchor) cell of ref, matching Excel's
+// requirement that the master anchor the group; ref is returned unchanged as
+// the master's ref attribute. A fresh, unused shared index is allocated for the
+// group. If this cell was already a shared-formula master its old followers are
+// detached first (see clearFormula).
+func (c *Cell) SetSharedFormula(formula, ref string) error {
+	if c.sheet == nil {
+		return fmt.Errorf("xlsx: cell is not associated with a sheet")
+	}
+	rng, err := parseCellRangeRef(ref)
+	if err != nil {
+		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
+	}
+	mRow, mCol, err := ParseCellRef(c.cell.R)
+	if err != nil {
+		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
+	}
+	if mRow != rng.minRow || mCol != rng.minCol {
+		return fmt.Errorf("xlsx: SetSharedFormula: cell %s must be the top-left cell of range %s", c.cell.R, ref)
+	}
+
+	si := c.sheet.nextSharedFormulaSi()
+	c.markSheetDirty()
+	c.detachSharedGroup()
+	siCopy := si
+	c.cell.T = ""
+	c.cell.F = &oxml.CT_CellFormula{T: "shared", Ref: ref, Si: &siCopy, Value: formula}
+	c.cell.V = nil
+	c.cell.Is = nil
+
+	for row := rng.minRow; row <= rng.maxRow; row++ {
+		for col := rng.minCol; col <= rng.maxCol; col++ {
+			if row == mRow && col == mCol {
+				continue
+			}
+			fref := FormatCellRef(row, col)
+			follower, err := c.sheet.Cell(fref)
+			if err != nil {
+				return err
+			}
+			follower.detachSharedGroup()
+			fsi := si
+			follower.cell.T = ""
+			follower.cell.F = &oxml.CT_CellFormula{T: "shared", Si: &fsi}
+			follower.cell.V = nil
+			follower.cell.Is = nil
+		}
+	}
+	return nil
+}
+
 // Style returns the cell's style index, or nil if not set.
 func (c *Cell) StyleIndex() *uint32 {
 	return c.cell.S
