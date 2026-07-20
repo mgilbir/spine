@@ -162,6 +162,24 @@ remediation series (#59–#75).
 
 ### Added
 
+- opc: **OPC package digital signatures** (ECMA-376 Part 2 §13) — sign and
+  verify XML-DSig package signatures using only the Go standard library.
+  `Reader.VerifySignatures()` discovers the signature parts under
+  `_xmlsignatures/`, recomputes every part digest (SHA-256/SHA-1), replays the
+  OPC Relationship Transform for signed `.rels` parts, canonicalizes the signed
+  objects, and checks the `SignatureValue` over the canonicalized `SignedInfo`
+  against the embedded X.509 certificate — reporting per-signature validity, the
+  signer subject/issuer and validity window, the signing time, and every covered
+  part. `SignPackage(src, dst, signer, cert, parts)` writes a copy of the package
+  with a fresh `sig1.xml` signing the requested parts (all parts when the list is
+  empty) plus the package relationships, using SHA-256 with RSA-SHA256 or
+  ECDSA-SHA256. A new inclusive Canonical XML 1.0 implementation lives in
+  `common/xml` (`Canonicalize`, `ParseC14N`), validated against the lxml
+  reference serializer; the RSA/ECDSA primitives live in `common/crypto`. The
+  emitted signatures are standards-compliant XML-DSig (independently verified
+  with OpenSSL); interoperability with Microsoft Office's signature UI, which
+  adds an optional Office-specific signature object, is best-effort and has not
+  been validated against Office itself.
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the

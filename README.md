@@ -5,6 +5,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 ## Features
 
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
+- **Digital Signatures**: Sign and verify OPC package signatures (XML-DSig, ECMA-376 Part 2 §13) with Go-stdlib crypto only — `Reader.VerifySignatures()` recomputes part digests and checks the `SignatureValue` against the embedded X.509 certificate; `opc.SignPackage` writes SHA-256 RSA/ECDSA signatures (see `common/xml` for the inclusive Canonical XML 1.0 implementation)
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
 - **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area, and combination charts) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`) and value data labels (`SetDataLabels`); combination charts (`NewCombo`) mix per-series types (`Series.SetType`) across a primary and secondary value axis (`Series.SetSecondaryAxis`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
