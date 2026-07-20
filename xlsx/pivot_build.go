@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
@@ -27,10 +28,11 @@ type pivotBuild struct {
 
 // cellDatum is one scanned source cell.
 type cellDatum struct {
-	empty bool
-	num   float64
-	isNum bool
-	text  string
+	empty  bool
+	num    float64
+	isNum  bool
+	isDate bool
+	text   string
 }
 
 // buildPivot scans the source range and assembles the pivot cache definition,
@@ -74,24 +76,39 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		return nil, err
 	}
 
-	// Resolve numeric group specs to base column indices. A group base is
-	// enumerated as a discrete numeric cache field so its buckets can be derived.
+	// Resolve group specs (numeric range, date and discrete item groupings) to
+	// base column indices. A group's base field is enumerated as a discrete cache
+	// field (numeric, date or string) so its buckets can be derived.
 	type groupSpec struct {
-		base     int
-		start    float64
-		end      float64
-		interval float64
-		onColumn bool
+		kind        oxml.GroupKind
+		base        int
+		start       float64 // numeric
+		end         float64
+		interval    float64
+		groupBy     PivotDateGroupBy  // date
+		namedGroups []PivotNamedGroup // discrete
+		onColumn    bool
 	}
 	var groupSpecs []groupSpec
-	groupBase := make(map[int]bool)
-	for _, g := range opts.NumericGroups {
-		j, ok := fieldIndex(g.Field)
+	groupBase := make(map[int]bool)     // any group base
+	numGroupBase := make(map[int]bool)  // numeric-range base
+	dateGroupBase := make(map[int]bool) // date base
+	itemGroupBase := make(map[int]bool) // discrete-item base
+	claimBase := func(field string) (int, error) {
+		j, ok := fieldIndex(field)
 		if !ok {
-			return nil, fmt.Errorf("group field %q is not a source column", g.Field)
+			return 0, fmt.Errorf("group field %q is not a source column", field)
 		}
 		if groupBase[j] {
-			return nil, fmt.Errorf("group field %q is listed more than once", g.Field)
+			return 0, fmt.Errorf("group field %q is listed more than once", field)
+		}
+		groupBase[j] = true
+		return j, nil
+	}
+	for _, g := range opts.NumericGroups {
+		j, err := claimBase(g.Field)
+		if err != nil {
+			return nil, err
 		}
 		if g.Interval <= 0 {
 			return nil, fmt.Errorf("group field %q: interval must be positive", g.Field)
@@ -99,8 +116,34 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		if g.End <= g.Start {
 			return nil, fmt.Errorf("group field %q: end must exceed start", g.Field)
 		}
-		groupBase[j] = true
-		groupSpecs = append(groupSpecs, groupSpec{base: j, start: g.Start, end: g.End, interval: g.Interval, onColumn: g.OnColumn})
+		numGroupBase[j] = true
+		groupSpecs = append(groupSpecs, groupSpec{kind: oxml.GroupNumeric, base: j, start: g.Start, end: g.End, interval: g.Interval, onColumn: g.OnColumn})
+	}
+	for _, g := range opts.DateGroups {
+		j, err := claimBase(g.Field)
+		if err != nil {
+			return nil, err
+		}
+		by := g.By
+		if by == "" {
+			by = PivotByMonth
+		}
+		if !validDateGroupBy(by) {
+			return nil, fmt.Errorf("date group field %q: unsupported unit %q", g.Field, by)
+		}
+		dateGroupBase[j] = true
+		groupSpecs = append(groupSpecs, groupSpec{kind: oxml.GroupDate, base: j, groupBy: by, onColumn: g.OnColumn})
+	}
+	for _, g := range opts.ItemGroups {
+		j, err := claimBase(g.Field)
+		if err != nil {
+			return nil, err
+		}
+		if len(g.Groups) == 0 {
+			return nil, fmt.Errorf("item group field %q: at least one named group is required", g.Field)
+		}
+		itemGroupBase[j] = true
+		groupSpecs = append(groupSpecs, groupSpec{kind: oxml.GroupDiscrete, base: j, namedGroups: g.Groups, onColumn: g.OnColumn})
 	}
 
 	isDim := make(map[int]bool)
@@ -159,12 +202,21 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 	for j := 0; j < nCols; j++ {
 		cf := oxml.CT_CacheField{Name: headers[j]}
 		switch {
-		case groupBase[j]:
+		case numGroupBase[j]:
 			if !columnIsNumeric(columns[j]) {
 				return nil, fmt.Errorf("group field %q is not numeric", headers[j])
 			}
 			cf.Kind = oxml.CacheFieldNumberDiscrete
 			cf.NumericItems, sharedIndexByRow[j], cf.MinValue, cf.MaxValue, cf.ContainsInteger, cf.ContainsBlank = buildDiscreteNumericItems(columns[j])
+		case dateGroupBase[j]:
+			if !columnIsDate(columns[j]) {
+				return nil, fmt.Errorf("date group field %q is not a date column", headers[j])
+			}
+			cf.Kind = oxml.CacheFieldDateDiscrete
+			cf.DateItems, sharedIndexByRow[j], cf.MinDate, cf.MaxDate, cf.ContainsBlank = buildDiscreteDateItems(columns[j])
+		case itemGroupBase[j]:
+			cf.Kind = oxml.CacheFieldString
+			cf.SharedItems, sharedIndexByRow[j], cf.ContainsBlank = buildSharedItems(columns[j])
 		case isDim[j] || !columnIsNumeric(columns[j]):
 			cf.Kind = oxml.CacheFieldString
 			cf.SharedItems, sharedIndexByRow[j], cf.ContainsBlank = buildSharedItems(columns[j])
@@ -212,41 +264,52 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		values = append(values, valueSpec{field: len(cacheFields) - 1, agg: PivotSum, name: defaultValueName(PivotSum, name)})
 	}
 
-	// Numeric group fields: one derived group field per spec, placed on an axis.
-	groupStart := len(cacheFields)
+	// Derived group fields: one per spec, placed on an axis. Each group field
+	// carries no cache records of its own; its per-record bucket (index into the
+	// group's <groupItems>) is derived from the base column and tracked in
+	// groupIndexByRow for axis-item generation.
+	groupIndexByRow := make(map[int][]int, len(groupSpecs)) // group cache-field index -> per-row bucket
 	for _, gs := range groupSpecs {
-		items := numericGroupItems(gs.start, gs.end, gs.interval)
 		gIdx := len(cacheFields)
+		info := &oxml.CacheFieldGroupInfo{Kind: gs.kind, Base: gs.base}
+		var buckets []int
+		switch gs.kind {
+		case oxml.GroupDate:
+			info.GroupBy = string(gs.groupBy)
+			info.StartDate, info.EndDate, info.Items, buckets = buildDateGroup(columns[gs.base], gs.groupBy)
+		case oxml.GroupDiscrete:
+			var err error
+			info.Items, info.DiscreteMap, buckets, err = buildDiscreteGroup(cacheFields[gs.base].SharedItems, sharedIndexByRow[gs.base], gs.namedGroups)
+			if err != nil {
+				return nil, fmt.Errorf("item group field %q: %w", headers[gs.base], err)
+			}
+		default: // GroupNumeric
+			info.Start, info.End, info.Interval = gs.start, gs.end, gs.interval
+			info.Items = numericGroupItems(gs.start, gs.end, gs.interval)
+			buckets = make([]int, nData)
+			for i, d := range columns[gs.base] {
+				if d.empty || !d.isNum {
+					buckets[i] = -1
+				} else {
+					buckets[i] = numericGroupBucket(d.num, gs.start, gs.end, gs.interval)
+				}
+			}
+		}
 		cacheFields = append(cacheFields, oxml.CT_CacheField{
-			Name: headers[gs.base] + " (grouped)",
-			Kind: oxml.CacheFieldGroup,
-			Group: &oxml.CacheFieldGroupInfo{
-				Base:     gs.base,
-				Start:    gs.start,
-				End:      gs.end,
-				Interval: gs.interval,
-				Items:    items,
-			},
+			Name:  headers[gs.base] + " (grouped)",
+			Kind:  oxml.CacheFieldGroup,
+			Group: info,
 		})
+		groupIndexByRow[gIdx] = buckets
 		if gs.onColumn {
 			colIdx = append(colIdx, gIdx)
 		} else {
 			rowIdx = append(rowIdx, gIdx)
 		}
 	}
-	// Build cache records: one value per database field. Group fields carry no
-	// records of their own; their per-record bucket is tracked separately below
-	// for axis-item generation.
+
+	// Build cache records: one value per database field.
 	records := make([]oxml.PivotRecord, nData)
-	groupIndexByRow := make(map[int][]int, len(groupSpecs)) // group cache-field index -> per-row bucket
-	// Map each group cache-field index to its spec for bucket computation.
-	groupFieldSpec := make(map[int]groupSpec)
-	gi := groupStart
-	for _, gs := range groupSpecs {
-		groupFieldSpec[gi] = gs
-		groupIndexByRow[gi] = make([]int, nData)
-		gi++
-	}
 	for i := 0; i < nData; i++ {
 		rec := oxml.PivotRecord{Values: make([]oxml.PivotRecordValue, nCols)}
 		for j := 0; j < nCols; j++ {
@@ -258,7 +321,7 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 				} else {
 					rec.Values[j] = oxml.PivotRecordValue{IsNumber: true, Number: d.num}
 				}
-			default: // string or discrete-numeric: reference shared item by index
+			default: // string, discrete-numeric or discrete-date: reference shared item by index
 				if d.empty || sharedIndexByRow[j][i] < 0 {
 					rec.Values[j] = oxml.PivotRecordValue{IsMissing: true}
 				} else {
@@ -267,14 +330,6 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 			}
 		}
 		records[i] = rec
-		for gIdx, gs := range groupFieldSpec {
-			d := columns[gs.base][i]
-			if d.empty || !d.isNum {
-				groupIndexByRow[gIdx][i] = -1
-			} else {
-				groupIndexByRow[gIdx][i] = numericGroupBucket(d.num, gs.start, gs.end, gs.interval)
-			}
-		}
 	}
 
 	cache := &oxml.CT_PivotCacheDefinition{
@@ -417,7 +472,9 @@ func scanCell(s *Sheet, ref string) cellDatum {
 		return cellDatum{empty: true}
 	}
 	switch cell.Type() {
-	case CellTypeNumber, CellTypeDate:
+	case CellTypeDate:
+		return cellDatum{num: cell.Float(), isNum: true, isDate: true, text: cell.String()}
+	case CellTypeNumber:
 		return cellDatum{num: cell.Float(), isNum: true, text: cell.String()}
 	default:
 		text := cell.String()
@@ -582,6 +639,277 @@ func numericGroupBucket(v, start, end, interval float64) int {
 		return k + 1
 	}
 	return 1 + int(math.Floor((v-start)/interval))
+}
+
+// --- date grouping helpers ---
+
+// monthNames are the abbreviated month labels Excel uses for date group buckets.
+var monthNames = [12]string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+
+// validDateGroupBy reports whether by is a supported date grouping unit.
+func validDateGroupBy(by PivotDateGroupBy) bool {
+	switch by {
+	case PivotByYear, PivotByQuarter, PivotByMonth, PivotByDay:
+		return true
+	}
+	return false
+}
+
+// columnIsDate reports whether a column has at least one date value and no
+// non-empty, non-date values.
+func columnIsDate(col []cellDatum) bool {
+	seen := false
+	for _, d := range col {
+		if d.empty {
+			continue
+		}
+		if d.isDate {
+			seen = true
+			continue
+		}
+		return false
+	}
+	return seen
+}
+
+// isoDate formats a time as the ISO 8601 form Excel writes for cached dates.
+func isoDate(t time.Time) string {
+	return t.Format("2006-01-02T15:04:05")
+}
+
+// labelDate formats a date as the M/D/YYYY label Excel uses for a date group's
+// leading "<start" and trailing ">end" bound items.
+func labelDate(t time.Time) string {
+	return fmt.Sprintf("%d/%d/%d", int(t.Month()), t.Day(), t.Year())
+}
+
+// buildDiscreteDateItems enumerates a date column's distinct values in ascending
+// order as ISO 8601 strings, returning them, a per-row index into them (-1 for a
+// blank or non-date cell), the min/max dates, and whether any cell was blank.
+// Used for the base field of a date grouping.
+func buildDiscreteDateItems(col []cellDatum) (items []string, indexByRow []int, minDate, maxDate string, containsBlank bool) {
+	indexByRow = make([]int, len(col))
+	distinct := make(map[float64]struct{})
+	var serials []float64
+	var minS, maxS float64
+	seen := false
+	for i, d := range col {
+		if d.empty || !d.isDate {
+			if d.empty {
+				containsBlank = true
+			}
+			indexByRow[i] = -1
+			continue
+		}
+		if !seen {
+			minS, maxS = d.num, d.num
+			seen = true
+		} else {
+			if d.num < minS {
+				minS = d.num
+			}
+			if d.num > maxS {
+				maxS = d.num
+			}
+		}
+		if _, ok := distinct[d.num]; !ok {
+			distinct[d.num] = struct{}{}
+			serials = append(serials, d.num)
+		}
+	}
+	sort.Float64s(serials)
+	items = make([]string, len(serials))
+	pos := make(map[float64]int, len(serials))
+	for idx, s := range serials {
+		items[idx] = isoDate(excelDateToTime(s))
+		pos[s] = idx
+	}
+	for i, d := range col {
+		if indexByRow[i] < 0 {
+			continue
+		}
+		indexByRow[i] = pos[d.num]
+	}
+	if seen {
+		minDate = isoDate(excelDateToTime(minS))
+		maxDate = isoDate(excelDateToTime(maxS))
+	}
+	return items, indexByRow, minDate, maxDate, containsBlank
+}
+
+// dayOfYearItems returns the fixed 366-day bucket labels ("1-Jan" ... "31-Dec")
+// and a lookup from (month, day) to their index, for day grouping.
+func dayOfYearItems() ([]string, map[[2]int]int) {
+	daysIn := [12]int{31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+	var items []string
+	idx := make(map[[2]int]int, 366)
+	for m := 1; m <= 12; m++ {
+		for day := 1; day <= daysIn[m-1]; day++ {
+			idx[[2]int{m, day}] = len(items)
+			items = append(items, strconv.Itoa(day)+"-"+monthNames[m-1])
+		}
+	}
+	return items, idx
+}
+
+// buildDateGroup derives a date grouping's rangePr bounds (ISO), its groupItems
+// labels, and the per-row bucket index (into the labels; -1 for a blank or
+// non-date cell). Buckets fold each date into the whole calendar unit given by
+// by (e.g. every January together for PivotByMonth). The leading "<start" and
+// trailing ">end" bound items bracket the data range and stay empty.
+func buildDateGroup(col []cellDatum, by PivotDateGroupBy) (startISO, endISO string, items []string, buckets []int) {
+	buckets = make([]int, len(col))
+	var minT, maxT time.Time
+	seen := false
+	for _, d := range col {
+		if d.empty || !d.isDate {
+			continue
+		}
+		t := excelDateToTime(d.num)
+		if !seen {
+			minT, maxT = t, t
+			seen = true
+		} else {
+			if t.Before(minT) {
+				minT = t
+			}
+			if t.After(maxT) {
+				maxT = t
+			}
+		}
+	}
+	if !seen {
+		minT, maxT = excelEpoch, excelEpoch
+	}
+	startDay := time.Date(minT.Year(), minT.Month(), minT.Day(), 0, 0, 0, 0, time.UTC)
+	endDay := time.Date(maxT.Year(), maxT.Month(), maxT.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
+	startISO = isoDate(startDay)
+	endISO = isoDate(endDay)
+	startLabel := "<" + labelDate(startDay)
+	endLabel := ">" + labelDate(endDay)
+
+	switch by {
+	case PivotByYear:
+		yearSet := make(map[int]struct{})
+		for _, d := range col {
+			if d.empty || !d.isDate {
+				continue
+			}
+			yearSet[excelDateToTime(d.num).Year()] = struct{}{}
+		}
+		years := make([]int, 0, len(yearSet))
+		for y := range yearSet {
+			years = append(years, y)
+		}
+		sort.Ints(years)
+		yearIdx := make(map[int]int, len(years))
+		items = append(items, startLabel)
+		for k, y := range years {
+			yearIdx[y] = k + 1
+			items = append(items, strconv.Itoa(y))
+		}
+		items = append(items, endLabel)
+		for i, d := range col {
+			if d.empty || !d.isDate {
+				buckets[i] = -1
+				continue
+			}
+			buckets[i] = yearIdx[excelDateToTime(d.num).Year()]
+		}
+	case PivotByQuarter:
+		items = append(items, startLabel, "Qtr1", "Qtr2", "Qtr3", "Qtr4", endLabel)
+		for i, d := range col {
+			if d.empty || !d.isDate {
+				buckets[i] = -1
+				continue
+			}
+			m := int(excelDateToTime(d.num).Month())
+			buckets[i] = (m-1)/3 + 1
+		}
+	case PivotByDay:
+		dayItems, dayIdx := dayOfYearItems()
+		items = append(items, startLabel)
+		items = append(items, dayItems...)
+		items = append(items, endLabel)
+		for i, d := range col {
+			if d.empty || !d.isDate {
+				buckets[i] = -1
+				continue
+			}
+			t := excelDateToTime(d.num)
+			buckets[i] = dayIdx[[2]int{int(t.Month()), t.Day()}] + 1
+		}
+	default: // PivotByMonth
+		items = append(items, startLabel)
+		items = append(items, monthNames[:]...)
+		items = append(items, endLabel)
+		for i, d := range col {
+			if d.empty || !d.isDate {
+				buckets[i] = -1
+				continue
+			}
+			buckets[i] = int(excelDateToTime(d.num).Month())
+		}
+	}
+	return startISO, endISO, items, buckets
+}
+
+// buildDiscreteGroup folds a base string field's items into named parent groups.
+// It returns the group's <groupItems> labels (named groups first, then each
+// ungrouped base item), the discretePr map (one group-item index per base item,
+// in base-item order), and the per-row bucket index (-1 for a blank base cell).
+func buildDiscreteGroup(baseItems []string, indexByRow []int, groups []PivotNamedGroup) (items []string, discreteMap, buckets []int, err error) {
+	itemPos := make(map[string]int, len(baseItems))
+	for i, v := range baseItems {
+		itemPos[v] = i
+	}
+	assigned := make([]int, len(baseItems))
+	for i := range assigned {
+		assigned[i] = -1
+	}
+	nameSet := make(map[string]struct{})
+	for _, g := range groups {
+		name := strings.TrimSpace(g.Name)
+		if name == "" {
+			return nil, nil, nil, fmt.Errorf("group name is required")
+		}
+		if _, dup := nameSet[name]; dup {
+			return nil, nil, nil, fmt.Errorf("group name %q is listed more than once", name)
+		}
+		nameSet[name] = struct{}{}
+		gi := len(items)
+		items = append(items, name)
+		for _, v := range g.Items {
+			bi, ok := itemPos[v]
+			if !ok {
+				return nil, nil, nil, fmt.Errorf("item %q is not a value of the field", v)
+			}
+			if assigned[bi] >= 0 {
+				return nil, nil, nil, fmt.Errorf("item %q is grouped more than once", v)
+			}
+			assigned[bi] = gi
+		}
+	}
+	for bi, v := range baseItems {
+		if assigned[bi] >= 0 {
+			continue
+		}
+		if _, clash := nameSet[v]; clash {
+			return nil, nil, nil, fmt.Errorf("ungrouped item %q collides with a group name", v)
+		}
+		assigned[bi] = len(items)
+		items = append(items, v)
+	}
+	discreteMap = assigned
+	buckets = make([]int, len(indexByRow))
+	for i, bi := range indexByRow {
+		if bi < 0 {
+			buckets[i] = -1
+			continue
+		}
+		buckets[i] = assigned[bi]
+	}
+	return items, discreteMap, buckets, nil
 }
 
 // pivotFieldItemCount is the number of items a row/column pivotField exposes:

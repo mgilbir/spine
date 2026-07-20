@@ -162,6 +162,19 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **pivot date grouping and discrete item grouping** — `PivotOptions`
+  gains `DateGroups` and `ItemGroups`. `DateGroups` buckets a date/time source
+  field by year, quarter, month or day (`PivotByYear`/`PivotByQuarter`/
+  `PivotByMonth`/`PivotByDay`), emitting the base field's cached dates plus a
+  derived group field with a `fieldGroup`/`rangePr groupBy` and the calendar
+  bucket labels. `ItemGroups` folds selected items of a field into named parent
+  groups (`PivotNamedGroup{Name, Items}`), emitting a `fieldGroup`/`groupItems`
+  with a `discretePr` mapping each base item to its group; items left unnamed
+  remain as themselves. Each grouped field is placed on the row axis (or the
+  column axis with `OnColumn`). New pivots reopen cleanly and validate; existing
+  pivot parts still round-trip byte-for-byte. Pivot slicers and timelines remain
+  out of scope (they require injecting `x14`/`x15` extension lists into the
+  shared `workbook.xml`/`worksheet.xml` marshaling paths).
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the

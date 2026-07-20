@@ -67,6 +67,60 @@ type PivotOptions struct {
 	// Age into 10-year bands). Each grouped field is placed on the row axis (or
 	// the column axis when OnColumn is set) in place of the raw field.
 	NumericGroups []PivotNumericGroup
+	// DateGroups group a date/time source field into calendar buckets (year,
+	// quarter, month or day). Each grouped field is placed on the row axis (or
+	// the column axis when OnColumn is set).
+	DateGroups []PivotDateGroup
+	// ItemGroups fold selected items of a source field into named parent groups
+	// (e.g. group states into "West"/"East"). Each grouped field is placed on the
+	// row axis (or the column axis when OnColumn is set).
+	ItemGroups []PivotItemGroup
+}
+
+// PivotDateGroupBy is the calendar unit a date field is grouped by.
+type PivotDateGroupBy string
+
+// Supported date grouping units.
+const (
+	PivotByYear    PivotDateGroupBy = "years"
+	PivotByQuarter PivotDateGroupBy = "quarters"
+	PivotByMonth   PivotDateGroupBy = "months"
+	PivotByDay     PivotDateGroupBy = "days"
+)
+
+// PivotDateGroup groups a date/time source field into calendar buckets placed
+// on an axis. Values are bucketed by the whole calendar unit (e.g. By
+// PivotByMonth buckets every January together regardless of year).
+type PivotDateGroup struct {
+	// Field is the date/time source column to group.
+	Field string
+	// By is the calendar unit: PivotByYear, PivotByQuarter, PivotByMonth or
+	// PivotByDay. The zero value groups by month.
+	By PivotDateGroupBy
+	// OnColumn places the grouped field on the column axis instead of the row axis.
+	OnColumn bool
+}
+
+// PivotItemGroup folds selected items of a source field into named parent
+// groups placed on an axis. Items not named in any group remain as themselves.
+type PivotItemGroup struct {
+	// Field is the source column whose items are grouped.
+	Field string
+	// Groups are the named parent groups; each names the source item values it
+	// collects. A value may appear in at most one group.
+	Groups []PivotNamedGroup
+	// OnColumn places the grouped field on the column axis instead of the row axis.
+	OnColumn bool
+}
+
+// PivotNamedGroup is one named parent group of an item grouping: a display name
+// and the source item values folded into it.
+type PivotNamedGroup struct {
+	// Name is the group's display label (e.g. "West"). It must be unique within
+	// the item grouping and must not collide with an ungrouped source item.
+	Name string
+	// Items are the source item values collected into the group.
+	Items []string
 }
 
 // PivotCalculatedField is a formula-derived value field. The formula references
@@ -299,14 +353,16 @@ func (w *Workbook) resolvePivotCache(pivotTablePart string) *oxml.CT_PivotCacheD
 // The pivot cache is written with refreshOnLoad set, so Excel rebuilds the
 // cached values and the rendered layout when the workbook is opened.
 //
-// opts.CalculatedFields adds calculated (formula) fields as value fields, and
-// opts.NumericGroups groups a numeric source field into value ranges placed on
-// the row or column axis. A workbook that already contains pivot caches is
-// extended: the new cache is allocated a fresh id and parts without disturbing
-// existing pivots.
+// opts.CalculatedFields adds calculated (formula) fields as value fields;
+// opts.NumericGroups groups a numeric source field into value ranges;
+// opts.DateGroups groups a date/time field by year, quarter, month or day; and
+// opts.ItemGroups folds selected items of a field into named parent groups.
+// Each grouped field is placed on the row (or, with OnColumn, the column) axis.
+// A workbook that already contains pivot caches is extended: the new cache is
+// allocated a fresh id and parts without disturbing existing pivots.
 //
-// Limitations: date grouping, discrete (manual) item grouping, multiple
-// consolidation ranges and external-data caches are out of scope.
+// Limitations: multiple consolidation ranges and external-data caches are out
+// of scope, as are slicers and timelines (see the package documentation).
 func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*PivotTable, error) {
 	if s.workbook == nil {
 		return nil, fmt.Errorf("xlsx: AddPivotTable: sheet is not attached to a workbook")
