@@ -10,6 +10,31 @@ import (
 // value.
 var oleProgIDAttr = regexp.MustCompile(`(?i)prog[Ii][Dd]="([^"]*)"`)
 
+// activeXClassIDAttr and activeXPersistenceAttr match the classid and
+// persistence attributes on an ActiveX ocx part's root element (they carry the
+// ax: prefix, e.g. ax:classid); the prefix is ignored so the scan is
+// prefix-agnostic.
+var (
+	activeXClassIDAttr     = regexp.MustCompile(`(?i)classid="([^"]*)"`)
+	activeXPersistenceAttr = regexp.MustCompile(`(?i)persistence="([^"]*)"`)
+)
+
+// ExtractActiveXControlInfo returns the COM class id and persistence mode
+// declared on an ActiveX control part (ax:ocx). The class id (e.g.
+// "{8BD21D40-EC42-11CE-9E0D-00AA006002F3}") identifies the control server; the
+// persistence value (e.g. "persistPropertyBag") names how the control's state
+// is stored. Both are read best-effort from the part's root element rather than
+// schema-parsed, since spine does not author the ActiveX persistence stream.
+func ExtractActiveXControlInfo(rawXML []byte) (classID, persistence string) {
+	if m := activeXClassIDAttr.FindSubmatch(rawXML); m != nil {
+		classID = string(m[1])
+	}
+	if m := activeXPersistenceAttr.FindSubmatch(rawXML); m != nil {
+		persistence = string(m[1])
+	}
+	return classID, persistence
+}
+
 // ExtractOLEProgID returns the ProgID declared for the OLE relationship relID
 // in the raw XML of the part that references it, or "" when none is found. The
 // ProgID names the embedded object's server (e.g. "Excel.Sheet.12",

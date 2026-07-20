@@ -237,6 +237,27 @@ remediation series (#59–#75).
   (`WithOLEContentType`), and icon display (`WithOLEShowAsIcon`). `OLEObjects()`
   reports created objects and recovers their `progID` from the graphic frame.
   (The prior OLE wave shipped extract-only.)
+- docx,xlsx,pptx: **form controls and ActiveX controls** — read/enumerate
+  support across formats, plus basic authoring of Word legacy form fields.
+  - docx: `Document.FormFields()` enumerates legacy Word form fields (the
+    Developer > Legacy Tools kind: `w:fldChar` FORMTEXT/FORMCHECKBOX/FORMDROPDOWN
+    with a `w:ffData` definition) anywhere in the body, tables, headers, and
+    footers, returning each field's name, kind, current value, checkbox state,
+    and dropdown entries/selection. `Paragraph.AddFormField(FormFieldOptions{...})`
+    authors a new text, checkbox, or dropdown form field as the standard
+    begin/separate/end run sequence and returns the run holding the displayed
+    result. Fields read from a file round-trip byte-identical.
+  - xlsx: `Sheet.FormControls()` enumerates legacy form controls (buttons,
+    checkboxes, dropdowns, list boxes, option buttons, spinners, scroll bars)
+    from the sheet's VML drawing, reporting each control's type, linked cell
+    (`x:FmlaLink`), source range, checkbox state, VML part, and — joined through
+    the worksheet `<control>` block — its name and `ctrlProps` part.
+  - docx/xlsx/pptx: `ActiveXControls()` enumerates embedded ActiveX controls,
+    reporting each `ax:ocx` part's COM class id, persistence mode, and its
+    `activeXN.bin` persistence binary (resolved through the control part's
+    relationships). All control parts (VML, `ctrlProps`, `activeX`) are
+    preserved verbatim on save. Authoring ActiveX controls (which requires
+    writing the OLE persistence binary) is out of scope.
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
