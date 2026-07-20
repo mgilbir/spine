@@ -113,7 +113,7 @@ func (s *Slide) Shapes() []Shape {
 // Audio, and GroupShape — are supported.
 func (s *Slide) AddShape(shape Shape) error {
 	switch shape.(type) {
-	case *TextBox, *PlaceholderShape, *AutoShape, *Table, *Picture, *Video, *Audio, *GroupShape:
+	case *TextBox, *PlaceholderShape, *AutoShape, *Table, *Picture, *Video, *Audio, *GroupShape, *Connector:
 		s.addShape(shape)
 		return nil
 	default:
@@ -219,6 +219,30 @@ func (s *Slide) AddTable(rows, cols int) *Table {
 	table := NewTable(rows, cols)
 	s.addShape(table)
 	return table
+}
+
+// AddConnector adds a connector (a p:cxnSp connection shape) to the slide and
+// returns it for further configuration. Bind its ends to shapes with
+// Connect / SetStartShape / SetEndShape (the cNvPr ids are resolved on save,
+// so it can target API-created shapes) or place it freely with SetPoints, and
+// style its line with SetLine / SetLineWidth / SetLineColor / SetLineDash. The
+// connector participates in the shape sync, so it coexists with existing
+// shapes and preserved connectors on a loaded slide.
+func (s *Slide) AddConnector(kind ConnectorKind) *Connector {
+	c := NewConnector(kind)
+	s.addShape(c)
+	return c
+}
+
+// Connectors returns the connectors (p:cxnSp) on the slide, in z-order.
+func (s *Slide) Connectors() []*Connector {
+	var out []*Connector
+	for _, sh := range s.shapes {
+		if c, ok := sh.(*Connector); ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // AddVideo embeds a video in the slide from raw media bytes and their content
@@ -376,6 +400,7 @@ func (s *Slide) syncShapesToXML() {
 		}
 		s.pruneAutoTiming(removedSpids)
 		s.gcSlideRels(removedRelIDs)
+		s.resolveConnectorBindings()
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
 		s.clearShapeDirt()
@@ -391,17 +416,21 @@ func (s *Slide) syncShapesToXML() {
 	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapes) >= s.syncedShapes {
 		s.syncDirtyShapes(spTree)
 		s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
+		s.resolveConnectorBindings()
 		s.syncedShapes = len(s.shapes)
 		s.shapesModified = false
 		s.clearShapeDirt()
 		return
 	}
 
-	// Clear existing shapes and child order tracking
+	// Clear existing shapes and child order tracking. Connectors are cleared
+	// too: they are materialized into s.shapes and re-emitted from the loop
+	// below, so leaving the parsed nodes would duplicate them.
 	spTree.Sp = nil
 	spTree.GraphicFrame = nil
 	spTree.Pic = nil
 	spTree.GrpSp = nil
+	spTree.CxnSp = nil
 	spTree.ClearChildOrder()
 
 	// The rebuild renumbers every shape and re-collects auto-play refs from
@@ -412,8 +441,8 @@ func (s *Slide) syncShapesToXML() {
 	s.timingRegen = true
 
 	// Convert each shape, seeding ids above anything the rebuild left in the
-	// tree (connectors survive the clearing above): cNvPr ids must be unique
-	// slide-wide (ST_DrawingElementId).
+	// tree (AltContent/RawXML children keep their parsed ids): cNvPr ids must be
+	// unique slide-wide (ST_DrawingElementId).
 	shapeID := spTree.MaxShapeID() + 1
 	if shapeID < 2 {
 		shapeID = 2 // 1 belongs to the shape tree itself
@@ -424,43 +453,56 @@ func (s *Slide) syncShapesToXML() {
 		return id
 	}
 	for _, shape := range s.shapes {
+		// Record the id assigned to each shape so a connector bound to it can
+		// resolve its cNvPr id after the loop (see resolveConnectorBindings) and
+		// so ID() reports the saved id in-memory. Groups and connectors set their
+		// own sourceID inside their builders.
 		switch sh := shape.(type) {
 		case *TextBox:
-			sp := textBoxToOxml(sh, shapeID)
-			spTree.Sp = append(spTree.Sp, sp)
-			shapeID++
+			id := allocID()
+			spTree.Sp = append(spTree.Sp, textBoxToOxml(sh, id))
+			sh.sourceID = id
 		case *PlaceholderShape:
-			sp := placeholderToOxml(sh, shapeID)
-			spTree.Sp = append(spTree.Sp, sp)
-			shapeID++
+			id := allocID()
+			spTree.Sp = append(spTree.Sp, placeholderToOxml(sh, id))
+			sh.sourceID = id
 		case *AutoShape:
-			sp := autoShapeToOxml(sh, shapeID)
-			spTree.Sp = append(spTree.Sp, sp)
-			shapeID++
+			id := allocID()
+			spTree.Sp = append(spTree.Sp, autoShapeToOxml(sh, id))
+			sh.sourceID = id
 		case *Table:
-			gf := tableToOxml(sh, shapeID)
-			spTree.GraphicFrame = append(spTree.GraphicFrame, gf)
-			shapeID++
+			id := allocID()
+			spTree.GraphicFrame = append(spTree.GraphicFrame, tableToOxml(sh, id))
+			sh.sourceID = id
 		case *ChartFrame:
-			spTree.GraphicFrame = append(spTree.GraphicFrame, chartFrameToOxml(sh, shapeID))
-			shapeID++
+			id := allocID()
+			spTree.GraphicFrame = append(spTree.GraphicFrame, chartFrameToOxml(sh, id))
+			sh.sourceID = id
 		case *Picture:
-			pic := pictureToOxml(sh, shapeID)
-			spTree.Pic = append(spTree.Pic, pic)
-			shapeID++
+			id := allocID()
+			spTree.Pic = append(spTree.Pic, pictureToOxml(sh, id))
+			sh.sourceID = id
 		case *Video:
-			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, shapeID, mediaVideo))
-			shapeID++
+			id := allocID()
+			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, id, mediaVideo))
+			sh.sourceID = id
 		case *Audio:
-			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, shapeID, mediaAudio))
-			shapeID++
+			id := allocID()
+			spTree.Pic = append(spTree.Pic, s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
+			sh.sourceID = id
 		case *GroupShape:
 			// A domain-built group serializes as a real p:grpSp with its
 			// children, ids allocated slide-wide (previously groups added via
 			// AddShape were silently never written, C85).
 			spTree.GrpSp = append(spTree.GrpSp, s.buildGroupNode(sh, allocID))
+		case *Connector:
+			spTree.CxnSp = append(spTree.CxnSp, connectorToOxml(sh, allocID()))
 		}
 	}
+
+	// Every shape now has its assigned id, so connectors bound to shapes can
+	// write their stCxn/endCxn (see resolveConnectorBindings).
+	s.resolveConnectorBindings()
 
 	// The rebuild regenerated the tree from the domain model, so media/image
 	// relationships belonging to shapes that are gone are no longer referenced
@@ -486,6 +528,40 @@ func (s *Slide) syncShapesToXML() {
 	s.removedRefs = nil
 	s.shapesModified = false
 	s.clearShapeDirt()
+}
+
+// resolveConnectorBindings writes the stCxn/endCxn bindings of API-created
+// connectors into their parsed nodes, now that every shape on the slide has an
+// id. A connector bound to a shape (via Connect/SetStartShape/SetEndShape)
+// takes that shape's assigned cNvPr id; ends left free, and connectors
+// materialized from a file (whose bindings are already in their nodes), are
+// untouched — so an unmodified deck with existing connectors stays
+// byte-identical.
+func (s *Slide) resolveConnectorBindings() {
+	for _, sh := range s.shapes {
+		c, ok := sh.(*Connector)
+		if !ok || c.sourceCxn == nil || c.sourceCxn.NvCxnSpPr == nil {
+			continue
+		}
+		if c.startShape == nil && c.endShape == nil {
+			continue
+		}
+		cnv := c.sourceCxn.NvCxnSpPr.CNvCxnSpPr
+		if cnv == nil {
+			cnv = &dml.CNvCxnSpPr{}
+			c.sourceCxn.NvCxnSpPr.CNvCxnSpPr = cnv
+		}
+		if c.startShape != nil {
+			if id := c.startShape.ID(); id != 0 {
+				cnv.StCxn = &dml.Cxn{Id: id, Idx: c.startSite}
+			}
+		}
+		if c.endShape != nil {
+			if id := c.endShape.ID(); id != 0 {
+				cnv.EndCxn = &dml.Cxn{Id: id, Idx: c.endSite}
+			}
+		}
+	}
 }
 
 // reindexShapeRefsAfterRemoval rewrites shapeRefs from the pre-compaction
@@ -564,8 +640,16 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 			spTree.AppendGrpSp(s.buildGroupNode(sh, allocID))
 			s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: len(spTree.GrpSp) - 1})
 			continue
+		case *Connector:
+			spTree.AppendCxnSp(connectorToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildCxnSp, Index: len(spTree.CxnSp) - 1}
 		}
 		if ref.Index >= 0 {
+			// Record the assigned id on the shape so a connector bound to it can
+			// resolve its cNvPr id, and so ID() reports the saved id in-memory.
+			if b := baseShapeOf(shape); b != nil {
+				b.sourceID = id
+			}
 			id++
 		}
 		s.shapeRefs = append(s.shapeRefs, ref)

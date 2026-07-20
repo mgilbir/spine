@@ -151,6 +151,8 @@ func baseShapeOf(shape Shape) *BaseShape {
 		return &sh.BaseShape
 	case *ChartFrame:
 		return &sh.BaseShape
+	case *Connector:
+		return &sh.BaseShape
 	}
 	return nil
 }

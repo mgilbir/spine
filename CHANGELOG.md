@@ -218,6 +218,19 @@ remediation series (#59–#75).
   (`SlideMaster.AddLayout`, which wires the master→layout relationship and content
   type so `AddSlideWithLayout` can target the new layout, was already present and
   is now covered by round-trip tests.)
+- pptx: **connectors** — connection shapes (`p:cxnSp`) are now materialized and
+  authorable. `Slide.Connectors()` returns the connectors on a slide, each
+  reporting its routing (`Kind`: straight / elbow / curved), endpoint bindings
+  (`StartConnection`/`EndConnection` give the bound cNvPr id + connection-site
+  index, or report a free endpoint), and line style (`LineWidth`/`LineColor`/
+  `LineDash`). `Slide.AddConnector(kind)` draws a new connector: bind its ends to
+  shapes with `Connect`/`SetStartShape`/`SetEndShape` (the target ids are
+  resolved on save, so it can link API-created shapes whose ids are assigned
+  then) or place it freely with `SetPoints`, and style its line with `SetLine`/
+  `SetLineWidth`/`SetLineColor`/`SetLineDash`. Connectors participate in the
+  shape sync, so they coexist with other shapes; a deck with existing connectors
+  round-trips byte-for-byte when untouched, and edits flush into the parsed node
+  in place.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;

@@ -46,6 +46,8 @@ func shapeDirty(shape Shape) bool {
 		return sh.isDirty()
 	case *ChartFrame:
 		return sh.dirty
+	case *Connector:
+		return sh.dirty
 	}
 	return false
 }
@@ -88,6 +90,8 @@ func clearShapeDirty(shape Shape) {
 		}
 	case *ChartFrame:
 		sh.dirty = false
+	case *Connector:
+		sh.dirty = false
 	}
 }
 
@@ -125,6 +129,12 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 		case oxml.ChildGrpSp:
 			if ref.Index < len(spTree.GrpSp) {
 				s.updateGroupNode(spTree.GrpSp[ref.Index], shape, spTree)
+			}
+		case oxml.ChildCxnSp:
+			if ref.Index < len(spTree.CxnSp) {
+				if c, ok := shape.(*Connector); ok {
+					updateConnectorNode(spTree.CxnSp[ref.Index], c)
+				}
 			}
 		}
 	}

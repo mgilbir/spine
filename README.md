@@ -15,6 +15,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
+  - Connectors (`Slide.AddConnector`/`Slide.Connectors`): straight, elbow, and curved connection shapes bound to two shapes' connection sites (ids resolved on save) or drawn between free points, with line width/color/dash; decks with existing connectors round-trip byte-for-byte
   - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`
   - Slide, master, and layout background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern)
   - Slide master / layout editing: per-level master text styles (`SlideMaster.TitleStyle`/`BodyStyle`/`OtherStyle` with `SetLevelFont`/`SetLevelFontSize`/`SetLevelBold`/`SetLevelItalic`/`SetLevelColor`/`SetLevelBullet`), master/layout placeholder geometry (`EditablePlaceholders`/`EditablePlaceholder` with `SetPosition`/`SetSize`), and adding a layout under a master (`SlideMaster.AddLayout`) — unedited masters and layouts round-trip byte-for-byte and an edit touches only its own part
@@ -786,6 +787,17 @@ shape.SetSize(914400, 914400)
 _ = slide.AddShape(shape)
 shape.SetHyperlinkToSlide(2)              // jump to slide 3 (0-based index)
 // shape.SetActionHyperlink(pptx.ActionNextSlide) // or a ppaction:// verb
+
+// Connect two shapes with an elbow connector (ids are bound on save).
+other := pptx.NewAutoShape(pptx.PresetEllipse)
+_ = slide.AddShape(other)
+conn := slide.AddConnector(pptx.ConnectorElbow)
+conn.Connect(shape, 3, other, 1)          // bind start/end to connection sites
+conn.SetLineWidth(2)
+conn.SetLineColor(dml.NewRGB(0xC0, 0x00, 0x00).ToColor())
+// Or draw a free-floating line between two points:
+// conn := slide.AddConnector(pptx.ConnectorStraight)
+// conn.SetPoints(0, 0, dml.Inches(3), dml.Inches(2))
 ```
 
 Writing an external or slide-jump link allocates the backing relationship in the

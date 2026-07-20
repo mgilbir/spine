@@ -54,6 +54,12 @@ func (s *Slide) materializeShapes() {
 						add(grp, ref)
 					}
 				}
+			case oxml.ChildCxnSp:
+				if ref.Index < len(spTree.CxnSp) {
+					if cxn := oxmlCxnSpToGoConnector(spTree.CxnSp[ref.Index]); cxn != nil {
+						add(cxn, ref)
+					}
+				}
 			}
 		}
 	} else {
@@ -85,6 +91,12 @@ func (s *Slide) materializeShapes() {
 			if g := oxmlGroupShapeToGoGroupShape(grp, s); g != nil {
 				s.shapes = append(s.shapes, g)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i})
+			}
+		}
+		for i, cxn := range spTree.CxnSp {
+			if c := oxmlCxnSpToGoConnector(cxn); c != nil {
+				s.shapes = append(s.shapes, c)
+				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildCxnSp, Index: i})
 			}
 		}
 	}
@@ -148,6 +160,8 @@ func shapeKindClass(sh Shape) int {
 		return int(oxml.ChildGraphicFrame)
 	case *GroupShape:
 		return int(oxml.ChildGrpSp)
+	case *Connector:
+		return int(oxml.ChildCxnSp)
 	}
 	return -1
 }
@@ -226,6 +240,12 @@ func adoptRefreshedShape(old, fresh Shape) bool {
 		}
 		o.sourceGrp = f.sourceGrp
 		o.syncedChildren = f.syncedChildren
+	case *Connector:
+		f, ok := fresh.(*Connector)
+		if !ok {
+			return false
+		}
+		o.sourceCxn = f.sourceCxn
 	default:
 		return false
 	}
