@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 // buildPivotSourceWorkbook creates a workbook with a Data sheet holding a small
@@ -291,6 +292,146 @@ func TestAddPivotTable_NumericGroup(t *testing.T) {
 	}
 	if rf := pivots[0].RowFields(); len(rf) != 1 || rf[0] != "Age (grouped)" {
 		t.Errorf("RowFields = %v, want [Age (grouped)]", rf)
+	}
+}
+
+func TestAddPivotTable_DateGroup(t *testing.T) {
+	wb := Create()
+	data := wb.AddSheet("Data")
+	// Header row.
+	for c, h := range []string{"When", "Sales"} {
+		cell, _ := data.Cell(FormatCellRef(1, c+1))
+		cell.SetValue(h)
+	}
+	dates := []time.Time{
+		time.Date(2023, 1, 15, 0, 0, 0, 0, time.UTC),
+		time.Date(2023, 3, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2023, 1, 20, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 6, 5, 0, 0, 0, 0, time.UTC),
+	}
+	sales := []float64{10, 20, 30, 40}
+	for i, d := range dates {
+		dc, _ := data.Cell(FormatCellRef(i+2, 1))
+		dc.SetTime(d)
+		if err := dc.SetStyle(CellStyle{Format: "mm-dd-yy"}); err != nil { // builtin date format
+			t.Fatalf("SetStyle: %v", err)
+		}
+		sc, _ := data.Cell(FormatCellRef(i+2, 2))
+		sc.SetFloat(sales[i])
+	}
+	report := wb.AddSheet("Report")
+
+	_, err := report.AddPivotTable("Data!A1:B5", "A3", PivotOptions{
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+		DateGroups:  []PivotDateGroup{{Field: "When", By: PivotByMonth}},
+	})
+	if err != nil {
+		t.Fatalf("AddPivotTable: %v", err)
+	}
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	cacheXML := string(readZipPart(t, out, "xl/pivotCache/pivotCacheDefinition1.xml"))
+	for _, want := range []string{
+		`groupBy="months"`, `startDate="2023-01-15T00:00:00"`, "<fieldGroup base=",
+		`<s v="Jan"/>`, `<s v="Dec"/>`, `containsDate="1"`, `<d v="2023-01-15T00:00:00"/>`,
+	} {
+		if !strings.Contains(cacheXML, want) {
+			t.Errorf("cache definition missing %q:\n%s", want, cacheXML)
+		}
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if r := reopened.Validate(); r.HasErrors() {
+		t.Errorf("validation errors: %v", r)
+	}
+	pivots := reopened.PivotTables()
+	if len(pivots) != 1 {
+		t.Fatalf("PivotTables() = %d, want 1", len(pivots))
+	}
+	if rf := pivots[0].RowFields(); len(rf) != 1 || rf[0] != "When (grouped)" {
+		t.Errorf("RowFields = %v, want [When (grouped)]", rf)
+	}
+}
+
+func TestAddPivotTable_ItemGroup(t *testing.T) {
+	wb := Create()
+	data := wb.AddSheet("Data")
+	rows := [][]interface{}{
+		{"State", "Sales"},
+		{"CA", 10.0},
+		{"WA", 20.0},
+		{"NY", 30.0},
+		{"FL", 40.0},
+	}
+	for r, row := range rows {
+		for c, v := range row {
+			cell, _ := data.Cell(FormatCellRef(r+1, c+1))
+			cell.SetValue(v)
+		}
+	}
+	report := wb.AddSheet("Report")
+
+	_, err := report.AddPivotTable("Data!A1:B5", "A3", PivotOptions{
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+		ItemGroups: []PivotItemGroup{{
+			Field: "State",
+			Groups: []PivotNamedGroup{
+				{Name: "West", Items: []string{"CA", "WA"}},
+				{Name: "East", Items: []string{"NY", "FL"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("AddPivotTable: %v", err)
+	}
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	cacheXML := string(readZipPart(t, out, "xl/pivotCache/pivotCacheDefinition1.xml"))
+	for _, want := range []string{
+		"<fieldGroup base=", "<groupItems ", `<s v="West"/>`, `<s v="East"/>`, "<discretePr ",
+	} {
+		if !strings.Contains(cacheXML, want) {
+			t.Errorf("cache definition missing %q:\n%s", want, cacheXML)
+		}
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if r := reopened.Validate(); r.HasErrors() {
+		t.Errorf("validation errors: %v", r)
+	}
+	pivots := reopened.PivotTables()
+	if len(pivots) != 1 {
+		t.Fatalf("PivotTables() = %d, want 1", len(pivots))
+	}
+	if rf := pivots[0].RowFields(); len(rf) != 1 || rf[0] != "State (grouped)" {
+		t.Errorf("RowFields = %v, want [State (grouped)]", rf)
+	}
+}
+
+func TestAddPivotTable_ItemGroupUnknownItemRejected(t *testing.T) {
+	wb := buildPivotSourceWorkbook(t)
+	report, _ := wb.SheetByName("Report")
+	_, err := report.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+		ItemGroups: []PivotItemGroup{{
+			Field:  "Region",
+			Groups: []PivotNamedGroup{{Name: "G", Items: []string{"Nowhere"}}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("AddPivotTable accepted an item group naming a nonexistent item; want error")
 	}
 }
 

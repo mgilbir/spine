@@ -45,6 +45,11 @@ const (
 	// index. Used for the base field of a numeric range grouping, whose group
 	// buckets are derived from the enumerated values.
 	CacheFieldNumberDiscrete
+	// CacheFieldDateDiscrete is a date/time field whose distinct values are
+	// enumerated as shared items (as <d v="ISO8601"/>); records reference them by
+	// index. Used for the base field of a date range grouping, whose calendar
+	// buckets are derived from the enumerated values.
+	CacheFieldDateDiscrete
 	// CacheFieldGroup is a derived group field: it carries a <fieldGroup> that
 	// buckets a base field's values and has no records of its own
 	// (databaseField="0").
@@ -54,17 +59,43 @@ const (
 	CacheFieldCalculated
 )
 
-// CacheFieldGroup describes a numeric (range) grouping applied to a base cache
-// field, producing the group field's <fieldGroup>/<rangePr>/<groupItems>.
+// GroupKind classifies how a CacheFieldGroupInfo buckets its base field.
+type GroupKind int
+
+const (
+	// GroupNumeric buckets a numeric base field into equal-width value ranges
+	// (rangePr with startNum/endNum/groupInterval).
+	GroupNumeric GroupKind = iota
+	// GroupDate buckets a date/time base field into calendar units (rangePr with
+	// groupBy/startDate/endDate).
+	GroupDate
+	// GroupDiscrete folds selected base items into named parent groups
+	// (groupItems + discretePr mapping each base item to a group item).
+	GroupDiscrete
+)
+
+// CacheFieldGroupInfo describes a grouping applied to a base cache field,
+// producing the group field's <fieldGroup>/<rangePr>/<groupItems>/<discretePr>.
 type CacheFieldGroupInfo struct {
+	// Kind selects numeric-range, date-range or discrete grouping.
+	Kind GroupKind
 	// Base is the index of the base cache field whose values are bucketed.
 	Base int
-	// Start, End and Interval define the range buckets: values below Start fall
-	// in the leading "<Start" item, values at or above End in the trailing
-	// ">End" item, and the rest into [Start, Start+Interval) buckets.
+	// Start, End and Interval define numeric range buckets (GroupNumeric): values
+	// below Start fall in the leading "<Start" item, values at or above End in
+	// the trailing ">End" item, and the rest into [Start, Start+Interval) buckets.
 	Start    float64
 	End      float64
 	Interval float64
+	// GroupBy is the calendar unit for a date grouping (GroupDate): "years",
+	// "quarters", "months" or "days".
+	GroupBy string
+	// StartDate and EndDate bound a date grouping (GroupDate), ISO 8601.
+	StartDate string
+	EndDate   string
+	// DiscreteMap maps each base item index to its group item index for a
+	// discrete grouping (GroupDiscrete).
+	DiscreteMap []int
 	// Items are the group bucket labels, in order.
 	Items []string
 }
@@ -79,6 +110,12 @@ type CT_CacheField struct {
 	// NumericItems holds the distinct numeric values, in ascending order, for a
 	// CacheFieldNumberDiscrete field. Records reference them by position.
 	NumericItems []float64
+	// DateItems holds the distinct date/time values (ISO 8601), in ascending
+	// order, for a CacheFieldDateDiscrete field. Records reference them by
+	// position. MinDate and MaxDate bound them.
+	DateItems []string
+	MinDate   string
+	MaxDate   string
 	// ContainsBlank reports whether any source cell in the field was empty.
 	ContainsBlank bool
 	// MinValue and MaxValue bound a numeric field's values.
@@ -266,6 +303,21 @@ func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
 			b.EmptyElement(nsSpreadsheetML, "n", xmlb.StrAttr("v", formatFloat(v)))
 		}
 		b.EndElement(nsSpreadsheetML, "sharedItems")
+	case CacheFieldDateDiscrete:
+		siAttrs := []xmlb.Attr{
+			xmlb.BoolAttr("containsSemiMixedTypes", false),
+			xmlb.BoolAttr("containsNonDate", false),
+			xmlb.BoolAttr("containsDate", true),
+			xmlb.BoolAttr("containsString", false),
+			xmlb.StrAttr("minDate", cf.MinDate),
+			xmlb.StrAttr("maxDate", cf.MaxDate),
+			xmlb.UintAttr("count", uint32(len(cf.DateItems))),
+		}
+		b.StartElement(nsSpreadsheetML, "sharedItems", siAttrs...)
+		for _, v := range cf.DateItems {
+			b.EmptyElement(nsSpreadsheetML, "d", xmlb.StrAttr("v", v))
+		}
+		b.EndElement(nsSpreadsheetML, "sharedItems")
 	default:
 		siAttrs := []xmlb.Attr{}
 		if cf.ContainsBlank {
@@ -282,21 +334,46 @@ func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
 	b.EndElement(nsSpreadsheetML, "cacheField")
 }
 
-// marshalFieldGroup writes a numeric range grouping's <fieldGroup>.
+// marshalFieldGroup writes a grouping's <fieldGroup>: a <rangePr> for numeric
+// or date range groupings, or a <discretePr> item map for discrete groupings,
+// each followed by the <groupItems> bucket labels.
 func marshalFieldGroup(b *xmlb.Builder, g *CacheFieldGroupInfo) {
 	b.StartElement(nsSpreadsheetML, "fieldGroup", xmlb.IntAttr("base", int64(g.Base)))
-	b.EmptyElement(nsSpreadsheetML, "rangePr",
-		xmlb.BoolAttr("autoStart", false),
-		xmlb.BoolAttr("autoEnd", false),
-		xmlb.StrAttr("startNum", formatFloat(g.Start)),
-		xmlb.StrAttr("endNum", formatFloat(g.End)),
-		xmlb.StrAttr("groupInterval", formatFloat(g.Interval)))
-	b.StartElement(nsSpreadsheetML, "groupItems", xmlb.UintAttr("count", uint32(len(g.Items))))
-	for _, it := range g.Items {
+	switch g.Kind {
+	case GroupDate:
+		b.EmptyElement(nsSpreadsheetML, "rangePr",
+			xmlb.BoolAttr("autoStart", false),
+			xmlb.BoolAttr("autoEnd", false),
+			xmlb.StrAttr("groupBy", g.GroupBy),
+			xmlb.StrAttr("startDate", g.StartDate),
+			xmlb.StrAttr("endDate", g.EndDate))
+		marshalGroupItems(b, g.Items)
+	case GroupDiscrete:
+		marshalGroupItems(b, g.Items)
+		b.StartElement(nsSpreadsheetML, "discretePr", xmlb.UintAttr("count", uint32(len(g.DiscreteMap))))
+		for _, x := range g.DiscreteMap {
+			b.EmptyElement(nsSpreadsheetML, "x", xmlb.IntAttr("v", int64(x)))
+		}
+		b.EndElement(nsSpreadsheetML, "discretePr")
+	default: // GroupNumeric
+		b.EmptyElement(nsSpreadsheetML, "rangePr",
+			xmlb.BoolAttr("autoStart", false),
+			xmlb.BoolAttr("autoEnd", false),
+			xmlb.StrAttr("startNum", formatFloat(g.Start)),
+			xmlb.StrAttr("endNum", formatFloat(g.End)),
+			xmlb.StrAttr("groupInterval", formatFloat(g.Interval)))
+		marshalGroupItems(b, g.Items)
+	}
+	b.EndElement(nsSpreadsheetML, "fieldGroup")
+}
+
+// marshalGroupItems writes the <groupItems> bucket-label list.
+func marshalGroupItems(b *xmlb.Builder, items []string) {
+	b.StartElement(nsSpreadsheetML, "groupItems", xmlb.UintAttr("count", uint32(len(items))))
+	for _, it := range items {
 		b.EmptyElement(nsSpreadsheetML, "s", xmlb.StrAttr("v", it))
 	}
 	b.EndElement(nsSpreadsheetML, "groupItems")
-	b.EndElement(nsSpreadsheetML, "fieldGroup")
 }
 
 // PivotRecord is one cached source row: one value per cache field. A value is
