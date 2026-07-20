@@ -424,6 +424,7 @@ func MaxRevisionID(body *CT_Body) int {
 		for _, rr := range CollectParagraphRevisions(p) {
 			consider(rr.Id)
 		}
+		MaxMoveID(p, consider)
 	}
 	for _, tbl := range body.Tbl {
 		maxTableRevisionID(tbl, consider)
@@ -591,6 +592,12 @@ func AcceptAllInContainer(c RevContainer) {
 				AcceptAllInContainer(s.SdtContent)
 			}
 			out = append(out, it)
+		case pChildRaw:
+			if next, handled := acceptMoveRaw(it.val.(*CT_RawNamedElement), out); handled {
+				out = next
+			} else {
+				out = append(out, it)
+			}
 		default:
 			out = append(out, it)
 		}
@@ -629,6 +636,12 @@ func RejectAllInContainer(c RevContainer) {
 				RejectAllInContainer(s.SdtContent)
 			}
 			out = append(out, it)
+		case pChildRaw:
+			if next, handled := rejectMoveRaw(it.val.(*CT_RawNamedElement), out); handled {
+				out = next
+			} else {
+				out = append(out, it)
+			}
 		default:
 			out = append(out, it)
 		}

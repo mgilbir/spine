@@ -60,6 +60,12 @@ type WatermarkOptions struct {
 	// Rotation rotates the shape by this many degrees clockwise. When zero,
 	// Diagonal decides the angle (315° when set, otherwise horizontal).
 	Rotation float64
+	// DrawingML emits a text watermark as a DrawingML text box wrapped in an
+	// mc:AlternateContent whose fallback is the classic VML shape, matching the
+	// form newer Word versions write. Consumers that understand DrawingML
+	// (Requires="wps") render the text box; older ones fall back to the VML.
+	// Ignored for image watermarks, which remain VML-only.
+	DrawingML bool
 }
 
 // rotationDegrees resolves the effective clockwise rotation for the options.
@@ -83,13 +89,39 @@ func (d *Document) SetTextWatermark(text string, opts WatermarkOptions) error {
 	if err != nil {
 		return err
 	}
+	d.applyTextWatermark(headers, text, opts)
+	return nil
+}
+
+// SetSectionTextWatermark stamps a WordArt text watermark across the headers of
+// a specific section (as returned by Document.Sections or DefaultSection),
+// rather than the document's final section. This allows distinct watermarks per
+// section. The default header of the section is created when absent; existing
+// first-page and even-page headers of the section are covered too. Calling it
+// again replaces the section's existing watermark.
+func (d *Document) SetSectionTextWatermark(sec *Section, text string, opts WatermarkOptions) error {
+	if sec == nil || sec.sectPr == nil {
+		return fmt.Errorf("docx: nil section")
+	}
+	d.applyTextWatermark(d.watermarkTargetHeadersFor(sec.sectPr), text, opts)
+	return nil
+}
+
+// applyTextWatermark replaces any watermark in each header with a fresh text
+// watermark shape and flags the header parts for regeneration.
+func (d *Document) applyTextWatermark(headers []*Header, text string, opts WatermarkOptions) {
 	for _, h := range headers {
 		removeWatermarkParagraphs(h.hdr)
-		pict := buildTextWatermarkPict(text, opts, d.nextWatermarkSeq())
-		appendPictParagraph(h.hdr, pict)
+		seq := d.nextWatermarkSeq()
+		if opts.DrawingML {
+			ac := buildTextWatermarkDrawingML(text, opts, seq)
+			appendAltContentParagraph(h.hdr, ac)
+		} else {
+			pict := buildTextWatermarkPict(text, opts, seq)
+			appendPictParagraph(h.hdr, pict)
+		}
 		d.markHdrFtrModified(h.partName)
 	}
-	return nil
 }
 
 // SetImageWatermark stamps a washed-out image watermark across the document's
@@ -114,6 +146,36 @@ func (d *Document) SetImageWatermark(imageBytes []byte, opts WatermarkOptions) e
 	if err != nil {
 		return err
 	}
+	d.applyImageWatermark(headers, imageBytes, contentType, ext, widthPt, heightPt)
+	return nil
+}
+
+// SetSectionImageWatermark stamps a washed-out image watermark across the
+// headers of a specific section (see SetSectionTextWatermark for the header
+// selection). Calling it again replaces the section's existing watermark.
+func (d *Document) SetSectionImageWatermark(sec *Section, imageBytes []byte, opts WatermarkOptions) error {
+	if sec == nil || sec.sectPr == nil {
+		return fmt.Errorf("docx: nil section")
+	}
+	if len(imageBytes) == 0 {
+		return fmt.Errorf("docx: image watermark data is empty")
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(imageBytes))
+	if err != nil {
+		return fmt.Errorf("docx: decoding image watermark: %w", err)
+	}
+	contentType, ext := watermarkImageType(format)
+	if contentType == "" {
+		return fmt.Errorf("docx: unsupported image watermark format: %s", format)
+	}
+	widthPt, heightPt := fitWatermarkImage(cfg.Width, cfg.Height)
+	d.applyImageWatermark(d.watermarkTargetHeadersFor(sec.sectPr), imageBytes, contentType, ext, widthPt, heightPt)
+	return nil
+}
+
+// applyImageWatermark replaces any watermark in each header with a fresh image
+// watermark shape and flags the header parts for regeneration.
+func (d *Document) applyImageWatermark(headers []*Header, imageBytes []byte, contentType, ext string, widthPt, heightPt float64) {
 	for _, h := range headers {
 		removeWatermarkParagraphs(h.hdr)
 		// Each header part resolves relationships in its own scope, so register
@@ -124,7 +186,6 @@ func (d *Document) SetImageWatermark(imageBytes []byte, opts WatermarkOptions) e
 		appendPictParagraph(h.hdr, pict)
 		d.markHdrFtrModified(h.partName)
 	}
-	return nil
 }
 
 // Watermark returns the watermark detected in the document's header furniture,
@@ -176,9 +237,8 @@ func (d *Document) watermarkHeaders() []*oxml.CT_HdrFtr {
 	return headers
 }
 
-// watermarkTargetHeaders returns the header handles a watermark is applied to:
-// the default section's default header (created if absent) plus any first-page
-// and even-page headers the section already references.
+// watermarkTargetHeaders returns the header handles a watermark is applied to
+// for the document's final (default) section (see watermarkTargetHeadersFor).
 func (d *Document) watermarkTargetHeaders() ([]*Header, error) {
 	if d.document == nil {
 		return nil, fmt.Errorf("docx: document has no body")
@@ -189,10 +249,16 @@ func (d *Document) watermarkTargetHeaders() ([]*Header, error) {
 	if d.document.Body.SectPr == nil {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
+	return d.watermarkTargetHeadersFor(d.document.Body.SectPr), nil
+}
 
+// watermarkTargetHeadersFor returns the header handles a watermark is applied to
+// for the given section: its default header (created if absent) plus any
+// first-page and even-page headers the section already references.
+func (d *Document) watermarkTargetHeadersFor(sectPr *oxml.CT_SectPr) []*Header {
 	var headers []*Header
 	hasDefault := false
-	for _, ref := range d.document.Body.SectPr.HeaderReference {
+	for _, ref := range sectPr.HeaderReference {
 		if ref == nil || ref.RID == "" {
 			continue
 		}
@@ -214,9 +280,9 @@ func (d *Document) watermarkTargetHeaders() ([]*Header, error) {
 	// exists even when the section only referenced a first-page or even-page
 	// header.
 	if !hasDefault {
-		headers = append(headers, d.AddHeader(HeaderDefault))
+		headers = append(headers, d.addHeaderTo(sectPr, HeaderDefault))
 	}
-	return headers, nil
+	return headers
 }
 
 // headerPartForRID resolves a header relationship id in the main part's scope to
@@ -255,6 +321,16 @@ func (d *Document) nextWatermarkSeq() int {
 func appendPictParagraph(hdr *oxml.CT_HdrFtr, pict *oxml.CT_RawElement) {
 	r := &oxml.CT_R{}
 	r.AppendPict(pict)
+	p := &oxml.CT_P{}
+	p.AppendR(r)
+	hdr.AppendP(p)
+}
+
+// appendAltContentParagraph appends a paragraph holding a single run that
+// carries the watermark mc:AlternateContent (DrawingML choice + VML fallback).
+func appendAltContentParagraph(hdr *oxml.CT_HdrFtr, ac *oxml.CT_RawElement) {
+	r := &oxml.CT_R{}
+	r.AppendAlternateContent(ac)
 	p := &oxml.CT_P{}
 	p.AppendR(r)
 	hdr.AppendP(p)
@@ -396,6 +472,89 @@ func buildTextWatermarkPict(text string, opts WatermarkOptions, seq int) *oxml.C
 	return &oxml.CT_RawElement{Attrs: pictAttrs(), RawContent: []byte(b.String())}
 }
 
+// Namespace URIs used by the DrawingML text-box watermark (the VML namespaces
+// nsVML/nsOfficeVML/nsWordVML declare the fallback shape).
+const (
+	nsDrawingML          = "http://schemas.openxmlformats.org/drawingml/2006/main"
+	nsWordprocessingDraw = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+	nsWordShape          = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+)
+
+// altContentWatermarkAttrs returns the xmlns declarations placed on the
+// watermark mc:AlternateContent element. mc:, w: and r: are declared on the
+// header root; the DrawingML (a/wp/wps) and VML (v/o/w10) namespaces are not, so
+// they are declared here.
+func altContentWatermarkAttrs() []xml.Attr {
+	return []xml.Attr{
+		{Name: xml.Name{Space: "xmlns", Local: "wp"}, Value: nsWordprocessingDraw},
+		{Name: xml.Name{Space: "xmlns", Local: "a"}, Value: nsDrawingML},
+		{Name: xml.Name{Space: "xmlns", Local: "wps"}, Value: nsWordShape},
+		{Name: xml.Name{Space: "xmlns", Local: "v"}, Value: nsVML},
+		{Name: xml.Name{Space: "xmlns", Local: "o"}, Value: nsOfficeVML},
+		{Name: xml.Name{Space: "xmlns", Local: "w10"}, Value: nsWordVML},
+	}
+}
+
+// buildTextWatermarkDrawingML builds the mc:AlternateContent raw element for a
+// text watermark: a DrawingML text box (mc:Choice Requires="wps") with a classic
+// VML shape as the mc:Fallback, so DrawingML-aware consumers render the text box
+// and others fall back to the VML.
+func buildTextWatermarkDrawingML(text string, opts WatermarkOptions, seq int) *oxml.CT_RawElement {
+	font := opts.Font
+	if font == "" {
+		font = "Calibri"
+	}
+	colorHex := strings.TrimPrefix(normalizeWatermarkColor(opts.Color), "#")
+	widthPt, heightPt := textWatermarkSize(text)
+	cx, cy := pointsToEMU(widthPt), pointsToEMU(heightPt)
+	rot := int64(math.Round(opts.rotationDegrees()*60000)) % 21600000
+	if rot < 0 {
+		rot += 21600000
+	}
+	shapeName := fmt.Sprintf("PowerPlusWaterMarkObject%d", seq)
+
+	var b strings.Builder
+	// DrawingML choice: an anchored, behind-text text box carrying the text.
+	b.WriteString(`<mc:Choice Requires="wps">`)
+	b.WriteString(`<w:drawing>`)
+	fmt.Fprintf(&b, `<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="%d" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">`, 251658752+seq)
+	b.WriteString(`<wp:simplePos x="0" y="0"/>`)
+	b.WriteString(`<wp:positionH relativeFrom="margin"><wp:align>center</wp:align></wp:positionH>`)
+	b.WriteString(`<wp:positionV relativeFrom="margin"><wp:align>center</wp:align></wp:positionV>`)
+	fmt.Fprintf(&b, `<wp:extent cx="%d" cy="%d"/>`, cx, cy)
+	b.WriteString(`<wp:effectExtent l="0" t="0" r="0" b="0"/>`)
+	b.WriteString(`<wp:wrapNone/>`)
+	fmt.Fprintf(&b, `<wp:docPr id="%d" name="%s"/>`, seq, escapeXMLAttr(shapeName))
+	b.WriteString(`<wp:cNvGraphicFramePr/>`)
+	fmt.Fprintf(&b, `<a:graphic><a:graphicData uri="%s">`, nsWordShape)
+	b.WriteString(`<wps:wsp>`)
+	b.WriteString(`<wps:cNvSpPr txBox="1"/>`)
+	b.WriteString(`<wps:spPr>`)
+	fmt.Fprintf(&b, `<a:xfrm rot="%d"><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm>`, rot, cx, cy)
+	b.WriteString(`<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`)
+	b.WriteString(`<a:noFill/><a:ln><a:noFill/></a:ln>`)
+	b.WriteString(`</wps:spPr>`)
+	b.WriteString(`<wps:txbx><w:txbxContent>`)
+	b.WriteString(`<w:p><w:pPr><w:jc w:val="center"/></w:pPr>`)
+	fmt.Fprintf(&b, `<w:r><w:rPr><w:rFonts w:ascii="%s" w:hAnsi="%s"/><w:color w:val="%s"/><w:sz w:val="72"/></w:rPr>`,
+		escapeXMLAttr(font), escapeXMLAttr(font), escapeXMLAttr(colorHex))
+	fmt.Fprintf(&b, `<w:t xml:space="preserve">%s</w:t></w:r>`, escapeXMLText(text))
+	b.WriteString(`</w:p>`)
+	b.WriteString(`</w:txbxContent></wps:txbx>`)
+	b.WriteString(`<wps:bodyPr rot="0" vertOverflow="overflow" horzOverflow="overflow" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr" anchorCtr="0"><a:noAutofit/></wps:bodyPr>`)
+	b.WriteString(`</wps:wsp>`)
+	b.WriteString(`</a:graphicData></a:graphic>`)
+	b.WriteString(`</wp:anchor>`)
+	b.WriteString(`</w:drawing>`)
+	b.WriteString(`</mc:Choice>`)
+	// VML fallback: the classic watermark shape, reusing the VML builder's body.
+	b.WriteString(`<mc:Fallback><w:pict>`)
+	b.Write(buildTextWatermarkPict(text, opts, seq).RawContent)
+	b.WriteString(`</w:pict></mc:Fallback>`)
+
+	return &oxml.CT_RawElement{Attrs: altContentWatermarkAttrs(), RawContent: []byte(b.String())}
+}
+
 // buildImageWatermarkPict builds the w:pict raw element for an image watermark
 // referencing the media relationship relID.
 func buildImageWatermarkPict(relID string, widthPt, heightPt float64, seq int) *oxml.CT_RawElement {
@@ -514,6 +673,17 @@ func escapeXMLAttr(s string) string {
 		"\n", "&#xA;",
 		"\r", "&#xD;",
 		"\t", "&#x9;",
+	)
+	return r.Replace(s)
+}
+
+// escapeXMLText escapes a string for use as XML character data in the
+// DrawingML watermark's text box (w:t content).
+func escapeXMLText(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
 	)
 	return r.Replace(s)
 }

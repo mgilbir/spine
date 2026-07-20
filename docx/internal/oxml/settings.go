@@ -162,6 +162,17 @@ func (s *CT_Settings) SetChild(local string, attrs []xml.Attr) {
 	s.setChildElement(el)
 }
 
+// SetRawChild inserts, or replaces in place, a settings child with the given
+// local name (in the WordprocessingML namespace) carrying content as its raw
+// inner XML. A new element is placed at its schema-valid position among the
+// preserved children (the same insertion rule as SetChild). Empty content is
+// written as a self-closing element.
+func (s *CT_Settings) SetRawChild(local string, content []byte) {
+	el := &CT_RawNamedElement{Local: local, Space: NsWml}
+	el.RawContent = content
+	s.setChildElement(el)
+}
+
 // setChildElement replaces the first settings child sharing el's local name in
 // place, or inserts el at its schema-valid position among the preserved
 // children (the same insertion rule as EnsureEvenAndOddHeaders).

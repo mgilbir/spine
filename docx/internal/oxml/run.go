@@ -662,8 +662,8 @@ func (r *CT_R) AppendObject(o *CT_RawElement) {
 }
 
 // AppendAlternateContent appends an mc:AlternateContent element (a drawing with
-// a down-level fallback) to the run, maintaining child order (see
-// AppendDrawing).
+// a down-level fallback, e.g. a DrawingML watermark with a VML fallback) to the
+// run, maintaining child order (see AppendDrawing).
 func (r *CT_R) AppendAlternateContent(ac *CT_RawElement) {
 	r.backfillChildOrder()
 	r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, len(r.AlternateContent)})
