@@ -18,6 +18,7 @@ const (
 	ContentTypeRelationships = "application/vnd.openxmlformats-package.relationships+xml"
 	ContentTypeCoreProps     = "application/vnd.openxmlformats-package.core-properties+xml"
 	ContentTypeExtendedProps = "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+	ContentTypeCustomProps   = "application/vnd.openxmlformats-officedocument.custom-properties+xml"
 
 	// PowerPoint content types. The main part of a PresentationML package
 	// comes in one flavor per file type (ECMA-376 and [MS-OFFDI]): regular

@@ -162,6 +162,19 @@ remediation series (#59–#75).
 
 ### Added
 
+- opc,docx,xlsx,pptx: **custom document properties** (`docProps/custom.xml`)
+  read + write. Each format exposes `CustomProperties() map[string]any`,
+  `SetCustomProperty(name string, value any) error`, and
+  `RemoveCustomProperty(name string) bool` on `docx.Document`, `xlsx.Workbook`,
+  and `pptx.Presentation`. Values are typed as string (`vt:lpwstr`), int64
+  (`vt:i4`/`vt:i8`), float64 (`vt:r8`), bool (`vt:bool`), and time.Time
+  (`vt:filetime`); `int`/`int32` and `float32` are accepted and widened. Setting
+  a property on a package that has none creates the part, its content-type
+  override, and the package relationship on save; existing properties round-trip
+  byte-identically when left untouched, and an unmodeled variant type (e.g.
+  `vt:vector`) is preserved verbatim across a modify-and-save. The package layer
+  parses the part into `opc.Reader.CustomProperties` and writes it from
+  `opc.Writer.CustomProperties` (#108).
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the

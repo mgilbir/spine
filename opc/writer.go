@@ -27,6 +27,12 @@ type Writer struct {
 	// ExtendedProperties contains the extended properties to write.
 	ExtendedProperties *ExtendedProperties
 
+	// CustomProperties contains the user-defined properties to write. When set
+	// and not already emitted as a preserved raw part, Close writes
+	// docProps/custom.xml, registers its content-type override, and adds the
+	// package custom-properties relationship.
+	CustomProperties *CustomProperties
+
 	// Relationships contains package-level relationships.
 	Relationships []*Relationship
 
@@ -502,6 +508,48 @@ func (w *Writer) writeExtendedProperties() error {
 	return nil
 }
 
+// writeCustomProperties writes the custom properties if set.
+func (w *Writer) writeCustomProperties() error {
+	// Skip if already written (for round-trip support): a preserved raw
+	// custom.xml wins, keeping producer formatting byte-identical.
+	if w.parts[strings.ToLower("/docprops/custom.xml")] {
+		return nil
+	}
+
+	if w.CustomProperties == nil {
+		return nil
+	}
+
+	data, err := w.CustomProperties.Marshal()
+	if err != nil {
+		return err
+	}
+
+	header := &zip.FileHeader{
+		Name:   "docProps/custom.xml",
+		Method: zip.Deflate,
+	}
+
+	writer, err := w.zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	w.parts[strings.ToLower("/docprops/custom.xml")] = true
+
+	// Add relationship and content type. In a round-trip save the package
+	// relationships and content types are preserved verbatim (which already
+	// carry these when the part existed), so writeRelationships/writeContentTypes
+	// skip the duplicates; a newly created package emits them here.
+	w.ContentTypes.SetOverride("/docProps/custom.xml", ContentTypeCustomProps)
+	w.addRelationship(RelTypeCustom, "docProps/custom.xml", TargetModeInternal)
+
+	return nil
+}
+
 // WritePartRelationships writes a relationships file for a specific part. Like
 // the other write methods it honors the closed check and rejects a duplicate
 // write of the same .rels part (which would otherwise emit two zip entries with
@@ -579,6 +627,7 @@ func (w *Writer) Close() error {
 	for _, write := range []func() error{
 		w.writeCoreProperties,
 		w.writeExtendedProperties,
+		w.writeCustomProperties,
 		w.writeRelationships,
 		w.writeContentTypes,
 	} {

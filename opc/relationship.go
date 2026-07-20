@@ -3,6 +3,7 @@ package opc
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -25,6 +26,9 @@ const (
 
 	// Extended properties relationship type
 	RelTypeExtended = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"
+
+	// Custom (user-defined) properties relationship type
+	RelTypeCustom = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties"
 
 	// Thumbnail relationship type
 	RelTypeThumbnail = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"
@@ -272,6 +276,81 @@ func UnmarshalRelationships(data []byte) ([]*Relationship, error) {
 	}
 
 	return rels, nil
+}
+
+// EnsureRelationshipInRels returns rels-part bytes that contain a relationship
+// of relType to target, assigning an Id not already present. When such a
+// relationship (same Type and Target) already exists the input is returned
+// unchanged with added=false. Otherwise a single <Relationship> element is
+// inserted immediately before the closing </Relationships> tag, leaving every
+// existing byte in place so unrelated relationships keep their producer
+// formatting; the assigned relationship is returned so callers can mirror it
+// into a parsed relationship set.
+//
+// It is used to add the package-level custom-properties relationship to a
+// preserved /_rels/.rels part without regenerating it. A malformed rels part
+// with no closing tag is returned unchanged (added=false).
+func EnsureRelationshipInRels(data []byte, relType, target string) (out []byte, rel *Relationship, added bool) {
+	existing, err := UnmarshalRelationships(data)
+	if err == nil {
+		used := make(map[string]bool, len(existing))
+		for _, r := range existing {
+			if r == nil {
+				continue
+			}
+			used[r.ID] = true
+			if r.Type == relType && r.Target == target {
+				return data, nil, false
+			}
+		}
+		id := nextFreeRelID(used)
+		newRel := &Relationship{ID: id, Type: relType, Target: target, TargetMode: TargetModeInternal}
+		injected, ok := injectRelationshipElement(data, newRel)
+		if !ok {
+			return data, nil, false
+		}
+		return injected, newRel, true
+	}
+	return data, nil, false
+}
+
+// nextFreeRelID returns the lowest "rIdN" identifier not present in used.
+func nextFreeRelID(used map[string]bool) string {
+	for i := 1; ; i++ {
+		id := fmt.Sprintf("rId%d", i)
+		if !used[id] {
+			return id
+		}
+	}
+}
+
+// injectRelationshipElement inserts a serialized <Relationship> element just
+// before the final </Relationships> tag, preserving all surrounding bytes. It
+// reports false when no closing tag is found.
+func injectRelationshipElement(data []byte, rel *Relationship) ([]byte, bool) {
+	const closeTag = "</Relationships>"
+	idx := bytes.LastIndex(data, []byte(closeTag))
+	if idx < 0 {
+		return nil, false
+	}
+	var elem bytes.Buffer
+	elem.WriteString(`<Relationship Id="`)
+	elem.WriteString(xmlb.EscapeAttrValue(rel.ID))
+	elem.WriteString(`" Type="`)
+	elem.WriteString(xmlb.EscapeAttrValue(rel.Type))
+	elem.WriteString(`" Target="`)
+	elem.WriteString(xmlb.EscapeAttrValue(rel.Target))
+	elem.WriteByte('"')
+	if rel.TargetMode == TargetModeExternal {
+		elem.WriteString(` TargetMode="External"`)
+	}
+	elem.WriteString("/>")
+
+	out := make([]byte, 0, len(data)+elem.Len())
+	out = append(out, data[:idx]...)
+	out = append(out, elem.Bytes()...)
+	out = append(out, data[idx:]...)
+	return out, true
 }
 
 // GetRelationshipsPartName returns the relationships part name for a given part.

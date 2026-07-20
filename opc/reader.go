@@ -336,6 +336,12 @@ type Reader struct {
 	// consumers that preserve parts byte-for-byte keep the raw app.xml part.
 	ExtendedProperties *ExtendedProperties
 
+	// CustomProperties contains the user-defined properties (docProps/custom.xml)
+	// of the package, or nil when the package has none or they fail to parse.
+	// Like the other property parses this is best-effort and feeds the typed
+	// API only; consumers preserving parts byte-for-byte keep the raw part.
+	CustomProperties *CustomProperties
+
 	// DirectoryEntries lists the zip directory entries ("_rels/", "word/", …)
 	// present in the source archive, in archive order. OPC ignores directory
 	// entries, but some producers (WPS, Apache POI, some Excel builds) emit
@@ -487,9 +493,10 @@ func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reade
 		return nil, err
 	}
 
-	// Parse core and extended properties if they exist
+	// Parse core, extended, and custom properties if they exist
 	reader.parseCoreProperties()
 	reader.parseExtendedProperties()
+	reader.parseCustomProperties()
 
 	return reader, nil
 }
@@ -585,6 +592,35 @@ func (r *Reader) parseExtendedProperties() {
 		}
 
 		r.ExtendedProperties = props
+		return
+	}
+}
+
+// parseCustomProperties reads the custom properties (docProps/custom.xml) if
+// they exist. Like the other property parses it is best-effort: a missing part
+// or a parse failure leaves CustomProperties nil rather than failing the open.
+func (r *Reader) parseCustomProperties() {
+	for _, rel := range r.Relationships {
+		if rel.Type != RelTypeCustom {
+			continue
+		}
+		target := ResolvePartName("/", rel.Target)
+		f := r.GetFile(target)
+		if f == nil {
+			continue
+		}
+
+		data, err := f.ReadAll()
+		if err != nil {
+			continue
+		}
+
+		props, err := UnmarshalCustomProperties(data)
+		if err != nil {
+			continue
+		}
+
+		r.CustomProperties = props
 		return
 	}
 }
