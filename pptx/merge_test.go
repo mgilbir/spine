@@ -154,6 +154,159 @@ func TestExtractSlides(t *testing.T) {
 	assertZipHasPrefix(t, data, "ppt/media/")
 }
 
+func TestAppendSlidesCarriesNotes(t *testing.T) {
+	dst := Create()
+	dst.AddSlide().AddTextBox().TextFrame().SetText("Dst")
+
+	src := Create()
+	s := src.AddSlide()
+	s.AddTextBox().TextFrame().SetText("Src")
+	s.SetNotes("Speaker note carried across")
+
+	if err := dst.AppendSlidesFrom(src); err != nil {
+		t.Fatalf("AppendSlidesFrom: %v", err)
+	}
+	if r := dst.Validate(); r.HasErrors() {
+		t.Fatalf("Validate after append: %v", r)
+	}
+
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	assertZipHasPrefix(t, data, "ppt/notesSlides/")
+
+	re, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+	slides := re.Slides()
+	if len(slides) != 2 {
+		t.Fatalf("reopened SlideCount = %d, want 2", len(slides))
+	}
+	if got := slides[1].Notes(); got != "Speaker note carried across" {
+		t.Errorf("carried notes = %q, want %q", got, "Speaker note carried across")
+	}
+}
+
+func TestAppendSlidesFromOpenedImportsMasterTheme(t *testing.T) {
+	// Build a source, save, and reopen so it carries a real theme part in
+	// themeData (a created deck hardcodes its theme only at save). Appending its
+	// slide into a fresh deck must import the source master, layout, and theme
+	// with no dangling references.
+	seed := buildDeck(t, []string{"Seed-A"})
+	seedBytes, err := seed.SaveBytes()
+	if err != nil {
+		t.Fatalf("seed SaveBytes: %v", err)
+	}
+	src, err := OpenReader(bytes.NewReader(seedBytes), int64(len(seedBytes)))
+	if err != nil {
+		t.Fatalf("open source: %v", err)
+	}
+
+	dst := Create()
+	dst.AddSlide().AddTextBox().TextFrame().SetText("Dst")
+	beforeMasters := len(dst.slideMasters)
+
+	if err := dst.AppendSlidesFrom(src); err != nil {
+		t.Fatalf("AppendSlidesFrom: %v", err)
+	}
+	if len(dst.slideMasters) <= beforeMasters {
+		t.Fatalf("expected an imported master, masters=%d (was %d)", len(dst.slideMasters), beforeMasters)
+	}
+	if r := dst.Validate(); r.HasErrors() {
+		t.Fatalf("Validate after append: %v", r)
+	}
+
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+	// At least two masters and two theme parts (default + imported) present.
+	assertZipEntryCountAtLeast(t, data, "ppt/slideMasters/slideMaster", 2)
+	assertZipEntryCountAtLeast(t, data, "ppt/theme/theme", 2)
+	if got := re.SlideCount(); got != 2 {
+		t.Fatalf("reopened SlideCount = %d, want 2", got)
+	}
+}
+
+func TestAppendOntoOpenedDestImportsMaster(t *testing.T) {
+	// Opened source (real theme in themeData) appended onto an opened
+	// destination (the round-trip save path, which needs the presentation->master
+	// relationship registered for the imported master).
+	seed := buildDeck(t, []string{"Seed-A"})
+	sb, err := seed.SaveBytes()
+	if err != nil {
+		t.Fatalf("seed SaveBytes: %v", err)
+	}
+	src, err := OpenReader(bytes.NewReader(sb), int64(len(sb)))
+	if err != nil {
+		t.Fatalf("open source: %v", err)
+	}
+
+	// A widescreen destination: its master differs from the 4:3 source master, so
+	// the source master is genuinely imported (not deduplicated).
+	dseed := CreateWidescreen()
+	dseed.AddSlide().AddTextBox().TextFrame().SetText("Dst")
+	db, err := dseed.SaveBytes()
+	if err != nil {
+		t.Fatalf("dst seed SaveBytes: %v", err)
+	}
+	dst, err := OpenReader(bytes.NewReader(db), int64(len(db)))
+	if err != nil {
+		t.Fatalf("open dst: %v", err)
+	}
+
+	if err := dst.AppendSlidesFrom(src); err != nil {
+		t.Fatalf("AppendSlidesFrom: %v", err)
+	}
+	if r := dst.Validate(); r.HasErrors() {
+		t.Fatalf("Validate after append: %v", r)
+	}
+	out, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+	if got := re.SlideCount(); got != 2 {
+		t.Fatalf("reopened SlideCount = %d, want 2", got)
+	}
+	assertZipEntryCountAtLeast(t, out, "ppt/slideMasters/slideMaster", 2)
+}
+
+func assertZipEntryCountAtLeast(t *testing.T, data []byte, prefix string, want int) {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("zip.NewReader: %v", err)
+	}
+	n := 0
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, prefix) && strings.HasSuffix(f.Name, ".xml") {
+			n++
+		}
+	}
+	if n < want {
+		t.Errorf("found %d entries with prefix %q, want at least %d", n, prefix, want)
+	}
+}
+
 func TestExtractSlidesInvalidIndex(t *testing.T) {
 	src := buildDeck(t, []string{"Only"})
 	if _, err := src.ExtractSlides([]int{5}); err != ErrSlideIndex {
