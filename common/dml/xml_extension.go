@@ -239,23 +239,60 @@ func (v *A14ImgEffect) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 
 // A14Saturation represents a14:saturation element.
 type A14Saturation struct {
-	Sat *int32 `xml:"sat,attr,omitempty"`
+	Sat           *int32          `xml:"sat,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see A14Brightness.CapturedAttrs
+}
+
+// UnmarshalXML captures the verbatim attribute list before decoding.
+func (v *A14Saturation) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14Saturation
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14Brightness represents a14:brightnessContrast element.
 type A14Brightness struct {
 	Bright   *int32 `xml:"bright,attr,omitempty"`
 	Contrast *int32 `xml:"contrast,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list so any
+	// attribute the model does not type (producers emit off-spec attributes
+	// such as amount on brightnessContrast) survives re-marshal. Replayed by
+	// the reflection marshaler; nil for programmatic values.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the verbatim attribute list before decoding the typed
+// attributes, so unmodeled attributes are not dropped on re-marshal.
+func (v *A14Brightness) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14Brightness
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14Sharpen represents a14:sharpenSoften element.
 type A14Sharpen struct {
-	Amount *int32 `xml:"amount,attr,omitempty"`
+	Amount        *int32          `xml:"amount,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see A14Brightness.CapturedAttrs
+}
+
+// UnmarshalXML captures the verbatim attribute list before decoding.
+func (v *A14Sharpen) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14Sharpen
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // A14ColorTemp represents a14:colorTemperature element.
 type A14ColorTemp struct {
-	ColorTemp *int32 `xml:"colorTemp,attr,omitempty"`
+	ColorTemp     *int32          `xml:"colorTemp,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see A14Brightness.CapturedAttrs
+}
+
+// UnmarshalXML captures the verbatim attribute list before decoding.
+func (v *A14ColorTemp) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
+	type alias A14ColorTemp
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // --- Other extensions ---

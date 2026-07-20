@@ -120,6 +120,13 @@ func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
 func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
+		// An ISO-Strict workbook carries the officeDocument relationship under
+		// the purl.oclc.org namespace; report it distinctly rather than as a
+		// generic "not an Excel file".
+		if len(reader.GetRelationshipsByType(opc.RelTypeOfficeDocumentStrict)) > 0 {
+			_ = reader.Close()
+			return nil, opc.ErrStrictOOXML
+		}
 		_ = reader.Close()
 		return nil, ErrNotXLSX
 	}

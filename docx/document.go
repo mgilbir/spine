@@ -206,6 +206,13 @@ func OpenReader(r io.ReaderAt, size int64) (*Document, error) {
 func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
+		// An ISO-Strict Word document carries the officeDocument relationship
+		// under the purl.oclc.org namespace; report it distinctly rather than
+		// as a generic "not a Word document".
+		if len(reader.GetRelationshipsByType(opc.RelTypeOfficeDocumentStrict)) > 0 {
+			_ = reader.Close()
+			return nil, opc.ErrStrictOOXML
+		}
 		_ = reader.Close()
 		return nil, ErrNotDOCX
 	}

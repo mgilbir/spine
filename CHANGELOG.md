@@ -7,6 +7,27 @@ remediation series (#59–#75).
 
 ### Fixed
 
+- docx,dml,opc: five fidelity/correctness bugs surfaced by Common Crawl
+  validation.
+  - docx: unmodeled `w:sectPr` children (seen in the wild as trailing
+    `w:mirrorMargins`/`w:tmGutter`) were dropped on save — data loss. They are
+    now captured verbatim in document order and replayed, matching the raw
+    fallback already used for other sectPr content.
+  - docx: a `w:contentPart` (the in-body reference to an ink/customXML part) was
+    dropped, so a paragraph carrying only a contentPart round-tripped as an
+    empty `<w:p/>`. It is now preserved verbatim in paragraph content.
+  - dml: `CT_EmbeddedWAVAudioFile` (`a:snd`/`p:snd`) gained its schema `builtIn`
+    attribute, so a built-in system sound (`builtIn="1"`) is no longer dropped.
+  - dml: the typed a14 image-adjustment effects (`brightnessContrast`,
+    `saturation`, `sharpenSoften`, `colorTemperature`) now capture and replay
+    their verbatim attribute list, so an attribute the model does not type (a
+    producer's off-spec `amount` on `brightnessContrast`) survives re-marshal.
+  - opc,docx,xlsx,pptx: a valid ISO-Strict (ISO/IEC 29500 Strict) package — its
+    officeDocument relationship under the `purl.oclc.org/ooxml` namespace — is
+    now reported as the distinct `opc.ErrStrictOOXML` instead of the generic
+    "not a valid Word/Excel/PowerPoint file". Reading Strict content (all
+    element namespaces differ from the transitional schemas) remains
+    unsupported; this only classifies such files honestly.
 - tools/ccrun: the batched harvest now classifies every fetch outcome as
   permanent or transient and caps the retry, so a batch always makes forward
   progress. Permanent failures (DNS NXDOMAIN, connection refused, TLS failure,

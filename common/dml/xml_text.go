@@ -685,10 +685,14 @@ func (hl *HlinkXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return d.DecodeElement((*alias)(hl), &start)
 }
 
-// EmbeddedWAVXML represents CT_EmbeddedWAVAudioFile (a:snd)
+// EmbeddedWAVXML represents CT_EmbeddedWAVAudioFile (a:snd/p:snd)
 type EmbeddedWAVXML struct {
 	Embed string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships embed,attr,omitempty"`
 	Name  string `xml:"name,attr,omitempty"`
+	// BuiltIn is the schema's builtIn attribute (xsd:boolean, default false):
+	// set for a built-in system sound. Kept as the verbatim source string so
+	// "1"/"true" round-trips and an absent attribute stays absent.
+	BuiltIn string `xml:"builtIn,attr,omitempty"`
 }
 
 // LnSpc represents CT_TextSpacing for line spacing (a:lnSpc)

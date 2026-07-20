@@ -36,6 +36,14 @@ const (
 	// Office document relationship type
 	RelTypeOfficeDocument = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
 
+	// RelTypeOfficeDocumentStrict is the ISO-Strict (ISO/IEC 29500 Strict)
+	// officeDocument relationship type. Strict packages use the
+	// purl.oclc.org/ooxml relationship (and element) namespaces throughout
+	// instead of the transitional schemas.openxmlformats.org ones. It is
+	// recognized only to classify such packages (see ErrStrictOOXML); the
+	// Strict content schemas are not otherwise supported.
+	RelTypeOfficeDocumentStrict = "http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument"
+
 	// Digital signature relationship type
 	RelTypeDigitalSignature = "http://schemas.openxmlformats.org/package/2006/relationships/digital-signature/signature"
 
