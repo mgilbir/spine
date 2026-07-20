@@ -49,6 +49,9 @@ const (
 	// notes master.
 	RelTypeNotesMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"
 
+	// RelTypeHandoutMaster links the presentation to its handout master.
+	RelTypeHandoutMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/handoutMaster"
+
 	// Slide master relationship type
 	RelTypeSlideMaster = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
 

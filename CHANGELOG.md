@@ -310,6 +310,26 @@ remediation series (#59–#75).
   with a cached `(Author, Year)` placeholder Word replaces on field update. The
   sources part, its document relationship, and its content-type entry are
   created on first use; a document with no sources round-trips byte-identically.
+- opc,common/crypto: **open legacy RC4 CryptoAPI-encrypted OOXML packages**
+  ([MS-OFFCRYPTO] §2.3.5). `OpenEncrypted` now auto-detects and decrypts the
+  RC4 CryptoAPI scheme in addition to the agile (AES-256/SHA-512) and ECMA-376
+  standard (AES) schemes it already opened. The RC4 stream cipher (KSA + PRGA)
+  is implemented from its public specification — the Go standard library omits
+  RC4 and external crypto modules are not used — and is validated against the
+  published RFC 6229 and canonical known-answer vectors; the full RC4 CryptoAPI
+  path (SHA-1 key derivation, 512-byte per-block rekeying) is cross-validated
+  against the independent `msoffcrypto-tool` reference implementation. Saving
+  RC4 is intentionally **not** offered (`SaveEncrypted` still writes only agile
+  or standard): RC4 is cryptographically broken and exists here only to read
+  obsolete documents. The older version-1.1 binary-format RC4 scheme (§2.3.6),
+  which never wraps an OOXML `.zip`, remains reported as unsupported.
+- pptx: `AppendSlidesFrom` and `ExtractSlides` now **carry the source deck's
+  handout master** — its part, the theme it references, its relationships, the
+  presentation relationship, and the `handoutMasterIdLst` entry — when the
+  source has one and the destination does not (a deck carries at most one, so a
+  second source with a handout master does not add a duplicate). This completes
+  the previously-deferred handout-master half of the merge furniture
+  reconciliation (the notes master remains deferred).
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
