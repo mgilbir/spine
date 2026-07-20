@@ -55,6 +55,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Tracked changes (revisions): enumerate insertions, deletions, and run/paragraph property changes with `Document.Revisions()` (author, date, type, text), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`; author new ones with `Paragraph.AddInsertedRun`, `Run.MarkInserted`, and `Run.MarkDeleted` (each assigns a unique `w:id`; `...WithDate` variants pin the timestamp)
   - Content controls (structured document tags): read and edit tag, alias, type, value, and drop-down options through `Document.ContentControls()`; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline)
   - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
+  - Search & replace (`Document.ReplaceText`, mirroring `pptx` and `xlsx`): replaces across the body, tables, structured document tags, and every header/footer, including matches Word has split across multiple `w:r` runs — the replacement inherits the first affected run's formatting while surrounding runs keep theirs; documents with no matching text round-trip byte-for-byte
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
@@ -80,6 +81,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
+  - Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and workbooks with no matching text round-trip byte-for-byte
 
 Runnable programs for all three formats live in [`examples/`](examples/). The
 [`xlsx_report`](examples/xlsx_report/) example is a guided tour of the newer

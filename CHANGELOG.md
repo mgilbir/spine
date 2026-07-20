@@ -178,6 +178,22 @@ remediation series (#59–#75).
   notes and comments; slides are separated by a blank line, with
   `Presentation.SlideTexts()` returning the per-slide strings. Output is plain
   concatenation with no markup and deterministic ordering.
+- docx,xlsx: **search & replace** — `Document.ReplaceText(map[string]string)`
+  (docx) and `Workbook.ReplaceText` / `Sheet.ReplaceText` (xlsx), mirroring the
+  existing `pptx.Presentation.ReplaceText` / `Slide.ReplaceText` for cross-format
+  symmetry. Keys are matched exactly; a longest-match, single-pass replacement
+  keeps the result independent of map order and never re-replaces a value that
+  contains another key. docx replaces across the body (including tables and
+  structured document tags) and every header/footer, and — the hard case —
+  matches a key that Word has split across several `w:r` runs: the paragraph's
+  text-only runs are concatenated, the match spliced back, and the replacement
+  inherits the first affected run's formatting while surrounding runs keep
+  theirs; line breaks, tabs, fields, drawings, and hyperlink/field boundaries
+  delimit distinct content and are never crossed. xlsx replaces in string cells
+  (shared-string cells are converted to inline so the shared table is left
+  untouched) and across a rich cell's runs; formula cells are not touched (their
+  string value is a cached result, not literal text). A document with no
+  matching text round-trips byte-for-byte.
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the
