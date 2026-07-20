@@ -245,6 +245,27 @@ remediation series (#59–#75).
   `vt:vector`) is preserved verbatim across a modify-and-save. The package layer
   parses the part into `opc.Reader.CustomProperties` and writes it from
   `opc.Writer.CustomProperties` (#108).
+- opc,docx,common/crypto: **password encryption** — read and write documents
+  protected with Office's real AES encryption (not the legacy 16-bit
+  obfuscation in `common/crypto/legacy.go`, which guards nothing). An encrypted
+  OOXML file is a Compound File Binary (CFB/OLE2) container holding an
+  `EncryptionInfo` descriptor and the AES-encrypted `EncryptedPackage`; a
+  minimal CFB reader/writer (`opc/cfb.go`) and the agile-encryption primitives
+  (`common/crypto/agile.go`, [MS-OFFCRYPTO] §2.3.4.10–15, AES-256 in CBC mode
+  with SHA-512 key derivation) implement both directions. `opc.OpenEncrypted`
+  decrypts a package and returns a normal `opc.Reader`; `opc.SaveEncrypted`
+  writes an encrypted container with a freshly generated random salt; the plain
+  `OpenReader`/`NewReader` path now detects a CFB input and returns
+  `opc.ErrEncrypted` pointing to `OpenEncrypted`. Format-level convenience is
+  exposed for Word: `docx.OpenEncrypted`/`OpenEncryptedReader` and
+  `Document.SaveEncrypted`/`SaveEncryptedTo`. A wrong password returns
+  `crypto.ErrWrongPassword`; the older ECMA-376 "standard" scheme (§2.3.4.5) and
+  legacy RC4 schemes are detected and rejected with
+  `crypto.ErrUnsupportedEncryption`. The implementation uses only the standard
+  library's audited primitives (`crypto/aes`, `crypto/cipher`, `crypto/sha512`,
+  `crypto/hmac`, `crypto/rand`) and verifies the package HMAC integrity block on
+  read. Round-trip is cross-validated against `msoffcrypto-tool`, which decrypts
+  the library's encrypted output to byte-identical plaintext.
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the

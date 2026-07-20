@@ -422,6 +422,16 @@ func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
 // and require setup-time mutation — the options apply to this Reader alone,
 // so concurrent opens with different limits need no global coordination.
 func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
+	// A password-encrypted OOXML document is a CFB container, not a zip. Detect
+	// it from the leading magic and steer the caller to OpenEncrypted instead
+	// of failing with an opaque "not a valid zip file" error.
+	if size >= int64(len(cfbSignature)) {
+		var head [8]byte
+		if n, _ := r.ReadAt(head[:], 0); n == len(head) && isCFB(head[:]) {
+			return nil, ErrEncrypted
+		}
+	}
+
 	zr, err := zip.NewReader(guardedReaderAt{r}, size)
 	if err != nil {
 		return nil, err
