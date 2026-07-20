@@ -5,6 +5,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 ## Features
 
 - **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
+- **Digital Signatures**: Sign and verify OPC package signatures (XML-DSig, ECMA-376 Part 2 §13) with Go-stdlib crypto only — `Reader.VerifySignatures()` recomputes part digests and checks the `SignatureValue` against the embedded X.509 certificate; `opc.SignPackage` writes SHA-256 RSA/ECDSA signatures (see `common/xml` for the inclusive Canonical XML 1.0 implementation)
 - **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
 - **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
 - **Merge / Append / Split**: Combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts). `Presentation.AppendSlidesFrom` / `Presentation.ExtractSlides` copy slides and their media/charts/embeddings between decks; `Document.Append` appends another document's body content with its images and remapped styles/numbering; `Workbook.CopySheetFrom` copies a sheet with its resolved cell values, styles, and merges under a unique name
