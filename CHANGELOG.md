@@ -258,6 +258,24 @@ remediation series (#59–#75).
     relationships). All control parts (VML, `ctrlProps`, `activeX`) are
     preserved verbatim on save. Authoring ActiveX controls (which requires
     writing the OLE persistence binary) is out of scope.
+- pptx,docx: **read/extract ink annotations and embedded 3D models**.
+  `Slide.InkAnnotations()` / `Presentation.InkAnnotations()` (pptx) and
+  `Document.InkAnnotations()` (docx) enumerate ink (pen-stroke) annotations —
+  the InkML content parts (`application/inkml+xml`) referenced by a
+  `contentPart` element through a `customXml` relationship — reporting each
+  part's name, content type, raw InkML bytes, and referencing relationship id.
+  `Slide.Model3D()` / `Presentation.Model3D()` (pptx) and `Document.Model3D()`
+  (docx) extract embedded 3D models — the opaque glTF-binary parts
+  (`model/gltf-binary`, e.g. `media/*.glb`) referenced by an `am3d:model3D`
+  element — returning each part's name, content type, and raw bytes. Extraction
+  is read-only; both kinds of part round-trip byte-for-byte through a save. New
+  `opc` constants: `ContentTypeInk`, `ContentTypeModel3D`, `RelTypeCustomXML`.
+  Authoring new ink strokes and embedding new 3D models are deferred (pen/binary
+  authoring is out of scope). In pptx the referencing `p:contentPart` /
+  `p:graphicFrame` shape-tree elements are preserved verbatim; in docx the ink
+  part and its relationship are preserved, but the run-level `w:contentPart`
+  body reference is not yet re-emitted by the paragraph marshaler (a pre-existing
+  docx body-preservation limitation).
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
