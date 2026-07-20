@@ -55,6 +55,7 @@ type Document struct {
 	imageParts       []*imagePart              // images to be written
 	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
 	nextRelIDVal     int                       // counter for relationship IDs
+	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
 	// revisionIDVal is the highest tracked-change id (w:id) handed out so far;
 	// revisionIDInit records that the initial scan of existing ids has run. See
 	// nextRevisionID in revisions.go.

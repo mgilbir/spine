@@ -162,6 +162,20 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **text boxes and basic shapes** — `Paragraph.AddTextBox(text, opts)` and
+  `Document.AddTextBox` insert a DrawingML (`wps:wsp`) text box, inline or
+  anchored (`TextBoxOptions.Floating`/`Anchor`), with a size in EMU, a preset
+  geometry (`ShapeRectangle`/`ShapeRoundRectangle`/`ShapeEllipse`/`ShapeLine`),
+  a fill and border, and the text as real WordprocessingML paragraphs in
+  `w:txbxContent` (one `w:p` per line). `Paragraph.AddShape`/`Document.AddShape`
+  reuse the same drawing path for a shape with optional text. `Document.TextBoxes()`
+  reads every text box back — text and geometry — for both modern DrawingML
+  (`wps:txbx`) and legacy VML (`w:pict/v:textbox`) boxes, including boxes wrapped
+  in `mc:AlternateContent` (the wps choice and its VML fallback are read once, not
+  double-counted). Text boxes need no extra parts or relationships, so a box added
+  to an opened document, and any existing drawing left untouched, round-trip
+  byte-for-byte. Deferred: the `mc:AlternateContent`/VML down-level fallback on
+  authored boxes, complex adjust-handle geometry, grouping/connectors, and WordArt.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
