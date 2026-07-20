@@ -215,6 +215,30 @@ remediation series (#59–#75).
   continue to round-trip. `refreshOnLoad` still drives Excel to rebuild the
   rendered layout on open. Deferred: date grouping, discrete (manual) item
   grouping, multiple consolidation ranges, and external-data caches.
+- xlsx: **array, shared and dynamic-array formula authoring** —
+  `Cell.SetArrayFormula(formula, ref)` writes a legacy CSE array master
+  (`<f t="array" ref="…">`); `Cell.SetSharedFormula(formula, ref)` writes a
+  shared-formula master (`t="shared"` with a freshly allocated `si` and a `ref`
+  over the range) and fills the rest of the range with follower stubs, the
+  compact copy-down encoding Excel uses; `Cell.SetDynamicArrayFormula` writes
+  the modern spill form (`t="array"` with `aca`/`ca`) for SORT/FILTER/UNIQUE and
+  friends. The `aca`/`ca` dynamic-array flags on `<f>` are now captured on read
+  so an existing dynamic-array formula round-trips instead of losing its
+  marking. (The dynamic-array cell-metadata linkage — the `cm` attribute into
+  xl/metadata.xml — is left for Excel to rewrite and is not synthesized.)
+- xlsx: **data-validation error style and IME mode** — `DataValidation` now
+  exposes `ErrorStyle` (`ValidationErrorStop`/`Warning`/`Information`) and
+  `ImeMode`, read and written through `AddDataValidation` / `DataValidations`.
+- xlsx: **cell-comment rich text** — `Comment.RichText()` reads a note's body as
+  per-run formatting (bold labels, colored text), `Sheet.AddNoteRichText`
+  authors one, and `Comment.SetRichText` rewrites an existing comment's body;
+  `Comment.Text()` continues to return the flattened plain text.
+- xlsx: **sparkline group mutation** — `Sheet.Sparklines` now returns live
+  handles: `SparklineGroup` gains color setters for every slot
+  (`SetSeriesColor`/`SetNegativeColor`/`SetAxisColor`/`SetMarkersColor`/`SetFirstColor`/`SetLastColor`/`SetHighColor`/`SetLowColor`),
+  per-group boolean toggles (`SetMarkers`/`SetHigh`/`SetLow`/`SetFirst`/`SetLast`/`SetNegative`,
+  plus a `Markers` reader), and `Delete` (removing the last group drops the
+  sparkline extension). Unmutated sparklines still round-trip byte-for-byte.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.

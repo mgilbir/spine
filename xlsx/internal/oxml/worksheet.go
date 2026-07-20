@@ -884,10 +884,15 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// CT_CellFormula represents the f (formula) element.
+// CT_CellFormula represents the f (formula) element. Aca (alwaysCalcArray) and
+// Ca (calculateCell) are the flags Excel sets on a dynamic-array/spill formula
+// (t="array"); they are captured so such a formula round-trips rather than
+// silently losing its dynamic-array marking.
 type CT_CellFormula struct {
 	T     string  `xml:"-"`
+	Aca   *bool   `xml:"-"`
 	Ref   string  `xml:"-"`
+	Ca    *bool   `xml:"-"`
 	Si    *uint32 `xml:"-"`
 	Value string  `xml:"-"`
 }
@@ -898,8 +903,12 @@ func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 		switch attr.Name.Local {
 		case "t":
 			f.T = attr.Value
+		case "aca":
+			f.Aca = boolPtr(parseOnOff(attr.Value))
 		case "ref":
 			f.Ref = attr.Value
+		case "ca":
+			f.Ca = boolPtr(parseOnOff(attr.Value))
 		case "si":
 			var v uint32
 			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
@@ -914,14 +923,22 @@ func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 	return nil
 }
 
-// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_CellFormula.
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_CellFormula. The
+// attributes are emitted in the schema order Excel uses (t, aca, ref, ca, si)
+// so a dynamic-array formula reparses identically.
 func (f *CT_CellFormula) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if f.T != "" {
 		attrs = append(attrs, xmlb.StrAttr("t", f.T))
 	}
+	if f.Aca != nil {
+		attrs = append(attrs, xmlb.BoolAttr("aca", *f.Aca))
+	}
 	if f.Ref != "" {
 		attrs = append(attrs, xmlb.StrAttr("ref", f.Ref))
+	}
+	if f.Ca != nil {
+		attrs = append(attrs, xmlb.BoolAttr("ca", *f.Ca))
 	}
 	if f.Si != nil {
 		attrs = append(attrs, xmlb.UintAttr("si", *f.Si))

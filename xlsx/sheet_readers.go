@@ -180,6 +180,8 @@ func dataValidationFromModel(v *oxml.CT_DataValidation) *DataValidation {
 		Operator:      v.Operator,
 		AllowBlank:    v.AllowBlank != nil && *v.AllowBlank,
 		HideDropDown:  v.ShowDropDown != nil && *v.ShowDropDown,
+		ErrorStyle:    v.ErrorStyle,
+		ImeMode:       v.ImeMode,
 		ErrorTitle:    v.ErrorTitle,
 		ErrorMessage:  v.Error,
 		PromptTitle:   v.PromptTitle,

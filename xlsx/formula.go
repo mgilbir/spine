@@ -51,6 +51,29 @@ func (s *Sheet) materializeSharedGroup(master *oxml.CT_Cell) {
 	}
 }
 
+// nextSharedFormulaSi returns a shared-formula index not currently used by any
+// cell on the sheet: one past the highest existing si. Shared indices only need
+// to be unique within a worksheet, so a fresh maximum is always safe.
+func (s *Sheet) nextSharedFormulaSi() uint32 {
+	var next uint32
+	if s == nil || s.worksheet == nil {
+		return 0
+	}
+	seen := false
+	for i := range s.worksheet.SheetData.Row {
+		for _, cell := range s.worksheet.SheetData.Row[i].C {
+			if cell == nil || cell.F == nil || cell.F.Si == nil {
+				continue
+			}
+			if !seen || *cell.F.Si >= next {
+				next = *cell.F.Si + 1
+				seen = true
+			}
+		}
+	}
+	return next
+}
+
 // translateFormula rewrites the relative A1-style cell references in formula,
 // shifting them by dRow rows and dCol columns. Absolute markers anchor an
 // axis: $A$1 never moves, $A1 shifts only its row, A$1 only its column. Text
