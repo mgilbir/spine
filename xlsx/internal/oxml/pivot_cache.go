@@ -1,6 +1,7 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"strconv"
 
@@ -39,7 +40,34 @@ const (
 	// CacheFieldNumber is a numeric field; records store the number inline and
 	// the field carries no shared items.
 	CacheFieldNumber
+	// CacheFieldNumberDiscrete is a numeric field whose distinct values are
+	// enumerated as shared items (as <n v="..."/>); records reference them by
+	// index. Used for the base field of a numeric range grouping, whose group
+	// buckets are derived from the enumerated values.
+	CacheFieldNumberDiscrete
+	// CacheFieldGroup is a derived group field: it carries a <fieldGroup> that
+	// buckets a base field's values and has no records of its own
+	// (databaseField="0").
+	CacheFieldGroup
+	// CacheFieldCalculated is a calculated field: it carries a formula and no
+	// records of its own (databaseField="0").
+	CacheFieldCalculated
 )
+
+// CacheFieldGroup describes a numeric (range) grouping applied to a base cache
+// field, producing the group field's <fieldGroup>/<rangePr>/<groupItems>.
+type CacheFieldGroupInfo struct {
+	// Base is the index of the base cache field whose values are bucketed.
+	Base int
+	// Start, End and Interval define the range buckets: values below Start fall
+	// in the leading "<Start" item, values at or above End in the trailing
+	// ">End" item, and the rest into [Start, Start+Interval) buckets.
+	Start    float64
+	End      float64
+	Interval float64
+	// Items are the group bucket labels, in order.
+	Items []string
+}
 
 // CT_CacheField models one cacheField in a pivot cache definition.
 type CT_CacheField struct {
@@ -48,13 +76,22 @@ type CT_CacheField struct {
 	// SharedItems holds the distinct string values, in first-seen order, for a
 	// CacheFieldString field. Records reference them by position.
 	SharedItems []string
+	// NumericItems holds the distinct numeric values, in ascending order, for a
+	// CacheFieldNumberDiscrete field. Records reference them by position.
+	NumericItems []float64
 	// ContainsBlank reports whether any source cell in the field was empty.
 	ContainsBlank bool
-	// MinValue and MaxValue bound a CacheFieldNumber field's values.
+	// MinValue and MaxValue bound a numeric field's values.
 	MinValue float64
 	MaxValue float64
 	// ContainsInteger reports whether every numeric value is a whole number.
 	ContainsInteger bool
+	// Formula is the calculated-field formula (e.g. "Sales-Cost") for a
+	// CacheFieldCalculated field; empty otherwise.
+	Formula string
+	// Group carries the grouping definition for a CacheFieldGroup field; nil
+	// otherwise.
+	Group *CacheFieldGroupInfo
 }
 
 // CT_PivotCacheDefinition models a pivot cache definition part.
@@ -176,11 +213,28 @@ func MarshalPivotCacheDefinition(def *CT_PivotCacheDefinition, recordsRID string
 }
 
 func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
-	b.StartElement(nsSpreadsheetML, "cacheField",
+	attrs := []xmlb.Attr{
 		xmlb.StrAttr("name", cf.Name),
-		xmlb.IntAttr("numFmtId", 0))
+		xmlb.IntAttr("numFmtId", 0),
+	}
+	if cf.Kind == CacheFieldCalculated || cf.Kind == CacheFieldGroup {
+		attrs = append(attrs, xmlb.IntAttr("databaseField", 0))
+	}
+	if cf.Formula != "" {
+		attrs = append(attrs, xmlb.StrAttr("formula", cf.Formula))
+	}
+	b.StartElement(nsSpreadsheetML, "cacheField", attrs...)
 
 	switch cf.Kind {
+	case CacheFieldGroup:
+		marshalFieldGroup(b, cf.Group)
+	case CacheFieldCalculated:
+		// A calculated field derives numeric results; refreshOnLoad rebuilds the
+		// concrete values on open, so emit only the type hint.
+		b.EmptyElement(nsSpreadsheetML, "sharedItems",
+			xmlb.BoolAttr("containsSemiMixedTypes", false),
+			xmlb.BoolAttr("containsString", false),
+			xmlb.BoolAttr("containsNumber", true))
 	case CacheFieldNumber:
 		siAttrs := []xmlb.Attr{
 			xmlb.BoolAttr("containsSemiMixedTypes", false),
@@ -194,6 +248,24 @@ func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
 			xmlb.StrAttr("minValue", formatFloat(cf.MinValue)),
 			xmlb.StrAttr("maxValue", formatFloat(cf.MaxValue)))
 		b.EmptyElement(nsSpreadsheetML, "sharedItems", siAttrs...)
+	case CacheFieldNumberDiscrete:
+		siAttrs := []xmlb.Attr{
+			xmlb.BoolAttr("containsSemiMixedTypes", false),
+			xmlb.BoolAttr("containsString", false),
+			xmlb.BoolAttr("containsNumber", true),
+		}
+		if cf.ContainsInteger {
+			siAttrs = append(siAttrs, xmlb.BoolAttr("containsInteger", true))
+		}
+		siAttrs = append(siAttrs,
+			xmlb.StrAttr("minValue", formatFloat(cf.MinValue)),
+			xmlb.StrAttr("maxValue", formatFloat(cf.MaxValue)),
+			xmlb.UintAttr("count", uint32(len(cf.NumericItems))))
+		b.StartElement(nsSpreadsheetML, "sharedItems", siAttrs...)
+		for _, v := range cf.NumericItems {
+			b.EmptyElement(nsSpreadsheetML, "n", xmlb.StrAttr("v", formatFloat(v)))
+		}
+		b.EndElement(nsSpreadsheetML, "sharedItems")
 	default:
 		siAttrs := []xmlb.Attr{}
 		if cf.ContainsBlank {
@@ -208,6 +280,23 @@ func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
 	}
 
 	b.EndElement(nsSpreadsheetML, "cacheField")
+}
+
+// marshalFieldGroup writes a numeric range grouping's <fieldGroup>.
+func marshalFieldGroup(b *xmlb.Builder, g *CacheFieldGroupInfo) {
+	b.StartElement(nsSpreadsheetML, "fieldGroup", xmlb.IntAttr("base", int64(g.Base)))
+	b.EmptyElement(nsSpreadsheetML, "rangePr",
+		xmlb.BoolAttr("autoStart", false),
+		xmlb.BoolAttr("autoEnd", false),
+		xmlb.StrAttr("startNum", formatFloat(g.Start)),
+		xmlb.StrAttr("endNum", formatFloat(g.End)),
+		xmlb.StrAttr("groupInterval", formatFloat(g.Interval)))
+	b.StartElement(nsSpreadsheetML, "groupItems", xmlb.UintAttr("count", uint32(len(g.Items))))
+	for _, it := range g.Items {
+		b.EmptyElement(nsSpreadsheetML, "s", xmlb.StrAttr("v", it))
+	}
+	b.EndElement(nsSpreadsheetML, "groupItems")
+	b.EndElement(nsSpreadsheetML, "fieldGroup")
 }
 
 // PivotRecord is one cached source row: one value per cache field. A value is
@@ -279,6 +368,39 @@ type CT_PivotCaches struct {
 type CT_PivotCache struct {
 	CacheId uint32
 	RID     string
+}
+
+// IsPivotCachesElement reports whether raw holds a <pivotCaches> element (as
+// captured verbatim among a workbook's unknown children).
+func IsPivotCachesElement(raw []byte) bool {
+	trimmed := bytes.TrimLeft(raw, " \t\r\n")
+	return bytes.HasPrefix(trimmed, []byte("<pivotCaches")) &&
+		(len(trimmed) <= len("<pivotCaches") || isNameBoundary(trimmed[len("<pivotCaches")]))
+}
+
+func isNameBoundary(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '>' || c == '/'
+}
+
+// ParsePivotCachesElement decodes a workbook's <pivotCaches> element into its
+// entries, mapping each pivot cache id to the relationship id that resolves its
+// cache definition part. It is used to preserve a workbook's existing pivot
+// caches when a new one is added this session.
+func ParsePivotCachesElement(raw []byte) []CT_PivotCache {
+	var x struct {
+		Cache []struct {
+			CacheId uint32 `xml:"cacheId,attr"`
+			RID     string `xml:"id,attr"`
+		} `xml:"pivotCache"`
+	}
+	if err := xml.Unmarshal(raw, &x); err != nil {
+		return nil
+	}
+	out := make([]CT_PivotCache, 0, len(x.Cache))
+	for _, c := range x.Cache {
+		out = append(out, CT_PivotCache{CacheId: c.CacheId, RID: c.RID})
+	}
+	return out
 }
 
 // MarshalToBuilder writes the pivotCaches element.

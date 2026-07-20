@@ -382,6 +382,47 @@ func (wb *CT_Workbook) EnsureChildOrder(name string) {
 	wb.ChildOrder[insert] = name
 }
 
+// ExistingPivotCacheIDs returns the cache ids of any <pivotCaches> element the
+// workbook was opened with (captured verbatim among UnknownChildren). It does
+// not modify the workbook, so an unmodified save still round-trips byte-for-byte.
+func (wb *CT_Workbook) ExistingPivotCacheIDs() []uint32 {
+	for _, uc := range wb.UnknownChildren {
+		if IsPivotCachesElement(uc.Data) {
+			entries := ParsePivotCachesElement(uc.Data)
+			ids := make([]uint32, 0, len(entries))
+			for _, e := range entries {
+				ids = append(ids, e.CacheId)
+			}
+			return ids
+		}
+	}
+	return nil
+}
+
+// TakeExistingPivotCaches finds the verbatim <pivotCaches> child the workbook
+// was opened with, parses its entries, and rewires ChildOrder so the (now
+// typed) PivotCaches element is emitted in its place instead of the raw bytes.
+// It returns the parsed entries, or nil when the workbook had no pivot caches.
+// Call this only when about to (re)emit a typed <pivotCaches>; it mutates
+// ChildOrder and so must not run on an unmodified round-trip.
+func (wb *CT_Workbook) TakeExistingPivotCaches() []CT_PivotCache {
+	for i, uc := range wb.UnknownChildren {
+		if !IsPivotCachesElement(uc.Data) {
+			continue
+		}
+		entries := ParsePivotCachesElement(uc.Data)
+		marker := "unknown:" + strconv.Itoa(i)
+		for j, entry := range wb.ChildOrder {
+			if entry == marker {
+				wb.ChildOrder[j] = "pivotCaches"
+				break
+			}
+		}
+		return entries
+	}
+	return nil
+}
+
 // childOrderEntryRank resolves the schema rank of a ChildOrder entry. Known
 // element names are looked up directly; "unknown:N" entries are ranked by the
 // local name of the captured element when it is a standard workbook child.

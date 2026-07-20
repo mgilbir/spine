@@ -2,7 +2,9 @@ package xlsx
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
@@ -72,6 +74,35 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		return nil, err
 	}
 
+	// Resolve numeric group specs to base column indices. A group base is
+	// enumerated as a discrete numeric cache field so its buckets can be derived.
+	type groupSpec struct {
+		base     int
+		start    float64
+		end      float64
+		interval float64
+		onColumn bool
+	}
+	var groupSpecs []groupSpec
+	groupBase := make(map[int]bool)
+	for _, g := range opts.NumericGroups {
+		j, ok := fieldIndex(g.Field)
+		if !ok {
+			return nil, fmt.Errorf("group field %q is not a source column", g.Field)
+		}
+		if groupBase[j] {
+			return nil, fmt.Errorf("group field %q is listed more than once", g.Field)
+		}
+		if g.Interval <= 0 {
+			return nil, fmt.Errorf("group field %q: interval must be positive", g.Field)
+		}
+		if g.End <= g.Start {
+			return nil, fmt.Errorf("group field %q: end must exceed start", g.Field)
+		}
+		groupBase[j] = true
+		groupSpecs = append(groupSpecs, groupSpec{base: j, start: g.Start, end: g.End, interval: g.Interval, onColumn: g.OnColumn})
+	}
+
 	isDim := make(map[int]bool)
 	for _, j := range rowIdx {
 		isDim[j] = true
@@ -121,15 +152,23 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		}
 	}
 
-	// Classify each column and build its cache field.
+	// Classify each column and build its cache field. A numeric group's base
+	// column is enumerated as a discrete numeric field so buckets can be derived.
 	cacheFields := make([]oxml.CT_CacheField, nCols)
-	sharedIndexByRow := make([][]int, nCols) // per column, per data row: shared item index (string fields)
+	sharedIndexByRow := make([][]int, nCols) // per column, per data row: shared/discrete index
 	for j := 0; j < nCols; j++ {
 		cf := oxml.CT_CacheField{Name: headers[j]}
-		if isDim[j] || !columnIsNumeric(columns[j]) {
+		switch {
+		case groupBase[j]:
+			if !columnIsNumeric(columns[j]) {
+				return nil, fmt.Errorf("group field %q is not numeric", headers[j])
+			}
+			cf.Kind = oxml.CacheFieldNumberDiscrete
+			cf.NumericItems, sharedIndexByRow[j], cf.MinValue, cf.MaxValue, cf.ContainsInteger, cf.ContainsBlank = buildDiscreteNumericItems(columns[j])
+		case isDim[j] || !columnIsNumeric(columns[j]):
 			cf.Kind = oxml.CacheFieldString
 			cf.SharedItems, sharedIndexByRow[j], cf.ContainsBlank = buildSharedItems(columns[j])
-		} else {
+		default:
 			cf.Kind = oxml.CacheFieldNumber
 			cf.MinValue, cf.MaxValue, cf.ContainsInteger, cf.ContainsBlank = numericStats(columns[j])
 		}
@@ -144,8 +183,70 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		}
 	}
 
-	// Build cache records.
+	// Calculated fields become extra cache fields (databaseField="0", carrying a
+	// formula) and value fields. They are appended after the database fields.
+	nameTaken := func(name string) bool {
+		for _, h := range headers {
+			if strings.EqualFold(h, name) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, cfDef := range opts.CalculatedFields {
+		name := strings.TrimSpace(cfDef.Name)
+		if name == "" {
+			return nil, fmt.Errorf("calculated field: name is required")
+		}
+		if strings.TrimSpace(cfDef.Formula) == "" {
+			return nil, fmt.Errorf("calculated field %q: formula is required", name)
+		}
+		if nameTaken(name) {
+			return nil, fmt.Errorf("calculated field %q collides with a source column", name)
+		}
+		cacheFields = append(cacheFields, oxml.CT_CacheField{
+			Name:    name,
+			Kind:    oxml.CacheFieldCalculated,
+			Formula: cfDef.Formula,
+		})
+		values = append(values, valueSpec{field: len(cacheFields) - 1, agg: PivotSum, name: defaultValueName(PivotSum, name)})
+	}
+
+	// Numeric group fields: one derived group field per spec, placed on an axis.
+	groupStart := len(cacheFields)
+	for _, gs := range groupSpecs {
+		items := numericGroupItems(gs.start, gs.end, gs.interval)
+		gIdx := len(cacheFields)
+		cacheFields = append(cacheFields, oxml.CT_CacheField{
+			Name: headers[gs.base] + " (grouped)",
+			Kind: oxml.CacheFieldGroup,
+			Group: &oxml.CacheFieldGroupInfo{
+				Base:     gs.base,
+				Start:    gs.start,
+				End:      gs.end,
+				Interval: gs.interval,
+				Items:    items,
+			},
+		})
+		if gs.onColumn {
+			colIdx = append(colIdx, gIdx)
+		} else {
+			rowIdx = append(rowIdx, gIdx)
+		}
+	}
+	// Build cache records: one value per database field. Group fields carry no
+	// records of their own; their per-record bucket is tracked separately below
+	// for axis-item generation.
 	records := make([]oxml.PivotRecord, nData)
+	groupIndexByRow := make(map[int][]int, len(groupSpecs)) // group cache-field index -> per-row bucket
+	// Map each group cache-field index to its spec for bucket computation.
+	groupFieldSpec := make(map[int]groupSpec)
+	gi := groupStart
+	for _, gs := range groupSpecs {
+		groupFieldSpec[gi] = gs
+		groupIndexByRow[gi] = make([]int, nData)
+		gi++
+	}
 	for i := 0; i < nData; i++ {
 		rec := oxml.PivotRecord{Values: make([]oxml.PivotRecordValue, nCols)}
 		for j := 0; j < nCols; j++ {
@@ -157,8 +258,8 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 				} else {
 					rec.Values[j] = oxml.PivotRecordValue{IsNumber: true, Number: d.num}
 				}
-			default:
-				if d.empty {
+			default: // string or discrete-numeric: reference shared item by index
+				if d.empty || sharedIndexByRow[j][i] < 0 {
 					rec.Values[j] = oxml.PivotRecordValue{IsMissing: true}
 				} else {
 					rec.Values[j] = oxml.PivotRecordValue{SharedIndex: sharedIndexByRow[j][i]}
@@ -166,6 +267,14 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 			}
 		}
 		records[i] = rec
+		for gIdx, gs := range groupFieldSpec {
+			d := columns[gs.base][i]
+			if d.empty || !d.isNum {
+				groupIndexByRow[gIdx][i] = -1
+			} else {
+				groupIndexByRow[gIdx][i] = numericGroupBucket(d.num, gs.start, gs.end, gs.interval)
+			}
+		}
 	}
 
 	cache := &oxml.CT_PivotCacheDefinition{
@@ -176,23 +285,23 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 
 	// Build the pivot table definition.
 	def := &oxml.CT_PivotTableDefinition{}
-	def.PivotFields = make([]oxml.CT_PivotField, nCols)
+	def.PivotFields = make([]oxml.CT_PivotField, len(cacheFields))
 	valueFields := make(map[int]bool)
 	for _, v := range values {
 		valueFields[v.field] = true
 	}
-	for j := 0; j < nCols; j++ {
+	for j := range cacheFields {
 		pf := oxml.CT_PivotField{}
 		switch {
 		case contains(rowIdx, j):
 			pf.Axis = oxml.PivotAxisRow
-			pf.ItemCount = len(cacheFields[j].SharedItems)
+			pf.ItemCount = pivotFieldItemCount(&cacheFields[j])
 		case contains(colIdx, j):
 			pf.Axis = oxml.PivotAxisCol
-			pf.ItemCount = len(cacheFields[j].SharedItems)
+			pf.ItemCount = pivotFieldItemCount(&cacheFields[j])
 		case contains(pageIdx, j):
 			pf.Axis = oxml.PivotAxisPage
-			pf.ItemCount = len(cacheFields[j].SharedItems)
+			pf.ItemCount = pivotFieldItemCount(&cacheFields[j])
 		}
 		if valueFields[j] {
 			pf.DataField = true
@@ -219,9 +328,23 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		def.PageFields = append(def.PageFields, oxml.CT_PageField{Fld: j})
 	}
 
-	// Row and column item bodies.
-	def.RowItems = buildRowItems(records, rowIdx)
-	def.ColItems = buildColItems(records, colIdx, len(values))
+	// Row and column item bodies. Group fields resolve their per-record bucket
+	// through groupIndexByRow rather than the cache records.
+	memberFor := func(field, row int) (int, bool) {
+		if buckets, ok := groupIndexByRow[field]; ok {
+			if buckets[row] < 0 {
+				return 0, false
+			}
+			return buckets[row], true
+		}
+		v := records[row].Values[field]
+		if v.IsMissing {
+			return 0, false
+		}
+		return v.SharedIndex, true
+	}
+	def.RowItems = buildRowItems(nData, rowIdx, memberFor)
+	def.ColItems = buildColItems(nData, colIdx, len(values), memberFor)
 
 	b := &pivotBuild{
 		def:         def,
@@ -376,6 +499,108 @@ func numericStats(col []cellDatum) (minV, maxV float64, integer, containsBlank b
 	return minV, maxV, integer, containsBlank
 }
 
+// buildDiscreteNumericItems enumerates a numeric column's distinct values in
+// ascending order, returning them, a per-row index into them (-1 for a blank or
+// non-numeric cell), the min/max, whether every value is a whole number, and
+// whether any cell was blank. Used for a numeric group's base field.
+func buildDiscreteNumericItems(col []cellDatum) (items []float64, indexByRow []int, minV, maxV float64, integer, containsBlank bool) {
+	indexByRow = make([]int, len(col))
+	distinct := make(map[float64]struct{})
+	integer = true
+	seen := false
+	for i, d := range col {
+		if d.empty || !d.isNum {
+			if d.empty {
+				containsBlank = true
+			}
+			indexByRow[i] = -1
+			continue
+		}
+		if !seen {
+			minV, maxV = d.num, d.num
+			seen = true
+		} else {
+			if d.num < minV {
+				minV = d.num
+			}
+			if d.num > maxV {
+				maxV = d.num
+			}
+		}
+		if d.num != float64(int64(d.num)) {
+			integer = false
+		}
+		if _, ok := distinct[d.num]; !ok {
+			distinct[d.num] = struct{}{}
+			items = append(items, d.num)
+		}
+	}
+	sort.Float64s(items)
+	pos := make(map[float64]int, len(items))
+	for idx, v := range items {
+		pos[v] = idx
+	}
+	for i, d := range col {
+		if indexByRow[i] < 0 {
+			continue
+		}
+		indexByRow[i] = pos[d.num]
+	}
+	return items, indexByRow, minV, maxV, integer, containsBlank
+}
+
+// numericGroupItems returns the group bucket labels for a numeric range group:
+// a leading "<start" item, one "lo-hi" item per interval up to end, and a
+// trailing ">end" item, mirroring Excel's grouping labels.
+func numericGroupItems(start, end, interval float64) []string {
+	k := int(math.Ceil((end - start) / interval))
+	if k < 0 {
+		k = 0
+	}
+	items := make([]string, 0, k+2)
+	items = append(items, "<"+trimFloat(start))
+	for i := 0; i < k; i++ {
+		lo := start + float64(i)*interval
+		hi := lo + interval
+		items = append(items, trimFloat(lo)+"-"+trimFloat(hi))
+	}
+	items = append(items, ">"+trimFloat(end))
+	return items
+}
+
+// numericGroupBucket returns the index (into numericGroupItems) of the bucket a
+// value falls into.
+func numericGroupBucket(v, start, end, interval float64) int {
+	k := int(math.Ceil((end - start) / interval))
+	if k < 0 {
+		k = 0
+	}
+	if v < start {
+		return 0
+	}
+	if v >= end {
+		return k + 1
+	}
+	return 1 + int(math.Floor((v-start)/interval))
+}
+
+// pivotFieldItemCount is the number of items a row/column pivotField exposes:
+// the group bucket labels for a group field, otherwise the shared-item count.
+func pivotFieldItemCount(cf *oxml.CT_CacheField) int {
+	if cf.Kind == oxml.CacheFieldGroup && cf.Group != nil {
+		return len(cf.Group.Items)
+	}
+	if cf.Kind == oxml.CacheFieldNumberDiscrete {
+		return len(cf.NumericItems)
+	}
+	return len(cf.SharedItems)
+}
+
+// trimFloat formats a float without a trailing ".0" for whole numbers.
+func trimFloat(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
 // --- axis item builders ---
 
 type axisEntry struct {
@@ -383,14 +608,18 @@ type axisEntry struct {
 	i       int // data field index
 }
 
+// memberResolver returns the item index a record contributes for an axis field,
+// and whether the record contributes at all (false for a missing member).
+type memberResolver func(field, row int) (int, bool)
+
 // buildRowItems builds the rowItems body: one entry per distinct row-field
 // tuple (sorted) plus a grand-total row. Returns nil when there are no row
 // fields.
-func buildRowItems(records []oxml.PivotRecord, rowIdx []int) []oxml.PivotAxisItem {
+func buildRowItems(nData int, rowIdx []int, member memberResolver) []oxml.PivotAxisItem {
 	if len(rowIdx) == 0 {
 		return nil
 	}
-	tuples := distinctTuples(records, rowIdx)
+	tuples := distinctTuples(nData, rowIdx, member)
 	entries := make([]axisEntry, len(tuples))
 	for i, t := range tuples {
 		entries[i] = axisEntry{members: t}
@@ -402,7 +631,7 @@ func buildRowItems(records []oxml.PivotRecord, rowIdx []int) []oxml.PivotAxisIte
 
 // buildColItems builds the colItems body from the column-field tuples crossed
 // with the data-values dimension.
-func buildColItems(records []oxml.PivotRecord, colIdx []int, nValues int) []oxml.PivotAxisItem {
+func buildColItems(nData int, colIdx []int, nValues int, member memberResolver) []oxml.PivotAxisItem {
 	valuesOnCols := nValues > 1
 	if len(colIdx) == 0 && !valuesOnCols {
 		// Single value field, no column fields: a single data column.
@@ -413,7 +642,7 @@ func buildColItems(records []oxml.PivotRecord, colIdx []int, nValues int) []oxml
 	if len(colIdx) == 0 {
 		base = [][]int{{}}
 	} else {
-		base = distinctTuples(records, colIdx)
+		base = distinctTuples(nData, colIdx, member)
 	}
 
 	var entries []axisEntry
@@ -434,22 +663,22 @@ func buildColItems(records []oxml.PivotRecord, colIdx []int, nValues int) []oxml
 	return items
 }
 
-// distinctTuples returns the distinct tuples of shared-item indices for the
-// given fields across all records, sorted ascending. Records with a missing
-// (-1) member in any of the fields are skipped.
-func distinctTuples(records []oxml.PivotRecord, fields []int) [][]int {
+// distinctTuples returns the distinct tuples of item indices for the given
+// fields across all rows, sorted ascending. Rows with a missing member in any
+// of the fields are skipped.
+func distinctTuples(nData int, fields []int, member memberResolver) [][]int {
 	seen := make(map[string]struct{})
 	var tuples [][]int
-	for i := range records {
+	for i := 0; i < nData; i++ {
 		t := make([]int, len(fields))
 		skip := false
 		for k, f := range fields {
-			v := records[i].Values[f]
-			if v.IsMissing {
+			m, ok := member(f, i)
+			if !ok {
 				skip = true
 				break
 			}
-			t[k] = v.SharedIndex
+			t[k] = m
 		}
 		if skip {
 			continue
