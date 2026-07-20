@@ -134,3 +134,48 @@ func (sm *SlideMaster) BackgroundColor() (dml.Color, bool) {
 	}
 	return backgroundColor(sm.masterXML.CSld.Bg)
 }
+
+// --- Slide layout background ---
+
+// ensureCSld returns the layout's common slide data, allocating the layout XML
+// and cSld as needed.
+func (sl *SlideLayout) ensureCSld() *oxml.CommonSlideData {
+	if sl.layoutXML == nil {
+		sl.layoutXML = newLayoutXML(sl.layoutType)
+	}
+	if sl.layoutXML.CSld == nil {
+		sl.layoutXML.CSld = &oxml.CommonSlideData{}
+	}
+	return sl.layoutXML.CSld
+}
+
+// SetBackgroundFill sets the layout's background to the given fill (solid,
+// gradient, or pattern). It replaces any existing background.
+func (sl *SlideLayout) SetBackgroundFill(fill dml.Fill) {
+	sl.ensureCSld().Bg = &oxml.Background{BgPr: fillToBackgroundProps(fill)}
+}
+
+// ClearBackground removes the layout's explicit background, so it inherits from
+// the master.
+func (sl *SlideLayout) ClearBackground() {
+	if sl.layoutXML != nil && sl.layoutXML.CSld != nil {
+		sl.layoutXML.CSld.Bg = nil
+	}
+}
+
+// HasBackground reports whether the layout carries an explicit background fill.
+func (sl *SlideLayout) HasBackground() bool {
+	if sl.layoutXML == nil || sl.layoutXML.CSld == nil {
+		return false
+	}
+	return hasBackgroundFill(sl.layoutXML.CSld.Bg)
+}
+
+// BackgroundColor returns the layout's solid background color and true, or a
+// zero color and false when the background is absent or not a solid fill.
+func (sl *SlideLayout) BackgroundColor() (dml.Color, bool) {
+	if sl.layoutXML == nil || sl.layoutXML.CSld == nil {
+		return dml.Color{}, false
+	}
+	return backgroundColor(sl.layoutXML.CSld.Bg)
+}

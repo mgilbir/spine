@@ -83,6 +83,126 @@ func (sl *SlideLayout) GetPlaceholder(phType PlaceholderType) *PlaceholderShape 
 	return nil
 }
 
+// EditablePlaceholder is a mutable handle to a placeholder shape (a p:sp
+// carrying a p:ph) in a master's or layout's shape tree. Its geometry setters
+// write the a:off/a:ext of the shape's a:xfrm in place, so an unedited
+// placeholder — and every unmodeled property of an edited one — round-trips
+// byte-for-byte.
+type EditablePlaceholder struct {
+	sp *oxml.Shape
+}
+
+// editablePlaceholdersFromSpTree wraps every placeholder shape of a shape tree.
+func editablePlaceholdersFromSpTree(spTree *oxml.ShapeTree) []*EditablePlaceholder {
+	if spTree == nil {
+		return nil
+	}
+	var out []*EditablePlaceholder
+	for _, sp := range spTree.Sp {
+		if sp == nil || sp.NvSpPr == nil || sp.NvSpPr.NvPr == nil || sp.NvSpPr.NvPr.Ph == nil {
+			continue
+		}
+		out = append(out, &EditablePlaceholder{sp: sp})
+	}
+	return out
+}
+
+func (ep *EditablePlaceholder) ph() *oxml.Placeholder {
+	if ep.sp.NvSpPr == nil || ep.sp.NvSpPr.NvPr == nil {
+		return nil
+	}
+	return ep.sp.NvSpPr.NvPr.Ph
+}
+
+// Type returns the placeholder type.
+func (ep *EditablePlaceholder) Type() PlaceholderType {
+	if ph := ep.ph(); ph != nil {
+		return PlaceholderType(ph.Type)
+	}
+	return ""
+}
+
+// Index returns the placeholder index.
+func (ep *EditablePlaceholder) Index() uint32 {
+	if ph := ep.ph(); ph != nil {
+		return ph.Idx
+	}
+	return 0
+}
+
+func (ep *EditablePlaceholder) ensureXfrm() *dml.Xfrm {
+	if ep.sp.SpPr == nil {
+		ep.sp.SpPr = &dml.SpPr{}
+	}
+	if ep.sp.SpPr.Xfrm == nil {
+		ep.sp.SpPr.Xfrm = &dml.Xfrm{}
+	}
+	return ep.sp.SpPr.Xfrm
+}
+
+// Position returns the placeholder's explicit position (a:off) and true, or a
+// zero position and false when the placeholder sets no transform (its geometry
+// is then inherited).
+func (ep *EditablePlaceholder) Position() (x, y dml.EMU, ok bool) {
+	if ep.sp.SpPr == nil || ep.sp.SpPr.Xfrm == nil || ep.sp.SpPr.Xfrm.Off == nil {
+		return 0, 0, false
+	}
+	off := ep.sp.SpPr.Xfrm.Off
+	return dml.EMU(off.X), dml.EMU(off.Y), true
+}
+
+// SetPosition sets the placeholder's position (a:off), allocating the transform
+// if the shape had none.
+func (ep *EditablePlaceholder) SetPosition(x, y dml.EMU) {
+	xf := ep.ensureXfrm()
+	if xf.Off == nil {
+		xf.Off = &dml.OffXML{}
+	}
+	xf.Off.X = int64(x)
+	xf.Off.Y = int64(y)
+}
+
+// Size returns the placeholder's explicit size (a:ext) and true, or a zero size
+// and false when the placeholder sets no transform.
+func (ep *EditablePlaceholder) Size() (width, height dml.EMU, ok bool) {
+	if ep.sp.SpPr == nil || ep.sp.SpPr.Xfrm == nil || ep.sp.SpPr.Xfrm.Ext == nil {
+		return 0, 0, false
+	}
+	ext := ep.sp.SpPr.Xfrm.Ext
+	return dml.EMU(ext.Cx), dml.EMU(ext.Cy), true
+}
+
+// SetSize sets the placeholder's size (a:ext), allocating the transform if the
+// shape had none.
+func (ep *EditablePlaceholder) SetSize(width, height dml.EMU) {
+	xf := ep.ensureXfrm()
+	if xf.Ext == nil {
+		xf.Ext = &dml.ExtXML{}
+	}
+	xf.Ext.Cx = int64(width)
+	xf.Ext.Cy = int64(height)
+}
+
+// EditablePlaceholders returns mutable handles to every placeholder in the
+// layout's shape tree, in document order.
+func (sl *SlideLayout) EditablePlaceholders() []*EditablePlaceholder {
+	if sl.layoutXML == nil || sl.layoutXML.CSld == nil {
+		return nil
+	}
+	return editablePlaceholdersFromSpTree(sl.layoutXML.CSld.SpTree)
+}
+
+// EditablePlaceholder returns a mutable handle to the first layout placeholder
+// of the given type, or nil when none matches.
+func (sl *SlideLayout) EditablePlaceholder(phType PlaceholderType) *EditablePlaceholder {
+	for _, ep := range sl.EditablePlaceholders() {
+		if ep.Type() == phType {
+			return ep
+		}
+	}
+	return nil
+}
+
 // LayoutTypeFromString converts a string to a SlideLayoutType.
 func LayoutTypeFromString(s string) SlideLayoutType {
 	switch s {

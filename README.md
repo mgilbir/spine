@@ -16,7 +16,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
   - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`
-  - Slide and master background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern)
+  - Slide, master, and layout background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern)
+  - Slide master / layout editing: per-level master text styles (`SlideMaster.TitleStyle`/`BodyStyle`/`OtherStyle` with `SetLevelFont`/`SetLevelFontSize`/`SetLevelBold`/`SetLevelItalic`/`SetLevelColor`/`SetLevelBullet`), master/layout placeholder geometry (`EditablePlaceholders`/`EditablePlaceholder` with `SetPosition`/`SetSize`), and adding a layout under a master (`SlideMaster.AddLayout`) — unedited masters and layouts round-trip byte-for-byte and an edit touches only its own part
   - Table styling: built-in/theme table-style reference (`Table.SetStyleID`) and per-cell text insets (`TableCell.SetMargins`)
   - Embedded fonts (`Presentation.EmbeddedFonts`/`SetEmbeddedFonts`) and custom slide shows (`Presentation.CustomShows`/`AddCustomShow`), read and written
   - Slide transitions (fade, push, wipe, circle, comb, newsflash, pull, random-bar, strips, wedge, zoom, and more) with direction/orientation, wheel spokes, through-black, and sound-action parameters
@@ -796,7 +797,7 @@ disturbing the others.
 
 - pptx: `Create()` produces a 4:3 deck (use `CreateWithOptions` with `SlideSizeWidescreen`, or `CreateWidescreen()`, for 16:9). The baked master and layouts size their placeholders to the slide, so both aspect ratios are internally consistent.
 - docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
-- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts.
+- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts. To edit placeholder geometry use `EditablePlaceholders()`/`EditablePlaceholder()`, which write back to the part.
 
 ## Validation
 
