@@ -162,6 +162,19 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **mail merge** — read and write a document's mail-merge configuration
+  through `Document.MailMerge()`/`Document.SetMailMerge()`, exposing the merge
+  main-document type (`MailMergeFormLetters`, `MailMergeEmail`, …), data type,
+  connection/query, destination, and the Office Data Source Object (`w:odso`):
+  source relationship, table, connection type, first-row-header flag, column
+  delimiter, and the data-source-column→field-name mappings. Insert MERGEFIELD
+  fields in the body with `Paragraph.AddMergeField(name)` (a `w:fldSimple`
+  MERGEFIELD with a «name» placeholder result; whitespace names are quoted), and
+  enumerate the distinct merge-field names present anywhere in the body — simple
+  and complex (`w:fldChar`/`w:instrText`) fields, including inside tables — with
+  `Document.MergeFields()`. A document with existing mail-merge settings or
+  fields that are not modified round-trips byte-for-byte (the settings element is
+  preserved verbatim and only regenerated on an explicit `SetMailMerge`).
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
