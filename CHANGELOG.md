@@ -201,6 +201,23 @@ remediation series (#59–#75).
   `DataModel.TextTree`). Creating diagrams from scratch is not yet supported: a
   valid diagram also needs the layout/quickStyle/colors definition parts and a
   `dsp` drawing fallback, which Office rejects if malformed.
+- pptx: **slide master / layout editing** — masters and layouts, previously
+  read-only, can now be edited. `SlideLayout` gains a background fill API
+  mirroring the slide and master ones (`SetBackgroundFill`, `ClearBackground`,
+  `HasBackground`, `BackgroundColor`, reusing `dml.Fill`). A slide master's three
+  text-style trees are read + writable through `SlideMaster.TitleStyle()`,
+  `BodyStyle()`, and `OtherStyle()`, returning a `MasterTextStyle` whose per-level
+  (0–8) setters (`SetLevelFont`, `SetLevelFontSize`, `SetLevelBold`,
+  `SetLevelItalic`, `SetLevelColor`, `SetLevelBullet`, `SetLevelBulletChar`) mutate
+  the underlying `a:lvlNpPr` in place and `Level(n)` reads a snapshot. Layout and
+  master placeholder geometry is editable via `EditablePlaceholders()` /
+  `EditablePlaceholder(type)`, whose `SetPosition`/`SetSize` write the shape's
+  `a:xfrm` off/ext. Masters and layouts that are not edited round-trip
+  byte-for-byte, and an edit touches only its own part — editing one layout or the
+  master text styles leaves every other master/layout part byte-identical.
+  (`SlideMaster.AddLayout`, which wires the master→layout relationship and content
+  type so `AddSlideWithLayout` can target the new layout, was already present and
+  is now covered by round-trip tests.)
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;

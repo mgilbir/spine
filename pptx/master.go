@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"fmt"
+	"math"
 	"path"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -120,6 +121,27 @@ func (sm *SlideMaster) GetPlaceholder(phType PlaceholderType) *PlaceholderShape 
 	return nil
 }
 
+// EditablePlaceholders returns mutable handles to every placeholder in the
+// master's shape tree, in document order. Their geometry setters write back to
+// the master part on save.
+func (sm *SlideMaster) EditablePlaceholders() []*EditablePlaceholder {
+	if sm.masterXML == nil || sm.masterXML.CSld == nil {
+		return nil
+	}
+	return editablePlaceholdersFromSpTree(sm.masterXML.CSld.SpTree)
+}
+
+// EditablePlaceholder returns a mutable handle to the first master placeholder
+// of the given type, or nil when none matches.
+func (sm *SlideMaster) EditablePlaceholder(phType PlaceholderType) *EditablePlaceholder {
+	for _, ep := range sm.EditablePlaceholders() {
+		if ep.Type() == phType {
+			return ep
+		}
+	}
+	return nil
+}
+
 // placeholdersFromSpTree materializes the placeholder shapes (p:sp children
 // carrying a p:ph) of a master or layout shape tree.
 func placeholdersFromSpTree(spTree *oxml.ShapeTree) []*PlaceholderShape {
@@ -152,18 +174,52 @@ type ColorMap struct {
 	FollowedHyperlink string
 }
 
-// MasterTextStyle represents text styling at different levels.
-type MasterTextStyle struct {
-	levels [9]*TextLevelStyle
+// TitleStyle returns an editor for the master's title text style
+// (p:txStyles/p:titleStyle). Edits mutate the underlying a:lvlNpPr in place, so
+// the master's other styles and any unmodeled properties round-trip unchanged.
+func (sm *SlideMaster) TitleStyle() *MasterTextStyle {
+	return &MasterTextStyle{sm: sm, kind: titleTextStyle}
 }
 
-// TextLevelStyle represents text styling for a specific indentation level.
+// BodyStyle returns an editor for the master's body text style
+// (p:txStyles/p:bodyStyle). See TitleStyle.
+func (sm *SlideMaster) BodyStyle() *MasterTextStyle {
+	return &MasterTextStyle{sm: sm, kind: bodyTextStyle}
+}
+
+// OtherStyle returns an editor for the master's other text style
+// (p:txStyles/p:otherStyle). See TitleStyle.
+func (sm *SlideMaster) OtherStyle() *MasterTextStyle {
+	return &MasterTextStyle{sm: sm, kind: otherTextStyle}
+}
+
+// textStyleKind selects one of a master's three p:txStyles trees.
+type textStyleKind int
+
+const (
+	titleTextStyle textStyleKind = iota
+	bodyTextStyle
+	otherTextStyle
+)
+
+// MasterTextStyle edits one of a slide master's text-style trees
+// (title/body/other). Each tree carries up to nine indentation levels
+// (a:lvl1pPr…a:lvl9pPr); the level accessors read and mutate them in place so
+// an edit to one property leaves the rest of the level, and every other level,
+// byte-identical on save.
+type MasterTextStyle struct {
+	sm   *SlideMaster
+	kind textStyleKind
+}
+
+// TextLevelStyle is a read snapshot of the styling for one indentation level.
 type TextLevelStyle struct {
 	FontName   string
-	FontSize   float64
+	FontSize   float64 // points; 0 when the level sets no size
 	Bold       bool
 	Italic     bool
 	Color      dml.Color
+	HasColor   bool
 	Alignment  string
 	MarginLeft dml.EMU
 	Indent     dml.EMU
@@ -171,19 +227,234 @@ type TextLevelStyle struct {
 	BulletChar string
 }
 
-// Level returns the style for the specified level (0-8).
+// lst returns the underlying list style for this tree, or nil when the master
+// has no p:txStyles or no entry for this kind.
+func (ts *MasterTextStyle) lst() *dml.LstStyle {
+	if ts.sm.masterXML == nil || ts.sm.masterXML.TxStyles == nil {
+		return nil
+	}
+	switch ts.kind {
+	case titleTextStyle:
+		return ts.sm.masterXML.TxStyles.TitleStyle
+	case bodyTextStyle:
+		return ts.sm.masterXML.TxStyles.BodyStyle
+	default:
+		return ts.sm.masterXML.TxStyles.OtherStyle
+	}
+}
+
+// ensureLst returns the underlying list style, allocating the master XML, its
+// p:txStyles, and the tree entry as needed.
+func (ts *MasterTextStyle) ensureLst() *dml.LstStyle {
+	sm := ts.sm
+	if sm.masterXML == nil {
+		sm.masterXML = &oxml.SlideMaster{}
+	}
+	if sm.masterXML.TxStyles == nil {
+		sm.masterXML.TxStyles = &oxml.TxStyles{}
+	}
+	txs := sm.masterXML.TxStyles
+	switch ts.kind {
+	case titleTextStyle:
+		if txs.TitleStyle == nil {
+			txs.TitleStyle = &dml.LstStyle{}
+		}
+		return txs.TitleStyle
+	case bodyTextStyle:
+		if txs.BodyStyle == nil {
+			txs.BodyStyle = &dml.LstStyle{}
+		}
+		return txs.BodyStyle
+	default:
+		if txs.OtherStyle == nil {
+			txs.OtherStyle = &dml.LstStyle{}
+		}
+		return txs.OtherStyle
+	}
+}
+
+// lstLevelField returns the address of the a:lvlNpPr field for the given
+// 0-based level (0 -> lvl1pPr … 8 -> lvl9pPr), or nil when out of range.
+func lstLevelField(ls *dml.LstStyle, level int) **dml.PPr {
+	switch level {
+	case 0:
+		return &ls.Lvl1pPr
+	case 1:
+		return &ls.Lvl2pPr
+	case 2:
+		return &ls.Lvl3pPr
+	case 3:
+		return &ls.Lvl4pPr
+	case 4:
+		return &ls.Lvl5pPr
+	case 5:
+		return &ls.Lvl6pPr
+	case 6:
+		return &ls.Lvl7pPr
+	case 7:
+		return &ls.Lvl8pPr
+	case 8:
+		return &ls.Lvl9pPr
+	}
+	return nil
+}
+
+// Level returns a read snapshot of the style at the given level (0-8), or nil
+// when the level is out of range or the tree defines no properties for it.
 func (ts *MasterTextStyle) Level(level int) *TextLevelStyle {
+	ls := ts.lst()
+	if ls == nil {
+		return nil
+	}
+	fp := lstLevelField(ls, level)
+	if fp == nil || *fp == nil {
+		return nil
+	}
+	return levelStyleFromPPr(*fp)
+}
+
+// levelStyleFromPPr reads the modeled properties of a level paragraph.
+func levelStyleFromPPr(pp *dml.PPr) *TextLevelStyle {
+	s := &TextLevelStyle{Alignment: pp.Algn}
+	if pp.MarL != nil {
+		s.MarginLeft = dml.EMU(*pp.MarL)
+	}
+	if pp.Indent != nil {
+		s.Indent = dml.EMU(*pp.Indent)
+	}
+	if rpr := pp.DefRPr; rpr != nil {
+		if rpr.Sz != 0 {
+			s.FontSize = float64(rpr.Sz) / 100
+		}
+		if rpr.B != nil {
+			s.Bold = *rpr.B
+		}
+		if rpr.I != nil {
+			s.Italic = *rpr.I
+		}
+		if rpr.Latin != nil {
+			s.FontName = rpr.Latin.Typeface
+		}
+		if c := oxmlToColor(rpr.SolidFill); c != nil {
+			s.Color = *c
+			s.HasColor = true
+		}
+	}
+	switch {
+	case pp.BuNone != nil:
+		s.BulletType = BulletNone
+	case pp.BuAutoNum != nil:
+		s.BulletType = BulletAuto
+	case pp.BuChar != nil:
+		s.BulletType = BulletChar
+		s.BulletChar = pp.BuChar.Char
+	default:
+		s.BulletType = BulletInherit
+	}
+	return s
+}
+
+// ensureLevel returns the level paragraph, allocating the tree and the
+// a:lvlNpPr as needed. It returns nil for an out-of-range level.
+func (ts *MasterTextStyle) ensureLevel(level int) *dml.PPr {
 	if level < 0 || level > 8 {
 		return nil
 	}
-	return ts.levels[level]
+	fp := lstLevelField(ts.ensureLst(), level)
+	if *fp == nil {
+		*fp = &dml.PPr{}
+	}
+	return *fp
 }
 
-// SetLevel sets the style for the specified level.
-func (ts *MasterTextStyle) SetLevel(level int, style *TextLevelStyle) {
-	if level >= 0 && level <= 8 {
-		ts.levels[level] = style
+// ensureDefRPr returns the level's default run properties, allocating as needed.
+func ensureDefRPr(pp *dml.PPr) *dml.RPr {
+	if pp.DefRPr == nil {
+		pp.DefRPr = &dml.RPr{}
 	}
+	return pp.DefRPr
+}
+
+// SetLevelFont sets the Latin typeface for the given level (0-8).
+func (ts *MasterTextStyle) SetLevelFont(level int, name string) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	rpr := ensureDefRPr(pp)
+	if rpr.Latin == nil {
+		rpr.Latin = &dml.TextFont{}
+	}
+	rpr.Latin.Typeface = name
+}
+
+// SetLevelFontSize sets the font size in points for the given level (0-8).
+func (ts *MasterTextStyle) SetLevelFontSize(level int, points float64) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	ensureDefRPr(pp).Sz = int32(math.Round(points * 100))
+}
+
+// SetLevelBold sets whether the given level (0-8) is bold.
+func (ts *MasterTextStyle) SetLevelBold(level int, bold bool) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	v := bold
+	ensureDefRPr(pp).B = &v
+}
+
+// SetLevelItalic sets whether the given level (0-8) is italic.
+func (ts *MasterTextStyle) SetLevelItalic(level int, italic bool) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	v := italic
+	ensureDefRPr(pp).I = &v
+}
+
+// SetLevelColor sets the solid text color for the given level (0-8).
+func (ts *MasterTextStyle) SetLevelColor(level int, c dml.Color) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	ensureDefRPr(pp).SolidFill = colorToOxml(&c)
+}
+
+// SetLevelBullet sets the bullet kind for the given level (0-8). BulletChar
+// applies a default character; use SetLevelBulletChar for a specific one.
+// BulletInherit clears any explicit bullet so the level inherits it.
+func (ts *MasterTextStyle) SetLevelBullet(level int, bt BulletType) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	pp.BuNone, pp.BuAutoNum, pp.BuChar = nil, nil, nil
+	switch bt {
+	case BulletNone:
+		pp.BuNone = &dml.BuNone{}
+	case BulletAuto, BulletNumber:
+		pp.BuAutoNum = &dml.BuAutoNum{Type: "arabicPeriod"}
+	case BulletChar:
+		pp.BuChar = &dml.BuChar{Char: "•"}
+	case BulletInherit:
+		// all cleared: inherit from the parent style
+	}
+}
+
+// SetLevelBulletChar sets a literal bullet character for the given level (0-8).
+func (ts *MasterTextStyle) SetLevelBulletChar(level int, char string) {
+	pp := ts.ensureLevel(level)
+	if pp == nil {
+		return
+	}
+	pp.BuNone, pp.BuAutoNum = nil, nil
+	pp.BuChar = &dml.BuChar{Char: char}
 }
 
 // marshal converts the slide master to XML bytes.
