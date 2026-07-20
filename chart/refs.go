@@ -25,16 +25,19 @@ type DataLayout struct {
 type SeriesLayout struct {
 	// NameRef is the single-cell reference holding the series name (row 1).
 	NameRef string
-	// XValuesRef is the range holding X values (scatter only; empty otherwise).
+	// XValuesRef is the range holding X values (scatter and bubble only; empty
+	// otherwise).
 	XValuesRef string
-	// ValuesRef is the range holding the series values (Y for scatter).
+	// ValuesRef is the range holding the series values (Y for scatter/bubble).
 	ValuesRef string
+	// SizesRef is the range holding bubble sizes (bubble only; empty otherwise).
+	SizesRef string
 }
 
 // pointCount returns the number of data points the chart carries: the number
 // of categories, or (for scatter) the max series length.
 func (c *Chart) pointCount() int {
-	if c.kind == KindScatter {
+	if c.kind == KindScatter || c.kind == KindBubble {
 		n := 0
 		for _, s := range c.series {
 			if len(s.Values) > n {
@@ -42,6 +45,9 @@ func (c *Chart) pointCount() int {
 			}
 			if len(s.XValues) > n {
 				n = len(s.XValues)
+			}
+			if len(s.Sizes) > n {
+				n = len(s.Sizes)
 			}
 		}
 		return n
@@ -60,6 +66,10 @@ func (c *Chart) layout() DataLayout {
 	n := c.pointCount()
 	dl := DataLayout{Sheet: sheet}
 
+	if c.kind == KindBubble {
+		return c.bubbleLayout(sheet, n)
+	}
+
 	scatter := c.kind == KindScatter
 	// Categories / scatter-X occupy column A (col 1). Series start at column B.
 	if !scatter && n > 0 {
@@ -75,6 +85,25 @@ func (c *Chart) layout() DataLayout {
 			if scatter {
 				sl.XValuesRef = rangeRef(sheet, 1, 2, 1, n+1)
 			}
+		}
+		dl.Series = append(dl.Series, sl)
+	}
+	return dl
+}
+
+// bubbleLayout computes the DataLayout for a bubble chart. The shared X values
+// occupy column A; each series takes two adjacent columns — its Y values (with
+// the series name in row 1) and its sizes.
+func (c *Chart) bubbleLayout(sheet string, n int) DataLayout {
+	dl := DataLayout{Sheet: sheet}
+	for i := range c.series {
+		yCol := 2 + 2*i // B, D, F, ...
+		sizeCol := yCol + 1
+		sl := SeriesLayout{NameRef: cellRef(sheet, yCol, 1)}
+		if n > 0 {
+			sl.XValuesRef = rangeRef(sheet, 1, 2, 1, n+1)
+			sl.ValuesRef = rangeRef(sheet, yCol, 2, yCol, n+1)
+			sl.SizesRef = rangeRef(sheet, sizeCol, 2, sizeCol, n+1)
 		}
 		dl.Series = append(dl.Series, sl)
 	}

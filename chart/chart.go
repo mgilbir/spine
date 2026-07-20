@@ -43,6 +43,29 @@ const (
 	// secondary value axis. It has no single c: element of its own — each
 	// series renders in the chart-type group named by its Series.PlotType.
 	KindCombo
+	// KindBubble is a bubble chart (c:bubbleChart): each point carries an X, a Y,
+	// and a size. Add series with AddBubbleSeries.
+	KindBubble
+	// KindStock is a stock (high-low-close) chart (c:stockChart). Add one series
+	// per price line (e.g. high, low, close) with AddSeries.
+	KindStock
+	// KindSurface is a surface chart (c:surfaceChart): a filled topological
+	// contour over a category and a series axis.
+	KindSurface
+	// KindOfPie is a pie-of-pie / bar-of-pie chart (c:ofPieChart). Like a pie it
+	// plots a single series (its first).
+	KindOfPie
+	// KindColumn3D is a 3D vertical (column) bar chart (c:bar3DChart, barDir=col).
+	KindColumn3D
+	// KindBar3D is a 3D horizontal bar chart (c:bar3DChart, barDir=bar).
+	KindBar3D
+	// KindLine3D is a 3D line chart (c:line3DChart).
+	KindLine3D
+	// KindPie3D is a 3D pie chart (c:pie3DChart). Like a pie it plots a single
+	// series (its first).
+	KindPie3D
+	// KindArea3D is a 3D area chart (c:area3DChart).
+	KindArea3D
 )
 
 // String returns the chart kind's element name (without the c: prefix).
@@ -50,18 +73,34 @@ func (k Kind) String() string {
 	switch k {
 	case KindColumn, KindBar:
 		return "barChart"
+	case KindColumn3D, KindBar3D:
+		return "bar3DChart"
 	case KindLine:
 		return "lineChart"
+	case KindLine3D:
+		return "line3DChart"
 	case KindPie:
 		return "pieChart"
+	case KindPie3D:
+		return "pie3DChart"
+	case KindOfPie:
+		return "ofPieChart"
 	case KindScatter:
 		return "scatterChart"
+	case KindBubble:
+		return "bubbleChart"
 	case KindArea:
 		return "areaChart"
+	case KindArea3D:
+		return "area3DChart"
 	case KindDoughnut:
 		return "doughnutChart"
 	case KindRadar:
 		return "radarChart"
+	case KindStock:
+		return "stockChart"
+	case KindSurface:
+		return "surfaceChart"
 	case KindCombo:
 		return "combo"
 	default:
@@ -97,7 +136,8 @@ const (
 type Series struct {
 	Name    string
 	Values  []float64
-	XValues []float64 // scatter only
+	XValues []float64 // scatter and bubble only
+	Sizes   []float64 // bubble only (c:bubbleSize)
 
 	// Color is an optional solid fill for the series, as a 6-digit hex RGB
 	// string ("FF0000"). Empty leaves the series to the theme's automatic
@@ -215,6 +255,40 @@ func NewRadar() *Chart { return newChart(KindRadar) }
 // category axis and, unless moved, the primary value axis.
 func NewCombo() *Chart { return newChart(KindCombo) }
 
+// NewBubble returns a bubble chart. Add series with AddBubbleSeries, supplying
+// each point's X, Y, and size.
+func NewBubble() *Chart { return newChart(KindBubble) }
+
+// NewStock returns a stock (high-low-close) chart. Add one series per price
+// line (e.g. "High", "Low", "Close") with AddSeries; a high-low line joins the
+// points in each category.
+func NewStock() *Chart { return newChart(KindStock) }
+
+// NewSurface returns a surface chart: a filled topological contour. Add series
+// with AddSeries; each series is one row of the surface.
+func NewSurface() *Chart { return newChart(KindSurface) }
+
+// NewOfPie returns a pie-of-pie chart: a pie whose smaller slices are broken
+// out into a second, linked pie. Like a pie it plots a single series (its
+// first).
+func NewOfPie() *Chart { return newChart(KindOfPie) }
+
+// NewColumn3D returns a 3D vertical (column) bar chart.
+func NewColumn3D() *Chart { return newChart(KindColumn3D) }
+
+// NewBar3D returns a 3D horizontal bar chart.
+func NewBar3D() *Chart { return newChart(KindBar3D) }
+
+// NewLine3D returns a 3D line chart.
+func NewLine3D() *Chart { return newChart(KindLine3D) }
+
+// NewPie3D returns a 3D pie chart. Like a pie it plots a single series (its
+// first).
+func NewPie3D() *Chart { return newChart(KindPie3D) }
+
+// NewArea3D returns a 3D area chart.
+func NewArea3D() *Chart { return newChart(KindArea3D) }
+
 // Kind returns the chart's type.
 func (c *Chart) Kind() Kind { return c.kind }
 
@@ -269,6 +343,20 @@ func (c *Chart) AddXYSeries(name string, x, y []float64) *Series {
 	return s
 }
 
+// AddBubbleSeries appends a bubble series with paired X, Y, and size values and
+// returns it. x, y, and sizes should have the same length; missing trailing
+// values are treated as blanks. Use it with NewBubble.
+func (c *Chart) AddBubbleSeries(name string, x, y, sizes []float64) *Series {
+	s := &Series{
+		Name:    name,
+		XValues: append([]float64(nil), x...),
+		Values:  append([]float64(nil), y...),
+		Sizes:   append([]float64(nil), sizes...),
+	}
+	c.series = append(c.series, s)
+	return s
+}
+
 // SetLegend shows the legend at the given position.
 func (c *Chart) SetLegend(pos LegendPosition) *Chart {
 	c.showLegend = true
@@ -306,9 +394,43 @@ func (c *Chart) SetDataLabels(show bool) *Chart {
 	return c
 }
 
-// usesAxes reports whether the chart type uses axes. Pie and doughnut charts
-// have none; every other kind (including radar) does.
-func (c *Chart) usesAxes() bool { return c.kind != KindPie && c.kind != KindDoughnut }
+// usesAxes reports whether the chart type uses axes. The pie family (pie,
+// doughnut, pie-of-pie, and 3D pie) has none; every other kind does.
+func (c *Chart) usesAxes() bool {
+	switch c.kind {
+	case KindPie, KindDoughnut, KindOfPie, KindPie3D:
+		return false
+	}
+	return true
+}
+
+// needsSerAx reports whether the chart type carries a series (depth) axis: the
+// 3D bar/line/area charts and the surface chart, which plot series across a
+// third axis in addition to the category and value axes.
+func (c *Chart) needsSerAx() bool {
+	switch c.kind {
+	case KindColumn3D, KindBar3D, KindLine3D, KindArea3D, KindSurface:
+		return true
+	}
+	return false
+}
+
+// is3D reports whether the chart type renders with a 3D perspective and so
+// carries a c:view3D element. Surface charts are excluded: c:surfaceChart is a
+// flat top-down contour.
+func (c *Chart) is3D() bool {
+	switch c.kind {
+	case KindColumn3D, KindBar3D, KindLine3D, KindArea3D, KindPie3D:
+		return true
+	}
+	return false
+}
+
+// usesTwoValueAxes reports whether the chart plots against two value axes (X
+// and Y) rather than a category and a value axis: scatter and bubble charts.
+func (c *Chart) usesTwoValueAxes() bool {
+	return c.kind == KindScatter || c.kind == KindBubble
+}
 
 func (c *Chart) sheet() string {
 	if c.DataRef == "" {

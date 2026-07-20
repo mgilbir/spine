@@ -21,6 +21,8 @@ const (
 	// right-hand value axis).
 	secCatAxisID uint32 = 333333333
 	secValAxisID uint32 = 444444444
+	// serAxisID is the series (depth) axis of 3D and surface charts.
+	serAxisID uint32 = 555555555
 )
 
 // MarshalChartXML serializes the chart to a DrawingML chart.xml part
@@ -73,6 +75,9 @@ func (c *Chart) buildChartSpace() (*dmlchart.ChartSpace, error) {
 		PlotArea:         plot,
 		PlotVisOnly:      boolElem(true),
 		DispBlanksAs:     &dmlchart.DispBlanksAs{Val: "gap"},
+	}
+	if c.is3D() {
+		ch.View3D = c.view3D()
 	}
 	if c.title != "" {
 		ch.Title = &dmlchart.Title{
@@ -131,16 +136,16 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			DLbls:      c.groupDataLabels(),
 		}
 		// A pie chart plots a single series; use the first.
-		s := c.series[0]
-		pc.Ser = append(pc.Ser, &dmlchart.PieSer{
-			Idx:   uintElem(0),
-			Order: uintElem(0),
-			Tx:    serName(s.Name, dl.Series[0].NameRef),
-			SpPr:  seriesSpPr(s.Color),
-			Cat:   c.catSource(dl),
-			Val:   numSource(s.Values, dl.Series[0].ValuesRef, c.numberFormat()),
-		})
+		pc.Ser = append(pc.Ser, c.pieSer(0, c.series[0], dl))
 		plot.PieChart = append(plot.PieChart, pc)
+	case KindPie3D:
+		pc := &dmlchart.Pie3DChart{
+			VaryColors: boolElem(true),
+			DLbls:      c.groupDataLabels(),
+		}
+		// Like a pie, a 3D pie plots a single series; use the first.
+		pc.Ser = append(pc.Ser, c.pieSer(0, c.series[0], dl))
+		plot.Pie3DChart = append(plot.Pie3DChart, pc)
 	case KindDoughnut:
 		dc := &dmlchart.DoughnutChart{
 			VaryColors: boolElem(true),
@@ -148,16 +153,21 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			HoleSize:   &dmlchart.HoleSize{Val: defaultHoleSize},
 		}
 		// Like a pie, a doughnut plots a single series; use the first.
-		s := c.series[0]
-		dc.Ser = append(dc.Ser, &dmlchart.PieSer{
-			Idx:   uintElem(0),
-			Order: uintElem(0),
-			Tx:    serName(s.Name, dl.Series[0].NameRef),
-			SpPr:  seriesSpPr(s.Color),
-			Cat:   c.catSource(dl),
-			Val:   numSource(s.Values, dl.Series[0].ValuesRef, c.numberFormat()),
-		})
+		dc.Ser = append(dc.Ser, c.pieSer(0, c.series[0], dl))
 		plot.DoughnutChart = append(plot.DoughnutChart, dc)
+	case KindOfPie:
+		oc := &dmlchart.OfPieChart{
+			OfPieType:     &dmlchart.OfPieType{Val: "pie"},
+			VaryColors:    boolElem(true),
+			DLbls:         c.groupDataLabels(),
+			GapWidth:      &dmlchart.GapAmount{Val: 100},
+			SplitType:     &dmlchart.SplitType{Val: "auto"},
+			SecondPieSize: &dmlchart.SecondPieSize{Val: 75},
+			SerLines:      []*dmlchart.ChartLines{{}},
+		}
+		// Like a pie, a pie-of-pie plots a single series; use the first.
+		oc.Ser = append(oc.Ser, c.pieSer(0, c.series[0], dl))
+		plot.OfPieChart = append(plot.OfPieChart, oc)
 	case KindRadar:
 		rc := &dmlchart.RadarChart{
 			RadarStyle: &dmlchart.RadarStyle{Val: "marker"},
@@ -197,6 +207,95 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			})
 		}
 		plot.ScatterChart = append(plot.ScatterChart, sc)
+	case KindBubble:
+		bc := &dmlchart.BubbleChart{
+			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
+			AxId:       axIDs(xAxisID, yAxisID),
+		}
+		for i, s := range c.series {
+			bc.Ser = append(bc.Ser, &dmlchart.BubbleSer{
+				Idx:              uintElem(uint32(i)),
+				Order:            uintElem(uint32(i)),
+				Tx:               serName(s.Name, dl.Series[i].NameRef),
+				SpPr:             seriesSpPr(s.Color),
+				InvertIfNegative: boolElem(false),
+				XVal:             axNumSource(s.XValues, dl.Series[i].XValuesRef, "General"),
+				YVal:             numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+				BubbleSize:       numSource(s.Sizes, dl.Series[i].SizesRef, "General"),
+				Bubble3D:         boolElem(false),
+			})
+		}
+		plot.BubbleChart = append(plot.BubbleChart, bc)
+	case KindStock:
+		stc := &dmlchart.StockChart{
+			DLbls:      c.groupDataLabels(),
+			HiLowLines: &dmlchart.ChartLines{},
+			AxId:       axIDs(catAxisID, valAxisID),
+		}
+		for i, s := range c.series {
+			stc.Ser = append(stc.Ser, c.stockSer(i, s, dl))
+		}
+		plot.StockChart = append(plot.StockChart, stc)
+	case KindSurface:
+		sc := &dmlchart.SurfaceChart{
+			Wireframe: boolElem(false),
+			AxId:      axIDs(catAxisID, valAxisID, serAxisID),
+		}
+		for i, s := range c.series {
+			sc.Ser = append(sc.Ser, &dmlchart.SurfaceSer{
+				Idx:   uintElem(uint32(i)),
+				Order: uintElem(uint32(i)),
+				Tx:    serName(s.Name, dl.Series[i].NameRef),
+				SpPr:  seriesSpPr(s.Color),
+				Cat:   c.catSource(dl),
+				Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+			})
+		}
+		plot.SurfaceChart = append(plot.SurfaceChart, sc)
+	case KindColumn3D, KindBar3D:
+		dir := "col"
+		if c.kind == KindBar3D {
+			dir = "bar"
+		}
+		bc := &dmlchart.Bar3DChart{
+			BarDir:     &dmlchart.BarDir{Val: dir},
+			Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
+			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
+			GapWidth:   &dmlchart.GapAmount{Val: 150},
+			GapDepth:   &dmlchart.GapAmount{Val: 150},
+			Shape:      &dmlchart.BarShape{Val: "box"},
+			AxId:       axIDs(catAxisID, valAxisID, serAxisID),
+		}
+		for i, s := range c.series {
+			bc.Ser = append(bc.Ser, c.barSer(i, s, dl))
+		}
+		plot.Bar3DChart = append(plot.Bar3DChart, bc)
+	case KindLine3D:
+		lc := &dmlchart.Line3DChart{
+			Grouping:   &dmlchart.Grouping{Val: "standard"},
+			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
+			GapDepth:   &dmlchart.GapAmount{Val: 150},
+			AxId:       axIDs(catAxisID, valAxisID, serAxisID),
+		}
+		for i, s := range c.series {
+			lc.Ser = append(lc.Ser, c.lineSer(i, s, dl))
+		}
+		plot.Line3DChart = append(plot.Line3DChart, lc)
+	case KindArea3D:
+		ac := &dmlchart.Area3DChart{
+			Grouping:   &dmlchart.Grouping{Val: "standard"},
+			VaryColors: boolElem(false),
+			DLbls:      c.groupDataLabels(),
+			GapDepth:   &dmlchart.GapAmount{Val: 150},
+			AxId:       axIDs(catAxisID, valAxisID, serAxisID),
+		}
+		for i, s := range c.series {
+			ac.Ser = append(ac.Ser, c.areaSer(i, s, dl))
+		}
+		plot.Area3DChart = append(plot.Area3DChart, ac)
 	default:
 		return fmt.Errorf("chart: unsupported kind %v", c.kind)
 	}
@@ -269,6 +368,52 @@ func (c *Chart) areaSer(i int, s *Series, dl DataLayout) *dmlchart.AreaSer {
 		SpPr:  seriesSpPr(s.Color),
 		Cat:   c.catSource(dl),
 		Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+	}
+}
+
+// pieSer builds a CT_PieSer, shared by the pie, 3D pie, doughnut, and
+// pie-of-pie charts (all four use c:ser with the same shape).
+func (c *Chart) pieSer(i int, s *Series, dl DataLayout) *dmlchart.PieSer {
+	return &dmlchart.PieSer{
+		Idx:   uintElem(uint32(i)),
+		Order: uintElem(uint32(i)),
+		Tx:    serName(s.Name, dl.Series[i].NameRef),
+		SpPr:  seriesSpPr(s.Color),
+		Cat:   c.catSource(dl),
+		Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+	}
+}
+
+// stockSer builds a CT_LineSer for a stock chart. Unlike a line series it
+// carries no connecting line marker of its own: the high-low lines join the
+// points, so the series is just an index, name, and values.
+func (c *Chart) stockSer(i int, s *Series, dl DataLayout) *dmlchart.LineSer {
+	return &dmlchart.LineSer{
+		Idx:   uintElem(uint32(i)),
+		Order: uintElem(uint32(i)),
+		Tx:    serName(s.Name, dl.Series[i].NameRef),
+		SpPr:  seriesSpPr(s.Color),
+		Cat:   c.catSource(dl),
+		Val:   numSource(s.Values, dl.Series[i].ValuesRef, c.numberFormat()),
+	}
+}
+
+// view3D builds the c:view3D perspective element for the 3D chart kinds. The
+// pie family uses a steeper rotation with no right-angle axes; the bar/line/area
+// family uses Office's default oblique projection.
+func (c *Chart) view3D() *dmlchart.View3D {
+	if c.kind == KindPie3D {
+		return &dmlchart.View3D{
+			RotX:   &dmlchart.RotX{Val: 30},
+			RotY:   &dmlchart.RotY{Val: 0},
+			RAngAx: boolElem(false),
+		}
+	}
+	return &dmlchart.View3D{
+		RotX:         &dmlchart.RotX{Val: 15},
+		RotY:         &dmlchart.RotY{Val: 20},
+		DepthPercent: &dmlchart.DepthPercent{Val: 100},
+		RAngAx:       boolElem(true),
 	}
 }
 
@@ -346,8 +491,8 @@ func (c *Chart) buildAxes(plot *dmlchart.PlotArea) {
 		c.buildComboAxes(plot)
 		return
 	}
-	if c.kind == KindScatter {
-		// Scatter uses two value axes.
+	if c.usesTwoValueAxes() {
+		// Scatter and bubble use two value axes (X and Y).
 		plot.ValAx = []*dmlchart.ValAx{
 			c.valAx(xAxisID, yAxisID, "b", c.catAxisName),
 			c.valAx(yAxisID, xAxisID, "l", c.valAxisName),
@@ -355,12 +500,16 @@ func (c *Chart) buildAxes(plot *dmlchart.PlotArea) {
 		return
 	}
 	catPos, valPos := "b", "l"
-	if c.kind == KindBar {
+	if c.kind == KindBar || c.kind == KindBar3D {
 		// A horizontal bar chart swaps axis orientation.
 		catPos, valPos = "l", "b"
 	}
 	plot.CatAx = []*dmlchart.CatAx{c.catAx(catPos)}
 	plot.ValAx = []*dmlchart.ValAx{c.valAx(valAxisID, catAxisID, valPos, c.valAxisName)}
+	if c.needsSerAx() {
+		// 3D and surface charts plot series across a third (depth) axis.
+		plot.SerAx = []*dmlchart.SerAx{c.serAx(serAxisID, valAxisID)}
+	}
 }
 
 func (c *Chart) catAx(pos string) *dmlchart.CatAx {
@@ -438,6 +587,21 @@ func (c *Chart) valAx(id, crossID uint32, pos, title string) *dmlchart.ValAx {
 		ax.Title = axisTitle(title)
 	}
 	return ax
+}
+
+// serAx builds a series (depth) axis for 3D and surface charts. It carries no
+// title and crosses the value axis identified by crossID.
+func (c *Chart) serAx(id, crossID uint32) *dmlchart.SerAx {
+	return &dmlchart.SerAx{
+		AxId:          uintElem(id),
+		Scaling:       &dmlchart.Scaling{Orientation: &dmlchart.Orientation{Val: "minMax"}},
+		Delete:        boolElem(false),
+		AxPos:         &dmlchart.AxPos{Val: "b"},
+		MajorTickMark: &dmlchart.TickMark{Val: "out"},
+		MinorTickMark: &dmlchart.TickMark{Val: "none"},
+		TickLblPos:    &dmlchart.TickLblPos{Val: "nextTo"},
+		CrossAx:       uintElem(crossID),
+	}
 }
 
 // catSource builds the shared category data source (strRef + strCache).

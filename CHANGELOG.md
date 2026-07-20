@@ -162,6 +162,16 @@ remediation series (#59–#75).
 
 ### Added
 
+- chart: **nine more chart types** exposed on the format-agnostic builder —
+  `NewBubble` (x/y/size points, added with `AddBubbleSeries`), `NewStock`
+  (high-low-close), `NewSurface` (filled contour), `NewOfPie` (pie-of-pie), and
+  the 3D variants `NewColumn3D`, `NewBar3D`, `NewLine3D`, `NewPie3D`, and
+  `NewArea3D`. Each serializes to its `c:` chart-type group (with a `c:view3D`
+  perspective and a `c:serAx` depth axis where the type needs one, and a
+  `c:bubbleSize` source and second value axis for bubbles), is read back by
+  `Parse`/`Charts()` with the right `Kind`, and flows through every format's
+  `AddChart` unchanged — the embedded workbook now lays out bubble sizes in a
+  column next to each series' Y values (#162).
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the
