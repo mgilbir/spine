@@ -6,46 +6,82 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
+// MailMerge parses the mail-merge configuration (w:mailMerge) from the
+// preserved settings children, or returns nil when the element is absent. The
+// child is stored verbatim (as a raw fragment), so parsing here re-homes it
+// under freshly declared w:/r: prefixes before decoding through the typed
+// model; the raw child itself is left untouched so an unmodified save stays
+// byte-identical.
+func (s *CT_Settings) MailMerge() *CT_MailMerge {
+	c := s.Child("mailMerge")
+	if c == nil {
+		return nil
+	}
+	wrapped := []byte(`<w:mailMerge xmlns:w="` + NsWml + `" xmlns:r="` + NsRelationships + `">` +
+		string(c.RawContent) + `</w:mailMerge>`)
+	mm := &CT_MailMerge{}
+	if err := xmlb.Unmarshal(wrapped, mm); err != nil {
+		return nil
+	}
+	return mm
+}
+
+// SetMailMerge replaces the mail-merge configuration (w:mailMerge). A nil model
+// removes the element. The element is regenerated from the model, so after an
+// edit it is schema-valid rather than byte-identical to a parsed original (the
+// same trade-off as SetDocVars).
+func (s *CT_Settings) SetMailMerge(mm *CT_MailMerge) {
+	if mm == nil {
+		s.RemoveChild("mailMerge")
+		return
+	}
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.MarshalChildren(NsWml, mm)
+	el := &CT_RawNamedElement{Local: "mailMerge", Space: NsWml}
+	el.RawContent = b.Bytes()
+	s.setChildElement(el)
+}
+
 // CT_MailMerge represents mail merge settings (w:mailMerge).
 type CT_MailMerge struct {
-	MainDocumentType *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mainDocumentType,omitempty"`
-	LinkToQuery      *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main linkToQuery,omitempty"`
-	DataType         *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dataType,omitempty"`
-	ConnectString    *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main connectString,omitempty"`
-	Query            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main query,omitempty"`
-	DataSource       *CT_Rel           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dataSource,omitempty"`
-	HeaderSource     *CT_Rel           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main headerSource,omitempty"`
-	DoNotSuppressBlankLines *CT_OnOff  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main doNotSuppressBlankLines,omitempty"`
-	Destination      *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main destination,omitempty"`
-	AddressFieldName *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main addressFieldName,omitempty"`
-	MailSubject      *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mailSubject,omitempty"`
-	MailAsAttachment *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mailAsAttachment,omitempty"`
-	ViewMergedData   *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main viewMergedData,omitempty"`
-	ActiveRecord     *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main activeRecord,omitempty"`
-	CheckErrors      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main checkErrors,omitempty"`
-	Odso             *CT_Odso          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main odso,omitempty"`
+	MainDocumentType        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mainDocumentType,omitempty"`
+	LinkToQuery             *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main linkToQuery,omitempty"`
+	DataType                *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dataType,omitempty"`
+	ConnectString           *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main connectString,omitempty"`
+	Query                   *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main query,omitempty"`
+	DataSource              *CT_Rel           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dataSource,omitempty"`
+	HeaderSource            *CT_Rel           `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main headerSource,omitempty"`
+	DoNotSuppressBlankLines *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main doNotSuppressBlankLines,omitempty"`
+	Destination             *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main destination,omitempty"`
+	AddressFieldName        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main addressFieldName,omitempty"`
+	MailSubject             *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mailSubject,omitempty"`
+	MailAsAttachment        *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mailAsAttachment,omitempty"`
+	ViewMergedData          *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main viewMergedData,omitempty"`
+	ActiveRecord            *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main activeRecord,omitempty"`
+	CheckErrors             *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main checkErrors,omitempty"`
+	Odso                    *CT_Odso          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main odso,omitempty"`
 }
 
 // CT_Odso represents Office Data Source Object settings (w:odso).
 type CT_Odso struct {
-	UdlConnString  *CT_String         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main udl,omitempty"`
-	Table          *CT_String         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main table,omitempty"`
-	Src            *CT_Rel            `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main src,omitempty"`
-	ColDelim       *CT_DecimalNumber  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main colDelim,omitempty"`
-	Type           *CT_String         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
-	FHdr           *CT_OnOff          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fHdr,omitempty"`
-	FieldMapData   []*CT_OdsoFieldMapData `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fieldMapData,omitempty"`
-	RecipientData  []*CT_Rel          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main recipientData,omitempty"`
+	UdlConnString *CT_String             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main udl,omitempty"`
+	Table         *CT_String             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main table,omitempty"`
+	Src           *CT_Rel                `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main src,omitempty"`
+	ColDelim      *CT_DecimalNumber      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main colDelim,omitempty"`
+	Type          *CT_String             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
+	FHdr          *CT_OnOff              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fHdr,omitempty"`
+	FieldMapData  []*CT_OdsoFieldMapData `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fieldMapData,omitempty"`
+	RecipientData []*CT_Rel              `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main recipientData,omitempty"`
 }
 
 // CT_OdsoFieldMapData represents field map data (w:fieldMapData).
 type CT_OdsoFieldMapData struct {
-	Type        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
-	Name        *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,omitempty"`
-	MappedName  *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mappedName,omitempty"`
-	Column      *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main column,omitempty"`
-	Lid         *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lid,omitempty"`
-	DynamicAddress *CT_OnOff      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dynamicAddress,omitempty"`
+	Type           *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main type,omitempty"`
+	Name           *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main name,omitempty"`
+	MappedName     *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main mappedName,omitempty"`
+	Column         *CT_DecimalNumber `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main column,omitempty"`
+	Lid            *CT_String        `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lid,omitempty"`
+	DynamicAddress *CT_OnOff         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dynamicAddress,omitempty"`
 }
 
 // CT_Recipients represents mail merge recipient data (w:recipients).

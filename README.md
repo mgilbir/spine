@@ -42,6 +42,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Text boxes and basic shapes (rectangle, rounded rectangle, ellipse, line), inline or anchored, with fill/border and text as real WordprocessingML paragraphs — `Paragraph.AddTextBox`/`AddShape` and `Document.AddTextBox`/`AddShape`; read every box (DrawingML and legacy VML) back with `Document.TextBoxes()`
   - Charts (column, bar, line, pie, doughnut, radar, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
   - Fields (PAGE/NUMPAGES) and a table of contents
+  - Mail merge: read/write the merge configuration (`Document.MailMerge`/`SetMailMerge`) — main-document type, data source, and `w:odso` field mappings — plus `Paragraph.AddMergeField` and `Document.MergeFields()` for MERGEFIELD fields
   - Page setup (size, margins), multi-column sections, page-number format/start, title-page, and section type; enumerate sections with `Document.Sections()`
   - Section depth: page borders, line numbering, vertical alignment, paper source, document grid, and per-section footnote/endnote numbering (position, format, start, restart)
   - Document settings: default tab stop, even/odd headers, zoom, and document variables (`Document.SetDocumentVariable` and friends)
