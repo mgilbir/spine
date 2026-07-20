@@ -97,6 +97,45 @@ func TestOrderedChildren_PostParseEditsWin(t *testing.T) {
 	}
 }
 
+// InsertTypedField places a field set after parse at its schema position rather
+// than appending it after every captured child.
+func TestInsertTypedField_SchemaPosition(t *testing.T) {
+	// Source in declaration order but missing the middle field (i).
+	src := `<w:root xmlns:w="http://example.com/w">` +
+		`<w:props><w:b/><w:sz w:val="28"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.I = &orderedOnOff{} // add the middle field (field index 1)
+	doc.Props.CapturedChildren.InsertTypedField(1)
+	got := marshalOrderedDoc(t, &doc)
+	want := `<w:props><w:b/><w:i/><w:sz w:val="28"/></w:props>`
+	if got != want {
+		t.Errorf("schema-position insert mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+// InsertTypedField inserts before a trailing raw (unmodeled) child, mirroring a
+// new lvlNpPr added ahead of a captured a:extLst.
+func TestInsertTypedField_BeforeTrailingRaw(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w" xmlns:w14="http://example.com/w14">` +
+		`<w:props><w:b/><w14:glow w14:rad="1"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.Sz = &orderedVal{Val: "24"} // add field index 2
+	doc.Props.CapturedChildren.InsertTypedField(2)
+	got := marshalOrderedDoc(t, &doc)
+	want := `<w:props><w:b/><w:sz w:val="24"/><w14:glow w14:rad="1"/></w:props>`
+	if got != want {
+		t.Errorf("insert-before-raw mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
 func TestOrderedChildren_SliceOrderInterleaved(t *testing.T) {
 	src := `<w:root xmlns:w="http://example.com/w">` +
 		`<w:props><w:alt w:val="1"/><w:b/><w:alt w:val="2"/></w:props>` +

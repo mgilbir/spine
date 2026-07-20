@@ -542,13 +542,16 @@ func (s *Slide) syncShapesToXML() {
 // untouched — so an unmodified deck with existing connectors stays
 // byte-identical.
 func (s *Slide) resolveConnectorBindings() {
-	for _, sh := range s.shapes {
+	// Connectors can live at the slide top level or inside a group
+	// (GroupShape.AddConnector); forEachShape descends into groups so a grouped
+	// connector's endpoint bindings resolve to the same assigned ids.
+	forEachShape(s.shapes, func(sh Shape) {
 		c, ok := sh.(*Connector)
 		if !ok || c.sourceCxn == nil || c.sourceCxn.NvCxnSpPr == nil {
-			continue
+			return
 		}
 		if c.startShape == nil && c.endShape == nil {
-			continue
+			return
 		}
 		cnv := c.sourceCxn.NvCxnSpPr.CNvCxnSpPr
 		if cnv == nil {
@@ -565,7 +568,7 @@ func (s *Slide) resolveConnectorBindings() {
 				cnv.EndCxn = &dml.Cxn{Id: id, Idx: c.endSite}
 			}
 		}
-	}
+	})
 }
 
 // reindexShapeRefsAfterRemoval rewrites shapeRefs from the pre-compaction

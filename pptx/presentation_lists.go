@@ -1,6 +1,12 @@
 package pptx
 
 import (
+	"bytes"
+	"fmt"
+	"strings"
+
+	coxml "github.com/mgilbir/spine/common/oxml"
+	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -81,6 +87,98 @@ func (p *Presentation) SetEmbeddedFonts(fonts []EmbeddedFont) {
 		lst.EmbeddedFont = append(lst.EmbeddedFont, ef)
 	}
 	p.presentation.EmbeddedFontLst = lst
+}
+
+// EmbedFont embeds a font from raw font-data bytes so the presentation renders
+// the typeface on machines that lack it. name is the typeface (e.g. "Courier
+// New"); regular is the required regular-style font data; bold, italic, and
+// boldItalic are optional (pass nil to omit a style). Each supplied style's
+// bytes are stored as a /ppt/fonts/fontN.fntdata part with a presentation-level
+// "font" relationship, and a p:embeddedFont entry referencing those rel ids is
+// added (replacing any existing entry for the same typeface). It also sets the
+// embedTrueTypeFonts flag. Unlike SetEmbeddedFonts, which references rel ids that
+// must already exist, EmbedFont creates the parts and relationships. It returns
+// an error when the typeface name is empty or the regular data is missing.
+func (p *Presentation) EmbedFont(name string, regular, bold, italic, boldItalic []byte) error {
+	if name == "" {
+		return fmt.Errorf("pptx: embed font: typeface name is required")
+	}
+	if len(regular) == 0 {
+		return fmt.Errorf("pptx: embed font %q: regular style data is required", name)
+	}
+	if p.presentation == nil {
+		p.presentation = &oxml.Presentation{}
+	}
+
+	ef := oxml.EmbeddedFont{
+		Font:    &oxml.TextFont{Typeface: name},
+		Regular: &oxml.EmbeddedFontData{RID: p.embedFontData(regular)},
+	}
+	if len(bold) > 0 {
+		ef.Bold = &oxml.EmbeddedFontData{RID: p.embedFontData(bold)}
+	}
+	if len(italic) > 0 {
+		ef.Italic = &oxml.EmbeddedFontData{RID: p.embedFontData(italic)}
+	}
+	if len(boldItalic) > 0 {
+		ef.BoldItalic = &oxml.EmbeddedFontData{RID: p.embedFontData(boldItalic)}
+	}
+
+	if p.presentation.EmbeddedFontLst == nil {
+		p.presentation.EmbeddedFontLst = &oxml.EmbeddedFontList{}
+	}
+	lst := p.presentation.EmbeddedFontLst
+	replaced := false
+	for i := range lst.EmbeddedFont {
+		if lst.EmbeddedFont[i].Font != nil && lst.EmbeddedFont[i].Font.Typeface == name {
+			lst.EmbeddedFont[i] = ef
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		lst.EmbeddedFont = append(lst.EmbeddedFont, ef)
+	}
+
+	embed := true
+	p.presentation.EmbedTrueTypeFonts = &embed
+	return nil
+}
+
+// embedFontData stores font bytes as a /ppt/fonts part (reusing an existing part
+// with identical bytes) and adds a presentation-level "font" relationship,
+// returning the relationship id a p:embeddedFont style entry references.
+func (p *Presentation) embedFontData(data []byte) string {
+	fontName := ""
+	for name, part := range p.otherParts {
+		if part != nil && strings.HasPrefix(name, "/ppt/fonts/") && bytes.Equal(part.Data, data) {
+			fontName = name
+			break
+		}
+	}
+	if fontName == "" {
+		fontName = p.nextFontPartName()
+		p.otherParts[fontName] = &coxml.RawPart{ContentType: opc.ContentTypeFontData, Data: data}
+	}
+
+	relID := fmt.Sprintf("rId%d", p.nextPresentationRelID())
+	p.relationships[presentationPartName] = append(p.relationships[presentationPartName], &opc.Relationship{
+		ID:         relID,
+		Type:       opc.RelTypeFont,
+		Target:     relativeTarget(presentationPartName, fontName),
+		TargetMode: opc.TargetModeInternal,
+	})
+	return relID
+}
+
+// nextFontPartName returns an unused /ppt/fonts/fontN.fntdata part name.
+func (p *Presentation) nextFontPartName() string {
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/fonts/font%d.fntdata", i)
+		if _, exists := p.otherParts[name]; !exists {
+			return name
+		}
+	}
 }
 
 // EmbedTrueTypeFonts reports whether the presentation is flagged to embed

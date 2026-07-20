@@ -72,7 +72,10 @@ const (
 	RelTypeNumbering = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
 	RelTypeSettings  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
 	RelTypeFontTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
-	RelTypeImage     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+	// RelTypeFont references an embedded font-data part (p:embeddedFont in a
+	// presentation), distinct from RelTypeFontTable (a Word fontTable part).
+	RelTypeFont  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+	RelTypeImage = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
 
 	// Media relationship types. Embedded video/audio uses two relationships to
 	// the same media part: a "video"/"audio" link reference (a:videoFile/

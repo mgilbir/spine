@@ -1,13 +1,17 @@
 package pptx
 
 import (
+	"fmt"
+
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
 // This file exposes slide and slide-master background fills (p:cSld/p:bg/p:bgPr).
 // A background reuses the same dml.Fill values as shape fills, so a solid,
-// gradient, or pattern fill can be applied as a background.
+// gradient, or pattern fill can be applied as a background; an image (blip)
+// background embeds a media part and references it from the owning part's
+// relationships.
 
 // fillToBackgroundProps builds a p:bgPr from a dml.Fill, reusing Fill's own
 // SpPr routing so the fill kind (solid/gradient/pattern/none) and its color
@@ -21,6 +25,32 @@ func fillToBackgroundProps(f dml.Fill) *oxml.BackgroundProps {
 		GradFill:  sp.GradFill,
 		PattFill:  sp.PattFill,
 	}
+}
+
+// blipToBackgroundProps builds a p:bgPr whose fill is a stretched image
+// (a:blipFill) referencing the embedded image part at relID.
+func blipToBackgroundProps(relID string) *oxml.BackgroundProps {
+	return &oxml.BackgroundProps{
+		BlipFill: &dml.BlipFillXML{
+			Blip:    &dml.BlipXML{Embed: relID},
+			Stretch: &dml.StretchXML{FillRect: &dml.RelRect{}},
+		},
+	}
+}
+
+// validateBackgroundImage rejects an image background that cannot be embedded:
+// no owning package, no bytes, or no content type.
+func validateBackgroundImage(pres *Presentation, partName string, data []byte, contentType string) error {
+	if pres == nil || partName == "" {
+		return fmt.Errorf("pptx: background image needs a saved package association")
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("pptx: background image has no data")
+	}
+	if contentType == "" {
+		return fmt.Errorf("pptx: background image has no content type")
+	}
+	return nil
 }
 
 // backgroundColor returns the solid background color of a p:bg, when the
@@ -64,6 +94,20 @@ func (s *Slide) ensureCSld() *oxml.CommonSlideData {
 // gradient, or pattern). It replaces any existing background.
 func (s *Slide) SetBackgroundFill(fill dml.Fill) {
 	s.ensureCSld().Bg = &oxml.Background{BgPr: fillToBackgroundProps(fill)}
+}
+
+// SetBackgroundImage sets the slide's background to a stretched image, embedding
+// the bytes as a media part referenced from the slide and pointing an a:blipFill
+// at it. contentType is the image MIME type (e.g. "image/png"). It replaces any
+// existing background and returns an error when the image cannot be embedded (no
+// package association, no data, or no content type).
+func (s *Slide) SetBackgroundImage(data []byte, contentType string) error {
+	if err := validateBackgroundImage(s.presentation, s.partName, data, contentType); err != nil {
+		return err
+	}
+	relID := s.presentation.embedImageForPart(s.partName, data, contentType)
+	s.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	return nil
 }
 
 // ClearBackground removes the slide's explicit background, so it inherits from
@@ -111,6 +155,49 @@ func (sm *SlideMaster) SetBackgroundFill(fill dml.Fill) {
 	sm.ensureCSld().Bg = &oxml.Background{BgPr: fillToBackgroundProps(fill)}
 }
 
+// SetBackgroundImage sets the master's background to a stretched image,
+// embedding the bytes as a media part referenced from the master. contentType is
+// the image MIME type (e.g. "image/png"). It replaces any existing background
+// and returns an error when the image cannot be embedded.
+func (sm *SlideMaster) SetBackgroundImage(data []byte, contentType string) error {
+	if err := validateBackgroundImage(sm.presentation, sm.partName, data, contentType); err != nil {
+		return err
+	}
+	p := sm.presentation
+	// A master's relationship id space is shared with its layout relationships,
+	// which the master body references by id (p:sldLayoutId) and which the
+	// from-scratch save path assigns from the layout order rather than from
+	// p.relationships. Allocate the image rel past both so the two never collide.
+	mediaName := p.embedImagePart(data, contentType)
+	relID := sm.nextBackgroundRelID()
+	p.addImageRel(sm.partName, mediaName, relID)
+	sm.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	return nil
+}
+
+// nextBackgroundRelID returns an rId free across both the master's own
+// relationships and its layout relationships (see SetBackgroundImage).
+func (sm *SlideMaster) nextBackgroundRelID() string {
+	max := 0
+	consider := func(id string) {
+		if len(id) > 3 && id[:3] == "rId" {
+			var n int
+			if _, err := fmt.Sscanf(id, "rId%d", &n); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	for _, rel := range sm.presentation.relationships[sm.partName] {
+		if rel != nil {
+			consider(rel.ID)
+		}
+	}
+	for _, l := range sm.layouts {
+		consider(l.relID)
+	}
+	return fmt.Sprintf("rId%d", max+1)
+}
+
 // ClearBackground removes the master's explicit background.
 func (sm *SlideMaster) ClearBackground() {
 	if sm.masterXML != nil && sm.masterXML.CSld != nil {
@@ -153,6 +240,19 @@ func (sl *SlideLayout) ensureCSld() *oxml.CommonSlideData {
 // gradient, or pattern). It replaces any existing background.
 func (sl *SlideLayout) SetBackgroundFill(fill dml.Fill) {
 	sl.ensureCSld().Bg = &oxml.Background{BgPr: fillToBackgroundProps(fill)}
+}
+
+// SetBackgroundImage sets the layout's background to a stretched image,
+// embedding the bytes as a media part referenced from the layout. contentType is
+// the image MIME type (e.g. "image/png"). It replaces any existing background
+// and returns an error when the image cannot be embedded.
+func (sl *SlideLayout) SetBackgroundImage(data []byte, contentType string) error {
+	if err := validateBackgroundImage(sl.presentation, sl.partName, data, contentType); err != nil {
+		return err
+	}
+	relID := sl.presentation.embedImageForPart(sl.partName, data, contentType)
+	sl.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	return nil
 }
 
 // ClearBackground removes the layout's explicit background, so it inherits from

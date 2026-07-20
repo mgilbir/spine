@@ -38,6 +38,35 @@ type ChildCapture struct {
 	Raw [][]byte
 }
 
+// InsertTypedField records a single-valued typed child (fieldIndex is the
+// struct field index) at its schema position in the captured order: immediately
+// after the last typed child whose field index is smaller, and before every
+// child that follows (including a trailing raw child such as an a:extLst). It is
+// a no-op when the field is already present.
+//
+// Without it, a field set after parse is replayed by marshalCapturedChildren in
+// the trailing "children set after parse" pass — after every captured child,
+// which for a struct whose declaration order is its schema order (e.g. an
+// a:lstStyle's lvl1pPr…lvl9pPr) misorders a newly added element relative to a
+// later sibling or a captured extLst. Callers that add such a field call this to
+// keep the replay in schema order.
+func (cc *ChildCapture) InsertTypedField(fieldIndex int) {
+	for _, ref := range cc.Order {
+		if ref.Field == fieldIndex {
+			return
+		}
+	}
+	pos := 0
+	for i, ref := range cc.Order {
+		if ref.Field >= 0 && ref.Field < fieldIndex {
+			pos = i + 1
+		}
+	}
+	cc.Order = append(cc.Order, ChildRef{})
+	copy(cc.Order[pos+1:], cc.Order[pos:])
+	cc.Order[pos] = ChildRef{Field: fieldIndex, Index: 0}
+}
+
 // childCaptureType identifies the conventional CapturedChildren field.
 var childCaptureType = reflect.TypeOf((*ChildCapture)(nil))
 

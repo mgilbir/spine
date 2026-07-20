@@ -62,21 +62,32 @@ const (
 )
 
 // TransitionSound describes the sound action attached to a transition
-// (p:sndAc). Start sounds reference an embedded audio part and are read-only:
-// StartSoundName and StartSoundLoop report a start sound parsed from a file.
+// (p:sndAc): a start sound (p:stSnd) that plays when the transition runs and/or
+// a stop-previous action (p:endSnd).
 type TransitionSound struct {
 	// StopPreviousSound emits <p:endSnd/>, silencing any sound still playing
 	// from an earlier transition. It needs no embedded audio part, so it can be
 	// set on any transition.
 	StopPreviousSound bool
-	// StartSoundName and StartSoundLoop report a start sound (<p:stSnd>) parsed
-	// from a file; they round-trip but cannot be authored here (a start sound
-	// requires embedding an audio part).
+	// StartSoundName is the display name of the start sound (<p:stSnd>);
+	// StartSoundLoop plays it until the next sound. On a parsed transition they
+	// report the existing start sound; when authoring one (StartSoundData set)
+	// they name and loop the embedded clip.
 	StartSoundName string
 	StartSoundLoop bool
 
-	// startSoundEmbed preserves the r:embed of a parsed start sound so it
-	// survives a round trip when the transition is otherwise re-set.
+	// StartSoundData, when non-empty, is an audio clip to embed as the start
+	// sound. On the next Slide.SetTransition it is stored as a media part and
+	// referenced by the emitted <p:stSnd>; embedded transition sounds are
+	// typically WAV. StartSoundContentType is its MIME type (e.g. "audio/wav"),
+	// inferred from the bytes when empty. Once embedded, the start sound (its
+	// r:embed, name, and loop flag) round-trips like a parsed one.
+	StartSoundData        []byte
+	StartSoundContentType string
+
+	// startSoundEmbed preserves the r:embed of a parsed or freshly embedded
+	// start sound so it survives a round trip when the transition is otherwise
+	// re-set (and so a repeated SetTransition does not embed the clip twice).
 	startSoundEmbed string
 }
 
@@ -196,19 +207,34 @@ func (s *Slide) SetTransition(t Transition) {
 		tr.Wedge = &oxml.EmptyTransition{}
 	}
 
-	if snd := soundActionToOxml(t.Sound); snd != nil {
+	if snd := s.soundActionToOxml(t.Sound); snd != nil {
 		tr.SndAc = snd
 	}
 
 	s.slideXML.Transition = tr
 }
 
-// soundActionToOxml builds a p:sndAc from the public sound settings, or nil.
-func soundActionToOxml(snd *TransitionSound) *oxml.TransitionSoundAction {
+// soundActionToOxml builds a p:sndAc from the public sound settings, or nil,
+// embedding a newly supplied start-sound clip as a media part first. A start
+// sound whose content type cannot be resolved (not given and unrecognizable) is
+// omitted; the stop-previous action, which needs no part, is still emitted.
+func (s *Slide) soundActionToOxml(snd *TransitionSound) *oxml.TransitionSoundAction {
 	if snd == nil {
 		return nil
 	}
 	ac := &oxml.TransitionSoundAction{}
+
+	if snd.startSoundEmbed == "" && len(snd.StartSoundData) > 0 &&
+		s.presentation != nil && s.partName != "" {
+		ct := snd.StartSoundContentType
+		if ct == "" {
+			ct = sniffMediaContentType(snd.StartSoundData)
+		}
+		if ct != "" {
+			snd.startSoundEmbed = s.embedAudioPart(snd.StartSoundData, ct)
+		}
+	}
+
 	if snd.startSoundEmbed != "" {
 		ac.StSnd = &oxml.TransitionStartSoundAction{
 			Loop: snd.StartSoundLoop,

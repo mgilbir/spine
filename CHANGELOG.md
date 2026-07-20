@@ -174,6 +174,31 @@ remediation series (#59–#75).
   `Nodes()` reads the outline back immediately; `SetBounds` overrides the
   default placement. The additive change leaves diagrams read from a file
   byte-identical on save. Cycle/process kinds are deferred.
+- pptx: **five previously-deferred authoring paths** now write real content
+  instead of only round-tripping what a file already had.
+  (1) **Connectors inside groups** — `GroupShape.AddConnector` /
+  `GroupShape.Connectors` create and read connectors as group children; a
+  grouped connector's endpoint bindings resolve to the assigned cNvPr ids on
+  save (descending into nested groups), group children materialize connectors,
+  and an untouched group connector still round-trips byte-for-byte.
+  (2) **New master text-style levels** — adding a level (`SetLevelFont` and
+  friends, 0–8) absent from the source list style now inserts it at its schema
+  position (before a higher level and before a captured `a:extLst`) via the new
+  `dml.LstStyle.EnsureLevel` / `xml.ChildCapture.InsertTypedField`, instead of
+  appending it after every captured child.
+  (3) **Image backgrounds** — `Slide`/`SlideLayout`/`SlideMaster`
+  `SetBackgroundImage(data, contentType)` embed a media part and point an
+  `a:blipFill` at it (the master allocates a rel id clear of its layout rels).
+  (4) **Transition start sounds** — `TransitionSound.StartSoundData` /
+  `StartSoundContentType` embed an audio part (content type inferred when
+  omitted) and author `p:sndAc/p:stSnd`; re-setting the same sound does not
+  embed twice.
+  (5) **Embedding fonts from bytes** — `Presentation.EmbedFont(name, regular,
+  bold, italic, boldItalic)` creates the `/ppt/fonts/fontN.fntdata` parts and
+  presentation-level `font` relationships, appends (or replaces) the
+  `p:embeddedFont` entry, and sets `embedTrueTypeFonts` — unlike
+  `SetEmbeddedFonts`, which only references pre-existing rel ids. Untouched
+  content stays byte-identical.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.

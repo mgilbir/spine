@@ -4,6 +4,8 @@ package dml
 
 import (
 	"encoding/xml"
+	"fmt"
+	"reflect"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -117,6 +119,69 @@ type LstStyle struct {
 func (ls *LstStyle) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ls.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	return xmlb.UnmarshalOrderedChildren(d, ls)
+}
+
+// levelField returns the address of the lvlNpPr field for the given 0-based
+// indentation level (0→lvl1pPr … 8→lvl9pPr), or nil when out of range.
+func (ls *LstStyle) levelField(level int) **PPr {
+	switch level {
+	case 0:
+		return &ls.Lvl1pPr
+	case 1:
+		return &ls.Lvl2pPr
+	case 2:
+		return &ls.Lvl3pPr
+	case 3:
+		return &ls.Lvl4pPr
+	case 4:
+		return &ls.Lvl5pPr
+	case 5:
+		return &ls.Lvl6pPr
+	case 6:
+		return &ls.Lvl7pPr
+	case 7:
+		return &ls.Lvl8pPr
+	case 8:
+		return &ls.Lvl9pPr
+	}
+	return nil
+}
+
+// lstStyleLevelFieldIndex holds the struct field index of each lvlNpPr field,
+// resolved once by name so the captured-order insertion stays correct if the
+// struct's field layout changes.
+var lstStyleLevelFieldIndex = func() [9]int {
+	t := reflect.TypeOf(LstStyle{})
+	var idx [9]int
+	for level := 0; level < 9; level++ {
+		f, ok := t.FieldByName(fmt.Sprintf("Lvl%dpPr", level+1))
+		if !ok || len(f.Index) != 1 {
+			panic("dml: LstStyle missing lvlNpPr field")
+		}
+		idx[level] = f.Index[0]
+	}
+	return idx
+}()
+
+// EnsureLevel returns the paragraph properties for the given 0-based
+// indentation level (0→lvl1pPr … 8→lvl9pPr), allocating the field when it is
+// absent. When the list style was parsed with a captured child order, a
+// newly allocated level is inserted at its schema position so it round-trips in
+// lvlN order — rather than being replayed after every captured child, which
+// would misorder it relative to a higher level or a trailing a:extLst. Returns
+// nil for an out-of-range level.
+func (ls *LstStyle) EnsureLevel(level int) *PPr {
+	fp := ls.levelField(level)
+	if fp == nil {
+		return nil
+	}
+	if *fp == nil {
+		*fp = &PPr{}
+		if ls.CapturedChildren != nil {
+			ls.CapturedChildren.InsertTypedField(lstStyleLevelFieldIndex[level])
+		}
+	}
+	return *fp
 }
 
 // P represents CT_TextParagraph (a:p).

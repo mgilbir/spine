@@ -44,38 +44,46 @@ func (s *Slide) processPendingImages() error {
 // embedImageData creates a media part and relationship for the given image data,
 // returning the relationship ID that can be used as a blip embed reference.
 func (s *Slide) embedImageData(data []byte, contentType string) string {
-	p := s.presentation
+	return s.presentation.embedImageForPart(s.partName, data, contentType)
+}
 
-	// Reuse an existing media part with identical bytes rather than storing the
-	// same image again under a new name.
-	mediaName := ""
+// embedImageForPart stores image data as a /ppt/media part (reusing an existing
+// part with identical bytes rather than storing the same image twice) and adds
+// an image relationship from ownerPart to it, returning the relationship id
+// usable as a blip r:embed. It is the part-agnostic core shared by slide image
+// embedding and slide-layout / slide-master image backgrounds.
+func (p *Presentation) embedImageForPart(ownerPart string, data []byte, contentType string) string {
+	mediaName := p.embedImagePart(data, contentType)
+	relID := p.nextRelIDForPart(ownerPart)
+	p.addImageRel(ownerPart, mediaName, relID)
+	return relID
+}
+
+// embedImagePart stores image data as a /ppt/media part (reusing an existing
+// part with identical bytes) and returns the part name. It creates no
+// relationship — callers that need control over the relationship id (a master
+// whose id space is shared with its layout rels) allocate it and call
+// addImageRel themselves.
+func (p *Presentation) embedImagePart(data []byte, contentType string) string {
 	for name, part := range p.otherParts {
 		if part != nil && strings.HasPrefix(name, "/ppt/media/") && bytes.Equal(part.Data, data) {
-			mediaName = name
-			break
+			return name
 		}
 	}
-	if mediaName == "" {
-		ext := extFromContentType(contentType)
-		mediaName = s.nextMediaName(ext)
-		p.otherParts[mediaName] = &coxml.RawPart{
-			ContentType: contentType,
-			Data:        data,
-		}
-	}
+	name := p.nextMediaName(extFromContentType(contentType))
+	p.otherParts[name] = &coxml.RawPart{ContentType: contentType, Data: data}
+	return name
+}
 
-	// Create a relationship for this slide pointing to the media part
-	relID := s.nextRelID()
-	mediaTarget := relativeTarget(s.partName, mediaName)
-	rel := &opc.Relationship{
+// addImageRel appends an image relationship (id relID) from ownerPart to the
+// media part mediaName.
+func (p *Presentation) addImageRel(ownerPart, mediaName, relID string) {
+	p.relationships[ownerPart] = append(p.relationships[ownerPart], &opc.Relationship{
 		ID:         relID,
 		Type:       opc.RelTypeImage,
-		Target:     mediaTarget,
+		Target:     relativeTarget(ownerPart, mediaName),
 		TargetMode: opc.TargetModeInternal,
-	}
-	p.relationships[s.partName] = append(p.relationships[s.partName], rel)
-
-	return relID
+	})
 }
 
 // replacePlaceholderWithImage converts a placeholder p:sp element to a p:pic element
@@ -319,8 +327,7 @@ func removeBlipSVGExtension(blip *dml.Blip) {
 }
 
 // nextMediaName generates a unique media part name for the presentation.
-func (s *Slide) nextMediaName(ext string) string {
-	p := s.presentation
+func (p *Presentation) nextMediaName(ext string) string {
 	for i := 1; ; i++ {
 		name := fmt.Sprintf("/ppt/media/image%d%s", i, ext)
 		if _, exists := p.otherParts[name]; !exists {
@@ -331,11 +338,14 @@ func (s *Slide) nextMediaName(ext string) string {
 
 // nextRelID generates a unique relationship ID for this slide's relationships.
 func (s *Slide) nextRelID() string {
-	p := s.presentation
-	rels := p.relationships[s.partName]
+	return s.presentation.nextRelIDForPart(s.partName)
+}
 
+// nextRelIDForPart returns an rId that is unused in the given part's
+// relationship set (one greater than the highest existing rIdN).
+func (p *Presentation) nextRelIDForPart(partName string) string {
 	maxID := 0
-	for _, r := range rels {
+	for _, r := range p.relationships[partName] {
 		if len(r.ID) > 3 && r.ID[:3] == "rId" {
 			var id int
 			if _, err := fmt.Sscanf(r.ID, "rId%d", &id); err == nil {
@@ -345,7 +355,6 @@ func (s *Slide) nextRelID() string {
 			}
 		}
 	}
-
 	return fmt.Sprintf("rId%d", maxID+1)
 }
 

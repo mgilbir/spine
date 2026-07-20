@@ -133,6 +133,11 @@ const (
 	// (ContentTypeWorkbook) used inside an .xlsx.
 	ContentTypeSpreadsheetPackage = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+	// ContentTypeFontData is the content type of an embedded font-data part
+	// (/ppt/fonts/fontN.fntdata) referenced by a presentation's p:embeddedFont.
+	// The bytes are an opaque TrueType/OpenType font; spine stores them verbatim.
+	ContentTypeFontData = "application/x-fontdata"
+
 	// ContentTypeVBAProject is the content type of the VBA project part
 	// (vbaProject.bin) carried by macro-enabled packages (.docm/.xlsm/.pptm).
 	// The part is an opaque MS-OVBA/CFB binary blob; spine treats it as bytes
