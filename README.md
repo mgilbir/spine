@@ -23,6 +23,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Slide animations: entrance (appear, fade, fly-in, wipe, zoom), emphasis (pulse, spin, grow/shrink), and exit (disappear, fade, fly-out) effects with on-click / with-previous / after-previous sequencing and optional build-by-paragraph, authored via `Slide.AddAnimation` and read back with `Slide.Animations()`
   - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
   - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
+  - Read SmartArt / diagrams (`Slide.SmartArt()` / `Presentation.SmartArt()`): each graphic's text nodes and their hierarchy from the diagram data part (`dgm:dataModel`), returned as a `SmartArtNode` tree via `SmartArt.Nodes()`; the raw diagram parts round-trip byte-for-byte (creating diagrams from scratch is not yet supported)
   - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops
   - Read the presentation's footer, slide-number, and date furniture set on slides
   - Speaker notes: read (`Slide.Notes()`) and write (`Slide.SetNotes`) the notes-slide body text; editing rewrites only the affected notes part while untouched notes slides round-trip byte-for-byte
