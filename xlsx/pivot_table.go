@@ -54,10 +54,45 @@ type PivotOptions struct {
 	RowFields []string
 	// ColumnFields are source column names placed on the column axis, in order.
 	ColumnFields []string
-	// ValueFields are the aggregated value fields. At least one is required.
+	// ValueFields are the aggregated value fields. At least one value field or
+	// calculated field is required.
 	ValueFields []PivotValueField
 	// Filters are source column names placed on the page (report filter) axis.
 	Filters []string
+	// CalculatedFields are formula-derived value fields (e.g. Profit =
+	// "Sales-Cost"). Each is added to the cache as a calculated field and placed
+	// on the value axis (summed). Formulas reference source column names.
+	CalculatedFields []PivotCalculatedField
+	// NumericGroups group a numeric source field into value ranges (e.g. bucket
+	// Age into 10-year bands). Each grouped field is placed on the row axis (or
+	// the column axis when OnColumn is set) in place of the raw field.
+	NumericGroups []PivotNumericGroup
+}
+
+// PivotCalculatedField is a formula-derived value field. The formula references
+// source column names, e.g. Formula: "Sales-Cost".
+type PivotCalculatedField struct {
+	// Name is the calculated field's name (and, prefixed with the aggregation,
+	// its value-field display name). It must be unique among the source columns.
+	Name string
+	// Formula is the calculation, e.g. "Sales-Cost" or "Price*Quantity".
+	Formula string
+}
+
+// PivotNumericGroup groups a numeric source field into equal-width value ranges
+// placed on an axis. Values below Start collect into a leading "<Start" bucket,
+// values at or above End into a trailing ">End" bucket, and the remainder into
+// [Start, Start+Interval), [Start+Interval, Start+2*Interval), ... buckets.
+type PivotNumericGroup struct {
+	// Field is the numeric source column to group.
+	Field string
+	// Start, End and Interval define the buckets. Interval must be positive and
+	// End must exceed Start.
+	Start    float64
+	End      float64
+	Interval float64
+	// OnColumn places the grouped field on the column axis instead of the row axis.
+	OnColumn bool
 }
 
 // PivotValue describes a value field of an existing pivot table.
@@ -264,17 +299,19 @@ func (w *Workbook) resolvePivotCache(pivotTablePart string) *oxml.CT_PivotCacheD
 // The pivot cache is written with refreshOnLoad set, so Excel rebuilds the
 // cached values and the rendered layout when the workbook is opened.
 //
-// Limitations: a workbook that already contains pivot caches is not yet
-// supported (adding one is refused); calculated fields, grouping, multiple
+// opts.CalculatedFields adds calculated (formula) fields as value fields, and
+// opts.NumericGroups groups a numeric source field into value ranges placed on
+// the row or column axis. A workbook that already contains pivot caches is
+// extended: the new cache is allocated a fresh id and parts without disturbing
+// existing pivots.
+//
+// Limitations: date grouping, discrete (manual) item grouping, multiple
 // consolidation ranges and external-data caches are out of scope.
 func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*PivotTable, error) {
 	if s.workbook == nil {
 		return nil, fmt.Errorf("xlsx: AddPivotTable: sheet is not attached to a workbook")
 	}
-	if s.workbook.hasExistingPivotCaches() {
-		return nil, fmt.Errorf("xlsx: AddPivotTable: a workbook that already contains pivot caches is not yet supported")
-	}
-	if len(opts.ValueFields) == 0 {
+	if len(opts.ValueFields) == 0 && len(opts.CalculatedFields) == 0 {
 		return nil, fmt.Errorf("xlsx: AddPivotTable: at least one value field is required")
 	}
 
@@ -374,9 +411,17 @@ func (w *Workbook) pivotTableNameExists(name string) bool {
 }
 
 // nextPivotCacheID returns a pivot cache id greater than every one already used
-// by a pivot created this session (opened caches are refused up front).
+// by a pivot cache the workbook was opened with or created this session, so a
+// new cache never collides with an existing pivot.
 func (w *Workbook) nextPivotCacheID() uint32 {
 	var maxID uint32
+	if w.workbook != nil {
+		for _, id := range w.workbook.ExistingPivotCacheIDs() {
+			if id > maxID {
+				maxID = id
+			}
+		}
+	}
 	for _, sheet := range w.sheets {
 		for _, p := range sheet.newPivots {
 			if p.cacheID > maxID {
@@ -385,17 +430,6 @@ func (w *Workbook) nextPivotCacheID() uint32 {
 		}
 	}
 	return maxID + 1
-}
-
-// hasExistingPivotCaches reports whether the opened workbook already carries
-// pivot caches, which the create path does not yet extend.
-func (w *Workbook) hasExistingPivotCaches() bool {
-	for _, rel := range w.relationships[w.mainPart()] {
-		if rel != nil && rel.Type == opc.RelTypePivotCacheDef {
-			return true
-		}
-	}
-	return false
 }
 
 // sheetsHavePivots reports whether any sheet carries pivot tables added this

@@ -169,6 +169,205 @@ func TestAddPivotTable_RowsColsValuesFilters(t *testing.T) {
 	}
 }
 
+// buildPivotProfitWorkbook creates a workbook with Region/Sales/Cost columns
+// and an empty Report sheet, for calculated-field tests.
+func buildPivotProfitWorkbook(t *testing.T) *Workbook {
+	t.Helper()
+	wb := Create()
+	data := wb.AddSheet("Data")
+	rows := [][]interface{}{
+		{"Region", "Sales", "Cost"},
+		{"North", 100.0, 60.0},
+		{"South", 200.0, 150.0},
+		{"North", 300.0, 210.0},
+	}
+	for r, row := range rows {
+		for c, v := range row {
+			cell, _ := data.Cell(FormatCellRef(r+1, c+1))
+			cell.SetValue(v)
+		}
+	}
+	wb.AddSheet("Report")
+	return wb
+}
+
+func TestAddPivotTable_CalculatedField(t *testing.T) {
+	wb := buildPivotProfitWorkbook(t)
+	report, _ := wb.SheetByName("Report")
+	_, err := report.AddPivotTable("Data!A1:C4", "A3", PivotOptions{
+		RowFields:   []string{"Region"},
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+		CalculatedFields: []PivotCalculatedField{
+			{Name: "Profit", Formula: "Sales-Cost"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddPivotTable: %v", err)
+	}
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	// The cache definition carries the calculated field with its formula.
+	cacheXML := string(readZipPart(t, out, "xl/pivotCache/pivotCacheDefinition1.xml"))
+	if !strings.Contains(cacheXML, `formula="Sales-Cost"`) {
+		t.Errorf("cache definition missing calculated formula:\n%s", cacheXML)
+	}
+	if !strings.Contains(cacheXML, `name="Profit" numFmtId="0" databaseField="0"`) {
+		t.Errorf("cache definition missing calculated field header:\n%s", cacheXML)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if r := reopened.Validate(); r.HasErrors() {
+		t.Errorf("validation errors: %v", r)
+	}
+	pivots := reopened.PivotTables()
+	if len(pivots) != 1 {
+		t.Fatalf("PivotTables() = %d, want 1", len(pivots))
+	}
+	var foundProfit bool
+	for _, v := range pivots[0].ValueFields() {
+		if v.Field == "Profit" && v.Name == "Sum of Profit" {
+			foundProfit = true
+		}
+	}
+	if !foundProfit {
+		t.Errorf("calculated field not read back as a value field: %+v", pivots[0].ValueFields())
+	}
+}
+
+func TestAddPivotTable_NumericGroup(t *testing.T) {
+	wb := Create()
+	data := wb.AddSheet("Data")
+	rows := [][]interface{}{
+		{"Name", "Age", "Sales"},
+		{"A", 24.0, 10.0},
+		{"B", 31.0, 20.0},
+		{"C", 47.0, 30.0},
+		{"D", 33.0, 40.0},
+	}
+	for r, row := range rows {
+		for c, v := range row {
+			cell, _ := data.Cell(FormatCellRef(r+1, c+1))
+			cell.SetValue(v)
+		}
+	}
+	report := wb.AddSheet("Report")
+	_, err := report.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+		NumericGroups: []PivotNumericGroup{
+			{Field: "Age", Start: 20, End: 50, Interval: 10},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddPivotTable: %v", err)
+	}
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	cacheXML := string(readZipPart(t, out, "xl/pivotCache/pivotCacheDefinition1.xml"))
+	for _, want := range []string{"<fieldGroup base=", "<rangePr ", `groupInterval="10"`, "<groupItems ", `<s v="20-30"/>`} {
+		if !strings.Contains(cacheXML, want) {
+			t.Errorf("cache definition missing %q:\n%s", want, cacheXML)
+		}
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if r := reopened.Validate(); r.HasErrors() {
+		t.Errorf("validation errors: %v", r)
+	}
+	pivots := reopened.PivotTables()
+	if len(pivots) != 1 {
+		t.Fatalf("PivotTables() = %d, want 1", len(pivots))
+	}
+	if rf := pivots[0].RowFields(); len(rf) != 1 || rf[0] != "Age (grouped)" {
+		t.Errorf("RowFields = %v, want [Age (grouped)]", rf)
+	}
+}
+
+func TestAddPivotTable_ExtendExistingCaches(t *testing.T) {
+	// Round 1: create a workbook with one pivot and save it, so the reopened
+	// workbook genuinely carries a <pivotCaches> element and pivot cache parts.
+	wb := buildPivotSourceWorkbook(t)
+	report, _ := wb.SheetByName("Report")
+	if _, err := report.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
+		RowFields:   []string{"Region"},
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+	}); err != nil {
+		t.Fatalf("first AddPivotTable: %v", err)
+	}
+	out1, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("first SaveBytes: %v", err)
+	}
+
+	// Round 2: reopen (now with an existing pivot cache) and add a second pivot.
+	wb2, err := OpenReader(bytes.NewReader(out1), int64(len(out1)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := len(wb2.PivotTables()); got != 1 {
+		t.Fatalf("reopened PivotTables() = %d, want 1", got)
+	}
+	report2 := wb2.AddSheet("Report2")
+	pt2, err := report2.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
+		RowFields:   []string{"Product"},
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+	})
+	if err != nil {
+		t.Fatalf("extend AddPivotTable: %v", err)
+	}
+	if pt2.CacheID() == 0 {
+		t.Errorf("extended pivot cache id is zero")
+	}
+
+	out2, err := wb2.SaveBytes()
+	if err != nil {
+		t.Fatalf("second SaveBytes: %v", err)
+	}
+
+	// Both cache definitions and both pivot tables must be present.
+	for _, part := range []string{
+		"xl/pivotTables/pivotTable1.xml",
+		"xl/pivotTables/pivotTable2.xml",
+		"xl/pivotCache/pivotCacheDefinition1.xml",
+		"xl/pivotCache/pivotCacheDefinition2.xml",
+	} {
+		if !zipHasPart(t, out2, part) {
+			t.Errorf("extended package is missing %s", part)
+		}
+	}
+
+	// The workbook carries exactly one <pivotCaches> with two <pivotCache> entries.
+	wbXML := string(readZipPart(t, out2, "xl/workbook.xml"))
+	if n := strings.Count(wbXML, "<pivotCaches"); n != 1 {
+		t.Errorf("workbook.xml has %d <pivotCaches> elements, want 1:\n%s", n, wbXML)
+	}
+	if n := strings.Count(wbXML, "<pivotCache "); n != 2 {
+		t.Errorf("workbook.xml has %d <pivotCache> entries, want 2:\n%s", n, wbXML)
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(out2), int64(len(out2)))
+	if err != nil {
+		t.Fatalf("final reopen: %v", err)
+	}
+	if r := reopened.Validate(); r.HasErrors() {
+		t.Errorf("validation errors: %v", r)
+	}
+	if got := len(reopened.PivotTables()); got != 2 {
+		t.Fatalf("final PivotTables() = %d, want 2", got)
+	}
+}
+
 func TestAddPivotTable_NonNumericValueRejected(t *testing.T) {
 	wb := buildPivotSourceWorkbook(t)
 	report, _ := wb.SheetByName("Report")

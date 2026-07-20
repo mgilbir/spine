@@ -88,6 +88,20 @@ func FuzzXlsxAddPivotTable(f *testing.F) {
 				Aggregation: aggs[int(aggSel)%len(aggs)],
 			}}
 		}
+		// Drive the calculated-field and numeric-group paths from the aggregation
+		// selector so the fuzzer exercises them too. Bogus formulas/intervals are
+		// expected to be handled (accepted or rejected) without a panic.
+		switch aggSel % 3 {
+		case 1:
+			opts.CalculatedFields = []PivotCalculatedField{{Name: "Calc", Formula: "Units-Price"}}
+		case 2:
+			opts.NumericGroups = []PivotNumericGroup{{
+				Field:    headers[2],
+				Start:    float64(rowSel),
+				End:      float64(rowSel) + float64(colSel) + 1,
+				Interval: float64(valSel%4) + 1,
+			}}
+		}
 
 		if _, err := s.AddPivotTable(srcRange, anchor, opts); err != nil {
 			return

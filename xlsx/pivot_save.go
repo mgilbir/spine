@@ -88,6 +88,13 @@ func (w *Workbook) finalizeWorkbookPivotCaches(wbRels []*opc.Relationship) []*op
 		}
 	}
 	caches := &oxml.CT_PivotCaches{}
+	// Preserve any pivot caches the workbook already carried: their
+	// workbook->pivotCacheDefinition relationships survive verbatim among wbRels,
+	// so re-emitting the entries (with their original relationship ids) keeps the
+	// existing pivots wired while the new caches are appended below.
+	if existing := w.workbook.TakeExistingPivotCaches(); len(existing) > 0 {
+		caches.Cache = append(caches.Cache, existing...)
+	}
 	for _, pc := range w.pendingPivotCaches {
 		id := fmt.Sprintf("rId%d", nextRelationshipID(usedIDs))
 		usedIDs[id] = struct{}{}

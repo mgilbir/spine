@@ -162,6 +162,22 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **pivot table calculated fields, grouping, and extending existing
+  caches** — `Sheet.AddPivotTable` gains three `PivotOptions` capabilities.
+  `CalculatedFields` adds formula-derived value fields (e.g. `Profit =
+  "Sales-Cost"`): each becomes a `databaseField="0"` cache field carrying the
+  formula and is placed on the value axis. `NumericGroups` buckets a numeric
+  source field into equal-width value ranges (a leading `<start` bucket, one
+  `lo-hi` bucket per interval, and a trailing `>end` bucket) emitted as a derived
+  group cache field (`fieldGroup`/`rangePr`/`groupItems`) placed on the row (or
+  column) axis, with the base field enumerated as discrete numeric shared items.
+  A workbook that already contains pivot caches is now **extended** rather than
+  refused: the new cache is allocated an id and part names that do not collide
+  with the existing pivots, its workbook `<pivotCaches>` entry is merged with the
+  preserved entries (whose relationships are kept intact), and existing pivots
+  continue to round-trip. `refreshOnLoad` still drives Excel to rebuild the
+  rendered layout on open. Deferred: date grouping, discrete (manual) item
+  grouping, multiple consolidation ranges, and external-data caches.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.
@@ -307,9 +323,10 @@ remediation series (#59–#75).
   (plus min/max/product/countNums); the cache is written with `refreshOnLoad`
   so Excel rebuilds the rendered layout on open. Existing pivot tables in an
   opened workbook round-trip byte-for-byte (their parts are preserved raw);
-  typed XML is emitted only for pivots created this session. Deferred:
-  calculated fields, grouping, multiple consolidation ranges, external-data
-  caches, and extending a workbook that already contains pivot caches.
+  typed XML is emitted only for pivots created this session. (Calculated fields,
+  numeric grouping, and extending a workbook that already has pivot caches were
+  added in a follow-up — see above. Still deferred: date grouping, discrete item
+  grouping, multiple consolidation ranges, and external-data caches.)
 - pptx: **read SmartArt / diagrams** — `Slide.SmartArt()` and
   `Presentation.SmartArt()` return the SmartArt graphics on a slide (each a
   `p:graphicFrame` whose `a:graphicData` carries the diagram namespace URI and a
