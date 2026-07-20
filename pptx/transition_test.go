@@ -1,8 +1,95 @@
 package pptx
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestSetTransitionMorphRoundTrip(t *testing.T) {
+	pres := Create()
+	slide := pres.AddSlide()
+
+	slide.SetTransition(Transition{
+		Type:           TransitionMorph,
+		Duration:       2.0,
+		MorphOption:    MorphByWord,
+		AdvanceOnClick: true,
+	})
+
+	// Reported back in-memory before saving.
+	tr := slide.Transition()
+	if tr == nil || tr.Type != TransitionMorph {
+		t.Fatalf("in-memory Transition() = %+v, want Morph", tr)
+	}
+	if tr.MorphOption != MorphByWord {
+		t.Errorf("MorphOption = %q, want byWord", tr.MorphOption)
+	}
+	if tr.Duration != 2.0 {
+		t.Errorf("Duration = %v, want 2.0", tr.Duration)
+	}
+	if pres.Validate().HasErrors() {
+		t.Fatalf("validation errors: %v", pres.Validate())
+	}
+
+	out, err := pres.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The slide carries an mc:AlternateContent morph transition, not a base one.
+	sx := string(zipPart(t, out, "ppt/slides/slide1.xml"))
+	if !strings.Contains(sx, "p159:morph") {
+		t.Fatalf("saved slide missing p159:morph:\n%s", sx)
+	}
+	if !strings.Contains(sx, `option="byWord"`) {
+		t.Errorf("saved slide missing morph option byWord:\n%s", sx)
+	}
+	if !strings.Contains(sx, "<p:fade/>") {
+		t.Errorf("saved slide missing morph fallback fade:\n%s", sx)
+	}
+
+	// Re-opens and reads the morph transition back.
+	re := openBytes(t, out)
+	rtr := re.Slides()[0].Transition()
+	if rtr == nil || rtr.Type != TransitionMorph {
+		t.Fatalf("reopened Transition() = %+v, want Morph", rtr)
+	}
+	if rtr.MorphOption != MorphByWord {
+		t.Errorf("reopened MorphOption = %q, want byWord", rtr.MorphOption)
+	}
+	if rtr.Duration != 2.0 {
+		t.Errorf("reopened Duration = %v, want 2.0", rtr.Duration)
+	}
+
+	// A second save is stable (the parsed AC replays verbatim).
+	out2, err := re.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(zipPart(t, out2, "ppt/slides/slide1.xml")), "p159:morph") {
+		t.Error("morph transition lost on second round trip")
+	}
+}
+
+func TestSetTransitionMorphReplacedByOther(t *testing.T) {
+	pres := Create()
+	slide := pres.AddSlide()
+	slide.SetTransition(Transition{Type: TransitionMorph})
+	// Replacing with a base transition drops the morph AlternateContent.
+	slide.SetTransition(Transition{Type: TransitionFade, Duration: 1.0})
+
+	tr := slide.Transition()
+	if tr == nil || tr.Type != TransitionFade {
+		t.Fatalf("Transition() = %+v, want Fade", tr)
+	}
+	out, err := pres.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(zipPart(t, out, "ppt/slides/slide1.xml")), "p159:morph") {
+		t.Error("morph AlternateContent not removed when replaced by a base transition")
+	}
+}
 
 func TestSetTransitionFade(t *testing.T) {
 	pres := Create()

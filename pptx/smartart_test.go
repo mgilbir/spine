@@ -232,6 +232,62 @@ func TestAddSmartArtHierarchyRoundTrip(t *testing.T) {
 	}
 }
 
+// TestAddSmartArtProcessRoundTrip creates a horizontal process diagram and
+// confirms the package is Office-valid and the nodes read back in order.
+func TestAddSmartArtProcessRoundTrip(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	slide.AddSmartArt(SmartArtProcess,
+		&SmartArtNode{Text: "Plan"},
+		&SmartArtNode{Text: "Build"},
+		&SmartArtNode{Text: "Ship"},
+	)
+	if err := p.Validate(); err.HasErrors() {
+		t.Fatalf("pre-save validation errors: %v", err)
+	}
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := assertDiagramPackage(t, out)
+	if len(nodes) != 3 || nodes[0].Text != "Plan" || nodes[1].Text != "Build" || nodes[2].Text != "Ship" {
+		t.Fatalf("read-back nodes = %+v, want [Plan Build Ship]", nodes)
+	}
+	// The generated layout carries the process algorithm direction.
+	layout := string(zipPart(t, out, "ppt/diagrams/layout1.xml"))
+	if !strings.Contains(layout, `type="lin"`) || !strings.Contains(layout, `val="fromL"`) {
+		t.Errorf("process layout missing horizontal linear algorithm:\n%s", layout)
+	}
+}
+
+// TestAddSmartArtCycleRoundTrip creates a radial cycle diagram and confirms the
+// package is Office-valid and the nodes read back.
+func TestAddSmartArtCycleRoundTrip(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	slide.AddSmartArt(SmartArtCycle,
+		&SmartArtNode{Text: "Analyze"},
+		&SmartArtNode{Text: "Design"},
+		&SmartArtNode{Text: "Test"},
+		&SmartArtNode{Text: "Deploy"},
+	)
+	if err := p.Validate(); err.HasErrors() {
+		t.Fatalf("pre-save validation errors: %v", err)
+	}
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := assertDiagramPackage(t, out)
+	if len(nodes) != 4 {
+		t.Fatalf("read-back nodes = %d, want 4", len(nodes))
+	}
+	layout := string(zipPart(t, out, "ppt/diagrams/layout1.xml"))
+	if !strings.Contains(layout, `type="cycle"`) {
+		t.Errorf("cycle layout missing cycle algorithm:\n%s", layout)
+	}
+}
+
 // TestAddSmartArtTextEscaping confirms node text with XML metacharacters
 // survives the round trip.
 func TestAddSmartArtTextEscaping(t *testing.T) {

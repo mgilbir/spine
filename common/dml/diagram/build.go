@@ -20,6 +20,13 @@ const (
 	// nodes laid out with the hierarchy algorithms (dgm:alg type="hierRoot"
 	// and "hierChild"), children arranged in a row beneath their parent.
 	KindHierarchy
+	// KindProcess is a left-to-right process: every top-level node becomes a
+	// rounded rectangle laid out horizontally (dgm:alg type="lin" linDir="fromL").
+	// It shares the list's structure, differing only in direction.
+	KindProcess
+	// KindCycle is a radial cycle: every top-level node becomes an ellipse
+	// arranged around a circle (dgm:alg type="cycle").
+	KindCycle
 )
 
 // BuildNode is one node of a diagram's text outline: its text and its child
@@ -162,6 +169,10 @@ func layoutDefXML(kind Kind) []byte {
 	switch kind {
 	case KindHierarchy:
 		return []byte(layoutHierarchyXML)
+	case KindProcess:
+		return []byte(layoutProcessXML)
+	case KindCycle:
+		return []byte(layoutCycleXML)
 	default:
 		return []byte(layoutListXML)
 	}
@@ -275,6 +286,84 @@ const layoutHierarchyXML = xmlHeader +
 	`</dgm:forEach>` + // hierChildForEach
 	`</dgm:forEach>` + // rootNodeForEach
 	`</dgm:layoutNode>` + // hierRoot
+	`</dgm:layoutDef>`
+
+// layoutProcessXML is a left-to-right process layout: the same structure as the
+// vertical list (dgm:alg type="lin"), but flowing horizontally (linDir="fromL")
+// so each content node reads as a step in a process. It leans on PowerPoint's
+// algorithm defaults and stays schema-valid.
+const layoutProcessXML = xmlHeader +
+	`<dgm:layoutDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" uniqueId="urn:spine/diagram/layout/process">` +
+	`<dgm:title val="Basic Process"/>` +
+	`<dgm:desc val=""/>` +
+	`<dgm:catLst><dgm:cat type="process" pri="1000"/><dgm:cat type="list" pri="2000"/></dgm:catLst>` +
+	`<dgm:layoutNode name="diagram">` +
+	`<dgm:varLst><dgm:chMax val="0"/><dgm:chPref val="0"/><dgm:dir val="norm"/><dgm:animLvl val="lvl"/><dgm:resizeHandles val="exact"/></dgm:varLst>` +
+	`<dgm:alg type="lin"><dgm:param type="linDir" val="fromL"/></dgm:alg>` +
+	`<dgm:shape><dgm:adjLst/></dgm:shape>` +
+	`<dgm:presOf/>` +
+	`<dgm:constrLst>` +
+	`<dgm:constr type="w" for="ch" ptType="node" op="equ"/>` +
+	`<dgm:constr type="h" for="ch" ptType="node" op="equ"/>` +
+	`<dgm:constr type="sibSp" refType="w" refPtType="node" fact="0.1"/>` +
+	`<dgm:constr type="primFontSz" for="ch" ptType="node" op="equ" val="65"/>` +
+	`</dgm:constrLst>` +
+	`<dgm:ruleLst/>` +
+	`<dgm:forEach name="nodesForEach" axis="ch" ptType="node">` +
+	`<dgm:layoutNode name="node" styleLbl="node1">` +
+	`<dgm:alg type="tx"/>` +
+	`<dgm:shape type="roundRect" blipPhldr="0"><dgm:adjLst/></dgm:shape>` +
+	`<dgm:presOf axis="desOrSelf" ptType="node"/>` +
+	`<dgm:constrLst>` +
+	`<dgm:constr type="lMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="rMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="tMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="bMarg" refType="primFontSz" fact="0.3"/>` +
+	`</dgm:constrLst>` +
+	`<dgm:ruleLst/>` +
+	`</dgm:layoutNode>` +
+	`<dgm:forEach name="sibTransForEach" axis="followSib" ptType="sibTrans" cnt="1">` +
+	`<dgm:layoutNode name="sibTrans"><dgm:alg type="sp"/><dgm:shape/><dgm:presOf/><dgm:constrLst/><dgm:ruleLst/></dgm:layoutNode>` +
+	`</dgm:forEach>` +
+	`</dgm:forEach>` +
+	`</dgm:layoutNode>` +
+	`</dgm:layoutDef>`
+
+// layoutCycleXML is a radial cycle layout (dgm:alg type="cycle"): each content
+// node becomes an ellipse arranged evenly around a full circle. Connector
+// shapes between steps are omitted deliberately — they are optional for schema
+// validity and PowerPoint renders the positioned nodes without them — keeping
+// the definition compact and robust.
+const layoutCycleXML = xmlHeader +
+	`<dgm:layoutDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" uniqueId="urn:spine/diagram/layout/cycle">` +
+	`<dgm:title val="Basic Cycle"/>` +
+	`<dgm:desc val=""/>` +
+	`<dgm:catLst><dgm:cat type="cycle" pri="1000"/><dgm:cat type="relationship" pri="4000"/></dgm:catLst>` +
+	`<dgm:layoutNode name="diagram">` +
+	`<dgm:varLst><dgm:chMax val="0"/><dgm:chPref val="0"/><dgm:dir val="norm"/><dgm:animLvl val="lvl"/><dgm:resizeHandles val="exact"/></dgm:varLst>` +
+	`<dgm:alg type="cycle"><dgm:param type="stAng" val="0"/><dgm:param type="spanAng" val="360"/><dgm:param type="ctrShpMap" val="none"/></dgm:alg>` +
+	`<dgm:shape><dgm:adjLst/></dgm:shape>` +
+	`<dgm:presOf/>` +
+	`<dgm:constrLst>` +
+	`<dgm:constr type="sibSp" refType="w" refPtType="node" fact="0.1"/>` +
+	`<dgm:constr type="primFontSz" for="ch" ptType="node" op="equ" val="65"/>` +
+	`</dgm:constrLst>` +
+	`<dgm:ruleLst/>` +
+	`<dgm:forEach name="nodesForEach" axis="ch" ptType="node">` +
+	`<dgm:layoutNode name="node" styleLbl="node1">` +
+	`<dgm:alg type="tx"/>` +
+	`<dgm:shape type="ellipse" blipPhldr="0"><dgm:adjLst/></dgm:shape>` +
+	`<dgm:presOf axis="desOrSelf" ptType="node"/>` +
+	`<dgm:constrLst>` +
+	`<dgm:constr type="lMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="rMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="tMarg" refType="primFontSz" fact="0.3"/>` +
+	`<dgm:constr type="bMarg" refType="primFontSz" fact="0.3"/>` +
+	`</dgm:constrLst>` +
+	`<dgm:ruleLst/>` +
+	`</dgm:layoutNode>` +
+	`</dgm:forEach>` +
+	`</dgm:layoutNode>` +
 	`</dgm:layoutDef>`
 
 // quickStyleXML is a minimal quick-style definition (dgm:styleDef): a single

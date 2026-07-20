@@ -27,6 +27,46 @@ func acAnchorAt(anchors []string, i int) string {
 	return acDefaultAnchor
 }
 
+// AppendAlternateContent appends a root-level mc:AlternateContent anchored after
+// the named typed child (e.g. "transition"), keeping the parallel acAnchors
+// slice aligned with AlternateContent. It is used to inject synthesized
+// AlternateContent (such as the p159 morph transition, which replaces the base
+// p:transition element) at the correct schema position.
+func (s *Slide) AppendAlternateContent(ac *AlternateContent, anchor string) {
+	s.acAnchors = padAnchors(s.acAnchors, len(s.AlternateContent))
+	s.AlternateContent = append(s.AlternateContent, ac)
+	s.acAnchors = append(s.acAnchors, anchor)
+}
+
+// RemoveAlternateContent drops every root-level mc:AlternateContent for which
+// pred reports true, keeping acAnchors aligned. It returns the number removed.
+func (s *Slide) RemoveAlternateContent(pred func(*AlternateContent) bool) int {
+	s.acAnchors = padAnchors(s.acAnchors, len(s.AlternateContent))
+	var keptAC []*AlternateContent
+	var keptAnchors []string
+	removed := 0
+	for i, ac := range s.AlternateContent {
+		if pred(ac) {
+			removed++
+			continue
+		}
+		keptAC = append(keptAC, ac)
+		keptAnchors = append(keptAnchors, s.acAnchors[i])
+	}
+	s.AlternateContent = keptAC
+	s.acAnchors = keptAnchors
+	return removed
+}
+
+// padAnchors returns anchors extended to length n, filling any missing trailing
+// entries with the default anchor (matching acAnchorAt's implicit default).
+func padAnchors(anchors []string, n int) []string {
+	for len(anchors) < n {
+		anchors = append(anchors, acDefaultAnchor)
+	}
+	return anchors
+}
+
 // parseXSDBool parses an ST_OnOff / xsd:boolean attribute value, ignoring
 // input outside the schema (leaving the field absent). ECMA-376 ST_OnOff
 // admits on/off in addition to the xsd:boolean 1/0/true/false, which

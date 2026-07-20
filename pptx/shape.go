@@ -50,6 +50,7 @@ const (
 	ShapeTypeVideo
 	ShapeTypeAudio
 	ShapeTypeDiagram
+	ShapeTypeOLEObject
 )
 
 // String returns the string representation of the shape type.
@@ -77,6 +78,8 @@ func (st ShapeType) String() string {
 		return "audio"
 	case ShapeTypeDiagram:
 		return "diagram"
+	case ShapeTypeOLEObject:
+		return "oleobject"
 	default:
 		return "unknown"
 	}
@@ -155,6 +158,8 @@ func baseShapeOf(shape Shape) *BaseShape {
 	case *ChartFrame:
 		return &sh.BaseShape
 	case *SmartArtFrame:
+		return &sh.BaseShape
+	case *OLEObjectFrame:
 		return &sh.BaseShape
 	case *Connector:
 		return &sh.BaseShape

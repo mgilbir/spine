@@ -1,9 +1,20 @@
 package pptx
 
 import (
+	"bytes"
+	"strconv"
+
 	"github.com/mgilbir/spine/common/dml"
+	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
+
+// nsMorph is the PowerPoint 2015 morph-transition namespace (prefix p159). The
+// morph transition is not part of the base PresentationML schema, so PowerPoint
+// wraps the p:transition that carries <p159:morph> in an mc:AlternateContent,
+// with a plain fade as the mc:Fallback for readers that do not understand it.
+const nsMorph = "http://schemas.microsoft.com/office/powerpoint/2015/09/main"
 
 // TransitionType represents the type of slide transition.
 type TransitionType int
@@ -31,6 +42,20 @@ const (
 	TransitionStrips                   // Strips from a corner
 	TransitionWedge                    // Wedge
 	TransitionZoom                     // Zoom in/out
+	TransitionMorph                    // Morph (p159 extension, PowerPoint 2016+)
+)
+
+// MorphOption selects what the Morph transition animates between the two
+// slides: whole objects, words, or characters.
+type MorphOption string
+
+const (
+	// MorphByObject morphs whole shapes/objects (PowerPoint's default).
+	MorphByObject MorphOption = "byObject"
+	// MorphByWord morphs at the word level within text.
+	MorphByWord MorphOption = "byWord"
+	// MorphByChar morphs at the character level within text.
+	MorphByChar MorphOption = "byChar"
 )
 
 // TransitionDirection is the direction a directional transition moves in. Which
@@ -114,6 +139,9 @@ type Transition struct {
 	// ThroughBlack applies to the Cut and Fade transitions: fade/cut via a
 	// black frame instead of directly.
 	ThroughBlack bool
+	// MorphOption applies to the Morph transition: what it animates between
+	// (objects, words, or characters). Empty defaults to MorphByObject.
+	MorphOption MorphOption
 	// Sound is the transition's sound action, or nil when it has none.
 	Sound *TransitionSound
 }
@@ -124,8 +152,22 @@ func (s *Slide) SetTransition(t Transition) {
 		s.slideXML = newSlideXML()
 	}
 
+	// A morph (or any other) transition replaces whatever transition the slide
+	// had, including a previously authored/parsed morph AlternateContent, so drop
+	// any existing morph wrapper first.
+	s.slideXML.RemoveAlternateContent(isMorphAlternateContent)
+
 	if t.Type == TransitionNone {
 		s.slideXML.Transition = nil
+		return
+	}
+
+	// Morph is not expressible in the base p:transition schema: it is a
+	// <p159:morph> child wrapped in an mc:AlternateContent that stands in for the
+	// transition element. Build that wrapper and clear the base transition.
+	if t.Type == TransitionMorph {
+		s.slideXML.Transition = nil
+		s.slideXML.AppendAlternateContent(buildMorphAlternateContent(t), "transition")
 		return
 	}
 
@@ -255,7 +297,15 @@ func (s *Slide) soundActionToOxml(snd *TransitionSound) *oxml.TransitionSoundAct
 
 // Transition returns the current slide transition, or nil if none is set.
 func (s *Slide) Transition() *Transition {
-	if s.slideXML == nil || s.slideXML.Transition == nil {
+	if s.slideXML == nil {
+		return nil
+	}
+	// A morph transition lives in an mc:AlternateContent standing in for the base
+	// transition element, so it is reported even though slideXML.Transition is nil.
+	if m := morphFromAlternateContent(s.slideXML.AlternateContent); m != nil {
+		return m
+	}
+	if s.slideXML.Transition == nil {
 		return nil
 	}
 
@@ -333,6 +383,134 @@ func (s *Slide) Transition() *Transition {
 	t.Sound = soundActionFromOxml(tr.SndAc)
 
 	return t
+}
+
+// transitionSpeed maps a duration in seconds to the coarse p:transition/@spd
+// value (the base schema stores only fast/med/slow).
+func transitionSpeed(duration float64) string {
+	switch {
+	case duration <= 0:
+		return ""
+	case duration <= 0.5:
+		return "fast"
+	case duration <= 1.0:
+		return "med"
+	default:
+		return "slow"
+	}
+}
+
+// buildMorphAlternateContent builds the mc:AlternateContent that carries a morph
+// transition: an mc:Choice (Requires="p159") wrapping a p:transition whose child
+// is <p159:morph>, and an mc:Fallback with a plain fade so pre-2016 PowerPoint
+// still animates. The choice content declares xmlns:p159 (and xmlns:p14 for the
+// exact-duration attribute) inline, since the p159 prefix is not one the generic
+// AlternateContent marshaler declares from Requires.
+func buildMorphAlternateContent(t Transition) *coxml.AlternateContent {
+	option := t.MorphOption
+	if option == "" {
+		option = MorphByObject
+	}
+
+	spd := transitionSpeed(t.Duration)
+	baseAttrs := ""
+	if spd != "" {
+		baseAttrs += ` spd="` + spd + `"`
+	}
+	// advClick is emitted explicitly so AdvanceOnClick=false round-trips.
+	if t.AdvanceOnClick {
+		baseAttrs += ` advClick="1"`
+	} else {
+		baseAttrs += ` advClick="0"`
+	}
+	if t.AdvanceAfter > 0 {
+		baseAttrs += ` advTm="` + strconv.FormatUint(uint64(t.AdvanceAfter*1000), 10) + `"`
+	}
+
+	// p14:dur carries the exact morph duration in ms (the coarse spd cannot).
+	durAttr := ""
+	if t.Duration > 0 {
+		durAttr = ` xmlns:p14="` + xmlb.NSPowerPoint2010 + `" p14:dur="` +
+			strconv.FormatUint(uint64(t.Duration*1000), 10) + `"`
+	}
+
+	choice := `<p:transition` + durAttr + baseAttrs + `>` +
+		`<p159:morph xmlns:p159="` + nsMorph + `" option="` + string(option) + `"/>` +
+		`</p:transition>`
+	fallback := `<p:transition` + baseAttrs + `><p:fade/></p:transition>`
+
+	return &coxml.AlternateContent{
+		Choices:     []coxml.AlternateContentChoice{{Requires: "p159", Content: []byte(choice)}},
+		HasFallback: true,
+		Fallback:    []byte(fallback),
+	}
+}
+
+// isMorphAlternateContent reports whether an mc:AlternateContent carries a morph
+// transition (used to drop a prior morph before setting a new transition).
+func isMorphAlternateContent(ac *coxml.AlternateContent) bool {
+	if ac == nil {
+		return false
+	}
+	for _, choice := range ac.Choices {
+		if bytes.Contains(choice.Content, []byte(":morph")) {
+			return true
+		}
+	}
+	return false
+}
+
+// morphFromAlternateContent finds a morph transition among the slide's
+// root-level mc:AlternateContent elements and reports it as a Transition, or nil
+// when none is present.
+func morphFromAlternateContent(acs []*coxml.AlternateContent) *Transition {
+	for _, ac := range acs {
+		if ac == nil {
+			continue
+		}
+		for _, choice := range ac.Choices {
+			if !bytes.Contains(choice.Content, []byte(":morph")) {
+				continue
+			}
+			t := &Transition{Type: TransitionMorph, MorphOption: MorphByObject, Duration: 1.0, AdvanceOnClick: true}
+			if opt := attrValueFromRaw(choice.Content, "option"); opt != "" {
+				t.MorphOption = MorphOption(opt)
+			}
+			if dur := attrValueFromRaw(choice.Content, "p14:dur"); dur != "" {
+				if ms, err := strconv.Atoi(dur); err == nil && ms > 0 {
+					t.Duration = float64(ms) / 1000.0
+				}
+			}
+			if attrValueFromRaw(choice.Content, "advClick") == "0" {
+				t.AdvanceOnClick = false
+			}
+			if adv := attrValueFromRaw(choice.Content, "advTm"); adv != "" {
+				if ms, err := strconv.Atoi(adv); err == nil && ms > 0 {
+					t.AdvanceAfter = float64(ms) / 1000.0
+				}
+			}
+			return t
+		}
+	}
+	return nil
+}
+
+// attrValueFromRaw extracts the value of the named attribute (e.g. `option` or
+// `p14:dur`) from a raw XML fragment. It is a small helper for reading back the
+// handful of attributes on a synthesized morph transition; it matches the first
+// `name="..."` occurrence.
+func attrValueFromRaw(raw []byte, name string) string {
+	needle := []byte(name + `="`)
+	i := bytes.Index(raw, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := raw[i+len(needle):]
+	end := bytes.IndexByte(rest, '"')
+	if end < 0 {
+		return ""
+	}
+	return string(rest[:end])
 }
 
 // soundActionFromOxml reads a p:sndAc into the public sound settings, or nil.
