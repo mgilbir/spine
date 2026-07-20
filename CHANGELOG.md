@@ -284,6 +284,44 @@ remediation series (#59–#75).
   (`w:settings/w:footnotePr`, `w:settings/w:endnotePr`), complementing the
   existing per-section `Section.FootnoteProperties`. Setting the numbering
   preserves any separator `w:footnote` references already present.
+- opc,common/crypto: **ECMA-376 "standard" password encryption**
+  ([MS-OFFCRYPTO] §2.3.4.5–§2.3.4.9) — the AES/SHA-1 scheme Office 2007 wrote,
+  now supported for both open and save alongside the existing agile scheme.
+  `opc.OpenEncrypted` auto-detects standard vs agile from the EncryptionInfo
+  version, so encrypted `docx`/`xlsx`/`pptx` written by older Office open with
+  no API change. A new `opc.SaveEncryptedWithOptions(w, data, password, opts)`
+  chooses the scheme (`opc.SchemeAgile` default, or `opc.SchemeStandard` with a
+  128/192/256-bit AES key) and whether to emit DataSpaces streams;
+  `opc.SaveEncrypted` is unchanged (agile, AES-256). Standard uses AES-ECB and
+  SHA-1 key derivation as the spec mandates and is weaker than agile (no
+  per-block IV, no integrity HMAC), so agile stays the recommended default. All
+  crypto is Go-stdlib only (`crypto/aes`, `crypto/sha1`). Cross-validated
+  against `msoffcrypto-tool`: files this library encrypts decrypt cleanly with
+  that independent tool, and the key derivation matches its published reference
+  vector.
+- opc: encrypted saves can emit the optional `\x06DataSpaces` metadata streams
+  ([MS-OFFCRYPTO] §2.1) via `EncryptOptions.IncludeDataSpaces`. These are not
+  needed to decrypt (readers ignore them), but some Office builds expect them;
+  the stream payloads are the canonical reference bytes and are placed in a
+  nested CFB storage tree (new storage-aware CFB writer). Off by default, so the
+  standard encrypted-save output is unchanged. Cross-validated: the emitted
+  streams are byte-identical to the reference implementation and an independent
+  CFB reader (`olefile`) navigates the storage tree correctly.
+- opc: package digital signatures now include Microsoft Office's
+  application-specific signature `Object` (`idOfficeObject` with a
+  `SignatureInfoV1` in the office digsig namespace), covered by the signature
+  via its own `SignedInfo` reference, so Office's signature UI recognizes the
+  signature. The environment fields carry neutral placeholder values. The prior
+  standards-compliant package `Object` is unchanged; existing signatures still
+  verify. Cross-validated with an independent `lxml`/`cryptography` toolchain
+  that checks the `SignedInfo` signature and every object digest.
+- common/crypto: the obsolete legacy RC4/CryptoAPI encryption schemes
+  ([MS-OFFCRYPTO] §2.3.5/§2.3.6) remain deliberately **not decoded** — they are
+  cryptographically broken, effectively unused for OOXML packages, and have no
+  reference decoder to cross-validate an implementation against. `Decrypt` now
+  identifies them precisely and returns `ErrUnsupportedEncryption` with an
+  actionable message rather than an opaque one.
+
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.

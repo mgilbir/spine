@@ -12,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"io"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -218,6 +219,57 @@ func TestVerifyDetectsTamperedPart(t *testing.T) {
 	}
 	if docRef.Valid {
 		t.Error("document.xml reference should be invalid after tampering")
+	}
+}
+
+func TestSignIncludesOfficeObject(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	cert := testCert(t, key)
+	pkg := buildMinimalPackage(t)
+
+	src := openBytes(t, pkg)
+	var signed bytes.Buffer
+	if err := SignPackage(src, &signed, key, cert, nil); err != nil {
+		t.Fatalf("SignPackage: %v", err)
+	}
+	r := openBytes(t, signed.Bytes())
+
+	// The signature must be valid, which requires the Office object's digest
+	// (referenced from SignedInfo) to match: this covers the object end to end.
+	requireOneValidSignature(t, r)
+
+	sigXML, err := r.GetFile(signaturePartName).ReadAll()
+	if err != nil {
+		t.Fatalf("reading signature part: %v", err)
+	}
+	s := string(sigXML)
+	for _, want := range []string{
+		`Id="idOfficeObject"`,
+		`<SignatureInfoV1 xmlns="` + nsOfficeDigSig + `">`,
+		`URI="#idOfficeObject"`,
+		`<SignatureType>1</SignatureType>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("signature XML missing %q", want)
+		}
+	}
+
+	// The Office object reference must be among the verified references.
+	info := requireOneValidSignature(t, r)
+	var sawOffice bool
+	for _, ref := range info.References {
+		if ref.URI == "#idOfficeObject" {
+			sawOffice = true
+			if !ref.Valid {
+				t.Errorf("Office object reference invalid: %s", ref.Detail)
+			}
+		}
+	}
+	if !sawOffice {
+		t.Error("Office object reference not verified")
 	}
 }
 

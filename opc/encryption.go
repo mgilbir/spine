@@ -103,15 +103,77 @@ func decryptCFBPackage(data []byte, password string) ([]byte, error) {
 // packageData must be the complete bytes of an unencrypted .zip package (for
 // example docx.Document.SaveBytes()). The password must not be empty.
 func SaveEncrypted(w io.Writer, packageData []byte, password string) error {
+	return SaveEncryptedWithOptions(w, packageData, password, EncryptOptions{})
+}
+
+// EncryptionScheme selects the password-encryption algorithm SaveEncryptedWithOptions
+// writes.
+type EncryptionScheme int
+
+const (
+	// SchemeAgile is the modern Office 2010+ scheme (AES-256 CBC, SHA-512 key
+	// derivation, per-segment IVs, package HMAC integrity). It is the default and
+	// the recommended choice.
+	SchemeAgile EncryptionScheme = iota
+
+	// SchemeStandard is the older ECMA-376 "standard" scheme (AES ECB, SHA-1 key
+	// derivation; [MS-OFFCRYPTO] §2.3.4.5). It is weaker than agile — no
+	// per-block IV and no integrity HMAC — and is offered only for compatibility
+	// with tools or older Office builds that expect it.
+	SchemeStandard
+)
+
+// EncryptOptions configures SaveEncryptedWithOptions. The zero value selects the
+// agile scheme without DataSpaces streams, matching SaveEncrypted.
+type EncryptOptions struct {
+	// Scheme selects the encryption algorithm. The zero value is SchemeAgile.
+	Scheme EncryptionScheme
+
+	// StandardKeyBits is the AES key size for SchemeStandard: 128, 192, or 256.
+	// Zero means 256. It is ignored for SchemeAgile (which is always AES-256).
+	StandardKeyBits int
+
+	// IncludeDataSpaces emits the optional \x06DataSpaces metadata streams
+	// ([MS-OFFCRYPTO] §2.1) into the container. They are not required to decrypt
+	// the document, but some Office builds expect them; they are omitted by
+	// default so the output stays minimal.
+	IncludeDataSpaces bool
+}
+
+// SaveEncryptedWithOptions is SaveEncrypted with control over the encryption
+// scheme, AES key size, and whether the optional DataSpaces metadata streams are
+// emitted. The password must not be empty.
+func SaveEncryptedWithOptions(w io.Writer, packageData []byte, password string, opts EncryptOptions) error {
 	if password == "" {
 		return errors.New("opc: SaveEncrypted requires a non-empty password")
 	}
-	encInfo, encPkg, err := crypto.Encrypt(packageData, password)
+	var (
+		encInfo, encPkg []byte
+		err             error
+	)
+	switch opts.Scheme {
+	case SchemeAgile:
+		encInfo, encPkg, err = crypto.Encrypt(packageData, password)
+	case SchemeStandard:
+		keyBits := opts.StandardKeyBits
+		if keyBits == 0 {
+			keyBits = 256
+		}
+		encInfo, encPkg, err = crypto.EncryptStandard(packageData, password, keyBits)
+	default:
+		return fmt.Errorf("opc: unknown encryption scheme %d", opts.Scheme)
+	}
 	if err != nil {
 		return err
 	}
-	return writeCFB(w, []cfbStream{
+
+	streams := []cfbStream{
 		{name: cfbStreamEncryptionInfo, data: encInfo},
 		{name: cfbStreamEncryptedPackage, data: encPkg},
-	})
+	}
+	var storages []cfbStorage
+	if opts.IncludeDataSpaces {
+		storages = dataSpacesStorages()
+	}
+	return writeCFBWithStorages(w, streams, storages)
 }

@@ -59,8 +59,9 @@ func TestDecryptUnsupportedSchemes(t *testing.T) {
 		major, minor uint16
 	}{
 		{"rc4-cryptoapi", 4, 1},
-		{"standard-3.2", 3, 2},
-		{"standard-4.3", 4, 3},
+		{"rc4-standard", 2, 1},
+		{"extensible-3.3", 3, 3},
+		{"extensible-4.3", 4, 3},
 		{"unknown", 9, 9},
 	}
 	for _, c := range cases {
