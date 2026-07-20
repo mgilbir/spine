@@ -228,6 +228,46 @@ func TestReadAlternateContentTextBoxOnce(t *testing.T) {
 	}
 }
 
+// TestAddTextBoxVMLFallback creates a text box with a down-level VML fallback
+// and confirms the mc:AlternateContent (Choice+Fallback) markup is emitted and
+// the text reads back exactly once through the round trip.
+func TestAddTextBoxVMLFallback(t *testing.T) {
+	doc := Create()
+	tb := doc.AddTextBox("Compat box", TextBoxOptions{VMLFallback: true})
+	if tb == nil {
+		t.Fatal("AddTextBox returned nil")
+	}
+
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docXML, _ := zipEntry(t, saved, "word/document.xml")
+	for _, want := range []string{
+		"<mc:AlternateContent>",
+		`<mc:Choice Requires="wps">`,
+		"<mc:Fallback>",
+		"<w:pict>",
+		"<v:textbox>",
+	} {
+		if !bytes.Contains(docXML, []byte(want)) {
+			t.Errorf("saved document.xml missing %q", want)
+		}
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := reopened.TextBoxes()
+	if len(boxes) != 1 {
+		t.Fatalf("TextBoxes() = %d, want 1 (choice+fallback must not double-count)", len(boxes))
+	}
+	if got := boxes[0].Text(); got != "Compat box" {
+		t.Errorf("Text() = %q, want %q", got, "Compat box")
+	}
+}
+
 // TestExistingTextBoxByteIdentical confirms a document whose text box we do not
 // touch is regenerated with the drawing preserved verbatim.
 func TestExistingTextBoxByteIdentical(t *testing.T) {

@@ -81,6 +81,11 @@ type TextBoxOptions struct {
 	BorderWidthEMU int64
 	// NoBorder removes the outline, overriding BorderColor/BorderWidthEMU.
 	NoBorder bool
+	// VMLFallback wraps the DrawingML box in an mc:AlternateContent element with
+	// a Choice (the modern wps drawing) and a Fallback (a legacy VML w:pict text
+	// box), mirroring what Word emits so pre-2010 readers still show the box.
+	// Only meaningful for text boxes/shapes with text; ignored for empty shapes.
+	VMLFallback bool
 }
 
 // TextBox is a handle to a DrawingML (wps) or legacy VML text box or shape. It
@@ -186,6 +191,16 @@ func (p *Paragraph) addShape(text string, opts TextBoxOptions, isTextBox bool) *
 		shape:     shape,
 	}
 	id := p.document.nextShapeID()
+
+	// A VML fallback needs a text body to fall back to, so it only applies to
+	// text boxes or shapes that carry text.
+	if opts.VMLFallback && (isTextBox || text != "") {
+		ac := &oxml.CT_RawElement{RawContent: buildTextBoxAlternateContentXML(id, tb, opts, isTextBox)}
+		tb.vml = false
+		p.AddRun().r.AppendAlternateContent(ac)
+		return tb
+	}
+
 	drawing := &oxml.CT_Drawing{RawContent: buildShapeDrawingXML(id, tb, opts, isTextBox)}
 	tb.drawing = drawing
 	p.AddRun().r.AppendDrawing(drawing)
@@ -211,25 +226,8 @@ func buildShapeDrawingXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bo
 		txbx = `<wps:txbx><w:txbxContent>` + txbxContentXML(tb.text) + `</w:txbxContent></wps:txbx>`
 	}
 
-	wsp := fmt.Sprintf(
-		`<wps:wsp>`+
-			`<wps:cNvPr id="%d" name="%s"/>`+
-			`%s`+
-			`<wps:spPr>`+
-			`<a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm>`+
-			`<a:prstGeom prst="%s"><a:avLst/></a:prstGeom>`+
-			`%s%s`+
-			`</wps:spPr>`+
-			`%s`+
-			`<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0"><a:noAutofit/></wps:bodyPr>`+
-			`</wps:wsp>`,
-		id, xmlEscapeAttr(name),
-		cNvSpPr,
-		tb.widthEMU, tb.heightEMU,
-		xmlEscapeAttr(string(tb.shape)),
-		fillXML(opts, isTextBox), lnXML(opts),
-		txbx,
-	)
+	wsp := buildWspXML(id, name, cNvSpPr, txbx, 0, 0, tb.widthEMU, tb.heightEMU,
+		tb.shape, fillXML(opts, isTextBox), lnXML(opts), "")
 
 	graphic := fmt.Sprintf(
 		`<a:graphic><a:graphicData uri="%s">%s</a:graphicData></a:graphic>`,
@@ -286,6 +284,89 @@ func buildShapeAnchorXML(id int, name string, tb *TextBox, opts TextBoxOptions, 
 		id, xmlEscapeAttr(name),
 		graphic,
 	))
+}
+
+// buildWspXML builds a single <wps:wsp> shape element: its non-visual
+// properties, an a:xfrm placed at (xEMU,yEMU) with size cx x cy, the preset
+// geometry, the fill and outline fragments, an optional w:txbxContent body, and
+// an optional extra bodyPr fragment (e.g. an a:prstTxWarp for WordArt). It is
+// shared by inline/anchored text boxes and by the members of a shape group.
+func buildWspXML(id int, name, cNvSpPr, txbx string, xEMU, yEMU, cx, cy int64, shape ShapeType, fill, ln, bodyPrExtra string) string {
+	return fmt.Sprintf(
+		`<wps:wsp>`+
+			`<wps:cNvPr id="%d" name="%s"/>`+
+			`%s`+
+			`<wps:spPr>`+
+			`<a:xfrm><a:off x="%d" y="%d"/><a:ext cx="%d" cy="%d"/></a:xfrm>`+
+			`<a:prstGeom prst="%s"><a:avLst/></a:prstGeom>`+
+			`%s%s`+
+			`</wps:spPr>`+
+			`%s`+
+			`<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">%s<a:noAutofit/></wps:bodyPr>`+
+			`</wps:wsp>`,
+		id, xmlEscapeAttr(name),
+		cNvSpPr,
+		xEMU, yEMU, cx, cy,
+		xmlEscapeAttr(string(shape)),
+		fill, ln,
+		txbx,
+		bodyPrExtra,
+	)
+}
+
+// vmlTextBoxNamespaces are the namespace declarations placed on the VML v:shape
+// of a down-level text box fallback: the VML namespace and the Office drawing
+// namespace, plus the WordprocessingML namespace so the w:txbxContent body
+// resolves. r: is already bound at the document root.
+const vmlTextBoxNamespaces = `xmlns:v="urn:schemas-microsoft-com:vml" ` +
+	`xmlns:o="urn:schemas-microsoft-com:office:office" ` +
+	`xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`
+
+// buildTextBoxAlternateContentXML builds the inner content of an
+// mc:AlternateContent element: a Choice (Requires="wps") carrying the modern
+// DrawingML w:drawing and a Fallback carrying an equivalent legacy VML w:pict
+// text box. Word writes this pair so readers without wps support still render
+// the box. The mc prefix is bound at the document root.
+func buildTextBoxAlternateContentXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bool) []byte {
+	drawing := buildShapeDrawingXML(id, tb, opts, isTextBox)
+	fallback := buildVMLTextBoxXML(id, tb, opts, isTextBox)
+	return []byte(`<mc:Choice Requires="wps"><w:drawing>` + string(drawing) + `</w:drawing></mc:Choice>` +
+		`<mc:Fallback>` + fallback + `</mc:Fallback>`)
+}
+
+// buildVMLTextBoxXML builds a legacy VML w:pict text box equivalent to the wps
+// shape: a v:shape (or v:rect) sized in points with a fill/stroke and a
+// v:textbox wrapping the same w:txbxContent body.
+func buildVMLTextBoxXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bool) string {
+	widthPt := emuToPoints(tb.widthEMU)
+	heightPt := emuToPoints(tb.heightEMU)
+
+	fill := `fillcolor="#ffffff"`
+	if opts.NoFill {
+		fill = `filled="f"`
+	} else if opts.FillColor != "" {
+		fill = `fillcolor="#` + xmlEscapeAttr(strings.ToLower(opts.FillColor)) + `"`
+	} else if !isTextBox {
+		fill = `filled="f"`
+	}
+
+	stroke := `strokecolor="#000000"`
+	if opts.NoBorder {
+		stroke = `stroked="f"`
+	} else if opts.BorderColor != "" {
+		stroke = `strokecolor="#` + xmlEscapeAttr(strings.ToLower(opts.BorderColor)) + `"`
+	}
+
+	style := fmt.Sprintf("width:%.2fpt;height:%.2fpt", widthPt, heightPt)
+	return fmt.Sprintf(
+		`<w:pict>`+
+			`<v:shape id="TextBox_%d" %s style="%s" %s %s>`+
+			`<v:textbox><w:txbxContent>%s</w:txbxContent></v:textbox>`+
+			`</v:shape>`+
+			`</w:pict>`,
+		id, vmlTextBoxNamespaces, style, fill, stroke,
+		txbxContentXML(tb.text),
+	)
 }
 
 // fillXML builds the a:solidFill / a:noFill fragment for a shape's spPr. Text

@@ -99,6 +99,87 @@ func TestOLEObjectsExtract(t *testing.T) {
 	}
 }
 
+// TestAddOLEObjectRoundTrip embeds an OLE object in a new document, saves it,
+// reopens it, and confirms the object is reported with its stored bytes and
+// ProgID.
+func TestAddOLEObjectRoundTrip(t *testing.T) {
+	doc := Create()
+	oleData := []byte("\xd0\xcf\x11\xe0 embedded workbook payload")
+	obj, err := doc.AddOLEObject(oleData, "Excel.Sheet.12", OLEEmbedOptions{})
+	if err != nil {
+		t.Fatalf("AddOLEObject: %v", err)
+	}
+	if obj.Name != "/word/embeddings/oleObject1.bin" {
+		t.Errorf("Name = %q, want /word/embeddings/oleObject1.bin", obj.Name)
+	}
+
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docXML, _ := zipEntry(t, saved, "word/document.xml")
+	for _, want := range []string{
+		"<w:object",
+		`ProgID="Excel.Sheet.12"`,
+		"<o:OLEObject",
+		"<v:shape",
+		"<v:imagedata",
+	} {
+		if !bytes.Contains(docXML, []byte(want)) {
+			t.Errorf("saved document.xml missing %q", want)
+		}
+	}
+	// The embedded part and its icon image were written.
+	if _, ok := zipEntry(t, saved, "word/embeddings/oleObject1.bin"); !ok {
+		t.Error("embedded OLE part not written")
+	}
+
+	reopened, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	objs := reopened.OLEObjects()
+	if len(objs) != 1 {
+		t.Fatalf("OLEObjects() = %d, want 1", len(objs))
+	}
+	if !bytes.Equal(objs[0].Data, oleData) {
+		t.Errorf("Data mismatch: got %q", objs[0].Data)
+	}
+	if objs[0].ProgID != "Excel.Sheet.12" {
+		t.Errorf("ProgID = %q, want Excel.Sheet.12", objs[0].ProgID)
+	}
+	if objs[0].ContentType != opc.ContentTypeOLEObject {
+		t.Errorf("ContentType = %q", objs[0].ContentType)
+	}
+}
+
+// TestAddOLEObjectIntoOpened embeds an OLE object into a document opened from a
+// package, exercising the round-trip save path and embedding-number scan.
+func TestAddOLEObjectIntoOpened(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := doc.AddOLEObject([]byte("payload"), "Word.Document.12", OLEEmbedOptions{DisplayAsIcon: true}); err != nil {
+		t.Fatalf("AddOLEObject: %v", err)
+	}
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docXML, _ := zipEntry(t, saved, "word/document.xml")
+	if !bytes.Contains(docXML, []byte(`DrawAspect="Icon"`)) {
+		t.Error("DisplayAsIcon should emit DrawAspect=\"Icon\"")
+	}
+	reopened, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objs := reopened.OLEObjects(); len(objs) != 1 || objs[0].ProgID != "Word.Document.12" {
+		t.Fatalf("OLEObjects() = %+v, want one Word.Document.12 object", objs)
+	}
+}
+
 func TestOLEObjectsNoneOnPlainDoc(t *testing.T) {
 	doc, err := Open("testdata/minimal.docx")
 	if err != nil {

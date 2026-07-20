@@ -239,6 +239,22 @@ remediation series (#59–#75).
   per-group boolean toggles (`SetMarkers`/`SetHigh`/`SetLow`/`SetFirst`/`SetLast`/`SetNegative`,
   plus a `Markers` reader), and `Delete` (removing the last group drops the
   sparkline extension). Unmutated sparklines still round-trip byte-for-byte.
+- docx: **WordArt, shape groups, down-level text-box fallbacks, and OLE
+  embedding** — the remaining drawing authoring gaps left after text boxes.
+  `Paragraph.AddWordArt`/`Document.AddWordArt` create a DrawingML (wps) text
+  effect: a fill-less, outline-less shape whose text carries a solid fill and an
+  optional preset text warp (`WarpArchUp`, `WarpCircle`, ...), inline or
+  anchored. `Paragraph.AddShapeGroup`/`Document.AddShapeGroup` group several
+  shapes/text boxes into a `wpg:wgp` group, each member positioned in the
+  group's child coordinate space (extent defaults to the members' bounding box).
+  `TextBoxOptions.VMLFallback` wraps an authored text box in the
+  `mc:AlternateContent` Choice(DrawingML)+Fallback(VML `w:pict`) pair Word emits
+  for pre-2010 readers. `Paragraph.AddOLEObject`/`Document.AddOLEObject` embed an
+  OLE object stream as `/word/embeddings/oleObjectN.bin` with its content-type
+  override, an `oleObject` relationship, a presentation-icon image part, and a
+  `w:object` (`v:shape` + `o:OLEObject`) reference declaring the ProgID; the
+  object is reported by `OLEObjects()` after a round trip. All are additive and
+  leave existing drawings byte-identical.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.
