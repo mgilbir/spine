@@ -3,7 +3,10 @@ package dml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TestDML_CT_EffectList tests CT_EffectList type (a:effectLst)
@@ -152,8 +155,43 @@ func TestDML_CT_AlphaModulateFixedEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Amt.Int32() != 50000 {
-		t.Errorf("Amt = %d, want 50000", v.Amt.Int32())
+	if v.Amt == nil || v.Amt.Int32() != 50000 {
+		t.Errorf("Amt = %v, want 50000", v.Amt)
+	}
+}
+
+// TestDML_CT_AlphaModulateFixedEffect_ZeroRoundTrip pins the fix for a
+// Common Crawl fidelity failure (pptx slideLayouts with a:alphaModFix amt="0"):
+// the amt attribute defaults to 100000 (100%) in the XSD, so an explicit
+// amt="0" (0% alpha) means something entirely different from an absent amt and
+// must survive a round-trip. A non-pointer Percentage with omitempty dropped
+// the strict integer "0" (Val==0, orig==""), silently reinterpreting 0% as the
+// 100% default; Amt is therefore a pointer so nil stays omitted while an
+// explicit zero is emitted.
+func TestDML_CT_AlphaModulateFixedEffect_ZeroRoundTrip(t *testing.T) {
+	var v AlphaModFix
+	if err := xml.Unmarshal([]byte(`<a:alphaModFix xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" amt="0"/>`), &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v.Amt == nil {
+		t.Fatal("explicit amt=\"0\" lost on unmarshal (Amt is nil)")
+	}
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NsDrawingML, "a")
+	b.MarshalElement(NsDrawingML, "alphaModFix", &v)
+	if err := b.Err(); err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if out := b.String(); !strings.Contains(out, `amt="0"`) {
+		t.Errorf("explicit amt=\"0\" dropped on marshal: %s", out)
+	}
+
+	// An absent amt must stay omitted (nil pointer), not emit amt="0".
+	b2 := xmlb.NewBuilder()
+	b2.RegisterNamespace(NsDrawingML, "a")
+	b2.MarshalElement(NsDrawingML, "alphaModFix", &AlphaModFix{})
+	if out := b2.String(); strings.Contains(out, "amt=") {
+		t.Errorf("absent amt emitted: %s", out)
 	}
 }
 
