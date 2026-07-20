@@ -64,6 +64,66 @@ func ReplaceZipEntry(orig []byte, name string, body []byte) []byte {
 	return buf.Bytes()
 }
 
+// EditZip returns a copy of orig with each entry in edits applied: an entry
+// whose name already exists is replaced in place, and one that does not is
+// appended after the existing entries. Every other entry is copied verbatim.
+// The edits are applied in slice order. It returns nil when orig is not a
+// readable zip archive. It generalizes ReplaceZipEntry to add-or-replace so a
+// scaffolded package (extra parts plus rewritten relationships and content
+// types) can be assembled in one pass.
+func EditZip(orig []byte, edits [][2]string) []byte {
+	zr, err := zip.NewReader(bytes.NewReader(orig), int64(len(orig)))
+	if err != nil {
+		return nil
+	}
+	replace := make(map[string]string, len(edits))
+	order := make([]string, 0, len(edits))
+	for _, e := range edits {
+		if _, seen := replace[e[0]]; !seen {
+			order = append(order, e[0])
+		}
+		replace[e[0]] = e[1]
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	written := make(map[string]bool, len(zr.File))
+	for _, f := range zr.File {
+		content, ok := replace[f.Name]
+		if !ok {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(rc)
+			_ = rc.Close()
+			if err != nil {
+				continue
+			}
+			content = string(data)
+		}
+		written[f.Name] = true
+		w, err := zw.Create(f.Name)
+		if err != nil {
+			continue
+		}
+		_, _ = w.Write([]byte(content))
+	}
+	// Append entries whose names were not present in orig.
+	for _, name := range order {
+		if written[name] {
+			continue
+		}
+		w, err := zw.Create(name)
+		if err != nil {
+			continue
+		}
+		_, _ = w.Write([]byte(replace[name]))
+	}
+	_ = zw.Close()
+	return buf.Bytes()
+}
+
 // ZipEntry returns the content of the named entry in the archive, or nil.
 func ZipEntry(orig []byte, name string) []byte {
 	zr, err := zip.NewReader(bytes.NewReader(orig), int64(len(orig)))
