@@ -24,6 +24,12 @@ type SlideMaster struct {
 	// entry in presentation.xml, which is regenerated on every save (C225).
 	idExtLst        *oxml.ExtensionList
 	layoutsModified bool // true if layouts changed via Go API
+	// themePartName names a theme part imported for this master by a merge
+	// (AppendSlidesFrom/ExtractSlides). When set, the saveNew path writes that
+	// theme and points the master's theme relationship at it instead of the
+	// hardcoded default theme1.xml. Empty for masters built by Create or loaded
+	// from a file (whose theme is handled by the round-trip save path).
+	themePartName string
 }
 
 // Name returns the name of the slide master.

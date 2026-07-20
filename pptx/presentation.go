@@ -1472,6 +1472,10 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Collect presentation relationships
 	presRels := make([]*opc.Relationship, 0)
 
+	// writtenThemes tracks imported per-master theme parts already emitted, so a
+	// theme shared by two imported masters is written once.
+	writtenThemes := make(map[string]bool)
+
 	// Write slide masters and their layouts FIRST
 	for i, master := range p.slideMasters {
 		// Use original part name if loaded from file, otherwise generate
@@ -1552,13 +1556,26 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			}
 		}
 
-		// Write master relationships (always include theme). Allocate the next
-		// free rel id rather than assuming the layout ids are contiguous from 1:
-		// a gap or an out-of-sequence layout relID would make len+1 collide.
+		// Write master relationships (always include theme). A master carrying an
+		// imported theme (from a merge) points at that theme part, which is
+		// written here once; every other master uses the default theme1.xml.
+		// Allocate the next free rel id rather than assuming the layout ids are
+		// contiguous from 1: a gap or an out-of-sequence layout relID would make
+		// len+1 collide.
+		themeTarget := "../theme/theme1.xml"
+		if master.themePartName != "" {
+			themeTarget = partNameToRelTarget(master.themePartName, "/ppt/slideMasters/")
+			if data, ok := p.themeData[master.themePartName]; ok && !writtenThemes[master.themePartName] {
+				if err := writer.WritePart(master.themePartName, opc.ContentTypeTheme, data); err != nil {
+					return err
+				}
+				writtenThemes[master.themePartName] = true
+			}
+		}
 		masterRels = append(masterRels, &opc.Relationship{
 			ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
 			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
-			Target:     "../theme/theme1.xml",
+			Target:     themeTarget,
 			TargetMode: opc.TargetModeInternal,
 		})
 

@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,110 @@ func assertCell(t *testing.T, s *Sheet, ref, want string) {
 	}
 	if got != want {
 		t.Errorf("cell %s = %q, want %q", ref, got, want)
+	}
+}
+
+func TestCopySheetFromCreatedImage(t *testing.T) {
+	// Source sheet carries an image added this session plus a two-cell anchor.
+	src := Create()
+	s := src.AddSheet("Pics")
+	setCell(t, s, "A1", "header")
+	if err := s.AddImage("B2", testPNG(t, 24, 16), ImageOptions{}); err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+	if err := s.AddImage("D4", testPNG(t, 12, 12), ImageOptions{ToCell: "F8"}); err != nil {
+		t.Fatalf("AddImage two-cell: %v", err)
+	}
+
+	dst := Create()
+	setCell(t, dst.AddSheet("Keep"), "A1", "keep")
+	if _, err := dst.CopySheetFrom(src, "Pics"); err != nil {
+		t.Fatalf("CopySheetFrom: %v", err)
+	}
+	if r := dst.Validate(); r.HasErrors() {
+		t.Fatalf("Validate after copy: %v", r)
+	}
+
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+	got, err := re.SheetByName("Pics")
+	if err != nil {
+		t.Fatalf("SheetByName: %v", err)
+	}
+	if n := len(got.Images()); n != 2 {
+		t.Fatalf("copied sheet has %d images, want 2", n)
+	}
+	names := zipNames(t, data)
+	drawings, media := 0, 0
+	for n := range names {
+		if strings.HasPrefix(n, "xl/drawings/drawing") && strings.HasSuffix(n, ".xml") {
+			drawings++
+		}
+		if strings.HasPrefix(n, "xl/media/image") {
+			media++
+		}
+	}
+	if drawings != 1 || media != 2 {
+		t.Errorf("drawings=%d media=%d, want 1 drawing and 2 media; parts=%v", drawings, media, names)
+	}
+}
+
+func TestCopySheetFromOpenedImage(t *testing.T) {
+	// Build a source workbook, save, and reopen so its image lives in the
+	// opened source's preserved drawing/media parts (not src.images).
+	seed := Create()
+	ss := seed.AddSheet("Photos")
+	setCell(t, ss, "A1", "x")
+	if err := ss.AddImage("C3", testPNG(t, 30, 20), ImageOptions{}); err != nil {
+		t.Fatalf("AddImage: %v", err)
+	}
+	seedBytes, err := seed.SaveBytes()
+	if err != nil {
+		t.Fatalf("seed SaveBytes: %v", err)
+	}
+	src, err := OpenReader(bytes.NewReader(seedBytes), int64(len(seedBytes)))
+	if err != nil {
+		t.Fatalf("open source: %v", err)
+	}
+
+	dst := Create()
+	setCell(t, dst.AddSheet("Keep"), "A1", "keep")
+	if _, err := dst.CopySheetFrom(src, "Photos"); err != nil {
+		t.Fatalf("CopySheetFrom: %v", err)
+	}
+	if r := dst.Validate(); r.HasErrors() {
+		t.Fatalf("Validate after copy: %v", r)
+	}
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+	got, err := re.SheetByName("Photos")
+	if err != nil {
+		t.Fatalf("SheetByName: %v", err)
+	}
+	imgs := got.Images()
+	if len(imgs) != 1 {
+		t.Fatalf("copied sheet has %d images, want 1", len(imgs))
+	}
+	if imgs[0].AnchorCell() != "C3" {
+		t.Errorf("anchor = %q, want C3", imgs[0].AnchorCell())
 	}
 }
 

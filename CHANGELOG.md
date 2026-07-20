@@ -322,6 +322,26 @@ remediation series (#59–#75).
   identifies them precisely and returns `ErrUnsupportedEncryption` with an
   actionable message rather than an opaque one.
 
+- merge/split: the append/extract feature now reconciles the referenced
+  furniture each format was previously dropping, so merged packages open with no
+  dangling references or duplicate part names. **pptx**:
+  `Presentation.AppendSlidesFrom` / `ExtractSlides` carry each slide's own slide
+  layout — and the slide master and theme that layout depends on — with remapped
+  part names and relationships, so a slide keeps its original look instead of
+  being forced onto a destination layout; masters (and layouts) byte-for-byte
+  identical to ones already in the destination are reused rather than
+  duplicated, and furniture shared by several slides is imported once. Each
+  slide's notes slide is carried too, re-wired to the new slide (importing the
+  source's notes master and handout master is deferred). **docx**:
+  `Document.Append` carries the header and footer parts referenced by the
+  section breaks it copies (with the images they embed) instead of dropping the
+  references, and imports numbering definitions that live as preserved raw XML
+  in an opened source (not only the typed session-added definitions). **xlsx**:
+  `Workbook.CopySheetFrom` copies the images embedded in the source sheet —
+  both those added this session and those parsed from an opened source's drawing
+  part — re-embedding their media under non-colliding part names (the SVG
+  variant of an SVG-with-raster-fallback image and embedded charts remain
+  deferred).
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.
