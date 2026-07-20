@@ -72,6 +72,17 @@ type Workbook struct {
 	// consumed when the workbook relationships and <pivotCaches> element are
 	// finalized.
 	pendingPivotCaches []pendingPivotCache
+
+	// vbaModified records that SetVBAProject or RemoveVBAProject ran this
+	// session; vbaRemove distinguishes removal from injection. When set, the
+	// round-trip save forces the workbook .rels rebuild, writes/drops the VBA
+	// part, and re-emits the flipped main-part flavor. A zero-modification save
+	// leaves them false and any existing vbaProject.bin round-trips
+	// byte-for-byte among the preserved parts. See vba.go.
+	vbaModified bool
+	vbaRemove   bool
+	vbaData     []byte // injected/replacement VBA project bytes (nil when removing)
+	vbaPartName string // resolved vbaProject.bin part name
 }
 
 // pendingPivotCache records one pivot cache definition part written this save
@@ -582,7 +593,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// any sheet was modified/added/deleted, styles were changed, or a pivot
 	// cache was added (its workbook relationship and <pivotCaches> entry are
 	// wired during the rebuild).
-	needRelsRebuild := stylesDirty || w.sheetsDirty || w.sheetsHavePivots()
+	needRelsRebuild := stylesDirty || w.sheetsDirty || w.sheetsHavePivots() || w.vbaModified
 	if !needRelsRebuild {
 		for _, sheet := range w.sheets {
 			if sheet.partName == "" || sheet.dirty {
@@ -625,6 +636,11 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		if name == "/xl/styles.xml" && stylesDirty {
+			continue
+		}
+		// The VBA project part was replaced or removed this session; its fresh
+		// bytes (or absence) are handled by writeVBAProject below.
+		if w.vbaModified && name == w.vbaPartName {
 			continue
 		}
 		// Regenerated below from the edited theme model.
@@ -711,6 +727,12 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		if err := w.writeWorkbookRelationships(writer, mainPartName, workbookRelsName, wbRels); err != nil {
 			return err
 		}
+	}
+
+	// Write (or drop) the VBA project part when the session injected, replaced,
+	// or removed it.
+	if err := w.writeVBAProject(writer); err != nil {
+		return err
 	}
 
 	// Write the main workbook part (always regenerated from the parsed model)
@@ -884,6 +906,19 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// <pivotCaches> element for pivot tables added this session. Must run
 	// before workbook.xml is marshaled so the element is emitted.
 	wbRels = w.finalizeWorkbookPivotCaches(wbRels)
+
+	// Wire and write the VBA project part when injected into a created workbook.
+	// This is the last relationship id consumed, so no further increment.
+	if w.vbaModified && !w.vbaRemove {
+		wbRels = append(wbRels, &opc.Relationship{
+			ID:     fmt.Sprintf("rId%d", nextRelID),
+			Type:   opc.RelTypeVBAProject,
+			Target: strings.TrimPrefix(w.vbaPartName, "/xl/"),
+		})
+	}
+	if err := w.writeVBAProject(writer); err != nil {
+		return err
+	}
 
 	// Write workbook.xml
 	wbData, err := marshalWorkbookXML(w.workbook)

@@ -122,6 +122,18 @@ const (
 	// (ContentTypeWorkbook) used inside an .xlsx.
 	ContentTypeSpreadsheetPackage = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+	// ContentTypeVBAProject is the content type of the VBA project part
+	// (vbaProject.bin) carried by macro-enabled packages (.docm/.xlsm/.pptm).
+	// The part is an opaque MS-OVBA/CFB binary blob; spine treats it as bytes
+	// and never parses or executes its contents.
+	ContentTypeVBAProject = "application/vnd.ms-office.vbaProject"
+
+	// ContentTypeOLEObject is the generic content type of an embedded OLE
+	// object part (typically embeddings/oleObjectN.bin). Specific embedded
+	// objects (e.g. a binary Excel sheet) may carry a more precise type; this
+	// is the fallback the OPC base schema defines.
+	ContentTypeOLEObject = "application/vnd.openxmlformats-officedocument.oleObject"
+
 	// Image content types
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"
@@ -132,6 +144,45 @@ const (
 	ContentTypeEMF  = "image/x-emf"
 	ContentTypeSVG  = "image/svg+xml"
 )
+
+// macroFlavorMap pairs each non-macro main-part content type with its
+// macro-enabled counterpart across all three formats (Word, Excel,
+// PowerPoint). MacroFlavor and PlainFlavor consult it in both directions.
+var macroFlavorMap = map[string]string{
+	ContentTypeDocument:             ContentTypeDocumentMacroMain,
+	ContentTypeDocumentTemplateMain: ContentTypeDocumentTemplateMacroMain,
+
+	ContentTypeWorkbook:             ContentTypeWorkbookMacroMain,
+	ContentTypeWorkbookTemplateMain: ContentTypeWorkbookTemplateMacroMain,
+
+	ContentTypePresentationMain:         ContentTypePresentationMacroMain,
+	ContentTypeSlideshowMain:            ContentTypeSlideshowMacroMain,
+	ContentTypePresentationTemplateMain: ContentTypePresentationTemplateMacroMain,
+}
+
+// MacroFlavor maps a main-part content type to its macro-enabled counterpart
+// (e.g. a Word document to .docm, a workbook to .xlsm). A type that is already
+// macro-enabled — or that has no macro-enabled form — is returned unchanged,
+// so callers can apply it unconditionally when injecting a VBA project.
+func MacroFlavor(contentType string) string {
+	if macro, ok := macroFlavorMap[contentType]; ok {
+		return macro
+	}
+	return contentType
+}
+
+// PlainFlavor maps a macro-enabled main-part content type back to its regular
+// (non-macro) counterpart, used when removing a VBA project. A type that is
+// already non-macro — or an Excel add-in (.xlam), which has no non-macro
+// counterpart — is returned unchanged.
+func PlainFlavor(contentType string) string {
+	for plain, macro := range macroFlavorMap {
+		if macro == contentType {
+			return plain
+		}
+	}
+	return contentType
+}
 
 // ContentTypes manages the content types for parts in a package.
 type ContentTypes struct {
