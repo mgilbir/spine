@@ -653,6 +653,14 @@ func (r *CT_R) AppendPict(p *CT_RawElement) {
 	r.Pict = append(r.Pict, p)
 }
 
+// AppendAlternateContent appends an mc:AlternateContent child (e.g. a DrawingML
+// watermark with a VML fallback) to the run, maintaining child order.
+func (r *CT_R) AppendAlternateContent(ac *CT_RawElement) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildAlternateContent, len(r.AlternateContent)})
+	r.AlternateContent = append(r.AlternateContent, ac)
+}
+
 // SetTexts replaces the run's text elements with ts, keeping childOrder
 // consistent so stale text references neither drop nor duplicate content. On
 // a tracked run the new texts take the position of the first existing text

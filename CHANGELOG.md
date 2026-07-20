@@ -162,6 +162,35 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx: **tracked-move revisions** — `Document.Revisions` now enumerates tracked
+  moves (`w:moveFrom`/`w:moveTo`) as `RevisionMoveFrom` and `RevisionMoveTo`
+  (with `Revision.MoveName` linking the two halves), and `Accept`/`Reject`
+  transform them correctly: accepting keeps the destination (`moveTo`) content
+  and drops the source (`moveFrom`); rejecting does the inverse.
+  `Paragraph.AddMoveFromRun`/`AddMoveToRun` (and `…WithDate` variants) author a
+  move. Move content is still preserved byte-for-byte when untouched; the range
+  markers are left in place across accept/reject.
+- docx: **header/footer revisions** — `Document.Revisions`,
+  `AcceptAllRevisions`, and `RejectAllRevisions` now cover the header and footer
+  parts, not just the main body. Header/footer revisions follow the body
+  revisions, ordered by part name, and accepting/rejecting one flags only the
+  parts it actually rewrites for regeneration (parts without revisions stay
+  byte-identical).
+- docx: **per-section watermarks** — `Document.SetSectionTextWatermark` and
+  `SetSectionImageWatermark` stamp a watermark on a specific section's headers
+  (as returned by `Sections`/`DefaultSection`), allowing distinct watermarks per
+  section, alongside the existing document-wide `SetTextWatermark`/
+  `SetImageWatermark`.
+- docx: **DrawingML watermark emission** — `WatermarkOptions.DrawingML` emits a
+  text watermark as a DrawingML text box wrapped in `mc:AlternateContent` with
+  the classic VML shape as the fallback (the form newer Word versions write),
+  so DrawingML-aware consumers render the text box and others fall back to VML.
+- docx: **document-level footnote/endnote numbering** —
+  `Document.FootnoteProperties`/`SetFootnoteProperties`/`ClearFootnoteProperties`
+  and the endnote equivalents expose the document-wide numbering defaults
+  (`w:settings/w:footnotePr`, `w:settings/w:endnotePr`), complementing the
+  existing per-section `Section.FootnoteProperties`. Setting the numbering
+  preserves any separator `w:footnote` references already present.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.

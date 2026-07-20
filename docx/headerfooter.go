@@ -70,7 +70,8 @@ type hdrFtrPart struct {
 	relID    string
 }
 
-// AddHeader adds a header of the specified type to the document.
+// AddHeader adds a header of the specified type to the document's final
+// (default) section.
 func (d *Document) AddHeader(hType HeaderType) *Header {
 	if d.document.Body == nil {
 		d.document.Body = &oxml.CT_Body{}
@@ -78,7 +79,13 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	if d.document.Body.SectPr == nil {
 		d.document.Body.SectPr = &oxml.CT_SectPr{}
 	}
+	return d.addHeaderTo(d.document.Body.SectPr, hType)
+}
 
+// addHeaderTo adds a header of the specified type to the given section
+// properties, registering the part and relationship. It is the section-targeted
+// core of AddHeader; callers ensure sectPr is non-nil.
+func (d *Document) addHeaderTo(sectPr *oxml.CT_SectPr, hType HeaderType) *Header {
 	relID := fmt.Sprintf("rId%d", d.nextRelID())
 
 	// ECMA-376 allows at most one header reference per type in a sectPr:
@@ -87,7 +94,7 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	// header added earlier in this session, that part and its relationship are
 	// dropped so the package carries no orphan.
 	var existingRef *oxml.CT_HdrFtrRef
-	for _, ref := range d.document.Body.SectPr.HeaderReference {
+	for _, ref := range sectPr.HeaderReference {
 		if ref.Type == hType.xmlVal() {
 			existingRef = ref
 			break
@@ -109,7 +116,7 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 	if existingRef != nil {
 		existingRef.RID = relID
 	} else {
-		d.document.Body.SectPr.HeaderReference = append(d.document.Body.SectPr.HeaderReference, &oxml.CT_HdrFtrRef{
+		sectPr.HeaderReference = append(sectPr.HeaderReference, &oxml.CT_HdrFtrRef{
 			Type: hType.xmlVal(),
 			RID:  relID,
 		})
@@ -117,7 +124,7 @@ func (d *Document) AddHeader(hType HeaderType) *Header {
 
 	// Enable first page header/footer if needed
 	if hType == HeaderFirst {
-		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
+		sectPr.TitlePg = &oxml.CT_OnOff{}
 	}
 	// An even-page header only renders when settings.xml carries
 	// w:evenAndOddHeaders.
