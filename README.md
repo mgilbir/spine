@@ -92,6 +92,7 @@ Runnable programs for all three formats live in [`examples/`](examples/):
 - [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
 - [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
 - [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
+- [`docx_mailmerge`](examples/docx_mailmerge) — author a mail-merge form letter: mail-merge configuration with a data source, MERGEFIELD placeholders, a floating text-box callout, a "DRAFT" text watermark, and author-side tracked changes — reopened to read the merge fields, text boxes, watermark, and revisions back.
 
 ## Installation
 
