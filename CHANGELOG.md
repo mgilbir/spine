@@ -162,6 +162,18 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
+  builds a diagram from a node outline (a flat list, or a nested tree for a
+  hierarchy) and generates everything Office needs to accept and render it: the
+  data part (`dgm:dataModel`) carrying the node text and parent-of connections,
+  a layout definition (`dgm:layoutDef`) with the kind's algorithm (`lin` for
+  `SmartArtList`, `hierRoot`/`hierChild` for `SmartArtHierarchy`), a quick-style
+  (`dgm:styleDef`) and color transform (`dgm:colorsDef`), the four content-type
+  overrides, the slide relationships, and the `p:graphicFrame` whose
+  `dgm:relIds` ties them together. It returns the diagram as a `SmartArt`, so
+  `Nodes()` reads the outline back immediately; `SetBounds` overrides the
+  default placement. The additive change leaves diagrams read from a file
+  byte-identical on save. Cycle/process kinds are deferred.
 - all formats: **whole-document text extraction** — a symmetric, read-only
   "give me all the text" API for search, indexing, and LLM ingestion, reusing
   the existing per-element text accessors and mutating nothing.

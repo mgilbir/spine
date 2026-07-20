@@ -110,6 +110,13 @@ const (
 	RelTypeCalcChain     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain"
 	RelTypeDrawing       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
 	RelTypeChart         = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"
+	// SmartArt/diagram relationship types. A diagram graphicFrame's dgm:relIds
+	// references the four diagram parts (data/layout/quickStyle/colors) through
+	// these relationships on the hosting part (slide, header, worksheet, ...).
+	RelTypeDiagramData       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData"
+	RelTypeDiagramLayout     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout"
+	RelTypeDiagramQuickStyle = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramQuickStyle"
+	RelTypeDiagramColors     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramColors"
 	// RelTypePackage links a chart part to its embedded workbook package (the
 	// .xlsx that holds the chart's data so Office can edit it).
 	RelTypePackage          = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"

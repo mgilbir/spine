@@ -478,6 +478,10 @@ func (s *Slide) syncShapesToXML() {
 			id := allocID()
 			spTree.GraphicFrame = append(spTree.GraphicFrame, chartFrameToOxml(sh, id))
 			sh.sourceID = id
+		case *SmartArtFrame:
+			id := allocID()
+			spTree.GraphicFrame = append(spTree.GraphicFrame, smartArtFrameToOxml(sh, id))
+			sh.sourceID = id
 		case *Picture:
 			id := allocID()
 			spTree.Pic = append(spTree.Pic, pictureToOxml(sh, id))
@@ -622,6 +626,9 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *ChartFrame:
 			spTree.AppendGraphicFrame(chartFrameToOxml(sh, id))
+			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
+		case *SmartArtFrame:
+			spTree.AppendGraphicFrame(smartArtFrameToOxml(sh, id))
 			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *Picture:
 			spTree.AppendPic(pictureToOxml(sh, id))

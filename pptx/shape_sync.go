@@ -46,6 +46,8 @@ func shapeDirty(shape Shape) bool {
 		return sh.isDirty()
 	case *ChartFrame:
 		return sh.dirty
+	case *SmartArtFrame:
+		return sh.dirty
 	case *Connector:
 		return sh.dirty
 	}
@@ -89,6 +91,8 @@ func clearShapeDirty(shape Shape) {
 			clearShapeDirty(child)
 		}
 	case *ChartFrame:
+		sh.dirty = false
+	case *SmartArtFrame:
 		sh.dirty = false
 	case *Connector:
 		sh.dirty = false
@@ -315,6 +319,20 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 		}
 		gf.Xfrm.Off = &dml.OffXML{X: int64(cf.x), Y: int64(cf.y)}
 		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(cf.width), Cy: int64(cf.height)}
+		return
+	}
+	if sf, ok := shape.(*SmartArtFrame); ok {
+		if !sf.dirty {
+			return
+		}
+		if gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil && sf.name != "" {
+			gf.NvGraphicFramePr.CNvPr.Name = sf.name
+		}
+		if gf.Xfrm == nil {
+			gf.Xfrm = &dml.Xfrm{}
+		}
+		gf.Xfrm.Off = &dml.OffXML{X: int64(sf.x), Y: int64(sf.y)}
+		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(sf.width), Cy: int64(sf.height)}
 		return
 	}
 	tbl, ok := shape.(*Table)

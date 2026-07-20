@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -109,5 +110,170 @@ func TestSlideSmartArtNoneWhenNoDiagram(t *testing.T) {
 	p := openBytes(t, savedDeck(t))
 	if got := p.Slides()[0].SmartArt(); got != nil {
 		t.Fatalf("SmartArt() on plain slide = %v, want nil", got)
+	}
+}
+
+// diagramContentTypes maps each generated diagram part to the content-type
+// override PowerPoint expects for it.
+var diagramContentTypes = map[string]string{
+	"ppt/diagrams/data1.xml":       "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml",
+	"ppt/diagrams/layout1.xml":     "application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml",
+	"ppt/diagrams/quickStyle1.xml": "application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml",
+	"ppt/diagrams/colors1.xml":     "application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml",
+}
+
+// assertDiagramPackage verifies a saved deck carries the four diagram parts, the
+// content-type overrides, and the four slide relationships that make a diagram
+// Office-valid, then reopens it and returns the read-back nodes of its first
+// SmartArt.
+func assertDiagramPackage(t *testing.T, out []byte) []*SmartArtNode {
+	t.Helper()
+	ct := string(zipPart(t, out, "[Content_Types].xml"))
+	for part, want := range diagramContentTypes {
+		if len(zipPart(t, out, part)) == 0 {
+			t.Fatalf("missing diagram part %s", part)
+		}
+		override := `PartName="/` + part + `" ContentType="` + want + `"`
+		if !strings.Contains(ct, override) {
+			t.Errorf("[Content_Types].xml missing override %s", override)
+		}
+	}
+	rels := string(zipPart(t, out, "ppt/slides/_rels/slide1.xml.rels"))
+	for _, relType := range []string{"diagramData", "diagramLayout", "diagramQuickStyle", "diagramColors"} {
+		needle := "relationships/" + relType
+		if !strings.Contains(rels, needle) {
+			t.Errorf("slide rels missing %s relationship", relType)
+		}
+	}
+	// The slide references the diagram via dgm:relIds on a graphicFrame.
+	slide := string(zipPart(t, out, "ppt/slides/slide1.xml"))
+	if !strings.Contains(slide, "dgm:relIds") {
+		t.Errorf("slide XML has no dgm:relIds graphicFrame:\n%s", slide)
+	}
+
+	reopened := openBytes(t, out)
+	if err := reopened.Validate(); err.HasErrors() {
+		t.Fatalf("reopened deck has validation errors: %v", err)
+	}
+	arts := reopened.Slides()[0].SmartArt()
+	if len(arts) != 1 {
+		t.Fatalf("reopened SmartArt() = %d, want 1", len(arts))
+	}
+	if arts[0].DataPartName() != "/ppt/diagrams/data1.xml" {
+		t.Errorf("DataPartName() = %q, want /ppt/diagrams/data1.xml", arts[0].DataPartName())
+	}
+	return arts[0].Nodes()
+}
+
+// TestAddSmartArtListRoundTrip creates a list diagram, saves it, and confirms
+// the package is Office-valid and the nodes read back.
+func TestAddSmartArtListRoundTrip(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	sa := slide.AddSmartArt(SmartArtList,
+		&SmartArtNode{Text: "First"},
+		&SmartArtNode{Text: "Second"},
+		&SmartArtNode{Text: "Third"},
+	)
+	if sa == nil {
+		t.Fatal("AddSmartArt returned nil")
+	}
+	// The returned view reports the outline immediately, before saving.
+	if got := sa.Nodes(); len(got) != 3 || got[0].Text != "First" || got[2].Text != "Third" {
+		t.Fatalf("pre-save Nodes() = %+v, want [First Second Third]", got)
+	}
+	if got := slide.SmartArt(); len(got) != 1 {
+		t.Fatalf("Slide.SmartArt() before save = %d, want 1", len(got))
+	}
+	if err := p.Validate(); err.HasErrors() {
+		t.Fatalf("pre-save validation errors: %v", err)
+	}
+
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := assertDiagramPackage(t, out)
+	if len(nodes) != 3 {
+		t.Fatalf("read-back top-level nodes = %d, want 3", len(nodes))
+	}
+	if nodes[0].Text != "First" || nodes[1].Text != "Second" || nodes[2].Text != "Third" {
+		t.Fatalf("read-back texts = [%q %q %q]", nodes[0].Text, nodes[1].Text, nodes[2].Text)
+	}
+}
+
+// TestAddSmartArtHierarchyRoundTrip creates a nested hierarchy diagram and
+// confirms the tree survives save and reopen.
+func TestAddSmartArtHierarchyRoundTrip(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	slide.AddSmartArt(SmartArtHierarchy,
+		&SmartArtNode{Text: "CEO", Children: []*SmartArtNode{
+			{Text: "VP Eng", Children: []*SmartArtNode{{Text: "Lead"}}},
+			{Text: "VP Sales"},
+		}},
+	)
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := assertDiagramPackage(t, out)
+	if len(nodes) != 1 || nodes[0].Text != "CEO" {
+		t.Fatalf("top-level = %+v, want [CEO]", nodes)
+	}
+	if len(nodes[0].Children) != 2 {
+		t.Fatalf("CEO children = %d, want 2", len(nodes[0].Children))
+	}
+	if nodes[0].Children[0].Text != "VP Eng" || nodes[0].Children[1].Text != "VP Sales" {
+		t.Fatalf("CEO children texts = %+v", nodes[0].Children)
+	}
+	if len(nodes[0].Children[0].Children) != 1 || nodes[0].Children[0].Children[0].Text != "Lead" {
+		t.Fatalf("VP Eng children = %+v, want [Lead]", nodes[0].Children[0].Children)
+	}
+}
+
+// TestAddSmartArtTextEscaping confirms node text with XML metacharacters
+// survives the round trip.
+func TestAddSmartArtTextEscaping(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	const tricky = `A & B <tag> "q"`
+	slide.AddSmartArt(SmartArtList, &SmartArtNode{Text: tricky})
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := assertDiagramPackage(t, out)
+	if len(nodes) != 1 || nodes[0].Text != tricky {
+		t.Fatalf("read-back = %+v, want %q", nodes, tricky)
+	}
+}
+
+// TestAddSmartArtLeavesExistingUntouched adds a new diagram to a deck that
+// already carries one and confirms the existing diagram's four parts stay
+// byte-identical (additive), while the new parts appear alongside them.
+func TestAddSmartArtLeavesExistingUntouched(t *testing.T) {
+	src := deckWithSmartArt(t)
+	p := openBytes(t, src)
+	p.Slides()[0].AddSmartArt(SmartArtList, &SmartArtNode{Text: "New"})
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"ppt/diagrams/data1.xml", "ppt/diagrams/layout1.xml",
+		"ppt/diagrams/quickStyle1.xml", "ppt/diagrams/colors1.xml",
+	} {
+		if !bytes.Equal(zipPart(t, src, name), zipPart(t, out, name)) {
+			t.Errorf("%s not preserved byte-for-byte", name)
+		}
+	}
+	// The new diagram lands on the next index and reads back.
+	if len(zipPart(t, out, "ppt/diagrams/data2.xml")) == 0 {
+		t.Fatal("new diagram data2.xml missing")
+	}
+	reopened := openBytes(t, out)
+	if got := len(reopened.SmartArt()); got != 2 {
+		t.Fatalf("reopened SmartArt() = %d, want 2", got)
 	}
 }

@@ -115,6 +115,16 @@ const (
 	// used by the word/pptx/xlsx charts/chartN.xml override.
 	ContentTypeChart = "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
 
+	// SmartArt/diagram part content types. A diagram (SmartArt graphic) is
+	// carried by four parts under ppt/diagrams/ (word/, xl/): the data model
+	// (dgm:dataModel), the layout definition (dgm:layoutDef), the quick-style
+	// definition (dgm:styleDef), and the color transform (dgm:colorsDef). The
+	// graphicFrame's dgm:relIds references all four.
+	ContentTypeDiagramData   = "application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml"
+	ContentTypeDiagramLayout = "application/vnd.openxmlformats-officedocument.drawingml.diagramLayout+xml"
+	ContentTypeDiagramStyle  = "application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml"
+	ContentTypeDiagramColors = "application/vnd.openxmlformats-officedocument.drawingml.diagramColors+xml"
+
 	// ContentTypeSpreadsheetPackage is the content type of an embedded .xlsx
 	// workbook (a whole OPC package carried as one opaque part), e.g. a chart's
 	// editable data source under word/embeddings/ or ppt/embeddings/ that a
