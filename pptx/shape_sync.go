@@ -544,6 +544,13 @@ func (s *Slide) flushGroupChild(gs *oxml.GroupShape, child Shape, spTree *oxml.S
 				return
 			}
 		}
+	case *Connector:
+		for _, cs := range gs.ConnectionShapes {
+			if cs.NvCxnSpPr != nil && cs.NvCxnSpPr.CNvPr != nil && cs.NvCxnSpPr.CNvPr.Id == base.sourceID {
+				updateConnectorNode(cs, sh)
+				return
+			}
+		}
 	}
 }
 
@@ -579,6 +586,11 @@ func groupChildRefByID(gs *oxml.GroupShape, id uint32) (oxml.ChildRef, bool) {
 	for i, sub := range gs.GroupShapes {
 		if sub.NvGrpSpPr != nil && sub.NvGrpSpPr.CNvPr != nil && sub.NvGrpSpPr.CNvPr.Id == id {
 			return oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i}, true
+		}
+	}
+	for i, cs := range gs.ConnectionShapes {
+		if cs.NvCxnSpPr != nil && cs.NvCxnSpPr.CNvPr != nil && cs.NvCxnSpPr.CNvPr.Id == id {
+			return oxml.ChildRef{Kind: oxml.ChildCxnSp, Index: i}, true
 		}
 	}
 	return oxml.ChildRef{Index: -1}, false
@@ -630,6 +642,10 @@ func (s *Slide) appendGroupChild(gs *oxml.GroupShape, child Shape, alloc func() 
 	case *Audio:
 		id := alloc()
 		gs.AppendPic(s.buildMediaPic(&sh.mediaShape, id, mediaAudio))
+		sh.sourceID = id
+	case *Connector:
+		id := alloc()
+		gs.AppendCxnSp(connectorToOxml(sh, id))
 		sh.sourceID = id
 	case *GroupShape:
 		gs.AppendGrpSp(s.buildGroupNode(sh, alloc))

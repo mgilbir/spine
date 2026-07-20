@@ -472,6 +472,13 @@ func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape
 					g.AddChild(sub)
 				}
 			}
+		case oxml.ChildCxnSp:
+			if ref.Index < len(gs.ConnectionShapes) {
+				if cxn := oxmlCxnSpToGoConnector(gs.ConnectionShapes[ref.Index]); cxn != nil {
+					slide.setShapeBackRef(cxn)
+					g.AddChild(cxn)
+				}
+			}
 		}
 	}
 

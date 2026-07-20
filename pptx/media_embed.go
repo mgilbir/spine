@@ -174,6 +174,37 @@ func (s *Slide) embedMediaData(data []byte, contentType, linkRelType string) (me
 	return mediaRelID, linkRelID
 }
 
+// embedAudioPart stores audio bytes as a /ppt/media part (reusing an existing
+// part with identical bytes and content type) and adds a single "audio"
+// relationship from the slide to it, returning the relationship id. A
+// transition start sound (p:sndAc/p:stSnd) references the part by this r:embed —
+// unlike an on-slide audio shape it needs no separate p14 media embed.
+func (s *Slide) embedAudioPart(data []byte, contentType string) string {
+	p := s.presentation
+
+	mediaName := ""
+	for name, part := range p.otherParts {
+		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
+			part.ContentType == contentType && bytes.Equal(part.Data, data) {
+			mediaName = name
+			break
+		}
+	}
+	if mediaName == "" {
+		mediaName = s.nextMediaFileName(mediaExtFromContentType(contentType))
+		p.otherParts[mediaName] = &coxml.RawPart{ContentType: contentType, Data: data}
+	}
+
+	relID := s.nextRelID()
+	p.relationships[s.partName] = append(p.relationships[s.partName], &opc.Relationship{
+		ID:         relID,
+		Type:       opc.RelTypeAudio,
+		Target:     relativeTarget(s.partName, mediaName),
+		TargetMode: opc.TargetModeInternal,
+	})
+	return relID
+}
+
 // nextMediaFileName returns an unused /ppt/media/mediaN.<ext> part name,
 // numbering above any existing mediaN part regardless of its extension so
 // distinct media (media1.mp4, media2.mp3) never collide on the index.

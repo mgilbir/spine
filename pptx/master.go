@@ -355,16 +355,15 @@ func levelStyleFromPPr(pp *dml.PPr) *TextLevelStyle {
 }
 
 // ensureLevel returns the level paragraph, allocating the tree and the
-// a:lvlNpPr as needed. It returns nil for an out-of-range level.
+// a:lvlNpPr as needed. It returns nil for an out-of-range level. A level absent
+// from the source is inserted at its schema position in the parsed child order
+// (dml.LstStyle.EnsureLevel), so adding a brand-new level round-trips in lvlN
+// order rather than after a later sibling or a captured a:extLst.
 func (ts *MasterTextStyle) ensureLevel(level int) *dml.PPr {
 	if level < 0 || level > 8 {
 		return nil
 	}
-	fp := lstLevelField(ts.ensureLst(), level)
-	if *fp == nil {
-		*fp = &dml.PPr{}
-	}
-	return *fp
+	return ts.ensureLst().EnsureLevel(level)
 }
 
 // ensureDefRPr returns the level's default run properties, allocating as needed.

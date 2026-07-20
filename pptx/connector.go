@@ -108,6 +108,31 @@ func NewConnector(kind ConnectorKind) *Connector {
 	return &Connector{kind: kind, preset: kind.presetGeom()}
 }
 
+// AddConnector adds a connector (a p:cxnSp) inside the group and returns it for
+// configuration, mirroring Slide.AddConnector. The connector becomes a group
+// child: place it with SetPoints (in the group's child coordinate space) or bind
+// its ends to shapes with Connect / SetStartShape / SetEndShape (the cNvPr ids
+// resolve on save, so it can target other group children or slide shapes). On a
+// group loaded from a file it is appended to the parsed p:grpSp on save without
+// disturbing the existing children.
+func (g *GroupShape) AddConnector(kind ConnectorKind) *Connector {
+	c := NewConnector(kind)
+	g.AddChild(c)
+	return c
+}
+
+// Connectors returns the connectors (p:cxnSp) that are direct children of the
+// group, in child order.
+func (g *GroupShape) Connectors() []*Connector {
+	var out []*Connector
+	for _, child := range g.children {
+		if c, ok := child.(*Connector); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // ShapeType returns ShapeTypeConnector.
 func (c *Connector) ShapeType() ShapeType { return ShapeTypeConnector }
 

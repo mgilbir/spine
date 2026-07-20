@@ -108,6 +108,15 @@ func (gs *GroupShape) AppendGrpSp(sub *GroupShape) {
 	}
 }
 
+// AppendCxnSp appends a connector as the last child of the group (see
+// AppendSp).
+func (gs *GroupShape) AppendCxnSp(cs *ConnectionShape) {
+	gs.ConnectionShapes = append(gs.ConnectionShapes, cs)
+	if gs.childOrder != nil {
+		gs.childOrder = append(gs.childOrder, ChildRef{ChildCxnSp, len(gs.ConnectionShapes) - 1})
+	}
+}
+
 // RemoveChildren rebuilds the group's children, omitting the given child
 // references and preserving every other child (including kinds the domain
 // model does not materialize, such as connectors) in order. It mirrors

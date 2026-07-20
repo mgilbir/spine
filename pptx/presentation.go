@@ -1419,6 +1419,20 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// PowerPoint expects: slideMaster first, then slides, then other parts (theme, presProps, etc.)
 	presRelID := 1
 
+	// Reserve relationship ids already taken by presentation-level rels created
+	// before save (embedded-font rels from EmbedFont, an injected VBA project),
+	// so the master/slide/fixed-part ids assigned below do not collide with them
+	// (and the p:embeddedFont r:id references stay valid).
+	for _, rel := range p.relationships[presentationPartName] {
+		if rel == nil {
+			continue
+		}
+		var id int
+		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id >= presRelID {
+			presRelID = id + 1
+		}
+	}
+
 	// Assign relationship IDs to masters FIRST
 	for _, master := range p.slideMasters {
 		master.relID = fmt.Sprintf("rId%d", presRelID)
@@ -1484,8 +1498,10 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			TargetMode: opc.TargetModeInternal,
 		})
 
-		// Write layouts for this master
-		masterRels := make([]*opc.Relationship, 0)
+		// Write layouts for this master. Start the master's relationship set
+		// from any master-level rels the model already carries (e.g. an image
+		// background embedded before save), then add the layout and theme rels.
+		masterRels := append([]*opc.Relationship(nil), p.relationships[masterPartName]...)
 		for j, layout := range master.layouts {
 			// Use original part name if loaded from file, otherwise generate
 			layoutPartName := layout.partName
@@ -1511,14 +1527,25 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				TargetMode: opc.TargetModeInternal,
 			})
 
-			// Write layout relationships (back to master)
-			layoutRels := []*opc.Relationship{
-				{
-					ID:         "rId1",
-					Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster",
+			// Write layout relationships (back to master), starting from any
+			// layout-level rels the model already carries (e.g. an image
+			// background embedded before save) and giving the required
+			// slideMaster rel a non-colliding id.
+			layoutRels := append([]*opc.Relationship(nil), p.relationships[layoutPartName]...)
+			hasMasterRel := false
+			for _, rel := range layoutRels {
+				if rel != nil && rel.Type == opc.RelTypeSlideMaster {
+					hasMasterRel = true
+					break
+				}
+			}
+			if !hasMasterRel {
+				layoutRels = append(layoutRels, &opc.Relationship{
+					ID:         fmt.Sprintf("rId%d", nextRelationshipID(layoutRels)),
+					Type:       opc.RelTypeSlideMaster,
 					Target:     partNameToRelTarget(masterPartName, "/ppt/slideLayouts/"),
 					TargetMode: opc.TargetModeInternal,
-				},
+				})
 			}
 			if err := writer.WritePartRelationships(layoutPartName, layoutRels); err != nil {
 				return err
@@ -1682,6 +1709,25 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			if err := p.writePartRelationships(writer, name); err != nil {
 				return err
 			}
+		}
+	}
+
+	// Include presentation-level relationships added to the model that the
+	// inline builder above does not emit (embedded-font rels from EmbedFont, an
+	// injected VBA project). Merge by id so nothing is duplicated.
+	for _, rel := range p.relationships[presentationPartName] {
+		if rel == nil {
+			continue
+		}
+		dup := false
+		for _, existing := range presRels {
+			if existing.ID == rel.ID {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			presRels = append(presRels, rel)
 		}
 	}
 
