@@ -63,6 +63,18 @@ type Document struct {
 	revisionIDInit bool
 	newHeaderParts []*hdrFtrPart // new headers to be written
 	newFooterParts []*hdrFtrPart // new footers to be written
+	// modifiedHdrFtrParts holds the names of header/footer parts that existed in
+	// the opened package (so they live in preservedParts as raw bytes) but were
+	// edited in this session — e.g. a watermark shape added to an existing
+	// header. The round-trip save skips the preserved bytes for these parts and
+	// regenerates the part (and its .rels) from the parsed model instead. New
+	// headers/footers are written via newHeaderParts/newFooterParts and never
+	// appear here. Empty on a zero-modification save, so untouched documents
+	// round-trip byte-for-byte.
+	modifiedHdrFtrParts map[string]bool
+	// watermarkSeq hands out unique VML shape ids / spids for watermark shapes
+	// so multiple watermarked headers (default/first/even) never collide.
+	watermarkSeq int
 	// numberingModified / settingsModified / stylesModified record that the
 	// session changed the numbering, settings, or styles model, so the
 	// round-trip save regenerates that part (with its relationship and
@@ -619,6 +631,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
+		// Regenerated below from the parsed model (a header/footer edited in this
+		// session, e.g. a watermark added to an existing header).
+		if d.modifiedHdrFtrParts[name] {
+			continue
+		}
 		// Regenerated below from the edited theme model.
 		if name == themeName {
 			continue
@@ -644,6 +661,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == mainRelsName {
 			continue
 		}
+		// The .rels of a header/footer regenerated this session is rewritten from
+		// the parsed relationship set (it may now reference a watermark image),
+		// so skip the preserved copy here.
+		if d.modifiedHdrFtrRelsPart(name) {
+			continue
+		}
 		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
@@ -651,6 +674,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write parts added through the mutation API (images, headers, footers).
 	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
+	// Regenerate the header/footer parts edited in this session (existing parts
+	// whose preserved bytes were skipped above), along with their .rels.
+	if err := d.writeModifiedHdrFtrParts(writer); err != nil {
 		return err
 	}
 
@@ -743,6 +772,64 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 			return err
 		}
 		if err := d.writeHdrFtrRelationships(writer, fp.partName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// modifiedHdrFtrRelsPart reports whether relsName is the .rels part of a
+// header/footer regenerated in this session, so the round-trip save skips its
+// preserved bytes and rewrites it from the parsed relationship set.
+func (d *Document) modifiedHdrFtrRelsPart(relsName string) bool {
+	for partName := range d.modifiedHdrFtrParts {
+		if opc.GetRelationshipsPartName(partName) == relsName {
+			return true
+		}
+	}
+	return false
+}
+
+// writeModifiedHdrFtrParts regenerates the header/footer parts edited in this
+// session that already existed in the opened package (a watermark added to an
+// existing header). The preserved bytes were skipped in saveRoundTrip; here the
+// part is re-marshaled from the parsed model and its .rels rewritten so a
+// watermark image relationship added to the part resolves.
+func (d *Document) writeModifiedHdrFtrParts(writer *opc.Writer) error {
+	names := make([]string, 0, len(d.modifiedHdrFtrParts))
+	for name := range d.modifiedHdrFtrParts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if hp, ok := d.headers[name]; ok {
+			data, err := marshalHdrFtrXML(hp.hdr, "hdr")
+			if err != nil {
+				return err
+			}
+			ct := hp.contentType
+			if ct == "" {
+				ct = opc.ContentTypeDocHeader
+			}
+			if err := writer.WritePart(name, ct, data); err != nil {
+				return err
+			}
+		} else if fp, ok := d.footers[name]; ok {
+			data, err := marshalHdrFtrXML(fp.ftr, "ftr")
+			if err != nil {
+				return err
+			}
+			ct := fp.contentType
+			if ct == "" {
+				ct = opc.ContentTypeDocFooter
+			}
+			if err := writer.WritePart(name, ct, data); err != nil {
+				return err
+			}
+		} else {
+			continue
+		}
+		if err := d.writeHdrFtrRelationships(writer, name); err != nil {
 			return err
 		}
 	}

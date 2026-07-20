@@ -38,6 +38,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Bullet and numbered lists, plus custom numbering definitions via `Document.Numbering()` (per-level format, level text, start, and indent/hanging)
   - Style definitions via `Document.Styles()`: create and modify paragraph and character styles (id/name, based-on, next, link, quick-format, and the style's font/size/bold/italic/color, alignment, spacing, and indentation)
   - Headers and footers
+  - Watermarks: text (`SetTextWatermark`) and washed-out image (`SetImageWatermark`) watermarks in the page header, read back with `Watermark()` and cleared with `RemoveWatermark()`
   - Inline and floating (anchored) images — including SVG images with a raster fallback
   - Text boxes and basic shapes (rectangle, rounded rectangle, ellipse, line), inline or anchored, with fill/border and text as real WordprocessingML paragraphs — `Paragraph.AddTextBox`/`AddShape` and `Document.AddTextBox`/`AddShape`; read every box (DrawingML and legacy VML) back with `Document.TextBoxes()`
   - Charts (column, bar, line, pie, doughnut, radar, scatter, area) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`

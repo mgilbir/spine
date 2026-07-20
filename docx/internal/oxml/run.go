@@ -645,6 +645,14 @@ func (r *CT_R) AppendInstrText(t *CT_Text) {
 	r.InstrText = append(r.InstrText, t)
 }
 
+// AppendPict appends a w:pict (VML picture, e.g. a watermark shape) to the run,
+// maintaining child order (see AppendDrawing).
+func (r *CT_R) AppendPict(p *CT_RawElement) {
+	r.backfillChildOrder()
+	r.childOrder = append(r.childOrder, runChildRef{runChildPict, len(r.Pict)})
+	r.Pict = append(r.Pict, p)
+}
+
 // SetTexts replaces the run's text elements with ts, keeping childOrder
 // consistent so stale text references neither drop nor duplicate content. On
 // a tracked run the new texts take the position of the first existing text
