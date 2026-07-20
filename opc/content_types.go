@@ -150,6 +150,19 @@ const (
 	// is the fallback the OPC base schema defines.
 	ContentTypeOLEObject = "application/vnd.openxmlformats-officedocument.oleObject"
 
+	// ContentTypeInk is the content type of an ink (InkML) content part
+	// (typically ink/inkN.xml). It holds pen-stroke data authored with a stylus,
+	// referenced by a contentPart element (p:contentPart / w:contentPart) through
+	// a customXml relationship. The bytes are XML (a subset of the W3C Ink Markup
+	// Language); spine carries them verbatim and does not parse the strokes.
+	ContentTypeInk = "application/inkml+xml"
+
+	// ContentTypeModel3D is the content type of an embedded 3D model part
+	// (typically media/*.glb), a glTF binary asset referenced by an
+	// am3d:model3D element. The bytes are an opaque binary glTF blob; spine
+	// stores them verbatim and never parses the model geometry.
+	ContentTypeModel3D = "model/gltf-binary"
+
 	// Image content types
 	ContentTypePNG  = "image/png"
 	ContentTypeJPEG = "image/jpeg"

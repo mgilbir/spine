@@ -149,6 +149,12 @@ const (
 	// RelTypeOLEObject links a document part to an embedded OLE object part
 	// (typically embeddings/oleObjectN.bin).
 	RelTypeOLEObject = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
+
+	// RelTypeCustomXML links a document part to an XML content part in a format
+	// not defined by ISO/IEC 29500, referenced by a contentPart element. Ink
+	// (InkML) content parts use this relationship type; the target part's
+	// content type (opc.ContentTypeInk) distinguishes ink from other custom XML.
+	RelTypeCustomXML = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml"
 )
 
 // Relationship represents a relationship between a source part and a target.
