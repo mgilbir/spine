@@ -88,6 +88,7 @@ protection — and reopens the file it writes to verify the round-trip.
 Runnable programs for all three formats live in [`examples/`](examples/):
 
 - [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
+- [`pptx_diagram`](examples/pptx_diagram) — build a diagram deck: a connector bound to two shapes, slide-master text-style and slide-layout background editing, speaker notes, and the SmartArt read path, then reopen to verify the round-trip.
 - [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
 - [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
 - [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
