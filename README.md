@@ -92,6 +92,8 @@ Runnable programs for all three formats live in [`examples/`](examples/):
 - [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
 - [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
 - [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
+- [`xlsx_report`](examples/xlsx_report) — a guided tour of the newer XLSX authoring features: a table with a totals row, conditional formatting, an embedded chart, page/print setup, freeze panes, named styles and sheet/workbook protection.
+- [`xlsx_dashboard`](examples/xlsx_dashboard) — build a sales dashboard: a pivot table cross-tabulating regions against months, per-row and per-column sparklines, and a line chart, then reopen the file to read the pivot layout and sparkline groups back.
 
 ## Installation
 
