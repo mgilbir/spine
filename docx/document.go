@@ -106,6 +106,16 @@ type Document struct {
 	theme         *dml.ThemeEditor
 	themeResolved bool
 	themePartName string // theme part name, set when theme resolves to a part
+	// vbaModified records that SetVBAProject or RemoveVBAProject ran this
+	// session; vbaRemove distinguishes removal from injection. When set, the
+	// round-trip save regenerates [Content_Types].xml (see hasAddedParts),
+	// writes/drops the VBA part, and re-emits the flipped main-part flavor. A
+	// zero-modification save leaves them false and any existing vbaProject.bin
+	// round-trips byte-for-byte among the preserved parts. See vba.go.
+	vbaModified bool
+	vbaRemove   bool
+	vbaData     []byte // injected/replacement VBA project bytes (nil when removing)
+	vbaPartName string // resolved vbaProject.bin part name
 }
 
 // mainDocumentPart is the default name of the main document part. Image
@@ -631,6 +641,12 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if strings.HasSuffix(name, ".rels") {
 			continue
 		}
+		// The VBA project part was replaced or removed this session; its fresh
+		// bytes (or absence) are handled by writeVBAProject below, so skip the
+		// preserved original here.
+		if d.vbaModified && name == d.vbaPartName {
+			continue
+		}
 		// Regenerated below from the parsed model (a header/footer edited in this
 		// session, e.g. a watermark added to an existing header).
 		if d.modifiedHdrFtrParts[name] {
@@ -674,6 +690,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 
 	// Write parts added through the mutation API (images, headers, footers).
 	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
+	// Write (or drop) the VBA project part when the session injected, replaced,
+	// or removed it. Runs after the content-types clone is in place so the
+	// override lands in this save's [Content_Types].xml.
+	if err := d.writeVBAProject(writer); err != nil {
 		return err
 	}
 
@@ -975,7 +998,7 @@ func (d *Document) hasAddedParts() bool {
 	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
 		d.numberingModified || d.settingsModified || d.stylesModified ||
 		d.commentsModified || d.commentsExtModified || d.peopleModified ||
-		d.footnotesModified || d.endnotesModified
+		d.footnotesModified || d.endnotesModified || d.vbaModified
 }
 
 // saveNew saves a newly created document.
@@ -1052,6 +1075,13 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 
 	// Write the media/header/footer parts, then record their relationships.
 	if err := d.writeAddedParts(writer); err != nil {
+		return err
+	}
+
+	// Write the VBA project part when injected into a created document (its
+	// document.xml relationship was recorded by SetVBAProject and is appended
+	// below).
+	if err := d.writeVBAProject(writer); err != nil {
 		return err
 	}
 

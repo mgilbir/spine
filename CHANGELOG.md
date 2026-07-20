@@ -162,6 +162,25 @@ remediation series (#59–#75).
 
 ### Added
 
+- docx,xlsx,pptx: **VBA macro** authoring — `HasMacros()`, `VBAProject() []byte`
+  (extract), `SetVBAProject([]byte)` (inject/replace), and `RemoveVBAProject()`
+  on `Document`/`Workbook`/`Presentation`. Injecting wires the `vbaProject.bin`
+  content type and main-part relationship and flips the package to the
+  macro-enabled flavor (`.docm`/`.xlsm`/`.pptm` and their template/slideshow
+  variants); removal flips it back and drops the part, its override, and its
+  relationship. The VBA project is an opaque MS-OVBA/CFB blob: spine carries it
+  verbatim and never parses or executes it — an injected project transplants
+  its source's macros and their trust unchanged, so only inject bytes you
+  trust. An unmodified macro-enabled file round-trips its `vbaProject.bin`
+  byte-for-byte.
+- docx,xlsx,pptx: **embedded OLE object** extraction — `OLEObjects()` returns
+  each embedded object (`embeddings/oleObjectN.bin`) as `{Name, ContentType,
+  Data, ProgID}`, locating them through the package's `oleObject` relationships
+  with a fallback for embedded parts typed as OLE objects and a best-effort
+  ProgID read from the referencing element. Objects are carried verbatim on
+  save. Embedding a *new* OLE object (part plus graphic-frame/object reference)
+  is deferred: it requires synthesizing a visible reference in the content
+  model and is out of scope for this change.
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the

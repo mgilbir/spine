@@ -126,6 +126,15 @@ const (
 	RelTypeVMLDrawing      = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing"
 	RelTypeThreadedComment = "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment"
 	RelTypePerson          = "http://schemas.microsoft.com/office/2017/10/relationships/person"
+
+	// RelTypeVBAProject links the main part of a macro-enabled package
+	// (.docm/.xlsm/.pptm) to its VBA project part (vbaProject.bin). It is a
+	// Microsoft 2006 extension URI, not an ECMA-376 base type.
+	RelTypeVBAProject = "http://schemas.microsoft.com/office/2006/relationships/vbaProject"
+
+	// RelTypeOLEObject links a document part to an embedded OLE object part
+	// (typically embeddings/oleObjectN.bin).
+	RelTypeOLEObject = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
 )
 
 // Relationship represents a relationship between a source part and a target.
