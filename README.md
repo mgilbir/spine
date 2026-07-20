@@ -68,6 +68,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
   - Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
   - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
+  - Sparklines — read and write (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with a series color and one or more (data range, location cell) mappings, stored in the worksheet extension list; unmodified sparklines round-trip byte-for-byte
   - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
   - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
