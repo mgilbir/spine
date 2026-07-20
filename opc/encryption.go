@@ -9,9 +9,12 @@ package opc
 //
 // Unlike the legacy password *obfuscation* in common/crypto/legacy.go (which
 // guards nothing), this is Office's real encryption: without the password the
-// package bytes cannot be recovered. Only the modern "agile" scheme (AES-256,
-// SHA-512) is implemented for both open and save; the older ECMA-376 standard
-// scheme and legacy RC4 schemes are detected and rejected — see
+// package bytes cannot be recovered. The modern "agile" scheme (AES-256,
+// SHA-512) and the older ECMA-376 "standard" scheme (AES) are implemented for
+// both open and save. Legacy RC4 CryptoAPI ([MS-OFFCRYPTO] §2.3.5) can be opened
+// (decrypted) but not saved — it is obsolete and cryptographically broken, so
+// SaveEncrypted never writes it. The version-1.1 binary-format RC4 scheme
+// (§2.3.6) and the extensible scheme are detected and rejected — see
 // crypto.ErrUnsupportedEncryption.
 
 import (
@@ -47,8 +50,10 @@ const (
 // returns a Reader over the recovered (plain-zip) package bytes exactly as
 // OpenReader would for an unencrypted file.
 //
+// It auto-detects the scheme (agile, ECMA-376 standard, or legacy RC4 CryptoAPI).
 // A wrong password returns crypto.ErrWrongPassword. An unsupported encryption
-// scheme (ECMA-376 standard, legacy RC4) returns crypto.ErrUnsupportedEncryption.
+// scheme (e.g. version-1.1 binary-format RC4, or the extensible scheme) returns
+// crypto.ErrUnsupportedEncryption.
 func OpenEncrypted(r io.ReaderAt, size int64, password string) (*Reader, error) {
 	return OpenEncryptedWithOptions(r, size, password, ReaderOptions{})
 }

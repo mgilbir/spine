@@ -35,6 +35,7 @@ const (
 	ContentTypeSlideMaster                   = "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
 	ContentTypeNotesSlide                    = "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
 	ContentTypeNotesMaster                   = "application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"
+	ContentTypeHandoutMaster                 = "application/vnd.openxmlformats-officedocument.presentationml.handoutMaster+xml"
 	ContentTypeTheme                         = "application/vnd.openxmlformats-officedocument.theme+xml"
 	ContentTypeThemeOverride                 = "application/vnd.openxmlformats-officedocument.themeOverride+xml"
 	ContentTypePresentationProps             = "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"

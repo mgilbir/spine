@@ -48,8 +48,10 @@ var ErrNilPresentation = errors.New("pptx: source presentation is nil")
 // identical to ones already in the destination are reused rather than
 // duplicated, and a master or layout shared by several appended slides is
 // imported once. Each slide's notes slide is carried too, re-wired to the new
-// slide (and to the destination's notes master when it has one). Importing the
-// source's notes master and handout master is deferred.
+// slide (and to the destination's notes master when it has one). The source's
+// handout master — its part, the theme it references, and its presentation entry
+// — is carried when the source has one and the destination does not. Importing
+// the source's notes master is deferred.
 func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 	if other == nil {
 		return ErrNilPresentation
@@ -66,6 +68,7 @@ func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 		}
 		ns.materializeShapes()
 	}
+	p.importHandoutMaster(other, ctx)
 	return nil
 }
 
@@ -77,7 +80,7 @@ func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 // The extracted deck starts from a fresh default master/layout set; each
 // extracted slide carries its own source layout, master, and theme (reusing the
 // fresh deck's identical default parts rather than duplicating them), along with
-// its notes slide.
+// its notes slide. The source's handout master is carried too when it has one.
 func (p *Presentation) ExtractSlides(indices []int) (*Presentation, error) {
 	for _, idx := range indices {
 		if idx < 0 || idx >= len(p.slides) {
@@ -94,6 +97,7 @@ func (p *Presentation) ExtractSlides(indices []int) (*Presentation, error) {
 		}
 		ns.materializeShapes()
 	}
+	out.importHandoutMaster(p, ctx)
 	return out, nil
 }
 
@@ -530,6 +534,112 @@ func (p *Presentation) importNotesSlide(srcPres *Presentation, srcNotes, newSlid
 		p.relationships[newName] = notesRels
 	}
 	return newName
+}
+
+// importHandoutMaster carries the source deck's handout master — its part, the
+// theme it references, its own relationships, the presentation relationship, and
+// the handoutMasterIdLst entry — into p, but only when the source has a handout
+// master and p does not (a deck has at most one). Slides never reference the
+// handout master, so this runs once per merge rather than per slide.
+func (p *Presentation) importHandoutMaster(srcPres *Presentation, ctx *mergeCtx) {
+	if p.handoutMasterPartName() != "" {
+		return // destination already has one; do not duplicate.
+	}
+	srcName := srcPres.handoutMasterPartName()
+	if srcName == "" {
+		return
+	}
+	part, ok := srcPres.otherParts[srcName]
+	if !ok {
+		return
+	}
+
+	newName := p.nextAvailableHandoutMasterName()
+	copied := *part
+	copied.Data = bytes.Clone(part.Data)
+	p.otherParts[newName] = &copied
+	ctx.parts[srcName] = newName
+
+	// Carry the handout master's own relationships, remapping the theme to a fresh
+	// theme part and any other internal targets to carried auxiliary parts.
+	var rels []*opc.Relationship
+	for _, rel := range srcPres.relationships[srcName] {
+		if rel == nil {
+			continue
+		}
+		c := *rel
+		if rel.TargetMode == opc.TargetModeExternal {
+			rels = append(rels, &c)
+			continue
+		}
+		st := opc.ResolvePartName(srcName, rel.Target)
+		var nt string
+		if rel.Type == opc.RelTypeTheme {
+			nt = p.importHandoutTheme(srcPres, st)
+		} else {
+			nt = p.importPart(srcPres, st, ctx.parts)
+		}
+		if nt == "" {
+			continue
+		}
+		c.Target = relativeTarget(newName, nt)
+		rels = append(rels, &c)
+	}
+	if len(rels) > 0 {
+		p.relationships[newName] = rels
+	}
+
+	// presentation -> handoutMaster relationship + handoutMasterIdLst entry.
+	presRels := p.relationships[presentationPartName]
+	relID := fmt.Sprintf("rId%d", nextRelationshipID(presRels))
+	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
+		ID:         relID,
+		Type:       opc.RelTypeHandoutMaster,
+		Target:     partNameToRelTarget(newName, "/ppt/"),
+		TargetMode: opc.TargetModeInternal,
+	})
+	if p.presentation.HandoutMasterIDs == nil {
+		p.presentation.HandoutMasterIDs = &oxml.HandoutMasterIDs{}
+	}
+	p.presentation.HandoutMasterIDs.HandoutMasterID = append(
+		p.presentation.HandoutMasterIDs.HandoutMasterID,
+		oxml.HandoutMasterID{RID: relID},
+	)
+}
+
+// handoutMasterPartName returns the deck's handout master part name, or "" when
+// it has none. Keys are scanned in sorted order so the choice is deterministic.
+func (p *Presentation) handoutMasterPartName() string {
+	for _, name := range sortedKeys(p.otherParts) {
+		if strings.HasPrefix(name, "/ppt/handoutMasters/") && strings.HasSuffix(name, ".xml") {
+			return name
+		}
+	}
+	return ""
+}
+
+// importHandoutTheme copies the theme part the source handout master references
+// into p.themeData under a free name, returning that name (or "" when the theme
+// is absent from the source).
+func (p *Presentation) importHandoutTheme(srcPres *Presentation, srcTheme string) string {
+	data, ok := srcPres.themeData[srcTheme]
+	if !ok {
+		return ""
+	}
+	newTheme := p.freeThemePartName()
+	p.themeData[newTheme] = bytes.Clone(data)
+	return newTheme
+}
+
+// nextAvailableHandoutMasterName returns a handout master part name not already
+// used in the package.
+func (p *Presentation) nextAvailableHandoutMasterName() string {
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("/ppt/handoutMasters/handoutMaster%d.xml", i)
+		if !p.partNameTaken(name) {
+			return name
+		}
+	}
 }
 
 // matchLayout returns the destination layout whose type matches src, falling

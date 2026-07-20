@@ -130,9 +130,10 @@ const passwordKeyEncryptorURI = "http://schemas.microsoft.com/office/2006/keyEnc
 // (including its 8-byte version header) and the EncryptedPackage ciphertext.
 //
 // It dispatches on the EncryptionInfo version: agile encryption (major=4,
-// minor=4) and ECMA-376 standard encryption (minor=2) are supported; the legacy
-// RC4 schemes and the extensible scheme return ErrUnsupportedEncryption. A wrong
-// password returns ErrWrongPassword.
+// minor=4), ECMA-376 standard encryption (minor=2, AES), and legacy RC4 CryptoAPI
+// encryption (minor=2, RC4 — [MS-OFFCRYPTO] §2.3.5) are supported. The extensible
+// scheme and the older version-1.1 binary-format RC4 (§2.3.6) return
+// ErrUnsupportedEncryption. A wrong password returns ErrWrongPassword.
 func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, error) {
 	if len(encryptionInfo) < 8 {
 		return nil, fmt.Errorf("%w: stream is %d bytes, need at least 8", ErrMalformedEncryptionInfo, len(encryptionInfo))
@@ -144,16 +145,23 @@ func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, 
 	case major == 4 && minor == 4:
 		return agileDecrypt(encryptionInfo[8:], encryptedPackage, password)
 	case (major == 2 || major == 3 || major == 4) && minor == 2:
-		// ECMA-376 "standard" encryption (AES/SHA-1, Office 2007+). The 4-byte
-		// version prefix is followed directly by the binary EncryptionHeader.
-		return standardDecrypt(encryptionInfo[4:], encryptedPackage, password)
+		// Minor version 2 covers both the AES-based ECMA-376 "standard" scheme and
+		// legacy RC4 CryptoAPI ([MS-OFFCRYPTO] §2.3.5); they share the binary
+		// EncryptionHeader layout and are distinguished by its AlgID. The 4-byte
+		// version prefix is followed directly by that header.
+		info := encryptionInfo[4:]
+		if isRC4CryptoAPI(info) {
+			return rc4CryptoAPIDecrypt(info, encryptedPackage, password)
+		}
+		return standardDecrypt(info, encryptedPackage, password)
 	case (major == 3 || major == 4) && minor == 3:
 		return nil, fmt.Errorf("%w: extensible encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
 	case minor == 1:
-		// Legacy RC4/CryptoAPI encryption ([MS-OFFCRYPTO] §2.3.5/§2.3.6). This is
-		// obsolete and cryptographically broken; it is deliberately not decoded
-		// here (see the package documentation), only clearly identified.
-		return nil, fmt.Errorf("%w: legacy RC4 CryptoAPI encryption (version %d.%d) is not supported; re-save the document with modern (agile or standard) encryption", ErrUnsupportedEncryption, major, minor)
+		// Version-1.1 RC4 ([MS-OFFCRYPTO] §2.3.6) is the obsolete binary-format
+		// (.doc/.xls/.ppt) scheme; it never wraps an OOXML .zip package, so it is
+		// identified but not decoded here (RC4 CryptoAPI, the scheme that can wrap
+		// OOXML, is handled by the minor==2 case above).
+		return nil, fmt.Errorf("%w: version-1.1 binary-format RC4 encryption (version %d.%d) does not wrap OOXML packages and is not supported", ErrUnsupportedEncryption, major, minor)
 	default:
 		return nil, fmt.Errorf("%w: unrecognized EncryptionInfo version %d.%d", ErrUnsupportedEncryption, major, minor)
 	}

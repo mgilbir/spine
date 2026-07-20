@@ -1729,6 +1729,20 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		}
 	}
 
+	// Write theme parts imported by non-master furniture (e.g. a carried handout
+	// master's theme). The master loop above emits per-master themes and the
+	// default theme1.xml is written separately; anything else in themeData must be
+	// emitted here so the auxiliary part's theme relationship resolves.
+	for _, themeName := range sortedKeys(p.themeData) {
+		if themeName == themePartName || writtenThemes[themeName] {
+			continue
+		}
+		if err := writer.WritePart(themeName, opc.ContentTypeTheme, p.themeData[themeName]); err != nil {
+			return err
+		}
+		writtenThemes[themeName] = true
+	}
+
 	// Include presentation-level relationships added to the model that the
 	// inline builder above does not emit (embedded-font rels from EmbedFont, an
 	// injected VBA project). Merge by id so nothing is duplicated.
