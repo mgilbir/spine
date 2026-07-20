@@ -162,6 +162,16 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
+  groups defined in the worksheet extension list (`x14:sparklineGroups`), each
+  exposing its type (`line`/`column`/`winloss`), series color and the
+  `(dataRange, locationCell)` mappings; `Sheet.AddSparklineGroup(SparklineOptions)`
+  writes a new group under the correct `x14`/`xm` namespaces (matching Excel's
+  own `<ext>`-scoped declarations; no `mc:AlternateContent` wrapper, which Excel
+  does not use for sparklines). Adding to a sheet that already has sparklines
+  appends to the existing extension. Worksheets whose sparklines are not modified
+  round-trip byte-for-byte: sparklines are captured raw in `extLst` and only
+  re-serialized to typed XML when a caller adds or modifies one.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
