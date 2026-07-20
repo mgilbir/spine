@@ -392,6 +392,49 @@ func (body *CT_Body) AppendSdtBlock(s *CT_SdtBlock) {
 	appendBodySdt(&body.SdtBlock, &body.childOrder, s)
 }
 
+// AppendAllFrom appends every block-level child of src to body in document
+// order, preserving paragraph/table/SDT interleaving. It is used when merging
+// one document's body content into another; the closing section properties
+// (SectPr) of src are not copied.
+func (body *CT_Body) AppendAllFrom(src *CT_Body) {
+	if src == nil {
+		return
+	}
+	backfillBodyChildOrder(&body.childOrder, body.P, body.Tbl, body.SdtBlock, body.BookmarkStart, body.BookmarkEnd, body.Raw)
+	backfillBodyChildOrder(&src.childOrder, src.P, src.Tbl, src.SdtBlock, src.BookmarkStart, src.BookmarkEnd, src.Raw)
+	for _, ref := range src.childOrder {
+		switch ref.kind {
+		case bodyChildP:
+			if ref.index < len(src.P) {
+				appendBodyP(&body.P, &body.childOrder, src.P[ref.index])
+			}
+		case bodyChildTbl:
+			if ref.index < len(src.Tbl) {
+				appendBodyTbl(&body.Tbl, &body.childOrder, src.Tbl[ref.index])
+			}
+		case bodyChildSdt:
+			if ref.index < len(src.SdtBlock) {
+				appendBodySdt(&body.SdtBlock, &body.childOrder, src.SdtBlock[ref.index])
+			}
+		case bodyChildBookmarkStart:
+			if ref.index < len(src.BookmarkStart) {
+				body.childOrder = append(body.childOrder, bodyChildRef{bodyChildBookmarkStart, len(body.BookmarkStart)})
+				body.BookmarkStart = append(body.BookmarkStart, src.BookmarkStart[ref.index])
+			}
+		case bodyChildBookmarkEnd:
+			if ref.index < len(src.BookmarkEnd) {
+				body.childOrder = append(body.childOrder, bodyChildRef{bodyChildBookmarkEnd, len(body.BookmarkEnd)})
+				body.BookmarkEnd = append(body.BookmarkEnd, src.BookmarkEnd[ref.index])
+			}
+		case bodyChildRaw:
+			if ref.index < len(src.Raw) {
+				body.childOrder = append(body.childOrder, bodyChildRef{bodyChildRaw, len(body.Raw)})
+				body.Raw = append(body.Raw, src.Raw[ref.index])
+			}
+		}
+	}
+}
+
 // unmarshalBodyChild handles a single body-level child element start tag.
 // The decoder is positioned at the start element; this function decodes or skips it.
 func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,

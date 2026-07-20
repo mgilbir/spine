@@ -194,6 +194,25 @@ remediation series (#59–#75).
   untouched) and across a rich cell's runs; formula cells are not touched (their
   string value is a cached result, not literal text). A document with no
   matching text round-trips byte-for-byte.
+- pptx,docx,xlsx: **document merge / append / split** — combine or divide
+  packages while remapping relationships, part names, and ids so the result has
+  no dangling references or duplicate part names. `Presentation.AppendSlidesFrom`
+  copies another deck's slides in order, carrying their media, charts, and
+  embedded workbooks under fresh, non-colliding part names with remapped
+  relationship targets; `Presentation.ExtractSlides(indices)` returns a new deck
+  containing just the requested slides with their referenced parts. `Document.Append`
+  appends another document's body content (paragraphs, tables, block SDTs),
+  bringing its images and copying its style and numbering definitions, remapping
+  style ids and numbering ids on collision and rewriting every reference in the
+  copied content. `Workbook.CopySheetFrom(other, name)` copies a sheet under a
+  unique name with its shared-string-resolved cell values, formulas, remapped
+  cell styles, merged ranges, and column/row sizes. Combined packages are
+  validated (`Validate()` clean) and reopen without dangling references. Deferred:
+  full slide-master/theme reconciliation (appended pptx slides adopt the
+  destination's matching layout; notes slides are not carried), docx
+  header/footer carry-over (section-break header/footer references are dropped)
+  and raw (opened-source) numbering carry-over, and copying images embedded in an
+  opened xlsx source sheet (#108).
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the
