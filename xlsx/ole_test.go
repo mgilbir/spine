@@ -108,3 +108,105 @@ func TestOLEObjectsNoneOnPlainWorkbook(t *testing.T) {
 		t.Fatalf("plain workbook returned %d OLE objects", len(objs))
 	}
 }
+
+// AddOLEObject embeds an object on a created sheet: it writes the embedding
+// part, the oleObjects reference, a legacy VML drawing, and the relationships,
+// and the object is re-extractable after a round trip.
+func TestAddOLEObjectRoundTrip(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("Sheet1")
+	if _, err := s.Cell("A1"); err != nil {
+		t.Fatal(err)
+	}
+	oleData := []byte("\xd0\xcf\x11\xe0 embedded payload")
+	if err := s.AddOLEObject(OLEObjectSpec{Data: oleData, ProgID: "Word.Document.12", Anchor: "B2"}); err != nil {
+		t.Fatalf("AddOLEObject: %v", err)
+	}
+
+	out, err := w.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	embed := readZipEntry(t, out, "xl/embeddings/oleObject1.bin")
+	if !bytes.Equal(embed, oleData) {
+		t.Errorf("embedded payload mismatch: %q", embed)
+	}
+
+	sheet1 := string(readZipEntry(t, out, "xl/worksheets/sheet1.xml"))
+	if !strings.Contains(sheet1, `<oleObjects>`) || !strings.Contains(sheet1, `progId="Word.Document.12"`) {
+		t.Errorf("worksheet missing oleObjects reference:\n%s", sheet1)
+	}
+	if !strings.Contains(sheet1, `shapeId="1025"`) {
+		t.Errorf("worksheet oleObject missing shapeId:\n%s", sheet1)
+	}
+	if !strings.Contains(sheet1, `<legacyDrawing`) {
+		t.Errorf("worksheet missing legacyDrawing:\n%s", sheet1)
+	}
+
+	vml := string(readZipEntry(t, out, "xl/drawings/vmlDrawing1.vml"))
+	if !strings.Contains(vml, `ObjectType="Pict"`) || !strings.Contains(vml, `_x0000_s1025`) {
+		t.Errorf("VML drawing missing OLE shape:\n%s", vml)
+	}
+
+	ct := string(readZipEntry(t, out, "[Content_Types].xml"))
+	if !strings.Contains(ct, opc.ContentTypeOLEObject) {
+		t.Errorf("content types missing OLE object type:\n%s", ct)
+	}
+
+	rw, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	objs := rw.OLEObjects()
+	if len(objs) != 1 {
+		t.Fatalf("OLEObjects() = %d, want 1", len(objs))
+	}
+	if objs[0].ProgID != "Word.Document.12" || !bytes.Equal(objs[0].Data, oleData) {
+		t.Errorf("re-extracted object = %+v", objs[0])
+	}
+}
+
+// AddOLEObject with a preview image writes the media part and the VML's imagedata
+// relationship.
+func TestAddOLEObjectWithPreview(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("Sheet1")
+	if _, err := s.Cell("A1"); err != nil {
+		t.Fatal(err)
+	}
+	preview := []byte("\x89PNG\r\n\x1a\n fake png")
+	err := s.AddOLEObject(OLEObjectSpec{
+		Data:               []byte("\xd0\xcf\x11\xe0 payload"),
+		Preview:            preview,
+		PreviewContentType: opc.ContentTypePNG,
+		PreviewExt:         "png",
+	})
+	if err != nil {
+		t.Fatalf("AddOLEObject: %v", err)
+	}
+	out, err := w.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	if got := readZipEntry(t, out, "xl/media/image1.png"); !bytes.Equal(got, preview) {
+		t.Errorf("preview image mismatch: %q", got)
+	}
+	vmlRels := string(readZipEntry(t, out, "xl/drawings/_rels/vmlDrawing1.vml.rels"))
+	if !strings.Contains(vmlRels, "image1.png") {
+		t.Errorf("VML rels missing preview image:\n%s", vmlRels)
+	}
+	vml := string(readZipEntry(t, out, "xl/drawings/vmlDrawing1.vml"))
+	if !strings.Contains(vml, "<v:imagedata") {
+		t.Errorf("VML missing imagedata:\n%s", vml)
+	}
+}
+
+// AddOLEObject rejects an empty payload.
+func TestAddOLEObjectValidation(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("Sheet1")
+	if err := s.AddOLEObject(OLEObjectSpec{}); err == nil {
+		t.Error("empty OLE data accepted")
+	}
+}

@@ -28,6 +28,7 @@ type CT_Worksheet struct {
 	SheetData             CT_SheetData               `xml:"sheetData"`
 	SheetCalcPr           *CT_SheetCalcPr            `xml:"sheetCalcPr,omitempty"`
 	SheetProtection       *CT_SheetProtection        `xml:"sheetProtection,omitempty"`
+	Scenarios             *CT_Scenarios              `xml:"-"`
 	AutoFilter            *CT_AutoFilter             `xml:"autoFilter,omitempty"`
 	SortState             *CT_SortState              `xml:"sortState,omitempty"`
 	DataConsolidate       *struct{}                  `xml:"-"`
@@ -45,6 +46,7 @@ type CT_Worksheet struct {
 	ColBreaks             *CT_PageBreak              `xml:"colBreaks,omitempty"`
 	Drawing               *CT_Drawing                `xml:"drawing,omitempty"`
 	LegacyDrawing         *CT_LegacyDrawing          `xml:"legacyDrawing,omitempty"`
+	OleObjects            *CT_OleObjects             `xml:"-"`
 	TableParts            *CT_TableParts             `xml:"tableParts,omitempty"`
 	ExtLst                *CT_ExtensionList          `xml:"extLst,omitempty"`
 	OriginalNSDecls       []xmlb.NSDecl              `xml:"-"`
@@ -174,6 +176,21 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				if err := d.DecodeElement(ws.SheetProtection, &t); err != nil {
 					return err
 				}
+			case "scenarios":
+				// Capture the element verbatim (reconstructed from its innerxml)
+				// so an unmodified sheet round-trips byte-for-byte, and also parse
+				// its typed model so the what-if scenarios can be read and appended
+				// to. Authoring (Scenarios.Dirty) switches marshaling to the typed
+				// model; an untouched element re-emits Raw.
+				var raw struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&raw, &t); err != nil {
+					return err
+				}
+				sc := &CT_Scenarios{Raw: encodeUnknownElement(t, raw.Content, nsPrefixMap)}
+				sc.parse(t, raw.Content)
+				ws.Scenarios = sc
 			case "autoFilter":
 				ws.AutoFilter = &CT_AutoFilter{}
 				if err := d.DecodeElement(ws.AutoFilter, &t); err != nil {
@@ -250,6 +267,20 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				if err := ws.LegacyDrawing.UnmarshalXML(d, t); err != nil {
 					return err
 				}
+			case "oleObjects":
+				// Capture verbatim (reconstructed) so an unmodified sheet
+				// round-trips byte-for-byte, and parse the typed model so embedded
+				// OLE objects can be enumerated and appended. Authoring
+				// (OleObjects.Dirty) switches marshaling to the typed model.
+				var raw struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&raw, &t); err != nil {
+					return err
+				}
+				o := &CT_OleObjects{Raw: encodeUnknownElement(t, raw.Content, nsPrefixMap)}
+				o.parse(t, raw.Content)
+				ws.OleObjects = o
 			case "tableParts":
 				ws.TableParts = &CT_TableParts{}
 				if err := d.DecodeElement(ws.TableParts, &t); err != nil {
@@ -845,17 +876,24 @@ func cellRefColIndex(ref string) int {
 	return col
 }
 
-// CT_Cell represents a c (cell) element.
+// CT_Cell represents a c (cell) element. Cm is the cell-metadata index (1-based
+// into xl/metadata.xml <cellMetadata>): Excel links a dynamic-array (spill)
+// master cell to its XLDAPR metadata record through it. Vm is the parallel
+// value-metadata index, preserved so a cell that carried one round-trips.
 type CT_Cell struct {
 	R  string          `xml:"r,attr"`
 	S  *uint32         `xml:"s,attr,omitempty"`
 	T  string          `xml:"t,attr,omitempty"`
+	Cm *uint32         `xml:"cm,attr,omitempty"`
+	Vm *uint32         `xml:"vm,attr,omitempty"`
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
 	Is *CT_Rst         `xml:"is,omitempty"`
 }
 
-// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Cell.
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Cell. Attributes are
+// emitted in schema order (r, s, t, cm, vm) so a metadata-linked cell reparses
+// identically.
 func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	attrs = append(attrs, xmlb.StrAttr("r", c.R))
@@ -864,6 +902,12 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.T != "" {
 		attrs = append(attrs, xmlb.StrAttr("t", c.T))
+	}
+	if c.Cm != nil {
+		attrs = append(attrs, xmlb.UintAttr("cm", *c.Cm))
+	}
+	if c.Vm != nil {
+		attrs = append(attrs, xmlb.UintAttr("vm", *c.Vm))
 	}
 
 	if c.F == nil && c.V == nil && c.Is == nil {

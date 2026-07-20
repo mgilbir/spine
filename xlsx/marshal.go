@@ -363,6 +363,10 @@ func marshalWorksheetChild(b *xmlb.Builder, ws *oxml.CT_Worksheet, name string, 
 		if ws.SheetProtection != nil {
 			b.MarshalElement(nsSML, "sheetProtection", ws.SheetProtection)
 		}
+	case "scenarios":
+		if ws.Scenarios != nil {
+			marshalScenarios(b, ws.Scenarios)
+		}
 	case "autoFilter":
 		if ws.AutoFilter != nil {
 			b.MarshalElement(nsSML, "autoFilter", ws.AutoFilter)
@@ -424,6 +428,10 @@ func marshalWorksheetChild(b *xmlb.Builder, ws *oxml.CT_Worksheet, name string, 
 		if ws.LegacyDrawing != nil {
 			ws.LegacyDrawing.MarshalToBuilder(b, nsSML, "legacyDrawing")
 		}
+	case "oleObjects":
+		if ws.OleObjects != nil {
+			marshalOleObjects(b, ws.OleObjects)
+		}
 	case "tableParts":
 		if ws.TableParts != nil {
 			marshalTableParts(b, ws.TableParts)
@@ -434,6 +442,29 @@ func marshalWorksheetChild(b *xmlb.Builder, ws *oxml.CT_Worksheet, name string, 
 		return false
 	}
 	return true
+}
+
+// marshalScenarios emits the worksheet <scenarios> element. An unmodified
+// element parsed from a source file re-emits its verbatim bytes for
+// byte-identical round-trip; an authored or modified one (Dirty) is marshaled
+// from the typed model.
+func marshalScenarios(b *xmlb.Builder, sc *oxml.CT_Scenarios) {
+	if sc.Raw != nil && !sc.Dirty {
+		b.WriteRaw(sc.Raw)
+		return
+	}
+	sc.MarshalToBuilder(b, nsSML, "scenarios")
+}
+
+// marshalOleObjects emits the worksheet <oleObjects> element. An unmodified
+// parsed element re-emits its verbatim bytes; an authored or modified one is
+// marshaled from the typed model.
+func marshalOleObjects(b *xmlb.Builder, o *oxml.CT_OleObjects) {
+	if o.Raw != nil && !o.Dirty {
+		b.WriteRaw(o.Raw)
+		return
+	}
+	o.MarshalToBuilder(b, nsSML, "oleObjects")
 }
 
 // marshalWorksheetExtLst emits the worksheet extension list if non-empty.
@@ -470,10 +501,10 @@ func marshalWorksheetChildrenOrdered(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
 func marshalWorksheetChildrenDefault(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
 	order := []string{
 		"sheetPr", "dimension", "sheetViews", "sheetFormatPr", "cols", "sheetData",
-		"sheetCalcPr", "sheetProtection", "autoFilter", "sortState", "mergeCells",
+		"sheetCalcPr", "sheetProtection", "scenarios", "autoFilter", "sortState", "mergeCells",
 		"phoneticPr", "conditionalFormatting", "dataValidations", "hyperlinks",
 		"printOptions", "pageMargins", "pageSetup", "headerFooter", "rowBreaks",
-		"colBreaks", "drawing", "legacyDrawing", "tableParts", "extLst",
+		"colBreaks", "drawing", "legacyDrawing", "oleObjects", "tableParts", "extLst",
 	}
 	colsIdx, cfIdx := 0, 0
 	for _, name := range order {

@@ -545,7 +545,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// reference re-marshals them. This mutates the durable model (preserved
 	// parts and w.contentTypes), so it must run before the writer clones the
 	// content types below.
-	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHaveTables() || w.sheetsHavePivots()
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE()
 	if !dropCalcChain {
 		for _, sheet := range w.sheets {
 			if sheet.dirty {
@@ -578,7 +578,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// the workbook .rels.
 	var rebuiltRels map[string]bool
 	var personRelTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
 		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -717,6 +717,16 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 		if dropCalcChain {
 			wbRels = dropRelationshipsOfType(wbRels, opc.RelTypeCalcChain)
+		}
+		// Synthesize xl/metadata.xml for dynamic-array (spill) master cells
+		// written this session, tagging them before their worksheet parts are
+		// re-marshaled below so the cm attribute is emitted.
+		metaTarget, err := w.prepareDynamicArrayMetadata(writer, true)
+		if err != nil {
+			return err
+		}
+		if metaTarget != "" {
+			wbRels = ensureRelationship(wbRels, relTypeSheetMetadata, metaTarget)
 		}
 		worksheetTargets := make(map[string]struct{}, len(w.sheets))
 		for i, sheet := range w.sheets {
@@ -872,12 +882,20 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// returns the person list's workbook-relative target ("" if none) to wire
 	// the workbook relationship.
 	var personTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
 		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
+	}
+
+	// Synthesize xl/metadata.xml for any dynamic-array (spill) master cells,
+	// tagging them before the worksheet parts below are marshaled so the cm
+	// attribute is emitted.
+	metaTarget, err := w.prepareDynamicArrayMetadata(writer, false)
+	if err != nil {
+		return err
 	}
 
 	// Write each worksheet part (after attachments so any drawing/legacyDrawing
@@ -942,6 +960,12 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// <pivotCaches> element for pivot tables added this session. Must run
 	// before workbook.xml is marshaled so the element is emitted.
 	wbRels = w.finalizeWorkbookPivotCaches(wbRels)
+
+	// Wire the workbook -> metadata relationship for a synthesized
+	// xl/metadata.xml (dynamic-array spill records).
+	if metaTarget != "" {
+		wbRels = ensureRelationship(wbRels, relTypeSheetMetadata, metaTarget)
+	}
 
 	// Wire and write the VBA project part when injected into a created workbook.
 	// This is the last relationship id consumed, so no further increment.

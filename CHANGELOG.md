@@ -162,6 +162,32 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **external-data, what-if, dynamic-array and OLE tail features** — five
+  previously-deferred SpreadsheetML data capabilities, all additive and
+  fidelity-preserving (parts untouched by an edit round-trip byte-for-byte).
+  (1) **External data connections** — `Workbook.Connections()` reads and
+  enumerates `xl/connections.xml`, exposing each connection's id, name,
+  description, type, connection string, command, and web/source URL; the part is
+  preserved verbatim. Authoring or refreshing a live query (its provider
+  round-trip and credentials) is deferred.
+  (2) **Data model / Power Query** — `Workbook.DataModel()` reports the presence
+  and locations of a Power Pivot data model (`xl/model/*`) and Power Query
+  content (a `DataMashup` blob in a `customXml` item); the parts round-trip
+  unchanged. Editing the model or mashup is deferred.
+  (3) **What-if scenarios** — `Sheet.Scenarios()` reads and `Sheet.AddScenario`
+  writes worksheet `<scenarios>` (name, comment, user, hidden/locked, and the
+  changing cells with their substitute values); an existing scenarios element is
+  re-emitted verbatim, an authored/modified one from the typed model.
+  (4) **Dynamic-array spill metadata** — saving a workbook that gained a
+  `Cell.SetDynamicArrayFormula` now synthesizes `xl/metadata.xml` (the single
+  `XLDAPR` record), tags each spill master cell with `cm="1"`, and wires the
+  workbook→metadata relationship, so Excel shows the spill without a recalc. A
+  workbook that already carries a metadata part is left untouched (deferred).
+  (5) **OLE object embedding** — `Sheet.AddOLEObject(OLEObjectSpec{...})` embeds
+  an object as an `xl/embeddings/*` part, wires the worksheet `<oleObjects>`
+  reference and its relationship, and generates a legacy VML Pict shape (with an
+  optional preview image) so Excel renders it; the object re-extracts through
+  `Workbook.OLEObjects`. (Extraction shipped earlier; this adds authoring.)
 - pptx: **create SmartArt diagrams** — `Slide.AddSmartArt(kind, nodes...)`
   builds a diagram from a node outline (a flat list, or a nested tree for a
   hierarchy) and generates everything Office needs to accept and render it: the

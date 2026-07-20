@@ -21,6 +21,7 @@ type Sheet struct {
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
 	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
+	oleEmbeds []pendingOLE   // OLE objects embedded this session via AddOLEObject
 	comments  *sheetComments // lazily loaded comment model (read + write)
 	// sparklineCache is the sheet's parsed sparkline-groups model, loaded lazily
 	// from the worksheet extension list and shared by every SparklineGroup handle

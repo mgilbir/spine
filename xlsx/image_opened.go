@@ -40,6 +40,7 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 	}
 	drawingSeq, mediaSeq, chartSeq, tableSeq := 1, 1, 1, 1
 	pivotSeq, cacheSeq := 1, 1
+	embedSeq, oleVMLSeq := 1, 1
 	cseq := newCommentSeq()
 
 	// Rebuilt fresh each save; consumed when the workbook relationships and
@@ -53,7 +54,8 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		hasHyperlinks := len(sheet.pendingHyperlinkRels) > 0
 		hasTables := len(sheet.newTables) > 0
 		hasPivots := len(sheet.newPivots) > 0
-		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks && !hasTables && !hasPivots {
+		hasOLE := len(sheet.oleEmbeds) > 0
+		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks && !hasTables && !hasPivots && !hasOLE {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -130,6 +132,13 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 
 		if hasPivots {
 			sheetRels, err = w.writeSheetPivotTables(writer, sheet, sheetRels, relUsed, used, &pivotSeq, &cacheSeq)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+
+		if hasOLE {
+			sheetRels, err = w.writeSheetOLE(writer, sheet, sheetRels, relUsed, used, &embedSeq, &oleVMLSeq, &mediaSeq)
 			if err != nil {
 				return nil, "", err
 			}
