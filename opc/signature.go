@@ -64,6 +64,15 @@ const (
 	idPackageSignature = "idPackageSignature"
 	idPackageObject    = "idPackageObject"
 	idSignatureTime    = "idSignatureTime"
+
+	// nsOfficeDigSig is the Microsoft Office digital-signature namespace carrying
+	// the SignatureInfoV1 details Office's signature UI reads.
+	nsOfficeDigSig = "http://schemas.microsoft.com/office/2006/digsig"
+
+	// idOfficeObject and idOfficeV1Details are the fixed ids Office uses for its
+	// application-specific signature Object and its SignatureInfoV1 property.
+	idOfficeObject    = "idOfficeObject"
+	idOfficeV1Details = "idOfficeV1Details"
 )
 
 // SignatureInfo reports the outcome of verifying one signature part.
@@ -469,8 +478,11 @@ func (r *Reader) relationshipReferenceDigest(partName string, transform *xmlTran
 // writes a fresh /_xmlsignatures/sig1.xml.
 //
 // The produced signature is a standards-compliant XML-DSig that this package's
-// VerifySignatures accepts. Interoperability with Microsoft Office's signature
-// UI is best-effort and has not been validated against Office itself.
+// VerifySignatures accepts. It also includes Microsoft Office's
+// application-specific signature Object (SignatureInfoV1), so Office's signature
+// UI recognizes the signature; the environment fields in that Object carry
+// neutral placeholder values. Interoperability with Office's UI is best-effort
+// and has not been validated against Office itself.
 func SignPackage(src *Reader, dst io.Writer, signer crypto.Signer, cert *x509.Certificate, parts []string) error {
 	if src == nil {
 		return fmt.Errorf("opc: SignPackage: nil source reader")
@@ -620,7 +632,16 @@ func (r *Reader) buildSignature(signer crypto.Signer, cert *x509.Certificate, si
 		return nil, err
 	}
 
-	// SignedInfo references the object by id, with a C14N transform.
+	// Office-specific Object: carries the SignatureInfoV1 details Microsoft
+	// Office's signature UI reads so it recognizes the signature as its own. It
+	// is covered by the signature via its own SignedInfo reference below.
+	officeObjectXML := officeObjectXML()
+	officeObjectDigest, err := spinecrypto.Digest(digestURI, canonicalize(officeObjectXML))
+	if err != nil {
+		return nil, err
+	}
+
+	// SignedInfo references both objects by id, each with a C14N transform.
 	var signedInfo strings.Builder
 	signedInfo.WriteString(`<SignedInfo xmlns="`)
 	signedInfo.WriteString(nsXMLDSig)
@@ -636,6 +657,14 @@ func (r *Reader) buildSignature(signer crypto.Signer, cert *x509.Certificate, si
 	signedInfo.WriteString(xmlb.EscapeAttrValue(spinecrypto.AlgC14N))
 	signedInfo.WriteString(`"/></Transforms>`)
 	signedInfo.WriteString(digestMethodAndValue(digestURI, objectDigest))
+	signedInfo.WriteString(`</Reference><Reference URI="#`)
+	signedInfo.WriteString(idOfficeObject)
+	signedInfo.WriteString(`" Type="`)
+	signedInfo.WriteString(xmlb.EscapeAttrValue(typeObject))
+	signedInfo.WriteString(`"><Transforms><Transform Algorithm="`)
+	signedInfo.WriteString(xmlb.EscapeAttrValue(spinecrypto.AlgC14N))
+	signedInfo.WriteString(`"/></Transforms>`)
+	signedInfo.WriteString(digestMethodAndValue(digestURI, officeObjectDigest))
 	signedInfo.WriteString(`</Reference></SignedInfo>`)
 
 	signedInfoXML := signedInfo.String()
@@ -662,8 +691,45 @@ func (r *Reader) buildSignature(signer crypto.Signer, cert *x509.Certificate, si
 	doc.WriteString(base64.StdEncoding.EncodeToString(cert.Raw))
 	doc.WriteString(`</X509Certificate></X509Data></KeyInfo>`)
 	doc.WriteString(objectXML)
+	doc.WriteString(officeObjectXML)
 	doc.WriteString(`</Signature>`)
 	return []byte(doc.String()), nil
+}
+
+// officeObjectXML builds Microsoft Office's application-specific signature
+// Object (the SignatureInfoV1 details in the office digsig namespace). Office's
+// signature UI expects this Object alongside the standard package Object to
+// display and trust the signature; standards-based verifiers ignore it (it is
+// covered by the signature like any other Object). The environment fields carry
+// neutral placeholder values — the signature semantics live in SignatureType=1
+// (a package signature) and the null SignatureProviderId.
+//
+// Like the package Object, it declares the dsig default namespace so its
+// standalone canonical form (used to compute the digest at signing time) matches
+// its embedded form (recomputed at verification time).
+func officeObjectXML() string {
+	var b strings.Builder
+	b.WriteString(`<Object xmlns="`)
+	b.WriteString(nsXMLDSig)
+	b.WriteString(`" Id="`)
+	b.WriteString(idOfficeObject)
+	b.WriteString(`"><SignatureProperties><SignatureProperty Id="`)
+	b.WriteString(idOfficeV1Details)
+	b.WriteString(`" Target="#`)
+	b.WriteString(idPackageSignature)
+	b.WriteString(`"><SignatureInfoV1 xmlns="`)
+	b.WriteString(nsOfficeDigSig)
+	b.WriteString(`"><SetupID></SetupID><SignatureText></SignatureText>` +
+		`<SignatureImage></SignatureImage><SignatureComments></SignatureComments>` +
+		`<WindowsVersion>10.0</WindowsVersion><OfficeVersion>16.0</OfficeVersion>` +
+		`<ApplicationVersion>16.0</ApplicationVersion><Monitors>1</Monitors>` +
+		`<HorizontalResolution>1920</HorizontalResolution><VerticalResolution>1080</VerticalResolution>` +
+		`<ColorDepth>32</ColorDepth>` +
+		`<SignatureProviderId>{00000000-0000-0000-0000-000000000000}</SignatureProviderId>` +
+		`<SignatureProviderUrl></SignatureProviderUrl><SignatureProviderDetails>9</SignatureProviderDetails>` +
+		`<SignatureType>1</SignatureType>`)
+	b.WriteString(`</SignatureInfoV1></SignatureProperty></SignatureProperties></Object>`)
+	return b.String()
 }
 
 // writeSignedPackage copies every part of the source package into dst, then

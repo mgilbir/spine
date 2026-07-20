@@ -6,10 +6,12 @@ package crypto
 // obfuscation that guards nothing — this is real cryptography: the document
 // bytes are encrypted with AES and cannot be recovered without the password.
 //
-// Only the modern agile scheme (AES in CBC mode, SHA-512 key derivation, the
-// Office 2010+ default) is implemented. The older ECMA-376 "standard"
-// encryption (§2.3.4.5) and the legacy RC4/CryptoAPI schemes are detected and
-// rejected with ErrUnsupportedEncryption; see Decrypt.
+// The modern agile scheme (AES in CBC mode, SHA-512 key derivation, the
+// Office 2010+ default) is implemented here; the older ECMA-376 "standard"
+// scheme (§2.3.4.5, AES/SHA-1) lives in standard.go. Decrypt auto-detects
+// between them from the EncryptionInfo version. The legacy RC4/CryptoAPI schemes
+// (§2.3.5/§2.3.6) are cryptographically broken and are detected and rejected
+// with ErrUnsupportedEncryption rather than decoded; see Decrypt.
 //
 // The implementation uses only the Go standard library's audited primitives
 // (crypto/aes, crypto/cipher, crypto/sha512, crypto/hmac, crypto/rand). It
@@ -39,10 +41,10 @@ var (
 	ErrWrongPassword = errors.New("crypto: wrong password")
 
 	// ErrUnsupportedEncryption indicates the document uses an encryption scheme
-	// this package does not implement — the ECMA-376 "standard" scheme, a
-	// legacy RC4/CryptoAPI scheme, or an agile descriptor requesting a cipher,
-	// chaining mode, or hash that is not supported. Agile AES-CBC with SHA-512
-	// (the modern Office default) is the supported scheme.
+	// this package does not implement — a legacy RC4/CryptoAPI scheme, the
+	// extensible scheme, or an agile/standard descriptor requesting a cipher,
+	// chaining mode, or hash that is not supported. Agile AES-CBC/SHA-512 and
+	// ECMA-376 standard AES-ECB/SHA-1 are the supported schemes.
 	ErrUnsupportedEncryption = errors.New("crypto: unsupported encryption scheme")
 
 	// ErrIntegrityCheckFailed indicates the encrypted package failed its
@@ -127,10 +129,10 @@ const passwordKeyEncryptorURI = "http://schemas.microsoft.com/office/2006/keyEnc
 // streams of an encrypted document container: the EncryptionInfo descriptor
 // (including its 8-byte version header) and the EncryptedPackage ciphertext.
 //
-// It dispatches on the EncryptionInfo version. Only agile encryption
-// (major=4, minor=4) is supported; the ECMA-376 standard scheme and the legacy
-// RC4 schemes return ErrUnsupportedEncryption. A wrong password returns
-// ErrWrongPassword.
+// It dispatches on the EncryptionInfo version: agile encryption (major=4,
+// minor=4) and ECMA-376 standard encryption (minor=2) are supported; the legacy
+// RC4 schemes and the extensible scheme return ErrUnsupportedEncryption. A wrong
+// password returns ErrWrongPassword.
 func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, error) {
 	if len(encryptionInfo) < 8 {
 		return nil, fmt.Errorf("%w: stream is %d bytes, need at least 8", ErrMalformedEncryptionInfo, len(encryptionInfo))
@@ -141,10 +143,17 @@ func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, 
 	switch {
 	case major == 4 && minor == 4:
 		return agileDecrypt(encryptionInfo[8:], encryptedPackage, password)
-	case minor == 2 || minor == 3:
-		return nil, fmt.Errorf("%w: ECMA-376 standard encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
+	case (major == 2 || major == 3 || major == 4) && minor == 2:
+		// ECMA-376 "standard" encryption (AES/SHA-1, Office 2007+). The 4-byte
+		// version prefix is followed directly by the binary EncryptionHeader.
+		return standardDecrypt(encryptionInfo[4:], encryptedPackage, password)
+	case (major == 3 || major == 4) && minor == 3:
+		return nil, fmt.Errorf("%w: extensible encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
 	case minor == 1:
-		return nil, fmt.Errorf("%w: legacy RC4 CryptoAPI encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
+		// Legacy RC4/CryptoAPI encryption ([MS-OFFCRYPTO] §2.3.5/§2.3.6). This is
+		// obsolete and cryptographically broken; it is deliberately not decoded
+		// here (see the package documentation), only clearly identified.
+		return nil, fmt.Errorf("%w: legacy RC4 CryptoAPI encryption (version %d.%d) is not supported; re-save the document with modern (agile or standard) encryption", ErrUnsupportedEncryption, major, minor)
 	default:
 		return nil, fmt.Errorf("%w: unrecognized EncryptionInfo version %d.%d", ErrUnsupportedEncryption, major, minor)
 	}

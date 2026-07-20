@@ -68,6 +68,78 @@ func TestEncryptedRoundTripRecoversPackageBytes(t *testing.T) {
 	}
 }
 
+func TestEncryptedSaveOptionsRoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		opts EncryptOptions
+	}{
+		{"agile", EncryptOptions{Scheme: SchemeAgile}},
+		{"agile+dataspaces", EncryptOptions{Scheme: SchemeAgile, IncludeDataSpaces: true}},
+		{"standard-default", EncryptOptions{Scheme: SchemeStandard}},
+		{"standard-128", EncryptOptions{Scheme: SchemeStandard, StandardKeyBits: 128}},
+		{"standard-192", EncryptOptions{Scheme: SchemeStandard, StandardKeyBits: 192}},
+		{"standard-256+dataspaces", EncryptOptions{Scheme: SchemeStandard, StandardKeyBits: 256, IncludeDataSpaces: true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, bodyLen := range []int{0, 4096, 5000} {
+				plain := buildPlainPackage(t, bodyLen)
+				var enc bytes.Buffer
+				if err := SaveEncryptedWithOptions(&enc, plain, "pw!", c.opts); err != nil {
+					t.Fatalf("bodyLen=%d SaveEncryptedWithOptions: %v", bodyLen, err)
+				}
+				if !isCFB(enc.Bytes()) {
+					t.Fatalf("bodyLen=%d output is not a CFB container", bodyLen)
+				}
+				got, err := decryptCFBPackage(enc.Bytes(), "pw!")
+				if err != nil {
+					t.Fatalf("bodyLen=%d decrypt: %v", bodyLen, err)
+				}
+				if !bytes.Equal(got, plain) {
+					t.Fatalf("bodyLen=%d not recovered exactly: got %d want %d", bodyLen, len(got), len(plain))
+				}
+				// Wrong password must be rejected regardless of scheme.
+				if _, err := decryptCFBPackage(enc.Bytes(), "nope"); !errors.Is(err, crypto.ErrWrongPassword) {
+					t.Fatalf("bodyLen=%d wrong password: got %v, want ErrWrongPassword", bodyLen, err)
+				}
+			}
+		})
+	}
+}
+
+func TestEncryptedDataSpacesStreamsPresent(t *testing.T) {
+	plain := buildPlainPackage(t, 3000)
+	var enc bytes.Buffer
+	if err := SaveEncryptedWithOptions(&enc, plain, "pw", EncryptOptions{IncludeDataSpaces: true}); err != nil {
+		t.Fatal(err)
+	}
+	cf, err := readCFB(enc.Bytes())
+	if err != nil {
+		t.Fatalf("readCFB: %v", err)
+	}
+	// The nested DataSpaces streams must all be reachable and carry the canonical
+	// reference bytes.
+	checks := map[string][]byte{
+		dsStreamVersion:      dsVersionContent,
+		dsStreamDataSpaceMap: dsDataSpaceMapContent,
+		dsStreamStrongDS:     dsStrongDSContent,
+		dsStreamPrimary:      dsPrimaryContent,
+	}
+	for name, want := range checks {
+		got, err := cf.stream(name)
+		if err != nil {
+			t.Fatalf("stream %q: %v", name, err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("stream %q content mismatch", name)
+		}
+	}
+	// And the encrypted payload still round-trips with the extra streams present.
+	if got, err := decryptCFBPackage(enc.Bytes(), "pw"); err != nil || !bytes.Equal(got, plain) {
+		t.Fatalf("round-trip with DataSpaces failed: err=%v", err)
+	}
+}
+
 func TestEncryptedWrongPassword(t *testing.T) {
 	plain := buildPlainPackage(t, 2000)
 	var enc bytes.Buffer
