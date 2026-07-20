@@ -50,6 +50,11 @@ type CT_Workbook struct {
 	DefinedNames       *CT_DefinedNames        `xml:"definedNames,omitempty"`
 	CalcPr             *CT_CalcPr              `xml:"calcPr,omitempty"`
 	ExtLst             *CT_ExtensionList       `xml:"extLst,omitempty"`
+	// PivotCaches is populated only when a pivot table is created this session
+	// (Sheet.AddPivotTable). A workbook opened with existing pivot caches keeps
+	// them among the verbatim UnknownChildren for byte-identical round-trip; it
+	// is nil in that case.
+	PivotCaches *CT_PivotCaches `xml:"-"`
 	// UnknownChildren stores extension child elements (like xr:revisionPtr)
 	// that we don't have typed structs for, indexed for child ordering.
 	UnknownChildren []WbUnknownChild `xml:"-"`

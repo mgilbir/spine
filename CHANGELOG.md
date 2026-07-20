@@ -162,6 +162,22 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **pivot tables** — read and create. `Sheet.PivotTables()` and
+  `Workbook.PivotTables()` return each pivot table with its name, on-sheet
+  location, source range/sheet, cache id, and the field layout (`RowFields`,
+  `ColumnFields`, `Filters`, and `ValueFields` with each value field's
+  aggregation). `Sheet.AddPivotTable(sourceRange, anchor, PivotOptions)` builds
+  a basic pivot table from a (optionally sheet-qualified) source range: it
+  derives the cache fields from the header row and a shared-items scan, writes
+  the pivot cache definition + records, the pivot table definition, the
+  workbook `<pivotCaches>` entry, all relationships and the
+  `[Content_Types].xml` overrides. Value fields support sum/count/average
+  (plus min/max/product/countNums); the cache is written with `refreshOnLoad`
+  so Excel rebuilds the rendered layout on open. Existing pivot tables in an
+  opened workbook round-trip byte-for-byte (their parts are preserved raw);
+  typed XML is emitted only for pivots created this session. Deferred:
+  calculated fields, grouping, multiple consolidation ranges, external-data
+  caches, and extending a workbook that already contains pivot caches.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;

@@ -63,6 +63,16 @@ const (
 	// type, used by the xl/tables/tableN.xml override.
 	ContentTypeTable = "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"
 
+	// SpreadsheetML pivot-table content types. A pivot table is stored as three
+	// kinds of parts: the pivot table definition
+	// (xl/pivotTables/pivotTableN.xml), the pivot cache definition
+	// (xl/pivotCache/pivotCacheDefinitionN.xml) that describes the source and
+	// its cache fields, and the optional pivot cache records
+	// (xl/pivotCache/pivotCacheRecordsN.xml) holding the cached source rows.
+	ContentTypePivotTable           = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"
+	ContentTypePivotCacheDefinition = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"
+	ContentTypePivotCacheRecords    = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"
+
 	// SpreadsheetML comment content types. Legacy cell comments (a.k.a. notes)
 	// use ContentTypeSheetComments and are rendered by a legacy VML drawing
 	// (ContentTypeVMLDrawing). Modern threaded comments use

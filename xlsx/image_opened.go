@@ -39,7 +39,12 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		}
 	}
 	drawingSeq, mediaSeq, chartSeq, tableSeq := 1, 1, 1, 1
+	pivotSeq, cacheSeq := 1, 1
 	cseq := newCommentSeq()
+
+	// Rebuilt fresh each save; consumed when the workbook relationships and
+	// <pivotCaches> element are finalized.
+	w.pendingPivotCaches = nil
 
 	for i, sheet := range w.sheets {
 		hasImages := len(sheet.images) > 0
@@ -47,7 +52,8 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 		hasComments := sheet.comments != nil && sheet.comments.mutated
 		hasHyperlinks := len(sheet.pendingHyperlinkRels) > 0
 		hasTables := len(sheet.newTables) > 0
-		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks && !hasTables {
+		hasPivots := len(sheet.newPivots) > 0
+		if !hasImages && !hasCharts && !hasComments && !hasHyperlinks && !hasTables && !hasPivots {
 			continue
 		}
 		// Resolve the sheet's part name (a new sheet added to an opened book
@@ -117,6 +123,13 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 
 		if hasTables {
 			sheetRels, err = w.writeSheetTables(writer, sheet, sheetRels, relUsed, used, &tableSeq)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+
+		if hasPivots {
+			sheetRels, err = w.writeSheetPivotTables(writer, sheet, sheetRels, relUsed, used, &pivotSeq, &cacheSeq)
 			if err != nil {
 				return nil, "", err
 			}
