@@ -34,6 +34,14 @@ func TestAddChartRoundTripByKind(t *testing.T) {
 		{"pie", chart.KindPie, chart.NewPie},
 		{"doughnut", chart.KindDoughnut, chart.NewDoughnut},
 		{"radar", chart.KindRadar, chart.NewRadar},
+		{"column3d", chart.KindColumn3D, chart.NewColumn3D},
+		{"bar3d", chart.KindBar3D, chart.NewBar3D},
+		{"line3d", chart.KindLine3D, chart.NewLine3D},
+		{"area3d", chart.KindArea3D, chart.NewArea3D},
+		{"pie3d", chart.KindPie3D, chart.NewPie3D},
+		{"ofpie", chart.KindOfPie, chart.NewOfPie},
+		{"stock", chart.KindStock, chart.NewStock},
+		{"surface", chart.KindSurface, chart.NewSurface},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,9 +77,10 @@ func TestAddChartRoundTripByKind(t *testing.T) {
 				t.Errorf("categories = %v, want %v", got.Categories(), wantCats)
 			}
 			series := got.SeriesList()
-			// Pie and doughnut charts plot only their first series.
+			// The pie family plots only its first series.
 			wantSeries := 2
-			if tc.kind == chart.KindPie || tc.kind == chart.KindDoughnut {
+			switch tc.kind {
+			case chart.KindPie, chart.KindDoughnut, chart.KindPie3D, chart.KindOfPie:
 				wantSeries = 1
 			}
 			if len(series) != wantSeries {
@@ -120,6 +129,45 @@ func TestAddChartScatterRoundTrip(t *testing.T) {
 	}
 	if !equalFloats(series[0].Values, []float64{10, 20, 30}) {
 		t.Errorf("Values = %v, want [10 20 30]", series[0].Values)
+	}
+}
+
+func TestAddChartBubbleRoundTrip(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	c := chart.NewBubble().SetTitle("Bubbles")
+	c.AddBubbleSeries("pts", []float64{1, 2, 3}, []float64{10, 20, 30}, []float64{4, 5, 6})
+	if err := s.AddChart(c, 0, 0, 1000, 1000); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	p2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	charts := p2.Charts()
+	if len(charts) != 1 {
+		t.Fatalf("Charts() = %d, want 1", len(charts))
+	}
+	got := charts[0]
+	if got.Kind() != chart.KindBubble {
+		t.Errorf("kind = %v, want bubble", got.Kind())
+	}
+	series := got.SeriesList()
+	if len(series) != 1 {
+		t.Fatalf("series = %d, want 1", len(series))
+	}
+	if !equalFloats(series[0].XValues, []float64{1, 2, 3}) {
+		t.Errorf("XValues = %v, want [1 2 3]", series[0].XValues)
+	}
+	if !equalFloats(series[0].Values, []float64{10, 20, 30}) {
+		t.Errorf("Values = %v, want [10 20 30]", series[0].Values)
+	}
+	if !equalFloats(series[0].Sizes, []float64{4, 5, 6}) {
+		t.Errorf("Sizes = %v, want [4 5 6]", series[0].Sizes)
 	}
 }
 

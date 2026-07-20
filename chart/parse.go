@@ -44,6 +44,22 @@ func Parse(chartXML []byte) (*Chart, error) {
 		c = parseArea(pa.AreaChart[0])
 	case len(pa.ScatterChart) > 0:
 		c = parseScatter(pa.ScatterChart[0])
+	case len(pa.BubbleChart) > 0:
+		c = parseBubble(pa.BubbleChart[0])
+	case len(pa.StockChart) > 0:
+		c = parseStock(pa.StockChart[0])
+	case len(pa.SurfaceChart) > 0:
+		c = parseSurface(pa.SurfaceChart[0])
+	case len(pa.OfPieChart) > 0:
+		c = parseOfPie(pa.OfPieChart[0])
+	case len(pa.Bar3DChart) > 0:
+		c = parseBar3D(pa.Bar3DChart[0])
+	case len(pa.Line3DChart) > 0:
+		c = parseLine3D(pa.Line3DChart[0])
+	case len(pa.Pie3DChart) > 0:
+		c = parsePie3D(pa.Pie3DChart[0])
+	case len(pa.Area3DChart) > 0:
+		c = parseArea3D(pa.Area3DChart[0])
 	default:
 		return nil, fmt.Errorf("chart: unsupported or empty chart type")
 	}
@@ -183,6 +199,110 @@ func parseScatter(sc *dmlchart.ScatterChart) *Chart {
 			Name:    seriesName(s.Tx),
 			XValues: numbersFromAx(s.XVal),
 			Values:  numbersFrom(s.YVal),
+			Color:   seriesColor(s.SpPr),
+		})
+	}
+	return c
+}
+
+// addCatSer appends one category-style series (name, values, color) recovered
+// from the common c:ser fields, taking the shared categories from the first
+// series. It backs the parsers for the chart kinds whose series share the
+// cat/val shape (3D bar/line/area, pie-of-pie, 3D pie, stock, surface).
+func addCatSer(c *Chart, i int, tx *dmlchart.SerTx, cat *dmlchart.AxDataSource, val *dmlchart.NumDataSource, spPr *dml.SpPr) {
+	if i == 0 {
+		c.categories = categoriesFrom(cat)
+	}
+	c.series = append(c.series, &Series{
+		Name:   seriesName(tx),
+		Values: numbersFrom(val),
+		Color:  seriesColor(spPr),
+	})
+}
+
+func parseBar3D(bc *dmlchart.Bar3DChart) *Chart {
+	kind := KindColumn3D
+	if bc.BarDir != nil && bc.BarDir.Val == "bar" {
+		kind = KindBar3D
+	}
+	c := newChart(kind)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(bc.DLbls)
+	for i, s := range bc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseLine3D(lc *dmlchart.Line3DChart) *Chart {
+	c := newChart(KindLine3D)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(lc.DLbls)
+	for i, s := range lc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseArea3D(ac *dmlchart.Area3DChart) *Chart {
+	c := newChart(KindArea3D)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(ac.DLbls)
+	for i, s := range ac.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parsePie3D(pc *dmlchart.Pie3DChart) *Chart {
+	c := newChart(KindPie3D)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(pc.DLbls)
+	for i, s := range pc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseOfPie(oc *dmlchart.OfPieChart) *Chart {
+	c := newChart(KindOfPie)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(oc.DLbls)
+	for i, s := range oc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseStock(stc *dmlchart.StockChart) *Chart {
+	c := newChart(KindStock)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(stc.DLbls)
+	for i, s := range stc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseSurface(sc *dmlchart.SurfaceChart) *Chart {
+	c := newChart(KindSurface)
+	c.showLegend = false
+	for i, s := range sc.Ser {
+		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
+	}
+	return c
+}
+
+func parseBubble(bc *dmlchart.BubbleChart) *Chart {
+	c := newChart(KindBubble)
+	c.showLegend = false
+	c.dataLabels = dLblsShowVal(bc.DLbls)
+	for _, s := range bc.Ser {
+		c.series = append(c.series, &Series{
+			Name:    seriesName(s.Tx),
+			XValues: numbersFromAx(s.XVal),
+			Values:  numbersFrom(s.YVal),
+			Sizes:   numbersFrom(s.BubbleSize),
 			Color:   seriesColor(s.SpPr),
 		})
 	}
@@ -536,6 +656,62 @@ func firstCatRef(pa *dmlchart.PlotArea) string {
 	for _, sc := range pa.ScatterChart {
 		for _, s := range sc.Ser {
 			if r := catOf(s.XVal); r != "" {
+				return r
+			}
+		}
+	}
+	for _, bc := range pa.BubbleChart {
+		for _, s := range bc.Ser {
+			if r := catOf(s.XVal); r != "" {
+				return r
+			}
+		}
+	}
+	for _, bc := range pa.Bar3DChart {
+		for _, s := range bc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, lc := range pa.Line3DChart {
+		for _, s := range lc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, ac := range pa.Area3DChart {
+		for _, s := range ac.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, pc := range pa.Pie3DChart {
+		for _, s := range pc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, oc := range pa.OfPieChart {
+		for _, s := range oc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, stc := range pa.StockChart {
+		for _, s := range stc.Ser {
+			if r := catOf(s.Cat); r != "" {
+				return r
+			}
+		}
+	}
+	for _, sc := range pa.SurfaceChart {
+		for _, s := range sc.Ser {
+			if r := catOf(s.Cat); r != "" {
 				return r
 			}
 		}

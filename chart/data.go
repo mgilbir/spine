@@ -52,6 +52,28 @@ func (c *Chart) embeddedRows() map[int][]embedCell {
 	rows := map[int][]embedCell{}
 	add := func(row int, cell embedCell) { rows[row] = append(rows[row], cell) }
 
+	if c.kind == KindBubble {
+		// Shared X in column A; each series takes a Y column (name in row 1) and
+		// an adjacent size column, matching bubbleLayout.
+		if len(c.series) > 0 {
+			for i, x := range c.series[0].XValues {
+				add(i+2, embedCell{col: 1, number: x})
+			}
+		}
+		for si, s := range c.series {
+			yCol := 2 + 2*si
+			sizeCol := yCol + 1
+			add(1, embedCell{col: yCol, text: s.Name, isText: true})
+			for i, v := range s.Values {
+				add(i+2, embedCell{col: yCol, number: v})
+			}
+			for i, v := range s.Sizes {
+				add(i+2, embedCell{col: sizeCol, number: v})
+			}
+		}
+		return rows
+	}
+
 	if c.kind == KindScatter {
 		if len(c.series) > 0 {
 			for i, x := range c.series[0].XValues {
