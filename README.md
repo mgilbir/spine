@@ -69,7 +69,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **Excel (XLSX)**: Create and modify Excel workbooks
   - Create workbooks with multiple sheets
   - Read and write cell values (strings, numbers, booleans)
-  - Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring
+  - Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring; saving a workbook with a new dynamic-array formula synthesizes `xl/metadata.xml` (the `XLDAPR` record) and tags the spill master cell with `cm`, so Excel shows the spill without a recalc
   - Cell styling (fonts, fills, borders, number formats, alignment)
   - Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
   - Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
@@ -80,6 +80,9 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Hyperlinks (external and internal), read and written through the `Hyperlink` type shared with the docx/pptx APIs
   - Sheet protection (read state and write with the legacy password hash)
   - Read-only enumeration of worksheet images and conditional-formatting rules
+  - External data: enumerate connections (`Workbook.Connections()` — name, type, connection string/command, web URL) and report the presence of a Power Pivot data model / Power Query content (`Workbook.DataModel()`); both are preserved verbatim. Authoring or refreshing a live query/mashup is deferred
+  - What-if scenarios — read and write (`Sheet.Scenarios`/`Sheet.AddScenario`): named substitute-value sets over a group of changing cells; existing scenarios round-trip byte-for-byte, authored ones emit from the typed model
+  - Embedded OLE objects — extract (`Workbook.OLEObjects`) and embed (`Sheet.AddOLEObject`): write an object as an embedding part with its worksheet `<oleObjects>` reference, a legacy VML Pict shape, an optional preview image, and the relationships/content types
   - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
   - Rich text (per-run formatting) within a cell
   - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type, with per-run rich text on notes (`Comment.RichText`/`Sheet.AddNoteRichText`/`Comment.SetRichText`, alongside the plain `Text()`)
