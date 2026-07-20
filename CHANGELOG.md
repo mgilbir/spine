@@ -162,6 +162,22 @@ remediation series (#59–#75).
 
 ### Added
 
+- all formats: **whole-document text extraction** — a symmetric, read-only
+  "give me all the text" API for search, indexing, and LLM ingestion, reusing
+  the existing per-element text accessors and mutating nothing.
+  `docx.Document.Text()` returns the body in document order (paragraphs, with
+  the text of runs nested in hyperlinks, simple fields, tracked insertions, and
+  inline content controls; tables as tab-separated cells / newline-separated
+  rows; block-level content controls), then each header and footer, footnotes
+  and endnotes, and text boxes. `xlsx.Workbook.Text()` and `xlsx.Sheet.Text()`
+  return cell values row-major (shared strings and rich text resolved to their
+  text; tab-separated cells, newline-separated rows) followed by cell comments;
+  sheets are separated by a blank line. `pptx.Presentation.Text()` and
+  `pptx.Slide.Text()` return the text of every shape (text boxes, placeholders,
+  auto shapes, and tables, descending into groups) in shape order, then speaker
+  notes and comments; slides are separated by a blank line, with
+  `Presentation.SlideTexts()` returning the per-slide strings. Output is plain
+  concatenation with no markup and deterministic ordering.
 - xlsx: **sparklines** read + write — `Sheet.Sparklines()` returns the sparkline
   groups defined in the worksheet extension list (`x14:sparklineGroups`), each
   exposing its type (`line`/`column`/`winloss`), series color and the
