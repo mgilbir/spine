@@ -50,6 +50,12 @@ type CT_SectPr struct {
 	// printer-settings part.
 	PrinterSettings *CT_RawElement   `xml:"-"`
 	SectPrChange    *CT_SectPrChange `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPrChange,omitempty"`
+	// unknownChildren holds sectPr children the model does not type, captured
+	// verbatim in document order (they align with the non-modeled entries of
+	// childSeq) so a regenerated sectPr does not silently drop them — e.g. the
+	// strict-schema or otherwise unmodeled elements some producers emit. Empty
+	// for programmatic sections.
+	unknownChildren []*CT_RawNamedElement
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_SectPr to handle r:id attributes.
@@ -179,9 +185,11 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 					return err
 				}
 			default:
-				if err := d.Skip(); err != nil {
+				rn := &CT_RawNamedElement{}
+				if err := d.DecodeElement(rn, &t); err != nil {
 					return err
 				}
+				sp.unknownChildren = append(sp.unknownChildren, rn)
 			}
 		case xml.EndElement:
 			return nil
@@ -317,6 +325,7 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 	hdrFtrDone := false
 	emitted := make(map[string]bool)
+	unkIdx := 0
 	for _, name := range sp.childSeq {
 		if name == "headerReference" || name == "footerReference" {
 			if !hdrFtrDone {
@@ -325,9 +334,18 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			}
 			continue
 		}
-		if f, ok := emit[name]; ok && !emitted[name] {
-			emitted[name] = true
-			f()
+		if f, ok := emit[name]; ok {
+			if !emitted[name] {
+				emitted[name] = true
+				f()
+			}
+			continue
+		}
+		// Unmodeled child: replay the next captured raw element verbatim in
+		// its source position (childSeq order matches unknownChildren order).
+		if unkIdx < len(sp.unknownChildren) {
+			sp.unknownChildren[unkIdx].MarshalNamed(b, ns)
+			unkIdx++
 		}
 	}
 	if !hdrFtrDone {
@@ -337,6 +355,11 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		if !emitted[name] {
 			emit[name]()
 		}
+	}
+	// Drain any captured children not covered by childSeq (defensive; for a
+	// parsed section childSeq already accounts for every child).
+	for ; unkIdx < len(sp.unknownChildren); unkIdx++ {
+		sp.unknownChildren[unkIdx].MarshalNamed(b, ns)
 	}
 
 	b.EndElement(ns, localName)

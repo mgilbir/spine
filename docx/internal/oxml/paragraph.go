@@ -102,9 +102,14 @@ func isRawPChild(local string) bool {
 		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
 		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
 		"br",
+		"contentPart",
 		"commentRangeStart", "commentRangeEnd":
 		// w:br is only valid inside w:r, but LibreOffice-era exports place it
 		// directly in w:p; dropping it merged the surrounding lines.
+		// w:contentPart (EG_PContent, a CT_Rel referencing an ink/customXML
+		// part by r:id) is untyped by the model; preserving it verbatim keeps
+		// the in-body ink reference so a paragraph carrying only a contentPart
+		// no longer round-trips as an empty <w:p/>.
 		// Comment ranges appear inside w:ins/w:del and run-level SDT content,
 		// which type them nowhere (CT_P handles its own before this).
 		return true

@@ -159,6 +159,13 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	// Find the main presentation part
 	rels := reader.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 {
+		// An ISO-Strict presentation carries the officeDocument relationship
+		// under the purl.oclc.org namespace; report it distinctly rather than
+		// as a generic "not a PowerPoint file".
+		if len(reader.GetRelationshipsByType(opc.RelTypeOfficeDocumentStrict)) > 0 {
+			_ = reader.Close()
+			return nil, opc.ErrStrictOOXML
+		}
 		_ = reader.Close()
 		return nil, ErrNotPPTX
 	}
