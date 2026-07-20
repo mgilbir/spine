@@ -78,6 +78,8 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			marshalWorkbookDefinedNames(b, wb)
 		case childName == "calcPr" && wb.CalcPr != nil:
 			b.MarshalElement(nsSML, "calcPr", wb.CalcPr)
+		case childName == "pivotCaches" && wb.PivotCaches != nil:
+			wb.PivotCaches.MarshalToBuilder(b, nsSML, "pivotCaches")
 		case childName == "extLst":
 			marshalWorkbookExtLst(b, wb)
 		case strings.HasPrefix(childName, "unknown:"):
@@ -117,6 +119,9 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	marshalWorkbookDefinedNames(b, wb)
 	if wb.CalcPr != nil {
 		b.MarshalElement(nsSML, "calcPr", wb.CalcPr)
+	}
+	if wb.PivotCaches != nil {
+		wb.PivotCaches.MarshalToBuilder(b, nsSML, "pivotCaches")
 	}
 	marshalWorkbookExtLst(b, wb)
 }

@@ -66,6 +66,20 @@ type Workbook struct {
 	theme         *dml.ThemeEditor
 	themeResolved bool
 	themePartName string // theme part name, set when theme resolves to a part
+	// pendingPivotCaches accumulates, during a save pass, the workbook-level
+	// pivot cache definition parts written for session-added pivot tables. It is
+	// rebuilt from scratch on each save (reset in saveOpenedSheetAttachments) and
+	// consumed when the workbook relationships and <pivotCaches> element are
+	// finalized.
+	pendingPivotCaches []pendingPivotCache
+}
+
+// pendingPivotCache records one pivot cache definition part written this save
+// so the workbook relationship and <pivotCaches> entry can be wired with a
+// matching relationship id.
+type pendingPivotCache struct {
+	cacheID uint32
+	target  string // workbook-relative target, e.g. "pivotCache/pivotCacheDefinition1.xml"
 }
 
 // Open opens an Excel workbook from a file path.
@@ -500,7 +514,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// reference re-marshals them. This mutates the durable model (preserved
 	// parts and w.contentTypes), so it must run before the writer clones the
 	// content types below.
-	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHaveTables()
+	dropCalcChain := w.sheetsDirty || w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHaveTables() || w.sheetsHavePivots()
 	if !dropCalcChain {
 		for _, sheet := range w.sheets {
 			if sheet.dirty {
@@ -533,7 +547,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// the workbook .rels.
 	var rebuiltRels map[string]bool
 	var personRelTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() {
 		var err error
 		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -565,8 +579,10 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	stylesDirty := w.stylesDirty
 
 	// Determine if the workbook .rels need rebuilding. We need to rebuild if
-	// any sheet was modified/added/deleted or if styles were changed.
-	needRelsRebuild := stylesDirty || w.sheetsDirty
+	// any sheet was modified/added/deleted, styles were changed, or a pivot
+	// cache was added (its workbook relationship and <pivotCaches> entry are
+	// wired during the rebuild).
+	needRelsRebuild := stylesDirty || w.sheetsDirty || w.sheetsHavePivots()
 	if !needRelsRebuild {
 		for _, sheet := range w.sheets {
 			if sheet.partName == "" || sheet.dirty {
@@ -688,6 +704,10 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			wbRels = ensureRelationship(wbRels, opc.RelTypeStyles, "styles.xml")
 		}
 
+		// Wire the workbook -> pivotCacheDefinition relationships and the
+		// <pivotCaches> element for pivot tables added this session.
+		wbRels = w.finalizeWorkbookPivotCaches(wbRels)
+
 		if err := w.writeWorkbookRelationships(writer, mainPartName, workbookRelsName, wbRels); err != nil {
 			return err
 		}
@@ -794,7 +814,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	// returns the person list's workbook-relative target ("" if none) to wire
 	// the workbook relationship.
 	var personTarget string
-	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() {
+	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() {
 		var err error
 		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
@@ -859,6 +879,11 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 			Target: personTarget,
 		})
 	}
+
+	// Wire the workbook -> pivotCacheDefinition relationships and the
+	// <pivotCaches> element for pivot tables added this session. Must run
+	// before workbook.xml is marshaled so the element is emitted.
+	wbRels = w.finalizeWorkbookPivotCaches(wbRels)
 
 	// Write workbook.xml
 	wbData, err := marshalWorkbookXML(w.workbook)

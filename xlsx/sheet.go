@@ -20,6 +20,7 @@ type Sheet struct {
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
+	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
 	comments  *sheetComments // lazily loaded comment model (read + write)
 	// state is the workbook-level sheet visibility ("", "hidden" or
 	// "veryHidden"). AddChart marks its dedicated data sheet "hidden".
