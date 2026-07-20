@@ -188,6 +188,19 @@ remediation series (#59–#75).
   typed XML is emitted only for pivots created this session. Deferred:
   calculated fields, grouping, multiple consolidation ranges, external-data
   caches, and extending a workbook that already contains pivot caches.
+- pptx: **read SmartArt / diagrams** — `Slide.SmartArt()` and
+  `Presentation.SmartArt()` return the SmartArt graphics on a slide (each a
+  `p:graphicFrame` whose `a:graphicData` carries the diagram namespace URI and a
+  `dgm:relIds` reference to the data/layout/quickStyle/colors parts). Each
+  `SmartArt` exposes the diagram's text nodes and their hierarchy, derived from
+  the data part's `dgm:dataModel` (its `dgm:pt` points and `dgm:cxn` parent-of
+  connections, ordered by `srcOrd`), as a tree of `SmartArtNode{Text, Children}`
+  via `SmartArt.Nodes()`. The four raw diagram parts are preserved verbatim, so
+  an unmodified deck with SmartArt round-trips byte-for-byte. The data-model
+  parser and tree view live in `common/dml/diagram` (`ParseDataModel`,
+  `DataModel.TextTree`). Creating diagrams from scratch is not yet supported: a
+  valid diagram also needs the layout/quickStyle/colors definition parts and a
+  `dsp` drawing fallback, which Office rejects if malformed.
 - docx: **author tracked changes** — the revisions API can now create insertions
   and deletions, not only read and accept/reject them. `Paragraph.AddInsertedRun`
   appends a new run wrapped in `w:ins`; `Run.MarkInserted` wraps an existing run;
