@@ -94,8 +94,8 @@ func (d *Document) OLEObjects() []OLEObject {
 			}
 			seen[target] = true
 			progID := ""
-			if src, ok := d.preservedParts[owner]; ok {
-				progID = coxml.ExtractOLEProgID(src.Data, rel.ID)
+			if src := d.rawPartData(owner); src != nil {
+				progID = coxml.ExtractOLEProgID(src, rel.ID)
 			}
 			objects = append(objects, OLEObject{
 				Name:        target,

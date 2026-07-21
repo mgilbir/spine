@@ -738,6 +738,17 @@ func (b *Builder) writeTextEscaped(s string) {
 	_, _ = textEscaper.WriteString(&b.buf, stripInvalidXMLChars(s))
 }
 
+// TextEscapeReproduces reports whether escaping text as XML character data —
+// the exact transformation WriteElement applies to element content — yields
+// raw. When true, a separately captured verbatim inner form is byte-for-byte
+// redundant with text and need not be retained: the normal escape path already
+// reproduces the source. For clean text (no characters the escaper rewrites)
+// this is allocation-free — the replacer and the invalid-char strip both return
+// the input unchanged and the comparison is a byte compare.
+func TextEscapeReproduces(text string, raw []byte) bool {
+	return textEscaper.Replace(stripInvalidXMLChars(text)) == string(raw)
+}
+
 // isInvalidXMLByte reports whether c is an ASCII byte that cannot appear in
 // a well-formed XML 1.0 document. The only control characters permitted are
 // tab (0x09), newline (0x0A), and carriage return (0x0D); every other byte
