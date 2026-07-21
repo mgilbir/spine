@@ -67,7 +67,7 @@ func TestSparklineRead(t *testing.T) {
 	if err := xml.Unmarshal([]byte(sparklineWorksheetXML), &ws); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	s := &Sheet{worksheet: &ws}
+	s := &Sheet{wsModel: &ws, wsParsed: true}
 	groups := s.Sparklines()
 	if len(groups) != 1 {
 		t.Fatalf("Sparklines() len = %d, want 1", len(groups))
@@ -141,7 +141,7 @@ func TestSparklineAppendWinLoss(t *testing.T) {
 	if err := xml.Unmarshal([]byte(sparklineWorksheetXML), &ws); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	s := &Sheet{worksheet: &ws}
+	s := &Sheet{wsModel: &ws, wsParsed: true}
 	if _, err := s.AddSparklineGroup(SparklineOptions{
 		Type: SparklineWinLoss,
 		Data: []SparklineData{{DataRange: "Sheet1!A2:D2", LocationCell: "E2"}},
@@ -184,7 +184,7 @@ func TestSparklineAddRejectsEmpty(t *testing.T) {
 	if _, err := s.AddSparklineGroup(SparklineOptions{Type: SparklineLine}); err == nil {
 		t.Fatal("AddSparklineGroup with no data must error")
 	}
-	if s.worksheet != nil && s.worksheet.ExtLst != nil && findSparklineExt(s.worksheet.ExtLst) != nil {
+	if s.ws() != nil && s.ws().ExtLst != nil && findSparklineExt(s.ws().ExtLst) != nil {
 		t.Error("rejected AddSparklineGroup must not create a sparkline extension")
 	}
 }

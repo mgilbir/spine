@@ -102,10 +102,10 @@ func (w *Workbook) validateCharts(c *validate.Collector) {
 		return
 	}
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.Drawing == nil {
+		if sheet == nil || sheet.ws() == nil || sheet.ws().Drawing == nil {
 			continue
 		}
-		drawingPart := sheet.resolveRelTarget(sheet.partName, sheet.worksheet.Drawing.RID)
+		drawingPart := sheet.resolveRelTarget(sheet.partName, sheet.ws().Drawing.RID)
 		if drawingPart == "" {
 			continue
 		}
@@ -128,7 +128,7 @@ func (w *Workbook) validateCharts(c *validate.Collector) {
 // file still opens and saves.
 func (w *Workbook) validateHyperlinks(c *validate.Collector) {
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.Hyperlinks == nil {
+		if sheet == nil || sheet.ws() == nil || sheet.ws().Hyperlinks == nil {
 			continue
 		}
 		known := relIDSet(w.relationships[sheet.partName])
@@ -137,7 +137,7 @@ func (w *Workbook) validateHyperlinks(c *validate.Collector) {
 				known[rel.ID] = struct{}{}
 			}
 		}
-		for _, hl := range sheet.worksheet.Hyperlinks.Hyperlink {
+		for _, hl := range sheet.ws().Hyperlinks.Hyperlink {
 			if hl.RID == "" {
 				continue
 			}
@@ -153,10 +153,10 @@ func (w *Workbook) validateHyperlinks(c *validate.Collector) {
 // malformed range reference (Excel would drop the rule). Warning severity.
 func (w *Workbook) validateDataValidations(c *validate.Collector) {
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.DataValidations == nil {
+		if sheet == nil || sheet.ws() == nil || sheet.ws().DataValidations == nil {
 			continue
 		}
-		for _, dv := range sheet.worksheet.DataValidations.DataValidation {
+		for _, dv := range sheet.ws().DataValidations.DataValidation {
 			if strings.TrimSpace(dv.Sqref) == "" {
 				c.Warnf(codeDataValidationRange, sheet.partName,
 					"data validation has an empty sqref")
@@ -251,7 +251,7 @@ func (w *Workbook) validateSheetRels(c *validate.Collector) {
 // Excel.
 func (w *Workbook) validateSharedFormulas(c *validate.Collector) {
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil {
+		if sheet == nil || sheet.ws() == nil {
 			continue
 		}
 		masters := make(map[uint32]bool)
@@ -260,8 +260,8 @@ func (w *Workbook) validateSharedFormulas(c *validate.Collector) {
 			si  uint32
 		}
 		var followers []follower
-		for i := range sheet.worksheet.SheetData.Row {
-			for _, cell := range sheet.worksheet.SheetData.Row[i].C {
+		for i := range sheet.ws().SheetData.Row {
+			for _, cell := range sheet.ws().SheetData.Row[i].C {
 				if cell == nil || cell.F == nil || cell.F.T != "shared" || cell.F.Si == nil {
 					continue
 				}
@@ -301,10 +301,10 @@ func (w *Workbook) validateDefinedNames(c *validate.Collector) {
 // merges).
 func (w *Workbook) validateMergedRanges(c *validate.Collector) {
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil || sheet.worksheet.MergeCells == nil {
+		if sheet == nil || sheet.ws() == nil || sheet.ws().MergeCells == nil {
 			continue
 		}
-		merges := sheet.worksheet.MergeCells.MergeCell
+		merges := sheet.ws().MergeCells.MergeCell
 		ranges := make([]cellRange, 0, len(merges))
 		for _, mc := range merges {
 			rng, err := parseCellRangeRef(mc.Ref)

@@ -94,10 +94,10 @@ func (s *Sheet) pendingImages() []*Image {
 // openedImages parses the sheet's drawing part (if any) and returns its images,
 // resolving each blip to the media bytes via the drawing relationships.
 func (s *Sheet) openedImages() []*Image {
-	if s.workbook == nil || s.worksheet == nil || s.worksheet.Drawing == nil {
+	if s.workbook == nil || s.ws() == nil || s.ws().Drawing == nil {
 		return nil
 	}
-	drawingPart := s.resolveRelTarget(s.partName, s.worksheet.Drawing.RID)
+	drawingPart := s.resolveRelTarget(s.partName, s.ws().Drawing.RID)
 	if drawingPart == "" {
 		return nil
 	}

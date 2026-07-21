@@ -39,14 +39,14 @@ func (w *Workbook) Text() string {
 func (s *Sheet) Text() string {
 	var sb strings.Builder
 
-	if s.worksheet != nil {
+	if s.ws() != nil {
 		type rowLine struct {
 			num  uint32
 			text string
 		}
 		var lines []rowLine
-		for i := range s.worksheet.SheetData.Row {
-			r := &s.worksheet.SheetData.Row[i]
+		for i := range s.ws().SheetData.Row {
+			r := &s.ws().SheetData.Row[i]
 			rn, ok := rowNumberOf(r)
 			if !ok || len(r.C) == 0 {
 				continue

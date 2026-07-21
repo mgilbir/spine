@@ -43,14 +43,14 @@ func (w *Workbook) prepareDynamicArrayMetadata(writer *opc.Writer, onlyDirty boo
 
 	tagged := false
 	for _, sheet := range w.sheets {
-		if sheet == nil || sheet.worksheet == nil {
+		if sheet == nil || sheet.ws() == nil {
 			continue
 		}
 		if onlyDirty && !sheet.dirty {
 			continue
 		}
-		for i := range sheet.worksheet.SheetData.Row {
-			for _, c := range sheet.worksheet.SheetData.Row[i].C {
+		for i := range sheet.ws().SheetData.Row {
+			for _, c := range sheet.ws().SheetData.Row[i].C {
 				if !isDynamicArrayMaster(c) || c.Cm != nil {
 					continue
 				}

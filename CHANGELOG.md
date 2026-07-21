@@ -7,6 +7,16 @@ remediation series (#59–#75).
 
 ### Performance
 
+- xlsx worksheets are now parsed lazily. Opening a workbook previously built a
+  full worksheet model for every sheet up front, even though unmodified sheets
+  are written straight from their preserved raw bytes on save — so for a
+  workbook that is inspected lightly or round-tripped unmodified, every model
+  was built and thrown away. Each sheet's model is now parsed on first access
+  and never marked dirty by reads, so a clean round-trip holds only the raw
+  sheet bytes. On a 21 MB worksheet the retained heap after open drops ~75%
+  (92 MB → 23 MB). Open still validates every sheet up front, so a malformed
+  sheet still fails Open exactly as before, and all 1200 corpus workbooks
+  round-trip byte-for-byte.
 - Large documents open with substantially less memory. Three "a tiny captured
   value pins the whole part" allocations were removed, and one redundant full
   copy of the main part. On a 51.8 MB `word/document.xml` the live heap after

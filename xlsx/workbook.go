@@ -337,11 +337,14 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 			state:    sheetDef.State,
 		}
 
-		ws := &oxml.CT_Worksheet{}
-		if err := xmlb.Unmarshal(part.Data, ws); err != nil {
+		// Validate the sheet up front (C60/C78: a malformed sheet must fail
+		// Open, not silently become an empty model that fabricates content on a
+		// later save), but discard the model — it is re-parsed lazily on first
+		// access (see Sheet.ws). A workbook that is round-tripped unmodified
+		// then holds only the raw sheet bytes, not a full model per sheet.
+		if err := xmlb.Unmarshal(part.Data, &oxml.CT_Worksheet{}); err != nil {
 			return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
 		}
-		sheet.worksheet = ws
 
 		w.sheets = append(w.sheets, sheet)
 	}
@@ -610,7 +613,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 
 	worksheetParts := make(map[string]struct{}, len(w.sheets))
 	for _, sheet := range w.sheets {
-		if sheet.partName != "" && sheet.worksheet != nil && sheet.dirty {
+		if sheet.partName != "" && sheet.wsModel != nil && sheet.dirty {
 			worksheetParts[sheet.partName] = struct{}{}
 		}
 	}
@@ -742,7 +745,7 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 				sheet.partName = partName
 			}
 			worksheetTargets[target] = struct{}{}
-			if sheet.worksheet == nil || !sheet.dirty {
+			if sheet.wsModel == nil || !sheet.dirty {
 				continue
 			}
 			if err := writeSheetPart(writer, partName, sheet); err != nil {
@@ -1009,19 +1012,17 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	return nil
 }
 
-// writeSheetPart writes a worksheet part from the worksheet model.
+// writeSheetPart writes a worksheet part from the worksheet model. It is only
+// called for sheets that are regenerated (dirty or new), whose model is already
+// materialized; ensureWS is defensive for a new sheet with no content.
 func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
-	if sheet.worksheet == nil {
-		sheet.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
+	ws := sheet.ensureWS()
 
 	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
 	// recorded used range must reflect any cells written since open (C117).
-	updateSheetDimension(sheet.worksheet)
+	updateSheetDimension(ws)
 
-	wsData, err := marshalWorksheetXML(sheet.worksheet)
+	wsData, err := marshalWorksheetXML(ws)
 	if err != nil {
 		return err
 	}
@@ -1211,11 +1212,12 @@ func (w *Workbook) AddSheet(name string) *Sheet {
 	}
 
 	sheet := &Sheet{
-		workbook:  w,
-		name:      name,
-		index:     len(w.sheets),
-		worksheet: ws,
-		dirty:     true,
+		workbook: w,
+		name:     name,
+		index:    len(w.sheets),
+		wsModel:  ws,
+		wsParsed: true,
+		dirty:    true,
 	}
 	w.sheets = append(w.sheets, sheet)
 	w.sheetsDirty = true

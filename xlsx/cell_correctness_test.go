@@ -153,19 +153,19 @@ func TestRowWithoutRAttribute(t *testing.T) {
 	s.ensureWorksheet()
 	// Simulate a parsed row that omitted r, carrying a cell whose ref implies row 3.
 	v := "hello"
-	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{
+	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
 		C: []*oxml.CT_Cell{{R: "A3", T: "str", V: &v}},
 	})
 
 	if got, _ := s.GetCellValue("A3"); got != "hello" {
 		t.Errorf("r-less row invisible: GetCellValue(A3) = %q", got)
 	}
-	before := len(s.worksheet.SheetData.Row)
+	before := len(s.ws().SheetData.Row)
 	if _, err := s.Cell("A3"); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.worksheet.SheetData.Row) != before {
-		t.Errorf("Cell(A3) duplicated the r-less row: rows %d -> %d", before, len(s.worksheet.SheetData.Row))
+	if len(s.ws().SheetData.Row) != before {
+		t.Errorf("Cell(A3) duplicated the r-less row: rows %d -> %d", before, len(s.ws().SheetData.Row))
 	}
 }
 
@@ -176,17 +176,17 @@ func TestSetRowHeightOnRowWithoutRAttribute(t *testing.T) {
 	s := wb.AddSheet("Sheet1")
 	s.ensureWorksheet()
 	v := "7"
-	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{
+	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
 		C: []*oxml.CT_Cell{{R: "A1", V: &v}},
 	})
 
 	if err := s.SetRowHeight(1, 42); err != nil {
 		t.Fatalf("SetRowHeight: %v", err)
 	}
-	if got := len(s.worksheet.SheetData.Row); got != 1 {
+	if got := len(s.ws().SheetData.Row); got != 1 {
 		t.Fatalf("SetRowHeight duplicated the r-less row: %d rows, want 1", got)
 	}
-	row := &s.worksheet.SheetData.Row[0]
+	row := &s.ws().SheetData.Row[0]
 	if row.Ht == nil || *row.Ht != 42 {
 		t.Errorf("row height not applied to the r-less row: %+v", row)
 	}

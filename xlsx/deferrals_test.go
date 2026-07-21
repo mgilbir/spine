@@ -18,7 +18,7 @@ func TestSetArrayFormulaRoundTrip(t *testing.T) {
 	}
 	c.SetArrayFormula("A1:A3*B1:B3", "C1:C3")
 
-	out, err := marshalWorksheetXML(s.worksheet)
+	out, err := marshalWorksheetXML(s.ws())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestSetDynamicArrayFormulaRoundTrip(t *testing.T) {
 	}
 	c.SetDynamicArrayFormula("SORT(A2:A10)", "")
 
-	out, err := marshalWorksheetXML(s.worksheet)
+	out, err := marshalWorksheetXML(s.ws())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestDataValidationErrorStyleImeMode(t *testing.T) {
 		t.Fatalf("AddDataValidation: %v", err)
 	}
 
-	out, err := marshalWorksheetXML(s.worksheet)
+	out, err := marshalWorksheetXML(s.ws())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestSparklineDelete(t *testing.T) {
 		t.Fatalf("live sheet groups len = %d, want 1", len(remaining))
 	}
 	remaining[0].Delete()
-	if s.worksheet.ExtLst != nil && findSparklineExt(s.worksheet.ExtLst) != nil {
+	if s.ws().ExtLst != nil && findSparklineExt(s.ws().ExtLst) != nil {
 		t.Error("deleting the last group must remove the sparkline extension")
 	}
 	rs := firstSheet(t, reopen(t, w))

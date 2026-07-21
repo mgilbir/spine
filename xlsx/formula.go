@@ -22,13 +22,13 @@ func (s *Sheet) materializeSharedGroup(master *oxml.CT_Cell) {
 	if f == nil || f.T != "shared" || f.Ref == "" || f.Si == nil {
 		return
 	}
-	if s == nil || s.worksheet == nil {
+	if s == nil || s.ws() == nil {
 		return
 	}
 
 	mRow, mCol, mErr := ParseCellRef(master.R)
-	for i := range s.worksheet.SheetData.Row {
-		for _, cell := range s.worksheet.SheetData.Row[i].C {
+	for i := range s.ws().SheetData.Row {
+		for _, cell := range s.ws().SheetData.Row[i].C {
 			if cell == master {
 				continue
 			}
@@ -56,12 +56,12 @@ func (s *Sheet) materializeSharedGroup(master *oxml.CT_Cell) {
 // to be unique within a worksheet, so a fresh maximum is always safe.
 func (s *Sheet) nextSharedFormulaSi() uint32 {
 	var next uint32
-	if s == nil || s.worksheet == nil {
+	if s == nil || s.ws() == nil {
 		return 0
 	}
 	seen := false
-	for i := range s.worksheet.SheetData.Row {
-		for _, cell := range s.worksheet.SheetData.Row[i].C {
+	for i := range s.ws().SheetData.Row {
+		for _, cell := range s.ws().SheetData.Row[i].C {
 			if cell == nil || cell.F == nil || cell.F.Si == nil {
 				continue
 			}

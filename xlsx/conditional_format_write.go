@@ -335,8 +335,8 @@ func (s *Sheet) AddConditionalFormat(cellRange string, rules ...ConditionalRule)
 		}
 		block.CfRule = append(block.CfRule, rule)
 	}
-	s.worksheet.ConditionalFormatting = append(s.worksheet.ConditionalFormatting, block)
-	s.worksheet.AppendConditionalFormattingOrder()
+	s.ws().ConditionalFormatting = append(s.ws().ConditionalFormatting, block)
+	s.ws().AppendConditionalFormattingOrder()
 	return nil
 }
 
@@ -345,9 +345,9 @@ func (s *Sheet) AddConditionalFormat(cellRange string, rules ...ConditionalRule)
 // precedence in the order they are added without colliding with existing ones.
 func (s *Sheet) nextConditionalPriority() int {
 	maxP := 0
-	if s.worksheet != nil {
-		for i := range s.worksheet.ConditionalFormatting {
-			for _, r := range s.worksheet.ConditionalFormatting[i].CfRule {
+	if s.ws() != nil {
+		for i := range s.ws().ConditionalFormatting {
+			for _, r := range s.ws().ConditionalFormatting[i].CfRule {
 				if int(r.Priority) > maxP {
 					maxP = int(r.Priority)
 				}

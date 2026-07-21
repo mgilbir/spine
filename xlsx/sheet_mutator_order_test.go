@@ -28,7 +28,7 @@ func buildMutatorTestXlsx(t *testing.T, sheetXMLs ...string) []byte {
 
 	var ctOverrides, wbSheets, wbRelEntries strings.Builder
 	for i := range sheetXMLs {
-		fmt.Fprintf(&ctOverrides, `<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`, i+1)
+		fmt.Fprintf(&ctOverrides, `<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.ws()+xml"/>`, i+1)
 		fmt.Fprintf(&wbSheets, `<sheet name="Sheet%d" sheetId="%d" r:id="rId%d"/>`, i+1, i+1, i+1)
 		fmt.Fprintf(&wbRelEntries, `<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>`, i+1, i+1)
 	}
@@ -221,7 +221,7 @@ func TestMutatorKeepsUnknownChildrenOrdered(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	s := &Sheet{worksheet: &ws}
+	s := &Sheet{wsModel: &ws, wsParsed: true}
 	if err := s.MergeCells("A1", "B2"); err != nil {
 		t.Fatalf("MergeCells: %v", err)
 	}

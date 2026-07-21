@@ -277,8 +277,8 @@ func TestStyle_SaveAndReopen(t *testing.T) {
 	}
 	cell.SetValue("Header")
 	if err := cell.SetStyle(CellStyle{
-		Font: &FontStyle{Name: "Arial", Size: 14, Bold: true, Color: "FFFFFF"},
-		Fill: &FillStyle{Pattern: "solid", FgColor: "4472C4"},
+		Font:      &FontStyle{Name: "Arial", Size: 14, Bold: true, Color: "FFFFFF"},
+		Fill:      &FillStyle{Pattern: "solid", FgColor: "4472C4"},
 		Alignment: &AlignmentStyle{Horizontal: "center"},
 	}); err != nil {
 		t.Fatal(err)

@@ -40,10 +40,10 @@ type PageSetup struct {
 // PageSetup returns the sheet's page-setup settings and whether a <pageSetup>
 // element is present. When absent, the zero PageSetup and false are returned.
 func (s *Sheet) PageSetup() (PageSetup, bool) {
-	if s.worksheet == nil || s.worksheet.PageSetup == nil {
+	if s.ws() == nil || s.ws().PageSetup == nil {
 		return PageSetup{}, false
 	}
-	ps := s.worksheet.PageSetup
+	ps := s.ws().PageSetup
 	return PageSetup{
 		Orientation:     ps.Orientation,
 		PaperSize:       cloneUint32(ps.PaperSize),
@@ -63,11 +63,11 @@ func (s *Sheet) PageSetup() (PageSetup, bool) {
 func (s *Sheet) SetPageSetup(ps PageSetup) {
 	s.markDirty()
 	s.ensureWorksheet()
-	if s.worksheet.PageSetup == nil {
-		s.worksheet.PageSetup = &oxml.CT_PageSetup{}
+	if s.ws().PageSetup == nil {
+		s.ws().PageSetup = &oxml.CT_PageSetup{}
 	}
-	s.worksheet.EnsureChildOrder("pageSetup")
-	cur := s.worksheet.PageSetup
+	s.ws().EnsureChildOrder("pageSetup")
+	cur := s.ws().PageSetup
 	cur.Orientation = ps.Orientation
 	cur.PaperSize = cloneUint32(ps.PaperSize)
 	cur.Scale = cloneUint32(ps.Scale)
@@ -92,10 +92,10 @@ type PageMargins struct {
 // PageMargins returns the sheet's page margins and whether a <pageMargins>
 // element is present.
 func (s *Sheet) PageMargins() (PageMargins, bool) {
-	if s.worksheet == nil || s.worksheet.PageMargins == nil {
+	if s.ws() == nil || s.ws().PageMargins == nil {
 		return PageMargins{}, false
 	}
-	m := s.worksheet.PageMargins
+	m := s.ws().PageMargins
 	return PageMargins{
 		Left:   m.Left,
 		Right:  m.Right,
@@ -111,8 +111,8 @@ func (s *Sheet) PageMargins() (PageMargins, bool) {
 func (s *Sheet) SetPageMargins(m PageMargins) {
 	s.markDirty()
 	s.ensureWorksheet()
-	s.worksheet.EnsureChildOrder("pageMargins")
-	s.worksheet.PageMargins = &oxml.CT_PageMargins{
+	s.ws().EnsureChildOrder("pageMargins")
+	s.ws().PageMargins = &oxml.CT_PageMargins{
 		Left:   m.Left,
 		Right:  m.Right,
 		Top:    m.Top,
@@ -141,10 +141,10 @@ type HeaderFooter struct {
 // HeaderFooter returns the sheet's header/footer settings and whether a
 // <headerFooter> element is present.
 func (s *Sheet) HeaderFooter() (HeaderFooter, bool) {
-	if s.worksheet == nil || s.worksheet.HeaderFooter == nil {
+	if s.ws() == nil || s.ws().HeaderFooter == nil {
 		return HeaderFooter{}, false
 	}
-	hf := s.worksheet.HeaderFooter
+	hf := s.ws().HeaderFooter
 	return HeaderFooter{
 		DifferentOddEven: cloneBool(hf.DifferentOddEven),
 		DifferentFirst:   cloneBool(hf.DifferentFirst),
@@ -165,8 +165,8 @@ func (s *Sheet) HeaderFooter() (HeaderFooter, bool) {
 func (s *Sheet) SetHeaderFooter(hf HeaderFooter) {
 	s.markDirty()
 	s.ensureWorksheet()
-	s.worksheet.EnsureChildOrder("headerFooter")
-	s.worksheet.HeaderFooter = &oxml.CT_HeaderFooter{
+	s.ws().EnsureChildOrder("headerFooter")
+	s.ws().HeaderFooter = &oxml.CT_HeaderFooter{
 		DifferentOddEven: cloneBool(hf.DifferentOddEven),
 		DifferentFirst:   cloneBool(hf.DifferentFirst),
 		ScaleWithDoc:     cloneBool(hf.ScaleWithDoc),
@@ -194,10 +194,10 @@ type PrintOptions struct {
 // PrintOptions returns the sheet's print options and whether a <printOptions>
 // element is present.
 func (s *Sheet) PrintOptions() (PrintOptions, bool) {
-	if s.worksheet == nil || s.worksheet.PrintOptions == nil {
+	if s.ws() == nil || s.ws().PrintOptions == nil {
 		return PrintOptions{}, false
 	}
-	po := s.worksheet.PrintOptions
+	po := s.ws().PrintOptions
 	return PrintOptions{
 		HorizontalCentered: cloneBool(po.HorizontalCentered),
 		VerticalCentered:   cloneBool(po.VerticalCentered),
@@ -212,8 +212,8 @@ func (s *Sheet) PrintOptions() (PrintOptions, bool) {
 func (s *Sheet) SetPrintOptions(po PrintOptions) {
 	s.markDirty()
 	s.ensureWorksheet()
-	s.worksheet.EnsureChildOrder("printOptions")
-	s.worksheet.PrintOptions = &oxml.CT_PrintOptions{
+	s.ws().EnsureChildOrder("printOptions")
+	s.ws().PrintOptions = &oxml.CT_PrintOptions{
 		HorizontalCentered: cloneBool(po.HorizontalCentered),
 		VerticalCentered:   cloneBool(po.VerticalCentered),
 		Headings:           cloneBool(po.Headings),

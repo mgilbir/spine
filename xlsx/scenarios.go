@@ -38,11 +38,11 @@ type ScenarioInput struct {
 // Scenarios returns the what-if scenarios defined on the sheet, in document
 // order. It is read-only; the returned slice is a copy.
 func (s *Sheet) Scenarios() []Scenario {
-	if s.worksheet == nil || s.worksheet.Scenarios == nil {
+	if s.ws() == nil || s.ws().Scenarios == nil {
 		return nil
 	}
-	out := make([]Scenario, 0, len(s.worksheet.Scenarios.Scenario))
-	for _, sc := range s.worksheet.Scenarios.Scenario {
+	out := make([]Scenario, 0, len(s.ws().Scenarios.Scenario))
+	for _, sc := range s.ws().Scenarios.Scenario {
 		pub := Scenario{
 			Name:    sc.Name,
 			Comment: sc.Comment,
@@ -73,8 +73,8 @@ func (s *Sheet) AddScenario(sc Scenario) error {
 	}
 
 	s.ensureWorksheet()
-	if s.worksheet.Scenarios != nil {
-		for _, existing := range s.worksheet.Scenarios.Scenario {
+	if s.ws().Scenarios != nil {
+		for _, existing := range s.ws().Scenarios.Scenario {
 			if strings.EqualFold(existing.Name, sc.Name) {
 				return fmt.Errorf("xlsx: scenario %q already exists", sc.Name)
 			}
@@ -101,10 +101,10 @@ func (s *Sheet) AddScenario(sc Scenario) error {
 		})
 	}
 
-	if s.worksheet.Scenarios == nil {
-		s.worksheet.Scenarios = &oxml.CT_Scenarios{}
+	if s.ws().Scenarios == nil {
+		s.ws().Scenarios = &oxml.CT_Scenarios{}
 	}
-	scs := s.worksheet.Scenarios
+	scs := s.ws().Scenarios
 	scs.Scenario = append(scs.Scenario, entry)
 	scs.Dirty = true
 
@@ -123,7 +123,7 @@ func (s *Sheet) AddScenario(sc Scenario) error {
 	// A parsed sheet marshals by its captured child order; a scenarios element
 	// the source lacked must be inserted at its schema position or it would be
 	// dropped on save.
-	s.worksheet.EnsureChildOrder("scenarios")
+	s.ws().EnsureChildOrder("scenarios")
 	s.markDirty()
 	return nil
 }

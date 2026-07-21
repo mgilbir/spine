@@ -91,8 +91,8 @@ func (w *Workbook) writeSheetComments(
 		// Point the worksheet at the VML drawing (the element that renders the
 		// note boxes). ensureLegacyDrawing splices it into the captured child
 		// order if the sheet had none.
-		sheet.worksheet.LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
-		sheet.worksheet.EnsureChildOrder("legacyDrawing")
+		sheet.ws().LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
+		sheet.ws().EnsureChildOrder("legacyDrawing")
 	}
 
 	// Threaded comments. Linked to the worksheet by relationship only (no body

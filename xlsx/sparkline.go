@@ -202,8 +202,8 @@ func (s *Sheet) sparklineGroups() *oxml.CT_SparklineGroups {
 	if s.sparklineCache != nil {
 		return s.sparklineCache
 	}
-	if s.worksheet != nil && s.worksheet.ExtLst != nil {
-		if ext := findSparklineExt(s.worksheet.ExtLst); ext != nil {
+	if s.ws() != nil && s.ws().ExtLst != nil {
+		if ext := findSparklineExt(s.ws().ExtLst); ext != nil {
 			if sg, err := oxml.ParseSparklineGroups(ext.RawContent); err == nil && sg != nil {
 				s.sparklineCache = sg
 				return sg
@@ -225,33 +225,33 @@ func (s *Sheet) flushSparklines() {
 	s.ensureWorksheet()
 
 	if len(sg.Groups) == 0 {
-		if s.worksheet.ExtLst == nil {
+		if s.ws().ExtLst == nil {
 			return
 		}
-		kept := s.worksheet.ExtLst.Ext[:0]
-		for _, e := range s.worksheet.ExtLst.Ext {
+		kept := s.ws().ExtLst.Ext[:0]
+		for _, e := range s.ws().ExtLst.Ext {
 			if e.URI != oxml.SparklineExtURI {
 				kept = append(kept, e)
 			}
 		}
-		s.worksheet.ExtLst.Ext = kept
-		if len(s.worksheet.ExtLst.Ext) == 0 {
-			s.worksheet.ExtLst = nil
+		s.ws().ExtLst.Ext = kept
+		if len(s.ws().ExtLst.Ext) == 0 {
+			s.ws().ExtLst = nil
 		}
 		return
 	}
 
-	if s.worksheet.ExtLst == nil {
-		s.worksheet.ExtLst = &oxml.CT_ExtensionList{}
+	if s.ws().ExtLst == nil {
+		s.ws().ExtLst = &oxml.CT_ExtensionList{}
 	}
-	s.worksheet.EnsureChildOrder("extLst")
-	ext := findSparklineExt(s.worksheet.ExtLst)
+	s.ws().EnsureChildOrder("extLst")
+	ext := findSparklineExt(s.ws().ExtLst)
 	if ext == nil {
-		s.worksheet.ExtLst.Ext = append(s.worksheet.ExtLst.Ext, oxml.CT_Extension{
+		s.ws().ExtLst.Ext = append(s.ws().ExtLst.Ext, oxml.CT_Extension{
 			URI:           oxml.SparklineExtURI,
 			InlineNSDecls: []xmlb.NSDecl{{Prefix: "x14", URI: oxml.NSX14}},
 		})
-		ext = &s.worksheet.ExtLst.Ext[len(s.worksheet.ExtLst.Ext)-1]
+		ext = &s.ws().ExtLst.Ext[len(s.ws().ExtLst.Ext)-1]
 	}
 	ext.RawContent = sg.Marshal()
 }
