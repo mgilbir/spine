@@ -52,6 +52,13 @@ remediation series (#59–#75).
 
 ### Fixed
 
+- common/xml: `Builder.WriteElement` now preserves a captured verbatim
+  attribute rendering (`Attr.Raw`) instead of always re-quoting with double
+  quotes, matching `StartElement`. A producer that wrote `xml:space='preserve'`
+  with single quotes on a `w:t` now round-trips it byte-for-byte even when the
+  run's text is canonical (so the verbatim-text fast path is skipped and the
+  element is written through `WriteElement`). Surfaced by a robustness sweep of
+  the corpus regenerate path (Common Crawl fa465a63).
 - docx,dml,opc: five fidelity/correctness bugs surfaced by Common Crawl
   validation.
   - docx: unmodeled `w:sectPr` children (seen in the wild as trailing

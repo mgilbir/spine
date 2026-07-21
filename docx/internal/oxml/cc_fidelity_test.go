@@ -123,3 +123,32 @@ func TestCTText_RawTextRetainedOnlyWhenNeeded(t *testing.T) {
 		})
 	}
 }
+
+// A w:t whose xml:space attribute the producer wrote with single quotes must
+// round-trip verbatim even when its text is canonical (so rawText is dropped
+// and it goes through the escape/WriteElement path). Regression: WriteElement
+// used to re-quote captured attributes, drifting xml:space='preserve' to
+// xml:space="preserve" once the rawText redundancy skip routed plain text
+// through it (Common Crawl fa465a63).
+func TestCTText_SingleQuotedXmlSpacePreserved(t *testing.T) {
+	const nsW = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	src := `<w:p xmlns:w="` + nsW + `"><w:r><w:t xml:space='preserve'>plain text here</w:t></w:r></w:p>`
+	var p CT_P
+	if err := xmlb.UnmarshalWithSource([]byte(src), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Plain text: rawText is not retained (escaper reproduces it), so this
+	// exercises the WriteElement path.
+	if p.R[0].T[0].rawText != nil {
+		t.Fatalf("precondition: rawText retained for plain text; test would not exercise WriteElement")
+	}
+	p.CapturedAttrs = nil
+	b := xmlb.NewWordprocessingMLBuilder()
+	b.StartElementWithNS(xmlb.NSWordprocessingML, "body", xmlb.WordprocessingMLNamespaces())
+	p.MarshalToBuilder(b, xmlb.NSWordprocessingML, "p")
+	b.EndElement(xmlb.NSWordprocessingML, "body")
+	out := b.String()
+	if !strings.Contains(out, `<w:t xml:space='preserve'>plain text here</w:t>`) {
+		t.Errorf("single-quoted xml:space not preserved through WriteElement:\n%s", out)
+	}
+}
