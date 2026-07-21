@@ -456,16 +456,12 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
 
+	// writeOneAttr honors a captured verbatim rendering (Attr.Raw), so an
+	// attribute whose source form is preserved — e.g. xml:space='preserve'
+	// written with single quotes — round-trips through this path too, matching
+	// StartElement. A plain inline loop here would re-quote it.
 	for _, attr := range attrs {
-		b.buf.WriteByte(' ')
-		if attr.Namespace != "" {
-			b.writeQName(attr.Namespace, attr.Name)
-		} else {
-			b.buf.WriteString(attr.Name)
-		}
-		b.buf.WriteString(`="`)
-		b.writeAttrEscaped(attr.Value)
-		b.buf.WriteByte('"')
+		b.writeOneAttr(attr)
 	}
 
 	if content == "" {
