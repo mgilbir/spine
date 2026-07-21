@@ -149,9 +149,14 @@ type AlphaMod struct {
 	Cont *EffectContainer `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cont,omitempty"`
 }
 
-// AlphaModFix represents CT_AlphaModulateFixedEffect (a:alphaModFix)
+// AlphaModFix represents CT_AlphaModulateFixedEffect (a:alphaModFix). The amt
+// attribute defaults to 100000 (100%) in the XSD, so it is a pointer: an
+// explicit amt="0" (0%) must be emitted rather than omitted. A non-pointer
+// Percentage with omitempty would drop the strict integer form "0" (whose Val
+// is 0 and orig is empty, so IsZeroAttr reports zero), silently reinterpreting
+// an explicit 0% as the 100% default.
 type AlphaModFix struct {
-	Amt Percentage `xml:"amt,attr,omitempty"`
+	Amt *Percentage `xml:"amt,attr,omitempty"`
 }
 
 // BiLevelXML represents CT_BiLevelEffect (a:biLevel)

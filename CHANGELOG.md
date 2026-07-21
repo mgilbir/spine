@@ -28,6 +28,15 @@ remediation series (#59–#75).
     "not a valid Word/Excel/PowerPoint file". Reading Strict content (all
     element namespaces differ from the transitional schemas) remains
     unsupported; this only classifies such files honestly.
+- dml: `a:alphaModFix` now preserves an explicit `amt="0"`. The `amt`
+  attribute defaults to 100000 (100%) in the XSD, so `amt="0"` (0% alpha)
+  is semantically distinct from an absent `amt`; a non-pointer `Percentage`
+  with `omitempty` dropped the strict-integer form `"0"` (its `Val` is 0 and
+  `orig` empty, so `IsZeroAttr` reported zero), silently reinterpreting an
+  explicit 0% as the 100% default and breaking byte-identical round-trip.
+  `AlphaModFix.Amt` is now a pointer, matching the existing default-bearing
+  attribute pattern, so `nil` stays omitted while an explicit zero is emitted
+  (surfaced by real-world Common Crawl pptx slide layouts).
 - tools/ccrun: the batched harvest now classifies every fetch outcome as
   permanent or transient and caps the retry, so a batch always makes forward
   progress. Permanent failures (DNS NXDOMAIN, connection refused, TLS failure,
