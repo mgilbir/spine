@@ -25,7 +25,7 @@ func numPrParagraph(numID int) *oxml.CT_P {
 func TestValidate_NumberingMissing(t *testing.T) {
 	num := &oxml.CT_Numbering{ParsedNumIDs: []string{"1", "2"}}
 	body := &oxml.CT_Body{P: []*oxml.CT_P{numPrParagraph(99)}}
-	d := &Document{document: &oxml.CT_Document{Body: body}, numbering: num}
+	d := &Document{docModel: &oxml.CT_Document{Body: body}, numbering: num}
 	r := d.Validate()
 	if r.HasErrors() {
 		t.Fatalf("numbering-missing must not be an error (Office tolerates it): %v", r.Errors())
@@ -44,7 +44,7 @@ func TestValidate_NumberingMissing(t *testing.T) {
 // With no numbering part, a numPr is a warning, not an error.
 func TestValidate_NumberingAbsentIsWarning(t *testing.T) {
 	body := &oxml.CT_Body{P: []*oxml.CT_P{numPrParagraph(3)}}
-	d := &Document{document: &oxml.CT_Document{Body: body}}
+	d := &Document{docModel: &oxml.CT_Document{Body: body}}
 	r := d.Validate()
 	if r.HasErrors() {
 		t.Fatalf("numPr with no numbering part must not be an error: %v", r.Errors())
@@ -59,7 +59,7 @@ func TestValidate_HeaderRefDangling(t *testing.T) {
 	body := &oxml.CT_Body{SectPr: &oxml.CT_SectPr{
 		HeaderReference: []*oxml.CT_HdrFtrRef{{Type: "default", RID: "rId99"}},
 	}}
-	d := &Document{document: &oxml.CT_Document{Body: body}}
+	d := &Document{docModel: &oxml.CT_Document{Body: body}}
 	if r := d.Validate(); !hasCode(r, validate.CodeDanglingRel, validate.SeverityError) {
 		t.Fatalf("expected dangling-rel error for missing header rel, got: %v", r)
 	}

@@ -7,6 +7,20 @@ remediation series (#59–#75).
 
 ### Performance
 
+- docx document bodies are now parsed lazily, and an unmodified body is written
+  back verbatim. Opening a document previously parsed the entire `document.xml`
+  body into a model held for the document's lifetime and regenerated it from
+  that model on every save. The body is now parsed on first access; a document
+  that is round-tripped without touching its body never builds a body model and
+  writes its original main-part bytes through unchanged. On a 51 MB body the
+  retained heap after open drops from ~506 MB to ~1 MB and a clean round-trip's
+  peak RSS drops ~40%. Open still validates the body up front, so a malformed
+  document fails Open exactly as before; the save-time validation skips the
+  body-referential checks for an untouched body (it cannot have acquired new
+  problems and its bytes pass through unchanged). Byte-for-byte round-trip is
+  unaffected — and in fact slightly improved, since a passed-through body is
+  always identical where a regenerated one occasionally drifted (corpus: 1196 of
+  1200 identical, up from 1194).
 - xlsx worksheets are now parsed lazily. Opening a workbook previously built a
   full worksheet model for every sheet up front, even though unmodified sheets
   are written straight from their preserved raw bytes on save — so for a

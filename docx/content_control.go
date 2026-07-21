@@ -49,10 +49,10 @@ type ContentControl struct {
 // document order, including inline controls, controls nested inside other
 // controls, and controls inside tables.
 func (d *Document) ContentControls() []*ContentControl {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	refs := d.document.Body.ContentControls()
+	refs := d.doc().Body.ContentControls()
 	out := make([]*ContentControl, 0, len(refs))
 	for _, ref := range refs {
 		out = append(out, &ContentControl{doc: d, block: ref.Block, run: ref.Run})
@@ -169,11 +169,11 @@ func (c *ContentControl) Checked() (checked, ok bool) {
 // document body, carrying the given tag and holding value as its content. The
 // returned handle can further adjust the tag, alias, or value.
 func (d *Document) AddContentControl(tag, value string) *ContentControl {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
 	block := newRichTextBlock(tag, value)
-	d.document.Body.AppendSdtBlock(block)
+	d.doc().Body.AppendSdtBlock(block)
 	return &ContentControl{doc: d, block: block}
 }
 

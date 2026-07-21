@@ -29,13 +29,23 @@ const (
 // The checks are sound (no false positives on Word-accepted packages).
 func (d *Document) Validate() validate.Report {
 	c := validate.New()
-	d.validateNumbering(c)
-	d.validateHeaderFooterRefs(c)
-	d.validateEmbedRefs(c)
-	d.validateStyleRefs(c)
-	d.validateCommentRefs(c)
-	d.validateInternalHyperlinks(c)
-	d.validateNoteRefs(c)
+	// The body-referential checks catch problems an edit could introduce
+	// (a run that references a deleted style, a hyperlink to a removed
+	// bookmark, ...). They require the body model, so they would force a parse
+	// of a document whose body was never touched. An unmodified body cannot
+	// have acquired such problems — it was already validated at open, has not
+	// been mutated, and on save its original bytes pass through unchanged — so
+	// they are skipped until the body is materialized. Package-level checks
+	// still run.
+	if d.docModel != nil {
+		d.validateNumbering(c)
+		d.validateHeaderFooterRefs(c)
+		d.validateEmbedRefs(c)
+		d.validateStyleRefs(c)
+		d.validateCommentRefs(c)
+		d.validateInternalHyperlinks(c)
+		d.validateNoteRefs(c)
+	}
 	if d.reader != nil {
 		d.validatePackage(c)
 	}
@@ -93,7 +103,7 @@ func (d *Document) validateNumbering(c *validate.Collector) {
 // validateHeaderFooterRefs reports section header/footer references whose r:id
 // has no matching relationship on the document part (dangling-rel).
 func (d *Document) validateHeaderFooterRefs(c *validate.Collector) {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return
 	}
 	rels := relIDSetBool(d.relationships[d.mainPart()])
@@ -114,8 +124,8 @@ func (d *Document) validateHeaderFooterRefs(c *validate.Collector) {
 			}
 		}
 	}
-	check(d.document.Body.SectPr)
-	for _, p := range d.document.Body.P {
+	check(d.doc().Body.SectPr)
+	for _, p := range d.doc().Body.P {
 		if p != nil && p.PPr != nil {
 			check(p.PPr.SectPr)
 		}
@@ -129,9 +139,9 @@ func (d *Document) validateHeaderFooterRefs(c *validate.Collector) {
 // tolerates a dangling image/hyperlink reference (a broken-image placeholder or
 // a non-link), so it must not block a save.
 func (d *Document) validateEmbedRefs(c *validate.Collector) {
-	if d.document != nil && d.document.Body != nil {
+	if d.doc() != nil && d.doc().Body != nil {
 		rels := relIDSetBool(d.relationships[d.mainPart()])
-		for _, p := range d.document.Body.P {
+		for _, p := range d.doc().Body.P {
 			d.checkParagraphEmbeds(c, p, d.mainPart(), rels)
 		}
 	}
@@ -280,8 +290,8 @@ func (d *Document) definedStyleIDs() map[string]struct{} {
 // paragraphs.
 func (d *Document) allParagraphs() []*oxml.CT_P {
 	var out []*oxml.CT_P
-	if d.document != nil && d.document.Body != nil {
-		out = append(out, d.document.Body.Paragraphs()...)
+	if d.doc() != nil && d.doc().Body != nil {
+		out = append(out, d.doc().Body.Paragraphs()...)
 	}
 	for _, hp := range d.headers {
 		if hp != nil && hp.hdr != nil {

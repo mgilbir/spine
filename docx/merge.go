@@ -55,7 +55,7 @@ func (d *Document) Append(other *Document) error {
 	if other == d {
 		return errors.New("docx: cannot append a document to itself")
 	}
-	if other.document == nil || other.document.Body == nil {
+	if other.doc() == nil || other.doc().Body == nil {
 		return nil
 	}
 
@@ -75,7 +75,7 @@ func (d *Document) Append(other *Document) error {
 
 	// Serialize other's main part, rewrite the colliding ids in the body
 	// content, then re-parse and append the body children in order.
-	data, err := marshalDocumentXML(other.document)
+	data, err := marshalDocumentXML(other.doc())
 	if err != nil {
 		return err
 	}
@@ -85,10 +85,10 @@ func (d *Document) Append(other *Document) error {
 	if err := xml.Unmarshal(data, &rewritten); err != nil {
 		return err
 	}
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	d.document.Body.AppendAllFrom(rewritten.Body)
+	d.doc().Body.AppendAllFrom(rewritten.Body)
 	return nil
 }
 
@@ -288,7 +288,7 @@ func typedNumberingDefs(n *oxml.CT_Numbering) ([]*oxml.CT_AbstractNum, []*oxml.C
 // the fresh id assigned in this document, for rewriting the copied references.
 func (d *Document) importHeadersFooters(other *Document) (map[string]string, error) {
 	remap := make(map[string]string)
-	used := usedHdrFtrRIDs(other.document.Body)
+	used := usedHdrFtrRIDs(other.doc().Body)
 	if len(used) == 0 {
 		return remap, nil
 	}

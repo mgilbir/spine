@@ -438,8 +438,8 @@ func xmlEscapeText(s string) string {
 // text body are not returned.
 func (d *Document) TextBoxes() []*TextBox {
 	var out []*TextBox
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			out = appendParagraphTextBoxes(out, p)
 		}
 	}
