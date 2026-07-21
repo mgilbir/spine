@@ -40,7 +40,7 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 	if err != nil {
 		return nil, err
 	}
-	if src.worksheet == nil {
+	if src.ws() == nil {
 		return nil, ErrSheetNotFound
 	}
 
@@ -50,8 +50,8 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 	// this workbook's stylesheet, so identical styles are registered once.
 	styleCache := make(map[uint32]uint32)
 
-	for i := range src.worksheet.SheetData.Row {
-		row := &src.worksheet.SheetData.Row[i]
+	for i := range src.ws().SheetData.Row {
+		row := &src.ws().SheetData.Row[i]
 		for _, sc := range row.C {
 			if sc == nil || sc.R == "" {
 				continue
@@ -112,10 +112,10 @@ func copySheetImages(src, dst *Sheet, srcWB *Workbook) {
 // The SVG variant of an SVG-with-raster-fallback image is not reconstructed
 // (deferred); the raster fallback is copied.
 func openedSheetImages(src *Sheet, srcWB *Workbook) []sheetImage {
-	if srcWB == nil || src.worksheet == nil || src.worksheet.Drawing == nil {
+	if srcWB == nil || src.ws() == nil || src.ws().Drawing == nil {
 		return nil
 	}
-	drawingPart := src.resolveRelTarget(src.partName, src.worksheet.Drawing.RID)
+	drawingPart := src.resolveRelTarget(src.partName, src.ws().Drawing.RID)
 	if drawingPart == "" {
 		return nil
 	}
@@ -235,10 +235,10 @@ func remapStyleIndex(dst, src *Workbook, srcIdx uint32, cache map[uint32]uint32)
 
 // copyMerges copies the merged ranges of src into dst.
 func copyMerges(src, dst *Sheet) {
-	if src.worksheet.MergeCells == nil {
+	if src.ws().MergeCells == nil {
 		return
 	}
-	for _, mc := range src.worksheet.MergeCells.MergeCell {
+	for _, mc := range src.ws().MergeCells.MergeCell {
 		start, end, ok := strings.Cut(mc.Ref, ":")
 		if !ok {
 			continue
@@ -251,7 +251,7 @@ func copyMerges(src, dst *Sheet) {
 
 // copyColumnWidths copies custom column widths from src to dst.
 func copyColumnWidths(src, dst *Sheet) {
-	for _, cols := range src.worksheet.Cols {
+	for _, cols := range src.ws().Cols {
 		for _, col := range cols.Col {
 			if col.Width == nil {
 				continue
@@ -265,8 +265,8 @@ func copyColumnWidths(src, dst *Sheet) {
 
 // copyRowHeights copies custom row heights from src to dst.
 func copyRowHeights(src, dst *Sheet) {
-	for i := range src.worksheet.SheetData.Row {
-		row := &src.worksheet.SheetData.Row[i]
+	for i := range src.ws().SheetData.Row {
+		row := &src.ws().SheetData.Row[i]
 		if row.Ht == nil {
 			continue
 		}

@@ -27,7 +27,7 @@ func TestAddScenarioRoundTrip(t *testing.T) {
 		t.Fatalf("AddScenario: %v", err)
 	}
 
-	out, err := marshalWorksheetXML(s.worksheet)
+	out, err := marshalWorksheetXML(s.ws())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

@@ -84,7 +84,7 @@ func TestCopySheetFrom(t *testing.T) {
 	assertCell(t, existing, "A1", "keep")
 
 	// The merged range came across.
-	if got.worksheet.MergeCells == nil || len(got.worksheet.MergeCells.MergeCell) == 0 {
+	if got.ws().MergeCells == nil || len(got.ws().MergeCells.MergeCell) == 0 {
 		t.Fatalf("merged range not copied")
 	}
 }

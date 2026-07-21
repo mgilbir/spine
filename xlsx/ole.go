@@ -156,7 +156,7 @@ func (s *Sheet) AddOLEObject(spec OLEObjectSpec) error {
 	if s.comments != nil {
 		return fmt.Errorf("xlsx: AddOLEObject: sheet already has comments, which own its legacy VML drawing")
 	}
-	if s.worksheet != nil && (s.worksheet.OleObjects != nil || s.worksheet.LegacyDrawing != nil) {
+	if s.ws() != nil && (s.ws().OleObjects != nil || s.ws().LegacyDrawing != nil) {
 		return fmt.Errorf("xlsx: AddOLEObject: sheet already has an oleObjects/legacyDrawing element")
 	}
 
@@ -279,10 +279,10 @@ func (w *Workbook) writeSheetOLE(
 	vmlRID := nextRID()
 	sheetRels = ensureRel(sheetRels, vmlRID, opc.RelTypeVMLDrawing, relTargetFromSheet(vmlPart))
 
-	sheet.worksheet.LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
-	sheet.worksheet.EnsureChildOrder("legacyDrawing")
-	sheet.worksheet.OleObjects = oleEl
-	sheet.worksheet.EnsureChildOrder("oleObjects")
+	sheet.ws().LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
+	sheet.ws().EnsureChildOrder("legacyDrawing")
+	sheet.ws().OleObjects = oleEl
+	sheet.ws().EnsureChildOrder("oleObjects")
 
 	return sheetRels, nil
 }

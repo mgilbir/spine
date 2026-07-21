@@ -121,12 +121,12 @@ type ConditionalIconSet struct {
 // document order. The returned slice is nil when the sheet has none. To create
 // blocks use Sheet.AddConditionalFormat.
 func (s *Sheet) ConditionalFormats() []*ConditionalFormat {
-	if s.worksheet == nil || len(s.worksheet.ConditionalFormatting) == 0 {
+	if s.ws() == nil || len(s.ws().ConditionalFormatting) == 0 {
 		return nil
 	}
-	out := make([]*ConditionalFormat, 0, len(s.worksheet.ConditionalFormatting))
-	for i := range s.worksheet.ConditionalFormatting {
-		cf := &s.worksheet.ConditionalFormatting[i]
+	out := make([]*ConditionalFormat, 0, len(s.ws().ConditionalFormatting))
+	for i := range s.ws().ConditionalFormatting {
+		cf := &s.ws().ConditionalFormatting[i]
 		out = append(out, &ConditionalFormat{
 			SqRef:  cf.Sqref,
 			Ranges: strings.Fields(cf.Sqref),

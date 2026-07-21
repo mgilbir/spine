@@ -481,8 +481,8 @@ func (s *Sheet) UngroupColumns(startCol, endCol int) error {
 // to true when unset (the OOXML default).
 func (s *Sheet) OutlineSummary() (below, right bool) {
 	below, right = true, true
-	if s.worksheet != nil && s.worksheet.SheetPr != nil && s.worksheet.SheetPr.OutlinePr != nil {
-		op := s.worksheet.SheetPr.OutlinePr
+	if s.ws() != nil && s.ws().SheetPr != nil && s.ws().SheetPr.OutlinePr != nil {
+		op := s.ws().SheetPr.OutlinePr
 		if op.SummaryBelow != nil {
 			below = *op.SummaryBelow
 		}
@@ -498,15 +498,15 @@ func (s *Sheet) OutlineSummary() (below, right bool) {
 func (s *Sheet) SetOutlineSummary(below, right bool) {
 	s.markDirty()
 	s.ensureWorksheet()
-	if s.worksheet.SheetPr == nil {
-		s.worksheet.SheetPr = &oxml.CT_SheetPr{}
+	if s.ws().SheetPr == nil {
+		s.ws().SheetPr = &oxml.CT_SheetPr{}
 	}
-	s.worksheet.EnsureChildOrder("sheetPr")
-	if s.worksheet.SheetPr.OutlinePr == nil {
-		s.worksheet.SheetPr.OutlinePr = &oxml.CT_OutlinePr{}
+	s.ws().EnsureChildOrder("sheetPr")
+	if s.ws().SheetPr.OutlinePr == nil {
+		s.ws().SheetPr.OutlinePr = &oxml.CT_OutlinePr{}
 	}
-	s.worksheet.SheetPr.OutlinePr.SummaryBelow = &below
-	s.worksheet.SheetPr.OutlinePr.SummaryRight = &right
+	s.ws().SheetPr.OutlinePr.SummaryBelow = &below
+	s.ws().SheetPr.OutlinePr.SummaryRight = &right
 }
 
 // ---------------------------------------------------------------------------
@@ -515,11 +515,11 @@ func (s *Sheet) SetOutlineSummary(below, right bool) {
 
 // sheetView returns the sheet's first sheetView, or nil when none exists.
 func (s *Sheet) sheetView() *oxml.CT_SheetView {
-	if s.worksheet == nil || s.worksheet.SheetViews == nil ||
-		len(s.worksheet.SheetViews.SheetView) == 0 {
+	if s.ws() == nil || s.ws().SheetViews == nil ||
+		len(s.ws().SheetViews.SheetView) == 0 {
 		return nil
 	}
-	return &s.worksheet.SheetViews.SheetView[0]
+	return &s.ws().SheetViews.SheetView[0]
 }
 
 // viewBoolAttr resolves a *bool sheetView attribute, returning def when the
@@ -542,18 +542,18 @@ func (s *Sheet) editRow(row int, apply func(*oxml.CT_Row)) error {
 	}
 	s.markDirty()
 	s.ensureWorksheet()
-	s.worksheet.EnsureChildOrder("sheetData")
+	s.ws().EnsureChildOrder("sheetData")
 
 	r := uint32(row)
-	for i := range s.worksheet.SheetData.Row {
-		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == r {
-			apply(&s.worksheet.SheetData.Row[i])
+	for i := range s.ws().SheetData.Row {
+		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == r {
+			apply(&s.ws().SheetData.Row[i])
 			return nil
 		}
 	}
 	newRow := oxml.CT_Row{R: &r}
 	apply(&newRow)
-	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, newRow)
+	s.ws().SheetData.Row = append(s.ws().SheetData.Row, newRow)
 	return nil
 }
 
@@ -566,13 +566,13 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 	}
 	s.markDirty()
 	s.ensureWorksheet()
-	if len(s.worksheet.Cols) == 0 {
-		s.worksheet.Cols = append(s.worksheet.Cols, oxml.CT_Cols{})
+	if len(s.ws().Cols) == 0 {
+		s.ws().Cols = append(s.ws().Cols, oxml.CT_Cols{})
 	}
-	s.worksheet.EnsureChildOrder("cols")
+	s.ws().EnsureChildOrder("cols")
 
 	c := uint32(col)
-	cols := s.worksheet.Cols[0].Col
+	cols := s.ws().Cols[0].Col
 	rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
 	placed := false
 	for _, entry := range cols {
@@ -603,6 +603,6 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 		apply(&target)
 		rebuilt = append(rebuilt, target)
 	}
-	s.worksheet.Cols[0].Col = rebuilt
+	s.ws().Cols[0].Col = rebuilt
 	return nil
 }

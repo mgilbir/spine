@@ -52,7 +52,7 @@ type CustomFilter struct {
 // SetAutoFilter.
 func (s *Sheet) SetFilterColumn(fc FilterColumn) error {
 	s.ensureWorksheet()
-	if s.worksheet.AutoFilter == nil {
+	if s.ws().AutoFilter == nil {
 		return fmt.Errorf("xlsx: no auto-filter set; call SetAutoFilter first")
 	}
 	s.markDirty()
@@ -92,7 +92,7 @@ func (s *Sheet) SetFilterColumn(fc FilterColumn) error {
 		col.CustomFilters = cf
 	}
 
-	af := s.worksheet.AutoFilter
+	af := s.ws().AutoFilter
 	for i := range af.FilterColumn {
 		if af.FilterColumn[i].ColId == fc.ColID {
 			af.FilterColumn[i] = col
@@ -107,10 +107,10 @@ func (s *Sheet) SetFilterColumn(fc FilterColumn) error {
 // auto-filter, in document order. It returns nil when no auto-filter or no
 // column filters are set.
 func (s *Sheet) FilterColumns() []FilterColumn {
-	if s.worksheet == nil || s.worksheet.AutoFilter == nil {
+	if s.ws() == nil || s.ws().AutoFilter == nil {
 		return nil
 	}
-	cols := s.worksheet.AutoFilter.FilterColumn
+	cols := s.ws().AutoFilter.FilterColumn
 	if len(cols) == 0 {
 		return nil
 	}
@@ -124,14 +124,14 @@ func (s *Sheet) FilterColumns() []FilterColumn {
 // ClearFilterColumns removes all per-column filter predicates while leaving the
 // auto-filter range in place.
 func (s *Sheet) ClearFilterColumns() {
-	if s.worksheet == nil || s.worksheet.AutoFilter == nil {
+	if s.ws() == nil || s.ws().AutoFilter == nil {
 		return
 	}
-	if len(s.worksheet.AutoFilter.FilterColumn) == 0 {
+	if len(s.ws().AutoFilter.FilterColumn) == 0 {
 		return
 	}
 	s.markDirty()
-	s.worksheet.AutoFilter.FilterColumn = nil
+	s.ws().AutoFilter.FilterColumn = nil
 }
 
 func oxmlToFilterColumn(c *oxml.CT_FilterColumn) FilterColumn {
@@ -228,8 +228,8 @@ func (s *Sheet) SetSortState(ss SortState) error {
 		}
 		out.SortCondition = append(out.SortCondition, cond)
 	}
-	s.worksheet.SortState = out
-	s.worksheet.EnsureChildOrder("sortState")
+	s.ws().SortState = out
+	s.ws().EnsureChildOrder("sortState")
 	return nil
 }
 
@@ -237,12 +237,12 @@ func (s *Sheet) SetSortState(ss SortState) error {
 // sortState element when present, otherwise the sortState nested in the
 // auto-filter. The second result reports whether a sort state exists.
 func (s *Sheet) SortState() (SortState, bool) {
-	if s.worksheet == nil {
+	if s.ws() == nil {
 		return SortState{}, false
 	}
-	src := s.worksheet.SortState
-	if src == nil && s.worksheet.AutoFilter != nil {
-		src = s.worksheet.AutoFilter.SortState
+	src := s.ws().SortState
+	if src == nil && s.ws().AutoFilter != nil {
+		src = s.ws().AutoFilter.SortState
 	}
 	if src == nil {
 		return SortState{}, false
@@ -252,11 +252,11 @@ func (s *Sheet) SortState() (SortState, bool) {
 
 // RemoveSortState removes the worksheet-level sort state.
 func (s *Sheet) RemoveSortState() {
-	if s.worksheet == nil || s.worksheet.SortState == nil {
+	if s.ws() == nil || s.ws().SortState == nil {
 		return
 	}
 	s.markDirty()
-	s.worksheet.SortState = nil
+	s.ws().SortState = nil
 }
 
 func oxmlToSortState(src *oxml.CT_SortState) SortState {

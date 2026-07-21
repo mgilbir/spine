@@ -5,18 +5,65 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
+// ws returns the sheet's parsed worksheet model, parsing it lazily from the
+// preserved raw bytes on first access. Returns nil for a created sheet that has
+// no content yet, or when the raw bytes are unavailable. Parsing never marks
+// the sheet dirty, so an accessed-but-unmodified sheet still round-trips from
+// its raw bytes. Open validates every sheet up front (parse-then-discard), so a
+// lazy parse here does not re-introduce the malformed-sheet error that Open
+// already surfaces.
+func (s *Sheet) ws() *oxml.CT_Worksheet {
+	if s.wsModel == nil && !s.wsParsed {
+		s.wsParsed = true
+		if s.workbook != nil && s.partName != "" {
+			if part, ok := s.workbook.preservedParts[s.partName]; ok && part != nil {
+				m := &oxml.CT_Worksheet{}
+				if err := xmlb.Unmarshal(part.Data, m); err == nil {
+					s.wsModel = m
+				}
+			}
+		}
+	}
+	return s.wsModel
+}
+
+// ensureWS returns the sheet's worksheet model, parsing it lazily if needed and
+// creating an empty one (with an initialized sheetData) when the sheet has no
+// content yet. The result is always non-nil; callers that mutate the model use
+// this. Creating the empty model does not itself mark the sheet dirty — the
+// mutating caller is responsible for markDirty.
+func (s *Sheet) ensureWS() *oxml.CT_Worksheet {
+	if w := s.ws(); w != nil {
+		return w
+	}
+	s.wsModel = &oxml.CT_Worksheet{SheetData: oxml.CT_SheetData{}}
+	s.wsParsed = true
+	return s.wsModel
+}
+
 // Sheet represents a worksheet in an Excel workbook.
 type Sheet struct {
-	workbook  *Workbook
-	name      string
-	index     int
-	partName  string
-	relID     string
-	worksheet *oxml.CT_Worksheet
+	workbook *Workbook
+	name     string
+	index    int
+	partName string
+	relID    string
+	// wsModel is the parsed worksheet model. For an opened sheet it is parsed
+	// lazily from the preserved raw bytes on first access (see ws): a workbook
+	// that is never inspected, or is round-tripped unmodified, then holds only
+	// the raw sheet bytes rather than a full model per sheet. Access it through
+	// ws()/ensureWS(), never directly, except on the save path where a nil
+	// wsModel must mean "not materialized" (so a clean sheet round-trips from
+	// its raw bytes) and must not trigger a parse.
+	wsModel *oxml.CT_Worksheet
+	// wsParsed records that a lazy parse was already attempted, so a genuinely
+	// empty or unparseable sheet is not re-parsed on every access.
+	wsParsed  bool
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
@@ -79,12 +126,8 @@ func (s *Sheet) Index() int {
 // The reference is canonicalized (case and leading zeros normalized), so
 // "a1" and "A01" address the same cell as "A1" (C126).
 func (s *Sheet) Cell(ref string) (*Cell, error) {
-	if s.worksheet == nil {
-		s.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
-	s.worksheet.EnsureChildOrder("sheetData")
+	s.ensureWS()
+	s.ws().EnsureChildOrder("sheetData")
 
 	// Parse the reference to get row and column
 	row, col, err := ParseCellRef(ref)
@@ -97,16 +140,16 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 
 	// Find or create the row
 	var targetRow *oxml.CT_Row
-	for i := range s.worksheet.SheetData.Row {
-		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == uint32(row) {
-			targetRow = &s.worksheet.SheetData.Row[i]
+	for i := range s.ws().SheetData.Row {
+		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == uint32(row) {
+			targetRow = &s.ws().SheetData.Row[i]
 			break
 		}
 	}
 	if targetRow == nil {
 		r := uint32(row)
-		s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{R: &r})
-		targetRow = &s.worksheet.SheetData.Row[len(s.worksheet.SheetData.Row)-1]
+		s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{R: &r})
+		targetRow = &s.ws().SheetData.Row[len(s.ws().SheetData.Row)-1]
 	}
 
 	// Find or create the cell. Cells are stored as pointers so this handle
@@ -158,7 +201,7 @@ func (s *Sheet) SetCellValue(ref string, value interface{}) error {
 
 // GetCellValue returns the display value of a cell as a string.
 func (s *Sheet) GetCellValue(ref string) (string, error) {
-	if s.worksheet == nil {
+	if s.ws() == nil {
 		return "", nil
 	}
 
@@ -168,8 +211,8 @@ func (s *Sheet) GetCellValue(ref string) (string, error) {
 	}
 	ref = FormatCellRef(row, col)
 
-	for i := range s.worksheet.SheetData.Row {
-		r := &s.worksheet.SheetData.Row[i]
+	for i := range s.ws().SheetData.Row {
+		r := &s.ws().SheetData.Row[i]
 		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
 			for _, cell := range r.C {
 				if strings.EqualFold(cell.R, ref) {
@@ -185,20 +228,20 @@ func (s *Sheet) GetCellValue(ref string) (string, error) {
 
 // Rows returns the number of used rows.
 func (s *Sheet) Rows() int {
-	if s.worksheet == nil {
+	if s.ws() == nil {
 		return 0
 	}
-	return len(s.worksheet.SheetData.Row)
+	return len(s.ws().SheetData.Row)
 }
 
 // Cols returns the number of used columns (maximum column across all rows).
 func (s *Sheet) Cols() int {
-	if s.worksheet == nil {
+	if s.ws() == nil {
 		return 0
 	}
 
 	maxCol := 0
-	for _, row := range s.worksheet.SheetData.Row {
+	for _, row := range s.ws().SheetData.Row {
 		for _, cell := range row.C {
 			_, col, err := ParseCellRef(cell.R)
 			if err == nil && col > maxCol {
@@ -219,26 +262,22 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 		return ErrInvalidCell
 	}
 	s.markDirty()
-	if s.worksheet == nil {
-		s.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
+	s.ensureWS()
 
 	c := uint32(col)
 	w := width
 	customWidth := true
 
 	// Find or create cols element
-	if len(s.worksheet.Cols) == 0 {
-		s.worksheet.Cols = append(s.worksheet.Cols, oxml.CT_Cols{})
+	if len(s.ws().Cols) == 0 {
+		s.ws().Cols = append(s.ws().Cols, oxml.CT_Cols{})
 	}
-	s.worksheet.EnsureChildOrder("cols")
+	s.ws().EnsureChildOrder("cols")
 
 	// Carve the target column out of any entry covering it. The [c,c] slice of
 	// a covering range inherits that range's other properties (style, hidden,
 	// ...) with the new width applied; the remainder keeps its properties.
-	cols := s.worksheet.Cols[0].Col
+	cols := s.ws().Cols[0].Col
 	rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
 	placed := false
 	for _, entry := range cols {
@@ -273,7 +312,7 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 			CustomWidth: &customWidth,
 		})
 	}
-	s.worksheet.Cols[0].Col = rebuilt
+	s.ws().Cols[0].Col = rebuilt
 
 	return nil
 }
@@ -284,13 +323,9 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 		return ErrInvalidCell
 	}
 	s.markDirty()
-	if s.worksheet == nil {
-		s.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
+	s.ensureWS()
 
-	s.worksheet.EnsureChildOrder("sheetData")
+	s.ws().EnsureChildOrder("sheetData")
 
 	r := uint32(row)
 	customHeight := true
@@ -298,15 +333,15 @@ func (s *Sheet) SetRowHeight(row int, height float64) error {
 	// Find or create the row. Look rows up via rowNumberOf, not the raw r
 	// attribute: a row may legally omit r (C73), and matching on the attribute
 	// alone would append a duplicate row for the same row number (C230).
-	for i := range s.worksheet.SheetData.Row {
-		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == r {
-			s.worksheet.SheetData.Row[i].Ht = &height
-			s.worksheet.SheetData.Row[i].CustomHeight = &customHeight
+	for i := range s.ws().SheetData.Row {
+		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == r {
+			s.ws().SheetData.Row[i].Ht = &height
+			s.ws().SheetData.Row[i].CustomHeight = &customHeight
 			return nil
 		}
 	}
 
-	s.worksheet.SheetData.Row = append(s.worksheet.SheetData.Row, oxml.CT_Row{
+	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
 		R:            &r,
 		Ht:           &height,
 		CustomHeight: &customHeight,
@@ -368,8 +403,8 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 		return err
 	}
 
-	if s.worksheet != nil && s.worksheet.MergeCells != nil {
-		for _, mc := range s.worksheet.MergeCells.MergeCell {
+	if s.ws() != nil && s.ws().MergeCells != nil {
+		for _, mc := range s.ws().MergeCells.MergeCell {
 			existing, err := parseCellRangeRef(mc.Ref)
 			if err != nil {
 				continue // unparseable existing entry imposes no constraint
@@ -381,27 +416,23 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 	}
 
 	s.markDirty()
-	if s.worksheet == nil {
-		s.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
+	s.ensureWS()
 
-	if s.worksheet.MergeCells == nil {
-		s.worksheet.MergeCells = &oxml.CT_MergeCells{}
+	if s.ws().MergeCells == nil {
+		s.ws().MergeCells = &oxml.CT_MergeCells{}
 	}
-	s.worksheet.EnsureChildOrder("mergeCells")
+	s.ws().EnsureChildOrder("mergeCells")
 
-	s.worksheet.MergeCells.MergeCell = append(s.worksheet.MergeCells.MergeCell, oxml.CT_MergeCell{Ref: rng.ref()})
-	count := uint32(len(s.worksheet.MergeCells.MergeCell))
-	s.worksheet.MergeCells.Count = &count
+	s.ws().MergeCells.MergeCell = append(s.ws().MergeCells.MergeCell, oxml.CT_MergeCell{Ref: rng.ref()})
+	count := uint32(len(s.ws().MergeCells.MergeCell))
+	s.ws().MergeCells.Count = &count
 
 	return nil
 }
 
 // UnmergeCells unmerges a range of cells.
 func (s *Sheet) UnmergeCells(startRef, endRef string) error {
-	if s.worksheet == nil || s.worksheet.MergeCells == nil {
+	if s.ws() == nil || s.ws().MergeCells == nil {
 		return nil
 	}
 
@@ -411,17 +442,17 @@ func (s *Sheet) UnmergeCells(startRef, endRef string) error {
 	}
 	ref := rng.ref()
 
-	for i, mc := range s.worksheet.MergeCells.MergeCell {
+	for i, mc := range s.ws().MergeCells.MergeCell {
 		if strings.EqualFold(mc.Ref, ref) {
 			s.markDirty()
-			s.worksheet.MergeCells.MergeCell = append(
-				s.worksheet.MergeCells.MergeCell[:i],
-				s.worksheet.MergeCells.MergeCell[i+1:]...,
+			s.ws().MergeCells.MergeCell = append(
+				s.ws().MergeCells.MergeCell[:i],
+				s.ws().MergeCells.MergeCell[i+1:]...,
 			)
-			count := uint32(len(s.worksheet.MergeCells.MergeCell))
-			s.worksheet.MergeCells.Count = &count
-			if len(s.worksheet.MergeCells.MergeCell) == 0 {
-				s.worksheet.MergeCells = nil
+			count := uint32(len(s.ws().MergeCells.MergeCell))
+			s.ws().MergeCells.Count = &count
+			if len(s.ws().MergeCells.MergeCell) == 0 {
+				s.ws().MergeCells = nil
 			}
 			return nil
 		}
@@ -522,12 +553,12 @@ func (s *Sheet) FreezePanes(cellRef string) error {
 // selections that referenced a pane (a pane-scoped selection is invalid once
 // the pane is gone).
 func (s *Sheet) UnfreezePanes() {
-	if s.worksheet == nil || s.worksheet.SheetViews == nil {
+	if s.ws() == nil || s.ws().SheetViews == nil {
 		return
 	}
-	if len(s.worksheet.SheetViews.SheetView) > 0 {
+	if len(s.ws().SheetViews.SheetView) > 0 {
 		s.markDirty()
-		sv := &s.worksheet.SheetViews.SheetView[0]
+		sv := &s.ws().SheetViews.SheetView[0]
 		sv.Pane = nil
 		kept := sv.Selection[:0]
 		for _, sel := range sv.Selection {
@@ -560,11 +591,11 @@ func (s *Sheet) SetShowGridLines(show bool) {
 func (s *Sheet) SetTabColor(hexColor string) {
 	s.markDirty()
 	s.ensureWorksheet()
-	if s.worksheet.SheetPr == nil {
-		s.worksheet.SheetPr = &oxml.CT_SheetPr{}
+	if s.ws().SheetPr == nil {
+		s.ws().SheetPr = &oxml.CT_SheetPr{}
 	}
-	s.worksheet.EnsureChildOrder("sheetPr")
-	s.worksheet.SheetPr.TabColor = &oxml.CT_Color{
+	s.ws().EnsureChildOrder("sheetPr")
+	s.ws().SheetPr.TabColor = &oxml.CT_Color{
 		Rgb: hexColor,
 	}
 }
@@ -573,18 +604,18 @@ func (s *Sheet) SetTabColor(hexColor string) {
 func (s *Sheet) SetAutoFilter(rangeRef string) error {
 	s.markDirty()
 	s.ensureWorksheet()
-	s.worksheet.AutoFilter = &oxml.CT_AutoFilter{
+	s.ws().AutoFilter = &oxml.CT_AutoFilter{
 		Ref: strings.ToUpper(rangeRef),
 	}
-	s.worksheet.EnsureChildOrder("autoFilter")
+	s.ws().EnsureChildOrder("autoFilter")
 	return nil
 }
 
 // RemoveAutoFilter removes the auto-filter from the sheet.
 func (s *Sheet) RemoveAutoFilter() {
-	if s.worksheet != nil {
+	if s.ws() != nil {
 		s.markDirty()
-		s.worksheet.AutoFilter = nil
+		s.ws().AutoFilter = nil
 	}
 }
 
@@ -634,10 +665,10 @@ const (
 func (s *Sheet) AddDataValidation(dv DataValidation) error {
 	s.markDirty()
 	s.ensureWorksheet()
-	if s.worksheet.DataValidations == nil {
-		s.worksheet.DataValidations = &oxml.CT_DataValidations{}
+	if s.ws().DataValidations == nil {
+		s.ws().DataValidations = &oxml.CT_DataValidations{}
 	}
-	s.worksheet.EnsureChildOrder("dataValidations")
+	s.ws().EnsureChildOrder("dataValidations")
 
 	v := oxml.CT_DataValidation{
 		Sqref:       strings.ToUpper(dv.Range),
@@ -673,19 +704,15 @@ func (s *Sheet) AddDataValidation(dv DataValidation) error {
 		v.Formula2 = &dv.Formula2
 	}
 
-	s.worksheet.DataValidations.DataValidation = append(s.worksheet.DataValidations.DataValidation, v)
-	count := uint32(len(s.worksheet.DataValidations.DataValidation))
-	s.worksheet.DataValidations.Count = &count
+	s.ws().DataValidations.DataValidation = append(s.ws().DataValidations.DataValidation, v)
+	count := uint32(len(s.ws().DataValidations.DataValidation))
+	s.ws().DataValidations.Count = &count
 
 	return nil
 }
 
 func (s *Sheet) ensureWorksheet() {
-	if s.worksheet == nil {
-		s.worksheet = &oxml.CT_Worksheet{
-			SheetData: oxml.CT_SheetData{},
-		}
-	}
+	s.ensureWS()
 }
 
 func (s *Sheet) markDirty() {
@@ -695,12 +722,12 @@ func (s *Sheet) markDirty() {
 }
 
 func (s *Sheet) ensureSheetView() *oxml.CT_SheetView {
-	if s.worksheet.SheetViews == nil {
-		s.worksheet.SheetViews = &oxml.CT_SheetViews{}
+	if s.ws().SheetViews == nil {
+		s.ws().SheetViews = &oxml.CT_SheetViews{}
 	}
-	s.worksheet.EnsureChildOrder("sheetViews")
-	if len(s.worksheet.SheetViews.SheetView) == 0 {
-		s.worksheet.SheetViews.SheetView = append(s.worksheet.SheetViews.SheetView, oxml.CT_SheetView{})
+	s.ws().EnsureChildOrder("sheetViews")
+	if len(s.ws().SheetViews.SheetView) == 0 {
+		s.ws().SheetViews.SheetView = append(s.ws().SheetViews.SheetView, oxml.CT_SheetView{})
 	}
-	return &s.worksheet.SheetViews.SheetView[0]
+	return &s.ws().SheetViews.SheetView[0]
 }

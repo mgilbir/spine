@@ -98,10 +98,10 @@ func (p *SheetProtection) SelectUnlockedCells() bool { return p.selectUnlocked }
 // Protection returns the sheet's protection state, or nil when the sheet has no
 // <sheetProtection> element. It is the read counterpart of Protect/Unprotect.
 func (s *Sheet) Protection() *SheetProtection {
-	if s.worksheet == nil || s.worksheet.SheetProtection == nil {
+	if s.ws() == nil || s.ws().SheetProtection == nil {
 		return nil
 	}
-	sp := s.worksheet.SheetProtection
+	sp := s.ws().SheetProtection
 	// Defaults: the format/insert/delete/sort/autoFilter/pivotTables operations
 	// default to locked; objects/scenarios and selection default to unlocked.
 	lockedDefaultTrue := func(b *bool) bool { return b == nil || *b }
@@ -211,17 +211,17 @@ func (s *Sheet) Protect(opts SheetProtectionOptions) {
 		sp.Password = fmt.Sprintf("%04X", legacyPasswordHash(opts.Password))
 	}
 
-	s.worksheet.SheetProtection = sp
-	s.worksheet.EnsureChildOrder("sheetProtection")
+	s.ws().SheetProtection = sp
+	s.ws().EnsureChildOrder("sheetProtection")
 }
 
 // Unprotect removes sheet protection, if any.
 func (s *Sheet) Unprotect() {
-	if s.worksheet == nil || s.worksheet.SheetProtection == nil {
+	if s.ws() == nil || s.ws().SheetProtection == nil {
 		return
 	}
 	s.markDirty()
-	s.worksheet.SheetProtection = nil
+	s.ws().SheetProtection = nil
 }
 
 // WorkbookProtection is a read-only view of a workbook's <workbookProtection>

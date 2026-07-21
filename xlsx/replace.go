@@ -39,11 +39,11 @@ func (s *Sheet) ReplaceText(replacements map[string]string) {
 
 // replaceText walks every cell of the sheet applying the replacements.
 func (s *Sheet) replaceText(replacements map[string]string) {
-	if s == nil || s.worksheet == nil {
+	if s == nil || s.ws() == nil {
 		return
 	}
-	for i := range s.worksheet.SheetData.Row {
-		row := &s.worksheet.SheetData.Row[i]
+	for i := range s.ws().SheetData.Row {
+		row := &s.ws().SheetData.Row[i]
 		for _, c := range row.C {
 			if c == nil {
 				continue

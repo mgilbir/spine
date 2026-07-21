@@ -71,10 +71,10 @@ type FormControl struct {
 // dropdowns, list boxes, option buttons, spinners, and scroll bars are all
 // reported with their linked cell. Extraction is read-only.
 func (s *Sheet) FormControls() []FormControl {
-	if s.workbook == nil || s.worksheet == nil || s.worksheet.LegacyDrawing == nil {
+	if s.workbook == nil || s.ws() == nil || s.ws().LegacyDrawing == nil {
 		return nil
 	}
-	vmlPart := s.resolveRelTarget(s.partName, s.worksheet.LegacyDrawing.RID)
+	vmlPart := s.resolveRelTarget(s.partName, s.ws().LegacyDrawing.RID)
 	if vmlPart == "" {
 		return nil
 	}

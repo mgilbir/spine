@@ -10,10 +10,10 @@ import (
 // []string{"A1:B2", "D4:D8"}), in document order. It is the read counterpart of
 // MergeCells; the returned slice is nil when the sheet has no merged ranges.
 func (s *Sheet) MergedCells() []string {
-	if s.worksheet == nil || s.worksheet.MergeCells == nil {
+	if s.ws() == nil || s.ws().MergeCells == nil {
 		return nil
 	}
-	merges := s.worksheet.MergeCells.MergeCell
+	merges := s.ws().MergeCells.MergeCell
 	if len(merges) == 0 {
 		return nil
 	}
@@ -51,23 +51,23 @@ func (s *Sheet) FrozenPanes() (cols, rows int, ok bool) {
 
 // pane returns the first sheetView's pane element, or nil if none.
 func (s *Sheet) pane() *oxml.CT_Pane {
-	if s.worksheet == nil || s.worksheet.SheetViews == nil {
+	if s.ws() == nil || s.ws().SheetViews == nil {
 		return nil
 	}
-	if len(s.worksheet.SheetViews.SheetView) == 0 {
+	if len(s.ws().SheetViews.SheetView) == 0 {
 		return nil
 	}
-	return s.worksheet.SheetViews.SheetView[0].Pane
+	return s.ws().SheetViews.SheetView[0].Pane
 }
 
 // AutoFilterRange returns the sheet's auto-filter range reference (e.g.
 // "A1:F1") and whether an auto-filter is set. It is the read counterpart of
 // SetAutoFilter.
 func (s *Sheet) AutoFilterRange() (string, bool) {
-	if s.worksheet == nil || s.worksheet.AutoFilter == nil {
+	if s.ws() == nil || s.ws().AutoFilter == nil {
 		return "", false
 	}
-	return s.worksheet.AutoFilter.Ref, true
+	return s.ws().AutoFilter.Ref, true
 }
 
 // ColumnWidth returns the configured width of a column (1-based) and whether a
@@ -90,13 +90,13 @@ func (s *Sheet) ColumnHidden(col int) bool {
 
 // colEntry returns the col definition covering the given 1-based column, or nil.
 func (s *Sheet) colEntry(col int) *oxml.CT_Col {
-	if s.worksheet == nil || col < 1 {
+	if s.ws() == nil || col < 1 {
 		return nil
 	}
 	c := uint32(col)
-	for i := range s.worksheet.Cols {
-		for j := range s.worksheet.Cols[i].Col {
-			entry := &s.worksheet.Cols[i].Col[j]
+	for i := range s.ws().Cols {
+		for j := range s.ws().Cols[i].Col {
+			entry := &s.ws().Cols[i].Col[j]
 			if entry.Min <= c && c <= entry.Max {
 				return entry
 			}
@@ -124,13 +124,13 @@ func (s *Sheet) RowHidden(row int) bool {
 
 // rowEntry returns the row definition for the given 1-based row number, or nil.
 func (s *Sheet) rowEntry(row int) *oxml.CT_Row {
-	if s.worksheet == nil || row < 1 {
+	if s.ws() == nil || row < 1 {
 		return nil
 	}
 	want := uint32(row)
-	for i := range s.worksheet.SheetData.Row {
-		if rn, ok := rowNumberOf(&s.worksheet.SheetData.Row[i]); ok && rn == want {
-			return &s.worksheet.SheetData.Row[i]
+	for i := range s.ws().SheetData.Row {
+		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == want {
+			return &s.ws().SheetData.Row[i]
 		}
 	}
 	return nil
@@ -140,10 +140,10 @@ func (s *Sheet) rowEntry(row int) *oxml.CT_Row {
 // document order. It is the read counterpart of AddDataValidation; the returned
 // slice is nil when the sheet has none.
 func (s *Sheet) DataValidations() []*DataValidation {
-	if s.worksheet == nil || s.worksheet.DataValidations == nil {
+	if s.ws() == nil || s.ws().DataValidations == nil {
 		return nil
 	}
-	dvs := s.worksheet.DataValidations.DataValidation
+	dvs := s.ws().DataValidations.DataValidation
 	if len(dvs) == 0 {
 		return nil
 	}
@@ -158,11 +158,11 @@ func (s *Sheet) DataValidations() []*DataValidation {
 // nil if the cell has none. When several rules cover the cell (Excel allows
 // this on hand-edited files) the first in document order is returned.
 func (c *Cell) DataValidation() *DataValidation {
-	if c.sheet == nil || c.sheet.worksheet == nil || c.sheet.worksheet.DataValidations == nil {
+	if c.sheet == nil || c.sheet.ws() == nil || c.sheet.ws().DataValidations == nil {
 		return nil
 	}
-	for i := range c.sheet.worksheet.DataValidations.DataValidation {
-		dv := &c.sheet.worksheet.DataValidations.DataValidation[i]
+	for i := range c.sheet.ws().DataValidations.DataValidation {
+		dv := &c.sheet.ws().DataValidations.DataValidation[i]
 		if sqrefContains(dv.Sqref, c.cell.R) {
 			return dataValidationFromModel(dv)
 		}

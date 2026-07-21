@@ -44,10 +44,10 @@ func (w *Workbook) Charts() []*chart.Chart {
 // openedCharts parses the sheet's drawing part (if any), finds each chart
 // graphicFrame, resolves its relationship to the chart part, and parses it.
 func (s *Sheet) openedCharts() []*chart.Chart {
-	if s.workbook == nil || s.worksheet == nil || s.worksheet.Drawing == nil {
+	if s.workbook == nil || s.ws() == nil || s.ws().Drawing == nil {
 		return nil
 	}
-	drawingPart := s.resolveRelTarget(s.partName, s.worksheet.Drawing.RID)
+	drawingPart := s.resolveRelTarget(s.partName, s.ws().Drawing.RID)
 	if drawingPart == "" {
 		return nil
 	}

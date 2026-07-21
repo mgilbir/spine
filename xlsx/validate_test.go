@@ -29,7 +29,7 @@ func TestValidate_SharedFormulaOrphan(t *testing.T) {
 			},
 		},
 	}
-	w := &Workbook{sheets: []*Sheet{{partName: "/xl/worksheets/sheet1.xml", worksheet: ws}}}
+	w := &Workbook{sheets: []*Sheet{{partName: "/xl/worksheets/sheet1.xml", wsModel: ws, wsParsed: true}}}
 	if r := w.Validate(); !hasCode(r, codeSharedFormulaOrphan, validate.SeverityError) {
 		t.Fatalf("expected shared-formula-orphan error, got: %v", r)
 	}
@@ -76,7 +76,7 @@ func TestValidate_MergeOverlap(t *testing.T) {
 		{Ref: "A1:B2"},
 		{Ref: "B2:C3"}, // overlaps at B2
 	}}}
-	w := &Workbook{sheets: []*Sheet{{partName: "/xl/worksheets/sheet1.xml", worksheet: ws}}}
+	w := &Workbook{sheets: []*Sheet{{partName: "/xl/worksheets/sheet1.xml", wsModel: ws, wsParsed: true}}}
 	if r := w.Validate(); !hasCode(r, codeMergeOverlap, validate.SeverityError) {
 		t.Fatalf("expected merge-overlap error, got: %v", r)
 	}

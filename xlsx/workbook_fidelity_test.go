@@ -22,7 +22,7 @@ func buildFidelityTestXlsx(t *testing.T, sheetXML string, extraParts map[string]
 
 	files := []struct{ name, data string }{
 		{"[Content_Types].xml", fmt.Sprintf(mutatorTestContentTypesFmt,
-			`<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`+extraOverrides)},
+			`<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.ws()+xml"/>`+extraOverrides)},
 		{"_rels/.rels", mutatorTestRootRels},
 		{"xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
 			`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>`},

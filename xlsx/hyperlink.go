@@ -75,10 +75,10 @@ func (h *Hyperlink) SetTooltip(tooltip string) {
 // Hyperlinks returns every hyperlink on the sheet, in document order. The
 // returned slice is nil when the sheet has none.
 func (s *Sheet) Hyperlinks() []*Hyperlink {
-	if s.worksheet == nil || s.worksheet.Hyperlinks == nil {
+	if s.ws() == nil || s.ws().Hyperlinks == nil {
 		return nil
 	}
-	links := s.worksheet.Hyperlinks.Hyperlink
+	links := s.ws().Hyperlinks.Hyperlink
 	if len(links) == 0 {
 		return nil
 	}
@@ -93,10 +93,10 @@ func (s *Sheet) Hyperlinks() []*Hyperlink {
 // none. When a hyperlink covers a range that includes the cell, that hyperlink
 // is returned.
 func (c *Cell) Hyperlink() *Hyperlink {
-	if c.sheet == nil || c.sheet.worksheet == nil || c.sheet.worksheet.Hyperlinks == nil {
+	if c.sheet == nil || c.sheet.ws() == nil || c.sheet.ws().Hyperlinks == nil {
 		return nil
 	}
-	links := c.sheet.worksheet.Hyperlinks.Hyperlink
+	links := c.sheet.ws().Hyperlinks.Hyperlink
 	for i := range links {
 		if strings.EqualFold(links[i].Ref, c.cell.R) || sqrefContains(links[i].Ref, c.cell.R) {
 			return c.sheet.newHyperlink(&links[i])
@@ -177,16 +177,16 @@ func (c *Cell) SetInternalHyperlink(location string) *Hyperlink {
 // container and splicing it into the child order when absent.
 func (s *Sheet) appendHyperlink(hl oxml.CT_Hyperlink) {
 	s.ensureWorksheet()
-	if s.worksheet.Hyperlinks == nil {
-		s.worksheet.Hyperlinks = &oxml.CT_Hyperlinks{}
+	if s.ws().Hyperlinks == nil {
+		s.ws().Hyperlinks = &oxml.CT_Hyperlinks{}
 	}
-	s.worksheet.EnsureChildOrder("hyperlinks")
-	s.worksheet.Hyperlinks.Hyperlink = append(s.worksheet.Hyperlinks.Hyperlink, hl)
+	s.ws().EnsureChildOrder("hyperlinks")
+	s.ws().Hyperlinks.Hyperlink = append(s.ws().Hyperlinks.Hyperlink, hl)
 }
 
 // lastHyperlink returns a pointer to the most recently appended hyperlink.
 func (s *Sheet) lastHyperlink() *oxml.CT_Hyperlink {
-	hl := s.worksheet.Hyperlinks.Hyperlink
+	hl := s.ws().Hyperlinks.Hyperlink
 	return &hl[len(hl)-1]
 }
 
@@ -194,10 +194,10 @@ func (s *Sheet) lastHyperlink() *oxml.CT_Hyperlink {
 // (case-insensitive) along with its pending external relationship, so replacing
 // a cell's hyperlink does not leave a duplicate or an orphaned relationship.
 func (s *Sheet) removeHyperlinkForRef(ref string) {
-	if s.worksheet == nil || s.worksheet.Hyperlinks == nil {
+	if s.ws() == nil || s.ws().Hyperlinks == nil {
 		return
 	}
-	links := s.worksheet.Hyperlinks.Hyperlink
+	links := s.ws().Hyperlinks.Hyperlink
 	kept := links[:0]
 	for _, hl := range links {
 		if strings.EqualFold(hl.Ref, ref) {
@@ -208,9 +208,9 @@ func (s *Sheet) removeHyperlinkForRef(ref string) {
 		}
 		kept = append(kept, hl)
 	}
-	s.worksheet.Hyperlinks.Hyperlink = kept
+	s.ws().Hyperlinks.Hyperlink = kept
 	if len(kept) == 0 {
-		s.worksheet.Hyperlinks = nil
+		s.ws().Hyperlinks = nil
 	}
 }
 
@@ -243,8 +243,8 @@ func (s *Sheet) nextHyperlinkRID() string {
 			used[rel.ID] = struct{}{}
 		}
 	}
-	if s.worksheet != nil && s.worksheet.Hyperlinks != nil {
-		for _, hl := range s.worksheet.Hyperlinks.Hyperlink {
+	if s.ws() != nil && s.ws().Hyperlinks != nil {
+		for _, hl := range s.ws().Hyperlinks.Hyperlink {
 			if hl.RID != "" {
 				used[hl.RID] = struct{}{}
 			}

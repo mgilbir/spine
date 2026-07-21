@@ -65,7 +65,7 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 			sheet.partName = partName
 			used[partName] = struct{}{}
 		}
-		if sheet.worksheet == nil {
+		if sheet.ws() == nil {
 			// Nothing parsed to attach to; skip rather than produce a dangling
 			// reference.
 			continue
@@ -88,8 +88,8 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 			// marshals by its captured ChildOrder, which won't contain
 			// "drawing" if the original had none, so the element must be
 			// inserted into the order at its schema position (audit C157).
-			sheet.worksheet.Drawing = &oxml.CT_Drawing{RID: drawingRID}
-			ensureDrawingInChildOrder(sheet.worksheet)
+			sheet.ws().Drawing = &oxml.CT_Drawing{RID: drawingRID}
+			ensureDrawingInChildOrder(sheet.ws())
 
 			sheetRels = append(sheetRels, &opc.Relationship{
 				ID:     drawingRID,

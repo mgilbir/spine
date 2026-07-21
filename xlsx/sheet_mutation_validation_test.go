@@ -66,7 +66,7 @@ func TestCellRefCanonicalized(t *testing.T) {
 	if got, _ := sheet.GetCellValue("a01"); got != "second" {
 		t.Errorf("GetCellValue(a01) = %q, want second", got)
 	}
-	if n := len(sheet.worksheet.SheetData.Row[0].C); n != 1 {
+	if n := len(sheet.ws().SheetData.Row[0].C); n != 1 {
 		t.Fatalf("row 1 has %d cells, want 1 (phantom cell created)", n)
 	}
 }
@@ -89,7 +89,7 @@ func TestSetColWidthSplitsRangedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cols := sheet.worksheet.Cols[0].Col
+	cols := sheet.ws().Cols[0].Col
 	covered := map[uint32][]int{}
 	for i, c := range cols {
 		if c.Min > c.Max {
@@ -136,7 +136,7 @@ func TestMergeCellsValidation(t *testing.T) {
 	if err := sheet.MergeCells("foo", "bar"); !errors.Is(err, ErrInvalidRange) {
 		t.Errorf("garbage refs: got %v, want ErrInvalidRange", err)
 	}
-	if sheet.worksheet != nil && sheet.worksheet.MergeCells != nil {
+	if sheet.ws() != nil && sheet.ws().MergeCells != nil {
 		t.Fatal("invalid merge was recorded")
 	}
 
@@ -144,7 +144,7 @@ func TestMergeCellsValidation(t *testing.T) {
 	if err := sheet.MergeCells("B2", "A1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := sheet.worksheet.MergeCells.MergeCell[0].Ref; got != "A1:B2" {
+	if got := sheet.ws().MergeCells.MergeCell[0].Ref; got != "A1:B2" {
 		t.Errorf("merge ref = %q, want A1:B2", got)
 	}
 
@@ -157,7 +157,7 @@ func TestMergeCellsValidation(t *testing.T) {
 	if err := sheet.MergeCells("C3", "D4"); err != nil {
 		t.Errorf("non-overlapping merge rejected: %v", err)
 	}
-	if n := len(sheet.worksheet.MergeCells.MergeCell); n != 2 {
+	if n := len(sheet.ws().MergeCells.MergeCell); n != 2 {
 		t.Errorf("merge count = %d, want 2", n)
 	}
 
@@ -165,7 +165,7 @@ func TestMergeCellsValidation(t *testing.T) {
 	if err := sheet.UnmergeCells("D4", "C3"); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(sheet.worksheet.MergeCells.MergeCell); n != 1 {
+	if n := len(sheet.ws().MergeCells.MergeCell); n != 1 {
 		t.Errorf("merge count after unmerge = %d, want 1", n)
 	}
 }

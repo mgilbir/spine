@@ -14,7 +14,7 @@ func TestFreezePanes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sv := sheet.worksheet.SheetViews
+	sv := sheet.ws().SheetViews
 	if sv == nil || len(sv.SheetView) == 0 {
 		t.Fatal("expected SheetViews to be set")
 	}
@@ -53,7 +53,7 @@ func TestFreezePanesRowOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pane := sheet.worksheet.SheetViews.SheetView[0].Pane
+	pane := sheet.ws().SheetViews.SheetView[0].Pane
 	if pane.XSplit != nil {
 		t.Errorf("XSplit should be nil for row-only freeze, got %v", *pane.XSplit)
 	}
@@ -73,7 +73,7 @@ func TestFreezePanesColOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pane := sheet.worksheet.SheetViews.SheetView[0].Pane
+	pane := sheet.ws().SheetViews.SheetView[0].Pane
 	if pane.XSplit == nil || *pane.XSplit != 2 {
 		t.Errorf("XSplit = %v, want 2", pane.XSplit)
 	}
@@ -99,7 +99,7 @@ func TestFreezePanesA1RemovesPane(t *testing.T) {
 	if err := sheet.FreezePanes("a1"); err != nil {
 		t.Fatal(err)
 	}
-	sv := sheet.worksheet.SheetViews.SheetView[0]
+	sv := sheet.ws().SheetViews.SheetView[0]
 	if sv.Pane != nil {
 		t.Errorf("Pane = %+v, want nil for A1 freeze", sv.Pane)
 	}
@@ -114,9 +114,9 @@ func TestFreezePanesA1RemovesPane(t *testing.T) {
 	if err := sheet2.FreezePanes("A1"); err != nil {
 		t.Fatal(err)
 	}
-	if sheet2.worksheet != nil && sheet2.worksheet.SheetViews != nil &&
-		len(sheet2.worksheet.SheetViews.SheetView) > 0 &&
-		sheet2.worksheet.SheetViews.SheetView[0].Pane != nil {
+	if sheet2.ws() != nil && sheet2.ws().SheetViews != nil &&
+		len(sheet2.ws().SheetViews.SheetView) > 0 &&
+		sheet2.ws().SheetViews.SheetView[0].Pane != nil {
 		t.Error("A1 freeze on a fresh sheet created a pane")
 	}
 }
@@ -130,7 +130,7 @@ func TestFreezePanesCanonicalizesRef(t *testing.T) {
 	if err := sheet.FreezePanes("b2"); err != nil {
 		t.Fatal(err)
 	}
-	sv := sheet.worksheet.SheetViews.SheetView[0]
+	sv := sheet.ws().SheetViews.SheetView[0]
 	if sv.Pane == nil || sv.Pane.TopLeftCell != "B2" {
 		t.Fatalf("TopLeftCell = %+v, want B2", sv.Pane)
 	}
@@ -152,7 +152,7 @@ func TestUnfreezePanes(t *testing.T) {
 	_ = sheet.FreezePanes("B2")
 	sheet.UnfreezePanes()
 
-	if sheet.worksheet.SheetViews.SheetView[0].Pane != nil {
+	if sheet.ws().SheetViews.SheetView[0].Pane != nil {
 		t.Error("expected Pane to be nil after unfreeze")
 	}
 }
@@ -163,7 +163,7 @@ func TestSetZoom(t *testing.T) {
 
 	sheet.SetZoom(150)
 
-	sv := sheet.worksheet.SheetViews.SheetView[0]
+	sv := sheet.ws().SheetViews.SheetView[0]
 	if sv.ZoomScale == nil || *sv.ZoomScale != 150 {
 		t.Errorf("ZoomScale = %v, want 150", sv.ZoomScale)
 	}
@@ -178,7 +178,7 @@ func TestSetShowGridLines(t *testing.T) {
 
 	sheet.SetShowGridLines(false)
 
-	sv := sheet.worksheet.SheetViews.SheetView[0]
+	sv := sheet.ws().SheetViews.SheetView[0]
 	if sv.ShowGridLines == nil || *sv.ShowGridLines != false {
 		t.Errorf("ShowGridLines = %v, want false", sv.ShowGridLines)
 	}
@@ -190,11 +190,11 @@ func TestSetTabColor(t *testing.T) {
 
 	sheet.SetTabColor("FF0000")
 
-	if sheet.worksheet.SheetPr == nil || sheet.worksheet.SheetPr.TabColor == nil {
+	if sheet.ws().SheetPr == nil || sheet.ws().SheetPr.TabColor == nil {
 		t.Fatal("expected TabColor to be set")
 	}
-	if sheet.worksheet.SheetPr.TabColor.Rgb != "FF0000" {
-		t.Errorf("Rgb = %s, want FF0000", sheet.worksheet.SheetPr.TabColor.Rgb)
+	if sheet.ws().SheetPr.TabColor.Rgb != "FF0000" {
+		t.Errorf("Rgb = %s, want FF0000", sheet.ws().SheetPr.TabColor.Rgb)
 	}
 }
 
@@ -206,11 +206,11 @@ func TestSetAutoFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if sheet.worksheet.AutoFilter == nil {
+	if sheet.ws().AutoFilter == nil {
 		t.Fatal("expected AutoFilter to be set")
 	}
-	if sheet.worksheet.AutoFilter.Ref != "A1:F1" {
-		t.Errorf("Ref = %s, want A1:F1", sheet.worksheet.AutoFilter.Ref)
+	if sheet.ws().AutoFilter.Ref != "A1:F1" {
+		t.Errorf("Ref = %s, want A1:F1", sheet.ws().AutoFilter.Ref)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestRemoveAutoFilter(t *testing.T) {
 	_ = sheet.SetAutoFilter("A1:F1")
 	sheet.RemoveAutoFilter()
 
-	if sheet.worksheet.AutoFilter != nil {
+	if sheet.ws().AutoFilter != nil {
 		t.Error("expected AutoFilter to be nil")
 	}
 }
@@ -244,7 +244,7 @@ func TestAddDataValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dv := sheet.worksheet.DataValidations
+	dv := sheet.ws().DataValidations
 	if dv == nil {
 		t.Fatal("expected DataValidations to be set")
 	}
@@ -305,7 +305,7 @@ func TestAddDataValidationHideDropDown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	v := sheet.worksheet.DataValidations.DataValidation[0]
+	v := sheet.ws().DataValidations.DataValidation[0]
 	if v.ShowDropDown == nil || !*v.ShowDropDown {
 		t.Errorf("ShowDropDown = %v, want true (showDropDown=\"1\" suppresses the dropdown)", v.ShowDropDown)
 	}

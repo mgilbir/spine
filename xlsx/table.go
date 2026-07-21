@@ -167,12 +167,12 @@ func (w *Workbook) Tables() []*Table {
 // parts and parses each. Parsing is read-only; the original part bytes still
 // round-trip verbatim among the preserved parts.
 func (s *Sheet) openedTables() []*Table {
-	if s.workbook == nil || s.worksheet == nil || s.worksheet.TableParts == nil {
+	if s.workbook == nil || s.ws() == nil || s.ws().TableParts == nil {
 		return nil
 	}
 	var out []*Table
-	for i := range s.worksheet.TableParts.TablePart {
-		rid := s.worksheet.TableParts.TablePart[i].RID
+	for i := range s.ws().TableParts.TablePart {
+		rid := s.ws().TableParts.TablePart[i].RID
 		if rid == "" {
 			continue
 		}
@@ -435,10 +435,10 @@ func isTableNameStart(b byte) bool {
 // updated relationship slice. Table relationship ids continue after those
 // already in relUsed.
 func (w *Workbook) writeSheetTables(writer *opc.Writer, sheet *Sheet, sheetRels []*opc.Relationship, relUsed, used map[string]struct{}, tableSeq *int) ([]*opc.Relationship, error) {
-	if sheet.worksheet.TableParts == nil {
-		sheet.worksheet.TableParts = &oxml.CT_TableParts{}
+	if sheet.ws().TableParts == nil {
+		sheet.ws().TableParts = &oxml.CT_TableParts{}
 	}
-	ensureTablePartsInChildOrder(sheet.worksheet)
+	ensureTablePartsInChildOrder(sheet.ws())
 
 	for _, tbl := range sheet.newTables {
 		tablePart, tableFile := allocTableName(used, tableSeq)
@@ -452,10 +452,10 @@ func (w *Workbook) writeSheetTables(writer *opc.Writer, sheet *Sheet, sheetRels 
 			Type:   opc.RelTypeTable,
 			Target: fmt.Sprintf("../tables/%s", tableFile),
 		})
-		sheet.worksheet.TableParts.TablePart = append(sheet.worksheet.TableParts.TablePart, oxml.CT_TablePart{RID: rid})
+		sheet.ws().TableParts.TablePart = append(sheet.ws().TableParts.TablePart, oxml.CT_TablePart{RID: rid})
 	}
-	count := uint32(len(sheet.worksheet.TableParts.TablePart))
-	sheet.worksheet.TableParts.Count = &count
+	count := uint32(len(sheet.ws().TableParts.TablePart))
+	sheet.ws().TableParts.Count = &count
 	return sheetRels, nil
 }
 
