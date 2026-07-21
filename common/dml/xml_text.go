@@ -528,8 +528,13 @@ func (r *R) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					r.TEmptyTag = style
 				}
 				if hasSrc && !style.IsSelfClose() {
-					r.tRaw = xmlb.CaptureRawInner(d, innerStart)
-					r.tOrig = r.T
+					// Retain the verbatim form only when the escaper cannot
+					// reproduce it (entity choices, raw CR); for ordinary text
+					// it duplicates T and doubles a text-heavy part's memory.
+					if inner := xmlb.CaptureRawInner(d, innerStart); inner != nil && !xmlb.TextEscapeReproduces(r.T, inner) {
+						r.tRaw = inner
+						r.tOrig = r.T
+					}
 				}
 			default:
 				if err := d.Skip(); err != nil {

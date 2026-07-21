@@ -1,6 +1,6 @@
 package xml
 
-import "strings"
+import "bytes"
 
 // Prolog captures a source part's XML declaration and the whitespace around
 // the document element, so a regenerated part reproduces the producer's
@@ -35,19 +35,21 @@ type Prolog struct {
 }
 
 // CaptureProlog extracts the declaration, separator, and trailer from a source
-// part's raw bytes.
+// part's raw bytes. It works on the byte slice directly and copies only the
+// small captured spans (never the whole part) into independent strings: a
+// string(data) of the full part, or a substring aliasing it, would pin the
+// entire part in memory through the tiny Prolog fields.
 func CaptureProlog(data []byte) Prolog {
 	p := Prolog{Captured: true}
-	s := string(data)
 
 	i := 0
-	if strings.HasPrefix(s, "\xef\xbb\xbf") {
+	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
 		i = 3
 	}
-	if strings.HasPrefix(s[i:], "<?xml") {
-		if end := strings.Index(s[i:], "?>"); end >= 0 {
+	if bytes.HasPrefix(data[i:], []byte("<?xml")) {
+		if end := bytes.Index(data[i:], []byte("?>")); end >= 0 {
 			declEnd := i + end + 2
-			p.Decl = s[:declEnd]
+			p.Decl = string(data[:declEnd])
 			i = declEnd
 		}
 	} else {
@@ -59,32 +61,32 @@ func CaptureProlog(data []byte) Prolog {
 	// including any comments and the whitespace around them.
 	j := i
 	for {
-		lt := strings.IndexByte(s[j:], '<')
+		lt := bytes.IndexByte(data[j:], '<')
 		if lt < 0 {
 			break
 		}
 		pos := j + lt
-		if strings.HasPrefix(s[pos:], "<!--") {
-			end := strings.Index(s[pos:], "-->")
+		if bytes.HasPrefix(data[pos:], []byte("<!--")) {
+			end := bytes.Index(data[pos:], []byte("-->"))
 			if end < 0 {
 				break
 			}
 			j = pos + end + 3
 			continue
 		}
-		p.Sep = s[i:pos]
+		p.Sep = string(data[i:pos])
 		break
 	}
-	if gt := strings.LastIndexByte(s, '>'); gt >= 0 {
-		if gt+1 < len(s) {
-			p.Trailer = s[gt+1:]
+	if gt := bytes.LastIndexByte(data, '>'); gt >= 0 {
+		if gt+1 < len(data) {
+			p.Trailer = string(data[gt+1:])
 		}
-		if lt := strings.LastIndex(s[:gt], "</"); lt >= 0 {
-			end := s[lt : gt+1]
+		if lt := bytes.LastIndex(data[:gt], []byte("</")); lt >= 0 {
+			end := data[lt : gt+1]
 			// Only keep a non-canonical form (whitespace before '>'), so the
 			// builder's normal end tag stays in charge otherwise.
-			if strings.ContainsAny(end[2:len(end)-1], " \t\r\n") {
-				p.RootEnd = end
+			if bytes.ContainsAny(end[2:len(end)-1], " \t\r\n") {
+				p.RootEnd = string(end)
 			}
 		}
 	}

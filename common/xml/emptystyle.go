@@ -92,8 +92,8 @@ func InputOffsetOf(d *xml.Decoder) (off int64, ok bool) {
 // CaptureRawInner returns the verbatim inner bytes of the element the decoder
 // just fully consumed: startOff is the offset taken right after its start tag
 // (InputOffsetOf before decoding the content). The trailing end tag is
-// stripped; a self-closed element yields nil. The slice aliases the registered
-// source and must be treated as read-only.
+// stripped; a self-closed element yields nil. The returned slice is an
+// independent copy, so callers may retain it without pinning the source.
 func CaptureRawInner(d *xml.Decoder, startOff int64) []byte {
 	v, ok := decoderSources.Load(d)
 	if !ok {
@@ -115,7 +115,11 @@ func CaptureRawInner(d *xml.Decoder, startOff int64) []byte {
 	if len(inner) == 0 {
 		return nil
 	}
-	return inner
+	// Copy: inner sub-slices the (potentially large) registered source buffer.
+	// A run keeps its rawText for the document's lifetime, so returning the
+	// alias verbatim would pin the entire part in memory — one captured run of
+	// a 50 MB document.xml would hold all 50 MB alive.
+	return bytes.Clone(inner)
 }
 
 // ElementPrefix re-lexes the start tag the decoder just consumed and returns

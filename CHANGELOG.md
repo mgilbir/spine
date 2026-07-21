@@ -5,6 +5,27 @@
 User-visible changes from the feature series (#54–#58) and the audit
 remediation series (#59–#75).
 
+### Performance
+
+- Large documents open with substantially less memory. Three "a tiny captured
+  value pins the whole part" allocations were removed, and one redundant full
+  copy of the main part. On a 51.8 MB `word/document.xml` the live heap after
+  open drops ~23% (661 MB → 506 MB) and peak RSS ~17%.
+  - `common/xml`: `CaptureProlog` built a `string(data)` of the entire part and
+    then sliced tiny fields (declaration, separator, trailer) out of it, so the
+    whole part stayed alive through those few-byte fields. It now scans the
+    bytes directly and copies only the small spans it keeps.
+  - `common/xml`: `CaptureRawInner` returned a sub-slice of the source buffer;
+    every run/cell that captured its verbatim text pinned the entire part in
+    memory. It now returns an independent copy, and callers keep that copy only
+    when the normal escaper cannot reproduce the source (new
+    `TextEscapeReproduces`) — ordinary text no longer stores a second copy
+    alongside the decoded value. Applied to docx run text and DrawingML `a:t`.
+  - `docx`: the main `document.xml` was stored as raw bytes for round-trip even
+    though it is always regenerated from the parsed model on save. The raw copy
+    is no longer retained; the one accessor that scans its raw body XML (OLE
+    ProgID resolution) re-reads it on demand from the still-open source.
+
 ### Fixed
 
 - docx,dml,opc: five fidelity/correctness bugs surfaced by Common Crawl

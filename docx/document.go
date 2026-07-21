@@ -147,6 +147,26 @@ func (d *Document) mainPart() string {
 	return mainDocumentPart
 }
 
+// rawPartData returns a part's raw source bytes for the read-only accessors
+// that scan untyped body XML (OLE ProgID resolution). Preserved parts are
+// served from the in-memory copy; the main document part is not retained (it is
+// parsed into the model and regenerated on save, so keeping its raw bytes would
+// double the memory cost of a large document.xml), so it is re-read on demand
+// from the still-open source reader. Returns nil when the bytes are unavailable.
+func (d *Document) rawPartData(name string) []byte {
+	if p, ok := d.preservedParts[name]; ok {
+		return p.Data
+	}
+	if name == d.mainPart() && d.reader != nil {
+		if f := d.reader.GetFile(name); f != nil {
+			if data, err := f.ReadAll(); err == nil {
+				return data
+			}
+		}
+	}
+	return nil
+}
+
 // documentFlavors is the set of WordprocessingML main-part content types
 // (ECMA-376 and [MS-OFFDI]) that Open accepts: regular document (.docx),
 // template (.dotx), and their macro-enabled variants (.docm/.dotm).
@@ -300,6 +320,14 @@ func (d *Document) loadAllParts(mainPartName string) error {
 
 	for _, file := range d.reader.Files {
 		name := file.Name
+		// The main document part is already parsed into the model (in
+		// openFromReader) and is unconditionally regenerated from it on save —
+		// the raw copy here is skipped on write (see saveRoundTrip) and read
+		// back by nothing. Storing it just doubles the in-memory cost of a
+		// large document.xml, so skip it entirely.
+		if name == mainPartName {
+			continue
+		}
 		data, err := file.ReadAll()
 		if err != nil {
 			// A part the model parses must not silently vanish (C60): it

@@ -81,3 +81,45 @@ func TestCTP_PreservesContentPart(t *testing.T) {
 		t.Errorf("contentPart lost its r:id: %s", out)
 	}
 }
+
+// The verbatim source form of run text (rawText) is retained only when the
+// normal escaper cannot reproduce it; for ordinary text it is redundant with
+// Text and dropped to avoid doubling a text-heavy document's memory. Either
+// way the round-trip must be byte-identical.
+func TestCTText_RawTextRetainedOnlyWhenNeeded(t *testing.T) {
+	const nsW = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	cases := []struct {
+		name    string
+		inner   string // exact w:t inner bytes as the source wrote them
+		wantRaw bool   // whether rawText must be retained
+	}{
+		{"plain", "just some text", false},
+		{"canonical amp", "a &amp; b", false},
+		{"canonical lt gt", "x &lt; y &gt; z", false},
+		{"apos entity", "it&apos;s", true},
+		{"quot entity", "say &quot;hi&quot;", true},
+		{"numeric ref", "A&#66;C", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<w:p xmlns:w="` + nsW + `"><w:r><w:t>` + tc.inner + `</w:t></w:r></w:p>`
+			var p CT_P
+			if err := xmlb.UnmarshalWithSource([]byte(src), &p); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			txt := p.R[0].T[0]
+			if got := txt.rawText != nil; got != tc.wantRaw {
+				t.Errorf("rawText retained = %v, want %v (Text=%q)", got, tc.wantRaw, txt.Text)
+			}
+			p.CapturedAttrs = nil
+			b := xmlb.NewWordprocessingMLBuilder()
+			b.StartElementWithNS(xmlb.NSWordprocessingML, "body", xmlb.WordprocessingMLNamespaces())
+			p.MarshalToBuilder(b, xmlb.NSWordprocessingML, "p")
+			b.EndElement(xmlb.NSWordprocessingML, "body")
+			out := b.String()
+			if want := `<w:t>` + tc.inner + `</w:t>`; !strings.Contains(out, want) {
+				t.Errorf("round-trip drift: want %q in\n%s", want, out)
+			}
+		})
+	}
+}

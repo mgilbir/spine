@@ -127,8 +127,16 @@ func (t *CT_Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		return err
 	}
 	if hasSrc && !t.CapturedEmptyTag.IsSelfClose() {
-		t.rawText = xmlb.CaptureRawInner(d, innerStart)
-		t.origText = t.Text
+		inner := xmlb.CaptureRawInner(d, innerStart)
+		// Retain the verbatim source form only when the normal escaper would
+		// not reproduce it (producer entity choices like &apos;/&#039;, raw CR
+		// bytes). For ordinary text the escape path already round-trips
+		// byte-for-byte, so keeping rawText would just duplicate Text and double
+		// the memory cost of a text-heavy document.
+		if inner != nil && !xmlb.TextEscapeReproduces(t.Text, inner) {
+			t.rawText = inner
+			t.origText = t.Text
+		}
 	}
 	return nil
 }
