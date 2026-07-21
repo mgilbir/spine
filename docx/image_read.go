@@ -108,8 +108,8 @@ func (img *InlineImage) resolveBytes() (string, []byte) {
 // in document order, including images nested in tables, headers, and footers.
 func (d *Document) Images() []*InlineImage {
 	var out []*InlineImage
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			out = appendParagraphImages(out, &Paragraph{document: d, p: p})
 		}
 	}

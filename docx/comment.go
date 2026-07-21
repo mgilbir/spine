@@ -383,10 +383,10 @@ func (d *Document) nestReplyAnchor(parentID, newID string) {
 
 // bodyParagraphs returns the body's paragraphs in document order.
 func (d *Document) bodyParagraphs() []*oxml.CT_P {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	return d.document.Body.Paragraphs()
+	return d.doc().Body.Paragraphs()
 }
 
 // nextParaID returns an 8-hex-digit paraId not already used by any body or

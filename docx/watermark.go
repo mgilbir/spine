@@ -240,16 +240,16 @@ func (d *Document) watermarkHeaders() []*oxml.CT_HdrFtr {
 // watermarkTargetHeaders returns the header handles a watermark is applied to
 // for the document's final (default) section (see watermarkTargetHeadersFor).
 func (d *Document) watermarkTargetHeaders() ([]*Header, error) {
-	if d.document == nil {
+	if d.doc() == nil {
 		return nil, fmt.Errorf("docx: document has no body")
 	}
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	if d.document.Body.SectPr == nil {
-		d.document.Body.SectPr = &oxml.CT_SectPr{}
+	if d.doc().Body.SectPr == nil {
+		d.doc().Body.SectPr = &oxml.CT_SectPr{}
 	}
-	return d.watermarkTargetHeadersFor(d.document.Body.SectPr), nil
+	return d.watermarkTargetHeadersFor(d.doc().Body.SectPr), nil
 }
 
 // watermarkTargetHeadersFor returns the header handles a watermark is applied to

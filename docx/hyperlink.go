@@ -117,8 +117,8 @@ func (p *Paragraph) Hyperlinks() []*Hyperlink {
 // including hyperlinks nested in tables and structured document tags.
 func (d *Document) Hyperlinks() []*Hyperlink {
 	var out []*Hyperlink
-	if d.document != nil && d.document.Body != nil {
-		for _, cp := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, cp := range d.doc().Body.AllParagraphs() {
 			para := &Paragraph{document: d, p: cp}
 			for _, h := range cp.Hyperlink {
 				if h != nil {

@@ -11,13 +11,13 @@ func TestAddHeader(t *testing.T) {
 	hdr := doc.AddHeader(HeaderDefault)
 	hdr.AddParagraphWithText("Header Text")
 
-	if doc.document.Body.SectPr == nil {
+	if doc.doc().Body.SectPr == nil {
 		t.Fatal("expected SectPr to be set")
 	}
-	if len(doc.document.Body.SectPr.HeaderReference) != 1 {
-		t.Fatalf("expected 1 header reference, got %d", len(doc.document.Body.SectPr.HeaderReference))
+	if len(doc.doc().Body.SectPr.HeaderReference) != 1 {
+		t.Fatalf("expected 1 header reference, got %d", len(doc.doc().Body.SectPr.HeaderReference))
 	}
-	ref := doc.document.Body.SectPr.HeaderReference[0]
+	ref := doc.doc().Body.SectPr.HeaderReference[0]
 	if ref.Type != "default" {
 		t.Errorf("Type = %s, want default", ref.Type)
 	}
@@ -31,10 +31,10 @@ func TestAddFooter(t *testing.T) {
 	ftr := doc.AddFooter(FooterDefault)
 	ftr.AddParagraphWithText("Footer Text")
 
-	if len(doc.document.Body.SectPr.FooterReference) != 1 {
-		t.Fatalf("expected 1 footer reference, got %d", len(doc.document.Body.SectPr.FooterReference))
+	if len(doc.doc().Body.SectPr.FooterReference) != 1 {
+		t.Fatalf("expected 1 footer reference, got %d", len(doc.doc().Body.SectPr.FooterReference))
 	}
-	ref := doc.document.Body.SectPr.FooterReference[0]
+	ref := doc.doc().Body.SectPr.FooterReference[0]
 	if ref.Type != "default" {
 		t.Errorf("Type = %s, want default", ref.Type)
 	}
@@ -45,7 +45,7 @@ func TestAddFirstPageHeader(t *testing.T) {
 	doc.AddHeader(HeaderFirst)
 
 	// First page header should enable TitlePg
-	if doc.document.Body.SectPr.TitlePg == nil {
+	if doc.doc().Body.SectPr.TitlePg == nil {
 		t.Error("expected TitlePg to be set for first page header")
 	}
 }
@@ -84,11 +84,11 @@ func TestMultipleHeadersFooters(t *testing.T) {
 	doc.AddFooter(FooterDefault)
 	doc.AddFooter(FooterFirst)
 
-	if len(doc.document.Body.SectPr.HeaderReference) != 2 {
-		t.Fatalf("expected 2 header references, got %d", len(doc.document.Body.SectPr.HeaderReference))
+	if len(doc.doc().Body.SectPr.HeaderReference) != 2 {
+		t.Fatalf("expected 2 header references, got %d", len(doc.doc().Body.SectPr.HeaderReference))
 	}
-	if len(doc.document.Body.SectPr.FooterReference) != 2 {
-		t.Fatalf("expected 2 footer references, got %d", len(doc.document.Body.SectPr.FooterReference))
+	if len(doc.doc().Body.SectPr.FooterReference) != 2 {
+		t.Fatalf("expected 2 footer references, got %d", len(doc.doc().Body.SectPr.FooterReference))
 	}
 
 	tmpDir := t.TempDir()

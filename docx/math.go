@@ -104,8 +104,8 @@ func (p *Paragraph) unmarshalMath(raw []byte, localName string, v interface{}) e
 	writeDecl(xmlb.PrefixRelationships, xmlb.NSOfficeDocumentRels)
 	writeDecl(xmlb.PrefixMarkupCompatibility, xmlb.NSMarkupCompatibility)
 	writeDecl(xmlb.PrefixWord2010, xmlb.NSWord2010)
-	if p.document != nil && p.document.document != nil {
-		for _, decl := range p.document.document.OriginalNSDecls {
+	if p.document != nil && p.document.doc() != nil {
+		for _, decl := range p.document.doc().OriginalNSDecls {
 			writeDecl(decl.Prefix, decl.URI)
 		}
 	}

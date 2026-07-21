@@ -32,8 +32,8 @@ func (d *Document) ReplaceText(replacements map[string]string) {
 
 	// Body: the main document part is always regenerated on save, so edits to
 	// its paragraphs persist without any modification bookkeeping.
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			replaceTextInParagraph(p, replacements)
 		}
 	}

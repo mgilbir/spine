@@ -21,8 +21,18 @@ type Document struct {
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
-	reader   *opc.ReadCloser
-	document *oxml.CT_Document
+	reader *opc.ReadCloser
+	// docModel is the parsed main-document body. For an opened document it is
+	// parsed lazily on first access (see doc): a document that is round-tripped
+	// without inspecting or editing its body is never parsed, so the save writes
+	// the original main-part bytes verbatim rather than building (and holding) a
+	// full body model. Reach it through doc(); the save path and Create set/read
+	// docModel + docParsed directly so they do not trigger a parse.
+	docModel *oxml.CT_Document
+	// docParsed records that the body was materialized (parsed on access, or
+	// built by Create). When false at save time the body was never touched, so
+	// the original bytes pass through unchanged.
+	docParsed bool
 	// mainPartName is the resolved name of the main document part from the
 	// package root relationships (usually /word/document.xml, but e.g.
 	// /word/document2.xml occurs in the wild). The save paths regenerate THIS
@@ -147,6 +157,30 @@ func (d *Document) mainPart() string {
 	return mainDocumentPart
 }
 
+// doc returns the parsed main-document body, parsing it lazily from the
+// original main-part bytes on first access. Marking docParsed means the save
+// will regenerate the part from the model (still byte-identical for an
+// unmodified body); a document whose body is never accessed keeps docParsed
+// false and round-trips its original bytes verbatim. Open validates the body up
+// front, so a lazy parse here does not re-surface the malformed-document error
+// Open already reports. Returns nil only when the original bytes are
+// unavailable (e.g. a hand-constructed Document).
+func (d *Document) doc() *oxml.CT_Document {
+	if d.docModel == nil && !d.docParsed {
+		d.docParsed = true
+		if raw := d.rawPartData(d.mainPart()); raw != nil {
+			m := &oxml.CT_Document{}
+			m.Prolog = xmlb.CaptureProlog(raw)
+			m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
+			m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
+			if err := xmlb.UnmarshalWithSource(raw, m); err == nil {
+				d.docModel = m
+			}
+		}
+	}
+	return d.docModel
+}
+
 // rawPartData returns a part's raw source bytes for the read-only accessors
 // that scan untyped body XML (OLE ProgID resolution). Preserved parts are
 // served from the in-memory copy; the main document part is not retained (it is
@@ -258,23 +292,21 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		return nil, err
 	}
 
-	var doc oxml.CT_Document
-	doc.Prolog = xmlb.CaptureProlog(data)
-	doc.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
-	doc.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
-	if err := xmlb.UnmarshalWithSource(data, &doc); err != nil {
+	// Validate the body up front (parse-then-discard), then let it be parsed
+	// lazily on first access (see doc). A document that is round-tripped without
+	// touching its body then never builds — or holds — a full body model.
+	// Validation is deliberately strict: some wild files carry XML that is not
+	// well-formed (unescaped '&', control characters like U+001F). Word silently
+	// repairs those; accepting and re-emitting them here would launder invalid
+	// XML through the library, so they are rejected with the part name for
+	// context.
+	if err := xmlb.UnmarshalWithSource(data, &oxml.CT_Document{}); err != nil {
 		_ = reader.Close()
-		// Deliberately strict: some wild files carry XML that is not
-		// well-formed (unescaped '&', control characters like U+001F). Word
-		// silently repairs those; accepting and re-emitting them here would
-		// launder invalid XML through the library, so they are rejected with
-		// the part name for context.
 		return nil, fmt.Errorf("docx: parsing %s: %w", mainPartName, err)
 	}
 
 	d := &Document{
 		reader:         reader,
-		document:       &doc,
 		mainPartName:   mainPartName,
 		flavor:         mainPart.ContentType,
 		dirEntries:     reader.DirectoryEntries,
@@ -535,7 +567,8 @@ func Create() *Document {
 	}
 
 	return &Document{
-		document:       doc,
+		docModel:       doc,
+		docParsed:      true,
 		mainPartName:   mainDocumentPart,
 		headers:        make(map[string]*headerPart),
 		footers:        make(map[string]*footerPart),
@@ -824,12 +857,26 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		return err
 	}
 
-	// Write the main document part (regenerated) under its resolved name:
-	// writing to a hardcoded /word/document.xml while the package's root
-	// relationship points elsewhere would orphan the edits.
-	docData, err := marshalDocumentXML(d.document)
-	if err != nil {
-		return err
+	// Write the main document part under its resolved name: writing to a
+	// hardcoded /word/document.xml while the package's root relationship points
+	// elsewhere would orphan the edits. When the body was never materialized the
+	// original bytes pass through verbatim; otherwise it is regenerated from the
+	// (possibly edited) model.
+	var docData []byte
+	if d.docModel != nil {
+		var err error
+		docData, err = marshalDocumentXML(d.docModel)
+		if err != nil {
+			return err
+		}
+	} else if docData = d.rawPartData(mainPartName); docData == nil {
+		// Bytes unavailable (should not happen for an opened document): fall
+		// back to materializing and regenerating.
+		var err error
+		docData, err = marshalDocumentXML(d.doc())
+		if err != nil {
+			return err
+		}
 	}
 	if err := writer.WritePart(mainPartName, d.Flavor(), docData); err != nil {
 		return err
@@ -1115,7 +1162,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	}
 
 	// Write document.xml
-	docData, err := marshalDocumentXML(d.document)
+	docData, err := marshalDocumentXML(d.doc())
 	if err != nil {
 		return err
 	}
@@ -1250,10 +1297,10 @@ func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
 // Paragraphs returns all paragraphs in the document body in document order,
 // including paragraphs wrapped in body-level structured document tags.
 func (d *Document) Paragraphs() []*Paragraph {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	paras := d.document.Body.Paragraphs()
+	paras := d.doc().Body.Paragraphs()
 	result := make([]*Paragraph, len(paras))
 	for i, p := range paras {
 		result[i] = &Paragraph{document: d, p: p}
@@ -1263,11 +1310,11 @@ func (d *Document) Paragraphs() []*Paragraph {
 
 // AddParagraph adds a new paragraph to the document body.
 func (d *Document) AddParagraph() *Paragraph {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
 	p := &oxml.CT_P{}
-	d.document.Body.AppendP(p)
+	d.doc().Body.AppendP(p)
 	return &Paragraph{document: d, p: p}
 }
 
@@ -1308,11 +1355,11 @@ func (d *Document) Body() string {
 
 // Tables returns all tables in the document body.
 func (d *Document) Tables() []*Table {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	result := make([]*Table, len(d.document.Body.Tbl))
-	for i, tbl := range d.document.Body.Tbl {
+	result := make([]*Table, len(d.doc().Body.Tbl))
+	for i, tbl := range d.doc().Body.Tbl {
 		result[i] = &Table{document: d, tbl: tbl}
 	}
 	return result
@@ -1320,8 +1367,8 @@ func (d *Document) Tables() []*Table {
 
 // AddTable creates a new table with the specified number of rows and columns.
 func (d *Document) AddTable(rows, cols int) *Table {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
 	tbl := &oxml.CT_Tbl{
 		TblPr:   &oxml.CT_TblPr{},
@@ -1343,7 +1390,7 @@ func (d *Document) AddTable(rows, cols int) *Table {
 		}
 		tbl.AppendRow(tr)
 	}
-	d.document.Body.AppendTbl(tbl)
+	d.doc().Body.AppendTbl(tbl)
 	return &Table{document: d, tbl: tbl}
 }
 
@@ -1510,13 +1557,13 @@ func (d *Document) dropSessionFooter(relID string) {
 // DefaultSection returns the document's default (last) section.
 // If no section properties exist, they are created with default values.
 func (d *Document) DefaultSection() *Section {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	if d.document.Body.SectPr == nil {
-		d.document.Body.SectPr = &oxml.CT_SectPr{}
+	if d.doc().Body.SectPr == nil {
+		d.doc().Body.SectPr = &oxml.CT_SectPr{}
 	}
-	return &Section{sectPr: d.document.Body.SectPr}
+	return &Section{sectPr: d.doc().Body.SectPr}
 }
 
 // AddSectionBreak adds a section break by setting section properties on the
@@ -1525,20 +1572,20 @@ func (d *Document) DefaultSection() *Section {
 // a new paragraph is appended after it to carry the section properties —
 // attaching them to an earlier paragraph would move the section boundary.
 func (d *Document) AddSectionBreak() *Section {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
 
 	// Move current body sectPr into the last paragraph
-	oldSectPr := d.document.Body.SectPr
+	oldSectPr := d.doc().Body.SectPr
 	if oldSectPr == nil {
 		oldSectPr = &oxml.CT_SectPr{}
 	}
 
-	lastP := d.document.Body.LastBlockParagraph()
+	lastP := d.doc().Body.LastBlockParagraph()
 	if lastP == nil {
 		lastP = &oxml.CT_P{}
-		d.document.Body.AppendP(lastP)
+		d.doc().Body.AppendP(lastP)
 	}
 	if lastP.PPr == nil {
 		lastP.PPr = &oxml.CT_PPr{}
@@ -1546,6 +1593,6 @@ func (d *Document) AddSectionBreak() *Section {
 	lastP.PPr.SectPr = oldSectPr
 
 	// Create new body-level section
-	d.document.Body.SectPr = &oxml.CT_SectPr{}
-	return &Section{sectPr: d.document.Body.SectPr}
+	d.doc().Body.SectPr = &oxml.CT_SectPr{}
+	return &Section{sectPr: d.doc().Body.SectPr}
 }

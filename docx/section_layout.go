@@ -30,17 +30,17 @@ const (
 // final body-level section. Unlike DefaultSection, it does not fabricate a
 // body section when none exists; a well-formed document always ends with one.
 func (d *Document) Sections() []*Section {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
 	var result []*Section
-	for _, p := range d.document.Body.Paragraphs() {
+	for _, p := range d.doc().Body.Paragraphs() {
 		if p.PPr != nil && p.PPr.SectPr != nil {
 			result = append(result, &Section{sectPr: p.PPr.SectPr})
 		}
 	}
-	if d.document.Body.SectPr != nil {
-		result = append(result, &Section{sectPr: d.document.Body.SectPr})
+	if d.doc().Body.SectPr != nil {
+		result = append(result, &Section{sectPr: d.doc().Body.SectPr})
 	}
 	return result
 }

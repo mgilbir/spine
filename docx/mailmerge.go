@@ -200,12 +200,12 @@ func toCTMailMerge(mm *MailMerge) *oxml.CT_MailMerge {
 // and complex fields (w:fldChar/w:instrText run sequences) are scanned, in
 // paragraphs anywhere in the body including inside tables.
 func (d *Document) MergeFields() []string {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
 	var out []string
 	seen := map[string]bool{}
-	for _, p := range d.document.Body.AllParagraphs() {
+	for _, p := range d.doc().Body.AllParagraphs() {
 		collectParagraphMergeFields(p, &out, seen)
 	}
 	return out

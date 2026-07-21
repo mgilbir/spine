@@ -49,10 +49,10 @@ func (d *Document) Bookmarks() []*Bookmark {
 // allBookmarkParagraphs returns the paragraphs a bookmark range can be resolved
 // across: every body paragraph in document order (including table-nested ones).
 func (d *Document) allBookmarkParagraphs() []*oxml.CT_P {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	return d.document.Body.AllParagraphs()
+	return d.doc().Body.AllParagraphs()
 }
 
 // AddBookmark brackets the whole paragraph with a bookmark of the given name,

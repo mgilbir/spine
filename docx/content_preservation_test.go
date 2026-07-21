@@ -386,7 +386,7 @@ func TestAddHeaderSameTypeReplaces(t *testing.T) {
 	doc.AddHeader(HeaderDefault).AddParagraphWithText("OLD")
 	doc.AddHeader(HeaderDefault).AddParagraphWithText("NEW")
 
-	if got := len(doc.document.Body.SectPr.HeaderReference); got != 1 {
+	if got := len(doc.doc().Body.SectPr.HeaderReference); got != 1 {
 		t.Fatalf("headerReference count = %d, want 1", got)
 	}
 
@@ -418,7 +418,7 @@ func TestAddFooterSameTypeReplaces(t *testing.T) {
 	doc.AddFooter(FooterDefault).AddParagraphWithText("OLD")
 	doc.AddFooter(FooterDefault).AddParagraphWithText("NEW")
 
-	if got := len(doc.document.Body.SectPr.FooterReference); got != 1 {
+	if got := len(doc.doc().Body.SectPr.FooterReference); got != 1 {
 		t.Fatalf("footerReference count = %d, want 1", got)
 	}
 
@@ -440,7 +440,7 @@ func TestAddHeaderDifferentTypesCoexist(t *testing.T) {
 	doc := Create()
 	doc.AddHeader(HeaderDefault).AddParagraphWithText("D")
 	doc.AddHeader(HeaderFirst).AddParagraphWithText("F")
-	if got := len(doc.document.Body.SectPr.HeaderReference); got != 2 {
+	if got := len(doc.doc().Body.SectPr.HeaderReference); got != 2 {
 		t.Fatalf("headerReference count = %d, want 2", got)
 	}
 	_, saved := reopen(t, doc)

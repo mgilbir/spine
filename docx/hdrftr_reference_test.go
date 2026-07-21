@@ -35,7 +35,7 @@ func TestHeaderFooterReference_TypeAttributePrefixed(t *testing.T) {
 	checkDocumentXML(saved)
 
 	// The parsed value must survive and re-emit prefixed on a second cycle.
-	refs := doc.document.Body.SectPr.HeaderReference
+	refs := doc.doc().Body.SectPr.HeaderReference
 	if len(refs) != 1 || refs[0].Type != "first" {
 		t.Fatalf("parsed headerReference type = %v, want [first]", refs)
 	}

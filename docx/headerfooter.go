@@ -73,13 +73,13 @@ type hdrFtrPart struct {
 // AddHeader adds a header of the specified type to the document's final
 // (default) section.
 func (d *Document) AddHeader(hType HeaderType) *Header {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	if d.document.Body.SectPr == nil {
-		d.document.Body.SectPr = &oxml.CT_SectPr{}
+	if d.doc().Body.SectPr == nil {
+		d.doc().Body.SectPr = &oxml.CT_SectPr{}
 	}
-	return d.addHeaderTo(d.document.Body.SectPr, hType)
+	return d.addHeaderTo(d.doc().Body.SectPr, hType)
 }
 
 // addHeaderTo adds a header of the specified type to the given section
@@ -158,18 +158,18 @@ func (d *Document) addHeaderTo(sectPr *oxml.CT_SectPr, hType HeaderType) *Header
 
 // AddFooter adds a footer of the specified type to the document.
 func (d *Document) AddFooter(fType FooterType) *Footer {
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	if d.document.Body.SectPr == nil {
-		d.document.Body.SectPr = &oxml.CT_SectPr{}
+	if d.doc().Body.SectPr == nil {
+		d.doc().Body.SectPr = &oxml.CT_SectPr{}
 	}
 
 	relID := fmt.Sprintf("rId%d", d.nextRelID())
 
 	// At most one footer reference per type (see AddHeader).
 	var existingRef *oxml.CT_HdrFtrRef
-	for _, ref := range d.document.Body.SectPr.FooterReference {
+	for _, ref := range d.doc().Body.SectPr.FooterReference {
 		if ref.Type == fType.xmlVal() {
 			existingRef = ref
 			break
@@ -188,7 +188,7 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	if existingRef != nil {
 		existingRef.RID = relID
 	} else {
-		d.document.Body.SectPr.FooterReference = append(d.document.Body.SectPr.FooterReference, &oxml.CT_HdrFtrRef{
+		d.doc().Body.SectPr.FooterReference = append(d.doc().Body.SectPr.FooterReference, &oxml.CT_HdrFtrRef{
 			Type: fType.xmlVal(),
 			RID:  relID,
 		})
@@ -196,7 +196,7 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 
 	// Enable first page header/footer if needed
 	if fType == FooterFirst {
-		d.document.Body.SectPr.TitlePg = &oxml.CT_OnOff{}
+		d.doc().Body.SectPr.TitlePg = &oxml.CT_OnOff{}
 	}
 	// An even-page footer only renders when settings.xml carries
 	// w:evenAndOddHeaders (the flag covers both headers and footers).

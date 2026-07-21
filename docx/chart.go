@@ -206,10 +206,10 @@ func (d *Document) writeChartParts(writer *opc.Writer) error {
 // that part. Charts whose part cannot be resolved or parsed are skipped.
 func (d *Document) Charts() []*chart.Chart {
 	var out []*chart.Chart
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
-	for _, p := range d.document.Body.AllParagraphs() {
+	for _, p := range d.doc().Body.AllParagraphs() {
 		para := &Paragraph{document: d, p: p}
 		for _, cr := range oxmlParagraphRuns(p) {
 			for _, dr := range cr.Drawing {

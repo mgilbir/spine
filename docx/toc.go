@@ -85,9 +85,9 @@ func (d *Document) AddTableOfContents(opts TOCOptions) error {
 		SdtContent: content,
 	}
 
-	if d.document.Body == nil {
-		d.document.Body = &oxml.CT_Body{}
+	if d.doc().Body == nil {
+		d.doc().Body = &oxml.CT_Body{}
 	}
-	d.document.Body.AppendSdtBlock(sdt)
+	d.doc().Body.AppendSdtBlock(sdt)
 	return nil
 }

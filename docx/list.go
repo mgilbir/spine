@@ -31,7 +31,7 @@ func (d *Document) AddBulletList() *ListStyle {
 	for i := 0; i < 9; i++ {
 		idx := i % len(bulletChars)
 		indent := 720 * (i + 1) // 720 twips = 0.5 inch
-		hanging := 360           // 360 twips = 0.25 inch
+		hanging := 360          // 360 twips = 0.25 inch
 
 		lvl := &oxml.CT_Lvl{
 			Ilvl:    strconv.Itoa(i),

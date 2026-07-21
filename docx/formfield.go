@@ -52,11 +52,11 @@ type FormField struct {
 // order. Each field is reconstructed from its w:fldChar begin/separate/end run
 // sequence and the w:ffData definition carried on the begin field character.
 func (d *Document) FormFields() []FormField {
-	if d.document == nil || d.document.Body == nil {
+	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
 	var out []FormField
-	for _, p := range d.document.Body.AllParagraphs() {
+	for _, p := range d.doc().Body.AllParagraphs() {
 		collectParagraphFormFields(p, &out)
 	}
 	for _, name := range sortedKeys(d.headers) {

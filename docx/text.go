@@ -26,8 +26,8 @@ import (
 func (d *Document) Text() string {
 	var sb strings.Builder
 
-	if d.document != nil {
-		writeBlocksText(&sb, d, d.document.Body.TextBlocks())
+	if d.doc() != nil {
+		writeBlocksText(&sb, d, d.doc().Body.TextBlocks())
 	}
 
 	for _, hp := range d.sortedHeaderParts() {

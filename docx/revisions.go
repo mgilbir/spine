@@ -24,8 +24,8 @@ func formatRevisionDate(t time.Time) string {
 // never collide with ones already present.
 func (d *Document) nextRevisionID() int {
 	if !d.revisionIDInit {
-		if d.document != nil {
-			d.revisionIDVal = oxml.MaxRevisionID(d.document.Body)
+		if d.doc() != nil {
+			d.revisionIDVal = oxml.MaxRevisionID(d.doc().Body)
 		}
 		d.revisionIDInit = true
 	}
@@ -329,14 +329,14 @@ func (r *Revision) markModified() {
 // invalidate others in the slice; re-read Revisions after a batch of edits.
 func (d *Document) Revisions() []*Revision {
 	var out []*Revision
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			out = collectParagraphAndMoves(out, p, nil)
 		}
-		for _, tbl := range d.document.Body.Tbl {
+		for _, tbl := range d.doc().Body.Tbl {
 			out = collectTableRevisions(out, tbl)
 		}
-		if sc := d.document.Body.SectPr; sc != nil && sc.SectPrChange != nil {
+		if sc := d.doc().Body.SectPr; sc != nil && sc.SectPrChange != nil {
 			out = append(out, &Revision{
 				kind:   RevisionSectionFormat,
 				author: sc.SectPrChange.Author,
@@ -404,8 +404,8 @@ func (d *Document) collectHdrFtrRevisions(out []*Revision) []*Revision {
 // (table/row/cell/section changes, cell merges) are left untouched. It returns
 // an error only if a future transform reports one; today it always succeeds.
 func (d *Document) AcceptAllRevisions() error {
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			oxml.AcceptParagraphFormat(p)
 			oxml.AcceptAllInContainer(p)
 		}
@@ -429,8 +429,8 @@ func (d *Document) AcceptAllRevisions() error {
 // revision types are left untouched. It returns an error only if a future
 // transform reports one; today it always succeeds.
 func (d *Document) RejectAllRevisions() error {
-	if d.document != nil && d.document.Body != nil {
-		for _, p := range d.document.Body.AllParagraphs() {
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
 			oxml.RejectParagraphFormat(p)
 			oxml.RejectAllInContainer(p)
 		}
