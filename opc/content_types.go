@@ -75,6 +75,15 @@ const (
 	ContentTypePivotCacheDefinition = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"
 	ContentTypePivotCacheRecords    = "application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"
 
+	// Pivot slicer and timeline content types. Slicers and timelines are
+	// Microsoft extensions to SpreadsheetML, so they use ms-excel content types.
+	// A slicer/timeline definition part carries the on-sheet controls; the
+	// matching cache part binds them to a pivot cache field.
+	ContentTypeSlicer        = "application/vnd.ms-excel.slicer+xml"
+	ContentTypeSlicerCache   = "application/vnd.ms-excel.slicerCache+xml"
+	ContentTypeTimeline      = "application/vnd.ms-excel.timeline+xml"
+	ContentTypeTimelineCache = "application/vnd.ms-excel.timelineCache+xml"
+
 	// SpreadsheetML comment content types. Legacy cell comments (a.k.a. notes)
 	// use ContentTypeSheetComments and are rendered by a legacy VML drawing
 	// (ContentTypeVMLDrawing). Modern threaded comments use

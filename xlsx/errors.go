@@ -3,6 +3,15 @@
 // editing cells, styles, sheets, and images, and creating workbooks from
 // scratch, preserving unmodified parts byte-for-byte on round-trip.
 //
+// Pivot slicers and timelines are read-only: Sheet.Slicers/Workbook.Slicers and
+// Sheet.Timelines/Workbook.Timelines expose the slicers and timelines of an
+// opened workbook (name, caption, source pivot field and controlled pivot
+// tables), and their definition/cache parts plus the worksheet/workbook
+// extension references round-trip byte-for-byte. Creating them is not yet
+// supported: a slicer or timeline is an on-sheet drawing whose creation also
+// requires injecting relationship-bearing x14/x15 extension lists into the
+// shared workbook and worksheet parts at save time.
+//
 // A Workbook is not safe for concurrent use. A single Workbook, and the sheets
 // and cells reached through it, must be confined to one goroutine, or all access
 // must be guarded by external synchronization. In particular Save, SaveBytes,

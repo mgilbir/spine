@@ -362,7 +362,10 @@ func (w *Workbook) resolvePivotCache(pivotTablePart string) *oxml.CT_PivotCacheD
 // allocated a fresh id and parts without disturbing existing pivots.
 //
 // Limitations: multiple consolidation ranges and external-data caches are out
-// of scope, as are slicers and timelines (see the package documentation).
+// of scope. Pivot slicers and timelines can be read (Sheet.Slicers,
+// Workbook.Slicers, Sheet.Timelines, Workbook.Timelines) and round-trip
+// byte-for-byte, but creating them is not yet supported (see the package
+// documentation).
 func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*PivotTable, error) {
 	if s.workbook == nil {
 		return nil, fmt.Errorf("xlsx: AddPivotTable: sheet is not attached to a workbook")
