@@ -263,6 +263,26 @@ remediation series (#59–#75).
 
 ### Added
 
+- pptx: `AppendSlidesFrom` and `ExtractSlides` now **carry the source deck's
+  notes master** — its part, the theme it references, its relationships, the
+  presentation relationship, and the `notesMasterIdLst` entry — when the source
+  has one and the destination does not (a deck carries at most one, so a second
+  source with a notes master does not add a duplicate). The notes master is
+  imported before the slides, so each imported notes slide re-wires its
+  `notesMaster` reference to the carried master instead of dropping it. This
+  completes the previously-deferred notes-master half of the merge furniture
+  reconciliation (the handout master already shipped).
+- pptx: **zoom links — read + preserve** — `Slide.ZoomLinks` and
+  `Presentation.ZoomLinks` enumerate the Slide, Section, and Summary Zoom objects
+  (`p:graphicFrame` with a `pslz:sldZm` / `psez:sectionZm` / `psuz:summaryZm`
+  graphic) on a slide, each reporting its kind, hosting shape id/name, and target
+  — the slide id for a Slide Zoom, the section GUID(s) for Section and Summary
+  zooms. Reading goes through the normal (lazy) slide accessor and never marks
+  the slide modified, so an unmodified deck with zooms still round-trips
+  byte-for-byte after `ZoomLinks`; the zoom frames themselves are preserved
+  verbatim. Creating a zoom is intentionally **not** offered: a zoom embeds a
+  rendered thumbnail image of its target slide/section that this library cannot
+  generate (deferred pending thumbnail rendering).
 - xlsx: **pivot slicers and timelines — read + preserve** — `Sheet.Slicers`/
   `Workbook.Slicers` and `Sheet.Timelines`/`Workbook.Timelines` enumerate an
   opened workbook's pivot slicers and timelines, each resolved through its
