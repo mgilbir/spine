@@ -50,12 +50,16 @@ func (p *Presentation) Validate() validate.Report {
 // duplicates make PowerPoint drop or merge shapes.
 func (p *Presentation) validateShapeIDs(c *validate.Collector) {
 	for _, slide := range p.slides {
-		if slide == nil || slide.slideXML == nil || slide.slideXML.CSld == nil {
+		// Read sxModel directly (never sx()): a slide that was never accessed is
+		// unmodified and already passed the parse-then-discard validation at
+		// open, so it cannot have acquired a duplicate id — skip it rather than
+		// force a parse of every slide just to validate.
+		if slide == nil || slide.sxModel == nil || slide.sxModel.CSld == nil {
 			continue
 		}
 		seen := make(map[uint32]bool)
 		reported := make(map[uint32]bool)
-		for _, id := range collectTreeShapeIDs(slide.slideXML.CSld.SpTree) {
+		for _, id := range collectTreeShapeIDs(slide.sxModel.CSld.SpTree) {
 			if id == 0 {
 				continue
 			}
@@ -238,7 +242,11 @@ func (p *Presentation) validateCommentAuthors(c *validate.Collector) {
 // not yet saved carry no relID and are skipped (their rel is allocated on save).
 func (p *Presentation) validateHyperlinks(c *validate.Collector) {
 	for _, s := range p.slides {
-		if s == nil {
+		// Read sxModel directly (never sx()/Hyperlinks() on an unparsed slide):
+		// a slide that was never accessed is unmodified, so it cannot have
+		// acquired a hyperlink whose relationship went missing — skip it rather
+		// than force a parse of every slide just to validate.
+		if s == nil || s.sxModel == nil {
 			continue
 		}
 		ids := relIDSet(p.relationships[s.partName])
@@ -258,10 +266,13 @@ func (p *Presentation) validateHyperlinks(c *validate.Collector) {
 // the parsed shape tree already in memory.
 func (p *Presentation) validateCharts(c *validate.Collector) {
 	for _, s := range p.slides {
-		if s == nil || s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+		// Read sxModel directly (never sx()): a never-accessed slide is
+		// unmodified, so it carries no newly broken chart reference to warn
+		// about — skip it rather than force a parse of every slide.
+		if s == nil || s.sxModel == nil || s.sxModel.CSld == nil || s.sxModel.CSld.SpTree == nil {
 			continue
 		}
-		for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+		for _, gf := range s.sxModel.CSld.SpTree.GraphicFrame {
 			relID := chartRelIDOf(gf)
 			if relID == "" {
 				continue

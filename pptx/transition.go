@@ -148,17 +148,15 @@ type Transition struct {
 
 // SetTransition sets the slide transition.
 func (s *Slide) SetTransition(t Transition) {
-	if s.slideXML == nil {
-		s.slideXML = newSlideXML()
-	}
+	s.ensureModel()
 
 	// A morph (or any other) transition replaces whatever transition the slide
 	// had, including a previously authored/parsed morph AlternateContent, so drop
 	// any existing morph wrapper first.
-	s.slideXML.RemoveAlternateContent(isMorphAlternateContent)
+	s.sx().RemoveAlternateContent(isMorphAlternateContent)
 
 	if t.Type == TransitionNone {
-		s.slideXML.Transition = nil
+		s.sx().Transition = nil
 		return
 	}
 
@@ -166,8 +164,8 @@ func (s *Slide) SetTransition(t Transition) {
 	// <p159:morph> child wrapped in an mc:AlternateContent that stands in for the
 	// transition element. Build that wrapper and clear the base transition.
 	if t.Type == TransitionMorph {
-		s.slideXML.Transition = nil
-		s.slideXML.AppendAlternateContent(buildMorphAlternateContent(t), "transition")
+		s.sx().Transition = nil
+		s.sx().AppendAlternateContent(buildMorphAlternateContent(t), "transition")
 		return
 	}
 
@@ -253,7 +251,7 @@ func (s *Slide) SetTransition(t Transition) {
 		tr.SndAc = snd
 	}
 
-	s.slideXML.Transition = tr
+	s.sx().Transition = tr
 }
 
 // soundActionToOxml builds a p:sndAc from the public sound settings, or nil,
@@ -297,19 +295,19 @@ func (s *Slide) soundActionToOxml(snd *TransitionSound) *oxml.TransitionSoundAct
 
 // Transition returns the current slide transition, or nil if none is set.
 func (s *Slide) Transition() *Transition {
-	if s.slideXML == nil {
+	if s.sx() == nil {
 		return nil
 	}
 	// A morph transition lives in an mc:AlternateContent standing in for the base
 	// transition element, so it is reported even though slideXML.Transition is nil.
-	if m := morphFromAlternateContent(s.slideXML.AlternateContent); m != nil {
+	if m := morphFromAlternateContent(s.sx().AlternateContent); m != nil {
 		return m
 	}
-	if s.slideXML.Transition == nil {
+	if s.sx().Transition == nil {
 		return nil
 	}
 
-	tr := s.slideXML.Transition
+	tr := s.sx().Transition
 	t := &Transition{
 		// advClick defaults to true when the attribute is absent.
 		AdvanceOnClick: tr.AdvClick == nil || *tr.AdvClick,

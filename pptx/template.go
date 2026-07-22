@@ -51,7 +51,7 @@ func (s *Slide) ReplaceTextInShape(shapeName string, replacements map[string]str
 // and re-materializes the Go-level shapes to keep them in sync.
 // The replacements map contains exact strings to find (already delimited if needed).
 func (s *Slide) replaceTextInXML(replacements map[string]string) {
-	if s.slideXML == nil {
+	if s.sx() == nil {
 		return
 	}
 	// Flush pending domain-shape edits into the XML tree first. Decks built via
@@ -63,14 +63,14 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
-	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
 		return
 	}
 
 	changed := false
 
 	// Replace in all sp (shape) elements
-	for _, sp := range s.slideXML.CSld.SpTree.Sp {
+	for _, sp := range s.sx().CSld.SpTree.Sp {
 		if sp.TxBody != nil {
 			if replaceTextInTxBody(sp.TxBody, replacements) {
 				changed = true
@@ -79,7 +79,7 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	}
 
 	// Replace in all graphic frames (tables)
-	for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+	for _, gf := range s.sx().CSld.SpTree.GraphicFrame {
 		if gf.Graphic != nil && gf.Graphic.GraphicData != nil && gf.Graphic.GraphicData.Table != nil {
 			for _, tr := range gf.Graphic.GraphicData.Table.Tr {
 				for _, tc := range tr.Tc {
@@ -94,7 +94,7 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	}
 
 	// Replace in group shapes (recursive)
-	for _, grpSp := range s.slideXML.CSld.SpTree.GrpSp {
+	for _, grpSp := range s.sx().CSld.SpTree.GrpSp {
 		if replaceTextInGroupShape(grpSp, replacements) {
 			changed = true
 		}
@@ -108,18 +108,18 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 }
 
 func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[string]string) {
-	if s.slideXML == nil {
+	if s.sx() == nil {
 		return
 	}
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
-	if s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
 		return
 	}
 
 	changed := false
-	spTree := s.slideXML.CSld.SpTree
+	spTree := s.sx().CSld.SpTree
 
 	for _, sp := range spTree.Sp {
 		if shapeNameOfShape(sp) != shapeName || sp.TxBody == nil {

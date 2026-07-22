@@ -134,6 +134,10 @@ func (a *Animation) SetByParagraph(v bool) *Animation {
 // (or, when the slide already has a main sequence, appended to) when the deck is
 // saved. A timing tree the caller never touches this way round-trips unchanged.
 func (s *Slide) AddAnimation(shapeID uint32, effect AnimationEffect, trigger AnimationTrigger) *Animation {
+	// Materialize the slide so the save regenerates the part (and flushes this
+	// animation into the timing tree) instead of passing the original bytes
+	// through and dropping it.
+	s.ensureModel()
 	a := &Animation{shapeID: shapeID, effect: effect, trigger: trigger}
 	s.pendingAnims = append(s.pendingAnims, a)
 	return a
@@ -145,8 +149,8 @@ func (s *Slide) AddAnimation(shapeID uint32, effect AnimationEffect, trigger Ani
 // reported with EffectUnknown.
 func (s *Slide) Animations() []*Animation {
 	var out []*Animation
-	if s.slideXML != nil && s.slideXML.Timing != nil {
-		out = readAnimations(s.slideXML.Timing)
+	if s.sx() != nil && s.sx().Timing != nil {
+		out = readAnimations(s.sx().Timing)
 	}
 	out = append(out, s.pendingAnims...)
 	return out
@@ -416,14 +420,14 @@ func (s *Slide) applyAnimations() {
 	}
 	anims := s.pendingAnims
 	s.pendingAnims = nil
-	if s.slideXML == nil {
+	if s.sx() == nil {
 		return
 	}
 
-	if s.slideXML.Timing == nil {
-		s.slideXML.Timing = &oxml.Timing{}
+	if s.sx().Timing == nil {
+		s.sx().Timing = &oxml.Timing{}
 	}
-	t := s.slideXML.Timing
+	t := s.sx().Timing
 	maxID, nextGrp := timingMaxIDs(t)
 	idgen := &animIDGen{next: maxID}
 	mainList := mainSeqChildList(t, idgen)
@@ -504,10 +508,10 @@ func mainSeqChildList(t *oxml.Timing, g *animIDGen) *oxml.TimeNodeList {
 // paragraphCount returns the number of paragraphs in the text body of the shape
 // with the given cNvPr id, or 0 when the shape has no text body.
 func (s *Slide) paragraphCount(spid uint32) int {
-	if s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.sx() == nil || s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
 		return 0
 	}
-	for _, sp := range s.slideXML.CSld.SpTree.Sp {
+	for _, sp := range s.sx().CSld.SpTree.Sp {
 		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && sp.NvSpPr.CNvPr.Id == spid {
 			if sp.TxBody != nil {
 				return len(sp.TxBody.P)
@@ -521,7 +525,7 @@ func (s *Slide) paragraphCount(spid uint32) int {
 // ensureBldP records a build-by-paragraph entry for the shape in the timing's
 // build list, so PowerPoint groups the per-paragraph effects as one text build.
 func (s *Slide) ensureBldP(spid, grpID uint32) {
-	t := s.slideXML.Timing
+	t := s.sx().Timing
 	if t.BldLst == nil {
 		t.BldLst = &oxml.BuildList{}
 	}

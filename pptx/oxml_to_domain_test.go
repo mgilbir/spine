@@ -884,7 +884,7 @@ func TestPictureSVGReplacement_NewSlidePicture(t *testing.T) {
 	}
 
 	var foundXMLPic *oxml.Picture
-	for _, candidate := range loaded.slideXML.CSld.SpTree.Pic {
+	for _, candidate := range loaded.sx().CSld.SpTree.Pic {
 		if candidate.NvPicPr != nil && candidate.NvPicPr.CNvPr != nil && candidate.NvPicPr.CNvPr.Name == "SVG Picture" {
 			foundXMLPic = candidate
 			break
@@ -975,7 +975,7 @@ func TestImageReplacement_SVGPlaceholderEndToEnd(t *testing.T) {
 	}
 
 	var foundXMLPic *oxml.Picture
-	for _, candidate := range slide3.slideXML.CSld.SpTree.Pic {
+	for _, candidate := range slide3.sx().CSld.SpTree.Pic {
 		if candidate.NvPicPr != nil && candidate.NvPicPr.CNvPr != nil && candidate.NvPicPr.CNvPr.Name == "SVG Placeholder" {
 			foundXMLPic = candidate
 			break
@@ -1046,11 +1046,11 @@ func TestReplaceText_CrossRunPreservesRunOrdering(t *testing.T) {
 		  </p:sp>
 		</p:spTree>`)
 	spTree.Sp[0].TxBody.P[0] = paragraph
-	slide.slideXML.CSld.SpTree = spTree
+	slide.sx().CSld.SpTree = spTree
 
 	slide.ReplaceText(map[string]string{"{{name}}": "Alice"})
 
-	updatedParagraph := slide.slideXML.CSld.SpTree.Sp[0].TxBody.P[0]
+	updatedParagraph := slide.sx().CSld.SpTree.Sp[0].TxBody.P[0]
 	if len(updatedParagraph.R) != 1 {
 		t.Fatalf("len(R) = %d, want 1", len(updatedParagraph.R))
 	}
@@ -1149,7 +1149,7 @@ func TestShapeByName_GroupChild(t *testing.T) {
 	p := testPresentationWithoutLayouts()
 	slide := p.AddSlide()
 
-	slide.slideXML.CSld.SpTree = mustParseShapeTree(t, `
+	slide.sx().CSld.SpTree = mustParseShapeTree(t, `
 		<p:spTree xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
 		  <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 		  <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
@@ -1163,7 +1163,7 @@ func TestShapeByName_GroupChild(t *testing.T) {
 		    </p:sp>
 		  </p:grpSp>
 		</p:spTree>`)
-	slide.slideXML.CSld.SpTree.GrpSp[0].Shapes[0].TxBody.P[0].ResetRunOrder()
+	slide.sx().CSld.SpTree.GrpSp[0].Shapes[0].TxBody.P[0].ResetRunOrder()
 	slide.materializeShapes()
 
 	if got := slide.ShapeByName("Outer Group"); got == nil {

@@ -475,40 +475,38 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			return fmt.Errorf("pptx: reading slide part %s: %w", slideName, err)
 		}
 
-		var slideXML oxml.Slide
-		if err := xmlb.UnmarshalWithSource(data, &slideXML); err != nil {
+		// Validate the slide up front (parse-then-discard), then leave it to be
+		// parsed lazily on first access (see Slide.sx). A slide that is
+		// round-tripped without being inspected or edited then never builds — or
+		// holds — a full model, and its original bytes pass through verbatim on
+		// save. Validation is deliberately strict: some wild files carry XML that
+		// is not well-formed (unescaped '&', control characters); PowerPoint
+		// silently repairs those, but accepting and re-emitting them here would
+		// launder invalid XML through the library, so they are rejected with the
+		// part name for context.
+		if err := xmlb.UnmarshalWithSource(data, &oxml.Slide{}); err != nil {
 			return fmt.Errorf("pptx: parsing slide part %s: %w", slideName, err)
 		}
-		slideXML.Prolog = xmlb.CaptureProlog(data)
-		slideXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
-		slideXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
 
 		slide := &Slide{
 			presentation: p,
 			partName:     slideName,
-			slideXML:     &slideXML,
 			index:        i,
 			id:           slideRef.ID,
 			relID:        slideRef.RID,
 			idExtLst:     slideRef.ExtLst,
 		}
 
-		// Materialize Go-level shape objects from the parsed XML.
-		// This populates slide.shapes so that Shapes(), Placeholders(), etc.
-		// work on loaded slides. shapesModified remains false so the original
-		// XML is preserved during save unless shapes are explicitly modified.
-		slide.materializeShapes()
-
 		p.slides = append(p.slides, slide)
 	}
 
 	for _, slide := range p.slides {
+		// Resolve each slide's layout pointer from its relationships (independent
+		// of the slide model, so it runs even though the slides are not parsed
+		// yet). Hyperlink targets — including cross-slide jumps that need the full
+		// slide list — are resolved when a slide is materialized (see
+		// materializeShapes), by which point every slide is loaded.
 		p.resolveSlideLayout(slide)
-		// Re-resolve hyperlinks now that every slide is loaded: a slide-jump
-		// target resolves to a slide number only once the whole slide list
-		// exists (the per-slide materialization above ran before later slides
-		// were appended). Idempotent for external/action links.
-		slide.resolveHyperlinks()
 	}
 
 	return nil
@@ -1010,9 +1008,25 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		}
 		p.ensureSlideLayoutRelationship(slide, slideName)
 
-		slideData, err := slide.marshal()
-		if err != nil {
-			return fmt.Errorf("marshal slide %d: %w", i, err)
+		// When the slide was never materialized it is unmodified, so its original
+		// bytes pass through verbatim (regeneration occasionally drifts from a
+		// whitespace-preserving producer's exact bytes); otherwise it is
+		// regenerated from the (possibly edited) model.
+		var slideData []byte
+		if slide.sxModel != nil {
+			var err error
+			slideData, err = slide.marshal()
+			if err != nil {
+				return fmt.Errorf("marshal slide %d: %w", i, err)
+			}
+		} else if slideData = slide.rawBytes(); slideData == nil {
+			// Bytes unavailable (should not happen for an opened slide): fall
+			// back to materializing and regenerating.
+			var err error
+			slideData, err = slide.marshal()
+			if err != nil {
+				return fmt.Errorf("marshal slide %d: %w", i, err)
+			}
 		}
 		if err := writer.WritePart(slideName, opc.ContentTypeSlide, slideData); err != nil {
 			return err
@@ -1644,9 +1658,23 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			p.relationships[slidePartName] = slideRels
 		}
 
-		slideData, err := slide.marshal()
-		if err != nil {
-			return err
+		// An unmodified (never materialized) slide passes its original bytes
+		// through verbatim; otherwise it is regenerated from the model. In this
+		// "save new" path every slide is created (model set), so it regenerates —
+		// the passthrough branch matters only for the round-trip save.
+		var slideData []byte
+		if slide.sxModel != nil {
+			var err error
+			slideData, err = slide.marshal()
+			if err != nil {
+				return err
+			}
+		} else if slideData = slide.rawBytes(); slideData == nil {
+			var err error
+			slideData, err = slide.marshal()
+			if err != nil {
+				return err
+			}
 		}
 
 		if err := writer.WritePart(slidePartName, opc.ContentTypeSlide, slideData); err != nil {
@@ -1938,7 +1966,11 @@ func (p *Presentation) AddSlide() *Slide {
 		index:        len(p.slides),
 		id:           p.nextSlideID,
 		relID:        relID,
-		slideXML:     newSlideXML(),
+		// A created slide has no bytes to parse lazily, so its model is built up
+		// front and marked parsed; it always marshals rather than passing raw
+		// bytes through.
+		sxModel:  newSlideXML(),
+		sxParsed: true,
 		// Assign the part name eagerly so the slide has a stable identity from
 		// the moment it exists. Slide-level relationships (media, images) are
 		// keyed by part name; allocating it lazily at save time meant rels

@@ -17,7 +17,7 @@ import (
 // domain mutations, so marshal() knows a sync is needed even when no shape was
 // added or removed.
 func (s *Slide) hasDirtyShapes() bool {
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeCache {
 		if shapeDirty(shape) {
 			return true
 		}
@@ -59,7 +59,7 @@ func shapeDirty(shape Shape) bool {
 // clearShapeDirt resets the modification flags on every shape after a sync
 // flushed them into the XML.
 func (s *Slide) clearShapeDirt() {
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeCache {
 		clearShapeDirty(shape)
 	}
 }
@@ -112,7 +112,7 @@ func (s *Slide) syncDirtyShapes(spTree *oxml.ShapeTree) {
 		n = len(s.shapeRefs)
 	}
 	for i := 0; i < n; i++ {
-		shape := s.shapes[i]
+		shape := s.shapeCache[i]
 		if !shapeDirty(shape) {
 			continue
 		}
