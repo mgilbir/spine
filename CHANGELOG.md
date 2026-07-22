@@ -244,6 +244,19 @@ remediation series (#59–#75).
 
 ### Added
 
+- xlsx: **pivot slicers and timelines — read + preserve** — `Sheet.Slicers`/
+  `Workbook.Slicers` and `Sheet.Timelines`/`Workbook.Timelines` enumerate an
+  opened workbook's pivot slicers and timelines, each resolved through its
+  slicer/timeline cache part to expose its name, caption, source pivot field,
+  button column count / grouping level, and the pivot tables it controls. The
+  slicer/timeline definition parts (`xl/slicers`, `xl/timelines`), their cache
+  parts (`xl/slicerCaches`, `xl/timelineCaches`) and the worksheet/workbook
+  `extLst` references that wire them together round-trip byte-for-byte. New
+  `opc` relationship and content-type constants name the four part types.
+  Creating slicers and timelines is still out of scope: a slicer/timeline is an
+  on-sheet drawing whose creation also requires injecting relationship-bearing
+  `x14`/`x15` extension lists into the shared `workbook.xml`/`worksheet.xml`
+  marshaling paths at save time.
 - chart: **nine more chart types** exposed on the format-agnostic builder —
   `NewBubble` (x/y/size points, added with `AddBubbleSeries`), `NewStock`
   (high-low-close), `NewSurface` (filled contour), `NewOfPie` (pie-of-pie), and

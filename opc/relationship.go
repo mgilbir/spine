@@ -141,6 +141,17 @@ const (
 	RelTypePivotTable       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	RelTypePivotCacheDef    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 	RelTypePivotCacheRecord = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords"
+
+	// Pivot slicer and timeline relationship types. A worksheet links to its
+	// on-sheet slicer/timeline definition parts (xl/slicers/slicerN.xml,
+	// xl/timelines/timelineN.xml) via the Microsoft slicer/timeline URIs, while
+	// the workbook links to the shared slicer/timeline cache parts
+	// (xl/slicerCaches/slicerCacheN.xml, xl/timelineCaches/timelineCacheN.xml).
+	// A cache part ties a slicer/timeline to a pivot cache field.
+	RelTypeSlicer        = "http://schemas.microsoft.com/office/2007/relationships/slicer"
+	RelTypeSlicerCache   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slicerCache"
+	RelTypeTimeline      = "http://schemas.microsoft.com/office/2011/relationships/timeline"
+	RelTypeTimelineCache = "http://schemas.microsoft.com/office/2011/relationships/timelineCache"
 	// RelTypeTable links a worksheet to a table (ListObject) definition part
 	// (xl/tables/tableN.xml).
 	RelTypeTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"
