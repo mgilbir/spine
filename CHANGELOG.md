@@ -2,8 +2,13 @@
 
 ## Unreleased
 
-User-visible changes from the feature series (#54–#58) and the audit
-remediation series (#59–#75).
+## 0.1.0 - 2026-07-22
+
+Initial release. A zero-dependency Go library for reading and writing Microsoft
+Office Open XML documents (Word `.docx`, Excel `.xlsx`, PowerPoint `.pptx`) over
+the Open Packaging Conventions, with byte-identical round-trip fidelity for
+unmodified content. The sections below list the changes that shaped this
+release.
 
 ### Performance
 
