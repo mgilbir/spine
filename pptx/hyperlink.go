@@ -240,7 +240,7 @@ func (s *Slide) forEachHyperlink(fn func(*Hyperlink)) {
 			}
 		}
 	}
-	walk(s.shapes)
+	walk(s.shapeList())
 }
 
 // forEachRunHyperlink calls fn for every run hyperlink in a text frame.

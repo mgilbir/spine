@@ -79,15 +79,15 @@ func TestSchema_SlideElements(t *testing.T) {
 	}
 
 	// CT_Slide should have cSld (common slide data)
-	if slide.slideXML == nil {
+	if slide.sx() == nil {
 		t.Fatal("slideXML is nil")
 	}
-	if slide.slideXML.CSld == nil {
+	if slide.sx().CSld == nil {
 		t.Error("CSld is nil - expected cSld element")
 	}
 
 	// CT_CommonSlideData should have spTree (shape tree)
-	if slide.slideXML.CSld != nil && slide.slideXML.CSld.SpTree == nil {
+	if slide.sx().CSld != nil && slide.sx().CSld.SpTree == nil {
 		t.Error("SpTree is nil - expected spTree element")
 	}
 }

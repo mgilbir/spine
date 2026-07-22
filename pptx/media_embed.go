@@ -54,7 +54,7 @@ func forEachShape(shapes []Shape, fn func(Shape)) {
 // any shape sync so the media part is never stored under an unregistered
 // extension.
 func (s *Slide) resolveMediaContentTypes() {
-	forEachShape(s.shapes, func(shape Shape) {
+	forEachShape(s.shapeCache, func(shape Shape) {
 		m, _ := mediaShapeOf(shape)
 		if m == nil || m.mediaRelID != "" || m.contentType != "" {
 			return
@@ -71,7 +71,7 @@ func (s *Slide) resolveMediaContentTypes() {
 func (s *Slide) validateMediaShapes() error {
 	s.resolveMediaContentTypes()
 	var err error
-	forEachShape(s.shapes, func(shape Shape) {
+	forEachShape(s.shapeCache, func(shape Shape) {
 		if err != nil {
 			return
 		}
@@ -423,7 +423,7 @@ func removableRelType(relType string) bool {
 // Package-level parts are never touched here (they may be shared across
 // slides).
 func (s *Slide) gcSlideRels(relIDs []string) {
-	if len(relIDs) == 0 || s.presentation == nil || s.slideXML == nil {
+	if len(relIDs) == 0 || s.presentation == nil || s.sx() == nil {
 		return
 	}
 	candidates := make(map[string]bool, len(relIDs))
@@ -435,7 +435,7 @@ func (s *Slide) gcSlideRels(relIDs []string) {
 	if len(candidates) == 0 {
 		return
 	}
-	slideXML, err := marshalSlide(s.slideXML)
+	slideXML, err := marshalSlide(s.sx())
 	if err != nil {
 		// A slide that fails to marshal keeps its relationships; the error
 		// surfaces from the Save path that marshals the slide part itself.

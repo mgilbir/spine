@@ -217,8 +217,8 @@ func TestTransitionAdvanceAfterMs(t *testing.T) {
 	})
 
 	// Check internal representation
-	if slide.slideXML.Transition.AdvTm == nil || *slide.slideXML.Transition.AdvTm != 3500 {
-		t.Errorf("AdvTm = %v, want 3500", slide.slideXML.Transition.AdvTm)
+	if slide.sx().Transition.AdvTm == nil || *slide.sx().Transition.AdvTm != 3500 {
+		t.Errorf("AdvTm = %v, want 3500", slide.sx().Transition.AdvTm)
 	}
 
 	// Check public API round-trip
@@ -234,19 +234,19 @@ func TestTransitionSpeedMapping(t *testing.T) {
 
 	// Fast (<=0.5s)
 	slide.SetTransition(Transition{Type: TransitionFade, Duration: 0.3})
-	if slide.slideXML.Transition.Spd != "fast" {
-		t.Errorf("Spd = %s, want fast", slide.slideXML.Transition.Spd)
+	if slide.sx().Transition.Spd != "fast" {
+		t.Errorf("Spd = %s, want fast", slide.sx().Transition.Spd)
 	}
 
 	// Med (0.5-1.0s)
 	slide.SetTransition(Transition{Type: TransitionFade, Duration: 0.8})
-	if slide.slideXML.Transition.Spd != "med" {
-		t.Errorf("Spd = %s, want med", slide.slideXML.Transition.Spd)
+	if slide.sx().Transition.Spd != "med" {
+		t.Errorf("Spd = %s, want med", slide.sx().Transition.Spd)
 	}
 
 	// Slow (>1.0s)
 	slide.SetTransition(Transition{Type: TransitionFade, Duration: 2.0})
-	if slide.slideXML.Transition.Spd != "slow" {
-		t.Errorf("Spd = %s, want slow", slide.slideXML.Transition.Spd)
+	if slide.sx().Transition.Spd != "slow" {
+		t.Errorf("Spd = %s, want slow", slide.sx().Transition.Spd)
 	}
 }

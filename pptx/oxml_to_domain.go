@@ -7,15 +7,19 @@ import (
 )
 
 // materializeShapes converts the parsed XML shape tree into Go-level Shape objects.
-// This is called eagerly when loading slides from an existing file.
-// The shapes are populated for read access; shapesModified remains false so that
-// the original XML is preserved during save unless the user explicitly modifies shapes.
+// It runs when a slide is first parsed (lazily on access, or at construction for
+// a created slide). The shapes are populated for read access; shapesModified
+// remains false so that the original XML is preserved during save unless the
+// user explicitly modifies shapes.
 func (s *Slide) materializeShapes() {
-	if s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	// Read sxModel directly, never sx(): sx() calls this after setting sxModel,
+	// so routing back through sx() would recurse. The model is always present
+	// here (the caller just parsed or built it).
+	if s.sxModel == nil || s.sxModel.CSld == nil || s.sxModel.CSld.SpTree == nil {
 		return
 	}
 
-	spTree := s.slideXML.CSld.SpTree
+	spTree := s.sxModel.CSld.SpTree
 	s.shapeRefs = nil
 
 	// Materialize shapes in their original z-order using childOrder if available.
@@ -24,7 +28,7 @@ func (s *Slide) materializeShapes() {
 	if len(spTree.ChildOrder()) > 0 {
 		add := func(shape Shape, ref oxml.ChildRef) {
 			s.setShapeBackRef(shape)
-			s.shapes = append(s.shapes, shape)
+			s.shapeCache = append(s.shapeCache, shape)
 			s.shapeRefs = append(s.shapeRefs, ref)
 		}
 		for _, ref := range spTree.ChildOrder() {
@@ -70,32 +74,32 @@ func (s *Slide) materializeShapes() {
 		for i, sp := range spTree.Sp {
 			if shape := oxmlShapeToGoShape(sp); shape != nil {
 				s.setShapeBackRef(shape)
-				s.shapes = append(s.shapes, shape)
+				s.shapeCache = append(s.shapeCache, shape)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildSp, Index: i})
 			}
 		}
 		for i, pic := range spTree.Pic {
 			if p := oxmlPictureToGoPicture(pic); p != nil {
 				s.setShapeBackRef(p)
-				s.shapes = append(s.shapes, p)
+				s.shapeCache = append(s.shapeCache, p)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildPic, Index: i})
 			}
 		}
 		for i, gf := range spTree.GraphicFrame {
 			if tbl := oxmlGraphicFrameToGoTable(gf); tbl != nil {
-				s.shapes = append(s.shapes, tbl)
+				s.shapeCache = append(s.shapeCache, tbl)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: i})
 			}
 		}
 		for i, grp := range spTree.GrpSp {
 			if g := oxmlGroupShapeToGoGroupShape(grp, s); g != nil {
-				s.shapes = append(s.shapes, g)
+				s.shapeCache = append(s.shapeCache, g)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildGrpSp, Index: i})
 			}
 		}
 		for i, cxn := range spTree.CxnSp {
 			if c := oxmlCxnSpToGoConnector(cxn); c != nil {
-				s.shapes = append(s.shapes, c)
+				s.shapeCache = append(s.shapeCache, c)
 				s.shapeRefs = append(s.shapeRefs, oxml.ChildRef{Kind: oxml.ChildCxnSp, Index: i})
 			}
 		}
@@ -103,7 +107,7 @@ func (s *Slide) materializeShapes() {
 
 	// Everything materialized so far is already represented in the parsed
 	// XML; marshal() appends only shapes added after this point.
-	s.syncedShapes = len(s.shapes)
+	s.syncedShapes = len(s.shapeCache)
 
 	// Resolve hyperlink targets (r:id -> URL / slide number) now that the shapes
 	// and the slide's relationships are both available. This reads only; it never
@@ -117,10 +121,10 @@ func (s *Slide) materializeShapes() {
 // stay attached to the slide — a plain re-materialization would silently
 // detach them, dropping any subsequent edits made through them.
 func (s *Slide) rematerializeShapes() {
-	old := s.shapes
-	s.shapes = nil
+	old := s.shapeCache
+	s.shapeCache = nil
 	s.materializeShapes()
-	if len(old) != len(s.shapes) {
+	if len(old) != len(s.shapeCache) {
 		return
 	}
 
@@ -132,8 +136,8 @@ func (s *Slide) rematerializeShapes() {
 	for _, sh := range old {
 		buckets[shapeKindClass(sh)] = append(buckets[shapeKindClass(sh)], sh)
 	}
-	adopted := make([]Shape, len(s.shapes))
-	for i, fresh := range s.shapes {
+	adopted := make([]Shape, len(s.shapeCache))
+	for i, fresh := range s.shapeCache {
 		k := shapeKindClass(fresh)
 		q := buckets[k]
 		if len(q) == 0 {
@@ -146,7 +150,7 @@ func (s *Slide) rematerializeShapes() {
 		}
 		adopted[i] = o
 	}
-	copy(s.shapes, adopted)
+	copy(s.shapeCache, adopted)
 }
 
 // shapeKindClass maps a domain shape to the spTree child kind its node has.

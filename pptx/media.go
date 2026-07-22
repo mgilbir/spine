@@ -396,7 +396,7 @@ func (a *Audio) ShapeType() ShapeType { return ShapeTypeAudio }
 // poster) are excluded. A slide with no pictures returns nil.
 func (s *Slide) Pictures() []*Picture {
 	var out []*Picture
-	forEachShape(s.shapes, func(shape Shape) {
+	forEachShape(s.shapeList(), func(shape Shape) {
 		if pic, ok := shape.(*Picture); ok && !pic.isMedia {
 			out = append(out, pic)
 		}

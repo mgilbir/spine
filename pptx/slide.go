@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -13,17 +14,31 @@ type Slide struct {
 	presentation *Presentation
 	layout       *SlideLayout
 	partName     string
-	slideXML     *oxml.Slide
-	index        int
-	id           uint32
-	relID        string
+	// sxModel is the parsed slide part. For a slide loaded from a file it is
+	// parsed lazily on first access (see sx): a slide round-tripped without
+	// inspecting or editing it is never parsed, so the save writes the slide's
+	// original bytes verbatim rather than building (and holding) a full model.
+	// Reach it through sx(); the save path, sx() itself, validation, and slide
+	// construction read/set sxModel + sxParsed directly so they do not trigger a
+	// parse.
+	sxModel *oxml.Slide
+	// sxParsed records that the slide was materialized (parsed on access, or
+	// built for a created slide). When sxModel is still nil at save time the
+	// slide was never touched, so its original bytes pass through unchanged.
+	sxParsed bool
+	index    int
+	id       uint32
+	relID    string
 	// idExtLst preserves the extLst child of this slide's p:sldId entry in
 	// presentation.xml, which is regenerated on every save (C225).
-	idExtLst       *oxml.ExtensionList
-	shapes         []Shape
+	idExtLst *oxml.ExtensionList
+	// shapeCache holds the materialized Go-level shapes. It is populated lazily
+	// by sx(); read it through shapeList() (which triggers the parse), and let
+	// the internal sync machinery read/write it directly.
+	shapeCache     []Shape
 	shapesModified bool // true if shapes changed via Go API
 
-	// syncedShapes counts the leading shapes already represented in slideXML
+	// syncedShapes counts the leading shapes already represented in sxModel
 	// (the parsed shapes of a loaded slide). When only appends happened,
 	// marshal() syncs just the new shapes into the parsed tree instead of
 	// rebuilding it — a rebuild drops slide content the domain model cannot
@@ -62,6 +77,72 @@ type Slide struct {
 	pendingAnims []*Animation
 }
 
+// sx returns the parsed slide model, parsing it lazily from the slide part's
+// original bytes on first access and materializing its Go-level shapes. A slide
+// that is round-tripped without ever being accessed keeps sxModel nil, so on
+// save its original bytes pass through verbatim. Open already validated the
+// part (parse-then-discard), so a lazy parse here does not re-surface the
+// malformed-slide error Open reports. Parsing never marks the slide modified,
+// so an accessed-but-unedited slide still regenerates byte-identically. Returns
+// nil only when the bytes are unavailable (a hand-built slide) or unparsable.
+func (s *Slide) sx() *oxml.Slide {
+	if s.sxModel == nil && !s.sxParsed {
+		s.sxParsed = true
+		raw := s.rawBytes()
+		if raw == nil {
+			return nil
+		}
+		m := &oxml.Slide{}
+		m.Prolog = xmlb.CaptureProlog(raw)
+		m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
+		m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
+		if err := xmlb.UnmarshalWithSource(raw, m); err != nil {
+			return nil
+		}
+		s.sxModel = m
+		s.materializeShapes()
+	}
+	return s.sxModel
+}
+
+// rawBytes returns the slide part's original bytes from the presentation's
+// still-open reader, or nil when the slide was not loaded from a package (a
+// created slide) or its part is unavailable. It is the source for both the lazy
+// parse (sx) and the save-time passthrough of an unmodified slide.
+func (s *Slide) rawBytes() []byte {
+	if s.presentation == nil || s.presentation.reader == nil {
+		return nil
+	}
+	f := s.presentation.reader.GetFile(s.partName)
+	if f == nil {
+		return nil
+	}
+	raw, err := f.ReadAll()
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+// ensureModel returns the slide model, materializing an existing slide's parsed
+// content first (so a mutator preserves it) and allocating an empty model only
+// when the slide has no bytes to parse. Mutators call this before editing so a
+// never-parsed slide is not silently replaced with an empty one.
+func (s *Slide) ensureModel() *oxml.Slide {
+	if s.sx() == nil {
+		s.sxModel = newSlideXML()
+		s.sxParsed = true
+	}
+	return s.sxModel
+}
+
+// shapeList returns the slide's materialized shapes for read access, triggering
+// the lazy parse (see sx) so a never-accessed slide reports its real shapes.
+func (s *Slide) shapeList() []Shape {
+	s.sx()
+	return s.shapeCache
+}
+
 // Index returns the 0-based index of the slide in the presentation.
 func (s *Slide) Index() int {
 	return s.index
@@ -78,21 +159,19 @@ func (s *Slide) RelID() string {
 
 // Name returns the name of the slide, if any.
 func (s *Slide) Name() string {
-	if s.slideXML != nil && s.slideXML.CSld != nil {
-		return s.slideXML.CSld.Name
+	if m := s.sx(); m != nil && m.CSld != nil {
+		return m.CSld.Name
 	}
 	return ""
 }
 
 // SetName sets the name of the slide.
 func (s *Slide) SetName(name string) {
-	if s.slideXML == nil {
-		s.slideXML = newSlideXML()
+	m := s.ensureModel()
+	if m.CSld == nil {
+		m.CSld = &oxml.CommonSlideData{}
 	}
-	if s.slideXML.CSld == nil {
-		s.slideXML.CSld = &oxml.CommonSlideData{}
-	}
-	s.slideXML.CSld.Name = name
+	m.CSld.Name = name
 	s.shapesModified = true
 }
 
@@ -103,7 +182,7 @@ func (s *Slide) Layout() *SlideLayout {
 
 // Shapes returns all shapes on the slide.
 func (s *Slide) Shapes() []Shape {
-	return s.shapes
+	return s.shapeList()
 }
 
 // AddShape adds a shape to the slide. It returns an error for shape types the
@@ -121,10 +200,15 @@ func (s *Slide) AddShape(shape Shape) error {
 	}
 }
 
-// addShape appends a shape the sync paths know how to serialize.
+// addShape appends a shape the sync paths know how to serialize. It first
+// materializes the slide (sx) so a shape added to a never-accessed loaded slide
+// extends the slide's existing shapes rather than replacing them, and so the
+// save regenerates the part (sxModel is now set) instead of passing the
+// original bytes through and dropping the addition.
 func (s *Slide) addShape(shape Shape) {
+	s.sx()
 	s.setShapeBackRef(shape)
-	s.shapes = append(s.shapes, shape)
+	s.shapeCache = append(s.shapeCache, shape)
 	s.shapesModified = true
 }
 
@@ -133,7 +217,8 @@ func (s *Slide) addShape(shape Shape) {
 // other content (including group shapes, connectors, and other kinds the domain
 // model does not represent) is preserved.
 func (s *Slide) RemoveShape(shape Shape) {
-	for i, sh := range s.shapes {
+	s.sx()
+	for i, sh := range s.shapeCache {
 		if sh != shape {
 			continue
 		}
@@ -154,7 +239,7 @@ func (s *Slide) RemoveShape(shape Shape) {
 		}
 		// Shapes added after the last sync were never written; dropping them
 		// from the slice is sufficient.
-		s.shapes = append(s.shapes[:i], s.shapes[i+1:]...)
+		s.shapeCache = append(s.shapeCache[:i], s.shapeCache[i+1:]...)
 		s.shapesModified = true
 		return
 	}
@@ -237,7 +322,7 @@ func (s *Slide) AddConnector(kind ConnectorKind) *Connector {
 // Connectors returns the connectors (p:cxnSp) on the slide, in z-order.
 func (s *Slide) Connectors() []*Connector {
 	var out []*Connector
-	for _, sh := range s.shapes {
+	for _, sh := range s.shapeList() {
 		if c, ok := sh.(*Connector); ok {
 			out = append(out, c)
 		}
@@ -271,7 +356,7 @@ func (s *Slide) AddAudio(data []byte, contentType string) *Audio {
 // Placeholders returns all placeholder shapes on the slide.
 func (s *Slide) Placeholders() []*PlaceholderShape {
 	var placeholders []*PlaceholderShape
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeList() {
 		if ph, ok := shape.(*PlaceholderShape); ok {
 			placeholders = append(placeholders, ph)
 		}
@@ -281,7 +366,7 @@ func (s *Slide) Placeholders() []*PlaceholderShape {
 
 // GetPlaceholder returns the placeholder with the specified type, or nil.
 func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeList() {
 		if ph, ok := shape.(*PlaceholderShape); ok {
 			if ph.PlaceholderType() == phType {
 				return ph
@@ -293,7 +378,7 @@ func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 
 // ShapeByName returns the first shape with the given name, or nil if not found.
 func (s *Slide) ShapeByName(name string) Shape {
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeList() {
 		if found := shapeByName(shape, name); found != nil {
 			return found
 		}
@@ -325,11 +410,12 @@ func (s *Slide) BodyPlaceholder() *PlaceholderShape {
 	return s.GetPlaceholder(PlaceholderBody)
 }
 
-// marshal converts the slide to XML bytes.
+// marshal converts the slide to XML bytes. It regenerates the part from the
+// (possibly edited) model; the save path calls it only for a slide whose model
+// was materialized, so an untouched slide passes its original bytes through
+// without ever reaching here.
 func (s *Slide) marshal() ([]byte, error) {
-	if s.slideXML == nil {
-		s.slideXML = newSlideXML()
-	}
+	s.ensureModel()
 
 	// Reject media that cannot become a valid package part (no data, or no
 	// recognizable content type) before any of it is written.
@@ -360,7 +446,7 @@ func (s *Slide) marshal() ([]byte, error) {
 	s.applyAnimations()
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
-	return marshalSlide(s.slideXML)
+	return marshalSlide(s.sx())
 }
 
 // syncShapesToXML converts Go shapes to oxml types in the shape tree.
@@ -373,14 +459,14 @@ func (s *Slide) syncShapesToXML() {
 	// emit the a:hlinkClick. Idempotent: hyperlinks already backed by a rel are
 	// left alone.
 	s.allocateHyperlinkRels()
-	if s.slideXML.CSld == nil {
-		s.slideXML.CSld = &oxml.CommonSlideData{}
+	if s.sx().CSld == nil {
+		s.sx().CSld = &oxml.CommonSlideData{}
 	}
-	if s.slideXML.CSld.SpTree == nil {
-		s.slideXML.CSld.SpTree = newShapeTree()
+	if s.sx().CSld.SpTree == nil {
+		s.sx().CSld.SpTree = newShapeTree()
 	}
 
-	spTree := s.slideXML.CSld.SpTree
+	spTree := s.sx().CSld.SpTree
 
 	// Loaded slide with removals: delete just the removed nodes from the parsed
 	// tree (preserving all other content, including kinds the domain model does
@@ -395,13 +481,13 @@ func (s *Slide) syncShapesToXML() {
 		s.reindexShapeRefsAfterRemoval(s.removedRefs)
 		s.removedRefs = nil
 		s.syncDirtyShapes(spTree)
-		if len(s.shapes) > s.syncedShapes {
-			s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
+		if len(s.shapeCache) > s.syncedShapes {
+			s.appendShapesToXML(spTree, s.shapeCache[s.syncedShapes:])
 		}
 		s.pruneAutoTiming(removedSpids)
 		s.gcSlideRels(removedRelIDs)
 		s.resolveConnectorBindings()
-		s.syncedShapes = len(s.shapes)
+		s.syncedShapes = len(s.shapeCache)
 		s.shapesModified = false
 		s.clearShapeDirt()
 		return
@@ -413,18 +499,18 @@ func (s *Slide) syncShapesToXML() {
 	// which drops content the model does not represent (group shapes,
 	// connectors) and re-numbers every existing shape — acceptable for decks
 	// built programmatically, destructive for decks loaded from a file.
-	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapes) >= s.syncedShapes {
+	if s.syncedShapes > 0 && !s.forceShapeRebuild && len(s.shapeCache) >= s.syncedShapes {
 		s.syncDirtyShapes(spTree)
-		s.appendShapesToXML(spTree, s.shapes[s.syncedShapes:])
+		s.appendShapesToXML(spTree, s.shapeCache[s.syncedShapes:])
 		s.resolveConnectorBindings()
-		s.syncedShapes = len(s.shapes)
+		s.syncedShapes = len(s.shapeCache)
 		s.shapesModified = false
 		s.clearShapeDirt()
 		return
 	}
 
 	// Clear existing shapes and child order tracking. Connectors are cleared
-	// too: they are materialized into s.shapes and re-emitted from the loop
+	// too: they are materialized into s.shapeCache and re-emitted from the loop
 	// below, so leaving the parsed nodes would duplicate them.
 	spTree.Sp = nil
 	spTree.GraphicFrame = nil
@@ -452,7 +538,7 @@ func (s *Slide) syncShapesToXML() {
 		shapeID++
 		return id
 	}
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeCache {
 		// Record the id assigned to each shape so a connector bound to it can
 		// resolve its cNvPr id after the loop (see resolveConnectorBindings) and
 		// so ID() reports the saved id in-memory. Groups and connectors set their
@@ -549,7 +635,7 @@ func (s *Slide) resolveConnectorBindings() {
 	// Connectors can live at the slide top level or inside a group
 	// (GroupShape.AddConnector); forEachShape descends into groups so a grouped
 	// connector's endpoint bindings resolve to the same assigned ids.
-	forEachShape(s.shapes, func(sh Shape) {
+	forEachShape(s.shapeCache, func(sh Shape) {
 		c, ok := sh.(*Connector)
 		if !ok || c.sourceCxn == nil || c.sourceCxn.NvCxnSpPr == nil {
 			return
@@ -1417,12 +1503,15 @@ func (s *Slide) Duplicate() *Slide {
 	newSlide := s.presentation.AddSlide()
 	newSlide.layout = s.layout
 
-	// Copy slide XML and slide-level relationships so the duplicate remains self-contained.
-	if s.slideXML != nil {
-		if data, err := marshalSlide(s.slideXML); err == nil {
+	// Copy slide XML and slide-level relationships so the duplicate remains
+	// self-contained. Accessing s.sx() materializes the source (a duplicate of a
+	// never-touched slide still needs its content copied).
+	if src := s.sx(); src != nil {
+		if data, err := marshalSlide(src); err == nil {
 			var copyXML oxml.Slide
 			if err := xml.Unmarshal(data, &copyXML); err == nil {
-				newSlide.slideXML = &copyXML
+				newSlide.sxModel = &copyXML
+				newSlide.sxParsed = true
 			}
 		}
 	}
@@ -1432,8 +1521,9 @@ func (s *Slide) Duplicate() *Slide {
 		// original's (otherwise editing one slide's notes changes the other).
 		s.presentation.deepCloneNotesSlide(newSlide.partName)
 	}
-	if newSlide.slideXML == nil {
-		newSlide.slideXML = newSlideXML()
+	if newSlide.sxModel == nil {
+		newSlide.sxModel = newSlideXML()
+		newSlide.sxParsed = true
 	}
 	newSlide.materializeShapes()
 

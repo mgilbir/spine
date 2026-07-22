@@ -33,7 +33,8 @@ func TestValidate_DuplicateShapeID(t *testing.T) {
 	tree := &oxml.ShapeTree{Sp: []*oxml.Shape{sp1, sp2}}
 	slide := &Slide{
 		partName: "/ppt/slides/slide1.xml",
-		slideXML: &oxml.Slide{CSld: &oxml.CommonSlideData{SpTree: tree}},
+		sxModel:  &oxml.Slide{CSld: &oxml.CommonSlideData{SpTree: tree}},
+		sxParsed: true,
 	}
 	p := &Presentation{slides: []*Slide{slide}}
 
@@ -68,7 +69,7 @@ func TestValidate_ShapeIDNestedGroups(t *testing.T) {
 		Sp:    []*oxml.Shape{{NvSpPr: &oxml.NvSpPr{CNvPr: &dml.CNvPr{Id: 1}}}},
 		GrpSp: []*oxml.GroupShape{outer},
 	}
-	slide := &Slide{partName: "/ppt/slides/slide1.xml", slideXML: &oxml.Slide{CSld: &oxml.CommonSlideData{SpTree: tree}}}
+	slide := &Slide{partName: "/ppt/slides/slide1.xml", sxModel: &oxml.Slide{CSld: &oxml.CommonSlideData{SpTree: tree}}, sxParsed: true}
 	p := &Presentation{slides: []*Slide{slide}}
 	if r := p.Validate(); hasCode(r, codeShapeIDDup, validate.SeverityError) {
 		t.Fatalf("distinct ids across nested groups wrongly flagged: %v", r)

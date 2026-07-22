@@ -90,8 +90,8 @@ func (s *Slide) SmartArt() []*SmartArt {
 	}
 	var out []*SmartArt
 	seen := make(map[string]bool)
-	if s.slideXML != nil && s.slideXML.CSld != nil && s.slideXML.CSld.SpTree != nil {
-		for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+	if s.sx() != nil && s.sx().CSld != nil && s.sx().CSld.SpTree != nil {
+		for _, gf := range s.sx().CSld.SpTree.GraphicFrame {
 			relIDs := diagramRelIDsOf(gf)
 			if relIDs == nil {
 				continue
@@ -118,7 +118,7 @@ func (s *Slide) SmartArt() []*SmartArt {
 	}
 	// Diagrams added this session whose frame has not yet been serialized into
 	// the parsed tree (deduped against the tree scan by data part name).
-	for _, sh := range s.shapes {
+	for _, sh := range s.shapeCache {
 		sf, ok := sh.(*SmartArtFrame)
 		if !ok || sf.sa == nil {
 			continue

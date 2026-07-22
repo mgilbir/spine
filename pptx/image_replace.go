@@ -17,11 +17,11 @@ import (
 // For placeholders, it converts the p:sp element to a p:pic element.
 // For regular pictures, it updates the blip reference to point to the new image.
 func (s *Slide) processPendingImages() error {
-	if s.presentation == nil || s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+	if s.presentation == nil || s.sx() == nil || s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
 		return nil
 	}
 
-	for _, shape := range s.shapes {
+	for _, shape := range s.shapeCache {
 		switch sh := shape.(type) {
 		case *PlaceholderShape:
 			if sh.hasPendingImage() {
@@ -89,7 +89,7 @@ func (p *Presentation) addImageRel(ownerPart, mediaName, relID string) {
 // replacePlaceholderWithImage converts a placeholder p:sp element to a p:pic element
 // and sets up the image relationship and media part.
 func (s *Slide) replacePlaceholderWithImage(ph *PlaceholderShape) error {
-	spTree := s.slideXML.CSld.SpTree
+	spTree := s.sx().CSld.SpTree
 
 	// Find the oxml.Shape that matches this placeholder (by index and type)
 	spIdx := -1
@@ -205,7 +205,7 @@ func buildPicFromPlaceholder(sp *oxmlpkg.Shape, rasterRelID, svgRelID string) *o
 // Unlike placeholder replacement, the p:pic element already exists — we just swap the
 // blip reference and create a new media part + relationship.
 func (s *Slide) replacePictureImage(pic *Picture) error {
-	spTree := s.slideXML.CSld.SpTree
+	spTree := s.sx().CSld.SpTree
 
 	// Prefer the stable cNvPr id captured at materialization: two pictures can
 	// share the same blip embed (the same image), so matching on the embed alone

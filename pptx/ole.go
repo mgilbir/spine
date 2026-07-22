@@ -118,10 +118,10 @@ func (p *Presentation) OLEObjects() []OLEObject {
 func (p *Presentation) oleProgIDsByPart() map[string]string {
 	out := make(map[string]string)
 	for _, s := range p.slides {
-		if s == nil || s.slideXML == nil || s.slideXML.CSld == nil || s.slideXML.CSld.SpTree == nil {
+		if s == nil || s.sx() == nil || s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
 			continue
 		}
-		for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+		for _, gf := range s.sx().CSld.SpTree.GraphicFrame {
 			if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil {
 				continue
 			}

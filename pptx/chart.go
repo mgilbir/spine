@@ -230,8 +230,8 @@ func (s *Slide) Charts() []*chart.Chart {
 	}
 
 	// Graphic frames already in the (parsed or synced) shape tree.
-	if s.slideXML != nil && s.slideXML.CSld != nil && s.slideXML.CSld.SpTree != nil {
-		for _, gf := range s.slideXML.CSld.SpTree.GraphicFrame {
+	if s.sx() != nil && s.sx().CSld != nil && s.sx().CSld.SpTree != nil {
+		for _, gf := range s.sx().CSld.SpTree.GraphicFrame {
 			if relID := chartRelIDOf(gf); relID != "" {
 				add(s.relTargetPart(relID))
 			}
@@ -239,7 +239,7 @@ func (s *Slide) Charts() []*chart.Chart {
 	}
 	// Chart frames added via AddChart but not yet synced into the tree (deduped
 	// against the tree scan by part name).
-	for _, sh := range s.shapes {
+	for _, sh := range s.shapeCache {
 		if cf, ok := sh.(*ChartFrame); ok {
 			add(cf.partName)
 		}

@@ -122,7 +122,8 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 	if err := xml.Unmarshal(data, &copyXML); err != nil {
 		return nil, err
 	}
-	ns.slideXML = &copyXML
+	ns.sxModel = &copyXML
+	ns.sxParsed = true
 
 	srcPres := src.presentation
 	var newRels []*opc.Relationship

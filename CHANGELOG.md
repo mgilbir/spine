@@ -31,6 +31,25 @@ remediation series (#59–#75).
   (92 MB → 23 MB). Open still validates every sheet up front, so a malformed
   sheet still fails Open exactly as before, and all 1200 corpus workbooks
   round-trip byte-for-byte.
+- pptx slides are now parsed lazily, and an unmodified slide is written back
+  verbatim. Opening a presentation previously parsed every slide's
+  `ppt/slides/slideN.xml` into a model and built its Go-level shape objects up
+  front, then regenerated the part from that model on every save — so a
+  presentation round-tripped without touching a slide built (and held) a full
+  model and shape tree for each slide only to throw them away. Each slide is now
+  parsed on first access (`Slide.sx`) and its shapes materialized then; a slide
+  that is never inspected or edited keeps its model nil and writes its original
+  bytes through unchanged. On a slide-XML-heavy deck (39 slides) the retained
+  heap after a clean-round-trip open drops ~28% (96 MB → 69 MB). Open still
+  validates every slide up front (parse-then-discard), so a malformed slide
+  fails Open exactly as before, and the save-time validation skips the
+  slide-referential checks for an untouched slide (it cannot have acquired new
+  problems and its bytes pass through unchanged). Byte-for-byte round-trip is
+  unaffected — and in fact improved, since a passed-through slide is always
+  identical where a regenerated one occasionally drifted from a
+  whitespace-preserving producer's exact bytes (corpus: all 1200 decks now
+  round-trip with every slide part byte-identical, up from 1189 when each slide
+  is regenerated).
 - Large documents open with substantially less memory. Three "a tiny captured
   value pins the whole part" allocations were removed, and one redundant full
   copy of the main part. On a 51.8 MB `word/document.xml` the live heap after

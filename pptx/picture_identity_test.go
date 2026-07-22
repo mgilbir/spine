@@ -68,12 +68,12 @@ func TestReplaceImage_PicksCorrectSharedPicture(t *testing.T) {
 
 	p := Create()
 	s := p.AddSlide()
-	s.slideXML = sld
+	s.sxModel = sld
 	s.partName = "/ppt/slides/slide1.xml"
 	s.materializeShapes()
 
 	var pics []*Picture
-	for _, sh := range s.shapes {
+	for _, sh := range s.shapeCache {
 		if pic, ok := sh.(*Picture); ok {
 			pics = append(pics, pic)
 		}

@@ -81,13 +81,11 @@ func hasBackgroundFill(bg *oxml.Background) bool {
 // ensureCSld returns the slide's common slide data, allocating the slide XML
 // and cSld as needed.
 func (s *Slide) ensureCSld() *oxml.CommonSlideData {
-	if s.slideXML == nil {
-		s.slideXML = newSlideXML()
+	m := s.ensureModel()
+	if m.CSld == nil {
+		m.CSld = &oxml.CommonSlideData{}
 	}
-	if s.slideXML.CSld == nil {
-		s.slideXML.CSld = &oxml.CommonSlideData{}
-	}
-	return s.slideXML.CSld
+	return m.CSld
 }
 
 // SetBackgroundFill sets the slide's background to the given fill (solid,
@@ -113,26 +111,26 @@ func (s *Slide) SetBackgroundImage(data []byte, contentType string) error {
 // ClearBackground removes the slide's explicit background, so it inherits from
 // the layout and master.
 func (s *Slide) ClearBackground() {
-	if s.slideXML != nil && s.slideXML.CSld != nil {
-		s.slideXML.CSld.Bg = nil
+	if s.sx() != nil && s.sx().CSld != nil {
+		s.sx().CSld.Bg = nil
 	}
 }
 
 // HasBackground reports whether the slide carries an explicit background fill.
 func (s *Slide) HasBackground() bool {
-	if s.slideXML == nil || s.slideXML.CSld == nil {
+	if s.sx() == nil || s.sx().CSld == nil {
 		return false
 	}
-	return hasBackgroundFill(s.slideXML.CSld.Bg)
+	return hasBackgroundFill(s.sx().CSld.Bg)
 }
 
 // BackgroundColor returns the slide's solid background color and true, or a
 // zero color and false when the background is absent or not a solid fill.
 func (s *Slide) BackgroundColor() (dml.Color, bool) {
-	if s.slideXML == nil || s.slideXML.CSld == nil {
+	if s.sx() == nil || s.sx().CSld == nil {
 		return dml.Color{}, false
 	}
-	return backgroundColor(s.slideXML.CSld.Bg)
+	return backgroundColor(s.sx().CSld.Bg)
 }
 
 // --- Slide master background ---
