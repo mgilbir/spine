@@ -1,10 +1,20 @@
 package docx
 
 import (
+	"bytes"
+	"encoding/xml"
+	"fmt"
+	"strings"
+
 	"github.com/mgilbir/spine/opc"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// contentTypeGlossary is the content type of a WordprocessingML glossary
+// (building blocks) part. Declared locally so the opc package stays free of
+// WordprocessingML-specific constants.
+const contentTypeGlossary = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.glossary+xml"
 
 // relTypeGlossaryDocument is the relationship type linking a document to its
 // glossary (building blocks / AutoText) part. Defined locally so the opc package
@@ -139,4 +149,230 @@ func (d *Document) BuildingBlocks() []*BuildingBlock {
 		out = append(out, bb)
 	}
 	return out
+}
+
+// BuildingBlockDef describes a building block (a glossary w:docPart) to author
+// with Document.AddBuildingBlock. It mirrors the fields the read-side
+// BuildingBlock accessors expose; the value type is separate because
+// BuildingBlock keeps its fields behind accessors.
+//
+// Name is the building-block identifier Word shows in its galleries (required).
+// Gallery and Category place the block in Word's building-block organizer (e.g.
+// Gallery "AutoText"/"placeholder", Category "General"). Types are w:type
+// values (e.g. "bbPlcHdr"). Style is an optional style-id reference. GUID is the
+// block's identifier in "{GUID}" form; a fresh one is generated when empty.
+//
+// The authored block's body is a single empty paragraph: this API models a
+// building block's metadata, not its reusable body content. An existing glossary
+// part's docParts (and their bodies) are preserved verbatim; the new docPart is
+// appended.
+type BuildingBlockDef struct {
+	Name        string
+	Gallery     string
+	Category    string
+	Types       []string
+	Style       string
+	Description string
+	GUID        string
+}
+
+// AddBuildingBlock appends a building block to the document's glossary,
+// creating the glossary part (word/glossary/document.xml), its document
+// relationship, and its content-type override when the document has none. A
+// block with no Name is rejected: Word identifies a building block by its name.
+// The block is assigned a fresh GUID when GUID is empty.
+//
+// An existing glossary part round-trips byte-for-byte until the first
+// AddBuildingBlock call; from then on the new docPart is spliced in before the
+// closing </w:docParts> so every existing docPart (and its body) is preserved
+// verbatim.
+func (d *Document) AddBuildingBlock(def BuildingBlockDef) error {
+	if def.Name == "" {
+		return fmt.Errorf("docx: AddBuildingBlock: building block name must not be empty")
+	}
+	if def.GUID == "" {
+		def.GUID = newBibGUID()
+	}
+	d.pendingBuildingBlocks = append(d.pendingBuildingBlocks, def)
+	d.glossaryModified = true
+	return nil
+}
+
+// writeGlossaryPart writes the glossary part when the session authored a
+// building block. When the opened package already carried a glossary part, the
+// queued docParts are spliced into its preserved bytes so existing entries stay
+// byte-identical; otherwise a fresh glossary part is generated. In both cases
+// the document.xml relationship and content-type override are registered when
+// absent.
+func (d *Document) writeGlossaryPart(writer *opc.Writer) error {
+	if !d.glossaryModified || len(d.pendingBuildingBlocks) == 0 {
+		return nil
+	}
+	name := d.glossaryPartName()
+	var data []byte
+	if part, ok := d.preservedParts[name]; ok {
+		spliced, err := spliceDocParts(part.Data, d.pendingBuildingBlocks)
+		if err != nil {
+			return err
+		}
+		data = spliced
+	} else {
+		data = marshalNewGlossary(d.pendingBuildingBlocks)
+	}
+	if err := writer.WritePart(name, contentTypeGlossary, data); err != nil {
+		return err
+	}
+	d.ensureDocRelationship(relTypeGlossaryDocument, relativePartTarget(d.mainPart(), name))
+	return nil
+}
+
+// relativePartTarget returns target expressed relative to the directory of
+// base, both absolute OPC part names (e.g. base "/word/document.xml", target
+// "/word/glossary/document.xml" -> "glossary/document.xml"). It handles the
+// common case where target lives under the base's directory and otherwise walks
+// up with "../" segments, matching how Word writes relationship targets.
+func relativePartTarget(base, target string) string {
+	baseSegs := strings.Split(strings.TrimPrefix(base, "/"), "/")
+	baseDir := baseSegs[:len(baseSegs)-1] // drop the file name
+	targetSegs := strings.Split(strings.TrimPrefix(target, "/"), "/")
+	// Drop the shared leading directory segments.
+	i := 0
+	for i < len(baseDir) && i < len(targetSegs)-1 && baseDir[i] == targetSegs[i] {
+		i++
+	}
+	var rel []string
+	for j := i; j < len(baseDir); j++ {
+		rel = append(rel, "..")
+	}
+	rel = append(rel, targetSegs[i:]...)
+	return strings.Join(rel, "/")
+}
+
+// marshalNewGlossary builds a fresh glossary part containing the given building
+// blocks wrapped in the w:docParts container Word uses.
+func marshalNewGlossary(defs []BuildingBlockDef) []byte {
+	b := xmlb.NewBuilder()
+	b.SetCollapseEmptyElements(true)
+	b.WriteHeader()
+	b.StartElementLiteral("w", "glossaryDocument", nil,
+		xmlb.Attr{Name: "xmlns:w", Value: xmlb.NSWordprocessingML},
+		xmlb.Attr{Name: "xmlns:r", Value: xmlb.NSOfficeDocumentRels},
+	)
+	b.StartElementLiteral("w", "docParts", nil)
+	for _, def := range defs {
+		writeDocPart(b, "w", def)
+	}
+	b.EndElementLiteral("w", "docParts")
+	b.EndElementLiteral("w", "glossaryDocument")
+	_ = b.Finish()
+	return b.Bytes()
+}
+
+// spliceDocParts inserts the given building blocks, serialized as w:docPart
+// elements, immediately before the closing tag of the w:docParts container in
+// an existing glossary part's raw bytes. Every other byte — including every
+// existing docPart and its body — is preserved verbatim.
+func spliceDocParts(raw []byte, defs []BuildingBlockDef) ([]byte, error) {
+	offset, prefix, ok := docPartsInsertPoint(raw)
+	if !ok {
+		return nil, fmt.Errorf("docx: AddBuildingBlock: no <w:docParts> container found in glossary part")
+	}
+	b := xmlb.NewBuilder()
+	b.SetCollapseEmptyElements(true)
+	for _, def := range defs {
+		writeDocPart(b, prefix, def)
+	}
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("docx: AddBuildingBlock: %w", err)
+	}
+	frag := b.Bytes()
+	out := make([]byte, 0, len(raw)+len(frag))
+	out = append(out, raw[:offset]...)
+	out = append(out, frag...)
+	out = append(out, raw[offset:]...)
+	return out, nil
+}
+
+// docPartsInsertPoint locates the byte offset just before the closing tag of the
+// w:docParts container and the namespace prefix used on that tag ("" for a
+// default-namespace part), so a new docPart can be spliced in ahead of it.
+func docPartsInsertPoint(raw []byte) (offset int, prefix string, ok bool) {
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	var prev int64
+	for {
+		prev = dec.InputOffset()
+		tok, err := dec.Token()
+		if err != nil {
+			return 0, "", false
+		}
+		end, isEnd := tok.(xml.EndElement)
+		if !isEnd || end.Name.Local != "docParts" {
+			continue
+		}
+		p := int(prev)
+		for p < len(raw) && raw[p] != '<' {
+			p++
+		}
+		return p, tagPrefix(raw, p), true
+	}
+}
+
+// tagPrefix returns the namespace prefix of the element tag beginning at raw[p]
+// (raw[p] == '<'), or "" for an unprefixed tag. It reads the prefix that
+// precedes the ':' in the tag name and works for both start and end tags.
+func tagPrefix(raw []byte, p int) string {
+	i := p + 1
+	if i < len(raw) && raw[i] == '/' {
+		i++
+	}
+	start := i
+	for i < len(raw) {
+		switch raw[i] {
+		case ':':
+			return string(raw[start:i])
+		case ' ', '\t', '\r', '\n', '>', '/':
+			return ""
+		}
+		i++
+	}
+	return ""
+}
+
+// writeDocPart serializes one building block as a w:docPart element under the
+// given prefix, following the CT_DocPartPr child order (name, style, category,
+// types, description, guid). The body is a single empty paragraph.
+func writeDocPart(b *xmlb.Builder, prefix string, def BuildingBlockDef) {
+	val := func(local, value string) {
+		b.EmptyElementLiteral(prefix, local, xmlb.Attr{Name: prefix + ":val", Value: value})
+	}
+	b.StartElementLiteral(prefix, "docPart", nil)
+	b.StartElementLiteral(prefix, "docPartPr", nil)
+	val("name", def.Name)
+	if def.Style != "" {
+		val("style", def.Style)
+	}
+	if def.Category != "" || def.Gallery != "" {
+		b.StartElementLiteral(prefix, "category", nil)
+		val("name", def.Category)
+		if def.Gallery != "" {
+			val("gallery", def.Gallery)
+		}
+		b.EndElementLiteral(prefix, "category")
+	}
+	if len(def.Types) > 0 {
+		b.StartElementLiteral(prefix, "types", nil)
+		for _, t := range def.Types {
+			val("type", t)
+		}
+		b.EndElementLiteral(prefix, "types")
+	}
+	if def.Description != "" {
+		val("description", def.Description)
+	}
+	val("guid", def.GUID)
+	b.EndElementLiteral(prefix, "docPartPr")
+	b.StartElementLiteral(prefix, "docPartBody", nil)
+	b.EmptyElementLiteral(prefix, "p")
+	b.EndElementLiteral(prefix, "docPartBody")
+	b.EndElementLiteral(prefix, "docPart")
 }

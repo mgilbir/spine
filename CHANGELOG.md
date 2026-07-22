@@ -388,8 +388,27 @@ remediation series (#59–#75).
   `Document.Frameset()` reads the web-settings part's `w:frameset` tree
   (nested framesets and leaf `Frame`s with name/title/size/scrollbar and the
   resolved source document). Unmodified glossary, custom-XML, and web-settings
-  parts round-trip byte-for-byte. Authoring building blocks and framesets is
-  deferred — those parts are read-only and preserved verbatim.
+  parts round-trip byte-for-byte. (Building-block and frameset **authoring**
+  ships separately, below.)
+- docx: **building-block and frameset authoring** — the write side of the
+  glossary and web-settings parts. `Document.AddBuildingBlock(BuildingBlockDef
+  {Name, Gallery, Category, Types, Style, Description, GUID})` appends a glossary
+  `w:docPart` (with its `w:docPartPr` and an empty `w:docPartBody`), creating the
+  glossary part, its `glossaryDocument` relationship, and its content-type
+  override when the document has none; a fresh GUID is assigned when omitted.
+  When a glossary part already exists the new docPart is spliced in ahead of the
+  closing `</w:docParts>`, so every existing docPart (and its body) is preserved
+  verbatim. `Document.SetFrameset(FramesetDef{Layout, Size, Title, Framesets,
+  Frames})` authors the `w:frameset` tree (nested framesets and leaf
+  `FrameDef`s), each frame's `SourceTarget` becoming an external `frame`
+  relationship in the part's `.rels`; a document with no web-settings part gets
+  one (plus its relationship and content-type override), and an existing part has
+  its frameset replaced (or inserted) while every other setting is preserved
+  verbatim. A part untouched by an authoring call still round-trips
+  byte-for-byte; authored parts reopen cleanly and validate. The authored
+  docPart body is a single empty paragraph — this API models a building block's
+  metadata, not its reusable body content — and frame sources are external
+  references.
 - docx: **visible signature lines** — `Document.AddSignatureLine`/
   `Paragraph.AddSignatureLine(SignatureLineOptions{Signer, Title, Email,
   Instructions})` insert a "Microsoft Office Signature Line" placeholder (a VML
