@@ -134,7 +134,8 @@ func (p *Paragraph) Hyperlinks() []*Hyperlink {
 }
 
 // Hyperlinks returns every hyperlink in the document, in document order,
-// including hyperlinks nested in tables and structured document tags.
+// including hyperlinks nested in tables and structured document tags, and those
+// in headers and footers (table-nested ones included).
 func (d *Document) Hyperlinks() []*Hyperlink {
 	var out []*Hyperlink
 	if d.doc() != nil && d.doc().Body != nil {
@@ -151,7 +152,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
-		for _, cp := range hp.hdr.P {
+		for _, cp := range hp.hdr.AllParagraphs() {
 			para := &Paragraph{document: d, p: cp, hfPart: name}
 			for _, h := range cp.Hyperlink {
 				if h != nil {
@@ -164,7 +165,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
-		for _, cp := range fp.ftr.P {
+		for _, cp := range fp.ftr.AllParagraphs() {
 			para := &Paragraph{document: d, p: cp, hfPart: name}
 			for _, h := range cp.Hyperlink {
 				if h != nil {

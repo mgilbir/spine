@@ -207,32 +207,56 @@ func (d *Document) writeChartParts(writer *opc.Writer) error {
 
 // Charts returns every chart in the document, in document order, parsed into
 // chart.Chart definitions. Charts are found by scanning the drawings in every
-// body paragraph (including runs nested in hyperlinks and tracked changes) for
-// a c:chart reference, resolving its relationship to the chart part, and parsing
-// that part. Charts whose part cannot be resolved or parsed are skipped.
+// paragraph — the body and every header and footer, descending into tables and
+// including runs nested in hyperlinks and tracked changes — for a c:chart
+// reference, resolving its relationship to the chart part (in the paragraph's
+// owning part scope), and parsing that part. Charts whose part cannot be
+// resolved or parsed are skipped.
 func (d *Document) Charts() []*chart.Chart {
 	var out []*chart.Chart
-	if d.doc() == nil || d.doc().Body == nil {
-		return nil
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p})
+		}
 	}
-	for _, p := range d.doc().Body.AllParagraphs() {
-		para := &Paragraph{document: d, p: p}
-		for _, cr := range oxmlParagraphRuns(p) {
-			for _, dr := range cr.Drawing {
-				if dr == nil {
-					continue
-				}
-				relID := scanChartRelID(dr.RawContent)
-				if relID == "" {
-					continue
-				}
-				data := d.resolveChartXML(para.ownerPart(), relID)
-				if len(data) == 0 {
-					continue
-				}
-				if c, err := chart.Parse(data); err == nil && c != nil {
-					out = append(out, c)
-				}
+	for name, hp := range d.headers {
+		if hp == nil || hp.hdr == nil {
+			continue
+		}
+		for _, p := range hp.hdr.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p, hfPart: name})
+		}
+	}
+	for name, fp := range d.footers {
+		if fp == nil || fp.ftr == nil {
+			continue
+		}
+		for _, p := range fp.ftr.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p, hfPart: name})
+		}
+	}
+	return out
+}
+
+// appendParagraphCharts appends the charts referenced by a paragraph's drawings
+// (resolving each c:chart relationship in the paragraph's owning part scope) to
+// out.
+func (d *Document) appendParagraphCharts(out []*chart.Chart, para *Paragraph) []*chart.Chart {
+	for _, cr := range oxmlParagraphRuns(para.p) {
+		for _, dr := range cr.Drawing {
+			if dr == nil {
+				continue
+			}
+			relID := scanChartRelID(dr.RawContent)
+			if relID == "" {
+				continue
+			}
+			data := d.resolveChartXML(para.ownerPart(), relID)
+			if len(data) == 0 {
+				continue
+			}
+			if c, err := chart.Parse(data); err == nil && c != nil {
+				out = append(out, c)
 			}
 		}
 	}

@@ -117,7 +117,7 @@ func (d *Document) Images() []*InlineImage {
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
-		for _, p := range hp.hdr.P {
+		for _, p := range hp.hdr.AllParagraphs() {
 			out = appendParagraphImages(out, &Paragraph{document: d, p: p, hfPart: name})
 		}
 	}
@@ -125,7 +125,7 @@ func (d *Document) Images() []*InlineImage {
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
-		for _, p := range fp.ftr.P {
+		for _, p := range fp.ftr.AllParagraphs() {
 			out = appendParagraphImages(out, &Paragraph{document: d, p: p, hfPart: name})
 		}
 	}
