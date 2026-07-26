@@ -87,3 +87,36 @@ func TestTable_SetColSpanOnLoadedTable(t *testing.T) {
 		t.Errorf("loaded table: missing gridSpan/hMerge after SetColSpan (invalid grid)")
 	}
 }
+
+// An ordinary cell on a loaded table must report span 1, matching a cell
+// created via NewTableCell. The parsed a:tc omits rowSpan/gridSpan for ordinary
+// cells, so materialization must normalize the absent 0 to 1.
+func TestTable_LoadedOrdinaryCellReportsSpanOne(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	slide.AddTable(2, 2)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := openBytes(t, data)
+	var tbl *Table
+	for _, sh := range loaded.Slides()[0].Shapes() {
+		if tt, ok := sh.(*Table); ok {
+			tbl = tt
+			break
+		}
+	}
+	if tbl == nil {
+		t.Fatal("no table on reopened slide")
+	}
+
+	cell := tbl.Cell(0, 0)
+	if got := cell.RowSpan(); got != 1 {
+		t.Errorf("loaded ordinary cell RowSpan() = %d, want 1", got)
+	}
+	if got := cell.ColSpan(); got != 1 {
+		t.Errorf("loaded ordinary cell ColSpan() = %d, want 1", got)
+	}
+}

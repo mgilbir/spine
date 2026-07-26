@@ -587,8 +587,17 @@ func oxmlGraphicFrameToGoTable(gf *oxml.GraphicFrame) *Table {
 				}
 			}
 
+			// An ordinary cell omits rowSpan/gridSpan (they default to 1). Normalize
+			// the absent 0 to 1 so a loaded cell reports the same span as one created
+			// via NewTableCell — callers multiplying by span would otherwise get 0.
 			cell.rowSpan = tc.RowSpan
+			if cell.rowSpan == 0 {
+				cell.rowSpan = 1
+			}
 			cell.colSpan = tc.GridSpan
+			if cell.colSpan == 0 {
+				cell.colSpan = 1
+			}
 			cell.hMerge = tc.HMerge
 			cell.vMerge = tc.VMerge
 		}
