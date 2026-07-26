@@ -263,14 +263,14 @@ const (
 	BulletNumber
 )
 
-// NewParagraph creates a new paragraph. Line spacing defaults to 0 (unset) so
-// the paragraph inherits spacing from its placeholder/layout/master instead of
-// clobbering it with an explicit 100%; set it explicitly with SetLineSpacing
-// when needed.
+// NewParagraph creates a new paragraph. Alignment and line spacing default to
+// their unset values so the paragraph inherits them from its
+// placeholder/layout/master instead of clobbering them with an explicit
+// algn="l" / 100% (a plain SetText on a centered title must not left-align it);
+// set them explicitly with SetAlignment / SetLineSpacing when needed.
 func NewParagraph() *Paragraph {
 	return &Paragraph{
-		runs:      make([]*Run, 0),
-		alignment: enum.TextAlignLeft,
+		runs: make([]*Run, 0),
 	}
 }
 
