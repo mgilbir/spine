@@ -835,6 +835,19 @@ func CreateFromTemplate(templatePath string) (*Presentation, error) {
 	// Reset slide ID counter but keep relationship IDs
 	p.nextSlideID = 256
 
+	// A template opens with the template main-part content type (e.g. .potx's
+	// ContentTypePresentationTemplateMain). The output is a new presentation, so
+	// re-emitting the template flavor would make PowerPoint open it as a template.
+	// Reset to the plain presentation flavor, preserving macro-enablement (a .potm
+	// template maps to a macro-enabled presentation, not a plain one) — C306.
+	// PlainFlavor returns a different value only for a macro-enabled input, so it
+	// distinguishes the two cases without enumerating every template flavor.
+	if opc.PlainFlavor(p.flavor) != p.flavor {
+		p.flavor = opc.ContentTypePresentationMacroMain
+	} else {
+		p.flavor = opc.ContentTypePresentationMain
+	}
+
 	// Update properties for new presentation
 	now := time.Now()
 	p.Properties.Created = now
