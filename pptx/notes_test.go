@@ -147,6 +147,49 @@ func TestSetNotes_EditExistingPreservesPart(t *testing.T) {
 	}
 }
 
+// C316: a notes slide authored with showMasterSp="0"/showMasterPhAnim="0"
+// (explicit overrides of the schema default true) must keep those attributes
+// when SetNotes re-marshals the part — otherwise readers re-apply the default
+// true and the master furniture reappears.
+func TestSetNotes_PreservesExplicitShowMasterFalse(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	s.partName = "/ppt/slides/slide1.xml"
+
+	const notesPart = "/ppt/notesSlides/notesSlide1.xml"
+	p.otherParts[notesPart] = &coxml.RawPart{
+		ContentType: opc.ContentTypeNotesSlide,
+		Data: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+			`<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+			`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ` +
+			`xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ` +
+			`showMasterSp="0" showMasterPhAnim="0">` +
+			`<p:cSld><p:spTree>` +
+			`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+			`<p:grpSpPr/>` +
+			`<p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder 1"/>` +
+			`<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>` +
+			`<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>` +
+			`<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>` +
+			`<a:p><a:r><a:t>old text</a:t></a:r></a:p>` +
+			`</p:txBody></p:sp>` +
+			`</p:spTree></p:cSld></p:notes>`),
+	}
+	p.relationships[s.partName] = []*opc.Relationship{
+		{ID: "rId1", Type: opc.RelTypeNotesSlide, Target: "../notesSlides/notesSlide1.xml", TargetMode: opc.TargetModeInternal},
+	}
+
+	s.SetNotes("brand new text")
+
+	data := p.otherParts[notesPart].Data
+	if !bytes.Contains(data, []byte(`showMasterSp="0"`)) {
+		t.Errorf("SetNotes dropped explicit showMasterSp=\"0\":\n%s", data)
+	}
+	if !bytes.Contains(data, []byte(`showMasterPhAnim="0"`)) {
+		t.Errorf("SetNotes dropped explicit showMasterPhAnim=\"0\":\n%s", data)
+	}
+}
+
 // notesParts returns the notesSlide part names currently registered.
 func notesParts(p *Presentation) []string {
 	var out []string

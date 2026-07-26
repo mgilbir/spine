@@ -55,13 +55,16 @@ type CommentText struct {
 
 // --- Notes ---
 
-// NotesSlide represents CT_NotesSlide (p:notes)
+// NotesSlide represents CT_NotesSlide (p:notes). showMasterSp and
+// showMasterPhAnim default to true in the schema, so they are modeled as *bool:
+// an explicit showMasterSp="0" must survive a re-marshal rather than be dropped
+// (which readers re-interpret as the default true), mirroring the Slide type.
 type NotesSlide struct {
 	CSld             *CommonSlideData `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSld,omitempty"`
 	ClrMapOvr        *dml.ClrMapOvr   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main clrMapOvr,omitempty"`
 	ExtLst           *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
-	ShowMasterSp     bool             `xml:"showMasterSp,attr,omitempty"`
-	ShowMasterPhAnim bool             `xml:"showMasterPhAnim,attr,omitempty"`
+	ShowMasterSp     *bool            `xml:"showMasterSp,attr,omitempty"`
+	ShowMasterPhAnim *bool            `xml:"showMasterPhAnim,attr,omitempty"`
 }
 
 // NotesMaster represents CT_NotesMaster (p:notesMaster)

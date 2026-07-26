@@ -208,7 +208,7 @@ func TestNotesSlide_RoundTrip(t *testing.T) {
 		t.Fatalf("Re-unmarshal failed: %v", err)
 	}
 
-	if ns2.ShowMasterSp != ns.ShowMasterSp {
+	if ns.ShowMasterSp == nil || ns2.ShowMasterSp == nil || *ns2.ShowMasterSp != *ns.ShowMasterSp {
 		t.Errorf("ShowMasterSp = %v, want %v", ns2.ShowMasterSp, ns.ShowMasterSp)
 	}
 }
