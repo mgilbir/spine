@@ -112,15 +112,11 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
   - Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and workbooks with no matching text round-trip byte-for-byte
 
-Runnable programs for all three formats live in [`examples/`](examples/). The
-[`xlsx_report`](examples/xlsx_report/) example is a guided tour of the newer
-XLSX authoring features — tables with a totals row, conditional formatting, an
-embedded chart, page/print setup, freeze panes, named styles and sheet/workbook
-protection — and reopens the file it writes to verify the round-trip.
 Runnable programs for all three formats live in [`examples/`](examples/):
 
 - [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
 - [`pptx_diagram`](examples/pptx_diagram) — build a diagram deck: a connector bound to two shapes, slide-master text-style and slide-layout background editing, speaker notes, and the SmartArt read path, then reopen to verify the round-trip.
+- [`pptx_deck`](examples/pptx_deck) — build a rich PowerPoint deck: a native chart with an auto-embedded data workbook, a table with an in-text hyperlink, an auto shape with layered effects (shadow, glow, reflection) and an entrance animation, Zoom/Wheel transitions, sections, and a threaded comment — saved in two phases (so shape ids materialize) and reopened to read the sections, animations, charts, and comments back.
 - [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
 - [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
 - [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
