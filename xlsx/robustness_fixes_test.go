@@ -47,6 +47,41 @@ func TestSetColWidthCarvesAllColsGroups(t *testing.T) {
 	}
 }
 
+// TestOrphanThreadedReplySurfaced verifies that a threaded reply whose parentId
+// matches no thread root (e.g. the root was deleted) is surfaced as a top-level
+// comment rather than being silently dropped.
+func TestOrphanThreadedReplySurfaced(t *testing.T) {
+	w := &Workbook{}
+	w.persons = &oxml.CT_PersonList{}
+	w.personsLoaded = true
+	s := &Sheet{workbook: w}
+	s.comments = &sheetComments{
+		loaded:       true,
+		threadedPart: "/xl/threadedComments/threadedComment1.xml",
+		threaded: &oxml.CT_ThreadedComments{Comments: []oxml.CT_ThreadedComment{
+			{Ref: "A1", ID: "{root}", Text: "the root"},
+			// Orphan reply: parentId points at a nonexistent root.
+			{Ref: "A1", ID: "{orphan}", ParentID: "{ghost}", Text: "orphaned reply text"},
+		}},
+	}
+	w.sheets = []*Sheet{s}
+
+	var texts []string
+	for _, c := range s.Comments() {
+		texts = append(texts, c.Text())
+	}
+
+	found := false
+	for _, txt := range texts {
+		if txt == "orphaned reply text" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("orphan reply text not surfaced; got comment texts %v", texts)
+	}
+}
+
 // TestAddPivotTableNoPhantomCells verifies that scanning the source range while
 // building a pivot table does not add phantom empty cells/rows to the source
 // sheet model.
