@@ -176,3 +176,80 @@ func TestAddCommentPreservesFormControl(t *testing.T) {
 		t.Errorf("comment count after round trip = %d, want 1", got)
 	}
 }
+
+// TestAddOLEThenCommentSingleLegacyVML is the C283 regression: adding an OLE
+// object and then a comment to the same sheet must produce ONE coherent legacy
+// VML drawing (referenced by a single <legacyDrawing>) holding both the OLE
+// Pict shape and the comment Note shape with distinct shape ids, rather than two
+// competing VML parts where the note boxes never render.
+func TestAddOLEThenCommentSingleLegacyVML(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("Sheet1")
+	if _, err := s.Cell("A1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddOLEObject(OLEObjectSpec{Data: []byte("\xd0\xcf\x11\xe0 payload"), ProgID: "Word.Document.12", Anchor: "B2"}); err != nil {
+		t.Fatalf("AddOLEObject: %v", err)
+	}
+	s.AddComment("D4", "Reviewer", "please verify")
+
+	out, err := w.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	// Exactly one VML drawing part.
+	zr, err := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vmlParts []string
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, ".vml") {
+			vmlParts = append(vmlParts, f.Name)
+		}
+	}
+	if len(vmlParts) != 1 {
+		t.Fatalf("want exactly one VML part, got %v", vmlParts)
+	}
+
+	vml := string(readZipPart(t, out, vmlParts[0]))
+	if !strings.Contains(vml, `ObjectType="Pict"`) {
+		t.Errorf("combined VML missing OLE Pict shape:\n%s", vml)
+	}
+	if !strings.Contains(vml, `ObjectType="Note"`) {
+		t.Errorf("combined VML missing comment Note shape:\n%s", vml)
+	}
+	// OLE shape uses 1025; the note must use a distinct id above it.
+	if !strings.Contains(vml, `id="_x0000_s1025"`) || !strings.Contains(vml, `id="_x0000_s1026"`) {
+		t.Errorf("combined VML shape ids not distinct (want 1025 and 1026):\n%s", vml)
+	}
+
+	// The worksheet has a single <legacyDrawing> plus the oleObjects reference.
+	ws := string(readZipPart(t, out, "xl/worksheets/sheet1.xml"))
+	if strings.Count(ws, "<legacyDrawing") != 1 {
+		t.Errorf("want exactly one <legacyDrawing>, ws:\n%s", ws)
+	}
+	if !strings.Contains(ws, "<oleObjects>") {
+		t.Errorf("worksheet missing <oleObjects>:\n%s", ws)
+	}
+
+	// The single <legacyDrawing> resolves to the one VML part.
+	rels := string(readZipPart(t, out, "xl/worksheets/_rels/sheet1.xml.rels"))
+	if strings.Count(rels, "vmlDrawing") == 0 {
+		t.Errorf("sheet rels missing VML relationship:\n%s", rels)
+	}
+
+	// Round-trips: the OLE object and the comment both survive reopen.
+	rw, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if objs := rw.OLEObjects(); len(objs) != 1 {
+		t.Errorf("OLEObjects after round trip = %d, want 1", len(objs))
+	}
+	s2, _ := rw.Sheet(0)
+	if got := len(s2.Comments()); got != 1 {
+		t.Errorf("comment count after round trip = %d, want 1", got)
+	}
+}

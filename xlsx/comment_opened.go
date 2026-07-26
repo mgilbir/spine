@@ -65,47 +65,60 @@ func (w *Workbook) writeSheetComments(
 	hasLegacy := sc.legacy != nil && len(sc.legacy.Comments) > 0
 	hasThreaded := sc.threaded != nil && len(sc.threaded.Comments) > 0
 
+	// When the sheet also has pending OLE embeds, comments and OLE objects share
+	// one legacy VML part: writeSheetOLE (which runs after this) owns it and
+	// composes the comment note shapes into it. Here we only assign note shape
+	// ids above the OLE shape range (1025..1025+n-1) and write comments.xml; the
+	// VML part and worksheet <legacyDrawing> are left to the OLE path so a single
+	// <legacyDrawing> points at one part holding both kinds of shape (C283).
+	hasOLE := len(sheet.oleEmbeds) > 0
+
 	// Legacy comments + VML drawing (the note boxes). Both are needed together:
 	// the legacy comment is the text, the VML shape is its rendering.
 	if hasLegacy {
-		// Compose the legacy VML, preserving any non-comment shapes (form
-		// controls, OLE pictures) already present and allocating note shape ids
-		// above the max shape id in use. composeLegacyVML also assigns each
-		// comment's ShapeID, so it must run before comments.xml is marshaled.
-		vmlBytes := composeLegacyVML(originalVML, sc.legacy)
-
 		commentsPart := sc.commentsPart
 		if commentsPart == "" {
 			commentsPart = allocName(used, &seq.comments, "/xl/comments%d.xml")
-		}
-		vmlPart := sc.vmlPart
-		if vmlPart == "" {
-			vmlPart = allocName(used, &seq.vml, "/xl/drawings/vmlDrawing%d.vml")
 		}
 		commentsRID := sc.commentsRID
 		if commentsRID == "" {
 			commentsRID = nextRID()
 		}
-		vmlRID := sc.vmlRID
-		if vmlRID == "" {
-			vmlRID = nextRID()
+
+		if hasOLE {
+			// Reserve note shape ids above the OLE shapes; writeSheetOLE renders
+			// the notes into the combined VML using these ids.
+			assignShapeIDsFrom(sc.legacy, 1025+len(sheet.oleEmbeds))
+		} else {
+			// Compose the legacy VML, preserving any non-comment shapes (form
+			// controls) already present and allocating note shape ids above the
+			// max shape id in use. composeLegacyVML also assigns each comment's
+			// ShapeID, so it must run before comments.xml is marshaled.
+			vmlBytes := composeLegacyVML(originalVML, sc.legacy)
+			vmlPart := sc.vmlPart
+			if vmlPart == "" {
+				vmlPart = allocName(used, &seq.vml, "/xl/drawings/vmlDrawing%d.vml")
+			}
+			vmlRID := sc.vmlRID
+			if vmlRID == "" {
+				vmlRID = nextRID()
+			}
+			if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, vmlBytes); err != nil {
+				return nil, err
+			}
+			sheetRels = ensureRel(sheetRels, vmlRID, opc.RelTypeVMLDrawing, relTargetFromSheet(vmlPart))
+
+			// Point the worksheet at the VML drawing (the element that renders the
+			// note boxes). EnsureChildOrder splices it into the captured child
+			// order if the sheet had none.
+			sheet.ws().LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
+			sheet.ws().EnsureChildOrder("legacyDrawing")
 		}
 
 		if err := writer.WritePart(commentsPart, opc.ContentTypeSheetComments, oxml.MarshalComments(sc.legacy)); err != nil {
 			return nil, err
 		}
-		if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, vmlBytes); err != nil {
-			return nil, err
-		}
-
 		sheetRels = ensureRel(sheetRels, commentsRID, opc.RelTypeComments, relTargetFromSheet(commentsPart))
-		sheetRels = ensureRel(sheetRels, vmlRID, opc.RelTypeVMLDrawing, relTargetFromSheet(vmlPart))
-
-		// Point the worksheet at the VML drawing (the element that renders the
-		// note boxes). ensureLegacyDrawing splices it into the captured child
-		// order if the sheet had none.
-		sheet.ws().LegacyDrawing = &oxml.CT_LegacyDrawing{RID: vmlRID}
-		sheet.ws().EnsureChildOrder("legacyDrawing")
 	}
 
 	// Threaded comments. Linked to the worksheet by relationship only (no body
