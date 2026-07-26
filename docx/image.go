@@ -320,6 +320,71 @@ func (r *Run) ownerPart() string {
 	return r.paragraph.document.mainPart()
 }
 
+// nextDocPrID returns the next document-unique wp:docPr id for an image or
+// chart drawing. Images and charts share this one counter (independent of their
+// media/chart part numbers), so an AddImage and an AddChart in the same document
+// no longer both emit id="1". On first use it seeds past the highest docPr id
+// already present in an opened document's drawings so a freshly added drawing
+// never reuses an existing id. Text boxes and shapes keep their own high-offset
+// counter (nextShapeID); the seed ignores ids in that range to keep the two
+// spaces from bleeding into each other.
+func (d *Document) nextDocPrID() int {
+	if !d.docPrIDInit {
+		d.docPrIDInit = true
+		d.docPrIDSeq = d.maxExistingDocPrID()
+	}
+	d.docPrIDSeq++
+	return d.docPrIDSeq
+}
+
+// maxExistingDocPrID returns the highest wp:docPr id (below shapeIDBase) found
+// in the drawings of the opened document's body, headers, and footers, or 0.
+func (d *Document) maxExistingDocPrID() int {
+	max := 0
+	scan := func(paras []*oxml.CT_P) {
+		for _, p := range paras {
+			for _, r := range oxmlParagraphRuns(p) {
+				for _, dr := range r.Drawing {
+					if dr == nil {
+						continue
+					}
+					if id := docPrID(dr.RawContent); id > max && id < shapeIDBase {
+						max = id
+					}
+				}
+			}
+		}
+	}
+	if body := d.doc(); body != nil && body.Body != nil {
+		scan(body.Body.AllParagraphs())
+	}
+	for _, hp := range d.headers {
+		if hp != nil && hp.hdr != nil {
+			scan(hp.hdr.AllParagraphs())
+		}
+	}
+	for _, fp := range d.footers {
+		if fp != nil && fp.ftr != nil {
+			scan(fp.ftr.AllParagraphs())
+		}
+	}
+	return max
+}
+
+// docPrID returns the numeric id of the wp:docPr element in a drawing's raw
+// content, or 0 when it has none.
+func docPrID(raw []byte) int {
+	v := attrValue(raw, []byte(`<wp:docPr id="`))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // registerImagePart stores an image part and registers its relationship in
 // the owning part's scope (document.xml or a header/footer part), returning
 // the relationship id and the image number. The part number is derived from
@@ -366,13 +431,13 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 		return nil, fmt.Errorf("run is not attached to a document")
 	}
 
-	relID, num := doc.registerImagePart(r.ownerPart(), data, contentType, ext)
+	relID, _ := doc.registerImagePart(r.ownerPart(), data, contentType, ext)
 
 	img := &InlineImage{
 		relID:     relID,
 		widthEMU:  int64(100 * 914400 / 72), // 100pt default; override via SetSize
 		heightEMU: int64(100 * 914400 / 72),
-		drawingID: uint32(num),
+		drawingID: uint32(doc.nextDocPrID()),
 		run:       r,
 		floating:  floating,
 		anchor:    anchor,
@@ -411,7 +476,7 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	// placed in a header resolves both the raster and SVG rels from the
 	// header part's own rels.
 	owner := r.ownerPart()
-	rasterRelID, num := doc.registerImagePart(owner, fallbackData, fallbackCT, fallbackExt)
+	rasterRelID, _ := doc.registerImagePart(owner, fallbackData, fallbackCT, fallbackExt)
 	svgRelID, _ := doc.registerImagePart(owner, svgData, opc.ContentTypeSVG, ".svg")
 
 	img := &InlineImage{
@@ -419,7 +484,7 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 		svgRelID:  svgRelID,
 		widthEMU:  int64(100 * 914400 / 72),
 		heightEMU: int64(100 * 914400 / 72),
-		drawingID: uint32(num),
+		drawingID: uint32(doc.nextDocPrID()),
 		run:       r,
 		floating:  floating,
 		anchor:    anchor,

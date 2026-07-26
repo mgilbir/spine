@@ -70,6 +70,13 @@ type Document struct {
 	importedParts    []*importedPart           // parts carried over verbatim by Append (charts, OLE objects, ...)
 	nextRelIDVal     int                       // counter for relationship IDs
 	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
+	// docPrIDSeq is the document-wide counter for the wp:docPr ids of images and
+	// charts, so an AddImage* and an AddChart in the same document never emit the
+	// same id (ECMA-376 requires document-unique wp:docPr ids). It is seeded once
+	// past the highest docPr id already present in an opened document's drawings.
+	// See nextDocPrID.
+	docPrIDSeq  int
+	docPrIDInit bool
 	// revisionIDVal is the highest tracked-change id (w:id) handed out so far;
 	// revisionIDInit records that the initial scan of existing ids has run. See
 	// nextRevisionID in revisions.go.

@@ -105,7 +105,9 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 		Target: "../embeddings/" + embedName[len("/word/embeddings/"):],
 	})
 
-	drawing := &oxml.CT_Drawing{RawContent: buildChartDrawingXML(int(num), relID, widthEMU, heightEMU)}
+	// The wp:docPr id is document-unique across images and charts (not derived
+	// from the chart part number), so an AddImage and an AddChart never collide.
+	drawing := &oxml.CT_Drawing{RawContent: buildChartDrawingXML(doc.nextDocPrID(), relID, widthEMU, heightEMU)}
 	p.AddRun().r.AppendDrawing(drawing)
 	// A chart added to a reopened header/footer paragraph must regenerate that
 	// part on save so the drawing and its chart relationship are not masked by
