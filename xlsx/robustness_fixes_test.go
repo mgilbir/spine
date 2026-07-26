@@ -11,6 +11,42 @@ import (
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
+// TestFormulaValueTyped verifies Cell.Value() types a formula's cached result
+// by its cached-value type rather than always returning the raw string.
+func TestFormulaValueTyped(t *testing.T) {
+	wb := Create()
+	s := wb.AddSheet("S")
+	c, err := s.Cell("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.cell.F = &oxml.CT_CellFormula{Value: "1+1"}
+
+	// Numeric cached result -> float64.
+	nv := "2"
+	c.cell.T = "n"
+	c.cell.V = &nv
+	if got := c.Value(); got != float64(2) {
+		t.Errorf("numeric formula Value() = %v (%T), want float64(2)", got, got)
+	}
+
+	// Boolean cached result -> bool.
+	bv := "1"
+	c.cell.T = "b"
+	c.cell.V = &bv
+	if got := c.Value(); got != true {
+		t.Errorf("bool formula Value() = %v (%T), want true", got, got)
+	}
+
+	// String cached result -> string.
+	sv := "hello"
+	c.cell.T = "str"
+	c.cell.V = &sv
+	if got := c.Value(); got != "hello" {
+		t.Errorf("string formula Value() = %v (%T), want \"hello\"", got, got)
+	}
+}
+
 // TestAddChartMarshalFailureNoOrphanSheet verifies that when AddChart fails to
 // marshal the chart (here: a chart with no series), no orphan hidden ChartData
 // sheet is left in the workbook.
