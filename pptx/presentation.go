@@ -467,9 +467,13 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 	}
 
 	// Load each slide
-	for i, slideRef := range p.presentation.SlideIDs.SlideID {
+	for _, slideRef := range p.presentation.SlideIDs.SlideID {
 		rel, ok := relMap[slideRef.RID]
 		if !ok {
+			// Dangling sldId (rel/part missing): skip it. index is assigned as
+			// len(p.slides) at append below rather than from the sldIdLst
+			// position, so a skipped entry does not leave a gap that would
+			// misalign Slide.index from its p.slides slot (C301).
 			continue
 		}
 
@@ -500,7 +504,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		slide := &Slide{
 			presentation: p,
 			partName:     slideName,
-			index:        i,
+			index:        len(p.slides),
 			id:           slideRef.ID,
 			relID:        slideRef.RID,
 			idExtLst:     slideRef.ExtLst,
