@@ -25,6 +25,15 @@ func (p *CT_P) insertPChildRefAt(pos int, ref pChildRef) {
 	p.childOrder[pos] = ref
 }
 
+// HasDirectChildRun reports whether r is a direct child run of the paragraph
+// (not one nested in a hyperlink, tracked-change container, or field). Range
+// operations use it to verify both endpoints can be anchored before mutating
+// either paragraph, so a rejected range leaves no half-placed markers.
+func (p *CT_P) HasDirectChildRun(r *CT_R) bool {
+	p.backfillChildOrder()
+	return p.runChildOrderPos(r) >= 0
+}
+
 // runChildOrderPos returns the position in childOrder of the reference to run r,
 // or -1 if r is not a direct child run of the paragraph.
 func (p *CT_P) runChildOrderPos(r *CT_R) int {

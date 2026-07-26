@@ -162,8 +162,19 @@ func (r *Run) AddComment(author, text string) *Comment {
 // AddCommentOnRange attaches a comment spanning from the start run to the end
 // run (inclusive). The runs may live in the same paragraph or in different
 // paragraphs; the range markers are placed around them and the reference mark
-// after the end run.
+// after the end run. It returns nil if either run is not a direct child run of
+// its paragraph (e.g. a run nested inside a hyperlink), adding no comment so
+// comments.xml gains no orphan entry with no anchor.
 func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comment {
+	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
+		return nil
+	}
+	// Verify both range markers can be anchored before creating the comment
+	// model: a nested (non-direct-child) endpoint must not leave an orphan
+	// comment in comments.xml with no document anchor (C296).
+	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
+		return nil
+	}
 	c := d.addCommentModel(author, text, "")
 	start.paragraph.p.InsertCommentStartBeforeRun(start.r, c.Id)
 	end.paragraph.p.InsertCommentEndAndRefAfterRun(end.r, c.Id)

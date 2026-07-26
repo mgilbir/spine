@@ -67,15 +67,22 @@ func (p *Paragraph) AddBookmark(name string) *Bookmark {
 // AddBookmarkOnRange brackets the content from the start run to the end run
 // (inclusive) with a bookmark of the given name. The runs may live in the same
 // paragraph or in different paragraphs. Returns nil if either run is not a
-// direct child run of its paragraph.
+// direct child run of its paragraph (e.g. a run nested inside a hyperlink),
+// leaving the document unchanged so no bookmarkStart is placed without a
+// matching bookmarkEnd.
 func (d *Document) AddBookmarkOnRange(name string, start, end *Run) *Bookmark {
+	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
+		return nil
+	}
+	// Verify both markers can be anchored before mutating either paragraph: the
+	// end run being nested (not a direct child) must not leave a dangling
+	// bookmarkStart from a half-completed insertion (C296).
+	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
+		return nil
+	}
 	id := d.nextBookmarkID()
-	if !start.paragraph.p.InsertBookmarkStartBeforeRun(start.r, id, name) {
-		return nil
-	}
-	if !end.paragraph.p.InsertBookmarkEndAfterRun(end.r, id) {
-		return nil
-	}
+	start.paragraph.p.InsertBookmarkStartBeforeRun(start.r, id, name)
+	end.paragraph.p.InsertBookmarkEndAfterRun(end.r, id)
 	return &Bookmark{document: d, name: name, id: id}
 }
 
