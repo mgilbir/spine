@@ -130,6 +130,100 @@ func TestAddChartAnchorGridClamp(t *testing.T) {
 	}
 }
 
+// TestDeleteSheetCascadesUniquelyOwnedParts verifies that DeleteSheet removes
+// the drawing/table/media parts owned only by the deleted sheet, while a media
+// part shared with another sheet's drawing is preserved.
+func TestDeleteSheetCascadesUniquelyOwnedParts(t *testing.T) {
+	relDrawing := "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"
+	relTable := "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"
+	relImage := "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+	sheetXML := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+		`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>`
+	rels := func(entries string) string {
+		return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` + entries + `</Relationships>`
+	}
+
+	data := buildFixtureXlsxParts(t, []struct{ name, data string }{
+		{"[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+			`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+			`<Default Extension="xml" ContentType="application/xml"/>` +
+			`<Default Extension="png" ContentType="image/png"/>` +
+			`<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+			`<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+			`<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+			`<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` +
+			`<Override PartName="/xl/drawings/drawing2.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` +
+			`<Override PartName="/xl/tables/table1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>` +
+			`</Types>`},
+		{"_rels/.rels", rels(`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>`)},
+		{"xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="One" sheetId="1" r:id="rId1"/><sheet name="Two" sheetId="2" r:id="rId2"/></sheets></workbook>`},
+		{"xl/_rels/workbook.xml.rels", rels(
+			`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>`+
+				`<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>`)},
+		{"xl/worksheets/sheet1.xml", sheetXML},
+		{"xl/worksheets/sheet2.xml", sheetXML},
+		{"xl/worksheets/_rels/sheet1.xml.rels", rels(
+			`<Relationship Id="rId1" Type="`+relDrawing+`" Target="../drawings/drawing1.xml"/>`+
+				`<Relationship Id="rId2" Type="`+relTable+`" Target="../tables/table1.xml"/>`)},
+		{"xl/worksheets/_rels/sheet2.xml.rels", rels(
+			`<Relationship Id="rId1" Type="`+relDrawing+`" Target="../drawings/drawing2.xml"/>`)},
+		{"xl/drawings/drawing1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" + `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>`},
+		{"xl/drawings/drawing2.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" + `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"/>`},
+		{"xl/drawings/_rels/drawing1.xml.rels", rels(
+			`<Relationship Id="rId1" Type="`+relImage+`" Target="../media/image1.png"/>`+
+				`<Relationship Id="rId2" Type="`+relImage+`" Target="../media/shared.png"/>`)},
+		{"xl/drawings/_rels/drawing2.xml.rels", rels(
+			`<Relationship Id="rId1" Type="`+relImage+`" Target="../media/shared.png"/>`)},
+		{"xl/tables/table1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" + `<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="1" name="T" displayName="T" ref="A1:A2"/>`},
+		{"xl/media/image1.png", "PNGDATA1"},
+		{"xl/media/shared.png", "PNGDATASHARED"},
+	})
+
+	wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wb.DeleteSheet(0); err != nil { // delete "One"
+		t.Fatal(err)
+	}
+	saved, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gone := []string{
+		"xl/worksheets/sheet1.xml",
+		"xl/drawings/drawing1.xml",
+		"xl/drawings/_rels/drawing1.xml.rels",
+		"xl/tables/table1.xml",
+		"xl/media/image1.png",
+	}
+	for _, p := range gone {
+		if zipHasPart(t, saved, p) {
+			t.Errorf("expected cascade-deleted part %s to be absent from the saved package", p)
+		}
+	}
+	kept := []string{
+		"xl/worksheets/sheet2.xml",
+		"xl/drawings/drawing2.xml",
+		"xl/media/shared.png",
+	}
+	for _, p := range kept {
+		if !zipHasPart(t, saved, p) {
+			t.Errorf("expected shared/owned-by-other part %s to be preserved", p)
+		}
+	}
+	// The deleted drawing's content-type override must be gone; the shared png
+	// default and the surviving drawing's override must remain.
+	ct := string(readZipPart(t, saved, "[Content_Types].xml"))
+	if strings.Contains(ct, "/xl/drawings/drawing1.xml") || strings.Contains(ct, "/xl/tables/table1.xml") {
+		t.Errorf("orphan content-type override for a cascade-deleted part:\n%s", ct)
+	}
+}
+
 // TestReplacedOpenedHyperlinkRelNotReemitted verifies that replacing a
 // hyperlink that was loaded from an opened workbook drops its old external
 // relationship from the saved sheet .rels (rather than leaking a stale URL).
