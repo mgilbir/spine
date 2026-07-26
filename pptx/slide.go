@@ -818,29 +818,37 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src == nil {
 		return
 	}
-	if src.NoFill != nil {
-		dst.NoFill = src.NoFill
-	}
-	if src.SolidFill != nil {
-		dst.SolidFill = src.SolidFill
-	}
-	if src.GradFill != nil {
-		dst.GradFill = src.GradFill
-	}
-	if src.PattFill != nil {
-		dst.PattFill = src.PattFill
-	}
-	if src.BlipFill != nil {
-		dst.BlipFill = src.BlipFill
-	}
-	if src.GrpFill != nil {
-		dst.GrpFill = src.GrpFill
+	// Fill is an exclusive choice (EG_FillProperties): a shape carries at most
+	// one fill element. When the overlay sets any fill member it replaces the
+	// destination's fill atomically — clear every competing member first, so a
+	// shape parsed with <a:noFill/> that is given a solid fill does not end up
+	// with both (which is schema-invalid).
+	if srcHasFill(src) {
+		dst.NoFill, dst.SolidFill, dst.GradFill = nil, nil, nil
+		dst.PattFill, dst.BlipFill, dst.GrpFill = nil, nil, nil
+		switch {
+		case src.NoFill != nil:
+			dst.NoFill = src.NoFill
+		case src.SolidFill != nil:
+			dst.SolidFill = src.SolidFill
+		case src.GradFill != nil:
+			dst.GradFill = src.GradFill
+		case src.PattFill != nil:
+			dst.PattFill = src.PattFill
+		case src.BlipFill != nil:
+			dst.BlipFill = src.BlipFill
+		case src.GrpFill != nil:
+			dst.GrpFill = src.GrpFill
+		}
 	}
 	if src.Ln != nil {
 		dst.Ln = src.Ln
 	}
+	// Effects merge per member: the overlay starts empty for a materialized
+	// shape, so setting one effect (glow, shadow, reflection, soft edge) must
+	// add to — never replace — the effects already parsed on the node.
 	if src.EffectLst != nil {
-		dst.EffectLst = src.EffectLst
+		mergeEffectLst(dst, src.EffectLst)
 	}
 	if src.EffectDag != nil {
 		dst.EffectDag = src.EffectDag
@@ -848,8 +856,85 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src.Scene3d != nil {
 		dst.Scene3d = src.Scene3d
 	}
+	// sp3d (3D bevel) merges per member for the same reason as the effect list.
 	if src.Sp3d != nil {
-		dst.Sp3d = src.Sp3d
+		mergeSp3d(dst, src.Sp3d)
+	}
+}
+
+// srcHasFill reports whether the SpPr carries any member of the EG_FillProperties
+// exclusive choice.
+func srcHasFill(sp *dml.SpPr) bool {
+	return sp.NoFill != nil || sp.SolidFill != nil || sp.GradFill != nil ||
+		sp.PattFill != nil || sp.BlipFill != nil || sp.GrpFill != nil
+}
+
+// mergeEffectLst copies each effect set on src onto dst's effect list,
+// allocating one when absent. Members src does not set are left as parsed, so
+// setting one effect does not drop effects already on the shape.
+func mergeEffectLst(dst *dml.SpPr, src *dml.EffectLst) {
+	if dst.EffectLst == nil {
+		dst.EffectLst = &dml.EffectLst{}
+	}
+	d := dst.EffectLst
+	if src.Blur != nil {
+		d.Blur = src.Blur
+	}
+	if src.FillOverlay != nil {
+		d.FillOverlay = src.FillOverlay
+	}
+	if src.Glow != nil {
+		d.Glow = src.Glow
+	}
+	if src.InnerShdw != nil {
+		d.InnerShdw = src.InnerShdw
+	}
+	if src.OuterShdw != nil {
+		d.OuterShdw = src.OuterShdw
+	}
+	if src.PrstShdw != nil {
+		d.PrstShdw = src.PrstShdw
+	}
+	if src.Reflection != nil {
+		d.Reflection = src.Reflection
+	}
+	if src.SoftEdge != nil {
+		d.SoftEdge = src.SoftEdge
+	}
+}
+
+// mergeSp3d copies each 3D property set on src onto dst's sp3d, allocating one
+// when absent. Properties src does not set are left as parsed, so setting one
+// (e.g. a top bevel) does not drop 3D properties already on the shape.
+func mergeSp3d(dst *dml.SpPr, src *dml.Sp3d) {
+	if dst.Sp3d == nil {
+		dst.Sp3d = src
+		return
+	}
+	d := dst.Sp3d
+	if src.Z != 0 {
+		d.Z = src.Z
+	}
+	if src.ExtrusionH != 0 {
+		d.ExtrusionH = src.ExtrusionH
+	}
+	if src.ContourW != 0 {
+		d.ContourW = src.ContourW
+	}
+	if src.PrstMaterial != "" {
+		d.PrstMaterial = src.PrstMaterial
+	}
+	if src.BevelT != nil {
+		d.BevelT = src.BevelT
+	}
+	if src.BevelB != nil {
+		d.BevelB = src.BevelB
+	}
+	if src.ExtrusionClr != nil {
+		d.ExtrusionClr = src.ExtrusionClr
+	}
+	if src.ContourClr != nil {
+		d.ContourClr = src.ContourClr
 	}
 }
 
