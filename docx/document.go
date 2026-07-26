@@ -1657,28 +1657,33 @@ func (d *Document) nextImageNumber() int {
 // parts added earlier in this session, and everything preserved from the
 // opened package, so the returned name never collides with an existing part
 // and is always a fresh key into d.headers/d.footers (an existing parsed
-// header is never clobbered in memory).
+// header is never clobbered in memory). OPC part names are case-insensitive, so
+// a wild /word/Header1.xml occupies the same name as the generated
+// /word/header1.xml: the used-name set and the candidate are compared
+// lower-cased (as nextImageNumber does) or the chosen name would collide
+// case-insensitively at save time.
 func (d *Document) nextHdrFtrPartName(kind string) string {
 	used := make(map[string]bool,
 		len(d.preservedParts)+len(d.headers)+len(d.footers)+len(d.newHeaderParts)+len(d.newFooterParts))
+	mark := func(name string) { used[strings.ToLower(name)] = true }
 	for name := range d.preservedParts {
-		used[name] = true
+		mark(name)
 	}
 	for name := range d.headers {
-		used[name] = true
+		mark(name)
 	}
 	for name := range d.footers {
-		used[name] = true
+		mark(name)
 	}
 	for _, hp := range d.newHeaderParts {
-		used[hp.partName] = true
+		mark(hp.partName)
 	}
 	for _, fp := range d.newFooterParts {
-		used[fp.partName] = true
+		mark(fp.partName)
 	}
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("/word/%s%d.xml", kind, n)
-		if !used[name] {
+		if !used[strings.ToLower(name)] {
 			return name
 		}
 	}
