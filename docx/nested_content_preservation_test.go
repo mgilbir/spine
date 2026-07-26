@@ -87,3 +87,33 @@ func TestBidiWrapperPreservedOnSave(t *testing.T) {
 		}
 	}
 }
+
+// C261: CT_SimpleField bound its lock attribute to a non-existent w:lock, so
+// w:fldLock="true" (which pins a field against recalculation) was stripped on
+// save, silently making a locked field editable; it also dropped the w:fldData
+// custom field-data child and any unmodeled attribute. The correct w:fldLock
+// mapping, raw-preserved fldData, and CapturedAttrs must all survive.
+func TestSimpleFieldLockAndFldDataPreservedOnSave(t *testing.T) {
+	const fldData = `<w:fldData xml:space="preserve">QQ==</w:fldData>`
+	field := `<w:fldSimple w:instr=" REF _Ref1 " w:fldLock="true" w:dirty="true">` +
+		fldData +
+		`<w:r><w:t>cached</w:t></w:r></w:fldSimple>`
+	body := `<w:body><w:p>` + field + `</w:p><w:sectPr/></w:body>`
+	fixture := fixtureWithDocument(t, fixtureWNS, body)
+	doc := openRegenSave(t, fixture)
+
+	if !strings.Contains(doc, `w:fldLock="true"`) {
+		t.Errorf("w:fldLock dropped (locked field became editable):\n%s", doc)
+	}
+	if !strings.Contains(doc, fldData) {
+		t.Errorf("w:fldData child dropped:\n%s", doc)
+	}
+	if !strings.Contains(doc, "cached") {
+		t.Errorf("field result run dropped:\n%s", doc)
+	}
+	// The whole field, including the source attribute order (instr, fldLock,
+	// dirty), must round-trip verbatim.
+	if !strings.Contains(doc, field) {
+		t.Errorf("fldSimple not preserved verbatim:\nwant %s\ngot  %s", field, doc)
+	}
+}

@@ -105,7 +105,10 @@ func isRawPChild(local string) bool {
 		"contentPart",
 		"oMath", "oMathPara",
 		"dir", "bdo",
+		"fldData",
 		"commentRangeStart", "commentRangeEnd":
+		// w:fldData is the CT_SimpleField custom field-data child; untyped by the
+		// model, raw capture keeps it from being dropped on save.
 		// w:dir / w:bdo are the EG_PContent bidi-embedding wrappers (LTR/RTL
 		// override) holding run content. Untyped by the model, they hit the
 		// default d.Skip() in every content path, deleting the visible text

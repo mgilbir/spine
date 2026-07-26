@@ -96,9 +96,15 @@ func (h *CT_Hyperlink) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 // CT_SimpleField represents a simple field (w:fldSimple).
 type CT_SimpleField struct {
-	Instr string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main instr,attr"`
-	Dirty string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dirty,attr,omitempty"`
-	Lock  string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main lock,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; replayed on
+	// marshal so producer attribute order and unmodeled attributes survive.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	Instr         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main instr,attr"`
+	Dirty         string          `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main dirty,attr,omitempty"`
+	// FldLock maps w:fldLock (the XSD attribute name). It was previously bound to
+	// a non-existent w:lock, so a locked field ("true") silently became editable
+	// on save.
+	FldLock string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fldLock,attr,omitempty"`
 
 	R             []*CT_R               `xml:"-"`
 	Hyperlink     []*CT_Hyperlink       `xml:"-"`
@@ -112,14 +118,15 @@ type CT_SimpleField struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_SimpleField.
 func (f *CT_SimpleField) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	f.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "instr":
 			f.Instr = attr.Value
 		case "dirty":
 			f.Dirty = attr.Value
-		case "lock":
-			f.Lock = attr.Value
+		case "fldLock":
+			f.FldLock = attr.Value
 		}
 	}
 
@@ -134,8 +141,11 @@ func (f *CT_SimpleField) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	if f.Dirty != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "dirty", Value: f.Dirty})
 	}
-	if f.Lock != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "lock", Value: f.Lock})
+	if f.FldLock != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "fldLock", Value: f.FldLock})
+	}
+	if f.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(f.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, f.R, f.Hyperlink, f.BookmarkStart, f.BookmarkEnd,
