@@ -2,6 +2,57 @@ package xlsx
 
 import "testing"
 
+// TestStyleNoOpDoesNotDirty verifies that a NewCellStyle / AddNumberFormat call
+// which resolves to an already-existing record does not mark styles modified
+// (which would force styles.xml regeneration and break byte-identical
+// round-trip on producer-formatted files).
+func TestStyleNoOpDoesNotDirty(t *testing.T) {
+	wb := Create()
+	sm := wb.Styles()
+
+	idx, err := sm.NewCellStyle(CellStyle{Format: "0.00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nfID := sm.AddNumberFormat("0.000") // custom (not built-in)
+
+	// Observe subsequent no-ops from a clean state.
+	wb.stylesDirty = false
+
+	idx2, err := sm.NewCellStyle(CellStyle{Format: "0.00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx2 != idx {
+		t.Errorf("NewCellStyle dedup index = %d, want %d", idx2, idx)
+	}
+	if wb.stylesDirty {
+		t.Errorf("NewCellStyle no-op set stylesDirty")
+	}
+
+	if got := sm.AddNumberFormat("0.000"); got != nfID {
+		t.Errorf("AddNumberFormat dedup id = %d, want %d", got, nfID)
+	}
+	if wb.stylesDirty {
+		t.Errorf("AddNumberFormat no-op (existing custom) set stylesDirty")
+	}
+
+	if got := sm.AddNumberFormat("0.00"); got != 2 {
+		t.Errorf("AddNumberFormat built-in id = %d, want 2", got)
+	}
+	if wb.stylesDirty {
+		t.Errorf("AddNumberFormat no-op (built-in) set stylesDirty")
+	}
+
+	// A genuinely new record must still dirty.
+	if _, err := sm.NewCellStyle(CellStyle{Format: "0.0000"}); err != nil {
+		t.Fatal(err)
+	}
+	if !wb.stylesDirty {
+		t.Errorf("new style did not set stylesDirty")
+	}
+}
+
 // TestParseCellRefMixedCase verifies ParseCellRef accepts column prefixes with
 // mixed letter case, matching Excel's leniency.
 func TestParseCellRefMixedCase(t *testing.T) {

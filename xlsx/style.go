@@ -133,14 +133,19 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	if err := validateCellStyle(&style); err != nil {
 		return 0, err
 	}
-	sm.markModified()
 	ss := sm.stylesheet
 
 	// Build the Xf record, linking it to the default (Normal) named style.
+	// resolveXf marks the stylesheet modified only when it actually appends a
+	// font/fill/border/numFmt record; a new record forces a new xf here too, so
+	// dedup can never short-circuit after resolveXf added something.
 	xfID := uint32(0)
 	xf := sm.resolveXf(&style, &xfID)
 
-	// De-duplicate: check if an identical xf already exists
+	// De-duplicate: check if an identical xf already exists. A no-op call (the
+	// requested style already exists) must not mark styles modified, or an
+	// unmodified opened workbook would regenerate styles.xml and lose its
+	// byte-identical round-trip.
 	if ss.CellXfs != nil {
 		for i, existing := range ss.CellXfs.Xf {
 			if xfEqual(&existing, &xf) {
@@ -150,6 +155,7 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	}
 
 	// Add new xf
+	sm.markModified()
 	if ss.CellXfs == nil {
 		ss.CellXfs = &oxml.CT_CellXfs{}
 	}
@@ -467,7 +473,10 @@ func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 // AddNumberFormat registers a custom number format string and returns its ID.
 // If the format string matches a built-in format, the built-in ID is returned.
 func (sm *StyleManager) AddNumberFormat(code string) uint32 {
-	sm.markModified()
+	// resolveNumberFormat marks the stylesheet modified only when it appends a
+	// new custom format. Registering a built-in or already-present format is a
+	// no-op and must not dirty styles.xml (which would break an unmodified
+	// opened workbook's byte-identical round-trip).
 	return sm.resolveNumberFormat(code)
 }
 
@@ -492,6 +501,7 @@ func (sm *StyleManager) resolveNumberFormat(code string) uint32 {
 	}
 
 	// Create new custom format
+	sm.markModified()
 	if ss.NumFmts == nil {
 		ss.NumFmts = &oxml.CT_NumFmts{}
 	}
