@@ -662,7 +662,7 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 		nextSlideID:     256,
 		nextRelID:       1,
 		presentation: &oxml.Presentation{
-			SlideSize: slideSizeToOxml(opts.SlideSize),
+			SlideSize: createSlideSize(opts),
 			NotesSize: &oxml.SlideSize{
 				Cx: 6858000,
 				Cy: 9144000,
@@ -676,6 +676,16 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 	}
 
 	return p
+}
+
+// createSlideSize resolves the p:sldSz for a new presentation, honoring
+// explicit Width/Height when SlideSize is SlideSizeCustom. A custom size with
+// either dimension unset (0) falls back to the predefined mapping (4:3).
+func createSlideSize(opts CreateOptions) *oxml.SlideSize {
+	if opts.SlideSize == SlideSizeCustom && opts.Width > 0 && opts.Height > 0 {
+		return &oxml.SlideSize{Cx: int64(opts.Width), Cy: int64(opts.Height)}
+	}
+	return slideSizeToOxml(opts.SlideSize)
 }
 
 // slideSizeToOxml maps an Options slide size to the p:sldSz element. The two

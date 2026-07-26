@@ -93,6 +93,13 @@ type CreateOptions struct {
 
 	// IncludeDefaultLayouts includes standard slide layouts.
 	IncludeDefaultLayouts bool
+
+	// Width and Height are the custom slide dimensions in EMU, consulted only
+	// when SlideSize is SlideSizeCustom. When either is unset (0), a custom
+	// deck falls back to the 4:3 default. The dml.Inches / dml.Millimeters
+	// helpers convert convenient units to EMU.
+	Width  dml.EMU
+	Height dml.EMU
 }
 
 // DefaultCreateOptions returns the default options for creating a presentation.
