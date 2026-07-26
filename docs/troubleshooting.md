@@ -31,9 +31,11 @@ warning-severity checks.
 ## Open returns `opc.ErrEncrypted`
 
 The file is password-protected. The plain open path detects an encrypted input
-and returns `opc.ErrEncrypted` rather than failing obscurely. Open it with
-`opc.OpenEncrypted` (or a format's `OpenEncrypted` wrapper) and the password.
-See [Encryption and signing](encryption-and-signing.md).
+and returns `opc.ErrEncrypted` rather than failing obscurely. For Word, open it
+with `docx.OpenEncrypted` and the password to get a `*docx.Document`. For xlsx
+and pptx there is no format wrapper yet: decrypt with `opc.OpenEncrypted`, which
+returns a low-level `*opc.Reader`. See
+[Encryption and signing](encryption-and-signing.md).
 
 ## Open returns `crypto.ErrWrongPassword`
 
