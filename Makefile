@@ -68,7 +68,7 @@ harvest-batch: build
 FUZZTIME ?= 30s
 fuzz:
 	@set -e; \
-	pkgs=$$(grep -rl '^func Fuzz' --include='*_test.go' . | xargs -n1 dirname | sed 's,^\./,,' | sort -u); \
+	pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
 	for pkg in $$pkgs; do \
 		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
 			echo "==> ./$$pkg $$target"; \
