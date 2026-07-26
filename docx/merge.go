@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
@@ -59,7 +60,16 @@ func (d *Document) Append(other *Document) error {
 		return nil
 	}
 
-	relRemap, err := d.importRelationships(other)
+	// Serialize other's main part up front: the reference-id remaps are driven by
+	// the relationship ids the copied body actually references, and the serialized
+	// bytes are the same ones rewritten and re-parsed below.
+	data, err := marshalDocumentXML(other.doc())
+	if err != nil {
+		return err
+	}
+	refd := referencedRelIDs(data)
+
+	relRemap, err := d.importRelationships(other, refd)
 	if err != nil {
 		return err
 	}
@@ -73,12 +83,8 @@ func (d *Document) Append(other *Document) error {
 		return err
 	}
 
-	// Serialize other's main part, rewrite the colliding ids in the body
-	// content, then re-parse and append the body children in order.
-	data, err := marshalDocumentXML(other.doc())
-	if err != nil {
-		return err
-	}
+	// Rewrite the colliding ids in the body content, then re-parse and append the
+	// body children in order.
 	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap)
 
 	var rewritten oxml.CT_Document
@@ -92,11 +98,21 @@ func (d *Document) Append(other *Document) error {
 	return nil
 }
 
-// importRelationships copies the media (and external link) relationships of
-// other's main part into this document, returning a map from other's
-// relationship id to the newly assigned id.
-func (d *Document) importRelationships(other *Document) (map[string]string, error) {
+// importRelationships copies the relationships of other's main part that the
+// copied body references into this document, returning a map from other's
+// relationship id to the newly assigned id. External links and images are
+// re-registered through the media path; every other internal relationship the
+// body references (charts, OLE objects, ActiveX, ...) is brought over as a fresh
+// package part — with its own transitive relationships — so no reference in the
+// merged body is left dangling or silently aliased onto an unrelated part.
+// Header and footer relationships are handled separately by importHeadersFooters
+// and skipped here. refd is the set of relationship ids the copied body actually
+// references; a main-part relationship the body does not reference (styles,
+// numbering, footnotes, ...) is not a body reference and is carried by its own
+// dedicated importer, so it is skipped.
+func (d *Document) importRelationships(other *Document, refd map[string]bool) (map[string]string, error) {
 	remap := make(map[string]string)
+	visited := make(map[string]string)
 	for _, rel := range other.relationships[other.mainPart()] {
 		if rel == nil {
 			continue
@@ -121,9 +137,234 @@ func (d *Document) importRelationships(other *Document) (map[string]string, erro
 			ext := path.Ext(rel.Target)
 			newID, _ := d.registerImagePart(d.mainPart(), data, contentType, ext)
 			remap[rel.ID] = newID
+		case rel.Type == opc.RelTypeHeader || rel.Type == opc.RelTypeFooter:
+			// Carried by importHeadersFooters, which remaps these ids itself.
+			continue
+		case refd[rel.ID]:
+			// An internal part the body references (chart, OLE object, ...):
+			// import the part tree and remap the reference.
+			newID, err := d.importInternalPart(other, rel, visited)
+			if err != nil {
+				return nil, err
+			}
+			if newID != "" {
+				remap[rel.ID] = newID
+			}
 		}
 	}
 	return remap, nil
+}
+
+// referencedRelIDs returns the set of relationship ids (rId...) referenced by
+// the r:*-namespaced attributes of the serialized body — the ids that must
+// resolve to a relationship after the merge.
+func referencedRelIDs(data []byte) map[string]bool {
+	set := make(map[string]bool)
+	for _, m := range relIDRefRe.FindAllSubmatch(data, -1) {
+		set[string(m[2])] = true
+	}
+	return set
+}
+
+// importInternalPart copies the source part targeted by an internal main-part
+// relationship (a chart, OLE object, ActiveX control, ...) into this document
+// under a fresh, collision-free part name — transitively importing the part's
+// own relationships — and registers a fresh main-part relationship pointing at
+// it, returning the new relationship id. It returns "" when the target part's
+// bytes cannot be resolved.
+func (d *Document) importInternalPart(other *Document, rel *opc.Relationship, visited map[string]string) (string, error) {
+	srcPart := opc.ResolvePartName(other.mainPart(), rel.Target)
+	newName, err := d.importPartTree(other, srcPart, visited)
+	if err != nil {
+		return "", err
+	}
+	if newName == "" {
+		return "", nil
+	}
+	newID := fmt.Sprintf("rId%d", d.nextRelID())
+	d.addPartRelationship(d.mainPart(), &opc.Relationship{
+		ID:     newID,
+		Type:   rel.Type,
+		Target: relativePartTarget(d.mainPart(), newName),
+	})
+	return newID, nil
+}
+
+// importPartTree copies srcPart (of other) into this document under a fresh part
+// name, recursively importing every part it relates to and rewriting its own
+// r:id references to the freshly assigned ids. visited memoizes source part →
+// new part name so a part shared by several references is imported once and any
+// relationship cycle terminates. It returns the new part name, or "" when the
+// source bytes cannot be resolved.
+func (d *Document) importPartTree(other *Document, srcPart string, visited map[string]string) (string, error) {
+	if newName, ok := visited[srcPart]; ok {
+		return newName, nil
+	}
+	data, contentType, ok := other.rawPartBytes(srcPart)
+	if !ok {
+		return "", nil
+	}
+	newName := d.freshImportName(srcPart)
+	ip := &importedPart{partName: newName, contentType: contentType}
+	// Reserve the name (so nested imports pick a different one) and record it
+	// before recursing so a cycle back to srcPart resolves to this same part.
+	d.importedParts = append(d.importedParts, ip)
+	visited[srcPart] = newName
+
+	subRemap := make(map[string]string)
+	for _, r := range other.relationships[srcPart] {
+		if r == nil {
+			continue
+		}
+		if r.TargetMode == opc.TargetModeExternal {
+			newID := fmt.Sprintf("rId%d", d.nextRelID())
+			d.addPartRelationship(newName, &opc.Relationship{
+				ID:         newID,
+				Type:       r.Type,
+				Target:     r.Target,
+				TargetMode: opc.TargetModeExternal,
+			})
+			subRemap[r.ID] = newID
+			continue
+		}
+		childSrc := opc.ResolvePartName(srcPart, r.Target)
+		childNew, err := d.importPartTree(other, childSrc, visited)
+		if err != nil {
+			return "", err
+		}
+		if childNew == "" {
+			continue
+		}
+		newID := fmt.Sprintf("rId%d", d.nextRelID())
+		d.addPartRelationship(newName, &opc.Relationship{
+			ID:     newID,
+			Type:   r.Type,
+			Target: relativePartTarget(newName, childNew),
+		})
+		subRemap[r.ID] = newID
+	}
+	// Rewrite the r:id references inside XML parts only; binary parts (embedded
+	// workbooks, images, OLE binaries) must pass through byte-for-byte.
+	if strings.HasSuffix(strings.ToLower(srcPart), ".xml") {
+		data = replaceAttr(data, relIDRefRe, subRemap)
+	}
+	ip.data = data
+	return newName, nil
+}
+
+// rawPartBytes resolves the bytes and content type of one of this document's own
+// package parts by name, covering parts preserved from an opened package, parts
+// captured raw, images and charts added through the mutation API, and (last) the
+// source reader. Used by Append to read the parts of the document being merged.
+func (d *Document) rawPartBytes(name string) ([]byte, string, bool) {
+	if p, ok := d.preservedParts[name]; ok {
+		return p.Data, p.ContentType, true
+	}
+	if p, ok := d.otherParts[name]; ok {
+		return p.Data, p.ContentType, true
+	}
+	for _, ip := range d.imageParts {
+		if ip.partName == name {
+			return ip.data, ip.contentType, true
+		}
+	}
+	for _, cp := range d.chartParts {
+		if cp.partName == name {
+			return cp.data, opc.ContentTypeChart, true
+		}
+		if cp.embedName == name {
+			return cp.embedData, opc.ContentTypeSpreadsheetPackage, true
+		}
+	}
+	if d.reader != nil {
+		if f := d.reader.GetFile(name); f != nil {
+			if data, err := f.ReadAll(); err == nil {
+				return data, f.ContentType, true
+			}
+		}
+	}
+	return nil, "", false
+}
+
+// freshImportName returns a part name based on srcPart that collides with no
+// part already present in this document, appending a numeric suffix before the
+// extension when the preferred name is taken.
+func (d *Document) freshImportName(srcPart string) string {
+	if !d.partNameTaken(srcPart) {
+		return srcPart
+	}
+	ext := path.Ext(srcPart)
+	base := srcPart[:len(srcPart)-len(ext)]
+	for i := 1; ; i++ {
+		cand := fmt.Sprintf("%s_%d%s", base, i, ext)
+		if !d.partNameTaken(cand) {
+			return cand
+		}
+	}
+}
+
+// partNameTaken reports whether a part name is already occupied by any part this
+// document will write, comparing case-insensitively (OPC part names are
+// case-insensitive).
+func (d *Document) partNameTaken(name string) bool {
+	lname := strings.ToLower(name)
+	if _, ok := d.preservedParts[name]; ok {
+		return true
+	}
+	if _, ok := d.otherParts[name]; ok {
+		return true
+	}
+	if _, ok := d.headers[name]; ok {
+		return true
+	}
+	if _, ok := d.footers[name]; ok {
+		return true
+	}
+	for _, ip := range d.importedParts {
+		if strings.ToLower(ip.partName) == lname {
+			return true
+		}
+	}
+	for _, ip := range d.imageParts {
+		if strings.ToLower(ip.partName) == lname {
+			return true
+		}
+	}
+	for _, cp := range d.chartParts {
+		if strings.ToLower(cp.partName) == lname || strings.ToLower(cp.embedName) == lname {
+			return true
+		}
+	}
+	if d.reader != nil && d.reader.GetFile(name) != nil {
+		return true
+	}
+	return false
+}
+
+// writeImportedParts writes the parts carried over by Append (charts, OLE
+// objects, ...) together with their own relationships. Called from
+// writeAddedParts on both save lifecycles.
+func (d *Document) writeImportedParts(writer *opc.Writer) error {
+	for _, ip := range d.importedParts {
+		if err := writer.WritePart(ip.partName, ip.contentType, ip.data); err != nil {
+			return err
+		}
+		if rels := d.relationships[ip.partName]; len(rels) > 0 {
+			if err := writer.WritePartRelationships(ip.partName, rels); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// importedPart is a package part copied verbatim from a source document during
+// Append, together with its resolved content type. Its own relationships live in
+// d.relationships keyed by partName.
+type importedPart struct {
+	partName    string
+	contentType string
+	data        []byte
 }
 
 // imageBytes resolves the bytes and content type for an image relationship of

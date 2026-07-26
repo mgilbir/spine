@@ -67,6 +67,7 @@ type Document struct {
 	contentTypesData []byte                    // raw [Content_Types].xml
 	imageParts       []*imagePart              // images to be written
 	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
+	importedParts    []*importedPart           // parts carried over verbatim by Append (charts, OLE objects, ...)
 	nextRelIDVal     int                       // counter for relationship IDs
 	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
 	// revisionIDVal is the highest tracked-change id (w:id) handed out so far;
@@ -979,6 +980,9 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		}
 	}
 	if err := d.writeChartParts(writer); err != nil {
+		return err
+	}
+	if err := d.writeImportedParts(writer); err != nil {
 		return err
 	}
 	if err := d.writePendingCustomXMLParts(writer); err != nil {
