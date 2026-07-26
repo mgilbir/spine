@@ -249,11 +249,18 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 		bp := body.BodyPr
 		bp.Wrap = string(tf.wrap)
 		bp.Anchor = string(tf.anchor)
-		l := int64(tf.margins.Left)
-		t := int64(tf.margins.Top)
-		r := int64(tf.margins.Right)
-		b := int64(tf.margins.Bottom)
-		bp.LIns, bp.TIns, bp.RIns, bp.BIns = &l, &t, &r, &b
+		// Only rewrite the four insets when the caller explicitly set them. A
+		// parsed body without inset attributes materializes zero-value margins;
+		// writing those would replace the inherited defaults (~91440/45720)
+		// with zeros and shift the text. A parsed body that already carried
+		// insets keeps them here untouched.
+		if tf.marginsDirty {
+			l := int64(tf.margins.Left)
+			t := int64(tf.margins.Top)
+			r := int64(tf.margins.Right)
+			b := int64(tf.margins.Bottom)
+			bp.LIns, bp.TIns, bp.RIns, bp.BIns = &l, &t, &r, &b
+		}
 		// Only rewrite the autofit child when the caller explicitly changed it,
 		// so a parsed a:normAutofit (with its font-scale attributes) survives an
 		// anchor/wrap/margin edit untouched.
