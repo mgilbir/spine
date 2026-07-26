@@ -35,6 +35,11 @@ const chartDrawingNamespaces = `xmlns:wp="http://schemas.openxmlformats.org/draw
 // chartGraphicDataURI is the a:graphicData uri that marks a drawing as a chart.
 const chartGraphicDataURI = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
+// embeddedWorkbookRelID is the chart part's relationship id (in the chart
+// part's own .rels) targeting its embedded workbook. It is both the rel written
+// by AddChart and the r:id of the c:externalData injected into the chart XML.
+const embeddedWorkbookRelID = "rId1"
+
 // AddChart appends a paragraph containing an inline chart to the document body
 // and returns nothing but an error. It is the ergonomic primary: build a chart
 // with the shared chart package (chart.NewColumn(), SetTitle, SetCategories,
@@ -72,6 +77,10 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	if err != nil {
 		return fmt.Errorf("docx: AddChart: %w", err)
 	}
+	// Point the chart at its embedded workbook so Word's "Edit Data" can open it.
+	// The chart part's relationship to the embedded workbook is rId1 (written
+	// below); without this c:externalData the workbook is orphaned.
+	chartXML = chart.InjectExternalData(chartXML, embeddedWorkbookRelID)
 
 	num := doc.nextChartNumber()
 	chartName := fmt.Sprintf("/word/charts/chart%d.xml", num)
@@ -100,7 +109,7 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	// Relationship from the chart part to its embedded workbook (RelType
 	// package). Targets are relative to /word/charts/, hence the "../".
 	doc.addPartRelationship(chartName, &opc.Relationship{
-		ID:     "rId1",
+		ID:     embeddedWorkbookRelID,
 		Type:   opc.RelTypePackage,
 		Target: "../embeddings/" + embedName[len("/word/embeddings/"):],
 	})

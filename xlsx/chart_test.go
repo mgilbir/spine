@@ -5,10 +5,42 @@ import (
 	"bytes"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/chart"
 )
+
+// refCells expands an absolute c:f reference (e.g. "ChartData1!$B$2:$B$4") into
+// the sheet name and the ordered A1 cell references it spans.
+func refCells(t *testing.T, ref string) (sheet string, cells []string) {
+	t.Helper()
+	bang := strings.Index(ref, "!")
+	if bang < 0 {
+		t.Fatalf("ref %q has no sheet", ref)
+	}
+	sheet = strings.Trim(ref[:bang], "'")
+	rng := strings.ReplaceAll(ref[bang+1:], "$", "")
+	start, end, isRange := strings.Cut(rng, ":")
+	sr, sc, err := ParseCellRef(start)
+	if err != nil {
+		t.Fatalf("ParseCellRef(%q): %v", start, err)
+	}
+	if !isRange {
+		return sheet, []string{FormatCellRef(sr, sc)}
+	}
+	er, ec, err := ParseCellRef(end)
+	if err != nil {
+		t.Fatalf("ParseCellRef(%q): %v", end, err)
+	}
+	for r := sr; r <= er; r++ {
+		for c := sc; c <= ec; c++ {
+			cells = append(cells, FormatCellRef(r, c))
+		}
+	}
+	return sheet, cells
+}
 
 func chartFloatsEqual(a, b []float64) bool {
 	if len(a) != len(b) {
@@ -360,6 +392,234 @@ func TestChartAndImageCoexist(t *testing.T) {
 	}
 	if got := len(s2.Charts()); got != 1 {
 		t.Errorf("Charts: got %d want 1", got)
+	}
+}
+
+// TestAddChartToSheetWithExistingChart adds a second chart to an opened sheet
+// that already carries a chart (from the source package) and verifies BOTH
+// charts survive. Previously the sheet's single <drawing> was repointed at a
+// fresh part holding only the new chart, orphaning the original (C249).
+func TestAddChartToSheetWithExistingChart(t *testing.T) {
+	// Seed a workbook whose sheet already has one chart, then reopen so the
+	// second AddChart runs on the round-trip save path against a preserved
+	// drawing part.
+	seed := Create()
+	sheet := seed.AddSheet("Data")
+	c1 := chart.NewColumn().SetTitle("First").SetCategories([]string{"a", "b"})
+	c1.AddSeries("S1", []float64{1, 2})
+	if err := sheet.AddChart("B2", c1); err != nil {
+		t.Fatalf("seed AddChart: %v", err)
+	}
+	seedData, err := seed.SaveBytes()
+	if err != nil {
+		t.Fatalf("seed SaveBytes: %v", err)
+	}
+
+	wb, err := OpenReader(bytes.NewReader(seedData), int64(len(seedData)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	s, err := wb.SheetByName("Data")
+	if err != nil {
+		t.Fatalf("SheetByName: %v", err)
+	}
+	if got := len(s.Charts()); got != 1 {
+		t.Fatalf("opened sheet Charts(): got %d want 1", got)
+	}
+	c2 := chart.NewLine().SetTitle("Second").SetCategories([]string{"a", "b", "c"})
+	c2.AddSeries("S2", []float64{4, 5, 6})
+	if err := s.AddChart("H2", c2); err != nil {
+		t.Fatalf("second AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	// The single drawing part must now reference two chart parts (both anchors
+	// preserved), and both chart parts must be present.
+	parts := unzipParts(t, data)
+	if _, ok := parts["xl/drawings/drawing2.xml"]; ok {
+		t.Error("expected a single merged drawing part, found a second")
+	}
+	drawing := parts["xl/drawings/drawing1.xml"]
+	if n := bytes.Count(drawing, []byte("<c:chart ")); n != 2 {
+		t.Errorf("drawing chart reference count: got %d want 2\n%s", n, drawing)
+	}
+	if _, ok := parts["xl/charts/chart1.xml"]; !ok {
+		t.Error("missing xl/charts/chart1.xml")
+	}
+	if _, ok := parts["xl/charts/chart2.xml"]; !ok {
+		t.Error("missing xl/charts/chart2.xml (second chart lost)")
+	}
+
+	// Reopen: both charts recovered, with their titles.
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	s2, _ := wb2.SheetByName("Data")
+	got := s2.Charts()
+	if len(got) != 2 {
+		t.Fatalf("Charts after reopen: got %d want 2", len(got))
+	}
+	titles := map[string]bool{}
+	for _, gc := range got {
+		titles[gc.Title()] = true
+	}
+	if !titles["First"] || !titles["Second"] {
+		t.Errorf("recovered chart titles = %v, want First and Second", titles)
+	}
+}
+
+// TestAddBubbleChartDataLayout builds a multi-series bubble chart with distinct
+// X/Y/size vectors, adds it to a sheet, and verifies the data sheet cells each
+// series' c:xVal/c:yVal/c:bubbleSize reference actually hold that series' values.
+// The data-sheet writer previously had only category/scatter layouts, so bubble
+// references pointed at empty or foreign cells (C248).
+func TestAddBubbleChartDataLayout(t *testing.T) {
+	type ser struct {
+		name        string
+		x, y, sizes []float64
+	}
+	sers := []ser{
+		{"Alpha", []float64{1, 2, 3}, []float64{10, 20, 30}, []float64{4, 5, 6}},
+		{"Beta", []float64{1, 2, 3}, []float64{40, 50, 60}, []float64{7, 8, 9}},
+	}
+	c := chart.NewBubble().SetTitle("Bubbles")
+	for _, s := range sers {
+		c.AddBubbleSeries(s.name, s.x, s.y, s.sizes)
+	}
+
+	wb := Create()
+	sheet := wb.AddSheet("Host")
+	if err := sheet.AddChart("E2", c); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+
+	// The chart's layout holds the exact c:f references serialized into
+	// chart.xml (MarshalChartXML builds both from the same layout); assert the
+	// cells they point at carry each series' values.
+	layout := c.Layout()
+	if len(layout.Series) != len(sers) {
+		t.Fatalf("layout series = %d, want %d", len(layout.Series), len(sers))
+	}
+	check := func(ref string, want []float64) {
+		sheetName, cells := refCells(t, ref)
+		ds, err := wb2.SheetByName(sheetName)
+		if err != nil {
+			t.Fatalf("data sheet %q: %v", sheetName, err)
+		}
+		if len(cells) != len(want) {
+			t.Fatalf("ref %q spans %d cells, want %d", ref, len(cells), len(want))
+		}
+		for i, cellRef := range cells {
+			got, err := ds.GetCellValue(cellRef)
+			if err != nil {
+				t.Fatalf("GetCellValue(%s): %v", cellRef, err)
+			}
+			wantStr := strconv.FormatFloat(want[i], 'f', -1, 64)
+			if got != wantStr {
+				t.Errorf("ref %q cell %s = %q, want %q", ref, cellRef, got, wantStr)
+			}
+		}
+	}
+	for i, s := range sers {
+		sl := layout.Series[i]
+		check(sl.XValuesRef, s.x)
+		check(sl.ValuesRef, s.y)
+		check(sl.SizesRef, s.sizes)
+	}
+}
+
+// TestAddScatterChartPerSeriesX builds a two-series scatter chart with distinct
+// X vectors and asserts each series' c:xVal reference points at its own column
+// holding that series' X, and its c:yVal at a distinct column — rather than
+// every series sharing column A while only series 0's X is written (C251).
+func TestAddScatterChartPerSeriesX(t *testing.T) {
+	xA := []float64{1, 2, 3}
+	yA := []float64{10, 20, 30}
+	xB := []float64{100, 200, 300}
+	yB := []float64{40, 50, 60}
+
+	c := chart.NewScatter().SetTitle("XY")
+	c.AddXYSeries("Alpha", xA, yA)
+	c.AddXYSeries("Beta", xB, yB)
+
+	wb := Create()
+	sheet := wb.AddSheet("Host")
+	if err := sheet.AddChart("E2", c); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+
+	layout := c.Layout()
+	if len(layout.Series) != 2 {
+		t.Fatalf("layout series = %d, want 2", len(layout.Series))
+	}
+	// Each series' X must reference a distinct column.
+	xColOf := func(ref string) string {
+		_, cells := refCells(t, ref)
+		return strings.TrimRight(cells[0], "0123456789")
+	}
+	if a, b := xColOf(layout.Series[0].XValuesRef), xColOf(layout.Series[1].XValuesRef); a == b {
+		t.Fatalf("both series' xVal reference the same column %q (C251)", a)
+	}
+
+	check := func(ref string, want []float64) {
+		sheetName, cells := refCells(t, ref)
+		ds, err := wb2.SheetByName(sheetName)
+		if err != nil {
+			t.Fatalf("data sheet %q: %v", sheetName, err)
+		}
+		if len(cells) != len(want) {
+			t.Fatalf("ref %q spans %d cells, want %d", ref, len(cells), len(want))
+		}
+		for i, cellRef := range cells {
+			got, err := ds.GetCellValue(cellRef)
+			if err != nil {
+				t.Fatalf("GetCellValue(%s): %v", cellRef, err)
+			}
+			wantStr := strconv.FormatFloat(want[i], 'f', -1, 64)
+			if got != wantStr {
+				t.Errorf("ref %q cell %s = %q, want %q", ref, cellRef, got, wantStr)
+			}
+		}
+	}
+	check(layout.Series[0].XValuesRef, xA)
+	check(layout.Series[0].ValuesRef, yA)
+	check(layout.Series[1].XValuesRef, xB)
+	check(layout.Series[1].ValuesRef, yB)
+
+	// The cached X recovered from the chart part must match each series' X too.
+	s2, _ := wb2.SheetByName("Host")
+	got := s2.Charts()
+	if len(got) != 1 {
+		t.Fatalf("Charts after reopen: got %d want 1", len(got))
+	}
+	gs := got[0].SeriesList()
+	if len(gs) != 2 {
+		t.Fatalf("recovered series = %d, want 2", len(gs))
+	}
+	if !chartFloatsEqual(gs[0].XValues, xA) || !chartFloatsEqual(gs[1].XValues, xB) {
+		t.Errorf("recovered X: series0=%v (want %v) series1=%v (want %v)",
+			gs[0].XValues, xA, gs[1].XValues, xB)
 	}
 }
 

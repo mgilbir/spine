@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,6 +10,31 @@ import (
 	dmlchart "github.com/mgilbir/spine/common/dml/chart"
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// InjectExternalData inserts a c:externalData element (referencing the embedded
+// workbook relationship) into a serialized chart part, immediately before
+// </c:chartSpace>. That is the schema position for externalData given the chart
+// package emits no spPr/txPr/printSettings/userShapes after c:chart.
+//
+// The shared chart serialization is data-source-agnostic and does not emit it,
+// so format integrations that embed the chart's data (docx and pptx charts,
+// which have no host worksheet) add it: without it Office cannot open the
+// embedded workbook behind "Edit Data", leaving the workbook orphaned. relID is
+// the chart part's relationship to its embedded workbook. If the close tag is
+// absent the input is returned unchanged.
+func InjectExternalData(chartXML []byte, relID string) []byte {
+	const closeTag = "</c:chartSpace>"
+	idx := bytes.LastIndex(chartXML, []byte(closeTag))
+	if idx < 0 {
+		return chartXML
+	}
+	ext := `<c:externalData r:id="` + relID + `"><c:autoUpdate val="0"/></c:externalData>`
+	out := make([]byte, 0, len(chartXML)+len(ext))
+	out = append(out, chartXML[:idx]...)
+	out = append(out, ext...)
+	out = append(out, chartXML[idx:]...)
+	return out
+}
 
 // Axis identifiers. Each chart.xml is an independent part, so fixed IDs are
 // fine; they only need to be distinct within one chart.

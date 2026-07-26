@@ -2,8 +2,10 @@ package xlsx
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"image"
+	"strconv"
 	"strings"
 
 	// Register decoders so AddImage can read intrinsic pixel dimensions.
@@ -233,8 +235,19 @@ func marshalDrawingXML(images []sheetImage, rels []imageRels, charts []sheetChar
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
 	b.WriteString(`<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">`)
+	b.WriteString(drawingAnchorsXML(images, rels, charts, chartRIDs, 0))
+	b.WriteString(`</xdr:wsDr>`)
+	return []byte(b.String())
+}
+
+// drawingAnchorsXML renders just the anchor elements (no wsDr wrapper) for a
+// sheet's images and charts. shapeIDBase offsets the generated cNvPr shape ids
+// so they stay unique when the anchors are spliced into a drawing that already
+// carries shapes; pass 0 for a fresh drawing.
+func drawingAnchorsXML(images []sheetImage, rels []imageRels, charts []sheetChart, chartRIDs []string, shapeIDBase int) string {
+	var b strings.Builder
 	for i, img := range images {
-		shapeID := i + 1
+		shapeID := shapeIDBase + i + 1
 		pic := picXML(shapeID, rels[i], img)
 		if img.twoCell {
 			fmt.Fprintf(&b, `<xdr:twoCellAnchor editAs="oneCell">`+
@@ -255,11 +268,68 @@ func marshalDrawingXML(images []sheetImage, rels []imageRels, charts []sheetChar
 			img.fromCol, img.fromRow, img.widthEMU, img.heightEMU, pic)
 	}
 	for i, ch := range charts {
-		shapeID := len(images) + i + 1
+		shapeID := shapeIDBase + len(images) + i + 1
 		b.WriteString(graphicFrameXML(shapeID, chartRIDs[i], ch))
 	}
-	b.WriteString(`</xdr:wsDr>`)
-	return []byte(b.String())
+	return b.String()
+}
+
+// spliceDrawingAnchors inserts anchor XML immediately before the closing
+// </xdr:wsDr> (or namespace-agnostic </wsDr>) of an existing drawing part,
+// preserving the original anchors. If no close tag is found the anchors are
+// appended (the drawing is then likely malformed, but nothing is dropped).
+func spliceDrawingAnchors(drawing []byte, anchors string) []byte {
+	if anchors == "" {
+		return drawing
+	}
+	idx := bytes.LastIndex(drawing, []byte("</xdr:wsDr>"))
+	if idx < 0 {
+		if i := bytes.LastIndex(drawing, []byte(":wsDr>")); i >= 0 {
+			if j := bytes.LastIndex(drawing[:i], []byte("</")); j >= 0 {
+				idx = j
+			}
+		}
+	}
+	if idx < 0 {
+		if i := bytes.LastIndex(drawing, []byte("</wsDr>")); i >= 0 {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		return append(append([]byte{}, drawing...), anchors...)
+	}
+	out := make([]byte, 0, len(drawing)+len(anchors))
+	out = append(out, drawing[:idx]...)
+	out = append(out, anchors...)
+	out = append(out, drawing[idx:]...)
+	return out
+}
+
+// maxDrawingShapeID returns the largest cNvPr id in a spreadsheet-drawing part,
+// or 0 when none is present or the part does not parse. Session anchors take ids
+// above it so shape ids stay unique within a merged drawing.
+func maxDrawingShapeID(drawing []byte) int {
+	dec := xml.NewDecoder(bytes.NewReader(drawing))
+	max := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok || se.Name.Local != "cNvPr" {
+			continue
+		}
+		for _, a := range se.Attr {
+			if a.Name.Local != "id" {
+				continue
+			}
+			if n, err := strconv.Atoi(a.Value); err == nil && n > max {
+				max = n
+			}
+		}
+	}
+	return max
 }
 
 // graphicFrameXML renders the xdr:twoCellAnchor holding a graphicFrame that

@@ -135,39 +135,22 @@ func (w *Workbook) addChartDataSheet() *Sheet {
 	return sheet
 }
 
-// writeChartData writes a chart's categories and series into a worksheet using
-// the fixed layout the chart's c:f references are built from: categories (or
-// scatter X) in column A rows 2..N+1, and each series' name in row 1 with its
-// values below, in columns B, C, ...
+// writeChartData writes a chart's data into a worksheet using the fixed layout
+// the chart's c:f references are built from. It drives the write from the same
+// chart.DataCells layout source the embedded workbook uses, so every chart kind
+// — including bubble, whose per-series Y/size column pairs the old
+// category/scatter-only writer laid out wrong (C248) — places each value in the
+// exact cell its reference points at.
 func writeChartData(sheet *Sheet, c *chart.Chart) error {
-	series := c.SeriesList()
-	scatter := c.Kind() == chart.KindScatter
-
-	if scatter {
-		if len(series) > 0 {
-			for i, x := range series[0].XValues {
-				if err := sheet.SetCellValue(chartDataCell(1, i+2), x); err != nil {
-					return err
-				}
-			}
+	for _, dc := range c.DataCells() {
+		var value interface{}
+		if dc.IsText {
+			value = dc.Text
+		} else {
+			value = dc.Number
 		}
-	} else {
-		for i, label := range c.Categories() {
-			if err := sheet.SetCellValue(chartDataCell(1, i+2), label); err != nil {
-				return err
-			}
-		}
-	}
-
-	for si, s := range series {
-		col := si + 2 // B, C, ...
-		if err := sheet.SetCellValue(chartDataCell(col, 1), s.Name); err != nil {
+		if err := sheet.SetCellValue(chartDataCell(dc.Col, dc.Row), value); err != nil {
 			return err
-		}
-		for i, v := range s.Values {
-			if err := sheet.SetCellValue(chartDataCell(col, i+2), v); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

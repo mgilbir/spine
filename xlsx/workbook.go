@@ -646,11 +646,11 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// .rels parts rebuilt here, so the verbatim stream skips their stale
 	// originals; personRelTarget names a regenerated person list to wire into
 	// the workbook .rels.
-	var rebuiltRels map[string]bool
+	var rebuiltRels, rebuiltParts map[string]bool
 	var personRelTarget string
 	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
-		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
+		rebuiltRels, rebuiltParts, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
@@ -730,6 +730,11 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		if strings.HasSuffix(name, ".rels") && name != workbookRelsName {
+			continue
+		}
+		// A drawing merged with session-added anchors was written fresh above;
+		// skip its stale preserved bytes (C249).
+		if rebuiltParts[name] {
 			continue
 		}
 		if _, ok := worksheetParts[name]; ok {
@@ -967,7 +972,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	var personTarget string
 	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
-		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
+		_, _, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
