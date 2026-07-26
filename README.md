@@ -438,7 +438,7 @@ legacy 16-bit password hash, which is trivially removed. Every write persists on
 both the `Create` and `Open` save paths, and a zero-modification open→save of a
 feature-bearing workbook stays byte-identical.
 
-### Charts (preview)
+### Charts
 
 The `chart` package builds a DrawingML `chart.xml` part (`c:chartSpace`) that is
 independent of any one document format. Pick a chart type, set categories, add
@@ -854,7 +854,7 @@ disturbing the others.
 
 ## Validation
 
-Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report`: a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
+Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report` (from `github.com/mgilbir/spine/common/validate`): a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
 
 `Save`, `SaveBytes`, and `SaveTo` run `Validate()` first and refuse to write when any **error-severity** finding is present, so a structurally corrupt package is never produced. Warnings never block a save. The findings are sound — no error-severity finding fires on a file the corresponding Office app accepts.
 
@@ -952,6 +952,8 @@ The following standard slide layout types are supported:
 | `LayoutTitleAndVerticalText` | Title and vertical text |
 | `LayoutVerticalTitleAndText` | Vertical title and text |
 
+The exact `Layout*` constant names are the source of truth in [`pptx/layout.go`](pptx/layout.go).
+
 ## Testing
 
 Unit tests run against both small synthetic fixtures (committed to git) and a set of real-world Office files sourced from the internet. The external files are used for round-trip compatibility testing: each file is parsed, serialized back, and compared byte-for-byte against the original.
@@ -962,7 +964,7 @@ External fixtures are not checked into the repository. To download them:
 make fetch
 ```
 
-This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt` with `# URL unknown`) and cannot be fetched at all.
+This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt`, their entries suffixed `— URL unknown`) and cannot be fetched at all.
 
 Tests that depend on an external fixture skip silently when the file is absent, so a green run on a fresh clone exercises fewer cases than one with all fixtures fetched. A few pptx tests additionally use fixtures from the python-pptx test suite; see [`testdata/README.md`](testdata/README.md) for how to obtain that optional corpus.
 
@@ -981,6 +983,10 @@ To lint (requires golangci-lint v2.x):
 ```bash
 make lint
 ```
+
+## Thread safety
+
+A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything reached through it (slides, sheets, paragraphs, shapes) — is not safe for concurrent use and must be confined to one goroutine, or all access guarded by external synchronization. In particular `Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they must not run concurrently with each other or with any mutation of the same value. Distinct values may be used from different goroutines.
 
 ## Requirements
 

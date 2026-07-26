@@ -7,8 +7,8 @@
 default: unreachable fixtures are reported and skipped, and the tests
 that need them skip silently when the files are absent. Run it with
 `--strict` (or `make fetch-strict`) to fail on any download error. A few
-fixtures have no known public URL (marked `# URL unknown` in
-`external.txt`) and can never be fetched; the corresponding tests always
+fixtures have no known public URL (their commented-out entries in
+`external.txt` suffixed `— URL unknown`) and can never be fetched; the corresponding tests always
 skip on a fresh clone.
 
 ## Optional python-pptx fixture corpus
