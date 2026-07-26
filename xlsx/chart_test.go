@@ -363,6 +363,83 @@ func TestChartAndImageCoexist(t *testing.T) {
 	}
 }
 
+// TestAddChartToSheetWithExistingChart adds a second chart to an opened sheet
+// that already carries a chart (from the source package) and verifies BOTH
+// charts survive. Previously the sheet's single <drawing> was repointed at a
+// fresh part holding only the new chart, orphaning the original (C249).
+func TestAddChartToSheetWithExistingChart(t *testing.T) {
+	// Seed a workbook whose sheet already has one chart, then reopen so the
+	// second AddChart runs on the round-trip save path against a preserved
+	// drawing part.
+	seed := Create()
+	sheet := seed.AddSheet("Data")
+	c1 := chart.NewColumn().SetTitle("First").SetCategories([]string{"a", "b"})
+	c1.AddSeries("S1", []float64{1, 2})
+	if err := sheet.AddChart("B2", c1); err != nil {
+		t.Fatalf("seed AddChart: %v", err)
+	}
+	seedData, err := seed.SaveBytes()
+	if err != nil {
+		t.Fatalf("seed SaveBytes: %v", err)
+	}
+
+	wb, err := OpenReader(bytes.NewReader(seedData), int64(len(seedData)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	s, err := wb.SheetByName("Data")
+	if err != nil {
+		t.Fatalf("SheetByName: %v", err)
+	}
+	if got := len(s.Charts()); got != 1 {
+		t.Fatalf("opened sheet Charts(): got %d want 1", got)
+	}
+	c2 := chart.NewLine().SetTitle("Second").SetCategories([]string{"a", "b", "c"})
+	c2.AddSeries("S2", []float64{4, 5, 6})
+	if err := s.AddChart("H2", c2); err != nil {
+		t.Fatalf("second AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	// The single drawing part must now reference two chart parts (both anchors
+	// preserved), and both chart parts must be present.
+	parts := unzipParts(t, data)
+	if _, ok := parts["xl/drawings/drawing2.xml"]; ok {
+		t.Error("expected a single merged drawing part, found a second")
+	}
+	drawing := parts["xl/drawings/drawing1.xml"]
+	if n := bytes.Count(drawing, []byte("<c:chart ")); n != 2 {
+		t.Errorf("drawing chart reference count: got %d want 2\n%s", n, drawing)
+	}
+	if _, ok := parts["xl/charts/chart1.xml"]; !ok {
+		t.Error("missing xl/charts/chart1.xml")
+	}
+	if _, ok := parts["xl/charts/chart2.xml"]; !ok {
+		t.Error("missing xl/charts/chart2.xml (second chart lost)")
+	}
+
+	// Reopen: both charts recovered, with their titles.
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	s2, _ := wb2.SheetByName("Data")
+	got := s2.Charts()
+	if len(got) != 2 {
+		t.Fatalf("Charts after reopen: got %d want 2", len(got))
+	}
+	titles := map[string]bool{}
+	for _, gc := range got {
+		titles[gc.Title()] = true
+	}
+	if !titles["First"] || !titles["Second"] {
+		t.Errorf("recovered chart titles = %v, want First and Second", titles)
+	}
+}
+
 // TestChartFixtureByteIdentical opens a real chart-bearing workbook and checks
 // a zero-modification save reproduces the source bytes: the chart and drawing
 // parts are preserved verbatim when no chart is added or modified.
