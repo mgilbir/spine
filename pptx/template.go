@@ -9,14 +9,31 @@ import (
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
-// ReplaceText performs text replacement across all slides in the presentation.
-// Keys in the replacements map are matched exactly as provided.
-// For example, to replace "{{name}}" with "John", pass
-// map[string]string{"{{name}}": "John"}.
+// ReplaceText substitutes text across every slide in the presentation. Keys in
+// the replacements map are matched exactly — to replace "{{name}}" with "John",
+// pass map[string]string{"{{name}}": "John"}. An empty map (or an empty key) is
+// a no-op.
 //
-// This modifies the underlying XML directly to preserve formatting fidelity.
-// It also updates the materialized Go-level shapes so that Shapes()/Placeholders()
-// reflect the changes.
+// A match may span several a:r runs: PowerPoint frequently splits one logical
+// string across runs, so each paragraph's run text is concatenated before
+// matching and the replacement is spliced back in. The replacement inherits the
+// formatting of the first run that held part of the match; runs before and after
+// the match keep their own formatting. A key is not matched across an a:br line
+// break or an a:fld field boundary — those delimit distinct content.
+//
+// Scope: within each slide this reaches the text of shapes and of table cells at
+// the shape-tree level, and the text of shapes inside grouped shapes (recursively
+// through nested groups). It does NOT touch speaker notes, slide masters, or
+// slide layouts — only the slides themselves. Slide.ReplaceText applies the same
+// rules to one slide, and Slide.ReplaceTextInShape to a single named shape.
+//
+// The replacement edits the parsed slide model in place and refreshes the
+// materialized Go-level shapes so Shapes()/Placeholders() reflect it. Unlike the
+// docx and xlsx counterparts, scanning a slide materializes its model, so a
+// subsequent Save regenerates every scanned slide from that model rather than
+// copying its original bytes; the run text of content that matches no key is
+// preserved exactly, but a slide scanned this way no longer takes the
+// verbatim-bytes passthrough that a never-accessed slide gets.
 func (p *Presentation) ReplaceText(replacements map[string]string) {
 	if len(replacements) == 0 {
 		return

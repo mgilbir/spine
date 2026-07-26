@@ -1,19 +1,25 @@
-// Package chart provides a small, format-agnostic API for building
-// DrawingML charts and serializing them to a chart.xml part
-// (c:chartSpace) that any of the xlsx, docx, or pptx integrations can embed.
+// Package chart provides a small, format-agnostic API for building and reading
+// DrawingML charts as a chart.xml part (c:chartSpace) that the xlsx, docx, and
+// pptx integrations embed.
 //
 // The package wraps the verbose internal model in common/dml/chart with an
 // ergonomic builder: pick a chart type, set categories, add series, and
 // serialize. Cached values (c:numCache / c:strCache) are populated from the
 // supplied data so the chart renders standalone, without a live data source.
+// Parse recovers a Chart from an existing chart.xml.
 //
-// The c:f formula references point at a conventional data location (a sheet
-// named by DataRef, default "Sheet1"). Format integrations (Phase B) supply
-// the real host or embedded-workbook location by setting DataRef and, for
-// docx/pptx, embedding the workbook returned by EmbeddedWorkbook.
+// This package is the shared core; each format wires it in through symmetric
+// methods over the same *Chart value: AddChart to embed one (Slide.AddChart in
+// pptx, Document.AddChart / Paragraph.AddChart in docx, Sheet.AddChart in xlsx)
+// and Charts() to read them back (Slide.Charts / Presentation.Charts,
+// Document.Charts, Sheet.Charts / Workbook.Charts).
 //
-// This package delivers the reusable core only. Wiring it into each format's
-// Open/Save path (an AddChart method per format, a Charts() reader) is Phase B.
+// DataRef and EmbeddedWorkbook are how those integrations supply the chart's
+// data location. The c:f formula references point at a sheet named by DataRef
+// (default "Sheet1"), which an integration sets to match its host. docx and
+// pptx charts have no host worksheet, so they embed the minimal SpreadsheetML
+// package EmbeddedWorkbook returns (letting Office edit the data); xlsx charts
+// reference the host workbook's cells directly and need no embedded copy.
 package chart
 
 import "fmt"

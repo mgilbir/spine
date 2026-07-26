@@ -253,7 +253,13 @@ type footerPart struct {
 	contentType string
 }
 
-// Open opens a Word document from a file path.
+// Open opens a Word document from a file path. The whole package is read into
+// memory, so the returned Document retains no OS file handle.
+//
+// It returns ErrNotDOCX when the package is not WordprocessingML,
+// opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
+// input is password-encrypted (open those with docx.OpenEncrypted, or
+// opc.OpenEncrypted, and a password). Each is matchable with errors.Is.
 func Open(path string) (*Document, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -263,7 +269,10 @@ func Open(path string) (*Document, error) {
 	return OpenReader(bytes.NewReader(data), int64(len(data)))
 }
 
-// OpenReader opens a Word document from an in-memory reader.
+// OpenReader opens a Word document from an in-memory reader. The package is read
+// up front, so r need not remain valid after Open returns. It returns the same
+// sentinels as Open (ErrNotDOCX, opc.ErrStrictOOXML, opc.ErrEncrypted),
+// matchable with errors.Is.
 func OpenReader(r io.ReaderAt, size int64) (*Document, error) {
 	reader, err := opc.NewReader(r, size)
 	if err != nil {
@@ -595,7 +604,8 @@ func Create() *Document {
 	}
 }
 
-// Save saves the document to a file.
+// Save writes the document to a file. Like SaveTo, it enforces the pre-save
+// validation gate and the round-trip contract documented there.
 func (d *Document) Save(path string) error {
 	data, err := d.SaveBytes()
 	if err != nil {
@@ -604,7 +614,8 @@ func (d *Document) Save(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// SaveBytes saves the document to an in-memory buffer.
+// SaveBytes writes the document to an in-memory buffer through SaveTo (same
+// validation gate and round-trip contract).
 func (d *Document) SaveBytes() ([]byte, error) {
 	var buf bytes.Buffer
 	if err := d.SaveTo(&buf); err != nil {
@@ -614,6 +625,16 @@ func (d *Document) SaveBytes() ([]byte, error) {
 }
 
 // SaveTo saves the document to an arbitrary writer.
+//
+// It first runs Validate and refuses to write — returning the Report as an
+// error — when any error-severity finding is present, so a structurally corrupt
+// package is never produced. SaveToUnvalidated bypasses this gate.
+//
+// Round-trip contract: for a document opened with Open/OpenReader, parts the
+// session never touched are written back byte-for-byte — including a body that
+// was never accessed, which is never even parsed — while touched parts are
+// regenerated from the model. A document built with Create is generated entirely
+// from the model.
 func (d *Document) SaveTo(dst io.Writer) error {
 	if report := d.Validate(); report.HasErrors() {
 		return report
@@ -641,7 +662,10 @@ func (d *Document) SaveToUnvalidated(dst io.Writer) error {
 	return writer.Close()
 }
 
-// Close closes the document and releases resources.
+// Close releases resources held by a document opened from a file. Open and
+// OpenReader read the whole package into memory up front and retain no OS file
+// handle, so Close is effectively a no-op. Calling Save (or any Save* method)
+// after Close is valid: the in-memory model and preserved parts remain intact.
 func (d *Document) Close() error {
 	if d.reader != nil {
 		return d.reader.Close()

@@ -12,8 +12,8 @@ import (
 
 // Parse reads a DrawingML chart.xml part (c:chartSpace) into a Chart: its type,
 // title, categories, and series names and values (recovered from the cached
-// values, falling back to literal data). It is the reader Phase B's Charts()
-// integrations build on.
+// values, falling back to literal data). It is what each format's Charts()
+// reader builds on.
 func Parse(chartXML []byte) (*Chart, error) {
 	var cs dmlchart.ChartSpace
 	if err := xml.Unmarshal(chartXML, &cs); err != nil {
