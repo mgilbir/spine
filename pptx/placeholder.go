@@ -121,6 +121,7 @@ func (p *PlaceholderShape) Orientation() PlaceholderOrientation {
 // SetOrientation sets the orientation of the placeholder.
 func (p *PlaceholderShape) SetOrientation(orient PlaceholderOrientation) {
 	p.orientation = orient
+	p.dirty = true
 }
 
 // Size returns the size hint of the placeholder.
@@ -131,6 +132,7 @@ func (p *PlaceholderShape) PlaceholderSize() PlaceholderSize {
 // SetPlaceholderSize sets the size hint of the placeholder.
 func (p *PlaceholderShape) SetPlaceholderSize(size PlaceholderSize) {
 	p.size = size
+	p.dirty = true
 }
 
 // Index returns the placeholder index.
@@ -141,6 +143,7 @@ func (p *PlaceholderShape) Index() uint32 {
 // SetIndex sets the placeholder index.
 func (p *PlaceholderShape) SetIndex(idx uint32) {
 	p.idx = idx
+	p.dirty = true
 }
 
 // TextFrame returns the text frame for the placeholder.

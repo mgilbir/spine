@@ -954,9 +954,10 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 			CNvSpPr: &dml.CNvSpPr{},
 			NvPr: &oxml.NvPr{
 				Ph: &oxml.Placeholder{
-					Type: string(ph.phType),
-					Sz:   string(ph.size),
-					Idx:  ph.idx,
+					Type:   string(ph.phType),
+					Orient: string(ph.orientation),
+					Sz:     string(ph.size),
+					Idx:    ph.idx,
 				},
 			},
 		},

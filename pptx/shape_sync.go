@@ -181,6 +181,13 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		if style != nil {
 			applyShapeStyle(sp.SpPr, style)
 		}
+		// Flush placeholder attributes (type/orient/idx/sz) onto the parsed
+		// p:ph so SetOrientation/SetIndex/SetPlaceholderSize reach the XML on a
+		// materialized placeholder (C309). The modeled fields are authoritative
+		// over the captured attr list, so unmodeled attrs on p:ph survive.
+		if ph, ok := shape.(*PlaceholderShape); ok {
+			flushPlaceholderAttrs(sp, ph)
+		}
 	}
 	// A furniture placeholder set to an auto field (slide number / date) owns
 	// its whole text body: replace it with the field body rather than flushing
@@ -190,6 +197,28 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		return
 	}
 	updateTxBody(&sp.TxBody, tf)
+}
+
+// flushPlaceholderAttrs writes the modeled placeholder attributes (type,
+// orient, idx, sz) into the parsed p:ph node, creating the nvPr/ph chain when
+// the shape had none. The captured attr list on p:ph keeps the modeled values
+// authoritative (see Builder.ReplayCapturedAttrs), so a changed idx/orient/sz
+// wins while unmodeled attributes on p:ph survive the flush.
+func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
+	if sp.NvSpPr == nil {
+		return
+	}
+	if sp.NvSpPr.NvPr == nil {
+		sp.NvSpPr.NvPr = &oxml.NvPr{}
+	}
+	if sp.NvSpPr.NvPr.Ph == nil {
+		sp.NvSpPr.NvPr.Ph = &oxml.Placeholder{}
+	}
+	p := sp.NvSpPr.NvPr.Ph
+	p.Type = string(ph.phType)
+	p.Orient = string(ph.orientation)
+	p.Sz = string(ph.size)
+	p.Idx = ph.idx
 }
 
 // updateXfrm writes the domain position/size into an existing xfrm, creating
