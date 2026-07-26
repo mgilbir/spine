@@ -1315,6 +1315,28 @@ func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName
 	}
 }
 
+// hasRelOfType reports whether rels already contains a relationship of the given
+// type.
+func hasRelOfType(rels []*opc.Relationship, relType string) bool {
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRelForTarget reports whether rels already contains a relationship with the
+// given type and target.
+func hasRelForTarget(rels []*opc.Relationship, relType, target string) bool {
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType && rel.Target == target {
+			return true
+		}
+	}
+	return false
+}
+
 func nextRelationshipID(rels []*opc.Relationship) int {
 	maxID := 0
 	for _, rel := range rels {
@@ -1563,13 +1585,18 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				return err
 			}
 
-			// Relationship from master to layout
-			masterRels = append(masterRels, &opc.Relationship{
-				ID:         layout.relID,
-				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-				Target:     layoutRelTarget,
-				TargetMode: opc.TargetModeInternal,
-			})
+			// Relationship from master to layout. An imported master already carries
+			// this rel in p.relationships (registered when the layout was cloned);
+			// only synthesize it when absent so the .rels does not list the id
+			// twice (C236).
+			if !hasRelForTarget(masterRels, opc.RelTypeSlideLayout, layoutRelTarget) {
+				masterRels = append(masterRels, &opc.Relationship{
+					ID:         layout.relID,
+					Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
+					Target:     layoutRelTarget,
+					TargetMode: opc.TargetModeInternal,
+				})
+			}
 
 			// Write layout relationships (back to master), starting from any
 			// layout-level rels the model already carries (e.g. an image
@@ -1612,12 +1639,18 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				writtenThemes[master.themePartName] = true
 			}
 		}
-		masterRels = append(masterRels, &opc.Relationship{
-			ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
-			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
-			Target:     themeTarget,
-			TargetMode: opc.TargetModeInternal,
-		})
+		// An imported master already carries its theme rel in p.relationships
+		// (registered by importMaster); only synthesize it when absent so the
+		// .rels does not list two theme rels (C236). The theme part itself is
+		// still written above.
+		if !hasRelOfType(masterRels, opc.RelTypeTheme) {
+			masterRels = append(masterRels, &opc.Relationship{
+				ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
+				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
+				Target:     themeTarget,
+				TargetMode: opc.TargetModeInternal,
+			})
+		}
 
 		if err := writer.WritePartRelationships(masterPartName, masterRels); err != nil {
 			return err
@@ -1806,7 +1839,12 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		}
 		dup := false
 		for _, existing := range presRels {
-			if existing.ID == rel.ID {
+			// Match by id, and also by type+target: importMaster pre-registers a
+			// presentation->master rel (with its own id) that saveNew regenerates
+			// above under a reassigned id — without the type+target check the two
+			// would both be emitted, duplicating the rel (C236).
+			if existing.ID == rel.ID ||
+				(existing.Type == rel.Type && existing.Target == rel.Target) {
 				dup = true
 				break
 			}
