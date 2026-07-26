@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -243,14 +244,14 @@ func buildItemProps(itemID string, schemaRefs []string) []byte {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="no"?>` + "\r\n")
 	b.WriteString(`<ds:datastoreItem ds:itemID="`)
-	b.WriteString(itemID)
+	b.WriteString(xmlb.EscapeAttrValue(itemID))
 	b.WriteString(`" xmlns:ds="`)
 	b.WriteString(nsDatastore)
 	b.WriteString(`">`)
 	b.WriteString(`<ds:schemaRefs>`)
 	for _, uri := range schemaRefs {
 		b.WriteString(`<ds:schemaRef ds:uri="`)
-		b.WriteString(uri)
+		b.WriteString(xmlb.EscapeAttrValue(uri))
 		b.WriteString(`"/>`)
 	}
 	b.WriteString(`</ds:schemaRefs>`)
