@@ -861,13 +861,16 @@ type BuildDiagram struct {
 	Rev      bool    `xml:"rev,attr,omitempty"`
 }
 
-// BuildOleChart represents CT_TLOleBuildChart (p:bldOleChart)
+// BuildOleChart represents CT_TLOleBuildChart (p:bldOleChart). animBg defaults
+// to true, so it is a *bool: an explicit animBg="0" must survive the timing
+// re-marshal rather than be dropped by omitempty (which readers re-interpret as
+// the default true), mirroring BuildParagraph and a:bldChart.
 type BuildOleChart struct {
 	SpId     string  `xml:"spid,attr"`
 	GrpId    *uint32 `xml:"grpId,attr,omitempty"`
 	UiExpand bool    `xml:"uiExpand,attr,omitempty"`
 	Bld      string  `xml:"bld,attr,omitempty"` // allAtOnce, series, category, seriesEl, categoryEl
-	AnimBg   bool    `xml:"animBg,attr,omitempty"`
+	AnimBg   *bool   `xml:"animBg,attr,omitempty"`
 }
 
 // BuildGraphic represents CT_TLGraphicalObjectBuild (p:bldGraphic)

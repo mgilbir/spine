@@ -1123,7 +1123,8 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			boc := &BuildOleChart{SpId: tt.spId, Bld: tt.bld, AnimBg: tt.animBg}
+			animBg := tt.animBg
+			boc := &BuildOleChart{SpId: tt.spId, Bld: tt.bld, AnimBg: &animBg}
 			out, err := xml.Marshal(boc)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
@@ -1142,6 +1143,23 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// C317: an explicit animBg="0" on a p:bldOleChart (animBg defaults to true)
+// must survive the always-remarshaled timing path. Before the *bool fix the
+// plain bool + omitempty dropped the attribute, so readers re-applied the
+// default true.
+func TestBuildOleChart_PreservesExplicitAnimBgFalse(t *testing.T) {
+	src := sldOpen + `>` +
+		`<p:cSld><p:spTree>` +
+		`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+		`<p:grpSpPr/>` +
+		`</p:spTree></p:cSld>` +
+		`<p:timing><p:bldLst>` +
+		`<p:bldOleChart spid="4" animBg="0"/>` +
+		`</p:bldLst></p:timing>` +
+		`</p:sld>`
+	roundTripSlideBytes(t, src)
 }
 
 func TestBuildGraphic_RoundTrip(t *testing.T) {
