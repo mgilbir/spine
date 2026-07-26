@@ -2,9 +2,11 @@ package crypto
 
 import (
 	"bytes"
+	"crypto/sha512"
 	"encoding/binary"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestAgileRoundTripSizes(t *testing.T) {
@@ -85,6 +87,46 @@ func TestDecryptMalformedInfo(t *testing.T) {
 	bad := append([]byte{0x04, 0x00, 0x04, 0x00, 0x40, 0x00, 0x00, 0x00}, []byte("<not-encryption/>")...)
 	if _, err := Decrypt(bad, nil, "pw"); err == nil {
 		t.Fatal("expected error for descriptor without a password keyEncryptor")
+	}
+}
+
+// TestAgileSpinCountCapped confirms an attacker-supplied spinCount above the
+// ceiling is rejected before any key derivation runs, so a hostile
+// EncryptionInfo cannot pin a core doing SHA-512 work. It must return promptly
+// (the derivation loop would otherwise run billions of iterations).
+func TestAgileSpinCountCapped(t *testing.T) {
+	// Direct deriveKey guard: a value past the ceiling returns immediately.
+	p := agileParams{newHash: sha512.New, hashSize: 64, keyBytes: 32, blockSize: 16}
+	if _, err := deriveKey(p, make([]byte, 16), passwordToUTF16LE("pw"), maxSpinCount+1, blockKeyVerifierHashInput); !errors.Is(err, ErrMalformedEncryptionInfo) {
+		t.Fatalf("deriveKey over ceiling: got %v, want ErrMalformedEncryptionInfo", err)
+	}
+	if _, err := deriveKey(p, make([]byte, 16), passwordToUTF16LE("pw"), -1, blockKeyVerifierHashInput); !errors.Is(err, ErrMalformedEncryptionInfo) {
+		t.Fatalf("deriveKey negative: got %v, want ErrMalformedEncryptionInfo", err)
+	}
+	// A legitimate value still derives a key.
+	if _, err := deriveKey(p, make([]byte, 16), passwordToUTF16LE("pw"), 100000, blockKeyVerifierHashInput); err != nil {
+		t.Fatalf("deriveKey legitimate spinCount: %v", err)
+	}
+
+	// End-to-end: a real descriptor whose spinCount attribute is rewritten to a
+	// hostile value is rejected by agileDecrypt before the derivation loops.
+	info, enc, err := Encrypt([]byte("secret"), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostile := bytes.Replace(info, []byte(`spinCount="100000"`), []byte(`spinCount="2000000000"`), 1)
+	if bytes.Equal(hostile, info) {
+		t.Fatal("failed to rewrite spinCount in descriptor")
+	}
+	done := make(chan error, 1)
+	go func() { _, e := Decrypt(hostile, enc, "pw"); done <- e }()
+	select {
+	case e := <-done:
+		if !errors.Is(e, ErrMalformedEncryptionInfo) {
+			t.Fatalf("hostile spinCount: got %v, want ErrMalformedEncryptionInfo", e)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Decrypt did not return promptly for a hostile spinCount")
 	}
 }
 

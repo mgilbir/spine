@@ -35,6 +35,13 @@ const xmlNamespaceURI = "http://www.w3.org/XML/1998/namespace"
 // errNoRoot is returned when the input contains no element.
 var errNoRoot = errors.New("xml: canonicalization input has no root element")
 
+// errMultipleRoots is returned when the input contains more than one top-level
+// element. Canonical XML describes a single document element; the standard
+// tokenizer tolerates trailing sibling roots, so this is rejected explicitly
+// rather than indexing an empty element stack. A crafted signature part such as
+// "<Signature>…</Signature><x/>" reaches this on the signature-verify path.
+var errMultipleRoots = errors.New("xml: canonicalization input has multiple root elements")
+
 // c14nNode is an element or a text node in the lightweight tree built for
 // canonicalization.
 type c14nNode interface{ isC14N() }
@@ -151,6 +158,12 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 		}
 		switch t := tok.(type) {
 		case stdxml.StartElement:
+			// The single root has already closed (its EndElement popped the
+			// stack). A further top-level element would be a second root; reject
+			// it instead of indexing the now-empty stack.
+			if root != nil && len(stack) == 0 {
+				return nil, errMultipleRoots
+			}
 			parentScope := scopeStack[len(scopeStack)-1]
 			scope := cloneScope(parentScope)
 			for _, a := range t.Attr {

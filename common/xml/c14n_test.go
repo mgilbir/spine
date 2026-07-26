@@ -104,3 +104,31 @@ func TestFindByID(t *testing.T) {
 		t.Error("FindByID(missing) should be nil")
 	}
 }
+
+// TestCanonicalizeMultipleRoots confirms a document with more than one
+// top-level element is rejected with an error rather than panicking. Go's
+// tokenizer tolerates trailing sibling roots, so a crafted signature part such
+// as "<Signature>…</Signature><x/>" reaches the tree builder with an empty
+// element stack; without the guard it indexes stack[-1] and panics.
+func TestCanonicalizeMultipleRoots(t *testing.T) {
+	for _, in := range []string{
+		`<a/><b/>`,
+		`<a></a><b></b>`,
+		`<Signature xmlns="urn:d"><SignedInfo/></Signature><x/>`,
+		`<a/><b/><c/>`,
+	} {
+		if _, err := Canonicalize([]byte(in)); err == nil {
+			t.Errorf("Canonicalize(%q): expected error, got nil", in)
+		}
+		if _, err := ParseC14N([]byte(in)); err == nil {
+			t.Errorf("ParseC14N(%q): expected error, got nil", in)
+		}
+	}
+
+	// A well-formed single-root document still canonicalizes unchanged.
+	if got, err := Canonicalize([]byte(`<a><b>t</b></a>`)); err != nil {
+		t.Fatalf("single-root Canonicalize: %v", err)
+	} else if string(got) != `<a><b>t</b></a>` {
+		t.Errorf("single-root canonical = %q", got)
+	}
+}

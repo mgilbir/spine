@@ -95,6 +95,14 @@ func readCFB(data []byte) (*cfbFile, error) {
 		miniCutoff:     binary.LittleEndian.Uint32(data[56:60]),
 	}
 
+	// [MS-CFB] §2.2 fixes the mini stream cutoff at 4096. A hostile container can
+	// declare something else (e.g. 0xFFFFFFFF) to route a multi-gigabyte stream
+	// through the mini-stream path and force an oversized allocation; reject any
+	// non-conformant value up front.
+	if f.miniCutoff != 4096 {
+		return nil, fmt.Errorf("%w: CFB mini stream cutoff is %d (must be 4096)", ErrCorruptedPackage, f.miniCutoff)
+	}
+
 	numFATSectors := binary.LittleEndian.Uint32(data[44:48])
 	firstDirSector := binary.LittleEndian.Uint32(data[48:52])
 	firstMiniFATSector := binary.LittleEndian.Uint32(data[60:64])
@@ -306,7 +314,15 @@ func (f *cfbFile) loadMiniStream() error {
 // readMiniStream reads a stream stored in the mini stream, following the
 // mini-FAT from start and truncating to size.
 func (f *cfbFile) readMiniStream(start uint32, size uint64) ([]byte, error) {
-	buf := make([]byte, 0, size)
+	// size comes from the directory entry and is attacker-controlled; the chain
+	// can hold at most the whole mini stream, so cap the pre-allocation to the
+	// reachable bytes. A lying size then grows the buffer only as far as real
+	// data allows instead of forcing one huge allocation.
+	capHint := size
+	if reachable := uint64(len(f.miniStream)); capHint > reachable {
+		capHint = reachable
+	}
+	buf := make([]byte, 0, capHint)
 	seen := make(map[uint32]bool)
 	for s := start; s != cfbEndOfChain && s <= cfbMaxRegSect; {
 		if int(s) >= len(f.miniFAT) {

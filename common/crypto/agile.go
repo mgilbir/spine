@@ -128,6 +128,13 @@ type agileEncryptedKey struct {
 
 const passwordKeyEncryptorURI = "http://schemas.microsoft.com/office/2006/keyEncryptor/password"
 
+// maxSpinCount caps the attacker-controlled spinCount read from EncryptionInfo.
+// Each iteration is a SHA-512 (or shorter hash) invocation and deriveKey runs
+// spinCount iterations three times before the password is verified, so a large
+// value stalls a core for minutes. Office writes 100000; this ceiling is
+// generous enough for any legitimate producer while bounding the pre-check work.
+const maxSpinCount = 10_000_000
+
 // Decrypt recovers the plaintext OOXML package (an ordinary .zip) from the two
 // streams of an encrypted document container: the EncryptionInfo descriptor
 // (including its 8-byte version header) and the EncryptedPackage ciphertext.
@@ -247,6 +254,13 @@ func agileDecrypt(infoXML, encryptedPackage []byte, password string) ([]byte, er
 	enc, err := findPasswordEncryptor(&info)
 	if err != nil {
 		return nil, err
+	}
+
+	// Reject an over-large spinCount before any key derivation runs: deriveKey
+	// hashes spinCount times and is called three times below, all before the
+	// password is checked.
+	if enc.SpinCount < 0 || enc.SpinCount > maxSpinCount {
+		return nil, fmt.Errorf("%w: spinCount %d out of range [0, %d]", ErrMalformedEncryptionInfo, enc.SpinCount, maxSpinCount)
 	}
 
 	kp, err := validateCommon(enc.CipherAlgorithm, enc.CipherChaining, enc.HashAlgorithm, enc.KeyBits, enc.BlockSize, enc.HashSize)
@@ -609,8 +623,10 @@ func marshalEncryptionInfo(info *agileEncryptionInfo) ([]byte, error) {
 // prepending the little-endian counter; then hash once more with the block key
 // and take the leading keyBytes, 0x36-padding a short digest.
 func deriveKey(p agileParams, salt, passwordUTF16 []byte, spinCount int, blockKey []byte) ([]byte, error) {
-	if spinCount < 0 {
-		return nil, fmt.Errorf("%w: negative spinCount %d", ErrMalformedEncryptionInfo, spinCount)
+	// Defense in depth: agileDecrypt bounds spinCount before calling in, but
+	// guard here too so no caller can drive an unbounded derivation loop.
+	if spinCount < 0 || spinCount > maxSpinCount {
+		return nil, fmt.Errorf("%w: spinCount %d out of range [0, %d]", ErrMalformedEncryptionInfo, spinCount, maxSpinCount)
 	}
 	h := p.newHash()
 	h.Write(salt)
