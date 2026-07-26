@@ -28,3 +28,29 @@ func TestCellPreservesPhoneticAttr(t *testing.T) {
 		t.Errorf("cell ph attribute dropped on re-marshal:\n%s", out)
 	}
 }
+
+// An inline string carrying Japanese phonetic runs (rPh) must round-trip them
+// on a dirty save; CT_Rst previously modeled only t, r and phoneticPr, so the
+// rPh runs were silently dropped when the sheet was regenerated (C134).
+func TestInlineStringPreservesPhoneticRuns(t *testing.T) {
+	const src = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<sheetData><row r="1"><c r="A1" t="inlineStr"><is>` +
+		`<t>課</t><rPh sb="0" eb="1"><t>カ</t></rPh><phoneticPr fontId="1"/>` +
+		`</is></c></row></sheetData>` +
+		`</worksheet>`
+
+	var ws oxml.CT_Worksheet
+	if err := xml.Unmarshal([]byte(src), &ws); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, err := marshalWorksheetXML(&ws)
+	if err != nil {
+		t.Fatalf("marshalWorksheetXML: %v", err)
+	}
+	out := string(data)
+	for _, want := range []string{`<rPh sb="0" eb="1">`, `<t>カ</t>`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("inline string lost phonetic run %q:\n%s", want, out)
+		}
+	}
+}
