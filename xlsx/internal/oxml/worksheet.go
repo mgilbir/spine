@@ -74,6 +74,11 @@ type CT_Worksheet struct {
 func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ws.XMLName = start.Name
 
+	// Pre-scan every namespace declaration on the root so a regular attribute
+	// whose xmlns decl is written after it on the same tag still resolves its
+	// prefix (C324); scanning only declarations seen so far dropped the prefix.
+	rootNSByURI := rootDeclPrefixes(start.Attr)
+
 	// Capture all root-element attributes in order for round-trip preservation,
 	// distinguishing namespace declarations from regular attributes.
 	for _, attr := range start.Attr {
@@ -85,25 +90,7 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			ws.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, ws.OriginalNSDecls...)
 			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: "", Value: attr.Value})
 		default:
-			prefix := ""
-			switch attr.Name.Space {
-			case xmlb.NSMarkupCompatibility:
-				prefix = xmlb.PrefixMarkupCompatibility
-			case nsR:
-				prefix = "r"
-			case xmlb.NSXML:
-				// Reserved prefix, never declared: xml:space etc.
-				prefix = "xml"
-			case "":
-				// no prefix
-			default:
-				for _, ra := range ws.OriginalRootAttrs {
-					if ra.IsNS && ra.Value == attr.Name.Space {
-						prefix = ra.Prefix
-						break
-					}
-				}
-			}
+			prefix := resolveRootAttrPrefix(attr.Name.Space, rootNSByURI)
 			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: false, Prefix: prefix, LocalName: attr.Name.Local, Value: attr.Value})
 		}
 	}
@@ -314,6 +301,47 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			return nil
 		}
 	}
+}
+
+// rootDeclPrefixes maps each namespace URI declared on a root element to the
+// prefix it was bound to (empty string for the default xmlns), scanning the
+// complete attribute list so a declaration written after the attribute that
+// uses it still resolves.
+func rootDeclPrefixes(attrs []xml.Attr) map[string]string {
+	m := make(map[string]string, len(attrs))
+	for _, attr := range attrs {
+		switch {
+		case attr.Name.Space == "xmlns":
+			m[attr.Value] = attr.Name.Local
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			m[attr.Value] = ""
+		}
+	}
+	return m
+}
+
+// resolveRootAttrPrefix returns the prefix a namespaced root attribute is
+// written with: none when unqualified, the reserved xml prefix, a prefix
+// declared anywhere on the same root element, or the well-known mc/r prefix as
+// a fallback when the attribute's namespace was not declared on this element.
+func resolveRootAttrPrefix(space string, declared map[string]string) string {
+	switch space {
+	case "":
+		return ""
+	case xmlb.NSXML:
+		// Reserved prefix, never declared: xml:space etc.
+		return "xml"
+	}
+	if p, ok := declared[space]; ok {
+		return p
+	}
+	switch space {
+	case xmlb.NSMarkupCompatibility:
+		return xmlb.PrefixMarkupCompatibility
+	case nsR:
+		return "r"
+	}
+	return ""
 }
 
 // worksheetSchemaSeq is the CT_Worksheet child element sequence from the
