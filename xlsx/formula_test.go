@@ -46,6 +46,14 @@ func TestTranslateFormula(t *testing.T) {
 		{"shift off left of grid", "A1", 0, -1, "#REF!"},
 		{"shift off bottom of grid", "A1048576", 1, 0, "#REF!"},
 		{"boolean literal untouched", "IF(TRUE,A1,B1)", 1, 0, "IF(TRUE,A2,B2)"},
+		// C285: a scientific-notation exponent must not be lexed as a cell ref.
+		{"sci notation exponent not a ref", "1.5E2+B1", 1, 0, "1.5E2+B2"},
+		{"sci notation lowercase e", "1.5e2+B1", 1, 0, "1.5e2+B2"},
+		{"sci notation signed exponent", "1.5E+2+B1", 1, 0, "1.5E+2+B2"},
+		{"sci notation negative exponent", "2E-3+A1", 1, 0, "2E-3+A2"},
+		{"integer sci notation", "3E4+A1", 0, 1, "3E4+B1"},
+		{"leading-dot sci notation", ".5E2+A1", 1, 0, ".5E2+A2"},
+		{"real ref E-column still shifts", "E2+1", 1, 0, "E3+1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,6 +115,39 @@ func TestSetValueOnSharedFormulaMasterMaterializesFollowers(t *testing.T) {
 	}
 	if got, _ := reopened.Sheets()[0].GetCellValue("B1"); got != "42" {
 		t.Errorf("master value after overwrite = %q, want 42", got)
+	}
+}
+
+// TestSharedFormulaSciNotationPreservedInFollowers is the C285 regression:
+// materializing a shared-formula follower must keep a scientific-notation
+// constant (1.5E2) intact instead of mistaking its exponent for a cell ref
+// (which produced 1.5E3, i.e. 150 -> 1500).
+func TestSharedFormulaSciNotationPreservedInFollowers(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("S")
+	a1, err := s.Cell("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a1.SetSharedFormula("1.5E2+B1", "A1:A3"); err != nil {
+		t.Fatalf("SetSharedFormula: %v", err)
+	}
+	// Overwrite the master to materialize the followers as plain formulas.
+	a1.SetFormula("999")
+
+	out, err := w.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	sheet := string(readZipPart(t, out, "xl/worksheets/sheet1.xml"))
+
+	// Follower A2 is shifted by +1 row: only the real ref B1 becomes B2; the
+	// numeric constant 1.5E2 stays exactly as written.
+	if !strings.Contains(sheet, `<c r="A2"><f>1.5E2+B2</f>`) {
+		t.Errorf("follower A2 formula corrupted (want 1.5E2+B2):\n%s", sheet)
+	}
+	if strings.Contains(sheet, "1.5E3") {
+		t.Errorf("scientific-notation exponent shifted as a cell ref (1.5E3):\n%s", sheet)
 	}
 }
 
