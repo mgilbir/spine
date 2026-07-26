@@ -3,6 +3,7 @@ package chart
 import (
 	"encoding/xml"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 
@@ -483,10 +484,11 @@ func strPoints(sd *dmlchart.StrData) []string {
 	if sd == nil {
 		return nil
 	}
-	out := orderedStrings(len(sd.Pt))
+	n := cacheLen(sd.PtCount, maxStrPtIdx(sd.Pt))
+	out := make([]string, n)
 	for _, p := range sd.Pt {
-		if int(p.Idx) < len(out) {
-			out[p.Idx] = p.V
+		if idx := int(p.Idx); idx >= 0 && idx < n {
+			out[idx] = p.V
 		}
 	}
 	return out
@@ -496,10 +498,11 @@ func numPointsAsStrings(nd *dmlchart.NumData) []string {
 	if nd == nil {
 		return nil
 	}
-	out := orderedStrings(len(nd.Pt))
+	n := cacheLen(nd.PtCount, maxNumPtIdx(nd.Pt))
+	out := make([]string, n)
 	for _, p := range nd.Pt {
-		if int(p.Idx) < len(out) {
-			out[p.Idx] = p.V
+		if idx := int(p.Idx); idx >= 0 && idx < n {
+			out[idx] = p.V
 		}
 	}
 	return out
@@ -537,11 +540,18 @@ func numPoints(nd *dmlchart.NumData) []float64 {
 	if nd == nil {
 		return nil
 	}
-	out := make([]float64, len(nd.Pt))
-	for i, p := range nd.Pt {
+	n := cacheLen(nd.PtCount, maxNumPtIdx(nd.Pt))
+	// Blank data points are omitted from the cache, so any position no c:pt
+	// lands on stays a NaN placeholder — keeping every present value aligned
+	// with its category rather than shifting to fill the gaps (C250).
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = math.NaN()
+	}
+	for _, p := range nd.Pt {
 		idx := int(p.Idx)
-		if idx >= len(out) {
-			idx = i
+		if idx < 0 || idx >= n {
+			continue
 		}
 		f, _ := strconv.ParseFloat(p.V, 64)
 		out[idx] = f
@@ -549,7 +559,43 @@ func numPoints(nd *dmlchart.NumData) []float64 {
 	return out
 }
 
-func orderedStrings(n int) []string { return make([]string, n) }
+// cacheLen returns the logical length of a numeric or string cache: its declared
+// ptCount, or (when ptCount is absent or smaller than a sparsely-indexed point)
+// one past the largest point index. Excel omits <c:pt> for blank cells, so the
+// point slice is shorter than — and may skip indices within — the cache; sizing
+// from ptCount preserves each point's position.
+func cacheLen(ptCount *dmlchart.UnsignedInt, maxIdx int) int {
+	n := 0
+	if ptCount != nil && ptCount.Val > 0 {
+		n = int(ptCount.Val)
+	}
+	if maxIdx+1 > n {
+		n = maxIdx + 1
+	}
+	return n
+}
+
+// maxNumPtIdx returns the largest idx among numeric points, or -1 when empty.
+func maxNumPtIdx(pts []*dmlchart.NumVal) int {
+	max := -1
+	for _, p := range pts {
+		if int(p.Idx) > max {
+			max = int(p.Idx)
+		}
+	}
+	return max
+}
+
+// maxStrPtIdx returns the largest idx among string points, or -1 when empty.
+func maxStrPtIdx(pts []*dmlchart.StrVal) int {
+	max := -1
+	for _, p := range pts {
+		if int(p.Idx) > max {
+			max = int(p.Idx)
+		}
+	}
+	return max
+}
 
 // titleText extracts the plain text of a chart/axis title.
 func titleText(t *dmlchart.Title) string {
