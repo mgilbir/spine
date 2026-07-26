@@ -240,7 +240,9 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) ([]byte, error) {
 		b.MarshalElement(nsSML, "colors", ss.Colors)
 	}
 	if ss.ExtLst != nil && len(ss.ExtLst.Ext) > 0 {
-		b.StartElement(nsSML, "extLst")
+		// Replay declarations the source carried on the extLst element itself
+		// (e.g. <extLst xmlns:x14="...">), as the worksheet/workbook paths do.
+		b.StartElement(nsSML, "extLst", xmlb.RawAttrList(ss.ExtLst.CapturedAttrs)...)
 		for i := range ss.ExtLst.Ext {
 			ss.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
 		}
@@ -472,7 +474,10 @@ func marshalWorksheetExtLst(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
 	if ws.ExtLst == nil || len(ws.ExtLst.Ext) == 0 {
 		return
 	}
-	b.StartElement(nsSML, "extLst")
+	// Replay declarations the source carried on the extLst element itself
+	// (e.g. <extLst xmlns:x14="...">); dropping them re-emits x14:-prefixed
+	// children under an undeclared prefix (malformed XML).
+	b.StartElement(nsSML, "extLst", xmlb.RawAttrList(ws.ExtLst.CapturedAttrs)...)
 	for i := range ws.ExtLst.Ext {
 		ws.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
 	}
