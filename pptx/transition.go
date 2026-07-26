@@ -3,6 +3,7 @@ package pptx
 import (
 	"bytes"
 	"strconv"
+	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -165,7 +166,11 @@ func (s *Slide) SetTransition(t Transition) {
 	// transition element. Build that wrapper and clear the base transition.
 	if t.Type == TransitionMorph {
 		s.sx().Transition = nil
-		s.sx().AppendAlternateContent(buildMorphAlternateContent(t), "transition")
+		// Build the sound action (embedding a start-sound clip if supplied) so a
+		// morph transition carries its p:sndAc too, rather than discarding
+		// Transition.Sound (C312).
+		snd := s.soundActionToOxml(t.Sound)
+		s.sx().AppendAlternateContent(buildMorphAlternateContent(t, snd), "transition")
 		return
 	}
 
@@ -293,6 +298,39 @@ func (s *Slide) soundActionToOxml(snd *TransitionSound) *oxml.TransitionSoundAct
 	return ac
 }
 
+// soundActionRawXML renders a p:sndAc as a raw XML fragment with p:/r: prefixes,
+// for splicing into the morph transition's mc:AlternateContent choice and
+// fallback (which are carried as raw bytes). It returns "" for a nil action.
+// The r: (relationships) and p: (presentationml) prefixes resolve against the
+// slide root's namespace declarations, into which the fragment is spliced.
+func soundActionRawXML(ac *oxml.TransitionSoundAction) string {
+	if ac == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<p:sndAc>")
+	if ac.StSnd != nil {
+		b.WriteString("<p:stSnd")
+		if ac.StSnd.Loop {
+			b.WriteString(` loop="1"`)
+		}
+		b.WriteString(">")
+		if ac.StSnd.Snd != nil {
+			b.WriteString(`<p:snd r:embed="` + xmlb.EscapeAttrValue(ac.StSnd.Snd.Embed) + `"`)
+			if ac.StSnd.Snd.Name != "" {
+				b.WriteString(` name="` + xmlb.EscapeAttrValue(ac.StSnd.Snd.Name) + `"`)
+			}
+			b.WriteString("/>")
+		}
+		b.WriteString("</p:stSnd>")
+	}
+	if ac.EndSnd != nil {
+		b.WriteString("<p:endSnd/>")
+	}
+	b.WriteString("</p:sndAc>")
+	return b.String()
+}
+
 // Transition returns the current slide transition, or nil if none is set.
 func (s *Slide) Transition() *Transition {
 	if s.sx() == nil {
@@ -404,7 +442,7 @@ func transitionSpeed(duration float64) string {
 // still animates. The choice content declares xmlns:p159 (and xmlns:p14 for the
 // exact-duration attribute) inline, since the p159 prefix is not one the generic
 // AlternateContent marshaler declares from Requires.
-func buildMorphAlternateContent(t Transition) *coxml.AlternateContent {
+func buildMorphAlternateContent(t Transition, snd *oxml.TransitionSoundAction) *coxml.AlternateContent {
 	option := t.MorphOption
 	if option == "" {
 		option = MorphByObject
@@ -432,10 +470,15 @@ func buildMorphAlternateContent(t Transition) *coxml.AlternateContent {
 			strconv.FormatUint(uint64(t.Duration*1000), 10) + `"`
 	}
 
+	// The p:sndAc, when present, follows the effect child inside p:transition
+	// (CT_SlideTransition orders the sound action after the transition effect).
+	sndRaw := soundActionRawXML(snd)
+
 	choice := `<p:transition` + durAttr + baseAttrs + `>` +
 		`<p159:morph xmlns:p159="` + nsMorph + `" option="` + string(option) + `"/>` +
+		sndRaw +
 		`</p:transition>`
-	fallback := `<p:transition` + baseAttrs + `><p:fade/></p:transition>`
+	fallback := `<p:transition` + baseAttrs + `><p:fade/>` + sndRaw + `</p:transition>`
 
 	return &coxml.AlternateContent{
 		Choices:     []coxml.AlternateContentChoice{{Requires: "p159", Content: []byte(choice)}},
