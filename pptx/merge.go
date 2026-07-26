@@ -191,6 +191,35 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 			c.Target = relativeTarget(ns.partName, newNotes)
 			newRels = append(newRels, &c)
 			continue
+		case opc.RelTypeModernComments:
+			// Carry the threaded-comment part, then bring its authors across
+			// (they hang off presentation.xml, not the slide, so importPart would
+			// never reach them) and rewrite the comment's slide-anchor id from the
+			// source slide id to the new one.
+			srcTarget := opc.ResolvePartName(src.partName, rel.Target)
+			newTarget := p.importPart(srcPres, srcTarget, ctx.parts)
+			if newTarget == "" {
+				continue
+			}
+			p.importModernCommentAuthors(srcPres)
+			p.rewriteModernCommentSlideID(newTarget, src.id, ns.id)
+			c := *rel
+			c.Target = relativeTarget(ns.partName, newTarget)
+			newRels = append(newRels, &c)
+			continue
+		case opc.RelTypeComments:
+			// Carry the legacy comment part and its author list (referenced from
+			// presentation.xml, not the slide).
+			srcTarget := opc.ResolvePartName(src.partName, rel.Target)
+			newTarget := p.importPart(srcPres, srcTarget, ctx.parts)
+			if newTarget == "" {
+				continue
+			}
+			p.importLegacyCommentAuthors(srcPres)
+			c := *rel
+			c.Target = relativeTarget(ns.partName, newTarget)
+			newRels = append(newRels, &c)
+			continue
 		}
 		if rel.TargetMode == opc.TargetModeExternal {
 			c := *rel
@@ -239,6 +268,59 @@ func (p *Presentation) resolvePendingSlideJumps(ctx *mergeCtx) {
 		}
 		stripSlideJumpRel(pj.slide.sx(), pj.rel.ID)
 	}
+}
+
+// relTypeCommentAuthors is the presentation -> commentAuthors.xml relationship
+// type (no opc constant exists; spine reads the part by its fixed name).
+const relTypeCommentAuthors = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors"
+
+// importLegacyCommentAuthors carries the source deck's legacy comment author
+// list (ppt/commentAuthors.xml) when this deck has none, so imported legacy
+// comments keep their author names (resolved by numeric authorId). When the
+// destination already has legacy authors the numeric ids could collide, so it
+// is left untouched rather than risk mis-attributing comments.
+func (p *Presentation) importLegacyCommentAuthors(srcPres *Presentation) {
+	if _, ok := p.otherParts[legacyAuthorsPart]; ok {
+		return
+	}
+	src, ok := srcPres.otherParts[legacyAuthorsPart]
+	if !ok || src == nil {
+		return
+	}
+	copied := *src
+	copied.Data = bytes.Clone(src.Data)
+	p.otherParts[legacyAuthorsPart] = &copied
+
+	for _, rel := range p.relationships[presentationPartName] {
+		if rel != nil && rel.Type == relTypeCommentAuthors {
+			return
+		}
+	}
+	presRels := p.relationships[presentationPartName]
+	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
+		ID:         fmt.Sprintf("rId%d", nextRelationshipID(presRels)),
+		Type:       relTypeCommentAuthors,
+		Target:     partNameToRelTarget(legacyAuthorsPart, "/ppt/"),
+		TargetMode: opc.TargetModeInternal,
+	})
+}
+
+// rewriteModernCommentSlideID retargets a carried modern comment part's slide
+// anchor (pc:sldMk sldId) from the source slide id to the new slide id, so the
+// imported thread anchors to the slide it now lives on. The sldId attribute is
+// unique to the sldMk within a comment part, so a scoped byte replacement is
+// safe and avoids reparsing the thread.
+func (p *Presentation) rewriteModernCommentSlideID(partName string, oldID, newID uint32) {
+	if oldID == newID {
+		return
+	}
+	part, ok := p.otherParts[partName]
+	if !ok || part == nil {
+		return
+	}
+	old := []byte(fmt.Sprintf(`sldId="%d"`, oldID))
+	repl := []byte(fmt.Sprintf(`sldId="%d"`, newID))
+	part.Data = bytes.ReplaceAll(part.Data, old, repl)
 }
 
 // stripSlideJumpRel removes the relationship id relID from every a:hlinkClick in

@@ -211,6 +211,46 @@ func (p *Presentation) authorIDForName(name string) string {
 	return a.ID
 }
 
+// importModernCommentAuthors merges the source deck's modern author list
+// (ppt/authors.xml) into this deck's, deduplicating by GUID so an imported
+// threaded comment's AuthorID keeps resolving to a real name. The authors part
+// is (re)written and the presentation -> authors relationship ensured. Called
+// when a merged slide carries a modern (threaded) comments relationship.
+func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
+	data := srcPres.rawPartData(modernAuthorsPart)
+	if data == nil {
+		return
+	}
+	srcList, err := oxml.ParseModernAuthorList(data)
+	if err != nil || srcList == nil {
+		return
+	}
+	dst := p.loadModernAuthors()
+	if dst == nil {
+		dst = &oxml.ModernAuthorList{}
+		p.modernAuthors = dst
+		p.modernAuthorsLoaded = true
+	}
+	have := make(map[string]bool, len(dst.Authors))
+	for _, a := range dst.Authors {
+		if a != nil {
+			have[a.ID] = true
+		}
+	}
+	for _, a := range srcList.Authors {
+		if a == nil || have[a.ID] {
+			continue
+		}
+		dst.Authors = append(dst.Authors, a)
+		have[a.ID] = true
+	}
+	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
+		ContentType: opc.ContentTypeAuthors,
+		Data:        dst.Marshal(),
+	}
+	p.ensureAuthorsRelationship()
+}
+
 // ensureAuthorsRelationship adds the presentation -> authors.xml relationship
 // when it is not already present.
 func (p *Presentation) ensureAuthorsRelationship() {
