@@ -149,22 +149,31 @@ func buildChartDrawingXML(drawingID int, relID string, widthEMU, heightEMU int64
 	return []byte(xml)
 }
 
-// nextChartNumber returns the smallest positive N for which no
-// /word/charts/chartN.xml part exists, scanning the parts preserved from an
-// opened package as well as charts added in this session, so names stay
-// collision-free across open→add→save cycles.
+// nextChartNumber returns the smallest positive N for which neither a
+// /word/charts/chartN.xml chart part nor a
+// /word/embeddings/Microsoft_Excel_WorksheetN.xlsx embedded-workbook part
+// exists, scanning the parts preserved from an opened package as well as
+// charts added in this session, so both names AddChart derives from N stay
+// collision-free across open→add→save cycles. The embedded-workbook name reuses
+// N, so a package carrying an orphan Microsoft_Excel_Worksheet1.xlsx (but no
+// chart1.xml) must still skip N=1, or writeChartParts would hit
+// ErrDuplicatePart on the embedding. OPC part names are case-insensitive, so
+// both patterns are matched lower-cased.
 func (d *Document) nextChartNumber() int {
 	used := make(map[int]bool)
-	mark := func(name string) {
-		const prefix = "/word/charts/chart"
+	markFix := func(name, prefix, suffix string) {
 		name = strings.ToLower(name)
-		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".xml") {
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
 			return
 		}
-		n, err := strconv.Atoi(name[len(prefix) : len(name)-len(".xml")])
+		n, err := strconv.Atoi(name[len(prefix) : len(name)-len(suffix)])
 		if err == nil && n > 0 {
 			used[n] = true
 		}
+	}
+	mark := func(name string) {
+		markFix(name, "/word/charts/chart", ".xml")
+		markFix(name, "/word/embeddings/microsoft_excel_worksheet", ".xlsx")
 	}
 	for name := range d.preservedParts {
 		mark(name)
@@ -174,6 +183,7 @@ func (d *Document) nextChartNumber() int {
 	}
 	for _, cp := range d.chartParts {
 		mark(cp.partName)
+		mark(cp.embedName)
 	}
 	for n := 1; ; n++ {
 		if !used[n] {

@@ -327,3 +327,47 @@ func TestChartByteIdentical(t *testing.T) {
 		t.Errorf("CHANGED part: %s", n)
 	}
 }
+
+// TestAddChartEmbedNameAvoidsOrphanCollision opens a package carrying an orphan
+// embedded workbook (/word/embeddings/Microsoft_Excel_Worksheet1.xlsx) but no
+// chart1.xml, then adds a chart. nextChartNumber picked N by scanning only
+// chart part names, so it would have chosen N=1 and derived an embed name
+// colliding with the preserved orphan — writeChartParts then hit
+// ErrDuplicatePart and Save failed. The number scan must also cover embedding
+// part names.
+func TestAddChartEmbedNameAvoidsOrphanCollision(t *testing.T) {
+	ct := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+		`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+		`<Default Extension="xml" ContentType="application/xml"/>` +
+		`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>` +
+		`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+		`</Types>`
+	fixture := buildFixtureDocx(t, map[string]string{
+		"[Content_Types].xml": ct,
+		"_rels/.rels":         fixtureRootRels,
+		"word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<w:document ` + fixtureWNS + `><w:body><w:p/></w:body></w:document>`,
+		// Orphan embedded workbook occupying N=1 with no matching chart1.xml.
+		"word/embeddings/Microsoft_Excel_Worksheet1.xlsx": "orphan-workbook-bytes",
+	})
+	doc := openFixture(t, fixture)
+
+	if err := doc.AddChart(newDocxChart(chart.KindColumn), 3000000, 2000000); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	// The chart's embed name must not reuse the orphan's number.
+	if got := doc.chartParts[0].embedName; strings.EqualFold(got, "/word/embeddings/Microsoft_Excel_Worksheet1.xlsx") {
+		t.Fatalf("embed name %q collides with the preserved orphan", got)
+	}
+
+	saved := saveDoc(t, doc)
+	// The orphan must survive and the new embedding must be written alongside it.
+	if _, ok := zipEntry(t, saved, "word/embeddings/Microsoft_Excel_Worksheet1.xlsx"); !ok {
+		t.Fatal("orphan embedding lost")
+	}
+	newEmbed := strings.TrimPrefix(doc.chartParts[0].embedName, "/")
+	if _, ok := zipEntry(t, saved, newEmbed); !ok {
+		t.Fatalf("new embedding %q missing from saved package", newEmbed)
+	}
+}
