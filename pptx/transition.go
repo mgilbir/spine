@@ -360,7 +360,11 @@ func (s *Slide) Transition() *Transition {
 	case "slow":
 		t.Duration = 2.0
 	default:
-		t.Duration = 1.0 // default
+		// CT_SlideTransition/@spd defaults to "fast" (ECMA-376), so an absent
+		// spd reads back as 0.5s — not 1.0. Reporting 1.0 here made a
+		// read-modify-write (Transition then SetTransition) emit spd="med" and
+		// slow the deck.
+		t.Duration = 0.5
 	}
 
 	// Convert advance time from ms to seconds
@@ -513,7 +517,9 @@ func morphFromAlternateContent(acs []*coxml.AlternateContent) *Transition {
 			if !bytes.Contains(choice.Content, []byte(":morph")) {
 				continue
 			}
-			t := &Transition{Type: TransitionMorph, MorphOption: MorphByObject, Duration: 1.0, AdvanceOnClick: true}
+			// An absent p14:dur / spd defaults to "fast" (0.5s) per
+			// CT_SlideTransition/@spd, matching Transition() for the base schema.
+			t := &Transition{Type: TransitionMorph, MorphOption: MorphByObject, Duration: 0.5, AdvanceOnClick: true}
 			if opt := attrValueFromRaw(choice.Content, "option"); opt != "" {
 				t.MorphOption = MorphOption(opt)
 			}
