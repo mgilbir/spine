@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,47 @@ func TestSetTransitionMorphCarriesSound(t *testing.T) {
 	}
 	if n := strings.Count(sx, "<p:endSnd/>"); n != 2 {
 		t.Errorf("emitted %d p:endSnd, want 2", n)
+	}
+}
+
+// MorphOption is an open string type; a value with XML metacharacters must be
+// escaped into the synthesized morph Choice, not concatenated verbatim (which
+// produced a malformed part).
+func TestSetTransitionMorphOptionEscaped(t *testing.T) {
+	pres := Create()
+	slide := pres.AddSlide()
+
+	slide.SetTransition(Transition{
+		Type:        TransitionMorph,
+		Duration:    1.0,
+		MorphOption: MorphOption(`byObject" x="<&`),
+	})
+
+	out, err := pres.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sx := zipPart(t, out, "ppt/slides/slide1.xml")
+
+	// The slide part must be well-formed XML (a verbatim concatenation would
+	// break parsing at the injected quote/angle brackets).
+	dec := xml.NewDecoder(strings.NewReader(string(sx)))
+	for {
+		_, err := dec.Token()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			t.Fatalf("emitted malformed slide XML: %v\n%s", err, sx)
+		}
+	}
+
+	// The raw metacharacters must be escaped, not present literally in the attr.
+	if strings.Contains(string(sx), `option="byObject" x="<&`) {
+		t.Errorf("morph option written unescaped\n%s", sx)
+	}
+	if !strings.Contains(string(sx), "&amp;") {
+		t.Errorf("expected escaped ampersand in morph option\n%s", sx)
 	}
 }
 

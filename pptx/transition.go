@@ -479,7 +479,7 @@ func buildMorphAlternateContent(t Transition, snd *oxml.TransitionSoundAction) *
 	sndRaw := soundActionRawXML(snd)
 
 	choice := `<p:transition` + durAttr + baseAttrs + `>` +
-		`<p159:morph xmlns:p159="` + nsMorph + `" option="` + string(option) + `"/>` +
+		`<p159:morph xmlns:p159="` + nsMorph + `" option="` + xmlb.EscapeAttrValue(string(option)) + `"/>` +
 		sndRaw +
 		`</p:transition>`
 	fallback := `<p:transition` + baseAttrs + `><p:fade/>` + sndRaw + `</p:transition>`
