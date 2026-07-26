@@ -475,6 +475,29 @@ func (d *Document) partExists(name string) bool {
 			return true
 		}
 	}
+	// Parts queued by the mutation API this session are written on save, so a
+	// relationship pointing at one is not a dangling target (C290). Without
+	// these, an open->AddImage->Validate would warn rel-target-missing for the
+	// very image it is about to write, contradicting the never-a-false-positive
+	// contract.
+	for _, ip := range d.imageParts {
+		if ip.partName == name {
+			return true
+		}
+	}
+	for _, ip := range d.importedParts {
+		if ip.partName == name {
+			return true
+		}
+	}
+	for _, cx := range d.pendingCustomXML {
+		if cx.itemName == name || cx.propsName == name {
+			return true
+		}
+	}
+	if d.vbaModified && !d.vbaRemove && name == d.vbaPartName {
+		return true
+	}
 	if _, ok := d.headers[name]; ok {
 		return true
 	}
