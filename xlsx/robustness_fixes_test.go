@@ -266,7 +266,7 @@ func TestReplacedOpenedHyperlinkRelNotReemitted(t *testing.T) {
 			t.Fatal(err)
 		}
 		b, _ := io.ReadAll(rdr)
-		rdr.Close()
+		_ = rdr.Close()
 		if strings.Contains(string(b), "old.example.com/OLD") {
 			oldSeen = true
 		}
