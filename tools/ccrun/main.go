@@ -176,6 +176,45 @@ type batchStats struct {
 // transient failures reached maxFetchAttempts.
 const sigExhausted = "fetch:transient-exhausted"
 
+// selection is the outcome of picking a batch of references to process.
+type selection struct {
+	work       []Ref // references to fetch and test this batch
+	exhausted  []Ref // references to retire terminally (retry cap already hit)
+	noDohSkips int   // live rows passed over because no resolver is configured
+}
+
+// selectWork picks up to batch not-yet-processed references, in manifest order.
+//
+// Live rows with no DoH resolver configured (hasDoh == false) are passed over
+// WITHOUT being selected or ledgered — a skip is not a terminal outcome, so a
+// later run with a resolver configured must still select them — and they do NOT
+// consume batch budget, so the budget is spent on rows this run can actually
+// process. References whose transient retry cap is already exhausted are
+// returned separately so the caller can retire them terminally.
+func selectWork(refs []Ref, batch int, hasDoh bool, done, exhausted func(string) bool) selection {
+	var sel selection
+	selected := 0
+	for _, r := range refs {
+		if selected >= batch {
+			break
+		}
+		if done(r.Digest) {
+			continue
+		}
+		if r.Kind == kindLive && !hasDoh {
+			sel.noDohSkips++
+			continue
+		}
+		selected++
+		if exhausted(r.Digest) {
+			sel.exhausted = append(sel.exhausted, r)
+			continue
+		}
+		sel.work = append(sel.work, r)
+	}
+	return sel
+}
+
 func runOrchestrator(cfg orchConfig) error {
 	if len(cfg.manifests) == 0 {
 		cfg.manifests = []string{"testdata/cc"}
@@ -224,39 +263,25 @@ func runOrchestrator(cfg orchConfig) error {
 
 	stats := &batchStats{failByStage: map[string]int{}, resource: map[string]int{}, manifestDupes: dupes}
 
-	// Select up to cfg.batch not-yet-processed references. Live rows with no
-	// DoH resolver are recorded as skips (they still consume batch budget so a
-	// batch stays bounded and resumable).
-	var work []Ref
+	// Select up to cfg.batch not-yet-processed references.
 	var mu sync.Mutex
 	now := time.Now
-	selected := 0
-	for _, r := range refs {
-		if selected >= cfg.batch {
-			break
-		}
-		if ledger.Has(r.Digest) {
-			continue
-		}
-		selected++
-		if r.Kind == kindLive && cfg.dohURL == "" {
-			_ = ledger.Append(r.Digest, outcomeSkip, "no-doh", "", now())
-			stats.noDohSkips++
-			continue
-		}
-		// A reference whose transient failures already reached the retry cap in
-		// earlier batches is retired terminally now, without another expensive
-		// fetch, so the queue drains instead of looping on a flaky origin.
-		if attempts.Exhausted(r.Digest) {
-			_ = ledger.Append(r.Digest, outcomeFail, "fetch", sigExhausted, now())
-			_ = quarantine.Append(r, "fetch", sigExhausted)
-			stats.failByStage["fetch"]++
-			stats.processed++
-			stats.exhausted++
-			continue
-		}
-		work = append(work, r)
+	sel := selectWork(refs, cfg.batch, cfg.dohURL != "", ledger.Has, attempts.Exhausted)
+	work := sel.work
+	stats.noDohSkips = sel.noDohSkips
+	// References whose transient failures already reached the retry cap in
+	// earlier batches are retired terminally now, without another expensive
+	// fetch, so the queue drains instead of looping on a flaky origin.
+	for _, r := range sel.exhausted {
+		_ = ledger.Append(r.Digest, outcomeFail, "fetch", sigExhausted, now())
+		_ = quarantine.Append(r, "fetch", sigExhausted)
+		stats.failByStage["fetch"]++
+		stats.processed++
+		stats.exhausted++
 	}
+	// Rows consuming batch budget: the work queue plus the terminally-retired
+	// exhausted rows. No-DoH skips do NOT consume budget and are not counted.
+	selected := len(sel.work) + len(sel.exhausted)
 
 	total := len(refs)
 	remaining := 0

@@ -124,6 +124,66 @@ func TestLedgerResume(t *testing.T) {
 	}
 }
 
+// TestSelectWorkNoDohSkipNotRetired guards C332: a run with no DoH resolver
+// must not permanently retire live references. It selects them only as skips
+// that are never ledgered, so a later resolver-configured run still picks them.
+func TestSelectWorkNoDohSkipNotRetired(t *testing.T) {
+	refs := []Ref{
+		{Digest: "W1", Kind: kindWARC},
+		{Digest: "L1", Kind: kindLive},
+		{Digest: "L2", Kind: kindLive},
+	}
+	none := func(string) bool { return false }
+
+	// No resolver: the WARC row is selected, the two live rows are passed over
+	// as no-DoH skips WITHOUT being selected or consuming budget.
+	sel := selectWork(refs, 10, false /*hasDoh*/, none, none)
+	if got := digests(sel.work); len(got) != 1 || got[0] != "W1" {
+		t.Fatalf("no-doh selection work = %v, want [W1]", got)
+	}
+	if sel.noDohSkips != 2 {
+		t.Fatalf("no-doh skips = %d, want 2", sel.noDohSkips)
+	}
+	if len(sel.exhausted) != 0 {
+		t.Fatalf("no-doh exhausted = %v, want none", digests(sel.exhausted))
+	}
+
+	// The no-doh run ledgered only the processable rows. Crucially the skipped
+	// live rows are NOT marked done, so a later run with a resolver configured
+	// still selects them.
+	done := map[string]bool{"W1": true}
+	sel2 := selectWork(refs, 10, true /*hasDoh*/, func(d string) bool { return done[d] }, none)
+	if got := digests(sel2.work); len(got) != 2 || got[0] != "L1" || got[1] != "L2" {
+		t.Fatalf("resolver-configured re-run work = %v, want [L1 L2]", got)
+	}
+	if sel2.noDohSkips != 0 {
+		t.Fatalf("resolver-configured re-run skips = %d, want 0", sel2.noDohSkips)
+	}
+}
+
+// TestSelectWorkExhausted checks that a reference whose retry cap is already
+// hit is returned for terminal retirement, not queued for another fetch.
+func TestSelectWorkExhausted(t *testing.T) {
+	refs := []Ref{{Digest: "W1", Kind: kindWARC}, {Digest: "W2", Kind: kindWARC}}
+	none := func(string) bool { return false }
+	exhausted := func(d string) bool { return d == "W2" }
+	sel := selectWork(refs, 10, true, none, exhausted)
+	if got := digests(sel.work); len(got) != 1 || got[0] != "W1" {
+		t.Fatalf("work = %v, want [W1]", got)
+	}
+	if got := digests(sel.exhausted); len(got) != 1 || got[0] != "W2" {
+		t.Fatalf("exhausted = %v, want [W2]", got)
+	}
+}
+
+func digests(refs []Ref) []string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = r.Digest
+	}
+	return out
+}
+
 func TestSignature(t *testing.T) {
 	err := errors.New("12 identical, 3 changed parts (first: word/document9.xml)")
 	got := signature(err)
