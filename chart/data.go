@@ -87,15 +87,25 @@ func (c *Chart) DataCells() []DataCell {
 	}
 
 	if c.kind == KindScatter {
-		if len(c.series) > 0 {
-			for i, x := range c.series[0].XValues {
-				num(1, i+2, x)
+		// Each series takes its own X column and Y column (A/B, C/D, ...) so its
+		// c:xVal reference and cache agree with the written cells, matching
+		// scatterLayout (C251).
+		for si, s := range c.series {
+			xCol := 1 + 2*si
+			yCol := xCol + 1
+			str(yCol, 1, s.Name)
+			for i, x := range s.XValues {
+				num(xCol, i+2, x)
+			}
+			for i, v := range s.Values {
+				num(yCol, i+2, v)
 			}
 		}
-	} else {
-		for i, label := range c.categories {
-			str(1, i+2, label)
-		}
+		return cells
+	}
+
+	for i, label := range c.categories {
+		str(1, i+2, label)
 	}
 	for si, s := range c.series {
 		col := si + 2 // B, C, ...

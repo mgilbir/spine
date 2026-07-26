@@ -541,6 +541,88 @@ func TestAddBubbleChartDataLayout(t *testing.T) {
 	}
 }
 
+// TestAddScatterChartPerSeriesX builds a two-series scatter chart with distinct
+// X vectors and asserts each series' c:xVal reference points at its own column
+// holding that series' X, and its c:yVal at a distinct column — rather than
+// every series sharing column A while only series 0's X is written (C251).
+func TestAddScatterChartPerSeriesX(t *testing.T) {
+	xA := []float64{1, 2, 3}
+	yA := []float64{10, 20, 30}
+	xB := []float64{100, 200, 300}
+	yB := []float64{40, 50, 60}
+
+	c := chart.NewScatter().SetTitle("XY")
+	c.AddXYSeries("Alpha", xA, yA)
+	c.AddXYSeries("Beta", xB, yB)
+
+	wb := Create()
+	sheet := wb.AddSheet("Host")
+	if err := sheet.AddChart("E2", c); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+
+	layout := c.Layout()
+	if len(layout.Series) != 2 {
+		t.Fatalf("layout series = %d, want 2", len(layout.Series))
+	}
+	// Each series' X must reference a distinct column.
+	xColOf := func(ref string) string {
+		_, cells := refCells(t, ref)
+		return strings.TrimRight(cells[0], "0123456789")
+	}
+	if a, b := xColOf(layout.Series[0].XValuesRef), xColOf(layout.Series[1].XValuesRef); a == b {
+		t.Fatalf("both series' xVal reference the same column %q (C251)", a)
+	}
+
+	check := func(ref string, want []float64) {
+		sheetName, cells := refCells(t, ref)
+		ds, err := wb2.SheetByName(sheetName)
+		if err != nil {
+			t.Fatalf("data sheet %q: %v", sheetName, err)
+		}
+		if len(cells) != len(want) {
+			t.Fatalf("ref %q spans %d cells, want %d", ref, len(cells), len(want))
+		}
+		for i, cellRef := range cells {
+			got, err := ds.GetCellValue(cellRef)
+			if err != nil {
+				t.Fatalf("GetCellValue(%s): %v", cellRef, err)
+			}
+			wantStr := strconv.FormatFloat(want[i], 'f', -1, 64)
+			if got != wantStr {
+				t.Errorf("ref %q cell %s = %q, want %q", ref, cellRef, got, wantStr)
+			}
+		}
+	}
+	check(layout.Series[0].XValuesRef, xA)
+	check(layout.Series[0].ValuesRef, yA)
+	check(layout.Series[1].XValuesRef, xB)
+	check(layout.Series[1].ValuesRef, yB)
+
+	// The cached X recovered from the chart part must match each series' X too.
+	s2, _ := wb2.SheetByName("Host")
+	got := s2.Charts()
+	if len(got) != 1 {
+		t.Fatalf("Charts after reopen: got %d want 1", len(got))
+	}
+	gs := got[0].SeriesList()
+	if len(gs) != 2 {
+		t.Fatalf("recovered series = %d, want 2", len(gs))
+	}
+	if !chartFloatsEqual(gs[0].XValues, xA) || !chartFloatsEqual(gs[1].XValues, xB) {
+		t.Errorf("recovered X: series0=%v (want %v) series1=%v (want %v)",
+			gs[0].XValues, xA, gs[1].XValues, xB)
+	}
+}
+
 // TestChartFixtureByteIdentical opens a real chart-bearing workbook and checks
 // a zero-modification save reproduces the source bytes: the chart and drawing
 // parts are preserved verbatim when no chart is added or modified.
