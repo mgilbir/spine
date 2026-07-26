@@ -1008,14 +1008,19 @@ type CT_Cell struct {
 	T  string          `xml:"t,attr,omitempty"`
 	Cm *uint32         `xml:"cm,attr,omitempty"`
 	Vm *uint32         `xml:"vm,attr,omitempty"`
+	// Ph is the show-phonetic flag Excel sets on a cell in a Japanese
+	// phonetic-guide workbook; it is the last CT_Cell attribute in schema order
+	// (r, s, t, cm, vm, ph). Captured so such a cell round-trips rather than
+	// silently losing its phonetic marking on a dirty save.
+	Ph *bool           `xml:"ph,attr,omitempty"`
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
 	Is *CT_Rst         `xml:"is,omitempty"`
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Cell. Attributes are
-// emitted in schema order (r, s, t, cm, vm) so a metadata-linked cell reparses
-// identically.
+// emitted in schema order (r, s, t, cm, vm, ph) so a metadata-linked or
+// phonetic cell reparses identically.
 func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	attrs = append(attrs, xmlb.StrAttr("r", c.R))
@@ -1030,6 +1035,9 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.Vm != nil {
 		attrs = append(attrs, xmlb.UintAttr("vm", *c.Vm))
+	}
+	if c.Ph != nil {
+		attrs = append(attrs, xmlb.BoolAttr("ph", *c.Ph))
 	}
 
 	if c.F == nil && c.V == nil && c.Is == nil {
