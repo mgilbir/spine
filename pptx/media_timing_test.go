@@ -183,6 +183,43 @@ func TestAutoPlayTiming_DroppedWhenMediaRemoved(t *testing.T) {
 	}
 }
 
+// C270: once an authored animation (AddAnimation) is appended to a
+// library-generated autoplay timing tree, a later autoplay rebuild — adding
+// another auto-play medium and re-saving, which regenerates the tree from
+// mediacall nodes only — must not replace the tree and drop the animation.
+func TestAutoPlayTiming_AddedAnimationSurvivesRebuild(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	s.AddTextBox().TextFrame().SetText("title") // shape id 2
+	v1 := s.AddVideo([]byte("vid1"), "video/mp4")
+	v1.SetPlayMode(PlayAutomatically)
+	v2 := s.AddVideo([]byte("vid2"), "video/mp4")
+	v2.SetPlayMode(PlayAutomatically)
+	s.AddAnimation(2, EffectFadeIn, TriggerOnClick)
+
+	// First save: the generated tree gets two mediacalls, then the entrance
+	// animation is appended (and the tree frozen).
+	if _, err := p.SaveBytes(); err != nil {
+		t.Fatalf("first SaveBytes: %v", err)
+	}
+
+	// A second autoplay medium then a re-save used to regenerate the whole
+	// timing tree, dropping the animation appended above.
+	v3 := s.AddVideo([]byte("vid3"), "video/mp4")
+	v3.SetPlayMode(PlayAutomatically)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("second SaveBytes: %v", err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if !strings.Contains(xml, `presetClass="entr"`) {
+		t.Errorf("entrance animation dropped by autoplay rebuild:\n%s", xml)
+	}
+	if n := strings.Count(xml, `presetClass="mediacall"`); n != 2 {
+		t.Errorf("mediacall count = %d, want 2 (the media present when the tree froze)", n)
+	}
+}
+
 // C163 guard: a timing tree parsed from an opened file is never regenerated or
 // clobbered, even when new auto-play media is added to that slide.
 func TestAutoPlayTiming_ParsedTimingNotClobbered(t *testing.T) {
