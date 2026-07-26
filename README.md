@@ -4,126 +4,22 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 
 ## Features
 
-- **OPC Package Support**: Low-level API for working with Open Packaging Convention packages
-- **Digital Signatures**: Sign and verify OPC package signatures (XML-DSig, ECMA-376 Part 2 §13) with Go-stdlib crypto only — `Reader.VerifySignatures()` recomputes part digests and checks the `SignatureValue` against the embedded X.509 certificate; `opc.SignPackage` writes SHA-256 RSA/ECDSA signatures and includes Microsoft Office's application-specific signature object (`SignatureInfoV1`) so Office's signature UI recognizes them (see `common/xml` for the inclusive Canonical XML 1.0 implementation)
-- **Round-Trip Preservation**: Byte-identical round-trip fidelity for unmodified parts across all formats
-- **In-Memory I/O**: `SaveBytes` and `OpenReader` on all three formats
-- **Merge / Append / Split**: Combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts). `Presentation.AppendSlidesFrom` / `Presentation.ExtractSlides` copy slides and their media/charts/embeddings between decks, carrying each slide's own layout, master, theme (deduplicating identical masters/layouts), notes slide, and the source deck's notes master and handout master (when the destination has none); `Document.Append` appends another document's body content with its images, remapped styles/numbering (including numbering preserved as raw XML in an opened source), and the header/footer parts referenced by the section breaks it copies; `Workbook.CopySheetFrom` copies a sheet with its resolved cell values, styles, merges, and embedded images (from created or opened sources) under a unique name
-- **VBA Macros**: extract, inject/replace, and remove the `vbaProject.bin` project on `Document`/`Workbook`/`Presentation` (`HasMacros`, `VBAProject`, `SetVBAProject`, `RemoveVBAProject`). Injecting flips the package to its macro-enabled flavor (`.docm`/`.xlsm`/`.pptm`) and removal flips it back. The project is carried as an opaque binary blob — spine never parses or executes it, and an injected project brings its source's macros and their trust, so only inject bytes you trust
-- **Embedded OLE Objects**: read embedded OLE objects (`embeddings/oleObjectN.bin`) with `OLEObjects()`, returning each object's name, content type, raw bytes, and best-effort ProgID; embed new objects with `docx.Paragraph.AddOLEObject` or `pptx.Slide.AddOLEObject(data, progID, opts…)` (which writes the object part, a `p:oleObj` graphic frame with a fallback preview picture, and the wiring relationships); unmodified objects round-trip verbatim
-- **Form Controls & ActiveX**: read/enumerate interactive controls across formats — Word legacy form fields (`docx.Document.FormFields()`: FORMTEXT/FORMCHECKBOX/FORMDROPDOWN with name, value, checkbox state, and dropdown entries) with basic authoring via `docx.Paragraph.AddFormField`; Excel form controls (`xlsx.Sheet.FormControls()`: buttons, checkboxes, dropdowns, list boxes, option buttons, spinners, scroll bars, each with its linked cell); and ActiveX controls (`ActiveXControls()` on all three formats, reporting each control's COM class id, persistence mode, and `activeXN.bin` binary). All control parts are preserved verbatim on save; authoring ActiveX controls is out of scope
-- **Ink Annotations & 3D Models**: read/extract pen-stroke ink annotations and embedded 3D models. `Slide.InkAnnotations()`/`Presentation.InkAnnotations()` (pptx) and `Document.InkAnnotations()` (docx) enumerate ink — the InkML content parts (`application/inkml+xml`, referenced by a `contentPart` element through a `customXml` relationship) — reporting each part's name, content type, raw InkML bytes, and referencing relationship id. `Slide.Model3D()`/`Presentation.Model3D()` (pptx) and `Document.Model3D()` (docx) extract the opaque glTF-binary 3D model parts (`model/gltf-binary`, e.g. `media/*.glb`, referenced by an `am3d:model3D` element), returning each part's name, content type, and raw bytes. Extraction is read-only and both kinds of part round-trip byte-for-byte; spine never parses stroke geometry or model data. Authoring new ink strokes and embedding new 3D models are not yet supported
-- **Document Properties**: core (`docProps/core.xml`), extended/app, and custom (`docProps/custom.xml`) properties. `CustomProperties()`, `SetCustomProperty(name, value)`, and `RemoveCustomProperty(name)` on `docx.Document`, `xlsx.Workbook`, and `pptx.Presentation` read and write user-defined properties typed as string, int64, float64, bool, or time.Time; the part, its content type, and package relationship are created on demand, and existing properties round-trip byte-identically when untouched
-- **Password Encryption**: Read and write documents protected with Office's real AES encryption — both the modern "agile" scheme ([MS-OFFCRYPTO], AES-256/CBC with SHA-512, the Office 2010+ default) and the older ECMA-376 "standard" scheme (AES-ECB with SHA-1, Office 2007), not the legacy 16-bit obfuscation. `opc.OpenEncrypted(r, size, password)` decrypts a CFB-wrapped package into a normal reader, auto-detecting the scheme; `opc.SaveEncrypted(w, packageBytes, password)` writes an agile container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects the scheme (agile or standard), AES key size, and whether to emit the optional `\x06DataSpaces` metadata streams some Office builds expect. `docx.OpenEncrypted` / `Document.SaveEncrypted` wrap it for Word by file path, with `docx.OpenEncryptedReader` / `Document.SaveEncryptedTo` as the in-memory reader/writer pair. The plain open path detects an encrypted input and returns `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword` (from `github.com/mgilbir/spine/common/crypto`). `OpenEncrypted` can additionally **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) — the RC4 stream cipher is implemented from its public specification (Go's standard library omits RC4), validated against the RFC 6229 vectors, and cross-validated against `msoffcrypto-tool`'s independent RC4 implementation; because RC4 is cryptographically broken, saving it is deliberately not offered, and the version-1.1 binary-format RC4 scheme (§2.3.6) — which never wraps an OOXML package — is still rejected with `crypto.ErrUnsupportedEncryption`. Built on Go's standard-library crypto only, and cross-validated against `msoffcrypto-tool`
-- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area, combination, bubble, stock, surface, pie-of-pie, and 3D column/bar/line/pie/area charts) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`), and the chart renders value data labels chart-wide (`Chart.SetDataLabels`); combination charts (`NewCombo`) mix per-series types (`Series.SetType`) across a primary and secondary value axis (`Series.SetSecondaryAxis`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
-- **Text Extraction**: A symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion — `docx.Document.Text()` (body paragraphs incl. hyperlink/inserted-run/content-control text, tables cell-by-cell, headers/footers, footnotes/endnotes, and text boxes, in document order), `xlsx.Workbook.Text()` / `Sheet.Text()` (cell values row-major with shared strings resolved, plus cell comments), and `pptx.Presentation.Text()` / `Slide.Text()` (all shapes incl. groups and tables, plus speaker notes and comments). Plain concatenation, no markup, deterministic ordering
-- **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
-  - Create presentations from scratch or from templates
-  - Add, remove, reorder, and duplicate slides (`Slide.Duplicate` deep-copies the slide's shapes, slide-level relationships, notes slide, and any generated auto-play/animation timing into a new slide)
-  - Add shapes, text, tables, and images — including SVG images with a raster fallback
-  - Embedded video and audio (`Slide.AddVideo`/`AddAudio`): store the clip as a `/ppt/media` part wired by both a Microsoft `media` embed and an OOXML video/audio link relationship, with a generated poster preview; media plays on click by default, and `SetPlayMode(PlayAutomatically)` generates the autoplay timing tree. An omitted content type is sniffed from the data
-  - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
-  - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
-  - Auto shapes with solid/gradient fills, lines, and shadows
-  - Connectors (`Slide.AddConnector`/`Slide.Connectors`, and `GroupShape.AddConnector`/`GroupShape.Connectors` inside a group): straight, elbow, and curved connection shapes bound to two shapes' connection sites (ids resolved on save) or drawn between free points, with line width/color/dash; decks with existing connectors round-trip byte-for-byte
-  - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`
-  - Slide, master, and layout background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern), plus image (blip) backgrounds (`SetBackgroundImage(data, contentType)`) that embed a media part and stretch it behind the slide/layout/master
-  - Slide master / layout editing: per-level master text styles (`SlideMaster.TitleStyle`/`BodyStyle`/`OtherStyle` with `SetLevelFont`/`SetLevelFontSize`/`SetLevelBold`/`SetLevelItalic`/`SetLevelColor`/`SetLevelBullet`, including adding a level absent from the source in correct schema order), master/layout placeholder geometry (`EditablePlaceholders`/`EditablePlaceholder` with `SetPosition`/`SetSize`), and adding a layout under a master (`SlideMaster.AddLayout`) — unedited masters and layouts round-trip byte-for-byte and an edit touches only its own part
-  - Table styling: built-in/theme table-style reference (`Table.SetStyleID`) and per-cell text insets (`TableCell.SetMargins`)
-  - Embedded fonts (`Presentation.EmbeddedFonts`/`SetEmbeddedFonts` to reference existing font parts, `EmbedFont(name, regular, bold, italic, boldItalic)` to create the font-data parts and relationships from raw bytes) and custom slide shows (`Presentation.CustomShows`/`AddCustomShow`), read and written
-  - Slide transitions (fade, push, wipe, circle, comb, newsflash, pull, random-bar, strips, wedge, zoom, and more) with direction/orientation, wheel spokes, through-black, and sound actions — a stop-previous action and a start sound authored from raw audio bytes (`TransitionSound.StartSoundData`) or read back from a file; the PowerPoint 2016+ **morph** transition (`TransitionMorph` with `MorphOption` for object/word/character morphing), written as the `p159:morph` extension wrapped in `mc:AlternateContent` with a fade fallback and read back through `Transition()`
-  - Slide animations: entrance (appear, fade, fly-in, wipe, zoom), emphasis (pulse, spin, grow/shrink), and exit (disappear, fade, fly-out) effects with on-click / with-previous / after-previous sequencing and optional build-by-paragraph, authored via `Slide.AddAnimation` and read back with `Slide.Animations()`
-  - Hyperlinks on runs and shapes (external URLs, internal slide jumps, and `ppaction://` verbs), read and written through one unified `Hyperlink` type shared with the docx/xlsx APIs
-  - Read every picture on a slide (`Slide.Pictures()`), with alt text, bytes, content type, and position/size
-  - Read SmartArt / diagrams (`Slide.SmartArt()` / `Presentation.SmartArt()`): each graphic's text nodes and their hierarchy from the diagram data part (`dgm:dataModel`), returned as a `SmartArtNode` tree via `SmartArt.Nodes()`; the raw diagram parts round-trip byte-for-byte
-  - Create SmartArt (`Slide.AddSmartArt(kind, nodes...)`) for the list (`SmartArtList`), hierarchy/org-chart (`SmartArtHierarchy`), left-to-right process (`SmartArtProcess`), and radial cycle (`SmartArtCycle`) kinds: generates all four definition parts (`dgm:dataModel`/`layoutDef`/`styleDef`/`colorsDef`), the content-type overrides, slide relationships, and the `dgm:relIds` graphicFrame so Office renders the diagram; returns a `SmartArt` whose `Nodes()` reads the outline back
-  - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops
-  - Read the presentation's footer, slide-number, and date furniture set on slides
-  - Speaker notes: read (`Slide.Notes()`) and write (`Slide.SetNotes`) the notes-slide body text; editing rewrites only the affected notes part while untouched notes slides round-trip byte-for-byte
-  - Comments: read both legacy per-slide comments and modern threaded comments, and write threaded comments with replies and resolve (`Presentation.Comments`, `Slide.AddComment`/`AddCommentAt`, `Comment.Reply`/`Resolve`), through the `Comment` type shared with the docx/xlsx APIs
-  - Search & replace (`Presentation.ReplaceText` / `Slide.ReplaceText` / `Slide.ReplaceTextInShape`, mirroring `docx` and `xlsx`): exact-match replacement across shapes, table cells, and nested groups — including matches split across multiple runs — rewriting the XML in place to preserve formatting; speaker notes are not touched
-  - Slide sections (the thumbnail-pane groups): read (`Presentation.Sections()`), create (`AddSection`), and assign slides (`Section.AddSlide` / `Presentation.MoveSlideToSection`), stored in the `p14:sectionLst` extension
-  - Zoom objects (Slide, Section, and Summary zooms) — read (`Slide.ZoomLinks`/`Presentation.ZoomLinks`): each zoom's kind, hosting shape, and target slide id or section GUID(s); zoom frames round-trip byte-for-byte. Creating a zoom is not supported (a zoom embeds a rendered thumbnail image of its target that the library cannot generate)
-- **Word (DOCX)**: Create and modify Word documents
-  - Create documents from scratch
-  - Add headings, paragraphs, and tables
-  - Rich text formatting (bold, italic, color, font, size)
-  - Paragraph alignment, spacing, and indentation
-  - Bullet and numbered lists, plus custom numbering definitions via `Document.Numbering()` (per-level format, level text, start, and indent/hanging)
-  - Style definitions via `Document.Styles()`: create and modify paragraph and character styles (id/name, based-on, next, link, quick-format, and the style's font/size/bold/italic/color, alignment, spacing, and indentation)
-  - Headers and footers
-  - Watermarks: text (`SetTextWatermark`) and washed-out image (`SetImageWatermark`) watermarks in the page header, read back with `Watermark()` and cleared with `RemoveWatermark()`; target a specific section with `SetSectionTextWatermark`/`SetSectionImageWatermark` for distinct per-section watermarks, or emit a DrawingML text box (with a VML fallback) via `WatermarkOptions.DrawingML`
-  - Inline and floating (anchored) images — including SVG images with a raster fallback
-  - Text boxes and basic shapes (rectangle, rounded rectangle, ellipse, line), inline or anchored, with fill/border and text as real WordprocessingML paragraphs — `Paragraph.AddTextBox`/`AddShape` and `Document.AddTextBox`/`AddShape`; read every box (DrawingML and legacy VML) back with `Document.TextBoxes()`. Text boxes can optionally carry a down-level VML fallback (`TextBoxOptions.VMLFallback`, an `mc:AlternateContent` Choice+Fallback pair)
-  - WordArt (`Paragraph.AddWordArt`/`Document.AddWordArt`) — a DrawingML text effect with a solid fill and an optional preset text warp (arch, circle, inflate, wave, ...), inline or anchored
-  - Shape groups (`Paragraph.AddShapeGroup`/`Document.AddShapeGroup`) — several shapes/text boxes combined into one `wpg:wgp` group, each member positioned in the group's coordinate space
-  - Embedded OLE objects (`Paragraph.AddOLEObject`/`Document.AddOLEObject`) — embed an object stream as a package part with its content type, `oleObject` relationship, a presentation-icon image, and a `w:object` reference declaring the ProgID
-  - Charts (column, bar, line, pie, doughnut, radar, scatter, area, combo, bubble, stock, surface, pie-of-pie, and 3D variants) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
-  - Fields (PAGE/NUMPAGES) and a table of contents
-  - Hyperlinks: external and internal (bookmark-anchored) links, read and written through the `Hyperlink` type shared with the pptx/xlsx APIs (`Document.Hyperlinks`, `Paragraph.AddHyperlink`/`AddInternalHyperlink`)
-  - Bookmarks: read (`Document.Bookmarks`) and add (`Paragraph.AddBookmark`, `Document.AddBookmarkOnRange`) named bookmarks — the anchors internal hyperlinks target
-  - Footnotes and endnotes: enumerate (`Document.Footnotes`/`Endnotes`) and author (`Run.AddFootnote`/`AddEndnote`) notes
-  - Legacy form fields: enumerate every text/checkbox/dropdown form field (`Document.FormFields()`, walking the body, tables, headers, and footers) with its name, value, checkbox state, and dropdown entries; author new ones with `Paragraph.AddFormField(FormFieldOptions{...})`, which emits the `w:fldChar` begin/separate/end sequence with a `w:ffData` definition. Fields read from a file round-trip byte-identical
-  - Mail merge: read/write the merge configuration (`Document.MailMerge`/`SetMailMerge`) — main-document type, data source, and `w:odso` field mappings — plus `Paragraph.AddMergeField` and `Document.MergeFields()` for MERGEFIELD fields
-  - Bibliography and citations: read/write bibliography sources (`word/bibliography/sources.xml`, `b:Sources`) with `Document.AddSource`/`Sources()`/`RemoveSource` (tag, type, author, title, year, city, publisher), and cite a source with `Paragraph.AddCitation(tag)`, which emits a `CITATION` field with a formatted placeholder
-  - Signature lines: insert a visible "Microsoft Office Signature Line" placeholder with `Document.AddSignatureLine`/`Paragraph.AddSignatureLine(SignatureLineOptions{Signer, Title, Email, Instructions})` and read them back with `Document.SignatureLines()` (the in-document signature request, distinct from signing the package with `opc.SignPackage`)
-  - Page setup (size, margins), multi-column sections, page-number format/start, title-page, and section type; enumerate sections with `Document.Sections()`
-  - Section depth: page borders, line numbering, vertical alignment, paper source, document grid, and per-section footnote/endnote numbering (position, format, start, restart)
-  - Document settings: default tab stop, even/odd headers, zoom, document variables (`Document.SetDocumentVariable` and friends), and document-level footnote/endnote numbering defaults (`Document.SetFootnoteProperties`/`SetEndnoteProperties`, complementing the per-section variant)
-  - Table depth: vertical cell merge (`TableCell.SetVerticalMerge`, complementing horizontal `SetGridSpan`), table look/layout/indent/alignment, and read accessors for table and cell borders, width, and shading
-  - Paragraph borders and shading; run character styles (`Run.SetStyle`) and symbol glyphs (`Run.AddSymbol`)
-  - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
-  - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
-  - Tracked changes (revisions): enumerate insertions, deletions, run/paragraph property changes, and tracked moves (`w:moveFrom`/`w:moveTo`) — across the main body and every header/footer part — with `Document.Revisions()` (author, date, type, text; `Revision.MoveName` links the two halves of a move), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`; author new ones with `Paragraph.AddInsertedRun`, `Run.MarkInserted`, `Run.MarkDeleted`, and `Paragraph.AddMoveFromRun`/`AddMoveToRun` (each assigns a unique `w:id`; `...WithDate` variants pin the timestamp)
-  - Comments: read and write threaded comments with replies and resolve (`Document.Comments`, `Paragraph.AddComment`, `Document.AddCommentOnRange`, `Comment.Reply`/`Resolve`), through the `Comment` type shared with the pptx/xlsx APIs
-  - Content controls (structured document tags): read and edit tag, alias, type, value, and drop-down options through `Document.ContentControls()`; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline); bind a control to a custom-XML node with `ContentControl.SetDataBinding(xpath, storeItemID)`
-  - Document structure parts: read and author building blocks / AutoText in the glossary (`Document.BuildingBlocks()` — name, gallery, category, types, guid — and `Document.AddBuildingBlock(BuildingBlockDef{...})`, which creates the glossary part, its relationship, and content-type override or appends a `w:docPart` to an existing one, preserving the existing entries verbatim), read and add custom-XML data parts (`Document.CustomXMLParts()` / `Document.AddCustomXMLPart` — the latter generates the itemProps, relationships, and content-type override), and read and author the web-layout frameset tree (`Document.Frameset()` and `Document.SetFrameset(FramesetDef{...})` — nested framesets and leaf frames with their source documents, wired as external frame relationships). Glossary, custom-XML, and frameset parts round-trip byte-for-byte when untouched; an authored building block's body is a placeholder paragraph (the API models building-block metadata, not body content)
-  - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
-  - Search & replace (`Document.ReplaceText`, mirroring `pptx` and `xlsx`): replaces across the body, tables, structured document tags, and every header/footer, including matches Word has split across multiple `w:r` runs — the replacement inherits the first affected run's formatting while surrounding runs keep theirs; documents with no matching text round-trip byte-for-byte
-- **Excel (XLSX)**: Create and modify Excel workbooks
-  - Create workbooks with multiple sheets
-  - Read and write cell values (strings, numbers, booleans)
-  - Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring; saving a workbook with a new dynamic-array formula synthesizes `xl/metadata.xml` (the `XLDAPR` record) and tags the spill master cell with `cm`, so Excel shows the spill without a recalc
-  - Cell styling (fonts, fills, borders, number formats, alignment)
-  - Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
-  - Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
-  - Freeze panes, auto-filter, and data validation (including `errorStyle` and `imeMode`), with read accessors for each
-  - Sheet view & structure: sheet visibility (`Sheet.SetVisibility`/`Visible`, refusing to hide the last visible sheet), row/column hide (`SetRowHidden`/`SetColumnHidden`), view toggles (row/column headers, right-to-left, formulas, zeros, ruler, and normal/page-layout/page-break view), scrolling split panes (`Sheet.SplitPanes`, distinct from freeze), row/column grouping & outline levels (`GroupRows`/`GroupColumns`, collapsed flags, outline summary placement), and force-recalc-on-open (`Workbook.SetForceFullCalc`)
-  - Merged cells and named ranges
-  - Column widths and row heights
-  - Hyperlinks (external and internal), read and written through the `Hyperlink` type shared with the docx/pptx APIs
-  - Sheet protection (read state and write with the legacy password hash)
-  - Read-only enumeration of worksheet images and conditional-formatting rules
-  - External data: enumerate connections (`Workbook.Connections()` — name, type, connection string/command, web URL) and report the presence of a Power Pivot data model / Power Query content (`Workbook.DataModel()`); both are preserved verbatim. Authoring or refreshing a live query/mashup is deferred
-  - What-if scenarios — read and write (`Sheet.Scenarios`/`Sheet.AddScenario`): named substitute-value sets over a group of changing cells; existing scenarios round-trip byte-for-byte, authored ones emit from the typed model
-  - Embedded OLE objects — extract (`Workbook.OLEObjects`) and embed (`Sheet.AddOLEObject`): write an object as an embedding part with its worksheet `<oleObjects>` reference, a legacy VML Pict shape, an optional preview image, and the relationships/content types
-  - Form controls: enumerate legacy form controls on a sheet (`Sheet.FormControls()`) — buttons, checkboxes, dropdowns, list boxes, option buttons, spinners, and scroll bars — reading each control's type, linked cell (`x:FmlaLink`), source range, checkbox state, and its VML/`ctrlProps` parts; the control parts are preserved verbatim on save
-  - Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks
-  - Rich text (per-run formatting) within a cell
-  - Comments: legacy notes and modern threaded comments (replies, resolve), read and written through one unified `Comment` type, with per-run rich text on notes (`Comment.RichText`/`Sheet.AddNoteRichText`/`Comment.SetRichText`, alongside the plain `Text()`)
-  - Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
-  - Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
-  - Pivot tables — read and create (`Sheet.PivotTables`/`Workbook.PivotTables`/`Sheet.AddPivotTable`): name, location, source range/cache, and the row/column/value/filter field layout with per-value aggregation (sum/count/average/min/max); creating one builds the pivot cache (definition + records, `refreshOnLoad`), the pivot table definition, the workbook `<pivotCaches>` entry, relationships and content-type overrides. Also supports calculated (formula) value fields, numeric range grouping of a field into value buckets, date grouping of a date/time field by year/quarter/month/day, discrete grouping that folds selected field items into named parent groups, and adding a pivot to a workbook that already has pivot caches (the new cache is allocated without disturbing existing pivots). Existing pivots round-trip byte-for-byte.
-  - Pivot slicers and timelines — read (`Sheet.Slicers`/`Workbook.Slicers`/`Sheet.Timelines`/`Workbook.Timelines`): each slicer/timeline's name, caption, source pivot field and controlled pivot tables, resolved through its slicer/timeline cache part. Slicers, timelines, their cache parts and the worksheet/workbook extension references round-trip byte-for-byte. Creating slicers and timelines is not yet supported (a slicer/timeline is an on-sheet drawing whose creation also requires injecting relationship-bearing x14/x15 extension lists into the shared workbook and worksheet parts at save time)
-  - Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
-  - Sparklines — read, write and mutate (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with one or more (data range, location cell) mappings, stored in the worksheet extension list; live `SparklineGroup` handles set every color slot and per-group point toggles (markers, high/low/first/last/negative) and delete groups; unmodified sparklines round-trip byte-for-byte
-  - Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
-  - Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
-  - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
-  - Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and workbooks with no matching text round-trip byte-for-byte
+Each bullet links to the guide that carries the detail.
 
-Runnable programs for all three formats live in [`examples/`](examples/):
-
-- [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
-- [`pptx_diagram`](examples/pptx_diagram) — build a diagram deck: a connector bound to two shapes, slide-master text-style and slide-layout background editing, speaker notes, and the SmartArt read path, then reopen to verify the round-trip.
-- [`pptx_deck`](examples/pptx_deck) — build a rich PowerPoint deck: a native chart with an auto-embedded data workbook, a table with an in-text hyperlink, an auto shape with layered effects (shadow, glow, reflection) and an entrance animation, Zoom/Wheel transitions, sections, and a threaded comment — saved in two phases (so shape ids materialize) and reopened to read the sections, animations, charts, and comments back.
-- [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
-- [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
-- [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
-- [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
-- [`xlsx_report`](examples/xlsx_report) — a guided tour of the newer XLSX authoring features: a table with a totals row, conditional formatting, an embedded chart, page/print setup, freeze panes, named styles and sheet/workbook protection.
-- [`xlsx_dashboard`](examples/xlsx_dashboard) — build a sales dashboard: a pivot table cross-tabulating regions against months, per-row and per-column sparklines, and a line chart, then reopen the file to read the pivot layout and sparkline groups back.
-- [`docx_mailmerge`](examples/docx_mailmerge) — author a mail-merge form letter: mail-merge configuration with a data source, MERGEFIELD placeholders, a floating text-box callout, a "DRAFT" text watermark, and author-side tracked changes — reopened to read the merge fields, text boxes, watermark, and revisions back.
+- **OPC package support** — a low-level API for working with Open Packaging Convention packages.
+- **Round-trip preservation** — byte-identical round-trip fidelity for unmodified parts across all formats.
+- **In-memory I/O** — `SaveBytes` and `OpenReader` on all three formats; see [Working with Documents in Memory](#working-with-documents-in-memory).
+- **Merge, append & split** — combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts): [pptx](docs/pptx.md#merging-and-splitting-decks), [docx](docs/docx.md#merging-and-appending-documents), [xlsx](docs/xlsx.md#merging-and-copying-sheets).
+- **Password encryption & digital signatures** — read/write real AES-encrypted documents (agile and standard schemes), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
+- **VBA macros** — extract, inject/replace, and remove `vbaProject.bin`; see the [trust caveat](docs/encryption-and-signing.md#vba-macros).
+- **Charts** — a format-agnostic builder for column, bar, line, pie, scatter, combo, bubble, and 3D charts wired into all three formats; see [Charts](docs/charts.md).
+- **Text extraction** — a symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion: [docx](docs/docx.md#text-extraction), [xlsx](docs/xlsx.md#text-extraction), [pptx](docs/pptx.md#text-extraction).
+- **Document & custom properties** — core, extended, and custom document properties on all three formats; see [Document properties](docs/docx.md#document-properties).
+- **Embedded OLE objects** — read with `OLEObjects()` and embed new objects in [docx](docs/docx.md), [pptx](docs/pptx.md#embedded-ole-objects), and [xlsx](docs/xlsx.md); unmodified objects round-trip verbatim.
+- **Form controls, ActiveX, ink & 3D models** — read Word/Excel form controls and ActiveX across formats ([details](docs/xlsx.md#form-controls-and-activex)), and extract [ink annotations and 3D models](docs/pptx.md#ink-annotations-and-3d-models).
+- **PowerPoint (PPTX)** — create and modify presentations: shapes, tables, images, charts, animations, transitions, SmartArt, media, sections, and comments; see [docs/pptx.md](docs/pptx.md).
+- **Word (DOCX)** — create and modify documents: styles, tables, tracked changes, comments, footnotes, mail merge, content controls, and fields; see [docs/docx.md](docs/docx.md).
+- **Excel (XLSX)** — create and modify workbooks: formulas, styles, pivot tables, conditional formatting, sparklines, tables, and page/print setup; see [docs/xlsx.md](docs/xlsx.md).
 
 ## Installation
 
@@ -199,127 +95,6 @@ func main() {
 }
 ```
 
-### Reading and Writing Comments (Word)
-
-Comments support the full review flow: read the feedback on a document, add
-comments, reply in threads, and resolve. The core method set (`ID`, `Author`,
-`Text`, `Date`, `Resolved`, `Replies`, `Parent`, `AddComment`, `Reply`,
-`Resolve`) is shared with the `xlsx` and `pptx` comment APIs.
-
-```go
-package main
-
-import (
-    "fmt"
-
-    "github.com/mgilbir/spine/docx"
-)
-
-func main() {
-    doc, err := docx.Open("document.docx")
-    if err != nil {
-        panic(err)
-    }
-    defer doc.Close()
-
-    // Read existing comments and their threads.
-    for _, c := range doc.Comments() {
-        fmt.Printf("%s on %q: %s (resolved=%v)\n",
-            c.Author(), c.AnchorText(), c.Text(), c.Resolved())
-        for _, reply := range c.Replies() {
-            fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
-        }
-    }
-
-    // Add a comment over a whole paragraph, reply to it, and resolve the thread.
-    p := doc.AddParagraphWithText("The quick brown fox.")
-    c := p.AddComment("Reviewer", "Please rephrase.")
-    reply := c.Reply("Author", "Done.")
-    reply.Resolve()
-
-    // Range-precise anchors are also available:
-    //   run.AddComment(author, text)
-    //   doc.AddCommentOnRange(startRun, endRun, author, text)
-
-    if err := doc.Save("reviewed.docx"); err != nil {
-        panic(err)
-    }
-}
-```
-
-Spine writes and round-trips the modern comment parts (`comments.xml`,
-`commentsExtended.xml` for threading/resolved state, and `people.xml` for the
-author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
-verbatim. A zero-modification open→save of a comment-bearing document is
-byte-identical.
-
-### Hyperlinks, Images, Bookmarks, and Footnotes (Word)
-
-Spine reads and writes hyperlinks, inline and floating images, bookmarks, and
-footnotes/endnotes. The `Hyperlink` type (`URL`, `Anchor`, `Tooltip`) and the
-image read accessors are shared with the `xlsx` and `pptx` APIs; bookmarks and
-footnotes/endnotes are Word-specific.
-
-```go
-package main
-
-import (
-    "fmt"
-
-    "github.com/mgilbir/spine/docx"
-)
-
-func main() {
-    doc, err := docx.Open("document.docx")
-    if err != nil {
-        panic(err)
-    }
-    defer doc.Close()
-
-    // Read every hyperlink, image, bookmark, and footnote.
-    for _, h := range doc.Hyperlinks() {
-        fmt.Printf("link %q -> url=%q anchor=%q\n", h.Text(), h.URL(), h.Anchor())
-    }
-    for _, img := range doc.Images() {
-        fmt.Printf("image %s (%s) %.0fx%.0fpt alt=%q floating=%v\n",
-            img.PartName(), img.ContentType(), img.Width(), img.Height(),
-            img.AltText(), img.Floating())
-    }
-    for _, b := range doc.Bookmarks() {
-        fmt.Printf("bookmark %q -> %q\n", b.Name(), b.Text())
-    }
-    for _, f := range doc.Footnotes() {
-        fmt.Printf("footnote %s: %s\n", f.ID(), f.Text())
-    }
-
-    // Write: an external and an internal hyperlink, a bookmark they can target,
-    // and a footnote anchored on a run.
-    p := doc.AddParagraph()
-    p.AddRun().SetText("See ")
-    link := p.AddHyperlink("our site", "https://example.com/")
-    link.SetTooltip("Visit us")
-
-    target := doc.AddParagraphWithText("Chapter One")
-    target.AddBookmark("chap1")
-    doc.AddParagraph().AddInternalHyperlink("go to chapter", "chap1")
-
-    note := doc.AddParagraphWithText("A claim.")
-    note.Runs()[0].AddFootnote("Supporting evidence.")
-
-    if err := doc.Save("annotated.docx"); err != nil {
-        panic(err)
-    }
-}
-```
-
-External hyperlinks allocate an `External` relationship in the part's rels;
-internal ones use `w:anchor`. Adding a footnote or endnote creates
-`word/footnotes.xml` / `word/endnotes.xml` (with the mandatory separator notes,
-the relationship, and the content-type override) on first use. A
-zero-modification open→save of a document using any of these features is
-byte-identical, and the parts are regenerated only when that feature is
-modified.
-
 ### Creating an Excel Spreadsheet
 
 ```go
@@ -358,294 +133,20 @@ func main() {
 }
 ```
 
-### Reading and Writing Excel Comments
+For the full per-format feature set and code walkthroughs (opening, templating,
+comments, hyperlinks, images, protection), see the guides:
+[pptx](docs/pptx.md), [docx](docs/docx.md), [xlsx](docs/xlsx.md), and
+[charts](docs/charts.md).
 
-The `xlsx` package reads and writes both comment mechanisms Excel uses — legacy
-notes (`xl/comments*.xml` + a VML drawing) and modern threaded comments
-(`xl/threadedComments/*` + a person list) — through one unified `Comment` type.
+## Opening vs. Creating Documents
 
-```go
-wb, _ := xlsx.Open("review.xlsx")
-sheet, _ := wb.Sheet(0)
+`Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts you did not touch are preserved byte-for-byte. Known asymmetries that remain:
 
-// Read every comment on the sheet (legacy notes and threaded comments unified).
-for _, c := range sheet.Comments() {
-    fmt.Printf("%s by %s: %s (resolved=%v)\n", c.Ref(), c.Author(), c.Text(), c.Resolved())
-    for _, reply := range c.Replies() {
-        fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
-    }
-}
+- pptx: `Create()` produces a 4:3 deck (use `CreateWithOptions` with `SlideSizeWidescreen`, or `CreateWidescreen()`, for 16:9). The baked master and layouts size their placeholders to the slide, so both aspect ratios are internally consistent.
+- docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
+- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts. To edit placeholder geometry use `EditablePlaceholders()`/`EditablePlaceholder()`, which write back to the part.
 
-// Add a threaded comment (Excel back-compat: a legacy note fallback is written
-// too, so older Excel still renders the text). Then reply and resolve.
-cell, _ := sheet.Cell("B2")
-c := cell.AddComment("Ada Lovelace", "Please double-check this figure.")
-c.Reply("Alan Turing", "Confirmed — updated.")
-c.Resolve()
-
-_ = wb.Save("review.xlsx")
-```
-
-`Sheet.AddComment(ref, author, text)`, `Cell.AddComment(author, text)`,
-`Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
-legacy-only note) are the write entry points; `Sheet.Comments()` and
-`Cell.Comment()` read. A zero-modification open→save preserves comment-bearing
-workbooks byte-for-byte; only the touched sheet's comment parts are regenerated
-when a comment is added.
-
-### Hyperlinks, Images, and Sheet Protection (Excel)
-
-Spine reads and writes cell hyperlinks and sheet protection, and reads back the
-previously write-only feature surface (merged cells, freeze panes, auto-filter,
-data validation) plus worksheet images and conditional-formatting rules. The
-`Hyperlink` type (`URL`, `Anchor`, `Tooltip`, `SetTooltip`) and the image read
-accessors (`AltText`, `Data`, `ContentType`) are shared with the `docx` and
-`pptx` APIs.
-
-```go
-wb, _ := xlsx.Open("book.xlsx")
-sheet, _ := wb.Sheet(0)
-
-// Read hyperlinks, images, protection, and the write-only feature surface.
-for _, h := range sheet.Hyperlinks() {
-    fmt.Printf("%s -> url=%q anchor=%q\n", h.Ref(), h.URL(), h.Anchor())
-}
-for _, img := range sheet.Images() {
-    fmt.Printf("image %s at %s alt=%q\n", img.ContentType(), img.AnchorCell(), img.AltText())
-}
-if p := sheet.Protection(); p != nil {
-    fmt.Printf("protected (password=%v, sort locked=%v)\n", p.HasPassword(), p.Sort())
-}
-fmt.Println("merged:", sheet.MergedCells())
-cols, rows, frozen := sheet.FrozenPanes()
-fmt.Printf("frozen=%v cols=%d rows=%d\n", frozen, cols, rows)
-for _, cf := range sheet.ConditionalFormats() {
-    fmt.Printf("cf %s: %d rules\n", cf.SqRef, len(cf.Rules))
-}
-
-// Write an external hyperlink, an internal jump, and turn on sheet protection.
-cell, _ := sheet.Cell("A1")
-cell.SetHyperlink("https://example.com/").SetTooltip("Visit us")
-nav, _ := sheet.Cell("A2")
-nav.SetInternalHyperlink("Sheet2!A1")
-sheet.Protect(xlsx.SheetProtectionOptions{Password: "secret", AllowSort: true})
-
-_ = wb.Save("book.xlsx")
-```
-
-Sheet protection is a UI guard, not encryption: `Protect` uses Excel's documented
-legacy 16-bit password hash, which is trivially removed. Every write persists on
-both the `Create` and `Open` save paths, and a zero-modification open→save of a
-feature-bearing workbook stays byte-identical.
-
-### Charts
-
-The `chart` package builds a DrawingML `chart.xml` part (`c:chartSpace`) that is
-independent of any one document format. Pick a chart type, set categories, add
-series, and serialize:
-
-```go
-package main
-
-import (
-	"os"
-
-	"github.com/mgilbir/spine/chart"
-)
-
-func main() {
-	c := chart.NewColumn().
-		SetTitle("Quarterly Sales").
-		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"}).
-		SetAxisTitles("Quarter", "USD").
-		SetLegend(chart.LegendRight).
-		SetDataLabels(true) // render each point's value on the chart
-	c.AddSeries("North", []float64{10, 20, 30, 40}).SetColor("#1F77B4")
-	c.AddSeries("South", []float64{5, 15, 25, 35}).SetColor("#FF7F0E")
-
-	// chart.xml with cached values so it renders without a live data source.
-	xmlBytes, _ := c.MarshalChartXML()
-	_ = os.WriteFile("chart1.xml", xmlBytes, 0o644)
-
-	// The workbook docx/pptx charts embed so Office can edit the data. The
-	// returned layout's cell ranges line up with the chart's c:f references.
-	wbBytes, layout, _ := c.EmbeddedWorkbook()
-	_ = wbBytes
-	_ = layout
-
-	// Read a chart.xml back into the model.
-	parsed, _ := chart.Parse(xmlBytes)
-	_ = parsed
-}
-```
-
-Supported types: `NewColumn`, `NewBar` (horizontal), `NewLine`, `NewPie`,
-`NewDoughnut`, `NewRadar`, `NewScatter` (via `AddXYSeries`), `NewArea`,
-`NewCombo` (combination), `NewBubble` (x/y/size points, via `AddBubbleSeries`),
-`NewStock` (high-low-close), `NewSurface` (filled contour), `NewOfPie`
-(pie-of-pie), and the 3D variants `NewColumn3D`, `NewBar3D`, `NewLine3D`,
-`NewPie3D`, and `NewArea3D`. Cached values (`c:numCache` / `c:strCache`) are
-populated from the supplied data; `c:f` references are built against a
-configurable `DataRef` sheet (default `Sheet1`).
-
-Formatting is opt-in and symmetric with the constructors:
-
-- `SetDataLabels(true)` emits `c:dLbls` (showVal) so each point's value renders
-  on the chart. It round-trips through `Charts()` (`Chart.DataLabels()`).
-- `Series.SetColor("#1F77B4")` gives a series a solid RGB fill
-  (`c:spPr` / `a:solidFill` / `a:srgbClr`); the leading `#` is optional and the
-  value is recovered on read as `Series.Color`.
-
-A **combination chart** mixes series types on a shared category axis. Give each
-series a plot type with `Series.SetType` (`KindColumn`, `KindLine`, or
-`KindArea`) and, optionally, move it to the right-hand secondary value axis with
-`Series.SetSecondaryAxis(true)`:
-
-```go
-c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
-c.AddSeries("Revenue", []float64{100, 120, 140, 160}).SetType(chart.KindColumn)
-c.AddSeries("Margin %", []float64{12, 15, 14, 18}).
-    SetType(chart.KindLine).SetSecondaryAxis(true)
-```
-
-`Charts()` reads a combo back as `KindCombo` with each series' `PlotType` and
-`SecondaryAxis` recovered.
-
-All types (including combination charts) flow through every format's `AddChart`
-and are read back by `Charts()`.
-
-This package is the shared core. Each format wires it in with an `AddChart`
-method and a `Charts()` reader (xlsx references the host sheet; docx and pptx
-embed the workbook from `EmbeddedWorkbook`).
-
-#### Charts in spreadsheets
-
-In `xlsx`, `Sheet.AddChart` anchors a chart on a sheet and `Sheet.Charts` /
-`Workbook.Charts` read the charts back:
-
-```go
-package main
-
-import (
-	"bytes"
-
-	"github.com/mgilbir/spine/chart"
-	"github.com/mgilbir/spine/xlsx"
-)
-
-func main() {
-	wb := xlsx.Create()
-	sheet := wb.AddSheet("Sales")
-	_ = sheet.SetCellValue("A1", "Region")
-
-	c := chart.NewColumn().
-		SetTitle("Quarterly Sales").
-		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"}).
-		SetLegend(chart.LegendRight)
-	c.AddSeries("North", []float64{10, 20, 30, 40})
-	c.AddSeries("South", []float64{5, 15, 25, 35})
-
-	// Anchor the chart at E2 (a single cell places a default-sized chart; a
-	// range like "E2:L20" sizes it to that block).
-	_ = sheet.AddChart("E2", c)
-
-	data, _ := wb.SaveBytes()
-
-	wb2, _ := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)))
-	s2, _ := wb2.SheetByName("Sales")
-	for _, got := range s2.Charts() {
-		_ = got.Title()      // "Quarterly Sales"
-		_ = got.Categories() // ["Q1" "Q2" "Q3" "Q4"]
-		_ = got.SeriesList() // series names + values
-	}
-}
-```
-
-An xlsx chart references cells in the host workbook rather than an embedded
-workbook. `AddChart` writes the chart's data (categories and each series) into a
-dedicated hidden worksheet — one per chart — and points the chart's `c:f`
-references at it, so Excel's "Edit Data" opens real cells while the cached
-values keep the chart rendering standalone; the sheet's own cells are never
-touched. Charts and images coexist in one drawing part per sheet. `AddChart`
-persists on both the `Create` and `Open` save paths, and a zero-modification
-open→save of a chart-bearing workbook stays byte-identical (the chart and
-drawing parts are preserved verbatim unless a chart is added or modified).
-
-#### Charts in Word documents
-
-`docx` inserts a chart inline in the text flow, like an inline image. The
-chart's data is written to an embedded workbook (`word/embeddings/…xlsx`) that
-the chart part references, so Office can open and edit the values — a docx has
-no host worksheet. Sizes are in EMUs (914400 per inch):
-
-```go
-doc := docx.Create()
-doc.AddParagraphWithText("Quarterly revenue:")
-
-c := chart.NewColumn().
-	SetTitle("Revenue by Quarter").
-	SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
-c.AddSeries("North", []float64{10, 20, 30, 40})
-
-// Appends a paragraph holding the chart (~5.5in x 3in). Use
-// Paragraph.AddChart to place a chart inline among other runs.
-if err := doc.AddChart(c, 5029200, 2743200); err != nil {
-	log.Fatal(err)
-}
-_ = doc.Save("charted.docx")
-
-// Read charts back from an opened document.
-opened, _ := docx.Open("charted.docx")
-for _, ch := range opened.Charts() {
-	fmt.Println(ch.Title(), ch.Categories())
-}
-```
-
-A zero-modification open→save of a chart-bearing document is byte-identical:
-the chart and embedded-workbook parts round-trip verbatim, and are regenerated
-only when a chart is added.
-
-#### Charts in PowerPoint
-
-`Slide.AddChart` places a chart on a slide. Because a presentation has no host
-workbook, the chart's data is embedded as a small `.xlsx` package that Office
-can open to edit the data; the chart part, the embedded workbook, the wiring
-relationships, and the content-type overrides are all created for you. Position
-and size are given in EMUs.
-
-```go
-package main
-
-import (
-	"github.com/mgilbir/spine/chart"
-	"github.com/mgilbir/spine/pptx"
-)
-
-func main() {
-	p := pptx.Create()
-	slide := p.AddSlide()
-
-	c := chart.NewColumn().
-		SetTitle("Quarterly Revenue").
-		SetCategories([]string{"Q1", "Q2", "Q3", "Q4"})
-	c.AddSeries("2024", []float64{10, 20, 15, 25})
-	c.AddSeries("2025", []float64{12, 18, 22, 30})
-
-	// x, y, width, height in EMUs (914400 EMU = 1 inch).
-	if err := slide.AddChart(c, 914400, 1828800, 5486400, 3657600); err != nil {
-		panic(err)
-	}
-	_ = p.Save("charts.pptx")
-}
-```
-
-Read charts back with `Slide.Charts()` or `Presentation.Charts()`, which return
-the parsed `*chart.Chart` definitions (type, title, categories, and series).
-A chart added this way coexists with the slide's existing shapes, and opening
-and re-saving a chart-bearing deck without changes preserves the chart and
-embedding parts byte-for-byte.
-
-### Working with Documents in Memory
+## Working with Documents in Memory
 
 All three formats can be saved to and opened from memory. `SaveBytes` exists on `pptx.Presentation`, `docx.Document`, and `xlsx.Workbook`; each package also provides `OpenReader`:
 
@@ -679,179 +180,6 @@ func main() {
 
 For xlsx, `WriteToBuffer` remains as a convenience wrapper around `SaveBytes` that returns a `*bytes.Buffer`.
 
-### Opening and Modifying a Presentation
-
-```go
-package main
-
-import (
-    "github.com/mgilbir/spine/pptx"
-)
-
-func main() {
-    // Open an existing presentation
-    p, err := pptx.Open("existing.pptx")
-    if err != nil {
-        panic(err)
-    }
-    defer p.Close()
-
-    // Modify properties
-    p.Properties.Title = "Updated Title"
-
-    // Add a new slide
-    p.AddSlide()
-
-    // Save to a new file
-    if err := p.SaveAs("modified.pptx"); err != nil {
-        panic(err)
-    }
-}
-```
-
-### Creating from a Template
-
-```go
-package main
-
-import (
-    "github.com/mgilbir/spine/pptx"
-)
-
-func main() {
-    // Create a new presentation based on a template
-    // This preserves the template's masters, layouts, and themes
-    p, err := pptx.CreateFromTemplate("template.pptx")
-    if err != nil {
-        panic(err)
-    }
-    defer p.Close()
-
-    // Add slides using template layouts
-    layout := p.GetLayoutByType(pptx.LayoutTitleAndContent)
-    _ = p.AddSlideFromLayout(layout)
-
-    // Save the new presentation
-    if err := p.Save("from_template.pptx"); err != nil {
-        panic(err)
-    }
-}
-```
-
-### Reading and Writing Slide Comments
-
-`pptx` reads both PowerPoint comment mechanisms — legacy per-slide comments and
-modern (2018) threaded comments — through one `*Comment` type, and writes modern
-threaded comments (the mechanism current PowerPoint emits, and the only one that
-supports replies and resolution). The API mirrors the `docx` and `xlsx` comment
-APIs; the anchor (a slide plus an optional position or shape) is pptx-specific.
-
-```go
-package main
-
-import (
-    "fmt"
-
-    "github.com/mgilbir/spine/pptx"
-)
-
-func main() {
-    p, err := pptx.Open("deck.pptx")
-    if err != nil {
-        panic(err)
-    }
-    defer p.Close()
-
-    // Read every comment across the deck.
-    for _, c := range p.Comments() {
-        fmt.Printf("%s: %s\n", c.Author(), c.Text())
-        for _, reply := range c.Replies() {
-            fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
-        }
-    }
-
-    // Add a threaded comment, reply to it, and resolve it. The author is
-    // registered in the author list (deduplicated by name).
-    slide, _ := p.Slide(0)
-    c := slide.AddComment("Reviewer", "Please tighten this section.")
-    c.Reply("Author", "Done in the next revision.")
-    c.Resolve()
-
-    // Precise placement (EMUs) is available via AddCommentAt.
-    slide.AddCommentAt(4572000, 2286000, "Reviewer", "Anchored here.")
-
-    if err := p.Save("deck.pptx"); err != nil {
-        panic(err)
-    }
-}
-```
-
-Newly added comments always use the modern threaded mechanism, even on a deck
-whose existing comments are legacy (both may coexist in one file). Legacy
-comments carry no threading or resolved state, so `Reply` is a no-op returning
-`nil` and `Resolve`/`SetResolved` are no-ops on them. A zero-modification
-open→save of a comment-bearing deck is byte-identical; only the parts a comment
-write touches are regenerated.
-
-### Hyperlinks and Pictures
-
-Hyperlinks are read and written through one `*Hyperlink` type shared with the
-`docx` and `xlsx` APIs (`URL`, `Anchor`, `Tooltip`, `SetTooltip`). In pptx a
-link lives on a run (`a:hlinkClick` in the run properties) or on a shape
-(`p:cNvPr`); the anchor of an internal link is a destination slide number (a
-slide jump) or a `ppaction://` verb. `Slide.Pictures()` returns every picture on
-a slide with its alt text, bytes, content type, and frame geometry.
-
-```go
-p, _ := pptx.Open("deck.pptx")
-defer p.Close()
-
-// Read: every hyperlink and every picture across the deck.
-for _, h := range p.Hyperlinks() {
-    fmt.Printf("url=%q anchor=%q tip=%q\n", h.URL(), h.Anchor(), h.Tooltip())
-}
-for _, pic := range p.Pictures() {
-    fmt.Printf("%s %s (%d bytes)\n", pic.AltText(), pic.ContentType(), len(pic.Data()))
-}
-
-// Write: an external link on a run, an internal slide jump on a shape.
-slide, _ := p.Slide(0)
-run := slide.AddTextBox().TextFrame().AddParagraph().AddRun()
-run.SetText("Our site")
-run.SetHyperlink("https://example.com").SetTooltip("Open the site")
-
-shape := pptx.NewAutoShape(pptx.PresetRect)
-shape.SetSize(914400, 914400)
-_ = slide.AddShape(shape)
-shape.SetHyperlinkToSlide(2)              // jump to slide 3 (0-based index)
-// shape.SetActionHyperlink(pptx.ActionNextSlide) // or a ppaction:// verb
-
-// Connect two shapes with an elbow connector (ids are bound on save).
-other := pptx.NewAutoShape(pptx.PresetEllipse)
-_ = slide.AddShape(other)
-conn := slide.AddConnector(pptx.ConnectorElbow)
-conn.Connect(shape, 3, other, 1)          // bind start/end to connection sites
-conn.SetLineWidth(2)
-conn.SetLineColor(dml.NewRGB(0xC0, 0x00, 0x00).ToColor())
-// Or draw a free-floating line between two points:
-// conn := slide.AddConnector(pptx.ConnectorStraight)
-// conn.SetPoints(0, 0, dml.Inches(3), dml.Inches(2))
-```
-
-Writing an external or slide-jump link allocates the backing relationship in the
-slide's rels on save; `ppaction://` verbs need none. A zero-modification
-open→save of a hyperlink- or picture-bearing deck is byte-identical, and setting
-a hyperlink on a run in an opened slide patches that slide in place without
-disturbing the others.
-
-## Opening vs. Creating Documents
-
-`Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts you did not touch are preserved byte-for-byte. Known asymmetries that remain:
-
-- pptx: `Create()` produces a 4:3 deck (use `CreateWithOptions` with `SlideSizeWidescreen`, or `CreateWidescreen()`, for 16:9). The baked master and layouts size their placeholders to the slide, so both aspect ratios are internally consistent.
-- docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
-- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts. To edit placeholder geometry use `EditablePlaceholders()`/`EditablePlaceholder()`, which write back to the part.
-
 ## Validation
 
 Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report` (from `github.com/mgilbir/spine/common/validate`): a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
@@ -876,7 +204,7 @@ if _, err := p.SaveBytes(); err != nil {
 
 Error-severity checks include duplicate shape ids within a slide, dangling `sldLayoutId`/sheet/header/footer relationship references, orphaned shared-formula followers, duplicate `sheetId`, out-of-range `definedName` scope, overlapping merged ranges, and a `numPr` that references an undefined numbering definition. Conditions that Office tolerates — a relationship whose target part is missing, a part with no content type, a dangling image/hyperlink reference, an undefined style reference — are reported as warnings.
 
-If a finding is advisory for your use case, `SaveToUnvalidated` writes without the pre-save check.
+If a finding is advisory for your use case, `SaveToUnvalidated` writes without the pre-save check. When a save is refused or a file misbehaves, see [Troubleshooting](docs/troubleshooting.md).
 
 ## Supported Flavors
 
@@ -892,28 +220,13 @@ Documents built with `Create` always save as the regular flavor. Converting a fi
 
 Opening an ISO-Strict (ISO/IEC 29500 Strict) package — a valid but as-yet-unread OOXML dialect that uses the `purl.oclc.org/ooxml` namespaces instead of the transitional ones — returns `opc.ErrStrictOOXML`, a distinct signal that the file is a genuine Office document in an unsupported dialect rather than a corrupt or non-Office file.
 
+## Thread safety
+
+A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything reached through it (slides, sheets, paragraphs, shapes) — is not safe for concurrent use and must be confined to one goroutine, or all access guarded by external synchronization. In particular `Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they must not run concurrently with each other or with any mutation of the same value. Distinct values may be used from different goroutines.
+
 ## Resource limits
 
 To bound memory against decompression ("zip bomb") attacks, an opened package is capped by `opc.MaxDecompressedPartSize` (per part, default 1 GiB) and `opc.MaxDecompressedPackageSize` (total across the package, default 4 GiB); `opc.OpenEncrypted` additionally limits its input with `opc.MaxEncryptedInputSize` (default 2 GiB). Raise a limit before opening a legitimately larger file, or set a decompression bound to 0 to disable it. These are plain package-level variables captured when a reader is constructed, so set them during program setup — mutating one concurrently with an open in another goroutine is a data race. To override the two decompression limits for a single reader without touching the globals, pass `opc.ReaderOptions` to `opc.NewReaderWithOptions` / `opc.OpenReaderWithOptions`.
-
-## Package Structure
-
-- `opc/` - Open Packaging Conventions implementation
-- `common/` - Shared types and utilities
-  - `crypto/` - Office password encryption (agile/standard AES, RC4 decrypt) and OPC XML-DSig signing (`crypto.ErrWrongPassword` and friends)
-  - `dml/` - DrawingML types (colors, geometry, fills, lines)
-    - `chart/` - Chart types
-    - `diagram/` - Diagram types
-  - `enum/` - Common enumerations
-  - `omml/` - Office Math Markup Language types
-  - `oxml/` - Shared Office XML types
-  - `validate/` - Structured validation vocabulary (`Report`, `Error`) shared by the format packages
-  - `vml/` - Vector Markup Language types
-  - `xml/` - XML namespace handling and Builder-based serialization
-- `chart/` - Public, format-agnostic chart builder, serialization, and reader
-- `pptx/` - PowerPoint document support
-- `docx/` - Word document support
-- `xlsx/` - Excel document support
 
 ## Units
 
@@ -934,63 +247,53 @@ lineWidth := dml.Points(2)
 
 Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use `run.SetFontSize(12)` for 12pt text.
 
-## Slide Layouts
+## Package Structure
 
-The following standard slide layout types are supported:
+- `opc/` - Open Packaging Conventions implementation
+- `common/` - Shared types and utilities
+  - `crypto/` - Office password encryption (agile/standard AES, RC4 decrypt) and OPC XML-DSig signing (`crypto.ErrWrongPassword` and friends)
+  - `dml/` - DrawingML types (colors, geometry, fills, lines)
+    - `chart/` - Chart types
+    - `diagram/` - Diagram types
+  - `enum/` - Common enumerations
+  - `omml/` - Office Math Markup Language types
+  - `oxml/` - Shared Office XML types
+  - `validate/` - Structured validation vocabulary (`Report`, `Error`) shared by the format packages
+  - `vml/` - Vector Markup Language types
+  - `xml/` - XML namespace handling and Builder-based serialization
+- `chart/` - Public, format-agnostic chart builder, serialization, and reader
+- `pptx/` - PowerPoint document support
+- `docx/` - Word document support
+- `xlsx/` - Excel document support
 
-| Type | Description |
-|------|-------------|
-| `LayoutTitle` | Title slide |
-| `LayoutTitleAndContent` | Title and content |
-| `LayoutSectionHeader` | Section header |
-| `LayoutTwoContent` | Two content areas |
-| `LayoutComparison` | Comparison layout |
-| `LayoutTitleOnly` | Title only |
-| `LayoutBlank` | Blank slide |
-| `LayoutContentWithCaption` | Content with caption |
-| `LayoutPictureWithCaption` | Picture with caption |
-| `LayoutTitleAndVerticalText` | Title and vertical text |
-| `LayoutVerticalTitleAndText` | Vertical title and text |
+## Documentation
 
-The exact `Layout*` constant names are the source of truth in [`pptx/layout.go`](pptx/layout.go).
+- [docs/](docs/README.md) — the documentation index, routed by reader question, plus the per-format guides ([pptx](docs/pptx.md), [docx](docs/docx.md), [xlsx](docs/xlsx.md)), [charts](docs/charts.md), [encryption and signing](docs/encryption-and-signing.md), and [troubleshooting](docs/troubleshooting.md).
+- [CHANGELOG.md](CHANGELOG.md) — the release history, including the 0.1.0 lazy-parse behavior.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, lint, fuzz, and the round-trip philosophy.
+
+Runnable programs for all three formats live in [`examples/`](examples/):
+
+- [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
+- [`pptx_diagram`](examples/pptx_diagram) — build a diagram deck: a connector bound to two shapes, slide-master text-style and slide-layout background editing, speaker notes, and the SmartArt read path, then reopen to verify the round-trip.
+- [`pptx_deck`](examples/pptx_deck) — build a rich PowerPoint deck: a native chart with an auto-embedded data workbook, a table with an in-text hyperlink, an auto shape with layered effects (shadow, glow, reflection) and an entrance animation, Zoom/Wheel transitions, sections, and a threaded comment — saved in two phases (so shape ids materialize) and reopened to read the sections, animations, charts, and comments back.
+- [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
+- [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
+- [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
+- [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
+- [`xlsx_report`](examples/xlsx_report) — a guided tour of the newer XLSX authoring features: a table with a totals row, conditional formatting, an embedded chart, page/print setup, freeze panes, named styles and sheet/workbook protection.
+- [`xlsx_dashboard`](examples/xlsx_dashboard) — build a sales dashboard: a pivot table cross-tabulating regions against months, per-row and per-column sparklines, and a line chart, then reopen the file to read the pivot layout and sparkline groups back.
+- [`docx_mailmerge`](examples/docx_mailmerge) — author a mail-merge form letter: mail-merge configuration with a data source, MERGEFIELD placeholders, a floating text-box callout, a "DRAFT" text watermark, and author-side tracked changes — reopened to read the merge fields, text boxes, watermark, and revisions back.
 
 ## Testing
 
-Unit tests run against both small synthetic fixtures (committed to git) and a set of real-world Office files sourced from the internet. The external files are used for round-trip compatibility testing: each file is parsed, serialized back, and compared byte-for-byte against the original.
-
-External fixtures are not checked into the repository. To download them:
-
-```bash
-make fetch
-```
-
-This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt`, their entries suffixed `— URL unknown`) and cannot be fetched at all.
-
-Tests that depend on an external fixture skip silently when the file is absent, so a green run on a fresh clone exercises fewer cases than one with all fixtures fetched. A few pptx tests additionally use fixtures from the python-pptx test suite; see [`testdata/README.md`](testdata/README.md) for how to obtain that optional corpus.
-
-A much larger optional corpus of real-world files harvested from Common Crawl is available via `make fetch-cc`: committed manifests pin thousands of candidate documents per format from a single crawl, the fetcher materializes up to 1000 of each locally (gitignored, never redistributed) — plus, optionally, files above Common Crawl's 1 MiB truncation limit refetched from their origin behind a DNS-over-HTTPS blocklist gate — and `go test ./cctest` runs the open/save/reopen/part-fidelity discipline over them, with known failures cataloged in a quarantine file. A plain `go test ./cctest` checks a fast deterministic subset (60 files per format) so the whole suite stays inside Go's default package timeout; `make test-corpus` runs the complete corpus (~15-20 minutes). See [`testdata/cc/README.md`](testdata/cc/README.md) for the pipeline, politeness, and licensing details.
-
-To run the full test suite (fetches external files first):
-
-```bash
-make test
-```
-
-Native Go fuzz targets cover both the Open paths of `opc`, `pptx`, `docx`, and `xlsx` (malformed zip archives and hostile XML inside otherwise-valid packages must produce errors, never panics) and the authoring APIs (mutators fed fuzzed inputs, then saved and re-opened). `make fuzz` discovers every target dynamically and runs a short smoke pass over each; see [CONTRIBUTING.md](CONTRIBUTING.md) for deeper `-fuzztime`-driven runs.
-
-To lint (requires golangci-lint v2.x):
-
-```bash
-make lint
-```
-
-## Thread safety
-
-A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything reached through it (slides, sheets, paragraphs, shapes) — is not safe for concurrent use and must be confined to one goroutine, or all access guarded by external synchronization. In particular `Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they must not run concurrently with each other or with any mutation of the same value. Distinct values may be used from different goroutines.
+Unit tests run against small synthetic fixtures (committed) and larger real-world Office files that are fetched on demand (`make fetch`, `make fetch-cc`) and skip silently when absent. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full build/test/lint/fuzz flow, [`testdata/README.md`](testdata/README.md) for the external and python-pptx fixtures, and [`testdata/cc/README.md`](testdata/cc/README.md) for the Common Crawl corpus. To run the full suite: `make test`.
 
 ## Requirements
 
 - Go 1.25 or later
+
+Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages — including `opc`, `chart`, `common/crypto`, `common/dml`, and `common/validate` — are part of the public API surface, since the user-facing examples import them directly.
 
 ## License
 
