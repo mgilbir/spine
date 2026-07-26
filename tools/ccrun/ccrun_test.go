@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -229,18 +232,52 @@ func TestLastResultLine(t *testing.T) {
 // TestInterpretWorkerSynthetic exercises the mapping from a worker's raw exit
 // signals to a ledger outcome without spawning real processes.
 func TestInterpretWorkerSynthetic(t *testing.T) {
-	if o, s, _ := interpretWorker(true, nil, "", "D1"); o != outcomeResource || s != "timeout" {
+	if o, s, _ := interpretWorker(true, nil, "", "", "D1"); o != outcomeResource || s != "timeout" {
 		t.Errorf("timeout: got (%s,%s)", o, s)
 	}
-	if o, _, _ := interpretWorker(false, nil, "D1\tpass\n", "D1"); o != outcomePass {
+	if o, _, _ := interpretWorker(false, nil, "D1\tpass\n", "", "D1"); o != outcomePass {
 		t.Errorf("pass: got %s", o)
 	}
-	if o, s, _ := interpretWorker(false, nil, "D1\tfail\tsave\tx", "D1"); o != outcomeFail || s != "save" {
+	if o, s, _ := interpretWorker(false, nil, "D1\tfail\tsave\tx", "", "D1"); o != outcomeFail || s != "save" {
 		t.Errorf("fail: got (%s,%s)", o, s)
 	}
-	if o, s, _ := interpretWorker(false, nil, "unrelated output", "D1"); o != outcomeResource || s != "panic" {
+	if o, s, _ := interpretWorker(false, nil, "unrelated output", "", "D1"); o != outcomeResource || s != "panic" {
 		t.Errorf("silent: got (%s,%s)", o, s)
 	}
+}
+
+// TestInterpretWorkerPanicSignature guards C336: a crashed worker's first panic
+// line is folded into the signature so two different panics cluster distinctly
+// instead of collapsing into one "worker exited with status N".
+func TestInterpretWorkerPanicSignature(t *testing.T) {
+	exit2 := &exec.ExitError{ProcessState: fakeExit(2)}
+
+	stderrA := "panic: runtime error: index out of range [5] with length 3\n\ngoroutine 1 [running]:\nmain.foo()\n"
+	stderrB := "panic: assignment to entry in nil map\n\ngoroutine 1 [running]:\nmain.bar()\n"
+
+	_, _, sigA := interpretWorker(false, exit2, "", stderrA, "D1")
+	_, _, sigB := interpretWorker(false, exit2, "", stderrB, "D1")
+
+	if sigA == sigB {
+		t.Fatalf("distinct panics produced identical signatures: %q", sigA)
+	}
+	for _, sig := range []string{sigA, sigB} {
+		if !strings.HasPrefix(sig, "worker exited with status 2: ") {
+			t.Errorf("signature missing status/panic prefix: %q", sig)
+		}
+	}
+	// With no stderr, the signature falls back to the bare status line.
+	if _, _, sig := interpretWorker(false, exit2, "", "", "D1"); sig != "worker exited with status 2" {
+		t.Errorf("no-stderr signature = %q, want bare status line", sig)
+	}
+}
+
+// fakeExit returns a ProcessState reporting the given exit code, for building
+// an *exec.ExitError without hand-constructing platform-specific wait status.
+func fakeExit(code int) *os.ProcessState {
+	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
+	_ = cmd.Run()
+	return cmd.ProcessState
 }
 
 // TestSpawnWorkerEndToEnd injects fake workers via /bin/sh to prove the
@@ -250,9 +287,9 @@ func TestInterpretWorkerSynthetic(t *testing.T) {
 func TestSpawnWorkerEndToEnd(t *testing.T) {
 	ref := Ref{Digest: "DEAD", Type: "docx"}
 	sh := func(script string, hard time.Duration) (outcome, stage string) {
-		stdout, runErr, timedOut := spawnWorker(context.Background(), "/bin/sh",
+		stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), "/bin/sh",
 			[]string{"-c", script}, ref, hard)
-		o, s, _ := interpretWorker(timedOut, runErr, stdout, ref.Digest)
+		o, s, _ := interpretWorker(timedOut, runErr, stdout, stderr, ref.Digest)
 		return o, s
 	}
 

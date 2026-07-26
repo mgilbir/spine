@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -353,14 +354,37 @@ func processRef(self string, r Ref, cfg orchConfig) (outcome, stage, sig string)
 	}
 	// Hard cap allows the worker to bail cleanly on a slow fetch before the
 	// orchestrator kills it; a genuine processing hang is killed here.
-	stdout, runErr, timedOut := spawnWorker(context.Background(), self, args, r, cfg.timeout+10*time.Second)
-	return interpretWorker(timedOut, runErr, stdout, r.Digest)
+	stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), self, args, r, cfg.timeout+10*time.Second)
+	return interpretWorker(timedOut, runErr, stdout, stderr, r.Digest)
+}
+
+// maxWorkerStderr bounds how much of a crashing worker's stderr the
+// orchestrator retains — enough for the panic line and a little context,
+// without letting a worker that floods stderr balloon orchestrator memory.
+const maxWorkerStderr = 8 << 10
+
+// capWriter accumulates up to cap bytes and silently drops the rest, always
+// reporting a full write so the writing process never blocks on a full pipe.
+type capWriter struct {
+	buf bytes.Buffer
+	cap int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if rem := w.cap - w.buf.Len(); rem > 0 {
+		if len(p) > rem {
+			p = p[:rem]
+		}
+		w.buf.Write(p)
+	}
+	return len(p), nil
 }
 
 // spawnWorker runs one worker command with a hard timeout, feeding the Ref as
-// JSON on stdin, and returns its stdout, the run error, and whether the hard
-// timeout fired. exe/args are separated so tests can inject a fake worker.
-func spawnWorker(parent context.Context, exe string, args []string, ref Ref, hard time.Duration) (stdout string, runErr error, timedOut bool) {
+// JSON on stdin, and returns its stdout, a bounded capture of its stderr, the
+// run error, and whether the hard timeout fired. exe/args are separated so
+// tests can inject a fake worker.
+func spawnWorker(parent context.Context, exe string, args []string, ref Ref, hard time.Duration) (stdout, stderr string, runErr error, timedOut bool) {
 	ctx, cancel := context.WithTimeout(parent, hard)
 	defer cancel()
 
@@ -368,17 +392,20 @@ func spawnWorker(parent context.Context, exe string, args []string, ref Ref, har
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Stdin = bytes.NewReader(payload)
 	var outBuf bytes.Buffer
+	errBuf := &capWriter{cap: maxWorkerStderr}
 	cmd.Stdout = &outBuf
-	cmd.Stderr = io.Discard
+	cmd.Stderr = errBuf
 	err := cmd.Run()
-	return outBuf.String(), err, ctx.Err() == context.DeadlineExceeded
+	return outBuf.String(), errBuf.buf.String(), err, ctx.Err() == context.DeadlineExceeded
 }
 
-// interpretWorker maps a worker's (timedOut, runErr, stdout) into a ledger
-// outcome. A clean exit with a valid result line is a genuine pass/fail; a
-// timeout, a signal-kill (OOM), a nonzero exit, or a silent exit are all
-// resource kills attributed to the file, not the batch.
-func interpretWorker(timedOut bool, runErr error, stdout, digest string) (outcome, stage, sig string) {
+// interpretWorker maps a worker's (timedOut, runErr, stdout, stderr) into a
+// ledger outcome. A clean exit with a valid result line is a genuine pass/fail;
+// a timeout, a signal-kill (OOM), a nonzero exit, or a silent exit are all
+// resource kills attributed to the file, not the batch. A nonzero exit folds
+// the worker's first panic line into the signature so distinct crashes cluster
+// distinctly instead of collapsing into one "exited with status N".
+func interpretWorker(timedOut bool, runErr error, stdout, stderr, digest string) (outcome, stage, sig string) {
 	if timedOut {
 		return outcomeResource, "timeout", "worker exceeded per-file timeout"
 	}
@@ -394,9 +421,34 @@ func interpretWorker(timedOut bool, runErr error, stdout, digest string) (outcom
 		if exitErr.ExitCode() == -1 { // terminated by a signal (e.g. OOM SIGKILL)
 			return outcomeResource, "killed", "worker terminated by signal"
 		}
-		return outcomeResource, "panic", fmt.Sprintf("worker exited with status %d", exitErr.ExitCode())
+		sig := fmt.Sprintf("worker exited with status %d", exitErr.ExitCode())
+		if pl := firstPanicLine(stderr); pl != "" {
+			sig += ": " + pl
+		}
+		return outcomeResource, "panic", sig
 	}
 	return outcomeResource, "panic", "worker did not run: " + runErr.Error()
+}
+
+// firstPanicLine extracts the leading diagnostic line from a crashed worker's
+// stderr — the "panic:" / "fatal error:" line of a Go crash, else the first
+// non-empty line — normalized (digit runs collapsed) for stable clustering.
+// It returns "" when stderr is blank.
+func firstPanicLine(stderr string) string {
+	var first string
+	for _, ln := range strings.Split(stderr, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		if first == "" {
+			first = ln
+		}
+		if strings.HasPrefix(ln, "panic:") || strings.HasPrefix(ln, "fatal error:") {
+			return normalizeSignature(ln)
+		}
+	}
+	return normalizeSignature(first)
 }
 
 // lastResultLine returns the last stdout line that begins with the digest and a

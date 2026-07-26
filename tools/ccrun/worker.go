@@ -283,7 +283,13 @@ func emitResult(digest string, r result) {
 // collapsed to N, whitespace flattened, truncated. It matches cctest's
 // signature so quarantine rows cluster consistently across the two tools.
 func signature(err error) string {
-	msg := err.Error()
+	return normalizeSignature(err.Error())
+}
+
+// normalizeSignature collapses digit runs to N, flattens whitespace, and
+// truncates, producing the stable grouping key used for both fetch errors and
+// worker-crash signatures.
+func normalizeSignature(msg string) string {
 	var b strings.Builder
 	lastDigit := false
 	for _, r := range msg {
