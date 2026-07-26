@@ -12,6 +12,7 @@ start per format. This index routes the follow-up questions.
 - **Something's wrong** (save refused, `ErrEncrypted`, repair prompt, tests skip) → [troubleshooting.md](troubleshooting.md)
 - **Which flavors round-trip? What are the units?** → [Supported Flavors](../README.md#supported-flavors), [Units](../README.md#units)
 - **How do I keep documents in memory?** → [Working with Documents in Memory](../README.md#working-with-documents-in-memory)
+- **How is the library put together?** (layering, save pipeline, lazy parsing) → [architecture.md](architecture.md)
 - **How do I contribute or run the tests?** → [CONTRIBUTING.md](../CONTRIBUTING.md)
 - **What changed?** → [CHANGELOG.md](../CHANGELOG.md)
 - **Runnable programs** → [examples/](../examples/)

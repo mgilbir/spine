@@ -269,6 +269,7 @@ Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use
 ## Documentation
 
 - [docs/](docs/README.md) — the documentation index, routed by reader question, plus the per-format guides ([pptx](docs/pptx.md), [docx](docs/docx.md), [xlsx](docs/xlsx.md)), [charts](docs/charts.md), [encryption and signing](docs/encryption-and-signing.md), and [troubleshooting](docs/troubleshooting.md).
+- [docs/architecture.md](docs/architecture.md) — how the library is put together: package layering, the save pipeline, and the lazy-parse part lifecycle, drawn as diagrams.
 - [CHANGELOG.md](CHANGELOG.md) — the release history, including the 0.1.0 lazy-parse behavior.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, lint, fuzz, and the round-trip philosophy.
 
