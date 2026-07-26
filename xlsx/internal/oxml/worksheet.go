@@ -939,10 +939,16 @@ type CT_CellFormula struct {
 	Ca    *bool   `xml:"-"`
 	Si    *uint32 `xml:"-"`
 	Value string  `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list so a shared
+	// or data-table formula round-trips the attributes this type has no field
+	// for (dt2D, dtr, r1, r2, del1, del2, bx). Modeled attributes stay
+	// authoritative on replay; nil for programmatic formulas.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_CellFormula.
 func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	f.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "t":
@@ -986,6 +992,11 @@ func (f *CT_CellFormula) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	}
 	if f.Si != nil {
 		attrs = append(attrs, xmlb.UintAttr("si", *f.Si))
+	}
+	if f.CapturedAttrs != nil {
+		// Replay unmodeled attributes (data-table r1/r2/dt2D/dtr/del1/del2/bx)
+		// in source order while modeled values stay authoritative.
+		attrs = b.ReplayCapturedAttrs(f.CapturedAttrs, attrs)
 	}
 	b.WriteElement(ns, localName, f.Value, attrs...)
 }
