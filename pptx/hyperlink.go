@@ -95,6 +95,24 @@ func (h *Hyperlink) SetTooltip(tooltip string) {
 	}
 }
 
+// cloneReset returns a deep copy of the hyperlink for a cloned run or shape.
+// The value fields (url, anchor, tooltip, external/slide-jump target) are
+// copied, but every per-placement binding is reset: relID is cleared so each
+// clone allocates its own relationship on save (a shared relID is filled once
+// and later placements are skipped by allocateHyperlinkRels, leaving a dangling
+// r:id), the slide back-reference is dropped, and markDirty is rebound via the
+// given setter. Returns nil for a nil receiver.
+func (h *Hyperlink) cloneReset(markDirty func()) *Hyperlink {
+	if h == nil {
+		return nil
+	}
+	out := *h
+	out.relID = ""
+	out.slide = nil
+	out.markDirty = markDirty
+	return &out
+}
+
 // --- constructors used by the run/shape setters ---
 
 func newExternalHyperlink(url string, markDirty func()) *Hyperlink {

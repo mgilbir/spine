@@ -1,10 +1,54 @@
 package pptx
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/common/dml"
 )
+
+// TestCloneShapeDeepCopiesHyperlink confirms a cloned shape's external hyperlink
+// shares no state with the original (C269): editing the clone's tooltip must not
+// mutate the original, and placing the two shapes on different slides must leave
+// both slides with their own resolvable hyperlink relationship (not one filled
+// rel and a second dangling r:id).
+func TestCloneShapeDeepCopiesHyperlink(t *testing.T) {
+	p := Create()
+	s1 := p.AddSlide()
+	s2 := p.AddSlide()
+
+	orig := s1.AddTextBox()
+	orig.TextFrame().SetText("link")
+	orig.SetHyperlink("https://example.com/orig").SetTooltip("orig tip")
+
+	clone, ok := CloneShape(orig).(*TextBox)
+	if !ok {
+		t.Fatal("CloneShape did not return a *TextBox")
+	}
+	if err := s2.AddShape(clone); err != nil {
+		t.Fatalf("AddShape: %v", err)
+	}
+
+	// Mutating the clone's hyperlink must not touch the original's.
+	clone.Hyperlink().SetTooltip("clone tip")
+	if got := orig.Hyperlink().Tooltip(); got != "orig tip" {
+		t.Errorf("original tooltip = %q, want \"orig tip\" (clone shares the pointer)", got)
+	}
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	// Both slides must carry their own external hyperlink relationship: before
+	// the fix the shared *Hyperlink allocated a rel on the first slide only,
+	// leaving slide 2's r:id dangling.
+	for i, part := range []string{"ppt/slides/_rels/slide1.xml.rels", "ppt/slides/_rels/slide2.xml.rels"} {
+		rels := string(zipPart(t, data, part))
+		if !strings.Contains(rels, "https://example.com/orig") {
+			t.Errorf("slide %d rels missing hyperlink relationship:\n%s", i+1, rels)
+		}
+	}
+}
 
 func TestCloneRowPreservesStyling(t *testing.T) {
 	pres := Create()
