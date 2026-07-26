@@ -1,8 +1,11 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -530,6 +533,97 @@ type CT_SheetView struct {
 	WorkbookViewId           uint32         `xml:"workbookViewId,attr"`
 	Pane                     *CT_Pane       `xml:"pane,omitempty"`
 	Selection                []CT_Selection `xml:"selection"`
+	// CapturedChildren records the source child sequence so children this type
+	// does not model (pivotSelection, extLst) survive a dirty save; the
+	// reflection marshaler replays it. nil for programmatic sheet views (C321).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// sheetViewPaneField and sheetViewSelectionField are the struct field indices
+// of CT_SheetView's typed children, used to record their position in the
+// captured child order.
+var (
+	sheetViewPaneField      = structFieldIndex(reflect.TypeOf(CT_SheetView{}), "Pane")
+	sheetViewSelectionField = structFieldIndex(reflect.TypeOf(CT_SheetView{}), "Selection")
+)
+
+// structFieldIndex returns the top-level field index of the named field, or -1.
+func structFieldIndex(t reflect.Type, name string) int {
+	if f, ok := t.FieldByName(name); ok && len(f.Index) == 1 {
+		return f.Index[0]
+	}
+	return -1
+}
+
+// UnmarshalXML decodes a sheetView, preserving children this type does not
+// model (pivotSelection, extLst). Attributes, pane and selection are decoded
+// by reflection through an alias; the verbatim inner XML is then re-scanned to
+// capture the unmodeled children as raw bytes at their source positions so a
+// dirty save re-emits them (C321).
+func (sv *CT_SheetView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_SheetView
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(sv)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if len(aux.Inner) == 0 {
+		return nil
+	}
+
+	cap := &xmlb.ChildCapture{}
+	sub := xml.NewDecoder(bytes.NewReader(aux.Inner))
+	selIdx := 0
+	for {
+		pre := sub.InputOffset()
+		tok, err := sub.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// The inner bytes already parsed once (DecodeElement above); a
+			// re-scan failure just means no capture, never a load failure.
+			return nil
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch se.Name.Local {
+		case "pane":
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			if sheetViewPaneField >= 0 {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: sheetViewPaneField, Index: 0})
+			}
+		case "selection":
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			if sheetViewSelectionField >= 0 {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: sheetViewSelectionField, Index: selIdx})
+			}
+			selIdx++
+		default:
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			post := sub.InputOffset()
+			if pre >= 0 && post <= int64(len(aux.Inner)) && pre < post {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: -1, Index: len(cap.Raw)})
+				cap.Raw = append(cap.Raw, append([]byte(nil), aux.Inner[pre:post]...))
+			}
+		}
+	}
+	// Only retain a capture that carries unmodeled children; a sheet view with
+	// just pane/selection marshals identically through the normal field path.
+	if len(cap.Raw) > 0 {
+		sv.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_Pane represents the pane element.

@@ -183,7 +183,15 @@ func hasRawKids(cc *xmlb.ChildCapture) bool {
 
 // marshalWorkbookExtLst marshals the extLst element.
 func marshalWorkbookExtLst(b *xmlb.Builder, wb *oxml.CT_Workbook) {
-	if wb.ExtLst == nil || len(wb.ExtLst.Ext) == 0 {
+	if wb.ExtLst == nil {
+		return
+	}
+	if len(wb.ExtLst.Ext) == 0 {
+		// A present-but-empty <extLst/> recorded in ChildOrder must survive:
+		// dropping it drifts from the producer's bytes (mirror empty
+		// <definedNames/>). ChildOrder is only recorded when the element was
+		// parsed, so this never emits a spurious extLst for a new workbook.
+		b.EmptyElementStyled(wb.ExtLst.CapturedEmptyTag, nsSML, "extLst", xmlb.RawAttrList(wb.ExtLst.CapturedAttrs)...)
 		return
 	}
 	// Replay declarations the source carried on the extLst element itself
