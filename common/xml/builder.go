@@ -724,6 +724,15 @@ func EscapeAttrValue(s string) string {
 	return attrEscaper.Replace(stripInvalidXMLChars(s))
 }
 
+// EscapeText returns s escaped for use as XML character data (element content),
+// applying the same rules as the Builder's own text writer: &, <, and > are
+// escaped, a carriage return is written as &#xD; so XML §2.11 end-of-line
+// handling does not silently normalize it to a newline on reparse, tab and
+// newline are left verbatim, and XML-illegal control characters are dropped.
+func EscapeText(s string) string {
+	return textEscaper.Replace(stripInvalidXMLChars(s))
+}
+
 // writeAttrEscaped writes escaped XML attribute value content.
 func (b *Builder) writeAttrEscaped(s string) {
 	_, _ = attrEscaper.WriteString(&b.buf, stripInvalidXMLChars(s))

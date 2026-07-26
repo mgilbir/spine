@@ -186,3 +186,25 @@ func TestWatermarkByteIdentityUntouched(t *testing.T) {
 		}
 	}
 }
+
+// TestTextWatermarkDrawingMLEscapesCR verifies a carriage return in a DrawingML
+// text watermark's w:t body is emitted as a &#xD; character reference rather
+// than a raw CR. A raw CR in element content is normalized to a newline on
+// reparse (XML §2.11), so only the character reference round-trips. Regression
+// test for C349. The assertion targets the DrawingML choice's w:t specifically
+// (the VML fallback carries the text in an attribute, which was already
+// CR-escaped).
+func TestTextWatermarkDrawingMLEscapesCR(t *testing.T) {
+	doc := Create()
+	if err := doc.SetTextWatermark("A\rB", WatermarkOptions{DrawingML: true}); err != nil {
+		t.Fatalf("SetTextWatermark: %v", err)
+	}
+	data, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	headers := concatHeaderParts(t, data)
+	if !strings.Contains(headers, `<w:t xml:space="preserve">A&#xD;B</w:t>`) {
+		t.Errorf("DrawingML watermark w:t did not escape the CR as &#xD;; got %q", headers)
+	}
+}
