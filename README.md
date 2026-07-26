@@ -963,7 +963,7 @@ To run the full test suite (fetches external files first):
 make test
 ```
 
-Native Go fuzz targets cover the Open paths of `opc`, `pptx`, `docx`, and `xlsx` (malformed zip archives and hostile XML inside otherwise-valid packages must produce errors, never panics). `make fuzz` runs a short smoke pass over every target; see [CONTRIBUTING.md](CONTRIBUTING.md) for deeper `-fuzztime`-driven runs.
+Native Go fuzz targets cover both the Open paths of `opc`, `pptx`, `docx`, and `xlsx` (malformed zip archives and hostile XML inside otherwise-valid packages must produce errors, never panics) and the authoring APIs (mutators fed fuzzed inputs, then saved and re-opened). `make fuzz` discovers every target dynamically and runs a short smoke pass over each; see [CONTRIBUTING.md](CONTRIBUTING.md) for deeper `-fuzztime`-driven runs.
 
 To lint (requires golangci-lint v2.x):
 
