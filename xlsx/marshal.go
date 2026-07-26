@@ -219,7 +219,10 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) ([]byte, error) {
 		b.StartElementWithNS(nsSML, "styleSheet", nsDecls)
 	}
 
-	if ss.NumFmts != nil && len(ss.NumFmts.NumFmt) > 0 {
+	if ss.NumFmts != nil {
+		// Emit even when empty: a present-but-empty <numFmts count="0"/> in the
+		// source must survive a style-edit regeneration (mirror the empty
+		// <definedNames/> handling); dropping it drifts from the producer's bytes.
 		b.MarshalElement(nsSML, "numFmts", ss.NumFmts)
 	}
 	if ss.Fonts != nil {

@@ -105,3 +105,26 @@ func TestExtensionPreservesDefaultNamespaceDecl(t *testing.T) {
 		t.Errorf("ext default-namespace declaration dropped on re-marshal:\n%s", out)
 	}
 }
+
+// A present-but-empty <numFmts count="0"/> must survive a style-edit
+// regeneration: the marshaler gated emission on a non-empty NumFmt slice, so
+// the element vanished when styles.xml was rebuilt.
+func TestEmptyNumFmtsSurvivesStyleRegeneration(t *testing.T) {
+	const src = `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<numFmts count="0"/>` +
+		`<fonts count="1"><font><sz val="11"/></font></fonts>` +
+		`</styleSheet>`
+
+	var ss oxml.CT_Stylesheet
+	if err := xml.Unmarshal([]byte(src), &ss); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, err := marshalStylesheetXML(&ss)
+	if err != nil {
+		t.Fatalf("marshalStylesheetXML: %v", err)
+	}
+	out := string(data)
+	if !strings.Contains(out, "numFmts") || !strings.Contains(out, `count="0"`) {
+		t.Errorf("empty numFmts dropped on style regeneration:\n%s", out)
+	}
+}
