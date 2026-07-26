@@ -1,6 +1,51 @@
 package xlsx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mgilbir/spine/xlsx/internal/oxml"
+)
+
+// TestSetColWidthCarvesAllColsGroups verifies SetColWidth carves the target
+// column out of a covering entry even when that entry lives in a later <cols>
+// group, leaving no overlapping/stale entry.
+func TestSetColWidthCarvesAllColsGroups(t *testing.T) {
+	wb := Create()
+	s := wb.AddSheet("S")
+	w10, w20 := 10.0, 20.0
+	// Two separate <cols> groups; the 2nd covers the target column (4).
+	s.ws().Cols = []oxml.CT_Cols{
+		{Col: []oxml.CT_Col{{Min: 1, Max: 2, Width: &w10}}},
+		{Col: []oxml.CT_Col{{Min: 3, Max: 5, Width: &w20}}},
+	}
+
+	if err := s.SetColWidth(4, 30); err != nil {
+		t.Fatal(err)
+	}
+
+	// Count entries covering column 4 across every group: must be exactly one,
+	// with the new width.
+	covering := 0
+	var got *oxml.CT_Col
+	for gi := range s.ws().Cols {
+		for j := range s.ws().Cols[gi].Col {
+			e := &s.ws().Cols[gi].Col[j]
+			if e.Min <= 4 && 4 <= e.Max {
+				covering++
+				got = e
+			}
+		}
+	}
+	if covering != 1 {
+		t.Fatalf("column 4 covered by %d entries, want exactly 1", covering)
+	}
+	if got.Width == nil || *got.Width != 30 {
+		t.Errorf("carved entry width = %v, want 30", got.Width)
+	}
+	if got.Min != 4 || got.Max != 4 {
+		t.Errorf("carved entry = [%d,%d], want [4,4]", got.Min, got.Max)
+	}
+}
 
 // TestStyleNoOpDoesNotDirty verifies that a NewCellStyle / AddNumberFormat call
 // which resolves to an already-existing record does not mark styles modified

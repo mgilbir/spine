@@ -292,45 +292,51 @@ func (s *Sheet) SetColWidth(col int, width float64) error {
 	}
 	s.ws().EnsureChildOrder("cols")
 
-	// Carve the target column out of any entry covering it. The [c,c] slice of
-	// a covering range inherits that range's other properties (style, hidden,
-	// ...) with the new width applied; the remainder keeps its properties.
-	cols := s.ws().Cols[0].Col
-	rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
+	// Carve the target column out of any entry covering it, across EVERY <cols>
+	// group. colEntry reads all groups, so a covering entry left in a later
+	// group would overlap the carved [c,c] target and be rejected by Excel
+	// (C127). The [c,c] slice of a covering range inherits that range's other
+	// properties (style, hidden, ...) with the new width applied; the remainder
+	// keeps its properties. The target is placed once, at the first covering
+	// entry found.
 	placed := false
-	for _, entry := range cols {
-		if entry.Min > c || entry.Max < c {
-			rebuilt = append(rebuilt, entry)
-			continue
+	for gi := range s.ws().Cols {
+		cols := s.ws().Cols[gi].Col
+		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
+		for _, entry := range cols {
+			if entry.Min > c || entry.Max < c {
+				rebuilt = append(rebuilt, entry)
+				continue
+			}
+			if entry.Min < c {
+				left := entry
+				left.Max = c - 1
+				rebuilt = append(rebuilt, left)
+			}
+			if !placed {
+				target := entry
+				target.Min, target.Max = c, c
+				target.Width = &w
+				target.CustomWidth = &customWidth
+				rebuilt = append(rebuilt, target)
+				placed = true
+			}
+			if entry.Max > c {
+				right := entry
+				right.Min = c + 1
+				rebuilt = append(rebuilt, right)
+			}
 		}
-		if entry.Min < c {
-			left := entry
-			left.Max = c - 1
-			rebuilt = append(rebuilt, left)
-		}
-		if !placed {
-			target := entry
-			target.Min, target.Max = c, c
-			target.Width = &w
-			target.CustomWidth = &customWidth
-			rebuilt = append(rebuilt, target)
-			placed = true
-		}
-		if entry.Max > c {
-			right := entry
-			right.Min = c + 1
-			rebuilt = append(rebuilt, right)
-		}
+		s.ws().Cols[gi].Col = rebuilt
 	}
 	if !placed {
-		rebuilt = append(rebuilt, oxml.CT_Col{
+		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, oxml.CT_Col{
 			Min:         c,
 			Max:         c,
 			Width:       &w,
 			CustomWidth: &customWidth,
 		})
 	}
-	s.ws().Cols[0].Col = rebuilt
 
 	return nil
 }
