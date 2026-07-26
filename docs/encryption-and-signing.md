@@ -41,6 +41,36 @@ version-1.1 binary-format RC4 scheme (§2.3.6) — which never wraps an OOXML
 package — is still rejected with `crypto.ErrUnsupportedEncryption`. Built on
 Go's standard-library crypto only, and cross-validated against `msoffcrypto-tool`.
 
+### How OpenEncrypted decides
+
+`opc.OpenEncrypted` reads the CFB container, pulls out its `EncryptionInfo` and
+`EncryptedPackage` streams, and hands them to `crypto.Decrypt`, which dispatches
+on the `EncryptionInfo` version. The plain open path does the opposite: it
+detects the CFB magic and returns `opc.ErrEncrypted` to steer you here.
+
+```mermaid
+flowchart TD
+    A["opc.OpenEncrypted(r, size, password)"] --> C["readCFB: extract EncryptionInfo + EncryptedPackage streams"]
+    C --> D["crypto.Decrypt(encInfo, encPkg, password)"]
+    D --> V{"EncryptionInfo version"}
+    V -- "4.4" --> AG["agile: AES-256-CBC / SHA-512 (Office 2010+)"]
+    V -- "minor 2, AES AlgID" --> ST["standard: AES-ECB / SHA-1 (Office 2007)"]
+    V -- "minor 2, RC4 AlgID" --> RC["RC4 CryptoAPI decrypt (§2.3.5, read-only)"]
+    V -- "minor 3 (extensible)" --> U["crypto.ErrUnsupportedEncryption"]
+    V -- "minor 1 (binary RC4 §2.3.6)" --> U
+    AG --> K{"password check"}
+    ST --> K
+    RC --> K
+    K -- "wrong" --> W["crypto.ErrWrongPassword"]
+    K -- "ok" --> P["decrypted package to opc.Reader"]
+```
+
+The agile and standard schemes both encrypt and decrypt; RC4 CryptoAPI is
+decrypt-only. The extensible scheme (version minor 3) and the obsolete
+version-1.1 binary-format RC4 (§2.3.6, which never wraps an OOXML package) are
+identified and rejected with `crypto.ErrUnsupportedEncryption` rather than
+decoded.
+
 ## Digital signatures
 
 Sign and verify OPC package signatures (XML-DSig, ECMA-376 Part 2 §13) with
