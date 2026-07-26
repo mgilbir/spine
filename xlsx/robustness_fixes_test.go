@@ -11,6 +11,33 @@ import (
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
+// TestAddImageSVGDataReadBack verifies that an image added as SVG exposes the
+// original SVG via SVGData(), while Data() returns the raster fallback.
+func TestAddImageSVGDataReadBack(t *testing.T) {
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>`
+	wb := Create()
+	s := wb.AddSheet("S")
+	if err := s.AddImage("A1", []byte(svg), ImageOptions{}); err != nil {
+		t.Fatalf("AddImage svg: %v", err)
+	}
+
+	imgs := s.Images()
+	if len(imgs) != 1 {
+		t.Fatalf("Images() = %d, want 1", len(imgs))
+	}
+	got := imgs[0]
+	if string(got.SVGData()) != svg {
+		t.Errorf("SVGData() = %q, want the original SVG", got.SVGData())
+	}
+	// Data() must be the raster fallback, not the SVG.
+	if string(got.Data()) == svg {
+		t.Errorf("Data() returned the SVG; want the raster fallback")
+	}
+	if len(got.Data()) == 0 {
+		t.Errorf("Data() empty; want raster fallback bytes")
+	}
+}
+
 // TestFormulaValueTyped verifies Cell.Value() types a formula's cached result
 // by its cached-value type rather than always returning the raw string.
 func TestFormulaValueTyped(t *testing.T) {
