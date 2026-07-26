@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -256,4 +257,33 @@ func TestNextHdrFtrPartNameCaseInsensitive(t *testing.T) {
 			t.Fatalf("AddHeader chose %q, colliding case-insensitively with preserved %q", h.partName, name)
 		}
 	}
+}
+
+// doc() swallowed a failure of the lazy body parse and returned a nil model, so
+// a mutation caller (AddParagraph, AddTable, DefaultSection, …) would
+// nil-deref with an opaque panic far from the cause. The parse error is now
+// cached and surfaced as a diagnostic panic naming the part.
+func TestDocLazyParseFailurePanicsClearly(t *testing.T) {
+	// A Document with corrupt lazy state: the main part's preserved bytes are
+	// not well-formed XML, so the lazy parse in doc() fails.
+	d := &Document{
+		preservedParts: map[string]*coxml.RawPart{
+			mainDocumentPart: {Data: []byte("<w:document><<< not well-formed")},
+		},
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected a panic from doc() on a failed lazy parse, got none")
+		}
+		msg, _ := r.(string)
+		if !strings.Contains(msg, mainDocumentPart) {
+			t.Fatalf("panic message does not name the failing part: %v", r)
+		}
+	}()
+
+	// AddParagraph reaches the body through doc(); with a nil model this used to
+	// nil-deref opaquely.
+	d.AddParagraph()
 }

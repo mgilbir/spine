@@ -33,6 +33,11 @@ type Document struct {
 	// built by Create). When false at save time the body was never touched, so
 	// the original bytes pass through unchanged.
 	docParsed bool
+	// docParseErr caches a failure of the lazy body parse in doc(). Open
+	// validates the same bytes up front, so a non-nil value here signals
+	// in-memory corruption rather than a malformed file; doc() surfaces it as a
+	// clear panic instead of returning a nil model that callers would nil-deref.
+	docParseErr error
 	// mainPartName is the resolved name of the main document part from the
 	// package root relationships (usually /word/document.xml, but e.g.
 	// /word/document2.xml occurs in the wild). The save paths regenerate THIS
@@ -209,7 +214,11 @@ func (d *Document) corePropertiesPartName() string {
 // false and round-trips its original bytes verbatim. Open validates the body up
 // front, so a lazy parse here does not re-surface the malformed-document error
 // Open already reports. Returns nil only when the original bytes are
-// unavailable (e.g. a hand-constructed Document).
+// unavailable (e.g. a hand-constructed Document). If the bytes are present but
+// the lazy parse fails — near-unreachable, since Open already parsed the same
+// bytes — it panics with a diagnostic message rather than returning a nil model
+// that mutation callers (AddParagraph, AddTable, DefaultSection, …) would
+// silently nil-deref.
 func (d *Document) doc() *oxml.CT_Document {
 	if d.docModel == nil && !d.docParsed {
 		d.docParsed = true
@@ -218,10 +227,17 @@ func (d *Document) doc() *oxml.CT_Document {
 			m.Prolog = xmlb.CaptureProlog(raw)
 			m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
 			m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
-			if err := xmlb.UnmarshalWithSource(raw, m); err == nil {
+			if err := xmlb.UnmarshalWithSource(raw, m); err != nil {
+				d.docParseErr = err
+			} else {
 				d.docModel = m
 			}
 		}
+	}
+	if d.docParseErr != nil {
+		panic(fmt.Sprintf("docx: lazy parse of main document part %s failed: %v "+
+			"(Open validated the same bytes, so this indicates in-memory corruption)",
+			d.mainPart(), d.docParseErr))
 	}
 	return d.docModel
 }
