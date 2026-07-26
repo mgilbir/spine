@@ -556,6 +556,10 @@ func (f *fetcher) recordLiveFailure(ctx context.Context, st *stats, r row, err e
 		return // interrupted: leave the row retryable
 	}
 	switch {
+	case errors.Is(err, ccharvest.ErrGateUnavailable):
+		// Resolver was unreachable, not a verdict: count it but do NOT journal,
+		// so the row stays retryable for a later run once the resolver recovers.
+		st.errored++
 	case errors.Is(err, ccharvest.ErrGateBlocked):
 		st.blocked++
 		f.journal("-", "blocked", r, 0)
@@ -625,7 +629,10 @@ func (f *fetcher) fetchLive(ctx context.Context, r row) ([]byte, error) {
 	}
 	v, err := f.gate.Check(ctx, u.Hostname())
 	if err != nil {
-		return nil, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateDead, err)
+		// Resolver infrastructure failure (never answered), not a verdict:
+		// surface the transient sentinel so recordLiveFailure leaves the row
+		// retryable instead of journaling it as a dead origin.
+		return nil, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateUnavailable, err)
 	}
 	switch v {
 	case ccharvest.VerdictBlocked:

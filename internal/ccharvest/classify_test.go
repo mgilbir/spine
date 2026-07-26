@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"syscall"
@@ -112,6 +113,14 @@ func TestClassifyFetchError(t *testing.T) {
 		{"deadline timeout", context.DeadlineExceeded, false, DispTransient, "fetch:timeout"},
 		{"net timeout", timeoutErr{}, false, DispTransient, "fetch:timeout"},
 		{"gate dead", ErrGateDead, false, DispPermanent, "fetch:dns"},
+		// A resolver-infrastructure failure (endpoint outage/timeout) is wrapped
+		// in ErrGateUnavailable by the live-fetch path. It must classify as
+		// transient/deferrable, NOT as a permanent dead origin — a resolver blip
+		// must never mass-retire live references. (C271 regression.)
+		{"gate unavailable", fmt.Errorf("%w (gate: %v)", ErrGateUnavailable,
+			errors.New("doh: query for host.example failed: status 502 Bad Gateway")),
+			true, DispTransient, "fetch:gate-unavailable"},
+		{"gate unavailable no hint", ErrGateUnavailable, false, DispTransient, "fetch:gate-unavailable"},
 		{"gate blocked", ErrGateBlocked, false, DispPermanent, "fetch:blocked"},
 		{"too large", ErrTooLarge, false, DispPermanent, "fetch:too-large"},
 		{"not ooxml", ValidateOOXMLPackage([]byte("<html>nope</html>")), false, DispPermanent, "fetch:not-ooxml"},

@@ -47,6 +47,13 @@ func (v Verdict) String() string {
 var (
 	ErrGateBlocked = errors.New("host is blocked by the DNS filter")
 	ErrGateDead    = errors.New("host does not resolve")
+	// ErrGateUnavailable marks a gate check that could not reach a verdict
+	// because the DoH resolver itself was unreachable (endpoint outage, non-200
+	// response, or timeout). This is a TRANSIENT infrastructure failure — the
+	// resolver never answered — and is deliberately distinct from ErrGateDead (a
+	// resolver that answered "no such host"). Callers must classify it as
+	// retryable so a resolver blip does not permanently retire live references.
+	ErrGateUnavailable = errors.New("DoH resolver is unavailable")
 )
 
 // EncodeDNSQuery builds a wire-format DNS query (RD set, one question) for an A
