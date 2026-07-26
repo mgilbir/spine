@@ -8,10 +8,13 @@ package crypto
 //
 // The modern agile scheme (AES in CBC mode, SHA-512 key derivation, the
 // Office 2010+ default) is implemented here; the older ECMA-376 "standard"
-// scheme (§2.3.4.5, AES/SHA-1) lives in standard.go. Decrypt auto-detects
-// between them from the EncryptionInfo version. The legacy RC4/CryptoAPI schemes
-// (§2.3.5/§2.3.6) are cryptographically broken and are detected and rejected
-// with ErrUnsupportedEncryption rather than decoded; see Decrypt.
+// scheme (§2.3.4.5, AES/SHA-1) lives in standard.go, and the legacy RC4
+// CryptoAPI scheme (§2.3.5) in rc4.go. Decrypt auto-detects among them from the
+// EncryptionInfo version. RC4 CryptoAPI is decrypt-only — it opens legacy files
+// but saving RC4 is deliberately not offered, because RC4 is cryptographically
+// broken. The extensible scheme and the obsolete version-1.1 binary-format RC4
+// (§2.3.6), which never wraps an OOXML package, are detected and rejected with
+// ErrUnsupportedEncryption rather than decoded; see Decrypt.
 //
 // The implementation uses only the Go standard library's audited primitives
 // (crypto/aes, crypto/cipher, crypto/sha512, crypto/hmac, crypto/rand). It

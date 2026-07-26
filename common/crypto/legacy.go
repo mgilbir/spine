@@ -1,12 +1,9 @@
-// Package crypto provides the legacy password-obfuscation helpers that Office
-// documents use for their non-cryptographic "protection" features (worksheet
-// protection, workbook-structure protection, document edit enforcement).
-//
-// These are deliberately weak, fully documented obfuscation schemes, not
-// encryption. The values they produce guard nothing: any tool can clear the
-// corresponding protection element without knowing the password. They exist
-// only so that files this library writes interoperate with the same UI guards
-// that Word and Excel present.
+// This file implements Office's legacy password-obfuscation helper for the
+// non-cryptographic "protection" UI features (worksheet protection,
+// workbook-structure protection, document edit enforcement). See doc.go for the
+// package overview and how these differ from the real encryption in agile.go /
+// standard.go / rc4.go.
+
 package crypto
 
 // LegacyPasswordHash computes Office's legacy 16-bit password hash
