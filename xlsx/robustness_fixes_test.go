@@ -7,8 +7,65 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/spine/chart"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
+
+// TestAddChartMarshalFailureNoOrphanSheet verifies that when AddChart fails to
+// marshal the chart (here: a chart with no series), no orphan hidden ChartData
+// sheet is left in the workbook.
+func TestAddChartMarshalFailureNoOrphanSheet(t *testing.T) {
+	wb := Create()
+	s := wb.AddSheet("Sheet1")
+	before := wb.SheetCount()
+
+	// A chart with no series fails to marshal.
+	bad := chart.NewColumn().SetTitle("bad")
+	if err := s.AddChart("E2", bad); err == nil {
+		t.Fatal("AddChart with a series-less chart unexpectedly succeeded")
+	}
+
+	if got := wb.SheetCount(); got != before {
+		t.Errorf("sheet count = %d after failed AddChart, want %d (orphan data sheet left)", got, before)
+	}
+	if _, err := wb.SheetByName("ChartData1"); err == nil {
+		t.Errorf("orphan ChartData1 sheet left after failed AddChart")
+	}
+}
+
+// TestAddChartAnchorGridClamp verifies the single-cell default chart span is
+// clamped to the worksheet grid maxima.
+func TestAddChartAnchorGridClamp(t *testing.T) {
+	// Right-edge anchor: to-column clamps to XFD (0-based maxExcelColumns-1).
+	_, fromRow, toCol, toRow, err := parseChartAnchor("XFA1")
+	if err != nil {
+		t.Fatalf("parseChartAnchor(XFA1): %v", err)
+	}
+	if toCol != maxExcelColumns-1 {
+		t.Errorf("toCol = %d, want %d (clamped to grid)", toCol, maxExcelColumns-1)
+	}
+	if toRow != fromRow+defaultChartRows {
+		t.Errorf("toRow = %d, want %d (row not clamped near top)", toRow, fromRow+defaultChartRows)
+	}
+
+	// Bottom-edge anchor: to-row clamps to the last row.
+	_, _, _, toRow2, err := parseChartAnchor(FormatCellRef(maxExcelRows, 1))
+	if err != nil {
+		t.Fatalf("parseChartAnchor bottom-edge: %v", err)
+	}
+	if toRow2 != maxExcelRows-1 {
+		t.Errorf("toRow = %d, want %d (clamped to last row)", toRow2, maxExcelRows-1)
+	}
+
+	// A mid-grid anchor keeps the full default span.
+	fromCol, fRow, tCol, tRow, err := parseChartAnchor("B2")
+	if err != nil {
+		t.Fatalf("parseChartAnchor(B2): %v", err)
+	}
+	if tCol != fromCol+defaultChartCols || tRow != fRow+defaultChartRows {
+		t.Errorf("mid-grid span = [%d,%d]->[%d,%d], want full default", fromCol, fRow, tCol, tRow)
+	}
+}
 
 // TestReplacedOpenedHyperlinkRelNotReemitted verifies that replacing a
 // hyperlink that was loaded from an opened workbook drops its old external

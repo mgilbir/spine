@@ -56,17 +56,23 @@ func (s *Sheet) AddChart(anchor string, c *chart.Chart) error {
 		return fmt.Errorf("xlsx: AddChart: %w", err)
 	}
 
-	// Write the chart's data to a dedicated hidden worksheet and point the
-	// chart's references at it.
-	dataSheet := s.workbook.addChartDataSheet()
-	c.SetDataRef(dataSheet.name)
-	if err := writeChartData(dataSheet, c); err != nil {
-		return fmt.Errorf("xlsx: AddChart: %w", err)
-	}
+	// Point the chart's references at a dedicated hidden data worksheet, but
+	// marshal the chart XML BEFORE attaching that sheet to the workbook: a
+	// marshaling failure must not leave an orphan empty ChartData sheet behind.
+	dataSheetName := s.workbook.uniqueChartDataSheetName()
+	c.SetDataRef(dataSheetName)
 
 	chartXML, err := c.MarshalChartXML()
 	if err != nil {
 		return fmt.Errorf("xlsx: AddChart: %w", err)
+	}
+
+	// Now attach the data sheet and write the chart's data into it. If the
+	// write fails, remove the sheet so no orphan is left.
+	dataSheet := s.workbook.addChartDataSheet()
+	if werr := writeChartData(dataSheet, c); werr != nil {
+		s.workbook.removeChartDataSheet(dataSheet)
+		return fmt.Errorf("xlsx: AddChart: %w", werr)
 	}
 
 	s.charts = append(s.charts, sheetChart{
@@ -100,7 +106,18 @@ func parseChartAnchor(anchor string) (fromCol, fromRow, toCol, toRow int, err er
 	}
 	fromCol, fromRow = fCol-1, fRow-1
 	if !isRange {
-		return fromCol, fromRow, fromCol + defaultChartCols, fromRow + defaultChartRows, nil
+		// Clamp the default span to the grid maxima (0-based XFD / row 1048576)
+		// so an anchor near the right/bottom edge (e.g. "XFA1") does not emit an
+		// out-of-grid to-marker.
+		toCol := fromCol + defaultChartCols
+		if toCol > maxExcelColumns-1 {
+			toCol = maxExcelColumns - 1
+		}
+		toRow := fromRow + defaultChartRows
+		if toRow > maxExcelRows-1 {
+			toRow = maxExcelRows - 1
+		}
+		return fromCol, fromRow, toCol, toRow, nil
 	}
 	tRow, tCol, err := ParseCellRef(to)
 	if err != nil {
@@ -118,21 +135,43 @@ func parseChartAnchor(anchor string) (fromCol, fromRow, toCol, toRow int, err er
 // addChartDataSheet creates a new hidden worksheet to hold one chart's data and
 // returns it. The name is unique within the workbook.
 func (w *Workbook) addChartDataSheet() *Sheet {
-	name := ""
-	for i := 1; ; i++ {
-		candidate := fmt.Sprintf("ChartData%d", i)
-		if !w.sheetNameExists(candidate) {
-			name = candidate
-			break
-		}
-	}
-	sheet := w.AddSheet(name)
+	sheet := w.AddSheet(w.uniqueChartDataSheetName())
 	sheet.state = "hidden"
 	// Mirror the visibility onto the workbook model so it survives a save.
 	if sheet.index < len(w.workbook.Sheets.Sheet) {
 		w.workbook.Sheets.Sheet[sheet.index].State = "hidden"
 	}
 	return sheet
+}
+
+// uniqueChartDataSheetName returns the first "ChartDataN" name not already used
+// by a sheet in the workbook.
+func (w *Workbook) uniqueChartDataSheetName() string {
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("ChartData%d", i)
+		if !w.sheetNameExists(candidate) {
+			return candidate
+		}
+	}
+}
+
+// removeChartDataSheet detaches a chart data sheet that was just added, undoing
+// addChartDataSheet when a later step of AddChart fails so no orphan hidden
+// sheet is left behind.
+func (w *Workbook) removeChartDataSheet(sheet *Sheet) {
+	for i, s := range w.sheets {
+		if s != sheet {
+			continue
+		}
+		w.sheets = append(w.sheets[:i], w.sheets[i+1:]...)
+		for j := i; j < len(w.sheets); j++ {
+			w.sheets[j].index = j
+		}
+		if i < len(w.workbook.Sheets.Sheet) {
+			w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:i], w.workbook.Sheets.Sheet[i+1:]...)
+		}
+		return
+	}
 }
 
 // writeChartData writes a chart's data into a worksheet using the fixed layout
