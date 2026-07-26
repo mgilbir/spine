@@ -1,0 +1,47 @@
+# Continuous integration: build, vet, test, and lint the module.
+# Mirrors the local merge gates documented in CONTRIBUTING.md
+# (make build / vet / test / lint). The Common Crawl corpus fidelity
+# suite is intentionally NOT run here — it stays a maintainer-run step
+# (`make test-corpus`); `go test ./cctest` skips gracefully when the
+# corpus is absent, so the standard `go test ./...` below is complete.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Pin to the version declared in go.mod (go 1.25).
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # Runs the full suite. cctest skips without the corpus (expected);
+      # the corpus is never fetched in CI.
+      - name: Test
+        run: go test ./... -count=1
+
+      # golangci-lint v2.x is required by .golangci.yml; the action's v8
+      # major line installs v2. Version pinned to match the maintainer's
+      # working toolchain (baseline is zero issues).
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+          args: ./...
