@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -32,6 +33,13 @@ var (
 	hdrFtrRefRe = regexp.MustCompile(`<w:(?:header|footer)Reference\b[^>]*(?:/>|>\s*</w:(?:header|footer)Reference>)`)
 	// ridAttrRe extracts the r:id value from a reference element.
 	ridAttrRe = regexp.MustCompile(`\br:id="([^"]*)"`)
+	// Note and comment references carry a w:id that indexes the footnotes,
+	// endnotes, or comments part — remapped when the imported definitions are
+	// given fresh, non-colliding ids. Each pattern is scoped to its own element
+	// so an unrelated w:id (a tracked-change id, a bookmark id) is never touched.
+	ftnRefRe     = regexp.MustCompile(`(<w:footnoteReference\b[^>]*\bw:id=")([^"]*)(")`)
+	ednRefRe     = regexp.MustCompile(`(<w:endnoteReference\b[^>]*\bw:id=")([^"]*)(")`)
+	commentRefRe = regexp.MustCompile(`(<w:comment(?:Reference|RangeStart|RangeEnd)\b[^>]*\bw:id=")([^"]*)(")`)
 )
 
 // Append appends the body content (paragraphs, tables, and block-level
@@ -41,6 +49,13 @@ var (
 // their ids are remapped when they collide with differing definitions already
 // in this document, with every reference in the copied content rewritten to
 // match.
+//
+// Footnotes, endnotes, and comments referenced by the copied content are merged
+// too: the source definitions are imported with fresh ids disjoint from this
+// document's, and the copied reference marks are rewritten to point at them, so
+// an appended footnote keeps its own text rather than aliasing onto a
+// destination note that happens to share its id. Comment threading metadata
+// (commentsExtended, people) is not merged.
 //
 // The final (body-level) section properties of other are not copied, so the
 // appended content joins this document's last section. Section breaks inside
@@ -82,10 +97,14 @@ func (d *Document) Append(other *Document) error {
 	if err != nil {
 		return err
 	}
+	noteRemap, err := d.importNotesComments(other)
+	if err != nil {
+		return err
+	}
 
 	// Rewrite the colliding ids in the body content, then re-parse and append the
 	// body children in order.
-	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap)
+	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap, noteRemap)
 
 	var rewritten oxml.CT_Document
 	if err := xml.Unmarshal(data, &rewritten); err != nil {
@@ -496,6 +515,150 @@ func (d *Document) importNumbering(other *Document) (map[string]string, error) {
 	return numRemap, nil
 }
 
+// noteComentRemap holds the footnote, endnote, and comment id remaps produced
+// by importNotesComments, keyed by the source w:id and giving the fresh id the
+// definition was imported under.
+type noteComentRemap struct {
+	footnote map[string]string
+	endnote  map[string]string
+	comment  map[string]string
+}
+
+// importNotesComments merges the source's footnotes, endnotes, and comments into
+// this document. Each imported definition is given a fresh id disjoint from this
+// document's existing ids, and the returned remaps let the copied body's
+// reference marks be rewritten to point at their own imported definitions
+// instead of silently resolving to this document's unrelated notes/comments.
+func (d *Document) importNotesComments(other *Document) (noteComentRemap, error) {
+	var out noteComentRemap
+	var err error
+	if out.footnote, err = d.importFootnotes(other); err != nil {
+		return out, err
+	}
+	if out.endnote, err = d.importEndnotes(other); err != nil {
+		return out, err
+	}
+	if out.comment, err = d.importComments(other); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// importFootnotes copies the source's user footnotes into this document with
+// fresh ids (past this document's highest), returning a map from the source id
+// to the assigned id. The mandatory separator notes are shared infrastructure
+// and are not duplicated. Serialize-then-reparse produces independent copies:
+// note bodies use xml:"-" fields that deepCopyXML cannot clone.
+func (d *Document) importFootnotes(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.footnotes == nil || len(other.footnotes.Footnote) == 0 {
+		return remap, nil
+	}
+	data, err := marshalFootnotesXML(other.footnotes)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Footnotes
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	d.ensureFootnotes()
+	next := d.footnotes.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, n := range parsed.Footnote {
+		if n == nil || isSeparatorNote(n) {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[n.Id] = newID
+		n.Id = newID
+		d.footnotes.Footnote = append(d.footnotes.Footnote, n)
+	}
+	if len(remap) > 0 {
+		d.footnotesModified = true
+	}
+	return remap, nil
+}
+
+// importEndnotes is the endnote counterpart of importFootnotes.
+func (d *Document) importEndnotes(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.endnotes == nil || len(other.endnotes.Endnote) == 0 {
+		return remap, nil
+	}
+	data, err := marshalEndnotesXML(other.endnotes)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Endnotes
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	d.ensureEndnotes()
+	next := d.endnotes.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, n := range parsed.Endnote {
+		if n == nil || isSeparatorNote(n) {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[n.Id] = newID
+		n.Id = newID
+		d.endnotes.Endnote = append(d.endnotes.Endnote, n)
+	}
+	if len(remap) > 0 {
+		d.endnotesModified = true
+	}
+	return remap, nil
+}
+
+// importComments copies the source's comment definitions into this document with
+// fresh ids, returning a map from the source id to the assigned id. The comment
+// threading metadata (commentsExtended, people) is not merged: it threads on
+// w14:paraId, which is preserved unchanged, so the definitions and their body
+// references stay consistent while the merge remains bounded.
+func (d *Document) importComments(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.comments == nil || len(other.comments.Comment) == 0 {
+		return remap, nil
+	}
+	data, err := marshalCommentsXML(other.comments)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Comments
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	if d.comments == nil {
+		d.comments = &oxml.CT_Comments{}
+	}
+	next := d.comments.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, cm := range parsed.Comment {
+		if cm == nil {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[cm.Id] = newID
+		cm.Id = newID
+		d.comments.Comment = append(d.comments.Comment, cm)
+	}
+	if len(remap) > 0 {
+		d.commentsModified = true
+	}
+	return remap, nil
+}
+
 // typedNumberingDefs returns the abstractNum and num definitions of a numbering
 // part as fully typed values, covering both session-added definitions (already
 // typed) and opened-source definitions preserved as raw XML. It serializes the
@@ -706,7 +869,7 @@ func (d *Document) partImageBytes(base string, rel *opc.Relationship) ([]byte, s
 // so both are remapped in one pass; any header/footer reference whose part was
 // not carried across (other's dropped final section) is stripped so no dangling
 // relationship id survives.
-func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string) []byte {
+func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string, noteRemap noteComentRemap) []byte {
 	combined := relRemap
 	if len(hdrFtrRemap) > 0 {
 		combined = make(map[string]string, len(relRemap)+len(hdrFtrRemap))
@@ -722,6 +885,9 @@ func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap 
 	data = replaceAttr(data, rStyleRefRe, styleRemap)
 	data = replaceAttr(data, tblStyleRe, styleRemap)
 	data = replaceAttr(data, numIDRefRe, numRemap)
+	data = replaceAttr(data, ftnRefRe, noteRemap.footnote)
+	data = replaceAttr(data, ednRefRe, noteRemap.endnote)
+	data = replaceAttr(data, commentRefRe, noteRemap.comment)
 	data = dropUncarriedHdrFtrRefs(data, hdrFtrRemap)
 	return data
 }

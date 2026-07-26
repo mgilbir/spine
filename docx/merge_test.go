@@ -322,6 +322,72 @@ func TestAppendImportsChartRelationship(t *testing.T) {
 	}
 }
 
+// TestAppendMergesCollidingFootnote builds two documents whose single footnote
+// shares the same id, appends one into the other, and asserts the appended
+// text's footnote mark resolves to its OWN note text rather than aliasing onto
+// the destination's colliding note.
+func TestAppendMergesCollidingFootnote(t *testing.T) {
+	dst := Create()
+	dr := dst.AddParagraph().AddText("Dst text")
+	dstNote := dr.AddFootnote("DST NOTE")
+
+	src := Create()
+	sr := src.AddParagraph().AddText("Src text")
+	srcNote := sr.AddFootnote("SRC NOTE")
+
+	// Precondition: the two notes collide on id, so a naive copy would alias.
+	if dstNote.ID() != srcNote.ID() {
+		t.Fatalf("test setup: expected colliding footnote ids, got %q and %q", dstNote.ID(), srcNote.ID())
+	}
+
+	if err := dst.Append(src); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if r := re.Validate(); r.HasErrors() {
+		t.Fatalf("Validate reopened: %v", r)
+	}
+
+	notesByID := make(map[string]string)
+	for _, f := range re.Footnotes() {
+		notesByID[f.ID()] = f.Text()
+	}
+	if len(notesByID) != 2 {
+		t.Fatalf("expected 2 footnotes after merge, got %d: %v", len(notesByID), notesByID)
+	}
+
+	// Footnote references in document order: destination content precedes the
+	// appended source content.
+	var refIDs []string
+	for _, para := range re.allParagraphs() {
+		for _, r := range collectParagraphRuns(para) {
+			for _, ref := range r.FtnRef {
+				refIDs = append(refIDs, ref.Id)
+			}
+		}
+	}
+	if len(refIDs) != 2 {
+		t.Fatalf("expected 2 footnote references after merge, got %d: %v", len(refIDs), refIDs)
+	}
+	if refIDs[0] == refIDs[1] {
+		t.Fatalf("footnote references still collide on id %q after merge", refIDs[0])
+	}
+	if got := notesByID[refIDs[0]]; !strings.Contains(got, "DST NOTE") {
+		t.Errorf("destination footnote ref %q resolves to %q, want DST NOTE", refIDs[0], got)
+	}
+	if got := notesByID[refIDs[1]]; !strings.Contains(got, "SRC NOTE") {
+		t.Errorf("appended footnote ref %q resolves to %q, want SRC NOTE", refIDs[1], got)
+	}
+}
+
 func TestAppendNil(t *testing.T) {
 	dst := Create()
 	dst.AddParagraphWithText("x")
