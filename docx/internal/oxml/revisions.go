@@ -452,12 +452,18 @@ func WrapRunInsertion(c RevContainer, r *CT_R, id, author, date string) bool {
 }
 
 // WrapRunDeletion replaces run r (a direct child of c) with a deletion block
-// (w:del, carrying id/author/date) that wraps r at the same position, first
-// converting the run's w:t children to w:delText so the content reads back as a
-// tracked deletion. Returns false when r is not a direct child of c.
+// (w:del, carrying id/author/date) that wraps r at the same position, then
+// converts the run's w:t children to w:delText so the content reads back as a
+// tracked deletion. Returns false, leaving r untouched, when r is not a direct
+// child of c: the text→delText conversion runs only after the wrap succeeds, so
+// a run that cannot be wrapped is never left carrying schema-invalid w:delText
+// outside any w:del.
 func WrapRunDeletion(c RevContainer, r *CT_R, id, author, date string) bool {
+	if !wrapRunInBlock(c, r, id, author, date, pChildDel) {
+		return false
+	}
 	r.convertTextToDelText()
-	return wrapRunInBlock(c, r, id, author, date, pChildDel)
+	return true
 }
 
 // wrapRunInBlock finds run r among c's children and replaces it, in place, with

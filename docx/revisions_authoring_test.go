@@ -174,3 +174,64 @@ func TestAuthoredInsertionDefaultDate(t *testing.T) {
 		t.Errorf("default date %v outside [%v, %v]", got, before, after)
 	}
 }
+
+// TestMarkDeletedOnNonTopLevelRunIsSafe verifies that marking a run that is not a
+// direct paragraph child (here, a run inside a w:hyperlink returned by
+// Hyperlink.Runs) does not half-apply the deletion. Before the fix,
+// WrapRunDeletion converted the run's w:t to w:delText before checking membership;
+// the wrap then failed but the conversion stuck, emitting a schema-invalid
+// <w:hyperlink><w:r><w:delText>…</w:delText></w:r></w:hyperlink> — text that
+// vanished from extraction with no revision to accept or reject. The call must now
+// leave the run unchanged (text intact as w:t, no w:delText) and create no
+// revision. MarkInserted must likewise be a clean no-op.
+func TestMarkDeletedOnNonTopLevelRunIsSafe(t *testing.T) {
+	buildDeleted := func() *Document {
+		doc := Create()
+		p := doc.AddParagraph()
+		p.AddHyperlink("linktext", "https://example.com")
+		run := doc.Hyperlinks()[0].Runs()[0]
+		if got := run.MarkDeletedWithDate("author", fixedRevDate); got != run {
+			t.Fatal("MarkDeleted should return the same run for chaining")
+		}
+		return doc
+	}
+
+	xml := saveDocXML(t, buildDeleted())
+	// No schema-invalid delText outside a w:del, and none was authored at all.
+	if strings.Contains(xml, "delText") {
+		t.Fatalf("MarkDeleted on a hyperlink run emitted w:delText:\n%s", xml)
+	}
+	if strings.Contains(xml, "w:del") {
+		t.Fatalf("MarkDeleted on a hyperlink run authored a deletion:\n%s", xml)
+	}
+	// The hyperlink text survives as a normal run, still extractable.
+	if !strings.Contains(xml, `<w:t xml:space="preserve">linktext</w:t>`) {
+		t.Fatalf("hyperlink run text not preserved as w:t:\n%s", xml)
+	}
+	if got := reopenDoc(t, buildDeleted()).Hyperlinks()[0].Text(); got != "linktext" {
+		t.Errorf("hyperlink text lost: got %q, want %q", got, "linktext")
+	}
+	// No revision was created, so there is nothing dangling to accept or reject.
+	if revs := reopenDoc(t, buildDeleted()).Revisions(); len(revs) != 0 {
+		t.Errorf("MarkDeleted on a hyperlink run created %d revisions, want 0", len(revs))
+	}
+
+	// MarkInserted on the same kind of run is a clean no-op too.
+	doc := Create()
+	p := doc.AddParagraph()
+	p.AddHyperlink("linktext", "https://example.com")
+	run := doc.Hyperlinks()[0].Runs()[0]
+	if got := run.MarkInsertedWithDate("author", fixedRevDate); got != run {
+		t.Fatal("MarkInserted should return the same run for chaining")
+	}
+	ins := saveDocXML(t, doc)
+	if strings.Contains(ins, "w:ins") {
+		t.Fatalf("MarkInserted on a hyperlink run authored an insertion:\n%s", ins)
+	}
+	if !strings.Contains(ins, `<w:t xml:space="preserve">linktext</w:t>`) {
+		t.Fatalf("hyperlink run text not preserved after MarkInserted:\n%s", ins)
+	}
+	if revs := reopenDoc(t, doc).Revisions(); len(revs) != 0 {
+		t.Errorf("MarkInserted on a hyperlink run created %d revisions, want 0", len(revs))
+	}
+}
