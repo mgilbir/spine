@@ -1226,16 +1226,28 @@ func (e *CT_Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	e.ElemPrefix, e.elemPrefixCaptured = xmlb.ElementPrefix(d)
 	uriSeen := false
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "uri" && attr.Name.Space == "" {
+		switch {
+		case attr.Name.Local == "uri" && attr.Name.Space == "":
 			e.URI = attr.Value
 			uriSeen = true
-		} else if attr.Name.Space == "xmlns" {
-			// Capture inline namespace declarations (e.g., xmlns:x15="...")
+		case attr.Name.Space == "xmlns":
+			// Capture a prefixed inline namespace declaration (xmlns:x15="...").
 			if !uriSeen && len(e.InlineNSDecls) == 0 {
 				e.NSDeclsFirst = true
 			}
 			e.InlineNSDecls = append(e.InlineNSDecls, xmlb.NSDecl{
 				Prefix: attr.Name.Local,
+				URI:    attr.Value,
+			})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			// Capture a default-namespace declaration on the ext element itself
+			// (<ext xmlns="..." uri="...">); Go reports it as Space=="" with
+			// Local=="xmlns", distinct from the prefixed form above.
+			if !uriSeen && len(e.InlineNSDecls) == 0 {
+				e.NSDeclsFirst = true
+			}
+			e.InlineNSDecls = append(e.InlineNSDecls, xmlb.NSDecl{
+				Prefix: "",
 				URI:    attr.Value,
 			})
 		}
@@ -1259,7 +1271,11 @@ func (e *CT_Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))
 	}
 	for _, nsd := range e.InlineNSDecls {
-		attrs = append(attrs, xmlb.Attr{Name: "xmlns:" + nsd.Prefix, Value: nsd.URI})
+		name := "xmlns"
+		if nsd.Prefix != "" {
+			name = "xmlns:" + nsd.Prefix
+		}
+		attrs = append(attrs, xmlb.Attr{Name: name, Value: nsd.URI})
 	}
 	if e.NSDeclsFirst {
 		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))

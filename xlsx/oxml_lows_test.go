@@ -82,3 +82,26 @@ func TestRowSkipsUnparsableIndex(t *testing.T) {
 		t.Errorf("unparsable row index emitted schema-invalid r=\"0\":\n%s", out)
 	}
 }
+
+// A default-namespace declaration on the ext element itself
+// (<ext xmlns="..." uri="...">) must survive a dirty save. CT_Extension only
+// captured prefixed xmlns declarations (Space=="xmlns"), so the default form
+// (Space=="" && Local=="xmlns") was dropped on replay.
+func TestExtensionPreservesDefaultNamespaceDecl(t *testing.T) {
+	const src = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<sheetData/>` +
+		`<extLst><ext xmlns="urn:example:ext" uri="{ABC}"><child/></ext></extLst>` +
+		`</worksheet>`
+
+	var ws oxml.CT_Worksheet
+	if err := xml.Unmarshal([]byte(src), &ws); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	data, err := marshalWorksheetXML(&ws)
+	if err != nil {
+		t.Fatalf("marshalWorksheetXML: %v", err)
+	}
+	if out := string(data); !strings.Contains(out, `<ext xmlns="urn:example:ext" uri="{ABC}">`) {
+		t.Errorf("ext default-namespace declaration dropped on re-marshal:\n%s", out)
+	}
+}
