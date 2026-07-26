@@ -816,8 +816,20 @@ func CreateFromTemplate(templatePath string) (*Presentation, error) {
 	// Store template path for reference
 	p.templatePath = templatePath
 
-	// Clear all slides but keep masters, layouts, and themes
-	p.slides = make([]*Slide, 0)
+	// Clear all slides but keep masters, layouts, and themes. Route each removal
+	// through the same cleanup RemoveSlide performs — delete the slide's
+	// relationships, remove the parts it exclusively owns (notes slide, comments),
+	// record removed parts so their content-type overrides are dropped, and flag
+	// media GC. A plain `p.slides = nil` left the template slides' relationships
+	// behind, so a new AddSlide reused slide1.xml and inherited the template
+	// slide's surviving rels — including its notesSlide (a data leak, C243) —
+	// while the removed slides' <Override> entries dangled in [Content_Types].xml
+	// (C303).
+	for len(p.slides) > 0 {
+		if err := p.RemoveSlide(0); err != nil {
+			return nil, fmt.Errorf("failed to clear template slides: %w", err)
+		}
+	}
 	p.presentation.SlideIDs = nil
 
 	// Reset slide ID counter but keep relationship IDs
