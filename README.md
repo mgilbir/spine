@@ -14,13 +14,14 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 - **Form Controls & ActiveX**: read/enumerate interactive controls across formats — Word legacy form fields (`docx.Document.FormFields()`: FORMTEXT/FORMCHECKBOX/FORMDROPDOWN with name, value, checkbox state, and dropdown entries) with basic authoring via `docx.Paragraph.AddFormField`; Excel form controls (`xlsx.Sheet.FormControls()`: buttons, checkboxes, dropdowns, list boxes, option buttons, spinners, scroll bars, each with its linked cell); and ActiveX controls (`ActiveXControls()` on all three formats, reporting each control's COM class id, persistence mode, and `activeXN.bin` binary). All control parts are preserved verbatim on save; authoring ActiveX controls is out of scope
 - **Ink Annotations & 3D Models**: read/extract pen-stroke ink annotations and embedded 3D models. `Slide.InkAnnotations()`/`Presentation.InkAnnotations()` (pptx) and `Document.InkAnnotations()` (docx) enumerate ink — the InkML content parts (`application/inkml+xml`, referenced by a `contentPart` element through a `customXml` relationship) — reporting each part's name, content type, raw InkML bytes, and referencing relationship id. `Slide.Model3D()`/`Presentation.Model3D()` (pptx) and `Document.Model3D()` (docx) extract the opaque glTF-binary 3D model parts (`model/gltf-binary`, e.g. `media/*.glb`, referenced by an `am3d:model3D` element), returning each part's name, content type, and raw bytes. Extraction is read-only and both kinds of part round-trip byte-for-byte; spine never parses stroke geometry or model data. Authoring new ink strokes and embedding new 3D models are not yet supported
 - **Document Properties**: core (`docProps/core.xml`), extended/app, and custom (`docProps/custom.xml`) properties. `CustomProperties()`, `SetCustomProperty(name, value)`, and `RemoveCustomProperty(name)` on `docx.Document`, `xlsx.Workbook`, and `pptx.Presentation` read and write user-defined properties typed as string, int64, float64, bool, or time.Time; the part, its content type, and package relationship are created on demand, and existing properties round-trip byte-identically when untouched
-- **Password Encryption**: Read and write documents protected with Office's real AES encryption — both the modern "agile" scheme ([MS-OFFCRYPTO], AES-256/CBC with SHA-512, the Office 2010+ default) and the older ECMA-376 "standard" scheme (AES-ECB with SHA-1, Office 2007), not the legacy 16-bit obfuscation. `opc.OpenEncrypted(r, size, password)` decrypts a CFB-wrapped package into a normal reader, auto-detecting the scheme; `opc.SaveEncrypted(w, packageBytes, password)` writes an agile container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects the scheme (agile or standard), AES key size, and whether to emit the optional `\x06DataSpaces` metadata streams some Office builds expect. `docx.OpenEncrypted` / `Document.SaveEncrypted` wrap it for Word. The plain open path detects an encrypted input and returns `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword`. `OpenEncrypted` can additionally **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) — the RC4 stream cipher is implemented from its public specification (Go's standard library omits RC4), validated against the RFC 6229 vectors, and cross-validated against `msoffcrypto-tool`'s independent RC4 implementation; because RC4 is cryptographically broken, saving it is deliberately not offered, and the version-1.1 binary-format RC4 scheme (§2.3.6) — which never wraps an OOXML package — is still rejected with `crypto.ErrUnsupportedEncryption`. Built on Go's standard-library crypto only, and cross-validated against `msoffcrypto-tool`
-- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area, combination, bubble, stock, surface, pie-of-pie, and 3D column/bar/line/pie/area charts) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`) and value data labels (`SetDataLabels`); combination charts (`NewCombo`) mix per-series types (`Series.SetType`) across a primary and secondary value axis (`Series.SetSecondaryAxis`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
+- **Password Encryption**: Read and write documents protected with Office's real AES encryption — both the modern "agile" scheme ([MS-OFFCRYPTO], AES-256/CBC with SHA-512, the Office 2010+ default) and the older ECMA-376 "standard" scheme (AES-ECB with SHA-1, Office 2007), not the legacy 16-bit obfuscation. `opc.OpenEncrypted(r, size, password)` decrypts a CFB-wrapped package into a normal reader, auto-detecting the scheme; `opc.SaveEncrypted(w, packageBytes, password)` writes an agile container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects the scheme (agile or standard), AES key size, and whether to emit the optional `\x06DataSpaces` metadata streams some Office builds expect. `docx.OpenEncrypted` / `Document.SaveEncrypted` wrap it for Word by file path, with `docx.OpenEncryptedReader` / `Document.SaveEncryptedTo` as the in-memory reader/writer pair. The plain open path detects an encrypted input and returns `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword` (from `github.com/mgilbir/spine/common/crypto`). `OpenEncrypted` can additionally **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) — the RC4 stream cipher is implemented from its public specification (Go's standard library omits RC4), validated against the RFC 6229 vectors, and cross-validated against `msoffcrypto-tool`'s independent RC4 implementation; because RC4 is cryptographically broken, saving it is deliberately not offered, and the version-1.1 binary-format RC4 scheme (§2.3.6) — which never wraps an OOXML package — is still rejected with `crypto.ErrUnsupportedEncryption`. Built on Go's standard-library crypto only, and cross-validated against `msoffcrypto-tool`
+- **Charts**: A format-agnostic `chart` package builds DrawingML charts (column, bar, line, pie, doughnut, radar, scatter, area, combination, bubble, stock, surface, pie-of-pie, and 3D column/bar/line/pie/area charts) and serializes a valid `chart.xml` with cached values, plus a matching embedded workbook. Series carry optional solid colors (`Series.SetColor`), and the chart renders value data labels chart-wide (`Chart.SetDataLabels`); combination charts (`NewCombo`) mix per-series types (`Series.SetType`) across a primary and secondary value axis (`Series.SetSecondaryAxis`). All three formats wire it in with symmetric `AddChart` / `Charts()` methods: `xlsx` references the host workbook's cells (`Sheet.AddChart` / `Sheet.Charts` / `Workbook.Charts`); `docx` (`Document.AddChart` / `Paragraph.AddChart` / `Document.Charts`) and `pptx` (`Slide.AddChart` / `Slide.Charts` / `Presentation.Charts`) embed the data workbook
 - **Text Extraction**: A symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion — `docx.Document.Text()` (body paragraphs incl. hyperlink/inserted-run/content-control text, tables cell-by-cell, headers/footers, footnotes/endnotes, and text boxes, in document order), `xlsx.Workbook.Text()` / `Sheet.Text()` (cell values row-major with shared strings resolved, plus cell comments), and `pptx.Presentation.Text()` / `Slide.Text()` (all shapes incl. groups and tables, plus speaker notes and comments). Plain concatenation, no markup, deterministic ordering
 - **PowerPoint (PPTX)**: Create and modify PowerPoint presentations
   - Create presentations from scratch or from templates
-  - Add, remove, and reorder slides
+  - Add, remove, reorder, and duplicate slides (`Slide.Duplicate` deep-copies the slide's shapes, slide-level relationships, notes slide, and any generated auto-play/animation timing into a new slide)
   - Add shapes, text, tables, and images — including SVG images with a raster fallback
+  - Embedded video and audio (`Slide.AddVideo`/`AddAudio`): store the clip as a `/ppt/media` part wired by both a Microsoft `media` embed and an OOXML video/audio link relationship, with a generated poster preview; media plays on click by default, and `SetPlayMode(PlayAutomatically)` generates the autoplay timing tree. An omitted content type is sniffed from the data
   - Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
   - Slide furniture: footers, auto-updating or fixed dates, and slide numbers on every slide
   - Auto shapes with solid/gradient fills, lines, and shadows
@@ -39,6 +40,8 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Rich text depth: text-frame autofit, auto-numbered bullets with bullet color/size/font, and paragraph indent/tab stops
   - Read the presentation's footer, slide-number, and date furniture set on slides
   - Speaker notes: read (`Slide.Notes()`) and write (`Slide.SetNotes`) the notes-slide body text; editing rewrites only the affected notes part while untouched notes slides round-trip byte-for-byte
+  - Comments: read both legacy per-slide comments and modern threaded comments, and write threaded comments with replies and resolve (`Presentation.Comments`, `Slide.AddComment`/`AddCommentAt`, `Comment.Reply`/`Resolve`), through the `Comment` type shared with the docx/xlsx APIs
+  - Search & replace (`Presentation.ReplaceText` / `Slide.ReplaceText` / `Slide.ReplaceTextInShape`, mirroring `docx` and `xlsx`): exact-match replacement across shapes, table cells, and nested groups — including matches split across multiple runs — rewriting the XML in place to preserve formatting; speaker notes are not touched
   - Slide sections (the thumbnail-pane groups): read (`Presentation.Sections()`), create (`AddSection`), and assign slides (`Section.AddSlide` / `Presentation.MoveSlideToSection`), stored in the `p14:sectionLst` extension
   - Zoom objects (Slide, Section, and Summary zooms) — read (`Slide.ZoomLinks`/`Presentation.ZoomLinks`): each zoom's kind, hosting shape, and target slide id or section GUID(s); zoom frames round-trip byte-for-byte. Creating a zoom is not supported (a zoom embeds a rendered thumbnail image of its target that the library cannot generate)
 - **Word (DOCX)**: Create and modify Word documents
@@ -57,6 +60,9 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Embedded OLE objects (`Paragraph.AddOLEObject`/`Document.AddOLEObject`) — embed an object stream as a package part with its content type, `oleObject` relationship, a presentation-icon image, and a `w:object` reference declaring the ProgID
   - Charts (column, bar, line, pie, doughnut, radar, scatter, area, combo, bubble, stock, surface, pie-of-pie, and 3D variants) inserted inline via `AddChart`, each carrying an embedded workbook so Office can edit the data; read back with `Charts()`
   - Fields (PAGE/NUMPAGES) and a table of contents
+  - Hyperlinks: external and internal (bookmark-anchored) links, read and written through the `Hyperlink` type shared with the pptx/xlsx APIs (`Document.Hyperlinks`, `Paragraph.AddHyperlink`/`AddInternalHyperlink`)
+  - Bookmarks: read (`Document.Bookmarks`) and add (`Paragraph.AddBookmark`, `Document.AddBookmarkOnRange`) named bookmarks — the anchors internal hyperlinks target
+  - Footnotes and endnotes: enumerate (`Document.Footnotes`/`Endnotes`) and author (`Run.AddFootnote`/`AddEndnote`) notes
   - Legacy form fields: enumerate every text/checkbox/dropdown form field (`Document.FormFields()`, walking the body, tables, headers, and footers) with its name, value, checkbox state, and dropdown entries; author new ones with `Paragraph.AddFormField(FormFieldOptions{...})`, which emits the `w:fldChar` begin/separate/end sequence with a `w:ffData` definition. Fields read from a file round-trip byte-identical
   - Mail merge: read/write the merge configuration (`Document.MailMerge`/`SetMailMerge`) — main-document type, data source, and `w:odso` field mappings — plus `Paragraph.AddMergeField` and `Document.MergeFields()` for MERGEFIELD fields
   - Bibliography and citations: read/write bibliography sources (`word/bibliography/sources.xml`, `b:Sources`) with `Document.AddSource`/`Sources()`/`RemoveSource` (tag, type, author, title, year, city, publisher), and cite a source with `Paragraph.AddCitation(tag)`, which emits a `CITATION` field with a formatted placeholder
@@ -69,6 +75,7 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
   - Rich run formatting: highlight, super/subscript, caps/small-caps, underline style + color, character spacing/kerning, and paragraph tab stops
   - Tracked changes (revisions): enumerate insertions, deletions, run/paragraph property changes, and tracked moves (`w:moveFrom`/`w:moveTo`) — across the main body and every header/footer part — with `Document.Revisions()` (author, date, type, text; `Revision.MoveName` links the two halves of a move), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`; author new ones with `Paragraph.AddInsertedRun`, `Run.MarkInserted`, `Run.MarkDeleted`, and `Paragraph.AddMoveFromRun`/`AddMoveToRun` (each assigns a unique `w:id`; `...WithDate` variants pin the timestamp)
+  - Comments: read and write threaded comments with replies and resolve (`Document.Comments`, `Paragraph.AddComment`, `Document.AddCommentOnRange`, `Comment.Reply`/`Resolve`), through the `Comment` type shared with the pptx/xlsx APIs
   - Content controls (structured document tags): read and edit tag, alias, type, value, and drop-down options through `Document.ContentControls()`; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline); bind a control to a custom-XML node with `ContentControl.SetDataBinding(xpath, storeItemID)`
   - Document structure parts: read and author building blocks / AutoText in the glossary (`Document.BuildingBlocks()` — name, gallery, category, types, guid — and `Document.AddBuildingBlock(BuildingBlockDef{...})`, which creates the glossary part, its relationship, and content-type override or appends a `w:docPart` to an existing one, preserving the existing entries verbatim), read and add custom-XML data parts (`Document.CustomXMLParts()` / `Document.AddCustomXMLPart` — the latter generates the itemProps, relationships, and content-type override), and read and author the web-layout frameset tree (`Document.Frameset()` and `Document.SetFrameset(FramesetDef{...})` — nested framesets and leaf frames with their source documents, wired as external frame relationships). Glossary, custom-XML, and frameset parts round-trip byte-for-byte when untouched; an authored building block's body is a placeholder paragraph (the API models building-block metadata, not body content)
   - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
@@ -105,15 +112,11 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
   - Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
   - Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and workbooks with no matching text round-trip byte-for-byte
 
-Runnable programs for all three formats live in [`examples/`](examples/). The
-[`xlsx_report`](examples/xlsx_report/) example is a guided tour of the newer
-XLSX authoring features — tables with a totals row, conditional formatting, an
-embedded chart, page/print setup, freeze panes, named styles and sheet/workbook
-protection — and reopens the file it writes to verify the round-trip.
 Runnable programs for all three formats live in [`examples/`](examples/):
 
 - [`create_presentation`](examples/create_presentation) — build a PowerPoint deck.
 - [`pptx_diagram`](examples/pptx_diagram) — build a diagram deck: a connector bound to two shapes, slide-master text-style and slide-layout background editing, speaker notes, and the SmartArt read path, then reopen to verify the round-trip.
+- [`pptx_deck`](examples/pptx_deck) — build a rich PowerPoint deck: a native chart with an auto-embedded data workbook, a table with an in-text hyperlink, an auto shape with layered effects (shadow, glow, reflection) and an entrance animation, Zoom/Wheel transitions, sections, and a threaded comment — saved in two phases (so shape ids materialize) and reopened to read the sections, animations, charts, and comments back.
 - [`create_spreadsheet`](examples/create_spreadsheet) — build an Excel workbook.
 - [`create_document`](examples/create_document) — build a Word document (page setup, lists, table, image).
 - [`docx_report`](examples/docx_report) — author a rich Word report: custom paragraph/character styles, a custom numbered list, a table of contents, a table with a vertical cell merge, an inline image, an embedded chart, threaded comments, a content control, a two-column page-numbered section, and document protection.
@@ -435,7 +438,7 @@ legacy 16-bit password hash, which is trivially removed. Every write persists on
 both the `Create` and `Open` save paths, and a zero-modification open→save of a
 feature-bearing workbook stays byte-identical.
 
-### Charts (preview)
+### Charts
 
 The `chart` package builds a DrawingML `chart.xml` part (`c:chartSpace`) that is
 independent of any one document format. Pick a chart type, set categories, add
@@ -851,7 +854,7 @@ disturbing the others.
 
 ## Validation
 
-Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report`: a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
+Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report` (from `github.com/mgilbir/spine/common/validate`): a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
 
 `Save`, `SaveBytes`, and `SaveTo` run `Validate()` first and refuse to write when any **error-severity** finding is present, so a structurally corrupt package is never produced. Warnings never block a save. The findings are sound — no error-severity finding fires on a file the corresponding Office app accepts.
 
@@ -887,16 +890,24 @@ Each format family comes in several ECMA-376 flavors, distinguished only by the 
 
 Documents built with `Create` always save as the regular flavor. Converting a file from one flavor to another (e.g. saving an `.xlsm` as a plain `.xlsx`, which would also need its macro parts stripped) is not supported.
 
+Opening an ISO-Strict (ISO/IEC 29500 Strict) package — a valid but as-yet-unread OOXML dialect that uses the `purl.oclc.org/ooxml` namespaces instead of the transitional ones — returns `opc.ErrStrictOOXML`, a distinct signal that the file is a genuine Office document in an unsupported dialect rather than a corrupt or non-Office file.
+
+## Resource limits
+
+To bound memory against decompression ("zip bomb") attacks, an opened package is capped by `opc.MaxDecompressedPartSize` (per part, default 1 GiB) and `opc.MaxDecompressedPackageSize` (total across the package, default 4 GiB); `opc.OpenEncrypted` additionally limits its input with `opc.MaxEncryptedInputSize` (default 2 GiB). Raise a limit before opening a legitimately larger file, or set a decompression bound to 0 to disable it. These are plain package-level variables captured when a reader is constructed, so set them during program setup — mutating one concurrently with an open in another goroutine is a data race. To override the two decompression limits for a single reader without touching the globals, pass `opc.ReaderOptions` to `opc.NewReaderWithOptions` / `opc.OpenReaderWithOptions`.
+
 ## Package Structure
 
 - `opc/` - Open Packaging Conventions implementation
 - `common/` - Shared types and utilities
+  - `crypto/` - Office password encryption (agile/standard AES, RC4 decrypt) and OPC XML-DSig signing (`crypto.ErrWrongPassword` and friends)
   - `dml/` - DrawingML types (colors, geometry, fills, lines)
     - `chart/` - Chart types
     - `diagram/` - Diagram types
   - `enum/` - Common enumerations
   - `omml/` - Office Math Markup Language types
   - `oxml/` - Shared Office XML types
+  - `validate/` - Structured validation vocabulary (`Report`, `Error`) shared by the format packages
   - `vml/` - Vector Markup Language types
   - `xml/` - XML namespace handling and Builder-based serialization
 - `chart/` - Public, format-agnostic chart builder, serialization, and reader
@@ -941,6 +952,8 @@ The following standard slide layout types are supported:
 | `LayoutTitleAndVerticalText` | Title and vertical text |
 | `LayoutVerticalTitleAndText` | Vertical title and text |
 
+The exact `Layout*` constant names are the source of truth in [`pptx/layout.go`](pptx/layout.go).
+
 ## Testing
 
 Unit tests run against both small synthetic fixtures (committed to git) and a set of real-world Office files sourced from the internet. The external files are used for round-trip compatibility testing: each file is parsed, serialized back, and compared byte-for-byte against the original.
@@ -951,7 +964,7 @@ External fixtures are not checked into the repository. To download them:
 make fetch
 ```
 
-This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt` with `# URL unknown`) and cannot be fetched at all.
+This reads `testdata/external.txt` (a list of destination paths and URLs) and downloads any missing files. Fetching is best-effort by default: unreachable fixtures are reported and skipped rather than failing the run. Use `make fetch-strict` (or `bash testdata/fetch.sh --strict`) to treat any download failure as an error, and `bash testdata/fetch.sh --force` to re-download everything. Four fixtures have no known public URL (commented out in `external.txt`, their entries suffixed `— URL unknown`) and cannot be fetched at all.
 
 Tests that depend on an external fixture skip silently when the file is absent, so a green run on a fresh clone exercises fewer cases than one with all fixtures fetched. A few pptx tests additionally use fixtures from the python-pptx test suite; see [`testdata/README.md`](testdata/README.md) for how to obtain that optional corpus.
 
@@ -970,6 +983,10 @@ To lint (requires golangci-lint v2.x):
 ```bash
 make lint
 ```
+
+## Thread safety
+
+A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything reached through it (slides, sheets, paragraphs, shapes) — is not safe for concurrent use and must be confined to one goroutine, or all access guarded by external synchronization. In particular `Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they must not run concurrently with each other or with any mutation of the same value. Distinct values may be used from different goroutines.
 
 ## Requirements
 
