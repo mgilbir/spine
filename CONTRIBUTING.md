@@ -23,20 +23,42 @@ optional python-pptx fixture corpus.
 
 ## Fuzzing
 
-Native Go fuzz targets cover the Open paths: `FuzzNewReader` and
-`FuzzOpcMetadataXML` in `opc`, plus `FuzzOpenPptx`/`FuzzPptxSlideXML`,
-`FuzzOpenDocx`/`FuzzDocxDocumentXML`, and
-`FuzzOpenXlsx`/`FuzzXlsxWorksheetXML` in the format packages. Each opens
-the fuzzed bytes as a package and, on success, walks a bounded slice of
-the model and round-trips it (SaveBytes, then re-open). The `*XML`
-variants pack the fuzzed bytes into the main part of an otherwise-valid
-package so the XML parsers see hostile input directly instead of the
-fuzzer having to invent whole zip archives. Errors are the expected
-outcome on malformed input; any panic is a bug.
+The fuzz surface has two tiers.
+
+**Open-path targets** feed hostile bytes into the read path. These are
+`FuzzNewReader` and `FuzzOpcMetadataXML` in `opc`, plus
+`FuzzOpenPptx`/`FuzzPptxSlideXML`, `FuzzOpenDocx`/`FuzzDocxDocumentXML`,
+and `FuzzOpenXlsx`/`FuzzXlsxWorksheetXML` in the format packages. Each
+opens the fuzzed bytes as a package and, on success, walks a bounded
+slice of the model and round-trips it (SaveBytes, then re-open). The
+`*XML` variants pack the fuzzed bytes into the main part of an
+otherwise-valid package so the XML parsers see hostile input directly
+instead of the fuzzer having to invent whole zip archives.
+
+**Write-path / API targets** exercise the authoring and transform APIs
+with fuzzed inputs, then save and re-open the result to prove the
+produced package survives a full round-trip. They fuzz the option
+structs and arguments of the higher-level mutators — `FuzzDocxAddShape`,
+`FuzzDocxWatermark`, `FuzzDocxMailMerge`, `FuzzDocxContentControl`,
+`FuzzDocxSdtPr`, `FuzzDocxRevisions` in `docx`; `FuzzPptxAddAnimation`,
+`FuzzPptxAddSection`, `FuzzPptxAddConnector`,
+`FuzzPptxMasterLayoutSetters`, `FuzzPptxSmartArtData` in `pptx`; and
+`FuzzXlsxAddTable`, `FuzzXlsxAddConditionalFormat`,
+`FuzzXlsxAddPivotTable`, `FuzzXlsxAddSparklineGroup` in `xlsx`. A typical
+target builds a document with `Create()`, drives the mutator with the
+fuzzed values (reading the results back), then re-parses the saved bytes.
+The revision/content-control fuzzers additionally inject a fuzzed XML
+fragment into a valid package, open it, then run the transform API
+(accept/reject revisions, edit controls) before saving.
+
+In both tiers, errors are the expected outcome on malformed input; any
+panic is a bug.
 
 `make fuzz` is a short smoke run (30s per target; override with
-`FUZZTIME=5m make fuzz`). Deeper fuzzing is `-fuzztime`-driven per
-target, e.g.:
+`FUZZTIME=5m make fuzz`). It discovers the targets dynamically at run
+time — it enumerates every `Fuzz*` function in the packages that have
+them — so this list can never go stale: a newly added target is picked
+up automatically. Deeper fuzzing is `-fuzztime`-driven per target, e.g.:
 
 ```bash
 go test ./xlsx -run '^$' -fuzz '^FuzzXlsxWorksheetXML$' -fuzztime 30m
