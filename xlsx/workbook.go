@@ -96,7 +96,14 @@ type pendingPivotCache struct {
 	target  string // workbook-relative target, e.g. "pivotCache/pivotCacheDefinition1.xml"
 }
 
-// Open opens an Excel workbook from a file path.
+// Open opens an Excel workbook from a file path. It keeps the source file open
+// (Close releases the handle); sheet contents are held as preserved bytes and
+// parsed lazily on first access.
+//
+// It returns ErrNotXLSX when the package is not SpreadsheetML,
+// opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
+// input is password-encrypted (open those with opc.OpenEncrypted and a
+// password). Each is matchable with errors.Is.
 func Open(path string) (*Workbook, error) {
 	reader, err := opc.OpenReader(path)
 	if err != nil {
@@ -106,7 +113,11 @@ func Open(path string) (*Workbook, error) {
 	return openFromReader(reader)
 }
 
-// OpenReader opens an Excel workbook from an in-memory reader.
+// OpenReader opens an Excel workbook from an in-memory reader. Every part is
+// read into memory during the call (worksheet models are then parsed lazily on
+// first access), so r need not remain valid after Open returns, and no OS file
+// handle is retained. It returns the same sentinels as Open (ErrNotXLSX,
+// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is.
 func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
 	reader, err := opc.NewReader(r, size)
 	if err != nil {
@@ -432,7 +443,8 @@ func (w *Workbook) Flavor() string {
 	return opc.ContentTypeWorkbook
 }
 
-// Save saves the workbook to a file.
+// Save writes the workbook to a file. Like SaveTo, it enforces the pre-save
+// validation gate and the round-trip contract documented there.
 func (w *Workbook) Save(path string) error {
 	data, err := w.SaveBytes()
 	if err != nil {
@@ -441,7 +453,8 @@ func (w *Workbook) Save(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// SaveBytes saves the workbook to an in-memory buffer.
+// SaveBytes writes the workbook to an in-memory buffer through SaveTo (same
+// validation gate and round-trip contract).
 func (w *Workbook) SaveBytes() ([]byte, error) {
 	var buf bytes.Buffer
 	if err := w.SaveTo(&buf); err != nil {
@@ -450,12 +463,20 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SaveTo saves the workbook to an arbitrary writer. A workbook must contain
-// at least one sheet (Excel refuses zero-sheet files), so saving an empty
-// workbook returns ErrNoSheets (C130). It also runs Validate first and refuses
-// to write (returning the Report as an error) when any error-severity finding
-// is present, so a structurally corrupt package is never produced. Use
-// SaveToUnvalidated to bypass the validation check.
+// SaveTo saves the workbook to an arbitrary writer.
+//
+// A workbook must contain at least one sheet (Excel refuses zero-sheet files),
+// so saving an empty workbook returns ErrNoSheets (C130). It then runs Validate
+// and refuses to write — returning the Report as an error — when any
+// error-severity finding is present, so a structurally corrupt package is never
+// produced. SaveToUnvalidated bypasses the validation gate (but still enforces
+// the non-empty-sheet invariant).
+//
+// Round-trip contract: for a workbook opened with Open/OpenReader, parts the
+// session never touched are written back byte-for-byte — including sheets that
+// were never accessed, which are never even parsed — while touched parts are
+// regenerated from the model. A workbook built with Create is generated entirely
+// from the model. This holds after Close, too (see Close).
 func (w *Workbook) SaveTo(dst io.Writer) error {
 	if len(w.sheets) == 0 {
 		return ErrNoSheets
@@ -502,7 +523,13 @@ func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 	return bytes.NewBuffer(data), nil
 }
 
-// Close closes the workbook and releases resources.
+// Close releases the workbook's underlying resources: for a workbook opened from
+// a file path it closes the source file handle (OpenReader and Create hold no OS
+// handle). Because Open already read every part into memory, Close frees only
+// the handle. Calling Save (or any Save* method) after Close is valid: the
+// preserved parts and parsed models stay in memory and a durable internal flag —
+// not the reader — keeps the round-trip save path, so Close does not turn a
+// saved workbook into a from-scratch regeneration.
 func (w *Workbook) Close() error {
 	if w.reader != nil {
 		reader := w.reader

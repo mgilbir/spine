@@ -134,7 +134,13 @@ type Presentation struct {
 	dirEntries []string
 }
 
-// Open opens a PowerPoint presentation from a file path.
+// Open opens a PowerPoint presentation from a file path. The whole package is
+// read into memory, so the returned Presentation retains no OS file handle.
+//
+// It returns ErrNotPPTX when the package is not PresentationML,
+// opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
+// input is password-encrypted (open those with opc.OpenEncrypted and a
+// password). Each is matchable with errors.Is.
 func Open(path string) (*Presentation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -144,7 +150,10 @@ func Open(path string) (*Presentation, error) {
 	return OpenReader(bytes.NewReader(data), int64(len(data)))
 }
 
-// OpenReader opens a PowerPoint presentation from an in-memory reader.
+// OpenReader opens a PowerPoint presentation from an in-memory reader. The
+// package is read up front, so r need not remain valid after Open returns. It
+// returns the same sentinels as Open (ErrNotPPTX, opc.ErrStrictOOXML,
+// opc.ErrEncrypted), matchable with errors.Is.
 func OpenReader(r io.ReaderAt, size int64) (*Presentation, error) {
 	reader, err := opc.NewReader(r, size)
 	if err != nil {
@@ -729,7 +738,8 @@ func CreateWidescreen() *Presentation {
 	return CreateWithOptions(opts)
 }
 
-// Save saves the presentation to a file.
+// Save writes the presentation to a file. Like SaveTo, it enforces the pre-save
+// validation gate and the round-trip contract documented there.
 func (p *Presentation) Save(path string) error {
 	data, err := p.SaveBytes()
 	if err != nil {
@@ -738,7 +748,8 @@ func (p *Presentation) Save(path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// SaveBytes saves the presentation to an in-memory buffer.
+// SaveBytes writes the presentation to an in-memory buffer through SaveTo (same
+// validation gate and round-trip contract).
 func (p *Presentation) SaveBytes() ([]byte, error) {
 	var buf bytes.Buffer
 	if err := p.SaveTo(&buf); err != nil {
@@ -747,10 +758,17 @@ func (p *Presentation) SaveBytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// SaveTo saves the presentation to an arbitrary writer. It first runs Validate
-// and refuses to write (returning the Report as an error) when any
-// error-severity finding is present, so a structurally corrupt package is never
-// produced. Use SaveToUnvalidated to bypass the check.
+// SaveTo saves the presentation to an arbitrary writer.
+//
+// It first runs Validate and refuses to write — returning the Report as an
+// error — when any error-severity finding is present, so a structurally corrupt
+// package is never produced. SaveToUnvalidated bypasses this gate.
+//
+// Round-trip contract: for a presentation opened with Open/OpenReader, parts the
+// session never touched are written back byte-for-byte — including slides that
+// were never accessed, which are never even parsed — while touched parts are
+// regenerated from the model. A presentation built with Create (or a Create*
+// helper) is generated entirely from the model.
 func (p *Presentation) SaveTo(dst io.Writer) error {
 	if report := p.Validate(); report.HasErrors() {
 		return report
@@ -778,8 +796,9 @@ func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 	return writer.Close()
 }
 
-// SaveAs saves the presentation to a new file path.
-// This is useful for the "open template, modify, save as new file" workflow.
+// SaveAs writes the presentation to a new file path — the "open a template,
+// modify, save as a new file" workflow. It is Save to a different path and
+// enforces the same validation gate and round-trip contract as SaveTo.
 func (p *Presentation) SaveAs(path string) error {
 	return p.Save(path)
 }
@@ -1910,7 +1929,10 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 	return marshalPresentationXML(p.presentation, p.reader == nil)
 }
 
-// Close closes the presentation and releases resources.
+// Close releases resources held by a presentation opened from a file. Open and
+// OpenReader read the whole package into memory up front and retain no OS file
+// handle, so Close is effectively a no-op. Calling Save (or any Save* method)
+// after Close is valid: the in-memory model and preserved parts remain intact.
 func (p *Presentation) Close() error {
 	if p.reader != nil {
 		return p.reader.Close()
