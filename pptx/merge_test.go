@@ -7,8 +7,64 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/chart"
+	"github.com/mgilbir/spine/common/validate"
 	"github.com/mgilbir/spine/opc"
 )
+
+// TestMergeSlideJumpHyperlink verifies that merging slides carrying an internal
+// slide-jump hyperlink does not leave a dangling relationship id: the jump is
+// remapped to the imported target slide, and the merged deck validates clean of
+// the dangling-r:id class (C268).
+func TestMergeSlideJumpHyperlink(t *testing.T) {
+	src := Create()
+	s0 := src.AddSlide()
+	src.AddSlide() // jump target, source index 1
+	run := s0.AddTextBox().TextFrame().AddParagraph().AddRun()
+	run.SetText("go to slide 2")
+	run.SetHyperlinkToSlide(1)
+
+	dst := Create()
+	dst.AddSlide().AddTextBox().TextFrame().SetText("Dst")
+	if err := dst.AppendSlidesFrom(src); err != nil {
+		t.Fatalf("AppendSlidesFrom: %v", err)
+	}
+
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	rp, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+
+	// dst slides after the merge: [Dst(0), imported-s0(1), imported-s1(2)]. The
+	// jump on imported-s0 must resolve to imported-s1 (dst index 2 -> "3").
+	rs, err := rp.Slide(1)
+	if err != nil {
+		t.Fatalf("Slide(1): %v", err)
+	}
+	h := firstRunHyperlink(rs)
+	if h == nil {
+		t.Fatal("merged slide-jump hyperlink not read back")
+	}
+	if h.URL() != "" {
+		t.Errorf("URL = %q, want empty for internal jump", h.URL())
+	}
+	if h.Anchor() != "3" {
+		t.Errorf("Anchor = %q, want \"3\" (imported target slide, 1-based)", h.Anchor())
+	}
+
+	// Force every slide to materialize so validateHyperlinks actually inspects
+	// the merged jump (it skips slides never accessed), then assert the deck is
+	// clean of the dangling-r:id class.
+	for _, s := range rp.Slides() {
+		_ = s.Hyperlinks()
+	}
+	if r := rp.Validate(); hasCode(r, codeHyperlinkNoRel, validate.SeverityWarning) {
+		t.Fatalf("merged deck has a dangling slide-jump r:id: %v", r)
+	}
+}
 
 func assertZipHasPrefix(t *testing.T, data []byte, prefix string) {
 	t.Helper()
