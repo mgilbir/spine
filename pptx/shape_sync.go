@@ -223,14 +223,24 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 	}
 	body := *dst
 	if tf.isContentDirty() {
-		ps := make([]*dml.P, 0, len(tf.paragraphs))
-		for _, para := range tf.paragraphs {
-			ps = append(ps, paragraphToOxml(para))
+		// When the caller only edited existing paragraphs/runs in place (no
+		// paragraph or run added or removed), patch the parsed a:p nodes so
+		// content the domain model does not represent — a:br, a:fld,
+		// endParaRPr, the interleaved child order, and unmodeled attributes on
+		// untouched runs — survives the edit. A structural rewrite
+		// (SetText/AddParagraph) sets contentDirty and falls back to
+		// regenerating the paragraph list from the domain model, which then
+		// owns it.
+		if tf.contentDirty || !patchParagraphsInPlace(body.P, tf.paragraphs) {
+			ps := make([]*dml.P, 0, len(tf.paragraphs))
+			for _, para := range tf.paragraphs {
+				ps = append(ps, paragraphToOxml(para))
+			}
+			if len(ps) == 0 {
+				ps = append(ps, &dml.P{})
+			}
+			body.P = ps
 		}
-		if len(ps) == 0 {
-			ps = append(ps, &dml.P{})
-		}
-		body.P = ps
 	}
 	if tf.bodyDirty {
 		if body.BodyPr == nil {
@@ -251,6 +261,39 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 			applyAutofit(bp, tf.autofit)
 		}
 	}
+}
+
+// patchParagraphsInPlace flushes in-place paragraph and run edits into the
+// parsed a:p nodes without regenerating them, so content the domain model does
+// not represent — a:br, a:fld, endParaRPr, the interleaved child order, and
+// unmodeled attributes on untouched runs — is preserved. It reports false,
+// leaving the nodes untouched, when the domain and parsed structure diverge (a
+// paragraph or run was added or removed), so the caller falls back to a full
+// rebuild from the domain model.
+func patchParagraphsInPlace(parsed []*dml.P, paras []*Paragraph) bool {
+	if len(parsed) != len(paras) {
+		return false
+	}
+	for k, dp := range paras {
+		if parsed[k] == nil || len(dp.runs) != len(parsed[k].R) {
+			return false
+		}
+	}
+	for k, dp := range paras {
+		pnode := parsed[k]
+		if dp.dirty {
+			// A paragraph-level property change: refresh the modeled subset of
+			// pPr from the domain model, leaving the interleaved a:br/a:fld
+			// children and endParaRPr in place.
+			pnode.PPr = paragraphToOxml(dp).PPr
+		}
+		for i, dr := range dp.runs {
+			if dr.dirty {
+				pnode.R[i] = runToOxml(dr)
+			}
+		}
+	}
+	return true
 }
 
 // updatePictureNode flushes a dirty picture (or embedded media shape) into its
