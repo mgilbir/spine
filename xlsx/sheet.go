@@ -94,6 +94,13 @@ type Sheet struct {
 	// SetHyperlink that must be merged into the sheet's .rels on save. Their ids
 	// are already baked into the matching <hyperlink r:id> in the worksheet model.
 	pendingHyperlinkRels []*opc.Relationship
+	// removedHyperlinkRIDs are relationship ids of hyperlinks that were removed
+	// or replaced this session. A hyperlink loaded from the opened file keeps
+	// its relationship in w.relationships[partName]; without filtering, the
+	// rebuilt sheet .rels would re-emit the now-unreferenced external rel
+	// (package bloat and a stale target URL). Filtered from the cloned sheet
+	// rels at save.
+	removedHyperlinkRIDs map[string]bool
 	dirty                bool
 }
 

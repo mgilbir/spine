@@ -1,10 +1,72 @@
 package xlsx
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
+
+// TestReplacedOpenedHyperlinkRelNotReemitted verifies that replacing a
+// hyperlink that was loaded from an opened workbook drops its old external
+// relationship from the saved sheet .rels (rather than leaking a stale URL).
+func TestReplacedOpenedHyperlinkRelNotReemitted(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("S")
+	c, err := s.Cell("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetString("link")
+	c.SetHyperlink("https://old.example.com/OLD")
+
+	// Reopen so the hyperlink relationship is loaded from the file (kept in
+	// w.relationships[partName], not the pending list).
+	rw := reopen(t, w)
+	rs := firstSheet(t, rw)
+	rc, err := rs.Cell("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.SetHyperlink("https://new.example.com/NEW") // replace
+
+	out, err := rw.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldSeen, newSeen bool
+	for _, f := range zr.File {
+		if !strings.HasSuffix(f.Name, ".rels") {
+			continue
+		}
+		rdr, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(rdr)
+		rdr.Close()
+		if strings.Contains(string(b), "old.example.com/OLD") {
+			oldSeen = true
+		}
+		if strings.Contains(string(b), "new.example.com/NEW") {
+			newSeen = true
+		}
+	}
+	if oldSeen {
+		t.Errorf("saved .rels still references the replaced (old) hyperlink target")
+	}
+	if !newSeen {
+		t.Errorf("saved .rels missing the new hyperlink target")
+	}
+}
 
 // TestSetColWidthCarvesAllColsGroups verifies SetColWidth carves the target
 // column out of a covering entry even when that entry lives in a later <cols>

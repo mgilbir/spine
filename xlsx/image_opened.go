@@ -155,6 +155,19 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels, 
 		}
 
 		sheetRels := cloneRelationships(w.relationships[sheet.partName])
+		// Drop relationships for hyperlinks removed/replaced this session. A
+		// hyperlink loaded from the opened file keeps its rel here; re-emitting
+		// it would bloat the .rels and leak a stale external URL.
+		if len(sheet.removedHyperlinkRIDs) > 0 {
+			filtered := sheetRels[:0]
+			for _, rel := range sheetRels {
+				if rel != nil && sheet.removedHyperlinkRIDs[rel.ID] {
+					continue
+				}
+				filtered = append(filtered, rel)
+			}
+			sheetRels = filtered
+		}
 		// Merge external-hyperlink relationships added via SetHyperlink. Their
 		// ids are already baked into the worksheet's <hyperlink r:id>; merge them
 		// before computing relUsed so drawing/comment ids do not collide.
