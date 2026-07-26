@@ -291,3 +291,31 @@ func TestExistingTextBoxByteIdentical(t *testing.T) {
 		t.Errorf("saved document.xml did not preserve the drawing verbatim:\n%s", saved)
 	}
 }
+
+// parseTextBox derived "floating" from a raw-byte substring match on ":anchor",
+// which also matched that literal inside the box's own escaped body text — an
+// inline box captioned with ":anchor" was misread as floating. The wrapper
+// geometry is now read with the XML decoder, so body text can no longer be
+// mistaken for a wp:anchor wrapper.
+func TestInlineTextBoxWithAnchorTextNotFloating(t *testing.T) {
+	doc := Create()
+	tb := doc.AddTextBox("see :anchor in the text", TextBoxOptions{}) // inline
+	if tb.Floating() {
+		t.Fatal("newly added inline box reported floating")
+	}
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := reopened.TextBoxes()
+	if len(boxes) != 1 {
+		t.Fatalf("expected 1 text box, got %d", len(boxes))
+	}
+	if boxes[0].Floating() {
+		t.Fatalf("inline box captioned with %q misclassified as floating", boxes[0].Text())
+	}
+}
