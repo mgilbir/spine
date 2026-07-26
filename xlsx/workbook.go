@@ -961,10 +961,12 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		}
 	}
 
-	// Relationship ids after the worksheets are the next free ones.
-	nextRelID := len(w.sheets) + 1
-
-	// Write styles.xml if a stylesheet exists
+	// Write styles.xml if a stylesheet exists. Every workbook relationship added
+	// past the worksheets allocates its id by scanning the ids already in use
+	// (nextRelationshipID) rather than a hand-maintained counter: the pivot-cache
+	// and metadata relationships below allocate that way too, so a hand-counted id
+	// could duplicate one of theirs (C258 — e.g. a pivot cache and the VBA project
+	// both taking rId3).
 	if w.stylesheet != nil {
 		stylesPartName := "/xl/styles.xml"
 		stylesData, err := marshalStylesheetXML(w.stylesheet)
@@ -976,18 +978,17 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		}
 
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypeStyles,
 			Target: "styles.xml",
 		})
-		nextRelID++
 	}
 
 	// Wire the workbook-shared person list (threaded-comment authors) when the
 	// attachment pass regenerated one.
 	if personTarget != "" {
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypePerson,
 			Target: personTarget,
 		})
@@ -1005,10 +1006,11 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	}
 
 	// Wire and write the VBA project part when injected into a created workbook.
-	// This is the last relationship id consumed, so no further increment.
+	// Its relationship id is scan-allocated so it never collides with the
+	// styles/person/pivot-cache/metadata relationships assigned above (C258).
 	if w.vbaModified && !w.vbaRemove {
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypeVBAProject,
 			Target: strings.TrimPrefix(w.vbaPartName, "/xl/"),
 		})
