@@ -865,15 +865,19 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "r" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.R = &v
+			// Assign only when the reference parses: an unparsable r="abc"
+			// previously left v==0, emitting a schema-invalid r="0".
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				r.R = &v
+			}
 		case attr.Name.Local == "spans" && attr.Name.Space == "":
 			r.Spans = attr.Value
 		case attr.Name.Local == "s" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.S = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				r.S = &v
+			}
 		case attr.Name.Local == "ht" && attr.Name.Space == "":
 			v, err := strconv.ParseFloat(attr.Value, 64)
 			if err == nil {
@@ -886,9 +890,10 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			b := attr.Value == "1" || attr.Value == "true"
 			r.CustomHeight = &b
 		case attr.Name.Local == "outlineLevel" && attr.Name.Space == "":
-			var v uint8
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.OutlineLevel = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
+				v := uint8(n)
+				r.OutlineLevel = &v
+			}
 		case attr.Name.Local == "collapsed" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
 			r.Collapsed = &b

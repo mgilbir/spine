@@ -54,3 +54,31 @@ func TestInlineStringPreservesPhoneticRuns(t *testing.T) {
 		}
 	}
 }
+
+// An unparsable row index (r="abc") must not be coerced to the schema-invalid
+// r="0": the numeric parse discarded its error while assigning the pointer
+// unconditionally, so a garbage r attribute produced <row r="0">. The field is
+// now left unset when the value does not parse.
+func TestRowSkipsUnparsableIndex(t *testing.T) {
+	const src = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<sheetData><row r="abc"><c r="A1"><v>0</v></c></row></sheetData>` +
+		`</worksheet>`
+
+	var ws oxml.CT_Worksheet
+	if err := xml.Unmarshal([]byte(src), &ws); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(ws.SheetData.Row) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(ws.SheetData.Row))
+	}
+	if r := ws.SheetData.Row[0].R; r != nil {
+		t.Errorf("unparsable r=\"abc\" set R=%d, want nil", *r)
+	}
+	data, err := marshalWorksheetXML(&ws)
+	if err != nil {
+		t.Fatalf("marshalWorksheetXML: %v", err)
+	}
+	if out := string(data); strings.Contains(out, `r="0"`) {
+		t.Errorf("unparsable row index emitted schema-invalid r=\"0\":\n%s", out)
+	}
+}
