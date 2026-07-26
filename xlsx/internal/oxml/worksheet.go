@@ -1658,6 +1658,43 @@ type CT_CfRule struct {
 	ColorScale   *CT_ColorScale `xml:"colorScale,omitempty"`
 	DataBar      *CT_DataBar    `xml:"dataBar,omitempty"`
 	IconSet      *CT_IconSet    `xml:"iconSet,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save; the reflection marshaler
+	// replays it. extLst carries the x14:id linking a 2010+ rule to its x14
+	// counterpart (dataBars), so dropping it severs the pairing. nil for
+	// programmatic rules (C274).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// cfRuleModeledChildren maps CT_CfRule's modeled child local names to their
+// struct field indices, recording their position in a captured child order
+// alongside the unmodeled extLst.
+var cfRuleModeledChildren = map[string]int{
+	"formula":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "Formula"),
+	"colorScale": structFieldIndex(reflect.TypeOf(CT_CfRule{}), "ColorScale"),
+	"dataBar":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "DataBar"),
+	"iconSet":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "IconSet"),
+}
+
+// UnmarshalXML decodes a cfRule, preserving the extLst this type does not model
+// (which carries the x14:id pairing a 2010+ conditional-format rule to its x14
+// counterpart) as verbatim raw bytes so a dirty save re-emits it (C274).
+// Attributes and the modeled formula/colorScale/dataBar/iconSet children are
+// decoded by reflection through an alias; the inner XML is then re-scanned to
+// capture the unmodeled extLst.
+func (r *CT_CfRule) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_CfRule
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(r)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, cfRuleModeledChildren); cap != nil {
+		r.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_ColorScale represents the colorScale element.

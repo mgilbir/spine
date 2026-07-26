@@ -61,3 +61,47 @@ func TestFilterColumnUnmodeledChildrenPreserved(t *testing.T) {
 	}
 }
 
+// C274: CT_CfRule modeled formula/colorScale/dataBar/iconSet but not extLst,
+// which carries the x14:id linking a 2010+ conditional-format rule to its x14
+// counterpart (dataBars). Dropping it on a dirty save severed the pairing; the
+// extLst must be captured raw and re-emitted after the modeled dataBar.
+func TestCfRuleExtLstPreserved(t *testing.T) {
+	const src = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+		`<sheetData/>` +
+		`<conditionalFormatting sqref="A1:A5">` +
+		`<cfRule type="dataBar" priority="1">` +
+		`<dataBar><cfvo type="min"/><cfvo type="max"/><color rgb="FF638EC6"/></dataBar>` +
+		`<extLst><ext xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}">` +
+		`<x14:id>{DA7ABA51-AAAA-BBBB-CCCC-000000000001}</x14:id></ext></extLst>` +
+		`</cfRule>` +
+		`</conditionalFormatting>` +
+		`</worksheet>`
+
+	var ws oxml.CT_Worksheet
+	if err := xmlb.UnmarshalWithSource([]byte(src), &ws); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(ws.ConditionalFormatting) != 1 || len(ws.ConditionalFormatting[0].CfRule) != 1 {
+		t.Fatalf("conditionalFormatting not decoded: %+v", ws.ConditionalFormatting)
+	}
+	if ws.ConditionalFormatting[0].CfRule[0].DataBar == nil {
+		t.Fatalf("modeled dataBar not decoded")
+	}
+
+	data, err := marshalWorksheetXML(&ws)
+	if err != nil {
+		t.Fatalf("marshalWorksheetXML: %v", err)
+	}
+	out := string(data)
+	if !strings.Contains(out, `<x14:id>{DA7ABA51-AAAA-BBBB-CCCC-000000000001}</x14:id>`) {
+		t.Errorf("cfRule extLst x14:id dropped on dirty save:\n%s", out)
+	}
+	if !strings.Contains(out, `uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}"`) {
+		t.Errorf("cfRule extLst ext uri dropped:\n%s", out)
+	}
+	// extLst must follow the modeled dataBar (source order); the x14:id
+	// pairing stays attached to this rule.
+	if i, j := strings.Index(out, "<dataBar"), strings.Index(out, "<extLst"); i < 0 || j < 0 || i > j {
+		t.Errorf("cfRule child order not preserved:\n%s", out)
+	}
+}
