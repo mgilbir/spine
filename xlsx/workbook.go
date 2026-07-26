@@ -1595,16 +1595,13 @@ func ParseCellRef(ref string) (row, col int, err error) {
 		return 0, 0, ErrInvalidCell
 	}
 
-	// Split into column letters and row number
+	// Split into column letters and row number. Accept any mix of upper- and
+	// lower-case letters ("Aa1", "aB3") the way Excel does, rather than
+	// requiring the prefix to be uniformly one case; the prefix is upper-cased
+	// below before it is decoded into a column number.
 	i := 0
-	for i < len(ref) && ref[i] >= 'A' && ref[i] <= 'Z' {
+	for i < len(ref) && ((ref[i] >= 'A' && ref[i] <= 'Z') || (ref[i] >= 'a' && ref[i] <= 'z')) {
 		i++
-	}
-	if i == 0 {
-		// Try lowercase
-		for i < len(ref) && ref[i] >= 'a' && ref[i] <= 'z' {
-			i++
-		}
 	}
 	if i == 0 || i == len(ref) {
 		return 0, 0, ErrInvalidCell

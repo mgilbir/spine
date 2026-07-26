@@ -2,6 +2,31 @@ package xlsx
 
 import "testing"
 
+// TestParseCellRefMixedCase verifies ParseCellRef accepts column prefixes with
+// mixed letter case, matching Excel's leniency.
+func TestParseCellRefMixedCase(t *testing.T) {
+	cases := []struct {
+		ref      string
+		row, col int
+	}{
+		{"Aa1", 1, 27},  // "AA" -> column 27
+		{"aB3", 3, 28},  // "AB" -> column 28
+		{"A1", 1, 1},    // baseline upper
+		{"a1", 1, 1},    // baseline lower
+		{"zZ100", 100, 702},
+	}
+	for _, c := range cases {
+		row, col, err := ParseCellRef(c.ref)
+		if err != nil {
+			t.Errorf("ParseCellRef(%q) returned error: %v", c.ref, err)
+			continue
+		}
+		if row != c.row || col != c.col {
+			t.Errorf("ParseCellRef(%q) = (row %d, col %d), want (row %d, col %d)", c.ref, row, col, c.row, c.col)
+		}
+	}
+}
+
 // TestSheetsReturnsCopy verifies that mutating the slice returned by Sheets()
 // does not affect the workbook's internal sheet order or per-sheet index.
 func TestSheetsReturnsCopy(t *testing.T) {
