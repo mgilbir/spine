@@ -149,14 +149,17 @@ func (d *Document) Protect(opts DocumentProtectionOptions) {
 	}
 	d.settings.SetChild("documentProtection", attrs)
 
+	// Only touch w:writeProtection when the caller explicitly asks for a
+	// read-only recommendation. Removing it in the else-branch would destroy an
+	// independent write-protection guard (and its password hash) as a side
+	// effect of an unrelated edit-restriction call, contradicting the godoc.
+	// Clearing write protection is the job of Unprotect.
 	if opts.ReadOnlyRecommended {
 		wattrs := []xml.Attr{wAttr("recommended", "1")}
 		if opts.Password != "" {
 			wattrs = append(wattrs, wAttr("hash", legacyDocxHash(opts.Password)))
 		}
 		d.settings.SetChild("writeProtection", wattrs)
-	} else {
-		d.settings.RemoveChild("writeProtection")
 	}
 
 	d.settingsModified = true
