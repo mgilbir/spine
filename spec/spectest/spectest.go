@@ -11,6 +11,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Example represents a single XML example extracted from the ISO spec.
@@ -276,6 +278,19 @@ func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 			// classes and are not part of the semantic content.
 			rv1 := reflect.ValueOf(target1).Elem()
 			rv2 := reflect.ValueOf(target2).Elem()
+
+			// Unmodeled attributes survive a marshal ONLY via CapturedAttrs
+			// replay, and the symmetric clearing below zeroes CapturedAttrs on
+			// both targets — so a marshaler that drops the replay entirely would
+			// still pass DeepEqual. Assert here, before clearing, that every
+			// captured attribute reaches the marshaled bytes. Comparison is by
+			// local name + value, so the namespace-prefix/URI reshuffling the
+			// clearing tolerates does not cause a false failure. (C338)
+			if missing := missingCapturedAttrs(collectCapturedAttrs(rv1), marshaled); len(missing) > 0 {
+				t.Errorf("Marshaler dropped captured attribute(s) %v (unmodeled attributes lost)\n  Original XML: %.200s\n  Marshaled: %.200s",
+					missing, *ex.XML, string(marshaled))
+			}
+
 			clearRoundTripFields(rv1)
 			clearRoundTripFields(rv2)
 			if !reflect.DeepEqual(rv1.Interface(), rv2.Interface()) {
@@ -321,6 +336,102 @@ func clearRoundTripFields(v reflect.Value) {
 			clearRoundTripFields(v.Field(i))
 		}
 	}
+}
+
+// collectCapturedAttrs walks v and returns every regular (non-namespace)
+// attribute captured for round-trip replay (the CapturedAttrs fields). Unmodeled
+// attributes reach the marshaled output only through this replay, so the
+// round-trip test asserts they survive. Namespace declarations are skipped:
+// their representation is formatting the round-trip is allowed to reshuffle.
+func collectCapturedAttrs(v reflect.Value) []xmlb.RootAttr {
+	var out []xmlb.RootAttr
+	var walk func(reflect.Value)
+	walk = func(v reflect.Value) {
+		switch v.Kind() {
+		case reflect.Pointer, reflect.Interface:
+			if !v.IsNil() {
+				walk(v.Elem())
+			}
+			return
+		case reflect.Slice, reflect.Array:
+			for i := 0; i < v.Len(); i++ {
+				walk(v.Index(i))
+			}
+			return
+		case reflect.Struct:
+		default:
+			return
+		}
+		t := v.Type()
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			if f.Name == "CapturedAttrs" {
+				if ra, ok := v.Field(i).Interface().([]xmlb.RootAttr); ok {
+					for _, a := range ra {
+						if !a.IsNS {
+							out = append(out, a)
+						}
+					}
+				}
+				continue
+			}
+			switch f.Name {
+			case "XMLName", "OriginalNSDecls", "OriginalRootAttrs":
+				// Formatting-only capture; not asserted.
+			default:
+				walk(v.Field(i))
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+// missingCapturedAttrs returns the captured attributes whose local name does
+// not appear in the marshaled XML — the signature of a marshaler that dropped
+// its CapturedAttrs replay, which makes an unmodeled attribute vanish entirely.
+//
+// The comparison is by local name only, deliberately: CapturedAttrs holds every
+// captured attribute, including MODELED ones whose value the model re-renders
+// canonically (e.g. lastRow="1" marshaled as "true"); comparing values would
+// flag those as false positives. It also ignores namespace prefix/URI, so a
+// faithful marshaler that only reshuffles namespace representation passes. What
+// remains detectable is the case C338 is about: a replay dropped wholesale, so
+// the attribute's name is absent from the output.
+func missingCapturedAttrs(want []xmlb.RootAttr, marshaled []byte) []string {
+	if len(want) == 0 {
+		return nil
+	}
+	have := map[string]int{}
+	dec := xml.NewDecoder(bytes.NewReader(marshaled))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		for _, a := range se.Attr {
+			if a.Name.Local == "xmlns" || a.Name.Space == "xmlns" {
+				continue // namespace declaration, not a regular attribute
+			}
+			have[a.Name.Local]++
+		}
+	}
+	var missing []string
+	for _, a := range want {
+		if have[a.LocalName] > 0 {
+			have[a.LocalName]--
+			continue
+		}
+		missing = append(missing, a.LocalName+"="+a.Value)
+	}
+	return missing
 }
 
 // TestWellFormedExamples tests that all clean examples are well-formed XML
