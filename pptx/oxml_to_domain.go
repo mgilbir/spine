@@ -454,33 +454,33 @@ func oxmlGroupShapeToGoGroupShape(gs *oxml.GroupShape, slide *Slide) *GroupShape
 			if ref.Index < len(gs.Shapes) {
 				if shape := oxmlShapeToGoShape(gs.Shapes[ref.Index]); shape != nil {
 					slide.setShapeBackRef(shape)
-					g.AddChild(shape)
+					_ = g.AddChild(shape) // materialization only yields supported kinds
 				}
 			}
 		case oxml.ChildPic:
 			if ref.Index < len(gs.Pictures) {
 				if pic := oxmlPictureToGoPicture(gs.Pictures[ref.Index]); pic != nil {
 					slide.setShapeBackRef(pic)
-					g.AddChild(pic)
+					_ = g.AddChild(pic)
 				}
 			}
 		case oxml.ChildGraphicFrame:
 			if ref.Index < len(gs.GraphicFrames) {
 				if tbl := oxmlGraphicFrameToGoTable(gs.GraphicFrames[ref.Index]); tbl != nil {
-					g.AddChild(tbl)
+					_ = g.AddChild(tbl)
 				}
 			}
 		case oxml.ChildGrpSp:
 			if ref.Index < len(gs.GroupShapes) {
 				if sub := oxmlGroupShapeToGoGroupShape(gs.GroupShapes[ref.Index], slide); sub != nil {
-					g.AddChild(sub)
+					_ = g.AddChild(sub)
 				}
 			}
 		case oxml.ChildCxnSp:
 			if ref.Index < len(gs.ConnectionShapes) {
 				if cxn := oxmlCxnSpToGoConnector(gs.ConnectionShapes[ref.Index]); cxn != nil {
 					slide.setShapeBackRef(cxn)
-					g.AddChild(cxn)
+					_ = g.AddChild(cxn)
 				}
 			}
 		}

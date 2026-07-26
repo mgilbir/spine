@@ -52,7 +52,7 @@ func TestSlideTextGroupRecursion(t *testing.T) {
 	grp := NewGroupShape()
 	child := NewTextBox()
 	child.SetText("Inside group")
-	grp.AddChild(child)
+	_ = grp.AddChild(child)
 	if err := s.AddShape(grp); err != nil {
 		t.Fatalf("AddShape(group): %v", err)
 	}

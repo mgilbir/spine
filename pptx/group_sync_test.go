@@ -158,7 +158,7 @@ func TestGroupAddChild(t *testing.T) {
 	tb.SetPosition(0, 0)
 	tb.SetSize(914400, 914400)
 	tb.SetText("gamma")
-	grp.AddChild(tb)
+	_ = grp.AddChild(tb)
 
 	out, err := p.SaveBytes()
 	if err != nil {
@@ -204,7 +204,7 @@ func TestGroupAddChildThenEditSameSession(t *testing.T) {
 	tb := NewTextBox()
 	tb.SetName("Child C")
 	tb.SetText("gamma")
-	grp.AddChild(tb)
+	_ = grp.AddChild(tb)
 	if _, err := p.SaveBytes(); err != nil {
 		t.Fatal(err)
 	}

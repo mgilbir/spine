@@ -117,7 +117,8 @@ func NewConnector(kind ConnectorKind) *Connector {
 // disturbing the existing children.
 func (g *GroupShape) AddConnector(kind ConnectorKind) *Connector {
 	c := NewConnector(kind)
-	g.AddChild(c)
+	// A *Connector is a supported group child, so AddChild never errors here.
+	_ = g.AddChild(c)
 	return c
 }
 
