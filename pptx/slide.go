@@ -1356,6 +1356,10 @@ func tableToOxml(t *Table, id uint32) *oxml.GraphicFrame {
 
 // tableDataToOxml converts Table data to oxml.ATable.
 func tableDataToOxml(t *Table) *oxml.ATable {
+	// Ensure gridSpan/rowSpan covered cells carry their hMerge/vMerge flags so
+	// the emitted grid is valid (C310).
+	t.normalizeMergeCells()
+
 	tbl := &oxml.ATable{
 		TblPr: &oxml.ATblPr{
 			FirstRow:     t.firstRow,

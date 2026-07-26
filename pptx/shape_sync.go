@@ -447,6 +447,10 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(tbl.width), Cy: int64(tbl.height)}
 	}
 	if tbl.contentDirty() && gf.Graphic != nil && gf.Graphic.GraphicData != nil && gf.Graphic.GraphicData.Table != nil {
+		// Mark gridSpan/rowSpan covered cells as merge-continuation cells before
+		// deciding how to flush, so the in-place patch path picks them up too
+		// (they become dirty) and the emitted grid stays valid (C310).
+		tbl.normalizeMergeCells()
 		atbl := gf.Graphic.GraphicData.Table
 		if !tbl.structDirty && tableShapeMatches(tbl, atbl) {
 			patchTableNode(atbl, tbl)

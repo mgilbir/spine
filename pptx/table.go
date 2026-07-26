@@ -494,13 +494,55 @@ func (c *TableCell) ColSpan() int {
 	return c.colSpan
 }
 
-// SetColSpan sets the number of columns this cell spans.
+// SetColSpan sets the number of columns this cell spans. On serialization the
+// cells the span covers are automatically marked as merge-continuation cells
+// (hMerge), so the emitted grid stays valid (see Table.normalizeMergeCells).
 func (c *TableCell) SetColSpan(span int) {
 	if span < 1 {
 		span = 1
 	}
 	c.colSpan = span
 	c.dirty = true
+}
+
+// normalizeMergeCells enforces the DrawingML invariant that every grid cell a
+// gridSpan/rowSpan covers carries the matching hMerge/vMerge continuation flag,
+// so each row still emits one a:tc per grid column. A bare SetColSpan(2) would
+// otherwise leave an ordinary neighbor cell, giving the row more columns than
+// the table grid has (C310). It is idempotent and runs just before the table
+// is serialized; covered cells it touches are marked dirty so the in-place
+// patch path flushes them too.
+func (t *Table) normalizeMergeCells() {
+	for i, row := range t.rows {
+		for j, cell := range row.cells {
+			cs, rs := cell.colSpan, cell.rowSpan
+			if cs < 1 {
+				cs = 1
+			}
+			if rs < 1 {
+				rs = 1
+			}
+			if cs == 1 && rs == 1 {
+				continue
+			}
+			for r := i; r < i+rs && r < len(t.rows); r++ {
+				for k := j; k < j+cs && k < len(t.rows[r].cells); k++ {
+					if r == i && k == j {
+						continue // the master cell keeps its span attributes
+					}
+					nc := t.rows[r].cells[k]
+					if k > j && !nc.hMerge {
+						nc.hMerge = true
+						nc.dirty = true
+					}
+					if r > i && !nc.vMerge {
+						nc.vMerge = true
+						nc.dirty = true
+					}
+				}
+			}
+		}
+	}
 }
 
 // TableBorder represents a border on a table cell.
