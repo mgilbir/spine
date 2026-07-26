@@ -1,8 +1,11 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +74,11 @@ type CT_Worksheet struct {
 func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ws.XMLName = start.Name
 
+	// Pre-scan every namespace declaration on the root so a regular attribute
+	// whose xmlns decl is written after it on the same tag still resolves its
+	// prefix (C324); scanning only declarations seen so far dropped the prefix.
+	rootNSByURI := rootDeclPrefixes(start.Attr)
+
 	// Capture all root-element attributes in order for round-trip preservation,
 	// distinguishing namespace declarations from regular attributes.
 	for _, attr := range start.Attr {
@@ -82,25 +90,7 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			ws.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, ws.OriginalNSDecls...)
 			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: "", Value: attr.Value})
 		default:
-			prefix := ""
-			switch attr.Name.Space {
-			case xmlb.NSMarkupCompatibility:
-				prefix = xmlb.PrefixMarkupCompatibility
-			case nsR:
-				prefix = "r"
-			case xmlb.NSXML:
-				// Reserved prefix, never declared: xml:space etc.
-				prefix = "xml"
-			case "":
-				// no prefix
-			default:
-				for _, ra := range ws.OriginalRootAttrs {
-					if ra.IsNS && ra.Value == attr.Name.Space {
-						prefix = ra.Prefix
-						break
-					}
-				}
-			}
+			prefix := resolveRootAttrPrefix(attr.Name.Space, rootNSByURI)
 			ws.OriginalRootAttrs = append(ws.OriginalRootAttrs, xmlb.RootAttr{IsNS: false, Prefix: prefix, LocalName: attr.Name.Local, Value: attr.Value})
 		}
 	}
@@ -311,6 +301,47 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			return nil
 		}
 	}
+}
+
+// rootDeclPrefixes maps each namespace URI declared on a root element to the
+// prefix it was bound to (empty string for the default xmlns), scanning the
+// complete attribute list so a declaration written after the attribute that
+// uses it still resolves.
+func rootDeclPrefixes(attrs []xml.Attr) map[string]string {
+	m := make(map[string]string, len(attrs))
+	for _, attr := range attrs {
+		switch {
+		case attr.Name.Space == "xmlns":
+			m[attr.Value] = attr.Name.Local
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			m[attr.Value] = ""
+		}
+	}
+	return m
+}
+
+// resolveRootAttrPrefix returns the prefix a namespaced root attribute is
+// written with: none when unqualified, the reserved xml prefix, a prefix
+// declared anywhere on the same root element, or the well-known mc/r prefix as
+// a fallback when the attribute's namespace was not declared on this element.
+func resolveRootAttrPrefix(space string, declared map[string]string) string {
+	switch space {
+	case "":
+		return ""
+	case xmlb.NSXML:
+		// Reserved prefix, never declared: xml:space etc.
+		return "xml"
+	}
+	if p, ok := declared[space]; ok {
+		return p
+	}
+	switch space {
+	case xmlb.NSMarkupCompatibility:
+		return xmlb.PrefixMarkupCompatibility
+	case nsR:
+		return "r"
+	}
+	return ""
 }
 
 // worksheetSchemaSeq is the CT_Worksheet child element sequence from the
@@ -530,6 +561,97 @@ type CT_SheetView struct {
 	WorkbookViewId           uint32         `xml:"workbookViewId,attr"`
 	Pane                     *CT_Pane       `xml:"pane,omitempty"`
 	Selection                []CT_Selection `xml:"selection"`
+	// CapturedChildren records the source child sequence so children this type
+	// does not model (pivotSelection, extLst) survive a dirty save; the
+	// reflection marshaler replays it. nil for programmatic sheet views (C321).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// sheetViewPaneField and sheetViewSelectionField are the struct field indices
+// of CT_SheetView's typed children, used to record their position in the
+// captured child order.
+var (
+	sheetViewPaneField      = structFieldIndex(reflect.TypeOf(CT_SheetView{}), "Pane")
+	sheetViewSelectionField = structFieldIndex(reflect.TypeOf(CT_SheetView{}), "Selection")
+)
+
+// structFieldIndex returns the top-level field index of the named field, or -1.
+func structFieldIndex(t reflect.Type, name string) int {
+	if f, ok := t.FieldByName(name); ok && len(f.Index) == 1 {
+		return f.Index[0]
+	}
+	return -1
+}
+
+// UnmarshalXML decodes a sheetView, preserving children this type does not
+// model (pivotSelection, extLst). Attributes, pane and selection are decoded
+// by reflection through an alias; the verbatim inner XML is then re-scanned to
+// capture the unmodeled children as raw bytes at their source positions so a
+// dirty save re-emits them (C321).
+func (sv *CT_SheetView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_SheetView
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(sv)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if len(aux.Inner) == 0 {
+		return nil
+	}
+
+	cap := &xmlb.ChildCapture{}
+	sub := xml.NewDecoder(bytes.NewReader(aux.Inner))
+	selIdx := 0
+	for {
+		pre := sub.InputOffset()
+		tok, err := sub.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// The inner bytes already parsed once (DecodeElement above); a
+			// re-scan failure just means no capture, never a load failure.
+			return nil
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch se.Name.Local {
+		case "pane":
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			if sheetViewPaneField >= 0 {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: sheetViewPaneField, Index: 0})
+			}
+		case "selection":
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			if sheetViewSelectionField >= 0 {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: sheetViewSelectionField, Index: selIdx})
+			}
+			selIdx++
+		default:
+			if err := sub.Skip(); err != nil {
+				return nil
+			}
+			post := sub.InputOffset()
+			if pre >= 0 && post <= int64(len(aux.Inner)) && pre < post {
+				cap.Order = append(cap.Order, xmlb.ChildRef{Field: -1, Index: len(cap.Raw)})
+				cap.Raw = append(cap.Raw, append([]byte(nil), aux.Inner[pre:post]...))
+			}
+		}
+	}
+	// Only retain a capture that carries unmodeled children; a sheet view with
+	// just pane/selection marshals identically through the normal field path.
+	if len(cap.Raw) > 0 {
+		sv.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_Pane represents the pane element.
@@ -939,10 +1061,16 @@ type CT_CellFormula struct {
 	Ca    *bool   `xml:"-"`
 	Si    *uint32 `xml:"-"`
 	Value string  `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list so a shared
+	// or data-table formula round-trips the attributes this type has no field
+	// for (dt2D, dtr, r1, r2, del1, del2, bx). Modeled attributes stay
+	// authoritative on replay; nil for programmatic formulas.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_CellFormula.
 func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	f.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "t":
@@ -986,6 +1114,11 @@ func (f *CT_CellFormula) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	}
 	if f.Si != nil {
 		attrs = append(attrs, xmlb.UintAttr("si", *f.Si))
+	}
+	if f.CapturedAttrs != nil {
+		// Replay unmodeled attributes (data-table r1/r2/dt2D/dtr/del1/del2/bx)
+		// in source order while modeled values stay authoritative.
+		attrs = b.ReplayCapturedAttrs(f.CapturedAttrs, attrs)
 	}
 	b.WriteElement(ns, localName, f.Value, attrs...)
 }
@@ -1324,6 +1457,59 @@ type CT_AutoFilter struct {
 	SortState    *CT_SortState     `xml:"sortState,omitempty"`
 }
 
+// captureUnmodeledChildren re-scans the verbatim inner bytes of an element,
+// building a ChildCapture that records modeled children (by the field index
+// their local name maps to in modeled) at their source positions and every
+// other child as verbatim raw bytes, so a dirty save re-emits children the
+// type does not model. A modeled name occurring more than once advances its
+// own running slice index. It returns nil when the inner XML carries no
+// unmodeled children — the element then marshals identically through the
+// normal field path, preserving byte identity for currently-passing input.
+// This mirrors CT_SheetView's C321 raw-capture (C274).
+func captureUnmodeledChildren(inner []byte, modeled map[string]int) *xmlb.ChildCapture {
+	if len(inner) == 0 {
+		return nil
+	}
+	cap := &xmlb.ChildCapture{}
+	sliceIdx := make(map[string]int)
+	sub := xml.NewDecoder(bytes.NewReader(inner))
+	for {
+		pre := sub.InputOffset()
+		tok, err := sub.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// The inner bytes already parsed once (DecodeElement); a re-scan
+			// failure just means no capture, never a load failure.
+			return nil
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if err := sub.Skip(); err != nil {
+			return nil
+		}
+		if field, ok := modeled[se.Name.Local]; ok && field >= 0 {
+			cap.Order = append(cap.Order, xmlb.ChildRef{Field: field, Index: sliceIdx[se.Name.Local]})
+			sliceIdx[se.Name.Local]++
+			continue
+		}
+		post := sub.InputOffset()
+		if pre >= 0 && post <= int64(len(inner)) && pre < post {
+			cap.Order = append(cap.Order, xmlb.ChildRef{Field: -1, Index: len(cap.Raw)})
+			cap.Raw = append(cap.Raw, append([]byte(nil), inner[pre:post]...))
+		}
+	}
+	// Only retain a capture that carries unmodeled children; an element with
+	// only modeled children marshals identically through the normal field path.
+	if len(cap.Raw) == 0 {
+		return nil
+	}
+	return cap
+}
+
 // CT_FilterColumn represents a filterColumn element.
 type CT_FilterColumn struct {
 	ColId         uint32            `xml:"colId,attr"`
@@ -1331,12 +1517,77 @@ type CT_FilterColumn struct {
 	ShowButton    *bool             `xml:"showButton,attr,omitempty"`
 	Filters       *CT_Filters       `xml:"filters,omitempty"`
 	CustomFilters *CT_CustomFilters `xml:"customFilters,omitempty"`
+	// CapturedChildren records the source child sequence so filter kinds this
+	// type does not model (top10, dynamicFilter, colorFilter, iconFilter,
+	// extLst) survive a dirty save; the reflection marshaler replays it. nil
+	// for programmatic filter columns (C274).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// filterColumnModeledChildren maps CT_FilterColumn's modeled child local names
+// to their struct field indices, recording their position in a captured child
+// order alongside the unmodeled filter kinds.
+var filterColumnModeledChildren = map[string]int{
+	"filters":       structFieldIndex(reflect.TypeOf(CT_FilterColumn{}), "Filters"),
+	"customFilters": structFieldIndex(reflect.TypeOf(CT_FilterColumn{}), "CustomFilters"),
+}
+
+// UnmarshalXML decodes a filterColumn, preserving the filter kinds this type
+// does not model (top10, dynamicFilter, colorFilter, iconFilter, extLst) as
+// verbatim raw bytes so a dirty save re-emits them (C274). Attributes and the
+// modeled filters/customFilters children are decoded by reflection through an
+// alias; the inner XML is then re-scanned to capture the unmodeled children.
+func (fc *CT_FilterColumn) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_FilterColumn
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(fc)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, filterColumnModeledChildren); cap != nil {
+		fc.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_Filters represents the filters element.
 type CT_Filters struct {
-	Blank  *bool       `xml:"blank,attr,omitempty"`
-	Filter []CT_Filter `xml:"filter"`
+	Blank        *bool       `xml:"blank,attr,omitempty"`
+	CalendarType string      `xml:"calendarType,attr,omitempty"`
+	Filter       []CT_Filter `xml:"filter"`
+	// CapturedChildren records the source child sequence so dateGroupItem
+	// children this type does not model survive a dirty save; the reflection
+	// marshaler replays it. nil for programmatic filters (C274).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// filtersModeledChildren maps CT_Filters's modeled child local names to their
+// struct field indices, recording their position in a captured child order
+// alongside the unmodeled dateGroupItem children.
+var filtersModeledChildren = map[string]int{
+	"filter": structFieldIndex(reflect.TypeOf(CT_Filters{}), "Filter"),
+}
+
+// UnmarshalXML decodes a filters element, preserving dateGroupItem children
+// this type does not model as verbatim raw bytes so a dirty save re-emits them
+// (C274). Attributes (including calendarType) and the modeled filter children
+// are decoded by reflection through an alias; the inner XML is then re-scanned
+// to capture the unmodeled children.
+func (f *CT_Filters) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_Filters
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(f)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, filtersModeledChildren); cap != nil {
+		f.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_Filter represents a filter element.
@@ -1407,6 +1658,43 @@ type CT_CfRule struct {
 	ColorScale   *CT_ColorScale `xml:"colorScale,omitempty"`
 	DataBar      *CT_DataBar    `xml:"dataBar,omitempty"`
 	IconSet      *CT_IconSet    `xml:"iconSet,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save; the reflection marshaler
+	// replays it. extLst carries the x14:id linking a 2010+ rule to its x14
+	// counterpart (dataBars), so dropping it severs the pairing. nil for
+	// programmatic rules (C274).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// cfRuleModeledChildren maps CT_CfRule's modeled child local names to their
+// struct field indices, recording their position in a captured child order
+// alongside the unmodeled extLst.
+var cfRuleModeledChildren = map[string]int{
+	"formula":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "Formula"),
+	"colorScale": structFieldIndex(reflect.TypeOf(CT_CfRule{}), "ColorScale"),
+	"dataBar":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "DataBar"),
+	"iconSet":    structFieldIndex(reflect.TypeOf(CT_CfRule{}), "IconSet"),
+}
+
+// UnmarshalXML decodes a cfRule, preserving the extLst this type does not model
+// (which carries the x14:id pairing a 2010+ conditional-format rule to its x14
+// counterpart) as verbatim raw bytes so a dirty save re-emits it (C274).
+// Attributes and the modeled formula/colorScale/dataBar/iconSet children are
+// decoded by reflection through an alias; the inner XML is then re-scanned to
+// capture the unmodeled extLst.
+func (r *CT_CfRule) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_CfRule
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(r)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, cfRuleModeledChildren); cap != nil {
+		r.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_ColorScale represents the colorScale element.
