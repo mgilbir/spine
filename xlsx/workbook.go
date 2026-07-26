@@ -1260,9 +1260,14 @@ func (w *Workbook) Styles() *StyleManager {
 	return newStyleManager(w.stylesheet, func() { w.stylesDirty = true })
 }
 
-// Sheets returns all sheets in the workbook.
+// Sheets returns all sheets in the workbook. The returned slice is a copy of
+// the workbook's backing slice, so sorting, truncating or otherwise mutating
+// it does not desynchronize the workbook's internal sheet order (and the cached
+// per-sheet index). The Sheet pointers themselves are shared.
 func (w *Workbook) Sheets() []*Sheet {
-	return w.sheets
+	out := make([]*Sheet, len(w.sheets))
+	copy(out, w.sheets)
+	return out
 }
 
 // SheetCount returns the number of sheets.
