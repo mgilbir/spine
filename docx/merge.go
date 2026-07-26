@@ -88,11 +88,16 @@ func (d *Document) Append(other *Document) error {
 	if err != nil {
 		return err
 	}
-	styleRemap := d.importStyles(other)
-	numRemap, err := d.importNumbering(other)
+	styleRemap, addedStyles := d.importStyles(other)
+	numRemap, addedAbstractNums, err := d.importNumbering(other)
 	if err != nil {
 		return err
 	}
+	// The style and numbering remaps are now both known, so rewrite the
+	// cross-references buried inside the copied definitions themselves (a style's
+	// numId, an abstractNum level's pStyle/numStyleLink) — the serialized-body
+	// rewrite below never reaches them.
+	remapCopiedCrossRefs(addedStyles, addedAbstractNums, styleRemap, numRemap)
 	hdrFtrRemap, err := d.importHeadersFooters(other)
 	if err != nil {
 		return err
@@ -406,10 +411,10 @@ func (d *Document) imageBytes(rel *opc.Relationship) ([]byte, string, bool) {
 // whose id is unused (or already identical) is copied verbatim; a style whose
 // id collides with a different definition is given a fresh id, recorded in the
 // returned remap so references in the copied content can be rewritten.
-func (d *Document) importStyles(other *Document) map[string]string {
+func (d *Document) importStyles(other *Document) (map[string]string, []*oxml.CT_Style) {
 	remap := make(map[string]string)
 	if other.styles == nil || len(other.styles.Style) == 0 {
-		return remap
+		return remap, nil
 	}
 	d.ensureStyles()
 
@@ -454,7 +459,7 @@ func (d *Document) importStyles(other *Document) map[string]string {
 	if len(toAdd) > 0 {
 		d.stylesModified = true
 	}
-	return remap
+	return remap, toAdd
 }
 
 // importNumbering copies other's numbering definitions (abstract numbering and
@@ -464,38 +469,40 @@ func (d *Document) importStyles(other *Document) map[string]string {
 // source (kept as raw XML in CT_Numbering.Raw) are carried: the source part is
 // serialized and re-parsed fully typed so the raw originals surface as
 // CT_AbstractNum/CT_Num that go through the same remapping path.
-func (d *Document) importNumbering(other *Document) (map[string]string, error) {
+func (d *Document) importNumbering(other *Document) (map[string]string, []*oxml.CT_AbstractNum, error) {
 	numRemap := make(map[string]string)
 	if other.numbering == nil {
-		return numRemap, nil
+		return numRemap, nil, nil
 	}
 	absDefs, numDefs, err := typedNumberingDefs(other.numbering)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(absDefs) == 0 && len(numDefs) == 0 {
-		return numRemap, nil
+		return numRemap, nil, nil
 	}
 	if d.numbering == nil {
 		d.numbering = &oxml.CT_Numbering{}
 	}
 
+	var addedAbs []*oxml.CT_AbstractNum
 	absRemap := make(map[string]string)
 	for _, srcAbs := range absDefs {
 		clone := &oxml.CT_AbstractNum{}
 		if err := deepCopyXML(clone, srcAbs); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		newID := strconv.Itoa(d.nextAbstractNumID())
 		absRemap[clone.AbstractNumId] = newID
 		clone.AbstractNumId = newID
 		d.numbering.AbstractNum = append(d.numbering.AbstractNum, clone)
 		d.numbering.ParsedAbstractNumIDs = append(d.numbering.ParsedAbstractNumIDs, newID)
+		addedAbs = append(addedAbs, clone)
 	}
 	for _, srcNum := range numDefs {
 		clone := &oxml.CT_Num{}
 		if err := deepCopyXML(clone, srcNum); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		newID := strconv.Itoa(d.nextNumID())
 		numRemap[clone.NumId] = newID
@@ -512,13 +519,13 @@ func (d *Document) importNumbering(other *Document) (map[string]string, error) {
 		d.numbering.ParsedNumIDs = append(d.numbering.ParsedNumIDs, newID)
 	}
 	d.numberingModified = true
-	return numRemap, nil
+	return numRemap, addedAbs, nil
 }
 
-// noteComentRemap holds the footnote, endnote, and comment id remaps produced
+// noteCommentRemap holds the footnote, endnote, and comment id remaps produced
 // by importNotesComments, keyed by the source w:id and giving the fresh id the
 // definition was imported under.
-type noteComentRemap struct {
+type noteCommentRemap struct {
 	footnote map[string]string
 	endnote  map[string]string
 	comment  map[string]string
@@ -529,8 +536,8 @@ type noteComentRemap struct {
 // document's existing ids, and the returned remaps let the copied body's
 // reference marks be rewritten to point at their own imported definitions
 // instead of silently resolving to this document's unrelated notes/comments.
-func (d *Document) importNotesComments(other *Document) (noteComentRemap, error) {
-	var out noteComentRemap
+func (d *Document) importNotesComments(other *Document) (noteCommentRemap, error) {
+	var out noteCommentRemap
 	var err error
 	if out.footnote, err = d.importFootnotes(other); err != nil {
 		return out, err
@@ -869,7 +876,7 @@ func (d *Document) partImageBytes(base string, rel *opc.Relationship) ([]byte, s
 // so both are remapped in one pass; any header/footer reference whose part was
 // not carried across (other's dropped final section) is stripped so no dangling
 // relationship id survives.
-func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string, noteRemap noteComentRemap) []byte {
+func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string, noteRemap noteCommentRemap) []byte {
 	combined := relRemap
 	if len(hdrFtrRemap) > 0 {
 		combined = make(map[string]string, len(relRemap)+len(hdrFtrRemap))
@@ -973,5 +980,50 @@ func remapStyleRef(ref **oxml.CT_String, remap map[string]string) {
 	}
 	if newID, ok := remap[(*ref).Val]; ok {
 		(*ref).Val = newID
+	}
+}
+
+// remapCopiedCrossRefs rewrites the style/numbering cross-references that live
+// inside the copied style and numbering definitions themselves, which the
+// serialized-body rewrite never sees: a paragraph style's w:pPr/w:numPr/w:numId
+// (through numRemap) and an abstractNum level's w:pStyle plus the abstractNum's
+// w:numStyleLink/w:styleLink (through styleRemap). Without this a copied style's
+// numId keeps pointing at the source's numbering — now the destination's
+// unrelated list after that numId was remapped.
+func remapCopiedCrossRefs(styles []*oxml.CT_Style, absNums []*oxml.CT_AbstractNum, styleRemap, numRemap map[string]string) {
+	for _, s := range styles {
+		if s == nil || s.PPr == nil || s.PPr.NumPr == nil {
+			continue
+		}
+		remapNumIDVal(s.PPr.NumPr.NumId, numRemap)
+	}
+	for _, a := range absNums {
+		if a == nil {
+			continue
+		}
+		remapStyleRef(&a.NumStyleLink, styleRemap)
+		remapStyleRef(&a.StyleLink, styleRemap)
+		for _, lvl := range a.Lvl {
+			if lvl == nil {
+				continue
+			}
+			remapStyleRef(&lvl.PStyle, styleRemap)
+			if lvl.PPr != nil && lvl.PPr.NumPr != nil {
+				remapNumIDVal(lvl.PPr.NumPr.NumId, numRemap)
+			}
+		}
+	}
+}
+
+// remapNumIDVal rewrites a numId value through numRemap (whose keys and values
+// are decimal strings), leaving it untouched when the id is absent or nil.
+func remapNumIDVal(numID *oxml.CT_DecimalNumber, numRemap map[string]string) {
+	if numID == nil {
+		return
+	}
+	if mapped, ok := numRemap[strconv.Itoa(numID.Val)]; ok {
+		if v, err := strconv.Atoi(mapped); err == nil {
+			numID.Val = v
+		}
 	}
 }

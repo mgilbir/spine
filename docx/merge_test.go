@@ -4,11 +4,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/chart"
 	"github.com/mgilbir/spine/common/validate"
+	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -385,6 +387,66 @@ func TestAppendMergesCollidingFootnote(t *testing.T) {
 	}
 	if got := notesByID[refIDs[1]]; !strings.Contains(got, "SRC NOTE") {
 		t.Errorf("appended footnote ref %q resolves to %q, want SRC NOTE", refIDs[1], got)
+	}
+}
+
+// TestAppendRemapsStyleNumIDCrossRef appends a source whose paragraph style
+// carries a w:numPr/w:numId into a destination that already has its own list at
+// that same numId. The copied style's numId must be remapped to the source's
+// imported list, not left pointing at the destination's unrelated list.
+func TestAppendRemapsStyleNumIDCrossRef(t *testing.T) {
+	src := Create()
+	srcList := src.AddNumberedList()
+	src.ensureStyles()
+	src.styles.Style = append(src.styles.Style, &oxml.CT_Style{
+		Type:    "paragraph",
+		StyleId: "SrcListStyle",
+		Name:    &oxml.CT_String{Val: "Src List Style"},
+		PPr: &oxml.CT_PPr{
+			NumPr: &oxml.CT_NumPr{NumId: &oxml.CT_DecimalNumber{Val: srcList.numID}},
+		},
+	})
+	src.stylesModified = true
+
+	dst := Create()
+	dstList := dst.AddNumberedList()
+	dst.AddParagraph().SetListStyle(dstList, 0)
+
+	// Precondition: both lists occupy the same numId, so a non-remapped copy
+	// would alias the style onto the destination's list.
+	if srcList.numID != dstList.numID {
+		t.Fatalf("test setup: expected colliding numIds, got src %d dst %d", srcList.numID, dstList.numID)
+	}
+
+	if err := dst.Append(src); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	var copied *oxml.CT_Style
+	for _, s := range dst.styles.Style {
+		if s.StyleId == "SrcListStyle" {
+			copied = s
+		}
+	}
+	if copied == nil {
+		t.Fatalf("copied style SrcListStyle not found after append")
+	}
+	if copied.PPr == nil || copied.PPr.NumPr == nil || copied.PPr.NumPr.NumId == nil {
+		t.Fatalf("copied style lost its numPr/numId")
+	}
+	got := copied.PPr.NumPr.NumId.Val
+	if got == srcList.numID {
+		t.Fatalf("copied style numId still %d (source's original, now the destination's unrelated list); expected remap", got)
+	}
+	// The remapped numId must resolve to an imported num.
+	found := false
+	for _, n := range dst.numbering.Num {
+		if n != nil && n.NumId == strconv.Itoa(got) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("copied style numId %d does not resolve to any num in the merged numbering", got)
 	}
 }
 
