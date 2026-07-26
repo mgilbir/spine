@@ -75,8 +75,13 @@ emitted. Regenerate with `make harvest-sweep` (override `HARVEST_CRAWLS`,
 Crawled presigned S3/MinIO document URLs carry AWS credentials in the query
 (`AWSAccessKeyId`, `X-Amz-Signature`, `Signature=`), which must never be
 committed or redistributed. Stripping the query is safe for the harvest:
-WARC-complete rows are fetched by `warc_filename`+offset+length and verified by
-`content_digest` (the URL is provenance only), so nothing breaks. The one
+WARC-complete rows are fetched by `warc_filename`+offset+length and identified
+by `content_digest`, which deduplicates candidates across crawls and keys each
+reference in the ledger and quarantine (the URL is provenance only), so nothing
+breaks. The `content_digest` is the Common Crawl Base32-SHA-1 payload digest,
+but the harness does **not** currently recompute and compare it: a fetched
+payload is validated structurally instead — it must decode to a valid OOXML
+package (`ValidateOOXMLPackage`) — and a mismatch there fails the fetch. The one
 tradeoff is that a *truncated* row's live refetch can no longer replay a
 presigned URL — but those signatures are short-lived and had almost always
 expired anyway, so this is a minor, documented limitation of the reference-only
