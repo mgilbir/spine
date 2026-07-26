@@ -2244,6 +2244,11 @@ func (p *Presentation) RemoveSlide(index int) error {
 	}
 	p.mediaGCNeeded = true
 
+	// Strip the removed slide's id from any section it belonged to, so the
+	// section list does not emit a p14:sldId that no longer resolves to a slide
+	// in the sldIdLst (a dangling reference Validate does not flag) — C307.
+	p.removeSlideFromSections(removed.id)
+
 	// Remove the slide
 	p.slides = append(p.slides[:index], p.slides[index+1:]...)
 
