@@ -502,20 +502,12 @@ func UnmarshalExtendedProperties(data []byte) (*ExtendedProperties, error) {
 	return ep, nil
 }
 
-// itoa converts an integer to a string without importing strconv.
+// itoa converts an integer to its decimal string representation. It delegates
+// to strconv.Itoa, which correctly handles math.MinInt; a previous hand-rolled
+// implementation infinitely recursed on MinInt because -MinInt overflows back
+// to MinInt.
 func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }
 
 // knownCoreKeys lists the element keys marshalCoreElement can regenerate from
