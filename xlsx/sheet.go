@@ -67,6 +67,14 @@ type Sheet struct {
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
+	// tablePartsBaseline is the number of <tableParts> entries present before this
+	// session's AddTable calls, captured on the first save. Each save rebuilds the
+	// session-added entries from this baseline instead of appending them anew, so
+	// a repeated save is a projection rather than a state transition (C257: without
+	// it a second save duplicated every session-added tablePart and the durable
+	// model grew each pass).
+	tablePartsBaseline    int
+	tablePartsBaselineSet bool
 	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
 	oleEmbeds []pendingOLE   // OLE objects embedded this session via AddOLEObject
 	comments  *sheetComments // lazily loaded comment model (read + write)
