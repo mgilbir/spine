@@ -5,10 +5,42 @@ import (
 	"bytes"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/chart"
 )
+
+// refCells expands an absolute c:f reference (e.g. "ChartData1!$B$2:$B$4") into
+// the sheet name and the ordered A1 cell references it spans.
+func refCells(t *testing.T, ref string) (sheet string, cells []string) {
+	t.Helper()
+	bang := strings.Index(ref, "!")
+	if bang < 0 {
+		t.Fatalf("ref %q has no sheet", ref)
+	}
+	sheet = strings.Trim(ref[:bang], "'")
+	rng := strings.ReplaceAll(ref[bang+1:], "$", "")
+	start, end, isRange := strings.Cut(rng, ":")
+	sr, sc, err := ParseCellRef(start)
+	if err != nil {
+		t.Fatalf("ParseCellRef(%q): %v", start, err)
+	}
+	if !isRange {
+		return sheet, []string{FormatCellRef(sr, sc)}
+	}
+	er, ec, err := ParseCellRef(end)
+	if err != nil {
+		t.Fatalf("ParseCellRef(%q): %v", end, err)
+	}
+	for r := sr; r <= er; r++ {
+		for c := sc; c <= ec; c++ {
+			cells = append(cells, FormatCellRef(r, c))
+		}
+	}
+	return sheet, cells
+}
 
 func chartFloatsEqual(a, b []float64) bool {
 	if len(a) != len(b) {
@@ -437,6 +469,75 @@ func TestAddChartToSheetWithExistingChart(t *testing.T) {
 	}
 	if !titles["First"] || !titles["Second"] {
 		t.Errorf("recovered chart titles = %v, want First and Second", titles)
+	}
+}
+
+// TestAddBubbleChartDataLayout builds a multi-series bubble chart with distinct
+// X/Y/size vectors, adds it to a sheet, and verifies the data sheet cells each
+// series' c:xVal/c:yVal/c:bubbleSize reference actually hold that series' values.
+// The data-sheet writer previously had only category/scatter layouts, so bubble
+// references pointed at empty or foreign cells (C248).
+func TestAddBubbleChartDataLayout(t *testing.T) {
+	type ser struct {
+		name        string
+		x, y, sizes []float64
+	}
+	sers := []ser{
+		{"Alpha", []float64{1, 2, 3}, []float64{10, 20, 30}, []float64{4, 5, 6}},
+		{"Beta", []float64{1, 2, 3}, []float64{40, 50, 60}, []float64{7, 8, 9}},
+	}
+	c := chart.NewBubble().SetTitle("Bubbles")
+	for _, s := range sers {
+		c.AddBubbleSeries(s.name, s.x, s.y, s.sizes)
+	}
+
+	wb := Create()
+	sheet := wb.AddSheet("Host")
+	if err := sheet.AddChart("E2", c); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	wb2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+
+	// The chart's layout holds the exact c:f references serialized into
+	// chart.xml (MarshalChartXML builds both from the same layout); assert the
+	// cells they point at carry each series' values.
+	layout := c.Layout()
+	if len(layout.Series) != len(sers) {
+		t.Fatalf("layout series = %d, want %d", len(layout.Series), len(sers))
+	}
+	check := func(ref string, want []float64) {
+		sheetName, cells := refCells(t, ref)
+		ds, err := wb2.SheetByName(sheetName)
+		if err != nil {
+			t.Fatalf("data sheet %q: %v", sheetName, err)
+		}
+		if len(cells) != len(want) {
+			t.Fatalf("ref %q spans %d cells, want %d", ref, len(cells), len(want))
+		}
+		for i, cellRef := range cells {
+			got, err := ds.GetCellValue(cellRef)
+			if err != nil {
+				t.Fatalf("GetCellValue(%s): %v", cellRef, err)
+			}
+			wantStr := strconv.FormatFloat(want[i], 'f', -1, 64)
+			if got != wantStr {
+				t.Errorf("ref %q cell %s = %q, want %q", ref, cellRef, got, wantStr)
+			}
+		}
+	}
+	for i, s := range sers {
+		sl := layout.Series[i]
+		check(sl.XValuesRef, s.x)
+		check(sl.ValuesRef, s.y)
+		check(sl.SizesRef, s.sizes)
 	}
 }
 
