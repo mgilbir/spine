@@ -103,7 +103,14 @@ func isRawPChild(local string) bool {
 		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
 		"br",
 		"contentPart",
+		"oMath", "oMathPara",
 		"commentRangeStart", "commentRangeEnd":
+		// m:oMath / m:oMathPara are EG_PContent members the shared content path
+		// (w:hyperlink, w:ins, w:del, w:fldSimple, run-level w:sdt) does not
+		// type — Word writes them when an equation is inserted with track-changes
+		// on — so without raw capture d.Skip() deletes the equation. CT_P types
+		// them itself (its own oMath/oMathPara cases run before this), so this
+		// only affects the shared containers.
 		// w:br is only valid inside w:r, but LibreOffice-era exports place it
 		// directly in w:p; dropping it merged the surrounding lines.
 		// w:contentPart (EG_PContent, a CT_Rel referencing an ink/customXML
