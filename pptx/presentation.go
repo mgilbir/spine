@@ -1486,6 +1486,27 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 	return writer.WritePart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
 }
 
+// remapCustomShowRefs rewrites custom-show slide references through an old->new
+// relationship-id map, so a p:custShow recorded against a slide's earlier id
+// still points at that same slide after saveNew reassigns relationship ids by
+// order. It is a no-op when the map is empty (nothing was reordered).
+func (p *Presentation) remapCustomShowRefs(remap map[string]string) {
+	if len(remap) == 0 || p.presentation == nil || p.presentation.CustShowLst == nil {
+		return
+	}
+	for i := range p.presentation.CustShowLst.CustShow {
+		lst := p.presentation.CustShowLst.CustShow[i].SldLst
+		if lst == nil {
+			continue
+		}
+		for j := range lst.Sld {
+			if newID, ok := remap[lst.Sld[j].Id]; ok {
+				lst.Sld[j].Id = newID
+			}
+		}
+	}
+}
+
 // saveNew saves a newly created presentation.
 func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Set properties
@@ -1530,11 +1551,21 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		presRelID++
 	}
 
-	// Assign relationship IDs to slides SECOND
+	// Assign relationship IDs to slides SECOND, recording the old->new id map so
+	// stored consumers of a slide's relId survive the reassignment. Reassigning
+	// by slice order otherwise made a MoveSlide/EmbedFont between AddCustomShow
+	// and Save silently repoint the custom show at whatever slide landed on the
+	// referenced id (C255).
+	slideRelIDRemap := make(map[string]string, len(p.slides))
 	for _, slide := range p.slides {
-		slide.relID = fmt.Sprintf("rId%d", presRelID)
+		newID := fmt.Sprintf("rId%d", presRelID)
+		if slide.relID != "" && slide.relID != newID {
+			slideRelIDRemap[slide.relID] = newID
+		}
+		slide.relID = newID
 		presRelID++
 	}
+	p.remapCustomShowRefs(slideRelIDRemap)
 
 	// Fixed parts (presProps, viewProps, theme, tableStyles) get IDs after masters and slides
 	presPropsRelID := fmt.Sprintf("rId%d", presRelID)

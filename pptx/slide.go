@@ -150,9 +150,11 @@ func (s *Slide) Index() int {
 
 // RelID returns the slide's presentation-level relationship id (the r:id of its
 // p:sldId entry in presentation.xml). For a slide loaded from a file this is its
-// stored id; for a slide created through this package the id is assigned when
-// the deck is first saved, so RelID reports an empty string until then. It is
-// the identifier a custom show references (see Presentation.AddCustomShow).
+// stored id; a slide created through this package is assigned a provisional id
+// when it is added (not the empty string), which the deck's first save may
+// reassign by slide order. It is the identifier a custom show references (see
+// Presentation.AddCustomShow) — a reference recorded before save is remapped
+// through that reassignment, so it keeps resolving to the same slide.
 func (s *Slide) RelID() string {
 	return s.relID
 }
