@@ -175,6 +175,15 @@ func TestCCCorpus(t *testing.T) {
 	full := update || os.Getenv("SPINE_CC_FULL") != ""
 
 	quarantine := loadQuarantine(t)
+	// origQuarantine keeps the full committed set so update-mode regeneration
+	// can carry forward rows for files absent from THIS machine's corpus (see
+	// the cleanup below). The corpus is machine-dependent, so a row we could not
+	// have re-derived must not be silently dropped.
+	origQuarantine := quarantine
+	// presentSHAs records every sha16 present in this machine's local corpus, so
+	// carry-forward can tell an absent-file row (keep verbatim) from one this run
+	// re-judged (which may now pass, fail elsewhere, or stay).
+	presentSHAs := make(map[string]bool)
 	if update {
 		// Regeneration judges every file afresh; the old quarantine must not
 		// mask entries that would now pass (or fail at a different stage).
@@ -207,10 +216,13 @@ func TestCCCorpus(t *testing.T) {
 			t.Logf("  %-5s %5d / %5d", typ, s.validateWarn, s.validateWarnFindings)
 		}
 		if update {
-			if err := writeQuarantine(agg.rows); err != nil {
+			rows := mergeCarryForward(agg.rows, origQuarantine, presentSHAs)
+			carried := len(rows) - len(agg.rows)
+			if err := writeQuarantine(rows); err != nil {
 				t.Errorf("writing refreshed quarantine: %v", err)
 			} else {
-				t.Logf("wrote %d rows to testdata/cc/known_failures.tsv", len(agg.rows))
+				t.Logf("wrote %d rows to testdata/cc/known_failures.tsv (%d re-derived, %d carried forward for files absent locally)",
+					len(rows), len(agg.rows), carried)
 			}
 		}
 	})
@@ -222,6 +234,11 @@ func TestCCCorpus(t *testing.T) {
 			t.Fatal(err)
 		}
 		sort.Strings(files)
+		// Record every locally present sha16 before any subset truncation, so
+		// update-mode carry-forward sees the full local corpus.
+		for _, path := range files {
+			presentSHAs[strings.TrimSuffix(filepath.Base(path), "."+typ)] = true
+		}
 		if !full && len(files) > subsetPerType {
 			files = files[:subsetPerType]
 		}
@@ -238,6 +255,28 @@ func TestCCCorpus(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mergeCarryForward appends to the freshly observed rows every row of the
+// previously committed quarantine whose sha16 is absent from the local corpus
+// (present). Update-mode regeneration only re-derives rows for files that exist
+// on THIS machine, but the corpus is machine-dependent: a row for a file this
+// machine never fetched could not have been re-derived, so dropping it would
+// silently delete a failure (or hand-written wontfix) recorded elsewhere. Rows
+// for present files are left to the fresh run, which may legitimately drop a
+// now-passing file. The fresh and carried sets are disjoint by construction
+// (present vs. absent sha16), so no row is duplicated.
+func mergeCarryForward(fresh []string, orig map[string]map[string]quarantineEntry, present map[string]bool) []string {
+	out := fresh
+	for sha16, stages := range orig {
+		if present[sha16] {
+			continue
+		}
+		for stage, e := range stages {
+			out = append(out, fmt.Sprintf("%s\t%s\t%s\t%s", sha16, e.typ, stage, e.note))
+		}
+	}
+	return out
 }
 
 // writeQuarantine rewrites testdata/cc/known_failures.tsv from the collected
