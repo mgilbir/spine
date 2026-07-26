@@ -1485,8 +1485,13 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 	return pic
 }
 
-// Duplicate creates a copy of the slide and adds it after this slide.
+// Duplicate creates a copy of the slide and adds it after this slide. It
+// returns nil when called on a handle that was already removed (C302), rather
+// than duplicating whatever slide now sits at the freed index.
 func (s *Slide) Duplicate() *Slide {
+	if s.presentation == nil || s.index < 0 {
+		return nil
+	}
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
@@ -1533,7 +1538,12 @@ func (s *Slide) Duplicate() *Slide {
 	return newSlide
 }
 
-// Delete removes this slide from the presentation.
+// Delete removes this slide from the presentation. It returns ErrInvalidSlide
+// when called on a handle that was already removed (a second Delete, C302),
+// rather than deleting whatever slide now sits at the freed index.
 func (s *Slide) Delete() error {
+	if s.presentation == nil || s.index < 0 {
+		return ErrInvalidSlide
+	}
 	return s.presentation.RemoveSlide(s.index)
 }

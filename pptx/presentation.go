@@ -2202,9 +2202,11 @@ func (p *Presentation) RemoveSlide(index int) error {
 		return ErrSlideIndex
 	}
 
+	removed := p.slides[index]
+
 	// Clean up relationships for the removed slide to prevent stale entries from
 	// leaking into a new slide that may later reuse the same part name during save.
-	if partName := p.slides[index].partName; partName != "" {
+	if partName := removed.partName; partName != "" {
 		p.removeSlideOwnedParts(partName)
 		delete(p.relationships, partName)
 		p.markPartRemoved(partName)
@@ -2218,6 +2220,13 @@ func (p *Presentation) RemoveSlide(index int) error {
 	for i := index; i < len(p.slides); i++ {
 		p.slides[i].index = i
 	}
+
+	// Invalidate the removed handle so a stale reference — a second Delete, or a
+	// Duplicate on it — is rejected instead of silently acting on whatever slide
+	// now occupies the freed index (C302). Live handles keep valid indices
+	// (updated by the loop above); only the removed one is marked -1.
+	removed.index = -1
+	removed.presentation = nil
 
 	return nil
 }
