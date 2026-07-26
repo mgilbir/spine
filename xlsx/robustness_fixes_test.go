@@ -47,6 +47,62 @@ func TestSetColWidthCarvesAllColsGroups(t *testing.T) {
 	}
 }
 
+// TestAddPivotTableNoPhantomCells verifies that scanning the source range while
+// building a pivot table does not add phantom empty cells/rows to the source
+// sheet model.
+func TestAddPivotTableNoPhantomCells(t *testing.T) {
+	wb := Create()
+	data := wb.AddSheet("Data")
+	put := func(ref string, v interface{}) {
+		c, err := data.Cell(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.SetValue(v)
+	}
+	put("A1", "Region")
+	put("B1", "Product")
+	put("C1", "Sales")
+	put("A2", "North")
+	put("B2", "A")
+	put("C2", 10.0)
+	put("A3", "North") // B3 intentionally left blank
+	put("C3", 20.0)
+	put("A4", "South")
+	put("B4", "A")
+	put("C4", 30.0)
+	put("A5", "South")
+	put("B5", "B")
+	put("C5", 40.0)
+	wb.AddSheet("Report")
+
+	countCells := func(s *Sheet) (rows, cells int) {
+		for i := range s.ws().SheetData.Row {
+			rows++
+			cells += len(s.ws().SheetData.Row[i].C)
+		}
+		return
+	}
+	beforeRows, beforeCells := countCells(data)
+
+	report, err := wb.SheetByName("Report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := report.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
+		RowFields:   []string{"Region", "Product"},
+		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
+	}); err != nil {
+		t.Fatalf("AddPivotTable: %v", err)
+	}
+
+	afterRows, afterCells := countCells(data)
+	if afterRows != beforeRows || afterCells != beforeCells {
+		t.Errorf("source sheet model changed: rows %d->%d, cells %d->%d (phantom entries created)",
+			beforeRows, afterRows, beforeCells, afterCells)
+	}
+}
+
 // TestStyleNoOpDoesNotDirty verifies that a NewCellStyle / AddNumberFormat call
 // which resolves to an already-existing record does not mark styles modified
 // (which would force styles.xml regeneration and break byte-identical

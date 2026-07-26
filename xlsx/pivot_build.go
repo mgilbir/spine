@@ -467,8 +467,11 @@ func placePivotLayout(b *pivotBuild, anchorRow, anchorCol int) {
 // --- source scanning helpers ---
 
 func scanCell(s *Sheet, ref string) cellDatum {
-	cell, err := s.Cell(ref)
-	if err != nil || cell == nil || cell.IsEmpty() {
+	// Read-only lookup: scanning the source range must not mutate the source
+	// sheet's model. s.Cell would create phantom empty CT_Cell/CT_Row entries
+	// for every referenced-but-absent cell.
+	cell := s.findCell(ref)
+	if cell == nil || cell.IsEmpty() {
 		return cellDatum{empty: true}
 	}
 	switch cell.Type() {

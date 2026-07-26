@@ -244,6 +244,32 @@ func (s *Sheet) GetCellValue(ref string) (string, error) {
 	return "", nil
 }
 
+// findCell returns a handle to the cell at ref without creating any row or
+// cell. Unlike Cell, it is a read-only lookup: absent cells (or an invalid
+// reference) return nil, so scanning a range does not spawn phantom empty
+// CT_Cell/CT_Row entries in the model.
+func (s *Sheet) findCell(ref string) *Cell {
+	if s.ws() == nil {
+		return nil
+	}
+	row, col, err := ParseCellRef(ref)
+	if err != nil {
+		return nil
+	}
+	ref = FormatCellRef(row, col)
+	for i := range s.ws().SheetData.Row {
+		r := &s.ws().SheetData.Row[i]
+		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
+			for _, cell := range r.C {
+				if strings.EqualFold(cell.R, ref) {
+					return &Cell{sheet: s, cell: cell}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // Rows returns the number of used rows.
 func (s *Sheet) Rows() int {
 	if s.ws() == nil {
