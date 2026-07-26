@@ -156,8 +156,9 @@ var capabilities = []capability{
 		allow: map[string]map[string]bool{
 			// docx: inline-vs-floating flag and the mutation setters.
 			"docx": set("Floating", "SetAltText", "SetSize"),
-			// xlsx: top-left cell anchor.
-			"xlsx": set("AnchorCell"),
+			// xlsx: top-left cell anchor; SVGData returns the original SVG bytes
+			// of an image added as SVG (Data returns the raster fallback).
+			"xlsx": set("AnchorCell", "SVGData"),
 			// pptx: a Picture is also a shape, so it carries the picture-specific
 			// image/crop/hyperlink surface (shape geometry is promoted from the
 			// embedded BaseShape and excluded by directMethods).
