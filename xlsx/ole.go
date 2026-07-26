@@ -153,7 +153,7 @@ func (s *Sheet) AddOLEObject(spec OLEObjectSpec) error {
 	if len(spec.Preview) > 0 && (spec.PreviewContentType == "" || spec.PreviewExt == "") {
 		return fmt.Errorf("xlsx: AddOLEObject: Preview requires PreviewContentType and PreviewExt")
 	}
-	if s.comments != nil {
+	if s.hasComments() {
 		return fmt.Errorf("xlsx: AddOLEObject: sheet already has comments, which own its legacy VML drawing")
 	}
 	if s.ws() != nil && (s.ws().OleObjects != nil || s.ws().LegacyDrawing != nil) {

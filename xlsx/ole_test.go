@@ -210,3 +210,33 @@ func TestAddOLEObjectValidation(t *testing.T) {
 		t.Error("empty OLE data accepted")
 	}
 }
+
+// TestReadCommentsThenAddOLE is the C284 regression: reading Comments() (or
+// Cell.Comment()) on a comment-free sheet lazily creates the sheet's comment
+// model, which must not permanently block AddOLEObject. A read-only inspection
+// must leave the writer available.
+func TestReadCommentsThenAddOLE(t *testing.T) {
+	wb, err := Open("testdata/minimal.xlsx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	s, _ := wb.Sheet(0)
+
+	// A read-only inspection of a comment-free sheet.
+	if got := s.Comments(); len(got) != 0 {
+		t.Fatalf("comment-free sheet reported %d comments", len(got))
+	}
+	c, err := s.Cell("A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Comment()
+
+	// AddOLEObject must still succeed: the sheet has no real comments.
+	if err := s.AddOLEObject(OLEObjectSpec{Data: []byte("\xd0\xcf\x11\xe0 payload")}); err != nil {
+		t.Fatalf("AddOLEObject after read-only Comments(): %v", err)
+	}
+	if _, err := wb.SaveBytes(); err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+}

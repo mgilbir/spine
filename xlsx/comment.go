@@ -111,6 +111,29 @@ type sheetComments struct {
 	mutated bool // a comment was added/replied/resolved; regenerate on save
 }
 
+// hasComments reports whether the sheet actually carries any comment (a legacy
+// note or a threaded comment), whether parsed from the opened package or added
+// this session. Unlike a s.comments != nil check it stays false after a
+// read-only Comments()/Cell.Comment() call on a comment-free sheet, which
+// lazily creates an empty s.comments (C284): a mere inspection must not disable
+// writers (e.g. AddOLEObject) that guard on the sheet owning its legacy VML.
+func (s *Sheet) hasComments() bool {
+	sc := s.comments
+	if sc == nil {
+		return false
+	}
+	if sc.mutated {
+		return true
+	}
+	if sc.legacy != nil && len(sc.legacy.Comments) > 0 {
+		return true
+	}
+	if sc.threaded != nil && len(sc.threaded.Comments) > 0 {
+		return true
+	}
+	return false
+}
+
 // loadComments parses the sheet's existing comment parts (legacy, threaded) and
 // resolves the related part names and relationship ids. It is idempotent.
 func (s *Sheet) loadComments() {
