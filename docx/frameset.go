@@ -21,8 +21,10 @@ const defaultWebSettingsPart = "/word/webSettings.xml"
 const relTypeFrame = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/frame"
 
 // Frameset is a web-layout frameset (w:frameset): a recursive split of the
-// window into rows or columns of frames and nested framesets. Framesets are
-// read-only in this API; the web-settings part is preserved verbatim on save.
+// window into rows or columns of frames and nested framesets. Frameset reads
+// the existing tree; SetFrameset authors one (regenerating, or newly creating,
+// the web-settings part on save). A web-settings part that this session never
+// touches is preserved verbatim.
 type Frameset struct {
 	size      string
 	layout    string

@@ -452,8 +452,6 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		switch {
 		case strings.HasSuffix(name, ".rels"):
 			continue
-		case name == mainPartName:
-			continue
 		case name == "/docProps/core.xml":
 			continue
 		case name == "/docProps/app.xml":

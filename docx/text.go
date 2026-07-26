@@ -15,7 +15,7 @@ import (
 //   - the document body, in document order: paragraphs (including the text of
 //     runs nested in hyperlinks, simple fields, tracked insertions, and inline
 //     content controls), tables, and block-level content controls;
-//   - each header and each footer (ordered by relationship id);
+//   - each header and each footer (ordered by part name);
 //   - footnotes, then endnotes;
 //   - text boxes (from the body and from headers/footers).
 //
@@ -107,7 +107,7 @@ func appendLine(sb *strings.Builder, s string) {
 	sb.WriteString(s)
 }
 
-// sortedHeaderParts returns the header parts ordered by relationship id so
+// sortedHeaderParts returns the header parts ordered by part name so
 // Text() is deterministic (the headers map has no inherent order).
 func (d *Document) sortedHeaderParts() []*headerPart {
 	keys := make([]string, 0, len(d.headers))
@@ -122,7 +122,7 @@ func (d *Document) sortedHeaderParts() []*headerPart {
 	return out
 }
 
-// sortedFooterParts returns the footer parts ordered by relationship id.
+// sortedFooterParts returns the footer parts ordered by part name.
 func (d *Document) sortedFooterParts() []*footerPart {
 	keys := make([]string, 0, len(d.footers))
 	for k := range d.footers {

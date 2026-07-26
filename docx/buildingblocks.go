@@ -27,8 +27,9 @@ const defaultGlossaryPart = "/word/glossary/document.xml"
 
 // BuildingBlock is one entry of the glossary document (a w:docPart) — a reusable
 // content fragment such as an AutoText entry, a cover page, or a header/footer
-// gallery item. Building blocks are read-only in this API; the glossary part is
-// preserved verbatim on save.
+// gallery item. BuildingBlocks reads the existing entries; AddBuildingBlock
+// authors new ones (regenerating, or newly creating, the glossary part on
+// save). A glossary part that this session never touches is preserved verbatim.
 type BuildingBlock struct {
 	name        string
 	gallery     string

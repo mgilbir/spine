@@ -217,11 +217,6 @@ func (d *Document) RemoveWatermark() bool {
 			removed = true
 		}
 	}
-	for _, hp := range d.newHeaderParts {
-		if h, ok := d.headers[hp.partName]; ok && h.hdr != nil {
-			removeWatermarkParagraphs(h.hdr)
-		}
-	}
 	return removed
 }
 
