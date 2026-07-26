@@ -1497,6 +1497,14 @@ func (s *Slide) Duplicate() *Slide {
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
+	// Embed any pending image data now, before the XML snapshot below: images
+	// are normally embedded at save (processPendingImages), so duplicating an
+	// unsaved slide with an added picture would otherwise snapshot a blip with
+	// no r:embed and no image relationship, and the duplicate would render
+	// blank (C256, the image analogue of the C193 autoplay-timing fix). This
+	// embeds into the source slide too, which is correct — its own save then
+	// finds nothing pending. Best-effort: a real failure surfaces at save.
+	_ = s.processPendingImages()
 	// Build any pending auto-play timing tree now, before the XML snapshot
 	// below: timing is normally built at save, so duplicating an unsaved
 	// slide with auto-play media would otherwise snapshot a tree-less slide
