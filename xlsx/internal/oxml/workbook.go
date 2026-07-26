@@ -44,7 +44,11 @@ type CT_Workbook struct {
 	FileVersion        *CT_FileVersion         `xml:"fileVersion,omitempty"`
 	WorkbookPr         *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
 	WorkbookProtection *CT_WorkbookProtection  `xml:"workbookProtection,omitempty"`
-	AlternateContent   *coxml.AlternateContent `xml:"-"` // mc:AlternateContent child element
+	// AlternateContent holds every root-level mc:AlternateContent block in
+	// source order. The element is repeatable; a single pointer collapsed two
+	// distinct blocks to the last while both ChildOrder entries remained, so a
+	// zero-mod save duplicated one and lost the other (C319).
+	AlternateContent []*coxml.AlternateContent `xml:"-"`
 	BookViews          *CT_BookViews           `xml:"bookViews,omitempty"`
 	Sheets             CT_Sheets               `xml:"sheets"`
 	DefinedNames       *CT_DefinedNames        `xml:"definedNames,omitempty"`
@@ -174,10 +178,11 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				}
 				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookProtection)
 			case "AlternateContent":
-				wb.AlternateContent = &coxml.AlternateContent{}
-				if err := d.DecodeElement(wb.AlternateContent, &t); err != nil {
+				ac := &coxml.AlternateContent{}
+				if err := d.DecodeElement(ac, &t); err != nil {
 					return err
 				}
+				wb.AlternateContent = append(wb.AlternateContent, ac)
 				wb.ChildOrder = append(wb.ChildOrder, wbChildAlternateContent)
 			case "bookViews":
 				wb.BookViews = &CT_BookViews{}

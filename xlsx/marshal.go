@@ -60,6 +60,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 
 // marshalWorkbookChildrenOrdered marshals workbook children in their original order.
 func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
+	acIdx := 0
 	for _, childName := range wb.ChildOrder {
 		switch {
 		case childName == "fileVersion" && wb.FileVersion != nil:
@@ -68,8 +69,9 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
 		case childName == "workbookProtection" && wb.WorkbookProtection != nil:
 			marshalWorkbookProtection(b, wb.WorkbookProtection)
-		case childName == "AlternateContent" && wb.AlternateContent != nil:
-			wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
+		case childName == "AlternateContent" && acIdx < len(wb.AlternateContent):
+			wb.AlternateContent[acIdx].MarshalToBuilder(b, nsSML, "AlternateContent")
+			acIdx++
 		case childName == "bookViews" && wb.BookViews != nil:
 			b.MarshalElement(nsSML, "bookViews", wb.BookViews)
 		case childName == "sheets":
@@ -109,8 +111,8 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	if wb.WorkbookProtection != nil {
 		marshalWorkbookProtection(b, wb.WorkbookProtection)
 	}
-	if wb.AlternateContent != nil {
-		wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
+	for _, ac := range wb.AlternateContent {
+		ac.MarshalToBuilder(b, nsSML, "AlternateContent")
 	}
 	if wb.BookViews != nil {
 		b.MarshalElement(nsSML, "bookViews", wb.BookViews)
