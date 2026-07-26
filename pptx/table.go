@@ -33,9 +33,9 @@ type Table struct {
 	propsDirty  bool
 
 	// sourceFrame is the graphic frame this table was parsed from, when the
-	// slide was loaded from a file. Mutations to a loaded table do not reach
-	// the slide XML automatically (the slide keeps its parsed tree); call
-	// SyncXML after mutating rows or cells.
+	// slide was loaded from a file. Saving auto-flushes unflushed row/cell edits
+	// into this frame (via the shape sync), so calling SyncXML is optional; it
+	// is only needed to force the flush earlier, or to take the full-regen path.
 	sourceFrame *oxml.GraphicFrame
 }
 
@@ -44,6 +44,10 @@ type Table struct {
 // present (tables created via AddTable have none and are marshaled from the
 // domain automatically). Parsed styling the domain model does not represent
 // (cell margins, table style references) is carried over for surviving cells.
+//
+// Calling SyncXML is optional: a save auto-flushes unflushed row/cell edits
+// into the parsed frame. Call it only to flush earlier, or to force the
+// full-regeneration path rather than the in-place patch.
 func (t *Table) SyncXML() bool {
 	if t.sourceFrame == nil || t.sourceFrame.Graphic == nil || t.sourceFrame.Graphic.GraphicData == nil {
 		return false

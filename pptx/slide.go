@@ -716,7 +716,8 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 		case *Table:
 			gf := tableToOxml(sh, id)
 			spTree.AppendGraphicFrame(gf)
-			// Later row/cell mutations reach the XML via SyncXML.
+			// Later row/cell mutations are auto-flushed into this frame on save
+			// (SyncXML forces the flush earlier but is not required).
 			sh.sourceFrame = gf
 			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *ChartFrame:

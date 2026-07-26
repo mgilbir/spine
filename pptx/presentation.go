@@ -2224,11 +2224,10 @@ func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
 	p.relationships[targetPart] = cloned
 }
 
-// AddSlideWithLayout adds a new slide using the specified layout.
+// AddSlideWithLayout adds a new slide using the specified layout. It is an
+// alias for AddSlideFromLayout, kept for API compatibility.
 func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
-	slide := p.AddSlide()
-	slide.layout = layout
-	return slide
+	return p.AddSlideFromLayout(layout)
 }
 
 // RemoveSlide removes the slide at the specified index. Parts owned
