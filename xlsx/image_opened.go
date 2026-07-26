@@ -48,6 +48,11 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels m
 	w.pendingPivotCaches = nil
 
 	for i, sheet := range w.sheets {
+		// Opaque sheets (chartsheet/dialogsheet/macrosheet) are preserved verbatim
+		// and carry no worksheet model to attach drawings/tables/etc. to (C241).
+		if sheet.opaque {
+			continue
+		}
 		hasImages := len(sheet.images) > 0
 		hasCharts := len(sheet.charts) > 0
 		hasComments := sheet.comments != nil && sheet.comments.mutated

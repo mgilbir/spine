@@ -59,6 +59,13 @@ const (
 	ContentTypeWorkbookTemplateMacroMain = "application/vnd.ms-excel.template.macroEnabled.main+xml"
 	ContentTypeWorkbookAddinMacroMain    = "application/vnd.ms-excel.addin.macroEnabled.main+xml"
 	ContentTypeWorksheet                 = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"
+	// Non-worksheet sheet-part content types. A workbook <sheet> entry may resolve
+	// to a chartsheet, dialogsheet or (Excel 4.0) macrosheet part instead of a
+	// worksheet; these are preserved opaquely rather than parsed as worksheets.
+	ContentTypeChartsheet     = "application/vnd.openxmlformats-officedocument.spreadsheetml.chartsheet+xml"
+	ContentTypeDialogsheet    = "application/vnd.openxmlformats-officedocument.spreadsheetml.dialogsheet+xml"
+	ContentTypeMacrosheet     = "application/vnd.ms-excel.macrosheet+xml"
+	ContentTypeIntlMacrosheet = "application/vnd.ms-excel.intlmacrosheet+xml"
 	ContentTypeSharedStrings             = "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"
 	ContentTypeStyles                    = "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"
 	// ContentTypeTable is the SpreadsheetML table (ListObject) part content

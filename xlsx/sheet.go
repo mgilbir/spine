@@ -85,6 +85,11 @@ type Sheet struct {
 	// state is the workbook-level sheet visibility ("", "hidden" or
 	// "veryHidden"). AddChart marks its dedicated data sheet "hidden".
 	state string
+	// opaque marks a non-worksheet sheet (chartsheet/dialogsheet/macrosheet). Its
+	// part is preserved verbatim and never parsed or regenerated as a worksheet;
+	// the worksheet mutation API (Cell, SetCellValue, ...) refuses it and the save
+	// path keeps its own relationship and bytes untouched (C241).
+	opaque bool
 	// pendingHyperlinkRels are External hyperlink relationships added via
 	// SetHyperlink that must be merged into the sheet's .rels on save. Their ids
 	// are already baked into the matching <hyperlink r:id> in the worksheet model.
@@ -134,6 +139,11 @@ func (s *Sheet) Index() int {
 // The reference is canonicalized (case and leading zeros normalized), so
 // "a1" and "A01" address the same cell as "A1" (C126).
 func (s *Sheet) Cell(ref string) (*Cell, error) {
+	// A chartsheet/dialogsheet/macrosheet has no worksheet cell grid; refuse the
+	// write rather than overwrite its preserved part with a <worksheet> root (C241).
+	if s.opaque {
+		return nil, ErrNotWorksheet
+	}
 	s.ensureWS()
 	s.ws().EnsureChildOrder("sheetData")
 
@@ -724,7 +734,10 @@ func (s *Sheet) ensureWorksheet() {
 }
 
 func (s *Sheet) markDirty() {
-	if s != nil {
+	// An opaque (non-worksheet) sheet is preserved verbatim and never regenerated
+	// from a worksheet model, so it must never be marked dirty — a dirty opaque
+	// sheet would otherwise be treated as a rewritable worksheet on save (C241).
+	if s != nil && !s.opaque {
 		s.dirty = true
 	}
 }
