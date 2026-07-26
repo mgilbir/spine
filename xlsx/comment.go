@@ -308,11 +308,50 @@ func (s *Sheet) threadedToComment(tc *oxml.CT_ThreadedComment) *Comment {
 // cell has none. A threaded comment takes precedence over a legacy note.
 func (c *Cell) Comment() *Comment {
 	for _, cm := range c.sheet.Comments() {
-		if cm.ref == c.cell.R {
+		if strings.EqualFold(cm.ref, c.cell.R) {
 			return cm
 		}
 	}
 	return nil
+}
+
+// canonicalCellRef validates a cell reference and returns it in canonical
+// upper-case A1 form (e.g. "a1" -> "A1"). It reports ok=false for a
+// syntactically invalid ref, so the comment-authoring API can reject one rather
+// than emit a note with an unparseable or ref-less anchor.
+func canonicalCellRef(ref string) (string, bool) {
+	row, col, err := ParseCellRef(ref)
+	if err != nil {
+		return "", false
+	}
+	return FormatCellRef(row, col), true
+}
+
+// removeCommentsAt drops every legacy note and threaded comment (a thread root
+// and its replies) anchored to ref, matched case-insensitively, so a new
+// comment on that cell replaces rather than duplicates the existing one.
+func (s *Sheet) removeCommentsAt(ref string) {
+	if s.comments == nil {
+		return
+	}
+	if lc := s.comments.legacy; lc != nil {
+		kept := lc.Comments[:0]
+		for _, cm := range lc.Comments {
+			if !strings.EqualFold(cm.Ref, ref) {
+				kept = append(kept, cm)
+			}
+		}
+		lc.Comments = kept
+	}
+	if tc := s.comments.threaded; tc != nil {
+		kept := tc.Comments[:0]
+		for _, cm := range tc.Comments {
+			if !strings.EqualFold(cm.Ref, ref) {
+				kept = append(kept, cm)
+			}
+		}
+		tc.Comments = kept
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +374,11 @@ func (s *Sheet) AddComment(ref, author, text string) *Comment {
 }
 
 func (s *Sheet) addComment(ref, author, text string) *Comment {
+	canon, ok := canonicalCellRef(ref)
+	if !ok {
+		return nil
+	}
+	ref = canon
 	s.loadComments()
 	if s.comments.threaded == nil {
 		s.comments.threaded = &oxml.CT_ThreadedComments{}
@@ -342,6 +386,11 @@ func (s *Sheet) addComment(ref, author, text string) *Comment {
 	if s.comments.legacy == nil {
 		s.comments.legacy = &oxml.CT_Comments{}
 	}
+
+	// Replace any comment already anchored to this cell so a repeated AddComment
+	// (or one using a case-variant ref such as "a1" then "A1") does not emit two
+	// <comment ref="A1"> entries and two threaded roots on one cell (C288).
+	s.removeCommentsAt(ref)
 
 	person := s.workbook.ensurePerson(author)
 	id := newGUID()
@@ -380,10 +429,16 @@ func (s *Sheet) addComment(ref, author, text string) *Comment {
 // cell at ref, returning it. Unlike AddComment it creates no threaded comment
 // or person entry; use it when only the classic note mechanism is wanted.
 func (s *Sheet) AddNote(ref, author, text string) *Comment {
+	canon, ok := canonicalCellRef(ref)
+	if !ok {
+		return nil
+	}
+	ref = canon
 	s.loadComments()
 	if s.comments.legacy == nil {
 		s.comments.legacy = &oxml.CT_Comments{}
 	}
+	s.removeCommentsAt(ref)
 	authorID := s.comments.legacy.AuthorIndex(author)
 	s.comments.legacy.Comments = append(s.comments.legacy.Comments, oxml.CT_Comment{
 		Ref:      ref,
@@ -399,10 +454,16 @@ func (s *Sheet) AddNote(ref, author, text string) *Comment {
 // set its own font; a nil run font leaves the run in the note's default font.
 // Text on the returned comment reads back the flattened plain text.
 func (s *Sheet) AddNoteRichText(ref, author string, runs []TextRun) *Comment {
+	canon, ok := canonicalCellRef(ref)
+	if !ok {
+		return nil
+	}
+	ref = canon
 	s.loadComments()
 	if s.comments.legacy == nil {
 		s.comments.legacy = &oxml.CT_Comments{}
 	}
+	s.removeCommentsAt(ref)
 	authorID := s.comments.legacy.AuthorIndex(author)
 	s.comments.legacy.Comments = append(s.comments.legacy.Comments, oxml.CT_Comment{
 		Ref:      ref,

@@ -253,3 +253,58 @@ func TestAddOLEThenCommentSingleLegacyVML(t *testing.T) {
 		t.Errorf("comment count after round trip = %d, want 1", got)
 	}
 }
+
+// TestAddCommentRefValidation is the C288 regression: AddComment must canonicalize
+// its cell ref and replace an existing comment on the same cell (no duplicates),
+// and must reject a syntactically invalid ref rather than emit a ref-less note.
+func TestAddCommentRefValidation(t *testing.T) {
+	w := Create()
+	s := w.AddSheet("Sheet1")
+	if _, err := s.Cell("A1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A case-variant duplicate must collapse to one comment on A1.
+	if c := s.AddComment("a1", "First", "one"); c == nil || c.Ref() != "A1" {
+		t.Fatalf("AddComment(a1) = %+v, want canonical ref A1", c)
+	}
+	if c := s.AddComment("A1", "Second", "two"); c == nil || c.Ref() != "A1" {
+		t.Fatalf("AddComment(A1) = %+v", c)
+	}
+
+	// An invalid ref is rejected (nil), not accepted as a ref-less note.
+	if c := s.AddComment("NOTACELL", "Third", "bad"); c != nil {
+		t.Errorf("AddComment(NOTACELL) = %+v, want nil", c)
+	}
+
+	if got := len(s.Comments()); got != 1 {
+		t.Fatalf("comment count = %d, want 1 (duplicate replaced, invalid rejected)", got)
+	}
+
+	out, err := w.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	legacy := string(readZipPart(t, out, "xl/comments1.xml"))
+	if n := strings.Count(legacy, `ref="A1"`); n != 1 {
+		t.Errorf("legacy comments has %d <comment ref=\"A1\">, want 1:\n%s", n, legacy)
+	}
+	threaded := string(readZipPart(t, out, "xl/threadedComments/threadedComment1.xml"))
+	if n := strings.Count(threaded, `ref="A1"`); n != 1 {
+		t.Errorf("threaded comments has %d ref=\"A1\", want 1:\n%s", n, threaded)
+	}
+
+	// Reopen: exactly one comment, and Cell.Comment resolves it case-insensitively.
+	rw, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	s2, _ := rw.Sheet(0)
+	if got := len(s2.Comments()); got != 1 {
+		t.Errorf("comment count after round trip = %d, want 1", got)
+	}
+	cell, _ := s2.Cell("A1")
+	if cm := cell.Comment(); cm == nil || cm.Text() != "two" {
+		t.Errorf("Cell(A1).Comment() = %+v, want the replacement text \"two\"", cm)
+	}
+}
