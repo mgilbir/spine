@@ -61,18 +61,20 @@ harvest-batch: build
 		-scratch $(HARVEST_SCRATCH) \
 		-batch $(HARVEST_BATCH) -workers $(HARVEST_WORKERS) -timeout $(HARVEST_TIMEOUT)
 
-# Fuzz smoke run: every fuzz target for a short fixed time. Deeper fuzzing is
-# -fuzztime-driven; see CONTRIBUTING.md ("Fuzzing").
+# Fuzz smoke run: discovers every fuzz target at run time (open-path plus
+# write-path/API fuzzers) and runs each for a short fixed time, so a newly
+# added target is picked up automatically. Deeper fuzzing is -fuzztime-driven;
+# see CONTRIBUTING.md ("Fuzzing").
 FUZZTIME ?= 30s
 fuzz:
-	go test ./opc -run '^$$' -fuzz '^FuzzNewReader$$' -fuzztime $(FUZZTIME)
-	go test ./opc -run '^$$' -fuzz '^FuzzOpcMetadataXML$$' -fuzztime $(FUZZTIME)
-	go test ./pptx -run '^$$' -fuzz '^FuzzOpenPptx$$' -fuzztime $(FUZZTIME)
-	go test ./pptx -run '^$$' -fuzz '^FuzzPptxSlideXML$$' -fuzztime $(FUZZTIME)
-	go test ./docx -run '^$$' -fuzz '^FuzzOpenDocx$$' -fuzztime $(FUZZTIME)
-	go test ./docx -run '^$$' -fuzz '^FuzzDocxDocumentXML$$' -fuzztime $(FUZZTIME)
-	go test ./xlsx -run '^$$' -fuzz '^FuzzOpenXlsx$$' -fuzztime $(FUZZTIME)
-	go test ./xlsx -run '^$$' -fuzz '^FuzzXlsxWorksheetXML$$' -fuzztime $(FUZZTIME)
+	@set -e; \
+	pkgs=$$(grep -rl '^func Fuzz' --include='*_test.go' . | xargs -n1 dirname | sed 's,^\./,,' | sort -u); \
+	for pkg in $$pkgs; do \
+		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
+			echo "==> ./$$pkg $$target"; \
+			go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) || exit 1; \
+		done; \
+	done
 
 # Requires golangci-lint v2.x; a v1 binary rejects .golangci.yml.
 # Lint covers the whole module, including tools/ccfetch and cctest.
