@@ -14,14 +14,18 @@ type CT_Legacy struct {
 	LegacyIndent string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main legacyIndent,attr,omitempty"`
 }
 
-// CT_DirContentRun represents a direction content run (w:dir).
+// CT_DirContentRun represents a direction content run (w:dir). The content
+// paths do not decode into this type — w:dir is raw-preserved via isRawPChild so
+// its runs survive verbatim — but it documents the model's spec coverage of the
+// element (see spec_test.go).
 type CT_DirContentRun struct {
 	Val string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 	R   []*CT_R `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main r,omitempty"`
 	P   []*CT_P `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main p,omitempty"`
 }
 
-// CT_BdoContentRun represents a bidirectional override run (w:bdo).
+// CT_BdoContentRun represents a bidirectional override run (w:bdo). Like
+// CT_DirContentRun it is a spec-coverage stand-in; w:bdo is raw-preserved.
 type CT_BdoContentRun struct {
 	Val string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main val,attr,omitempty"`
 	R   []*CT_R `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main r,omitempty"`

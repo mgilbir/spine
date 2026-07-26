@@ -66,3 +66,24 @@ func TestNestedOMathPreservedOnSave(t *testing.T) {
 		t.Error("oMath re-emitted unprefixed")
 	}
 }
+
+// C260: w:dir / w:bdo are EG_PContent bidi-embedding wrappers holding run
+// content. Untyped by the model, they hit the default d.Skip() in
+// CT_P.UnmarshalXML, so the visible text inside was deleted on any regeneration.
+// The wrapper and its runs must survive verbatim.
+func TestBidiWrapperPreservedOnSave(t *testing.T) {
+	const dir = `<w:dir w:val="rtl"><w:r><w:t>shalom</w:t></w:r></w:dir>`
+	const bdo = `<w:bdo w:val="ltr"><w:r><w:t>abc</w:t></w:r></w:bdo>`
+	body := `<w:body>` +
+		`<w:p>` + dir + `</w:p>` +
+		`<w:p>` + bdo + `</w:p>` +
+		`<w:sectPr/></w:body>`
+	fixture := fixtureWithDocument(t, fixtureWNS, body)
+	doc := openRegenSave(t, fixture)
+
+	for _, want := range []string{dir, bdo, "shalom", "abc"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("saved document.xml lost bidi wrapper content: %s\ngot: %s", want, doc)
+		}
+	}
+}

@@ -104,7 +104,13 @@ func isRawPChild(local string) bool {
 		"br",
 		"contentPart",
 		"oMath", "oMathPara",
+		"dir", "bdo",
 		"commentRangeStart", "commentRangeEnd":
+		// w:dir / w:bdo are the EG_PContent bidi-embedding wrappers (LTR/RTL
+		// override) holding run content. Untyped by the model, they hit the
+		// default d.Skip() in every content path, deleting the visible text
+		// inside on any regeneration; raw capture preserves the wrapper and its
+		// runs verbatim.
 		// m:oMath / m:oMathPara are EG_PContent members the shared content path
 		// (w:hyperlink, w:ins, w:del, w:fldSimple, run-level w:sdt) does not
 		// type — Word writes them when an equation is inserted with track-changes
