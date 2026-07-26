@@ -182,6 +182,19 @@ func (d *Document) mainPart() string {
 	return mainDocumentPart
 }
 
+// corePropertiesPartName returns the package part the core-properties
+// relationship resolves to (usually /docProps/core.xml, but System.IO.Packaging
+// producers point it at a *.psmdcp part). Returns "" when the package declares
+// no core-properties relationship.
+func (d *Document) corePropertiesPartName() string {
+	for _, rel := range d.relationships["/"] {
+		if rel != nil && rel.Type == opc.RelTypeCore {
+			return opc.ResolvePartName("/", rel.Target)
+		}
+	}
+	return ""
+}
+
 // doc returns the parsed main-document body, parsing it lazily from the
 // original main-part bytes on first access. Marking docParsed means the save
 // will regenerate the part from the model (still byte-identical for an
@@ -691,9 +704,34 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// *.psmdcp part instead; that part round-trips verbatim among the
 	// preserved parts, and setting writer.Properties would synthesize a
 	// docProps/core.xml the source never had.
+	//
+	// When the core properties live in such a non-standard part AND the session
+	// edited them, the edit is written back into that part below (retargeting
+	// writer.Properties to /docProps/core.xml would orphan it: the preserved
+	// root .rels still points at the original part, so the reader would read the
+	// stale copy and the package would carry two core-property parts, C294).
+	corePropsEdited := d.hasCoreProps && !d.Properties.Equal(d.propsSnapshot)
+	corePartName := d.corePropertiesPartName()
+	_, hasPsmdcpCorePart := d.preservedParts[corePartName]
+	psmdcpCore := corePartName != "" && corePartName != "/docProps/core.xml" && hasPsmdcpCorePart
 	_, hasCorePart := d.preservedParts["/docProps/core.xml"]
-	if d.hasCoreProps && (hasCorePart || !d.Properties.Equal(d.propsSnapshot)) {
+	if d.hasCoreProps && (hasCorePart || corePropsEdited) && !psmdcpCore {
 		writer.Properties = &d.Properties
+	}
+
+	// Regenerated core-property bytes for a non-standard (e.g. *.psmdcp) core
+	// part whose properties the session edited. Written in place of the
+	// preserved bytes below, keeping the root .rels target and the content-type
+	// override unchanged.
+	regenCoreName := ""
+	var regenCoreData []byte
+	if psmdcpCore && corePropsEdited {
+		data, err := d.Properties.Marshal()
+		if err != nil {
+			return err
+		}
+		regenCoreName = corePartName
+		regenCoreData = data
 	}
 
 	// Custom properties: an unmodified docProps/custom.xml round-trips as its
@@ -829,6 +867,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == themeName {
 			continue
 		}
+		// Regenerated below from the edited core properties (a non-standard,
+		// e.g. *.psmdcp, core part whose bytes carry the edited props).
+		if name == regenCoreName {
+			continue
+		}
 		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
@@ -837,6 +880,15 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// Write the regenerated theme part (only when the session edited it).
 	if themeData != nil {
 		if err := writer.WritePreservedPart(themeName, d.preservedParts[themeName].ContentType, themeData); err != nil {
+			return err
+		}
+	}
+
+	// Write the edited core properties back into their non-standard source part
+	// (keeping the root .rels target and content-type override), so the reader
+	// reads the edit and the package keeps exactly one core-property part.
+	if regenCoreData != nil {
+		if err := writer.WritePreservedPart(regenCoreName, d.preservedParts[regenCoreName].ContentType, regenCoreData); err != nil {
 			return err
 		}
 	}
