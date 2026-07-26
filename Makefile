@@ -27,7 +27,7 @@ test: fetch
 test-corpus:
 	SPINE_CC_FULL=1 go test ./cctest -count=1 -timeout 45m
 
-# --- Batched multi-crawl harvest (see testdata/cc/README.md) ---------------
+# --- Batched multi-crawl harvest (see testdata/cc/HARVEST.md) ---------------
 #
 # harvest-sweep regenerates the committed 10k/type reference manifests by
 # sweeping several recent crawls and deduplicating across them. Cheap DuckDB
@@ -42,7 +42,7 @@ harvest-sweep:
 # systemd-run scope: a memory-blowing file is OOM-killed by the kernel (the
 # worker is the largest process) while the lightweight orchestrator survives
 # and records it. Loop this target while the ledger still has unprocessed rows
-# (see the resume loop in testdata/cc/README.md). Everything is overridable.
+# (see the resume loop in testdata/cc/HARVEST.md). Everything is overridable.
 HARVEST_MEMMAX  ?= 2G
 HARVEST_CPU     ?= 200%
 HARVEST_BATCH   ?= 2000
