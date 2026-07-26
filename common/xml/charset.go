@@ -43,6 +43,63 @@ func CharsetReader(charset string, in io.Reader) (io.Reader, error) {
 	}
 }
 
+// charsetTranscodes reports whether CharsetReader will wrap a stream declaring
+// charset in a transcoder (rather than returning it unchanged). The ASCII-
+// compatible encodings pass through untouched; every other supported encoding
+// is a single-byte code page that gets transcoded, which shifts the decoder's
+// InputOffset off the original source bytes.
+func charsetTranscodes(charset string) bool {
+	switch strings.ToLower(strings.TrimSpace(charset)) {
+	case "", "utf-8", "utf8", "us-ascii", "ascii", "usascii", "ansi_x3.4-1968":
+		return false
+	default:
+		return true
+	}
+}
+
+// declaredCharset returns the encoding named in data's XML declaration, or ""
+// when the part has no declaration or no encoding pseudo-attribute. It reads
+// only the declaration bytes; the value is not validated against the supported
+// set (charsetTranscodes handles that).
+func declaredCharset(data []byte) string {
+	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
+		data = data[3:]
+	}
+	if !bytes.HasPrefix(data, []byte("<?xml")) {
+		return ""
+	}
+	end := bytes.Index(data, []byte("?>"))
+	if end < 0 {
+		return ""
+	}
+	decl := data[:end]
+	idx := bytes.Index(decl, []byte("encoding"))
+	if idx < 0 {
+		return ""
+	}
+	rest := decl[idx+len("encoding"):]
+	skipSpace := func() {
+		for len(rest) > 0 && isXMLSpace(rest[0]) {
+			rest = rest[1:]
+		}
+	}
+	skipSpace()
+	if len(rest) == 0 || rest[0] != '=' {
+		return ""
+	}
+	rest = rest[1:]
+	skipSpace()
+	if len(rest) == 0 || (rest[0] != '"' && rest[0] != '\'') {
+		return ""
+	}
+	quote := rest[0]
+	rest = rest[1:]
+	if q := bytes.IndexByte(rest, quote); q >= 0 {
+		return string(rest[:q])
+	}
+	return ""
+}
+
 // NewDecoder returns an [xml.Decoder] with the library's CharsetReader
 // installed, so parts declaring a non-UTF-8 (but supported) charset decode
 // instead of failing.

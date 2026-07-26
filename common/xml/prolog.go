@@ -77,9 +77,43 @@ func CaptureProlog(data []byte) Prolog {
 		p.Sep = string(data[i:pos])
 		break
 	}
-	if gt := bytes.LastIndexByte(data, '>'); gt >= 0 {
-		if gt+1 < len(data) {
-			p.Trailer = string(data[gt+1:])
+	// Locate the document element's end tag by skipping any trailing
+	// miscellaneous content (whitespace, comments, PIs) that may legally follow
+	// the root. A naive last-'>' lands inside a trailing comment whose body
+	// contains "</" (e.g. "<!-- made </by> tool -->") and would capture that
+	// garbage as RootEnd, then regenerate a malformed close tag.
+	k := len(data)
+	for {
+		j := k
+		for j > 0 && isXMLSpace(data[j-1]) {
+			j--
+		}
+		if j >= 3 && bytes.Equal(data[j-3:j], []byte("-->")) {
+			start := bytes.LastIndex(data[:j], []byte("<!--"))
+			if start < 0 {
+				break
+			}
+			k = start
+			continue
+		}
+		if j >= 2 && bytes.Equal(data[j-2:j], []byte("?>")) {
+			start := bytes.LastIndex(data[:j], []byte("<?"))
+			if start < 0 {
+				break
+			}
+			k = start
+			continue
+		}
+		k = j
+		break
+	}
+	// k now indexes just past the document element's '>'. Anything after it is
+	// trailing misc (the Trailer). Bail out (canonical close, no trailer) if the
+	// tail is not a proper element close, rather than slicing garbage.
+	if k > 0 && data[k-1] == '>' {
+		gt := k - 1
+		if k < len(data) {
+			p.Trailer = string(data[k:])
 		}
 		if lt := bytes.LastIndex(data[:gt], []byte("</")); lt >= 0 {
 			end := data[lt : gt+1]

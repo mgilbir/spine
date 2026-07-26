@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"reflect"
 )
@@ -169,9 +170,25 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 				post := d.InputOffset()
 				if pre >= 0 && post <= int64(len(src)) && pre < post {
 					cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
-					cap.Raw = append(cap.Raw, src[pre:post])
+					// Clone: retaining a sub-slice of src would pin the whole
+					// part in memory for the model's lifetime (see C282).
+					cap.Raw = append(cap.Raw, bytes.Clone(src[pre:post]))
 				}
 			}
+		case xml.Comment, xml.ProcInst:
+			// Comments and processing instructions between children are part of
+			// the source the capture kit exists to preserve; without this they
+			// fall through and are silently dropped even on a zero-mod save.
+			// Keep them as verbatim raw children in document order.
+			if src == nil {
+				continue
+			}
+			post := d.InputOffset()
+			if pre < 0 || post > int64(len(src)) || pre >= post {
+				continue
+			}
+			cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+			cap.Raw = append(cap.Raw, bytes.Clone(src[pre:post]))
 		case xml.CharData:
 			// Whitespace between children (pretty-printed property bags) is
 			// captured verbatim from the raw source — the token itself is
@@ -188,7 +205,9 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 				continue
 			}
 			cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
-			cap.Raw = append(cap.Raw, raw)
+			// Clone: retaining a sub-slice of src would pin the whole part in
+			// memory for the model's lifetime (see C282).
+			cap.Raw = append(cap.Raw, bytes.Clone(raw))
 		case xml.EndElement:
 			if len(cap.Order) > 0 {
 				setCapturedChildren(val, cap)

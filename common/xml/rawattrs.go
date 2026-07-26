@@ -274,7 +274,14 @@ func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, 
 		if d.URI == "" {
 			continue
 		}
-		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: d.URI, wasDeclared: b.declaredNamespaces[d.URI]})
+		prev, had := b.namespaces[d.URI]
+		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{
+			uri:           d.URI,
+			wasDeclared:   b.declaredNamespaces[d.URI],
+			restorePrefix: true,
+			prevPrefix:    prev,
+			hadPrefix:     had,
+		})
 		b.namespaces[d.URI] = d.Prefix
 		b.declaredNamespaces[d.URI] = true
 	}

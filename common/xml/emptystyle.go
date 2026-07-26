@@ -49,8 +49,17 @@ var decoderSources sync.Map
 func UnmarshalWithSource(data []byte, v interface{}) error {
 	d := xml.NewDecoder(bytes.NewReader(data))
 	d.CharsetReader = CharsetReader
-	decoderSources.Store(d, data)
-	defer decoderSources.Delete(d)
+	// A non-UTF-8 charset declaration makes CharsetReader transcode the stream,
+	// so the decoder's InputOffset would index the transcoded UTF-8 bytes while
+	// data holds the original source — every offset-based capture helper would
+	// then slice the wrong (shifted) bytes and replay garbage. Skip registering
+	// the source in that case so the helpers cleanly fall back to canonical
+	// regeneration; such parts round-trip via preserved raw bytes, not offset
+	// capture.
+	if !charsetTranscodes(declaredCharset(data)) {
+		decoderSources.Store(d, data)
+		defer decoderSources.Delete(d)
+	}
 	return d.Decode(v)
 }
 
