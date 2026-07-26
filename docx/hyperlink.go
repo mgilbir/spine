@@ -74,7 +74,27 @@ func (h *Hyperlink) Text() string {
 }
 
 // SetTooltip sets the hyperlink's screen-tip.
-func (h *Hyperlink) SetTooltip(tooltip string) { h.h.Tooltip = tooltip }
+func (h *Hyperlink) SetTooltip(tooltip string) {
+	h.touch()
+	h.h.Tooltip = tooltip
+}
+
+// touch flags the header/footer part this hyperlink belongs to as modified, so
+// an edit made through a live handle into a reopened header/footer is written
+// back instead of being masked by the preserved original bytes. A no-op for
+// hyperlinks in the main document part.
+func (h *Hyperlink) touch() {
+	if h == nil {
+		return
+	}
+	if h.para != nil {
+		h.para.touch()
+		return
+	}
+	if h.document != nil {
+		h.document.markHdrFtrModified(h.part)
+	}
+}
 
 // --- read ---
 
@@ -163,6 +183,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 // resolves to an External relationship (RelTypeHyperlink) in the part's
 // relationships.
 func (p *Paragraph) AddHyperlink(text, url string) *Hyperlink {
+	p.touch()
 	owner := p.ownerPartName()
 	relID := fmt.Sprintf("rId%d", p.document.nextRelID())
 	p.document.addPartRelationship(owner, &opc.Relationship{
@@ -181,6 +202,7 @@ func (p *Paragraph) AddHyperlink(text, url string) *Hyperlink {
 // an in-document bookmark (w:anchor). No relationship is created; compose it
 // with AddBookmark to link to a bookmark added in the same session.
 func (p *Paragraph) AddInternalHyperlink(text, bookmarkName string) *Hyperlink {
+	p.touch()
 	owner := p.ownerPartName()
 	h := &oxml.CT_Hyperlink{Anchor: bookmarkName, History: "1"}
 	h.R = []*oxml.CT_R{newHyperlinkRun(text)}

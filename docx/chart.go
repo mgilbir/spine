@@ -107,6 +107,10 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 
 	drawing := &oxml.CT_Drawing{RawContent: buildChartDrawingXML(int(num), relID, widthEMU, heightEMU)}
 	p.AddRun().r.AppendDrawing(drawing)
+	// A chart added to a reopened header/footer paragraph must regenerate that
+	// part on save so the drawing and its chart relationship are not masked by
+	// the preserved original bytes. A no-op for the main document part.
+	p.touch()
 	return nil
 }
 

@@ -57,6 +57,7 @@ type Anchor struct {
 
 // SetSize sets the image size in points.
 func (img *InlineImage) SetSize(widthPt, heightPt float64) {
+	img.touch()
 	img.widthEMU = int64(math.Round(widthPt * 914400 / 72))
 	img.heightEMU = int64(math.Round(heightPt * 914400 / 72))
 	img.updateDrawingXML()
@@ -64,8 +65,19 @@ func (img *InlineImage) SetSize(widthPt, heightPt float64) {
 
 // SetAltText sets the alt text description for the image.
 func (img *InlineImage) SetAltText(text string) {
+	img.touch()
 	img.altText = text
 	img.updateDrawingXML()
+}
+
+// touch flags the header/footer part this image belongs to as modified, so an
+// edit made through a live handle into a reopened header/footer is written back
+// instead of being masked by the preserved original bytes. A no-op for images
+// in the main document part.
+func (img *InlineImage) touch() {
+	if img != nil && img.run != nil {
+		img.run.touch()
+	}
 }
 
 func (img *InlineImage) updateDrawingXML() {
@@ -371,6 +383,10 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
 	img.drawing = drawing
 	r.r.AppendDrawing(drawing)
+	// A drawing added to a reopened header/footer run must regenerate that part
+	// on save; otherwise the media part and its relationship are written but the
+	// preserved header bytes (lacking the drawing) win, orphaning both.
+	r.touch()
 	return img, nil
 }
 
@@ -413,6 +429,9 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
 	img.drawing = drawing
 	r.r.AppendDrawing(drawing)
+	// See addImageData: flag a reopened header/footer part so its regenerated
+	// bytes carry the new drawing (and its image relationships resolve).
+	r.touch()
 	return img, nil
 }
 
