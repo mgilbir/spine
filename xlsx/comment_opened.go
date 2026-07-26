@@ -45,6 +45,16 @@ func (w *Workbook) writeSheetComments(
 		return id
 	}
 
+	// Capture the sheet's existing legacy VML (which may host form-control or OLE
+	// shapes this sheet's comments do not own) before dropping the superseded
+	// originals, so composeLegacyVML can re-emit those shapes verbatim.
+	var originalVML []byte
+	if sc.vmlPart != "" {
+		if part, ok := w.preservedParts[sc.vmlPart]; ok && part != nil {
+			originalVML = part.Data
+		}
+	}
+
 	// Drop superseded originals so they are not streamed verbatim.
 	for _, name := range []string{sc.commentsPart, sc.vmlPart, sc.threadedPart} {
 		if name != "" {
@@ -58,8 +68,11 @@ func (w *Workbook) writeSheetComments(
 	// Legacy comments + VML drawing (the note boxes). Both are needed together:
 	// the legacy comment is the text, the VML shape is its rendering.
 	if hasLegacy {
-		// Assign VML shape ids and link each comment to its shape.
-		assignShapeIDs(sc.legacy)
+		// Compose the legacy VML, preserving any non-comment shapes (form
+		// controls, OLE pictures) already present and allocating note shape ids
+		// above the max shape id in use. composeLegacyVML also assigns each
+		// comment's ShapeID, so it must run before comments.xml is marshaled.
+		vmlBytes := composeLegacyVML(originalVML, sc.legacy)
 
 		commentsPart := sc.commentsPart
 		if commentsPart == "" {
@@ -81,7 +94,7 @@ func (w *Workbook) writeSheetComments(
 		if err := writer.WritePart(commentsPart, opc.ContentTypeSheetComments, oxml.MarshalComments(sc.legacy)); err != nil {
 			return nil, err
 		}
-		if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, buildCommentVML(sc.legacy)); err != nil {
+		if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, vmlBytes); err != nil {
 			return nil, err
 		}
 
@@ -187,7 +200,18 @@ func relTargetFromSheet(partName string) string {
 // assignShapeIDs assigns sequential VML shape ids to legacy comments, starting
 // at Excel's conventional 1025, when they are not already set.
 func assignShapeIDs(c *oxml.CT_Comments) {
-	next := 1025
+	assignShapeIDsFrom(c, 1025)
+}
+
+// assignShapeIDsFrom assigns sequential VML shape ids to legacy comments that
+// have none, starting at start (clamped to Excel's conventional minimum of
+// 1025). Comments that already carry a ShapeID keep it but still consume a slot,
+// preserving the 1:1 comment-to-shape numbering.
+func assignShapeIDsFrom(c *oxml.CT_Comments, start int) {
+	if start < 1025 {
+		start = 1025
+	}
+	next := start
 	for i := range c.Comments {
 		if c.Comments[i].ShapeID == "" {
 			c.Comments[i].ShapeID = strconv.Itoa(next)

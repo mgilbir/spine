@@ -1,11 +1,22 @@
 package xlsx
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
 	"strings"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
+
+// vmlNoteShapetype is the shared textbox shapetype (_x0000_t202) every legacy
+// comment note shape references. It is emitted once per VML drawing that holds
+// note shapes.
+const vmlNoteShapetype = `<v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202"` + "\n" +
+	`  path="m0,0l0,21600,21600,21600,21600,0xe">` + "\n" +
+	`  <v:stroke joinstyle="miter"/>` + "\n" +
+	`  <v:path gradientshapeok="t" o:connecttype="rect"/>` + "\n" +
+	` </v:shapetype>`
 
 // buildCommentVML renders the legacy VML drawing that gives each legacy comment
 // a note box shape. The output is a valid vmlDrawing part: a shared shapelayout
@@ -24,12 +35,19 @@ func buildCommentVML(c *oxml.CT_Comments) []byte {
 	b.WriteString(` <o:shapelayout v:ext="edit">` + "\n")
 	b.WriteString(`  <o:idmap v:ext="edit" data="1"/>` + "\n")
 	b.WriteString(` </o:shapelayout>`)
-	b.WriteString(`<v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202"` + "\n")
-	b.WriteString(`  path="m0,0l0,21600,21600,21600,21600,0xe">` + "\n")
-	b.WriteString(`  <v:stroke joinstyle="miter"/>` + "\n")
-	b.WriteString(`  <v:path gradientshapeok="t" o:connecttype="rect"/>` + "\n")
-	b.WriteString(` </v:shapetype>`)
+	b.WriteString(vmlNoteShapetype)
+	b.WriteString(buildCommentVMLShapes(c))
+	b.WriteString(`</xml>` + "\n")
+	return []byte(b.String())
+}
 
+// buildCommentVMLShapes renders just the per-comment note box shapes (no root,
+// shapelayout, or shapetype), so they can be appended to an existing VML drawing
+// that already carries other shapes (form controls, OLE pictures). Each shape's
+// id uses the comment's assigned ShapeID (falling back to 1025+i only when
+// unset).
+func buildCommentVMLShapes(c *oxml.CT_Comments) string {
+	var b strings.Builder
 	for i := range c.Comments {
 		cm := &c.Comments[i]
 		row, col, err := ParseCellRef(cm.Ref)
@@ -65,6 +83,121 @@ func buildCommentVML(c *oxml.CT_Comments) []byte {
 		b.WriteString(`  </x:ClientData>` + "\n")
 		b.WriteString(` </v:shape>`)
 	}
+	return b.String()
+}
+
+// composeLegacyVML regenerates the sheet's legacy VML drawing for its comment
+// notes while preserving every shape it does not own (form controls, OLE
+// pictures). A sheet's comments, controls, and OLE objects all share one legacy
+// VML part; a naive rewrite that emits only note shapes would destroy the other
+// shapes and cross-wire their shape ids (a worksheet <control shapeId="1025">
+// would resolve to a comment note box).
+//
+// When original is empty or unparseable the drawing is emitted fresh (note shape
+// ids from 1025), matching buildCommentVML byte-for-byte. Otherwise the original
+// non-note shapes (and its shapelayout/shapetypes) are re-emitted verbatim, the
+// note-box shapetype is ensured present, and the comment note shapes are appended
+// with ids allocated strictly above the max shape id already present so they
+// never collide with a preserved shape.
+func composeLegacyVML(original []byte, c *oxml.CT_Comments) []byte {
+	header, preserved, maxID, ok := splitVMLNonNoteShapes(original)
+	if !ok {
+		assignShapeIDs(c)
+		return buildCommentVML(c)
+	}
+	assignShapeIDsFrom(c, maxID+1)
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString(preserved)
+	if !bytes.Contains(original, []byte(`id="_x0000_t202"`)) {
+		b.WriteString(vmlNoteShapetype)
+	}
+	b.WriteString(buildCommentVMLShapes(c))
 	b.WriteString(`</xml>` + "\n")
 	return []byte(b.String())
+}
+
+// splitVMLNonNoteShapes parses a legacy VML drawing and returns its root start
+// tag (header), the verbatim bytes of every direct child except comment note
+// shapes (preserved), and the maximum numeric shape id present. It reports ok
+// only when the drawing has a usable <xml> root; note shapes (a <v:shape> whose
+// x:ClientData ObjectType is "Note") are dropped so they can be regenerated from
+// the comment model.
+func splitVMLNonNoteShapes(data []byte) (header, preserved string, maxID int, ok bool) {
+	if len(data) == 0 {
+		return "", "", 0, false
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+
+	depth := 0
+	var rootOpenEnd int64 = -1
+	var childStart int64
+	var childIsNote bool
+	var b strings.Builder
+
+	for {
+		off := dec.InputOffset()
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			switch {
+			case depth == 1:
+				rootOpenEnd = dec.InputOffset()
+			case depth == 2:
+				childStart = off
+				childIsNote = false
+				if t.Name.Local == "shape" {
+					for _, a := range t.Attr {
+						if a.Name.Local == "id" {
+							if n := numericSuffix(a.Value); n > maxID {
+								maxID = n
+							}
+						}
+					}
+				}
+			case t.Name.Local == "ClientData":
+				for _, a := range t.Attr {
+					if a.Name.Local == "ObjectType" && a.Value == "Note" {
+						childIsNote = true
+					}
+				}
+			}
+		case xml.EndElement:
+			if depth == 2 && !childIsNote {
+				span := strings.TrimSpace(string(data[childStart:dec.InputOffset()]))
+				if span != "" {
+					b.WriteString("\n ")
+					b.WriteString(span)
+				}
+			}
+			depth--
+		}
+	}
+
+	if rootOpenEnd < 0 {
+		return "", "", 0, false
+	}
+	return string(data[:rootOpenEnd]), b.String(), maxID, true
+}
+
+// numericSuffix returns the trailing decimal digits of a VML shape id
+// (e.g. "_x0000_s1025" -> 1025), or 0 when there are none.
+func numericSuffix(id string) int {
+	i := len(id)
+	for i > 0 && id[i-1] >= '0' && id[i-1] <= '9' {
+		i--
+	}
+	if i == len(id) {
+		return 0
+	}
+	n := 0
+	for _, r := range id[i:] {
+		n = n*10 + int(r-'0')
+	}
+	return n
 }
