@@ -398,6 +398,84 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	b.level++
 }
 
+// StartElementWithRootAttrsMerged starts a root element like
+// StartElementWithRootAttrs but merges the captured source attribute list with
+// the modeled attributes derived from struct fields, via ReplayCapturedAttrs.
+// This gives the root the same modeled-wins semantics that non-root elements
+// already enjoy: captured entries keep their source order, a modeled value
+// overrides the captured one for the same attribute (so post-parse root setters
+// such as Presentation.SetEmbedTrueTypeFonts or SlideLayout.SetName take
+// effect), and modeled attributes with no captured counterpart follow in model
+// order. When nothing was modified the merge reproduces the captured list
+// verbatim, preserving a byte-identical round trip.
+//
+// The root's own namespace binding is resolved from the (untouched) captured
+// declarations exactly as StartElementWithRootAttrs does — the modeled list only
+// ever carries regular attributes, never namespace declarations.
+func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, rootAttrs []RootAttr, modeled []Attr, extraAttrs ...Attr) {
+	// Bind the root element's own namespace before writing the tag name (see
+	// StartElementWithRootAttrs for why the declarations must be consulted
+	// first). A default (xmlns=) declaration wins over a prefixed alias.
+	rootNSBound := false
+	for _, ra := range rootAttrs {
+		if !ra.IsNS || ra.Value != namespace {
+			continue
+		}
+		if ra.Prefix == "" {
+			b.namespaces[namespace] = ""
+			break
+		}
+		if !rootNSBound {
+			b.namespaces[namespace] = ra.Prefix
+			rootNSBound = true
+		}
+	}
+	// Register declared prefixes so writeQName can resolve extension attrs, and
+	// mark the namespaces declared — without clobbering the root's own binding.
+	for _, ra := range rootAttrs {
+		if !ra.IsNS {
+			continue
+		}
+		b.declaredNamespaces[ra.Value] = true
+		if ra.Prefix != "" && ra.Value != namespace {
+			b.namespaces[ra.Value] = ra.Prefix
+		}
+	}
+
+	merged := b.ReplayCapturedAttrs(rootAttrs, modeled)
+
+	b.flushOpenTag()
+	b.writeIndent()
+	b.hasRoot = true
+	b.buf.WriteByte('<')
+	b.writeQName(namespace, localName)
+	b.writeLiteralAttrs(merged)
+
+	// Write any extra attributes (same handling as StartElementWithRootAttrs).
+	for _, attr := range extraAttrs {
+		if attr.Raw != "" {
+			b.buf.WriteString(attr.Raw)
+			continue
+		}
+		b.buf.WriteByte(' ')
+		if attr.Namespace != "" {
+			b.writeQName(attr.Namespace, attr.Name)
+		} else {
+			b.buf.WriteString(attr.Name)
+		}
+		b.buf.WriteString(`="`)
+		b.writeAttrEscaped(attr.Value)
+		b.buf.WriteByte('"')
+	}
+
+	b.buf.WriteByte('>')
+	if b.indent != "" {
+		b.buf.WriteByte('\n')
+	}
+	b.pushElem(b.qualifiedName(namespace, localName))
+	b.level++
+}
+
 // EndElement ends the current element. If the element's start tag is still
 // open (collapse-empty mode and no content was written), it is completed as a
 // self-closing tag instead of an open/close pair.

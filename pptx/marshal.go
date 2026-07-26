@@ -115,11 +115,13 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	}
 
 	// Start root element with namespace declarations and attributes. A parsed
-	// deck replays the source's verbatim attribute list (declarations beyond
-	// a/r/p, producer attribute order, mc:Ignorable and friends); the
-	// XSD-order emission above serves programmatically built decks.
+	// deck merges the source's verbatim attribute list (declarations beyond
+	// a/r/p, producer attribute order, mc:Ignorable and friends) with the
+	// modeled attributes above, so root setters (SetEmbedTrueTypeFonts,
+	// EmbedFont) take effect while an untouched deck round-trips byte-identically;
+	// the XSD-order emission serves programmatically built decks.
 	if pres.OriginalRootAttrs != nil {
-		b.StartElementWithRootAttrs(nsP, "presentation", pres.OriginalRootAttrs)
+		b.StartElementWithRootAttrsMerged(nsP, "presentation", pres.OriginalRootAttrs, presAttrs)
 	} else {
 		b.StartElementWithNS(nsP, "presentation", xmlb.PresentationMLNamespaces(), presAttrs...)
 	}
