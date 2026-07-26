@@ -53,6 +53,16 @@ func validateBackgroundImage(pres *Presentation, partName string, data []byte, c
 	return nil
 }
 
+// backgroundBlipEmbed returns the r:embed of a p:bg's image fill (a:blipFill),
+// or "" when the background is absent or not an image fill. Used to garbage
+// collect the rel + media part a replaced background image referenced.
+func backgroundBlipEmbed(bg *oxml.Background) string {
+	if bg == nil || bg.BgPr == nil || bg.BgPr.BlipFill == nil || bg.BgPr.BlipFill.Blip == nil {
+		return ""
+	}
+	return bg.BgPr.BlipFill.Blip.Embed
+}
+
 // backgroundColor returns the solid background color of a p:bg, when the
 // background is a solid fill.
 func backgroundColor(bg *oxml.Background) (dml.Color, bool) {
@@ -103,8 +113,15 @@ func (s *Slide) SetBackgroundImage(data []byte, contentType string) error {
 	if err := validateBackgroundImage(s.presentation, s.partName, data, contentType); err != nil {
 		return err
 	}
+	oldRelID := backgroundBlipEmbed(s.ensureCSld().Bg)
 	relID := s.presentation.embedImageForPart(s.partName, data, contentType)
 	s.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	// A prior background image is now orphaned (e.g. SetBackgroundImage called
+	// twice); drop its rel + media part unless another node still references it
+	// (C314).
+	if oldRelID != "" && oldRelID != relID {
+		s.gcSlideRels([]string{oldRelID})
+	}
 	return nil
 }
 
@@ -162,6 +179,7 @@ func (sm *SlideMaster) SetBackgroundImage(data []byte, contentType string) error
 		return err
 	}
 	p := sm.presentation
+	oldRelID := backgroundBlipEmbed(sm.ensureCSld().Bg)
 	// A master's relationship id space is shared with its layout relationships,
 	// which the master body references by id (p:sldLayoutId) and which the
 	// from-scratch save path assigns from the layout order rather than from
@@ -170,6 +188,12 @@ func (sm *SlideMaster) SetBackgroundImage(data []byte, contentType string) error
 	relID := sm.nextBackgroundRelID()
 	p.addImageRel(sm.partName, mediaName, relID)
 	sm.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	// Drop a prior background image's now-orphaned rel + media part (C314).
+	if oldRelID != "" && oldRelID != relID {
+		if partXML, err := marshalSlideMaster(sm.masterXML); err == nil {
+			p.gcPartRels(sm.partName, partXML, []string{oldRelID})
+		}
+	}
 	return nil
 }
 
@@ -248,8 +272,15 @@ func (sl *SlideLayout) SetBackgroundImage(data []byte, contentType string) error
 	if err := validateBackgroundImage(sl.presentation, sl.partName, data, contentType); err != nil {
 		return err
 	}
+	oldRelID := backgroundBlipEmbed(sl.ensureCSld().Bg)
 	relID := sl.presentation.embedImageForPart(sl.partName, data, contentType)
 	sl.ensureCSld().Bg = &oxml.Background{BgPr: blipToBackgroundProps(relID)}
+	// Drop a prior background image's now-orphaned rel + media part (C314).
+	if oldRelID != "" && oldRelID != relID {
+		if partXML, err := marshalSlideLayout(sl.layoutXML); err == nil {
+			sl.presentation.gcPartRels(sl.partName, partXML, []string{oldRelID})
+		}
+	}
 	return nil
 }
 
