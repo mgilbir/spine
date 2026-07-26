@@ -501,10 +501,31 @@ func MaxRevisionID(body *CT_Body) int {
 	for _, tbl := range body.Tbl {
 		maxTableRevisionID(tbl, consider)
 	}
+	// Tables wrapped in a block-level SDT carry their own structural revisions;
+	// walking only body.Tbl would let a newly authored revision collide with an
+	// id already used inside an SDT-wrapped table.
+	for _, s := range body.SdtBlock {
+		maxSdtBlockTableRevisionID(s, consider)
+	}
 	if body.SectPr != nil && body.SectPr.SectPrChange != nil {
 		consider(body.SectPr.SectPrChange.Id)
 	}
 	return maxID
+}
+
+// maxSdtBlockTableRevisionID feeds the structural revision ids of every table
+// wrapped by a block-level SDT (directly, or in a nested block SDT) to consider.
+func maxSdtBlockTableRevisionID(s *CT_SdtBlock, consider func(string)) {
+	if s == nil || s.SdtContent == nil {
+		return
+	}
+	sc := s.SdtContent
+	for _, tbl := range sc.Tbl {
+		maxTableRevisionID(tbl, consider)
+	}
+	for _, nested := range sc.SdtBlock {
+		maxSdtBlockTableRevisionID(nested, consider)
+	}
 }
 
 // maxTableRevisionID feeds every structural revision id of a table (table/row/

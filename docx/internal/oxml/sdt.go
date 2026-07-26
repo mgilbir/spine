@@ -105,6 +105,9 @@ func (s *CT_SdtBlock) contentParagraphs() []*CT_P {
 	sc := s.SdtContent
 	if len(sc.childOrder) == 0 {
 		result := append([]*CT_P{}, sc.P...)
+		for _, tbl := range sc.Tbl {
+			collectTableParagraphs(tbl, &result)
+		}
 		for _, nested := range sc.SdtBlock {
 			result = append(result, nested.contentParagraphs()...)
 		}
@@ -116,6 +119,10 @@ func (s *CT_SdtBlock) contentParagraphs() []*CT_P {
 		case bodyChildP:
 			if ref.index < len(sc.P) {
 				result = append(result, sc.P[ref.index])
+			}
+		case bodyChildTbl:
+			if ref.index < len(sc.Tbl) {
+				collectTableParagraphs(sc.Tbl[ref.index], &result)
 			}
 		case bodyChildSdt:
 			if ref.index < len(sc.SdtBlock) {
