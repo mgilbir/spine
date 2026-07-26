@@ -149,9 +149,81 @@ func (refs pContentRefs) valueAt(ref pChildRef) any {
 	return nil
 }
 
+// backfillChildOrder records a container's existing typed children in its child
+// order, grouped by kind in slice order, when the order is empty but content
+// slices are populated. A container built through the docx package can carry
+// typed children with no recorded order — e.g. field.go's AddMergeField appends
+// to CT_SimpleField.R and hyperlink.go sets CT_Hyperlink.R directly, neither of
+// which records childOrder. Without this the revision transforms read zero items
+// via itemsOf and setItemsOf rebuilds the container empty, wiping the field or
+// hyperlink content. Mirrors CT_P.backfillChildOrder over the generic ref set;
+// nil slice pointers (a kind the container does not hold) are skipped.
+func (refs pContentRefs) backfillChildOrder() {
+	if refs.childOrder == nil || len(*refs.childOrder) > 0 {
+		return
+	}
+	add := func(kind pChildKind, n int) {
+		for i := 0; i < n; i++ {
+			*refs.childOrder = append(*refs.childOrder, pChildRef{kind, i})
+		}
+	}
+	if refs.r != nil {
+		add(pChildR, len(*refs.r))
+	}
+	if refs.hyperlink != nil {
+		add(pChildHyperlink, len(*refs.hyperlink))
+	}
+	if refs.bookmarkStart != nil {
+		add(pChildBookmarkStart, len(*refs.bookmarkStart))
+	}
+	if refs.bookmarkEnd != nil {
+		add(pChildBookmarkEnd, len(*refs.bookmarkEnd))
+	}
+	if refs.proofErr != nil {
+		add(pChildProofErr, len(*refs.proofErr))
+	}
+	if refs.permStart != nil {
+		add(pChildPermStart, len(*refs.permStart))
+	}
+	if refs.permEnd != nil {
+		add(pChildPermEnd, len(*refs.permEnd))
+	}
+	if refs.ins != nil {
+		add(pChildIns, len(*refs.ins))
+	}
+	if refs.del != nil {
+		add(pChildDel, len(*refs.del))
+	}
+	if refs.fldSimple != nil {
+		add(pChildFldSimple, len(*refs.fldSimple))
+	}
+	if refs.sdtRun != nil {
+		add(pChildSdtRun, len(*refs.sdtRun))
+	}
+	if refs.commentRangeStart != nil {
+		add(pChildCommentRangeStart, len(*refs.commentRangeStart))
+	}
+	if refs.commentRangeEnd != nil {
+		add(pChildCommentRangeEnd, len(*refs.commentRangeEnd))
+	}
+	if refs.oMath != nil {
+		add(pChildOMath, len(*refs.oMath))
+	}
+	if refs.oMathPara != nil {
+		add(pChildOMathPara, len(*refs.oMathPara))
+	}
+	if refs.alternateContent != nil {
+		add(pChildAlternateContent, len(*refs.alternateContent))
+	}
+	if refs.raw != nil {
+		add(pChildRaw, len(*refs.raw))
+	}
+}
+
 // itemsOf returns the container's children in document order.
 func itemsOf(c RevContainer) []pItem {
 	refs := c.contentRefs()
+	refs.backfillChildOrder()
 	order := *refs.childOrder
 	out := make([]pItem, 0, len(order))
 	for _, ref := range order {
