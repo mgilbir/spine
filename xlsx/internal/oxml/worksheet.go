@@ -34,8 +34,6 @@ type CT_Worksheet struct {
 	Scenarios             *CT_Scenarios              `xml:"-"`
 	AutoFilter            *CT_AutoFilter             `xml:"autoFilter,omitempty"`
 	SortState             *CT_SortState              `xml:"sortState,omitempty"`
-	DataConsolidate       *struct{}                  `xml:"-"`
-	CustomSheetViews      *struct{}                  `xml:"-"`
 	MergeCells            *CT_MergeCells             `xml:"mergeCells,omitempty"`
 	PhoneticPr            *CT_PhoneticPr             `xml:"phoneticPr,omitempty"`
 	ConditionalFormatting []CT_ConditionalFormatting `xml:"conditionalFormatting"`
@@ -1175,7 +1173,7 @@ func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		switch {
 		case attr.Name.Local == "ref":
 			h.Ref = attr.Value
-		case (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			h.RID = attr.Value
 		case attr.Name.Local == "location":
 			h.Location = attr.Value
@@ -1298,7 +1296,7 @@ func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			var v uint32
 			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.Copies = &v
-		case (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			ps.RID = attr.Value
 		}
 	}
@@ -1397,7 +1395,7 @@ type CT_Drawing struct {
 // UnmarshalXML implements custom unmarshaling for CT_Drawing.
 func (d *CT_Drawing) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			d.RID = attr.Value
 		}
 	}
@@ -1417,7 +1415,7 @@ type CT_LegacyDrawing struct {
 // UnmarshalXML implements custom unmarshaling for CT_LegacyDrawing.
 func (ld *CT_LegacyDrawing) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			ld.RID = attr.Value
 		}
 	}
@@ -1447,7 +1445,7 @@ type CT_TablePart struct {
 // UnmarshalXML implements custom unmarshaling for CT_TablePart.
 func (tp *CT_TablePart) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			tp.RID = attr.Value
 		}
 	}

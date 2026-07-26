@@ -15,8 +15,7 @@ import (
 
 // SpreadsheetML namespace constants
 const (
-	nsSML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-	nsR   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	nsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 )
 
 // Workbook child element type constants for child ordering.
@@ -41,7 +40,6 @@ type WbUnknownChild struct {
 type CT_Workbook struct {
 	XMLName            xml.Name                `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
 	Conformance        string                  `xml:"conformance,attr,omitempty"`
-	Ignorable          string                  `xml:"-"` // mc:Ignorable attribute value
 	FileVersion        *CT_FileVersion         `xml:"fileVersion,omitempty"`
 	WorkbookPr         *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
 	WorkbookProtection *CT_WorkbookProtection  `xml:"workbookProtection,omitempty"`
@@ -105,9 +103,6 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "conformance" && attr.Name.Space == "" {
 			wb.Conformance = attr.Value
-		}
-		if attr.Name.Local == "Ignorable" {
-			wb.Ignorable = attr.Value
 		}
 	}
 
@@ -882,8 +877,6 @@ func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case attr.Name.Local == "state":
 			s.State = attr.Value
 		case attr.Name.Local == "id" && attr.Name.Space == nsR:
-			s.RID = attr.Value
-		case attr.Name.Local == "r:id":
 			s.RID = attr.Value
 		}
 	}
