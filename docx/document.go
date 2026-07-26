@@ -68,7 +68,14 @@ type Document struct {
 	imageParts       []*imagePart              // images to be written
 	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
 	importedParts    []*importedPart           // parts carried over verbatim by Append (charts, OLE objects, ...)
-	nextRelIDVal     int                       // counter for relationship IDs
+	nextRelIDVal     int                       // counter for main-part relationship IDs
+	// nextRelIDByPart holds the next free numeric rId per owner part, seeded
+	// past the highest existing rId in that part's own .rels. Relationship ids
+	// are scoped per part (each part has its own .rels), so a header/footer part
+	// whose rels already carry ids above the main part's max must not reuse the
+	// main-part counter or it would emit a duplicate Id (C297). See
+	// nextRelIDForPart.
+	nextRelIDByPart map[string]int
 	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
 	// docPrIDSeq is the document-wide counter for the wp:docPr ids of images and
 	// charts, so an AddImage* and an AddChart in the same document never emit the
@@ -1543,7 +1550,10 @@ func (d *Document) AddTable(rows, cols int) *Table {
 	return &Table{document: d, tbl: tbl}
 }
 
-// nextRelID returns the next available relationship ID number.
+// nextRelID returns the next available relationship ID number for the main
+// document part. Relationships registered into a header/footer (or any other)
+// part's own .rels must use nextRelIDForPart so ids stay unique within that
+// part's scope (C297).
 func (d *Document) nextRelID() int {
 	if d.nextRelIDVal == 0 {
 		// Seed past the highest existing numeric rId, not the count: rIds are
@@ -1560,6 +1570,34 @@ func (d *Document) nextRelID() int {
 	id := d.nextRelIDVal
 	d.nextRelIDVal++
 	return id
+}
+
+// nextRelIDForPart returns the next available relationship ID number scoped to
+// the owner part named by part. Relationship ids live in each part's own .rels,
+// so an id written into a header/footer part must be unique within that part —
+// not merely past the main part's max. The counter is seeded once per part past
+// the highest existing numeric rId already in that part's rels, so a wild header
+// whose .rels carry ids above the main part cannot get a duplicate Id (C297).
+// For the main part it matches nextRelID.
+func (d *Document) nextRelIDForPart(part string) int {
+	if part == "" || part == d.mainPart() {
+		return d.nextRelID()
+	}
+	if d.nextRelIDByPart == nil {
+		d.nextRelIDByPart = make(map[string]int)
+	}
+	next, ok := d.nextRelIDByPart[part]
+	if !ok {
+		max := 0
+		for _, rel := range d.relationships[part] {
+			if n := relIDNumber(rel.ID); n > max {
+				max = n
+			}
+		}
+		next = max + 1
+	}
+	d.nextRelIDByPart[part] = next + 1
+	return next
 }
 
 // relIDNumber parses the numeric suffix of a relationship id like "rId7",

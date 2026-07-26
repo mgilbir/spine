@@ -185,7 +185,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 func (p *Paragraph) AddHyperlink(text, url string) *Hyperlink {
 	p.touch()
 	owner := p.ownerPartName()
-	relID := fmt.Sprintf("rId%d", p.document.nextRelID())
+	relID := fmt.Sprintf("rId%d", p.document.nextRelIDForPart(owner))
 	p.document.addPartRelationship(owner, &opc.Relationship{
 		ID:         relID,
 		Type:       opc.RelTypeHyperlink,

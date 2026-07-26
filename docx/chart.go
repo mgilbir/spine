@@ -78,7 +78,7 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	embedName := fmt.Sprintf("/word/embeddings/Microsoft_Excel_Worksheet%d.xlsx", num)
 
 	owner := p.ownerPart()
-	relID := fmt.Sprintf("rId%d", doc.nextRelID())
+	relID := fmt.Sprintf("rId%d", doc.nextRelIDForPart(owner))
 
 	cp := &chartPart{
 		partName:  chartName,

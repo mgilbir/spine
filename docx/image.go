@@ -391,7 +391,7 @@ func docPrID(raw []byte) int {
 // parts already in the package, so adding to an opened document that already
 // carries media/imageN.* does not collide (audit C155).
 func (doc *Document) registerImagePart(owner string, data []byte, contentType, ext string) (relID string, num int) {
-	relID = fmt.Sprintf("rId%d", doc.nextRelID())
+	relID = fmt.Sprintf("rId%d", doc.nextRelIDForPart(owner))
 
 	// Reuse an identical image already added in this session (e.g. the same
 	// picture in the body and a header) instead of writing a duplicate media
