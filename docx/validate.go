@@ -145,16 +145,19 @@ func (d *Document) validateEmbedRefs(c *validate.Collector) {
 			d.checkParagraphEmbeds(c, p, d.mainPart(), rels)
 		}
 	}
-	for name, hp := range d.headers {
-		if hp != nil && hp.hdr != nil {
+	// Part-name order, not map order: the collector emits issues in the order
+	// they are found, so a map walk makes the report's ordering depend on Go's
+	// randomized map iteration (C497).
+	for _, name := range d.sortedHeaderNames() {
+		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
 			rels := relIDSetBool(d.relationships[name])
 			for _, p := range hp.hdr.P {
 				d.checkParagraphEmbeds(c, p, name, rels)
 			}
 		}
 	}
-	for name, fp := range d.footers {
-		if fp != nil && fp.ftr != nil {
+	for _, name := range d.sortedFooterNames() {
+		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
 			rels := relIDSetBool(d.relationships[name])
 			for _, p := range fp.ftr.P {
 				d.checkParagraphEmbeds(c, p, name, rels)
@@ -454,10 +457,12 @@ func (d *Document) knownPartNames() []string {
 	for name := range d.preservedParts {
 		add(name)
 	}
-	for name := range d.headers {
+	// Part-name order, not map order: the duplicate-part and content-type
+	// checks report in list order (C497).
+	for _, name := range d.sortedHeaderNames() {
 		add(name)
 	}
-	for name := range d.footers {
+	for _, name := range d.sortedFooterNames() {
 		add(name)
 	}
 	return out

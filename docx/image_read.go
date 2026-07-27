@@ -112,7 +112,10 @@ func (d *Document) Images() []*InlineImage {
 			out = appendParagraphImages(out, &Paragraph{document: d, p: p})
 		}
 	}
-	for name, hp := range d.headers {
+	// Part-name order, not map order, so "in document order" is deterministic
+	// (C497).
+	for _, name := range d.sortedHeaderNames() {
+		hp := d.headers[name]
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
@@ -120,7 +123,8 @@ func (d *Document) Images() []*InlineImage {
 			out = appendParagraphImages(out, &Paragraph{document: d, p: p, hfPart: name})
 		}
 	}
-	for name, fp := range d.footers {
+	for _, name := range d.sortedFooterNames() {
+		fp := d.footers[name]
 		if fp == nil || fp.ftr == nil {
 			continue
 		}

@@ -238,7 +238,11 @@ func (d *Document) Charts() []*chart.Chart {
 			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p})
 		}
 	}
-	for name, hp := range d.headers {
+	// Part-name order, not map order: iterating d.headers/d.footers directly
+	// makes the result of a godoc'd "in document order" walk depend on Go's
+	// randomized map iteration (C497).
+	for _, name := range d.sortedHeaderNames() {
+		hp := d.headers[name]
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
@@ -246,7 +250,8 @@ func (d *Document) Charts() []*chart.Chart {
 			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p, hfPart: name})
 		}
 	}
-	for name, fp := range d.footers {
+	for _, name := range d.sortedFooterNames() {
+		fp := d.footers[name]
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
