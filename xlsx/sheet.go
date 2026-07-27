@@ -694,9 +694,22 @@ func (s *Sheet) SetTabColor(hexColor string) {
 }
 
 // SetAutoFilter sets an auto-filter on the specified range (e.g., "A1:F1").
+// The range must be a single rectangular reference; an unparseable one returns
+// ErrInvalidRange rather than reaching <autoFilter ref="...">, where it makes
+// Excel offer to repair the workbook (C538).
+//
+// Only the <autoFilter> element is written. Excel additionally maintains a
+// hidden sheet-scoped _xlnm._FilterDatabase defined name over the same range;
+// this package neither creates it here nor removes it in RemoveAutoFilter.
+// Excel recreates it when the user next touches the filter, so its absence is
+// not an error, but a workbook opened, filtered here and reopened will not show
+// the name until then.
 func (s *Sheet) SetAutoFilter(rangeRef string) error {
 	if s.opaque {
 		return ErrNotWorksheet
+	}
+	if _, err := parseCellRangeRef(strings.TrimSpace(rangeRef)); err != nil {
+		return err
 	}
 	s.markDirty()
 	s.ensureWorksheet()
@@ -761,6 +774,12 @@ const (
 func (s *Sheet) AddDataValidation(dv DataValidation) error {
 	if s.opaque {
 		return ErrNotWorksheet
+	}
+	// Range is an sqref: one range or a space-separated list. An unparseable
+	// one used to be accepted here and surface only as a non-blocking save
+	// warning, unlike every sibling API that parses its range (C538).
+	if _, _, err := normalizeSqref(dv.Range); err != nil {
+		return err
 	}
 	s.markDirty()
 	s.ensureWorksheet()

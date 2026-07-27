@@ -12,6 +12,15 @@
 // requires injecting relationship-bearing x14/x15 extension lists into the
 // shared workbook and worksheet parts at save time.
 //
+// The feature surface is add-and-read, not add-remove. Comments, conditional
+// formats, data validations, tables, images, charts, pivot tables, scenarios
+// and OLE objects can be added and read back, but only sparkline groups have a
+// removal API (SparklineGroup.Delete); the sheet-level Remove*/Clear* methods
+// cover the auto-filter, its column predicates, the sort state, sheet
+// protection, freeze panes and the print area/titles. A replace-style edit of
+// anything else therefore accretes rather than replaces, so rebuild the sheet
+// instead of editing in place when a feature must go away.
+//
 // A Workbook is not safe for concurrent use. A single Workbook, and the sheets
 // and cells reached through it, must be confined to one goroutine, or all access
 // must be guarded by external synchronization. In particular Save, SaveBytes,
