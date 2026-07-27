@@ -19,6 +19,12 @@ type CT_Settings struct {
 	// part so regeneration keeps its namespace declarations.
 	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
 	Ignorable       string        `xml:"-"`
+	// OriginalRootAttrs preserves the root element's verbatim attribute list
+	// (namespace declarations interleaved with regular attributes such as
+	// xml:space or vendor attributes the NSDecl/Ignorable capture cannot
+	// represent) so a settings-edit regeneration keeps every root attribute.
+	// Nil for a part created from scratch.
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
 	// Children holds every child element verbatim, in document order.
 	Children []*CT_RawNamedElement `xml:"-"`
 }
@@ -26,6 +32,7 @@ type CT_Settings struct {
 // UnmarshalXML implements custom unmarshaling for CT_Settings.
 func (s *CT_Settings) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.XMLName = start.Name
+	s.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Space == "xmlns":

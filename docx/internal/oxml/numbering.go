@@ -87,28 +87,55 @@ func (n *CT_Numbering) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 }
 
 // MarshalContent writes the numbering children: the raw-preserved originals
-// verbatim, with session-added abstractNum/num definitions appended in schema
-// position (all abstractNum elements before all num elements).
+// verbatim in their source document order, with session-added abstractNum/num
+// definitions inserted at their schema boundary (session abstractNum elements
+// after the last raw abstractNum, session num elements after the last raw num).
+// Emitting the originals in document order keeps a zero-modification save
+// byte-identical even when a producer interleaves the child kinds, which the
+// earlier grouped emit reordered.
 func (n *CT_Numbering) MarshalContent(b *xmlb.Builder, ns string) {
-	emit := func(match func(string) bool) {
-		for _, rc := range n.Raw {
-			if match(rc.Local) {
-				rc.MarshalNamed(b, ns)
-			}
+	lastAbstract, lastNum := -1, -1
+	for i, rc := range n.Raw {
+		switch rc.Local {
+		case "abstractNum":
+			lastAbstract = i
+		case "num":
+			lastNum = i
 		}
 	}
-	emit(func(l string) bool { return l == "numPicBullet" })
-	emit(func(l string) bool { return l == "abstractNum" })
-	for _, v := range n.AbstractNum {
-		b.MarshalElement(ns, "abstractNum", v)
+	abstractDone, numDone := false, false
+	emitAbstract := func() {
+		for _, v := range n.AbstractNum {
+			b.MarshalElement(ns, "abstractNum", v)
+		}
+		abstractDone = true
 	}
-	emit(func(l string) bool { return l == "num" })
-	for _, v := range n.Num {
-		b.MarshalElement(ns, "num", v)
+	emitNum := func() {
+		for _, v := range n.Num {
+			b.MarshalElement(ns, "num", v)
+		}
+		numDone = true
 	}
-	emit(func(l string) bool {
-		return l != "numPicBullet" && l != "abstractNum" && l != "num"
-	})
+	for i, rc := range n.Raw {
+		// With no raw abstractNum to anchor them, session abstractNums must
+		// still precede the first num.
+		if !abstractDone && lastAbstract < 0 && rc.Local == "num" {
+			emitAbstract()
+		}
+		rc.MarshalNamed(b, ns)
+		if i == lastAbstract {
+			emitAbstract()
+		}
+		if i == lastNum {
+			emitNum()
+		}
+	}
+	if !abstractDone {
+		emitAbstract()
+	}
+	if !numDone {
+		emitNum()
+	}
 	if n.NumIdMacAtCleanup != nil {
 		b.MarshalElement(ns, "numIdMacAtCleanup", n.NumIdMacAtCleanup)
 	}
