@@ -16,6 +16,7 @@ import (
 const (
 	codeNumberingMissing = "numbering-missing" // numPr references a numId absent from numbering.xml
 	codeStyleMissing     = "style-missing"     // pStyle/rStyle references an undefined style
+	codeStyleCycle       = "style-cycle"       // a w:basedOn chain inherits from itself
 	codeCommentMissing   = "comment-missing"   // comment marker references an absent comment
 	codeBookmarkMissing  = "bookmark-missing"  // internal hyperlink anchors to an absent bookmark
 	codeNoteMissing      = "note-missing"      // footnote/endnote reference has no matching note
@@ -46,6 +47,11 @@ func (d *Document) Validate() validate.Report {
 		d.validateInternalHyperlinks(c)
 		d.validateNoteRefs(c)
 	}
+	// The style-inheritance check reads styles.xml alone, so it runs whether or
+	// not the body was materialized: a cyclic basedOn chain can arrive with the
+	// source package or be introduced by a merge, neither of which touches the
+	// body model.
+	d.validateStyleInheritance(c)
 	if d.reader != nil {
 		d.validatePackage(c)
 	}
@@ -145,16 +151,19 @@ func (d *Document) validateEmbedRefs(c *validate.Collector) {
 			d.checkParagraphEmbeds(c, p, d.mainPart(), rels)
 		}
 	}
-	for name, hp := range d.headers {
-		if hp != nil && hp.hdr != nil {
+	// Part-name order, not map order: the collector emits issues in the order
+	// they are found, so a map walk makes the report's ordering depend on Go's
+	// randomized map iteration (C497).
+	for _, name := range d.sortedHeaderNames() {
+		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
 			rels := relIDSetBool(d.relationships[name])
 			for _, p := range hp.hdr.P {
 				d.checkParagraphEmbeds(c, p, name, rels)
 			}
 		}
 	}
-	for name, fp := range d.footers {
-		if fp != nil && fp.ftr != nil {
+	for _, name := range d.sortedFooterNames() {
+		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
 			rels := relIDSetBool(d.relationships[name])
 			for _, p := range fp.ftr.P {
 				d.checkParagraphEmbeds(c, p, name, rels)
@@ -265,6 +274,55 @@ func (d *Document) validateStyleRefs(c *validate.Collector) {
 						fmt.Sprintf("run references style %q not defined in styles.xml", r.RPr.RStyle.Val))
 				}
 			}
+		}
+	}
+}
+
+// validateStyleInheritance reports styles whose w:basedOn chain closes a cycle,
+// including a style based on itself. It is warning severity: the package is
+// structurally intact and Word opens it, but it repairs or misrenders the
+// affected styles, and nothing else reports the problem — the reference check
+// above only catches a basedOn pointing at a style that does not exist.
+//
+// Style.SetBasedOn refuses to create a cycle, so a cycle found here came from
+// the source package or from merge's importStyles rewriting basedOn chains onto
+// remapped ids (C501).
+func (d *Document) validateStyleInheritance(c *validate.Collector) {
+	if d.styles == nil {
+		return
+	}
+	byID := d.stylesByID()
+	// state: 0 unvisited, 1 on the current chain, 2 settled.
+	state := make(map[string]int, len(byID))
+	for _, s := range d.styles.Style {
+		if s == nil || s.StyleId == "" || state[s.StyleId] != 0 {
+			continue
+		}
+		var chain []string
+		for cur := s; cur != nil; {
+			switch state[cur.StyleId] {
+			case 1:
+				c.Warnf(codeStyleCycle, d.stylesPartName(),
+					fmt.Sprintf("style %q inherits from itself through basedOn chain %s",
+						cur.StyleId, strings.Join(append(chain, cur.StyleId), " -> ")))
+				cur = nil
+				continue
+			case 2:
+				cur = nil
+				continue
+			}
+			state[cur.StyleId] = 1
+			chain = append(chain, cur.StyleId)
+			if cur.BasedOn == nil || cur.BasedOn.Val == "" {
+				cur = nil
+				continue
+			}
+			cur = byID[cur.BasedOn.Val]
+		}
+		// Every id on the chain is settled: either the walk ran out of parents
+		// or it hit a cycle, and in both cases re-walking them adds nothing.
+		for _, id := range chain {
+			state[id] = 2
 		}
 	}
 }
@@ -454,10 +512,12 @@ func (d *Document) knownPartNames() []string {
 	for name := range d.preservedParts {
 		add(name)
 	}
-	for name := range d.headers {
+	// Part-name order, not map order: the duplicate-part and content-type
+	// checks report in list order (C497).
+	for _, name := range d.sortedHeaderNames() {
 		add(name)
 	}
-	for name := range d.footers {
+	for _, name := range d.sortedFooterNames() {
 		add(name)
 	}
 	return out

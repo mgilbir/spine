@@ -48,90 +48,93 @@ type FormField struct {
 }
 
 // FormFields returns the legacy form fields present anywhere in the document
-// body (including inside tables) and in every header and footer, in document
-// order. Each field is reconstructed from its w:fldChar begin/separate/end run
-// sequence and the w:ffData definition carried on the begin field character.
+// body (including inside tables, content controls, hyperlinks and tracked
+// changes) and in every header and footer, in document order. Each field is
+// reconstructed from its w:fldChar begin/separate/end run sequence and the
+// w:ffData definition carried on the begin field character.
+//
+// The field state machine runs over each part as a whole, so a field whose
+// begin and end runs sit in different paragraphs is still read as one field.
 func (d *Document) FormFields() []FormField {
 	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
 	var out []FormField
-	for _, p := range d.doc().Body.AllParagraphs() {
-		collectParagraphFormFields(p, &out)
+	collect := func(paras []*oxml.CT_P) {
+		st := &formFieldScan{out: &out}
+		for _, p := range paras {
+			st.paragraph(p)
+		}
+		st.finalize()
 	}
-	for _, name := range sortedKeys(d.headers) {
-		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
-			for _, p := range hp.hdr.AllParagraphs() {
-				collectParagraphFormFields(p, &out)
-			}
+	collect(d.doc().Body.AllParagraphs())
+	for _, hp := range d.sortedHeaderParts() {
+		if hp != nil && hp.hdr != nil {
+			collect(hp.hdr.AllParagraphs())
 		}
 	}
-	for _, name := range sortedKeys(d.footers) {
-		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
-			for _, p := range fp.ftr.AllParagraphs() {
-				collectParagraphFormFields(p, &out)
-			}
+	for _, fp := range d.sortedFooterParts() {
+		if fp != nil && fp.ftr != nil {
+			collect(fp.ftr.AllParagraphs())
 		}
 	}
 	return out
 }
 
-// collectParagraphFormFields appends the form fields found in a paragraph,
-// scanning its top-level runs and the runs inside any hyperlinks.
-func collectParagraphFormFields(p *oxml.CT_P, out *[]FormField) {
+// formFieldScan is the w:fldChar state machine: a begin field character
+// carrying w:ffData opens a form field, the separate character switches to
+// capturing the displayed result, and the end character closes it. The state
+// lives across paragraphs so a field split at a paragraph boundary is not lost.
+type formFieldScan struct {
+	out       *[]FormField
+	ff        *oxml.CT_FFData
+	capturing bool
+	value     strings.Builder
+}
+
+// paragraph feeds one paragraph's runs through the scan, descending into
+// hyperlinks, tracked changes, inline content controls and simple fields — all
+// of which EG_PContent allows a form field's runs to sit in (C498).
+func (st *formFieldScan) paragraph(p *oxml.CT_P) {
 	if p == nil {
 		return
 	}
-	collectRunFormFields(p.R, out)
-	for _, h := range p.Hyperlink {
-		if h != nil {
-			collectRunFormFields(h.R, out)
+	oxml.VisitContent(p, oxml.ContentVisitor{Run: st.run})
+}
+
+// run advances the state machine over a single run.
+func (st *formFieldScan) run(r *oxml.CT_R) {
+	if r == nil {
+		return
+	}
+	for _, fc := range r.FldChar {
+		switch fc.FldCharType {
+		case "begin":
+			st.finalize() // defensive: close any unterminated prior field
+			st.ff = parseFFData(fc)
+		case "separate":
+			if st.ff != nil {
+				st.capturing = true
+			}
+		case "end":
+			st.finalize()
+		}
+	}
+	if st.capturing {
+		for _, t := range r.T {
+			st.value.WriteString(t.Text)
 		}
 	}
 }
 
-// collectRunFormFields runs the w:fldChar state machine over a run sequence: a
-// begin field character carrying w:ffData opens a form field, the separate
-// character switches to capturing the displayed result, and the end character
-// closes it.
-func collectRunFormFields(runs []*oxml.CT_R, out *[]FormField) {
-	var (
-		ff        *oxml.CT_FFData
-		capturing bool
-		value     strings.Builder
-	)
-	finalize := func() {
-		if ff != nil {
-			*out = append(*out, buildFormField(ff, value.String()))
-		}
-		ff = nil
-		capturing = false
-		value.Reset()
+// finalize emits the field currently being scanned, if any, and resets.
+func (st *formFieldScan) finalize() {
+	if st.ff != nil {
+		*st.out = append(*st.out, buildFormField(st.ff, st.value.String()))
 	}
-	for _, r := range runs {
-		if r == nil {
-			continue
-		}
-		for _, fc := range r.FldChar {
-			switch fc.FldCharType {
-			case "begin":
-				finalize() // defensive: close any unterminated prior field
-				ff = parseFFData(fc)
-			case "separate":
-				if ff != nil {
-					capturing = true
-				}
-			case "end":
-				finalize()
-			}
-		}
-		if capturing {
-			for _, t := range r.T {
-				value.WriteString(t.Text)
-			}
-		}
-	}
-	finalize()
+	st.ff = nil
+	st.capturing = false
+	st.value.Reset()
 }
 
 // parseFFData decodes the w:ffData definition preserved raw on a begin field
@@ -272,11 +275,12 @@ func (p *Paragraph) AddFormField(opts FormFieldOptions) *Run {
 	end := &oxml.CT_R{}
 	end.AppendFldChar(&oxml.CT_FldChar{FldCharType: "end"})
 
-	p.p.AppendR(begin)
-	p.p.AppendR(instr)
-	p.p.AppendR(separate)
-	p.p.AppendR(result)
-	p.p.AppendR(end)
+	cp := p.mut()
+	cp.AppendR(begin)
+	cp.AppendR(instr)
+	cp.AppendR(separate)
+	cp.AppendR(result)
+	cp.AppendR(end)
 	return &Run{paragraph: p, r: result}
 }
 

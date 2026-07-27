@@ -126,6 +126,13 @@ type Document struct {
 	// watermarkSeq hands out unique VML shape ids / spids for watermark shapes
 	// so multiple watermarked headers (default/first/even) never collide.
 	watermarkSeq int
+	// metaParts holds the resolved package name of each metadata part the model
+	// parses (styles, numbering, settings, notes, comments, people,
+	// bibliography). OPC binds a part to its role through a relationship, not a
+	// name, so an opened package may point the styles relationship at any part
+	// name; matching those parts by hardcoded name left the model empty and the
+	// save orphaned a second part (C502). See metaparts.go.
+	metaParts metaPartNames
 	// numberingModified / settingsModified / stylesModified record that the
 	// session changed the numbering, settings, or styles model, so the
 	// round-trip save regenerates that part (with its relationship and
@@ -404,6 +411,7 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		otherParts:     make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
 		preservedParts: make(map[string]*coxml.RawPart),
+		metaParts:      defaultMetaPartNames(),
 	}
 
 	if reader.Properties != nil {
@@ -439,6 +447,11 @@ func (d *Document) loadAllParts(mainPartName string) error {
 	}
 
 	d.loadAllRelationships()
+	// The metadata parts are matched below by the name their relationship
+	// resolves to, not by the conventional one: OPC binds a part to its role
+	// through the relationship, so a package may legally call its styles part
+	// anything (C502).
+	d.resolveMetaPartNames(mainPartName)
 
 	// Preserve [Content_Types].xml
 	if ctData, err := d.reader.GetRawZipFile("[Content_Types].xml"); err == nil {
@@ -462,7 +475,7 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// empty model), losing content. Other unreadable parts are
 			// tolerated: they only fall out of the preserved set, and
 			// referenced-part absences are checked after the sweep.
-			if isModelParsedDocxPart(name) {
+			if d.isModelParsedDocxPart(name) {
 				return fmt.Errorf("docx: reading part %s: %w", name, err)
 			}
 			continue
@@ -489,47 +502,47 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			continue
 		case name == "/docProps/app.xml":
 			// preserved in preservedParts
-		case name == "/word/styles.xml":
+		case name == d.metaParts.styles:
 			d.styles = &oxml.CT_Styles{}
 			if err := xmlb.UnmarshalWithSource(data, d.styles); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/numbering.xml":
+		case name == d.metaParts.numbering:
 			d.numbering = &oxml.CT_Numbering{}
 			if err := xmlb.UnmarshalWithSource(data, d.numbering); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/settings.xml":
+		case name == d.metaParts.settings:
 			d.settings = &oxml.CT_Settings{}
 			if err := xmlb.UnmarshalWithSource(data, d.settings); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/footnotes.xml":
+		case name == d.metaParts.footnotes:
 			d.footnotes = &oxml.CT_Footnotes{}
 			if err := xmlb.UnmarshalWithSource(data, d.footnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/endnotes.xml":
+		case name == d.metaParts.endnotes:
 			d.endnotes = &oxml.CT_Endnotes{}
 			if err := xmlb.UnmarshalWithSource(data, d.endnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/comments.xml":
+		case name == d.metaParts.comments:
 			d.comments = &oxml.CT_Comments{}
 			if err := xmlb.UnmarshalWithSource(data, d.comments); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/commentsExtended.xml":
+		case name == d.metaParts.commentsExtended:
 			d.commentsExtended = &oxml.CT_CommentsEx{}
 			if err := xmlb.UnmarshalWithSource(data, d.commentsExtended); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == "/word/people.xml":
+		case name == d.metaParts.people:
 			d.people = &oxml.CT_People{}
 			if err := xmlb.UnmarshalWithSource(data, d.people); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
-		case name == bibliographyPartName:
+		case name == d.metaParts.bibliography:
 			d.sources = &oxml.CT_Sources{}
 			if err := xmlb.UnmarshalWithSource(data, d.sources); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
@@ -571,12 +584,13 @@ func (d *Document) loadAllParts(mainPartName string) error {
 
 // isModelParsedDocxPart reports whether the named part is parsed into the
 // document model at open (as opposed to preserved raw), so a read failure
-// must fail the open instead of silently dropping the part.
-func isModelParsedDocxPart(name string) bool {
+// must fail the open instead of silently dropping the part. The metadata parts
+// are compared against their resolved names, matching the parse switch.
+func (d *Document) isModelParsedDocxPart(name string) bool {
 	switch name {
-	case "/word/styles.xml", "/word/numbering.xml", "/word/settings.xml",
-		"/word/footnotes.xml", "/word/endnotes.xml", "/word/comments.xml",
-		"/word/commentsExtended.xml", "/word/people.xml", bibliographyPartName:
+	case d.metaParts.styles, d.metaParts.numbering, d.metaParts.settings,
+		d.metaParts.footnotes, d.metaParts.endnotes, d.metaParts.comments,
+		d.metaParts.commentsExtended, d.metaParts.people, d.metaParts.bibliography:
 		return true
 	}
 	return isDocxHeaderPartName(name) || isDocxFooterPartName(name)
@@ -684,6 +698,7 @@ func Create() *Document {
 		otherParts:     make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
 		preservedParts: make(map[string]*coxml.RawPart),
+		metaParts:      defaultMetaPartNames(),
 	}
 }
 
@@ -896,31 +911,31 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		// Regenerated below from the (possibly extended) parsed model.
-		if name == "/word/styles.xml" && d.stylesModified {
+		if name == d.stylesPartName() && d.stylesModified {
 			continue
 		}
-		if name == "/word/numbering.xml" && d.numberingModified {
+		if name == d.numberingPartName() && d.numberingModified {
 			continue
 		}
-		if name == "/word/settings.xml" && d.settingsModified {
+		if name == d.settingsPartName() && d.settingsModified {
 			continue
 		}
-		if name == "/word/comments.xml" && d.commentsModified {
+		if name == d.commentsPartName() && d.commentsModified {
 			continue
 		}
-		if name == "/word/commentsExtended.xml" && d.commentsExtModified {
+		if name == d.commentsExtendedPartName() && d.commentsExtModified {
 			continue
 		}
-		if name == "/word/people.xml" && d.peopleModified {
+		if name == d.peoplePartName() && d.peopleModified {
 			continue
 		}
-		if name == "/word/footnotes.xml" && d.footnotesModified {
+		if name == d.footnotesPartName() && d.footnotesModified {
 			continue
 		}
-		if name == "/word/endnotes.xml" && d.endnotesModified {
+		if name == d.endnotesPartName() && d.endnotesModified {
 			continue
 		}
-		if name == bibliographyPartName && d.sourcesModified {
+		if name == d.bibliographyPartName() && d.sourcesModified {
 			continue
 		}
 		// Regenerated below when the session authored a building block (the
@@ -1253,30 +1268,30 @@ func (d *Document) writeModifiedMetadataParts(writer *opc.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/styles.xml", opc.ContentTypeDocStyles, data); err != nil {
+		if err := writer.WritePart(d.stylesPartName(), opc.ContentTypeDocStyles, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeStyles, "styles.xml")
+		d.ensureDocRelationship(opc.RelTypeStyles, d.metaRelTarget(d.stylesPartName()))
 	}
 	if d.numberingModified && d.numbering != nil {
 		data, err := marshalNumberingXML(d.numbering)
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
+		if err := writer.WritePart(d.numberingPartName(), opc.ContentTypeNumbering, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeNumbering, "numbering.xml")
+		d.ensureDocRelationship(opc.RelTypeNumbering, d.metaRelTarget(d.numberingPartName()))
 	}
 	if d.settingsModified && d.settings != nil {
 		data, err := marshalSettingsXML(d.settings)
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
+		if err := writer.WritePart(d.settingsPartName(), opc.ContentTypeDocSettings, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeSettings, "settings.xml")
+		d.ensureDocRelationship(opc.RelTypeSettings, d.metaRelTarget(d.settingsPartName()))
 	}
 	return nil
 }
@@ -1292,30 +1307,30 @@ func (d *Document) writeCommentParts(writer *opc.Writer, created bool) error {
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/comments.xml", opc.ContentTypeDocComments, data); err != nil {
+		if err := writer.WritePart(d.commentsPartName(), opc.ContentTypeDocComments, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeComments, "comments.xml")
+		d.ensureDocRelationship(opc.RelTypeComments, d.metaRelTarget(d.commentsPartName()))
 	}
 	if d.commentsExtended != nil && len(d.commentsExtended.CommentEx) > 0 && (created || d.commentsExtModified) {
 		data, err := marshalCommentsExtendedXML(d.commentsExtended)
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/commentsExtended.xml", opc.ContentTypeDocCommentsExtended, data); err != nil {
+		if err := writer.WritePart(d.commentsExtendedPartName(), opc.ContentTypeDocCommentsExtended, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeCommentsExtended, "commentsExtended.xml")
+		d.ensureDocRelationship(opc.RelTypeCommentsExtended, d.metaRelTarget(d.commentsExtendedPartName()))
 	}
 	if d.people != nil && len(d.people.Person) > 0 && (created || d.peopleModified) {
 		data, err := marshalPeopleXML(d.people)
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/people.xml", opc.ContentTypeDocPeople, data); err != nil {
+		if err := writer.WritePart(d.peoplePartName(), opc.ContentTypeDocPeople, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypePeople, "people.xml")
+		d.ensureDocRelationship(opc.RelTypePeople, d.metaRelTarget(d.peoplePartName()))
 	}
 	return nil
 }
@@ -1331,20 +1346,20 @@ func (d *Document) writeNoteParts(writer *opc.Writer, created bool) error {
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/footnotes.xml", opc.ContentTypeDocFootnotes, data); err != nil {
+		if err := writer.WritePart(d.footnotesPartName(), opc.ContentTypeDocFootnotes, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeFootnotes, "footnotes.xml")
+		d.ensureDocRelationship(opc.RelTypeFootnotes, d.metaRelTarget(d.footnotesPartName()))
 	}
 	if d.endnotes != nil && len(d.endnotes.Endnote) > 0 && (created || d.endnotesModified) {
 		data, err := marshalEndnotesXML(d.endnotes)
 		if err != nil {
 			return err
 		}
-		if err := writer.WritePart("/word/endnotes.xml", opc.ContentTypeDocEndnotes, data); err != nil {
+		if err := writer.WritePart(d.endnotesPartName(), opc.ContentTypeDocEndnotes, data); err != nil {
 			return err
 		}
-		d.ensureDocRelationship(opc.RelTypeEndnotes, "endnotes.xml")
+		d.ensureDocRelationship(opc.RelTypeEndnotes, d.metaRelTarget(d.endnotesPartName()))
 	}
 	return nil
 }

@@ -71,8 +71,18 @@ func (m *StyleManager) AddCharacterStyle(id, name string) *Style {
 }
 
 // AddStyle creates a new style of the given type with the given id and display
-// name and returns a builder. An existing style with the id is returned
-// unchanged.
+// name and returns a builder.
+//
+// It is idempotent on the style id: an existing style with that id is returned
+// unchanged, whatever its type. Requesting a character style whose id is
+// already taken by a paragraph style therefore hands back the paragraph style —
+// the caller's styleType and name are silently ignored rather than converting
+// or replacing the definition, since either would change how existing
+// paragraphs render. Check Style.Type on the returned builder when the type
+// matters, or pick an unused id.
+//
+// There is no RemoveStyle: no part of the docx feature API deletes, so a
+// replace-style edit accretes definitions rather than replacing them.
 func (m *StyleManager) AddStyle(styleType StyleType, id, name string) *Style {
 	if existing := m.style(id); existing != nil {
 		return existing
@@ -142,9 +152,69 @@ func (s *Style) SetType(styleType StyleType) *Style {
 }
 
 // SetBasedOn sets the parent style (w:basedOn) this style inherits from.
+//
+// A value that would make the style inherit from itself — directly, or through
+// a chain that leads back to it — is refused: the style keeps its previous
+// parent and the styles part is not marked modified. Word repairs or misrenders
+// a cyclic basedOn chain, and nothing downstream of the setter would have
+// caught it (Validate checked dangling references, not cycles). Use
+// BasedOnCycle to test a value before setting it, or Document.Validate to find
+// a cycle a merge introduced (C501).
 func (s *Style) SetBasedOn(id string) *Style {
+	if id != "" && s.wouldCycle(id) {
+		return s
+	}
 	s.s.BasedOn = &oxml.CT_String{Val: id}
 	return s.modified()
+}
+
+// BasedOn returns the id of the style this one inherits from (w:basedOn), or ""
+// when it inherits from nothing.
+func (s *Style) BasedOn() string {
+	if s.s.BasedOn == nil {
+		return ""
+	}
+	return s.s.BasedOn.Val
+}
+
+// wouldCycle reports whether making this style inherit from parentID would
+// close an inheritance cycle: either parentID is the style's own id, or the
+// existing basedOn chain above parentID leads back to it.
+func (s *Style) wouldCycle(parentID string) bool {
+	if parentID == s.s.StyleId {
+		return true
+	}
+	byID := s.document.stylesByID()
+	seen := map[string]bool{s.s.StyleId: true}
+	for cur := byID[parentID]; cur != nil; {
+		if seen[cur.StyleId] {
+			return true
+		}
+		seen[cur.StyleId] = true
+		if cur.BasedOn == nil || cur.BasedOn.Val == "" {
+			return false
+		}
+		cur = byID[cur.BasedOn.Val]
+	}
+	return false
+}
+
+// stylesByID indexes the document's style definitions by styleId. A duplicate
+// id (legal only by accident) resolves to the first definition, matching the
+// lookup StyleManager.Style performs.
+func (d *Document) stylesByID() map[string]*oxml.CT_Style {
+	out := make(map[string]*oxml.CT_Style)
+	if d.styles == nil {
+		return out
+	}
+	for _, st := range d.styles.Style {
+		if st != nil && st.StyleId != "" {
+			if _, dup := out[st.StyleId]; !dup {
+				out[st.StyleId] = st
+			}
+		}
+	}
+	return out
 }
 
 // SetNext sets the style (w:next) applied to the following paragraph when the

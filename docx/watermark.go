@@ -223,9 +223,13 @@ func (d *Document) RemoveWatermark() bool {
 
 // watermarkHeaders returns every parsed header model in the document, used for
 // read-only watermark detection.
+// Headers are visited in part-name order: Watermark() returns the *first*
+// watermark it finds, so map order would make the answer depend on Go's
+// randomized map iteration for a document whose headers carry different
+// watermarks (C497).
 func (d *Document) watermarkHeaders() []*oxml.CT_HdrFtr {
 	headers := make([]*oxml.CT_HdrFtr, 0, len(d.headers))
-	for _, hp := range d.headers {
+	for _, hp := range d.sortedHeaderParts() {
 		if hp != nil && hp.hdr != nil {
 			headers = append(headers, hp.hdr)
 		}

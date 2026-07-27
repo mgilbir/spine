@@ -361,8 +361,73 @@ caller sees is listed.
 - docx: `[Content_Types].xml` keeps the producer's formatting even when the
   session adds parts. The raw bytes were skipped whenever anything was added, on
   the belief the new content types would go missing; the writer merges them in.
+- docx: `Document.ContentControls` reports controls nested in hyperlinks and in
+  tracked-change blocks, and `Document.MergeFields`/`Document.FormFields` report
+  fields inside content controls and tracked changes. All three walked their own
+  partial subset of the paragraph-content nesting; they now share one descent
+  with the revision transforms. The two field scanners also run per part rather
+  than per paragraph, so a complex field whose begin/instruction/end runs are
+  split across a paragraph boundary — legal, and common for `IF` fields — is read
+  as one field instead of being lost.
+- docx: `Run.AddComment` on a run that is not a direct paragraph child (any run
+  from `Hyperlink.Runs`) returns nil instead of writing a comment into
+  `comments.xml` with no range markers anywhere — an entry Word never displays.
+- docx: `Document.AddCommentOnRange` and `Document.AddBookmarkOnRange` given
+  their endpoints in reverse document order now place the markers in the right
+  order instead of emitting an end marker ahead of its start. The inverted markup
+  passed `Validate()` and made `AnchorText`/`Bookmark.Text` return the wrong text.
+- docx: every feature mutator flags the header or footer part it edits, so an
+  edit through a live handle into a reopened header is written back rather than
+  masked by the preserved bytes. `AddInsertedRun`, `MarkInserted`, `MarkDeleted`,
+  the tracked moves, `AddField`, `AddMergeField`, `AddCitation`, `AddFormField`,
+  `AddContentControl`, `AddComment`, `AddFootnote`, `AddEndnote`,
+  `AddSignatureLine` and `RemoveListStyle` all missed it. The worst case was
+  `AddFootnote` on a header run: the note was appended to `footnotes.xml` and the
+  reference to it was dropped, leaving an orphan note.
+- docx: `Revision.Accept`/`Reject` return `ErrRevisionStale` when the revision's
+  content has moved — typically because an earlier Accept rebuilt its container —
+  instead of reporting success, changing nothing and flagging the owning part for
+  regeneration anyway.
+- docx: `Document.Revisions` reports a `w:sectPrChange` on a mid-document section
+  break and structural table revisions inside a block-level content control. Both
+  were already walked when allocating revision ids, just not when enumerating.
+- docx: new revision ids no longer collide with ids already used in a header or
+  footer, which `Revisions` enumerates and so shares an id space with.
+- docx: `Document.Charts`, `Images`, `Hyperlinks`, `MergeFields` and `Watermark`
+  visit headers and footers in part-name order. They iterated the maps directly,
+  so results documented as "in document order" varied run to run — and
+  `Watermark`, which returns the first one it finds, could report a different
+  watermark each time.
+- docx: `people.xml` keeps the attributes the model does not type when it is
+  regenerated, and is no longer regenerated at all for a comment whose author is
+  already in the registry.
+- docx: the `w14:paraId` uniqueness scan reaches table-cell and header/footer
+  paragraphs, matching the walk comment anchoring and threading already used.
+- docx: `Style.SetBasedOn` refuses a value that would make a style inherit from
+  itself, directly or through a chain, and `Validate` reports a `style-cycle`
+  warning for a cycle already present in the document.
+- docx: metadata parts are resolved through their relationships rather than by
+  hardcoded name. A package whose styles relationship targets, say,
+  `styles2.xml` used to parse no styles at all, and `Styles().AddStyle` then
+  wrote a second, orphaned `/word/styles.xml` that nothing referenced — so the
+  added style silently never took effect. The same applied to numbering,
+  settings, notes, comments, people and the bibliography store.
+- docx: `Append` renumbers the imported bookmarks and renames the ones whose name
+  the destination already uses, so two documents both carrying Word's `_GoBack`
+  no longer merge into two mispaired marker pairs sharing one id and one name;
+  and an imported comment whose `w14:paraId` collides with a destination
+  `commentsExtended` key is reassigned instead of reading back as resolved.
 
 ### Added
+
+- docx: `ListDefinition.RestartedListStyle` and `ListStyle.RestartAt` write
+  numbering level overrides (`w:lvlOverride`/`w:startOverride`), so "restart this
+  list at 1" is expressible. The model already carried the elements; no API
+  reached them.
+- docx: `Style.BasedOn` returns the style a style inherits from, so the value
+  `SetBasedOn` refuses to change can be inspected.
+- docx: `ErrRevisionStale`, returned by `Revision.Accept`/`Reject` for a handle
+  whose content has moved.
 
 - docx: `Document.Headers`, `Document.Footers`, `Document.Header(section, type)`
   and `Document.Footer(section, type)` return editable handles for the headers

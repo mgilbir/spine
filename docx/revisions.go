@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
@@ -20,17 +21,54 @@ func formatRevisionDate(t time.Time) string {
 
 // nextRevisionID returns the next unused revision id (w:id) for the document,
 // monotonically increasing across the document's lifetime. The first call scans
-// the body for the highest existing tracked-change id so authored revisions
-// never collide with ones already present.
+// for the highest existing tracked-change id so authored revisions never
+// collide with ones already present.
+//
+// The scan covers the body *and* every header and footer part, plus the
+// paragraph-level w:sectPrChange records that mark mid-document section breaks.
+// Scanning the body alone meant that authoring into a document whose header
+// carries tracked changes — which Revisions() enumerates, so they are visibly
+// part of the same id space — reused those ids (C496, the revision twin of the
+// bookmark C408).
 func (d *Document) nextRevisionID() int {
 	if !d.revisionIDInit {
-		if d.doc() != nil {
-			d.revisionIDVal = oxml.MaxRevisionID(d.doc().Body)
-		}
+		d.revisionIDVal = d.maxRevisionID()
 		d.revisionIDInit = true
 	}
 	d.revisionIDVal++
 	return d.revisionIDVal
+}
+
+// maxRevisionID returns the highest numeric tracked-change id anywhere in the
+// document: the body (including its structural and section revisions), the
+// paragraph-level section-property changes the body scan does not reach, and
+// every header and footer part.
+func (d *Document) maxRevisionID() int {
+	maxID := 0
+	consider := func(s string) {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > maxID {
+			maxID = n
+		}
+	}
+	if d.doc() != nil && d.doc().Body != nil {
+		maxID = oxml.MaxRevisionID(d.doc().Body)
+		for _, p := range d.doc().Body.AllParagraphs() {
+			if p != nil && p.PPr != nil && p.PPr.SectPr != nil && p.PPr.SectPr.SectPrChange != nil {
+				consider(p.PPr.SectPr.SectPrChange.Id)
+			}
+		}
+	}
+	for _, hp := range d.sortedHeaderParts() {
+		if hp != nil && hp.hdr != nil {
+			consider(strconv.Itoa(oxml.MaxHdrFtrRevisionID(hp.hdr)))
+		}
+	}
+	for _, fp := range d.sortedFooterParts() {
+		if fp != nil && fp.ftr != nil {
+			consider(strconv.Itoa(oxml.MaxHdrFtrRevisionID(fp.ftr)))
+		}
+	}
+	return maxID
 }
 
 // --- Authoring tracked changes ---
@@ -57,7 +95,7 @@ func (p *Paragraph) AddInsertedRunWithDate(author, text string, date time.Time) 
 		Date:   formatRevisionDate(date),
 	}
 	block.AppendR(r)
-	p.p.AppendIns(block)
+	p.mut().AppendIns(block)
 	return &Run{paragraph: p, r: r}
 }
 
@@ -76,7 +114,7 @@ func (r *Run) MarkInserted(author string) *Run {
 // (recorded in UTC), for deterministic output.
 func (r *Run) MarkInsertedWithDate(author string, date time.Time) *Run {
 	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
-	oxml.WrapRunInsertion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	oxml.WrapRunInsertion(r.mutParagraph(), r.r, id, author, formatRevisionDate(date))
 	return r
 }
 
@@ -98,7 +136,7 @@ func (r *Run) MarkDeleted(author string) *Run {
 // (recorded in UTC), for deterministic output.
 func (r *Run) MarkDeletedWithDate(author string, date time.Time) *Run {
 	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
-	oxml.WrapRunDeletion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	oxml.WrapRunDeletion(r.mutParagraph(), r.r, id, author, formatRevisionDate(date))
 	return r
 }
 
@@ -143,9 +181,10 @@ func (p *Paragraph) addMove(kind, author, name, text string, date time.Time) {
 	contentID := strconv.Itoa(p.document.nextRevisionID())
 	ds := formatRevisionDate(date)
 	r := &oxml.CT_R{T: []*oxml.CT_Text{{Space: "preserve", Text: text}}}
-	p.p.AppendRaw(oxml.NewMoveRangeStart(kind+"RangeStart", rangeID, author, ds, name))
-	p.p.AppendRaw(oxml.NewMoveBlock(kind, contentID, author, ds, r))
-	p.p.AppendRaw(oxml.NewMoveRangeEnd(kind+"RangeEnd", rangeID))
+	cp := p.mut()
+	cp.AppendRaw(oxml.NewMoveRangeStart(kind+"RangeStart", rangeID, author, ds, name))
+	cp.AppendRaw(oxml.NewMoveBlock(kind, contentID, author, ds, r))
+	cp.AppendRaw(oxml.NewMoveRangeEnd(kind+"RangeEnd", rangeID))
 }
 
 // RevisionType names the kind of a tracked change (a Word revision).
@@ -260,55 +299,90 @@ func (r *Revision) Editable() bool {
 // Accept applies the revision to the document, transforming its content:
 // an insertion becomes normal text, a deletion is removed, and a property
 // change keeps its new properties (dropping the change record). It returns an
-// error for a read-only revision type (see Editable).
+// error for a read-only revision type (see Editable), and ErrRevisionStale when
+// the revision's content is no longer where it was enumerated.
 func (r *Revision) Accept() error {
+	var done bool
 	switch r.kind {
 	case RevisionInsertion:
-		oxml.AcceptInsertion(r.container, r.block)
+		done = oxml.AcceptInsertion(r.container, r.block)
 	case RevisionDeletion:
-		oxml.AcceptDeletion(r.container, r.block)
+		done = oxml.AcceptDeletion(r.container, r.block)
 	case RevisionRunFormat:
+		done = r.hasRunChange()
 		oxml.AcceptRunFormat(r.run)
 	case RevisionParagraphFormat:
+		done = r.hasParaChange()
 		oxml.AcceptParagraphFormat(r.para)
 	case RevisionMoveFrom:
 		// Accepting a move drops the source content.
-		oxml.DropMoveBlock(r.container, r.moveRaw)
+		done = oxml.DropMoveBlock(r.container, r.moveRaw)
 	case RevisionMoveTo:
 		// Accepting a move keeps the destination content as normal text.
-		oxml.UnwrapMoveBlock(r.container, r.moveRaw)
+		done = oxml.UnwrapMoveBlock(r.container, r.moveRaw)
 	default:
 		return fmt.Errorf("docx: revision type %q is read-only and cannot be accepted", r.kind)
 	}
-	r.markModified()
-	return nil
+	return r.finish(done)
 }
 
 // Reject discards the revision, transforming its content: an insertion is
 // removed, a deletion is restored as normal text, and a property change reverts
 // to the recorded old properties (dropping the change record). It returns an
-// error for a read-only revision type (see Editable).
+// error for a read-only revision type (see Editable), and ErrRevisionStale when
+// the revision's content is no longer where it was enumerated.
 func (r *Revision) Reject() error {
+	var done bool
 	switch r.kind {
 	case RevisionInsertion:
-		oxml.RejectInsertion(r.container, r.block)
+		done = oxml.RejectInsertion(r.container, r.block)
 	case RevisionDeletion:
-		oxml.RejectDeletion(r.container, r.block)
+		done = oxml.RejectDeletion(r.container, r.block)
 	case RevisionRunFormat:
+		done = r.hasRunChange()
 		oxml.RejectRunFormat(r.run)
 	case RevisionParagraphFormat:
+		done = r.hasParaChange()
 		oxml.RejectParagraphFormat(r.para)
 	case RevisionMoveFrom:
 		// Rejecting a move restores the source content as normal text.
-		oxml.UnwrapMoveBlock(r.container, r.moveRaw)
+		done = oxml.UnwrapMoveBlock(r.container, r.moveRaw)
 	case RevisionMoveTo:
 		// Rejecting a move drops the destination content.
-		oxml.DropMoveBlock(r.container, r.moveRaw)
+		done = oxml.DropMoveBlock(r.container, r.moveRaw)
 	default:
 		return fmt.Errorf("docx: revision type %q is read-only and cannot be rejected", r.kind)
 	}
+	return r.finish(done)
+}
+
+// finish reports the outcome of a transform: on success it flags the owning
+// part modified, on failure it reports the revision stale and flags nothing.
+//
+// The transforms return false when the revision's block is no longer a direct
+// child of its container — exactly the invalidation the type's godoc warns
+// about, since accepting one revision rebuilds its container and detaches the
+// handles of the others enumerated alongside it. Discarding that bool made
+// Accept() report success having done nothing, *and* flag a header part for
+// regeneration on the strength of a no-op (C494).
+func (r *Revision) finish(done bool) error {
+	if !done {
+		return ErrRevisionStale
+	}
 	r.markModified()
 	return nil
+}
+
+// hasRunChange reports whether the run still carries the property-change record
+// this revision refers to.
+func (r *Revision) hasRunChange() bool {
+	return r.run != nil && r.run.RPr != nil && r.run.RPr.RPrChange != nil
+}
+
+// hasParaChange reports whether the paragraph still carries the property-change
+// record this revision refers to.
+func (r *Revision) hasParaChange() bool {
+	return r.para != nil && r.para.PPr != nil && r.para.PPr.PPrChange != nil
 }
 
 // markModified flags the revision's owning part (a header or footer) for
@@ -328,6 +402,12 @@ func (r *Revision) markModified() {
 // section revisions are reported read-only. Header and footer revisions follow
 // the body revisions, ordered by part name.
 //
+// Structural revisions are enumerated through the same block descent that
+// allocates their ids, so a table revision inside a block-level content control
+// is reported (it used to be allocated an id it never surfaced), and a
+// w:sectPrChange on a paragraph-level w:sectPr — any mid-document section break
+// edited under track changes — is reported alongside the body-level one (C495).
+//
 // The returned Revision values reference live document structures. Accept or
 // Reject on one, and any editing between enumerating and applying, can
 // invalidate others in the slice; re-read Revisions after a batch of edits.
@@ -337,19 +417,47 @@ func (d *Document) Revisions() []*Revision {
 		for _, p := range d.doc().Body.AllParagraphs() {
 			out = collectParagraphAndMoves(out, p, nil)
 		}
-		for _, tbl := range d.doc().Body.Tbl {
-			out = collectTableRevisions(out, tbl)
-		}
-		if sc := d.doc().Body.SectPr; sc != nil && sc.SectPrChange != nil {
-			out = append(out, &Revision{
-				kind:   RevisionSectionFormat,
-				author: sc.SectPrChange.Author,
-				date:   sc.SectPrChange.Date,
-			})
-		}
+		out = appendStructuralRevisions(out, d.doc().Body.StructuralRevisions())
 	}
 	out = d.collectHdrFtrRevisions(out)
 	return out
+}
+
+// appendStructuralRevisions maps the internal structural-revision records onto
+// the public read-only Revision types.
+func appendStructuralRevisions(out []*Revision, revs []oxml.StructRevision) []*Revision {
+	for _, sr := range revs {
+		out = append(out, &Revision{
+			kind:   structRevisionType(sr.Kind),
+			author: sr.Author,
+			date:   sr.Date,
+		})
+	}
+	return out
+}
+
+// structRevisionType maps an internal structural-revision kind to its public
+// RevisionType.
+func structRevisionType(k oxml.StructRevKind) RevisionType {
+	switch k {
+	case oxml.StructRevTableFormat:
+		return RevisionTableFormat
+	case oxml.StructRevRowInsertion:
+		return RevisionRowInsertion
+	case oxml.StructRevRowDeletion:
+		return RevisionRowDeletion
+	case oxml.StructRevRowFormat:
+		return RevisionRowFormat
+	case oxml.StructRevCellInsertion:
+		return RevisionCellInsertion
+	case oxml.StructRevCellDeletion:
+		return RevisionCellDeletion
+	case oxml.StructRevCellMerge:
+		return RevisionCellMerge
+	case oxml.StructRevCellFormat:
+		return RevisionCellFormat
+	}
+	return RevisionSectionFormat
 }
 
 // collectParagraphAndMoves appends a paragraph's tracked changes followed by its
@@ -381,9 +489,7 @@ func (d *Document) collectHdrFtrRevisions(out []*Revision) []*Revision {
 		for _, p := range hp.hdr.AllParagraphs() {
 			out = collectParagraphAndMoves(out, p, notify)
 		}
-		for _, tbl := range hp.hdr.Tbl {
-			out = collectTableRevisions(out, tbl)
-		}
+		out = appendStructuralRevisions(out, hp.hdr.StructuralRevisions())
 	}
 	for _, name := range sortedKeys(d.footers) {
 		fp := d.footers[name]
@@ -395,18 +501,26 @@ func (d *Document) collectHdrFtrRevisions(out []*Revision) []*Revision {
 		for _, p := range fp.ftr.AllParagraphs() {
 			out = collectParagraphAndMoves(out, p, notify)
 		}
-		for _, tbl := range fp.ftr.Tbl {
-			out = collectTableRevisions(out, tbl)
-		}
+		out = appendStructuralRevisions(out, fp.ftr.StructuralRevisions())
 	}
 	return out
 }
 
-// AcceptAllRevisions accepts every editable revision in the document body:
-// insertions become normal text, deletions are removed, and run/paragraph
-// property changes keep their new properties. Read-only revision types
-// (table/row/cell/section changes, cell merges) are left untouched. It returns
-// an error only if a future transform reports one; today it always succeeds.
+// AcceptAllRevisions accepts every editable revision in the document body and
+// in every header and footer: insertions become normal text, deletions are
+// removed, run/paragraph property changes keep their new properties, and
+// tracked moves are resolved (the source content is dropped, the destination
+// kept as normal text; the w:moveFrom/w:moveTo range markers are preserved in
+// place).
+//
+// Read-only revision types are left untouched: table, row and cell property
+// changes, row and cell insertions and deletions, cell merges, and section
+// property changes — including the w:sectPrChange on a mid-document section
+// break. Those are reported by Revisions but never transformed here, so a
+// document AcceptAllRevisions has processed can still enumerate revisions.
+//
+// It returns an error only if a future transform reports one; today it always
+// succeeds.
 func (d *Document) AcceptAllRevisions() error {
 	if d.doc() != nil && d.doc().Body != nil {
 		for _, p := range d.doc().Body.AllParagraphs() {
@@ -543,59 +657,4 @@ func newMoveRevision(rm oxml.RawMove, notify func()) *Revision {
 		rev.kind = RevisionMoveFrom
 	}
 	return rev
-}
-
-// collectTableRevisions appends a table's read-only structural revisions
-// (table/row/cell property changes, row/cell insertions and deletions, and cell
-// merges), descending into nested tables.
-func collectTableRevisions(out []*Revision, tbl *oxml.CT_Tbl) []*Revision {
-	if tbl == nil {
-		return out
-	}
-	if tbl.TblPr != nil && tbl.TblPr.TblPrChange != nil {
-		out = append(out, &Revision{
-			kind:   RevisionTableFormat,
-			author: tbl.TblPr.TblPrChange.Author,
-			date:   tbl.TblPr.TblPrChange.Date,
-		})
-	}
-	for _, tr := range tbl.Tr {
-		if tr == nil {
-			continue
-		}
-		if tr.TrPr != nil {
-			if tr.TrPr.Ins != nil {
-				out = append(out, &Revision{kind: RevisionRowInsertion, author: tr.TrPr.Ins.Author, date: tr.TrPr.Ins.Date})
-			}
-			if tr.TrPr.Del != nil {
-				out = append(out, &Revision{kind: RevisionRowDeletion, author: tr.TrPr.Del.Author, date: tr.TrPr.Del.Date})
-			}
-			if tr.TrPr.TrPrChange != nil {
-				out = append(out, &Revision{kind: RevisionRowFormat, author: tr.TrPr.TrPrChange.Author, date: tr.TrPr.TrPrChange.Date})
-			}
-		}
-		for _, tc := range tr.Tc {
-			if tc == nil {
-				continue
-			}
-			if tc.TcPr != nil {
-				if tc.TcPr.CellIns != nil {
-					out = append(out, &Revision{kind: RevisionCellInsertion, author: tc.TcPr.CellIns.Author, date: tc.TcPr.CellIns.Date})
-				}
-				if tc.TcPr.CellDel != nil {
-					out = append(out, &Revision{kind: RevisionCellDeletion, author: tc.TcPr.CellDel.Author, date: tc.TcPr.CellDel.Date})
-				}
-				if tc.TcPr.CellMerge != nil {
-					out = append(out, &Revision{kind: RevisionCellMerge, author: tc.TcPr.CellMerge.Author, date: tc.TcPr.CellMerge.Date})
-				}
-				if tc.TcPr.TcPrChange != nil {
-					out = append(out, &Revision{kind: RevisionCellFormat, author: tc.TcPr.TcPrChange.Author, date: tc.TcPr.TcPrChange.Date})
-				}
-			}
-			for _, nested := range tc.Tbl {
-				out = collectTableRevisions(out, nested)
-			}
-		}
-	}
-	return out
 }

@@ -203,6 +203,12 @@ type BuildingBlockDef struct {
 // AddBuildingBlock call; from then on the new docPart is spliced in before the
 // closing </w:docParts> so every existing docPart (and its body) is preserved
 // verbatim.
+//
+// The block created here is metadata only: it registers the name, gallery,
+// category, types, style and description, and its body is a single empty
+// paragraph. There is no way to give a new block reusable content — the name
+// "building block" notwithstanding — so it appears in Word's gallery and
+// inserts nothing. Blocks that came with the opened package keep their bodies.
 func (d *Document) AddBuildingBlock(def BuildingBlockDef) error {
 	if def.Name == "" {
 		return fmt.Errorf("docx: AddBuildingBlock: building block name must not be empty")

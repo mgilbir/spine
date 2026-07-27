@@ -39,6 +39,10 @@ func isSeparatorNote(n *oxml.CT_FtnEdn) bool {
 
 // Footnotes returns the document's footnotes in document (part) order,
 // excluding the mandatory separator and continuationSeparator notes.
+//
+// Notes can be added but not removed: there is no RemoveFootnote or
+// RemoveEndnote, so a note anchored by content that is later replaced stays in
+// footnotes.xml with nothing referencing it.
 func (d *Document) Footnotes() []*Footnote {
 	if d.footnotes == nil {
 		return nil
@@ -122,13 +126,13 @@ func (r *Run) anchorNoteRef(id string, endnote bool) {
 	} else {
 		refRun.AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
 	}
-	if r.paragraph.p.InsertRunAfter(r.r, refRun) {
+	if r.mutParagraph().InsertRunAfter(r.r, refRun) {
 		return
 	}
 	if endnote {
-		r.r.AppendEndnoteRef(&oxml.CT_FtnEdnRef{Id: id})
+		r.mut().AppendEndnoteRef(&oxml.CT_FtnEdnRef{Id: id})
 	} else {
-		r.r.AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
+		r.mut().AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
 	}
 }
 

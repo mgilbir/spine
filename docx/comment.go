@@ -33,6 +33,12 @@ type Comment struct {
 // order they appear in the comments part. Replies are reached through
 // Comment.Replies() rather than appearing in this list, matching the xlsx and
 // pptx comment APIs.
+//
+// Comments can be added, replied to and resolved, but not removed: there is no
+// RemoveComment, as there is no RemoveFootnote, RemoveStyle or
+// RemoveContentControl (Document.RemoveSource, for a bibliography source, is
+// the lone deletion in the docx feature set). Marking a thread resolved with
+// SetResolved is the closest available operation.
 func (d *Document) Comments() []*Comment {
 	if d.comments == nil {
 		return nil
@@ -144,40 +150,61 @@ func (c *Comment) SetInitials(initials string) {
 // AddComment attaches a comment authored by author with the given body text,
 // anchored over the whole paragraph's content. The returned handle can be used
 // to reply, resolve, or set initials.
+//
+// Comments belong to the main document story: Word does not display a comment
+// anchored in a header or footer, and the reply/anchor machinery here resolves
+// anchors over the body only, so a comment added to a header paragraph is
+// written but never reachable through Reply or AnchorText.
 func (p *Paragraph) AddComment(author, text string) *Comment {
 	c := p.document.addCommentModel(author, text, "")
-	p.p.AddCommentAroundParagraph(c.Id)
+	p.mut().AddCommentAroundParagraph(c.Id)
 	return &Comment{document: p.document, c: c}
 }
 
 // AddComment attaches a comment anchored over this single run (docx-specific
-// range-precise form).
+// range-precise form). It returns nil, adding no comment, if the run is not a
+// direct child run of its paragraph (for example one from Hyperlink.Runs):
+// range markers cannot be spliced around such a run, and creating the comment
+// anyway left comments.xml carrying an entry with no document anchor that Word
+// never displays (C403 — the same guarantee AddCommentOnRange already made).
 func (r *Run) AddComment(author, text string) *Comment {
+	if r == nil || r.paragraph == nil {
+		return nil
+	}
+	// Check the anchor before building the model: addCommentModel appends to
+	// comments.xml, commentsExtended and people and flags all three modified,
+	// so discovering the failure afterwards is already too late.
+	if !r.paragraph.p.HasDirectChildRun(r.r) {
+		return nil
+	}
 	doc := r.paragraph.document
 	c := doc.addCommentModel(author, text, "")
-	r.paragraph.p.AddCommentAroundRun(r.r, c.Id)
+	r.mutParagraph().AddCommentAroundRun(r.r, c.Id)
 	return &Comment{document: doc, c: c}
 }
 
 // AddCommentOnRange attaches a comment spanning from the start run to the end
 // run (inclusive). The runs may live in the same paragraph or in different
 // paragraphs; the range markers are placed around them and the reference mark
-// after the end run. It returns nil if either run is not a direct child run of
-// its paragraph (e.g. a run nested inside a hyperlink), adding no comment so
-// comments.xml gains no orphan entry with no anchor.
+// after the end run.
+//
+// It returns nil if either run is not a direct child run of its paragraph (e.g.
+// a run nested inside a hyperlink) or sits outside the body, adding no comment
+// so comments.xml gains no orphan entry with no anchor. Endpoints given in
+// reverse document order are swapped rather than emitted inverted (C404).
 func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comment {
-	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
-		return nil
-	}
-	// Verify both range markers can be anchored before creating the comment
-	// model: a nested (non-direct-child) endpoint must not leave an orphan
-	// comment in comments.xml with no document anchor (C296).
-	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
+	// Verify both range markers can be anchored, and put them in document
+	// order, before creating the comment model: a nested (non-direct-child)
+	// endpoint must not leave an orphan comment in comments.xml with no
+	// document anchor (C296), and a reversed pair must not emit a
+	// commentRangeEnd ahead of its commentRangeStart (C404).
+	start, end, ok := orderRunRange(d.allBodyParagraphs(), start, end)
+	if !ok {
 		return nil
 	}
 	c := d.addCommentModel(author, text, "")
-	start.paragraph.p.InsertCommentStartBeforeRun(start.r, c.Id)
-	end.paragraph.p.InsertCommentEndAndRefAfterRun(end.r, c.Id)
+	start.paragraph.mut().InsertCommentStartBeforeRun(start.r, c.Id)
+	end.paragraph.mut().InsertCommentEndAndRefAfterRun(end.r, c.Id)
 	return &Comment{document: d, c: c}
 }
 
@@ -248,16 +275,21 @@ func (d *Document) addCommentModel(author, text, parentParaID string) *oxml.CT_C
 		ParaIdParent: parentParaID,
 	})
 
+	// people.xml is regenerated only when the author registry actually gains an
+	// entry. Flagging it unconditionally meant a reply by an author already in
+	// the registry — or a comment with no author at all — rebuilt the part from
+	// the Author/ProviderId/UserId triple alone, shedding every attribute and
+	// child the model does not type (C500).
 	if author != "" && !d.people.Has(author) {
 		d.people.Person = append(d.people.Person, &oxml.CT_Person{
 			Author:       author,
 			PresenceInfo: &oxml.CT_PresenceInfo{ProviderId: "None", UserId: author},
 		})
+		d.peopleModified = true
 	}
 
 	d.commentsModified = true
 	d.commentsExtModified = true
-	d.peopleModified = true
 	return c
 }
 
@@ -392,20 +424,11 @@ func (d *Document) nestReplyAnchor(parentID, newID string) {
 	}
 }
 
-// bodyParagraphs returns the body's top-level paragraphs in document order
-// (top-level plus block-level SDT content; tables are not descended).
-func (d *Document) bodyParagraphs() []*oxml.CT_P {
-	if d.doc() == nil || d.doc().Body == nil {
-		return nil
-	}
-	return d.doc().Body.Paragraphs()
-}
-
 // allBodyParagraphs returns every paragraph reachable from the body in document
-// order, descending into tables (and block-level SDTs). Comment anchoring and
-// threading use this so a comment anchored in a table cell is not invisible to
-// Reply() and AnchorText() (C267): the range markers live in a table-cell
-// paragraph that the top-level-only bodyParagraphs walk never reaches.
+// order, descending into tables (and block-level SDTs). Comment anchoring,
+// threading and paraId allocation all use this so a comment anchored in a table
+// cell is not invisible to Reply() and AnchorText() (C267): the range markers
+// live in a table-cell paragraph that a top-level-only walk never reaches.
 func (d *Document) allBodyParagraphs() []*oxml.CT_P {
 	if d.doc() == nil || d.doc().Body == nil {
 		return nil
@@ -413,31 +436,19 @@ func (d *Document) allBodyParagraphs() []*oxml.CT_P {
 	return d.doc().Body.AllParagraphs()
 }
 
-// nextParaID returns an 8-hex-digit paraId not already used by any body or
-// comment paragraph, or by an existing commentsExtended entry.
+// nextParaID returns an 8-hex-digit paraId not already used by any paragraph in
+// the package (body, headers, footers) or by any comment paragraph or
+// commentsExtended entry.
+//
+// The body scan descends into tables and SDTs. It used bodyParagraphs (the
+// top-level walk) while C267 moved anchoring and threading to allBodyParagraphs,
+// so a table-cell paragraph's existing w14:paraId was not in the used set — an
+// inconsistency the C267 fix left behind (C499). The collision odds are 2^-32
+// per pair either way, but the two walks disagreeing about which paragraphs
+// exist is the kind of thing that becomes a real bug the next time either is
+// reused.
 func (d *Document) nextParaID() string {
-	used := make(map[string]bool)
-	for _, p := range d.bodyParagraphs() {
-		if p != nil && p.ParaId != "" {
-			used[strings.ToUpper(p.ParaId)] = true
-		}
-	}
-	if d.comments != nil {
-		for _, cm := range d.comments.Comment {
-			for _, p := range cm.P {
-				if p != nil && p.ParaId != "" {
-					used[strings.ToUpper(p.ParaId)] = true
-				}
-			}
-		}
-	}
-	if d.commentsExtended != nil {
-		for _, ce := range d.commentsExtended.CommentEx {
-			if ce.ParaId != "" {
-				used[strings.ToUpper(ce.ParaId)] = true
-			}
-		}
-	}
+	used := d.usedParaIDs()
 	for {
 		var buf [4]byte
 		if _, err := rand.Read(buf[:]); err != nil {
@@ -451,6 +462,45 @@ func (d *Document) nextParaID() string {
 			return id
 		}
 	}
+}
+
+// usedParaIDs returns the upper-cased set of w14:paraId values already in use
+// anywhere in the package: every body paragraph (descending into tables and
+// SDTs), every header and footer paragraph, every comment paragraph, and every
+// commentsExtended key.
+func (d *Document) usedParaIDs() map[string]bool {
+	used := make(map[string]bool)
+	consider := func(paras []*oxml.CT_P) {
+		for _, p := range paras {
+			if p != nil && p.ParaId != "" {
+				used[strings.ToUpper(p.ParaId)] = true
+			}
+		}
+	}
+	consider(d.allBodyParagraphs())
+	for _, hp := range d.sortedHeaderParts() {
+		if hp != nil && hp.hdr != nil {
+			consider(hp.hdr.AllParagraphs())
+		}
+	}
+	for _, fp := range d.sortedFooterParts() {
+		if fp != nil && fp.ftr != nil {
+			consider(fp.ftr.AllParagraphs())
+		}
+	}
+	if d.comments != nil {
+		for _, cm := range d.comments.Comment {
+			consider(cm.P)
+		}
+	}
+	if d.commentsExtended != nil {
+		for _, ce := range d.commentsExtended.CommentEx {
+			if ce.ParaId != "" {
+				used[strings.ToUpper(ce.ParaId)] = true
+			}
+		}
+	}
+	return used
 }
 
 // deriveInitials builds up to three uppercase initials from the author's name

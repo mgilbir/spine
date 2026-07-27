@@ -127,8 +127,72 @@ func (d *Document) Append(other *Document) error {
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
+	// Bookmark ids and names are per-document, so the imported markers are
+	// renumbered (and colliding names renamed) before the content joins this
+	// body — two documents both carrying Word's _GoBack, very often id 0,
+	// otherwise produce two bookmarkStart/bookmarkEnd pairs sharing an id
+	// (mispaired) and two bookmarks sharing a name (an ambiguous internal
+	// hyperlink target) (C503).
+	d.remapImportedBookmarks(rewritten.Body)
 	d.doc().Body.AppendAllFrom(rewritten.Body)
 	return nil
+}
+
+// remapImportedBookmarks renumbers every bookmark in the body about to be
+// appended so its ids sit above this document's, and renames the ones whose
+// name is already taken here.
+func (d *Document) remapImportedBookmarks(src *oxml.CT_Body) {
+	if src == nil {
+		return
+	}
+	taken := make(map[string]bool)
+	for _, b := range d.Bookmarks() {
+		taken[b.Name()] = true
+	}
+	next, _ := strconv.Atoi(d.nextBookmarkID())
+	ids := make(map[string]string)
+	names := make(map[string]string)
+	src.RemapBookmarks(oxml.BookmarkRemap{
+		ID: func(id string) string {
+			if v, ok := ids[id]; ok {
+				return v
+			}
+			v := strconv.Itoa(next)
+			next++
+			ids[id] = v
+			return v
+		},
+		Name: func(name string) string {
+			if v, ok := names[name]; ok {
+				return v
+			}
+			v := name
+			if taken[name] {
+				v = uniqueBookmarkName(taken, name)
+			}
+			taken[v] = true
+			names[name] = v
+			return v
+		},
+	})
+}
+
+// uniqueBookmarkName derives a free bookmark name from base by appending an
+// incrementing suffix, mirroring uniqueStyleID for style ids. Word caps
+// bookmark names at 40 characters, so the base is trimmed to leave room.
+func uniqueBookmarkName(taken map[string]bool, base string) string {
+	const maxBookmarkName = 40
+	for i := 1; ; i++ {
+		suffix := "_" + strconv.Itoa(i)
+		trimmed := base
+		if len(trimmed)+len(suffix) > maxBookmarkName {
+			trimmed = trimmed[:maxBookmarkName-len(suffix)]
+		}
+		candidate := trimmed + suffix
+		if !taken[candidate] {
+			return candidate
+		}
+	}
 }
 
 // importRelationships copies the relationships of other's main part that the
@@ -666,6 +730,13 @@ func (d *Document) importComments(other *Document) (map[string]string, error) {
 	if next < 1 {
 		next = 1
 	}
+	// The imported comments' w14:paraId values are this document's keys once
+	// they land here: commentsExtended is keyed on them, and the source's
+	// threading metadata is deliberately not merged. A source paraId that
+	// happens to match one of this document's commentsExtended keys would make
+	// the foreign comment read back as resolved or threaded under a local
+	// comment, so colliding ids are reassigned (C503).
+	used := d.usedParaIDs()
 	for _, cm := range parsed.Comment {
 		if cm == nil {
 			continue
@@ -674,6 +745,17 @@ func (d *Document) importComments(other *Document) (map[string]string, error) {
 		next++
 		remap[cm.Id] = newID
 		cm.Id = newID
+		for _, p := range cm.P {
+			if p == nil || p.ParaId == "" {
+				continue
+			}
+			for used[strings.ToUpper(p.ParaId)] {
+				// nextParaID's own scan does not yet see the comments still in
+				// flight in this loop, so re-check against the running set.
+				p.ParaId = d.nextParaID()
+			}
+			used[strings.ToUpper(p.ParaId)] = true
+		}
 		d.comments.Comment = append(d.comments.Comment, cm)
 	}
 	if len(remap) > 0 {

@@ -199,92 +199,97 @@ func toCTMailMerge(mm *MailMerge) *oxml.CT_MailMerge {
 // document, in first-appearance order. Both simple fields (w:fldSimple) and
 // complex fields (w:fldChar/w:instrText run sequences) are scanned, in
 // paragraphs anywhere in the body and in every header and footer, including
-// paragraphs nested inside tables. This matches FormFields, which also covers
-// headers and footers.
+// paragraphs nested inside tables and content nested inside content controls,
+// hyperlinks and tracked changes. This matches FormFields, which also covers
+// headers and footers, and which uses the same descent.
+//
+// The complex-field state machine runs over each part as a whole rather than
+// per paragraph, so a field whose begin, instruction and end runs are split
+// across paragraphs — legal per ECMA-376 §17.16.18 and common for IF fields —
+// is still read as one field. Headers and footers are walked in part-name
+// order, so the result is deterministic.
 func (d *Document) MergeFields() []string {
 	var out []string
 	seen := map[string]bool{}
-	if d.doc() != nil && d.doc().Body != nil {
-		for _, p := range d.doc().Body.AllParagraphs() {
-			collectParagraphMergeFields(p, &out, seen)
+	collect := func(paras []*oxml.CT_P) {
+		st := &mergeFieldScan{out: &out, seen: seen}
+		for _, p := range paras {
+			st.paragraph(p)
 		}
 	}
-	for _, hp := range d.headers {
+	if d.doc() != nil && d.doc().Body != nil {
+		collect(d.doc().Body.AllParagraphs())
+	}
+	for _, hp := range d.sortedHeaderParts() {
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
-		for _, p := range hp.hdr.AllParagraphs() {
-			collectParagraphMergeFields(p, &out, seen)
-		}
+		collect(hp.hdr.AllParagraphs())
 	}
-	for _, fp := range d.footers {
+	for _, fp := range d.sortedFooterParts() {
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
-		for _, p := range fp.ftr.AllParagraphs() {
-			collectParagraphMergeFields(p, &out, seen)
-		}
+		collect(fp.ftr.AllParagraphs())
 	}
 	return out
 }
 
-// collectParagraphMergeFields appends the merge-field names in a paragraph,
-// descending into hyperlinks and nested simple fields.
-func collectParagraphMergeFields(p *oxml.CT_P, out *[]string, seen map[string]bool) {
-	collectRunMergeFields(p.R, out, seen)
-	for _, h := range p.Hyperlink {
-		if h != nil {
-			collectRunMergeFields(h.R, out, seen)
-		}
-	}
-	for _, f := range p.FldSimple {
-		collectSimpleFieldMergeFields(f, out, seen)
-	}
+// mergeFieldScan is the complex-field state machine, carried across paragraphs
+// so a field split at a paragraph boundary keeps its capture state.
+type mergeFieldScan struct {
+	out       *[]string
+	seen      map[string]bool
+	instr     strings.Builder
+	capturing bool
 }
 
-// collectSimpleFieldMergeFields handles a w:fldSimple: its own instruction plus
-// any runs and nested simple fields it wraps.
-func collectSimpleFieldMergeFields(f *oxml.CT_SimpleField, out *[]string, seen map[string]bool) {
-	if f == nil {
+// paragraph feeds one paragraph's content through the scan, descending into
+// hyperlinks, tracked changes, inline content controls and simple fields.
+func (st *mergeFieldScan) paragraph(p *oxml.CT_P) {
+	if p == nil {
 		return
 	}
-	if name, ok := mergeFieldName(f.Instr); ok {
-		addMergeField(name, out, seen)
-	}
-	collectRunMergeFields(f.R, out, seen)
-	for _, nested := range f.FldSimple {
-		collectSimpleFieldMergeFields(nested, out, seen)
-	}
+	oxml.VisitContent(p, oxml.ContentVisitor{
+		Run: st.run,
+		// A w:fldSimple carries its instruction as an attribute; its content
+		// runs are visited by the same walk, so nested complex fields inside it
+		// are picked up by st.run.
+		FldSimple: func(f *oxml.CT_SimpleField) {
+			if f == nil {
+				return
+			}
+			if name, ok := mergeFieldName(f.Instr); ok {
+				addMergeField(name, st.out, st.seen)
+			}
+		},
+	})
 }
 
-// collectRunMergeFields reconstructs complex-field instructions from a run
-// sequence: the text between a w:fldChar "begin" and the following "separate"
-// (or "end") is the instruction.
-func collectRunMergeFields(runs []*oxml.CT_R, out *[]string, seen map[string]bool) {
-	var instr strings.Builder
-	capturing := false
-	for _, r := range runs {
-		if r == nil {
-			continue
-		}
-		for _, fc := range r.FldChar {
-			switch fc.FldCharType {
-			case "begin":
-				capturing = true
-				instr.Reset()
-			case "separate", "end":
-				if capturing {
-					if name, ok := mergeFieldName(instr.String()); ok {
-						addMergeField(name, out, seen)
-					}
-					capturing = false
+// run advances the state machine over a single run: the instruction text
+// between a w:fldChar "begin" and the following "separate" (or "end") names the
+// field.
+func (st *mergeFieldScan) run(r *oxml.CT_R) {
+	if r == nil {
+		return
+	}
+	for _, fc := range r.FldChar {
+		switch fc.FldCharType {
+		case "begin":
+			st.capturing = true
+			st.instr.Reset()
+		case "separate", "end":
+			if st.capturing {
+				if name, ok := mergeFieldName(st.instr.String()); ok {
+					addMergeField(name, st.out, st.seen)
 				}
+				st.capturing = false
 			}
 		}
-		if capturing {
-			for _, t := range r.InstrText {
-				instr.WriteString(t.Text)
-			}
+	}
+	if st.capturing {
+		for _, t := range r.InstrText {
+			st.instr.WriteString(t.Text)
 		}
 	}
 }

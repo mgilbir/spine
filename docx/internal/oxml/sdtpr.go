@@ -575,19 +575,21 @@ func sdtCollector(out *[]SdtRef) blockVisitor {
 	}
 }
 
-// collectParaSdt records a paragraph's inline SDTs, descending into nested ones.
+// collectParaSdt records a paragraph's inline SDTs in document order.
+//
+// It reads p.SdtRun *and* the inline SDTs nested inside the paragraph's
+// hyperlinks, tracked-change wrappers (w:ins/w:del) and simple fields, all of
+// which EG_PContent allows and the model carries. Reading only p.SdtRun made
+// ContentControls() miss every control a producer put inside one of them —
+// silently skipping, for a consumer templating by tag, controls that are
+// perfectly ordinary in form documents (C405). The shared paragraph-content
+// descent does the nesting, so a container added to the model later is taught
+// once (see pcontent.go).
 func collectParaSdt(out *[]SdtRef, p *CT_P) {
-	for _, sr := range p.SdtRun {
-		collectRunSdt(out, sr)
+	if p == nil {
+		return
 	}
-}
-
-// collectRunSdt records an inline SDT and descends into nested inline SDTs.
-func collectRunSdt(out *[]SdtRef, sr *CT_SdtRun) {
-	*out = append(*out, SdtRef{Run: sr})
-	if sr.SdtContent != nil {
-		for _, nested := range sr.SdtContent.SdtRun {
-			collectRunSdt(out, nested)
-		}
-	}
+	VisitContent(p, ContentVisitor{
+		SdtRun: func(sr *CT_SdtRun) { *out = append(*out, SdtRef{Run: sr}) },
+	})
 }
