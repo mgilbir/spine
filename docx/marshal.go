@@ -243,11 +243,21 @@ func nsDeclsHave(decls []xmlb.NSDecl, uri string) bool {
 	return false
 }
 
-// marshalStylesXML marshals styles to XML.
+// marshalStylesXML marshals styles to XML. A part parsed from an opened package
+// replays its captured root attributes verbatim; hardcoding the standard
+// three-declaration set instead dropped mc:Ignorable and every extension
+// declaration the part's captured children reference (C370). One created from
+// scratch gets the standard set.
 func marshalStylesXML(styles *oxml.CT_Styles) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
-	b.MarshalRoot(nsW, "styles", styles, xmlb.WordprocessingMLNamespaces())
+	if styles.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrs(nsW, "styles", styles.OriginalRootAttrs)
+		b.MarshalChildren(nsW, styles)
+		b.EndElement(nsW, "styles")
+	} else {
+		b.MarshalRoot(nsW, "styles", styles, xmlb.WordprocessingMLNamespaces())
+	}
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("docx: marshal styles.xml: %w", err)
 	}

@@ -120,6 +120,16 @@ type CT_TblGrid struct {
 type CT_TblGridChange struct {
 	Id      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
 	TblGrid *CT_TblGrid `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblGrid,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see C411.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (tgc *CT_TblGridChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tgc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TblGridChange
+	return d.DecodeElement((*alias)(tgc), &start)
 }
 
 // CT_GridCol represents a single grid column.
@@ -273,6 +283,16 @@ type CT_CellMerge struct {
 	Date       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	VMerge     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,attr,omitempty"`
 	VMergeOrig string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMergeOrig,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see C411.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (cme *CT_CellMerge) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cme.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_CellMerge
+	return d.DecodeElement((*alias)(cme), &start)
 }
 
 // CT_Tc represents a table cell (w:tc).
@@ -330,24 +350,11 @@ const (
 	trChildTc trChildKind = iota
 	trChildBookmarkStart
 	trChildBookmarkEnd
-	trChildCustomXmlCell
 	trChildSdtCell
 	trChildIns
 	trChildDel
 	trChildRaw
 )
-
-// isRawRowChild reports whether a row-level child element the model does not
-// type must be preserved verbatim instead of skipped: row-level w:customXml
-// (which wraps whole cells) and the tracked-move range markers.
-func isRawRowChild(local string) bool {
-	switch local {
-	case "customXml",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
-		return true
-	}
-	return false
-}
 
 // trChildRef references a table row child.
 type trChildRef struct {
@@ -458,17 +465,16 @@ func (tr *CT_Tr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				tr.childOrder = append(tr.childOrder, trChildRef{trChildDel, len(tr.Del)})
 				tr.Del = append(tr.Del, v)
 			default:
-				if isRawRowChild(t.Name.Local) {
-					v := &CT_RawNamedElement{}
-					if err := d.DecodeElement(v, &t); err != nil {
-						return err
-					}
-					tr.childOrder = append(tr.childOrder, trChildRef{trChildRaw, len(tr.Raw)})
-					tr.Raw = append(tr.Raw, v)
-					continue
-				}
-				if err := d.Skip(); err != nil {
+				// Every child CT_Tr does not type is preserved verbatim (see
+				// rawchild.go): EG_ContentRowContent admits EG_RunLevelElts,
+				// so a whole-row comment anchor, proofErr or range permission
+				// lands here and a name whitelist kept dropping them (C371).
+				idx, ok, err := captureRawChild(d, &t, &tr.Raw)
+				if err != nil {
 					return err
+				}
+				if ok {
+					tr.childOrder = append(tr.childOrder, trChildRef{trChildRaw, idx})
 				}
 			}
 		case xml.EndElement:
@@ -710,17 +716,17 @@ func (tbl *CT_Tbl) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildSdt, len(tbl.SdtBlock)})
 				tbl.SdtBlock = append(tbl.SdtBlock, v)
-			case "permStart", "permEnd",
-				"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd":
-				v := &CT_RawNamedElement{}
-				if err := d.DecodeElement(v, &t); err != nil {
+			default:
+				// Every child CT_Tbl does not type is preserved verbatim (see
+				// rawchild.go): EG_ContentRowContent admits EG_RunLevelElts,
+				// so a table-level comment anchor, proofErr or tracked
+				// row-insertion wrapper lands here (C371).
+				idx, ok, err := captureRawChild(d, &t, &tbl.Raw)
+				if err != nil {
 					return err
 				}
-				tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildRaw, len(tbl.Raw)})
-				tbl.Raw = append(tbl.Raw, v)
-			default:
-				if err := d.Skip(); err != nil {
-					return err
+				if ok {
+					tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildRaw, idx})
 				}
 			}
 		case xml.EndElement:

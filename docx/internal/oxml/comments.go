@@ -2,6 +2,7 @@ package oxml
 
 import (
 	"encoding/xml"
+	"strconv"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -71,6 +72,11 @@ type CT_Comment struct {
 	Author   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	Initials string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main initials,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list. w:comment is
+	// an annotation record like the *Change family: Word 2021+ writes an
+	// unmodeled w16du:dateUtc alongside w:date, and producer attribute order
+	// varies (C411).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 
 	P             []*CT_P               `xml:"-"`
 	Tbl           []*CT_Tbl             `xml:"-"`
@@ -83,6 +89,7 @@ type CT_Comment struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Comment.
 func (c *CT_Comment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "id":
@@ -108,6 +115,9 @@ func (c *CT_Comment) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.Initials != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "initials", Value: c.Initials})
+	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalBodyContent(b, ns, c.P, c.Tbl, c.SdtBlock, c.BookmarkStart, c.BookmarkEnd, c.Raw, c.childOrder)
@@ -149,24 +159,14 @@ func (c *CT_Comment) Text() string {
 }
 
 // atoiOK parses a base-10 integer, reporting whether the whole string parsed.
+// It feeds the id allocators (MaxID, MaxBookmarkID, note ids), so a value it
+// accepts must be a faithful reading: the hand-rolled loop it replaces accepted
+// a bare "-" as 0 and silently wrapped on overflow, either of which hands the
+// allocator a bogus maximum and lets the next allocated id collide (C511).
 func atoiOK(s string) (int, bool) {
-	if s == "" {
+	n, err := strconv.Atoi(s)
+	if err != nil {
 		return 0, false
-	}
-	n := 0
-	neg := false
-	for i, r := range s {
-		if i == 0 && r == '-' {
-			neg = true
-			continue
-		}
-		if r < '0' || r > '9' {
-			return 0, false
-		}
-		n = n*10 + int(r-'0')
-	}
-	if neg {
-		n = -n
 	}
 	return n, true
 }

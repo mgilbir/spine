@@ -449,6 +449,14 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			Data:        data,
 		}
 
+		// Every model parse below goes through xmlb.UnmarshalWithSource, never
+		// xmlb.Unmarshal: the capture kit preserves unmodeled children, empty-tag
+		// styles and verbatim attribute lists only when the decoder has its
+		// source bytes registered, and without one they are silently discarded.
+		// A part parsed with the plain entry point therefore carries an inert
+		// capture kit, and the first mutation that flips it to regenerate deletes
+		// everything the model does not type — for every element in the part
+		// (C370). Any part added here must use UnmarshalWithSource too.
 		switch {
 		case strings.HasSuffix(name, ".rels"):
 			continue
@@ -458,47 +466,47 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case name == "/word/styles.xml":
 			d.styles = &oxml.CT_Styles{}
-			if err := xmlb.Unmarshal(data, d.styles); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.styles); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/numbering.xml":
 			d.numbering = &oxml.CT_Numbering{}
-			if err := xmlb.Unmarshal(data, d.numbering); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.numbering); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/settings.xml":
 			d.settings = &oxml.CT_Settings{}
-			if err := xmlb.Unmarshal(data, d.settings); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.settings); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/footnotes.xml":
 			d.footnotes = &oxml.CT_Footnotes{}
-			if err := xmlb.Unmarshal(data, d.footnotes); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.footnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/endnotes.xml":
 			d.endnotes = &oxml.CT_Endnotes{}
-			if err := xmlb.Unmarshal(data, d.endnotes); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.endnotes); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/comments.xml":
 			d.comments = &oxml.CT_Comments{}
-			if err := xmlb.Unmarshal(data, d.comments); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.comments); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/commentsExtended.xml":
 			d.commentsExtended = &oxml.CT_CommentsEx{}
-			if err := xmlb.Unmarshal(data, d.commentsExtended); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.commentsExtended); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/people.xml":
 			d.people = &oxml.CT_People{}
-			if err := xmlb.Unmarshal(data, d.people); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.people); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == bibliographyPartName:
 			d.sources = &oxml.CT_Sources{}
-			if err := xmlb.Unmarshal(data, d.sources); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, d.sources); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 		case name == "/word/fontTable.xml":
@@ -507,13 +515,13 @@ func (d *Document) loadAllParts(mainPartName string) error {
 			// preserved in preservedParts
 		case isDocxHeaderPartName(name):
 			hdr := &oxml.CT_HdrFtr{}
-			if err := xmlb.Unmarshal(data, hdr); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, hdr); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.headers[name] = &headerPart{hdr: hdr, contentType: file.ContentType}
 		case isDocxFooterPartName(name):
 			ftr := &oxml.CT_HdrFtr{}
-			if err := xmlb.Unmarshal(data, ftr); err != nil {
+			if err := xmlb.UnmarshalWithSource(data, ftr); err != nil {
 				return fmt.Errorf("docx: parsing %s: %w", name, err)
 			}
 			d.footers[name] = &footerPart{ftr: ftr, contentType: file.ContentType}

@@ -816,6 +816,15 @@ func (b *Builder) writeCloseIndent(startLen int) {
 		return
 	}
 	b.writeIndent()
+// NamespacePrefix returns the prefix registered for a namespace URI and
+// whether one is registered at all. Writing an element or attribute in an
+// unregistered namespace is an error the builder only reports at Finish, so
+// callers replaying verbatim source content (which may reference a namespace
+// the destination part never registered) use this to emit an inline
+// declaration instead of failing the whole part.
+func (b *Builder) NamespacePrefix(nsURI string) (string, bool) {
+	prefix, ok := b.namespaces[nsURI]
+	return prefix, ok
 }
 
 // writeIndent writes the current indentation or element separator.

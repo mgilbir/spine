@@ -88,5 +88,8 @@ func (d *Document) AddBookmarkOnRange(name string, start, end *Run) *Bookmark {
 
 // nextBookmarkID returns the next free numeric bookmark id as a string.
 func (d *Document) nextBookmarkID() string {
-	return strconv.Itoa(oxml.MaxBookmarkID(d.allBookmarkParagraphs()) + 1)
+	if d.doc() == nil {
+		return "0"
+	}
+	return strconv.Itoa(oxml.MaxBookmarkID(d.doc().Body) + 1)
 }

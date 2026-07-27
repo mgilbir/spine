@@ -117,10 +117,18 @@ func (n *CT_Numbering) MarshalContent(b *xmlb.Builder, ns string) {
 		numDone = true
 	}
 	for i, rc := range n.Raw {
-		// With no raw abstractNum to anchor them, session abstractNums must
-		// still precede the first num.
-		if !abstractDone && lastAbstract < 0 && rc.Local == "num" {
+		// With no raw definition of a kind to anchor them, the session-added
+		// ones must still precede every child the schema places after them:
+		// abstractNum before num and numIdMacAtCleanup, num before
+		// numIdMacAtCleanup (CT_Numbering's sequence is numPicBullet*,
+		// abstractNum*, num*, numIdMacAtCleanup?). Anchoring only on num left
+		// session definitions trailing a raw numIdMacAtCleanup (C506).
+		if !abstractDone && lastAbstract < 0 &&
+			(rc.Local == "num" || rc.Local == "numIdMacAtCleanup") {
 			emitAbstract()
+		}
+		if !numDone && lastNum < 0 && rc.Local == "numIdMacAtCleanup" {
+			emitNum()
 		}
 		rc.MarshalNamed(b, ns)
 		if i == lastAbstract {

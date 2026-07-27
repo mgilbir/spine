@@ -189,26 +189,6 @@ const (
 	bodyChildTr
 )
 
-// isRawBodyChild reports whether a block-level child element the model does
-// not type must be preserved verbatim instead of skipped: w:altChunk (imported
-// external content reference), block-level w:customXml (whose paragraphs would
-// otherwise lose their text), and the tracked-move range markers.
-func isRawBodyChild(local string) bool {
-	switch local {
-	case "altChunk", "customXml",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
-		"customXmlInsRangeStart", "customXmlInsRangeEnd",
-		"customXmlDelRangeStart", "customXmlDelRangeEnd",
-		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
-		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
-		"permStart", "permEnd":
-		// Range permissions can bracket block-level content (a w:permEnd
-		// following a table sits directly in the body).
-		return true
-	}
-	return false
-}
-
 // bodyChildRef references a body child element.
 type bodyChildRef struct {
 	kind  bodyChildKind
@@ -477,10 +457,8 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			}
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildSdt, len(*sdtBlock)})
 			*sdtBlock = append(*sdtBlock, v)
-		} else {
-			if err := d.Skip(); err != nil {
-				return err
-			}
+		} else if err := captureRawBodyChild(d, t, raw, childOrder); err != nil {
+			return err
 		}
 	case "bookmarkStart":
 		if bookmarkStart != nil {
@@ -490,10 +468,8 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			}
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkStart, len(*bookmarkStart)})
 			*bookmarkStart = append(*bookmarkStart, v)
-		} else {
-			if err := d.Skip(); err != nil {
-				return err
-			}
+		} else if err := captureRawBodyChild(d, t, raw, childOrder); err != nil {
+			return err
 		}
 	case "bookmarkEnd":
 		if bookmarkEnd != nil {
@@ -503,22 +479,15 @@ func unmarshalBodyChild(d *xml.Decoder, t *xml.StartElement,
 			}
 			*childOrder = append(*childOrder, bodyChildRef{bodyChildBookmarkEnd, len(*bookmarkEnd)})
 			*bookmarkEnd = append(*bookmarkEnd, v)
-		} else {
-			if err := d.Skip(); err != nil {
-				return err
-			}
+		} else if err := captureRawBodyChild(d, t, raw, childOrder); err != nil {
+			return err
 		}
 	default:
-		if raw != nil && isRawBodyChild(t.Name.Local) {
-			v := &CT_RawNamedElement{}
-			if err := d.DecodeElement(v, t); err != nil {
-				return err
-			}
-			*childOrder = append(*childOrder, bodyChildRef{bodyChildRaw, len(*raw)})
-			*raw = append(*raw, v)
-			return nil
-		}
-		if err := d.Skip(); err != nil {
+		// Every child the container does not type is preserved verbatim
+		// (see rawchild.go): the block level carries EG_RunLevelElts —
+		// comment ranges, proofErr, tracked ins/del, range permissions — and
+		// a name whitelist here kept losing members of it (C371).
+		if err := captureRawBodyChild(d, t, raw, childOrder); err != nil {
 			return err
 		}
 	}

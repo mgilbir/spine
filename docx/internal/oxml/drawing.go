@@ -114,6 +114,24 @@ func (re *CT_RawElement) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 			attrs = append(attrs, xmlb.Attr{Namespace: a.Name.Space, Name: a.Name.Local, Value: a.Value})
 		}
 	}
+	// A raw child may live in a namespace the destination part never declares:
+	// the source bound the prefix on its root, or used a default namespace the
+	// output's root does not repeat. Emitting it as-is would either write an
+	// undeclared prefix or (for a namespace with no builder registration at
+	// all) fail the entire save with "no prefix registered". Synthesize the
+	// missing declaration on the element itself, which also re-binds the
+	// prefix for the verbatim inner content that references it.
+	if decl, need := re.undeclaredNSDecl(b, ns); need {
+		lit := append([]xmlb.Attr{decl}, b.QualifyAttrs(attrs)...)
+		if len(re.RawContent) == 0 {
+			b.EmptyElementLiteral(re.ElemPrefix, localName, lit...)
+			return
+		}
+		b.StartElementLiteral(re.ElemPrefix, localName, nil, lit...)
+		b.WriteRaw(re.RawContent)
+		b.EndElementLiteral(re.ElemPrefix, localName)
+		return
+	}
 	if re.elemPrefixCaptured && re.ElemPrefix != "" {
 		// Replay the element under its verbatim source prefix: with two
 		// prefixes bound to one URI the resolver could pick the other one.
@@ -134,4 +152,30 @@ func (re *CT_RawElement) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	b.StartElement(ns, localName, attrs...)
 	b.WriteRaw(re.RawContent)
 	b.EndElement(ns, localName)
+}
+
+// undeclaredNSDecl reports the namespace declaration the element needs emitted
+// inline: one is required when the element sits in a namespace the builder has
+// no prefix registered for (writing it would abort the part) and the element's
+// own attribute list does not already declare. It is keyed on the element's
+// verbatim source prefix, so the declaration re-binds exactly the prefix the
+// raw inner content uses ("" meaning a default namespace, which the content's
+// unprefixed descendants inherit).
+func (re *CT_RawElement) undeclaredNSDecl(b *xmlb.Builder, ns string) (xmlb.Attr, bool) {
+	if ns == "" {
+		return xmlb.Attr{}, false
+	}
+	if _, registered := b.NamespacePrefix(ns); registered {
+		return xmlb.Attr{}, false
+	}
+	for _, a := range re.Attrs {
+		isDecl := a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns")
+		if isDecl && a.Value == ns {
+			return xmlb.Attr{}, false
+		}
+	}
+	if re.ElemPrefix == "" {
+		return xmlb.Attr{Name: "xmlns", Value: ns}, true
+	}
+	return xmlb.Attr{Name: "xmlns:" + re.ElemPrefix, Value: ns}, true
 }

@@ -504,51 +504,32 @@ func MaxRevisionID(body *CT_Body) int {
 		}
 		MaxMoveID(p, consider)
 	}
-	for _, tbl := range body.Tbl {
-		maxTableRevisionID(tbl, consider)
-	}
-	// Tables wrapped in a block-level SDT carry their own structural revisions;
-	// walking only body.Tbl would let a newly authored revision collide with an
-	// id already used inside an SDT-wrapped table.
-	for _, s := range body.SdtBlock {
-		maxSdtBlockTableRevisionID(s, consider)
-	}
+	// Structural (table/row/cell) revisions: the shared block visitor reaches
+	// them wherever they sit — nested tables, and rows or cells wrapped in a
+	// block SDT — so a newly authored revision cannot collide with an id the
+	// old hand-rolled descent could not see (C413).
+	visitBlockContent(body.childOrder, nil, body.Tbl, body.SdtBlock,
+		structuralRevisionVisitor(consider))
 	if body.SectPr != nil && body.SectPr.SectPrChange != nil {
 		consider(body.SectPr.SectPrChange.Id)
 	}
 	return maxID
 }
 
-// maxSdtBlockTableRevisionID feeds the structural revision ids of every table
-// wrapped by a block-level SDT (directly, or in a nested block SDT) to consider.
-func maxSdtBlockTableRevisionID(s *CT_SdtBlock, consider func(string)) {
-	if s == nil || s.SdtContent == nil {
-		return
-	}
-	sc := s.SdtContent
-	for _, tbl := range sc.Tbl {
-		maxTableRevisionID(tbl, consider)
-	}
-	for _, nested := range sc.SdtBlock {
-		maxSdtBlockTableRevisionID(nested, consider)
-	}
-}
-
-// maxTableRevisionID feeds every structural revision id of a table (table/row/
-// cell property changes, row/cell insertions and deletions, and cell merges) to
-// consider, descending into nested tables.
-func maxTableRevisionID(tbl *CT_Tbl, consider func(string)) {
-	if tbl == nil {
-		return
-	}
-	if tbl.TblPr != nil && tbl.TblPr.TblPrChange != nil {
-		consider(tbl.TblPr.TblPrChange.Id)
-	}
-	for _, tr := range tbl.Tr {
-		if tr == nil {
-			continue
-		}
-		if tr.TrPr != nil {
+// structuralRevisionVisitor feeds every structural revision id of the tables it
+// walks — table/row/cell property changes, the row-level w:ins/w:del wrappers
+// and the trPr/tcPr insertion, deletion and merge records — to consider.
+func structuralRevisionVisitor(consider func(string)) blockVisitor {
+	return blockVisitor{
+		Tbl: func(tbl *CT_Tbl) {
+			if tbl.TblPr != nil && tbl.TblPr.TblPrChange != nil {
+				consider(tbl.TblPr.TblPrChange.Id)
+			}
+		},
+		Row: func(tr *CT_Tr) {
+			if tr.TrPr == nil {
+				return
+			}
 			if tr.TrPr.Ins != nil {
 				consider(tr.TrPr.Ins.Id)
 			}
@@ -558,29 +539,32 @@ func maxTableRevisionID(tbl *CT_Tbl, consider func(string)) {
 			if tr.TrPr.TrPrChange != nil {
 				consider(tr.TrPr.TrPrChange.Id)
 			}
-		}
-		for _, tc := range tr.Tc {
-			if tc == nil {
-				continue
+		},
+		// A tracked row insertion/deletion is also written as a w:ins/w:del
+		// wrapper directly inside w:tr; its id was never read, so a new
+		// revision reused it.
+		RowTrackChange: func(rtc *CT_RunTrackChange) {
+			if rtc != nil {
+				consider(rtc.Id)
 			}
-			if tc.TcPr != nil {
-				if tc.TcPr.CellIns != nil {
-					consider(tc.TcPr.CellIns.Id)
-				}
-				if tc.TcPr.CellDel != nil {
-					consider(tc.TcPr.CellDel.Id)
-				}
-				if tc.TcPr.CellMerge != nil {
-					consider(tc.TcPr.CellMerge.Id)
-				}
-				if tc.TcPr.TcPrChange != nil {
-					consider(tc.TcPr.TcPrChange.Id)
-				}
+		},
+		Cell: func(tc *CT_Tc) {
+			if tc.TcPr == nil {
+				return
 			}
-			for _, nested := range tc.Tbl {
-				maxTableRevisionID(nested, consider)
+			if tc.TcPr.CellIns != nil {
+				consider(tc.TcPr.CellIns.Id)
 			}
-		}
+			if tc.TcPr.CellDel != nil {
+				consider(tc.TcPr.CellDel.Id)
+			}
+			if tc.TcPr.CellMerge != nil {
+				consider(tc.TcPr.CellMerge.Id)
+			}
+			if tc.TcPr.TcPrChange != nil {
+				consider(tc.TcPr.TcPrChange.Id)
+			}
+		},
 	}
 }
 

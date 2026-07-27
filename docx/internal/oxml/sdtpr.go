@@ -558,85 +558,20 @@ type SdtRef struct {
 }
 
 // ContentControls returns every structured document tag in the body in document
-// order, descending into nested SDTs, tables, and paragraphs.
+// order, descending into nested SDTs, tables, and paragraphs through the shared
+// block visitor.
 func (body *CT_Body) ContentControls() []SdtRef {
 	var out []SdtRef
-	collectBodyContent(&out, body.childOrder, body.P, body.Tbl, body.SdtBlock)
+	visitBlockContent(body.childOrder, body.P, body.Tbl, body.SdtBlock, sdtCollector(&out))
 	return out
 }
 
-// collectBodyContent walks a body-level content model (body or block SDT
-// content) in child order, gathering content controls.
-func collectBodyContent(out *[]SdtRef, order []bodyChildRef, ps []*CT_P, tbls []*CT_Tbl, sdts []*CT_SdtBlock) {
-	if len(order) == 0 {
-		for _, p := range ps {
-			collectParaSdt(out, p)
-		}
-		for _, t := range tbls {
-			collectTableSdt(out, t)
-		}
-		for _, s := range sdts {
-			collectBlockSdt(out, s)
-		}
-		return
-	}
-	for _, ref := range order {
-		switch ref.kind {
-		case bodyChildP:
-			if ref.index < len(ps) {
-				collectParaSdt(out, ps[ref.index])
-			}
-		case bodyChildTbl:
-			if ref.index < len(tbls) {
-				collectTableSdt(out, tbls[ref.index])
-			}
-		case bodyChildSdt:
-			if ref.index < len(sdts) {
-				collectBlockSdt(out, sdts[ref.index])
-			}
-		}
-	}
-}
-
-// collectBlockSdt records a block SDT and descends into its content.
-func collectBlockSdt(out *[]SdtRef, s *CT_SdtBlock) {
-	*out = append(*out, SdtRef{Block: s})
-	sc := s.SdtContent
-	if sc == nil {
-		return
-	}
-	collectBodyContent(out, sc.childOrder, sc.P, sc.Tbl, sc.SdtBlock)
-	for _, tc := range sc.Tc {
-		for _, p := range tc.P {
-			collectParaSdt(out, p)
-		}
-	}
-	for _, tr := range sc.Tr {
-		for _, tc := range tr.Tc {
-			for _, p := range tc.P {
-				collectParaSdt(out, p)
-			}
-		}
-	}
-}
-
-// collectTableSdt descends into a table's rows and cells.
-func collectTableSdt(out *[]SdtRef, t *CT_Tbl) {
-	for _, s := range t.SdtBlock {
-		collectBlockSdt(out, s)
-	}
-	for _, tr := range t.Tr {
-		for _, s := range tr.SdtCell {
-			collectBlockSdt(out, s)
-		}
-		for _, tc := range tr.Tc {
-			for _, s := range tc.SdtBlock {
-				collectBlockSdt(out, s)
-			}
-			for _, p := range tc.P {
-				collectParaSdt(out, p)
-			}
-		}
+// sdtCollector is the block visitor that records every block SDT it reaches and
+// every inline SDT of every paragraph it reaches.
+func sdtCollector(out *[]SdtRef) blockVisitor {
+	return blockVisitor{
+		Sdt:  func(s *CT_SdtBlock) { *out = append(*out, SdtRef{Block: s}) },
+		Para: func(p *CT_P) { collectParaSdt(out, p) },
 	}
 }
 

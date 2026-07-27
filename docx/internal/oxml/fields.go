@@ -108,14 +108,25 @@ type CT_SimpleField struct {
 	// on save.
 	FldLock string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main fldLock,attr,omitempty"`
 
-	R             []*CT_R               `xml:"-"`
-	Hyperlink     []*CT_Hyperlink       `xml:"-"`
-	BookmarkStart []*CT_BookmarkStart   `xml:"-"`
-	BookmarkEnd   []*CT_BookmarkEnd     `xml:"-"`
-	ProofErr      []*CT_ProofErr        `xml:"-"`
-	FldSimple     []*CT_SimpleField     `xml:"-"`
-	Raw           []*CT_RawNamedElement `xml:"-"`
-	childOrder    []pChildRef
+	R             []*CT_R             `xml:"-"`
+	Hyperlink     []*CT_Hyperlink     `xml:"-"`
+	BookmarkStart []*CT_BookmarkStart `xml:"-"`
+	BookmarkEnd   []*CT_BookmarkEnd   `xml:"-"`
+	ProofErr      []*CT_ProofErr      `xml:"-"`
+	// PermStart/PermEnd/Ins/Del/SdtRun are members of EG_PContent, which
+	// CT_SimpleField's content model is. They were previously nil slots in the
+	// shared dispatcher, whose typed case arms matched those names before the
+	// raw fallback and then called d.Skip(): a tracked insertion inside a
+	// simple field lost all of its text and a tracked deletion was silently
+	// accepted (C373).
+	PermStart  []*CT_PermStart       `xml:"-"`
+	PermEnd    []*CT_PermEnd         `xml:"-"`
+	Ins        []*CT_RunTrackChange  `xml:"-"`
+	Del        []*CT_RunTrackChange  `xml:"-"`
+	SdtRun     []*CT_SdtRun          `xml:"-"`
+	FldSimple  []*CT_SimpleField     `xml:"-"`
+	Raw        []*CT_RawNamedElement `xml:"-"`
+	childOrder []pChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_SimpleField.
@@ -133,7 +144,7 @@ func (f *CT_SimpleField) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 	}
 
 	return unmarshalPContent(d, &f.R, &f.Hyperlink, &f.BookmarkStart, &f.BookmarkEnd,
-		&f.ProofErr, nil, nil, nil, nil, &f.FldSimple, nil, &f.Raw, &f.childOrder)
+		&f.ProofErr, &f.PermStart, &f.PermEnd, &f.Ins, &f.Del, &f.FldSimple, &f.SdtRun, &f.Raw, &f.childOrder)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SimpleField.
@@ -151,7 +162,7 @@ func (f *CT_SimpleField) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalPContent(b, ns, f.R, f.Hyperlink, f.BookmarkStart, f.BookmarkEnd,
-		f.ProofErr, nil, nil, nil, nil, f.FldSimple, nil, f.Raw, f.childOrder)
+		f.ProofErr, f.PermStart, f.PermEnd, f.Ins, f.Del, f.FldSimple, f.SdtRun, f.Raw, f.childOrder)
 	b.EndElement(ns, localName)
 }
 

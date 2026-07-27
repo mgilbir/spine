@@ -74,12 +74,29 @@ func (tc *CT_RunTrackChange) MarshalToBuilder(b *xmlb.Builder, ns, localName str
 	b.EndElement(ns, localName)
 }
 
+// The *Change records below all carry CT_TrackChange's w:id/w:author/w:date
+// attribute group. Word 2021+ decorates every one of them with an unmodeled
+// w16du:dateUtc, so each captures its verbatim attribute list; the reflection
+// marshaler replays it, keeping producer attribute order and unmodeled
+// attributes while modeled edits stay authoritative (C411).
+
 // CT_PPrChange represents a revision of paragraph properties.
 type CT_PPrChange struct {
 	Id     string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
 	Author string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	PPr    *CT_PPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main pPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see the
+	// note above this block.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_PPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_PPrChange
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_SectPrChange represents a revision of section properties.
@@ -88,6 +105,17 @@ type CT_SectPrChange struct {
 	Author string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string     `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	SectPr *CT_SectPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main sectPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see the
+	// note above this block.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_SectPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_SectPrChange
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_TblPrChange represents a revision of table properties.
@@ -96,6 +124,17 @@ type CT_TblPrChange struct {
 	Author string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string    `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	TblPr  *CT_TblPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see the
+	// note above this block.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_TblPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TblPrChange
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_TrPrChange represents a revision of table row properties.
@@ -104,6 +143,17 @@ type CT_TrPrChange struct {
 	Author string   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	TrPr   *CT_TrPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main trPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see the
+	// note above this block.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_TrPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TrPrChange
+	return d.DecodeElement((*alias)(c), &start)
 }
 
 // CT_TcPrChange represents a revision of table cell properties.
@@ -112,4 +162,15 @@ type CT_TcPrChange struct {
 	Author string   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date   string   `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	TcPr   *CT_TcPr `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tcPr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see the
+	// note above this block.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_TcPrChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TcPrChange
+	return d.DecodeElement((*alias)(c), &start)
 }
