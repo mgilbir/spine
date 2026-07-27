@@ -16,6 +16,11 @@ const (
 	contentTypeActiveXBin = "application/vnd.ms-office.activeX"
 )
 
+// relTypeCtrlProp is the worksheet→control-properties relationship type
+// (xl/ctrlProps/ctrlPropN.xml). It has no opc constant because the xlsx control
+// reader and the DeleteSheet cascade are its only consumers.
+const relTypeCtrlProp = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/ctrlProp"
+
 // FormControlType classifies a legacy Excel form control (the kind on the
 // Developer > Insert > Form Controls palette), stored as a VML shape whose
 // x:ClientData carries an ObjectType.

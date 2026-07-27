@@ -1696,12 +1696,23 @@ func isSheetNameChar(c byte) bool {
 // transitively own); the closure guard preserves anything still referenced
 // elsewhere. Pivot-table parts are deliberately excluded: their caches are
 // shared with the workbook and other pivots and are left to a dedicated pass.
+//
+// Embedded OLE objects, control-properties parts and slicer/timeline parts are
+// sheet-private too. Omitting them left an /xl/embeddings/oleObjectN.bin —
+// often megabytes — in preservedParts with a content-type override but no
+// incoming relationship after DeleteSheet: permanent bloat plus an orphan
+// override (C422). Their shared backing parts (slicerCache, timelineCache) are
+// referenced from the workbook, so the closure guard spares them.
 var sheetPrivateRelTypes = map[string]bool{
 	opc.RelTypeDrawing:         true,
 	opc.RelTypeTable:           true,
 	opc.RelTypeVMLDrawing:      true,
 	opc.RelTypeComments:        true,
 	opc.RelTypeThreadedComment: true,
+	opc.RelTypeOLEObject:       true,
+	opc.RelTypeSlicer:          true,
+	opc.RelTypeTimeline:        true,
+	relTypeCtrlProp:            true,
 }
 
 // cascadeDeletableParts returns the set of parts safe to remove together with
