@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Security
+
+- OPC signature verification now derives the covered part set from the trust
+  chain instead of from every `<Object>` in the signature. Previously
+  `SignatureInfo.CoveredParts` was collected from the manifest of every Object,
+  with no check that the Object was reachable from a `SignedInfo` reference —
+  the containment `SignedInfo → Object → Manifest` that is the whole trust path
+  was flattened into two independent lists. Appending an `<Object>` whose
+  manifest lists extra parts and their correct digests (something anyone can do
+  to a signed package, no private key involved) made those parts report as
+  signed by the certificate holder, with `Valid: true`. A part is now reported
+  as covered only when it sits in the manifest of an Object that a verified
+  `SignedInfo` reference reaches and the `SignatureValue` itself verified; an
+  Object claiming coverage the signature does not carry is reported through
+  `Problems` and makes the signature invalid. The signing time is likewise read
+  only from a covered Object. Unreferenced Objects that claim nothing — such as
+  the XAdES `QualifyingProperties` Object Office emits — are unaffected.
+
+### Fixed
+
+- OPC signature manifest reference URIs are now correct for part names and
+  content types that need percent-encoding. Verification percent-decodes a
+  reference URI, but signing wrote the part name and the `?ContentType=` query
+  raw, so spine failed to verify its own signature over a part whose (entirely
+  legal) name contains a percent-escape, and a content type containing `&` or a
+  space produced a non-conformant URI for other verifiers. A conformant part
+  name — already a URI path by grammar — is now emitted verbatim, names only
+  wild packages carry are percent-encoded, the content type is escaped for the
+  query component, and verification resolves the literal name before falling
+  back to the decoded one.
+- `SignatureInfo`'s documentation referred to a `DigestMethod` field that did
+  not exist. The digest algorithms are now reported for real, in
+  `DigestMethods`, alongside a new `WeakAlgorithms` field and
+  `UsesWeakAlgorithms` method: verification accepts the SHA-1 algorithms older
+  Office signatures use, so a caller that wants to refuse them now can.
+
 ## 0.1.0 - 2026-07-22
 
 Initial release. A zero-dependency Go library for reading and writing Microsoft
