@@ -56,7 +56,7 @@ func UnmarshalWithSource(data []byte, v interface{}) error {
 	// the source in that case so the helpers cleanly fall back to canonical
 	// regeneration; such parts round-trip via preserved raw bytes, not offset
 	// capture.
-	if !charsetTranscodes(declaredCharset(data)) {
+	if OffsetCaptureSafe(data) {
 		decoderSources.Store(d, data)
 		defer decoderSources.Delete(d)
 	}
