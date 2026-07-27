@@ -75,6 +75,13 @@ func lexTagAttrs(tag []byte) ([]string, bool) {
 			i++
 		}
 		if i >= len(tag) {
+			// Trailing whitespace before '>' (e.g. `<a foo="1" >`) has no
+			// attribute to attach to and cannot be represented as a
+			// per-attribute slice; signal the caller to fall back to the
+			// verbatim source rather than silently dropping it on replay.
+			if attrStart < i {
+				return nil, false
+			}
 			return raws, true
 		}
 		// Attribute name.

@@ -3,11 +3,12 @@ package xml
 import "bytes"
 
 // DetectSelfClosingSpace reports whether a source part writes self-closing
-// elements as " />" (space before the close) rather than "/>". It inspects
-// the first self-closing tag after the root element's opening tag; producers
-// are consistent within a part.
+// elements as " />" (space before the close) rather than "/>". It scans for
+// the first self-closing tag after the XML declaration (producers are
+// consistent within a part). That first "/>" may be the root element's own
+// tag or a self-closing child; either reflects the part's style.
 func DetectSelfClosingSpace(data []byte) bool {
-	// Find end of XML declaration, then end of root opening tag.
+	// Search from just after the XML declaration (or the start if none).
 	start := bytes.Index(data, []byte("?>"))
 	if start < 0 {
 		start = 0
