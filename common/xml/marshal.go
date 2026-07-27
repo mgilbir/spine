@@ -178,8 +178,13 @@ func (b *Builder) MarshalRoot(ns, localName string, v interface{}, nsDecls []NSD
 		return
 	}
 
-	attrs := b.collectStructAttrs(val)
-	attrs = append(extraAttrs, attrs...)
+	modeled := b.collectStructAttrs(val)
+	// Build a fresh slice: appending onto the caller's variadic slice would
+	// write the modeled attributes into its backing array whenever it has
+	// spare capacity, silently corrupting a reused attribute buffer.
+	attrs := make([]Attr, 0, len(extraAttrs)+len(modeled))
+	attrs = append(attrs, extraAttrs...)
+	attrs = append(attrs, modeled...)
 
 	b.StartElementWithNS(ns, localName, nsDecls, attrs...)
 	b.marshalStructChildren(ns, val)
@@ -210,8 +215,13 @@ func (b *Builder) MarshalChildren(parentNS string, v interface{}) {
 
 // marshalReflect marshals a value as an XML element, dispatching based on kind.
 func (b *Builder) marshalReflect(ns, localName string, val reflect.Value) {
-	// Dereference pointer
-	for val.Kind() == reflect.Pointer {
+	// Dereference pointers and interfaces down to the concrete value.
+	// hasStructChildren counts a non-nil interface field as a child, so the
+	// parent opens an element for it; without unwrapping here the kind switch
+	// below would match nothing and the parent would emit an empty pair with
+	// no error — the silent-wrong-bytes case the xml.Marshaler guard exists to
+	// prevent. The two functions must agree on what counts as a child.
+	for val.Kind() == reflect.Pointer || val.Kind() == reflect.Interface {
 		if val.IsNil() {
 			return
 		}
