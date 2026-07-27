@@ -42,8 +42,15 @@ type Writer struct {
 	zipWriter *zip.Writer
 	output    io.Writer
 	parts     map[string]bool
-	nextRelID int
 	closed    bool
+
+	// pkgRels holds the relationships of a package-relationships part the
+	// caller wrote verbatim (round-trip preservation). Close consults it to
+	// decide whether a metadata part it is about to emit is already reachable:
+	// /_rels/.rels has been streamed into the zip by then and cannot be
+	// rewritten, so a relationship appended to w.Relationships afterwards
+	// would be silently discarded and the part orphaned (C377).
+	pkgRels []*Relationship
 
 	// rawContentTypes holds [Content_Types].xml bytes handed to WriteRawFile.
 	// The entry is deferred to Close so content types registered after the raw
@@ -66,9 +73,24 @@ func NewWriter(w io.Writer) *Writer {
 		output:        w,
 		ContentTypes:  NewContentTypes(),
 		parts:         make(map[string]bool),
-		nextRelID:     1,
 		Relationships: make([]*Relationship, 0),
 	}
+}
+
+// packageRelsPartName / packageRelsKey name the package-level relationships
+// part, the one part Close must reconcile against because it is both written
+// by callers (round-trip preservation) and appended to by Close's metadata
+// writers.
+const packageRelsPartName = "/_rels/.rels"
+
+var packageRelsKey = strings.ToLower(packageRelsPartName)
+
+// partKey is the case-insensitive key under which a part is tracked in
+// w.parts. Every write path derives its key here so the four registries Close
+// reconciles (parts, relationships, content types and the deferred raw
+// [Content_Types].xml) agree on what a part is called.
+func partKey(name string) string {
+	return strings.ToLower("/" + strings.TrimPrefix(name, "/"))
 }
 
 // CreatePart creates a new part in the package.
@@ -164,7 +186,7 @@ func (w *Writer) WritePart(name, contentType string, data []byte) error {
 		return err
 	}
 
-	_, err = writer.Write(data)
+	_, err = writer.Write(w.reconcilePackageRels(name, data))
 	return err
 }
 
@@ -181,22 +203,27 @@ func (w *Writer) WritePreservedPart(name, contentType string, data []byte) error
 		return err
 	}
 
-	_, err = writer.Write(data)
+	_, err = writer.Write(w.reconcilePackageRels(name, data))
 	return err
 }
 
 // WriteDirectoryEntries writes zero-length zip directory entries (names ending
 // in "/"). OPC consumers ignore directory entries, but re-emitting the ones a
 // source archive carried (Reader.DirectoryEntries) keeps a round-tripped
-// package's entry listing faithful to its producer. Names that do not end in
-// "/" or that were already written are skipped rather than rejected, so a
-// caller can replay a captured list verbatim.
+// package's entry listing faithful to its producer. Names that do not name a
+// directory or that were already written are skipped rather than rejected, so
+// a caller can replay a captured list verbatim.
+//
+// Each name goes through the same canonicalization the Reader applies, so a
+// producer that separates with backslashes ("word\") — which the Reader
+// records as a directory entry — is re-emitted rather than silently dropped
+// by a raw trailing-slash test (C456).
 func (w *Writer) WriteDirectoryEntries(names []string) error {
 	if w.closed {
 		return ErrPackageClosed
 	}
-	for _, name := range names {
-		name = strings.TrimPrefix(name, "/")
+	for _, raw := range names {
+		name := strings.TrimPrefix(canonicalZipEntryName(raw), "/")
 		if name == "" || !strings.HasSuffix(name, "/") {
 			continue
 		}
@@ -216,9 +243,17 @@ func (w *Writer) WriteDirectoryEntries(names []string) error {
 	return nil
 }
 
-// WriteRawFile writes a raw file to the package without part name validation.
-// This is used for special files like [Content_Types].xml that don't follow
-// OPC part naming rules.
+// WriteRawFile writes a raw file to the package without OPC part-name
+// grammar validation. This is used for special files like [Content_Types].xml
+// that don't follow OPC part naming rules.
+//
+// The name still has to be a structurally sane path: it is checked against the
+// same lenient shape rules as a preserved part (no empty, "." or ".."
+// segments), which admit [Content_Types].xml and the wild names real producers
+// emit while rejecting a name that escapes the package root. Without that
+// check the name went into the archive verbatim, so a caller passing
+// "../../etc/evil.conf" produced an archive entry that a naive extractor
+// writes outside the destination directory (C392).
 //
 // A raw [Content_Types].xml is special-cased: its zip entry is emitted during
 // Close rather than immediately, so content types registered afterwards (e.g.
@@ -232,8 +267,12 @@ func (w *Writer) WriteRawFile(name string, data []byte) error {
 		return ErrPackageClosed
 	}
 
+	if err := validatePartNameShape("/" + strings.TrimPrefix(name, "/")); err != nil {
+		return err
+	}
+
 	// Track the file to prevent duplicates
-	key := strings.ToLower("/" + strings.TrimPrefix(name, "/"))
+	key := partKey(name)
 	if w.parts[key] {
 		return ErrDuplicatePart
 	}
@@ -259,8 +298,7 @@ func (w *Writer) WriteRawFile(name string, data []byte) error {
 		return err
 	}
 
-	_, err = writer.Write(data)
-	if err != nil {
+	if _, err := writer.Write(w.reconcilePackageRels(name, data)); err != nil {
 		return err
 	}
 
@@ -281,14 +319,18 @@ func (w *Writer) AddRelationship(relType, target string, targetMode TargetMode) 
 
 // addRelationship is the internal, no-closed-check variant used during Close
 // itself, after closed is set but before the .rels part has been written.
+//
+// The identifier is derived from the current contents of the exported
+// Relationships slice rather than from a private counter. The counter could
+// not see a slice the caller assigned or appended to directly — which opc's
+// own signer does — so it happily minted an rId already in use (C394).
 func (w *Writer) addRelationship(relType, target string, targetMode TargetMode) *Relationship {
 	rel := &Relationship{
-		ID:         fmt.Sprintf("rId%d", w.nextRelID),
+		ID:         nextRelationshipID(w.Relationships),
 		Type:       relType,
 		Target:     target,
 		TargetMode: targetMode,
 	}
-	w.nextRelID++
 	w.Relationships = append(w.Relationships, rel)
 	return rel
 }
@@ -388,7 +430,10 @@ func firstNewContentTypeEntry(newDefaults, newOverrides []string) string {
 }
 
 // writeMetadataEntry emits one deflate-compressed zip entry for a package
-// metadata file written during Close.
+// metadata file written during Close, and records it in w.parts. Recording is
+// what keeps the four registries consistent: two of the three metadata writers
+// used to skip it, which was harmless only because they all ran after closed
+// was set, and was exactly the drift that becomes a duplicate zip entry (C447).
 func (w *Writer) writeMetadataEntry(name string, data []byte) error {
 	header := &zip.FileHeader{
 		Name:   name,
@@ -398,14 +443,19 @@ func (w *Writer) writeMetadataEntry(name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	_, err = writer.Write(data)
-	return err
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	w.parts[partKey(name)] = true
+	return nil
 }
 
 // writeRelationships writes the package-level relationships file.
 func (w *Writer) writeRelationships() error {
-	// Skip if already written (for round-trip support)
-	if w.parts[strings.ToLower("/_rels/.rels")] {
+	// Skip if already written (for round-trip support). Anything Close needed
+	// to add to those bytes was settled by reconcilePackageRels at the moment
+	// they were written, or reported by ensurePackageRelationship above.
+	if w.parts[packageRelsKey] {
 		return nil
 	}
 
@@ -417,137 +467,191 @@ func (w *Writer) writeRelationships() error {
 	if err != nil {
 		return err
 	}
-
-	header := &zip.FileHeader{
-		Name:   "_rels/.rels",
-		Method: zip.Deflate,
-	}
-
-	writer, err := w.zipWriter.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-
-	_, err = writer.Write(data)
-	return err
+	return w.writeMetadataEntry("_rels/.rels", data)
 }
 
-// writeCoreProperties writes the core properties if set.
-func (w *Writer) writeCoreProperties() error {
-	// Skip if already written (for round-trip support)
-	if w.parts[strings.ToLower("/docprops/core.xml")] {
-		return nil
+// metadataPart describes one package metadata part that Close derives from an
+// exported Writer field. All three (core, extended and custom properties) need
+// the same four registries updated in lockstep — the zip entry, w.parts, the
+// content-type override and the package relationship that makes the part
+// reachable — so they share one implementation rather than three copies that
+// drifted apart (C377, C394, C447).
+type metadataPart struct {
+	partName    string // canonical part name, e.g. "/docProps/core.xml"
+	zipName     string // zip entry name, e.g. "docProps/core.xml"
+	contentType string
+	relType     string
+	relTarget   string
+	// marshal returns the part bytes, or nil when the source field is unset
+	// and the part must not be written at all.
+	marshal func() ([]byte, error)
+}
+
+// metadataParts returns the metadata part descriptors in the order Close
+// emits them. The order is load-bearing only in that [Content_Types].xml is
+// written afterwards, since these registrations feed into it.
+func (w *Writer) metadataParts() []metadataPart {
+	return []metadataPart{
+		{
+			partName: "/docProps/core.xml", zipName: "docProps/core.xml",
+			contentType: ContentTypeCoreProps,
+			relType:     RelTypeCore, relTarget: "docProps/core.xml",
+			marshal: func() ([]byte, error) {
+				if w.Properties == nil {
+					return nil, nil
+				}
+				return w.Properties.Marshal()
+			},
+		},
+		{
+			partName: "/docProps/app.xml", zipName: "docProps/app.xml",
+			contentType: ContentTypeExtendedProps,
+			relType:     RelTypeExtended, relTarget: "docProps/app.xml",
+			marshal: func() ([]byte, error) {
+				if w.ExtendedProperties == nil {
+					return nil, nil
+				}
+				return w.ExtendedProperties.Marshal()
+			},
+		},
+		{
+			partName: "/docProps/custom.xml", zipName: "docProps/custom.xml",
+			contentType: ContentTypeCustomProps,
+			relType:     RelTypeCustom, relTarget: "docProps/custom.xml",
+			marshal: func() ([]byte, error) {
+				if w.CustomProperties == nil {
+					return nil, nil
+				}
+				return w.CustomProperties.Marshal()
+			},
+		},
 	}
+}
 
-	if w.Properties == nil {
-		return nil
+// pending reports whether p still has to be written: its source field is set
+// and no part of that name was written explicitly (a preserved raw copy wins,
+// keeping producer formatting byte-identical).
+func (w *Writer) pending(p metadataPart) bool {
+	if w.parts[partKey(p.partName)] {
+		return false
 	}
-
-	data, err := w.Properties.Marshal()
-	if err != nil {
-		return err
+	switch p.relType {
+	case RelTypeCore:
+		return w.Properties != nil
+	case RelTypeExtended:
+		return w.ExtendedProperties != nil
+	case RelTypeCustom:
+		return w.CustomProperties != nil
 	}
+	return false
+}
 
-	header := &zip.FileHeader{
-		Name:   "docProps/core.xml",
-		Method: zip.Deflate,
+// writeMetadataParts is Close's reconciliation pass over the metadata parts.
+// For each one it decides — once, in one place — whether the part is to be
+// written, whether a package relationship reaching it already exists, and
+// which content-type override it needs, then applies all of that together. In
+// particular the relationship is settled *before* the zip entry is emitted, so
+// the package can never end up carrying a metadata part that nothing points at.
+func (w *Writer) writeMetadataParts() error {
+	for _, p := range w.metadataParts() {
+		if !w.pending(p) {
+			continue
+		}
+		data, err := p.marshal()
+		if err != nil {
+			return err
+		}
+		if data == nil {
+			continue
+		}
+		if err := w.ensurePackageRelationship(p); err != nil {
+			return err
+		}
+		if err := w.writeMetadataEntry(p.zipName, data); err != nil {
+			return err
+		}
+		w.ContentTypes.SetOverride(p.partName, p.contentType)
 	}
-
-	writer, err := w.zipWriter.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-
-	_, err = writer.Write(data)
-	if err != nil {
-		return err
-	}
-
-	// Add relationship and content type
-	w.ContentTypes.SetOverride("/docProps/core.xml", ContentTypeCoreProps)
-	w.addRelationship(RelTypeCore, "docProps/core.xml", TargetModeInternal)
-
 	return nil
 }
 
-// writeExtendedProperties writes the extended properties if set.
-func (w *Writer) writeExtendedProperties() error {
-	// Skip if already written (for round-trip support)
-	if w.parts[strings.ToLower("/docprops/app.xml")] {
-		return nil
+// ensurePackageRelationship makes sure the package relationships will contain
+// a relationship of p's type, appending one when they will not.
+//
+// A package-level metadata relationship is a singleton (ECMA-376 Part 2 allows
+// one core-properties relationship per package, and Office writes one each for
+// app.xml and custom.xml), so an existing relationship of the same type
+// already reaches the part whatever target spelling it uses — appending a
+// second would mint a duplicate (C394).
+//
+// When the relationships part was written verbatim it is already in the zip
+// stream and cannot be amended; appending to w.Relationships would be silently
+// dropped by writeRelationships and leave the part orphaned (C377). That is
+// reported as an error rather than written out, and because this runs before
+// the part is emitted, nothing is written at all. Callers preserving
+// /_rels/.rels should set the properties fields *before* writing it —
+// WritePart/WritePreservedPart/WriteRawFile then inject the missing
+// relationship into the preserved bytes for them.
+func (w *Writer) ensurePackageRelationship(p metadataPart) error {
+	for _, rel := range w.Relationships {
+		if rel != nil && rel.Type == p.relType {
+			return nil
+		}
 	}
-
-	if w.ExtendedProperties == nil {
-		return nil
+	for _, rel := range w.pkgRels {
+		if rel != nil && rel.Type == p.relType {
+			return nil
+		}
 	}
-
-	data, err := w.ExtendedProperties.Marshal()
-	if err != nil {
-		return err
+	if w.parts[packageRelsKey] {
+		return fmt.Errorf("opc: %s must be written but %s was already emitted without a %s relationship, so the part would be unreachable; set the properties before writing the package relationships part",
+			p.partName, packageRelsPartName, p.relType)
 	}
-
-	header := &zip.FileHeader{
-		Name:   "docProps/app.xml",
-		Method: zip.Deflate,
-	}
-
-	writer, err := w.zipWriter.CreateHeader(header)
-	if err != nil {
-		return err
-	}
-
-	_, err = writer.Write(data)
-	if err != nil {
-		return err
-	}
-
-	// Add relationship and content type
-	w.ContentTypes.SetOverride("/docProps/app.xml", ContentTypeExtendedProps)
-	w.addRelationship(RelTypeExtended, "docProps/app.xml", TargetModeInternal)
-
+	w.addRelationship(p.relType, p.relTarget, TargetModeInternal)
 	return nil
 }
 
-// writeCustomProperties writes the custom properties if set.
-func (w *Writer) writeCustomProperties() error {
-	// Skip if already written (for round-trip support): a preserved raw
-	// custom.xml wins, keeping producer formatting byte-identical.
-	if w.parts[strings.ToLower("/docprops/custom.xml")] {
-		return nil
+// reconcilePackageRels is the write-time half of the same reconciliation: when
+// the caller hands over the package relationships part verbatim, any metadata
+// part Close still has to write needs a relationship in those bytes, and this
+// is the last moment at which they can be amended. EnsureRelationshipInRels
+// inserts the element immediately before </Relationships>, leaving every
+// existing byte in place, so a package that needs nothing added round-trips
+// byte-for-byte.
+//
+// It returns the bytes to write and records the resulting relationship set for
+// ensurePackageRelationship's coverage check.
+func (w *Writer) reconcilePackageRels(name string, data []byte) []byte {
+	if partKey(NormalizePartName(name)) != packageRelsKey {
+		return data
 	}
 
-	if w.CustomProperties == nil {
-		return nil
-	}
-
-	data, err := w.CustomProperties.Marshal()
+	parsed, err := UnmarshalRelationships(data)
 	if err != nil {
-		return err
+		// Malformed rels bytes are preserved untouched, as they always were;
+		// ensurePackageRelationship will report anything it cannot cover.
+		return data
 	}
-
-	header := &zip.FileHeader{
-		Name:   "docProps/custom.xml",
-		Method: zip.Deflate,
+	covered := make(map[string]bool, len(parsed))
+	for _, rel := range parsed {
+		if rel != nil {
+			covered[rel.Type] = true
+		}
 	}
-
-	writer, err := w.zipWriter.CreateHeader(header)
-	if err != nil {
-		return err
+	for _, p := range w.metadataParts() {
+		if covered[p.relType] || !w.pending(p) {
+			continue
+		}
+		augmented, rel, added := EnsureRelationshipInRels(data, p.relType, p.relTarget)
+		if !added {
+			continue
+		}
+		data = augmented
+		parsed = append(parsed, rel)
+		covered[p.relType] = true
 	}
-
-	if _, err := writer.Write(data); err != nil {
-		return err
-	}
-	w.parts[strings.ToLower("/docprops/custom.xml")] = true
-
-	// Add relationship and content type. In a round-trip save the package
-	// relationships and content types are preserved verbatim (which already
-	// carry these when the part existed), so writeRelationships/writeContentTypes
-	// skip the duplicates; a newly created package emits them here.
-	w.ContentTypes.SetOverride("/docProps/custom.xml", ContentTypeCustomProps)
-	w.addRelationship(RelTypeCustom, "docProps/custom.xml", TargetModeInternal)
-
-	return nil
+	w.pkgRels = parsed
+	return data
 }
 
 // WritePartRelationships writes a relationships file for a specific part. Like
@@ -555,15 +659,18 @@ func (w *Writer) writeCustomProperties() error {
 // write of the same .rels part (which would otherwise emit two zip entries with
 // the same name).
 func (w *Writer) WritePartRelationships(partName string, rels []*Relationship) error {
-	if len(rels) == 0 {
-		return nil
-	}
+	// The closed check comes first: reporting success on a closed Writer for
+	// the empty-slice case alone was inconsistent with every other write
+	// method and with AddRelationship (C450).
 	if w.closed {
 		return ErrPackageClosed
 	}
+	if len(rels) == 0 {
+		return nil
+	}
 
 	relsName := GetRelationshipsPartName(partName)
-	key := strings.ToLower("/" + strings.TrimPrefix(relsName, "/"))
+	key := partKey(relsName)
 	if w.parts[key] {
 		return ErrDuplicatePart
 	}
@@ -621,13 +728,14 @@ func (w *Writer) Close() error {
 	}
 	w.closed = true
 
-	// Write package metadata, stopping at the first failure. Content types
-	// must be written last: earlier writes may register overrides.
+	// Write package metadata, stopping at the first failure. The metadata
+	// parts (core, extended and custom properties) are reconciled together in
+	// one pass, which settles each part's relationship and content type before
+	// its bytes go out; the package relationships and then — last, because
+	// every earlier write may register overrides — [Content_Types].xml follow.
 	var metaErr error
 	for _, write := range []func() error{
-		w.writeCoreProperties,
-		w.writeExtendedProperties,
-		w.writeCustomProperties,
+		w.writeMetadataParts,
 		w.writeRelationships,
 		w.writeContentTypes,
 	} {
