@@ -288,7 +288,7 @@ func TestSpawnWorkerEndToEnd(t *testing.T) {
 	ref := Ref{Digest: "DEAD", Type: "docx"}
 	sh := func(script string, hard time.Duration) (outcome, stage string) {
 		stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), "/bin/sh",
-			[]string{"-c", script}, ref, hard)
+			[]string{"-c", script}, nil, ref, hard)
 		o, s, _ := interpretWorker(timedOut, runErr, stdout, stderr, ref.Digest)
 		return o, s
 	}
@@ -311,6 +311,53 @@ func TestSpawnWorkerEndToEnd(t *testing.T) {
 	}
 	if o, s := sh("exit 0", 2*time.Second); o != outcomeResource || s != "panic" {
 		t.Errorf("silent worker: got (%s,%s)", o, s)
+	}
+}
+
+// TestProcessRefKeepsDohURLOutOfArgv proves the orchestrator hands the DoH
+// resolver URL to its workers through the environment and never on the command
+// line: a private resolver profile URL carries an account token, and argv is
+// world-readable via ps/proc for the worker's whole lifetime (C577).
+func TestProcessRefKeepsDohURLOutOfArgv(t *testing.T) {
+	const secret = "https://dns.example.net/PROFILE-TOKEN-SHOULD-NOT-LEAK"
+
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	envFile := filepath.Join(dir, "env")
+	// A fake worker that records exactly what it was given, then emits a valid
+	// result line so processRef takes the normal pass path.
+	fake := filepath.Join(dir, "fake-worker.sh")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$@\" > " + argvFile + "\n" +
+		"env > " + envFile + "\n" +
+		"printf 'DEAD\\tpass\\n'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := orchConfig{scratchDir: dir, timeout: 2 * time.Second, dohURL: secret}
+	outcome, _, _ := processRef(fake, Ref{Digest: "DEAD", Type: "docx"}, cfg)
+	if outcome != outcomePass {
+		t.Fatalf("fake worker outcome = %s, want %s", outcome, outcomePass)
+	}
+
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(argv), secret) {
+		t.Errorf("DoH URL leaked into worker argv (readable via /proc):\n%s", argv)
+	}
+	if strings.Contains(string(argv), "-doh-url") {
+		t.Errorf("worker argv still carries a -doh-url flag:\n%s", argv)
+	}
+
+	env, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(env), "SPINE_DOH_URL="+secret) {
+		t.Errorf("worker environment lacks SPINE_DOH_URL, so live refetches would lose the resolver:\n%s", env)
 	}
 }
 

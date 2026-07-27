@@ -350,11 +350,19 @@ func processRef(self string, r Ref, cfg orchConfig) (outcome, stage, sig string)
 		"-worker",
 		"-scratch", scratch,
 		"-timeout", cfg.timeout.String(),
-		"-doh-url", cfg.dohURL,
+	}
+	// The DoH resolver URL goes through the environment, never argv: a private
+	// resolver profile URL (NextDNS and friends embed a per-account token in the
+	// path) would otherwise be world-readable in `ps` / /proc/<pid>/cmdline for
+	// the lifetime of every worker. The worker's -doh-url flag defaults to
+	// SPINE_DOH_URL, so it picks this up with no flag at all. (C577)
+	env := os.Environ()
+	if cfg.dohURL != "" {
+		env = append(env, "SPINE_DOH_URL="+cfg.dohURL)
 	}
 	// Hard cap allows the worker to bail cleanly on a slow fetch before the
 	// orchestrator kills it; a genuine processing hang is killed here.
-	stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), self, args, r, cfg.timeout+10*time.Second)
+	stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), self, args, env, r, cfg.timeout+10*time.Second)
 	return interpretWorker(timedOut, runErr, stdout, stderr, r.Digest)
 }
 
@@ -383,13 +391,16 @@ func (w *capWriter) Write(p []byte) (int, error) {
 // spawnWorker runs one worker command with a hard timeout, feeding the Ref as
 // JSON on stdin, and returns its stdout, a bounded capture of its stderr, the
 // run error, and whether the hard timeout fired. exe/args are separated so
-// tests can inject a fake worker.
-func spawnWorker(parent context.Context, exe string, args []string, ref Ref, hard time.Duration) (stdout, stderr string, runErr error, timedOut bool) {
+// tests can inject a fake worker. env is the worker's complete environment (nil
+// inherits the orchestrator's); secrets belong here rather than in args, which
+// any user on the machine can read from /proc.
+func spawnWorker(parent context.Context, exe string, args, env []string, ref Ref, hard time.Duration) (stdout, stderr string, runErr error, timedOut bool) {
 	ctx, cancel := context.WithTimeout(parent, hard)
 	defer cancel()
 
 	payload, _ := json.Marshal(ref)
 	cmd := exec.CommandContext(ctx, exe, args...)
+	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(payload)
 	var outBuf bytes.Buffer
 	errBuf := &capWriter{cap: maxWorkerStderr}
