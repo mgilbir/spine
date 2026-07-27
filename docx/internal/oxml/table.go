@@ -120,6 +120,16 @@ type CT_TblGrid struct {
 type CT_TblGridChange struct {
 	Id      string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main id,attr"`
 	TblGrid *CT_TblGrid `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblGrid,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see C411.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (tgc *CT_TblGridChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tgc.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TblGridChange
+	return d.DecodeElement((*alias)(tgc), &start)
 }
 
 // CT_GridCol represents a single grid column.
@@ -273,6 +283,16 @@ type CT_CellMerge struct {
 	Date       string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	VMerge     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMerge,attr,omitempty"`
 	VMergeOrig string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main vMergeOrig,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list; see C411.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (cme *CT_CellMerge) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cme.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_CellMerge
+	return d.DecodeElement((*alias)(cme), &start)
 }
 
 // CT_Tc represents a table cell (w:tc).

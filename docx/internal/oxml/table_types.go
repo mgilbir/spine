@@ -1,5 +1,11 @@
 package oxml
 
+import (
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
+
 // CT_TblPrEx represents table property exceptions (w:tblPrEx).
 // These override table properties for specific rows.
 type CT_TblPrEx struct {
@@ -21,4 +27,16 @@ type CT_TblPrExChange struct {
 	Author  string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr,omitempty"`
 	Date    string      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	TblPrEx *CT_TblPrEx `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main tblPrEx,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list (Word 2021+
+	// writes an unmodeled w16du:dateUtc on every revision record); the
+	// reflection marshaler replays it (C411).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (c *CT_TblPrExChange) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CT_TblPrExChange
+	return d.DecodeElement((*alias)(c), &start)
 }

@@ -71,6 +71,11 @@ type CT_Comment struct {
 	Author   string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main author,attr"`
 	Date     string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main date,attr,omitempty"`
 	Initials string `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main initials,attr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list. w:comment is
+	// an annotation record like the *Change family: Word 2021+ writes an
+	// unmodeled w16du:dateUtc alongside w:date, and producer attribute order
+	// varies (C411).
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 
 	P             []*CT_P               `xml:"-"`
 	Tbl           []*CT_Tbl             `xml:"-"`
@@ -83,6 +88,7 @@ type CT_Comment struct {
 
 // UnmarshalXML implements custom unmarshaling for CT_Comment.
 func (c *CT_Comment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "id":
@@ -108,6 +114,9 @@ func (c *CT_Comment) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.Initials != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "initials", Value: c.Initials})
+	}
+	if c.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
 	}
 	b.StartElement(ns, localName, attrs...)
 	marshalBodyContent(b, ns, c.P, c.Tbl, c.SdtBlock, c.BookmarkStart, c.BookmarkEnd, c.Raw, c.childOrder)
