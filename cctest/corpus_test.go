@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,16 +24,30 @@ import (
 )
 
 // maxParallel bounds concurrently processed corpus files to keep peak memory
-// reasonable (some spreadsheets decompress large).
-const maxParallel = 4
+// reasonable (some spreadsheets decompress large). SPINE_CC_PARALLEL
+// overrides it: race-detector runs need a lower bound, since shadow memory
+// scales with the heap touched concurrently (`make test-race` sets 2).
+var maxParallel = func() int {
+	if n, err := strconv.Atoi(os.Getenv("SPINE_CC_PARALLEL")); err == nil && n > 0 {
+		return n
+	}
+	return 4
+}()
 
 // subsetPerType is how many files per document type the default (fast) mode
 // checks. The full corpus needs ~15-20 minutes — past Go's default 10m
 // package timeout — so a plain `go test ./...` runs this deterministic
 // subset instead (the first N per type in sha16 order, still catching gross
 // regressions); set SPINE_CC_FULL=1 (or use `make test-corpus`) for the
-// complete corpus.
-const subsetPerType = 60
+// complete corpus. SPINE_CC_SUBSET overrides the size: race-detector runs
+// are several-fold slower per file, so `make test-race` uses a smaller
+// subset — data races surface from path coverage, not corpus volume.
+var subsetPerType = func() int {
+	if n, err := strconv.Atoi(os.Getenv("SPINE_CC_SUBSET")); err == nil && n > 0 {
+		return n
+	}
+	return 60
+}()
 
 var docTypes = []string{"pptx", "xlsx", "docx"}
 

@@ -6,11 +6,24 @@
 make build         # go build ./...
 make vet           # go vet ./...
 make test          # fetches external fixtures (best-effort), then go test ./... -count=1
+make test-race     # go test -race, wrapped in a memory-capped systemd scope
 make lint          # golangci-lint run ./... — requires golangci-lint v2.x
 ```
 
 The lint baseline is zero: `make lint` must exit clean before a change is
 mergeable.
+
+Memory-hungry runs (`-race`, full-corpus passes) must go through a
+resource-capped `systemd-run --user --scope` — that is what `make test-race`
+and `make harvest-batch` do. A bare run shares the terminal's cgroup, and one
+kernel OOM kill there makes systemd (default `OOMPolicy=stop`) tear down the
+whole terminal scope, killing your shell and everything in it. Inside a capped
+scope the kill is contained to the test. Generic pattern for any heavy
+one-off:
+
+```bash
+systemd-run --user --scope -p MemoryMax=12G -p MemorySwapMax=1G -- <command>
+```
 
 ## Test fixtures
 
