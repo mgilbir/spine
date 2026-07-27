@@ -86,52 +86,13 @@ const (
 	pChildRaw
 )
 
-// isRawPChild reports whether an inline (paragraph-content) child element the
-// model does not type must be preserved verbatim instead of skipped: inline
-// w:customXml and w:smartTag (whose runs would otherwise lose their text),
-// tracked-move containers w:moveTo/w:moveFrom (whose loss deletes the moved
-// text entirely), and the move range markers. The captured content is opaque
-// to the model: Text() does not descend into it and SetText() removes it along
-// with the other content children.
-func isRawPChild(local string) bool {
-	switch local {
-	case "customXml", "smartTag", "moveTo", "moveFrom",
-		"moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd",
-		"customXmlInsRangeStart", "customXmlInsRangeEnd",
-		"customXmlDelRangeStart", "customXmlDelRangeEnd",
-		"customXmlMoveFromRangeStart", "customXmlMoveFromRangeEnd",
-		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
-		"br",
-		"contentPart",
-		"oMath", "oMathPara",
-		"dir", "bdo",
-		"fldData",
-		"commentRangeStart", "commentRangeEnd":
-		// w:fldData is the CT_SimpleField custom field-data child; untyped by the
-		// model, raw capture keeps it from being dropped on save.
-		// w:dir / w:bdo are the EG_PContent bidi-embedding wrappers (LTR/RTL
-		// override) holding run content. Untyped by the model, they hit the
-		// default d.Skip() in every content path, deleting the visible text
-		// inside on any regeneration; raw capture preserves the wrapper and its
-		// runs verbatim.
-		// m:oMath / m:oMathPara are EG_PContent members the shared content path
-		// (w:hyperlink, w:ins, w:del, w:fldSimple, run-level w:sdt) does not
-		// type — Word writes them when an equation is inserted with track-changes
-		// on — so without raw capture d.Skip() deletes the equation. CT_P types
-		// them itself (its own oMath/oMathPara cases run before this), so this
-		// only affects the shared containers.
-		// w:br is only valid inside w:r, but LibreOffice-era exports place it
-		// directly in w:p; dropping it merged the surrounding lines.
-		// w:contentPart (EG_PContent, a CT_Rel referencing an ink/customXML
-		// part by r:id) is untyped by the model; preserving it verbatim keeps
-		// the in-body ink reference so a paragraph carrying only a contentPart
-		// no longer round-trips as an empty <w:p/>.
-		// Comment ranges appear inside w:ins/w:del and run-level SDT content,
-		// which type them nowhere (CT_P handles its own before this).
-		return true
-	}
-	return false
-}
+// pChildRaw is the catch-all: every paragraph-content child the model does not
+// type is captured verbatim under it (see rawchild.go). Historically this was
+// gated on a name whitelist, which kept losing schema-valid members of
+// EG_PContent — w:dir/w:bdo, w:contentPart, comment ranges (C371) — each of
+// which was only added after a wild file proved the loss. The captured content
+// is opaque to the model: Text() does not descend into it and SetText() removes
+// it along with the other content children.
 
 // pChildRef references a paragraph content child.
 type pChildRef struct {
@@ -406,16 +367,9 @@ func (p *CT_P) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				p.childOrder = append(p.childOrder, pChildRef{pChildAlternateContent, len(p.AlternateContent)})
 				p.AlternateContent = append(p.AlternateContent, v)
 			default:
-				if isRawPChild(t.Name.Local) {
-					v := &CT_RawNamedElement{}
-					if err := d.DecodeElement(v, &t); err != nil {
-						return err
-					}
-					p.childOrder = append(p.childOrder, pChildRef{pChildRaw, len(p.Raw)})
-					p.Raw = append(p.Raw, v)
-					continue
-				}
-				if err := d.Skip(); err != nil {
+				// Everything CT_P does not type is preserved verbatim
+				// (see rawchild.go).
+				if err := captureRawPChild(d, &t, &p.Raw, &p.childOrder); err != nil {
 					return err
 				}
 			}
@@ -602,10 +556,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildHyperlink, len(*hyperlink)})
 					*hyperlink = append(*hyperlink, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "bookmarkStart":
 				if bookmarkStart != nil {
@@ -615,10 +567,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildBookmarkStart, len(*bookmarkStart)})
 					*bookmarkStart = append(*bookmarkStart, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "bookmarkEnd":
 				if bookmarkEnd != nil {
@@ -628,10 +578,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildBookmarkEnd, len(*bookmarkEnd)})
 					*bookmarkEnd = append(*bookmarkEnd, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "proofErr":
 				if proofErr != nil {
@@ -641,10 +589,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildProofErr, len(*proofErr)})
 					*proofErr = append(*proofErr, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "permStart":
 				if permStart != nil {
@@ -654,10 +600,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildPermStart, len(*permStart)})
 					*permStart = append(*permStart, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "permEnd":
 				if permEnd != nil {
@@ -667,10 +611,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildPermEnd, len(*permEnd)})
 					*permEnd = append(*permEnd, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "ins":
 				if ins != nil {
@@ -680,10 +622,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildIns, len(*ins)})
 					*ins = append(*ins, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "del":
 				if del != nil {
@@ -693,10 +633,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildDel, len(*del)})
 					*del = append(*del, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "fldSimple":
 				if fldSimple != nil {
@@ -706,10 +644,8 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildFldSimple, len(*fldSimple)})
 					*fldSimple = append(*fldSimple, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			case "sdt":
 				if sdtRun != nil {
@@ -719,22 +655,13 @@ func unmarshalPContent(d *xml.Decoder,
 					}
 					*childOrder = append(*childOrder, pChildRef{pChildSdtRun, len(*sdtRun)})
 					*sdtRun = append(*sdtRun, v)
-				} else {
-					if err := d.Skip(); err != nil {
-						return err
-					}
+				} else if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
+					return err
 				}
 			default:
-				if raw != nil && isRawPChild(t.Name.Local) {
-					v := &CT_RawNamedElement{}
-					if err := d.DecodeElement(v, &t); err != nil {
-						return err
-					}
-					*childOrder = append(*childOrder, pChildRef{pChildRaw, len(*raw)})
-					*raw = append(*raw, v)
-					continue
-				}
-				if err := d.Skip(); err != nil {
+				// Everything the container does not type is preserved
+				// verbatim (see rawchild.go).
+				if err := captureRawPChild(d, &t, raw, childOrder); err != nil {
 					return err
 				}
 			}
