@@ -103,7 +103,23 @@ func isRawPChild(local string) bool {
 		"customXmlMoveToRangeStart", "customXmlMoveToRangeEnd",
 		"br",
 		"contentPart",
+		"oMath", "oMathPara",
+		"dir", "bdo",
+		"fldData",
 		"commentRangeStart", "commentRangeEnd":
+		// w:fldData is the CT_SimpleField custom field-data child; untyped by the
+		// model, raw capture keeps it from being dropped on save.
+		// w:dir / w:bdo are the EG_PContent bidi-embedding wrappers (LTR/RTL
+		// override) holding run content. Untyped by the model, they hit the
+		// default d.Skip() in every content path, deleting the visible text
+		// inside on any regeneration; raw capture preserves the wrapper and its
+		// runs verbatim.
+		// m:oMath / m:oMathPara are EG_PContent members the shared content path
+		// (w:hyperlink, w:ins, w:del, w:fldSimple, run-level w:sdt) does not
+		// type — Word writes them when an equation is inserted with track-changes
+		// on — so without raw capture d.Skip() deletes the equation. CT_P types
+		// them itself (its own oMath/oMathPara cases run before this), so this
+		// only affects the shared containers.
 		// w:br is only valid inside w:r, but LibreOffice-era exports place it
 		// directly in w:p; dropping it merged the surrounding lines.
 		// w:contentPart (EG_PContent, a CT_Rel referencing an ink/customXML

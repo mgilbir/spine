@@ -63,10 +63,11 @@ func (p *Paragraph) AddInsertedRunWithDate(author, text string, date time.Time) 
 
 // MarkInserted wraps an existing run in a tracked insertion (w:ins) attributed
 // to author, dated to the current time (UTC). The run must be a top-level run of
-// its paragraph (as returned by Paragraph.Runs or Paragraph.AddRun). It returns
-// the run so calls can be chained. The result reads back through
-// Document.Revisions and is transformed by Accept/Reject. Use MarkInsertedWithDate
-// for a fixed timestamp.
+// its paragraph (as returned by Paragraph.Runs or Paragraph.AddRun); on a run
+// that is not a direct paragraph child (for example one from Hyperlink.Runs) the
+// call is a no-op that leaves the run unchanged. It returns the run so calls can
+// be chained. The result reads back through Document.Revisions and is transformed
+// by Accept/Reject. Use MarkInsertedWithDate for a fixed timestamp.
 func (r *Run) MarkInserted(author string) *Run {
 	return r.MarkInsertedWithDate(author, time.Now())
 }
@@ -81,8 +82,11 @@ func (r *Run) MarkInsertedWithDate(author string, date time.Time) *Run {
 
 // MarkDeleted wraps an existing run in a tracked deletion (w:del) attributed to
 // author, dated to the current time (UTC), converting the run's text (w:t) to
-// deletion text (w:delText). The run must be a top-level run of its paragraph.
-// It returns the run so calls can be chained. The result reads back through
+// deletion text (w:delText). The run must be a top-level run of its paragraph; on
+// a run that is not a direct paragraph child (for example one from
+// Hyperlink.Runs) the call is a no-op that leaves the run unchanged — its text is
+// not converted to w:delText, so no schema-invalid w:delText is emitted outside a
+// w:del. It returns the run so calls can be chained. The result reads back through
 // Document.Revisions and is transformed by Accept/Reject: accepting removes the
 // text, rejecting restores it as a normal run. Use MarkDeletedWithDate for a
 // fixed timestamp.

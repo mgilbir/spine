@@ -70,10 +70,13 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 	if doc.Background != nil {
 		b.MarshalElement(nsW, "background", doc.Background)
 	}
+	for _, raw := range doc.RootExtras[1] {
+		b.WriteRaw(raw)
+	}
 	if doc.Body != nil {
 		doc.Body.MarshalToBuilder(b, nsW, "body")
 	}
-	for _, raw := range doc.RootExtras[1] {
+	for _, raw := range doc.RootExtras[2] {
 		b.WriteRaw(raw)
 	}
 
@@ -279,6 +282,17 @@ func marshalNumberingXML(numbering *oxml.CT_Numbering) ([]byte, error) {
 func marshalSettingsXML(settings *oxml.CT_Settings) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
+	if settings.OriginalRootAttrs != nil {
+		// Verbatim root replay preserves every source attribute (all namespace
+		// declarations, mc:Ignorable, and any others like xml:space) in order.
+		b.StartElementWithRootAttrs(nsW, "settings", settings.OriginalRootAttrs)
+		settings.MarshalContent(b, nsW)
+		b.EndElement(nsW, "settings")
+		if err := b.Finish(); err != nil {
+			return nil, fmt.Errorf("docx: marshal settings.xml: %w", err)
+		}
+		return b.Bytes(), nil
+	}
 	var attrs []xmlb.Attr
 	if settings.Ignorable != "" {
 		attrs = append(attrs, xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable", settings.Ignorable))
