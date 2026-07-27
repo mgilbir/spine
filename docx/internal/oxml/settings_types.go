@@ -6,18 +6,25 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
+// CompatOption is a single compatibility flag child of w:compat, pairing the
+// element's local name with its parsed CT_OnOff.
+type CompatOption struct {
+	Name  string
+	OnOff *CT_OnOff
+}
+
 // CT_Compat represents compatibility settings (w:compat).
 // Contains CT_OnOff children for individual compatibility options
-// and CT_CompatSetting entries. The children are captured as a map of
-// element name -> CT_OnOff.
+// and CT_CompatSetting entries. The options are held in an ordered slice
+// (not a map) so marshaling is deterministic and preserves source order,
+// duplicate flags, and each flag's captured non-val attributes.
 type CT_Compat struct {
-	Options        map[string]*CT_OnOff `xml:"-"`
-	CompatSettings []CT_CompatSetting   `xml:"-"`
+	Options        []CompatOption     `xml:"-"`
+	CompatSettings []CT_CompatSetting `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Compat.
 func (c *CT_Compat) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.Options = make(map[string]*CT_OnOff)
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -33,7 +40,7 @@ func (c *CT_Compat) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				c.CompatSettings = append(c.CompatSettings, cs)
 			} else {
 				o := UnmarshalOnOff(d, &t)
-				c.Options[t.Name.Local] = o
+				c.Options = append(c.Options, CompatOption{Name: t.Name.Local, OnOff: o})
 			}
 		case xml.EndElement:
 			return nil
@@ -44,15 +51,11 @@ func (c *CT_Compat) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Compat.
 func (c *CT_Compat) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
-	for name, o := range c.Options {
-		if o.Val != nil {
-			b.EmptyElement(ns, name, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "val", Value: *o.Val})
-		} else {
-			b.EmptyElement(ns, name)
-		}
+	for _, opt := range c.Options {
+		b.MarshalElement(ns, opt.Name, opt.OnOff)
 	}
-	for _, cs := range c.CompatSettings {
-		b.MarshalElement(ns, "compatSetting", &cs)
+	for i := range c.CompatSettings {
+		b.MarshalElement(ns, "compatSetting", &c.CompatSettings[i])
 	}
 	b.EndElement(ns, localName)
 }
@@ -81,15 +84,16 @@ type CT_ClrSchemeMapping struct {
 }
 
 // CT_WebSettings represents web settings (w:webSettings).
-// Children are various CT_OnOff and other elements; captured as a map.
+// Children are various CT_OnOff and other elements; held in an ordered slice
+// (not a map) so marshaling is deterministic and preserves source order,
+// duplicates, and each child's captured non-val attributes.
 type CT_WebSettings struct {
-	XMLName xml.Name             `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webSettings"`
-	Options map[string]*CT_OnOff `xml:"-"`
+	XMLName xml.Name       `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main webSettings"`
+	Options []CompatOption `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_WebSettings.
 func (w *CT_WebSettings) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	w.Options = make(map[string]*CT_OnOff)
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -98,7 +102,7 @@ func (w *CT_WebSettings) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 		switch t := tok.(type) {
 		case xml.StartElement:
 			o := UnmarshalOnOff(d, &t)
-			w.Options[t.Name.Local] = o
+			w.Options = append(w.Options, CompatOption{Name: t.Name.Local, OnOff: o})
 		case xml.EndElement:
 			return nil
 		}
@@ -108,12 +112,8 @@ func (w *CT_WebSettings) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_WebSettings.
 func (w *CT_WebSettings) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.StartElement(ns, localName)
-	for name, o := range w.Options {
-		if o.Val != nil {
-			b.EmptyElement(ns, name, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "val", Value: *o.Val})
-		} else {
-			b.EmptyElement(ns, name)
-		}
+	for _, opt := range w.Options {
+		b.MarshalElement(ns, opt.Name, opt.OnOff)
 	}
 	b.EndElement(ns, localName)
 }
