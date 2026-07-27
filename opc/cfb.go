@@ -125,6 +125,36 @@ func readCFB(data []byte) (*cfbFile, error) {
 	return f, nil
 }
 
+// maxSectors is the number of whole regular sectors the file image can hold.
+//
+// It is the bound for the package-wide invariant that governs this file: every
+// make whose capacity derives from parsed file bytes must first be clamped by a
+// quantity derived from len(f.data). Sector counts, sector locations and chain
+// lengths are all attacker-controlled 32-bit fields; none of them can legally
+// exceed the number of sectors actually present, so a container cannot force an
+// allocation larger than its own size. Without the clamp a 512-byte file
+// declaring numFATSectors=0xFFFFFFFF drives a 16 GiB allocation (C360) and a
+// DIFAT chain in a 256 KiB file drives a 34 MB one (C461).
+func (f *cfbFile) maxSectors() int {
+	if len(f.data) <= cfbHeaderSize || f.sectorSize <= 0 {
+		return 0
+	}
+	return (len(f.data) - cfbHeaderSize) / f.sectorSize
+}
+
+// boundedCap clamps a capacity hint taken from parsed file bytes to a limit
+// derived from the image size. want is attacker-controlled and is widened to
+// uint64 so a 32-bit int cannot overflow into a negative (panicking) capacity.
+func boundedCap(want uint64, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	if want > uint64(limit) {
+		return limit
+	}
+	return int(want)
+}
+
 // sectorData returns the bytes of one regular sector, or an error if the sector
 // number is out of range for the file image.
 func (f *cfbFile) sectorData(sector uint32) ([]byte, error) {
@@ -138,7 +168,13 @@ func (f *cfbFile) sectorData(sector uint32) ([]byte, error) {
 // buildFAT assembles the full FAT array from the header DIFAT (109 entries) and
 // any chained DIFAT sectors.
 func (f *cfbFile) buildFAT(numFATSectors, firstDIFATSector, numDIFATSectors uint32) error {
-	fatSectorLocs := make([]uint32, 0, numFATSectors)
+	// numFATSectors is a raw header field, so the capacity it asks for is clamped
+	// to the sectors the image can hold before allocating (see maxSectors).
+	maxSect := f.maxSectors()
+	fatSectorLocs := make([]uint32, 0, boundedCap(uint64(numFATSectors), maxSect))
+	tooManyFATSectors := func() error {
+		return fmt.Errorf("%w: CFB declares more FAT sectors than its %d-byte image can hold", ErrCorruptedPackage, len(f.data))
+	}
 
 	// The first 109 FAT sector locations live in the header DIFAT.
 	for i := 0; i < 109; i++ {
@@ -153,7 +189,15 @@ func (f *cfbFile) buildFAT(numFATSectors, firstDIFATSector, numDIFATSectors uint
 	entriesPerSector := f.sectorSize / 4
 	difatSector := firstDIFATSector
 	seen := make(map[uint32]bool)
-	for i := uint32(0); difatSector != cfbEndOfChain && difatSector <= cfbMaxRegSect && i < numDIFATSectors+1; i++ {
+	// numDIFATSectors is likewise unvalidated (and numDIFATSectors+1 wraps to 0
+	// at 0xFFFFFFFF), so the walk is counted in uint64 and stopped as soon as the
+	// collected locations exceed what the image can hold. Each pass adds at most
+	// entriesPerSector-1 locations, so the check at the loop head bounds the
+	// slice without a per-entry test on the hot path.
+	for i := uint64(0); difatSector != cfbEndOfChain && difatSector <= cfbMaxRegSect && i < uint64(numDIFATSectors)+1; i++ {
+		if len(fatSectorLocs) > maxSect {
+			return tooManyFATSectors()
+		}
 		if seen[difatSector] {
 			return fmt.Errorf("%w: CFB DIFAT sector chain loops", ErrCorruptedPackage)
 		}
@@ -172,11 +216,18 @@ func (f *cfbFile) buildFAT(numFATSectors, firstDIFATSector, numDIFATSectors uint
 		difatSector = binary.LittleEndian.Uint32(sd[(entriesPerSector-1)*4 : entriesPerSector*4])
 	}
 
-	if len(fatSectorLocs) > 1<<24 {
-		return fmt.Errorf("%w: CFB declares an implausible number of FAT sectors", ErrCorruptedPackage)
+	// A container holds at most one FAT sector per sector present, which is a far
+	// tighter bound than the fixed 1<<24 ceiling this replaces (that ceiling was
+	// also checked only after the loop had already allocated, and it bounded the
+	// location count rather than the FAT it multiplies into).
+	if len(fatSectorLocs) > maxSect {
+		return tooManyFATSectors()
 	}
 
-	f.fat = make([]uint32, 0, len(fatSectorLocs)*entriesPerSector)
+	// The FAT of a well-formed container covers every sector, rounded up to a
+	// whole FAT sector, so maxSect+entriesPerSector never under-allocates for
+	// valid input while capping the product for hostile input.
+	f.fat = make([]uint32, 0, boundedCap(uint64(len(fatSectorLocs))*uint64(entriesPerSector), maxSect+entriesPerSector))
 	for _, loc := range fatSectorLocs {
 		sd, err := f.sectorData(loc)
 		if err != nil {
@@ -218,7 +269,10 @@ func (f *cfbFile) readRegularStream(start uint32, size uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	buf := make([]byte, 0, len(sectors)*f.sectorSize)
+	// The chain length is derived from the parsed FAT, so clamp it: a chain can
+	// visit each sector at most once (chain rejects loops), and every sector it
+	// names must exist in the image for sectorData to accept it.
+	buf := make([]byte, 0, boundedCap(uint64(len(sectors)), f.maxSectors())*f.sectorSize)
 	for _, s := range sectors {
 		sd, err := f.sectorData(s)
 		if err != nil {
@@ -283,7 +337,10 @@ func (f *cfbFile) buildMiniFAT(firstMiniFATSector, numMiniFATSectors uint32) err
 		return err
 	}
 	entriesPerSector := f.sectorSize / 4
-	f.miniFAT = make([]uint32, 0, len(sectors)*entriesPerSector)
+	// Same clamp as readRegularStream: the mini-FAT chain cannot be longer than
+	// the number of sectors in the image. (numMiniFATSectors itself is used only
+	// as the "is there a mini-FAT at all" test above, never as a size.)
+	f.miniFAT = make([]uint32, 0, boundedCap(uint64(len(sectors)), f.maxSectors())*entriesPerSector)
 	for _, s := range sectors {
 		sd, err := f.sectorData(s)
 		if err != nil {
