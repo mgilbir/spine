@@ -80,8 +80,10 @@ func (info *standardEncryptionInfo) resolveAlgorithm() error {
 			return fmt.Errorf("%w: standard EncryptionHeader AlgID 0 with the fAES flag clear denotes RC4, not AES", ErrUnsupportedEncryption)
 		}
 		if info.keyBits == 0 {
-			// Both fields defer to the other; AES-128 is the smallest AES the
-			// scheme defines and the reading msoffcrypto-tool takes.
+			// Both fields defer to the other. AES-128 is the scheme's smallest
+			// (and, per §2.3.4.5, the only size a CryptoAPI-flagged header can
+			// mean without saying so), so it is the one reading that cannot be
+			// more permissive than the file intends.
 			info.keyBits = 128
 		}
 		switch info.keyBits {
