@@ -46,8 +46,20 @@ type ContentControl struct {
 }
 
 // ContentControls returns every content control in the document body in
-// document order, including inline controls, controls nested inside other
-// controls, and controls inside tables.
+// document order: block-level and inline controls, controls nested inside other
+// controls, and controls inside tables (nested tables included), hyperlinks and
+// tracked-change blocks.
+//
+// The walk covers the body only. Controls in headers, footers and the glossary
+// (building-block) part are not reported.
+//
+// Read coverage is broader than write coverage: Type, Options, DateFormat and
+// Checked read a control's kind-specific properties, but only Tag, Alias and
+// Value can be written. There is no SetChecked for a checkbox, no way to add or
+// select a drop-down item, and no w:dataBinding authoring — so a control and a
+// CustomXMLParts item cannot be bound together through this API even though
+// both are exposed. A parsed control keeps whichever of those it already
+// carries: the properties the model does not type are preserved verbatim.
 func (d *Document) ContentControls() []*ContentControl {
 	if d.doc() == nil || d.doc().Body == nil {
 		return nil
@@ -168,6 +180,10 @@ func (c *ContentControl) Checked() (checked, ok bool) {
 // AddContentControl appends a block-level rich-text content control to the
 // document body, carrying the given tag and holding value as its content. The
 // returned handle can further adjust the tag, alias, or value.
+//
+// The new control carries no w:id. That is legal — the attribute is optional —
+// but Word assigns one when it saves the document, so a round trip through Word
+// will show the added attribute as a diff.
 func (d *Document) AddContentControl(tag, value string) *ContentControl {
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}

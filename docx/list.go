@@ -7,10 +7,61 @@ import (
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
-// ListStyle represents a list definition that can be applied to paragraphs.
+// ListStyle represents a numbering instance (w:num) that can be applied to
+// paragraphs with Paragraph.SetListStyle. Two paragraphs sharing a ListStyle
+// share one counter; two instances of the same definition count independently,
+// which is what ListDefinition.RestartedListStyle exploits to restart a list.
 type ListStyle struct {
 	document *Document
 	numID    int // the CT_Num.NumId value
+}
+
+// RestartAt makes this numbering instance restart its counter for the given
+// level at start (w:lvlOverride/w:startOverride). Calling it again for the same
+// level replaces the override; passing a level with no existing override adds
+// one.
+//
+// It applies only to an instance this session created (AddBulletList,
+// AddNumberedList, ListDefinition.ListStyle / RestartedListStyle). An instance
+// that came from an opened package is round-tripped as raw XML and is not
+// editable here; to restart such a list, build a definition of your own.
+// Restarting an instance that paragraphs already use restarts the whole list,
+// so to restart a list *part-way* through, use
+// ListDefinition.RestartedListStyle and apply it from the restart point on.
+func (ls *ListStyle) RestartAt(level, start int) *ListStyle {
+	num := ls.document.sessionNum(ls.numID)
+	if num == nil {
+		return ls
+	}
+	ilvl := strconv.Itoa(level)
+	for _, ov := range num.LvlOverride {
+		if ov != nil && ov.Ilvl == ilvl {
+			ov.StartOverride = &oxml.CT_DecimalNumber{Val: start}
+			ls.document.numberingModified = true
+			return ls
+		}
+	}
+	num.LvlOverride = append(num.LvlOverride, &oxml.CT_NumLvl{
+		Ilvl:          ilvl,
+		StartOverride: &oxml.CT_DecimalNumber{Val: start},
+	})
+	ls.document.numberingModified = true
+	return ls
+}
+
+// sessionNum returns the typed w:num with the given numId, or nil when the
+// instance came from an opened package (those are preserved as raw XML).
+func (d *Document) sessionNum(numID int) *oxml.CT_Num {
+	if d.numbering == nil {
+		return nil
+	}
+	want := strconv.Itoa(numID)
+	for _, n := range d.numbering.Num {
+		if n != nil && n.NumId == want {
+			return n
+		}
+	}
+	return nil
 }
 
 // AddBulletList creates a new bullet list definition and returns a ListStyle

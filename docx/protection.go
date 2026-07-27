@@ -55,6 +55,14 @@ func (p *DocumentProtection) RestrictFormatting() bool { return p.restrictFormat
 // HasPassword reports whether a password guard is present on the document
 // protection (either the legacy hash or a modern hashValue). The password is
 // never exposed.
+//
+// It is a presence check, not a verification, and the two directions are not
+// symmetric: it returns true after this library's own Protect with a Password,
+// but that guard is the legacy 16-bit obfuscation hash written with no crypt
+// provider attributes (see DocumentProtectionOptions.Password), which Word may
+// not accept as one of its own — its UI may let a user through with an empty
+// password. Treat a true here as "the file declares a password", never as "this
+// document is protected against editing".
 func (p *DocumentProtection) HasPassword() bool { return p.passwordProtected }
 
 // ReadOnlyRecommended reports whether the document advertises a read-only

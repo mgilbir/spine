@@ -65,6 +65,18 @@ func (d *Document) ListDefinitions() *NumberingManager {
 // ListDefinition is a builder for a custom multi-level numbering definition (a
 // w:abstractNum). Configure its levels, then obtain a ListStyle with ListStyle
 // to apply the definition to paragraphs via Paragraph.SetListStyle.
+//
+// A definition describes how a list *looks*; the counters live on the numbering
+// instances built from it (ListStyle and RestartedListStyle), which is what
+// makes "restart this list at 1" a matter of allocating a second instance
+// rather than editing the definition.
+//
+// The builder covers the level properties Word's list dialog exposes (format,
+// level text, start value, font, indent, hanging indent, justification). Level
+// properties the model carries but does not surface here — w:lvlRestart,
+// w:isLgl, w:suff, w:pStyle, w:numStyleLink — are not settable; a definition
+// parsed from an opened package keeps them, since existing definitions are
+// preserved verbatim and never rewritten from this model.
 type ListDefinition struct {
 	document *Document
 	abstract *oxml.CT_AbstractNum
@@ -159,6 +171,39 @@ func (ld *ListDefinition) ListStyle() *ListStyle {
 		ld.document.numberingModified = true
 	}
 	return &ListStyle{document: ld.document, numID: ld.numID}
+}
+
+// RestartedListStyle registers a *second* numbering instance for this
+// definition whose counter for the given level restarts at start
+// (w:num/w:lvlOverride/w:startOverride), and returns a ListStyle for it.
+//
+// This is how "restart this list at 1" is expressed in WordprocessingML: the
+// abstract definition is shared, but each numbering instance counts
+// independently, and a startOverride resets the instance's counter. Apply the
+// definition's ListStyle to the paragraphs before the restart point and the one
+// returned here to the paragraphs after it:
+//
+//	def := doc.Numbering().AddDefinition()
+//	def.SetLevel(0, docx.NumberFormatDecimal, "%1.")
+//	first, second := def.ListStyle(), def.RestartedListStyle(0, 1)
+//	doc.AddParagraph().SetListStyle(first, 0)  // 1.
+//	doc.AddParagraph().SetListStyle(first, 0)  // 2.
+//	doc.AddParagraph().SetListStyle(second, 0) // 1. again
+//
+// Each call registers a new instance, so a list restarted several times calls
+// it once per restart.
+func (ld *ListDefinition) RestartedListStyle(level, start int) *ListStyle {
+	numID := ld.document.nextNumID()
+	ld.document.numbering.Num = append(ld.document.numbering.Num, &oxml.CT_Num{
+		NumId:         strconv.Itoa(numID),
+		AbstractNumId: &oxml.CT_DecimalNumber{Val: ld.absID},
+		LvlOverride: []*oxml.CT_NumLvl{{
+			Ilvl:          strconv.Itoa(level),
+			StartOverride: &oxml.CT_DecimalNumber{Val: start},
+		}},
+	})
+	ld.document.numberingModified = true
+	return &ListStyle{document: ld.document, numID: numID}
 }
 
 // ListLevel is a builder over a single level of a ListDefinition.

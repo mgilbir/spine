@@ -71,8 +71,18 @@ func (m *StyleManager) AddCharacterStyle(id, name string) *Style {
 }
 
 // AddStyle creates a new style of the given type with the given id and display
-// name and returns a builder. An existing style with the id is returned
-// unchanged.
+// name and returns a builder.
+//
+// It is idempotent on the style id: an existing style with that id is returned
+// unchanged, whatever its type. Requesting a character style whose id is
+// already taken by a paragraph style therefore hands back the paragraph style —
+// the caller's styleType and name are silently ignored rather than converting
+// or replacing the definition, since either would change how existing
+// paragraphs render. Check Style.Type on the returned builder when the type
+// matters, or pick an unused id.
+//
+// There is no RemoveStyle: no part of the docx feature API deletes, so a
+// replace-style edit accretes definitions rather than replacing them.
 func (m *StyleManager) AddStyle(styleType StyleType, id, name string) *Style {
 	if existing := m.style(id); existing != nil {
 		return existing

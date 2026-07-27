@@ -33,6 +33,12 @@ type Comment struct {
 // order they appear in the comments part. Replies are reached through
 // Comment.Replies() rather than appearing in this list, matching the xlsx and
 // pptx comment APIs.
+//
+// Comments can be added, replied to and resolved, but not removed: there is no
+// RemoveComment, as there is no RemoveFootnote, RemoveStyle or
+// RemoveContentControl (Document.RemoveSource, for a bibliography source, is
+// the lone deletion in the docx feature set). Marking a thread resolved with
+// SetResolved is the closest available operation.
 func (d *Document) Comments() []*Comment {
 	if d.comments == nil {
 		return nil

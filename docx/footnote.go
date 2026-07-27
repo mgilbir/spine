@@ -39,6 +39,10 @@ func isSeparatorNote(n *oxml.CT_FtnEdn) bool {
 
 // Footnotes returns the document's footnotes in document (part) order,
 // excluding the mandatory separator and continuationSeparator notes.
+//
+// Notes can be added but not removed: there is no RemoveFootnote or
+// RemoveEndnote, so a note anchored by content that is later replaced stays in
+// footnotes.xml with nothing referencing it.
 func (d *Document) Footnotes() []*Footnote {
 	if d.footnotes == nil {
 		return nil
