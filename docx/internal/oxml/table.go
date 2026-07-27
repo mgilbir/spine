@@ -594,6 +594,9 @@ func (tbl *CT_Tbl) backfillChildOrder() {
 	for i := range tbl.SdtBlock {
 		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildSdt, i})
 	}
+	for i := range tbl.Raw {
+		tbl.childOrder = append(tbl.childOrder, tblChildRef{tblChildRaw, i})
+	}
 }
 
 // AppendRow appends a row and updates child ordering for round-trip edits.
