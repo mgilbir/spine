@@ -1,5 +1,5 @@
-.PHONY: build vet fetch fetch-strict fetch-cc test test-corpus lint fuzz \
-	harvest-sweep harvest-batch
+.PHONY: build vet fetch fetch-strict fetch-cc test test-race test-corpus \
+	lint fuzz harvest-sweep harvest-batch
 
 build:
 	go build ./...
@@ -20,6 +20,29 @@ fetch-cc:
 
 test: fetch
 	go test ./... -count=1
+
+# Race-detector run. -race multiplies RSS several-fold and the corpus tests
+# hold whole Office files in memory, so this runs inside its own systemd
+# scope with a hard memory cap: if the kernel OOM-kills the test, only this
+# scope dies. Never run it bare in the terminal's cgroup — systemd's default
+# OOMPolicy=stop then tears down the entire terminal scope on any OOM kill
+# inside it (this took out a whole tmux pane on 2026-07-27; peak was 25.8G).
+# GOMEMLIMIT makes each test binary GC hard before the cap (race shadow
+# memory is outside GC accounting, hence the low value); -p bounds concurrent
+# package test binaries; SPINE_CC_PARALLEL trims corpus-file concurrency,
+# the dominant race-memory driver, and SPINE_CC_SUBSET trims the corpus
+# subset (races surface from path coverage, not volume — the 60/type default
+# blows a 20m timeout under race at low parallelism).
+RACE_MEMMAX    ?= 12G
+RACE_SWAPMAX   ?= 1G
+RACE_GOMEM     ?= 5GiB
+RACE_P         ?= 2
+RACE_CC_PAR    ?= 2
+RACE_CC_SUBSET ?= 12
+test-race:
+	systemd-run --user --scope -p MemoryMax=$(RACE_MEMMAX) -p MemorySwapMax=$(RACE_SWAPMAX) \
+		env GOMEMLIMIT=$(RACE_GOMEM) SPINE_CC_PARALLEL=$(RACE_CC_PAR) SPINE_CC_SUBSET=$(RACE_CC_SUBSET) \
+		go test -race -p $(RACE_P) ./... -count=1 -timeout 20m
 
 # Full Common Crawl corpus run (~15-20 min; plain `go test ./cctest` checks a
 # fast deterministic subset instead). Regenerate the quarantine after a fix
