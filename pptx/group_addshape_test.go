@@ -25,8 +25,8 @@ func buildTestGroup() *GroupShape {
 	tb2.SetPosition(dml.Inches(3), dml.Inches(1))
 	tb2.SetSize(dml.Inches(2), dml.Inches(1))
 
-	g.AddChild(tb1)
-	g.AddChild(tb2)
+	_ = g.AddChild(tb1)
+	_ = g.AddChild(tb2)
 	return g
 }
 

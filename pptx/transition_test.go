@@ -3,6 +3,8 @@ package pptx
 import (
 	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
 func TestSetTransitionMorphRoundTrip(t *testing.T) {
@@ -248,5 +250,34 @@ func TestTransitionSpeedMapping(t *testing.T) {
 	slide.SetTransition(Transition{Type: TransitionFade, Duration: 2.0})
 	if slide.sx().Transition.Spd != "slow" {
 		t.Errorf("Spd = %s, want slow", slide.sx().Transition.Spd)
+	}
+}
+
+// TestTransitionAbsentSpdDefaultsFast asserts a p:transition with no spd
+// attribute reads back at the schema default speed ("fast", 0.5s) — not 1.0 —
+// so a read-modify-write does not silently slow the deck to spd="med".
+func TestTransitionAbsentSpdDefaultsFast(t *testing.T) {
+	pres := Create()
+	slide := pres.AddSlide()
+	slide.ensureModel()
+
+	// A parsed transition with no spd attribute (Spd == "").
+	slide.sx().Transition = &oxml.Transition{
+		Fade: &oxml.OptionalBlackTransition{},
+	}
+
+	tr := slide.Transition()
+	if tr == nil {
+		t.Fatal("Transition() = nil, want a fade transition")
+	}
+	if tr.Duration != 0.5 {
+		t.Errorf("Duration = %v, want 0.5 (schema default spd=fast)", tr.Duration)
+	}
+
+	// Read-modify-write: re-setting the reported transition must not introduce
+	// spd="med" (which 1.0 would have mapped to).
+	slide.SetTransition(*tr)
+	if got := slide.sx().Transition.Spd; got == "med" {
+		t.Errorf("round-trip Spd = %q, want fast (must not slow the deck)", got)
 	}
 }

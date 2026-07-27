@@ -139,8 +139,11 @@ func TestParagraph_Text(t *testing.T) {
 func TestParagraph_Alignment(t *testing.T) {
 	p := NewParagraph()
 
-	if p.Alignment() != enum.TextAlignLeft {
-		t.Errorf("Default Alignment() = %v, want TextAlignLeft", p.Alignment())
+	// The default is the unset value so a plain paragraph inherits its
+	// alignment from the placeholder/layout/master (C262) instead of emitting
+	// algn="l".
+	if p.Alignment() != "" {
+		t.Errorf("Default Alignment() = %q, want \"\" (inherit)", p.Alignment())
 	}
 
 	p.SetAlignment(enum.TextAlignCenter)

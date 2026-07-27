@@ -74,8 +74,8 @@ func TestGroupConnector_BindsChildIDs(t *testing.T) {
 	a.SetBounds(dml.NewRect(dml.Inches(1), dml.Inches(1), dml.Inches(1), dml.Inches(1)))
 	b := NewAutoShape(PresetEllipse)
 	b.SetBounds(dml.NewRect(dml.Inches(3), dml.Inches(3), dml.Inches(1), dml.Inches(1)))
-	g.AddChild(a)
-	g.AddChild(b)
+	_ = g.AddChild(a)
+	_ = g.AddChild(b)
 	c := g.AddConnector(ConnectorStraight)
 	c.Connect(a, 3, b, 1)
 	if err := s.AddShape(g); err != nil {

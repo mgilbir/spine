@@ -150,9 +150,11 @@ func (s *Slide) Index() int {
 
 // RelID returns the slide's presentation-level relationship id (the r:id of its
 // p:sldId entry in presentation.xml). For a slide loaded from a file this is its
-// stored id; for a slide created through this package the id is assigned when
-// the deck is first saved, so RelID reports an empty string until then. It is
-// the identifier a custom show references (see Presentation.AddCustomShow).
+// stored id; a slide created through this package is assigned a provisional id
+// when it is added (not the empty string), which the deck's first save may
+// reassign by slide order. It is the identifier a custom show references (see
+// Presentation.AddCustomShow) — a reference recorded before save is remapped
+// through that reassignment, so it keeps resolving to the same slide.
 func (s *Slide) RelID() string {
 	return s.relID
 }
@@ -714,7 +716,8 @@ func (s *Slide) appendShapesToXML(spTree *oxml.ShapeTree, shapes []Shape) {
 		case *Table:
 			gf := tableToOxml(sh, id)
 			spTree.AppendGraphicFrame(gf)
-			// Later row/cell mutations reach the XML via SyncXML.
+			// Later row/cell mutations are auto-flushed into this frame on save
+			// (SyncXML forces the flush earlier but is not required).
 			sh.sourceFrame = gf
 			ref = oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: len(spTree.GraphicFrame) - 1}
 		case *ChartFrame:
@@ -816,29 +819,37 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src == nil {
 		return
 	}
-	if src.NoFill != nil {
-		dst.NoFill = src.NoFill
-	}
-	if src.SolidFill != nil {
-		dst.SolidFill = src.SolidFill
-	}
-	if src.GradFill != nil {
-		dst.GradFill = src.GradFill
-	}
-	if src.PattFill != nil {
-		dst.PattFill = src.PattFill
-	}
-	if src.BlipFill != nil {
-		dst.BlipFill = src.BlipFill
-	}
-	if src.GrpFill != nil {
-		dst.GrpFill = src.GrpFill
+	// Fill is an exclusive choice (EG_FillProperties): a shape carries at most
+	// one fill element. When the overlay sets any fill member it replaces the
+	// destination's fill atomically — clear every competing member first, so a
+	// shape parsed with <a:noFill/> that is given a solid fill does not end up
+	// with both (which is schema-invalid).
+	if srcHasFill(src) {
+		dst.NoFill, dst.SolidFill, dst.GradFill = nil, nil, nil
+		dst.PattFill, dst.BlipFill, dst.GrpFill = nil, nil, nil
+		switch {
+		case src.NoFill != nil:
+			dst.NoFill = src.NoFill
+		case src.SolidFill != nil:
+			dst.SolidFill = src.SolidFill
+		case src.GradFill != nil:
+			dst.GradFill = src.GradFill
+		case src.PattFill != nil:
+			dst.PattFill = src.PattFill
+		case src.BlipFill != nil:
+			dst.BlipFill = src.BlipFill
+		case src.GrpFill != nil:
+			dst.GrpFill = src.GrpFill
+		}
 	}
 	if src.Ln != nil {
 		dst.Ln = src.Ln
 	}
+	// Effects merge per member: the overlay starts empty for a materialized
+	// shape, so setting one effect (glow, shadow, reflection, soft edge) must
+	// add to — never replace — the effects already parsed on the node.
 	if src.EffectLst != nil {
-		dst.EffectLst = src.EffectLst
+		mergeEffectLst(dst, src.EffectLst)
 	}
 	if src.EffectDag != nil {
 		dst.EffectDag = src.EffectDag
@@ -846,8 +857,85 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src.Scene3d != nil {
 		dst.Scene3d = src.Scene3d
 	}
+	// sp3d (3D bevel) merges per member for the same reason as the effect list.
 	if src.Sp3d != nil {
-		dst.Sp3d = src.Sp3d
+		mergeSp3d(dst, src.Sp3d)
+	}
+}
+
+// srcHasFill reports whether the SpPr carries any member of the EG_FillProperties
+// exclusive choice.
+func srcHasFill(sp *dml.SpPr) bool {
+	return sp.NoFill != nil || sp.SolidFill != nil || sp.GradFill != nil ||
+		sp.PattFill != nil || sp.BlipFill != nil || sp.GrpFill != nil
+}
+
+// mergeEffectLst copies each effect set on src onto dst's effect list,
+// allocating one when absent. Members src does not set are left as parsed, so
+// setting one effect does not drop effects already on the shape.
+func mergeEffectLst(dst *dml.SpPr, src *dml.EffectLst) {
+	if dst.EffectLst == nil {
+		dst.EffectLst = &dml.EffectLst{}
+	}
+	d := dst.EffectLst
+	if src.Blur != nil {
+		d.Blur = src.Blur
+	}
+	if src.FillOverlay != nil {
+		d.FillOverlay = src.FillOverlay
+	}
+	if src.Glow != nil {
+		d.Glow = src.Glow
+	}
+	if src.InnerShdw != nil {
+		d.InnerShdw = src.InnerShdw
+	}
+	if src.OuterShdw != nil {
+		d.OuterShdw = src.OuterShdw
+	}
+	if src.PrstShdw != nil {
+		d.PrstShdw = src.PrstShdw
+	}
+	if src.Reflection != nil {
+		d.Reflection = src.Reflection
+	}
+	if src.SoftEdge != nil {
+		d.SoftEdge = src.SoftEdge
+	}
+}
+
+// mergeSp3d copies each 3D property set on src onto dst's sp3d, allocating one
+// when absent. Properties src does not set are left as parsed, so setting one
+// (e.g. a top bevel) does not drop 3D properties already on the shape.
+func mergeSp3d(dst *dml.SpPr, src *dml.Sp3d) {
+	if dst.Sp3d == nil {
+		dst.Sp3d = src
+		return
+	}
+	d := dst.Sp3d
+	if src.Z != 0 {
+		d.Z = src.Z
+	}
+	if src.ExtrusionH != 0 {
+		d.ExtrusionH = src.ExtrusionH
+	}
+	if src.ContourW != 0 {
+		d.ContourW = src.ContourW
+	}
+	if src.PrstMaterial != "" {
+		d.PrstMaterial = src.PrstMaterial
+	}
+	if src.BevelT != nil {
+		d.BevelT = src.BevelT
+	}
+	if src.BevelB != nil {
+		d.BevelB = src.BevelB
+	}
+	if src.ExtrusionClr != nil {
+		d.ExtrusionClr = src.ExtrusionClr
+	}
+	if src.ContourClr != nil {
+		d.ContourClr = src.ContourClr
 	}
 }
 
@@ -867,9 +955,10 @@ func placeholderToOxml(ph *PlaceholderShape, id uint32) *oxml.Shape {
 			CNvSpPr: &dml.CNvSpPr{},
 			NvPr: &oxml.NvPr{
 				Ph: &oxml.Placeholder{
-					Type: string(ph.phType),
-					Sz:   string(ph.size),
-					Idx:  ph.idx,
+					Type:   string(ph.phType),
+					Orient: string(ph.orientation),
+					Sz:     string(ph.size),
+					Idx:    ph.idx,
 				},
 			},
 		},
@@ -1268,6 +1357,10 @@ func tableToOxml(t *Table, id uint32) *oxml.GraphicFrame {
 
 // tableDataToOxml converts Table data to oxml.ATable.
 func tableDataToOxml(t *Table) *oxml.ATable {
+	// Ensure gridSpan/rowSpan covered cells carry their hMerge/vMerge flags so
+	// the emitted grid is valid (C310).
+	t.normalizeMergeCells()
+
 	tbl := &oxml.ATable{
 		TblPr: &oxml.ATblPr{
 			FirstRow:     t.firstRow,
@@ -1485,11 +1578,24 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 	return pic
 }
 
-// Duplicate creates a copy of the slide and adds it after this slide.
+// Duplicate creates a copy of the slide and adds it after this slide. It
+// returns nil when called on a handle that was already removed (C302), rather
+// than duplicating whatever slide now sits at the freed index.
 func (s *Slide) Duplicate() *Slide {
+	if s.presentation == nil || s.index < 0 {
+		return nil
+	}
 	if s.shapesModified || s.hasDirtyShapes() {
 		s.syncShapesToXML()
 	}
+	// Embed any pending image data now, before the XML snapshot below: images
+	// are normally embedded at save (processPendingImages), so duplicating an
+	// unsaved slide with an added picture would otherwise snapshot a blip with
+	// no r:embed and no image relationship, and the duplicate would render
+	// blank (C256, the image analogue of the C193 autoplay-timing fix). This
+	// embeds into the source slide too, which is correct — its own save then
+	// finds nothing pending. Best-effort: a real failure surfaces at save.
+	_ = s.processPendingImages()
 	// Build any pending auto-play timing tree now, before the XML snapshot
 	// below: timing is normally built at save, so duplicating an unsaved
 	// slide with auto-play media would otherwise snapshot a tree-less slide
@@ -1533,7 +1639,12 @@ func (s *Slide) Duplicate() *Slide {
 	return newSlide
 }
 
-// Delete removes this slide from the presentation.
+// Delete removes this slide from the presentation. It returns ErrInvalidSlide
+// when called on a handle that was already removed (a second Delete, C302),
+// rather than deleting whatever slide now sits at the freed index.
 func (s *Slide) Delete() error {
+	if s.presentation == nil || s.index < 0 {
+		return ErrInvalidSlide
+	}
 	return s.presentation.RemoveSlide(s.index)
 }

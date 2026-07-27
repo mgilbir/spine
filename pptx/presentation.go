@@ -467,9 +467,13 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 	}
 
 	// Load each slide
-	for i, slideRef := range p.presentation.SlideIDs.SlideID {
+	for _, slideRef := range p.presentation.SlideIDs.SlideID {
 		rel, ok := relMap[slideRef.RID]
 		if !ok {
+			// Dangling sldId (rel/part missing): skip it. index is assigned as
+			// len(p.slides) at append below rather than from the sldIdLst
+			// position, so a skipped entry does not leave a gap that would
+			// misalign Slide.index from its p.slides slot (C301).
 			continue
 		}
 
@@ -500,7 +504,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 		slide := &Slide{
 			presentation: p,
 			partName:     slideName,
-			index:        i,
+			index:        len(p.slides),
 			id:           slideRef.ID,
 			relID:        slideRef.RID,
 			idExtLst:     slideRef.ExtLst,
@@ -658,7 +662,7 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 		nextSlideID:     256,
 		nextRelID:       1,
 		presentation: &oxml.Presentation{
-			SlideSize: slideSizeToOxml(opts.SlideSize),
+			SlideSize: createSlideSize(opts),
 			NotesSize: &oxml.SlideSize{
 				Cx: 6858000,
 				Cy: 9144000,
@@ -672,6 +676,16 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 	}
 
 	return p
+}
+
+// createSlideSize resolves the p:sldSz for a new presentation, honoring
+// explicit Width/Height when SlideSize is SlideSizeCustom. A custom size with
+// either dimension unset (0) falls back to the predefined mapping (4:3).
+func createSlideSize(opts CreateOptions) *oxml.SlideSize {
+	if opts.SlideSize == SlideSizeCustom && opts.Width > 0 && opts.Height > 0 {
+		return &oxml.SlideSize{Cx: int64(opts.Width), Cy: int64(opts.Height)}
+	}
+	return slideSizeToOxml(opts.SlideSize)
 }
 
 // slideSizeToOxml maps an Options slide size to the p:sldSz element. The two
@@ -816,12 +830,37 @@ func CreateFromTemplate(templatePath string) (*Presentation, error) {
 	// Store template path for reference
 	p.templatePath = templatePath
 
-	// Clear all slides but keep masters, layouts, and themes
-	p.slides = make([]*Slide, 0)
+	// Clear all slides but keep masters, layouts, and themes. Route each removal
+	// through the same cleanup RemoveSlide performs — delete the slide's
+	// relationships, remove the parts it exclusively owns (notes slide, comments),
+	// record removed parts so their content-type overrides are dropped, and flag
+	// media GC. A plain `p.slides = nil` left the template slides' relationships
+	// behind, so a new AddSlide reused slide1.xml and inherited the template
+	// slide's surviving rels — including its notesSlide (a data leak, C243) —
+	// while the removed slides' <Override> entries dangled in [Content_Types].xml
+	// (C303).
+	for len(p.slides) > 0 {
+		if err := p.RemoveSlide(0); err != nil {
+			return nil, fmt.Errorf("failed to clear template slides: %w", err)
+		}
+	}
 	p.presentation.SlideIDs = nil
 
 	// Reset slide ID counter but keep relationship IDs
 	p.nextSlideID = 256
+
+	// A template opens with the template main-part content type (e.g. .potx's
+	// ContentTypePresentationTemplateMain). The output is a new presentation, so
+	// re-emitting the template flavor would make PowerPoint open it as a template.
+	// Reset to the plain presentation flavor, preserving macro-enablement (a .potm
+	// template maps to a macro-enabled presentation, not a plain one) — C306.
+	// PlainFlavor returns a different value only for a macro-enabled input, so it
+	// distinguishes the two cases without enumerating every template flavor.
+	if opc.PlainFlavor(p.flavor) != p.flavor {
+		p.flavor = opc.ContentTypePresentationMacroMain
+	} else {
+		p.flavor = opc.ContentTypePresentationMain
+	}
 
 	// Update properties for new presentation
 	now := time.Now()
@@ -1315,6 +1354,28 @@ func (p *Presentation) ensureSlideLayoutRelationship(slide *Slide, slidePartName
 	}
 }
 
+// hasRelOfType reports whether rels already contains a relationship of the given
+// type.
+func hasRelOfType(rels []*opc.Relationship, relType string) bool {
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRelForTarget reports whether rels already contains a relationship with the
+// given type and target.
+func hasRelForTarget(rels []*opc.Relationship, relType, target string) bool {
+	for _, rel := range rels {
+		if rel != nil && rel.Type == relType && rel.Target == target {
+			return true
+		}
+	}
+	return false
+}
+
 func nextRelationshipID(rels []*opc.Relationship) int {
 	maxID := 0
 	for _, rel := range rels {
@@ -1435,6 +1496,27 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 	return writer.WritePart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
 }
 
+// remapCustomShowRefs rewrites custom-show slide references through an old->new
+// relationship-id map, so a p:custShow recorded against a slide's earlier id
+// still points at that same slide after saveNew reassigns relationship ids by
+// order. It is a no-op when the map is empty (nothing was reordered).
+func (p *Presentation) remapCustomShowRefs(remap map[string]string) {
+	if len(remap) == 0 || p.presentation == nil || p.presentation.CustShowLst == nil {
+		return
+	}
+	for i := range p.presentation.CustShowLst.CustShow {
+		lst := p.presentation.CustShowLst.CustShow[i].SldLst
+		if lst == nil {
+			continue
+		}
+		for j := range lst.Sld {
+			if newID, ok := remap[lst.Sld[j].Id]; ok {
+				lst.Sld[j].Id = newID
+			}
+		}
+	}
+}
+
 // saveNew saves a newly created presentation.
 func (p *Presentation) saveNew(writer *opc.Writer) error {
 	// Set properties
@@ -1479,11 +1561,21 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		presRelID++
 	}
 
-	// Assign relationship IDs to slides SECOND
+	// Assign relationship IDs to slides SECOND, recording the old->new id map so
+	// stored consumers of a slide's relId survive the reassignment. Reassigning
+	// by slice order otherwise made a MoveSlide/EmbedFont between AddCustomShow
+	// and Save silently repoint the custom show at whatever slide landed on the
+	// referenced id (C255).
+	slideRelIDRemap := make(map[string]string, len(p.slides))
 	for _, slide := range p.slides {
-		slide.relID = fmt.Sprintf("rId%d", presRelID)
+		newID := fmt.Sprintf("rId%d", presRelID)
+		if slide.relID != "" && slide.relID != newID {
+			slideRelIDRemap[slide.relID] = newID
+		}
+		slide.relID = newID
 		presRelID++
 	}
+	p.remapCustomShowRefs(slideRelIDRemap)
 
 	// Fixed parts (presProps, viewProps, theme, tableStyles) get IDs after masters and slides
 	presPropsRelID := fmt.Sprintf("rId%d", presRelID)
@@ -1563,13 +1655,18 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				return err
 			}
 
-			// Relationship from master to layout
-			masterRels = append(masterRels, &opc.Relationship{
-				ID:         layout.relID,
-				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
-				Target:     layoutRelTarget,
-				TargetMode: opc.TargetModeInternal,
-			})
+			// Relationship from master to layout. An imported master already carries
+			// this rel in p.relationships (registered when the layout was cloned);
+			// only synthesize it when absent so the .rels does not list the id
+			// twice (C236).
+			if !hasRelForTarget(masterRels, opc.RelTypeSlideLayout, layoutRelTarget) {
+				masterRels = append(masterRels, &opc.Relationship{
+					ID:         layout.relID,
+					Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout",
+					Target:     layoutRelTarget,
+					TargetMode: opc.TargetModeInternal,
+				})
+			}
 
 			// Write layout relationships (back to master), starting from any
 			// layout-level rels the model already carries (e.g. an image
@@ -1612,12 +1709,18 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 				writtenThemes[master.themePartName] = true
 			}
 		}
-		masterRels = append(masterRels, &opc.Relationship{
-			ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
-			Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
-			Target:     themeTarget,
-			TargetMode: opc.TargetModeInternal,
-		})
+		// An imported master already carries its theme rel in p.relationships
+		// (registered by importMaster); only synthesize it when absent so the
+		// .rels does not list two theme rels (C236). The theme part itself is
+		// still written above.
+		if !hasRelOfType(masterRels, opc.RelTypeTheme) {
+			masterRels = append(masterRels, &opc.Relationship{
+				ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
+				Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme",
+				Target:     themeTarget,
+				TargetMode: opc.TargetModeInternal,
+			})
+		}
 
 		if err := writer.WritePartRelationships(masterPartName, masterRels); err != nil {
 			return err
@@ -1806,7 +1909,12 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 		}
 		dup := false
 		for _, existing := range presRels {
-			if existing.ID == rel.ID {
+			// Match by id, and also by type+target: importMaster pre-registers a
+			// presentation->master rel (with its own id) that saveNew regenerates
+			// above under a reassigned id — without the type+target check the two
+			// would both be emitted, duplicating the rel (C236).
+			if existing.ID == rel.ID ||
+				(existing.Type == rel.Type && existing.Target == rel.Target) {
 				dup = true
 				break
 			}
@@ -2116,11 +2224,10 @@ func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
 	p.relationships[targetPart] = cloned
 }
 
-// AddSlideWithLayout adds a new slide using the specified layout.
+// AddSlideWithLayout adds a new slide using the specified layout. It is an
+// alias for AddSlideFromLayout, kept for API compatibility.
 func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
-	slide := p.AddSlide()
-	slide.layout = layout
-	return slide
+	return p.AddSlideFromLayout(layout)
 }
 
 // RemoveSlide removes the slide at the specified index. Parts owned
@@ -2135,14 +2242,21 @@ func (p *Presentation) RemoveSlide(index int) error {
 		return ErrSlideIndex
 	}
 
+	removed := p.slides[index]
+
 	// Clean up relationships for the removed slide to prevent stale entries from
 	// leaking into a new slide that may later reuse the same part name during save.
-	if partName := p.slides[index].partName; partName != "" {
+	if partName := removed.partName; partName != "" {
 		p.removeSlideOwnedParts(partName)
 		delete(p.relationships, partName)
 		p.markPartRemoved(partName)
 	}
 	p.mediaGCNeeded = true
+
+	// Strip the removed slide's id from any section it belonged to, so the
+	// section list does not emit a p14:sldId that no longer resolves to a slide
+	// in the sldIdLst (a dangling reference Validate does not flag) — C307.
+	p.removeSlideFromSections(removed.id)
 
 	// Remove the slide
 	p.slides = append(p.slides[:index], p.slides[index+1:]...)
@@ -2151,6 +2265,13 @@ func (p *Presentation) RemoveSlide(index int) error {
 	for i := index; i < len(p.slides); i++ {
 		p.slides[i].index = i
 	}
+
+	// Invalidate the removed handle so a stale reference — a second Delete, or a
+	// Duplicate on it — is rejected instead of silently acting on whatever slide
+	// now occupies the freed index (C302). Live handles keep valid indices
+	// (updated by the loop above); only the removed one is marked -1.
+	removed.index = -1
+	removed.presentation = nil
 
 	return nil
 }

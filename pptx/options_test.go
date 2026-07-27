@@ -96,6 +96,23 @@ func TestCreateWithOptions_Widescreen(t *testing.T) {
 	}
 }
 
+// SlideSizeCustom with explicit Width/Height produces a deck of those exact
+// dimensions, rather than silently defaulting to 4:3.
+func TestCreateWithOptions_Custom(t *testing.T) {
+	opts := DefaultCreateOptions()
+	opts.SlideSize = SlideSizeCustom
+	opts.Width = dml.Inches(12)
+	opts.Height = dml.Inches(9)
+	p := CreateWithOptions(opts)
+
+	if got := p.SlideWidth(); got != int64(dml.Inches(12)) {
+		t.Errorf("SlideWidth = %d, want %d", got, int64(dml.Inches(12)))
+	}
+	if got := p.SlideHeight(); got != int64(dml.Inches(9)) {
+		t.Errorf("SlideHeight = %d, want %d", got, int64(dml.Inches(9)))
+	}
+}
+
 // C83: the default Create keeps its 4:3 size.
 func TestCreate_DefaultSlideSizeUnchanged(t *testing.T) {
 	p := Create()

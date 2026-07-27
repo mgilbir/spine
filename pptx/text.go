@@ -19,6 +19,12 @@ type TextFrame struct {
 	// anchor/wrap/margin-edited) text body leaves its parsed autofit element
 	// untouched — reading the autofit for a getter must not force a rewrite.
 	autofitDirty bool
+	// marginsDirty is set only by SetMargins so an anchor/wrap-only edit does
+	// not write the four insets. A parsed body without inset attributes
+	// materializes zero-value margins that are indistinguishable from an
+	// explicit zero; writing them would replace the inherited ~91440/45720
+	// defaults with zeros and shift the text.
+	marginsDirty bool
 
 	// bodyDirty is set when anchor/wrap/margins change; contentDirty when the
 	// paragraph list changes. Together with the per-paragraph and per-run
@@ -146,6 +152,7 @@ func (tf *TextFrame) Margins() TextMargins {
 // SetMargins sets the text margins.
 func (tf *TextFrame) SetMargins(margins TextMargins) {
 	tf.margins = margins
+	tf.marginsDirty = true
 	tf.bodyDirty = true
 }
 
@@ -179,6 +186,7 @@ func (tf *TextFrame) clearDirty() {
 	tf.bodyDirty = false
 	tf.contentDirty = false
 	tf.autofitDirty = false
+	tf.marginsDirty = false
 	for _, p := range tf.paragraphs {
 		p.dirty = false
 		for _, r := range p.runs {
@@ -263,14 +271,14 @@ const (
 	BulletNumber
 )
 
-// NewParagraph creates a new paragraph. Line spacing defaults to 0 (unset) so
-// the paragraph inherits spacing from its placeholder/layout/master instead of
-// clobbering it with an explicit 100%; set it explicitly with SetLineSpacing
-// when needed.
+// NewParagraph creates a new paragraph. Alignment and line spacing default to
+// their unset values so the paragraph inherits them from its
+// placeholder/layout/master instead of clobbering them with an explicit
+// algn="l" / 100% (a plain SetText on a centered title must not left-align it);
+// set them explicitly with SetAlignment / SetLineSpacing when needed.
 func NewParagraph() *Paragraph {
 	return &Paragraph{
-		runs:      make([]*Run, 0),
-		alignment: enum.TextAlignLeft,
+		runs: make([]*Run, 0),
 	}
 }
 

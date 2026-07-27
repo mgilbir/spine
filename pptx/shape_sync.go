@@ -181,6 +181,13 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		if style != nil {
 			applyShapeStyle(sp.SpPr, style)
 		}
+		// Flush placeholder attributes (type/orient/idx/sz) onto the parsed
+		// p:ph so SetOrientation/SetIndex/SetPlaceholderSize reach the XML on a
+		// materialized placeholder (C309). The modeled fields are authoritative
+		// over the captured attr list, so unmodeled attrs on p:ph survive.
+		if ph, ok := shape.(*PlaceholderShape); ok {
+			flushPlaceholderAttrs(sp, ph)
+		}
 	}
 	// A furniture placeholder set to an auto field (slide number / date) owns
 	// its whole text body: replace it with the field body rather than flushing
@@ -190,6 +197,28 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		return
 	}
 	updateTxBody(&sp.TxBody, tf)
+}
+
+// flushPlaceholderAttrs writes the modeled placeholder attributes (type,
+// orient, idx, sz) into the parsed p:ph node, creating the nvPr/ph chain when
+// the shape had none. The captured attr list on p:ph keeps the modeled values
+// authoritative (see Builder.ReplayCapturedAttrs), so a changed idx/orient/sz
+// wins while unmodeled attributes on p:ph survive the flush.
+func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
+	if sp.NvSpPr == nil {
+		return
+	}
+	if sp.NvSpPr.NvPr == nil {
+		sp.NvSpPr.NvPr = &oxml.NvPr{}
+	}
+	if sp.NvSpPr.NvPr.Ph == nil {
+		sp.NvSpPr.NvPr.Ph = &oxml.Placeholder{}
+	}
+	p := sp.NvSpPr.NvPr.Ph
+	p.Type = string(ph.phType)
+	p.Orient = string(ph.orientation)
+	p.Sz = string(ph.size)
+	p.Idx = ph.idx
 }
 
 // updateXfrm writes the domain position/size into an existing xfrm, creating
@@ -223,14 +252,24 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 	}
 	body := *dst
 	if tf.isContentDirty() {
-		ps := make([]*dml.P, 0, len(tf.paragraphs))
-		for _, para := range tf.paragraphs {
-			ps = append(ps, paragraphToOxml(para))
+		// When the caller only edited existing paragraphs/runs in place (no
+		// paragraph or run added or removed), patch the parsed a:p nodes so
+		// content the domain model does not represent — a:br, a:fld,
+		// endParaRPr, the interleaved child order, and unmodeled attributes on
+		// untouched runs — survives the edit. A structural rewrite
+		// (SetText/AddParagraph) sets contentDirty and falls back to
+		// regenerating the paragraph list from the domain model, which then
+		// owns it.
+		if tf.contentDirty || !patchParagraphsInPlace(body.P, tf.paragraphs) {
+			ps := make([]*dml.P, 0, len(tf.paragraphs))
+			for _, para := range tf.paragraphs {
+				ps = append(ps, paragraphToOxml(para))
+			}
+			if len(ps) == 0 {
+				ps = append(ps, &dml.P{})
+			}
+			body.P = ps
 		}
-		if len(ps) == 0 {
-			ps = append(ps, &dml.P{})
-		}
-		body.P = ps
 	}
 	if tf.bodyDirty {
 		if body.BodyPr == nil {
@@ -239,11 +278,18 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 		bp := body.BodyPr
 		bp.Wrap = string(tf.wrap)
 		bp.Anchor = string(tf.anchor)
-		l := int64(tf.margins.Left)
-		t := int64(tf.margins.Top)
-		r := int64(tf.margins.Right)
-		b := int64(tf.margins.Bottom)
-		bp.LIns, bp.TIns, bp.RIns, bp.BIns = &l, &t, &r, &b
+		// Only rewrite the four insets when the caller explicitly set them. A
+		// parsed body without inset attributes materializes zero-value margins;
+		// writing those would replace the inherited defaults (~91440/45720)
+		// with zeros and shift the text. A parsed body that already carried
+		// insets keeps them here untouched.
+		if tf.marginsDirty {
+			l := int64(tf.margins.Left)
+			t := int64(tf.margins.Top)
+			r := int64(tf.margins.Right)
+			b := int64(tf.margins.Bottom)
+			bp.LIns, bp.TIns, bp.RIns, bp.BIns = &l, &t, &r, &b
+		}
 		// Only rewrite the autofit child when the caller explicitly changed it,
 		// so a parsed a:normAutofit (with its font-scale attributes) survives an
 		// anchor/wrap/margin edit untouched.
@@ -251,6 +297,39 @@ func updateTxBody(dst **dml.TxBody, tf *TextFrame) {
 			applyAutofit(bp, tf.autofit)
 		}
 	}
+}
+
+// patchParagraphsInPlace flushes in-place paragraph and run edits into the
+// parsed a:p nodes without regenerating them, so content the domain model does
+// not represent — a:br, a:fld, endParaRPr, the interleaved child order, and
+// unmodeled attributes on untouched runs — is preserved. It reports false,
+// leaving the nodes untouched, when the domain and parsed structure diverge (a
+// paragraph or run was added or removed), so the caller falls back to a full
+// rebuild from the domain model.
+func patchParagraphsInPlace(parsed []*dml.P, paras []*Paragraph) bool {
+	if len(parsed) != len(paras) {
+		return false
+	}
+	for k, dp := range paras {
+		if parsed[k] == nil || len(dp.runs) != len(parsed[k].R) {
+			return false
+		}
+	}
+	for k, dp := range paras {
+		pnode := parsed[k]
+		if dp.dirty {
+			// A paragraph-level property change: refresh the modeled subset of
+			// pPr from the domain model, leaving the interleaved a:br/a:fld
+			// children and endParaRPr in place.
+			pnode.PPr = paragraphToOxml(dp).PPr
+		}
+		for i, dr := range dp.runs {
+			if dr.dirty {
+				pnode.R[i] = runToOxml(dr)
+			}
+		}
+	}
+	return true
 }
 
 // updatePictureNode flushes a dirty picture (or embedded media shape) into its
@@ -368,6 +447,10 @@ func updateGraphicFrameNode(gf *oxml.GraphicFrame, shape Shape) {
 		gf.Xfrm.Ext = &dml.ExtXML{Cx: int64(tbl.width), Cy: int64(tbl.height)}
 	}
 	if tbl.contentDirty() && gf.Graphic != nil && gf.Graphic.GraphicData != nil && gf.Graphic.GraphicData.Table != nil {
+		// Mark gridSpan/rowSpan covered cells as merge-continuation cells before
+		// deciding how to flush, so the in-place patch path picks them up too
+		// (they become dirty) and the emitted grid stays valid (C310).
+		tbl.normalizeMergeCells()
 		atbl := gf.Graphic.GraphicData.Table
 		if !tbl.structDirty && tableShapeMatches(tbl, atbl) {
 			patchTableNode(atbl, tbl)

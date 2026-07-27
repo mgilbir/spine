@@ -925,6 +925,29 @@ func TestPresentation_AddSlideFromLayout(t *testing.T) {
 	}
 }
 
+// AddSlideWithLayout is an alias for AddSlideFromLayout; both must produce an
+// equivalent slide (same layout link and shape count).
+func TestPresentation_AddSlideWithLayoutAlias(t *testing.T) {
+	p := Create()
+	layout := p.GetLayoutByType(LayoutTitleAndContent)
+	if layout == nil {
+		t.Skip("No TitleAndContent layout available")
+	}
+
+	a := p.AddSlideFromLayout(layout)
+	b := p.AddSlideWithLayout(layout)
+	if a == nil || b == nil {
+		t.Fatal("layout add returned nil")
+	}
+	if a.Layout() != layout || b.Layout() != layout {
+		t.Error("both methods must link the given layout")
+	}
+	if len(a.Shapes()) != len(b.Shapes()) {
+		t.Errorf("shape counts differ: AddSlideFromLayout=%d AddSlideWithLayout=%d",
+			len(a.Shapes()), len(b.Shapes()))
+	}
+}
+
 func TestPresentation_SaveAsRoundTrip(t *testing.T) {
 	// Create original presentation
 	original := Create()

@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"fmt"
+
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -307,9 +309,21 @@ func (g *GroupShape) Children() []Shape {
 // child is appended to the parsed p:grpSp on save, with a fresh slide-wide
 // unique id; its position and size are interpreted in the group's child
 // coordinate space (chOff/chExt).
-func (g *GroupShape) AddChild(shape Shape) {
-	g.children = append(g.children, shape)
-	g.childrenModified = true
+//
+// It returns an error for a shape kind the group serializer cannot write —
+// *ChartFrame, *SmartArtFrame, and *OLEObjectFrame — rejecting it rather than
+// accepting it into Children() only to silently drop it on save (mirroring
+// Slide.AddShape). The supported kinds are TextBox, PlaceholderShape,
+// AutoShape, Table, Picture, Video, Audio, Connector, and nested GroupShape.
+func (g *GroupShape) AddChild(shape Shape) error {
+	switch shape.(type) {
+	case *TextBox, *PlaceholderShape, *AutoShape, *Table, *Picture, *Video, *Audio, *GroupShape, *Connector:
+		g.children = append(g.children, shape)
+		g.childrenModified = true
+		return nil
+	default:
+		return fmt.Errorf("pptx: GroupShape.AddChild: unsupported shape type %T", shape)
+	}
 }
 
 // RemoveChild removes a shape from the group. On a group loaded from a file

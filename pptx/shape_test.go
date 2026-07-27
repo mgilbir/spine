@@ -174,8 +174,8 @@ func TestGroupShape_AddRemoveChild(t *testing.T) {
 	tb1 := NewTextBox()
 	tb2 := NewTextBox()
 
-	group.AddChild(tb1)
-	group.AddChild(tb2)
+	_ = group.AddChild(tb1)
+	_ = group.AddChild(tb2)
 
 	if len(group.Children()) != 2 {
 		t.Errorf("After AddChild, Children() has %d shapes, want 2", len(group.Children()))

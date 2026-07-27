@@ -221,7 +221,7 @@ func (s *Slide) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // PresentationML namespace declarations.
 func (s *Slide) MarshalRootToBuilder(b *xmlb.Builder) {
 	if s.OriginalRootAttrs != nil {
-		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sld", s.OriginalRootAttrs)
+		b.StartElementWithRootAttrsMerged(xmlb.NSPresentationML, "sld", s.OriginalRootAttrs, s.rootAttrs())
 	} else {
 		b.StartElementWithNS(xmlb.NSPresentationML, "sld", xmlb.PresentationMLNamespaces(), s.rootAttrs()...)
 	}
@@ -391,7 +391,7 @@ func (sl *SlideLayout) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // PresentationML namespace declarations.
 func (sl *SlideLayout) MarshalRootToBuilder(b *xmlb.Builder) {
 	if sl.OriginalRootAttrs != nil {
-		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sldLayout", sl.OriginalRootAttrs)
+		b.StartElementWithRootAttrsMerged(xmlb.NSPresentationML, "sldLayout", sl.OriginalRootAttrs, sl.rootAttrs())
 	} else {
 		b.StartElementWithNS(xmlb.NSPresentationML, "sldLayout", xmlb.PresentationMLNamespaces(), sl.rootAttrs()...)
 	}
@@ -545,7 +545,7 @@ func (sm *SlideMaster) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // PresentationML namespace declarations.
 func (sm *SlideMaster) MarshalRootToBuilder(b *xmlb.Builder) {
 	if sm.OriginalRootAttrs != nil {
-		b.StartElementWithRootAttrs(xmlb.NSPresentationML, "sldMaster", sm.OriginalRootAttrs)
+		b.StartElementWithRootAttrsMerged(xmlb.NSPresentationML, "sldMaster", sm.OriginalRootAttrs, sm.rootAttrs())
 	} else {
 		b.StartElementWithNS(xmlb.NSPresentationML, "sldMaster", xmlb.PresentationMLNamespaces(), sm.rootAttrs()...)
 	}

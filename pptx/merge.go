@@ -316,10 +316,40 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 		if srcLayout == nil {
 			continue
 		}
-		nl := p.addImportedLayout(nm, srcLayout, srcLayout.relID)
+		nl := p.addImportedLayout(nm, srcPres, srcLayout, srcLayout.relID, ctx)
 		if nl != nil {
 			ctx.layouts[srcLayout] = nl
 		}
+	}
+
+	// Carry the master's remaining relationships — media (e.g. an image
+	// background) and any other non-layout, non-theme targets — through
+	// importPart, mirroring the notes/handout master importers. The layout rels
+	// are handled above and the theme rel below; dropping these (as this code
+	// previously did) imported the master XML verbatim while its r:embed part was
+	// never carried, so the blip resolved to the theme part and the media was
+	// absent from the package (C237). Source ids are preserved so the cloned
+	// master XML's r:id references still resolve; the theme rel below allocates a
+	// fresh id past them.
+	for _, rel := range srcPres.relationships[src.partName] {
+		if rel == nil {
+			continue
+		}
+		switch rel.Type {
+		case opc.RelTypeSlideLayout, opc.RelTypeTheme:
+			continue
+		}
+		c := *rel
+		if rel.TargetMode != opc.TargetModeExternal {
+			st := opc.ResolvePartName(src.partName, rel.Target)
+			nt := p.importPart(srcPres, st, ctx.parts)
+			if nt == "" {
+				// Uncarried furniture reference; drop rather than dangle.
+				continue
+			}
+			c.Target = relativeTarget(nm.partName, nt)
+		}
+		p.relationships[nm.partName] = append(p.relationships[nm.partName], &c)
 	}
 
 	// Import the master's theme (opened source only; a created source keeps its
@@ -343,8 +373,9 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 
 	// The round-trip save path does not synthesize a presentation->master rel for
 	// a newly added master (it only appends new-slide rels), so register it here.
-	// The from-scratch save path rebuilds these rels and reassigns relID, so this
-	// is harmless there.
+	// The from-scratch save path (saveNew) rebuilds these rels and reassigns
+	// relID; it dedupes this pre-registered rel by type+target so it is not
+	// emitted twice.
 	presRels := p.relationships["/ppt/presentation.xml"]
 	nm.relID = fmt.Sprintf("rId%d", nextRelationshipID(presRels))
 	p.relationships["/ppt/presentation.xml"] = append(presRels, &opc.Relationship{
@@ -359,8 +390,11 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 // addImportedLayout appends a deep copy of src as a new layout under master with
 // the given relationship id, wiring the master<->layout relationships. It
 // mirrors SlideMaster.AddLayout but preserves the source layout's XML and rel id
-// instead of building a default layout with a freshly allocated id.
-func (p *Presentation) addImportedLayout(master *SlideMaster, src *SlideLayout, relID string) *SlideLayout {
+// instead of building a default layout with a freshly allocated id. The layout's
+// own non-master relationships (e.g. an image background) are carried through
+// importPart so its r:embed references resolve to carried media instead of
+// dangling or rebinding to the master's theme (C237).
+func (p *Presentation) addImportedLayout(master *SlideMaster, srcPres *Presentation, src *SlideLayout, relID string, ctx *mergeCtx) *SlideLayout {
 	nl := &SlideLayout{
 		presentation: p,
 		master:       master,
@@ -383,6 +417,27 @@ func (p *Presentation) addImportedLayout(master *SlideMaster, src *SlideLayout, 
 	nl.partName = p.nextAvailableLayoutPartName()
 	master.layouts = append(master.layouts, nl)
 	p.slideLayouts = append(p.slideLayouts, nl)
+
+	// Carry the layout's own non-master relationships (media it embeds),
+	// preserving source ids so the cloned layout XML's r:id references stay
+	// valid. The slideMaster back-rel is (re)created by registerLayoutRelationships
+	// below with a fresh, non-colliding id.
+	for _, rel := range srcPres.relationships[src.partName] {
+		if rel == nil || rel.Type == opc.RelTypeSlideMaster {
+			continue
+		}
+		c := *rel
+		if rel.TargetMode != opc.TargetModeExternal {
+			st := opc.ResolvePartName(src.partName, rel.Target)
+			nt := p.importPart(srcPres, st, ctx.parts)
+			if nt == "" {
+				continue
+			}
+			c.Target = relativeTarget(nl.partName, nt)
+		}
+		p.relationships[nl.partName] = append(p.relationships[nl.partName], &c)
+	}
+
 	master.registerLayoutRelationships(nl)
 	return nl
 }

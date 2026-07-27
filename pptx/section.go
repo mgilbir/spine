@@ -127,6 +127,28 @@ func (p *Presentation) ensureSectionLst() *oxml.P14SectionLst {
 	return sl
 }
 
+// removeSlideFromSections strips id from every section's member list, marking
+// the section list dirty when the id was actually present. RemoveSlide calls
+// it so a removed slide leaves no dangling p14:sldId reference — a section
+// member id with no matching entry in the presentation's sldIdLst — on save.
+func (p *Presentation) removeSlideFromSections(id uint32) {
+	sl := p.sectionLst()
+	if sl == nil {
+		return
+	}
+	changed := false
+	for _, s := range sl.Section {
+		n := len(s.SldId)
+		s.SldId = removeSlideID(s.SldId, id)
+		if len(s.SldId) != n {
+			changed = true
+		}
+	}
+	if changed {
+		sl.MarkDirty()
+	}
+}
+
 // slideByID returns the slide with the given presentation slide id, or nil.
 func (p *Presentation) slideByID(id uint32) *Slide {
 	for _, s := range p.slides {
