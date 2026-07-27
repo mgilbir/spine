@@ -42,13 +42,56 @@ type SparklineOptions struct {
 
 // SparklineGroup is a live handle on one x14:sparklineGroup on a sheet, returned
 // by Sheet.Sparklines and Sheet.AddSparklineGroup. Its setters and Delete write
-// through to the workbook so a subsequent save persists them. Handles obtained
-// from one Sparklines call share the sheet's parsed model; deleting a group
-// invalidates the other handles from that call (their positions shift), so
-// re-fetch with Sparklines after a Delete.
+// through to the workbook so a subsequent save persists them.
+//
+// A handle stays valid across later AddSparklineGroup calls. It identifies its
+// group by the set of cells the group draws in, re-resolving the backing model
+// element on each use, rather than holding a pointer into the sheet's []Groups
+// slice — an append reallocates that slice, which detached every previously
+// returned handle so setter calls mutated dead memory and vanished at save
+// (C428). This is the same convention Hyperlink follows (C246).
+//
+// Deleting a group invalidates handles on that group only; its own Delete and
+// setters then become no-ops. In the pathological case of two groups drawing in
+// exactly the same cells, a handle resolves to the first.
 type SparklineGroup struct {
 	sheet *Sheet
-	g     *oxml.CT_SparklineGroup
+	// key identifies the group by its location cells; see resolve.
+	key string
+}
+
+// sparklineGroupKey builds a group's identity from the cells it draws in. A
+// sparkline group is defined by where it renders, and a cell hosts at most one
+// sparkline, so the location set is stable under every setter this type exposes
+// (none of them change a location) and unique across a well-formed sheet.
+func sparklineGroupKey(g *oxml.CT_SparklineGroup) string {
+	if len(g.Sparklines) == 0 {
+		return ""
+	}
+	refs := make([]string, 0, len(g.Sparklines))
+	for _, sp := range g.Sparklines {
+		refs = append(refs, sp.Sqref)
+	}
+	return strings.Join(refs, "\n")
+}
+
+// resolve locates the current backing model element. It returns nil when the
+// group has been deleted, which makes every accessor and setter on a stale
+// handle a no-op rather than a write to detached memory.
+//
+// Cost is linear in the sheet's sparkline count, which every setter already
+// pays in flushSparklines' re-marshal, so re-resolving adds no order of growth.
+func (g *SparklineGroup) resolve() *oxml.CT_SparklineGroup {
+	if g == nil || g.sheet == nil {
+		return nil
+	}
+	sg := g.sheet.sparklineGroups()
+	for i := range sg.Groups {
+		if sparklineGroupKey(&sg.Groups[i]) == g.key {
+			return &sg.Groups[i]
+		}
+	}
+	return nil
 }
 
 // Sparkline is one (data range, location cell) mapping within a group.
@@ -60,9 +103,13 @@ type Sparkline struct {
 }
 
 // Type returns the group's sparkline type: SparklineLine, SparklineColumn or
-// SparklineWinLoss.
+// SparklineWinLoss. It returns SparklineLine for a deleted group.
 func (g *SparklineGroup) Type() string {
-	switch g.g.Type {
+	m := g.resolve()
+	if m == nil {
+		return SparklineLine
+	}
+	switch m.Type {
 	case oxml.SparklineTypeColumn:
 		return SparklineColumn
 	case oxml.SparklineTypeStacked:
@@ -75,108 +122,154 @@ func (g *SparklineGroup) Type() string {
 // SeriesColor returns the group's series color as a hex RGB string (as stored,
 // which may be 8-digit ARGB), or "" when the color is theme-based or unset.
 func (g *SparklineGroup) SeriesColor() string {
-	if g.g.ColorSeries == nil {
+	m := g.resolve()
+	if m == nil || m.ColorSeries == nil {
 		return ""
 	}
-	return g.g.ColorSeries.Rgb
+	return m.ColorSeries.Rgb
 }
 
 // Sparklines returns the group's (data range, location cell) mappings.
 func (g *SparklineGroup) Sparklines() []Sparkline {
-	out := make([]Sparkline, 0, len(g.g.Sparklines))
-	for _, sp := range g.g.Sparklines {
+	m := g.resolve()
+	if m == nil {
+		return nil
+	}
+	out := make([]Sparkline, 0, len(m.Sparklines))
+	for _, sp := range m.Sparklines {
 		out = append(out, Sparkline{DataRange: sp.F, LocationCell: sp.Sqref})
 	}
 	return out
 }
 
-// setColor updates the pointed-to color slot: an empty hex clears it (Excel
-// falls back to its default), otherwise it sets an rgb color. It flushes the
-// change through to the workbook.
-func (g *SparklineGroup) setColor(slot **oxml.SparklineColor, hex string) {
+// setColor updates the color slot selected by pick: an empty hex clears it
+// (Excel falls back to its default), otherwise it sets an rgb color. It marks
+// the group dirty — so the re-marshal regenerates this group rather than
+// replaying its captured source — and flushes the change to the workbook.
+func (g *SparklineGroup) setColor(pick func(*oxml.CT_SparklineGroup) **oxml.SparklineColor, hex string) {
+	m := g.resolve()
+	if m == nil {
+		return
+	}
+	slot := pick(m)
 	if strings.TrimSpace(hex) == "" {
 		*slot = nil
 	} else {
 		*slot = &oxml.SparklineColor{Rgb: normalizeHexColor(hex)}
 	}
-	if g.sheet != nil {
-		g.sheet.flushSparklines()
-	}
+	m.Dirty = true
+	g.sheet.flushSparklines()
 }
 
 // SetSeriesColor sets the group's series color (empty clears it).
-func (g *SparklineGroup) SetSeriesColor(hex string) { g.setColor(&g.g.ColorSeries, hex) }
+func (g *SparklineGroup) SetSeriesColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorSeries }, hex)
+}
 
 // SetNegativeColor sets the color of negative points (win/loss and column
 // sparklines). Empty clears it.
-func (g *SparklineGroup) SetNegativeColor(hex string) { g.setColor(&g.g.ColorNegative, hex) }
+func (g *SparklineGroup) SetNegativeColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorNegative }, hex)
+}
 
 // SetAxisColor sets the horizontal-axis color. Empty clears it.
-func (g *SparklineGroup) SetAxisColor(hex string) { g.setColor(&g.g.ColorAxis, hex) }
+func (g *SparklineGroup) SetAxisColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorAxis }, hex)
+}
 
 // SetMarkersColor sets the color of the point markers (line sparklines). Empty
 // clears it.
-func (g *SparklineGroup) SetMarkersColor(hex string) { g.setColor(&g.g.ColorMarkers, hex) }
+func (g *SparklineGroup) SetMarkersColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorMarkers }, hex)
+}
 
 // SetFirstColor sets the color of the first point. Empty clears it.
-func (g *SparklineGroup) SetFirstColor(hex string) { g.setColor(&g.g.ColorFirst, hex) }
+func (g *SparklineGroup) SetFirstColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorFirst }, hex)
+}
 
 // SetLastColor sets the color of the last point. Empty clears it.
-func (g *SparklineGroup) SetLastColor(hex string) { g.setColor(&g.g.ColorLast, hex) }
+func (g *SparklineGroup) SetLastColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorLast }, hex)
+}
 
 // SetHighColor sets the color of the highest point. Empty clears it.
-func (g *SparklineGroup) SetHighColor(hex string) { g.setColor(&g.g.ColorHigh, hex) }
+func (g *SparklineGroup) SetHighColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorHigh }, hex)
+}
 
 // SetLowColor sets the color of the lowest point. Empty clears it.
-func (g *SparklineGroup) SetLowColor(hex string) { g.setColor(&g.g.ColorLow, hex) }
+func (g *SparklineGroup) SetLowColor(hex string) {
+	g.setColor(func(m *oxml.CT_SparklineGroup) **oxml.SparklineColor { return &m.ColorLow }, hex)
+}
 
-// setBool updates a pointed-to optional boolean slot and flushes the change.
-func (g *SparklineGroup) setBool(slot **bool, v bool) {
-	b := v
-	*slot = &b
-	if g.sheet != nil {
-		g.sheet.flushSparklines()
+// setBool sets the optional boolean slot selected by pick and flushes the
+// change.
+func (g *SparklineGroup) setBool(pick func(*oxml.CT_SparklineGroup) **bool, v bool) {
+	m := g.resolve()
+	if m == nil {
+		return
 	}
+	b := v
+	*pick(m) = &b
+	m.Dirty = true
+	g.sheet.flushSparklines()
 }
 
 // SetMarkers toggles point markers on the group's sparklines (line type).
-func (g *SparklineGroup) SetMarkers(on bool) { g.setBool(&g.g.Markers, on) }
+func (g *SparklineGroup) SetMarkers(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.Markers }, on)
+}
 
 // SetHigh toggles highlighting of the highest point.
-func (g *SparklineGroup) SetHigh(on bool) { g.setBool(&g.g.High, on) }
+func (g *SparklineGroup) SetHigh(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.High }, on)
+}
 
 // SetLow toggles highlighting of the lowest point.
-func (g *SparklineGroup) SetLow(on bool) { g.setBool(&g.g.Low, on) }
+func (g *SparklineGroup) SetLow(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.Low }, on)
+}
 
 // SetFirst toggles highlighting of the first point.
-func (g *SparklineGroup) SetFirst(on bool) { g.setBool(&g.g.First, on) }
+func (g *SparklineGroup) SetFirst(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.First }, on)
+}
 
 // SetLast toggles highlighting of the last point.
-func (g *SparklineGroup) SetLast(on bool) { g.setBool(&g.g.Last, on) }
+func (g *SparklineGroup) SetLast(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.Last }, on)
+}
 
 // SetNegative toggles highlighting of negative points.
-func (g *SparklineGroup) SetNegative(on bool) { g.setBool(&g.g.Negative, on) }
+func (g *SparklineGroup) SetNegative(on bool) {
+	g.setBool(func(m *oxml.CT_SparklineGroup) **bool { return &m.Negative }, on)
+}
 
 // Markers reports whether point markers are enabled (a line-sparkline group
 // with markers turned on). It is false when the flag is unset.
-func (g *SparklineGroup) Markers() bool { return g.g.Markers != nil && *g.g.Markers }
+func (g *SparklineGroup) Markers() bool {
+	m := g.resolve()
+	return m != nil && m.Markers != nil && *m.Markers
+}
 
 // Delete removes this sparkline group from its sheet, writing the change through
 // to the workbook. When it was the sheet's only group the sparkline extension is
-// removed entirely. Other handles obtained from the same Sparklines call are
-// invalidated by the removal; re-fetch with Sparklines if more edits are needed.
+// removed entirely. Handles on other groups stay valid; a second Delete on this
+// group is a no-op.
 func (g *SparklineGroup) Delete() {
-	if g.sheet == nil {
+	if g == nil || g.sheet == nil {
 		return
 	}
 	sg := g.sheet.sparklineGroups()
 	for i := range sg.Groups {
-		if &sg.Groups[i] == g.g {
-			sg.Groups = append(sg.Groups[:i], sg.Groups[i+1:]...)
-			g.sheet.flushSparklines()
-			g.sheet = nil
-			return
+		if sparklineGroupKey(&sg.Groups[i]) != g.key {
+			continue
 		}
+		sg.Groups = append(sg.Groups[:i], sg.Groups[i+1:]...)
+		g.sheet.flushSparklines()
+		g.sheet = nil
+		return
 	}
 }
 
@@ -190,7 +283,7 @@ func (s *Sheet) Sparklines() []*SparklineGroup {
 	}
 	out := make([]*SparklineGroup, 0, len(sg.Groups))
 	for i := range sg.Groups {
-		out = append(out, &SparklineGroup{sheet: s, g: &sg.Groups[i]})
+		out = append(out, &SparklineGroup{sheet: s, key: sparklineGroupKey(&sg.Groups[i])})
 	}
 	return out
 }
@@ -262,6 +355,9 @@ func (s *Sheet) flushSparklines() {
 // the new group is appended to the existing extension. It returns a read-only
 // view of the group just added.
 func (s *Sheet) AddSparklineGroup(opts SparklineOptions) (*SparklineGroup, error) {
+	if s.opaque {
+		return nil, ErrNotWorksheet
+	}
 	if len(opts.Data) == 0 {
 		return nil, fmt.Errorf("xlsx: AddSparklineGroup requires at least one data mapping")
 	}
@@ -288,7 +384,7 @@ func (s *Sheet) AddSparklineGroup(opts SparklineOptions) (*SparklineGroup, error
 	groups.Groups = append(groups.Groups, group)
 	s.flushSparklines()
 
-	return &SparklineGroup{sheet: s, g: &groups.Groups[len(groups.Groups)-1]}, nil
+	return &SparklineGroup{sheet: s, key: sparklineGroupKey(&group)}, nil
 }
 
 // findSparklineExt returns the extension carrying sparkline groups, or nil.
