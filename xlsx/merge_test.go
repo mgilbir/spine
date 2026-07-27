@@ -15,7 +15,7 @@ func setCell(t *testing.T, s *Sheet, ref string, val interface{}) {
 
 func TestCopySheetFrom(t *testing.T) {
 	src := Create()
-	s := src.AddSheet("Data")
+	s := addSheetT(src, "Data")
 	setCell(t, s, "A1", "Name")
 	setCell(t, s, "B1", "Score")
 	setCell(t, s, "A2", "Alice")
@@ -40,7 +40,7 @@ func TestCopySheetFrom(t *testing.T) {
 	}
 
 	dst := Create()
-	setCell(t, dst.AddSheet("Existing"), "A1", "keep")
+	setCell(t, addSheetT(dst, "Existing"), "A1", "keep")
 
 	newSheet, err := dst.CopySheetFrom(src, "Data")
 	if err != nil {
@@ -103,7 +103,7 @@ func assertCell(t *testing.T, s *Sheet, ref, want string) {
 func TestCopySheetFromCreatedImage(t *testing.T) {
 	// Source sheet carries an image added this session plus a two-cell anchor.
 	src := Create()
-	s := src.AddSheet("Pics")
+	s := addSheetT(src, "Pics")
 	setCell(t, s, "A1", "header")
 	if err := s.AddImage("B2", testPNG(t, 24, 16), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage: %v", err)
@@ -113,7 +113,7 @@ func TestCopySheetFromCreatedImage(t *testing.T) {
 	}
 
 	dst := Create()
-	setCell(t, dst.AddSheet("Keep"), "A1", "keep")
+	setCell(t, addSheetT(dst, "Keep"), "A1", "keep")
 	if _, err := dst.CopySheetFrom(src, "Pics"); err != nil {
 		t.Fatalf("CopySheetFrom: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestCopySheetFromOpenedImage(t *testing.T) {
 	// Build a source workbook, save, and reopen so its image lives in the
 	// opened source's preserved drawing/media parts (not src.images).
 	seed := Create()
-	ss := seed.AddSheet("Photos")
+	ss := addSheetT(seed, "Photos")
 	setCell(t, ss, "A1", "x")
 	if err := ss.AddImage("C3", testPNG(t, 30, 20), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage: %v", err)
@@ -173,7 +173,7 @@ func TestCopySheetFromOpenedImage(t *testing.T) {
 	}
 
 	dst := Create()
-	setCell(t, dst.AddSheet("Keep"), "A1", "keep")
+	setCell(t, addSheetT(dst, "Keep"), "A1", "keep")
 	if _, err := dst.CopySheetFrom(src, "Photos"); err != nil {
 		t.Fatalf("CopySheetFrom: %v", err)
 	}
@@ -206,10 +206,10 @@ func TestCopySheetFromOpenedImage(t *testing.T) {
 
 func TestCopySheetFromDuplicateName(t *testing.T) {
 	src := Create()
-	setCell(t, src.AddSheet("Report"), "A1", "x")
+	setCell(t, addSheetT(src, "Report"), "A1", "x")
 
 	dst := Create()
-	setCell(t, dst.AddSheet("Report"), "A1", "orig")
+	setCell(t, addSheetT(dst, "Report"), "A1", "orig")
 
 	newSheet, err := dst.CopySheetFrom(src, "Report")
 	if err != nil {
@@ -228,9 +228,9 @@ func TestCopySheetFromDuplicateName(t *testing.T) {
 
 func TestCopySheetFromMissing(t *testing.T) {
 	src := Create()
-	setCell(t, src.AddSheet("A"), "A1", "x")
+	setCell(t, addSheetT(src, "A"), "A1", "x")
 	dst := Create()
-	setCell(t, dst.AddSheet("B"), "A1", "y")
+	setCell(t, addSheetT(dst, "B"), "A1", "y")
 	if _, err := dst.CopySheetFrom(src, "Nope"); err != ErrSheetNotFound {
 		t.Fatalf("err = %v, want ErrSheetNotFound", err)
 	}
@@ -238,7 +238,7 @@ func TestCopySheetFromMissing(t *testing.T) {
 
 func TestCopySheetFromNil(t *testing.T) {
 	dst := Create()
-	setCell(t, dst.AddSheet("A"), "A1", "x")
+	setCell(t, addSheetT(dst, "A"), "A1", "x")
 	if _, err := dst.CopySheetFrom(nil, "A"); err != ErrNilWorkbook {
 		t.Fatalf("err = %v, want ErrNilWorkbook", err)
 	}

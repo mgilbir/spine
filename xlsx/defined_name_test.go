@@ -8,7 +8,7 @@ import (
 
 func TestAddDefinedName(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 
 	if err := wb.AddDefinedName("TotalRevenue", "Sheet1!$B$100"); err != nil {
 		t.Fatal(err)
@@ -31,8 +31,8 @@ func TestAddDefinedName(t *testing.T) {
 
 func TestAddDefinedNameScoped(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
-	wb.AddSheet("Sheet2")
+	addSheetT(wb, "Sheet1")
+	addSheetT(wb, "Sheet2")
 
 	if err := wb.AddDefinedNameScoped("LocalName", "Sheet2!$A$1:$C$10", 1); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestAddDefinedNameScoped(t *testing.T) {
 
 func TestAddDefinedNameScopedInvalidIndex(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 
 	err := wb.AddDefinedNameScoped("Bad", "Sheet1!$A$1", 5)
 	if err != ErrSheetIndex {
@@ -59,7 +59,7 @@ func TestAddDefinedNameScopedInvalidIndex(t *testing.T) {
 
 func TestMultipleDefinedNames(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 
 	_ = wb.AddDefinedName("Name1", "Sheet1!$A$1")
 	_ = wb.AddDefinedName("Name2", "Sheet1!$B$1")
@@ -73,7 +73,7 @@ func TestMultipleDefinedNames(t *testing.T) {
 
 func TestDefinedNameSaveAndReopen(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Data")
+	sheet := addSheetT(wb, "Data")
 
 	cell, _ := sheet.Cell("B100")
 	cell.SetValue(42195.50)
@@ -117,7 +117,7 @@ func TestDefinedNameSaveAndReopen(t *testing.T) {
 
 func TestNoDefinedNames(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 
 	names := wb.DefinedNames()
 	if names != nil {
@@ -127,7 +127,7 @@ func TestNoDefinedNames(t *testing.T) {
 
 func TestDefinedNameRoundTrip(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 	_ = wb.AddDefinedName("MyRange", "Sheet1!$A$1:$D$10")
 
 	tmpDir := t.TempDir()

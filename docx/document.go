@@ -328,7 +328,7 @@ type footerPart struct {
 //
 // It returns ErrNotDOCX when the package is not WordprocessingML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with docx.OpenEncrypted, or
+// input is password-encrypted (open those with OpenEncrypted, or
 // opc.OpenEncrypted, and a password). Each is matchable with errors.Is.
 func Open(path string) (*Document, error) {
 	data, err := os.ReadFile(path)
@@ -1402,10 +1402,19 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		return err
 	}
 
-	// Collect document relationships - all allocated via nextRelID()
-	var docRels []*opc.Relationship
-
-	// Write default styles
+	// Furniture relationships (styles, numbering, settings) are registered on
+	// the main part through ensureDocRelationship, which allocates an id only
+	// when that relationship type is absent.
+	//
+	// They used to be accumulated in a save-local slice with a fresh
+	// nextRelID() each time, which made a created document's save a state
+	// transition rather than a projection: saving the same document three times
+	// yielded styles=rId2, then rId3, then rId4. The output stayed valid — a
+	// chart's pre-allocated rId1 kept pointing at the chart — but a
+	// reproducible-build or content-hash-dedup pipeline saw three different
+	// packages for identical content, and only for docx: pptx and xlsx
+	// double-saves are byte-identical (C439). Registering the ids durably is the
+	// same fix xlsx made for tableParts (C257).
 	if d.styles != nil {
 		data, err := marshalStylesXML(d.styles)
 		if err != nil {
@@ -1414,11 +1423,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		if err := writer.WritePart("/word/styles.xml", opc.ContentTypeDocStyles, data); err != nil {
 			return err
 		}
-		docRels = append(docRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
-			Type:   opc.RelTypeStyles,
-			Target: "styles.xml",
-		})
+		d.ensureDocRelationship(opc.RelTypeStyles, "styles.xml")
 	}
 
 	// Write numbering definitions
@@ -1430,11 +1435,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		if err := writer.WritePart("/word/numbering.xml", opc.ContentTypeNumbering, data); err != nil {
 			return err
 		}
-		docRels = append(docRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
-			Type:   opc.RelTypeNumbering,
-			Target: "numbering.xml",
-		})
+		d.ensureDocRelationship(opc.RelTypeNumbering, "numbering.xml")
 	}
 
 	// Write settings (created when the API needs a document-level flag, e.g.
@@ -1447,11 +1448,7 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 		if err := writer.WritePart("/word/settings.xml", opc.ContentTypeDocSettings, data); err != nil {
 			return err
 		}
-		docRels = append(docRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", d.nextRelID()),
-			Type:   opc.RelTypeSettings,
-			Target: "settings.xml",
-		})
+		d.ensureDocRelationship(opc.RelTypeSettings, "settings.xml")
 	}
 
 	// Write the media/header/footer parts, then record their relationships.
@@ -1496,13 +1493,13 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 	if err := d.writeFramesetPart(writer); err != nil {
 		return err
 	}
-	// Emit every relationship registered against the main part by the
-	// mutation API (images, headers, footers). Rebuilding this list from
-	// imageParts instead would drop the relationship of a deduplicated image
-	// placement: adding the same image bytes twice stores one part but two
-	// relationships, and only the first lives in imageParts — the second
-	// placement's r:embed would dangle.
-	docRels = append(docRels, d.relationships[d.mainPart()]...)
+	// Emit every relationship registered against the main part — by the
+	// mutation API (images, headers, footers) and by the furniture writers
+	// above. Rebuilding this list from imageParts instead would drop the
+	// relationship of a deduplicated image placement: adding the same image
+	// bytes twice stores one part but two relationships, and only the first
+	// lives in imageParts — the second placement's r:embed would dangle.
+	docRels := d.relationships[d.mainPart()]
 
 	if err := writer.WritePartRelationships("/word/document.xml", docRels); err != nil {
 		return err

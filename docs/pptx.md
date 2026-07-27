@@ -20,7 +20,7 @@ everything else.
 ### Shapes, text, and tables
 
 - Add shapes, text, tables, and images — including SVG images with a raster fallback
-- Slide placeholders, and read-only access to each master's and layout's placeholders and theme (color and font schemes)
+- Slide placeholders, and access to each master and layout: read-only placeholders, plus theme read/write through `Presentation.Theme()` / `SlideMaster.Theme()`, which return the same `dml.ThemeEditor` the docx and xlsx theme APIs use
 - Auto shapes with solid/gradient fills, lines, and shadows
 - Connectors (`Slide.AddConnector`/`Slide.Connectors`, and `GroupShape.AddConnector`/`GroupShape.Connectors` inside a group): straight, elbow, and curved connection shapes bound to two shapes' connection sites (ids resolved on save) or drawn between free points, with line width/color/dash; decks with existing connectors round-trip byte-for-byte
 - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`

@@ -28,7 +28,7 @@ func sheet1XML(t *testing.T, data []byte) string {
 
 func TestSetRichTextRoundTrip(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetRichText([]TextRun{
 		{Text: "Total: ", Font: &FontStyle{Bold: true}},
@@ -80,7 +80,7 @@ func TestSetRichTextRoundTrip(t *testing.T) {
 
 func TestSetRichTextNilFont(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetRichText([]TextRun{
 		{Text: "plain"},
@@ -123,7 +123,7 @@ func reopenRuns(t *testing.T, data []byte) ([]TextRun, error) {
 // TestRichTextReplacesValue: SetRichText clears any prior numeric/string value.
 func TestRichTextReplacesValue(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetFloat(42)
 	c.SetRichText([]TextRun{{Text: "now text"}})
@@ -138,7 +138,7 @@ func TestRichTextReplacesValue(t *testing.T) {
 // TestRichTextOnPlainString: RichText() of a plain string cell returns one run.
 func TestRichTextOnPlainString(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetString("hello")
 	runs := c.RichText()
@@ -150,7 +150,7 @@ func TestRichTextOnPlainString(t *testing.T) {
 // TestRichTextEmpty: empty runs produce an empty inline string.
 func TestRichTextEmpty(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetRichText(nil)
 	data, err := wb.SaveBytes()

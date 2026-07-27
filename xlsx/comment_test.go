@@ -209,7 +209,7 @@ func TestAddThreadedComment(t *testing.T) {
 // path, so a created workbook silently dropped every comment part.
 func TestAddCommentOnCreatedWorkbook(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	cell, err := sh.Cell("A1")
 	if err != nil {
 		t.Fatalf("Cell: %v", err)
@@ -285,7 +285,7 @@ func TestAddCommentOnCreatedWorkbook(t *testing.T) {
 // combined sheet .rels once (drawing + legacy/VML) without clobbering either.
 func TestAddImageAndCommentOnCreatedWorkbook(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	cell, err := sh.Cell("A1")
 	if err != nil {
 		t.Fatalf("Cell: %v", err)

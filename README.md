@@ -10,7 +10,7 @@ Each bullet links to the guide that carries the detail.
 - **Round-trip preservation** — byte-identical round-trip fidelity for unmodified parts across all formats.
 - **In-memory I/O** — `SaveBytes` and `OpenReader` on all three formats; see [Working with Documents in Memory](#working-with-documents-in-memory).
 - **Merge, append & split** — combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts): [pptx](docs/pptx.md#merging-and-splitting-decks), [docx](docs/docx.md#merging-and-appending-documents), [xlsx](docs/xlsx.md#merging-and-copying-sheets).
-- **Password encryption & digital signatures** — write real AES-encrypted documents (agile and standard schemes) across all three formats, read them back into a document model for Word (`docx.OpenEncrypted`; xlsx/pptx decrypt through the low-level `opc.OpenEncrypted` reader, with no format wrapper yet), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
+- **Password encryption & digital signatures** — write real AES-encrypted documents (agile and standard schemes) across all three formats, read them back into a document model in every format (`docx.OpenEncrypted`, `xlsx.OpenEncrypted`, `pptx.OpenEncrypted`), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
 - **VBA macros** — extract, inject/replace, and remove `vbaProject.bin`; see the [trust caveat](docs/encryption-and-signing.md#vba-macros).
 - **Charts** — a format-agnostic builder for column, bar, line, pie, scatter, combo, bubble, and 3D charts wired into all three formats; see [Charts](docs/charts.md).
 - **Text extraction** — a symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion: [docx](docs/docx.md#text-extraction), [xlsx](docs/xlsx.md#text-extraction), [pptx](docs/pptx.md#text-extraction).
@@ -109,8 +109,12 @@ func main() {
     // Create a new workbook
     wb := xlsx.Create()
 
-    // Add a sheet
-    sheet := wb.AddSheet("Sales")
+    // Add a sheet. AddSheet reports an illegal or already-taken name rather
+    // than quietly renaming the sheet.
+    sheet, err := wb.AddSheet("Sales")
+    if err != nil {
+        panic(err)
+    }
 
     // Set cell values
     sheet.SetCellValue("A1", "Product")
@@ -160,7 +164,10 @@ import (
 
 func main() {
     wb := xlsx.Create()
-    sheet := wb.AddSheet("Export")
+    sheet, err := wb.AddSheet("Export")
+    if err != nil {
+        panic(err)
+    }
     if err := sheet.SetCellValue("A1", "hello"); err != nil {
         panic(err)
     }
@@ -178,7 +185,7 @@ func main() {
 }
 ```
 
-For xlsx, `WriteToBuffer` remains as a convenience wrapper around `SaveBytes` that returns a `*bytes.Buffer`.
+For xlsx, `WriteToBuffer` still works but is deprecated: it is `SaveBytes` wrapped in a `*bytes.Buffer`, and neither docx nor pptx has a counterpart.
 
 ## Validation
 

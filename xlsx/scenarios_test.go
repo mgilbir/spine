@@ -12,7 +12,7 @@ import (
 // Create -> Save -> Open round trip.
 func TestAddScenarioRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	// A cell must exist so the sheet is non-empty on save.
 	if _, err := s.Cell("B2"); err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestAddScenarioRoundTrip(t *testing.T) {
 // A duplicate name and an empty input list are rejected.
 func TestAddScenarioValidation(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if err := s.AddScenario(Scenario{Name: "A", Inputs: []ScenarioInput{{Cell: "B2", Value: "1"}}}); err != nil {
 		t.Fatal(err)
 	}

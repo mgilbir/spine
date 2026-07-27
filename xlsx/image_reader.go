@@ -90,6 +90,7 @@ func (s *Sheet) pendingImages() []*Image {
 	for i := range s.images {
 		img := &s.images[i]
 		out = append(out, &Image{
+			altText:     img.altText,
 			data:        img.data,
 			contentType: img.contentType,
 			anchorCell:  FormatCellRef(img.fromRow+1, img.fromCol+1),

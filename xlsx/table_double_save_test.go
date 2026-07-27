@@ -45,7 +45,7 @@ func assertSingleTablePart(t *testing.T, out []byte, sheetPart string) {
 // worksheet model must not grow between saves.
 func TestAddTableDoubleSaveCreated(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Data")
+	sh := addSheetT(wb, "Data")
 	for i, h := range []string{"Name", "Age"} {
 		c, _ := sh.Cell(FormatCellRef(1, i+1))
 		c.SetString(h)
@@ -71,7 +71,7 @@ func TestAddTableDoubleSaveCreated(t *testing.T) {
 // TestAddTableDoubleSaveOpened guards C257 on the round-trip path.
 func TestAddTableDoubleSaveOpened(t *testing.T) {
 	base := Create()
-	sh := base.AddSheet("Sheet1")
+	sh := addSheetT(base, "Sheet1")
 	for i, h := range []string{"Product", "Price"} {
 		c, _ := sh.Cell(FormatCellRef(1, i+1))
 		c.SetString(h)

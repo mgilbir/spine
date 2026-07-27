@@ -65,7 +65,8 @@ func main() {
 	wb.Properties.Title = "Quarterly Sales Report"
 	wb.Properties.Creator = "Spine Library"
 
-	sheet := wb.AddSheet("Q4 Sales")
+	sheet, err := wb.AddSheet("Q4 Sales")
+	must(err)
 	sheet.SetTabColor("1F4E79")
 
 	// ── 1. A reusable NAMED cell style ───────────────────────────────────
@@ -74,7 +75,7 @@ func main() {
 	// applied to any cell by name. We define one here for the report title and
 	// reuse it, rather than repeating the same CellStyle literal everywhere.
 	styles := wb.Styles()
-	_, err := styles.AddNamedStyle(xlsx.NamedStyle{
+	_, err = styles.AddNamedStyle(xlsx.NamedStyle{
 		Name: "ReportTitle",
 		Style: xlsx.CellStyle{
 			Font:      &xlsx.FontStyle{Name: "Calibri", Size: 16, Bold: true, Color: "1F4E79"},
@@ -211,7 +212,7 @@ func main() {
 	col.AddSeries("Q2", column(1))
 	col.AddSeries("Q3", column(2))
 	col.AddSeries("Q4", column(3))
-	must(sheet.AddChart("H3:P20", col))
+	must(sheet.AddChart(col, "H3:P20"))
 
 	// ── 7. FREEZE PANES + sheet-view tweaks ──────────────────────────────
 	//
@@ -418,7 +419,7 @@ func cellLocked(wb *xlsx.Workbook, sheet *xlsx.Sheet, ref string) bool {
 	if idx == nil {
 		return true // no style => Excel's default (locked)
 	}
-	style, err := wb.Styles().GetCellStyle(*idx)
+	style, err := wb.Styles().CellStyleAt(*idx)
 	must(err)
 	if style.Protection == nil {
 		return true

@@ -15,6 +15,49 @@ import (
 // workbook.
 var ErrNilWorkbook = errors.New("xlsx: source workbook is nil")
 
+// AppendSheetsFrom copies every sheet of other into this workbook, in order,
+// after the existing sheets, and returns the new sheets.
+//
+// It is the whole-file merge xlsx was missing: docx has Document.Append and
+// pptx has Presentation.AppendSlidesFrom, but "merge workbook B into A" here
+// meant looping CopySheetFrom over other.Sheets() by name and reconciling the
+// rest by hand (C569). Each sheet is copied under a unique name — a " (2)"-style
+// suffix is appended when the source name is already taken — so the returned
+// slice, not the source names, is how to find the copies.
+//
+// The per-sheet contract is CopySheetFrom's, and so are its limits: cell values,
+// styles, formulas, merged ranges, column widths, row heights and images are
+// carried; charts, cross-sheet formula references, defined names and pivot
+// tables are not. A sheet that fails to copy aborts the whole append, leaving
+// the sheets copied before it in place — this is not transactional.
+//
+// Chartsheets, dialogsheets and macrosheets in other are skipped: they round-trip
+// verbatim and have no worksheet model to copy from (CopySheetFrom would report
+// ErrSheetNotFound for them).
+func (w *Workbook) AppendSheetsFrom(other *Workbook) ([]*Sheet, error) {
+	if other == nil {
+		return nil, ErrNilWorkbook
+	}
+	if other == w {
+		return nil, errors.New("xlsx: cannot append a workbook into itself")
+	}
+	// Snapshot the source list first: CopySheetFrom appends to w.sheets, and if
+	// w and other were ever the same slice the loop would not terminate.
+	src := other.Sheets()
+	out := make([]*Sheet, 0, len(src))
+	for _, s := range src {
+		if s == nil || s.opaque {
+			continue
+		}
+		copied, err := w.CopySheetFrom(other, s.Name())
+		if err != nil {
+			return out, err
+		}
+		out = append(out, copied)
+	}
+	return out, nil
+}
+
 // CopySheetFrom copies the sheet named sheetName from other into this workbook
 // under a unique name (a suffix is appended if the name is already taken),
 // returning the new sheet. Cell values, styles, formulas, merged ranges, and
@@ -44,7 +87,10 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 		return nil, ErrSheetNotFound
 	}
 
-	dst := w.AddSheet(sheetName)
+	// The godoc above promises a unique name with a suffix appended when taken,
+	// so this path asks for the derived name explicitly (C440): AddSheet itself
+	// now rejects a collision rather than renaming behind the caller's back.
+	dst := w.addSheet(w.UniqueSheetName(sheetName))
 
 	// styleCache maps a source cellXfs index to the index it was assigned in
 	// this workbook's stylesheet, so identical styles are registered once.
@@ -159,6 +205,7 @@ func openedSheetImages(src *Sheet, srcWB *Workbook) []sheetImage {
 			contentType: media.ContentType,
 			fromCol:     a.From.Col,
 			fromRow:     a.From.Row,
+			altText:     a.Pic.NvPicPr.CNvPr.Descr,
 		}
 		if twoCell && a.To != nil {
 			img.twoCell = true

@@ -10,6 +10,53 @@ caller sees is listed.
 
 ### Breaking
 
+- xlsx: `Workbook.AddSheet` now returns `(*Sheet, error)` and no longer rewrites
+  the name it is given. It used to coerce silently — `AddSheet("Bad[Name]:…")`
+  returned a sheet actually called something else, and a second `AddSheet("Data")`
+  returned `"Data (2)"`, after which `SheetByName("Data")` found the first sheet
+  and `SheetByName` of the name you passed the second time failed with
+  `ErrSheetNotFound`. The package already exported `ValidateSheetName` and
+  `Sheet.SetName` already rejected exactly these names, so the library knew the
+  name was illegal and rewrote the caller's identity anyway, in the API where
+  names are passed most often. An illegal name now returns a descriptive error
+  and a taken one returns the new `ErrDuplicateSheetName`; nothing is added in
+  either case. When a derived name IS what you want, ask for it:
+  `wb.AddSheet(wb.UniqueSheetName(name))` — the new `Workbook.UniqueSheetName`
+  applies exactly the old coercion. `CopySheetFrom` is unchanged: it still
+  documents and performs the suffixing (C440).
+- xlsx: `Sheet.AddChart` now takes the chart first — `AddChart(c, anchor)`
+  instead of `AddChart(anchor, c)` — matching `docx.Document.AddChart`,
+  `docx.Paragraph.AddChart` and `pptx.Slide.AddChart`. The placement arguments
+  legitimately differ per format (a cell anchor here, an EMU box there); the
+  position of the one argument all three share did not, and the `chart` package
+  advertises "symmetric methods over the same `*Chart` value" (C566).
+- pptx: `Presentation.Theme()` and `SlideMaster.Theme()` now return
+  `*dml.ThemeEditor`, the same type `docx.Document.Theme` and
+  `xlsx.Workbook.Theme` return. The package-local `pptx.Theme`, `ColorScheme`,
+  `FontScheme`, `FormatScheme`, `FillStyle`, `LineStyle`, `EffectStyle` and
+  `FillType` types are removed. This was the largest same-name-different-type
+  collision in the public surface: theme code written for one format did not
+  compile against another. Every getter the old type carried has an equivalent
+  on the editor (`ThemeFontScheme` gained the East Asian and complex-script
+  accessors, and `ThemeEditor.FormatScheme` the format-scheme name and line
+  styles); the three accessors that always returned nil because the old type
+  never populated them — `FormatScheme.FillStyles`, `EffectStyles` and
+  `BackgroundFillStyles` — are gone rather than reproduced. pptx also gains
+  theme *editing* for the first time: it had none since the silent-no-op setters
+  were removed. An untouched theme still round-trips byte-for-byte (C571).
+- pptx: `Slide.AddPictureFromBytes` and `Picture.SetImage` now reject data that
+  is not a recognizable image, and `docx`'s `Run.AddImage`/`AddImageFromBytes`/
+  `AddFloatingImage`/`AddFloatingImageFromBytes` do the same. Both used to accept
+  arbitrary bytes under an `image/png` content type and write an unreadable media
+  part — pptx while its own godoc promised a save-time failure that never
+  happened. xlsx already rejected the identical input; all three now share one
+  magic-prefix rule. Code that passed placeholder bytes to these APIs (test
+  fixtures, mostly) now gets an error (C441).
+- xlsx: `Sheet.ws()`'s and `pptx`'s `Slide.sx()`'s impossible state — a lazy
+  re-parse failing on bytes `Open` already validated — now panics with a
+  diagnostic instead of returning a nil model. A nil model there read as an
+  empty sheet/slide and was written back that way: invisible data loss. docx has
+  always made this choice for the identical state (C568).
 - pptx: `GroupShape.AddChild` now returns `error`. It accepted any `Shape`, but
   the group serializer has no case for `*ChartFrame`, `*SmartArtFrame` or
   `*OLEObjectFrame`: such a child stayed in `Children()` and was silently never
@@ -48,11 +95,61 @@ caller sees is listed.
 
 ### Added
 
+- xlsx, pptx: encrypted documents open into a document model, not just a raw
+  package reader. `xlsx.OpenEncrypted`/`OpenEncryptedReader` and
+  `pptx.OpenEncrypted`/`OpenEncryptedReader` mirror docx's, together with
+  `Workbook.SaveEncrypted`/`SaveEncryptedTo` and
+  `Presentation.SaveEncrypted`/`SaveEncryptedTo`. Encryption is format-generic —
+  the same CFB wrapper carries any OOXML zip — but the wrapper existed only for
+  Word, while `xlsx.Open` and `pptx.Open` told callers to use
+  `opc.OpenEncrypted`, whose `*opc.Reader` no public API could turn into a
+  Workbook or Presentation (C386).
+- opc: `ReaderOptions.AllowMissingDataIntegrity` reaches
+  `crypto.DecryptOptions` from the encrypted-open path, with
+  `OpenEncryptedWithOptions` and each format's
+  `OpenEncryptedReaderWithOptions` carrying it. The strict default is unchanged:
+  a missing or half-present agile `dataIntegrity` block still fails with
+  `ErrIntegrityCheckFailed` unless the caller opts in explicitly, and the opt-in
+  never relaxes a *failed* HMAC (C386, keeping C361).
+- xlsx: `ImageOptions.AltText` sets an image's alternative text at add time, and
+  `Image.AltText()` reads it back. The read side of the three image APIs was
+  harmonized long ago; the write side was `SetAltText` in docx, `SetDescription`
+  in pptx and impossible in xlsx (C442).
+- pptx: `Picture.SetAltText` is the cross-format spelling of the alt-text write;
+  `SetDescription` remains as a deprecated alias (C442).
+- xlsx: `Workbook.AppendSheetsFrom(other)` copies every sheet of another
+  workbook, the whole-file merge docx (`Append`) and pptx (`AppendSlidesFrom`)
+  already had and xlsx did not (C569).
+- xlsx: `Workbook.UniqueSheetName` derives a legal, unused sheet name — the
+  explicit form of the coercion `AddSheet` used to apply silently (C440).
+- xlsx: `Workbook.RemoveSheet`, `Sheet.CellValue` and `StyleManager.CellStyleAt`
+  are the primary spellings of `DeleteSheet`, `GetCellValue` and
+  `GetCellStyle`; pptx gains `Presentation.LayoutByName`/`LayoutByType`,
+  `SlideMaster.LayoutByName`/`LayoutByType` and
+  `Slide`/`SlideLayout`/`SlideMaster.Placeholder`, which report a miss as
+  `ErrLayoutNotFound` / `ErrPlaceholderNotFound` instead of returning a bare nil
+  (C565).
 - xlsx: `Image.SVGData()` returns the original SVG bytes of an image added as
   SVG. `Data()` continues to return the raster (PNG) fallback embedded for
   viewers that cannot render SVG, so the two are now distinguishable; `SVGData`
   is nil for a non-SVG image and for images read back from an opened file
   (#215).
+
+### Deprecated
+
+Each of these keeps working and forwards to the new name; the markers exist so
+godoc tooling steers callers off them (C565, C567).
+
+- xlsx: `Workbook.DeleteSheet` → `RemoveSheet`; `Sheet.GetCellValue` →
+  `CellValue`; `StyleManager.GetCellStyle` → `CellStyleAt`;
+  `Workbook.WriteToBuffer` → `SaveBytes` (it was `SaveBytes` wrapped in a
+  `*bytes.Buffer`, with no counterpart in docx or pptx).
+- pptx: `Presentation.SaveAs` → `Save` (an exact alias — `Save` already takes
+  the path); `Presentation.AddSlideWithLayout` → `AddSlideFromLayout`;
+  `Presentation.GetLayoutByName`/`GetLayoutByType` and
+  `SlideMaster.GetLayout`/`GetLayoutByName` → the `LayoutBy*` forms;
+  `Slide`/`SlideLayout`/`SlideMaster.GetPlaceholder` → `Placeholder`;
+  `Picture.SetDescription` → `SetAltText`.
 - pptx: `SlideSizeCustom` is wired to explicit dimensions instead of being
   accepted and ignored (#213).
 - CI: a GitHub Actions workflow runs the local merge gates (build, vet, test,
@@ -60,6 +157,28 @@ caller sees is listed.
 
 ### Changed
 
+- pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
+  SVG data the way PowerPoint expects it — a transparent raster fallback in
+  `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`
+  extension — instead of a bare `a:blip` pointing at the `.svg` part, which most
+  PowerPoint versions render as nothing while `Validate()` passed. docx and xlsx
+  already built the conformant pair from the same call; pptx had the machinery
+  (`Picture.SetSVGImageData`) and the discovery-path API bypassed it. The
+  picture's default frame is now sized from the SVG root rather than from the
+  1x1 fallback (C387).
+- docx: a created document serializes identically however many times it is
+  saved. `saveNew` drew the furniture relationship ids (styles, numbering,
+  settings) from the durable id counter on *every* save, so saving the same
+  document three times yielded `styles=rId2`, then `rId3`, then `rId4`. The
+  output stayed valid, but reproducible-build and content-hash-dedup pipelines
+  saw three different packages for identical content — and only for docx: pptx
+  and xlsx double-saves were already byte-identical (C439).
+- xlsx: `Open` reads the file into memory and retains no OS file handle, the
+  same resource model as `docx.Open` and `pptx.Open`. It alone held the source
+  file open until `Close`, an xlsx-only descriptor leak for callers trained by
+  the other two on "Close is effectively a no-op". Nothing needed the handle:
+  `Open` already read every part into memory. `Close` remains valid to call and
+  is now genuinely a no-op (C570).
 - xlsx: `Cell.Value()` returns a formula cell's **cached result typed by its
   cached-value type**, the same way a literal cell of that type reads back — a
   numeric formula such as `=1+1` now yields `float64(2)` where it previously

@@ -70,12 +70,16 @@ var crossFormatRoles = []crossFormatRole{
 		role:       "AddChart",
 		note: "Each format anchors a chart its own way: docx inline at document/paragraph " +
 			"level with an EMU extent, xlsx by cell anchor string, pptx by explicit EMU " +
-			"position and size on a slide. The chart.Chart argument is shared; nothing else is.",
+			"position and size on a slide. That part of the divergence is real and stays. " +
+			"What did NOT have to differ was the position of the shared argument: xlsx took " +
+			"the chart last and docx/pptx took it first, so the one thing all three have in " +
+			"common sat in a different place in each (C566). The chart is now first " +
+			"everywhere and the placement arguments follow it.",
 		diverged: true,
 		points: []apiPoint{
 			{"docx", reflect.TypeOf(&docx.Document{}), "AddChart", "func(*chart.Chart, int64, int64) error"},
 			{"docx", reflect.TypeOf(&docx.Paragraph{}), "AddChart", "func(*chart.Chart, int64, int64) error"},
-			{"xlsx", reflect.TypeOf(&xlsx.Sheet{}), "AddChart", "func(string, *chart.Chart) error"},
+			{"xlsx", reflect.TypeOf(&xlsx.Sheet{}), "AddChart", "func(*chart.Chart, string) error"},
 			{"pptx", reflect.TypeOf(&pptx.Slide{}), "AddChart", "func(*chart.Chart, int64, int64, int64, int64) error"},
 		},
 	},
@@ -94,15 +98,21 @@ var crossFormatRoles = []crossFormatRole{
 	{
 		capability: "Theme",
 		role:       "Theme",
-		note: "C571: docx and xlsx hand back the shared *dml.ThemeEditor, pptx a " +
-			"pptx-private *pptx.Theme with a different method set. A user who learns " +
-			"the theme API in one format cannot carry it to the other.",
-		diverged: true,
+		note: "CONVERGED (C571). This was the largest same-name-different-type collision " +
+			"in the public surface: docx and xlsx handed back the shared *dml.ThemeEditor " +
+			"while pptx returned a package-private read-only *pptx.Theme, so theme code " +
+			"written against a Word document did not even compile against a deck. The " +
+			"blocker was C374 — regenerating a pptx theme part from the narrow model would " +
+			"have deleted custClrLst and the extLst carrying thm15:themeFamily — and it is " +
+			"fixed: dml.Theme models both (plus the extLst of five nested types) and " +
+			"ThemeEditor.Marshal replays the source root attrs verbatim. All four accessors " +
+			"now return *dml.ThemeEditor, and the divergence flag is off so a regression " +
+			"back to a format-local type fails this test.",
 		points: []apiPoint{
 			{"docx", reflect.TypeOf(&docx.Document{}), "Theme", "func() *dml.ThemeEditor"},
 			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "Theme", "func() *dml.ThemeEditor"},
-			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "Theme", "func() *pptx.Theme"},
-			{"pptx", reflect.TypeOf(&pptx.SlideMaster{}), "Theme", "func() *pptx.Theme"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "Theme", "func() *dml.ThemeEditor"},
+			{"pptx", reflect.TypeOf(&pptx.SlideMaster{}), "Theme", "func() *dml.ThemeEditor"},
 		},
 	},
 	{
@@ -166,6 +176,105 @@ var crossFormatRoles = []crossFormatRole{
 			{"xlsx", reflect.TypeOf(&xlsx.Sheet{}), "PrintOptions", "func() (xlsx.PrintOptions, bool)"},
 			absent("docx", reflect.TypeOf(&docx.Section{}), "PrintOptions"),
 			absent("pptx", reflect.TypeOf(&pptx.Slide{}), "PrintOptions"),
+		},
+	},
+
+	// ---------------------------------------------------------------------
+	// Rows added by the C386–C571 cross-format wave. Each records either a
+	// convergence (no `diverged` flag, so a regression fails) or a divergence
+	// that survives inspection, with the reason.
+	// ---------------------------------------------------------------------
+
+	{
+		capability: "Encryption",
+		role:       "OpenEncrypted",
+		note: "CONVERGED (C386). Encryption is format-generic — the same CFB wrapper carries " +
+			"any OOXML zip — but only docx had a wrapper, while xlsx.Open and pptx.Open " +
+			"pointed callers at opc.OpenEncrypted, whose *opc.Reader no public API could " +
+			"turn into a Workbook or Presentation. Note these are package-level functions, " +
+			"not methods, so the reflection points below cover the save half; the open half " +
+			"is exercised by TestEncryptedOpenIsReachableInEveryFormat.",
+		points: []apiPoint{
+			{"docx", reflect.TypeOf(&docx.Document{}), "SaveEncrypted", "func(string, string) error"},
+			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "SaveEncrypted", "func(string, string) error"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "SaveEncrypted", "func(string, string) error"},
+		},
+	},
+	{
+		capability: "Encryption",
+		role:       "SaveEncryptedTo",
+		note:       "CONVERGED (C386): the in-memory counterpart, same shape in all three.",
+		points: []apiPoint{
+			{"docx", reflect.TypeOf(&docx.Document{}), "SaveEncryptedTo", "func(io.Writer, string) error"},
+			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "SaveEncryptedTo", "func(io.Writer, string) error"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "SaveEncryptedTo", "func(io.Writer, string) error"},
+		},
+	},
+	{
+		capability: "Image alt text",
+		role:       "SetAltText",
+		note: "PARTIALLY CONVERGED (C442). The read side was harmonized long ago (all three " +
+			"picture readers expose AltText). The write side was SetAltText / SetDescription " +
+			"/ impossible; docx and pptx now agree on SetAltText (SetDescription survives as " +
+			"a deprecated alias). xlsx cannot join: Sheet.AddImage returns only an error, so " +
+			"there is no handle, and xlsx.Image is a read view of the saved drawing with no " +
+			"owning sheet to write through. Its settable path is the ImageOptions.AltText " +
+			"field, guarded by TestAltTextWriteIsReachableInEveryFormat. Giving xlsx a " +
+			"mutable image handle is the convergence this row is waiting for.",
+		points: []apiPoint{
+			{"docx", reflect.TypeOf(&docx.InlineImage{}), "SetAltText", "func(string)"},
+			{"pptx", reflect.TypeOf(&pptx.Picture{}), "SetAltText", "func(string)"},
+			absent("xlsx", reflect.TypeOf(&xlsx.Image{}), "SetAltText"),
+		},
+	},
+	{
+		capability: "Cross-file composition",
+		role:       "Append",
+		note: "DIVERGED, and legitimately: the three formats append different things. docx " +
+			"appends one body into another (a document has exactly one), so Append needs no " +
+			"noun. pptx and xlsx append a collection — slides, sheets — and say so. What was " +
+			"NOT legitimate was xlsx having no whole-file merge at all, so 'merge workbook B " +
+			"into A' meant looping CopySheetFrom by name; AppendSheetsFrom closes that gap " +
+			"(C569). The guards are coherent across all three: nil sentinel plus an explicit " +
+			"'cannot append into itself'.",
+		diverged: true,
+		points: []apiPoint{
+			{"docx", reflect.TypeOf(&docx.Document{}), "Append", "func(*docx.Document) error"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "AppendSlidesFrom", "func(*pptx.Presentation) error"},
+			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "AppendSheetsFrom", "func(*xlsx.Workbook) ([]*xlsx.Sheet, error)"},
+		},
+	},
+	{
+		capability: "Removal",
+		role:       "Remove<child>",
+		note: "CONVERGED on the Remove* prefix (C565). xlsx's DeleteSheet was the lone Delete* " +
+			"in a library whose every other removal is Remove* — including RemoveDefinedName " +
+			"and RemoveCustomProperty in that same package. RemoveSheet is now the primary " +
+			"spelling; DeleteSheet is a deprecated alias for it. The signatures agree " +
+			"(index in, error out), which is why this row carries no divergence flag.",
+		points: []apiPoint{
+			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "RemoveSheet", "func(int) error"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "RemoveSlide", "func(int) error"},
+		},
+	},
+	{
+		capability: "Lookup by name",
+		role:       "<Thing>ByName",
+		note: "CONVERGED on the (value, error) shape (C565). xlsx.SheetByName reported a miss " +
+			"as ErrSheetNotFound while pptx's GetLayoutByName returned a bare nil, so an " +
+			"xlsx user carrying their habits across nil-dereferenced on the first typo. " +
+			"LayoutByName is the new spelling; GetLayoutByName is deprecated. docx has no " +
+			"by-name collection to look up, so it is absent by construction — recorded here " +
+			"rather than left as an unexplained hole. The row stays flagged because the " +
+			"rendered signatures cannot match: a sheet lookup returns *xlsx.Sheet and a " +
+			"layout lookup *pptx.SlideLayout. The shape — (T, error), miss reported as a " +
+			"sentinel error — is what converged, and this table compares text.",
+		diverged: true,
+		points: []apiPoint{
+			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "SheetByName", "func(string) (*xlsx.Sheet, error)"},
+			{"pptx", reflect.TypeOf(&pptx.Presentation{}), "LayoutByName", "func(string) (*pptx.SlideLayout, error)"},
+			{"pptx", reflect.TypeOf(&pptx.SlideMaster{}), "LayoutByName", "func(string) (*pptx.SlideLayout, error)"},
+			absent("docx", reflect.TypeOf(&docx.Document{}), "SectionByName"),
 		},
 	},
 }

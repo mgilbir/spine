@@ -66,7 +66,7 @@ func TestCreateAndReopen(t *testing.T) {
 
 	// Create a new workbook
 	wb := Create()
-	s1 := wb.AddSheet("Sheet1")
+	s1 := addSheetT(wb, "Sheet1")
 	if err := s1.SetCellValue("A1", "Hello"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestCreateAndReopen(t *testing.T) {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
 
-	s2 := wb.AddSheet("Sheet2")
+	s2 := addSheetT(wb, "Sheet2")
 	if err := s2.SetCellValue("A1", "World"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestCreateAndReopen(t *testing.T) {
 
 func TestSaveToBufferAndOpenReader(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Data")
+	sheet := addSheetT(wb, "Data")
 	if err := sheet.SetCellValue("A1", "Hello"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestSaveToBufferAndOpenReader(t *testing.T) {
 
 func TestSaveToMatchesSave(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetCellValue("A1", "same"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestOpenReaderFromBytes(t *testing.T) {
 
 func TestSaveBytesAndOpenReader(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Data")
+	sheet := addSheetT(wb, "Data")
 	if err := sheet.SetCellValue("A1", "Hello"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestRoundTripEditLoadedWorkbookCellValue(t *testing.T) {
 	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
 
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetCellValue("A1", "original"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestRoundTripEditLoadedWorkbookStyle(t *testing.T) {
 	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
 
 	wb := Create()
-	sheet := wb.AddSheet("Styled")
+	sheet := addSheetT(wb, "Styled")
 	if err := sheet.SetCellValue("A1", "hello"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestRoundTripEditLoadedWorkbookValueAndStyle(t *testing.T) {
 	updatedPath := filepath.Join(t.TempDir(), "updated.xlsx")
 
 	wb := Create()
-	sheet := wb.AddSheet("Catalog")
+	sheet := addSheetT(wb, "Catalog")
 	if err := sheet.SetCellValue("B2", "cat"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestRoundTripDeleteThenAddSheet(t *testing.T) {
 
 	wb := Create()
 	for i := 1; i <= 3; i++ {
-		sheet := wb.AddSheet("Sheet" + string(rune('0'+i)))
+		sheet := addSheetT(wb, "Sheet" + string(rune('0'+i)))
 		if err := sheet.SetCellValue("A1", i); err != nil {
 			t.Fatalf("SetCellValue error: %v", err)
 		}
@@ -604,7 +604,7 @@ func TestRoundTripDeleteThenAddSheet(t *testing.T) {
 	if err := loaded.DeleteSheet(2); err != nil {
 		t.Fatalf("DeleteSheet error: %v", err)
 	}
-	added := loaded.AddSheet("Sheet4")
+	added := addSheetT(loaded, "Sheet4")
 	if err := added.SetCellValue("A1", "new"); err != nil {
 		t.Fatalf("SetCellValue on added sheet error: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestRoundTripAddStylesToWorkbookWithoutStylesPart(t *testing.T) {
 	}
 	writer := opc.NewWriter(f)
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetCellValue("A1", "plain"); err != nil {
 		t.Fatalf("SetCellValue error: %v", err)
 	}

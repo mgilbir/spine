@@ -13,7 +13,10 @@ import (
 func ExampleCreate() {
 	wb := xlsx.Create()
 
-	sheet := wb.AddSheet("Sales")
+	sheet, err := wb.AddSheet("Sales")
+	if err != nil {
+		panic(err)
+	}
 	cells := []struct {
 		ref string
 		val interface{}

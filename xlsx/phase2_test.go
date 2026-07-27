@@ -36,7 +36,7 @@ func firstSheet(t *testing.T, w *Workbook) *Sheet {
 
 func TestHyperlink_ExternalCreatePathRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestHyperlink_ExternalCreatePathRoundTrip(t *testing.T) {
 
 func TestHyperlink_InternalCreatePathRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, _ := s.Cell("B2")
 	c.SetInternalHyperlink("Sheet1!C3")
 
@@ -95,7 +95,7 @@ func TestHyperlink_InternalCreatePathRoundTrip(t *testing.T) {
 
 func TestHyperlink_ReplaceRemovesRel(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	c, _ := s.Cell("A1")
 	c.SetHyperlink("https://example.com/one")
 	c.SetHyperlink("https://example.com/two") // replace
@@ -122,7 +122,7 @@ func TestHyperlink_ReplaceRemovesRel(t *testing.T) {
 func TestHyperlink_HandleStableAfterMutations(t *testing.T) {
 	t.Run("append_does_not_detach_handle", func(t *testing.T) {
 		w := Create()
-		s := w.AddSheet("S")
+		s := addSheetT(w, "S")
 		a1, _ := s.Cell("A1")
 		hA := a1.SetHyperlink("https://example.com/a1")
 
@@ -148,7 +148,7 @@ func TestHyperlink_HandleStableAfterMutations(t *testing.T) {
 
 	t.Run("replace_does_not_cross_wire_handle", func(t *testing.T) {
 		w := Create()
-		s := w.AddSheet("S")
+		s := addSheetT(w, "S")
 		a1, _ := s.Cell("A1")
 		a1.SetHyperlink("https://example.com/a1")
 		b1, _ := s.Cell("B1")
@@ -175,7 +175,7 @@ func TestHyperlink_HandleStableAfterMutations(t *testing.T) {
 
 func TestProtection_DefaultCreatePathRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.Protect(SheetProtectionOptions{}); err != nil {
 		t.Fatalf("Protect: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestProtection_DefaultCreatePathRoundTrip(t *testing.T) {
 
 func TestProtection_PasswordAndAllowRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.Protect(SheetProtectionOptions{
 		Password:        "secret",
 		AllowSort:       true,
@@ -236,7 +236,7 @@ func TestProtection_PasswordAndAllowRoundTrip(t *testing.T) {
 
 func TestProtection_Unprotect(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.Protect(SheetProtectionOptions{}); err != nil {
 		t.Fatalf("Protect: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestLegacyPasswordHash(t *testing.T) {
 
 func TestMergedCells_ReadBack(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.MergeCells("A1", "B2"); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestMergedCells_ReadBack(t *testing.T) {
 
 func TestFreezePanes_ReadBack(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.FreezePanes("B2"); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestFreezePanes_ReadBack(t *testing.T) {
 
 func TestAutoFilter_ReadBack(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	c, _ := s.Cell("A1")
 	c.SetString("h")
 	if err := s.SetAutoFilter("A1:C1"); err != nil {
@@ -317,7 +317,7 @@ func TestAutoFilter_ReadBack(t *testing.T) {
 
 func TestDataValidation_ReadBack(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.AddDataValidation(DataValidation{
 		Range:    "B2:B100",
 		Type:     "list",
@@ -347,7 +347,7 @@ func TestDataValidation_ReadBack(t *testing.T) {
 
 func TestImages_ReadBackAfterAddImage(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	png := testPNG(t, 20, 10)
 	if err := s.AddImage("B2", png, ImageOptions{WidthPx: 40, HeightPx: 20}); err != nil {
 		t.Fatal(err)
@@ -530,7 +530,7 @@ func TestValidate_HyperlinkAndDataValidation(t *testing.T) {
 	// A hyperlink referencing a missing rel should surface a warning; a good
 	// SetHyperlink (with its pending rel) should not.
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	c, _ := s.Cell("A1")
 	c.SetHyperlink("https://example.com")
 	rep := w.Validate()

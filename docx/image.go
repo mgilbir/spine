@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
+	"github.com/mgilbir/spine/internal/imagesniff"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -281,6 +282,10 @@ type imagePart struct {
 // AddImage adds an inline image from a file path to the run. SVG files are
 // supported and embedded with a transparent raster fallback (use AddSVGImage
 // to supply your own fallback).
+//
+// The file's bytes must actually be a PNG, JPEG, GIF or SVG: an unreadable or
+// mislabelled file is rejected here rather than written into the package as a
+// media part no reader can render (C441).
 func (r *Run) AddImage(path string) (*InlineImage, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -295,12 +300,20 @@ func (r *Run) AddImage(path string) (*InlineImage, error) {
 	if ct == opc.ContentTypeSVG {
 		return r.addSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG, Anchor{}, false)
 	}
+	if err := checkRasterImageData("AddImage", data); err != nil {
+		return nil, err
+	}
 	return r.addImageData(data, ct, ext, Anchor{}, false)
 }
 
 // AddImageFromBytes adds an inline image from raw bytes to the run. Pass an
 // "image/svg+xml" content type to embed an SVG (with a transparent raster
 // fallback).
+//
+// The bytes must actually be an image of the declared kind's family (PNG, JPEG
+// or GIF for a raster content type, an <svg> document for the SVG one);
+// unrecognizable data is rejected here rather than saved as a corrupt media
+// part (C441).
 func (r *Run) AddImageFromBytes(data []byte, contentType string) (*InlineImage, error) {
 	if contentType == opc.ContentTypeSVG {
 		return r.addSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG, Anchor{}, false)
@@ -309,11 +322,15 @@ func (r *Run) AddImageFromBytes(data []byte, contentType string) (*InlineImage, 
 	if ext == "" {
 		return nil, fmt.Errorf("unsupported content type: %s", contentType)
 	}
+	if err := checkRasterImageData("AddImageFromBytes", data); err != nil {
+		return nil, err
+	}
 	return r.addImageData(data, contentType, ext, Anchor{}, false)
 }
 
 // AddFloatingImage adds a floating (page/paragraph-anchored) image from a file
 // path, positioned by anchor. SVG is supported with a transparent fallback.
+// The file's bytes are validated as for AddImage.
 func (r *Run) AddFloatingImage(path string, anchor Anchor) (*InlineImage, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -327,11 +344,15 @@ func (r *Run) AddFloatingImage(path string, anchor Anchor) (*InlineImage, error)
 	if ct == opc.ContentTypeSVG {
 		return r.addSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG, anchor, true)
 	}
+	if err := checkRasterImageData("AddFloatingImage", data); err != nil {
+		return nil, err
+	}
 	return r.addImageData(data, ct, ext, anchor, true)
 }
 
 // AddFloatingImageFromBytes adds a floating image from raw bytes, positioned
-// by anchor (e.g. a cover-page logo or a behind-text watermark).
+// by anchor (e.g. a cover-page logo or a behind-text watermark). The bytes are
+// validated as for AddImageFromBytes.
 func (r *Run) AddFloatingImageFromBytes(data []byte, contentType string, anchor Anchor) (*InlineImage, error) {
 	if contentType == opc.ContentTypeSVG {
 		return r.addSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG, anchor, true)
@@ -339,6 +360,9 @@ func (r *Run) AddFloatingImageFromBytes(data []byte, contentType string, anchor 
 	ext := extForContentType(contentType)
 	if ext == "" {
 		return nil, fmt.Errorf("unsupported content type: %s", contentType)
+	}
+	if err := checkRasterImageData("AddFloatingImageFromBytes", data); err != nil {
+		return nil, err
 	}
 	return r.addImageData(data, contentType, ext, anchor, true)
 }
@@ -497,6 +521,26 @@ func (doc *Document) registerImagePart(owner string, data []byte, contentType, e
 	return relID, imageNumberFromPartName(partName)
 }
 
+// checkRasterImageData rejects bytes that are not a raster image this package
+// can embed, naming the API that was called.
+//
+// Before C441 docx accepted anything: AddImageFromBytes(garbage, "image/png")
+// returned a nil error and the save wrote a media part Word cannot render.
+// xlsx had always rejected the same input at add time; pptx accepted it while
+// promising a save-time failure. All three now fail fast, on the same shared
+// magic-prefix sniff (internal/imagesniff), so the rule a caller learns in one
+// format holds in the next.
+func checkRasterImageData(api string, data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("docx: %s: image data is empty", api)
+	}
+	kind := imagesniff.Detect(data)
+	if !kind.In(imagesniff.PNG, imagesniff.JPEG, imagesniff.GIF) {
+		return fmt.Errorf("docx: %s: unsupported image format (want PNG, JPEG, GIF or SVG)", api)
+	}
+	return nil
+}
+
 func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, floating bool) (*InlineImage, error) {
 	doc := r.paragraph.document
 	if doc == nil {
@@ -538,9 +582,15 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	if len(svgData) == 0 {
 		return nil, fmt.Errorf("svg image data is empty")
 	}
+	if !imagesniff.IsSVG(svgData) {
+		return nil, fmt.Errorf("docx: svg image data is not an SVG document")
+	}
 	fallbackExt := extForContentType(fallbackCT)
 	if fallbackExt == "" || fallbackCT == opc.ContentTypeSVG {
 		return nil, fmt.Errorf("unsupported raster fallback content type: %s", fallbackCT)
+	}
+	if err := checkRasterImageData("raster fallback", fallbackData); err != nil {
+		return nil, err
 	}
 
 	// Raster fallback part first (the primary r:embed), then the SVG part.

@@ -89,7 +89,7 @@ func TestSparklineRead(t *testing.T) {
 // that reopens with the same type, color and mappings.
 func TestSparklineAddRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	for _, ref := range []string{"A1", "B1", "C1", "D1"} {
 		if _, err := s.Cell(ref); err != nil {
 			t.Fatalf("Cell(%s): %v", ref, err)
@@ -180,7 +180,7 @@ func TestSparklineAppendWinLoss(t *testing.T) {
 // A group with no mappings is rejected; no empty sparkline extension is written.
 func TestSparklineAddRejectsEmpty(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.AddSparklineGroup(SparklineOptions{Type: SparklineLine}); err == nil {
 		t.Fatal("AddSparklineGroup with no data must error")
 	}

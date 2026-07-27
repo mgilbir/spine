@@ -13,8 +13,9 @@ error sentinels are the ones you match with `errors.Is`:
   (e.g. the version-1.1 binary-format RC4 scheme, §2.3.6).
 
 The package-level `opc.ErrEncrypted` is returned by the plain open path when it
-meets an encrypted input; open such a file with `opc.OpenEncrypted` (or, for
-Word, the `docx.OpenEncrypted` wrapper) and a password instead.
+meets an encrypted input; open such a file with the format's `OpenEncrypted`
+(`docx`, `xlsx` or `pptx`) — or `opc.OpenEncrypted` for the raw package — and a
+password instead.
 
 ## Password encryption
 
@@ -26,16 +27,25 @@ password)` decrypts a CFB-wrapped package into a normal reader, auto-detecting
 the scheme; `opc.SaveEncrypted(w, packageBytes, password)` writes an agile
 container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects
 the scheme (agile or standard), AES key size, and whether to emit the optional
-`\x06DataSpaces` metadata streams some Office builds expect. `docx.OpenEncrypted`
-/ `Document.SaveEncrypted` wrap it for Word by file path, with
-`docx.OpenEncryptedReader` / `Document.SaveEncryptedTo` as the in-memory
-reader/writer pair. Word is currently the only format with an end-to-end
-encrypted-*read* wrapper: `opc.OpenEncrypted` returns a low-level `*opc.Reader`,
-and only `docx` bridges that back into a document model, so an encrypted xlsx or
-pptx can be decrypted to an `*opc.Reader` but not yet reopened as a `Workbook` or
-`Presentation` (a format wrapper for those is future work). The *write* side is
-format-generic: any format's `SaveBytes` plus `opc.SaveEncrypted` produces an
-encrypted container. The plain open path detects an encrypted input and returns
+`\x06DataSpaces` metadata streams some Office builds expect.
+
+Every format wraps it end to end, by file path and in memory:
+
+| Format | Open by path | Open in memory | Save by path | Save in memory |
+| --- | --- | --- | --- | --- |
+| docx | `docx.OpenEncrypted` | `docx.OpenEncryptedReader` | `Document.SaveEncrypted` | `Document.SaveEncryptedTo` |
+| xlsx | `xlsx.OpenEncrypted` | `xlsx.OpenEncryptedReader` | `Workbook.SaveEncrypted` | `Workbook.SaveEncryptedTo` |
+| pptx | `pptx.OpenEncrypted` | `pptx.OpenEncryptedReader` | `Presentation.SaveEncrypted` | `Presentation.SaveEncryptedTo` |
+
+Encryption is format-generic — the same CFB wrapper carries any OOXML zip — so
+these are one mechanism with three spellings, not three implementations. Each
+also has an `OpenEncryptedReaderWithOptions` taking `opc.ReaderOptions`, which
+is how the decompression bounds and
+`ReaderOptions.AllowMissingDataIntegrity` (see [Integrity](#integrity)) reach an
+encrypted open. `opc.OpenEncrypted` is still there when you want the raw
+`*opc.Reader` rather than a document model.
+
+The plain open path detects an encrypted input and returns
 `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword` (from
 `github.com/mgilbir/spine/common/crypto`). `OpenEncrypted` can additionally
 **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) —
@@ -46,6 +56,35 @@ cryptographically broken, saving it is deliberately not offered, and the
 version-1.1 binary-format RC4 scheme (§2.3.6) — which never wraps an OOXML
 package — is still rejected with `crypto.ErrUnsupportedEncryption`. Built on
 Go's standard-library crypto only, and cross-validated against `msoffcrypto-tool`.
+
+### Integrity
+
+Only the agile scheme authenticates its ciphertext: an HMAC over the
+`EncryptedPackage` stream, keyed from the document key and stored in the
+descriptor's `dataIntegrity` element. A package opened from a standard or RC4
+container is unauthenticated by construction — the password was right, but
+nothing proves the bytes are the ones the author encrypted.
+
+An agile package whose HMAC fails, or whose descriptor carries no
+`dataIntegrity` block at all, is rejected with
+`crypto.ErrIntegrityCheckFailed`. Absence is not treated as "nothing to check":
+the descriptor is plaintext and covered by no MAC, so an attacker who can modify
+the file can delete that element as easily as they can flip bits in the
+malleable CBC ciphertext.
+
+Office always emits `dataIntegrity`. For a third-party producer that does not,
+opt out explicitly — never inferred from the file:
+
+```go
+wb, err := xlsx.OpenEncryptedReaderWithOptions(r, size, password,
+    opc.ReaderOptions{AllowMissingDataIntegrity: true})
+```
+
+The opt-in accepts only a *missing* block. It never relaxes a failed HMAC and
+never accepts a half-present block (one of the two attributes missing), which no
+honest producer writes. `crypto.DecryptWithOptions` reports which scheme
+produced the bytes and whether they were authenticated
+(`DecryptResult.Scheme`, `DecryptResult.IntegrityVerified`).
 
 ### How OpenEncrypted decides
 

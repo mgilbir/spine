@@ -92,7 +92,7 @@ func TestTableRoundTripByteIdentical(t *testing.T) {
 // reopens, and checks the table is present with the expected shape.
 func TestAddTableCreateRoundTrip(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Data")
+	sh := addSheetT(wb, "Data")
 	headers := []string{"Name", "Age", "City"}
 	for i, h := range headers {
 		c, err := sh.Cell(FormatCellRef(1, i+1))
@@ -151,7 +151,7 @@ func TestAddTableCreateRoundTrip(t *testing.T) {
 // TestAddTableTotalsRow exercises the totals-row path.
 func TestAddTableTotalsRow(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Data")
+	sh := addSheetT(wb, "Data")
 	for i, h := range []string{"Item", "Qty"} {
 		c, _ := sh.Cell(FormatCellRef(1, i+1))
 		c.SetString(h)
@@ -193,7 +193,7 @@ func TestAddTableTotalsRow(t *testing.T) {
 func TestAddTableOpenedWorkbook(t *testing.T) {
 	// Build a plain workbook and save it.
 	base := Create()
-	sh := base.AddSheet("Sheet1")
+	sh := addSheetT(base, "Sheet1")
 	for i, h := range []string{"Product", "Price"} {
 		c, _ := sh.Cell(FormatCellRef(1, i+1))
 		c.SetString(h)

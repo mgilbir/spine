@@ -8,7 +8,7 @@ import (
 func TestSheetAndWorkbookText(t *testing.T) {
 	wb := Create()
 
-	s1 := wb.AddSheet("Sheet1")
+	s1 := addSheetT(wb, "Sheet1")
 	if err := s1.SetCellValue("A1", "Name"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestSheetAndWorkbookText(t *testing.T) {
 		t.Fatalf("Sheet.Text() =\n%q\nwant\n%q", got, want1)
 	}
 
-	s2 := wb.AddSheet("Sheet2")
+	s2 := addSheetT(wb, "Sheet2")
 	mustSet(t, s2, "A1", "Second")
 
 	want := want1 + "\n\n" + "Second"
@@ -43,7 +43,7 @@ func TestWorkbookTextEmpty(t *testing.T) {
 
 func TestSheetTextSharedString(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	mustSet(t, s, "A1", "shared")
 	mustSet(t, s, "A2", "shared")
 	if got := s.Text(); !strings.Contains(got, "shared\nshared") {

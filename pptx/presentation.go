@@ -34,6 +34,15 @@ var (
 	ErrNoSlides     = errors.New("pptx: presentation has no slides")
 	ErrSlideIndex   = errors.New("pptx: slide index out of range")
 	ErrInvalidSlide = errors.New("pptx: invalid slide")
+
+	// ErrLayoutNotFound indicates no slide layout matched a LayoutByName /
+	// LayoutByType lookup. It is pptx's counterpart of xlsx.ErrSheetNotFound
+	// (C565).
+	ErrLayoutNotFound = errors.New("pptx: slide layout not found")
+
+	// ErrPlaceholderNotFound indicates the slide, layout or master carries no
+	// placeholder of the requested type.
+	ErrPlaceholderNotFound = errors.New("pptx: placeholder not found")
 )
 
 // presentationFlavors is the set of PresentationML main-part content types
@@ -78,7 +87,6 @@ type Presentation struct {
 	slides       []*Slide
 	slideMasters []*SlideMaster
 	slideLayouts []*SlideLayout
-	theme        *Theme
 
 	reader       *opc.ReadCloser
 	presentation *oxml.Presentation
@@ -99,6 +107,11 @@ type Presentation struct {
 	viewPropsData   []byte                         // /ppt/viewProps.xml
 	tableStylesData []byte                         // /ppt/tableStyles.xml
 	themeData       map[string][]byte              // /ppt/theme/*.xml (keyed by part name)
+	// themeEditors caches one dml.ThemeEditor per theme part name, created on
+	// the first Theme() call. A nil value means "this part does not parse",
+	// cached so the failure is not retried on every access. applyThemeEdits
+	// folds the modified ones back into themeData at save (C571).
+	themeEditors map[string]*dml.ThemeEditor
 	thumbnailData   []byte                         // /docProps/thumbnail.jpeg
 	appPropsData    []byte                         // /docProps/app.xml
 	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin
@@ -140,8 +153,8 @@ type Presentation struct {
 //
 // It returns ErrNotPPTX when the package is not PresentationML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with opc.OpenEncrypted and a
-// password). Each is matchable with errors.Is.
+// input is password-encrypted (open those with OpenEncrypted and a password).
+// Each is matchable with errors.Is.
 func Open(path string) (*Presentation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -220,6 +233,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		slideMasters:    make([]*SlideMaster, 0),
 		slideLayouts:    make([]*SlideLayout, 0),
 		themeData:       make(map[string][]byte),
+		themeEditors:    make(map[string]*dml.ThemeEditor),
 		printerSettings: make(map[string][]byte),
 		otherParts:      make(map[string]*coxml.RawPart),
 		relationships:   make(map[string][]*opc.Relationship),
@@ -284,38 +298,12 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 		return nil, err
 	}
 
-	// Parse each master's theme part into a read-only Theme (needs the theme
-	// data captured by loadAllParts and the rels from loadAllRelationships).
+	// Bind each master to its theme part (needs the theme data captured by
+	// loadAllParts and the rels from loadAllRelationships). The part is only
+	// parsed if Theme() is actually called; see theme.go.
 	p.resolveThemes()
 
 	return p, nil
-}
-
-// resolveThemes parses the theme part each slide master references into a
-// read-only Theme. The raw theme bytes stay preserved for round-trip; a theme
-// part that fails to parse just leaves the master's Theme nil.
-func (p *Presentation) resolveThemes() {
-	for _, master := range p.slideMasters {
-		for _, rel := range p.relationships[master.partName] {
-			if rel == nil || rel.Type != opc.RelTypeTheme {
-				continue
-			}
-			themeName := opc.ResolvePartName(master.partName, rel.Target)
-			data, ok := p.themeData[themeName]
-			if !ok {
-				break
-			}
-			var themeXML dml.Theme
-			if err := xmlb.Unmarshal(data, &themeXML); err != nil {
-				break
-			}
-			master.theme = themeFromOxml(&themeXML)
-			break
-		}
-	}
-	if p.theme == nil && len(p.slideMasters) > 0 {
-		p.theme = p.slideMasters[0].theme
-	}
 }
 
 // updateNextRelID updates nextRelID based on an existing relationship ID.
@@ -657,6 +645,7 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 		slideMasters:    make([]*SlideMaster, 0),
 		slideLayouts:    make([]*SlideLayout, 0),
 		themeData:       make(map[string][]byte),
+		themeEditors:    make(map[string]*dml.ThemeEditor),
 		printerSettings: make(map[string][]byte),
 		otherParts:      make(map[string]*coxml.RawPart),
 		relationships:   make(map[string][]*opc.Relationship),
@@ -794,6 +783,11 @@ func (p *Presentation) SaveTo(dst io.Writer) error {
 // validation pass. Prefer SaveTo; use this only when a finding is known to be
 // advisory for the caller's use case.
 func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
+	// Fold any theme edit back into the preserved theme bytes before either
+	// save path reads themeData. Both paths write theme parts straight from
+	// that map, so this is the single point where a Theme() edit becomes
+	// output (C571); an untouched theme is left byte-identical.
+	p.applyThemeEdits()
 	writer := opc.NewWriter(dst)
 	var err error
 	if p.reader != nil {
@@ -813,6 +807,9 @@ func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 // SaveAs writes the presentation to a new file path — the "open a template,
 // modify, save as a new file" workflow. It is Save to a different path and
 // enforces the same validation gate and round-trip contract as SaveTo.
+//
+// Deprecated: use Save. Save already takes the destination path, so this is an
+// exact alias, and neither docx nor xlsx has one (C567).
 func (p *Presentation) SaveAs(path string) error {
 	return p.Save(path)
 }
@@ -913,7 +910,34 @@ func (p *Presentation) Flavor() string {
 	return opc.ContentTypePresentationMain
 }
 
+// LayoutByType returns the first slide layout matching the specified type, or
+// ErrLayoutNotFound when the deck has none.
+//
+// It is the counterpart of xlsx's Workbook.SheetByName: a By<Field> lookup that
+// reports a miss as an error rather than as a nil pointer the caller must
+// remember to check. GetLayoutByType, which returned a bare nil, is the
+// deprecated spelling (C565).
+func (p *Presentation) LayoutByType(layoutType SlideLayoutType) (*SlideLayout, error) {
+	if l := p.GetLayoutByType(layoutType); l != nil {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: no layout of type %v", ErrLayoutNotFound, layoutType)
+}
+
+// LayoutByName returns the slide layout with the specified name, or
+// ErrLayoutNotFound when the deck has none by that name. See LayoutByType for
+// why the error result exists.
+func (p *Presentation) LayoutByName(name string) (*SlideLayout, error) {
+	if l := p.GetLayoutByName(name); l != nil {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: %q", ErrLayoutNotFound, name)
+}
+
 // GetLayoutByType returns the first slide layout matching the specified type.
+//
+// Deprecated: use LayoutByType, which reports a miss as an error instead of a
+// nil pointer (C565).
 func (p *Presentation) GetLayoutByType(layoutType SlideLayoutType) *SlideLayout {
 	for _, layout := range p.slideLayouts {
 		if layout.Type() == layoutType {
@@ -924,6 +948,9 @@ func (p *Presentation) GetLayoutByType(layoutType SlideLayoutType) *SlideLayout 
 }
 
 // GetLayoutByName returns the slide layout with the specified name.
+//
+// Deprecated: use LayoutByName, which reports a miss as an error instead of a
+// nil pointer (C565).
 func (p *Presentation) GetLayoutByName(name string) *SlideLayout {
 	for _, layout := range p.slideLayouts {
 		if layout.Name() == name {
@@ -2440,6 +2467,10 @@ func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
 
 // AddSlideWithLayout adds a new slide using the specified layout. It is an
 // alias for AddSlideFromLayout, kept for API compatibility.
+//
+// Deprecated: use AddSlideFromLayout. The two are the same call and no sibling
+// format carries a second spelling of its slide/sheet/section constructor
+// (C567).
 func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 	return p.AddSlideFromLayout(layout)
 }
@@ -2729,15 +2760,7 @@ func (p *Presentation) SlideLayouts() []*SlideLayout {
 	return p.slideLayouts
 }
 
-// Theme returns the presentation theme: the theme of the first slide master,
-// parsed from its theme part when the presentation was opened. It is a
-// read-only view — the theme part is preserved verbatim on save, so edits
-// made through the returned value are not written back. It returns nil for
-// presentations created programmatically (their default theme part is not
-// modeled) and for masters without a parseable theme part.
-func (p *Presentation) Theme() *Theme {
-	return p.theme
-}
+// Theme is declared in theme.go, alongside the rest of the theme wiring.
 
 // SlideWidth returns the width of slides in EMUs.
 func (p *Presentation) SlideWidth() int64 {

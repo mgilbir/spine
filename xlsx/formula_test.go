@@ -124,7 +124,7 @@ func TestSetValueOnSharedFormulaMasterMaterializesFollowers(t *testing.T) {
 // (which produced 1.5E3, i.e. 150 -> 1500).
 func TestSharedFormulaSciNotationPreservedInFollowers(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	a1, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)

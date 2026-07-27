@@ -29,7 +29,7 @@ func saveReopenSheet(t *testing.T, wb *Workbook) *Sheet {
 
 func TestPageSetupRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetPageSetup(PageSetup{
 		Orientation:     OrientationLandscape,
 		PaperSize:       u32(9),
@@ -76,7 +76,7 @@ func TestPageSetupRoundTrip(t *testing.T) {
 
 func TestPageSetupAbsentByDefault(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if _, ok := sheet.PageSetup(); ok {
 		t.Error("expected no PageSetup on a fresh sheet")
 	}
@@ -93,7 +93,7 @@ func TestPageSetupAbsentByDefault(t *testing.T) {
 
 func TestPageMarginsRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	want := PageMargins{Left: 0.7, Right: 0.7, Top: 0.75, Bottom: 0.75, Header: 0.3, Footer: 0.3}
 	if err := sheet.SetPageMargins(want); err != nil {
 		t.Fatalf("SetPageMargins: %v", err)
@@ -111,7 +111,7 @@ func TestPageMarginsRoundTrip(t *testing.T) {
 
 func TestHeaderFooterRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetHeaderFooter(HeaderFooter{
 		DifferentOddEven: b(true),
 		ScaleWithDoc:     b(false),
@@ -152,7 +152,7 @@ func TestHeaderFooterRoundTrip(t *testing.T) {
 
 func TestPrintOptionsRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetPrintOptions(PrintOptions{
 		HorizontalCentered: b(true),
 		VerticalCentered:   b(true),
@@ -183,7 +183,7 @@ func TestPrintOptionsRoundTrip(t *testing.T) {
 
 func TestPrintAreaRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetPrintArea("A1:D20"); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestPrintAreaRoundTrip(t *testing.T) {
 
 func TestPrintAreaMultipleAndQuoting(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("My Sheet")
+	sheet := addSheetT(wb, "My Sheet")
 	if err := sheet.SetPrintArea("A1:B2", "D1:E2"); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestPrintAreaMultipleAndQuoting(t *testing.T) {
 
 func TestPrintTitlesRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetPrintTitles("1:1", "A:B"); err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestPrintTitlesRoundTrip(t *testing.T) {
 
 func TestPrintTitlesRowsOnly(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetPrintTitles("1:2", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestPrintTitlesRowsOnly(t *testing.T) {
 // its bytes — the new write paths must be inert unless used.
 func TestPageSetupPreservesReopenedFileBytes(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	c, _ := sheet.Cell("A1")
 	c.SetValue("hello")
 

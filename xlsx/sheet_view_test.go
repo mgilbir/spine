@@ -8,7 +8,7 @@ import (
 
 func TestFreezePanes(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.FreezePanes("B2"); err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestFreezePanes(t *testing.T) {
 
 func TestFreezePanesRowOnly(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.FreezePanes("A3"); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestFreezePanesRowOnly(t *testing.T) {
 
 func TestFreezePanesColOnly(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.FreezePanes("C1"); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestFreezePanesColOnly(t *testing.T) {
 // remove the pane; a lowercase ref must be canonicalized.
 func TestFreezePanesA1RemovesPane(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	// Freeze then re-freeze at A1: pane and pane-scoped selections must go.
 	if err := sheet.FreezePanes("B2"); err != nil {
@@ -110,7 +110,7 @@ func TestFreezePanesA1RemovesPane(t *testing.T) {
 	}
 
 	// A freshly created sheet frozen at A1 stays pane-free too.
-	sheet2 := wb.AddSheet("Sheet2")
+	sheet2 := addSheetT(wb, "Sheet2")
 	if err := sheet2.FreezePanes("A1"); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestFreezePanesA1RemovesPane(t *testing.T) {
 // selection references.
 func TestFreezePanesCanonicalizesRef(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.FreezePanes("b2"); err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestFreezePanesCanonicalizesRef(t *testing.T) {
 
 func TestUnfreezePanes(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	_ = sheet.FreezePanes("B2")
 	sheet.UnfreezePanes()
@@ -159,7 +159,7 @@ func TestUnfreezePanes(t *testing.T) {
 
 func TestSetZoom(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	sheet.SetZoom(150)
 
@@ -174,7 +174,7 @@ func TestSetZoom(t *testing.T) {
 
 func TestSetShowGridLines(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	sheet.SetShowGridLines(false)
 
@@ -186,7 +186,7 @@ func TestSetShowGridLines(t *testing.T) {
 
 func TestSetTabColor(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	sheet.SetTabColor("FF0000")
 
@@ -200,7 +200,7 @@ func TestSetTabColor(t *testing.T) {
 
 func TestSetAutoFilter(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.SetAutoFilter("a1:f1"); err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestSetAutoFilter(t *testing.T) {
 
 func TestRemoveAutoFilter(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	_ = sheet.SetAutoFilter("A1:F1")
 	sheet.RemoveAutoFilter()
@@ -228,7 +228,7 @@ func TestRemoveAutoFilter(t *testing.T) {
 
 func TestAddDataValidation(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	err := sheet.AddDataValidation(DataValidation{
 		Range:         "c2:c100",
@@ -293,7 +293,7 @@ func TestAddDataValidation(t *testing.T) {
 // show* attributes.
 func TestAddDataValidationHideDropDown(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	err := sheet.AddDataValidation(DataValidation{
 		Range:        "B2:B10",
@@ -319,7 +319,7 @@ func TestAddDataValidationHideDropDown(t *testing.T) {
 
 func TestSheetViewSaveAndReopen(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	// Set various view properties
 	_ = sheet.FreezePanes("B2")

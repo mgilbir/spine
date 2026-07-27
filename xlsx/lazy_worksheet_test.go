@@ -12,7 +12,7 @@ import (
 // cost).
 func TestWorksheetParsedLazily(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Data")
+	sh := addSheetT(wb, "Data")
 	if err := sh.SetCellValue("A1", "hello"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestWorksheetParsedLazily(t *testing.T) {
 // round-trip sweep; here we pin that access does not perturb the result.)
 func TestLazyReadAccessDoesNotPerturbRoundTrip(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	_ = sh.SetCellValue("A1", "x")
 	_ = sh.SetCellValue("B2", "y")
 	orig, err := wb.SaveBytes()

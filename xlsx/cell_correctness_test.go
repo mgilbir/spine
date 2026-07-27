@@ -30,7 +30,7 @@ func TestRowsSortedOnMarshal(t *testing.T) {
 // C11: a *Cell handle stays valid after later cells are added to the same row.
 func TestCellHandleStableAcrossAppends(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 
 	a1, err := s.Cell("A1")
 	if err != nil {
@@ -57,7 +57,7 @@ func TestCellHandleStableAcrossAppends(t *testing.T) {
 // C67: NaN/Inf become an error cell, not an invalid <v>NaN</v>.
 func TestSetFloat_NaNInf(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		c, _ := s.Cell("A1")
 		c.SetFloat(v)
@@ -70,7 +70,7 @@ func TestSetFloat_NaNInf(t *testing.T) {
 // C68: large int64/uint64 keep full precision instead of routing via float64.
 func TestSetValue_Int64Precision(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 
 	const big int64 = 9007199254740993 // 2^53 + 1, not representable as float64
 	c, _ := s.Cell("A1")
@@ -90,7 +90,7 @@ func TestSetValue_Int64Precision(t *testing.T) {
 // C69: SetTime is timezone-independent and round-trips through Time().
 func TestSetTime_TimezoneIndependent(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 
 	plus5 := time.FixedZone("UTC+5", 5*3600)
 	d := time.Date(2024, 1, 15, 9, 30, 0, 0, plus5)
@@ -149,7 +149,7 @@ func TestParseCellRef_Bounds(t *testing.T) {
 // C73: a row without the optional r attribute is addressable and not duplicated.
 func TestRowWithoutRAttribute(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	s.ensureWorksheet()
 	// Simulate a parsed row that omitted r, carrying a cell whose ref implies row 3.
 	v := "hello"
@@ -173,7 +173,7 @@ func TestRowWithoutRAttribute(t *testing.T) {
 // lookups (C73), or an r-less row gets a duplicate <row r="N"> appended.
 func TestSetRowHeightOnRowWithoutRAttribute(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	s.ensureWorksheet()
 	v := "7"
 	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{

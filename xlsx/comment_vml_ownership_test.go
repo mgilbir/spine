@@ -184,7 +184,7 @@ func TestAddCommentPreservesFormControl(t *testing.T) {
 // competing VML parts where the note boxes never render.
 func TestAddOLEThenCommentSingleLegacyVML(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.Cell("A1"); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestAddOLEThenCommentSingleLegacyVML(t *testing.T) {
 // and must reject a syntactically invalid ref rather than emit a ref-less note.
 func TestAddCommentRefValidation(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.Cell("A1"); err != nil {
 		t.Fatal(err)
 	}

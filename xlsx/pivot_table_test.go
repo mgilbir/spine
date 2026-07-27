@@ -12,7 +12,7 @@ import (
 func buildPivotSourceWorkbook(t *testing.T) *Workbook {
 	t.Helper()
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	rows := [][]interface{}{
 		{"Region", "Product", "Sales"},
 		{"North", "A", 10.0},
@@ -30,7 +30,7 @@ func buildPivotSourceWorkbook(t *testing.T) *Workbook {
 			cell.SetValue(v)
 		}
 	}
-	wb.AddSheet("Report")
+	addSheetT(wb, "Report")
 	return wb
 }
 
@@ -104,7 +104,7 @@ func TestAddPivotTable_CreateAndReadBack(t *testing.T) {
 
 func TestAddPivotTable_RowsColsValuesFilters(t *testing.T) {
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	rows := [][]interface{}{
 		{"Region", "Product", "Year", "Sales", "Qty"},
 		{"North", "A", "2023", 10.0, 1.0},
@@ -118,7 +118,7 @@ func TestAddPivotTable_RowsColsValuesFilters(t *testing.T) {
 			cell.SetValue(v)
 		}
 	}
-	report := wb.AddSheet("Report")
+	report := addSheetT(wb, "Report")
 
 	_, err := report.AddPivotTable("Data!A1:E5", "A1", PivotOptions{
 		RowFields:    []string{"Region"},
@@ -175,7 +175,7 @@ func TestAddPivotTable_RowsColsValuesFilters(t *testing.T) {
 func buildPivotProfitWorkbook(t *testing.T) *Workbook {
 	t.Helper()
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	rows := [][]interface{}{
 		{"Region", "Sales", "Cost"},
 		{"North", 100.0, 60.0},
@@ -188,7 +188,7 @@ func buildPivotProfitWorkbook(t *testing.T) *Workbook {
 			cell.SetValue(v)
 		}
 	}
-	wb.AddSheet("Report")
+	addSheetT(wb, "Report")
 	return wb
 }
 
@@ -243,7 +243,7 @@ func TestAddPivotTable_CalculatedField(t *testing.T) {
 
 func TestAddPivotTable_NumericGroup(t *testing.T) {
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	rows := [][]interface{}{
 		{"Name", "Age", "Sales"},
 		{"A", 24.0, 10.0},
@@ -257,7 +257,7 @@ func TestAddPivotTable_NumericGroup(t *testing.T) {
 			cell.SetValue(v)
 		}
 	}
-	report := wb.AddSheet("Report")
+	report := addSheetT(wb, "Report")
 	_, err := report.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
 		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
 		NumericGroups: []PivotNumericGroup{
@@ -297,7 +297,7 @@ func TestAddPivotTable_NumericGroup(t *testing.T) {
 
 func TestAddPivotTable_DateGroup(t *testing.T) {
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	// Header row.
 	for c, h := range []string{"When", "Sales"} {
 		cell, _ := data.Cell(FormatCellRef(1, c+1))
@@ -319,7 +319,7 @@ func TestAddPivotTable_DateGroup(t *testing.T) {
 		sc, _ := data.Cell(FormatCellRef(i+2, 2))
 		sc.SetFloat(sales[i])
 	}
-	report := wb.AddSheet("Report")
+	report := addSheetT(wb, "Report")
 
 	_, err := report.AddPivotTable("Data!A1:B5", "A3", PivotOptions{
 		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
@@ -361,7 +361,7 @@ func TestAddPivotTable_DateGroup(t *testing.T) {
 
 func TestAddPivotTable_ItemGroup(t *testing.T) {
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	rows := [][]interface{}{
 		{"State", "Sales"},
 		{"CA", 10.0},
@@ -375,7 +375,7 @@ func TestAddPivotTable_ItemGroup(t *testing.T) {
 			cell.SetValue(v)
 		}
 	}
-	report := wb.AddSheet("Report")
+	report := addSheetT(wb, "Report")
 
 	_, err := report.AddPivotTable("Data!A1:B5", "A3", PivotOptions{
 		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},
@@ -459,7 +459,7 @@ func TestAddPivotTable_ExtendExistingCaches(t *testing.T) {
 	if got := len(wb2.PivotTables()); got != 1 {
 		t.Fatalf("reopened PivotTables() = %d, want 1", got)
 	}
-	report2 := wb2.AddSheet("Report2")
+	report2 := addSheetT(wb2, "Report2")
 	pt2, err := report2.AddPivotTable("Data!A1:C5", "A3", PivotOptions{
 		RowFields:   []string{"Product"},
 		ValueFields: []PivotValueField{{Field: "Sales", Aggregation: PivotSum}},

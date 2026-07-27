@@ -11,7 +11,7 @@ import (
 func addCFSheet(t *testing.T) (*Workbook, *Sheet) {
 	t.Helper()
 	w := Create()
-	return w, w.AddSheet("Sheet1")
+	return w, addSheetT(w, "Sheet1")
 }
 
 // firstCF reopens the workbook and returns the first sheet's single

@@ -199,7 +199,7 @@ func TestChartEmbeddedWorkbookOpens(t *testing.T) {
 		t.Fatalf("SheetByName: %v", err)
 	}
 	cell := func(ref string) string {
-		v, err := sh.GetCellValue(ref)
+		v, err := sh.CellValue(ref)
 		if err != nil {
 			t.Fatalf("GetCellValue(%s): %v", ref, err)
 		}

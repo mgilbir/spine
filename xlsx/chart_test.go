@@ -124,12 +124,12 @@ func TestAddChartCreatePathRoundTrip(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			wb := Create()
-			sheet := wb.AddSheet("Data")
+			sheet := addSheetT(wb, "Data")
 			if err := sheet.SetCellValue("A1", "hello"); err != nil {
 				t.Fatalf("SetCellValue: %v", err)
 			}
 			c := tc.build()
-			if err := sheet.AddChart("E2", c); err != nil {
+			if err := sheet.AddChart(c, "E2"); err != nil {
 				t.Fatalf("AddChart: %v", err)
 			}
 
@@ -196,11 +196,11 @@ func TestAddChartCreatePathRoundTrip(t *testing.T) {
 // save/reopen.
 func TestAddChartComboRoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Data")
+	sheet := addSheetT(wb, "Data")
 	c := chart.NewCombo().SetCategories([]string{"Q1", "Q2", "Q3"})
 	c.AddSeries("Revenue", []float64{10, 20, 30}).SetType(chart.KindColumn)
 	c.AddSeries("Margin", []float64{1, 2, 3}).SetType(chart.KindLine).SetSecondaryAxis(true)
-	if err := sheet.AddChart("E2", c); err != nil {
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -242,7 +242,7 @@ func TestAddChartOpenedPath(t *testing.T) {
 	// Build a plain workbook, then reopen it so the second AddChart runs on the
 	// opened (round-trip) save path.
 	base := Create()
-	if err := base.AddSheet("One").SetCellValue("A1", "x"); err != nil {
+	if err := addSheetT(base, "One").SetCellValue("A1", "x"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
 	seed, err := base.SaveBytes()
@@ -260,7 +260,7 @@ func TestAddChartOpenedPath(t *testing.T) {
 	}
 	c := chart.NewColumn().SetTitle("Opened").SetCategories([]string{"a", "b"})
 	c.AddSeries("S", []float64{7, 8})
-	if err := sheet.AddChart("D2", c); err != nil {
+	if err := sheet.AddChart(c, "D2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -291,13 +291,13 @@ func TestAddChartOpenedPath(t *testing.T) {
 // data lands on a dedicated hidden sheet and the host cell is untouched.
 func TestAddChartParts(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sales")
+	sheet := addSheetT(wb, "Sales")
 	if err := sheet.SetCellValue("A1", "keepme"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
 	c := chart.NewColumn().SetTitle("T").SetCategories([]string{"a", "b"})
 	c.AddSeries("S1", []float64{1, 2})
-	if err := sheet.AddChart("E2:L20", c); err != nil {
+	if err := sheet.AddChart(c, "E2:L20"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -354,13 +354,13 @@ func TestAddChartParts(t *testing.T) {
 // verifies both survive a save/reopen and share one drawing part.
 func TestChartAndImageCoexist(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Mix")
+	sheet := addSheetT(wb, "Mix")
 	if err := sheet.AddImage("A1", testPNG(t, 20, 10), ImageOptions{WidthPx: 100, HeightPx: 50}); err != nil {
 		t.Fatalf("AddImage: %v", err)
 	}
 	c := chart.NewLine().SetTitle("Trend").SetCategories([]string{"a", "b", "c"})
 	c.AddSeries("S", []float64{3, 1, 2})
-	if err := sheet.AddChart("E2", c); err != nil {
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 
@@ -404,10 +404,10 @@ func TestAddChartToSheetWithExistingChart(t *testing.T) {
 	// second AddChart runs on the round-trip save path against a preserved
 	// drawing part.
 	seed := Create()
-	sheet := seed.AddSheet("Data")
+	sheet := addSheetT(seed, "Data")
 	c1 := chart.NewColumn().SetTitle("First").SetCategories([]string{"a", "b"})
 	c1.AddSeries("S1", []float64{1, 2})
-	if err := sheet.AddChart("B2", c1); err != nil {
+	if err := sheet.AddChart(c1, "B2"); err != nil {
 		t.Fatalf("seed AddChart: %v", err)
 	}
 	seedData, err := seed.SaveBytes()
@@ -428,7 +428,7 @@ func TestAddChartToSheetWithExistingChart(t *testing.T) {
 	}
 	c2 := chart.NewLine().SetTitle("Second").SetCategories([]string{"a", "b", "c"})
 	c2.AddSeries("S2", []float64{4, 5, 6})
-	if err := s.AddChart("H2", c2); err != nil {
+	if err := s.AddChart(c2, "H2"); err != nil {
 		t.Fatalf("second AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -492,8 +492,8 @@ func TestAddBubbleChartDataLayout(t *testing.T) {
 	}
 
 	wb := Create()
-	sheet := wb.AddSheet("Host")
-	if err := sheet.AddChart("E2", c); err != nil {
+	sheet := addSheetT(wb, "Host")
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -557,8 +557,8 @@ func TestAddScatterChartPerSeriesX(t *testing.T) {
 	c.AddXYSeries("Beta", xB, yB)
 
 	wb := Create()
-	sheet := wb.AddSheet("Host")
-	if err := sheet.AddChart("E2", c); err != nil {
+	sheet := addSheetT(wb, "Host")
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()

@@ -103,28 +103,33 @@ type pendingPivotCache struct {
 	target  string // workbook-relative target, e.g. "pivotCache/pivotCacheDefinition1.xml"
 }
 
-// Open opens an Excel workbook from a file path. It keeps the source file open
-// (Close releases the handle); sheet contents are held as preserved bytes and
-// parsed lazily on first access.
+// Open opens an Excel workbook from a file path. The whole package is read into
+// memory, so the returned Workbook retains no OS file handle and Close is
+// effectively a no-op — the same resource model as docx.Open and pptx.Open.
+// (Before C570 this alone among the three kept the source file open until
+// Close, an xlsx-only descriptor leak for callers trained by the other two;
+// nothing needed the handle, because every part is read up front regardless.)
+// Sheet contents are held as preserved bytes and parsed lazily on first access.
 //
 // It returns ErrNotXLSX when the package is not SpreadsheetML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with opc.OpenEncrypted and a
-// password). Each is matchable with errors.Is.
+// input is password-encrypted (open those with OpenEncrypted and a password).
+// Each is matchable with errors.Is.
 func Open(path string) (*Workbook, error) {
-	reader, err := opc.OpenReader(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return openFromReader(reader)
+	return OpenReader(bytes.NewReader(data), int64(len(data)))
 }
 
 // OpenReader opens an Excel workbook from an in-memory reader. Every part is
 // read into memory during the call (worksheet models are then parsed lazily on
 // first access), so r need not remain valid after Open returns, and no OS file
 // handle is retained. It returns the same sentinels as Open (ErrNotXLSX,
-// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is.
+// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is. Open is
+// implemented on top of it.
 func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
 	reader, err := opc.NewReader(r, size)
 	if err != nil {
@@ -569,6 +574,10 @@ func (w *Workbook) SaveToUnvalidated(dst io.Writer) error {
 }
 
 // WriteToBuffer saves the workbook to an in-memory buffer.
+//
+// Deprecated: use SaveBytes, which returns the same bytes without the buffer
+// wrapper, or SaveTo for an arbitrary io.Writer. This is SaveBytes wrapped in a
+// *bytes.Buffer and has no counterpart in docx or pptx (C567).
 func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 	data, err := w.SaveBytes()
 	if err != nil {
@@ -577,13 +586,16 @@ func (w *Workbook) WriteToBuffer() (*bytes.Buffer, error) {
 	return bytes.NewBuffer(data), nil
 }
 
-// Close releases the workbook's underlying resources: for a workbook opened from
-// a file path it closes the source file handle (OpenReader and Create hold no OS
-// handle). Because Open already read every part into memory, Close frees only
-// the handle. Calling Save (or any Save* method) after Close is valid: the
-// preserved parts and parsed models stay in memory and a durable internal flag —
-// not the reader — keeps the round-trip save path, so Close does not turn a
-// saved workbook into a from-scratch regeneration.
+// Close releases the workbook's underlying resources. Since C570 no open path
+// retains an OS file handle — Open reads the file into memory exactly as
+// docx.Open and pptx.Open do — so this is effectively a no-op, kept because it
+// is part of the API and because it drops the workbook's reference to the
+// source package reader. It remains safe (and unnecessary) to call.
+//
+// Calling Save (or any Save* method) after Close is valid: the preserved parts
+// and parsed models stay in memory and a durable internal flag — not the
+// reader — keeps the round-trip save path, so Close does not turn a saved
+// workbook into a from-scratch regeneration.
 func (w *Workbook) Close() error {
 	if w.reader != nil {
 		reader := w.reader
@@ -1323,11 +1335,39 @@ func (w *Workbook) SheetByName(name string) (*Sheet, error) {
 	return nil, ErrSheetNotFound
 }
 
-// AddSheet adds a new sheet to the workbook. The name is coerced to a valid,
-// unique Excel sheet name (see ValidateSheetName); use the returned sheet's
-// Name to observe the final name.
-func (w *Workbook) AddSheet(name string) *Sheet {
-	name = w.sanitizeSheetName(name)
+// AddSheet appends a new worksheet named name and returns it.
+//
+// The name must be a legal Excel sheet name (see ValidateSheetName) and must
+// not already be taken, compared case-insensitively as Excel compares them;
+// otherwise the sheet is not added and the error says why —
+// ErrDuplicateSheetName for a collision, a descriptive error for an illegal
+// name.
+//
+// It used to coerce instead: AddSheet("Bad[Name]…") silently returned a sheet
+// actually called "BadName…" truncated to 31 runes, and a second AddSheet("Data")
+// silently produced "Data (2)", after which SheetByName(<the name you passed>)
+// failed with ErrSheetNotFound. The package already exported ValidateSheetName
+// and Sheet.SetName already rejected exactly these names, so the library knew
+// the name was illegal and rewrote the caller's identity anyway — in the API
+// where names are passed most often, and in a way no docx or pptx creation API
+// does (C440). When a suffixed fallback IS what you want, ask for it explicitly:
+//
+//	sheet, err := wb.AddSheet(wb.UniqueSheetName("Data"))
+func (w *Workbook) AddSheet(name string) (*Sheet, error) {
+	if err := ValidateSheetName(name); err != nil {
+		return nil, err
+	}
+	if w.sheetNameExists(name) {
+		return nil, fmt.Errorf("%w: %q", ErrDuplicateSheetName, name)
+	}
+	return w.addSheet(name), nil
+}
+
+// addSheet appends a sheet under a name the caller has already established is
+// legal and free. AddSheet validates; the internal callers that derive their
+// own name (CopySheetFrom via UniqueSheetName, the chart data-sheet allocator)
+// come straight here.
+func (w *Workbook) addSheet(name string) *Sheet {
 	ws := &oxml.CT_Worksheet{
 		SheetData: oxml.CT_SheetData{},
 	}
@@ -1390,6 +1430,22 @@ func ValidateSheetName(name string) error {
 	return nil
 }
 
+// UniqueSheetName coerces name into a legal sheet name that is free in this
+// workbook, mirroring how Excel repairs an invalid name: forbidden characters
+// are stripped, the result is trimmed to 31 runes and made non-empty, and a
+// " (2)"-style suffix is appended while the name collides (case-insensitively)
+// with an existing sheet.
+//
+// It is the explicit form of what AddSheet used to do silently (C440). Pair it
+// with AddSheet when a derived name is genuinely what you want:
+//
+//	sheet, err := wb.AddSheet(wb.UniqueSheetName(userSuppliedName))
+//
+// The result is only guaranteed free until the next sheet is added.
+func (w *Workbook) UniqueSheetName(name string) string {
+	return w.sanitizeSheetName(name)
+}
+
 // sanitizeSheetName coerces name into a valid, unique sheet name, mirroring how
 // Excel repairs invalid names: forbidden characters are stripped, the result is
 // trimmed to 31 characters and made non-empty, and a numeric suffix is appended
@@ -1441,6 +1497,17 @@ func truncateRunes(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
+// RemoveSheet removes the sheet at the specified index. It is the primary
+// spelling; see DeleteSheet for the full description of what removal drags
+// along with it.
+//
+// The name matches every other removal in the library — pptx's RemoveSlide,
+// and RemoveCustomProperty / RemoveVBAProject / RemoveDefinedName in this very
+// package — where DeleteSheet was the lone Delete* (C565).
+func (w *Workbook) RemoveSheet(index int) error {
+	return w.DeleteSheet(index)
+}
+
 // DeleteSheet removes the sheet at the specified index, together with its
 // preserved part, its content-type override, and its own .rels part (C75).
 // Workbook state that indexes sheets by position is adjusted: the active tab
@@ -1458,6 +1525,9 @@ func truncateRunes(s string, n int) string {
 // Every *Sheet handle for a sheet at or after index is invalidated: the
 // handles left in the workbook are re-indexed, but a handle the caller already
 // holds for the removed sheet is detached and must not be used again.
+//
+// Deprecated: use RemoveSheet, the name this library uses for every other
+// removal (C565). The two are the same call; DeleteSheet is kept working.
 func (w *Workbook) DeleteSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex

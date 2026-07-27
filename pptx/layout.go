@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"fmt"
+
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -73,7 +75,18 @@ func (sl *SlideLayout) Placeholders() []*PlaceholderShape {
 	return placeholdersFromSpTree(sl.layoutXML.CSld.SpTree)
 }
 
+// Placeholder returns the layout's placeholder of the given type, or
+// ErrPlaceholderNotFound when it has none. See Slide.Placeholder (C565).
+func (sl *SlideLayout) Placeholder(phType PlaceholderType) (*PlaceholderShape, error) {
+	if ph := sl.GetPlaceholder(phType); ph != nil {
+		return ph, nil
+	}
+	return nil, fmt.Errorf("%w: type %v on layout %q", ErrPlaceholderNotFound, phType, sl.Name())
+}
+
 // GetPlaceholder returns the placeholder with the specified type.
+//
+// Deprecated: use Placeholder, which reports a miss as an error (C565).
 func (sl *SlideLayout) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 	for _, ph := range sl.Placeholders() {
 		if ph.PlaceholderType() == phType {

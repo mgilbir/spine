@@ -42,10 +42,9 @@ flowchart TD
 - **chart** is the public chart builder; it composes `common/dml`(/chart) values
   and writes them through `common/xml`.
 - **pptx / docx / xlsx** are the format packages. Each imports `opc`, the
-  models, `validate`, and `chart`; `docx` and `xlsx` additionally import
-  `common/crypto` directly for their `OpenEncrypted` wrappers (pptx reaches
-  encryption through `opc`). Each also has an `internal/oxml` package for its
-  format-specific structs.
+  models, `validate`, and `chart`, and each reaches password encryption through
+  `opc`'s CFB bridge for its own `OpenEncrypted`/`SaveEncrypted` pair. Each also
+  has an `internal/oxml` package for its format-specific structs.
 
 ## Save pipeline
 

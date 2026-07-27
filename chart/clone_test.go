@@ -27,8 +27,8 @@ func TestAddChartDoesNotMutateCaller(t *testing.T) {
 	t.Run("xlsx", func(t *testing.T) {
 		c := newSharedChart()
 		wb := xlsx.Create()
-		sheet := wb.AddSheet("Host")
-		if err := sheet.AddChart("E2", c); err != nil {
+		sheet := addSheetT(wb, "Host")
+		if err := sheet.AddChart(c, "E2"); err != nil {
 			t.Fatalf("AddChart: %v", err)
 		}
 		if c.DataRef != "Sheet1" {
@@ -66,12 +66,12 @@ func TestAddChartDoesNotMutateCaller(t *testing.T) {
 func TestChartReusedAcrossSheets(t *testing.T) {
 	c := newSharedChart()
 	wb := xlsx.Create()
-	first := wb.AddSheet("First")
-	second := wb.AddSheet("Second")
-	if err := first.AddChart("E2", c); err != nil {
+	first := addSheetT(wb, "First")
+	second := addSheetT(wb, "Second")
+	if err := first.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart(first): %v", err)
 	}
-	if err := second.AddChart("E2", c); err != nil {
+	if err := second.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart(second): %v", err)
 	}
 	data, err := wb.SaveBytes()
@@ -101,7 +101,7 @@ func TestChartReusedAcrossSheets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SheetByName(%s): %v", name, err)
 		}
-		if v, _ := ds.GetCellValue("B2"); v != "1" {
+		if v, _ := ds.CellValue("B2"); v != "1" {
 			t.Errorf("%s!B2 = %q, want 1", name, v)
 		}
 	}
@@ -112,8 +112,8 @@ func TestChartReusedAcrossSheets(t *testing.T) {
 func TestChartEditsAfterAddDoNotLeak(t *testing.T) {
 	c := newSharedChart()
 	wb := xlsx.Create()
-	sheet := wb.AddSheet("Host")
-	if err := sheet.AddChart("E2", c); err != nil {
+	sheet := addSheetT(wb, "Host")
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	c.SetTitle("Changed")

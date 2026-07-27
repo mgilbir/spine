@@ -26,9 +26,13 @@ type Slide struct {
 	// built for a created slide). When sxModel is still nil at save time the
 	// slide was never touched, so its original bytes pass through unchanged.
 	sxParsed bool
-	index    int
-	id       uint32
-	relID    string
+	// sxParseErr holds the failure of a lazy re-parse of bytes loadSlides
+	// already parsed — an impossible state that sx() reports by panicking
+	// rather than by silently reading the slide as empty (C568).
+	sxParseErr error
+	index      int
+	id         uint32
+	relID      string
 	// idExtLst preserves the extLst child of this slide's p:sldId entry in
 	// presentation.xml, which is regenerated on every save (C225).
 	idExtLst *oxml.ExtensionList
@@ -84,7 +88,13 @@ type Slide struct {
 // part (parse-then-discard), so a lazy parse here does not re-surface the
 // malformed-slide error Open reports. Parsing never marks the slide modified,
 // so an accessed-but-unedited slide still regenerates byte-identically. Returns
-// nil only when the bytes are unavailable (a hand-built slide) or unparsable.
+// nil only when the bytes are unavailable (a hand-built slide).
+//
+// If the bytes ARE present and the re-parse fails, that is in-memory corruption
+// of bytes loadSlides already parsed successfully, and it panics with a
+// diagnostic rather than returning nil. A nil model here reads as an empty
+// slide: every shape gone, silently. docx's doc() has always made this choice
+// for the identical state (C568); the three copies of this function now agree.
 func (s *Slide) sx() *oxml.Slide {
 	if s.sxModel == nil && !s.sxParsed {
 		s.sxParsed = true
@@ -97,10 +107,16 @@ func (s *Slide) sx() *oxml.Slide {
 		m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
 		m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
 		if err := xmlb.UnmarshalWithSource(raw, m); err != nil {
-			return nil
+			s.sxParseErr = err
+		} else {
+			s.sxModel = m
+			s.materializeShapes()
 		}
-		s.sxModel = m
-		s.materializeShapes()
+	}
+	if s.sxParseErr != nil {
+		panic(fmt.Sprintf("pptx: lazy parse of slide part %s failed: %v "+
+			"(Open validated the same bytes, so this indicates in-memory corruption)",
+			s.partName, s.sxParseErr))
 	}
 	return s.sxModel
 }
@@ -264,8 +280,14 @@ func (s *Slide) AddTextBox() *TextBox {
 // AddPicture adds a picture shape to the slide, reading the image from
 // imagePath. It returns an error if the file cannot be read (previously the
 // path was stored without reading it, so a nonexistent file returned no error
-// and produced a blip with no image reference). The image data is embedded as a
-// media part when the presentation is saved.
+// and produced a blip with no image reference), or if its bytes are not an
+// image format this package embeds. The image data is embedded as a media part
+// when the presentation is saved.
+//
+// An .svg file is embedded the way PowerPoint expects an SVG: a transparent
+// raster fallback in a:blip@r:embed with the SVG itself referenced through the
+// asvg:svgBlip extension, matching docx's Run.AddImage and xlsx's
+// Sheet.AddImage. Supply your own fallback with Picture.SetSVGImageData.
 //
 // The picture frame defaults to the image's intrinsic size at 96 DPI (decoded
 // from the PNG/JPEG/GIF header; other formats fall back to 4x3 inches), so the
@@ -276,11 +298,7 @@ func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
 	if err := pic.SetImage(imagePath); err != nil {
 		return nil, err
 	}
-	if w, h, ok := nativeImageSize(pic.imageData); ok {
-		pic.SetSize(w, h)
-	} else {
-		pic.SetSize(dml.Inches(4), dml.Inches(3))
-	}
+	s.sizePictureToImage(pic)
 	s.addShape(pic)
 	return pic, nil
 }
@@ -292,20 +310,47 @@ func (s *Slide) AddPicture(imagePath string) (*Picture, error) {
 // pixel size at 96 DPI, or 4x3 inches when the dimensions cannot be decoded;
 // override it with Picture.SetSize.
 //
-// Saving fails with an error when the data is empty or not a decodable image.
+// It fails with an error when the data is empty or is not one of the image
+// formats this package embeds. That check used to be deferred to save and then
+// never happened, so garbage bytes under an "image/png" content type saved
+// clean and produced an unreadable media part while this godoc promised
+// otherwise (C441).
+//
+// SVG data — either declared with an "image/svg+xml" content type or recognized
+// by content — is embedded with a transparent raster fallback and an
+// asvg:svgBlip extension, the structure PowerPoint needs. Previously it emitted
+// a bare a:blip pointing straight at the .svg part, which most PowerPoint
+// versions render as nothing at all, even though docx and xlsx built the
+// conformant pair from the same call (C387). Supply your own fallback with
+// Picture.SetSVGImageData.
 func (s *Slide) AddPictureFromBytes(data []byte, contentType string) (*Picture, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("pptx: AddPictureFromBytes: image data is empty")
 	}
 	pic := NewPicture()
-	pic.SetImageData(data, contentType)
-	if w, h, ok := nativeImageSize(data); ok {
-		pic.SetSize(w, h)
-	} else {
-		pic.SetSize(dml.Inches(4), dml.Inches(3))
+	if err := pic.setImageBytes("AddPictureFromBytes", data, contentType); err != nil {
+		return nil, err
 	}
+	s.sizePictureToImage(pic)
 	s.addShape(pic)
 	return pic, nil
+}
+
+// sizePictureToImage gives a freshly added picture its default frame: the
+// intrinsic pixel size of the image at 96 DPI, or 4x3 inches when the format
+// carries no decodable header. For an SVG the size comes from the SVG root
+// rather than from the transparent raster fallback, which is 1x1.
+func (s *Slide) sizePictureToImage(pic *Picture) {
+	if len(pic.svgData) > 0 {
+		w, h := svgIntrinsicSizeEMU(pic.svgData)
+		pic.SetSize(w, h)
+		return
+	}
+	if w, h, ok := nativeImageSize(pic.imageData); ok {
+		pic.SetSize(w, h)
+		return
+	}
+	pic.SetSize(dml.Inches(4), dml.Inches(3))
 }
 
 // AddTable adds a table to the slide.
@@ -373,7 +418,22 @@ func (s *Slide) Placeholders() []*PlaceholderShape {
 	return placeholders
 }
 
+// Placeholder returns the slide's placeholder of the given type, or
+// ErrPlaceholderNotFound when it has none.
+//
+// It is the error-reporting spelling of GetPlaceholder, matching xlsx's
+// SheetByName and pptx's own LayoutByName: a lookup that can miss says so
+// rather than handing back a nil pointer to dereference (C565).
+func (s *Slide) Placeholder(phType PlaceholderType) (*PlaceholderShape, error) {
+	if ph := s.GetPlaceholder(phType); ph != nil {
+		return ph, nil
+	}
+	return nil, fmt.Errorf("%w: type %v on slide %d", ErrPlaceholderNotFound, phType, s.index)
+}
+
 // GetPlaceholder returns the placeholder with the specified type, or nil.
+//
+// Deprecated: use Placeholder, which reports a miss as an error (C565).
 func (s *Slide) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 	for _, shape := range s.shapeList() {
 		if ph, ok := shape.(*PlaceholderShape); ok {

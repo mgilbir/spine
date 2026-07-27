@@ -11,8 +11,8 @@ import (
 // characters, overlong names, and duplicates verbatim.
 func TestSetNameValidates(t *testing.T) {
 	wb := Create()
-	s1 := wb.AddSheet("Data")
-	s2 := wb.AddSheet("Other")
+	s1 := addSheetT(wb, "Data")
+	s2 := addSheetT(wb, "Other")
 
 	if err := s2.SetName("bad/name"); err == nil {
 		t.Error("forbidden character accepted")
@@ -46,7 +46,7 @@ func TestSetNameValidates(t *testing.T) {
 // phantom second cell beside it.
 func TestCellRefCanonicalized(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	c1, err := sheet.Cell("A1")
 	if err != nil {
@@ -131,7 +131,7 @@ func TestSetColWidthSplitsRangedEntry(t *testing.T) {
 // reject duplicate or overlapping merges.
 func TestMergeCellsValidation(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 
 	if err := sheet.MergeCells("foo", "bar"); !errors.Is(err, ErrInvalidRange) {
 		t.Errorf("garbage refs: got %v, want ErrInvalidRange", err)

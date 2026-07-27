@@ -8,7 +8,7 @@ import (
 
 func TestWorkbookProtection_DefaultRoundTrip(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	if w.Protection() != nil {
 		t.Fatal("new workbook should have no protection")
 	}
@@ -32,7 +32,7 @@ func TestWorkbookProtection_DefaultRoundTrip(t *testing.T) {
 
 func TestWorkbookProtection_PasswordAndWindows(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	w.Protect(WorkbookProtectionOptions{Password: "secret", LockStructure: true, LockWindows: true})
 
 	// The password must be stored as the legacy 16-bit hash, never in cleartext.
@@ -62,7 +62,7 @@ func TestWorkbookProtection_PasswordAndWindows(t *testing.T) {
 
 func TestWorkbookProtection_WindowsOnly(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	w.Protect(WorkbookProtectionOptions{LockWindows: true})
 
 	p := reopen(t, w).Protection()
@@ -79,7 +79,7 @@ func TestWorkbookProtection_WindowsOnly(t *testing.T) {
 
 func TestWorkbookProtection_Unprotect(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	w.Protect(WorkbookProtectionOptions{})
 	w.Unprotect()
 	if w.Protection() != nil {
