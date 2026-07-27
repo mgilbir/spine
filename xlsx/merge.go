@@ -50,27 +50,39 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 	// this workbook's stylesheet, so identical styles are registered once.
 	styleCache := make(map[uint32]uint32)
 
-	for i := range src.ws().SheetData.Row {
-		row := &src.ws().SheetData.Row[i]
-		for _, sc := range row.C {
-			if sc == nil || sc.R == "" {
-				continue
-			}
-			dc, err := dst.Cell(sc.R)
-			if err != nil {
-				return nil, err
-			}
-			if err := copyCellValue(w, other, sc, dc); err != nil {
-				return nil, err
-			}
-			if sc.S != nil {
-				newIdx, err := remapStyleIndex(w, other, *sc.S, styleCache)
-				if err != nil {
-					return nil, err
+	copyCells := func() error {
+		for i := range src.ws().SheetData.Row {
+			row := &src.ws().SheetData.Row[i]
+			for _, sc := range row.C {
+				if sc == nil || sc.R == "" {
+					continue
 				}
-				dc.SetStyleIndex(newIdx)
+				dc, err := dst.Cell(sc.R)
+				if err != nil {
+					return err
+				}
+				if err := copyCellValue(w, other, sc, dc); err != nil {
+					return err
+				}
+				if sc.S != nil {
+					newIdx, err := remapStyleIndex(w, other, *sc.S, styleCache)
+					if err != nil {
+						return err
+					}
+					dc.SetStyleIndex(newIdx)
+				}
 			}
 		}
+		return nil
+	}
+	if err := copyCells(); err != nil {
+		// Roll the half-populated sheet back out of the workbook: returning it
+		// attached left the caller with a partial copy under a name that now
+		// looks taken (C549d).
+		if delErr := w.DeleteSheet(dst.index); delErr != nil {
+			return nil, err
+		}
+		return nil, err
 	}
 
 	copyMerges(src, dst)
@@ -216,16 +228,15 @@ func copyCellValue(dstWB, srcWB *Workbook, sc *oxml.CT_Cell, dc *Cell) error {
 }
 
 // remapStyleIndex returns the index in dst's stylesheet equivalent to srcIdx in
-// src's stylesheet, registering (and deduplicating) the style on first use.
+// src's stylesheet, registering (and deduplicating) the style on first use. The
+// records are cloned directly rather than round-tripped through the public
+// CellStyle, which models colours only as RGB and so silently dropped every
+// theme- and indexed-coloured font and fill (C549c).
 func remapStyleIndex(dst, src *Workbook, srcIdx uint32, cache map[uint32]uint32) (uint32, error) {
 	if mapped, ok := cache[srcIdx]; ok {
 		return mapped, nil
 	}
-	style, err := src.Styles().GetCellStyle(srcIdx)
-	if err != nil {
-		return 0, err
-	}
-	newIdx, err := dst.Styles().NewCellStyle(style)
+	newIdx, err := dst.Styles().importXf(src.Styles(), srcIdx)
 	if err != nil {
 		return 0, err
 	}
@@ -233,34 +244,68 @@ func remapStyleIndex(dst, src *Workbook, srcIdx uint32, cache map[uint32]uint32)
 	return newIdx, nil
 }
 
-// copyMerges copies the merged ranges of src into dst.
+// copyMerges copies the merged ranges of src into dst. A single-cell merge
+// reference ("A1", no colon) is legal — parseCellRangeRef accepts it — and was
+// dropped by a plain strings.Cut on ":" (C549b).
 func copyMerges(src, dst *Sheet) {
 	if src.ws().MergeCells == nil {
 		return
 	}
 	for _, mc := range src.ws().MergeCells.MergeCell {
-		start, end, ok := strings.Cut(mc.Ref, ":")
-		if !ok {
+		rng, err := parseCellRangeRef(mc.Ref)
+		if err != nil {
 			continue
 		}
 		// Best-effort: a fresh sheet has no overlapping ranges, but ignore any
 		// individual failure rather than abort the whole copy.
-		_ = dst.MergeCells(start, end)
+		_ = dst.MergeCells(
+			FormatCellRef(rng.minRow, rng.minCol),
+			FormatCellRef(rng.maxRow, rng.maxCol),
+		)
 	}
 }
 
-// copyColumnWidths copies custom column widths from src to dst.
+// copyColumnWidths copies custom column widths from src to dst, preserving the
+// source's <col> ranges. Expanding a range into one SetColWidth per column
+// turned a single <col min="1" max="16384"> into 16384 entries, each carved
+// through the whole existing list — quadratic work and a bloated sheet (C549a).
 func copyColumnWidths(src, dst *Sheet) {
+	var entries []oxml.CT_Col
 	for _, cols := range src.ws().Cols {
 		for _, col := range cols.Col {
 			if col.Width == nil {
 				continue
 			}
-			for c := col.Min; c <= col.Max && c <= uint32(MaxCol); c++ {
-				_ = dst.SetColWidth(int(c), *col.Width)
+			minCol, maxCol := col.Min, col.Max
+			if minCol < 1 {
+				minCol = 1
 			}
+			if maxCol > uint32(MaxCol) {
+				maxCol = uint32(MaxCol)
+			}
+			if minCol > maxCol {
+				continue
+			}
+			w := *col.Width
+			customWidth := true
+			entries = append(entries, oxml.CT_Col{
+				Min:         minCol,
+				Max:         maxCol,
+				Width:       &w,
+				CustomWidth: &customWidth,
+			})
 		}
 	}
+	if len(entries) == 0 {
+		return
+	}
+	dst.markDirty()
+	ws := dst.ensureWS()
+	if len(ws.Cols) == 0 {
+		ws.Cols = append(ws.Cols, oxml.CT_Cols{})
+	}
+	ws.EnsureChildOrder("cols")
+	ws.Cols[0].Col = append(ws.Cols[0].Col, entries...)
 }
 
 // copyRowHeights copies custom row heights from src to dst.
