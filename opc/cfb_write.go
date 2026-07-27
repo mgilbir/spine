@@ -339,13 +339,23 @@ func writeDirectory(buf []byte, dirStart uint32, entries []*cfbWriteEntry, rootS
 
 	for i, e := range entries {
 		eoff := off + (i+1)*cfbDirEntrySize
+		start := e.start
+		if len(e.data) == 0 {
+			// A zero-length stream owns no sector, so its start must be ENDOFCHAIN.
+			// The mini-stream layout leaves e.start at the next free mini-sector
+			// index, which is either past the end of the mini-FAT (readMiniStream
+			// rejects it as out of range) or the first sector of whichever stream
+			// follows. writeTreeDirectory already writes ENDOFCHAIN here, so this
+			// keeps the two writers' output identical for the no-storage case (C453).
+			start = cfbEndOfChain
+		}
 		writeDirEntry(buf[eoff:eoff+cfbDirEntrySize], dirEntryFields{
 			name:       e.name,
 			objectType: cfbTypeStream,
 			left:       e.left,
 			right:      e.right,
 			child:      cfbNoStream,
-			startSect:  e.start,
+			startSect:  start,
 			size:       uint64(len(e.data)),
 		})
 	}
