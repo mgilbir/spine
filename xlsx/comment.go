@@ -107,6 +107,16 @@ type sheetComments struct {
 	vmlRID       string
 	threadedRID  string
 
+	// originalVML is the opened package's legacy VML drawing, captured the first
+	// time a save composes against it. The save drops the preserved original so
+	// the verbatim stream skips its stale bytes, which left a second save with
+	// nothing to compose against: it regenerated the drawing from scratch and
+	// discarded the form-control shapes and hand-positioned note boxes the first
+	// save had just preserved. Keeping the bytes here makes every save compose
+	// against the same original, so repeated saves converge (the same reason
+	// appendToExistingDrawing re-reads the untouched preserved drawing).
+	originalVML []byte
+
 	loaded  bool
 	mutated bool // a comment was added/replied/resolved; regenerate on save
 }
@@ -381,6 +391,14 @@ func (s *Sheet) AddComment(ref, author, text string) *Comment {
 }
 
 func (s *Sheet) addComment(ref, author, text string) *Comment {
+	// An opaque sheet is round-tripped verbatim and skipped by
+	// saveOpenedSheetAttachments, so a comment added to one would be dropped at
+	// save (C423). ensurePerson also needs a workbook: every sibling writer
+	// guards that (AddTable returns ErrNoWorkbook), and this one dereferenced it
+	// bare (C539). Both are reported the way this constructor reports a bad ref.
+	if s == nil || s.opaque || s.workbook == nil {
+		return nil
+	}
 	canon, ok := canonicalCellRef(ref)
 	if !ok {
 		return nil
@@ -436,6 +454,13 @@ func (s *Sheet) addComment(ref, author, text string) *Comment {
 // cell at ref, returning it. Unlike AddComment it creates no threaded comment
 // or person entry; use it when only the classic note mechanism is wanted.
 func (s *Sheet) AddNote(ref, author, text string) *Comment {
+	// Same guard as addComment: an opaque sheet is round-tripped verbatim and
+	// skipped by saveOpenedSheetAttachments, so the note would be dropped at
+	// save (C423). AddNote does not route through addComment, so it needs its
+	// own check.
+	if s == nil || s.opaque || s.workbook == nil {
+		return nil
+	}
 	canon, ok := canonicalCellRef(ref)
 	if !ok {
 		return nil
@@ -461,6 +486,9 @@ func (s *Sheet) AddNote(ref, author, text string) *Comment {
 // set its own font; a nil run font leaves the run in the note's default font.
 // Text on the returned comment reads back the flattened plain text.
 func (s *Sheet) AddNoteRichText(ref, author string, runs []TextRun) *Comment {
+	if s == nil || s.opaque || s.workbook == nil {
+		return nil
+	}
 	canon, ok := canonicalCellRef(ref)
 	if !ok {
 		return nil

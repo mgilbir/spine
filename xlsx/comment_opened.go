@@ -46,14 +46,19 @@ func (w *Workbook) writeSheetComments(
 	}
 
 	// Capture the sheet's existing legacy VML (which may host form-control or OLE
-	// shapes this sheet's comments do not own) before dropping the superseded
-	// originals, so composeLegacyVML can re-emit those shapes verbatim.
-	var originalVML []byte
-	if sc.vmlPart != "" {
+	// shapes this sheet's comments do not own, and the user's own note-box
+	// geometry) before dropping the superseded originals, so composeLegacyVML
+	// can re-emit those shapes verbatim.
+	//
+	// The capture is cached on the sheet because the drop below is destructive:
+	// without it a second save found no preserved original, regenerated the
+	// drawing from scratch and threw away everything the first save preserved.
+	if sc.originalVML == nil && sc.vmlPart != "" {
 		if part, ok := w.preservedParts[sc.vmlPart]; ok && part != nil {
-			originalVML = part.Data
+			sc.originalVML = part.Data
 		}
 	}
+	originalVML := sc.originalVML
 
 	// Drop superseded originals so they are not streamed verbatim.
 	for _, name := range []string{sc.commentsPart, sc.vmlPart, sc.threadedPart} {
