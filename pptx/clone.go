@@ -64,40 +64,53 @@ func (c *TableCell) clone() *TableCell {
 	}
 }
 
+// clone deep-copies the text frame.
+//
+// It starts from a value copy so a field added to TextFrame is carried over by
+// default; only the reference-typed fields need explicit deep copies below.
+// Enumerating fields instead is what silently dropped autofit here and seven
+// paragraph properties in Paragraph.clone (C415) — the clone helpers predate
+// the rich-text wave that added them.
 func (tf *TextFrame) clone() *TextFrame {
 	if tf == nil {
 		return nil
 	}
-	out := &TextFrame{
-		paragraphs: make([]*Paragraph, len(tf.paragraphs)),
-		anchor:     tf.anchor,
-		wrap:       tf.wrap,
-		margins:    tf.margins,
-	}
+	out := *tf
+	out.paragraphs = make([]*Paragraph, len(tf.paragraphs))
 	for i, p := range tf.paragraphs {
 		out.paragraphs[i] = p.clone()
 	}
-	return out
+	return &out
 }
 
+// clone deep-copies the paragraph. Like TextFrame.clone it starts from a value
+// copy; TestParagraphClone_CopiesEveryField guards the reference-typed fields.
 func (p *Paragraph) clone() *Paragraph {
 	if p == nil {
 		return nil
 	}
-	out := &Paragraph{
-		runs:        make([]*Run, len(p.runs)),
-		alignment:   p.alignment,
-		level:       p.level,
-		lineSpacing: p.lineSpacing,
-		spaceBefore: p.spaceBefore,
-		spaceAfter:  p.spaceAfter,
-		bulletType:  p.bulletType,
-		bulletChar:  p.bulletChar,
-	}
+	out := *p
+	out.runs = make([]*Run, len(p.runs))
 	for i, r := range p.runs {
 		out.runs[i] = r.clone()
 	}
-	return out
+	out.bulletColor = cloneColor(p.bulletColor)
+	out.marL = cloneInt32Ptr(p.marL)
+	out.indent = cloneInt32Ptr(p.indent)
+	if p.tabStops != nil {
+		out.tabStops = append([]TabStop(nil), p.tabStops...)
+	}
+	return &out
+}
+
+// cloneInt32Ptr returns a fresh pointer to the same value, so the clone and the
+// original never share a cell.
+func cloneInt32Ptr(v *int32) *int32 {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }
 
 func (r *Run) clone() *Run {

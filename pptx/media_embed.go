@@ -143,8 +143,14 @@ func sniffMediaContentType(data []byte) string {
 func (s *Slide) embedMediaData(data []byte, contentType, linkRelType string) (mediaRelID, linkRelID string) {
 	p := s.presentation
 
+	// Scan in sorted order: Go randomizes map iteration, so with two
+	// byte-identical media parts stored under different names the part that got
+	// reused - and therefore the relationship target written into the package -
+	// varied between runs, against the save determinism sortedKeys exists to
+	// guarantee elsewhere (C515).
 	mediaName := ""
-	for name, part := range p.otherParts {
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
 			part.ContentType == contentType && bytes.Equal(part.Data, data) {
 			mediaName = name
@@ -182,8 +188,14 @@ func (s *Slide) embedMediaData(data []byte, contentType, linkRelType string) (me
 func (s *Slide) embedAudioPart(data []byte, contentType string) string {
 	p := s.presentation
 
+	// Scan in sorted order: Go randomizes map iteration, so with two
+	// byte-identical media parts stored under different names the part that got
+	// reused - and therefore the relationship target written into the package -
+	// varied between runs, against the save determinism sortedKeys exists to
+	// guarantee elsewhere (C515).
 	mediaName := ""
-	for name, part := range p.otherParts {
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
 			part.ContentType == contentType && bytes.Equal(part.Data, data) {
 			mediaName = name

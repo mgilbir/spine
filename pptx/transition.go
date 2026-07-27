@@ -536,10 +536,44 @@ func morphFromAlternateContent(acs []*coxml.AlternateContent) *Transition {
 					t.AdvanceAfter = float64(ms) / 1000.0
 				}
 			}
+			t.Sound = soundFromRawTransition(choice.Content)
 			return t
 		}
 	}
 	return nil
+}
+
+// soundFromRawTransition reads the p:sndAc of a synthesized morph transition
+// back out of its raw choice content, or returns nil when it carries none.
+//
+// SetTransition writes the sound into both the morph choice and its fallback
+// (the C312 fix), but the read-back never looked for it, so
+// `t := s.Transition(); s.SetTransition(*t)` silently stripped the sound and
+// its r:embed from a morph — while the base-schema path round-tripped it
+// correctly through soundActionFromOxml. The two are now coherent (C516).
+func soundFromRawTransition(raw []byte) *TransitionSound {
+	i := bytes.Index(raw, []byte("<p:sndAc>"))
+	if i < 0 {
+		return nil
+	}
+	body := raw[i:]
+	if end := bytes.Index(body, []byte("</p:sndAc>")); end >= 0 {
+		body = body[:end]
+	}
+	snd := &TransitionSound{StopPreviousSound: bytes.Contains(body, []byte("<p:endSnd/>"))}
+	if st := bytes.Index(body, []byte("<p:stSnd")); st >= 0 {
+		stSnd := body[st:]
+		if end := bytes.Index(stSnd, []byte("</p:stSnd>")); end >= 0 {
+			stSnd = stSnd[:end]
+		}
+		// loop is on p:stSnd; name and r:embed are on the nested p:snd.
+		if openEnd := bytes.IndexByte(stSnd, '>'); openEnd >= 0 {
+			snd.StartSoundLoop = attrValueFromRaw(stSnd[:openEnd], "loop") == "1"
+		}
+		snd.StartSoundName = attrValueFromRaw(stSnd, "name")
+		snd.startSoundEmbed = attrValueFromRaw(stSnd, "r:embed")
+	}
+	return snd
 }
 
 // attrValueFromRaw extracts the value of the named attribute (e.g. `option` or

@@ -76,7 +76,6 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *
 		date:     parseCommentDate(cm.Created),
 		x:        x,
 		y:        y,
-		hasPos:   hasPos,
 		thread:   cm,
 		partName: partName,
 	}

@@ -149,8 +149,11 @@ func (p *Presentation) EmbedFont(name string, regular, bold, italic, boldItalic 
 // with identical bytes) and adds a presentation-level "font" relationship,
 // returning the relationship id a p:embeddedFont style entry references.
 func (p *Presentation) embedFontData(data []byte) string {
+	// Sorted scan for a deterministic pick among byte-identical font parts; see
+	// embedMediaData (C515).
 	fontName := ""
-	for name, part := range p.otherParts {
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		if part != nil && strings.HasPrefix(name, "/ppt/fonts/") && bytes.Equal(part.Data, data) {
 			fontName = name
 			break

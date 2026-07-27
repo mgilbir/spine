@@ -1057,13 +1057,12 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 		writtenRels[layoutName] = true
 	}
 
-	// Write slides using original part names
+	// Write slides using original part names. The allocation loop above has
+	// already given every slide a non-empty name, so no index-derived fallback
+	// is needed here — and the one this replaced would have produced exactly the
+	// collision-prone slide{i+1}.xml form that loop exists to avoid (C515).
 	for i, slide := range p.slides {
 		slideName := slide.partName
-		if slideName == "" {
-			slideName = fmt.Sprintf("/ppt/slides/slide%d.xml", i+1)
-			slide.partName = slideName
-		}
 		p.ensureSlideLayoutRelationship(slide, slideName)
 
 		// When the slide was never materialized it is unmodified, so its original
@@ -1905,23 +1904,14 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 			p.relationships[slidePartName] = slideRels
 		}
 
-		// An unmodified (never materialized) slide passes its original bytes
-		// through verbatim; otherwise it is regenerated from the model. In this
-		// "save new" path every slide is created (model set), so it regenerates —
-		// the passthrough branch matters only for the round-trip save.
-		var slideData []byte
-		if slide.sxModel != nil {
-			var err error
-			slideData, err = slide.marshal()
-			if err != nil {
-				return err
-			}
-		} else if slideData = slide.rawBytes(); slideData == nil {
-			var err error
-			slideData, err = slide.marshal()
-			if err != nil {
-				return err
-			}
+		// Every slide is regenerated from its model here. In this "save new" path
+		// there is no reader, so there are no original bytes to pass through:
+		// rawBytes returns nil unconditionally, and every slide reachable here
+		// has a model anyway. The passthrough branch this replaced was therefore
+		// dead twice over, and it matters only in the round-trip save (C515).
+		slideData, err := slide.marshal()
+		if err != nil {
+			return err
 		}
 
 		if err := writer.WritePart(slidePartName, opc.ContentTypeSlide, slideData); err != nil {

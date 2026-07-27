@@ -245,11 +245,10 @@ func (s *Slide) AddSmartArt(kind SmartArtKind, nodes ...*SmartArtNode) *SmartArt
 	if p == nil {
 		return nil
 	}
-	if s.partName == "" {
-		// A created slide has no part name until save; assign one now so the
-		// diagram's relationships and rels file are keyed correctly.
-		s.partName = p.nextAvailableSlidePartName()
-	}
+	// No partName guard here: AddSlide assigns the part name eagerly, precisely
+	// so relationships created before the first save are never keyed under ""
+	// (and the loader sets it from the package). The guard this replaced
+	// described the pre-fix world and was unreachable (C522).
 
 	parts := diagram.Build(kind.diagramKind(), toBuildNodes(nodes))
 
