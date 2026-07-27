@@ -25,6 +25,10 @@ type TextFrame struct {
 	// explicit zero; writing them would replace the inherited ~91440/45720
 	// defaults with zeros and shift the text.
 	marginsDirty bool
+	// marginsExplicit records that the source body carried at least one inset,
+	// so Margins can distinguish "inherits the ~91440/45720 defaults" from
+	// "explicitly zero" — both of which materialize as a zero TextMargins.
+	marginsExplicit bool
 
 	// bodyDirty is set when anchor/wrap/margins change; contentDirty when the
 	// paragraph list changes. Together with the per-paragraph and per-run
@@ -71,6 +75,9 @@ func NewTextFrame() *TextFrame {
 			Right:  dml.Inches(0.1),
 			Bottom: dml.Inches(0.05),
 		},
+		// A frame built here always writes its four insets (textFrameToOxml), so
+		// these margins are the frame's own rather than an inherited default.
+		marginsExplicit: true,
 	}
 }
 
@@ -144,9 +151,25 @@ func (tf *TextFrame) SetAutofit(autofit AutofitType) {
 	tf.bodyDirty = true
 }
 
-// Margins returns the text margins.
+// Margins returns the text margins (the a:bodyPr insets).
+//
+// A parsed body that carries no inset attributes inherits them from its
+// placeholder/layout/master — in practice PowerPoint's 91440/45720 defaults —
+// but reports a zero TextMargins here, which is indistinguishable from insets
+// explicitly set to zero. Use MarginsSet to tell the two apart before treating
+// the result as the effective margin.
 func (tf *TextFrame) Margins() TextMargins {
 	return tf.margins
+}
+
+// MarginsSet reports whether the returned Margins are the frame's own, rather
+// than a zero value standing in for inherited insets.
+//
+// It is true when the parsed body carried at least one of lIns/tIns/rIns/bIns,
+// and after any SetMargins call. When it is false the frame inherits its insets
+// and Margins says nothing about what they render as.
+func (tf *TextFrame) MarginsSet() bool {
+	return tf != nil && (tf.marginsExplicit || tf.marginsDirty)
 }
 
 // SetMargins sets the text margins.

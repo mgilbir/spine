@@ -647,17 +647,25 @@ func oxmlToTextFrame(txBody *dml.TxBody) *TextFrame {
 		if txBody.BodyPr.Anchor != "" {
 			tf.anchor = enum.TextAnchor(txBody.BodyPr.Anchor)
 		}
+		// Record whether the source carried any inset at all: without it a body
+		// that inherits its insets is indistinguishable from one explicitly set
+		// to zero, and Margins would report (0,0,0,0) for a body that actually
+		// renders with the ~91440/45720 defaults. See TextFrame.MarginsSet.
 		if txBody.BodyPr.LIns != nil {
 			tf.margins.Left = dml.EMU(*txBody.BodyPr.LIns)
+			tf.marginsExplicit = true
 		}
 		if txBody.BodyPr.TIns != nil {
 			tf.margins.Top = dml.EMU(*txBody.BodyPr.TIns)
+			tf.marginsExplicit = true
 		}
 		if txBody.BodyPr.RIns != nil {
 			tf.margins.Right = dml.EMU(*txBody.BodyPr.RIns)
+			tf.marginsExplicit = true
 		}
 		if txBody.BodyPr.BIns != nil {
 			tf.margins.Bottom = dml.EMU(*txBody.BodyPr.BIns)
+			tf.marginsExplicit = true
 		}
 		switch {
 		case txBody.BodyPr.SpAutoFit != nil:

@@ -2688,6 +2688,12 @@ func (p *Presentation) markPartRemoved(name string) {
 }
 
 // MoveSlide moves a slide from one position to another.
+//
+// It reorders the slide list only. Sections track membership by slide id, so a
+// slide moved across a section boundary keeps the section it was in and the
+// sections stop being contiguous runs of the slide order — which is a state
+// PowerPoint's own UI never produces. Follow with MoveSlideToSection when the
+// deck has sections and the move crosses one.
 func (p *Presentation) MoveSlide(from, to int) error {
 	if from < 0 || from >= len(p.slides) || to < 0 || to >= len(p.slides) {
 		return ErrSlideIndex
