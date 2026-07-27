@@ -165,8 +165,8 @@ func TestDML_Tile(t *testing.T) {
 	if v.Tx != 914400 {
 		t.Errorf("Tx = %d, want 914400", v.Tx)
 	}
-	if v.Sx != 50000 {
-		t.Errorf("Sx = %d, want 50000", v.Sx)
+	if v.Sx.Int32() != 50000 {
+		t.Errorf("Sx = %d, want 50000", v.Sx.Int32())
 	}
 	if v.Flip != "xy" {
 		t.Errorf("Flip = %q, want xy", v.Flip)

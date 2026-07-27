@@ -15,12 +15,26 @@ type Scene3d struct {
 	Backdrop *Backdrop `xml:"http://schemas.openxmlformats.org/drawingml/2006/main backdrop,omitempty"`
 }
 
-// Camera represents CT_Camera (a:camera)
+// Camera represents CT_Camera (a:camera). zoom is ST_PositivePercentage, so it
+// is a Percentage (an int32 rejects the transitional "50%" form); fov is
+// ST_FOVAngle — an angle in 60000ths of a degree, not a percentage — and stays
+// an integer. CapturedAttrs keeps an explicit zoom="0", which omitempty would
+// otherwise drop and silently restore to the 100000 default.
 type Camera struct {
-	Prst string `xml:"prst,attr"`
-	Fov  int32  `xml:"fov,attr,omitempty"`
-	Zoom int32  `xml:"zoom,attr,omitempty"`
-	Rot  *Rot3d `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rot,omitempty"`
+	Prst          string          `xml:"prst,attr"`
+	Fov           int32           `xml:"fov,attr,omitempty"`
+	Zoom          Percentage      `xml:"zoom,attr,omitempty"`
+	Rot           *Rot3d          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main rot,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (cam *Camera) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cam.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Camera
+	return d.DecodeElement((*alias)(cam), &start)
 }
 
 // LightRig represents CT_LightRig (a:lightRig)

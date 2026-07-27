@@ -606,14 +606,29 @@ func (gx *GrpXfrm) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // --- Additional Geometry Types ---
 
-// Tile represents CT_Tile (a:tile) for tiled fill patterns
+// Tile represents CT_TileInfoProperties (a:tile) for tiled fill patterns, the
+// variant reachable from BlipFill. sx/sy are ST_Percentage, so they are
+// Percentages (an int32 rejects the transitional "50%" form). CapturedAttrs
+// keeps an explicit sx="0"/tx="0", which omitempty would otherwise drop and
+// silently restore to the schema default. See TileXML, its twin under
+// BlipFillXML.
 type Tile struct {
-	Tx   int64  `xml:"tx,attr,omitempty"`
-	Ty   int64  `xml:"ty,attr,omitempty"`
-	Sx   int32  `xml:"sx,attr,omitempty"`
-	Sy   int32  `xml:"sy,attr,omitempty"`
-	Flip string `xml:"flip,attr,omitempty"` // none, x, y, xy
-	Algn string `xml:"algn,attr,omitempty"` // tl, t, tr, l, ctr, r, bl, b, br
+	Tx            int64           `xml:"tx,attr,omitempty"`
+	Ty            int64           `xml:"ty,attr,omitempty"`
+	Sx            Percentage      `xml:"sx,attr,omitempty"`
+	Sy            Percentage      `xml:"sy,attr,omitempty"`
+	Flip          string          `xml:"flip,attr,omitempty"` // none, x, y, xy
+	Algn          string          `xml:"algn,attr,omitempty"` // tl, t, tr, l, ctr, r, bl, b, br
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                   // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (tl *Tile) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Tile
+	return d.DecodeElement((*alias)(tl), &start)
 }
 
 // Stretch represents CT_StretchInfoProperties (a:stretch)

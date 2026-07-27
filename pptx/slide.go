@@ -1218,7 +1218,7 @@ func runToOxml(r *Run) *dml.R {
 		}
 
 		if r.baseline != 0 {
-			baseline := int32(r.baseline)
+			baseline := dml.NewPercentage(r.baseline)
 			ar.RPr.Baseline = &baseline
 		}
 

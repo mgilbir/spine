@@ -48,10 +48,12 @@ type CustDash struct {
 	Ds []*Ds `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ds,omitempty"`
 }
 
-// Ds represents CT_DashStop (a:ds)
+// Ds represents CT_DashStop (a:ds). d and sp are ST_PositivePercentage, so
+// they are Percentages: an int32 rejects the transitional "300%" lexical form
+// and fails the whole part (see Percentage).
 type Ds struct {
-	D  int32 `xml:"d,attr"`
-	Sp int32 `xml:"sp,attr"`
+	D  Percentage `xml:"d,attr"`
+	Sp Percentage `xml:"sp,attr"`
 }
 
 // Round represents CT_LineJoinRound (a:round)
@@ -70,9 +72,10 @@ func (bv2 *Bevel) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return d.DecodeElement((*alias)(bv2), &start)
 }
 
-// Miter represents CT_LineJoinMiterProperties (a:miter)
+// Miter represents CT_LineJoinMiterProperties (a:miter). lim is
+// ST_PositivePercentage; see Ds.
 type Miter struct {
-	Lim           int32           `xml:"lim,attr,omitempty"`
+	Lim           Percentage      `xml:"lim,attr,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 

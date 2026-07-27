@@ -79,11 +79,11 @@ func TestDML_CT_DashStop(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.D != 300000 {
-		t.Errorf("D = %d, want 300000", v.D)
+	if v.D.Int32() != 300000 {
+		t.Errorf("D = %d, want 300000", v.D.Int32())
 	}
-	if v.Sp != 100000 {
-		t.Errorf("Sp = %d, want 100000", v.Sp)
+	if v.Sp.Int32() != 100000 {
+		t.Errorf("Sp = %d, want 100000", v.Sp.Int32())
 	}
 }
 
@@ -94,8 +94,8 @@ func TestDML_CT_LineJoinMiterProperties(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Lim != 800000 {
-		t.Errorf("Lim = %d, want 800000", v.Lim)
+	if v.Lim.Int32() != 800000 {
+		t.Errorf("Lim = %d, want 800000", v.Lim.Int32())
 	}
 }
 

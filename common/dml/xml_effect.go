@@ -679,9 +679,11 @@ type AlphaOutset struct {
 	Rad int64 `xml:"rad,attr,omitempty"`
 }
 
-// AlphaBiLevel represents CT_AlphaBiLevelEffect (a:alphaBiLevel)
+// AlphaBiLevel represents CT_AlphaBiLevelEffect (a:alphaBiLevel). thresh is
+// ST_PositiveFixedPercentage, so it is a Percentage: an int32 rejects the
+// transitional "50%" lexical form and fails the whole part (see Percentage).
 type AlphaBiLevel struct {
-	Thresh int32 `xml:"thresh,attr"`
+	Thresh Percentage `xml:"thresh,attr"`
 }
 
 // AlphaCeiling represents CT_AlphaCeilingEffect (a:alphaCeiling)
@@ -701,9 +703,10 @@ type AlphaInv struct {
 	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// AlphaRepl represents CT_AlphaReplaceEffect (a:alphaRepl)
+// AlphaRepl represents CT_AlphaReplaceEffect (a:alphaRepl). a is
+// ST_PositiveFixedPercentage; see AlphaBiLevel.
 type AlphaRepl struct {
-	A int32 `xml:"a,attr"`
+	A Percentage `xml:"a,attr"`
 }
 
 // EffectDag represents CT_EffectContainer (a:effectDag). Same content model as

@@ -314,8 +314,8 @@ func TestDML_CT_AlphaBiLevelEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.Thresh != 50000 {
-		t.Errorf("Thresh = %d, want 50000", v.Thresh)
+	if v.Thresh.Int32() != 50000 {
+		t.Errorf("Thresh = %d, want 50000", v.Thresh.Int32())
 	}
 }
 
@@ -347,7 +347,7 @@ func TestDML_CT_AlphaReplaceEffect(t *testing.T) {
 	if err := xml.Unmarshal([]byte(input), &v); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
-	if v.A != 50000 {
-		t.Errorf("A = %d, want 50000", v.A)
+	if v.A.Int32() != 50000 {
+		t.Errorf("A = %d, want 50000", v.A.Int32())
 	}
 }
