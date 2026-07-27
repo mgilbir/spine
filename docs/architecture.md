@@ -76,18 +76,28 @@ stateDiagram-v2
     Raw --> Parsed: first read (Slide shapes / Sheet cells / Document body)
     Parsed --> Dirty: any mutation
     Raw --> [*]: Save writes original bytes verbatim
-    Parsed --> [*]: Save writes byte-identical output (reads never mark dirty)
+    Parsed --> [*]: Save re-emits the part (xlsx: original bytes; pptx/docx: re-marshal, near-always byte-identical)
     Dirty --> [*]: Save regenerates the part from the model
 ```
 
 Slides (`pptx`), sheets (`xlsx`), and the document body (`docx`) are validated
 once at `Open` and then discarded; the model is re-parsed only on first access.
-Reading never marks a part dirty, so an accessed-but-unedited part still
-round-trips byte-identically. The two ways that happens differ: `xlsx` re-emits
-a clean parsed sheet's *original bytes* (it regenerates only when `dirty`),
-while `pptx` and `docx` *regenerate* a materialized part from its model — still
-byte-identical, but produced by re-marshaling. A part never accessed at all
-keeps its model nil and always passes through verbatim.
+Reading never marks a part dirty, but what "unedited" buys you differs by format,
+in three tiers:
+
+1. A part **never accessed at all** keeps its model nil and passes through
+   verbatim — guaranteed byte-identical.
+2. `xlsx` re-emits a clean parsed sheet's **original bytes** (it regenerates only
+   when the sheet is `dirty`), so an accessed-but-unedited sheet is byte-identical
+   too.
+3. `pptx` and `docx` **re-marshal** an accessed slide/body from its model rather
+   than replaying its bytes. This reproduces the original for the overwhelming
+   majority of files, but it can drift from a whitespace-preserving producer's
+   exact bytes — so merely *reading* a slide or the body can cost byte-identity on
+   a small fraction (~1%) of wild files. That is why `pptx` keeps a
+   never-materialized slide on the verbatim path instead (corpus: all 1200 decks
+   round-trip byte-identical via pass-through, versus 1189 when every slide is
+   regenerated; docx 1196 versus 1194).
 
 One nuance: `pptx`'s `ReplaceText` materializes each scanned slide's model (its
 docx/xlsx text-scan counterparts do not), so those slides move to *Parsed* and
@@ -96,9 +106,11 @@ the never-accessed verbatim-bytes path.
 
 ## Round-trip fidelity model
 
-The invariant behind every diagram above is **byte-identity for untouched
-content**: opening and saving reproduces every part byte-for-byte, and mutating
-one part never disturbs another's bytes. A second invariant follows —
+The invariant behind every diagram above is **byte-identity for unmodified
+content**: opening and saving reproduces every part byte-for-byte — verbatim for
+a part the session never materializes, and subject to the tier-3 re-marshal
+caveat above for an accessed-but-unedited `pptx`/`docx` part — and mutating one
+part never disturbs another's bytes. A second invariant follows —
 **childOrder**: parsed parts record the order of their children (including
 unknown, raw-captured elements) so they re-serialize in the original sequence,
 and every mutator that appends to a typed slice must maintain that bookkeeping.

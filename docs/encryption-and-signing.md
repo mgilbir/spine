@@ -13,8 +13,8 @@ error sentinels are the ones you match with `errors.Is`:
   (e.g. the version-1.1 binary-format RC4 scheme, §2.3.6).
 
 The package-level `opc.ErrEncrypted` is returned by the plain open path when it
-meets an encrypted input; open such a file with `opc.OpenEncrypted` (or a
-format's `OpenEncrypted` wrapper) and a password instead.
+meets an encrypted input; open such a file with `opc.OpenEncrypted` (or, for
+Word, the `docx.OpenEncrypted` wrapper) and a password instead.
 
 ## Password encryption
 
@@ -29,7 +29,13 @@ the scheme (agile or standard), AES key size, and whether to emit the optional
 `\x06DataSpaces` metadata streams some Office builds expect. `docx.OpenEncrypted`
 / `Document.SaveEncrypted` wrap it for Word by file path, with
 `docx.OpenEncryptedReader` / `Document.SaveEncryptedTo` as the in-memory
-reader/writer pair. The plain open path detects an encrypted input and returns
+reader/writer pair. Word is currently the only format with an end-to-end
+encrypted-*read* wrapper: `opc.OpenEncrypted` returns a low-level `*opc.Reader`,
+and only `docx` bridges that back into a document model, so an encrypted xlsx or
+pptx can be decrypted to an `*opc.Reader` but not yet reopened as a `Workbook` or
+`Presentation` (a format wrapper for those is future work). The *write* side is
+format-generic: any format's `SaveBytes` plus `opc.SaveEncrypted` produces an
+encrypted container. The plain open path detects an encrypted input and returns
 `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword` (from
 `github.com/mgilbir/spine/common/crypto`). `OpenEncrypted` can additionally
 **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) —

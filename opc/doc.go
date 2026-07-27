@@ -29,11 +29,16 @@
 // complete zip; the metadata error and any close error are joined and
 // returned together.
 //
-// WriteRawFile writes a named file verbatim into the zip, bypassing OPC
-// part-name validation and content-type registration (it only deduplicates,
-// case-insensitively, against everything already written). It exists for
-// files that do not follow OPC part naming rules — [Content_Types].xml
-// itself — and for byte-exact preservation of original entries.
+// WriteRawFile writes a named file into the zip, bypassing OPC part-name
+// validation (it only deduplicates, case-insensitively, against everything
+// already written). It exists for files that do not follow OPC part naming
+// rules — [Content_Types].xml itself — and for byte-exact preservation of
+// original entries. Most files are written verbatim, so no content types are
+// registered for them; the one exception is [Content_Types].xml, whose zip
+// entry is deferred to Close so that content types registered after the raw
+// write (e.g. by a later CreatePart) are merged into it rather than dropped —
+// leaving those parts without a content-type entry (see WriteRawFile's own
+// godoc). Its bytes still go out verbatim when nothing is registered afterward.
 //
 // A Writer must be confined to a single goroutine.
 package opc
