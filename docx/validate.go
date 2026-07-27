@@ -285,22 +285,28 @@ func (d *Document) definedStyleIDs() map[string]struct{} {
 	return set
 }
 
-// allParagraphs returns the underlying CT_P values reachable from the body,
-// including SDT-nested ones (via the public walk), plus header/footer
-// paragraphs.
+// allParagraphs returns every underlying CT_P reachable from the body and from
+// every header/footer part, descending into tables and block-level structured
+// document tags.
+//
+// It used to walk only the body's top-level paragraphs and each header's own P
+// slice, so a dangling style, comment, note or image reference inside a table
+// cell — the single most common place to put one — was invisible to the
+// pre-save gate (the same top-level-only pattern as C490). Header/footer parts
+// are visited in part-name order so findings are reported deterministically.
 func (d *Document) allParagraphs() []*oxml.CT_P {
 	var out []*oxml.CT_P
 	if d.doc() != nil && d.doc().Body != nil {
-		out = append(out, d.doc().Body.Paragraphs()...)
+		out = append(out, d.doc().Body.AllParagraphs()...)
 	}
-	for _, hp := range d.headers {
+	for _, hp := range d.sortedHeaderParts() {
 		if hp != nil && hp.hdr != nil {
-			out = append(out, hp.hdr.P...)
+			out = append(out, hp.hdr.AllParagraphs()...)
 		}
 	}
-	for _, fp := range d.footers {
+	for _, fp := range d.sortedFooterParts() {
 		if fp != nil && fp.ftr != nil {
-			out = append(out, fp.ftr.P...)
+			out = append(out, fp.ftr.AllParagraphs()...)
 		}
 	}
 	return out
