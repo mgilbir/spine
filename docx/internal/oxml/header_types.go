@@ -35,12 +35,16 @@ func (h *CT_HeaderReference) UnmarshalXML(d *xml.Decoder, start xml.StartElement
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_HeaderReference.
 func (h *CT_HeaderReference) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	// w:type before r:id, matching Word and CT_HdrFtrRef.marshalTo — the two
+	// models of the same element disagreed on the canonical order, so which one
+	// a programmatically built reference got depended on which type happened to
+	// hold it (C509). A parsed reference replays its captured order regardless.
 	var attrs []xmlb.Attr
-	if h.RID != "" {
-		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
-	}
 	if h.Type != "" {
 		attrs = append(attrs, xmlb.Attr{Namespace: xmlb.NSWordprocessingML, Name: "type", Value: h.Type})
+	}
+	if h.RID != "" {
+		attrs = append(attrs, xmlb.Attr{Namespace: NsRelationships, Name: "id", Value: h.RID})
 	}
 	if h.CapturedAttrs != nil {
 		attrs = b.ReplayCapturedAttrs(h.CapturedAttrs, attrs)

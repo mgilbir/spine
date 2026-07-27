@@ -2,6 +2,7 @@ package oxml
 
 import (
 	"encoding/xml"
+	"strconv"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -158,24 +159,14 @@ func (c *CT_Comment) Text() string {
 }
 
 // atoiOK parses a base-10 integer, reporting whether the whole string parsed.
+// It feeds the id allocators (MaxID, MaxBookmarkID, note ids), so a value it
+// accepts must be a faithful reading: the hand-rolled loop it replaces accepted
+// a bare "-" as 0 and silently wrapped on overflow, either of which hands the
+// allocator a bogus maximum and lets the next allocated id collide (C511).
 func atoiOK(s string) (int, bool) {
-	if s == "" {
+	n, err := strconv.Atoi(s)
+	if err != nil {
 		return 0, false
-	}
-	n := 0
-	neg := false
-	for i, r := range s {
-		if i == 0 && r == '-' {
-			neg = true
-			continue
-		}
-		if r < '0' || r > '9' {
-			return 0, false
-		}
-		n = n*10 + int(r-'0')
-	}
-	if neg {
-		n = -n
 	}
 	return n, true
 }

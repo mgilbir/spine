@@ -350,7 +350,6 @@ const (
 	trChildTc trChildKind = iota
 	trChildBookmarkStart
 	trChildBookmarkEnd
-	trChildCustomXmlCell
 	trChildSdtCell
 	trChildIns
 	trChildDel
