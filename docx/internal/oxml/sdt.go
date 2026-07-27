@@ -97,50 +97,13 @@ func (sc *CT_SdtContentBlock) MarshalToBuilder(b *xmlb.Builder, ns, localName st
 }
 
 // contentParagraphs returns the paragraphs inside this block-level SDT in
-// document order, descending into nested SDT blocks.
+// document order, descending through nested SDT blocks and — for an SDT that
+// wraps bare cells or rows — through those cells' nested tables and SDTs too
+// (C508).
 func (s *CT_SdtBlock) contentParagraphs() []*CT_P {
-	if s.SdtContent == nil {
-		return nil
-	}
-	sc := s.SdtContent
-	if len(sc.childOrder) == 0 {
-		result := append([]*CT_P{}, sc.P...)
-		for _, tbl := range sc.Tbl {
-			collectTableParagraphs(tbl, &result)
-		}
-		for _, nested := range sc.SdtBlock {
-			result = append(result, nested.contentParagraphs()...)
-		}
-		return result
-	}
-	var result []*CT_P
-	for _, ref := range sc.childOrder {
-		switch ref.kind {
-		case bodyChildP:
-			if ref.index < len(sc.P) {
-				result = append(result, sc.P[ref.index])
-			}
-		case bodyChildTbl:
-			if ref.index < len(sc.Tbl) {
-				collectTableParagraphs(sc.Tbl[ref.index], &result)
-			}
-		case bodyChildSdt:
-			if ref.index < len(sc.SdtBlock) {
-				result = append(result, sc.SdtBlock[ref.index].contentParagraphs()...)
-			}
-		case bodyChildTc:
-			if ref.index < len(sc.Tc) {
-				result = append(result, sc.Tc[ref.index].P...)
-			}
-		case bodyChildTr:
-			if ref.index < len(sc.Tr) {
-				for _, tc := range sc.Tr[ref.index].Tc {
-					result = append(result, tc.P...)
-				}
-			}
-		}
-	}
-	return result
+	var out []*CT_P
+	visitSdtBlock(s, blockVisitor{Para: func(p *CT_P) { out = append(out, p) }})
+	return out
 }
 
 // CT_SdtRun represents an inline/run-level structured document tag.

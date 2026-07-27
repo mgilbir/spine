@@ -39,15 +39,15 @@ func (p *CT_P) InsertBookmarkEndAfterRun(r *CT_R, id string) bool {
 	return true
 }
 
-// MaxBookmarkID returns the highest numeric bookmark id across the given
-// paragraphs (start markers), or -1 if none carry a numeric id.
-func MaxBookmarkID(paras []*CT_P) int {
+// MaxBookmarkID returns the highest numeric bookmark id (w:bookmarkStart)
+// anywhere in the body, or -1 if none carries a numeric id. Word's table
+// column bookmarks (w:colFirst/w:colLast) are direct children of a row, a cell,
+// a table or the body rather than of a paragraph, so scanning paragraphs alone
+// let a newly allocated bookmark reuse an id already in the document (C507).
+func MaxBookmarkID(body *CT_Body) int {
 	max := -1
-	for _, p := range paras {
-		if p == nil {
-			continue
-		}
-		for _, bs := range p.BookmarkStart {
+	consider := func(starts []*CT_BookmarkStart) {
+		for _, bs := range starts {
 			if bs == nil {
 				continue
 			}
@@ -56,6 +56,25 @@ func MaxBookmarkID(paras []*CT_P) int {
 			}
 		}
 	}
+	if body == nil {
+		return max
+	}
+	consider(body.BookmarkStart)
+	visitBlockContent(body.childOrder, body.P, body.Tbl, body.SdtBlock, blockVisitor{
+		Para: func(p *CT_P) {
+			if p != nil {
+				consider(p.BookmarkStart)
+			}
+		},
+		Tbl:  func(tbl *CT_Tbl) { consider(tbl.BookmarkStart) },
+		Row:  func(tr *CT_Tr) { consider(tr.BookmarkStart) },
+		Cell: func(tc *CT_Tc) { consider(tc.BookmarkStart) },
+		Sdt: func(s *CT_SdtBlock) {
+			if s.SdtContent != nil {
+				consider(s.SdtContent.BookmarkStart)
+			}
+		},
+	})
 	return max
 }
 

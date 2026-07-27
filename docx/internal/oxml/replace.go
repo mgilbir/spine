@@ -162,31 +162,8 @@ func replaceRunSegments(runs []*CT_R, fn func(runs []*CT_R) ([]*CT_R, bool)) ([]
 // traversal CT_Body.AllParagraphs performs for the main document body.
 func (hf *CT_HdrFtr) AllParagraphs() []*CT_P {
 	var out []*CT_P
-	if len(hf.childOrder) == 0 {
-		out = append(out, hf.P...)
-		for _, tbl := range hf.Tbl {
-			collectTableParagraphs(tbl, &out)
-		}
-		for _, s := range hf.SdtBlock {
-			out = append(out, s.contentParagraphs()...)
-		}
-		return out
-	}
-	for _, ref := range hf.childOrder {
-		switch ref.kind {
-		case bodyChildP:
-			if ref.index < len(hf.P) {
-				out = append(out, hf.P[ref.index])
-			}
-		case bodyChildTbl:
-			if ref.index < len(hf.Tbl) {
-				collectTableParagraphs(hf.Tbl[ref.index], &out)
-			}
-		case bodyChildSdt:
-			if ref.index < len(hf.SdtBlock) {
-				out = append(out, hf.SdtBlock[ref.index].contentParagraphs()...)
-			}
-		}
-	}
+	visitBlockContent(hf.childOrder, hf.P, hf.Tbl, hf.SdtBlock, blockVisitor{
+		Para: func(p *CT_P) { out = append(out, p) },
+	})
 	return out
 }

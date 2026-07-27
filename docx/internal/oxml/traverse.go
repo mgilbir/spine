@@ -6,32 +6,9 @@ package oxml
 // readers (hyperlinks, images) do not under-report table-nested content.
 func (body *CT_Body) AllParagraphs() []*CT_P {
 	var out []*CT_P
-	if len(body.childOrder) == 0 {
-		out = append(out, body.P...)
-		for _, tbl := range body.Tbl {
-			collectTableParagraphs(tbl, &out)
-		}
-		for _, s := range body.SdtBlock {
-			out = append(out, s.contentParagraphs()...)
-		}
-		return out
-	}
-	for _, ref := range body.childOrder {
-		switch ref.kind {
-		case bodyChildP:
-			if ref.index < len(body.P) {
-				out = append(out, body.P[ref.index])
-			}
-		case bodyChildTbl:
-			if ref.index < len(body.Tbl) {
-				collectTableParagraphs(body.Tbl[ref.index], &out)
-			}
-		case bodyChildSdt:
-			if ref.index < len(body.SdtBlock) {
-				out = append(out, body.SdtBlock[ref.index].contentParagraphs()...)
-			}
-		}
-	}
+	visitBlockContent(body.childOrder, body.P, body.Tbl, body.SdtBlock, blockVisitor{
+		Para: func(p *CT_P) { out = append(out, p) },
+	})
 	return out
 }
 
@@ -105,31 +82,6 @@ func (hf *CT_HdrFtr) TextBlocks() []TextBlock {
 // document order, descending into nested SDTs.
 func (s *CT_SdtBlock) ContentParagraphs() []*CT_P {
 	return s.contentParagraphs()
-}
-
-// collectTableParagraphs appends every paragraph in a table (all cells, nested
-// tables, and cell-level SDTs) to out in row-major document order.
-func collectTableParagraphs(tbl *CT_Tbl, out *[]*CT_P) {
-	if tbl == nil {
-		return
-	}
-	for _, tr := range tbl.Tr {
-		if tr == nil {
-			continue
-		}
-		for _, tc := range tr.Tc {
-			if tc == nil {
-				continue
-			}
-			*out = append(*out, tc.P...)
-			for _, nested := range tc.Tbl {
-				collectTableParagraphs(nested, out)
-			}
-			for _, s := range tc.SdtBlock {
-				*out = append(*out, s.contentParagraphs()...)
-			}
-		}
-	}
 }
 
 // InsertRunAfter inserts newRun into the paragraph immediately after target,
