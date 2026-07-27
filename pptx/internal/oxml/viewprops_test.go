@@ -107,7 +107,7 @@ func TestNormalViewPortion_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			nvp := &NormalViewPortion{Sz: tt.sz, AutoAdjust: tt.autoAdjust}
+			nvp := &NormalViewPortion{Sz: tt.sz, AutoAdjust: &tt.autoAdjust}
 			out, err := xml.Marshal(nvp)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
@@ -121,7 +121,8 @@ func TestNormalViewPortion_RoundTrip(t *testing.T) {
 			if nvp2.Sz != tt.sz {
 				t.Errorf("Sz = %d, want %d", nvp2.Sz, tt.sz)
 			}
-			if nvp2.AutoAdjust != tt.autoAdjust {
+			// autoAdjust is XSD default-TRUE, so it is a *bool (C526).
+			if nvp2.AutoAdjust == nil || *nvp2.AutoAdjust != tt.autoAdjust {
 				t.Errorf("AutoAdjust = %v, want %v", nvp2.AutoAdjust, tt.autoAdjust)
 			}
 		})
@@ -164,7 +165,7 @@ func TestCommonSlideViewProperties_RoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			csvp := &CommonSlideViewProperties{
-				SnapToGrid:    tt.snapToGrid,
+				SnapToGrid:    &tt.snapToGrid,
 				SnapToObjects: tt.snapToObjects,
 				ShowGuides:    tt.showGuides,
 			}
@@ -178,7 +179,8 @@ func TestCommonSlideViewProperties_RoundTrip(t *testing.T) {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}
 
-			if csvp2.SnapToGrid != tt.snapToGrid {
+			// snapToGrid is XSD default-TRUE, so it is a *bool (C526).
+			if csvp2.SnapToGrid == nil || *csvp2.SnapToGrid != tt.snapToGrid {
 				t.Errorf("SnapToGrid = %v, want %v", csvp2.SnapToGrid, tt.snapToGrid)
 			}
 			if csvp2.SnapToObjects != tt.snapToObjects {
@@ -420,7 +422,7 @@ func TestSorterViewProperties_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svp := &SorterViewProperties{ShowFormatting: tt.showFormatting}
+			svp := &SorterViewProperties{ShowFormatting: &tt.showFormatting}
 			out, err := xml.Marshal(svp)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
@@ -431,7 +433,8 @@ func TestSorterViewProperties_RoundTrip(t *testing.T) {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}
 
-			if svp2.ShowFormatting != tt.showFormatting {
+			// showFormatting is XSD default-TRUE, so it is a *bool (C526).
+			if svp2.ShowFormatting == nil || *svp2.ShowFormatting != tt.showFormatting {
 				t.Errorf("ShowFormatting = %v, want %v", svp2.ShowFormatting, tt.showFormatting)
 			}
 		})

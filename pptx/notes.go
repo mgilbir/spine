@@ -1,7 +1,6 @@
 package pptx
 
 import (
-	"encoding/xml"
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -86,7 +85,10 @@ func (s *Slide) loadNotesSlide() (*oxml.NotesSlide, string) {
 		return nil, ""
 	}
 	var ns oxml.NotesSlide
-	if err := xml.Unmarshal(data, &ns); err != nil {
+	// UnmarshalWithSource registers the raw bytes so the root attribute capture
+	// (and the capture kit below it) can recover the producer's verbatim
+	// rendering rather than a re-synthesized one.
+	if err := xmlb.UnmarshalWithSource(data, &ns); err != nil {
 		return nil, ""
 	}
 	return &ns, partName
@@ -243,7 +245,17 @@ func marshalNotesSlide(ns *oxml.NotesSlide) []byte {
 	if ns.ShowMasterPhAnim != nil {
 		attrs = append(attrs, xmlb.BoolAttr("showMasterPhAnim", *ns.ShowMasterPhAnim))
 	}
-	b.StartElementWithNS(nsP, "notes", xmlb.PresentationMLNamespaces(), attrs...)
+	// A parsed notes part replays its own root attribute list: the fixed a/r/p
+	// declaration set dropped mc:Ignorable and any extra declaration, and left
+	// an mc:AlternateContent inside the notes shape tree with an unbound mc:
+	// prefix — namespace-invalid XML written by SetNotes (C421). Modeled
+	// attributes still win via the merge, so a cleared showMasterSp takes
+	// effect.
+	if ns.OriginalRootAttrs != nil {
+		b.StartElementWithRootAttrsMerged(nsP, "notes", ns.OriginalRootAttrs, attrs)
+	} else {
+		b.StartElementWithNS(nsP, "notes", xmlb.PresentationMLNamespaces(), attrs...)
+	}
 	if ns.CSld != nil {
 		b.MarshalElement(nsP, "cSld", ns.CSld)
 	}

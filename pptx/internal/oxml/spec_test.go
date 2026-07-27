@@ -72,14 +72,19 @@ var pmlTypeMap = map[string]reflect.Type{
 	// Presentation properties
 	"htmlPubPr": reflect.TypeOf(HtmlPublishProperties{}),
 
-	// View properties
-	"style": reflect.TypeOf(SlideProperties{}),
+	// Shape style: p:style is a:CT_ShapeStyle (lnRef/fillRef/effectRef/fontRef).
+	// It used to be mapped to a placeholder "SlideProperties" struct that shared
+	// no child with it, so the round trip compared two empty values and passed
+	// vacuously (C527).
+	"style": reflect.TypeOf(dml.Style{}),
 
 	// Background reference (uses DML FillRef / CT_StyleMatrixReference)
 	"bgRef": reflect.TypeOf(dml.FillRef{}),
 
-	// Comment text
-	"text": reflect.TypeOf(CommentText{}),
+	// p:text has no standalone Go type: it is CT_Comment's xsd:string child,
+	// modeled as Comment.Text. It is covered in its real context by
+	// TestComment_TextChildRoundTripsThroughBuilder (comments_test.go) rather
+	// than through a struct that exists only for this map (C527).
 }
 
 func pmlTestdataPath() string {

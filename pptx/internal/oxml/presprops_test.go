@@ -44,7 +44,7 @@ func TestHtmlPublishProperties_RoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hpp := &HtmlPublishProperties{
-				ShowSpeakerNotes: tt.showSpeakerNotes,
+				ShowSpeakerNotes: &tt.showSpeakerNotes,
 				PubBrowser:       tt.pubBrowser,
 				Title:            tt.title,
 			}
@@ -58,7 +58,9 @@ func TestHtmlPublishProperties_RoundTrip(t *testing.T) {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}
 
-			if hpp2.ShowSpeakerNotes != tt.showSpeakerNotes {
+			// showSpeakerNotes is XSD default-TRUE, so an explicit false must
+			// survive as a pointer rather than be deleted by omitempty (C526).
+			if hpp2.ShowSpeakerNotes == nil || *hpp2.ShowSpeakerNotes != tt.showSpeakerNotes {
 				t.Errorf("ShowSpeakerNotes = %v, want %v", hpp2.ShowSpeakerNotes, tt.showSpeakerNotes)
 			}
 			if hpp2.PubBrowser != tt.pubBrowser {
@@ -81,13 +83,14 @@ func TestWebProperties_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			yes := true
 			wp := &WebProperties{
 				ShowAnimation:     true,
-				ResizeGraphics:    true,
+				ResizeGraphics:    &yes,
 				AllowPng:          true,
 				RelyOnVml:         false,
-				OrganizeInFolders: true,
-				UseLongFilenames:  true,
+				OrganizeInFolders: &yes,
+				UseLongFilenames:  &yes,
 				ImgSz:             tt.imgSz,
 				Encoding:          "utf-8",
 				Clr:               tt.clr,
@@ -233,7 +236,7 @@ func TestShowInfoBrowse_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sib := &ShowInfoBrowse{ShowScrollbar: tt.showScrollbar}
+			sib := &ShowInfoBrowse{ShowScrollbar: &tt.showScrollbar}
 			out, err := xml.Marshal(sib)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
@@ -244,7 +247,8 @@ func TestShowInfoBrowse_RoundTrip(t *testing.T) {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}
 
-			if sib2.ShowScrollbar != tt.showScrollbar {
+			// showScrollbar is XSD default-TRUE (C526).
+			if sib2.ShowScrollbar == nil || *sib2.ShowScrollbar != tt.showScrollbar {
 				t.Errorf("ShowScrollbar = %v, want %v", sib2.ShowScrollbar, tt.showScrollbar)
 			}
 		})
@@ -357,107 +361,6 @@ func TestColorMRU_RoundTrip(t *testing.T) {
 	var cm2 ColorMRU
 	if err := xml.Unmarshal(out, &cm2); err != nil {
 		t.Fatalf("Re-unmarshal failed: %v", err)
-	}
-}
-
-func TestSlideProperties_RoundTrip(t *testing.T) {
-	xmlStr := `<sldPr xmlns="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <transition spd="fast">
-    <fade/>
-  </transition>
-  <hf sldNum="true" ftr="true"/>
-</sldPr>`
-
-	var sp SlideProperties
-	if err := xml.Unmarshal([]byte(xmlStr), &sp); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-
-	out, err := xml.Marshal(&sp)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-
-	var sp2 SlideProperties
-	if err := xml.Unmarshal(out, &sp2); err != nil {
-		t.Fatalf("Re-unmarshal failed: %v", err)
-	}
-}
-
-func TestSlideLayoutProperties_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name         string
-		matchingName string
-		layoutType   string
-		preserve     bool
-		userDrawn    bool
-	}{
-		{"title layout", "Title Slide", "title", true, false},
-		{"content layout", "Title and Content", "obj", false, false},
-		{"custom layout", "My Layout", "cust", true, true},
-		{"section header", "Section Header", "secHead", false, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slp := &SlideLayoutProperties{
-				MatchingName: tt.matchingName,
-				Type:         tt.layoutType,
-				Preserve:     tt.preserve,
-				UserDrawn:    tt.userDrawn,
-			}
-			out, err := xml.Marshal(slp)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var slp2 SlideLayoutProperties
-			if err := xml.Unmarshal(out, &slp2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if slp2.MatchingName != tt.matchingName {
-				t.Errorf("MatchingName = %q, want %q", slp2.MatchingName, tt.matchingName)
-			}
-			if slp2.Type != tt.layoutType {
-				t.Errorf("Type = %q, want %q", slp2.Type, tt.layoutType)
-			}
-			if slp2.Preserve != tt.preserve {
-				t.Errorf("Preserve = %v, want %v", slp2.Preserve, tt.preserve)
-			}
-			if slp2.UserDrawn != tt.userDrawn {
-				t.Errorf("UserDrawn = %v, want %v", slp2.UserDrawn, tt.userDrawn)
-			}
-		})
-	}
-}
-
-func TestSlideMasterProperties_RoundTrip(t *testing.T) {
-	tests := []struct {
-		name     string
-		preserve bool
-	}{
-		{"preserve true", true},
-		{"preserve false", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			smp := &SlideMasterProperties{Preserve: tt.preserve}
-			out, err := xml.Marshal(smp)
-			if err != nil {
-				t.Fatalf("Marshal failed: %v", err)
-			}
-
-			var smp2 SlideMasterProperties
-			if err := xml.Unmarshal(out, &smp2); err != nil {
-				t.Fatalf("Unmarshal failed: %v", err)
-			}
-
-			if smp2.Preserve != tt.preserve {
-				t.Errorf("Preserve = %v, want %v", smp2.Preserve, tt.preserve)
-			}
-		})
 	}
 }
 

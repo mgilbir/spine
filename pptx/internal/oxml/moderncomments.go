@@ -34,8 +34,14 @@ type ModernAuthor struct {
 	UserID     string
 	ProviderID string
 	// ExtraAttrs holds author attributes this library does not model, so they
-	// survive a rewrite.
+	// survive a rewrite. It is used only for authors built programmatically; a
+	// parsed author replays CapturedAttrs, which already carries them.
 	ExtraAttrs []xmlb.Attr
+	// CapturedAttrs is the verbatim source attribute list of a parsed author.
+	// Replaying it keeps the producer's attribute order and, crucially, does not
+	// invent initials=""/userId=""/providerId="" for an author that carried
+	// none (C525). nil for authors built programmatically.
+	CapturedAttrs []xmlb.RootAttr
 	// Raw preserves the verbatim inner content (e.g. an extLst) of an author
 	// element read from disk, so a regenerated author list keeps it.
 	RawInner []byte
@@ -50,8 +56,17 @@ type ModernComment struct {
 	Status   string // "" (active) or "resolved"
 
 	// ExtraAttrs holds cm attributes this library does not model (startDate,
-	// dueDate, assignedTo, complete, title, ...) so they survive a rewrite.
+	// dueDate, assignedTo, complete, title, ...) so they survive a rewrite. It
+	// is used only for comments built programmatically; a parsed comment
+	// replays CapturedAttrs, which already carries them.
 	ExtraAttrs []xmlb.Attr
+	// CapturedAttrs is the verbatim source attribute list of a parsed comment,
+	// replayed so the producer's attribute order survives (C525). nil for
+	// comments built programmatically.
+	CapturedAttrs []xmlb.RootAttr
+	// HasReplyLst records that the source carried a p188:replyLst element even
+	// when it held no reply, so an empty <p188:replyLst/> is not deleted (C525).
+	HasReplyLst bool
 
 	// PreChildren are the raw children emitted before the reply list and the
 	// comment body (anchor marker list, p188:pos, ...), in source order.
@@ -69,11 +84,16 @@ type ModernComment struct {
 
 // ModernReply models CT_Reply (p188:reply).
 type ModernReply struct {
-	ID         string
-	AuthorID   string
-	Created    string
+	ID       string
+	AuthorID string
+	Created  string
+	// ExtraAttrs holds reply attributes this library does not model; used only
+	// for replies built programmatically (see ModernComment.ExtraAttrs).
 	ExtraAttrs []xmlb.Attr
-	TxBody     []byte
+	// CapturedAttrs is the verbatim source attribute list of a parsed reply
+	// (see ModernComment.CapturedAttrs).
+	CapturedAttrs []xmlb.RootAttr
+	TxBody        []byte
 	BodyText   string // used only for library-created replies (TxBody == nil)
 	// PreChildren / PostChildren preserve raw children around the body.
 	PreChildren  [][]byte
@@ -137,6 +157,7 @@ func (l *ModernAuthorList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) 
 }
 
 func (a *ModernAuthor) decode(d *xml.Decoder, start xml.StartElement) error {
+	a.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, at := range start.Attr {
 		if at.Name.Space == "xmlns" || (at.Name.Space == "" && at.Name.Local == "xmlns") {
 			continue
@@ -171,6 +192,7 @@ func (a *ModernAuthor) decode(d *xml.Decoder, start xml.StartElement) error {
 // UnmarshalXML decodes p188:cm, modeling id/authorId/created/status and the
 // reply list, preserving every other child verbatim.
 func (c *ModernComment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, at := range start.Attr {
 		if at.Name.Space == "xmlns" || (at.Name.Space == "" && at.Name.Local == "xmlns") {
 			continue
@@ -198,6 +220,7 @@ func (c *ModernComment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		case xml.StartElement:
 			switch {
 			case t.Name.Space == nsP188 && t.Name.Local == "replyLst":
+				c.HasReplyLst = true
 				if err := c.decodeReplyLst(d, t); err != nil {
 					return err
 				}
@@ -253,6 +276,7 @@ func (c *ModernComment) decodeReplyLst(d *xml.Decoder, start xml.StartElement) e
 }
 
 func (r *ModernReply) decode(d *xml.Decoder, start xml.StartElement) error {
+	r.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, at := range start.Attr {
 		if at.Name.Space == "xmlns" || (at.Name.Space == "" && at.Name.Local == "xmlns") {
 			continue
@@ -295,18 +319,6 @@ func (r *ModernReply) decode(d *xml.Decoder, start xml.StartElement) error {
 			}
 		}
 	}
-}
-
-// captureRaw reconstructs the verbatim XML of a child element, preserving its
-// inline namespace declarations and inner content.
-func captureRaw(d *xml.Decoder, start xml.StartElement) ([]byte, error) {
-	var inner struct {
-		Content []byte `xml:",innerxml"`
-	}
-	if err := d.DecodeElement(&inner, &start); err != nil {
-		return nil, err
-	}
-	return encodeRawChild(start, inner.Content), nil
 }
 
 // ModernCommentText returns the plain text of a p188 comment body: the a:t

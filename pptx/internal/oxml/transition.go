@@ -64,45 +64,126 @@ func (t *Transition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 // EmptyTransition represents CT_Empty for transitions with no parameters
 type EmptyTransition struct{}
 
+// The transition-choice types below all carry XSD-defaulted attributes
+// (dir/orient/spokes default to a named value, thruBlk and loop default to
+// false), which omitempty deletes when a producer writes the default
+// explicitly. Slides, layouts and masters re-marshal their p:transition on
+// every save, so each of these needs the CapturedAttrs convention to keep an
+// explicit thruBlk="0" / loop="0" / spokes="0" and any unmodeled attribute
+// (C420). nil means "built programmatically" and takes the canonical emission.
+
 // OrientationTransition represents CT_OrientationTransition (p:blinds, p:checker, p:comb, p:randomBar)
 type OrientationTransition struct {
-	Dir string `xml:"dir,attr,omitempty"` // horz, vert (default horz)
+	Dir           string          `xml:"dir,attr,omitempty"` // horz, vert (default horz)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                  // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (v *OrientationTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias OrientationTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // SideDirectionTransition represents CT_SideDirectionTransition (p:push, p:wipe)
 type SideDirectionTransition struct {
-	Dir string `xml:"dir,attr,omitempty"` // l, u, r, d (default l)
+	Dir           string          `xml:"dir,attr,omitempty"` // l, u, r, d (default l)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                  // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (see
+// OrientationTransition.UnmarshalXML).
+func (v *SideDirectionTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias SideDirectionTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // CornerDirectionTransition represents CT_CornerDirectionTransition (p:strips)
 type CornerDirectionTransition struct {
-	Dir string `xml:"dir,attr,omitempty"` // lu, ru, ld, rd (default lu)
+	Dir           string          `xml:"dir,attr,omitempty"` // lu, ru, ld, rd (default lu)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                  // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (see
+// OrientationTransition.UnmarshalXML).
+func (v *CornerDirectionTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CornerDirectionTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // EightDirectionTransition represents CT_EightDirectionTransition (p:cover, p:pull)
 type EightDirectionTransition struct {
-	Dir string `xml:"dir,attr,omitempty"` // l, u, r, d, lu, ru, ld, rd (default l)
+	Dir           string          `xml:"dir,attr,omitempty"` // l, u, r, d, lu, ru, ld, rd (default l)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                  // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (see
+// OrientationTransition.UnmarshalXML).
+func (v *EightDirectionTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias EightDirectionTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // OptionalBlackTransition represents CT_OptionalBlackTransition (p:cut, p:fade)
 type OptionalBlackTransition struct {
-	ThruBlk bool `xml:"thruBlk,attr,omitempty"` // through black
+	ThruBlk       bool            `xml:"thruBlk,attr,omitempty"` // through black
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                      // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list, so an explicit
+// thruBlk="0" survives the re-marshal (see OrientationTransition.UnmarshalXML).
+func (v *OptionalBlackTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias OptionalBlackTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // SplitTransition represents CT_SplitTransition (p:split)
 type SplitTransition struct {
-	Orient string `xml:"orient,attr,omitempty"` // horz, vert (default horz)
-	Dir    string `xml:"dir,attr,omitempty"`    // in, out (default out)
+	Orient        string          `xml:"orient,attr,omitempty"` // horz, vert (default horz)
+	Dir           string          `xml:"dir,attr,omitempty"`    // in, out (default out)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                     // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (see
+// OrientationTransition.UnmarshalXML).
+func (v *SplitTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias SplitTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // WheelTransition represents CT_WheelTransition (p:wheel)
 type WheelTransition struct {
-	Spokes uint32 `xml:"spokes,attr,omitempty"` // 1, 2, 3, 4, 8 (default 4)
+	Spokes        uint32          `xml:"spokes,attr,omitempty"` // 1, 2, 3, 4, 8 (default 4)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                     // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list, so an explicit
+// spokes="0" is not deleted and silently re-read as the schema default 4 (see
+// OrientationTransition.UnmarshalXML).
+func (v *WheelTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias WheelTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // InOutTransition represents CT_InOutTransition (p:zoom)
 type InOutTransition struct {
-	Dir string `xml:"dir,attr,omitempty"` // in, out (default out)
+	Dir           string          `xml:"dir,attr,omitempty"` // in, out (default out)
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`                  // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (see
+// OrientationTransition.UnmarshalXML).
+func (v *InOutTransition) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias InOutTransition
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // TransitionSoundAction represents CT_TransitionSoundAction (p:sndAc)
@@ -113,6 +194,15 @@ type TransitionSoundAction struct {
 
 // TransitionStartSoundAction represents CT_TransitionStartSoundAction (p:stSnd)
 type TransitionStartSoundAction struct {
-	Loop bool                `xml:"loop,attr,omitempty"`
-	Snd  *dml.EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/presentationml/2006/main snd,omitempty"`
+	Loop          bool                `xml:"loop,attr,omitempty"`
+	Snd           *dml.EmbeddedWAVXML `xml:"http://schemas.openxmlformats.org/presentationml/2006/main snd,omitempty"`
+	CapturedAttrs []xmlb.RootAttr     `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list, so an explicit
+// loop="0" survives the re-marshal (see OrientationTransition.UnmarshalXML).
+func (v *TransitionStartSoundAction) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias TransitionStartSoundAction
+	return d.DecodeElement((*alias)(v), &start)
 }

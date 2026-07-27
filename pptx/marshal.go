@@ -100,12 +100,15 @@ func marshalPresentationXML(pres *oxml.Presentation, synthesizeDefaults bool) ([
 	appendBool("removePersonalInfoOnSave", pres.RemovePersonalInfoOnSave)
 	appendBool("compatMode", pres.CompatMode)
 	appendBool("strictFirstAndLastChars", pres.StrictFirstAndLastChars)
-	if pres.EmbedTrueTypeFonts != nil && *pres.EmbedTrueTypeFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("embedTrueTypeFonts", "1"))
-	}
-	if pres.SaveSubsetFonts != nil && *pres.SaveSubsetFonts {
-		presAttrs = append(presAttrs, xmlb.StrAttr("saveSubsetFonts", "1"))
-	}
+	// embedTrueTypeFonts/saveSubsetFonts go through appendBool like every other
+	// presentation flag: emitting only the true case made SetEmbedTrueTypeFonts(false)
+	// a silent no-op on a parsed deck, because with no modeled attribute to match,
+	// ReplayCapturedAttrs re-emits the source's embedTrueTypeFonts="1" verbatim
+	// (C381). The pointer is non-nil only when the source carried the attribute or
+	// a setter ran, so always emitting the modeled value keeps an untouched deck
+	// byte-identical while letting a clear win.
+	appendBool("embedTrueTypeFonts", pres.EmbedTrueTypeFonts)
+	appendBool("saveSubsetFonts", pres.SaveSubsetFonts)
 	appendBool("autoCompressPictures", pres.AutoCompressPictures)
 	if pres.BookmarkIdSeed != nil {
 		presAttrs = append(presAttrs, xmlb.UintAttr("bookmarkIdSeed", *pres.BookmarkIdSeed))

@@ -28,17 +28,26 @@ func TestRootAttrMerge_EmbedTrueTypeFontsOnOpenedDeck(t *testing.T) {
 		t.Error("reopened deck does not report embedTrueTypeFonts")
 	}
 
-	// On a baseline whose source never carried the flag, setting it false must
-	// not inject the attribute: the merge appends only a modeled value, and the
-	// modeled list omits embedTrueTypeFonts when it is not enabled.
+	// Setting the flag false emits the explicit modeled value like every other
+	// presentation flag (C381): the pointer is non-nil only when the source
+	// carried the attribute or a setter ran, so this is the only form that lets
+	// a clear override a captured embedTrueTypeFonts="1". A deck nobody touched
+	// still round-trips byte-identically (TestRootAttrMerge_UnchangedRootByteIdentical).
 	p2 := openBytes(t, savedDeck(t))
 	p2.SetEmbedTrueTypeFonts(false)
 	data2, err := p2.SaveBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pres2 := string(zipPart(t, data2, "ppt/presentation.xml")); strings.Contains(pres2, "embedTrueTypeFonts") {
-		t.Errorf("clearing added a spurious embedTrueTypeFonts attribute:\n%s", pres2)
+	pres2 := string(zipPart(t, data2, "ppt/presentation.xml"))
+	if strings.Contains(pres2, `embedTrueTypeFonts="1"`) {
+		t.Errorf("SetEmbedTrueTypeFonts(false) left the flag enabled:\n%s", pres2)
+	}
+	if !strings.Contains(pres2, `embedTrueTypeFonts="0"`) {
+		t.Errorf("SetEmbedTrueTypeFonts(false) did not emit the modeled value:\n%s", pres2)
+	}
+	if openBytes(t, data2).EmbedTrueTypeFonts() {
+		t.Error("reopened deck still reports embedTrueTypeFonts")
 	}
 }
 

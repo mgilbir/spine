@@ -5,10 +5,13 @@ package oxml
 
 import "github.com/mgilbir/spine/common/dml"
 
-// ViewProperties represents CT_ViewProperties (p:viewPr)
+// ViewProperties represents CT_ViewProperties (p:viewPr).
+// showComments defaults to TRUE, so it is a *bool: parsing an explicit "0" into
+// a plain bool and re-marshaling would delete the attribute and let a reader
+// reapply the default true (the C29/C316/C317 rule, C526).
 type ViewProperties struct {
 	LastView       string                  `xml:"lastView,attr,omitempty"` // sldView, sldMasterView, notesView, handoutView, notesMasterView, outlineView, sldSorterView, sldThumbnailView
-	ShowComments   bool                    `xml:"showComments,attr,omitempty"`
+	ShowComments   *bool                   `xml:"showComments,attr,omitempty"`
 	NormalViewPr   *NormalViewProperties   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main normalViewPr,omitempty"`
 	SlideViewPr    *SlideViewProperties    `xml:"http://schemas.openxmlformats.org/presentationml/2006/main slideViewPr,omitempty"`
 	OutlineViewPr  *OutlineViewProperties  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main outlineViewPr,omitempty"`
@@ -19,9 +22,10 @@ type ViewProperties struct {
 	ExtLst         *ExtensionList             `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 }
 
-// NormalViewProperties represents CT_NormalViewProperties (p:normalViewPr)
+// NormalViewProperties represents CT_NormalViewProperties (p:normalViewPr).
+// showOutlineIcons defaults to TRUE (see ViewProperties).
 type NormalViewProperties struct {
-	ShowOutlineIcons bool   `xml:"showOutlineIcons,attr,omitempty"`
+	ShowOutlineIcons *bool  `xml:"showOutlineIcons,attr,omitempty"`
 	SnapVertSplitter bool   `xml:"snapVertSplitter,attr,omitempty"`
 	VertBarState     string `xml:"vertBarState,attr,omitempty"` // minimized, restored, maximized
 	HorzBarState     string `xml:"horzBarState,attr,omitempty"` // minimized, restored, maximized
@@ -30,10 +34,11 @@ type NormalViewProperties struct {
 	RestoredTop      *NormalViewPortion `xml:"http://schemas.openxmlformats.org/presentationml/2006/main restoredTop,omitempty"`
 }
 
-// NormalViewPortion represents CT_NormalViewPortion (p:restoredLeft, p:restoredTop)
+// NormalViewPortion represents CT_NormalViewPortion (p:restoredLeft, p:restoredTop).
+// autoAdjust defaults to TRUE (see ViewProperties).
 type NormalViewPortion struct {
 	Sz       int32 `xml:"sz,attr,omitempty"`       // size in percentage
-	AutoAdjust bool `xml:"autoAdjust,attr,omitempty"`
+	AutoAdjust *bool `xml:"autoAdjust,attr,omitempty"`
 }
 
 // SlideViewProperties represents CT_SlideViewProperties (p:slideViewPr)
@@ -41,9 +46,11 @@ type SlideViewProperties struct {
 	CSldViewPr *CommonSlideViewProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cSldViewPr,omitempty"`
 }
 
-// CommonSlideViewProperties represents CT_CommonSlideViewProperties (p:cSldViewPr)
+// CommonSlideViewProperties represents CT_CommonSlideViewProperties (p:cSldViewPr).
+// snapToGrid defaults to TRUE (see ViewProperties); snapToObjects and showGuides
+// default to false.
 type CommonSlideViewProperties struct {
-	SnapToGrid   bool              `xml:"snapToGrid,attr,omitempty"`
+	SnapToGrid   *bool             `xml:"snapToGrid,attr,omitempty"`
 	SnapToObjects bool             `xml:"snapToObjects,attr,omitempty"`
 	ShowGuides   bool              `xml:"showGuides,attr,omitempty"`
 	CViewPr      *CommonViewProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cViewPr,omitempty"`
@@ -102,10 +109,11 @@ type NotesTextViewProperties struct {
 	CViewPr *CommonViewProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cViewPr,omitempty"`
 }
 
-// SorterViewProperties represents CT_SlideSorterViewProperties (p:sorterViewPr)
+// SorterViewProperties represents CT_SlideSorterViewProperties (p:sorterViewPr).
+// showFormatting defaults to TRUE (see ViewProperties).
 type SorterViewProperties struct {
 	CViewPr    *CommonViewProperties `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cViewPr,omitempty"`
-	ShowFormatting bool `xml:"showFormatting,attr,omitempty"`
+	ShowFormatting *bool `xml:"showFormatting,attr,omitempty"`
 }
 
 // NotesViewProperties represents CT_NotesViewProperties (p:notesViewPr)

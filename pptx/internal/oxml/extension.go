@@ -1,6 +1,7 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -119,24 +120,57 @@ func (m *P14Media) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // Val holds the original xsd:boolean lexical form ("0", "1", "true", "false")
 // so it round-trips byte-faithfully; empty means the attribute was absent.
 type P14ShowMediaCtrls struct {
-	Val string `xml:"val,attr,omitempty"`
+	Val           string          `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P14ShowMediaCtrls) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P14ShowMediaCtrls
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14DefaultImageDpi represents p14:defaultImageDpi extension element.
 type P14DefaultImageDpi struct {
-	Val *int32 `xml:"val,attr,omitempty"`
+	Val           *int32          `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P14DefaultImageDpi) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P14DefaultImageDpi
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14DiscardImageEdit represents p14:discardImageEditData extension element.
 // Val holds the original xsd:boolean lexical form; see P14ShowMediaCtrls.
 type P14DiscardImageEdit struct {
-	Val string `xml:"val,attr,omitempty"`
+	Val           string          `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P14DiscardImageEdit) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P14DiscardImageEdit
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14LaserClr represents p14:laserClr extension element.
 // Contains a DML color choice (a:srgbClr, a:schemeClr, etc.).
 type P14LaserClr struct {
 	dml.ColorChoice
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// the color choice child.
+func (v *P14LaserClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P14LaserClr
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P14SectionLst represents the p14:sectionLst extension element, which holds
@@ -203,8 +237,16 @@ func parseSectionLst(raw []byte) (*P14SectionLst, error) {
 
 // P15PresenceInfo represents p15:presenceInfo extension element.
 type P15PresenceInfo struct {
-	UserId     string `xml:"userId,attr,omitempty"`
-	ProviderId string `xml:"providerId,attr,omitempty"`
+	UserId        string          `xml:"userId,attr,omitempty"`
+	ProviderId    string          `xml:"providerId,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P15PresenceInfo) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P15PresenceInfo
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // P15SldGuideLst represents p15:sldGuideLst extension element.
@@ -238,7 +280,15 @@ type P15Clr struct {
 // P15ChartTrackingRefBased represents p15:chartTrackingRefBased extension element.
 // Val holds the original xsd:boolean lexical form; see P14ShowMediaCtrls.
 type P15ChartTrackingRefBased struct {
-	Val string `xml:"val,attr,omitempty"`
+	Val           string          `xml:"val,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // see P14CreationId.CapturedAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (leaf element).
+func (v *P15ChartTrackingRefBased) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	v.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias P15ChartTrackingRefBased
+	return d.DecodeElement((*alias)(v), &start)
 }
 
 // --- Custom UnmarshalXML for Extension ---
@@ -247,6 +297,51 @@ const (
 	nsP14 = xmlb.NSPowerPoint2010
 	nsP15 = xmlb.NSPowerPoint2012
 )
+
+// extTypedExclusive reports whether an ext whose URI maps to exactly one
+// schema-defined child can be represented losslessly by its typed field:
+// the child must be present and be the ext's only element.
+//
+// A typed URI whose ext carries no matching child used to parse into a zero
+// value and re-emit an invented element (a fabricated
+// `<p14:creationId val="0"/>` for an empty ext), and one carrying additional
+// siblings kept only the wrapper-matched child and deleted the rest (C530).
+// Both cases now fall back to the verbatim RawContent replay, which never
+// fabricates and never drops.
+//
+// The common case — a single self-closing child — is decided by a byte count
+// without tokenizing.
+func extTypedExclusive(found bool, raw []byte) bool {
+	if !found {
+		return false
+	}
+	if bytes.Count(raw, []byte{'<'}) <= 1 {
+		return true
+	}
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	depth := 0
+	top := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			// End of content, or a fragment Go cannot tokenize standalone.
+			// Either way the walk found no second top-level element.
+			return true
+		}
+		switch tok.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				top++
+				if top > 1 {
+					return false
+				}
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
 
 func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	var nsDecls []xmlb.NSDecl
@@ -268,97 +363,151 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	switch e.URI {
 	case xmlb.ExtURIPMLCreationId:
 		var w struct {
-			V P14CreationId `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main creationId"`
+			V   *P14CreationId `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main creationId"`
+			Raw []byte         `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.CreationId = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.CreationId = w.V
 
 	case xmlb.ExtURIPMLModId:
 		var w struct {
-			V P14ModId `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main modId"`
+			V   *P14ModId `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main modId"`
+			Raw []byte    `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.ModId = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.ModId = w.V
 
 	case xmlb.ExtURIMedia:
 		var w struct {
-			V P14Media `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
+			V   *P14Media `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main media"`
+			Raw []byte    `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.Media = &w.V
+		// p14:media is the one typed extension whose model is load-bearing (the
+		// r:embed it carries is remapped when media parts move), so an ext that
+		// also carries unmodeled siblings keeps the typed child rather than
+		// degrading to a verbatim replay that would strand the relationship.
+		if w.V == nil {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.Media = w.V
 
 	case xmlb.ExtURIShowMediaCtrls:
 		var w struct {
-			V P14ShowMediaCtrls `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main showMediaCtrls"`
+			V   *P14ShowMediaCtrls `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main showMediaCtrls"`
+			Raw []byte             `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
+		}
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
 		}
 		// Lenient: an out-of-lexical-space xsd:boolean (e.g. a wild "N") must not
 		// abort Open. Val is preserved verbatim and re-emitted as-is (C355).
-		e.ShowMediaCtrls = &w.V
+		e.ShowMediaCtrls = w.V
 
 	case xmlb.ExtURIDefaultImageDpi:
 		var w struct {
-			V P14DefaultImageDpi `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main defaultImageDpi"`
+			V   *P14DefaultImageDpi `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main defaultImageDpi"`
+			Raw []byte              `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.DefaultImageDpi = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.DefaultImageDpi = w.V
 
 	case xmlb.ExtURIDiscardImageEditData:
 		var w struct {
-			V P14DiscardImageEdit `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main discardImageEditData"`
+			V   *P14DiscardImageEdit `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main discardImageEditData"`
+			Raw []byte               `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
 		// Lenient xsd:boolean; see ShowMediaCtrls above (C355).
-		e.DiscardImageEdit = &w.V
+		e.DiscardImageEdit = w.V
 
 	case xmlb.ExtURILaserClr:
 		var w struct {
-			V P14LaserClr `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main laserClr"`
+			V   *P14LaserClr `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main laserClr"`
+			Raw []byte       `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.LaserClr = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.LaserClr = w.V
 
 	case xmlb.ExtURIPresenceInfo:
 		var w struct {
-			V P15PresenceInfo `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main presenceInfo"`
+			V   *P15PresenceInfo `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main presenceInfo"`
+			Raw []byte           `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.PresenceInfo = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.PresenceInfo = w.V
 
 	case xmlb.ExtURISldGuideLst, xmlb.ExtURISldGuideLstMaster, xmlb.ExtURISldGuideLstLayout:
 		var w struct {
-			V P15SldGuideLst `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main sldGuideLst"`
+			V   *P15SldGuideLst `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main sldGuideLst"`
+			Raw []byte          `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		e.SldGuideLst = &w.V
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
+		e.SldGuideLst = w.V
 
 	case xmlb.ExtURIChartTrackingRefBased:
 		var w struct {
-			V P15ChartTrackingRefBased `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main chartTrackingRefBased"`
+			V   *P15ChartTrackingRefBased `xml:"http://schemas.microsoft.com/office/powerpoint/2012/main chartTrackingRefBased"`
+			Raw []byte                    `xml:",innerxml"`
 		}
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
+		if !extTypedExclusive(w.V != nil, w.Raw) {
+			e.RawContent = w.Raw
+			return nil
+		}
 		// Lenient xsd:boolean; see ShowMediaCtrls above (C355).
-		e.ChartTrackingRefBased = &w.V
+		e.ChartTrackingRefBased = w.V
 
 	case xmlb.ExtURISectionLst:
 		// Capture the verbatim sectionLst bytes (for byte-faithful replay of
@@ -371,7 +520,14 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		sl, err := parseSectionLst(inner.Content)
 		if err != nil {
-			return err
+			// Lenient: a self-closing <p:ext uri="{521415D9-…}"/> or a
+			// pretty-printed producer leaves empty/whitespace-only content, and
+			// xml.Unmarshal reports EOF for it — which used to propagate all the
+			// way out of pptx.Open and fail the whole deck (C382). Any content
+			// the section parser cannot make sense of falls back to the verbatim
+			// RawContent replay, exactly like an unknown extension URI.
+			e.RawContent = inner.Content
+			return nil
 		}
 		e.SectionLst = sl
 
@@ -459,15 +615,25 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		}
 
 	case e.ShowMediaCtrls != nil:
-		marshalP14Bool(b, "showMediaCtrls", e.ShowMediaCtrls.Val)
+		marshalP14Bool(b, "showMediaCtrls", e.ShowMediaCtrls.Val, e.ShowMediaCtrls.CapturedAttrs)
 
 	case e.DefaultImageDpi != nil:
-		marshalP14Simple(b, "defaultImageDpi", e.DefaultImageDpi.Val)
+		marshalP14Simple(b, "defaultImageDpi", e.DefaultImageDpi.Val, e.DefaultImageDpi.CapturedAttrs)
 
 	case e.DiscardImageEdit != nil:
-		marshalP14Bool(b, "discardImageEditData", e.DiscardImageEdit.Val)
+		marshalP14Bool(b, "discardImageEditData", e.DiscardImageEdit.Val, e.DiscardImageEdit.CapturedAttrs)
 
 	case e.LaserClr != nil:
+		// A source that declared xmlns:p14 on p:ext (replayed via InlineNSDecls)
+		// must not get a second declaration on the child (C523).
+		if raw := e.LaserClr.CapturedAttrs; raw != nil {
+			prefix := xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010)
+			b.StartElementLiteral(prefix, "laserClr",
+				[]xmlb.NSDecl{{Prefix: prefix, URI: nsP14}}, xmlb.RawAttrList(raw)...)
+			marshalColorChoice(b, &e.LaserClr.ColorChoice)
+			b.EndElementLiteral(prefix, "laserClr")
+			break
+		}
 		b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "laserClr")
 		marshalColorChoice(b, &e.LaserClr.ColorChoice)
 		b.EndElementInlineNS(xmlb.PrefixPowerPoint2010, "laserClr")
@@ -481,13 +647,18 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		if e.PresenceInfo.ProviderId != "" {
 			attrs = append(attrs, xmlb.StrAttr("providerId", e.PresenceInfo.ProviderId))
 		}
+		if raw := e.PresenceInfo.CapturedAttrs; raw != nil {
+			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP15, xmlb.PrefixPowerPoint2012), "presenceInfo",
+				b.ReplayCapturedAttrs(raw, attrs)...)
+			break
+		}
 		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, "presenceInfo", attrs...)
 
 	case e.SldGuideLst != nil:
 		marshalSldGuideLst(b, e.SldGuideLst)
 
 	case e.ChartTrackingRefBased != nil:
-		marshalP15Bool(b, "chartTrackingRefBased", e.ChartTrackingRefBased.Val)
+		marshalP15Bool(b, "chartTrackingRefBased", e.ChartTrackingRefBased.Val, e.ChartTrackingRefBased.CapturedAttrs)
 
 	case e.SectionLst != nil:
 		marshalSectionLst(b, e.SectionLst)
@@ -501,36 +672,47 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// marshalP14Simple writes a simple p14 extension element with an optional val attribute.
-func marshalP14Simple(b *xmlb.Builder, localName string, val *int32) {
-	if val != nil {
-		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName,
-			xmlb.Int32Attr("val", *val))
-	} else {
-		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName)
+// marshalExtLeaf writes a self-closing extension-namespace child. A parsed leaf
+// replays its captured attribute list under the prefix the source used, so an
+// xmlns declaration the producer put on the enclosing p:ext (replayed via
+// Extension.InlineNSDecls) is not duplicated on the child (C523); a
+// programmatic leaf declares the namespace inline.
+func marshalExtLeaf(b *xmlb.Builder, ns, prefix, localName string, captured []xmlb.RootAttr, attrs ...xmlb.Attr) {
+	if captured != nil {
+		b.EmptyElementLiteral(xmlb.RawAttrPrefix(captured, ns, prefix), localName,
+			b.ReplayCapturedAttrs(captured, attrs)...)
+		return
 	}
+	b.EmptyElementInlineNS(ns, prefix, localName, attrs...)
+}
+
+// marshalP14Simple writes a simple p14 extension element with an optional val attribute.
+func marshalP14Simple(b *xmlb.Builder, localName string, val *int32, captured []xmlb.RootAttr) {
+	var attrs []xmlb.Attr
+	if val != nil {
+		attrs = append(attrs, xmlb.Int32Attr("val", *val))
+	}
+	marshalExtLeaf(b, nsP14, xmlb.PrefixPowerPoint2010, localName, captured, attrs...)
 }
 
 // marshalP14Bool writes a p14 extension element with an optional xsd:boolean
 // val attribute, re-emitting the original lexical form verbatim.
-func marshalP14Bool(b *xmlb.Builder, localName, val string) {
+func marshalP14Bool(b *xmlb.Builder, localName, val string, captured []xmlb.RootAttr) {
+	var attrs []xmlb.Attr
 	if val != "" {
-		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName,
-			xmlb.StrAttr("val", val))
-	} else {
-		b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, localName)
+		attrs = append(attrs, xmlb.StrAttr("val", val))
 	}
+	marshalExtLeaf(b, nsP14, xmlb.PrefixPowerPoint2010, localName, captured, attrs...)
 }
 
 // marshalP15Bool writes a p15 extension element with an optional xsd:boolean
 // val attribute, re-emitting the original lexical form verbatim.
-func marshalP15Bool(b *xmlb.Builder, localName, val string) {
+func marshalP15Bool(b *xmlb.Builder, localName, val string, captured []xmlb.RootAttr) {
+	var attrs []xmlb.Attr
 	if val != "" {
-		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, localName,
-			xmlb.StrAttr("val", val))
-	} else {
-		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, localName)
+		attrs = append(attrs, xmlb.StrAttr("val", val))
 	}
+	marshalExtLeaf(b, nsP15, xmlb.PrefixPowerPoint2012, localName, captured, attrs...)
 }
 
 // marshalColorChoice writes a DML color choice (a:srgbClr, a:schemeClr, etc.).
