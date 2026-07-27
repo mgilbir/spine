@@ -5,35 +5,67 @@ package testutil
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"testing"
 )
 
+// ZipEntry is one archive entry. A ZIP file may legally carry several entries
+// under the same name, so the fidelity comparison works on a list of entries
+// rather than a name-keyed map: collapsing duplicates would make a library that
+// drops or duplicates one of them indistinguishable from a faithful one. (C573)
+type ZipEntry struct {
+	Name string
+	Data []byte
+}
+
 // ReadZipParts reads all parts from a ZIP file (PPTX/DOCX/XLSX) into a map.
-// Part names have leading slashes stripped for consistency.
+// Part names have leading slashes stripped for consistency. Duplicate entry
+// names collapse (last wins) — use ReadZipEntries when duplicates matter.
 func ReadZipParts(path string) (map[string][]byte, error) {
+	entries, err := ReadZipEntries(path)
+	if err != nil {
+		return nil, err
+	}
+	return partsMap(entries), nil
+}
+
+// ReadZipPartsBytes reads all parts from an in-memory ZIP archive into a map.
+// Part names have leading slashes stripped for consistency. Duplicate entry
+// names collapse (last wins) — use ReadZipEntriesBytes when duplicates matter.
+func ReadZipPartsBytes(data []byte) (map[string][]byte, error) {
+	entries, err := ReadZipEntriesBytes(data)
+	if err != nil {
+		return nil, err
+	}
+	return partsMap(entries), nil
+}
+
+// ReadZipEntries reads every entry of a ZIP file in archive order, preserving
+// entries that share a name. Names have leading slashes stripped.
+func ReadZipEntries(path string) ([]ZipEntry, error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	return readZipParts(r.File)
+	return readZipEntries(r.File)
 }
 
-// ReadZipPartsBytes reads all parts from an in-memory ZIP archive into a map.
-// Part names have leading slashes stripped for consistency.
-func ReadZipPartsBytes(data []byte) (map[string][]byte, error) {
+// ReadZipEntriesBytes reads every entry of an in-memory ZIP archive in archive
+// order, preserving entries that share a name.
+func ReadZipEntriesBytes(data []byte) ([]ZipEntry, error) {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, err
 	}
-	return readZipParts(r.File)
+	return readZipEntries(r.File)
 }
 
-func readZipParts(files []*zip.File) (map[string][]byte, error) {
-	parts := make(map[string][]byte)
+func readZipEntries(files []*zip.File) ([]ZipEntry, error) {
+	entries := make([]ZipEntry, 0, len(files))
 	for _, f := range files {
 		rc, err := f.Open()
 		if err != nil {
@@ -49,9 +81,17 @@ func readZipParts(files []*zip.File) (map[string][]byte, error) {
 		if len(name) > 0 && name[0] == '/' {
 			name = name[1:]
 		}
-		parts[name] = buf.Bytes()
+		entries = append(entries, ZipEntry{Name: name, Data: buf.Bytes()})
 	}
-	return parts, nil
+	return entries, nil
+}
+
+func partsMap(entries []ZipEntry) map[string][]byte {
+	parts := make(map[string][]byte, len(entries))
+	for _, e := range entries {
+		parts[e.Name] = e.Data
+	}
+	return parts
 }
 
 // AppendZipEntry rewrites the ZIP file at path into an in-memory archive with
@@ -101,62 +141,99 @@ func AppendZipEntry(t *testing.T, path, name string, content []byte) []byte {
 func CompareZipBytes(t *testing.T, original, roundtrip []byte) (missing, extra, changed []string) {
 	t.Helper()
 
-	origParts, err := ReadZipPartsBytes(original)
+	origEntries, err := ReadZipEntriesBytes(original)
 	if err != nil {
 		t.Fatalf("Failed to read original: %v", err)
 	}
 
-	rtParts, err := ReadZipPartsBytes(roundtrip)
+	rtEntries, err := ReadZipEntriesBytes(roundtrip)
 	if err != nil {
 		t.Fatalf("Failed to read roundtrip: %v", err)
 	}
 
-	return diffZipParts(origParts, rtParts)
+	_, missing, extra, changed = DiffZipEntries(origEntries, rtEntries)
+	return missing, extra, changed
 }
 
 // CompareZipFiles compares two ZIP files and returns lists of missing, extra, and changed parts.
 func CompareZipFiles(t *testing.T, original, roundtrip string) (missing, extra, changed []string) {
 	t.Helper()
 
-	origParts, err := ReadZipParts(original)
+	origEntries, err := ReadZipEntries(original)
 	if err != nil {
 		t.Fatalf("Failed to read original: %v", err)
 	}
 
-	rtParts, err := ReadZipParts(roundtrip)
+	rtEntries, err := ReadZipEntries(roundtrip)
 	if err != nil {
 		t.Fatalf("Failed to read roundtrip: %v", err)
 	}
 
-	return diffZipParts(origParts, rtParts)
+	_, missing, extra, changed = DiffZipEntries(origEntries, rtEntries)
+	return missing, extra, changed
 }
 
-// diffZipParts computes missing, extra, and changed part names between two
-// part maps.
-func diffZipParts(origParts, rtParts map[string][]byte) (missing, extra, changed []string) {
-	for _, name := range SortedKeys(origParts) {
-		if _, ok := rtParts[name]; !ok {
-			missing = append(missing, name)
+// DiffZipEntries compares two archives as name-counted multisets and reports
+// how many entries came through byte-identical plus the missing, extra, and
+// changed ones. Entries sharing a name are matched pairwise in archive order,
+// so an archive carrying a name twice is only satisfied by an output that also
+// carries it twice with the same bytes in the same order; the surplus or
+// shortfall is reported as extra/missing occurrences of that name.
+//
+// A name-keyed map cannot express that: it silently keeps one entry per name on
+// both sides, which makes dropping or duplicating a same-named entry invisible
+// to the fidelity accounting (C573).
+func DiffZipEntries(orig, rt []ZipEntry) (identical int, missing, extra, changed []string) {
+	og, oNames := groupZipEntries(orig)
+	rg, rNames := groupZipEntries(rt)
+
+	for _, name := range oNames {
+		o, r := og[name], rg[name]
+		n := min(len(o), len(r))
+		for i := 0; i < n; i++ {
+			if bytes.Equal(o[i], r[i]) {
+				identical++
+			} else {
+				changed = append(changed, occurrenceLabel(name, i, len(o)))
+			}
+		}
+		for i := n; i < len(o); i++ {
+			missing = append(missing, occurrenceLabel(name, i, len(o)))
 		}
 	}
 
-	for _, name := range SortedKeys(rtParts) {
-		if _, ok := origParts[name]; !ok {
-			extra = append(extra, name)
+	for _, name := range rNames {
+		o, r := og[name], rg[name]
+		for i := len(o); i < len(r); i++ {
+			extra = append(extra, occurrenceLabel(name, i, len(r)))
 		}
 	}
 
-	for _, name := range SortedKeys(origParts) {
-		rtContent, ok := rtParts[name]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(origParts[name], rtContent) {
-			changed = append(changed, name)
-		}
-	}
+	return identical, missing, extra, changed
+}
 
-	return
+// groupZipEntries buckets entries by name, preserving archive order within a
+// bucket, and returns the sorted distinct names.
+func groupZipEntries(entries []ZipEntry) (map[string][][]byte, []string) {
+	g := make(map[string][][]byte, len(entries))
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if _, seen := g[e.Name]; !seen {
+			names = append(names, e.Name)
+		}
+		g[e.Name] = append(g[e.Name], e.Data)
+	}
+	sort.Strings(names)
+	return g, names
+}
+
+// occurrenceLabel names an entry, disambiguating which occurrence is meant when
+// the archive carries the name more than once.
+func occurrenceLabel(name string, i, total int) string {
+	if total < 2 {
+		return name
+	}
+	return fmt.Sprintf("%s (entry %d of %d)", name, i+1, total)
 }
 
 // SortedKeys returns the keys of a map sorted alphabetically.

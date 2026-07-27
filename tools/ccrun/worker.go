@@ -71,32 +71,18 @@ func testBytes(typ string, data []byte) result {
 		return result{stage: "reopen", signature: signature(err)}
 	}
 
-	origParts, err := testutil.ReadZipPartsBytes(data)
+	origParts, err := testutil.ReadZipEntriesBytes(data)
 	if err != nil {
 		return result{stage: "fidelity", signature: signature(fmt.Errorf("re-reading original parts: %w", err))}
 	}
-	savedParts, err := testutil.ReadZipPartsBytes(saved)
+	savedParts, err := testutil.ReadZipEntriesBytes(saved)
 	if err != nil {
 		return result{stage: "fidelity", signature: signature(fmt.Errorf("reading saved parts: %w", err))}
 	}
-	identical := 0
-	var changed, missing, extra []string
-	for _, name := range testutil.SortedKeys(origParts) {
-		sv, ok := savedParts[name]
-		switch {
-		case !ok:
-			missing = append(missing, name)
-		case !bytes.Equal(origParts[name], sv):
-			changed = append(changed, name)
-		default:
-			identical++
-		}
-	}
-	for _, name := range testutil.SortedKeys(savedParts) {
-		if _, ok := origParts[name]; !ok {
-			extra = append(extra, name)
-		}
-	}
+	// Multiset comparison: a name-keyed map would compare one entry per name on
+	// each side, so a duplicate zip entry dropped or invented by the save path
+	// would never reach the ledger (C573).
+	identical, missing, extra, changed := testutil.DiffZipEntries(origParts, savedParts)
 	if len(changed)+len(missing)+len(extra) > 0 {
 		first := ""
 		switch {
