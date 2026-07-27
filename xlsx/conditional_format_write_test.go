@@ -140,8 +140,10 @@ func TestConditionalFormat_IconSet(t *testing.T) {
 	if is == nil || is.IconSet != "3TrafficLights1" {
 		t.Fatalf("iconSet = %+v", is)
 	}
-	// Default thresholds: one per icon, evenly spaced from 0.
-	if len(is.Values) != 3 || is.Values[0].Value != "0" || is.Values[1].Value != "33" || is.Values[2].Value != "66" {
+	// Default thresholds: one per icon, evenly spaced from 0 and rounded the
+	// way Excel writes them — 0/33/67 for a 3-icon set, not the 0/33/66 that
+	// integer truncation produced (C542).
+	if len(is.Values) != 3 || is.Values[0].Value != "0" || is.Values[1].Value != "33" || is.Values[2].Value != "67" {
 		t.Errorf("thresholds = %+v", is.Values)
 	}
 }
