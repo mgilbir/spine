@@ -101,7 +101,7 @@ func TestChartReusedAcrossSheets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SheetByName(%s): %v", name, err)
 		}
-		if v, _ := ds.GetCellValue("B2"); v != "1" {
+		if v, _ := ds.CellValue("B2"); v != "1" {
 			t.Errorf("%s!B2 = %q, want 1", name, v)
 		}
 	}

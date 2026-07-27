@@ -124,7 +124,7 @@ func TestBlankChartReembedIntoWorkbook(t *testing.T) {
 		t.Fatalf("SheetByName(ChartData1): %v", err)
 	}
 	for ref, want := range map[string]string{"B2": "10", "B3": "", "B4": "30"} {
-		got, err := ds.GetCellValue(ref)
+		got, err := ds.CellValue(ref)
 		if err != nil {
 			t.Fatalf("GetCellValue(%s): %v", ref, err)
 		}
@@ -195,7 +195,7 @@ func TestBlankChartReembedIntoPresentation(t *testing.T) {
 		t.Fatalf("SheetByName(Sheet1): %v", err)
 	}
 	for ref, want := range map[string]string{"B2": "10", "B3": "", "B4": "30"} {
-		got, err := sheet.GetCellValue(ref)
+		got, err := sheet.CellValue(ref)
 		if err != nil {
 			t.Fatalf("GetCellValue(%s): %v", ref, err)
 		}

@@ -419,7 +419,7 @@ func cellLocked(wb *xlsx.Workbook, sheet *xlsx.Sheet, ref string) bool {
 	if idx == nil {
 		return true // no style => Excel's default (locked)
 	}
-	style, err := wb.Styles().GetCellStyle(*idx)
+	style, err := wb.Styles().CellStyleAt(*idx)
 	must(err)
 	if style.Protection == nil {
 		return true

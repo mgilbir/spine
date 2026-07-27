@@ -35,10 +35,12 @@ truth and is verified against the validators by a test.
 ## Open returns `opc.ErrEncrypted`
 
 The file is password-protected. The plain open path detects an encrypted input
-and returns `opc.ErrEncrypted` rather than failing obscurely. For Word, open it
-with `docx.OpenEncrypted` and the password to get a `*docx.Document`. For xlsx
-and pptx there is no format wrapper yet: decrypt with `opc.OpenEncrypted`, which
-returns a low-level `*opc.Reader`. See
+and returns `opc.ErrEncrypted` rather than failing obscurely. Reopen it with the
+format's own encrypted entry point and the password —  `docx.OpenEncrypted`,
+`xlsx.OpenEncrypted` or `pptx.OpenEncrypted`, each with an
+`OpenEncryptedReader` variant for in-memory bytes — to get a `*docx.Document`,
+`*xlsx.Workbook` or `*pptx.Presentation`. `opc.OpenEncrypted` remains available
+when you want the raw package rather than a document model. See
 [Encryption and signing](encryption-and-signing.md).
 
 ## Open returns `crypto.ErrWrongPassword`

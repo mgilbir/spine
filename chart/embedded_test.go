@@ -50,7 +50,7 @@ func TestEmbeddedWorkbook(t *testing.T) {
 	}
 
 	cell := func(ref string) string {
-		v, err := sheet.GetCellValue(ref)
+		v, err := sheet.CellValue(ref)
 		if err != nil {
 			t.Fatalf("GetCellValue(%s): %v", ref, err)
 		}
@@ -128,7 +128,7 @@ func TestEmbeddedWorkbookScatter(t *testing.T) {
 	}
 	sheet, _ := wb.SheetByName("Sheet1")
 	for i, want := range x {
-		v, _ := sheet.GetCellValue("A" + strconv.Itoa(i+2))
+		v, _ := sheet.CellValue("A" + strconv.Itoa(i+2))
 		f, _ := strconv.ParseFloat(v, 64)
 		if absDiff(f, want) > 1e-9 {
 			t.Errorf("A%d: got %v want %v", i+2, f, want)

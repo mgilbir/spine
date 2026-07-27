@@ -115,9 +115,9 @@ func buildDeck(outputPath string) {
 	// Give the Blank layout a solid background fill. A layout background reuses
 	// the same dml.Fill values as a shape fill; slides on this layout inherit it
 	// unless they set their own background.
-	layout := master.GetLayout(pptx.LayoutBlank)
-	if layout == nil {
-		log.Fatal("created deck unexpectedly has no Blank layout")
+	layout, err := master.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		log.Fatalf("created deck unexpectedly has no Blank layout: %v", err)
 	}
 	layout.SetName("Diagram Blank")
 	layout.SetBackgroundFill(dml.NewSolidFill(dml.NewRGB(0xF3, 0xF4, 0xF6).ToColor()))
@@ -237,7 +237,7 @@ func verify(outputPath string) {
 
 	// Layout background: find our edited Blank layout and read its fill back.
 	master := p.SlideMasters()[0]
-	if layout := master.GetLayoutByName("Diagram Blank"); layout != nil {
+	if layout, err := master.LayoutByName("Diagram Blank"); err == nil {
 		if c, ok := layout.BackgroundColor(); ok {
 			fmt.Printf("  layout %-16q background = #%s\n", layout.Name(), c.RGB)
 		} else {

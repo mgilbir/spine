@@ -26,7 +26,11 @@ func TestThemeIsTheSharedEditor(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	var ed *dml.ThemeEditor = p.Theme() // the type is the assertion
+	// Assign through a function typed on *dml.ThemeEditor: this compiles only
+	// while both Theme accessors return the shared editor, which is the
+	// convergence C571 is about.
+	sharedEditor := func(ed *dml.ThemeEditor) *dml.ThemeEditor { return ed }
+	ed := sharedEditor(p.Theme())
 	if ed == nil {
 		t.Fatal("Theme() = nil for an opened deck with a theme part")
 	}
@@ -36,7 +40,7 @@ func TestThemeIsTheSharedEditor(t *testing.T) {
 
 	// The presentation theme is the first master's theme, and they are the same
 	// handle so an edit through either is written once.
-	if ed != p.SlideMasters()[0].Theme() {
+	if ed != sharedEditor(p.SlideMasters()[0].Theme()) {
 		t.Error("presentation theme is a different handle from the first master's")
 	}
 

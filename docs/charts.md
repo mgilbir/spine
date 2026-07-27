@@ -162,6 +162,7 @@ package main
 
 import (
 	"bytes"
+	"log"
 
 	"github.com/mgilbir/spine/chart"
 	"github.com/mgilbir/spine/xlsx"
@@ -169,7 +170,10 @@ import (
 
 func main() {
 	wb := xlsx.Create()
-	sheet := wb.AddSheet("Sales")
+	sheet, err := wb.AddSheet("Sales")
+	if err != nil {
+		log.Fatal(err)
+	}
 	_ = sheet.SetCellValue("A1", "Region")
 
 	c := chart.NewColumn().
@@ -181,7 +185,7 @@ func main() {
 
 	// Anchor the chart at E2 (a single cell places a default-sized chart; a
 	// range like "E2:L20" sizes it to that block).
-	_ = sheet.AddChart("E2", c)
+	_ = sheet.AddChart(c, "E2")
 
 	data, _ := wb.SaveBytes()
 
