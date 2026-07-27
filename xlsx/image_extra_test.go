@@ -10,7 +10,7 @@ const tinySVGSheet = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height=
 
 func TestAddImageTwoCellAnchor(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	png := testPNG(t, 20, 10)
 	if err := sheet.AddImage("B2", png, ImageOptions{ToCell: "D10"}); err != nil {
 		t.Fatalf("AddImage two-cell: %v", err)
@@ -38,7 +38,7 @@ func TestAddImageTwoCellAnchor(t *testing.T) {
 
 func TestAddImageToCellValidation(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	png := testPNG(t, 20, 10)
 	// ToCell above/left of the anchor is invalid.
 	if err := sheet.AddImage("D10", png, ImageOptions{ToCell: "B2"}); err == nil {
@@ -52,7 +52,7 @@ func TestAddImageToCellValidation(t *testing.T) {
 
 func TestAddImagePreserveAspect(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	// Intrinsic 40x10 (4:1). Provide width 200 only, preserve aspect -> height 50.
 	png := testPNG(t, 40, 10)
 	if err := sheet.AddImage("A1", png, ImageOptions{WidthPx: 200, PreserveAspect: true}); err != nil {
@@ -71,7 +71,7 @@ func TestAddImagePreserveAspect(t *testing.T) {
 
 func TestAddImageNoPreserveAspectUsesIntrinsic(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	png := testPNG(t, 40, 10)
 	// Width only, no PreserveAspect -> height uses intrinsic 10px.
 	if err := sheet.AddImage("A1", png, ImageOptions{WidthPx: 200}); err != nil {
@@ -87,7 +87,7 @@ func TestAddImageNoPreserveAspectUsesIntrinsic(t *testing.T) {
 
 func TestAddImageSVG(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.AddImage("A1", []byte(tinySVGSheet), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage svg: %v", err)
 	}

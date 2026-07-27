@@ -54,7 +54,7 @@ func FuzzXlsxAddPivotTable(f *testing.F) {
 			t.Skip("range too large for a fuzz iteration")
 		}
 		w := Create()
-		s := w.AddSheet("Data")
+		s := addSheetT(w, "Data")
 		// A labeled header row and a few data rows so field names resolve.
 		headers := []string{"Region", "Product", "Units", "Price"}
 		for c, h := range headers {
@@ -125,7 +125,7 @@ func FuzzXlsxAddSparklineGroup(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, typ, color, d1, l1, d2, l2 string) {
 		w := Create()
-		s := w.AddSheet("Sheet1")
+		s := addSheetT(w, "Sheet1")
 		for c := 1; c <= 4; c++ {
 			_ = s.SetCellValue(FormatCellRef(1, c), c*7)
 			_ = s.SetCellValue(FormatCellRef(2, c), c*3)

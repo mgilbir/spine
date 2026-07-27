@@ -37,7 +37,7 @@ func TestCellStyle_Protection_GetSet(t *testing.T) {
 
 func TestCellStyle_Protection_SaveReopen(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)

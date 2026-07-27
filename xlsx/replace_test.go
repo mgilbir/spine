@@ -11,7 +11,7 @@ func strptr(s string) *string { return &s }
 
 func TestReplaceText_InlineString(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetString("Dear {{name}}, welcome")
 
@@ -24,8 +24,8 @@ func TestReplaceText_InlineString(t *testing.T) {
 
 func TestReplaceText_SheetScoped(t *testing.T) {
 	wb := Create()
-	s1 := wb.AddSheet("S1")
-	s2 := wb.AddSheet("S2")
+	s1 := addSheetT(wb, "S1")
+	s2 := addSheetT(wb, "S2")
 	c1, _ := s1.Cell("A1")
 	c1.SetString("{{k}}")
 	c2, _ := s2.Cell("A1")
@@ -46,7 +46,7 @@ func TestReplaceText_SheetScoped(t *testing.T) {
 // runs is replaced by a single run carrying the first run's font.
 func TestReplaceText_RichRunsAcrossThree(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetRichText([]TextRun{
 		{Text: "{{", Font: &FontStyle{Bold: true}},
@@ -76,7 +76,7 @@ func TestReplaceText_RichRunsAcrossThree(t *testing.T) {
 // cells referencing the same entry are not affected.
 func TestReplaceText_SharedString(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 
 	wb.sharedStrings = &oxml.CT_Sst{Si: []oxml.CT_Rst{{T: strptr("Hi {{who}}")}}}
@@ -100,7 +100,7 @@ func TestReplaceText_SharedString(t *testing.T) {
 
 func TestReplaceText_SkipsFormula(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetFormula(`"{{k}}"`)
 
@@ -113,7 +113,7 @@ func TestReplaceText_SkipsFormula(t *testing.T) {
 
 func TestReplaceText_NoOpAndEmpty(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetString("{{name}}")
 

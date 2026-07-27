@@ -13,6 +13,8 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
+	"github.com/mgilbir/spine/internal/imagesniff"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -48,6 +50,9 @@ type sheetImage struct {
 	// SVG variant: when svgData is set, data/ext/contentType hold the raster
 	// fallback and svgData holds the SVG shown by SVG-aware Excel.
 	svgData []byte
+
+	// altText is the accessibility description written to xdr:cNvPr@descr.
+	altText string
 }
 
 // Excel worksheet bounds and a sanity cap on image dimensions. The pixel cap
@@ -66,8 +71,7 @@ const (
 // always written as 0, and absolute anchors (xdr:absoluteAnchor, a position
 // fixed in EMU rather than relative to the grid) are not produced at all.
 // Pixel dimensions are converted at a fixed 96 DPI (9525 EMU per pixel), so an
-// image authored for a different DPI is scaled accordingly. Alt text can be
-// read back from an opened workbook but cannot be set here.
+// image authored for a different DPI is scaled accordingly.
 type ImageOptions struct {
 	// WidthPx and HeightPx set the rendered image size in pixels. When either
 	// is zero, the image's intrinsic pixel dimension is used for that axis,
@@ -84,6 +88,16 @@ type ImageOptions struct {
 	// anchor cell to ToCell (e.g. "D10"): the image moves and resizes with the
 	// cells. WidthPx/HeightPx are ignored for a two-cell anchor.
 	ToCell string
+
+	// AltText is the image's alternative-text description, written to the
+	// picture's xdr:cNvPr descr attribute and read back by Image.AltText.
+	//
+	// It is xlsx's spelling of the alt-text write that docx and pptx expose as
+	// InlineImage.SetAltText and Picture.SetAltText: AddImage returns only an
+	// error (no handle) and xlsx.Image is a read view of the saved drawing, so
+	// this is the settable path (C442). An accessibility pass that sets alt text
+	// on every image is now expressible in all three formats.
+	AltText string
 }
 
 // AddImage anchors an image (PNG, JPEG, GIF or SVG) with its top-left corner at
@@ -120,6 +134,7 @@ func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
 	img := sheetImage{
 		fromCol: col - 1,
 		fromRow: row - 1,
+		altText: opts.AltText,
 	}
 
 	// SVG is detected by content sniff; anything else goes through the raster
@@ -218,18 +233,15 @@ func intrinsicSize(data []byte) (w, h int, err error) {
 }
 
 // detectImageType sniffs the image format from its magic bytes and returns the
-// file extension and OPC content type.
+// file extension and OPC content type. The sniff itself is the shared
+// internal/imagesniff one docx and pptx also use (C441); the accepted set is
+// this package's own — Excel drawings here carry raster images plus SVG.
 func detectImageType(data []byte) (ext, contentType string, err error) {
-	switch {
-	case len(data) >= 8 && bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}):
-		return "png", opc.ContentTypePNG, nil
-	case len(data) >= 3 && bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
-		return "jpeg", opc.ContentTypeJPEG, nil
-	case len(data) >= 6 && (bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))):
-		return "gif", opc.ContentTypeGIF, nil
-	default:
+	kind := imagesniff.Detect(data)
+	if !kind.In(imagesniff.PNG, imagesniff.JPEG, imagesniff.GIF) {
 		return "", "", fmt.Errorf("unsupported image format (want PNG, JPEG, GIF or SVG)")
 	}
+	return kind.Ext(), kind.ContentType(), nil
 }
 
 // imageRels holds the relationship ids a drawing uses to reference one image's
@@ -384,12 +396,16 @@ func picXML(shapeID int, rel imageRels, img sheetImage) string {
 	} else {
 		blip += `/>`
 	}
+	descr := ""
+	if img.altText != "" {
+		descr = fmt.Sprintf(` descr="%s"`, xmlb.EscapeAttrValue(img.altText))
+	}
 	return fmt.Sprintf(`<xdr:pic>`+
-		`<xdr:nvPicPr><xdr:cNvPr id="%d" name="Image %d"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>`+
+		`<xdr:nvPicPr><xdr:cNvPr id="%d" name="Image %d"%s/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>`+
 		`<xdr:blipFill>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>`+
 		`<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>`+
 		`</xdr:pic>`,
-		shapeID, shapeID, blip, img.widthEMU, img.heightEMU)
+		shapeID, shapeID, descr, blip, img.widthEMU, img.heightEMU)
 }
 
 // transparentPNG is a 1x1 transparent PNG used as the raster fallback for SVG

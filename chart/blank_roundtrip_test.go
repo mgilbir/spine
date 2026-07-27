@@ -101,8 +101,8 @@ func TestBlankChartReembedIntoWorkbook(t *testing.T) {
 	}
 
 	wb := xlsx.Create()
-	sheet := wb.AddSheet("Host")
-	if err := sheet.AddChart("E2", c); err != nil {
+	sheet := addSheetT(wb, "Host")
+	if err := sheet.AddChart(c, "E2"); err != nil {
 		t.Fatalf("AddChart: %v", err)
 	}
 	data, err := wb.SaveBytes()

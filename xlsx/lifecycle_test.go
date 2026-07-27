@@ -8,13 +8,13 @@ import (
 // C13: deleting a middle sheet then adding one must not reuse a sheetId.
 func TestAddSheet_UniqueSheetIDAfterDelete(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("A")
-	wb.AddSheet("B")
-	wb.AddSheet("C")
+	addSheetT(wb, "A")
+	addSheetT(wb, "B")
+	addSheetT(wb, "C")
 	if err := wb.DeleteSheet(0); err != nil { // delete "A"
 		t.Fatal(err)
 	}
-	wb.AddSheet("D")
+	addSheetT(wb, "D")
 
 	seen := map[uint32]bool{}
 	for _, s := range wb.workbook.Sheets.Sheet {
@@ -59,7 +59,11 @@ func TestCloseThenSavePreservesParts(t *testing.T) {
 	}
 }
 
-// C71: sheet-name validation and AddSheet sanitization.
+// C71: sheet-name validation. The sanitization half of this test moved to
+// TestAddSheetRejectsInvalidAndDuplicateNames and
+// TestUniqueSheetNameCoercesExplicitly: C440 replaced AddSheet's silent
+// coercion with an error plus an explicit UniqueSheetName opt-in, so asserting
+// that AddSheet renames the caller's sheet would now pin the defect.
 func TestSheetNameValidation(t *testing.T) {
 	if err := ValidateSheetName(""); err == nil {
 		t.Error("empty name should be invalid")
@@ -74,15 +78,14 @@ func TestSheetNameValidation(t *testing.T) {
 		t.Errorf("valid name rejected: %v", err)
 	}
 
+	// A sheet added under a legal, free name keeps exactly that name.
 	wb := Create()
-	s1 := wb.AddSheet("Data")
-	s2 := wb.AddSheet("Data") // duplicate -> renamed
-	if s2.Name() == s1.Name() {
-		t.Errorf("duplicate sheet name not disambiguated: both %q", s1.Name())
+	s1 := addSheetT(wb, "Data")
+	if s1.Name() != "Data" {
+		t.Errorf("AddSheet(%q) produced a sheet named %q", "Data", s1.Name())
 	}
-	s3 := wb.AddSheet(`a[b]c*?`) // forbidden chars stripped
-	if err := ValidateSheetName(s3.Name()); err != nil {
-		t.Errorf("AddSheet produced an invalid name %q: %v", s3.Name(), err)
+	if _, err := wb.SheetByName("Data"); err != nil {
+		t.Errorf("SheetByName(%q) after AddSheet(%q): %v", "Data", "Data", err)
 	}
 }
 

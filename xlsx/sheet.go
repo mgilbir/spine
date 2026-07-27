@@ -14,9 +14,16 @@ import (
 // preserved raw bytes on first access. Returns nil for a created sheet that has
 // no content yet, or when the raw bytes are unavailable. Parsing never marks
 // the sheet dirty, so an accessed-but-unmodified sheet still round-trips from
-// its raw bytes. Open validates every sheet up front (parse-then-discard), so a
-// lazy parse here does not re-introduce the malformed-sheet error that Open
-// already surfaces.
+// its raw bytes. Open validates every non-opaque sheet up front
+// (parse-then-discard, see loadSheets), so a lazy parse here does not
+// re-introduce the malformed-sheet error that Open already surfaces.
+//
+// If the bytes ARE present and the re-parse fails, that is in-memory corruption
+// of bytes this process already parsed successfully, and it panics with a
+// diagnostic rather than returning nil. A nil model here reads as an empty
+// sheet: every cell gone, silently, and then written back that way on save.
+// docx's doc() has always made this choice for the identical state (C568); the
+// three copies of this function now agree.
 func (s *Sheet) ws() *oxml.CT_Worksheet {
 	if s.wsModel == nil && !s.wsParsed {
 		s.wsParsed = true
@@ -25,9 +32,16 @@ func (s *Sheet) ws() *oxml.CT_Worksheet {
 				m := &oxml.CT_Worksheet{}
 				if err := xmlb.Unmarshal(part.Data, m); err == nil {
 					s.wsModel = m
+				} else if !s.opaque {
+					s.wsParseErr = err
 				}
 			}
 		}
+	}
+	if s.wsParseErr != nil {
+		panic(fmt.Sprintf("xlsx: lazy parse of worksheet part %s failed: %v "+
+			"(Open validated the same bytes, so this indicates in-memory corruption)",
+			s.partName, s.wsParseErr))
 	}
 	return s.wsModel
 }
@@ -63,7 +77,11 @@ type Sheet struct {
 	wsModel *oxml.CT_Worksheet
 	// wsParsed records that a lazy parse was already attempted, so a genuinely
 	// empty or unparseable sheet is not re-parsed on every access.
-	wsParsed  bool
+	wsParsed bool
+	// wsParseErr holds the failure of a lazy re-parse of bytes Open already
+	// parsed — an impossible state that ws() reports by panicking rather than
+	// by silently reading the sheet as empty (C568).
+	wsParseErr error
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
@@ -240,13 +258,24 @@ func (s *Sheet) SetCellValue(ref string, value interface{}) error {
 	return nil
 }
 
-// GetCellValue returns the cell's stored value as a string: the resolved text
-// of a shared or inline string, and otherwise the raw <v> literal. It is NOT
-// the display value — the cell's number format is not applied, so a date reads
-// back as its serial and 0.5 formatted as "50%" reads back as "0.5". Use
-// Sheet.Text for the formatted rendering. An absent cell yields "" with no
-// error; an unparseable reference yields ErrInvalidCell, and a chartsheet /
-// dialogsheet / macrosheet ErrNotWorksheet.
+// CellValue returns the cell's stored value as a string: the resolved text of a
+// shared or inline string, and otherwise the raw <v> literal. It is NOT the
+// display value — the cell's number format is not applied, so a date reads back
+// as its serial and 0.5 formatted as "50%" reads back as "0.5". Use Sheet.Text
+// for the formatted rendering. An absent cell yields "" with no error; an
+// unparseable reference yields ErrInvalidCell, and a chartsheet / dialogsheet /
+// macrosheet ErrNotWorksheet.
+//
+// It is the Get-less spelling of GetCellValue, matching the rest of the
+// library's accessors (C565).
+func (s *Sheet) CellValue(ref string) (string, error) {
+	return s.GetCellValue(ref)
+}
+
+// GetCellValue returns the cell's stored value as a string.
+//
+// Deprecated: use CellValue. Go accessors do not carry a Get prefix, and this
+// was one of a handful of methods library-wide that did (C565).
 func (s *Sheet) GetCellValue(ref string) (string, error) {
 	if s.opaque {
 		return "", ErrNotWorksheet

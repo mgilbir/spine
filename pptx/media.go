@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 
 	// Register the stdlib decoders so AddPicture can read the intrinsic
@@ -11,6 +12,8 @@ import (
 	_ "image/png"
 
 	"github.com/mgilbir/spine/common/dml"
+	"github.com/mgilbir/spine/internal/imagesniff"
+	"github.com/mgilbir/spine/opc"
 )
 
 // emuPerPixel is the EMU size of one pixel at 96 DPI (914400 EMU per inch / 96).
@@ -80,11 +83,73 @@ func (p *Picture) ImageData() []byte {
 }
 
 // SetImageData sets the raw image data and content type.
+//
+// SVG data — declared with an "image/svg+xml" content type or recognized by
+// content — is routed through SetSVGImageData with a transparent raster
+// fallback, so the picture carries the a:blip + asvg:svgBlip pair PowerPoint
+// needs instead of a bare blip pointing at the .svg part (C387).
+//
+// Unlike Slide.AddPictureFromBytes this setter has no error channel, so it does
+// not validate the bytes; prefer AddPictureFromBytes (or SetImage) when the
+// data comes from outside the program.
 func (p *Picture) SetImageData(data []byte, contentType string) {
+	if contentType == opc.ContentTypeSVG || imagesniff.IsSVG(data) {
+		p.SetSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG)
+		return
+	}
 	p.imageData = data
 	p.contentType = contentType
 	p.svgData = nil
 	p.svgContentType = ""
+}
+
+// pptxImageKinds is the set of image formats a picture part may carry: the
+// raster formats every renderer handles plus the two Windows metafile formats
+// PowerPoint still embeds. SVG is handled separately (it needs a raster
+// fallback part alongside it), so it is not in this set.
+var pptxImageKinds = []imagesniff.Kind{
+	imagesniff.PNG, imagesniff.JPEG, imagesniff.GIF,
+	imagesniff.BMP, imagesniff.TIFF, imagesniff.EMF, imagesniff.WMF,
+}
+
+// setImageBytes validates raw image bytes and stores them on the picture,
+// dispatching SVG to the dual-part (raster fallback + svgBlip) representation.
+// api names the caller in the error message.
+//
+// The validation is the cross-format one from internal/imagesniff: docx, xlsx
+// and pptx reject the same bytes with the same rule, which is the whole point
+// of C441 — before it, only xlsx checked.
+func (p *Picture) setImageBytes(api string, data []byte, contentType string) error {
+	if len(data) == 0 {
+		return fmt.Errorf("pptx: %s: image data is empty", api)
+	}
+	if contentType == opc.ContentTypeSVG || imagesniff.IsSVG(data) {
+		if !imagesniff.IsSVG(data) {
+			return fmt.Errorf("pptx: %s: content type is %s but the data is not an SVG document", api, opc.ContentTypeSVG)
+		}
+		p.SetSVGImageData(data, minimalTransparentPNG, opc.ContentTypePNG)
+		return nil
+	}
+	kind := imagesniff.Detect(data)
+	if !kind.In(pptxImageKinds...) {
+		return fmt.Errorf("pptx: %s: unsupported image format (want PNG, JPEG, GIF, BMP, TIFF, EMF, WMF or SVG)", api)
+	}
+	if contentType == "" {
+		contentType = kind.ContentType()
+	}
+	p.imageData = data
+	p.contentType = contentType
+	p.svgData = nil
+	p.svgContentType = ""
+	return nil
+}
+
+// svgIntrinsicSizeEMU returns an SVG's intrinsic size in EMU at 96 DPI, from
+// its root width/height or viewBox (the CSS default 300x150 when it declares
+// neither). It is the pptx spelling of the sizing xlsx does for the same input.
+func svgIntrinsicSizeEMU(data []byte) (w, h dml.EMU) {
+	pw, ph := imagesniff.SVGSizePx(data)
+	return dml.EMU(pw) * emuPerPixel, dml.EMU(ph) * emuPerPixel
 }
 
 // SetSVGImageData sets SVG data plus a raster fallback image.
@@ -103,20 +168,23 @@ func (p *Picture) SetSVGData(svgData []byte) {
 	p.SetSVGImageData(svgData, minimalTransparentPNG, "image/png")
 }
 
-// SetImage sets an image on this picture from a file path.
-// The file is read immediately; the image is embedded when the presentation is saved.
+// SetImage sets an image on this picture from a file path. The file is read
+// immediately; the image is embedded when the presentation is saved.
+//
+// The bytes are validated as an image this package can embed (C441), and an
+// SVG file is stored as the raster-fallback + svgBlip pair PowerPoint expects
+// rather than as a bare blip (C387).
 func (p *Picture) SetImage(imagePath string) error {
 	data, ct, err := readImageFile(imagePath)
 	if err != nil {
 		return err
 	}
-
-	p.imagePath = imagePath
-	p.imageData = data
-	p.contentType = ct
-	p.svgData = nil
-	p.svgContentType = ""
-
+	if err := p.setImageBytes("SetImage", data, ct); err != nil {
+		return fmt.Errorf("%w (%s)", err, imagePath)
+	}
+	if len(p.svgData) == 0 {
+		p.imagePath = imagePath
+	}
 	return nil
 }
 
@@ -165,6 +233,18 @@ func (p *Picture) AltText() string {
 	return p.description
 }
 
+// SetAltText sets the picture's alternative text (the descr on p:cNvPr).
+//
+// It is the cross-format name shared with docx's InlineImage.SetAltText and
+// xlsx's ImageOptions.AltText. The read side of the three image APIs was
+// harmonized on AltText long ago; the write side was SetAltText in docx,
+// SetDescription here, and impossible in xlsx, so an accessibility pass could
+// not be ported without a rename hunt (C442). SetDescription remains as a
+// deprecated alias.
+func (p *Picture) SetAltText(text string) {
+	p.SetDescription(text)
+}
+
 // PartName returns the package part name of the picture's binary (e.g.
 // /ppt/media/image1.png), or "" when it cannot be resolved — a picture added
 // this session has no part name until the presentation is saved. This matches
@@ -209,6 +289,9 @@ func (p *Picture) Description() string {
 }
 
 // SetDescription sets the image description (alt text).
+//
+// Deprecated: use SetAltText, the name docx and xlsx use for the same field
+// and the one Picture.AltText already reads it back under (C442).
 func (p *Picture) SetDescription(desc string) {
 	p.description = desc
 	p.dirty = true

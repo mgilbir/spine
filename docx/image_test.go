@@ -24,6 +24,16 @@ func minimalPNG() []byte {
 	}
 }
 
+// taggedPNG returns minimalPNG with tag appended after the IEND chunk: a real
+// PNG as far as any signature sniff or decoder is concerned, but byte-distinct
+// per tag. Tests that need two *different* images used to pass ad-hoc strings
+// like []byte("PNGDATA-ONE"), which C441's add-time validation now rejects (a
+// mislabelled blob is exactly what the finding is about); this keeps them
+// distinct without pretending garbage is an image.
+func taggedPNG(tag string) []byte {
+	return append(minimalPNG(), tag...)
+}
+
 func TestRunAddImageFromBytes(t *testing.T) {
 	doc := Create()
 	p := doc.AddParagraph()

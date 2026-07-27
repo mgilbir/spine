@@ -68,7 +68,7 @@ func zipEntry(t *testing.T, data []byte, name string) string {
 
 func TestAddImageEmitsDrawingParts(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if _, err := sheet.Cell("A1"); err != nil {
 		t.Fatalf("seed cell: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestAddImageEmitsDrawingParts(t *testing.T) {
 
 func TestAddImageDefaultsToIntrinsicSize(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	pngData := testPNG(t, 40, 25)
 	if err := sheet.AddImage("A1", pngData, ImageOptions{}); err != nil {
 		t.Fatalf("AddImage: %v", err)
@@ -161,7 +161,7 @@ func TestAddImageDefaultsToIntrinsicSize(t *testing.T) {
 
 func TestAddImageRejectsUnknownFormat(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.AddImage("A1", []byte("not an image"), ImageOptions{}); err == nil {
 		t.Fatal("expected error for unsupported image format")
 	}
@@ -174,7 +174,7 @@ func TestAddImageGIF(t *testing.T) {
 		t.Fatalf("encode gif: %v", err)
 	}
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.AddImage("A1", buf.Bytes(), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage gif: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestAddImageGIF(t *testing.T) {
 
 func TestAddImageSingleAxisUsesIntrinsicForOther(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	// Source is 40x25; setting only WidthPx must keep the intrinsic height.
 	if err := sheet.AddImage("A1", testPNG(t, 40, 25), ImageOptions{WidthPx: 300}); err != nil {
 		t.Fatalf("AddImage: %v", err)
@@ -209,7 +209,7 @@ func TestAddImageSingleAxisUsesIntrinsicForOther(t *testing.T) {
 
 func TestAddImageRejectsBadInputs(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	png := testPNG(t, 8, 8)
 
 	cases := []struct {
@@ -238,14 +238,14 @@ func TestAddImageRejectsBadInputs(t *testing.T) {
 // while drawing relationship ids are drawing-local (rId1 per drawing).
 func TestAddImageMultipleSheetsAndImages(t *testing.T) {
 	wb := Create()
-	s1 := wb.AddSheet("One")
+	s1 := addSheetT(wb, "One")
 	if err := s1.AddImage("A1", testPNG(t, 10, 10), ImageOptions{}); err != nil {
 		t.Fatalf("s1 img1: %v", err)
 	}
 	if err := s1.AddImage("C3", testPNG(t, 12, 12), ImageOptions{}); err != nil {
 		t.Fatalf("s1 img2: %v", err)
 	}
-	s2 := wb.AddSheet("Two")
+	s2 := addSheetT(wb, "Two")
 	if err := s2.AddImage("B2", testPNG(t, 14, 14), ImageOptions{}); err != nil {
 		t.Fatalf("s2 img1: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestAddImageJPEG(t *testing.T) {
 		t.Fatalf("encode jpeg: %v", err)
 	}
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.AddImage("A1", buf.Bytes(), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage jpeg: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestAddImageJPEG(t *testing.T) {
 // the preserved content and the package must reopen cleanly.
 func TestAddImageOnOpenedWorkbook(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 	buf, err := wb.WriteToBuffer()
 	if err != nil {
 		t.Fatalf("WriteToBuffer: %v", err)
@@ -388,7 +388,7 @@ func TestAddImageOnOpenedWorkbook(t *testing.T) {
 // added to opened workbooks, so the image must land in the output.
 func TestAddImageOpenedWorkbookAfterClose(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 	buf, err := wb.WriteToBuffer()
 	if err != nil {
 		t.Fatalf("WriteToBuffer: %v", err)

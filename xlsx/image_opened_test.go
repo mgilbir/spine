@@ -12,8 +12,8 @@ import (
 func TestAddImageOpenedNoCollision(t *testing.T) {
 	// Base workbook already has an image on Sheet1 (a drawing1.xml + image1.png).
 	wb := Create()
-	s1 := wb.AddSheet("Sheet1")
-	wb.AddSheet("Sheet2")
+	s1 := addSheetT(wb, "Sheet1")
+	addSheetT(wb, "Sheet2")
 	if err := s1.AddImage("A1", testPNG(t, 10, 10), ImageOptions{}); err != nil {
 		t.Fatalf("seed image: %v", err)
 	}

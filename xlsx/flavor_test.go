@@ -14,7 +14,7 @@ import (
 func retypedWorkbook(t *testing.T, flavor string) []byte {
 	t.Helper()
 	w := Create()
-	sheet := w.AddSheet("Sheet1")
+	sheet := addSheetT(w, "Sheet1")
 	if err := sheet.SetCellValue("A1", "x"); err != nil {
 		t.Fatal(err)
 	}

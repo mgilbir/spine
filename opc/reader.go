@@ -112,6 +112,23 @@ type ReaderOptions struct {
 	// Reader: it bounds how many zip entries the package may contain. Zero
 	// uses the package-level default; a negative value disables the bound.
 	MaxPackageEntries int
+
+	// AllowMissingDataIntegrity applies only to the encrypted-open paths
+	// (OpenEncryptedWithOptions and the format packages' encrypted opens); the
+	// plain-zip readers ignore it. It is passed straight through to
+	// crypto.DecryptOptions.AllowMissingDataIntegrity: an agile-encrypted
+	// package whose EncryptionInfo descriptor carries no dataIntegrity element
+	// is decrypted WITHOUT verifying the package HMAC.
+	//
+	// Leave it false unless you know you need it. The descriptor is plaintext
+	// and unauthenticated, so an attacker who can modify the file can delete
+	// the dataIntegrity element as easily as they can flip bits in the
+	// (malleable, CBC-mode) ciphertext; honoring its absence therefore turns an
+	// authenticated format into an unauthenticated one at the attacker's
+	// option. The default rejects it with crypto.ErrIntegrityCheckFailed. It
+	// never relaxes a *failed* HMAC and never accepts a half-present
+	// dataIntegrity block.
+	AllowMissingDataIntegrity bool
 }
 
 // maxPackageEntries resolves the effective entry-count bound for one Reader:

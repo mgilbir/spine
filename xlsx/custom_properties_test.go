@@ -43,7 +43,7 @@ func cpSaveWB(t *testing.T, w *Workbook) []byte {
 // workbook, saves, reopens, and reads the values back.
 func TestXlsxCustomPropertiesCreateRoundTrip(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	tm := time.Date(2022, 1, 2, 3, 4, 5, 0, time.UTC)
 	vals := map[string]any{"Str": "s & t", "Int": int64(11), "Float": 1.25, "Bool": false, "Date": tm}
 	for k, v := range vals {
@@ -81,7 +81,7 @@ func TestXlsxCustomPropertiesCreateRoundTrip(t *testing.T) {
 // reproduces docProps/custom.xml byte-for-byte.
 func TestXlsxCustomPropertiesPreservedVerbatim(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	_ = w.SetCustomProperty("Keep", "value")
 	first := cpSaveWB(t, w)
 	firstCX, ok := cpPart(t, first, "docProps/custom.xml")
@@ -104,7 +104,7 @@ func TestXlsxCustomPropertiesPreservedVerbatim(t *testing.T) {
 // reopened workbook.
 func TestXlsxCustomPropertiesModifyAndRemove(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	_ = w.SetCustomProperty("A", "one")
 	_ = w.SetCustomProperty("B", "two")
 	first := cpSaveWB(t, w)
@@ -139,7 +139,7 @@ func TestXlsxCustomPropertiesModifyAndRemove(t *testing.T) {
 // override, and package relationship are created.
 func TestXlsxCustomPropertiesAddOnRoundTrip(t *testing.T) {
 	w := Create()
-	w.AddSheet("Sheet1")
+	addSheetT(w, "Sheet1")
 	base := cpSaveWB(t, w)
 	if _, ok := cpPart(t, base, "docProps/custom.xml"); ok {
 		t.Skip("baseline unexpectedly has custom.xml")

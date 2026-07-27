@@ -28,8 +28,11 @@ import (
 
 // ErrEncrypted indicates that the input is a password-encrypted (CFB-wrapped)
 // OOXML document rather than a plain zip package. The normal open path returns
-// it so callers can retry through OpenEncrypted with a password.
-var ErrEncrypted = errors.New("opc: package is encrypted; open it with OpenEncrypted and a password")
+// it so callers can retry with a password: each format package has an
+// OpenEncrypted of its own (docx.OpenEncrypted, xlsx.OpenEncrypted,
+// pptx.OpenEncrypted) returning that format's document model, and
+// opc.OpenEncrypted returns a raw package Reader.
+var ErrEncrypted = errors.New("opc: package is encrypted; open it with the format package's OpenEncrypted (docx/xlsx/pptx), or opc.OpenEncrypted, and a password")
 
 // MaxEncryptedInputSize bounds how many bytes OpenEncrypted will read from its
 // source before attempting to parse the CFB container, guarding against a
@@ -62,9 +65,13 @@ func OpenEncrypted(r io.ReaderAt, size int64, password string) (*Reader, error) 
 	return OpenEncryptedWithOptions(r, size, password, ReaderOptions{})
 }
 
-// OpenEncryptedWithOptions is OpenEncrypted with per-Reader decompression
-// options applied to the decrypted package (the same limits guard the inner
-// zip against decompression bombs).
+// OpenEncryptedWithOptions is OpenEncrypted with per-Reader options. The
+// decompression limits apply to the decrypted package (the same bounds guard
+// the inner zip against decompression bombs), and
+// ReaderOptions.AllowMissingDataIntegrity is passed through to the agile
+// decryptor — the only way to reach crypto.DecryptOptions from an OPC open.
+// Its zero value keeps the strict default: an agile package with a missing or
+// half-present dataIntegrity block fails with crypto.ErrIntegrityCheckFailed.
 func OpenEncryptedWithOptions(r io.ReaderAt, size int64, password string, opts ReaderOptions) (*Reader, error) {
 	if size < 0 {
 		return nil, fmt.Errorf("%w: negative size %d", ErrCorruptedPackage, size)
@@ -78,7 +85,7 @@ func OpenEncryptedWithOptions(r io.ReaderAt, size int64, password string, opts R
 		return nil, fmt.Errorf("opc: reading encrypted input: %w", err)
 	}
 
-	plaintext, err := decryptCFBPackage(data, password)
+	plaintext, err := decryptCFBPackage(data, password, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +93,9 @@ func OpenEncryptedWithOptions(r io.ReaderAt, size int64, password string, opts R
 }
 
 // decryptCFBPackage parses the CFB container in data and returns the decrypted
-// inner package bytes.
-func decryptCFBPackage(data []byte, password string) ([]byte, error) {
+// inner package bytes. Only the decrypt-relevant fields of opts are consulted;
+// the decompression bounds are applied later, by the Reader over the plaintext.
+func decryptCFBPackage(data []byte, password string, opts ReaderOptions) ([]byte, error) {
 	cf, err := readCFB(data)
 	if err != nil {
 		return nil, err
@@ -100,7 +108,13 @@ func decryptCFBPackage(data []byte, password string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return crypto.Decrypt(encInfo, encPkg, password)
+	res, err := crypto.DecryptWithOptions(encInfo, encPkg, password, crypto.DecryptOptions{
+		AllowMissingDataIntegrity: opts.AllowMissingDataIntegrity,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.Package, nil
 }
 
 // SaveEncrypted encrypts a plain OOXML package (the zip bytes produced by a

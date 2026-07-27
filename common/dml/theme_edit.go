@@ -7,12 +7,12 @@ import (
 )
 
 // ThemeEditor is a read/write handle over a parsed DrawingML theme part
-// (a:theme). It is the shared model behind docx.Document.Theme and
-// xlsx.Workbook.Theme (the same a:theme lives at word/theme/theme1.xml and
-// xl/theme/theme1.xml), mirroring the accessor shape of pptx's read-only Theme
-// but persisting edits: a modified editor re-serializes the theme part on
-// save, while an untouched one leaves the source bytes in place for a
-// byte-identical round-trip.
+// (a:theme). It is the single theme model behind docx.Document.Theme,
+// xlsx.Workbook.Theme and pptx's Presentation.Theme / SlideMaster.Theme — the
+// same a:theme lives at word/theme/theme1.xml, xl/theme/theme1.xml and
+// ppt/theme/themeN.xml, so one type serves all three (C571). A modified editor
+// re-serializes the theme part on save; an untouched one leaves the source
+// bytes in place for a byte-identical round-trip.
 type ThemeEditor struct {
 	theme    *Theme
 	raw      []byte // original part bytes, for prolog capture on re-marshal
@@ -21,7 +21,7 @@ type ThemeEditor struct {
 
 // NewThemeEditor wraps a parsed theme together with its original part bytes.
 // It returns nil when theme is nil, so callers can surface "no theme part" as
-// a nil handle (matching pptx's Theme accessors).
+// a nil handle.
 func NewThemeEditor(theme *Theme, raw []byte) *ThemeEditor {
 	if theme == nil {
 		return nil
@@ -60,6 +60,21 @@ func (e *ThemeEditor) FontScheme() *ThemeFontScheme {
 		return nil
 	}
 	return &ThemeFontScheme{owner: e, fs: e.theme.ThemeElements.FontScheme}
+}
+
+// FormatScheme returns a read-only view of the theme's format scheme
+// (a:fmtScheme), or nil when the theme carries none.
+//
+// It is read-only on purpose: a:fmtScheme's fill, line and effect style lists
+// are positional (a:fillRef/@idx and friends index them), so an editing API
+// that let a caller reorder or drop one would silently repoint every styled
+// shape in the file — the defect C401 records. Read the ClrScheme/FmtScheme
+// model directly for anything this view does not surface.
+func (e *ThemeEditor) FormatScheme() *ThemeFormatScheme {
+	if e.theme.ThemeElements == nil || e.theme.ThemeElements.FmtScheme == nil {
+		return nil
+	}
+	return &ThemeFormatScheme{fs: e.theme.ThemeElements.FmtScheme}
 }
 
 // Marshal re-serializes the theme part, reproducing the source XML declaration
@@ -351,22 +366,157 @@ func (f *ThemeFontScheme) SetMinorLatin(typeface string) {
 	f.owner.modified = true
 }
 
-// fontLatin returns the Latin typeface of a font collection, or "".
-func fontLatin(fc *FontCollection) string {
-	if fc == nil || fc.Latin == nil {
+// The East Asian and complex-script slots. A theme names three typefaces per
+// font collection (a:latin, a:ea, a:cs), and pptx's read-only theme surfaced
+// all three while this editor surfaced only the Latin one; converging the two
+// (C571) meant the editor had to carry the full set rather than the merge
+// dropping a capability.
+
+// MajorEastAsia returns the major (heading) East Asian typeface.
+func (f *ThemeFontScheme) MajorEastAsia() string { return fontSlot(f.fs.MajorFont, slotEA) }
+
+// SetMajorEastAsia sets the major (heading) East Asian typeface.
+func (f *ThemeFontScheme) SetMajorEastAsia(typeface string) {
+	setFontSlot(&f.fs.MajorFont, slotEA, typeface)
+	f.owner.modified = true
+}
+
+// MinorEastAsia returns the minor (body) East Asian typeface.
+func (f *ThemeFontScheme) MinorEastAsia() string { return fontSlot(f.fs.MinorFont, slotEA) }
+
+// SetMinorEastAsia sets the minor (body) East Asian typeface.
+func (f *ThemeFontScheme) SetMinorEastAsia(typeface string) {
+	setFontSlot(&f.fs.MinorFont, slotEA, typeface)
+	f.owner.modified = true
+}
+
+// MajorComplexScript returns the major (heading) complex-script typeface.
+func (f *ThemeFontScheme) MajorComplexScript() string { return fontSlot(f.fs.MajorFont, slotCS) }
+
+// SetMajorComplexScript sets the major (heading) complex-script typeface.
+func (f *ThemeFontScheme) SetMajorComplexScript(typeface string) {
+	setFontSlot(&f.fs.MajorFont, slotCS, typeface)
+	f.owner.modified = true
+}
+
+// MinorComplexScript returns the minor (body) complex-script typeface.
+func (f *ThemeFontScheme) MinorComplexScript() string { return fontSlot(f.fs.MinorFont, slotCS) }
+
+// SetMinorComplexScript sets the minor (body) complex-script typeface.
+func (f *ThemeFontScheme) SetMinorComplexScript(typeface string) {
+	setFontSlot(&f.fs.MinorFont, slotCS, typeface)
+	f.owner.modified = true
+}
+
+// fontSlotKind names one of a font collection's three typeface slots.
+type fontSlotKind int
+
+const (
+	slotLatin fontSlotKind = iota
+	slotEA
+	slotCS
+)
+
+// fontSlotPtr returns the address of the requested slot within a (possibly nil)
+// font collection, allocating nothing.
+func fontSlotPtr(fc *FontCollection, kind fontSlotKind) **TextFont {
+	if fc == nil {
+		return nil
+	}
+	switch kind {
+	case slotLatin:
+		return &fc.Latin
+	case slotEA:
+		return &fc.Ea
+	default:
+		return &fc.Cs
+	}
+}
+
+// fontSlot returns the typeface of one slot of a font collection, or "".
+func fontSlot(fc *FontCollection, kind fontSlotKind) string {
+	p := fontSlotPtr(fc, kind)
+	if p == nil || *p == nil {
 		return ""
 	}
-	return fc.Latin.Typeface
+	return (*p).Typeface
 }
+
+// setFontSlot sets the typeface of one slot, allocating the collection and the
+// slot as needed.
+func setFontSlot(fc **FontCollection, kind fontSlotKind, typeface string) {
+	if *fc == nil {
+		*fc = &FontCollection{}
+	}
+	p := fontSlotPtr(*fc, kind)
+	if *p == nil {
+		*p = &TextFont{}
+	}
+	(*p).Typeface = typeface
+}
+
+// fontLatin returns the Latin typeface of a font collection, or "".
+func fontLatin(fc *FontCollection) string { return fontSlot(fc, slotLatin) }
 
 // setFontLatin sets the Latin typeface of a font collection, allocating the
 // collection and its latin slot as needed.
 func setFontLatin(fc **FontCollection, typeface string) {
-	if *fc == nil {
-		*fc = &FontCollection{}
+	setFontSlot(fc, slotLatin, typeface)
+}
+
+// ThemeFormatScheme is a read-only view of a theme's format scheme
+// (a:fmtScheme). See ThemeEditor.FormatScheme for why it has no setters.
+type ThemeFormatScheme struct {
+	fs *FmtScheme
+}
+
+// Name returns the format scheme name.
+func (f *ThemeFormatScheme) Name() string { return f.fs.Name }
+
+// ThemeLineStyle is one entry of a format scheme's a:lnStyleLst, in list order
+// (a shape's a:lnRef/@idx is a 1-based index into it).
+type ThemeLineStyle struct {
+	// Width is the line width in EMU; zero when the entry declares none.
+	Width EMU
+	// Color is the line's solid fill resolved to a concrete color, or nil when
+	// the entry has no solid fill (a gradient or pattern line).
+	Color *Color
+	// Dash is the preset dash name (a:prstDash/@val), or "" for a solid line.
+	Dash string
+}
+
+// LineStyles returns the format scheme's line styles in list order. The fill
+// and effect style lists are not surfaced: they are positional too, and
+// flattening them to a value type would lose the gradient/pattern detail that
+// makes them useful — read FmtScheme directly for those.
+func (f *ThemeFormatScheme) LineStyles() []ThemeLineStyle {
+	if f.fs.LnStyleLst == nil {
+		return nil
 	}
-	if (*fc).Latin == nil {
-		(*fc).Latin = &TextFont{}
+	out := make([]ThemeLineStyle, 0, len(f.fs.LnStyleLst.Ln))
+	for _, ln := range f.fs.LnStyleLst.Ln {
+		if ln == nil {
+			continue
+		}
+		style := ThemeLineStyle{}
+		if ln.W != nil {
+			style.Width = EMU(*ln.W)
+		}
+		if ln.PrstDash != nil {
+			style.Dash = ln.PrstDash.Val
+		}
+		if sf := ln.SolidFill; sf != nil {
+			c := themeSlotColor(&ColorChoice{
+				ScrgbClr:  sf.ScRgbClr,
+				SrgbClr:   sf.SrgbClr,
+				HslClr:    sf.HslClr,
+				SysClr:    sf.SysClr,
+				SchemeClr: sf.SchemeClr,
+				PrstClr:   sf.PrstClr,
+			})
+			style.Color = &c
+		}
+		out = append(out, style)
 	}
-	(*fc).Latin.Typeface = typeface
+	return out
 }

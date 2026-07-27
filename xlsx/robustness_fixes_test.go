@@ -16,7 +16,7 @@ import (
 func TestAddImageSVGDataReadBack(t *testing.T) {
 	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>`
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.AddImage("A1", []byte(svg), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage svg: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestAddImageSVGDataReadBack(t *testing.T) {
 // by its cached-value type rather than always returning the raw string.
 func TestFormulaValueTyped(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)
@@ -79,12 +79,12 @@ func TestFormulaValueTyped(t *testing.T) {
 // sheet is left in the workbook.
 func TestAddChartMarshalFailureNoOrphanSheet(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("Sheet1")
+	s := addSheetT(wb, "Sheet1")
 	before := wb.SheetCount()
 
 	// A chart with no series fails to marshal.
 	bad := chart.NewColumn().SetTitle("bad")
-	if err := s.AddChart("E2", bad); err == nil {
+	if err := s.AddChart(bad, "E2"); err == nil {
 		t.Fatal("AddChart with a series-less chart unexpectedly succeeded")
 	}
 
@@ -229,7 +229,7 @@ func TestDeleteSheetCascadesUniquelyOwnedParts(t *testing.T) {
 // relationship from the saved sheet .rels (rather than leaking a stale URL).
 func TestReplacedOpenedHyperlinkRelNotReemitted(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestReplacedOpenedHyperlinkRelNotReemitted(t *testing.T) {
 // group, leaving no overlapping/stale entry.
 func TestSetColWidthCarvesAllColsGroups(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	w10, w20 := 10.0, 20.0
 	// Two separate <cols> groups; the 2nd covers the target column (4).
 	s.ws().Cols = []oxml.CT_Cols{
@@ -363,7 +363,7 @@ func TestOrphanThreadedReplySurfaced(t *testing.T) {
 // sheet model.
 func TestAddPivotTableNoPhantomCells(t *testing.T) {
 	wb := Create()
-	data := wb.AddSheet("Data")
+	data := addSheetT(wb, "Data")
 	put := func(ref string, v interface{}) {
 		c, err := data.Cell(ref)
 		if err != nil {
@@ -385,7 +385,7 @@ func TestAddPivotTableNoPhantomCells(t *testing.T) {
 	put("A5", "South")
 	put("B5", "B")
 	put("C5", 40.0)
-	wb.AddSheet("Report")
+	addSheetT(wb, "Report")
 
 	countCells := func(s *Sheet) (rows, cells int) {
 		for i := range s.ws().SheetData.Row {
@@ -494,9 +494,9 @@ func TestParseCellRefMixedCase(t *testing.T) {
 // does not affect the workbook's internal sheet order or per-sheet index.
 func TestSheetsReturnsCopy(t *testing.T) {
 	wb := Create()
-	a := wb.AddSheet("Alpha")
-	b := wb.AddSheet("Beta")
-	c := wb.AddSheet("Gamma")
+	a := addSheetT(wb, "Alpha")
+	b := addSheetT(wb, "Beta")
+	c := addSheetT(wb, "Gamma")
 	_ = a
 	_ = b
 	_ = c

@@ -33,6 +33,13 @@ type sheetChart struct {
 // corner there, or a range (e.g. "E2:L20"), placing the chart to span exactly
 // that block of cells.
 //
+// The chart comes first, as it does in docx's Document.AddChart /
+// Paragraph.AddChart and pptx's Slide.AddChart. The placement arguments after
+// it legitimately differ per format (a cell anchor here, an EMU box there), but
+// the shared *chart.Chart used to be last in xlsx and first in the other two —
+// a gratuitous flip in an API the chart package's own godoc advertises as
+// "symmetric methods over the same *Chart value" (C566).
+//
 // Data placement: an xlsx chart references cells in the host workbook rather
 // than an embedded workbook. AddChart writes the chart's data (categories, and
 // each series' name and values) into a dedicated hidden worksheet — one per
@@ -48,7 +55,7 @@ type sheetChart struct {
 // DataRef keeps whatever it had) and one chart value can be added to several
 // sheets, workbooks, or documents. Later edits to the caller's chart do not
 // change what this sheet saves.
-func (s *Sheet) AddChart(anchor string, c *chart.Chart) error {
+func (s *Sheet) AddChart(c *chart.Chart, anchor string) error {
 	// An opaque sheet has no worksheet model to attach a drawing to and is
 	// skipped by saveOpenedSheetAttachments, so accepting the chart here would
 	// silently drop it (C423).
@@ -151,7 +158,10 @@ func parseChartAnchor(anchor string) (fromCol, fromRow, toCol, toRow int, err er
 // addChartDataSheet creates a new hidden worksheet to hold one chart's data and
 // returns it. The name is unique within the workbook.
 func (w *Workbook) addChartDataSheet() *Sheet {
-	sheet := w.AddSheet(w.uniqueChartDataSheetName())
+	// uniqueChartDataSheetName already returns a legal, unused name, so this
+	// goes straight to the internal appender rather than through AddSheet's
+	// validation (C440).
+	sheet := w.addSheet(w.uniqueChartDataSheetName())
 	sheet.state = "hidden"
 	// Mirror the visibility onto the workbook model so it survives a save.
 	if sheet.index < len(w.workbook.Sheets.Sheet) {

@@ -22,7 +22,7 @@ func reopenWorkbook(t *testing.T, wb *Workbook) *Workbook {
 
 func TestNamedStyle_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	sm := wb.Styles()
 
 	good := BuiltinStyleGood
@@ -119,7 +119,7 @@ func TestNamedStyle_DedupByName(t *testing.T) {
 
 func TestGradientFill_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	sm := wb.Styles()
 
 	idx, err := sm.NewCellStyle(CellStyle{
@@ -165,7 +165,7 @@ func TestGradientFill_RoundTrip(t *testing.T) {
 
 func TestDiagonalBorder_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	sm := wb.Styles()
 
 	idx, err := sm.NewCellStyle(CellStyle{
@@ -202,7 +202,7 @@ func TestDiagonalBorder_RoundTrip(t *testing.T) {
 
 func TestAlignmentExtras_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	sm := wb.Styles()
 
 	idx, err := sm.NewCellStyle(CellStyle{
@@ -238,7 +238,7 @@ func TestAlignmentExtras_RoundTrip(t *testing.T) {
 
 func TestFilterColumns_ValueList_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetAutoFilter("A1:C10"); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestFilterColumns_ValueList_RoundTrip(t *testing.T) {
 
 func TestFilterColumns_Custom_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetAutoFilter("A1:C10"); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestFilterColumns_Custom_RoundTrip(t *testing.T) {
 	}
 
 	// SetFilterColumn requires an auto-filter.
-	bare := Create().AddSheet("X")
+	bare := addSheetT(Create(), "X")
 	if err := bare.SetFilterColumn(FilterColumn{ColID: 0, Values: []string{"a"}}); err == nil {
 		t.Error("expected error setting filter column without auto-filter")
 	}
@@ -329,7 +329,7 @@ func TestFilterColumns_Custom_RoundTrip(t *testing.T) {
 
 func TestSortState_RoundTrip(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetSortState(SortState{
 		Ref:           "A2:C100",
 		CaseSensitive: true,
@@ -371,7 +371,7 @@ func TestSortState_RoundTrip(t *testing.T) {
 
 func TestDefinedName_RichAttrs_RoundTrip(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 	if err := wb.AddDefinedNameFull(DefinedName{
 		Name:        "SecretRange",
 		Value:       "Sheet1!$A$1:$B$2",
@@ -421,8 +421,8 @@ func TestDefinedName_RichAttrs_RoundTrip(t *testing.T) {
 
 func TestRemoveDefinedNameScoped(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
-	wb.AddSheet("Sheet2")
+	addSheetT(wb, "Sheet1")
+	addSheetT(wb, "Sheet2")
 	if err := wb.AddDefinedNameScoped("Local", "Sheet2!$A$1", 1); err != nil {
 		t.Fatal(err)
 	}

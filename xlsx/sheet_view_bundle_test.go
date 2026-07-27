@@ -22,9 +22,9 @@ func saveReopen(t *testing.T, wb *Workbook) *Workbook {
 
 func TestSheetVisibilityRoundTrip(t *testing.T) {
 	wb := Create()
-	s1 := wb.AddSheet("Visible")
-	s2 := wb.AddSheet("Hidden")
-	s3 := wb.AddSheet("VeryHidden")
+	s1 := addSheetT(wb, "Visible")
+	s2 := addSheetT(wb, "Hidden")
+	s3 := addSheetT(wb, "VeryHidden")
 
 	if !s1.Visible() {
 		t.Fatal("new sheet should be visible")
@@ -60,7 +60,7 @@ func TestSheetVisibilityRoundTrip(t *testing.T) {
 
 func TestSheetVisibilityLastVisibleRefused(t *testing.T) {
 	wb := Create()
-	only := wb.AddSheet("Only")
+	only := addSheetT(wb, "Only")
 	if err := only.SetVisible(false); err == nil {
 		t.Fatal("expected error hiding the only visible sheet")
 	}
@@ -69,7 +69,7 @@ func TestSheetVisibilityLastVisibleRefused(t *testing.T) {
 	}
 
 	// With two sheets, hiding one is fine but hiding both is not.
-	second := wb.AddSheet("Second")
+	second := addSheetT(wb, "Second")
 	if err := only.SetVisible(false); err != nil {
 		t.Fatalf("hide first of two: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestSheetVisibilityLastVisibleRefused(t *testing.T) {
 
 func TestSheetVisibilityInvalid(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SetVisibility(SheetVisibility("bogus")); err == nil {
 		t.Fatal("expected error for invalid visibility")
 	}
@@ -90,8 +90,8 @@ func TestSheetHiddenReshownRoundTrip(t *testing.T) {
 	// A sheet hidden in one session, saved, reopened, and unhidden must be
 	// visible after a second round trip (verifies captured-attr reconciliation).
 	wb := Create()
-	wb.AddSheet("Keep")
-	s := wb.AddSheet("Toggle")
+	addSheetT(wb, "Keep")
+	s := addSheetT(wb, "Toggle")
 	if err := s.SetVisible(false); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestSheetHiddenReshownRoundTrip(t *testing.T) {
 
 func TestSetRowColumnHiddenRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SetRowHidden(3, true); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestSetRowColumnHiddenRoundTrip(t *testing.T) {
 
 func TestSetColumnHiddenSplitsRange(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	// Establish a spanned width for columns 1-5, then hide only column 3.
 	if err := s.SetColWidth(1, 20); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestSetColumnHiddenSplitsRange(t *testing.T) {
 
 func TestSheetViewTogglesRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 
 	s.SetShowRowColHeaders(false)
 	s.SetRightToLeft(true)
@@ -209,7 +209,7 @@ func TestSheetViewTogglesRoundTrip(t *testing.T) {
 
 func TestSheetViewDefaults(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	// A pristine sheet reports OOXML defaults without a sheetView.
 	if !s.ShowRowColHeaders() {
 		t.Error("default ShowRowColHeaders should be true")
@@ -233,7 +233,7 @@ func TestSheetViewDefaults(t *testing.T) {
 
 func TestSetViewInvalid(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SetView("bogus"); err == nil {
 		t.Fatal("expected error for invalid view")
 	}
@@ -241,7 +241,7 @@ func TestSetViewInvalid(t *testing.T) {
 
 func TestSplitPanesRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SplitPanes(2000, 1000, "C4", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestSplitPanesRoundTrip(t *testing.T) {
 
 func TestSplitPanesRemoveAndInvalid(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SplitPanes(1000, 0, "B1", "topRight"); err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func TestSplitPanesRemoveAndInvalid(t *testing.T) {
 
 func TestRowGroupingRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.GroupRows(2, 4); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestRowGroupingRoundTrip(t *testing.T) {
 
 func TestColumnGroupingRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.GroupColumns(2, 5); err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestColumnGroupingRoundTrip(t *testing.T) {
 
 func TestOutlineLevelBounds(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	if err := s.SetRowOutlineLevel(1, 8); err == nil {
 		t.Fatal("expected error for outline level 8")
 	}
@@ -377,7 +377,7 @@ func TestOutlineLevelBounds(t *testing.T) {
 
 func TestOutlineSummaryRoundTrip(t *testing.T) {
 	wb := Create()
-	s := wb.AddSheet("S")
+	s := addSheetT(wb, "S")
 	// Defaults are both true.
 	if below, right := s.OutlineSummary(); !below || !right {
 		t.Errorf("default OutlineSummary = %v,%v, want true,true", below, right)
@@ -396,7 +396,7 @@ func TestOutlineSummaryRoundTrip(t *testing.T) {
 
 func TestForceFullCalcRoundTrip(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("S")
+	addSheetT(wb, "S")
 	if wb.ForceFullCalc() {
 		t.Fatal("new workbook should not force full calc")
 	}

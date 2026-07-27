@@ -549,7 +549,7 @@ func TestAddDefinedNameRejectsIllegalNames(t *testing.T) {
 	}
 	for _, tc := range cases {
 		wb := Create()
-		wb.AddSheet("Sheet1")
+		addSheetT(wb, "Sheet1")
 		if err := wb.AddDefinedName(tc.name, "Sheet1!$A$1"); err == nil {
 			t.Errorf("AddDefinedName(%q) succeeded; want rejection (%s)", tc.name, tc.why)
 		}
@@ -559,7 +559,7 @@ func TestAddDefinedNameRejectsIllegalNames(t *testing.T) {
 func TestAddDefinedNameAcceptsLegalNames(t *testing.T) {
 	for _, name := range []string{"Total", "_hidden", "a_b.c", "AA1B", "Sales2024", "\\odd", "ABCD"} {
 		wb := Create()
-		wb.AddSheet("Sheet1")
+		addSheetT(wb, "Sheet1")
 		if err := wb.AddDefinedName(name, "Sheet1!$A$1"); err != nil {
 			t.Errorf("AddDefinedName(%q) = %v, want success", name, err)
 		}
@@ -568,8 +568,8 @@ func TestAddDefinedNameAcceptsLegalNames(t *testing.T) {
 
 func TestAddDefinedNameRejectsDuplicates(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
-	wb.AddSheet("Sheet2")
+	addSheetT(wb, "Sheet1")
+	addSheetT(wb, "Sheet2")
 	if err := wb.AddDefinedName("Total", "Sheet1!$A$1"); err != nil {
 		t.Fatalf("first AddDefinedName: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestAddDefinedNameRejectsDuplicates(t *testing.T) {
 // print-area API writes are not caught by the C426 syntax check.
 func TestReservedDefinedNamesStillAllowed(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Sheet1")
+	sh := addSheetT(wb, "Sheet1")
 	if err := sh.SetPrintArea("A1:D20"); err != nil {
 		t.Fatalf("SetPrintArea: %v", err)
 	}
@@ -740,7 +740,7 @@ func buildCalcChainPackage(t *testing.T) []byte {
 
 func TestSetRowHeightRejectsOutOfGridRow(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("Sheet1")
+	sh := addSheetT(wb, "Sheet1")
 	if err := sh.SetRowHeight(MaxRow+1, 20); !errors.Is(err, ErrInvalidCell) {
 		t.Errorf("SetRowHeight(MaxRow+1) = %v, want ErrInvalidCell", err)
 	}
@@ -886,7 +886,7 @@ func buildTypedCellPackage(t *testing.T, cells string) []byte {
 // range must not explode into 16384 single-column entries.
 func TestCopySheetRangedColumnsStayRanged(t *testing.T) {
 	srcWB := Create()
-	src := srcWB.AddSheet("Wide")
+	src := addSheetT(srcWB, "Wide")
 	src.ensureWS()
 	w := 12.5
 	custom := true
@@ -897,7 +897,7 @@ func TestCopySheetRangedColumnsStayRanged(t *testing.T) {
 	}
 
 	dstWB := Create()
-	dstWB.AddSheet("Sheet1")
+	addSheetT(dstWB, "Sheet1")
 	dst, err := dstWB.CopySheetFrom(srcWB, "Wide")
 	if err != nil {
 		t.Fatalf("CopySheetFrom: %v", err)
@@ -920,7 +920,7 @@ func TestCopySheetRangedColumnsStayRanged(t *testing.T) {
 // TestCopySheetSingleCellMerge guards C549(b).
 func TestCopySheetSingleCellMerge(t *testing.T) {
 	srcWB := Create()
-	src := srcWB.AddSheet("Src")
+	src := addSheetT(srcWB, "Src")
 	if err := src.SetCellValue("A1", "x"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
@@ -929,7 +929,7 @@ func TestCopySheetSingleCellMerge(t *testing.T) {
 	src.ws().EnsureChildOrder("mergeCells")
 
 	dstWB := Create()
-	dstWB.AddSheet("Sheet1")
+	addSheetT(dstWB, "Sheet1")
 	dst, err := dstWB.CopySheetFrom(srcWB, "Src")
 	if err != nil {
 		t.Fatalf("CopySheetFrom: %v", err)
@@ -955,7 +955,7 @@ func TestCopySheetSingleCellMerge(t *testing.T) {
 // keep its colour through the style remap.
 func TestCopySheetPreservesThemeColor(t *testing.T) {
 	srcWB := Create()
-	src := srcWB.AddSheet("Src")
+	src := addSheetT(srcWB, "Src")
 	if err := src.SetCellValue("A1", "x"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
@@ -967,7 +967,7 @@ func TestCopySheetPreservesThemeColor(t *testing.T) {
 	c.SetStyleIndex(idx)
 
 	dstWB := Create()
-	dstWB.AddSheet("Sheet1")
+	addSheetT(dstWB, "Sheet1")
 	dst, err := dstWB.CopySheetFrom(srcWB, "Src")
 	if err != nil {
 		t.Fatalf("CopySheetFrom: %v", err)
@@ -989,7 +989,7 @@ func TestCopySheetPreservesThemeColor(t *testing.T) {
 // a half-populated sheet in the destination workbook.
 func TestCopySheetErrorRollsBack(t *testing.T) {
 	srcWB := Create()
-	src := srcWB.AddSheet("Src")
+	src := addSheetT(srcWB, "Src")
 	if err := src.SetCellValue("A1", "x"); err != nil {
 		t.Fatalf("SetCellValue: %v", err)
 	}
@@ -998,7 +998,7 @@ func TestCopySheetErrorRollsBack(t *testing.T) {
 	src.ws().SheetData.Row[0].C = append(src.ws().SheetData.Row[0].C, &oxml.CT_Cell{R: "ZZZZ1"})
 
 	dstWB := Create()
-	dstWB.AddSheet("Sheet1")
+	addSheetT(dstWB, "Sheet1")
 	before := dstWB.SheetCount()
 	if _, err := dstWB.CopySheetFrom(srcWB, "Src"); err == nil {
 		t.Fatal("CopySheetFrom succeeded on an out-of-grid cell reference; want an error")
@@ -1017,7 +1017,7 @@ func TestCopySheetErrorRollsBack(t *testing.T) {
 
 func TestNewCellStyleRejectsUnregisteredNumFmtID(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
+	addSheetT(wb, "Sheet1")
 	sm := wb.Styles()
 	if _, err := sm.NewCellStyle(CellStyle{NumberFormatID: 200}); err == nil {
 		t.Error("NewCellStyle with an unregistered custom numFmtId succeeded; want an error")

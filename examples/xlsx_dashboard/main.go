@@ -114,7 +114,8 @@ func main() {
 // one row per Region×Month observation, with the header row naming the three
 // fields (Region, Month, Revenue). This is the "tidy" shape pivot tables expect.
 func buildDataSheet(wb *xlsx.Workbook) {
-	data := wb.AddSheet("Data")
+	data, err := wb.AddSheet("Data")
+	must(err)
 	data.SetTabColor("808080")
 
 	must(data.SetCellValue("A1", "Region"))
@@ -146,7 +147,8 @@ func buildDataSheet(wb *xlsx.Workbook) {
 // sparklines and a chart. The matrix (one row per region) is what the per-row
 // sparklines and the chart both read from.
 func buildDashboard(wb *xlsx.Workbook) *xlsx.Sheet {
-	sheet := wb.AddSheet("Dashboard")
+	sheet, err := wb.AddSheet("Dashboard")
+	must(err)
 	sheet.SetTabColor("1F4E79")
 
 	// Title.
@@ -276,7 +278,7 @@ func buildDashboard(wb *xlsx.Workbook) *xlsx.Sheet {
 	for i, region := range regions {
 		line.AddSeries(region, revenue[i])
 	}
-	must(sheet.AddChart(fmt.Sprintf("A%d:I%d", totalsRow+2, totalsRow+20), line))
+	must(sheet.AddChart(line, fmt.Sprintf("A%d:I%d", totalsRow+2, totalsRow+20)))
 
 	// Freeze the title and header rows, and the Region column, so they stay
 	// visible while scrolling.
@@ -296,7 +298,8 @@ func buildDashboard(wb *xlsx.Workbook) *xlsx.Sheet {
 // anchored on a dedicated sheet: regions down the rows, months across the
 // columns, revenue summed and averaged in the body.
 func buildPivot(wb *xlsx.Workbook) {
-	pivotSheet := wb.AddSheet("Pivot")
+	pivotSheet, err := wb.AddSheet("Pivot")
+	must(err)
 	pivotSheet.SetTabColor("70AD47")
 
 	must(pivotSheet.SetCellValue("A1", "Revenue Pivot (region × month)"))

@@ -56,11 +56,11 @@ func TestTwoImagesInOneRunKeepDistinctDrawings(t *testing.T) {
 	doc := Create()
 	run := doc.AddParagraph().AddRun()
 
-	img1, err := run.AddImageFromBytes([]byte("PNGDATA-ONE"), opc.ContentTypePNG)
+	img1, err := run.AddImageFromBytes(taggedPNG("PNGDATA-ONE"), opc.ContentTypePNG)
 	if err != nil {
 		t.Fatal(err)
 	}
-	img2, err := run.AddImageFromBytes([]byte("PNGDATA-TWO"), opc.ContentTypePNG)
+	img2, err := run.AddImageFromBytes(taggedPNG("PNGDATA-TWO"), opc.ContentTypePNG)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestTableCellAddImage(t *testing.T) {
 	cell := table.Rows()[0].Cells()[0]
 	run := cell.AddParagraph().AddRun()
 
-	img, err := run.AddImageFromBytes([]byte("PNGDATA-CELL"), opc.ContentTypePNG)
+	img, err := run.AddImageFromBytes(taggedPNG("PNGDATA-CELL"), opc.ContentTypePNG)
 	if err != nil {
 		t.Fatalf("AddImage in table cell: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestTableCellAddImage(t *testing.T) {
 	// The pre-existing seed cells (via Tables()/Cells()/Paragraphs()) must
 	// also carry the backref.
 	run2 := doc.Tables()[0].Rows()[0].Cells()[0].Paragraphs()[0].AddRun()
-	if _, err := run2.AddImageFromBytes([]byte("PNGDATA-CELL2"), opc.ContentTypePNG); err != nil {
+	if _, err := run2.AddImageFromBytes(taggedPNG("PNGDATA-CELL2"), opc.ContentTypePNG); err != nil {
 		t.Fatalf("AddImage in seed cell paragraph: %v", err)
 	}
 }
@@ -212,7 +212,7 @@ func TestNextImageNumberCaseInsensitive(t *testing.T) {
 	doc := openFixture(t, fixture)
 
 	run := doc.Paragraphs()[0].AddRun()
-	if _, err := run.AddImageFromBytes([]byte("PNGDATA-NEW"), opc.ContentTypePNG); err != nil {
+	if _, err := run.AddImageFromBytes(taggedPNG("PNGDATA-NEW"), opc.ContentTypePNG); err != nil {
 		t.Fatal(err)
 	}
 	if got := doc.imageParts[0].partName; got != "/word/media/image2.png" {

@@ -203,7 +203,7 @@ func TestStyleManager_Deduplication(t *testing.T) {
 
 func TestCell_SetStyle(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Test")
+	sheet := addSheetT(wb, "Test")
 
 	cell, err := sheet.Cell("A1")
 	if err != nil {
@@ -269,7 +269,7 @@ func TestStyleManager_CompleteStyle(t *testing.T) {
 func TestStyle_SaveAndReopen(t *testing.T) {
 	// Create workbook with styled cells
 	wb := Create()
-	sheet := wb.AddSheet("Styled")
+	sheet := addSheetT(wb, "Styled")
 
 	cell, err := sheet.Cell("A1")
 	if err != nil {

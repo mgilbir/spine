@@ -11,7 +11,7 @@ import (
 // range, and it survives a save/reopen round-trip.
 func TestSetArrayFormulaRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("C1")
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestSetArrayFormulaRoundTrip(t *testing.T) {
 // SetDynamicArrayFormula marks the master with aca/ca, and those flags round-trip.
 func TestSetDynamicArrayFormulaRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("D2")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +70,7 @@ func TestSetDynamicArrayFormulaRoundTrip(t *testing.T) {
 // stubs sharing the index; it round-trips and passes validation.
 func TestSetSharedFormulaRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestSetSharedFormulaRoundTrip(t *testing.T) {
 // A shared-formula master must be the top-left of the range.
 func TestSetSharedFormulaRejectsNonAnchor(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, _ := s.Cell("B2")
 	if err := c.SetSharedFormula("X", "A1:C3"); err == nil {
 		t.Fatal("SetSharedFormula on a non-anchor cell must error")
@@ -123,7 +123,7 @@ func TestSetSharedFormulaRejectsNonAnchor(t *testing.T) {
 
 func TestDataValidationErrorStyleImeMode(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if err := s.AddDataValidation(DataValidation{
 		Range:      "A1:A10",
 		Type:       "whole",
@@ -157,7 +157,7 @@ func TestDataValidationErrorStyleImeMode(t *testing.T) {
 
 func TestCommentRichTextRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	runs := []TextRun{
 		{Text: "Total: ", Font: &FontStyle{Bold: true}},
 		{Text: "see notes", Font: &FontStyle{Italic: true, Color: "FF0000"}},
@@ -194,7 +194,7 @@ func TestCommentRichTextRoundTrip(t *testing.T) {
 // thread body stays the flattened plain text; plain Text() keeps working.
 func TestCommentSetRichTextThreaded(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	cm := s.AddComment("A1", "Alice", "placeholder")
 	cm.SetRichText([]TextRun{
 		{Text: "Bold", Font: &FontStyle{Bold: true}},
@@ -216,7 +216,7 @@ func TestCommentSetRichTextThreaded(t *testing.T) {
 
 func TestSparklineMutateColorsMarkers(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	g, err := s.AddSparklineGroup(SparklineOptions{
 		Type: SparklineLine,
 		Data: []SparklineData{{DataRange: "Sheet1!A1:D1", LocationCell: "E1"}},
@@ -257,7 +257,7 @@ func TestSparklineMutateColorsMarkers(t *testing.T) {
 
 func TestSparklineDelete(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.AddSparklineGroup(SparklineOptions{
 		Data: []SparklineData{{DataRange: "Sheet1!A1:D1", LocationCell: "E1"}},
 	}); err != nil {

@@ -19,7 +19,7 @@ import (
 // attributes replay with literal names, so they cannot reach writeQName).
 func TestSave_MarshalErrorSurfaces(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	dyDescent := 0.25
 	sheet.ws().SheetFormatPr = &oxml.CT_SheetFormatPr{
 		DefaultRowHeight: 15,

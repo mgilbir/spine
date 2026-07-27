@@ -285,7 +285,7 @@ func TestOpaqueSheetAddImageAndChartReport(t *testing.T) {
 	}
 	c := chart.NewBar()
 	c.AddSeries("S", []float64{1})
-	if err := sh.AddChart("A1", c); !errors.Is(err, ErrNotWorksheet) {
+	if err := sh.AddChart(c, "A1"); !errors.Is(err, ErrNotWorksheet) {
 		t.Errorf("AddChart = %v, want ErrNotWorksheet", err)
 	}
 	// The refused calls must not have queued anything or dirtied the sheet.
@@ -301,7 +301,7 @@ func TestOpaqueSheetAddImageAndChartReport(t *testing.T) {
 // s.dirty directly. On a worksheet the flag must still be set.
 func TestAddImageRoutesDirtyThroughMarkDirty(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.AddImage("B2", testPNG(t, 4, 4), ImageOptions{}); err != nil {
 		t.Fatalf("AddImage: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestAddImageRoutesDirtyThroughMarkDirty(t *testing.T) {
 // editAs="oneCell", which per ST_EditAs means move-but-do-not-resize.
 func TestTwoCellAnchorEditAs(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.AddImage("B2", testPNG(t, 4, 4), ImageOptions{ToCell: "E10"}); err != nil {
 		t.Fatalf("AddImage: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestTwoCellAnchorEditAs(t *testing.T) {
 // re-marshaled from the live slice, and the change vanished with no error.
 func TestSparklineHandleSurvivesAppend(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 
 	first, err := s.AddSparklineGroup(SparklineOptions{
 		Data: []SparklineData{{DataRange: "S!A1:D1", LocationCell: "E1"}},
@@ -396,7 +396,7 @@ func TestSparklineHandleSurvivesAppend(t *testing.T) {
 // resolves to nothing rather than writing into another group's memory.
 func TestSparklineHandleDeleteThenSetIsNoOp(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	a, err := s.AddSparklineGroup(SparklineOptions{
 		Data: []SparklineData{{DataRange: "S!A1:D1", LocationCell: "E1"}},
 	})
@@ -576,7 +576,7 @@ func TestPrintAreaQuotesReferenceLookalikeSheetNames(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.sheet, func(t *testing.T) {
 			w := Create()
-			s := w.AddSheet(tc.sheet)
+			s := addSheetT(w, tc.sheet)
 			if err := s.SetPrintArea("A1:D20"); err != nil {
 				t.Fatalf("SetPrintArea: %v", err)
 			}
@@ -619,7 +619,7 @@ func TestAddTableRejectsInvalidNames(t *testing.T) {
 		}
 		t.Run(tc.why+"/"+truncateForName(tc.name), func(t *testing.T) {
 			w := Create()
-			s := w.AddSheet("S")
+			s := addSheetT(w, "S")
 			seedTableRange(t, s)
 			if _, err := s.AddTable("A1:C4", TableOptions{Name: tc.name}); err == nil {
 				t.Errorf("AddTable(%q) succeeded; Excel rejects it (%s)", tc.name, tc.why)
@@ -634,7 +634,7 @@ func TestAddTableAcceptsValidNames(t *testing.T) {
 	for _, name := range []string{"Sales", "Sales_Q1", "Sales.Q1", "_Private", "\\Escaped", "Tabelle1", "Ünïcøde"} {
 		t.Run(name, func(t *testing.T) {
 			w := Create()
-			s := w.AddSheet("S")
+			s := addSheetT(w, "S")
 			seedTableRange(t, s)
 			if _, err := s.AddTable("A1:C4", TableOptions{Name: name}); err != nil {
 				t.Errorf("AddTable(%q) = %v, want success", name, err)
@@ -648,7 +648,7 @@ func TestAddTableAcceptsValidNames(t *testing.T) {
 // tables.
 func TestAddTableRejectsDefinedNameCollision(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	seedTableRange(t, s)
 	if err := w.AddDefinedName("Sales", "S!$A$1"); err != nil {
 		t.Fatalf("AddDefinedName: %v", err)
@@ -662,7 +662,7 @@ func TestAddTableRejectsDefinedNameCollision(t *testing.T) {
 // checked uniqueness but not syntax at all.
 func TestAddPivotTableValidatesName(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	seedPivotSource(t, s)
 	for _, name := range []string{"My Pivot", "A1", "R1C1", "Pivot)1"} {
 		t.Run(name, func(t *testing.T) {
@@ -877,7 +877,7 @@ func TestSetSortStatePreservesUnmodeledChildren(t *testing.T) {
 // prompt with no warning from this package at all.
 func TestSetAutoFilterValidatesRange(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	for _, bad := range []string{"banana", "", "A1:", ":B2", "A0", "1:1:1"} {
 		t.Run("bad/"+bad, func(t *testing.T) {
 			if err := s.SetAutoFilter(bad); err == nil {
@@ -898,7 +898,7 @@ func TestSetAutoFilterValidatesRange(t *testing.T) {
 // Range was caught only later, as a non-blocking save warning.
 func TestAddDataValidationValidatesRange(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	for _, bad := range []string{"banana", "", "   ", "A1:", "Z0"} {
 		t.Run("bad/"+bad, func(t *testing.T) {
 			err := s.AddDataValidation(DataValidation{Range: bad, Type: "list", Formula1: `"a,b"`})
@@ -1065,7 +1065,7 @@ func TestAddCommentPreservesExistingNoteGeometry(t *testing.T) {
 // the totals row off and on.
 func TestAddTableWritesTotalsRowCells(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	if err := s.SetCellValue("A1", "Region"); err != nil {
 		t.Fatal(err)
 	}
@@ -1113,7 +1113,7 @@ func TestAddTableWritesTotalsRowCells(t *testing.T) {
 // data rows, which Excel never creates.
 func TestAddTableTotalsRowNeedsDataRow(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	seedTableRange(t, s)
 	if _, err := s.AddTable("A1:C2", TableOptions{TotalsRow: true}); err == nil {
 		t.Error("AddTable accepted a 2-row range with a totals row, leaving the table with no data rows")
@@ -1133,7 +1133,7 @@ func TestAddTableTotalsRowNeedsDataRow(t *testing.T) {
 // whose cfvo count does not match the icon count.
 func TestIconSetThresholdCount(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 
 	// Two thresholds for a 3-icon set.
 	rule := NewIconSetRule("3TrafficLights1",
@@ -1180,7 +1180,7 @@ func TestIconSetDefaultThresholdsMatchExcel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.set, func(t *testing.T) {
 			w := Create()
-			s := w.AddSheet("S")
+			s := addSheetT(w, "S")
 			if err := s.AddConditionalFormat("A1:A10", NewIconSetRule(tc.set)); err != nil {
 				t.Fatalf("AddConditionalFormat: %v", err)
 			}
@@ -1202,7 +1202,7 @@ func TestIconSetDefaultThresholdsMatchExcel(t *testing.T) {
 // any cfvo Type string unvalidated.
 func TestCfvoTypeValidation(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 
 	bad := NewDataBarRule("638EC6",
 		ConditionalValueObject{Type: "bogus", Value: "0"},
@@ -1241,7 +1241,7 @@ func TestCfvoTypeValidation(t *testing.T) {
 // Excel's rebuild writes the pivot over the very cells its cache reads.
 func TestAddPivotTableRejectsSourceOverlap(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("S")
+	s := addSheetT(w, "S")
 	seedPivotSource(t, s)
 
 	// Anchoring at B2 puts the layout squarely inside A1:C4.
@@ -1265,9 +1265,9 @@ func TestAddPivotTableRejectsSourceOverlap(t *testing.T) {
 // scoped to the source sheet: the same box on a different sheet is legal.
 func TestAddPivotTableAllowsOverlapOnOtherSheet(t *testing.T) {
 	w := Create()
-	src := w.AddSheet("Src")
+	src := addSheetT(w, "Src")
 	seedPivotSource(t, src)
-	dst := w.AddSheet("Dst")
+	dst := addSheetT(w, "Dst")
 
 	if _, err := dst.AddPivotTable("Src!A1:C4", "B2", PivotOptions{
 		RowFields:   []string{"Region"},

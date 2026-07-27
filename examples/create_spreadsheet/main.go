@@ -29,7 +29,8 @@ func main() {
 
 	// ── Sheet 1: Sales Data ──────────────────────────────────────────
 
-	sales := wb.AddSheet("Sales Data")
+	sales, err := wb.AddSheet("Sales Data")
+	must(err)
 	sales.SetTabColor("4472C4") // blue tab
 
 	// Title row (merged)
@@ -166,7 +167,8 @@ func main() {
 
 	// ── Sheet 2: Summary ─────────────────────────────────────────────
 
-	summary := wb.AddSheet("Summary")
+	summary, err := wb.AddSheet("Summary")
+	must(err)
 	summary.SetTabColor("70AD47") // green tab
 	summary.SetZoom(120)
 	summary.SetShowGridLines(false)

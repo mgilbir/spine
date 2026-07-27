@@ -11,7 +11,7 @@ import (
 // cached-formula-result type).
 func TestSetStringUsesInlineString(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	cell, err := sheet.Cell("A1")
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestSetStringUsesInlineString(t *testing.T) {
 // round-trip via xml:space="preserve".
 func TestSetStringPreservesEdgeWhitespace(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	if err := sheet.SetCellValue("A1", "  padded  "); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestDimensionUntouchedSheetKeepsBytes(t *testing.T) {
 // CellTypeDate (previously unreachable) and expose the time via Value().
 func TestCellTypeDateDetection(t *testing.T) {
 	wb := Create()
-	sheet := wb.AddSheet("Sheet1")
+	sheet := addSheetT(wb, "Sheet1")
 	cell, err := sheet.Cell("A1")
 	if err != nil {
 		t.Fatal(err)

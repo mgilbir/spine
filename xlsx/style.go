@@ -492,7 +492,16 @@ func validateCellStyle(style *CellStyle) error {
 	return nil
 }
 
+// CellStyleAt returns the CellStyle for the given style index. It is the
+// Get-less spelling of GetCellStyle (C565); the name carries the "At" suffix
+// because CellStyle is also the name of the returned type.
+func (sm *StyleManager) CellStyleAt(index uint32) (CellStyle, error) {
+	return sm.GetCellStyle(index)
+}
+
 // GetCellStyle returns the CellStyle for the given style index.
+//
+// Deprecated: use CellStyleAt. Go accessors do not carry a Get prefix (C565).
 func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 	ss := sm.stylesheet
 

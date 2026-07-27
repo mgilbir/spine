@@ -28,7 +28,11 @@ func TestSaveBytes_DeterministicPartOrder(t *testing.T) {
 	// regression, not just occasionally.
 	for i := 0; i < 12; i++ {
 		path := filepath.Join(dir, fmt.Sprintf("img%02d.png", i))
-		if err := os.WriteFile(path, []byte(fmt.Sprintf("fake-png-%d", i)), 0o644); err != nil {
+		// Real PNG bytes, made distinct with a trailing tag: since C441 the add
+		// path validates the magic prefix, and "fake-png-N" is exactly the
+		// mislabelled blob that finding is about.
+		png := append(createMinimalPNG(), fmt.Sprintf("-%d", i)...)
+		if err := os.WriteFile(path, png, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.AddPicture(path); err != nil {

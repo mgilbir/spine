@@ -65,7 +65,7 @@ func TestFontStyle_VertAlignDedup(t *testing.T) {
 
 func TestFontStyle_CellRoundTrip(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetString("x")
 	if err := c.SetStyle(CellStyle{
@@ -107,7 +107,7 @@ func TestFontStyle_CellRoundTrip(t *testing.T) {
 
 func TestRichText_StrikeVertAlignUnderlineRoundTrip(t *testing.T) {
 	wb := Create()
-	sh := wb.AddSheet("S")
+	sh := addSheetT(wb, "S")
 	c, _ := sh.Cell("A1")
 	c.SetRichText([]TextRun{
 		{Text: "H", Font: &FontStyle{VertAlign: enum.VerticalAlignRunSuperscript}},

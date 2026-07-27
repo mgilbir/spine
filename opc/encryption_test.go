@@ -41,7 +41,7 @@ func TestEncryptedRoundTripRecoversPackageBytes(t *testing.T) {
 		}
 
 		// Decrypt straight back to the exact inner package bytes.
-		got, err := decryptCFBPackage(enc.Bytes(), "hunter2")
+		got, err := decryptCFBPackage(enc.Bytes(), "hunter2", ReaderOptions{})
 		if err != nil {
 			t.Fatalf("bodyLen=%d decrypt: %v", bodyLen, err)
 		}
@@ -91,7 +91,7 @@ func TestEncryptedSaveOptionsRoundTrip(t *testing.T) {
 				if !isCFB(enc.Bytes()) {
 					t.Fatalf("bodyLen=%d output is not a CFB container", bodyLen)
 				}
-				got, err := decryptCFBPackage(enc.Bytes(), "pw!")
+				got, err := decryptCFBPackage(enc.Bytes(), "pw!", ReaderOptions{})
 				if err != nil {
 					t.Fatalf("bodyLen=%d decrypt: %v", bodyLen, err)
 				}
@@ -99,7 +99,7 @@ func TestEncryptedSaveOptionsRoundTrip(t *testing.T) {
 					t.Fatalf("bodyLen=%d not recovered exactly: got %d want %d", bodyLen, len(got), len(plain))
 				}
 				// Wrong password must be rejected regardless of scheme.
-				if _, err := decryptCFBPackage(enc.Bytes(), "nope"); !errors.Is(err, crypto.ErrWrongPassword) {
+				if _, err := decryptCFBPackage(enc.Bytes(), "nope", ReaderOptions{}); !errors.Is(err, crypto.ErrWrongPassword) {
 					t.Fatalf("bodyLen=%d wrong password: got %v, want ErrWrongPassword", bodyLen, err)
 				}
 			}
@@ -135,7 +135,7 @@ func TestEncryptedDataSpacesStreamsPresent(t *testing.T) {
 		}
 	}
 	// And the encrypted payload still round-trips with the extra streams present.
-	if got, err := decryptCFBPackage(enc.Bytes(), "pw"); err != nil || !bytes.Equal(got, plain) {
+	if got, err := decryptCFBPackage(enc.Bytes(), "pw", ReaderOptions{}); err != nil || !bytes.Equal(got, plain) {
 		t.Fatalf("round-trip with DataSpaces failed: err=%v", err)
 	}
 }
@@ -239,7 +239,7 @@ func TestEncryptedLargeIncompressiblePackage(t *testing.T) {
 	if err := SaveEncrypted(&enc, plain, "pw"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := decryptCFBPackage(enc.Bytes(), "pw")
+	got, err := decryptCFBPackage(enc.Bytes(), "pw", ReaderOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,8 +15,11 @@ type SlideMaster struct {
 	presentation *Presentation
 	partName     string
 	masterXML    *oxml.SlideMaster
-	theme        *Theme
-	layouts      []*SlideLayout
+	// resolvedThemePart is the part name of the theme this master references,
+	// resolved at open from its relationships. Theme() looks the editor up by
+	// this name so masters sharing a theme part share one editor (C571).
+	resolvedThemePart string
+	layouts           []*SlideLayout
 	relID        string
 	numericID    uint32 // original numeric ID from presentation.xml
 	idOmitted    bool   // the source entry carried no id attribute
@@ -56,7 +59,27 @@ func (sm *SlideMaster) Layouts() []*SlideLayout {
 	return sm.layouts
 }
 
+// LayoutByType returns this master's first layout of the given type, or
+// ErrLayoutNotFound. See Presentation.LayoutByType (C565).
+func (sm *SlideMaster) LayoutByType(layoutType SlideLayoutType) (*SlideLayout, error) {
+	if l := sm.GetLayout(layoutType); l != nil {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: no layout of type %v on this master", ErrLayoutNotFound, layoutType)
+}
+
+// LayoutByName returns this master's layout with the given name, or
+// ErrLayoutNotFound. See Presentation.LayoutByName (C565).
+func (sm *SlideMaster) LayoutByName(name string) (*SlideLayout, error) {
+	if l := sm.GetLayoutByName(name); l != nil {
+		return l, nil
+	}
+	return nil, fmt.Errorf("%w: %q on this master", ErrLayoutNotFound, name)
+}
+
 // GetLayout returns the layout with the specified type.
+//
+// Deprecated: use LayoutByType, which reports a miss as an error (C565).
 func (sm *SlideMaster) GetLayout(layoutType SlideLayoutType) *SlideLayout {
 	for _, layout := range sm.layouts {
 		if layout.Type() == layoutType {
@@ -67,6 +90,8 @@ func (sm *SlideMaster) GetLayout(layoutType SlideLayoutType) *SlideLayout {
 }
 
 // GetLayoutByName returns the layout with the specified name.
+//
+// Deprecated: use LayoutByName, which reports a miss as an error (C565).
 func (sm *SlideMaster) GetLayoutByName(name string) *SlideLayout {
 	for _, layout := range sm.layouts {
 		if layout.Name() == name {
@@ -76,13 +101,16 @@ func (sm *SlideMaster) GetLayoutByName(name string) *SlideLayout {
 	return nil
 }
 
-// Theme returns the theme associated with this master, parsed from its theme
-// part when the presentation was opened. It is a read-only view: the theme
-// part is preserved verbatim on save, so edits made through the returned
-// value are not written back. It returns nil for masters created
-// programmatically or whose theme part could not be parsed.
-func (sm *SlideMaster) Theme() *Theme {
-	return sm.theme
+// Theme returns a read/write handle to this master's theme part, as the shared
+// dml.ThemeEditor that docx.Document.Theme and xlsx.Workbook.Theme also return
+// (C571). Edits are written back on save; an untouched theme round-trips
+// byte-for-byte. It returns nil for masters created programmatically or whose
+// theme part is missing or unparseable.
+func (sm *SlideMaster) Theme() *dml.ThemeEditor {
+	if sm.presentation == nil || sm.resolvedThemePart == "" {
+		return nil
+	}
+	return sm.presentation.themeEditorFor(sm.resolvedThemePart)
 }
 
 // ColorMap returns the color mapping for this master.
@@ -117,7 +145,18 @@ func (sm *SlideMaster) Placeholders() []*PlaceholderShape {
 	return placeholdersFromSpTree(sm.masterXML.CSld.SpTree)
 }
 
+// Placeholder returns the master's placeholder of the given type, or
+// ErrPlaceholderNotFound when it has none. See Slide.Placeholder (C565).
+func (sm *SlideMaster) Placeholder(phType PlaceholderType) (*PlaceholderShape, error) {
+	if ph := sm.GetPlaceholder(phType); ph != nil {
+		return ph, nil
+	}
+	return nil, fmt.Errorf("%w: type %v on master %q", ErrPlaceholderNotFound, phType, sm.Name())
+}
+
 // GetPlaceholder returns the master placeholder with the specified type, or nil.
+//
+// Deprecated: use Placeholder, which reports a miss as an error (C565).
 func (sm *SlideMaster) GetPlaceholder(phType PlaceholderType) *PlaceholderShape {
 	for _, ph := range sm.Placeholders() {
 		if ph.PlaceholderType() == phType {

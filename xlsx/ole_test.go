@@ -114,7 +114,7 @@ func TestOLEObjectsNoneOnPlainWorkbook(t *testing.T) {
 // and the object is re-extractable after a round trip.
 func TestAddOLEObjectRoundTrip(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.Cell("A1"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestAddOLEObjectRoundTrip(t *testing.T) {
 // relationship.
 func TestAddOLEObjectWithPreview(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if _, err := s.Cell("A1"); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestAddOLEObjectWithPreview(t *testing.T) {
 // AddOLEObject rejects an empty payload.
 func TestAddOLEObjectValidation(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	if err := s.AddOLEObject(OLEObjectSpec{}); err == nil {
 		t.Error("empty OLE data accepted")
 	}

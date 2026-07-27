@@ -11,7 +11,7 @@ import (
 // shows the spill without a recalc.
 func TestDynamicArrayMetadataSynthesis(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("D2")
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestDynamicArrayMetadataSynthesis(t *testing.T) {
 // A plain (non dynamic-array) formula does not trigger metadata synthesis.
 func TestNoMetadataWithoutDynamicArray(t *testing.T) {
 	w := Create()
-	s := w.AddSheet("Sheet1")
+	s := addSheetT(w, "Sheet1")
 	c, err := s.Cell("A1")
 	if err != nil {
 		t.Fatal(err)

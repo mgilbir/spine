@@ -13,7 +13,7 @@ import (
 func buildValidXlsxFuzzSeed(f *testing.F) []byte {
 	f.Helper()
 	w := Create()
-	sheet := w.AddSheet("Sheet1")
+	sheet := addSheetT(w, "Sheet1")
 	if err := sheet.SetCellValue("A1", "fuzz"); err != nil {
 		f.Fatalf("building valid xlsx seed: %v", err)
 	}
@@ -178,7 +178,7 @@ func FuzzXlsxAddTable(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, cellRange, cols string, totals bool, style string, stripes bool, name string) {
 		w := Create()
-		s := w.AddSheet("Sheet1")
+		s := addSheetT(w, "Sheet1")
 		// A small header + data grid so ranges resolve to real cells and the
 		// header write-back path runs against existing content.
 		for r := 1; r <= 4; r++ {
@@ -228,7 +228,7 @@ func FuzzXlsxAddConditionalFormat(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, cellRange string, sel uint8, op, f1, f2, color1, color2, text string, rank uint32, period string) {
 		w := Create()
-		s := w.AddSheet("Sheet1")
+		s := addSheetT(w, "Sheet1")
 		style := DifferentialStyle{Fill: &FillStyle{FgColor: color1}}
 
 		var rule ConditionalRule

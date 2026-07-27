@@ -41,6 +41,12 @@ var (
 	// ErrSheetIndex indicates an invalid sheet index.
 	ErrSheetIndex = errors.New("xlsx: sheet index out of range")
 
+	// ErrDuplicateSheetName indicates a sheet with the requested name (compared
+	// case-insensitively, as Excel does) already exists in the workbook.
+	// AddSheet reports it rather than quietly renaming the new sheet; derive a
+	// free name with Workbook.UniqueSheetName when a suffix is what you want.
+	ErrDuplicateSheetName = errors.New("xlsx: a sheet with that name already exists")
+
 	// ErrInvalidCell indicates an invalid cell reference.
 	ErrInvalidCell = errors.New("xlsx: invalid cell reference")
 

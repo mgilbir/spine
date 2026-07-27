@@ -174,17 +174,25 @@ var capabilities = []capability{
 			"pptx": reflect.TypeOf(&pptx.Picture{}),
 		},
 		allow: map[string]map[string]bool{
-			// docx: inline-vs-floating flag and the mutation setters.
+			// docx: inline-vs-floating flag and the mutation setters. SetAltText
+			// is spelled identically in pptx since C442; it cannot become a
+			// shared method because xlsx.Image is a read view of a saved drawing
+			// with no owning sheet to write back through, so xlsx's settable
+			// path is the ImageOptions.AltText field checked by
+			// TestAltTextWriteIsReachableInEveryFormat.
 			"docx": set("Floating", "SetAltText", "SetSize"),
 			// xlsx: top-left cell anchor; SVGData returns the original SVG bytes
 			// of an image added as SVG (Data returns the raster fallback).
 			"xlsx": set("AnchorCell", "SVGData"),
 			// pptx: a Picture is also a shape, so it carries the picture-specific
 			// image/crop/hyperlink surface (shape geometry is promoted from the
-			// embedded BaseShape and excluded by directMethods).
+			// embedded BaseShape and excluded by directMethods). SetAltText is
+			// the docx-shared spelling (C442); SetDescription is its deprecated
+			// alias, kept until the next breaking release.
 			"pptx": set(
 				"ShapeType", "ImagePath", "SetImagePath", "ImageData", "SetImageData",
 				"SetSVGImageData", "SetSVGData", "SetImage", "Description", "SetDescription",
+				"SetAltText",
 				"SetHyperlink", "SetActionHyperlink", "SetHyperlinkToSlide",
 				"CropLeft", "SetCropLeft", "CropRight", "SetCropRight",
 				"CropTop", "SetCropTop", "CropBottom", "SetCropBottom", "SetCrop",

@@ -36,7 +36,7 @@ func TestOpenEncryptedRC4CryptoAPI(t *testing.T) {
 			t.Fatalf("bodyLen=%d decrypted package missing body part", bodyLen)
 		}
 
-		if _, err := decryptCFBPackage(enc.Bytes(), "wrong"); !errors.Is(err, crypto.ErrWrongPassword) {
+		if _, err := decryptCFBPackage(enc.Bytes(), "wrong", ReaderOptions{}); !errors.Is(err, crypto.ErrWrongPassword) {
 			t.Fatalf("bodyLen=%d wrong password: got %v, want ErrWrongPassword", bodyLen, err)
 		}
 	}
