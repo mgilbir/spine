@@ -133,6 +133,9 @@ func (sm *StyleManager) NewCellStyle(style CellStyle) (uint32, error) {
 	if err := validateCellStyle(&style); err != nil {
 		return 0, err
 	}
+	if err := sm.checkNumberFormatID(&style); err != nil {
+		return 0, err
+	}
 	ss := sm.stylesheet
 
 	// Build the Xf record, linking it to the default (Normal) named style.
@@ -380,9 +383,13 @@ func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
 	if !ok {
 		return 0, fmt.Errorf("xlsx: named style %q not found", name)
 	}
-	sm.markModified()
 	ss := sm.stylesheet
 
+	// A cellStyle whose xfId points past (or into an absent) cellStyleXfs is
+	// malformed but occurs in the wild; report it rather than panic (C544).
+	if ss.CellStyleXfs == nil || int(xfID) >= len(ss.CellStyleXfs.Xf) {
+		return 0, fmt.Errorf("xlsx: named style %q references cellStyleXfs index %d, which does not exist", name, xfID)
+	}
 	master := &ss.CellStyleXfs.Xf[xfID]
 	linkID := xfID
 	xf := oxml.CT_Xf{
@@ -393,6 +400,10 @@ func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
 		XfId:     &linkID,
 	}
 
+	// De-duplicate before marking modified: a reuse-only call must not
+	// regenerate styles.xml, or an unmodified opened workbook loses its
+	// byte-identical round-trip — the discipline NewCellStyle and
+	// AddNumberFormat already document (C544).
 	if ss.CellXfs != nil {
 		for i, existing := range ss.CellXfs.Xf {
 			if xfEqual(&existing, &xf) {
@@ -400,6 +411,7 @@ func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
 			}
 		}
 	}
+	sm.markModified()
 	if ss.CellXfs == nil {
 		ss.CellXfs = &oxml.CT_CellXfs{}
 	}
@@ -438,6 +450,27 @@ func (sm *StyleManager) cellStyleFromXf(xf *oxml.CT_Xf) CellStyle {
 		}
 	}
 	return style
+}
+
+// checkNumberFormatID rejects a NumberFormatID in the custom range
+// (>= firstCustomNumFmtID) that no <numFmt> in the stylesheet defines. The
+// Format-string path registers the format it needs; the raw-id path did not
+// check, so the xf referenced a numFmtId that existed nowhere and the cell fell
+// back to General in Excel (C550). Ids below the custom range are the built-in
+// formats, which need no <numFmt> entry.
+func (sm *StyleManager) checkNumberFormatID(style *CellStyle) error {
+	if style.Format != "" || style.NumberFormatID < firstCustomNumFmtID {
+		return nil
+	}
+	id := uint32(style.NumberFormatID)
+	if ss := sm.stylesheet; ss != nil && ss.NumFmts != nil {
+		for _, nf := range ss.NumFmts.NumFmt {
+			if nf.NumFmtId == id {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("xlsx: number format id %d is not defined by any numFmt; register the format code with AddNumberFormat (or set CellStyle.Format) first", id)
 }
 
 // validateCellStyle rejects style values that would be silently corrupted on
@@ -1196,6 +1229,255 @@ func (c *Cell) SetNamedStyle(name string) error {
 	}
 	c.SetStyleIndex(idx)
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Cross-workbook style import
+// ---------------------------------------------------------------------------
+
+// importXf registers, in this stylesheet, a cell format equivalent to index
+// srcIdx of src, and returns its index.
+//
+// It clones the referenced font, fill and border records verbatim rather than
+// round-tripping them through the public CellStyle. CellStyle carries colours
+// only as an RGB string, so a theme- or indexed-coloured font or fill lost its
+// colour entirely on the way through (C549c); cloning also carries every
+// property CellStyle does not model. Custom number formats are re-registered
+// by their format code so the imported id is valid in this stylesheet.
+func (sm *StyleManager) importXf(src *StyleManager, srcIdx uint32) (uint32, error) {
+	if src == nil || src.stylesheet == nil {
+		return 0, fmt.Errorf("xlsx: source workbook has no stylesheet")
+	}
+	sss := src.stylesheet
+	if sss.CellXfs == nil || int(srcIdx) >= len(sss.CellXfs.Xf) {
+		return 0, fmt.Errorf("xlsx: style index %d out of range", srcIdx)
+	}
+	srcXf := &sss.CellXfs.Xf[srcIdx]
+
+	// Every imported format links to the destination's default (Normal) named
+	// style: the source's cellStyleXfs chain is not carried across.
+	zero := uint32(0)
+	xf := oxml.CT_Xf{
+		XfId:              &zero,
+		QuotePrefix:       cloneBoolPtr(srcXf.QuotePrefix),
+		PivotButton:       cloneBoolPtr(srcXf.PivotButton),
+		ApplyNumberFormat: cloneBoolPtr(srcXf.ApplyNumberFormat),
+		ApplyFont:         cloneBoolPtr(srcXf.ApplyFont),
+		ApplyFill:         cloneBoolPtr(srcXf.ApplyFill),
+		ApplyBorder:       cloneBoolPtr(srcXf.ApplyBorder),
+		ApplyAlignment:    cloneBoolPtr(srcXf.ApplyAlignment),
+		ApplyProtection:   cloneBoolPtr(srcXf.ApplyProtection),
+		Alignment:         cloneCellAlignment(srcXf.Alignment),
+		Protection:        cloneCellProtection(srcXf.Protection),
+	}
+
+	fontID := uint32(0)
+	if srcXf.FontId != nil && sss.Fonts != nil && int(*srcXf.FontId) < len(sss.Fonts.Font) {
+		fontID = sm.findOrAddFont(cloneFont(&sss.Fonts.Font[*srcXf.FontId]))
+	}
+	xf.FontId = &fontID
+
+	fillID := uint32(0)
+	if srcXf.FillId != nil && sss.Fills != nil && int(*srcXf.FillId) < len(sss.Fills.Fill) {
+		fillID = sm.findOrAddFill(cloneFill(&sss.Fills.Fill[*srcXf.FillId]))
+	}
+	xf.FillId = &fillID
+
+	borderID := uint32(0)
+	if srcXf.BorderId != nil && sss.Borders != nil && int(*srcXf.BorderId) < len(sss.Borders.Border) {
+		borderID = sm.findOrAddBorder(cloneBorder(&sss.Borders.Border[*srcXf.BorderId]))
+	}
+	xf.BorderId = &borderID
+
+	numFmtID := uint32(0)
+	if srcXf.NumFmtId != nil && *srcXf.NumFmtId != 0 {
+		id := *srcXf.NumFmtId
+		if id < firstCustomNumFmtID {
+			numFmtID = id // built-in: the same id means the same format everywhere
+		} else if code := src.resolveNumFmtCode(id); code != "" {
+			numFmtID = sm.resolveNumberFormat(code)
+		}
+	}
+	xf.NumFmtId = &numFmtID
+
+	ss := sm.stylesheet
+	if ss.CellXfs != nil {
+		for i, existing := range ss.CellXfs.Xf {
+			if xfEqual(&existing, &xf) {
+				return uint32(i), nil
+			}
+		}
+	}
+	sm.markModified()
+	if ss.CellXfs == nil {
+		ss.CellXfs = &oxml.CT_CellXfs{}
+	}
+	ss.CellXfs.Xf = append(ss.CellXfs.Xf, xf)
+	count := uint32(len(ss.CellXfs.Xf))
+	ss.CellXfs.Count = &count
+	return count - 1, nil
+}
+
+// The clone* helpers below deep-copy style records so an imported record
+// shares no memory with the source workbook's stylesheet.
+
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneFloat64Ptr(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneStyleColor(c *oxml.CT_Color) *oxml.CT_Color {
+	if c == nil {
+		return nil
+	}
+	out := oxml.CT_Color{Rgb: c.Rgb}
+	out.Auto = cloneBoolPtr(c.Auto)
+	out.Indexed = cloneUint32(c.Indexed)
+	out.Theme = cloneUint32(c.Theme)
+	if c.Tint != nil {
+		t := *c.Tint
+		out.Tint = &t
+	}
+	return &out
+}
+
+func cloneFont(f *oxml.CT_Font) oxml.CT_Font {
+	cloneIntProp := func(p *oxml.CT_IntProperty) *oxml.CT_IntProperty {
+		if p == nil {
+			return nil
+		}
+		v := *p
+		return &v
+	}
+	cloneBoolProp := func(p *oxml.CT_BooleanProperty) *oxml.CT_BooleanProperty {
+		if p == nil {
+			return nil
+		}
+		v := *p
+		return &v
+	}
+	out := *f
+	if f.Name != nil {
+		v := *f.Name
+		out.Name = &v
+	}
+	out.Charset = cloneIntProp(f.Charset)
+	out.Family = cloneIntProp(f.Family)
+	out.B = cloneBoolProp(f.B)
+	out.I = cloneBoolProp(f.I)
+	out.Strike = cloneBoolProp(f.Strike)
+	out.Outline = cloneBoolProp(f.Outline)
+	out.Shadow = cloneBoolProp(f.Shadow)
+	out.Condense = cloneBoolProp(f.Condense)
+	out.Extend = cloneBoolProp(f.Extend)
+	out.Color = cloneStyleColor(f.Color)
+	if f.Sz != nil {
+		v := *f.Sz
+		out.Sz = &v
+	}
+	if f.U != nil {
+		v := *f.U
+		out.U = &v
+	}
+	if f.VertAlign != nil {
+		v := *f.VertAlign
+		out.VertAlign = &v
+	}
+	if f.Scheme != nil {
+		v := *f.Scheme
+		out.Scheme = &v
+	}
+	return out
+}
+
+func cloneFill(f *oxml.CT_Fill) oxml.CT_Fill {
+	var out oxml.CT_Fill
+	if f.PatternFill != nil {
+		out.PatternFill = &oxml.CT_PatternFill{
+			PatternType: f.PatternFill.PatternType,
+			FgColor:     cloneStyleColor(f.PatternFill.FgColor),
+			BgColor:     cloneStyleColor(f.PatternFill.BgColor),
+		}
+	}
+	if f.GradientFill != nil {
+		gf := oxml.CT_GradientFill{
+			Type:   f.GradientFill.Type,
+			Degree: cloneFloat64Ptr(f.GradientFill.Degree),
+			Left:   cloneFloat64Ptr(f.GradientFill.Left),
+			Right:  cloneFloat64Ptr(f.GradientFill.Right),
+			Top:    cloneFloat64Ptr(f.GradientFill.Top),
+			Bottom: cloneFloat64Ptr(f.GradientFill.Bottom),
+		}
+		for i := range f.GradientFill.Stop {
+			st := &f.GradientFill.Stop[i]
+			stop := oxml.CT_GradientStop{Position: st.Position}
+			if c := cloneStyleColor(&st.Color); c != nil {
+				stop.Color = *c
+			}
+			gf.Stop = append(gf.Stop, stop)
+		}
+		out.GradientFill = &gf
+	}
+	return out
+}
+
+func cloneBorder(b *oxml.CT_Border) oxml.CT_Border {
+	clonePr := func(p *oxml.CT_BorderPr) *oxml.CT_BorderPr {
+		if p == nil {
+			return nil
+		}
+		return &oxml.CT_BorderPr{Style: p.Style, Color: cloneStyleColor(p.Color)}
+	}
+	return oxml.CT_Border{
+		DiagonalUp:   cloneBoolPtr(b.DiagonalUp),
+		DiagonalDown: cloneBoolPtr(b.DiagonalDown),
+		Outline:      cloneBoolPtr(b.Outline),
+		Start:        clonePr(b.Start),
+		End:          clonePr(b.End),
+		Left:         clonePr(b.Left),
+		Right:        clonePr(b.Right),
+		Top:          clonePr(b.Top),
+		Bottom:       clonePr(b.Bottom),
+		Diagonal:     clonePr(b.Diagonal),
+		Vertical:     clonePr(b.Vertical),
+		Horizontal:   clonePr(b.Horizontal),
+	}
+}
+
+func cloneCellAlignment(a *oxml.CT_CellAlignment) *oxml.CT_CellAlignment {
+	if a == nil {
+		return nil
+	}
+	out := oxml.CT_CellAlignment{Horizontal: a.Horizontal, Vertical: a.Vertical}
+	out.TextRotation = cloneUint32(a.TextRotation)
+	out.WrapText = cloneBoolPtr(a.WrapText)
+	out.Indent = cloneUint32(a.Indent)
+	if a.RelativeIndent != nil {
+		v := *a.RelativeIndent
+		out.RelativeIndent = &v
+	}
+	out.JustifyLastLine = cloneBoolPtr(a.JustifyLastLine)
+	out.ShrinkToFit = cloneBoolPtr(a.ShrinkToFit)
+	out.ReadingOrder = cloneUint32(a.ReadingOrder)
+	return &out
+}
+
+func cloneCellProtection(p *oxml.CT_CellProtection) *oxml.CT_CellProtection {
+	if p == nil {
+		return nil
+	}
+	return &oxml.CT_CellProtection{Locked: cloneBoolPtr(p.Locked), Hidden: cloneBoolPtr(p.Hidden)}
 }
 
 // normalizeHexColor ensures the hex color string is in AARRGGBB format.
