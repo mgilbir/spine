@@ -1,7 +1,6 @@
 package pptx
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 
@@ -58,6 +57,11 @@ func (s *Slide) AddChart(c *chart.Chart, x, y, width, height int64) error {
 		s.partName = p.nextAvailableSlidePartName()
 	}
 
+	// Work on a copy: pointing the references at the embedded workbook's sheet
+	// must not rewrite the caller's chart, which may be added to another slide,
+	// deck, or document afterwards (C562).
+	c = c.Clone()
+
 	// The embedded workbook is the chart's data source; its sheet name is what
 	// the c:f references are built against. Keep them aligned.
 	c.SetDataRef(chartEmbedSheet)
@@ -83,7 +87,7 @@ func (s *Slide) AddChart(c *chart.Chart, x, y, width, height int64) error {
 		Target:     relativeTarget(chartPart, embedPart),
 		TargetMode: opc.TargetModeInternal,
 	}}
-	chartXML = injectExternalData(chartXML, embedRelID)
+	chartXML = chart.InjectExternalData(chartXML, embedRelID)
 
 	// Store the chart and workbook parts with their content-type overrides.
 	p.otherParts[chartPart] = &coxml.RawPart{ContentType: opc.ContentTypeChart, Data: chartXML}
@@ -137,27 +141,6 @@ func chartFrameToOxml(cf *ChartFrame, id uint32) *oxml.GraphicFrame {
 			},
 		},
 	}
-}
-
-// injectExternalData inserts a c:externalData element (referencing the embedded
-// workbook relationship) into a serialized chart part. The shared chart package
-// is data-source-agnostic and does not emit it, so the format integration adds
-// it: without it, PowerPoint cannot open the workbook to edit the chart data.
-// The element is placed immediately before </c:chartSpace>, which is the schema
-// position for externalData given the chart package emits no spPr/txPr/
-// printSettings/userShapes after c:chart.
-func injectExternalData(chartXML []byte, relID string) []byte {
-	const closeTag = "</c:chartSpace>"
-	idx := bytes.LastIndex(chartXML, []byte(closeTag))
-	if idx < 0 {
-		return chartXML
-	}
-	ext := `<c:externalData r:id="` + relID + `"><c:autoUpdate val="0"/></c:externalData>`
-	out := make([]byte, 0, len(chartXML)+len(ext))
-	out = append(out, chartXML[:idx]...)
-	out = append(out, ext...)
-	out = append(out, chartXML[idx:]...)
-	return out
 }
 
 // nextChartPartName returns an unused /ppt/charts/chartN.xml part name.

@@ -10,14 +10,18 @@ import (
 	"github.com/mgilbir/spine/xlsx"
 )
 
-// buildChart returns a configured chart of the given kind with two categories
-// and one or two series, for the round-trip tests.
+// buildChart returns a configured chart of the given kind with three categories
+// and two series, for the round-trip tests. A stock chart gets a third series:
+// CT_StockChart requires three or four.
 func newCategoryChart(newFn func() *chart.Chart, title string) *chart.Chart {
 	c := newFn().
 		SetTitle(title).
 		SetCategories([]string{"Q1", "Q2", "Q3"})
 	c.AddSeries("Alpha", []float64{1, 2, 3})
 	c.AddSeries("Beta", []float64{4, 5, 6})
+	if c.Kind() == chart.KindStock {
+		c.AddSeries("Gamma", []float64{7, 8, 9})
+	}
 	return c
 }
 
@@ -77,11 +81,14 @@ func TestAddChartRoundTripByKind(t *testing.T) {
 				t.Errorf("categories = %v, want %v", got.Categories(), wantCats)
 			}
 			series := got.SeriesList()
-			// The pie family plots only its first series.
+			// The pie family plots only its first series; a doughnut plots them
+			// all, one ring each, and a stock chart carries three.
 			wantSeries := 2
 			switch tc.kind {
-			case chart.KindPie, chart.KindDoughnut, chart.KindPie3D, chart.KindOfPie:
+			case chart.KindPie, chart.KindPie3D, chart.KindOfPie:
 				wantSeries = 1
+			case chart.KindStock:
+				wantSeries = 3
 			}
 			if len(series) != wantSeries {
 				t.Fatalf("series = %d, want %d", len(series), wantSeries)

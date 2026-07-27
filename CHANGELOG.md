@@ -231,6 +231,45 @@ caller sees is listed.
   (`testdata/cc/batch-quarantine.tsv`) is committed rather than gitignored, and
   `spec/gen_spec/` is no longer both tracked and ignored (C574, C575).
   Office signatures use, so a caller that wants to refuse them now can.
+### Charts
+
+- Blank data points are now a documented part of the model. `chart.Blank()`
+  returns the sentinel and `chart.IsBlank` tests for it; every write path — the
+  numeric caches, the embedded workbook, and an xlsx host data sheet — turns one
+  into an omitted `c:pt` and an empty cell, the way Excel writes a blank. Reading
+  a chart whose cache skips a point and re-embedding it no longer produces
+  `<c:v>NaN</c:v>` in the chart, an invalid `<v>NaN</v>` in the embedded
+  workbook, or a `#NUM!` error cell in the host sheet.
+- Series references, caches, and written cells are now sized from one place, so
+  a series longer or shorter than the category list no longer emits a range that
+  covers a different number of rows than its cache declares (Excel dropped the
+  tail on refresh). A category chart with no categories set emits a complete
+  `c:numRef` (`c:f` is required by the schema); a source with no cells to point
+  at is emitted as a literal cache instead.
+- Sheet names that lex as a cell reference (`A1`, `XFD1`, `R1C1`, a bare `R` or
+  `C`) or as a boolean literal are now quoted in `c:f` references, which Excel's
+  formula grammar requires.
+- Numeric caches and the data sheet now render values identically; caches no
+  longer carry scientific notation, which Office never emits.
+- `Parse` recovers the chart's grouping (stacked, percentStacked, ...) and the
+  cached number format, so reading a stacked or currency-formatted chart and
+  re-embedding it no longer silently turns it into a clustered "General" one. A
+  stacked bar chart emits the full overlap Office uses. `Chart.SetGrouping` sets
+  it directly, and `Chart.ParseNotes` reports plot-area groups the model cannot
+  represent instead of dropping them silently.
+- A combination chart may contain a horizontal-bar group: such a chart parsed
+  but could never be written back.
+- A doughnut chart now plots every series as its own ring rather than only the
+  first, matching Office and the columns its workbook already carried. The
+  single-series behavior of pie, 3D pie, and pie-of-pie is documented.
+- `AddChart` (xlsx, docx, pptx) copies the chart instead of rewriting the
+  caller's `DataRef`, so one chart value can be added to several sheets,
+  workbooks, or documents.
+- `MarshalChartXML` reports an error for a series with no values and for a stock
+  chart without the three or four series CT_StockChart requires, rather than
+  emitting a part Office reports as damaged.
+- xlsx `Sheet.Charts` finds charts anchored on chartsheets without relying on
+  the chartsheet part being decoded as a worksheet.
 
 ## 0.1.0 - 2026-07-22
 

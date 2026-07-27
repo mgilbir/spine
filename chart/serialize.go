@@ -12,21 +12,36 @@ import (
 )
 
 // InjectExternalData inserts a c:externalData element (referencing the embedded
-// workbook relationship) into a serialized chart part, immediately before
-// </c:chartSpace>. That is the schema position for externalData given the chart
-// package emits no spPr/txPr/printSettings/userShapes after c:chart.
+// workbook relationship) into a serialized chart part at its schema position:
+// after c:chart (and any c:spPr / c:txPr that follows it) and before
+// c:printSettings, c:userShapes, or the chartSpace-level c:extLst.
 //
 // The shared chart serialization is data-source-agnostic and does not emit it,
 // so format integrations that embed the chart's data (docx and pptx charts,
 // which have no host worksheet) add it: without it Office cannot open the
 // embedded workbook behind "Edit Data", leaving the workbook orphaned. relID is
-// the chart part's relationship to its embedded workbook. If the close tag is
-// absent the input is returned unchanged.
+// the chart part's relationship to its embedded workbook. If the chartSpace
+// close tag is absent the input is returned unchanged.
+//
+// This is the one implementation of that placement; docx and pptx both call it
+// rather than keeping private copies that would drift apart the moment
+// buildChartSpace grows a trailing element.
 func InjectExternalData(chartXML []byte, relID string) []byte {
 	const closeTag = "</c:chartSpace>"
-	idx := bytes.LastIndex(chartXML, []byte(closeTag))
-	if idx < 0 {
+	end := bytes.LastIndex(chartXML, []byte(closeTag))
+	if end < 0 {
 		return chartXML
+	}
+	// Elements that must follow c:externalData. Searching from the end of
+	// c:chart keeps the scan at chartSpace level: c:spPr and c:txPr carry only
+	// a:-prefixed children, so a c:extLst found there is the chartSpace's own.
+	idx := end
+	if from := bytes.LastIndex(chartXML[:end], []byte("</c:chart>")); from >= 0 {
+		for _, tag := range [][]byte{[]byte("<c:printSettings"), []byte("<c:userShapes"), []byte("<c:extLst")} {
+			if at := bytes.Index(chartXML[from:end], tag); at >= 0 && from+at < idx {
+				idx = from + at
+			}
+		}
 	}
 	ext := `<c:externalData r:id="` + relID + `"><c:autoUpdate val="0"/></c:externalData>`
 	out := make([]byte, 0, len(chartXML)+len(ext))
@@ -84,8 +99,8 @@ func (c *Chart) MarshalChartXML() ([]byte, error) {
 
 // buildChartSpace assembles the internal ChartSpace model from the chart.
 func (c *Chart) buildChartSpace() (*dmlchart.ChartSpace, error) {
-	if len(c.series) == 0 {
-		return nil, fmt.Errorf("chart: at least one series is required")
+	if err := c.validate(); err != nil {
+		return nil, err
 	}
 
 	plot := &dmlchart.PlotArea{Layout: &dmlchart.Layout{}}
@@ -125,6 +140,28 @@ func (c *Chart) buildChartSpace() (*dmlchart.ChartSpace, error) {
 		Style:          &dmlchart.Style{Val: 2},
 		Chart:          ch,
 	}, nil
+}
+
+// validate reports the schema-level constraints on the chart's data that
+// MarshalChartXML cannot honor by construction. They are checked up front so a
+// caller learns about them instead of shipping a part Office reports as
+// damaged: a chart needs at least one series, every series needs at least one
+// data point (an empty series serializes as a ptCount="0" cache with a
+// reference to no cells), and CT_StockChart requires three or four c:ser —
+// high/low/close, optionally preceded by open.
+func (c *Chart) validate() error {
+	if len(c.series) == 0 {
+		return fmt.Errorf("chart: at least one series is required")
+	}
+	if c.kind == KindStock && (len(c.series) < 3 || len(c.series) > 4) {
+		return fmt.Errorf("chart: a stock chart needs 3 or 4 series (high/low/close, optionally preceded by open); got %d", len(c.series))
+	}
+	for i, s := range c.series {
+		if c.seriesLen(i) == 0 && len(s.XValues) == 0 && len(s.Sizes) == 0 {
+			return fmt.Errorf("chart: series %d (%q) has no values", i, s.Name)
+		}
+	}
+	return nil
 }
 
 // buildPlotType appends the chart-type group (barChart, lineChart, ...) with
@@ -178,8 +215,12 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 			DLbls:      c.groupDataLabels(),
 			HoleSize:   &dmlchart.HoleSize{Val: defaultHoleSize},
 		}
-		// Like a pie, a doughnut plots a single series; use the first.
-		dc.Ser = append(dc.Ser, c.pieSer(0, c.series[0], dl))
+		// Unlike a pie, a doughnut plots every series: each renders as its own
+		// concentric ring, which is what Office does and what the embedded
+		// workbook's columns already describe (C561).
+		for i, s := range c.series {
+			dc.Ser = append(dc.Ser, c.pieSer(i, s, dl))
+		}
 		plot.DoughnutChart = append(plot.DoughnutChart, dc)
 	case KindOfPie:
 		oc := &dmlchart.OfPieChart{
@@ -286,7 +327,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		}
 		bc := &dmlchart.Bar3DChart{
 			BarDir:     &dmlchart.BarDir{Val: dir},
-			Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
+			Grouping:   &dmlchart.BarGrouping{Val: string(c.barGrouping())},
 			VaryColors: boolElem(false),
 			DLbls:      c.groupDataLabels(),
 			GapWidth:   &dmlchart.GapAmount{Val: 150},
@@ -300,7 +341,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		plot.Bar3DChart = append(plot.Bar3DChart, bc)
 	case KindLine3D:
 		lc := &dmlchart.Line3DChart{
-			Grouping:   &dmlchart.Grouping{Val: "standard"},
+			Grouping:   &dmlchart.Grouping{Val: string(c.lineGrouping())},
 			VaryColors: boolElem(false),
 			DLbls:      c.groupDataLabels(),
 			GapDepth:   &dmlchart.GapAmount{Val: 150},
@@ -312,7 +353,7 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 		plot.Line3DChart = append(plot.Line3DChart, lc)
 	case KindArea3D:
 		ac := &dmlchart.Area3DChart{
-			Grouping:   &dmlchart.Grouping{Val: "standard"},
+			Grouping:   &dmlchart.Grouping{Val: string(c.lineGrouping())},
 			VaryColors: boolElem(false),
 			DLbls:      c.groupDataLabels(),
 			GapDepth:   &dmlchart.GapAmount{Val: 150},
@@ -332,19 +373,25 @@ func (c *Chart) buildPlotType(plot *dmlchart.PlotArea) error {
 // combination paths) ---
 
 func (c *Chart) newBarChart(dir string, axID []*dmlchart.UnsignedInt) *dmlchart.BarChart {
-	return &dmlchart.BarChart{
+	bc := &dmlchart.BarChart{
 		BarDir:     &dmlchart.BarDir{Val: dir},
-		Grouping:   &dmlchart.BarGrouping{Val: "clustered"},
+		Grouping:   &dmlchart.BarGrouping{Val: string(c.barGrouping())},
 		VaryColors: boolElem(false),
 		DLbls:      c.groupDataLabels(),
 		GapWidth:   &dmlchart.GapAmount{Val: 150},
 		AxId:       axID,
 	}
+	if g := c.barGrouping(); g == GroupingStacked || g == GroupingPercentStacked {
+		// Stacked bars sit on top of each other rather than side by side;
+		// without full overlap Office renders them as separated slivers.
+		bc.Overlap = &dmlchart.Overlap{Val: 100}
+	}
+	return bc
 }
 
 func (c *Chart) newLineChart(axID []*dmlchart.UnsignedInt) *dmlchart.LineChart {
 	return &dmlchart.LineChart{
-		Grouping:   &dmlchart.Grouping{Val: "standard"},
+		Grouping:   &dmlchart.Grouping{Val: string(c.lineGrouping())},
 		VaryColors: boolElem(false),
 		DLbls:      c.groupDataLabels(),
 		Marker:     boolElem(true),
@@ -354,7 +401,7 @@ func (c *Chart) newLineChart(axID []*dmlchart.UnsignedInt) *dmlchart.LineChart {
 
 func (c *Chart) newAreaChart(axID []*dmlchart.UnsignedInt) *dmlchart.AreaChart {
 	return &dmlchart.AreaChart{
-		Grouping:   &dmlchart.Grouping{Val: "standard"},
+		Grouping:   &dmlchart.Grouping{Val: string(c.lineGrouping())},
 		VaryColors: boolElem(false),
 		DLbls:      c.groupDataLabels(),
 		AxId:       axID,
@@ -462,7 +509,7 @@ func (c *Chart) buildComboPlot(plot *dmlchart.PlotArea, dl DataLayout) error {
 		// renders as a column.
 		kind := s.PlotType
 		if !kind.isComboMember() {
-			return fmt.Errorf("chart: combo series %q has type %v; only column, line, and area combine", s.Name, kind)
+			return fmt.Errorf("chart: combo series %q has type %v; only column, bar, line, and area combine", s.Name, kind)
 		}
 		key := comboGroupKey{kind: kind, secondary: s.SecondaryAxis}
 		if _, ok := members[key]; !ok {
@@ -477,8 +524,15 @@ func (c *Chart) buildComboPlot(plot *dmlchart.PlotArea, dl DataLayout) error {
 			axID = axIDs(secCatAxisID, secValAxisID)
 		}
 		switch key.kind {
-		case KindColumn:
-			bc := c.newBarChart("col", axID)
+		case KindColumn, KindBar:
+			// A bar-direction group is legal in a plot area alongside line and
+			// area groups, and Parse recovers one as KindBar; rejecting it here
+			// made such a chart readable but impossible to re-embed (C557).
+			dir := "col"
+			if key.kind == KindBar {
+				dir = "bar"
+			}
+			bc := c.newBarChart(dir, axID)
 			for _, i := range members[key] {
 				bc.Ser = append(bc.Ser, c.barSer(i, c.series[i], dl))
 			}
@@ -500,6 +554,17 @@ func (c *Chart) buildComboPlot(plot *dmlchart.PlotArea, dl DataLayout) error {
 	return nil
 }
 
+// allSeriesAreBars reports whether every series of a combination chart plots as
+// a horizontal bar, which flips the axis orientation.
+func (c *Chart) allSeriesAreBars() bool {
+	for _, s := range c.series {
+		if s.PlotType != KindBar {
+			return false
+		}
+	}
+	return len(c.series) > 0
+}
+
 // hasSecondaryAxis reports whether any series is assigned to the secondary
 // value axis (only meaningful for a combination chart).
 func (c *Chart) hasSecondaryAxis() bool {
@@ -512,6 +577,13 @@ func (c *Chart) hasSecondaryAxis() bool {
 }
 
 // buildAxes appends the axis definitions to the plot area.
+//
+// Emission order note: the axes are written c:valAx before c:catAx, which is
+// the reverse of what Office produces. CT_PlotArea's content model is a
+// repeatable choice over the axis elements, so both orders are schema-valid and
+// Excel, Word and PowerPoint all accept this one; TestChartXMLShape pins it.
+// This is deliberate — do not "fix" fixtures or assertions to Office's order
+// without changing the serializer first.
 func (c *Chart) buildAxes(plot *dmlchart.PlotArea) {
 	if c.kind == KindCombo {
 		c.buildComboAxes(plot)
@@ -574,12 +646,18 @@ func (c *Chart) catAxWith(id, crossID uint32, pos string) *dmlchart.CatAx {
 // it crosses. The secondary value axis crosses at the maximum so it sits on the
 // right.
 func (c *Chart) buildComboAxes(plot *dmlchart.PlotArea) {
-	catPrimary := c.catAxWith(catAxisID, valAxisID, "b")
+	catPos, valPos := "b", "l"
+	if c.allSeriesAreBars() {
+		// A combo of horizontal-bar groups only has the orientation of a bar
+		// chart: categories run up the left, values along the bottom.
+		catPos, valPos = "l", "b"
+	}
+	catPrimary := c.catAxWith(catAxisID, valAxisID, catPos)
 	if c.catAxisName != "" {
 		catPrimary.Title = axisTitle(c.catAxisName)
 	}
 	plot.CatAx = []*dmlchart.CatAx{catPrimary}
-	plot.ValAx = []*dmlchart.ValAx{c.valAx(valAxisID, catAxisID, "l", c.valAxisName)}
+	plot.ValAx = []*dmlchart.ValAx{c.valAx(valAxisID, catAxisID, valPos, c.valAxisName)}
 
 	if !c.hasSecondaryAxis() {
 		return
@@ -630,10 +708,16 @@ func (c *Chart) serAx(id, crossID uint32) *dmlchart.SerAx {
 	}
 }
 
-// catSource builds the shared category data source (strRef + strCache).
+// catSource builds the shared category data source: a strRef when the layout
+// gives the categories a home in the data sheet, otherwise a literal cache
+// (c:strLit). CT_StrRef requires its c:f child, so a reference with no formula
+// would be schema-invalid (C433).
 func (c *Chart) catSource(dl DataLayout) *dmlchart.AxDataSource {
 	if len(c.categories) == 0 {
 		return nil
+	}
+	if dl.CategoriesRef == "" {
+		return &dmlchart.AxDataSource{StrLit: strData(c.categories)}
 	}
 	return &dmlchart.AxDataSource{
 		StrRef: &dmlchart.StrRef{
@@ -643,8 +727,14 @@ func (c *Chart) catSource(dl DataLayout) *dmlchart.AxDataSource {
 	}
 }
 
-// numSource builds a numeric data source (numRef + numCache) for c:val / c:yVal.
+// numSource builds a numeric data source for c:val / c:yVal: a numRef when the
+// values have a home in the data sheet, otherwise a literal (c:numLit). CT_NumRef
+// requires its c:f child, so emitting a reference with no formula produces a
+// part Office reports as damaged (C433).
 func numSource(values []float64, ref, formatCode string) *dmlchart.NumDataSource {
+	if ref == "" {
+		return &dmlchart.NumDataSource{NumLit: numData(values, formatCode)}
+	}
 	return &dmlchart.NumDataSource{
 		NumRef: &dmlchart.NumRef{
 			F:        ref,
@@ -653,8 +743,12 @@ func numSource(values []float64, ref, formatCode string) *dmlchart.NumDataSource
 	}
 }
 
-// axNumSource builds a numeric axis data source (numRef + numCache) for c:xVal.
+// axNumSource builds a numeric axis data source for c:xVal, with the same
+// ref-or-literal rule as numSource.
 func axNumSource(values []float64, ref, formatCode string) *dmlchart.AxDataSource {
+	if ref == "" {
+		return &dmlchart.AxDataSource{NumLit: numData(values, formatCode)}
+	}
 	return &dmlchart.AxDataSource{
 		NumRef: &dmlchart.NumRef{
 			F:        ref,
@@ -663,8 +757,12 @@ func axNumSource(values []float64, ref, formatCode string) *dmlchart.AxDataSourc
 	}
 }
 
-// serName builds a series-name source (strRef with a one-point cache).
+// serName builds a series-name source: a strRef with a one-point cache, or the
+// literal c:v form when the name has no cell to point at.
 func serName(name, ref string) *dmlchart.SerTx {
+	if ref == "" {
+		return &dmlchart.SerTx{V: name}
+	}
 	return &dmlchart.SerTx{
 		StrRef: &dmlchart.StrRef{
 			F:        ref,
@@ -673,13 +771,19 @@ func serName(name, ref string) *dmlchart.SerTx {
 	}
 }
 
-// numData builds a c:numCache / c:numLit body from float values.
+// numData builds a c:numCache / c:numLit body from float values. A blank point
+// (see Blank) contributes to ptCount but emits no c:pt, which is exactly how
+// Excel caches an empty cell — writing the NaN sentinel out as a number instead
+// put a literal <c:v>NaN</c:v> in the cache (C384).
 func numData(values []float64, formatCode string) *dmlchart.NumData {
 	nd := &dmlchart.NumData{
 		FormatCode: formatCode,
 		PtCount:    uintElem(uint32(len(values))),
 	}
 	for i, v := range values {
+		if IsBlank(v) {
+			continue
+		}
 		nd.Pt = append(nd.Pt, &dmlchart.NumVal{
 			Idx: uint32(i),
 			V:   formatFloat(v),
@@ -766,8 +870,14 @@ func uintElem(v uint32) *dmlchart.UnsignedInt {
 }
 func boolPtr(v bool) *bool { return &v }
 
-// formatFloat renders a float for a cache value: the shortest representation
-// that round-trips (integers as "18", fractions as "2.5").
+// formatFloat renders a float as a chart or worksheet value: the shortest
+// decimal that round-trips, never in exponent form (integers as "18",
+// fractions as "2.5", large values as "1234567" rather than "1.234567e+06").
+//
+// It is the one number formatter for both the caches in chart.xml and the cells
+// of the data sheet those caches mirror. Formatting the cache with 'g' and the
+// sheet with 'f' made the two disagree textually for the same value, and Office
+// never writes E-notation in a numCache (C559).
 func formatFloat(v float64) string {
-	return strconv.FormatFloat(v, 'g', -1, 64)
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
