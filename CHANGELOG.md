@@ -2,6 +2,233 @@
 
 ## Unreleased
 
+Since 0.1.0 the tree has taken two adversarial-audit remediation waves: the
+C236–C359 findings (PRs #188–#220) and the C360–C582 findings now landing (PRs
+#222 onward). Most of that work is fidelity repair with no visible API change,
+and is summarized rather than enumerated below; everything that changes what a
+caller sees is listed.
+
+### Breaking
+
+- pptx: `GroupShape.AddChild` now returns `error`. It accepted any `Shape`, but
+  the group serializer has no case for `*ChartFrame`, `*SmartArtFrame` or
+  `*OLEObjectFrame`: such a child stayed in `Children()` and was silently never
+  written. It now rejects those kinds instead of accepting-then-dropping,
+  mirroring `Slide.AddShape`. Callers that only add supported shape kinds are
+  unaffected apart from the new return value (C311, #212).
+
+### Security
+
+- OPC signature verification now derives the covered part set from the trust
+  chain instead of from every `<Object>` in the signature. Previously
+  `SignatureInfo.CoveredParts` was collected from the manifest of every Object,
+  with no check that the Object was reachable from a `SignedInfo` reference —
+  the containment `SignedInfo → Object → Manifest` that is the whole trust path
+  was flattened into two independent lists. Appending an `<Object>` whose
+  manifest lists extra parts and their correct digests (something anyone can do
+  to a signed package, no private key involved) made those parts report as
+  signed by the certificate holder, with `Valid: true`. A part is now reported
+  as covered only when it sits in the manifest of an Object that a verified
+  `SignedInfo` reference reaches and the `SignatureValue` itself verified; an
+  Object claiming coverage the signature does not carry is reported through
+  `Problems` and makes the signature invalid. The signing time is likewise read
+  only from a covered Object. Unreferenced Objects that claim nothing — such as
+  the XAdES `QualifyingProperties` Object Office emits — are unaffected
+  (C362, C391, C460, #223).
+- crypto: agile encryption's `dataIntegrity` HMAC is now required rather than
+  optional, the AES dispatch is corrected, and the password-handling gaps are
+  closed, so a stripped or forged integrity block no longer decrypts silently
+  (C361, C385, C397, C462–C466, #224).
+- opc: the CFB (compound-file) reader bounds its allocations by the input size
+  and handles a zero-length stream's start sector, so a crafted encrypted
+  container cannot make the reader allocate on the strength of its own header
+  fields (C360, C453, C461, #222).
+- opc/crypto/xml: resource use on untrusted input is bounded across the open
+  path, and a canonicalization panic is fixed (#188).
+
+### Added
+
+- xlsx: `Image.SVGData()` returns the original SVG bytes of an image added as
+  SVG. `Data()` continues to return the raster (PNG) fallback embedded for
+  viewers that cannot render SVG, so the two are now distinguishable; `SVGData`
+  is nil for a non-SVG image and for images read back from an opened file
+  (#215).
+- pptx: `SlideSizeCustom` is wired to explicit dimensions instead of being
+  accepted and ignored (#213).
+- CI: a GitHub Actions workflow runs the local merge gates (build, vet, test,
+  lint) on every push and pull request (C9, C233, #211).
+
+### Changed
+
+- xlsx: `Cell.Value()` returns a formula cell's **cached result typed by its
+  cached-value type**, the same way a literal cell of that type reads back — a
+  numeric formula such as `=1+1` now yields `float64(2)` where it previously
+  yielded the string `"2"`. When the file carries no cached value it still
+  falls back to the formula text. Date cells return `time.Time` (#215).
+- xlsx: `Workbook.DeleteSheet` cascade-deletes the parts reachable only from
+  the deleted sheet — its drawings, tables and comments, and transitively the
+  media and chart parts those own — instead of leaving them orphaned. A part
+  still referenced elsewhere is kept, and pivot-table parts are deliberately
+  spared because their caches are shared with the workbook (#215).
+- pptx: a slide-jump hyperlink whose target index is out of range for the deck
+  at save time now emits **no hyperlink at all**, instead of a
+  `ppaction://hlinksldjump` with no target. The setter still returns a
+  `*Hyperlink` and reports no error, so validate the index against
+  `SlideCount()` if a silently absent link matters (C354, #220).
+- pptx: media deduplication keys on content type as well as bytes, so two
+  images with identical bytes but distinct content types no longer collapse
+  into one part (C354, #220).
+- pptx: a transition with no explicit `spd` now defaults to fast (0.5s), matching
+  PowerPoint, and paragraph alignment defaults to *inherit* rather than left, so
+  a created shape no longer overrides its layout's alignment. Text-frame insets
+  are written only when explicitly set (C262, C194, #200, #213).
+- pptx: `AddAnimation` refuses a target whose shape id is 0 (an unsaved shape has
+  no stable id yet) and honors build-by-paragraph for grouped targets
+  (C354, #220).
+- opc: core-property decode errors are surfaced instead of being silently
+  dropped, and integer formatting is `MinInt`-safe (C344, C345, #209).
+
+### Fixed
+
+- OPC signature manifest reference URIs are now correct for part names and
+  content types that need percent-encoding. Verification percent-decodes a
+  reference URI, but signing wrote the part name and the `?ContentType=` query
+  raw, so spine failed to verify its own signature over a part whose (entirely
+  legal) name contains a percent-escape, and a content type containing `&` or a
+  space produced a non-conformant URI for other verifiers. A conformant part
+  name — already a URI path by grammar — is now emitted verbatim, names only
+  wild packages carry are percent-encoded, the content type is escaped for the
+  query component, and verification resolves the literal name before falling
+  back to the decoded one (#223).
+- `SignatureInfo`'s documentation referred to a `DigestMethod` field that did
+  not exist. The digest algorithms are now reported for real, in
+  `DigestMethods`, alongside a new `WeakAlgorithms` field and
+  `UsesWeakAlgorithms` method: verification accepts the SHA-1 algorithms older
+  Office signatures use, so a caller that wants to refuse them now can (#223).
+- **pptx merge no longer corrupts the destination deck.** Appending slides
+  duplicated the master's and layouts' relationships and dropped the media those
+  parts referenced, so a merged deck could open with missing images and
+  colliding relationship ids — the two critical findings of the C236–C359 audit
+  (C236, C237, #189).
+- pptx merge: internal slide-jump hyperlinks are remapped or stripped, comment
+  authors are carried across, cloned runs and shapes deep-copy their hyperlink
+  rather than sharing it, and animations added in the session survive the
+  autoplay-timing rebuild (C268, C269, C270, C313, #204).
+- pptx lifecycle: `CreateFromTemplate` clears template slides through the normal
+  removal path and resets the flavor to a presentation flavor; removed slide
+  handles are invalidated so a stale `Delete`/`Duplicate` is rejected; a removed
+  slide's id is stripped from its section; and `Slide.index` stays aligned with
+  the slice position past dangling `sldId` entries (C243, C301–C307, #194, #212).
+- pptx shape and text sync: editing a loaded run preserves its `a:br`/`a:fld`/
+  `endParaRPr` siblings, fill replacement is atomic, and effects merge per
+  effect instead of wholesale (C244, C263, C308, #200).
+- pptx: replacing a picture or background garbage-collects the old relationship
+  and media part; comment-author initials are derived by rune, not byte;
+  placeholder `orient`/`idx`/`sz` are flushed on loaded placeholders; and
+  explicit `showMasterSp`/`showMasterPhAnim="0"` and `animBg="0"` survive a save
+  (C309, C314–C317, #208, #212).
+- docx merge/append: internal relationships, footnotes, endnotes and comments
+  are imported, and style/numbering cross-references in copied definitions are
+  remapped (C252, C253, C292, #192).
+- docx: range bookmark and comment operations are all-or-nothing instead of
+  half-applying; `MarkDeleted`/`MarkInserted` no longer half-apply on a run they
+  cannot wrap; relationship ids are allocated per owner-part scope; `wp:docPr`
+  ids come from one document-wide counter; header/footer parts are flagged
+  modified on handle edits; and read scans descend into header/footer tables
+  (C254, C266, C267, C295–C300, #198, #201, #207).
+- docx: escaping holes closed — a CR in a text box, WordArt or watermark caption
+  and a namespace URI or `itemID` in customXML `itemProps` are now escaped
+  (C349, C350, #210).
+- docx: `nextHdrFtrPartName` is case-insensitive to match OPC part naming, an
+  `AddChart` embedded workbook cannot collide with a preserved part, the lazy
+  body-parse error is surfaced from `doc()` instead of returning nil, and text
+  box wrapper geometry is parsed with the XML decoder rather than byte scans
+  (#214).
+- xlsx workbook integrity: chartsheets are preserved opaquely so an edit cannot
+  corrupt them, a repeated save of a table is idempotent, and `saveNew`
+  relationship ids are scan-allocated (C241, C257, C258, #191).
+- xlsx: legacy-VML ownership is fixed end to end — non-comment VML shapes
+  survive a comment being added, comments and OLE objects coexist in one legacy
+  drawing, a read-only `Comments()` no longer blocks `AddOLEObject`, and comment
+  cell refs are validated and canonicalized (C245, C283, C284, C288, #196).
+- xlsx: hyperlink handles stay stable across later mutations and replacing an
+  opened hyperlink drops the old relationship; `SetColWidth` carves the target
+  column across every `<cols>` group; the pivot source scan no longer mutates
+  the source sheet; orphan threaded-comment replies surface as top-level
+  comments; `Sheets()` returns a copy; `ParseCellRef` accepts mixed-case column
+  prefixes; and `AddChart` no longer leaves an orphan data sheet on failure
+  (C246, C285, #202, #215).
+- xlsx: scientific-notation constants lex as single tokens in formula
+  translation (C285, #202).
+- chart: embedded-data fidelity — `c:externalData` is emitted so the embedded
+  workbook is reachable, new anchors merge into an opened sheet's existing
+  drawing, bubble and scatter data sheets are written in the layout their
+  references expect, and sparse caches keep blank-cell alignment (#193).
+- Round-trip capture across the substrate and the three `internal/oxml` models:
+  unmodeled children and attributes that previously vanished on regeneration
+  are preserved — `extLst` namespace declarations, filter and `cfRule`
+  extension children, phonetic `ph`/`rPh`, data-table formula attributes,
+  repeated root-level `mc:AlternateContent`, `bookView`/`sheetView` children,
+  nested math, bidi wrappers, `fldSimple` attributes, SDT-wrapped tables, and
+  document-order numbering and settings emission (C134, C242, C247, C259–C261,
+  C274, C330, C340–C343, C347, C348, C352, C354, C355, #190, #195, #197, #199,
+  #206, #216–#220).
+- The C360–C582 wave, in flight as separate pull requests: xlsx cell-reference
+  and charset-bypass corruption plus the oxml fidelity gaps (C368, C369,
+  C429–C431, C551–C556, #225); pptx presentation relationship ids allocated
+  through one allocator (C363, C419, C512, C513, #226); the XML substrate's
+  prefix, empty-tag, capture and c14n defects (C375, C437, C438, C472–C478,
+  #227); the docx round-trip capture kit armed on every part (#228); opc package
+  integrity — decompression-budget bypass, `Close` reconciliation, name
+  canonicalization (#229); chart blank data points, series length and reference
+  fidelity (C384, C433, C434, C557–C564, #230); dml theme extension loss, the
+  positional fill matrix and the `ST_Percentage` class (C374, C400, C401,
+  C479–C487, #231); and the pptx inbound-reference sweep on slide removal, with
+  `Validate` gated on the output set (C364, C365, C379, C414, #232).
+
+### Documentation and tooling
+
+- The guides now carry the behavior caveats that had landed only in godoc: that
+  `AppendSlidesFrom` may modify the source presentation (marshaling its slides
+  to snapshot them flushes their pending edits, embeds pending media and
+  allocates shape ids), that an out-of-range slide jump is dropped at save time,
+  the `Image.SVGData` versus `Data` split, `DeleteSheet`'s cascade, and
+  `Cell.Value`'s date and typed-formula results (C579).
+- README's validation section now carries the complete finding catalog, code by
+  code, with each check's severity. It previously described a dangling `numPr`
+  as an error that blocks saves; it is a warning, deliberately, because Word
+  opens such documents. `docs/troubleshooting.md` said the same thing and is
+  corrected. The catalog is now the single source of truth and is verified
+  against the validators by `internal/docsguard`, which also pins a list of
+  caveat-bearing APIs to the guide sections documenting them (C446, C579).
+- `docs/encryption-and-signing.md` documents what `SignatureInfo.CoveredParts`
+  covers and the weak-algorithm caveat (#223).
+- Test harness integrity: `TestCCCorpus` distinguishes an absent corpus (skip)
+  from a present-but-empty or partially-fetched one (fail) instead of passing
+  vacuously; the spec-example suites carry a committed coverage baseline so a
+  deleted type mapping can no longer turn assertions into green "No Go type
+  mapped" skips; the round-trip part comparison treats zip entry names as a
+  counted multiset, so a dropped or duplicated same-named entry is visible; and
+  the cross-format symmetry guard is extended from three capabilities to the
+  chart, theme, protection and page/print entry points that shipped since
+  (C443, C445, C572, C573).
+- `make test-corpus` runs inside a memory-capped systemd scope like `make
+  test-race`, and `make harvest-batch` sets `OOMPolicy=continue` — without it
+  systemd's default stops the whole scope on the worker OOM kill the harvest
+  design *expects*, killing the orchestrator before it can record the file and
+  livelocking the resume loop on it (C389, C444).
+- CI fetches the external fixtures, so the tests that need them no longer skip
+  permanently, and a scheduled workflow runs the race detector and the fuzz
+  targets, which previously ran nowhere automatically (C578).
+- `tools/ccrun` passes the DoH resolver URL to its workers through the
+  environment instead of argv, where a private resolver profile token was
+  world-readable via `/proc` (C577).
+- python-pptx's MIT license and copyright notice are vendored at
+  `python-tests/LICENSE`, covering the ~2.9 MB of verbatim source carried for
+  its fixtures (C576). The batched harvest's failure catalog
+  (`testdata/cc/batch-quarantine.tsv`) is committed rather than gitignored, and
+  `spec/gen_spec/` is no longer both tracked and ignored (C574, C575).
+
 ## 0.1.0 - 2026-07-22
 
 Initial release. A zero-dependency Go library for reading and writing Microsoft
