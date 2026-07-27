@@ -591,7 +591,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 	switch {
 	case e.CreationId != nil:
 		if raw := e.CreationId.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "creationId",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsA16, raw, xmlb.PrefixDrawing2014), "creationId",
 				xmlb.RawAttrListOverride(raw, map[string]string{"id": e.CreationId.Id})...)
 			break
 		}
@@ -600,7 +600,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.ColId != nil:
 		if raw := e.ColId.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "colId",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsA16, raw, xmlb.PrefixDrawing2014), "colId",
 				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.ColId.Val).Value})...)
 			break
 		}
@@ -609,7 +609,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.RowId != nil:
 		if raw := e.RowId.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA16, xmlb.PrefixDrawing2014), "rowId",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsA16, raw, xmlb.PrefixDrawing2014), "rowId",
 				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.RowId.Val).Value})...)
 			break
 		}
@@ -618,7 +618,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.UseLocalDpi != nil:
 		if raw := e.UseLocalDpi.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010), "useLocalDpi",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010), "useLocalDpi",
 				xmlb.RawAttrList(raw)...)
 			break
 		}
@@ -626,7 +626,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.ShadowObscured != nil:
 		if raw := e.ShadowObscured.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010), "shadowObscured",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010), "shadowObscured",
 				xmlb.RawAttrList(raw)...)
 			break
 		}
@@ -634,7 +634,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.HiddenFill != nil:
 		if raw := e.HiddenFill.CapturedAttrs; raw != nil {
-			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			prefix := b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010)
 			b.StartElementLiteral(prefix, "hiddenFill",
 				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
 			b.MarshalChildren(nsA, e.HiddenFill)
@@ -648,7 +648,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.HiddenLine != nil:
 		if raw := e.HiddenLine.CapturedAttrs; raw != nil {
-			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			prefix := b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010)
 			b.StartElementLiteral(prefix, "hiddenLine",
 				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
 			b.MarshalChildren(nsA, e.HiddenLine)
@@ -675,7 +675,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.HiddenEffects != nil:
 		if raw := e.HiddenEffects.CapturedAttrs; raw != nil {
-			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			prefix := b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010)
 			b.StartElementLiteral(prefix, "hiddenEffects",
 				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
 			b.MarshalChildren(nsA, e.HiddenEffects)
@@ -689,7 +689,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.ImgProps != nil:
 		if raw := e.ImgProps.CapturedAttrs; raw != nil {
-			prefix := xmlb.RawAttrPrefix(raw, nsA14, xmlb.PrefixDrawing2010)
+			prefix := b.LiteralPrefixForCaptured(nsA14, raw, xmlb.PrefixDrawing2010)
 			b.StartElementLiteral(prefix, "imgProps",
 				[]xmlb.NSDecl{{Prefix: prefix, URI: nsA14}}, xmlb.RawAttrList(raw)...)
 			marshalImgLayer(b, e.ImgProps.ImgLayer)
@@ -703,7 +703,7 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 
 	case e.SvgBlip != nil:
 		if raw := e.SvgBlip.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, xmlb.NSDrawingSVG2016, xmlb.PrefixDrawingSVG2016), "svgBlip",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(xmlb.NSDrawingSVG2016, raw, xmlb.PrefixDrawingSVG2016), "svgBlip",
 				xmlb.RawAttrListOverride(raw, map[string]string{"r:embed": e.SvgBlip.Embed})...)
 			break
 		}

@@ -560,7 +560,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	switch {
 	case e.CreationId != nil:
 		if raw := e.CreationId.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010), "creationId",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsP14, raw, xmlb.PrefixPowerPoint2010), "creationId",
 				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.CreationId.Val).Value})...)
 			break
 		}
@@ -569,7 +569,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 	case e.ModId != nil:
 		if raw := e.ModId.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010), "modId",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsP14, raw, xmlb.PrefixPowerPoint2010), "modId",
 				xmlb.RawAttrListOverride(raw, map[string]string{"val": xmlb.UintAttr("val", e.ModId.Val).Value})...)
 			break
 		}
@@ -588,7 +588,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			if e.Media.Link != "" {
 				override["r:link"] = e.Media.Link
 			}
-			prefix := xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010)
+			prefix := b.LiteralPrefixForCaptured(nsP14, raw, xmlb.PrefixPowerPoint2010)
 			if len(e.Media.RawContent) > 0 {
 				b.StartElementLiteral(prefix, "media", nil, xmlb.RawAttrListOverride(raw, override)...)
 				b.WriteRaw(e.Media.RawContent)
@@ -627,7 +627,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		// A source that declared xmlns:p14 on p:ext (replayed via InlineNSDecls)
 		// must not get a second declaration on the child (C523).
 		if raw := e.LaserClr.CapturedAttrs; raw != nil {
-			prefix := xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010)
+			prefix := b.LiteralPrefixForCaptured(nsP14, raw, xmlb.PrefixPowerPoint2010)
 			b.StartElementLiteral(prefix, "laserClr",
 				[]xmlb.NSDecl{{Prefix: prefix, URI: nsP14}}, xmlb.RawAttrList(raw)...)
 			marshalColorChoice(b, &e.LaserClr.ColorChoice)
@@ -648,7 +648,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			attrs = append(attrs, xmlb.StrAttr("providerId", e.PresenceInfo.ProviderId))
 		}
 		if raw := e.PresenceInfo.CapturedAttrs; raw != nil {
-			b.EmptyElementLiteral(xmlb.RawAttrPrefix(raw, nsP15, xmlb.PrefixPowerPoint2012), "presenceInfo",
+			b.EmptyElementLiteral(b.LiteralPrefixForCaptured(nsP15, raw, xmlb.PrefixPowerPoint2012), "presenceInfo",
 				b.ReplayCapturedAttrs(raw, attrs)...)
 			break
 		}
@@ -679,7 +679,7 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // programmatic leaf declares the namespace inline.
 func marshalExtLeaf(b *xmlb.Builder, ns, prefix, localName string, captured []xmlb.RootAttr, attrs ...xmlb.Attr) {
 	if captured != nil {
-		b.EmptyElementLiteral(xmlb.RawAttrPrefix(captured, ns, prefix), localName,
+		b.EmptyElementLiteral(b.LiteralPrefixForCaptured(ns, captured, prefix), localName,
 			b.ReplayCapturedAttrs(captured, attrs)...)
 		return
 	}
@@ -736,7 +736,7 @@ func marshalColorChoice(b *xmlb.Builder, cc *dml.ColorChoice) {
 // marshalSldGuideLst writes p15:sldGuideLst element.
 func marshalSldGuideLst(b *xmlb.Builder, g *P15SldGuideLst) {
 	if raw := g.CapturedAttrs; raw != nil {
-		prefix := xmlb.RawAttrPrefix(raw, nsP15, xmlb.PrefixPowerPoint2012)
+		prefix := b.LiteralPrefixForCaptured(nsP15, raw, xmlb.PrefixPowerPoint2012)
 		if len(g.Guide) == 0 {
 			b.EmptyElementLiteral(prefix, "sldGuideLst", xmlb.RawAttrList(raw)...)
 			return
