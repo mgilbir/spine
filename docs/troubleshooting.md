@@ -21,12 +21,16 @@ for _, f := range p.Validate() {
 ```
 
 Fix the reported condition (for example a duplicate shape id, a dangling
-relationship reference, or a `numPr` that references an undefined numbering
-definition). If a finding is genuinely advisory for your use case,
-`SaveToUnvalidated` writes without the pre-save check — but the default gate
-exists because Office rejects the structures it flags. See
-[Validation](../README.md#validation) for the full list of error- vs
-warning-severity checks.
+`headerReference`/sheet/`sldLayoutId` relationship reference, or overlapping
+merged ranges). Only error-severity findings refuse the save — a warning such as
+a `numPr` that references an undefined numbering definition is reported and the
+save proceeds, because Word opens such a document and blocking it would reject a
+file Word accepts. If an error-severity finding is genuinely advisory for your
+use case, `SaveToUnvalidated` writes without the pre-save check — but the
+default gate exists because Office rejects the structures it flags. The
+[Validation](../README.md#validation) section of the README carries the full
+catalog, code by code, with each check's severity; it is the single source of
+truth and is verified against the validators by a test.
 
 ## Open returns `opc.ErrEncrypted`
 
@@ -71,9 +75,9 @@ than a fully provisioned tree:
 - **External round-trip fixtures** are downloaded with `make fetch`; tests that
   need a missing file skip. Four fixtures have no public URL and always skip. See
   [testdata/README.md](../testdata/README.md).
-- **python-pptx fixtures** (a few pptx tests) require copying python-pptx's
-  `tests/` directory to `python-tests/`; without it those tests skip. See
-  [testdata/README.md](../testdata/README.md#optional-python-pptx-fixture-corpus).
+- **python-pptx fixtures** (a few pptx tests) need no setup: `python-tests/` is
+  committed, so they run on a fresh clone. See
+  [testdata/README.md](../testdata/README.md#python-pptx-fixture-corpus).
 - **The Common Crawl corpus** (`go test ./cctest`) needs `make fetch-cc`; a plain
   run checks only a fast deterministic subset. See
   [testdata/cc/README.md](../testdata/cc/README.md).

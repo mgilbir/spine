@@ -19,7 +19,7 @@ Each bullet links to the guide that carries the detail.
 - **Form controls, ActiveX, ink & 3D models** — read Word/Excel form controls and ActiveX across formats ([details](docs/xlsx.md#form-controls-and-activex)), and extract [ink annotations and 3D models](docs/pptx.md#ink-annotations-and-3d-models).
 - **PowerPoint (PPTX)** — create and modify presentations: shapes, tables, images, charts, animations, transitions, SmartArt, media, sections, and comments; see [docs/pptx.md](docs/pptx.md).
 - **Word (DOCX)** — create and modify documents: styles, tables, tracked changes, comments, footnotes, mail merge, content controls, and fields; see [docs/docx.md](docs/docx.md).
-- **Excel (XLSX)** — create and modify workbooks: formulas, styles, pivot tables, conditional formatting, sparklines, tables, and page/print setup; see [docs/xlsx.md](docs/xlsx.md).
+- **Excel (XLSX)** — create and modify workbooks: add and delete sheets (deletion cascades to the parts only that sheet owned), formulas, styles, pivot tables, conditional formatting, sparklines, tables, and page/print setup; see [docs/xlsx.md](docs/xlsx.md).
 
 ## Installation
 
@@ -202,7 +202,43 @@ if _, err := p.SaveBytes(); err != nil {
 }
 ```
 
-Error-severity checks include duplicate shape ids within a slide, dangling `sldLayoutId`/sheet/header/footer relationship references, orphaned shared-formula followers, duplicate `sheetId`, out-of-range `definedName` scope, overlapping merged ranges, and a `numPr` that references an undefined numbering definition. Conditions that Office tolerates — a relationship whose target part is missing, a part with no content type, a dangling image/hyperlink reference, an undefined style reference — are reported as warnings.
+This is the complete catalog. Error severity means the save is refused; warning
+severity means the finding is reported and the save proceeds, because the
+corresponding Office app accepts the structure. The table is the single source
+of truth for these severities and is verified against the validators themselves
+by `internal/docsguard` — a severity that changes in code without changing here
+fails the build.
+
+<!-- validation-catalog:begin -->
+
+| Code | Severity | Fires when |
+|------|----------|------------|
+| `dangling-rel` | error and warning | A reference names a relationship id that does not exist. Error where the structure cannot survive it — a section's `headerReference`/`footerReference` (docx), a workbook `sheet` (xlsx), a master's `sldLayoutId` (pptx). Warning for the references Word opens anyway: a drawing's image or chart embed, and a hyperlink (docx). |
+| `defined-name-scope` | error | A `definedName` is scoped to a `localSheetId` that is out of range for the workbook. |
+| `duplicate-part-name` | error | Two part names collide case-insensitively, which OPC forbids. |
+| `merge-overlap` | error | Two merged cell ranges on a sheet overlap. |
+| `shape-id-dup` | error | Two shapes on one slide share a `cNvPr` id. |
+| `shared-formula-orphan` | error | A shared-formula follower cell (`t="shared"`) has no master defining that `si`. |
+| `sheet-id-dup` | error | Two sheets share a `sheetId`. |
+| `bookmark-missing` | warning | A `bookmarkEnd` has no matching `bookmarkStart` (or the reverse). |
+| `chart-no-rel` | warning | A slide's chart reference has no matching relationship (pptx). |
+| `chart-target-missing` | warning | A drawing's chart relationship points at a part that is not in the package (xlsx). |
+| `comment-missing` | warning | A `commentReference` names a comment id that comments.xml does not define (docx). |
+| `comment-no-author` | warning | A comment references an author id with no entry in the author list; PowerPoint shows it as "Unknown". |
+| `comment-person-orphan` | warning | A threaded comment references a person id that persons.xml does not define (xlsx). |
+| `comment-ref-invalid` | warning | A comment's cell reference is not a valid cell address (xlsx). |
+| `content-type-missing` | warning | A part has no content type — no `Default` extension mapping and no `Override`. |
+| `data-validation-range` | warning | A data-validation `sqref` is malformed or out of range. |
+| `hyperlink-no-rel` | warning | A slide hyperlink's `r:id` has no matching relationship (pptx). |
+| `hyperlink-rel-missing` | warning | A cell hyperlink's `r:id` has no matching relationship (xlsx). |
+| `merge-malformed` | warning | A merged-range reference does not parse as a range. |
+| `note-missing` | warning | A footnote/endnote reference names an id the notes part does not define (docx). |
+| `numbering-missing` | warning | A paragraph's `numPr` references a `numId` with no matching `w:num`, or the document has no numbering part at all. **Warning, not error**: real documents in the wild reference a `numId` while shipping an empty or partial numbering part, and Word opens them — blocking the save would reject a file Word accepts. |
+| `rel-target-missing` | warning | A relationship's target part is not present in the package. |
+| `style-missing` | warning | A paragraph or run references a style id that styles.xml does not define (docx). |
+| `styles-empty` | warning | The workbook has a styles part with no formatting records (xlsx). |
+
+<!-- validation-catalog:end -->
 
 If a finding is advisory for your use case, `SaveToUnvalidated` writes without the pre-save check. When a save is refused or a file misbehaves, see [Troubleshooting](docs/troubleshooting.md).
 
@@ -294,7 +330,7 @@ Unit tests run against small synthetic fixtures (committed) and larger real-worl
 
 - Go 1.25 or later
 
-Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages — including `opc`, `chart`, `common/crypto`, `common/dml`, and `common/validate` — are part of the public API surface, since the user-facing examples import them directly.
+Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and `docx.OpenEncrypted`/`opc.OpenEncrypted` surface `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
 
 ## License
 
