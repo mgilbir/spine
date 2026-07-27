@@ -61,20 +61,30 @@ func TestBooleanExtensionValTrueRoundTrips(t *testing.T) {
 	}
 }
 
-// C170(a): values outside the xsd:boolean lexical space are rejected, and
-// (per C170(b)) the rejection surfaces from Open instead of dropping the slide.
-func TestBooleanExtensionInvalidValSurfacesError(t *testing.T) {
+// C355: a value outside the xsd:boolean lexical space must be parsed leniently
+// — Open must not fail (a wild "banana" that aborts Open would drop the whole
+// deck) — and the non-standard lexical form is preserved verbatim on save.
+func TestBooleanExtensionInvalidValIsLenient(t *testing.T) {
 	ext := `<p:extLst><p:ext uri="{2FDB2607-1784-4EEB-B798-7EB5836EED8A}"><p14:showMediaCtrls xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="banana"/></p:ext></p:extLst>`
 	data := rewriteZipPart(t, savedDeck(t), "ppt/slides/slide1.xml", func(xml []byte) []byte {
 		return bytes.Replace(xml, []byte("</p:sld>"), []byte(ext+"</p:sld>"), 1)
 	})
 
-	_, err := OpenReader(bytes.NewReader(data), int64(len(data)))
-	if err == nil {
-		t.Fatal("Open succeeded on a slide with val=\"banana\"; want a parse error")
+	p, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("Open failed on a slide with val=\"banana\"; want lenient parse: %v", err)
 	}
-	if !strings.Contains(err.Error(), "slide1.xml") {
-		t.Errorf("error does not name the failing part: %v", err)
+	if got := len(p.Slides()); got != 1 {
+		t.Fatalf("Slides() = %d, want 1: slide with non-standard bool value was dropped", got)
+	}
+
+	out, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := zipPart(t, out, "ppt/slides/slide1.xml")
+	if !bytes.Contains(slideXML, []byte(`val="banana"`)) {
+		t.Errorf("saved slide1.xml did not preserve the non-standard bool value verbatim:\n%s", slideXML)
 	}
 }
 
