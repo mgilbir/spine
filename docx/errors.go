@@ -13,4 +13,11 @@ import "errors"
 var (
 	// ErrNotDOCX indicates the file is not a valid Word document.
 	ErrNotDOCX = errors.New("docx: not a valid Word document")
+
+	// ErrRevisionStale is returned by Revision.Accept and Revision.Reject when
+	// the revision's content is no longer where it was enumerated — typically
+	// because an earlier Accept or Reject rebuilt the container it lived in, as
+	// Document.Revisions' godoc warns. The document is left unchanged; re-read
+	// Revisions and retry.
+	ErrRevisionStale = errors.New("docx: revision no longer resolvable")
 )
