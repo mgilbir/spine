@@ -204,6 +204,9 @@ func (s *Sheet) openedTables() []*Table {
 // <tableParts> entry and the [Content_Types].xml override are added on the next
 // save. Existing tables in an opened workbook are left untouched.
 func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
+	if s.opaque {
+		return nil, ErrNotWorksheet
+	}
 	if s.workbook == nil {
 		return nil, fmt.Errorf("xlsx: AddTable: sheet is not attached to a workbook")
 	}
@@ -223,8 +226,12 @@ func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
 	totalsRows := 0
 	if opts.TotalsRow {
 		totalsRows = 1
-		if rng.maxRow-rng.minRow < 1 {
-			return nil, fmt.Errorf("xlsx: AddTable: a totals row requires a range taller than one row")
+		// The range must hold a header row, at least one data row and the
+		// totals row. "< 1" allowed a 2-row range, producing a table with a
+		// header and a totals row and no data at all, which Excel never
+		// creates (C541).
+		if rng.maxRow-rng.minRow < 2 {
+			return nil, fmt.Errorf("xlsx: AddTable: a totals row requires a range with a header row, at least one data row and the totals row (at least 3 rows)")
 		}
 	}
 
@@ -289,10 +296,66 @@ func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
 		cell.SetString(colName)
 	}
 
+	// Write the totals row's cells. tableN.xml records which function each
+	// column totals, but Excel renders the totals row from the sheet cells, so
+	// without these the row is blank until the user toggles the totals row off
+	// and on again (C541).
+	if opts.TotalsRow {
+		if err := s.writeTableTotalsRow(model, rng, names); err != nil {
+			return nil, fmt.Errorf("xlsx: AddTable: %w", err)
+		}
+	}
+
 	tbl := &Table{model: model}
 	s.newTables = append(s.newTables, tbl)
 	s.markDirty()
 	return tbl, nil
+}
+
+// subtotalFunctionCodes maps a table totalsRowFunction to the SUBTOTAL function
+// number Excel writes in the totals cell. The 1xx codes are the "ignore
+// manually hidden rows" variants Excel uses for tables. "custom" has no code:
+// the caller supplies the formula through the column's own definition, and
+// "none" totals nothing.
+var subtotalFunctionCodes = map[string]int{
+	"average":   101,
+	"countNums": 102,
+	"count":     103,
+	"max":       104,
+	"min":       105,
+	"stdDev":    107,
+	"sum":       109,
+	"var":       110,
+}
+
+// writeTableTotalsRow fills the last row of a table's range: a literal label
+// where the column defines one, otherwise a SUBTOTAL over the column's data
+// body using a structured reference, which is what Excel itself writes.
+func (s *Sheet) writeTableTotalsRow(model *oxml.CT_Table, rng cellRange, names []string) error {
+	for i, colName := range names {
+		col := &model.Columns[i]
+		ref := FormatCellRef(rng.maxRow, rng.minCol+i)
+		cell, err := s.Cell(ref)
+		if err != nil {
+			return err
+		}
+		switch {
+		case col.TotalsRowLabel != "":
+			cell.SetString(col.TotalsRowLabel)
+		case col.TotalsRowFunction == "" || col.TotalsRowFunction == "none":
+			// No total for this column; leave the cell alone.
+		case col.TotalsRowFunction == "custom":
+			// A custom total is carried by the column definition, not by a
+			// SUBTOTAL this package can synthesize.
+		default:
+			code, ok := subtotalFunctionCodes[col.TotalsRowFunction]
+			if !ok {
+				return fmt.Errorf("column %q: unknown totals function %q", colName, col.TotalsRowFunction)
+			}
+			cell.SetFormula(fmt.Sprintf("SUBTOTAL(%d,%s[%s])", code, model.Name, colName))
+		}
+	}
+	return nil
 }
 
 // resolveTableColumnNames returns the table's column names, either from the
@@ -383,11 +446,19 @@ func (w *Workbook) nextTableName() string {
 	}
 }
 
-// tableNameExists reports whether any table in the workbook already uses name
-// (case-insensitively), across both opened and session-added tables.
+// tableNameExists reports whether name is already taken (case-insensitively) by
+// a table — opened or session-added — or by a defined name. Excel keeps tables
+// and defined names in one namespace, so a table called "Sales" collides with a
+// defined name "Sales" and the workbook fails to open; checking only other
+// tables let that pair through (C535).
 func (w *Workbook) tableNameExists(name string) bool {
 	for _, t := range w.Tables() {
 		if strings.EqualFold(t.model.Name, name) {
+			return true
+		}
+	}
+	for _, dn := range w.DefinedNames() {
+		if strings.EqualFold(dn.Name, name) {
 			return true
 		}
 	}
@@ -405,28 +476,23 @@ func (w *Workbook) nextTableID() uint32 {
 	return maxID + 1
 }
 
-// validateTableName rejects names Excel would refuse for a table (a defined
-// name): empty, containing whitespace, or looking like a cell reference.
+// validateTableName rejects names Excel would refuse for a table. A table name
+// is a defined name, so the rules are exactly ValidateDefinedName's: no empty
+// name, no name over 255 characters, only letters, digits, ".", "_" and "\",
+// a first character that is a letter, "_" or "\", and no collision with an A1-
+// or R1C1-style cell reference.
+//
+// This used to check only empty/whitespace/A1-lookalike/first-character, so
+// names Excel rejects on open — "Sales Q1)" and other punctuation, a 300-
+// character name, "R1C1", a bare "R" — were written into tableN.xml unchallenged
+// (C535).
 func validateTableName(name string) error {
-	if name == "" {
-		return fmt.Errorf("table name must not be empty")
-	}
-	if strings.ContainsAny(name, " \t\r\n") {
-		return fmt.Errorf("table name %q must not contain whitespace", name)
-	}
-	if _, _, err := ParseCellRef(name); err == nil {
-		return fmt.Errorf("table name %q must not look like a cell reference", name)
-	}
-	if !isTableNameStart(name[0]) {
-		return fmt.Errorf("table name %q must start with a letter, underscore or backslash", name)
+	if err := ValidateDefinedName(name); err != nil {
+		// Restate against the table vocabulary; the defined-name text would
+		// misdescribe what the caller passed.
+		return fmt.Errorf("invalid table name: %w", err)
 	}
 	return nil
-}
-
-// isTableNameStart reports whether b is a legal first character for a table
-// name (a letter, underscore or backslash).
-func isTableNameStart(b byte) bool {
-	return b == '_' || b == '\\' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 // writeSheetTables writes each of a sheet's session-added table parts

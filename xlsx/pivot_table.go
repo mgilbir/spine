@@ -367,6 +367,9 @@ func (w *Workbook) resolvePivotCache(pivotTablePart string) *oxml.CT_PivotCacheD
 // byte-for-byte, but creating them is not yet supported (see the package
 // documentation).
 func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*PivotTable, error) {
+	if s.opaque {
+		return nil, ErrNotWorksheet
+	}
 	if s.workbook == nil {
 		return nil, fmt.Errorf("xlsx: AddPivotTable: sheet is not attached to a workbook")
 	}
@@ -390,8 +393,16 @@ func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*P
 	name := opts.Name
 	if name == "" {
 		name = s.workbook.nextPivotTableName()
-	} else if s.workbook.pivotTableNameExists(name) {
-		return nil, fmt.Errorf("xlsx: AddPivotTable: pivot table name %q already exists", name)
+	} else {
+		// Uniqueness was checked but syntax was not at all, so a pivot named
+		// "My Pivot" or "A1" reached pivotTableN.xml and Excel refused the
+		// workbook (C535). A pivot table name follows the defined-name rules.
+		if err := ValidateDefinedName(name); err != nil {
+			return nil, fmt.Errorf("xlsx: AddPivotTable: invalid pivot table name: %w", err)
+		}
+		if s.workbook.pivotTableNameExists(name) {
+			return nil, fmt.Errorf("xlsx: AddPivotTable: pivot table name %q already exists", name)
+		}
 	}
 
 	build, err := buildPivot(srcSheet, rng, opts)
@@ -407,6 +418,19 @@ func (s *Sheet) AddPivotTable(sourceRange, anchor string, opts PivotOptions) (*P
 
 	// Position the layout at the anchor.
 	placePivotLayout(build, anchorRow, anchorCol)
+
+	// A pivot may not be laid out over its own source data on the same sheet:
+	// Excel's UI refuses the placement, and with refreshOnLoad set its rebuild
+	// writes the pivot over the very cells the cache reads, destroying the
+	// source (C543). The layout box is only known after placePivotLayout, so
+	// the check belongs here rather than next to the anchor parse.
+	if srcSheet == s {
+		if box, ok := parsePivotLocation(build.def.LocationRef); ok && box.overlaps(rng) {
+			return nil, fmt.Errorf(
+				"xlsx: AddPivotTable: layout %s at anchor %q overlaps the source range %s on the same sheet; anchor the pivot clear of its source or place it on another sheet",
+				build.def.LocationRef, anchor, rng.ref())
+		}
+	}
 
 	pt := &PivotTable{
 		def:     build.def,
@@ -456,6 +480,22 @@ func (w *Workbook) nextPivotTableName() string {
 			return name
 		}
 	}
+}
+
+// parsePivotLocation parses a pivot layout ref ("B2:D8", or the degenerate
+// single-cell "B2" placePivotLayout falls back to) into a rectangle. It reports
+// ok=false when the ref does not parse, so an unparseable layout skips the
+// overlap check rather than blocking the call.
+func parsePivotLocation(ref string) (cellRange, bool) {
+	start, end, isRange := strings.Cut(ref, ":")
+	if !isRange {
+		end = start
+	}
+	rng, err := normalizeCellRange(start, end)
+	if err != nil {
+		return cellRange{}, false
+	}
+	return rng, true
 }
 
 // pivotTableNameExists reports whether any pivot table in the workbook already
