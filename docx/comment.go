@@ -144,15 +144,35 @@ func (c *Comment) SetInitials(initials string) {
 // AddComment attaches a comment authored by author with the given body text,
 // anchored over the whole paragraph's content. The returned handle can be used
 // to reply, resolve, or set initials.
+//
+// Comments belong to the main document story: Word does not display a comment
+// anchored in a header or footer, and the reply/anchor machinery here resolves
+// anchors over the body only, so a comment added to a header paragraph is
+// written but never reachable through Reply or AnchorText.
 func (p *Paragraph) AddComment(author, text string) *Comment {
+	p.touch()
 	c := p.document.addCommentModel(author, text, "")
 	p.p.AddCommentAroundParagraph(c.Id)
 	return &Comment{document: p.document, c: c}
 }
 
 // AddComment attaches a comment anchored over this single run (docx-specific
-// range-precise form).
+// range-precise form). It returns nil, adding no comment, if the run is not a
+// direct child run of its paragraph (for example one from Hyperlink.Runs):
+// range markers cannot be spliced around such a run, and creating the comment
+// anyway left comments.xml carrying an entry with no document anchor that Word
+// never displays (C403 — the same guarantee AddCommentOnRange already made).
 func (r *Run) AddComment(author, text string) *Comment {
+	if r == nil || r.paragraph == nil {
+		return nil
+	}
+	// Check the anchor before building the model: addCommentModel appends to
+	// comments.xml, commentsExtended and people and flags all three modified,
+	// so discovering the failure afterwards is already too late.
+	if !r.paragraph.p.HasDirectChildRun(r.r) {
+		return nil
+	}
+	r.touch()
 	doc := r.paragraph.document
 	c := doc.addCommentModel(author, text, "")
 	r.paragraph.p.AddCommentAroundRun(r.r, c.Id)
@@ -162,19 +182,24 @@ func (r *Run) AddComment(author, text string) *Comment {
 // AddCommentOnRange attaches a comment spanning from the start run to the end
 // run (inclusive). The runs may live in the same paragraph or in different
 // paragraphs; the range markers are placed around them and the reference mark
-// after the end run. It returns nil if either run is not a direct child run of
-// its paragraph (e.g. a run nested inside a hyperlink), adding no comment so
-// comments.xml gains no orphan entry with no anchor.
+// after the end run.
+//
+// It returns nil if either run is not a direct child run of its paragraph (e.g.
+// a run nested inside a hyperlink) or sits outside the body, adding no comment
+// so comments.xml gains no orphan entry with no anchor. Endpoints given in
+// reverse document order are swapped rather than emitted inverted (C404).
 func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comment {
-	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
+	// Verify both range markers can be anchored, and put them in document
+	// order, before creating the comment model: a nested (non-direct-child)
+	// endpoint must not leave an orphan comment in comments.xml with no
+	// document anchor (C296), and a reversed pair must not emit a
+	// commentRangeEnd ahead of its commentRangeStart (C404).
+	start, end, ok := orderRunRange(d.allBodyParagraphs(), start, end)
+	if !ok {
 		return nil
 	}
-	// Verify both range markers can be anchored before creating the comment
-	// model: a nested (non-direct-child) endpoint must not leave an orphan
-	// comment in comments.xml with no document anchor (C296).
-	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
-		return nil
-	}
+	start.paragraph.touch()
+	end.paragraph.touch()
 	c := d.addCommentModel(author, text, "")
 	start.paragraph.p.InsertCommentStartBeforeRun(start.r, c.Id)
 	end.paragraph.p.InsertCommentEndAndRefAfterRun(end.r, c.Id)

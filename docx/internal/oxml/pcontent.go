@@ -127,6 +127,21 @@ func (refs pContentRefs) orderedChildren() []pChildRef {
 	return out
 }
 
+// DirectChildRunIndex returns r's position among the paragraph's children in
+// document order, or -1 when r is not a direct child run of p (it sits inside a
+// hyperlink, a tracked change or an inline SDT, or belongs to another
+// paragraph). Callers placing a pair of range markers use it to tell whether
+// their two endpoints are the right way round: the index in p.R cannot answer
+// that, because InsertRunAfter appends to p.R while splicing the child-order
+// reference into the middle.
+func (p *CT_P) DirectChildRunIndex(r *CT_R) int {
+	if p == nil {
+		return -1
+	}
+	p.backfillChildOrder()
+	return p.runChildOrderPos(r)
+}
+
 // ContainerRuns returns every w:r reachable from a paragraph-content container
 // in document order, descending into hyperlinks, tracked-change wrappers,
 // simple fields and inline SDT content. Field state machines (merge fields,

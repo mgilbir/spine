@@ -87,17 +87,19 @@ func (p *Paragraph) AddBookmark(name string) *Bookmark {
 // AddBookmarkOnRange brackets the content from the start run to the end run
 // (inclusive) with a bookmark of the given name. The runs may live in the same
 // paragraph or in different paragraphs. Returns nil if either run is not a
-// direct child run of its paragraph (e.g. a run nested inside a hyperlink),
-// leaving the document unchanged so no bookmarkStart is placed without a
-// matching bookmarkEnd.
+// direct child run of its paragraph (e.g. a run nested inside a hyperlink) or
+// sits in a paragraph the bookmark walk does not reach, leaving the document
+// unchanged so no bookmarkStart is placed without a matching bookmarkEnd.
+// Endpoints given in reverse document order are swapped rather than emitted
+// inverted (C404).
 func (d *Document) AddBookmarkOnRange(name string, start, end *Run) *Bookmark {
-	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
-		return nil
-	}
-	// Verify both markers can be anchored before mutating either paragraph: the
-	// end run being nested (not a direct child) must not leave a dangling
-	// bookmarkStart from a half-completed insertion (C296).
-	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
+	// Verify both markers can be anchored, and put them in document order,
+	// before mutating either paragraph: the end run being nested (not a direct
+	// child) must not leave a dangling bookmarkStart from a half-completed
+	// insertion (C296), and a reversed pair must not emit a bookmarkEnd ahead
+	// of its bookmarkStart (C404).
+	start, end, ok := orderRunRange(d.allBookmarkParagraphs(), start, end)
+	if !ok {
 		return nil
 	}
 	id := d.nextBookmarkID()
