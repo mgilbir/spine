@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Fixed
+
+- docx: the round-trip fidelity machinery is now armed on every parsed part, not
+  just `document.xml`. `styles.xml`, `numbering.xml`, `settings.xml`,
+  `comments.xml`, `commentsExtended.xml`, `people.xml`, `footnotes.xml`,
+  `endnotes.xml`, the bibliography part and every header and footer were parsed
+  without registering the source bytes with the decoder, which the capture kit
+  needs; their capture fields were therefore always empty, and any mutation that
+  flipped one of those parts to regenerate deleted every child the model does not
+  type. Adding a style dropped a `w14:cntxtAlts` from another style's run
+  properties (along with the root `mc:Ignorable` and `xmlns:w14`); editing a
+  header run dropped unmodeled content elsewhere in that header; adding a
+  footnote dropped it from the existing notes. The same gap applied to the
+  re-parses inside `Append`.
+- docx: comment anchor ranges (`w:commentRangeStart`/`w:commentRangeEnd`) placed
+  at body, table, row or cell level — which is how Word anchors a comment on a
+  whole row or cell — are no longer deleted on save. More generally, every WML
+  block and inline container now preserves *any* child it does not model instead
+  of consulting a per-container list of names, so schema-valid markup such as
+  `w:proofErr`, tracked `w:ins`/`w:del` and range permissions survives wherever
+  it legally appears.
+- docx: tracked insertions and deletions inside a simple field (`w:fldSimple`)
+  are no longer silently dropped — the insertion lost all of its text and the
+  deletion was accepted without a trace.
+- docx: the revision records `w:pPrChange`, `w:sectPrChange`, `w:tblPrChange`,
+  `w:trPrChange`, `w:tcPrChange`, `w:tblPrExChange`, `w:tblGridChange`,
+  `w:cellMerge` and `w:comment` now preserve their verbatim attribute list, so
+  Word 2021's `w16du:dateUtc` and each producer's attribute order survive a save.
+- docx: paragraph, hyperlink, image and content-control readers now see content
+  inside structured document tags that wrap table rows or cells; `ReplaceText`
+  and the bookmark helpers reach it too.
+- docx: new revision ids no longer collide with a row-level `w:ins`/`w:del`
+  wrapper's id or with a revision inside an SDT-wrapped row or cell, and new
+  bookmark ids no longer collide with a table column bookmark's.
+- docx: a session-added `w:num`/`w:abstractNum` is emitted before a preserved
+  `w:numIdMacAtCleanup` instead of after it, keeping `numbering.xml` in schema
+  order.
+- docx: `w:headerReference`/`w:footerReference` built programmatically now always
+  emit `w:type` before `r:id` (Word's order); the two models of the element
+  disagreed.
+
 ## 0.1.0 - 2026-07-22
 
 Initial release. A zero-dependency Go library for reading and writing Microsoft
