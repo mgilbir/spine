@@ -22,8 +22,8 @@ TestDML_SpecExamples_RoundTrip	197	0	0
 TestDML_SpecExamples_Unmarshal	386	0	0
 TestOMML_SpecExamples_RoundTrip	121	0	0
 TestOMML_SpecExamples_Unmarshal	121	0	0
-TestPML_SpecExamples_RoundTrip	74	0	0
-TestPML_SpecExamples_Unmarshal	120	0	0
+TestPML_SpecExamples_RoundTrip	73	1	0
+TestPML_SpecExamples_Unmarshal	119	1	0
 TestSML_SpecExamples_RoundTrip	63	67	1
 TestSML_SpecExamples_Unmarshal	67	137	2
 TestVML_SpecExamples_RoundTrip	176	0	0

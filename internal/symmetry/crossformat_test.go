@@ -127,7 +127,7 @@ var crossFormatRoles = []crossFormatRole{
 		diverged:   true,
 		points: []apiPoint{
 			{"docx", reflect.TypeOf(&docx.Document{}), "Protect", "func(docx.DocumentProtectionOptions)"},
-			{"xlsx", reflect.TypeOf(&xlsx.Sheet{}), "Protect", "func(xlsx.SheetProtectionOptions)"},
+			{"xlsx", reflect.TypeOf(&xlsx.Sheet{}), "Protect", "func(xlsx.SheetProtectionOptions) error"},
 			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "Protect", "func(xlsx.WorkbookProtectionOptions)"},
 			absent("pptx", reflect.TypeOf(&pptx.Presentation{}), "Protect"),
 		},

@@ -816,6 +816,8 @@ func (b *Builder) writeCloseIndent(startLen int) {
 		return
 	}
 	b.writeIndent()
+}
+
 // NamespacePrefix returns the prefix registered for a namespace URI and
 // whether one is registered at all. Writing an element or attribute in an
 // unregistered namespace is an error the builder only reports at Finish, so

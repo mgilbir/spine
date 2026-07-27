@@ -216,6 +216,7 @@ fails the build.
 | `dangling-rel` | error and warning | A reference names a relationship id that does not exist. Error where the structure cannot survive it — a section's `headerReference`/`footerReference` (docx), a workbook `sheet` (xlsx), a master's `sldLayoutId` (pptx). Warning for the references Word opens anyway: a drawing's image or chart embed, and a hyperlink (docx). |
 | `defined-name-scope` | error | A `definedName` is scoped to a `localSheetId` that is out of range for the workbook. |
 | `duplicate-part-name` | error | Two part names collide case-insensitively, which OPC forbids. |
+| `rel-id-dup` | error | Two relationships in one part's `.rels` share an `Id`, so a reference resolves to whichever the reader sees first (pptx). |
 | `merge-overlap` | error | Two merged cell ranges on a sheet overlap. |
 | `shape-id-dup` | error | Two shapes on one slide share a `cNvPr` id. |
 | `shared-formula-orphan` | error | A shared-formula follower cell (`t="shared"`) has no master defining that `si`. |
@@ -234,8 +235,11 @@ fails the build.
 | `merge-malformed` | warning | A merged-range reference does not parse as a range. |
 | `note-missing` | warning | A footnote/endnote reference names an id the notes part does not define (docx). |
 | `numbering-missing` | warning | A paragraph's `numPr` references a `numId` with no matching `w:num`, or the document has no numbering part at all. **Warning, not error**: real documents in the wild reference a `numId` while shipping an empty or partial numbering part, and Word opens them — blocking the save would reject a file Word accepts. |
+| `sldid-rel-type` | error | A `p:sldId` or `p:custShow` entry resolves to a relationship whose type is not a slide (pptx). |
 | `rel-target-missing` | warning | A relationship's target part is not present in the package. |
+| `style-cycle` | warning | A style's `basedOn` chain forms a cycle or points at itself (docx). |
 | `style-missing` | warning | A paragraph or run references a style id that styles.xml does not define (docx). |
+| `zoom-no-target` | warning | A slide or section zoom names a target id that the deck does not contain (pptx). |
 | `styles-empty` | warning | The workbook has a styles part with no formatting records (xlsx). |
 
 <!-- validation-catalog:end -->

@@ -432,7 +432,7 @@ func patchRunInPlace(node *dml.R, r *Run) {
 		rpr.Strike = string(r.strike)
 	}
 	if r.isSet(runPropBaseline) {
-		baseline := r.baseline
+		baseline := dml.NewPercentage(r.baseline)
 		rpr.Baseline = &baseline
 	}
 	if r.isSet(runPropFont) {
