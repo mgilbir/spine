@@ -101,6 +101,9 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		}
 	}
 
+	// Tracks the non-repeatable children already recorded in ChildOrder (C553).
+	seenSingleton := make(map[string]bool)
+
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -294,11 +297,28 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				ws.ChildOrder = append(ws.ChildOrder, fmt.Sprintf("unknown:%d", idx))
 				continue
 			}
+			// A malformed source can repeat a child the schema declares once
+			// (two <mergeCells> blocks). Parsing is last-wins, but recording a
+			// second ChildOrder entry made the marshaler emit the surviving
+			// block twice — losing the first block's content and duplicating
+			// the second (C553). Repeatable children (cols,
+			// conditionalFormatting) still get one entry each.
+			if !worksheetRepeatableChildren[name] && seenSingleton[name] {
+				continue
+			}
+			seenSingleton[name] = true
 			ws.ChildOrder = append(ws.ChildOrder, name)
 		case xml.EndElement:
 			return nil
 		}
 	}
+}
+
+// worksheetRepeatableChildren are the CT_Worksheet children that may legally
+// occur more than once and therefore need one ChildOrder entry per occurrence.
+var worksheetRepeatableChildren = map[string]bool{
+	"cols":                  true,
+	"conditionalFormatting": true,
 }
 
 // rootDeclPrefixes maps each namespace URI declared on a root element to the
@@ -486,17 +506,20 @@ func unknownElementLocalName(raw []byte) string {
 
 // CT_SheetPr represents the sheetPr element.
 type CT_SheetPr struct {
-	CodeName                          string          `xml:"codeName,attr,omitempty"`
-	EnableFormatConditionsCalculation *bool           `xml:"enableFormatConditionsCalculation,attr,omitempty"`
-	FilterMode                        *bool           `xml:"filterMode,attr,omitempty"`
-	Published                         *bool           `xml:"published,attr,omitempty"`
-	SyncHorizontal                    *bool           `xml:"syncHorizontal,attr,omitempty"`
-	SyncVertical                      *bool           `xml:"syncVertical,attr,omitempty"`
-	TransitionEntry                   *bool           `xml:"transitionEntry,attr,omitempty"`
-	TransitionEvaluation              *bool           `xml:"transitionEvaluation,attr,omitempty"`
-	TabColor                          *CT_Color       `xml:"tabColor,omitempty"`
-	OutlinePr                         *CT_OutlinePr   `xml:"outlinePr,omitempty"`
-	PageSetUpPr                       *CT_PageSetUpPr `xml:"pageSetUpPr,omitempty"`
+	CodeName                          string `xml:"codeName,attr,omitempty"`
+	EnableFormatConditionsCalculation *bool  `xml:"enableFormatConditionsCalculation,attr,omitempty"`
+	FilterMode                        *bool  `xml:"filterMode,attr,omitempty"`
+	Published                         *bool  `xml:"published,attr,omitempty"`
+	SyncHorizontal                    *bool  `xml:"syncHorizontal,attr,omitempty"`
+	SyncVertical                      *bool  `xml:"syncVertical,attr,omitempty"`
+	// SyncRef is the anchor cell the synchronized-scrolling pair uses; a sheet
+	// with syncHorizontal/syncVertical set but no syncRef loses the pairing.
+	SyncRef              string          `xml:"syncRef,attr,omitempty"`
+	TransitionEntry      *bool           `xml:"transitionEntry,attr,omitempty"`
+	TransitionEvaluation *bool           `xml:"transitionEvaluation,attr,omitempty"`
+	TabColor             *CT_Color       `xml:"tabColor,omitempty"`
+	OutlinePr            *CT_OutlinePr   `xml:"outlinePr,omitempty"`
+	PageSetUpPr          *CT_PageSetUpPr `xml:"pageSetUpPr,omitempty"`
 }
 
 // CT_OutlinePr represents the outlinePr element.
@@ -519,12 +542,19 @@ type CT_SheetDimension struct {
 }
 
 // CT_Color represents a color element with theme, indexed, RGB, or tint.
+//
+// Tint is a FloatLex rather than a plain float64 because Excel writes theme
+// tints in E-notation ("-4.9989318521683403E-2"). The reflection marshaler
+// formats plain floats with %g, which reprints that as "-0.049989318521683403"
+// — numerically identical, textually different, and styles.xml is regenerated
+// whenever any style is added. The lexical form has to live in the value's
+// type: %g has no way to recover the producer's spelling (C556).
 type CT_Color struct {
-	Auto    *bool    `xml:"auto,attr,omitempty"`
-	Indexed *uint32  `xml:"indexed,attr,omitempty"`
-	Rgb     string   `xml:"rgb,attr,omitempty"`
-	Theme   *uint32  `xml:"theme,attr,omitempty"`
-	Tint    *float64 `xml:"tint,attr,omitempty"`
+	Auto    *bool     `xml:"auto,attr,omitempty"`
+	Indexed *uint32   `xml:"indexed,attr,omitempty"`
+	Rgb     string    `xml:"rgb,attr,omitempty"`
+	Theme   *uint32   `xml:"theme,attr,omitempty"`
+	Tint    *FloatLex `xml:"tint,attr,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +564,31 @@ type CT_Color struct {
 // CT_SheetViews represents the sheetViews element.
 type CT_SheetViews struct {
 	SheetView []CT_SheetView `xml:"sheetView"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save (C431's class).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// sheetViewsModeledChildren maps CT_SheetViews's modeled child local names to
+// their struct field indices.
+var sheetViewsModeledChildren = map[string]int{
+	"sheetView": structFieldIndex(reflect.TypeOf(CT_SheetViews{}), "SheetView"),
+}
+
+// UnmarshalXML decodes a sheetViews element, preserving its unmodeled extLst.
+func (svs *CT_SheetViews) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_SheetViews
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(svs)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, sheetViewsModeledChildren); cap != nil {
+		svs.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_SheetView represents a sheetView element.
@@ -693,19 +748,12 @@ func (sf *CT_SheetFormatPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "baseColWidth" && attr.Name.Space == "":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				sf.BaseColWidth = &v
-			}
+			sf.BaseColWidth = parseUintPtr(attr.Value)
 		case attr.Name.Local == "defaultColWidth" && attr.Name.Space == "":
-			v, err := strconv.ParseFloat(attr.Value, 64)
-			if err == nil {
-				sf.DefaultColWidth = &v
-			}
+			sf.DefaultColWidth = parseFloatPtr(attr.Value)
 		case attr.Name.Local == "defaultRowHeight" && attr.Name.Space == "":
-			v, err := strconv.ParseFloat(attr.Value, 64)
-			if err == nil {
-				sf.DefaultRowHeight = v
+			if v := parseFloatPtr(attr.Value); v != nil {
+				sf.DefaultRowHeight = *v
 			}
 		case attr.Name.Local == "customHeight" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
@@ -720,20 +768,11 @@ func (sf *CT_SheetFormatPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 			b := attr.Value == "1" || attr.Value == "true"
 			sf.ThickBottom = &b
 		case attr.Name.Local == "outlineLevelRow" && attr.Name.Space == "":
-			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
-				v := uint8(n)
-				sf.OutlineLevelRow = &v
-			}
+			sf.OutlineLevelRow = parseUint8Ptr(attr.Value)
 		case attr.Name.Local == "outlineLevelCol" && attr.Name.Space == "":
-			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
-				v := uint8(n)
-				sf.OutlineLevelCol = &v
-			}
+			sf.OutlineLevelCol = parseUint8Ptr(attr.Value)
 		case attr.Name.Local == "dyDescent" && (attr.Name.Space == nsX14AC || attr.Name.Space == "x14ac"):
-			v, err := strconv.ParseFloat(attr.Value, 64)
-			if err == nil {
-				sf.DyDescent = &v
-			}
+			sf.DyDescent = parseFloatPtr(attr.Value)
 		}
 	}
 	return d.Skip()
@@ -839,9 +878,12 @@ func (sd *CT_SheetData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 // CT_Row represents a row element.
 // It has a custom x14ac:dyDescent attribute that requires custom marshal/unmarshal.
 type CT_Row struct {
-	R            *uint32  `xml:"-"`
-	Spans        string   `xml:"-"`
-	S            *uint32  `xml:"-"`
+	R     *uint32 `xml:"-"`
+	Spans string  `xml:"-"`
+	S     *uint32 `xml:"-"`
+	// CustomFormat records that the row's s style index was applied by the user
+	// rather than inherited; Excel drops the row formatting when it is missing.
+	CustomFormat *bool    `xml:"-"`
 	Ht           *float64 `xml:"-"`
 	Hidden       *bool    `xml:"-"`
 	CustomHeight *bool    `xml:"-"`
@@ -856,6 +898,11 @@ type CT_Row struct {
 	// handles).
 	C         []*CT_Cell `xml:"-"`
 	DyDescent *float64   `xml:"-"`
+	// ExtRaw holds the verbatim bytes of children this type does not model
+	// (extLst, which follows the cells in schema order), so a dirty save
+	// re-emits them instead of dropping them. Captured lazily: a row with only
+	// c children allocates nothing.
+	ExtRaw [][]byte `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Row.
@@ -865,22 +912,16 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case attr.Name.Local == "r" && attr.Name.Space == "":
 			// Assign only when the reference parses: an unparsable r="abc"
 			// previously left v==0, emitting a schema-invalid r="0".
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				r.R = &v
-			}
+			r.R = parseUintPtr(attr.Value)
 		case attr.Name.Local == "spans" && attr.Name.Space == "":
 			r.Spans = attr.Value
 		case attr.Name.Local == "s" && attr.Name.Space == "":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				r.S = &v
-			}
+			r.S = parseUintPtr(attr.Value)
+		case attr.Name.Local == "customFormat" && attr.Name.Space == "":
+			b := attr.Value == "1" || attr.Value == "true"
+			r.CustomFormat = &b
 		case attr.Name.Local == "ht" && attr.Name.Space == "":
-			v, err := strconv.ParseFloat(attr.Value, 64)
-			if err == nil {
-				r.Ht = &v
-			}
+			r.Ht = parseFloatPtr(attr.Value)
 		case attr.Name.Local == "hidden" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
 			r.Hidden = &b
@@ -888,10 +929,7 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			b := attr.Value == "1" || attr.Value == "true"
 			r.CustomHeight = &b
 		case attr.Name.Local == "outlineLevel" && attr.Name.Space == "":
-			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
-				v := uint8(n)
-				r.OutlineLevel = &v
-			}
+			r.OutlineLevel = parseUint8Ptr(attr.Value)
 		case attr.Name.Local == "collapsed" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
 			r.Collapsed = &b
@@ -905,22 +943,40 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			b := attr.Value == "1" || attr.Value == "true"
 			r.Ph = &b
 		case attr.Name.Local == "dyDescent" && (attr.Name.Space == nsX14AC || attr.Name.Space == "x14ac"):
-			v, err := strconv.ParseFloat(attr.Value, 64)
-			if err == nil {
-				r.DyDescent = &v
-			}
+			r.DyDescent = parseFloatPtr(attr.Value)
 		}
 	}
 
-	// Decode child elements
-	var helper struct {
-		C []*CT_Cell `xml:"c"`
+	// Decode child elements. Walking the tokens (rather than decoding into a
+	// helper struct with an innerxml field) keeps the common path allocation-free
+	// on what is the library's hottest element, while still preserving the
+	// unmodeled children a helper struct would silently drop.
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "c" {
+				cell := &CT_Cell{}
+				if err := d.DecodeElement(cell, &t); err != nil {
+					return err
+				}
+				r.C = append(r.C, cell)
+				continue
+			}
+			var raw struct {
+				Content []byte `xml:",innerxml"`
+			}
+			if err := d.DecodeElement(&raw, &t); err != nil {
+				return err
+			}
+			r.ExtRaw = append(r.ExtRaw, encodeUnknownElement(t, raw.Content, nil))
+		case xml.EndElement:
+			return nil
+		}
 	}
-	if err := d.DecodeElement(&helper, &start); err != nil {
-		return err
-	}
-	r.C = helper.C
-	return nil
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Row.
@@ -934,6 +990,9 @@ func (r *CT_Row) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if r.S != nil {
 		attrs = append(attrs, xmlb.UintAttr("s", *r.S))
+	}
+	if r.CustomFormat != nil {
+		attrs = append(attrs, xmlb.BoolAttr("customFormat", *r.CustomFormat))
 	}
 	if r.Ht != nil {
 		attrs = append(attrs, xmlb.Attr{Name: "ht", Value: strconv.FormatFloat(*r.Ht, 'f', -1, 64)})
@@ -967,22 +1026,68 @@ func (r *CT_Row) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		})
 	}
 
-	if len(r.C) == 0 {
+	if len(r.C) == 0 && len(r.ExtRaw) == 0 {
 		b.EmptyElement(ns, localName, attrs...)
 		return
 	}
 
-	// Sort cells by column index so they appear in ascending order,
-	// which is required by the OOXML specification.
-	sort.Slice(r.C, func(i, j int) bool {
-		return cellRefColIndex(r.C[i].R) < cellRefColIndex(r.C[j].R)
-	})
+	sortCellsByColumn(r.C)
 
 	b.StartElement(ns, localName, attrs...)
 	for i := range r.C {
 		r.C[i].MarshalToBuilder(b, ns, "c")
 	}
+	// extLst follows the cells in schema order.
+	for _, raw := range r.ExtRaw {
+		b.WriteRaw(raw)
+	}
 	b.EndElement(ns, localName)
+}
+
+// sortCellsByColumn orders a row's cells by ascending column, which OOXML
+// requires, without disturbing cells whose column cannot be derived.
+//
+// c/@r is optional: a cell that omits it implicitly occupies the column after
+// its predecessor (the same legality rowNumberOf handles for rows). Keying such
+// a cell to column 0 sorted every implicit cell ahead of every explicit one and,
+// with an unstable sort, shuffled them among themselves — so a row written as
+// <c r="A1">11</c><c>22</c><c>33</c> came back as 22, 33, 11 with the values
+// under the wrong columns (C368). Each cell's key is therefore its own derived
+// column when it has one and one past its predecessor's otherwise, which is
+// exactly the position the reader assigns it; the sort is stable so cells that
+// still tie keep their source order. Rows already in ascending order — the
+// overwhelmingly common case — are left untouched.
+func sortCellsByColumn(cells []*CT_Cell) {
+	if len(cells) < 2 {
+		return
+	}
+	keys := make([]int, len(cells))
+	prev := 0
+	ordered := true
+	for i, c := range cells {
+		col := cellRefColIndex(c.R)
+		if col == 0 {
+			col = prev + 1
+		}
+		keys[i] = col
+		if i > 0 && col < keys[i-1] {
+			ordered = false
+		}
+		prev = col
+	}
+	if ordered {
+		return
+	}
+	idx := make([]int, len(cells))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return keys[idx[a]] < keys[idx[b]] })
+	sorted := make([]*CT_Cell, len(cells))
+	for i, j := range idx {
+		sorted[i] = cells[j]
+	}
+	copy(cells, sorted)
 }
 
 // cellRefColIndex extracts the column index from a cell reference like "A1", "BC42".
@@ -1019,6 +1124,74 @@ type CT_Cell struct {
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
 	Is *CT_Rst         `xml:"is,omitempty"`
+	// ExtRaw holds the verbatim bytes of children this type does not model
+	// (extLst, last in schema order), so a dirty save re-emits them. Captured
+	// lazily: an ordinary cell allocates nothing for it.
+	ExtRaw [][]byte `xml:"-"`
+}
+
+// UnmarshalXML decodes a cell, preserving children this type does not model
+// (extLst) as verbatim bytes so a dirty save re-emits them rather than dropping
+// them. It walks the tokens rather than decoding through an alias with an
+// innerxml field: a cell is the library's most numerous element, and an
+// innerxml capture would copy the inner bytes of every one of them.
+func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	for _, attr := range start.Attr {
+		if attr.Name.Space != "" {
+			continue
+		}
+		switch attr.Name.Local {
+		case "r":
+			c.R = attr.Value
+		case "s":
+			c.S = parseUintPtr(attr.Value)
+		case "t":
+			c.T = attr.Value
+		case "cm":
+			c.Cm = parseUintPtr(attr.Value)
+		case "vm":
+			c.Vm = parseUintPtr(attr.Value)
+		case "ph":
+			c.Ph = boolPtr(parseOnOff(attr.Value))
+		}
+	}
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "f":
+				c.F = &CT_CellFormula{}
+				if err := d.DecodeElement(c.F, &t); err != nil {
+					return err
+				}
+			case "v":
+				var v string
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				c.V = &v
+			case "is":
+				c.Is = &CT_Rst{}
+				if err := d.DecodeElement(c.Is, &t); err != nil {
+					return err
+				}
+			default:
+				var raw struct {
+					Content []byte `xml:",innerxml"`
+				}
+				if err := d.DecodeElement(&raw, &t); err != nil {
+					return err
+				}
+				c.ExtRaw = append(c.ExtRaw, encodeUnknownElement(t, raw.Content, nil))
+			}
+		case xml.EndElement:
+			return nil
+		}
+	}
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Cell. Attributes are
@@ -1026,7 +1199,12 @@ type CT_Cell struct {
 // phonetic cell reparses identically.
 func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	attrs = append(attrs, xmlb.StrAttr("r", c.R))
+	if c.R != "" {
+		// r is optional: a cell that omitted it in the source keeps it omitted
+		// (its column is implied by position). Emitting r="" instead produced a
+		// schema-invalid empty ST_CellRef (C368).
+		attrs = append(attrs, xmlb.StrAttr("r", c.R))
+	}
 	if c.S != nil {
 		attrs = append(attrs, xmlb.UintAttr("s", *c.S))
 	}
@@ -1043,7 +1221,7 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.BoolAttr("ph", *c.Ph))
 	}
 
-	if c.F == nil && c.V == nil && c.Is == nil {
+	if c.F == nil && c.V == nil && c.Is == nil && len(c.ExtRaw) == 0 {
 		b.EmptyElement(ns, localName, attrs...)
 		return
 	}
@@ -1057,6 +1235,10 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.Is != nil {
 		b.MarshalElement(ns, "is", c.Is)
+	}
+	// extLst is last in schema order.
+	for _, raw := range c.ExtRaw {
+		b.WriteRaw(raw)
 	}
 	b.EndElement(ns, localName)
 }
@@ -1093,9 +1275,11 @@ func (f *CT_CellFormula) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 		case "ca":
 			f.Ca = boolPtr(parseOnOff(attr.Value))
 		case "si":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			f.Si = &v
+			// Parse-or-skip: an unparsable si used to become si="0", which
+			// silently moved the formula into shared-formula group 0 and merged
+			// it with unrelated cells (C552). Leaving it unset omits the
+			// attribute and lets the captured source form replay verbatim.
+			f.Si = parseUintPtr(attr.Value)
 		}
 	}
 	var content string
@@ -1221,7 +1405,13 @@ type CT_PageMargins struct {
 
 // CT_PageSetup represents the pageSetup element with r:id.
 type CT_PageSetup struct {
-	PaperSize          *uint32 `xml:"-"`
+	PaperSize *uint32 `xml:"-"`
+	// PaperHeight and PaperWidth are ST_PositiveUniversalMeasure strings
+	// ("210mm", "11in"): the custom paper size a producer writes instead of a
+	// paperSize index. Kept as text so the source unit and precision replay
+	// unchanged.
+	PaperHeight        string  `xml:"-"`
+	PaperWidth         string  `xml:"-"`
 	Scale              *uint32 `xml:"-"`
 	FirstPageNumber    *uint32 `xml:"-"`
 	FitToWidth         *uint32 `xml:"-"`
@@ -1240,30 +1430,27 @@ type CT_PageSetup struct {
 	RID                string  `xml:"-"`
 }
 
-// UnmarshalXML implements custom unmarshaling for CT_PageSetup.
+// UnmarshalXML implements custom unmarshaling for CT_PageSetup. Every numeric
+// attribute is parse-or-skip: fmt.Sscanf previously assigned unconditionally,
+// so paperSize="A4" became paperSize="0" — a real paper size, silently
+// substituted (C552).
 func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "paperSize" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.PaperSize = &v
+			ps.PaperSize = parseUintPtr(attr.Value)
+		case attr.Name.Local == "paperHeight" && attr.Name.Space == "":
+			ps.PaperHeight = attr.Value
+		case attr.Name.Local == "paperWidth" && attr.Name.Space == "":
+			ps.PaperWidth = attr.Value
 		case attr.Name.Local == "scale" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.Scale = &v
+			ps.Scale = parseUintPtr(attr.Value)
 		case attr.Name.Local == "firstPageNumber" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.FirstPageNumber = &v
+			ps.FirstPageNumber = parseUintPtr(attr.Value)
 		case attr.Name.Local == "fitToWidth" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.FitToWidth = &v
+			ps.FitToWidth = parseUintPtr(attr.Value)
 		case attr.Name.Local == "fitToHeight" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.FitToHeight = &v
+			ps.FitToHeight = parseUintPtr(attr.Value)
 		case attr.Name.Local == "pageOrder" && attr.Name.Space == "":
 			ps.PageOrder = attr.Value
 		case attr.Name.Local == "orientation" && attr.Name.Space == "":
@@ -1285,17 +1472,11 @@ func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 		case attr.Name.Local == "errors" && attr.Name.Space == "":
 			ps.Errors = attr.Value
 		case attr.Name.Local == "horizontalDpi" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.HorizontalDpi = &v
+			ps.HorizontalDpi = parseUintPtr(attr.Value)
 		case attr.Name.Local == "verticalDpi" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.VerticalDpi = &v
+			ps.VerticalDpi = parseUintPtr(attr.Value)
 		case attr.Name.Local == "copies" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			ps.Copies = &v
+			ps.Copies = parseUintPtr(attr.Value)
 		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			ps.RID = attr.Value
 		}
@@ -1308,6 +1489,12 @@ func (ps *CT_PageSetup) MarshalToBuilder(b *xmlb.Builder, ns, localName string) 
 	var attrs []xmlb.Attr
 	if ps.PaperSize != nil {
 		attrs = append(attrs, xmlb.UintAttr("paperSize", *ps.PaperSize))
+	}
+	if ps.PaperHeight != "" {
+		attrs = append(attrs, xmlb.StrAttr("paperHeight", ps.PaperHeight))
+	}
+	if ps.PaperWidth != "" {
+		attrs = append(attrs, xmlb.StrAttr("paperWidth", ps.PaperWidth))
 	}
 	if ps.Scale != nil {
 		attrs = append(attrs, xmlb.UintAttr("scale", *ps.Scale))
@@ -1466,6 +1653,34 @@ type CT_AutoFilter struct {
 	Ref          string            `xml:"ref,attr,omitempty"`
 	FilterColumn []CT_FilterColumn `xml:"filterColumn"`
 	SortState    *CT_SortState     `xml:"sortState,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save; the reflection marshaler
+	// replays it. nil for programmatic filters (C431, C274's pattern applied to
+	// the whole autoFilter subtree rather than only where a finding pointed).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// autoFilterModeledChildren maps CT_AutoFilter's modeled child local names to
+// their struct field indices.
+var autoFilterModeledChildren = map[string]int{
+	"filterColumn": structFieldIndex(reflect.TypeOf(CT_AutoFilter{}), "FilterColumn"),
+	"sortState":    structFieldIndex(reflect.TypeOf(CT_AutoFilter{}), "SortState"),
+}
+
+// UnmarshalXML decodes an autoFilter, preserving its unmodeled extLst verbatim.
+func (af *CT_AutoFilter) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_AutoFilter
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(af)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, autoFilterModeledChildren); cap != nil {
+		af.CapturedChildren = cap
+	}
+	return nil
 }
 
 // captureUnmodeledChildren re-scans the verbatim inner bytes of an element,
@@ -1629,14 +1844,45 @@ type CT_SortState struct {
 	SortMethod    string             `xml:"sortMethod,attr,omitempty"`
 	Ref           string             `xml:"ref,attr"`
 	SortCondition []CT_SortCondition `xml:"sortCondition"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model (it carries the x14 sort-by-color conditions)
+	// survives a dirty save; the reflection marshaler replays it (C431).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
 }
 
-// CT_SortCondition represents a sortCondition element.
+// sortStateModeledChildren maps CT_SortState's modeled child local names to
+// their struct field indices.
+var sortStateModeledChildren = map[string]int{
+	"sortCondition": structFieldIndex(reflect.TypeOf(CT_SortState{}), "SortCondition"),
+}
+
+// UnmarshalXML decodes a sortState, preserving its unmodeled extLst verbatim.
+func (ss *CT_SortState) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_SortState
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(ss)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, sortStateModeledChildren); cap != nil {
+		ss.CapturedChildren = cap
+	}
+	return nil
+}
+
+// CT_SortCondition represents a sortCondition element. DxfId, IconSet and
+// IconId carry sort-by-color and sort-by-icon, which the model previously
+// dropped so a colour sort degraded to a value sort on any sheet edit.
 type CT_SortCondition struct {
-	Descending *bool  `xml:"descending,attr,omitempty"`
-	SortBy     string `xml:"sortBy,attr,omitempty"`
-	Ref        string `xml:"ref,attr"`
-	CustomList string `xml:"customList,attr,omitempty"`
+	Descending *bool   `xml:"descending,attr,omitempty"`
+	SortBy     string  `xml:"sortBy,attr,omitempty"`
+	Ref        string  `xml:"ref,attr"`
+	CustomList string  `xml:"customList,attr,omitempty"`
+	DxfId      *uint32 `xml:"dxfId,attr,omitempty"`
+	IconSet    string  `xml:"iconSet,attr,omitempty"`
+	IconId     *uint32 `xml:"iconId,attr,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1648,6 +1894,34 @@ type CT_ConditionalFormatting struct {
 	Sqref  string      `xml:"sqref,attr"`
 	Pivot  *bool       `xml:"pivot,attr,omitempty"`
 	CfRule []CT_CfRule `xml:"cfRule"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save; the reflection marshaler
+	// replays it. The C274 capture reached the cfRule children but not this
+	// parent, so the block's own extension list was still dropped (C431).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// conditionalFormattingModeledChildren maps CT_ConditionalFormatting's modeled
+// child local names to their struct field indices.
+var conditionalFormattingModeledChildren = map[string]int{
+	"cfRule": structFieldIndex(reflect.TypeOf(CT_ConditionalFormatting{}), "CfRule"),
+}
+
+// UnmarshalXML decodes a conditionalFormatting block, preserving its unmodeled
+// extLst verbatim.
+func (cf *CT_ConditionalFormatting) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_ConditionalFormatting
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(cf)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, conditionalFormattingModeledChildren); cap != nil {
+		cf.CapturedChildren = cap
+	}
+	return nil
 }
 
 // CT_CfRule represents a cfRule element.
@@ -1732,10 +2006,33 @@ type CT_IconSet struct {
 	Cfvo      []CT_Cfvo `xml:"cfvo"`
 }
 
-// CT_Cfvo represents a cfvo (conditional format value object) element.
+// CT_Cfvo represents a cfvo (conditional format value object) element. Gte
+// selects >= versus > for the threshold; dropping it silently flipped an
+// exclusive icon-set boundary to inclusive.
 type CT_Cfvo struct {
 	Type string `xml:"type,attr"`
 	Val  string `xml:"val,attr,omitempty"`
+	Gte  *bool  `xml:"gte,attr,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a dirty save (C431's class).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML decodes a cfvo, preserving its unmodeled extLst verbatim.
+// CT_Cfvo models no child elements, so every child it carries is captured.
+func (c *CT_Cfvo) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_Cfvo
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(c)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, nil); cap != nil {
+		c.CapturedChildren = cap
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1744,7 +2041,12 @@ type CT_Cfvo struct {
 
 // CT_DataValidations represents the dataValidations element.
 type CT_DataValidations struct {
-	DisablePrompts *bool               `xml:"disablePrompts,attr,omitempty"`
+	DisablePrompts *bool `xml:"disablePrompts,attr,omitempty"`
+	// XWindow and YWindow are the saved screen position of the validation
+	// dialog; Excel writes them and they are lost on any sheet regeneration
+	// when unmodeled.
+	XWindow        *uint32             `xml:"xWindow,attr,omitempty"`
+	YWindow        *uint32             `xml:"yWindow,attr,omitempty"`
 	Count          *uint32             `xml:"count,attr,omitempty"`
 	DataValidation []CT_DataValidation `xml:"dataValidation"`
 }
