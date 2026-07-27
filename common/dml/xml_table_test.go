@@ -3,7 +3,10 @@ package dml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TestDML_CT_Table tests CT_Table type (a:tbl)
@@ -77,6 +80,38 @@ func TestDML_CT_TableProperties(t *testing.T) {
 	}
 	if v.SolidFill == nil {
 		t.Error("SolidFill is nil")
+	}
+}
+
+// TestDML_TblPr_InlineTableStyle pins C342: CT_TableProperties models an
+// xs:choice of an inline <a:tableStyle> (CT_TableStyle) or a <a:tableStyleId>
+// GUID reference. Only TableStyleId was modeled, so an inline tableStyle was
+// parsed to nothing and dropped on re-marshal. It now round-trips.
+func TestDML_TblPr_InlineTableStyle(t *testing.T) {
+	var v TblPr
+	input := `<a:tblPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" firstRow="1">` +
+		`<a:tableStyle styleId="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" styleName="Inline">` +
+		`<a:wholeTbl><a:tcStyle><a:noFill/></a:tcStyle></a:wholeTbl>` +
+		`</a:tableStyle>` +
+		`</a:tblPr>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v.TableStyle == nil {
+		t.Fatal("inline tableStyle dropped on unmarshal (TableStyle is nil)")
+	}
+	if v.TableStyle.StyleId != "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}" {
+		t.Errorf("TableStyle.StyleId = %q", v.TableStyle.StyleId)
+	}
+
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NsDrawingML, "a")
+	b.MarshalElement(NsDrawingML, "tblPr", &v)
+	if err := b.Err(); err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if out := b.String(); !strings.Contains(out, "<a:tableStyle") || !strings.Contains(out, "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}") {
+		t.Errorf("inline tableStyle deleted on re-marshal: %s", out)
 	}
 }
 

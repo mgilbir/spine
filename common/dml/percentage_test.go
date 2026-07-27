@@ -128,3 +128,36 @@ func TestArcTo_GuideNameReferences(t *testing.T) {
 		t.Errorf("guide refs not re-emitted verbatim: %s", out)
 	}
 }
+
+// TestPercentage_NonCanonicalIntegerRoundTrip pins C342: a strict integer that
+// is not the canonical rendering of its value — a zero-padded "050000" or a
+// signed "+50000" — must round-trip verbatim. The integer branch previously
+// cleared orig unconditionally, so AttrValue re-emitted the canonical "50000".
+func TestPercentage_NonCanonicalIntegerRoundTrip(t *testing.T) {
+	for _, in := range []string{"050000", "+50000", "-050000"} {
+		var p Percentage
+		if err := p.UnmarshalXMLAttr(xml.Attr{Name: xml.Name{Local: "val"}, Value: in}); err != nil {
+			t.Errorf("UnmarshalXMLAttr(%q): %v", in, err)
+			continue
+		}
+		if got := p.AttrValue(); got != in {
+			t.Errorf("AttrValue after %q = %q, want the original form back", in, got)
+		}
+	}
+	// The canonical form must still leave orig empty so an explicit "0" keeps
+	// reporting zero (IsZeroAttr) — the AlphaModFix pointer model depends on it.
+	var z Percentage
+	if err := z.UnmarshalXMLAttr(xml.Attr{Name: xml.Name{Local: "val"}, Value: "0"}); err != nil {
+		t.Fatalf("UnmarshalXMLAttr(0): %v", err)
+	}
+	if !z.IsZeroAttr() {
+		t.Errorf("canonical \"0\" should report IsZeroAttr, got false")
+	}
+	var c Percentage
+	if err := c.UnmarshalXMLAttr(xml.Attr{Name: xml.Name{Local: "val"}, Value: "50000"}); err != nil {
+		t.Fatalf("UnmarshalXMLAttr(50000): %v", err)
+	}
+	if got := c.AttrValue(); got != "50000" {
+		t.Errorf("canonical AttrValue = %q, want 50000", got)
+	}
+}

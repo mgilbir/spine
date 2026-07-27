@@ -3,7 +3,12 @@
 
 package dml
 
-import "encoding/xml"
+import (
+	"bytes"
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 const graphicDataTableURI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
@@ -131,4 +136,47 @@ func (gd *GraphicData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		gd.RawContent = inner.Content
 	}
 	return nil
+}
+
+// MarshalToBuilder implements xmlb.BuilderMarshaler, emitting the uri attribute
+// and either the typed table child or the raw-captured content of an unknown
+// graphic-data type (chart, diagram, picture, ...). Without it the RawContent
+// captured on the unknown-URI path (xml:"-") was silently dropped on re-marshal.
+func (gd *GraphicData) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
+	attrs := []xmlb.Attr{xmlb.StrAttr("uri", gd.URI)}
+	if gd.Tbl == nil && len(gd.RawContent) == 0 {
+		b.EmptyElement(ns, localName, attrs...)
+		return
+	}
+	b.StartElement(ns, localName, attrs...)
+	if gd.Tbl != nil {
+		b.MarshalElement(ns, "tbl", gd.Tbl)
+	} else {
+		b.WriteRaw(gd.RawContent)
+	}
+	b.EndElement(ns, localName)
+}
+
+// MarshalXML implements xml.Marshaler for the encoding/xml path, mirroring
+// MarshalToBuilder. The content is written as verbatim innerxml so a raw
+// capture keeps its bytes; the table child is pre-rendered into that innerxml.
+func (gd *GraphicData) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	content := gd.RawContent
+	if gd.Tbl != nil {
+		var buf bytes.Buffer
+		enc := xml.NewEncoder(&buf)
+		if err := enc.EncodeElement(gd.Tbl, xml.StartElement{Name: xml.Name{Space: NsDrawingML, Local: "tbl"}}); err != nil {
+			return err
+		}
+		if err := enc.Flush(); err != nil {
+			return err
+		}
+		content = buf.Bytes()
+	}
+	aux := struct {
+		URI     string `xml:"uri,attr"`
+		Content []byte `xml:",innerxml"`
+	}{gd.URI, content}
+	start.Attr = nil
+	return e.EncodeElement(aux, start)
 }

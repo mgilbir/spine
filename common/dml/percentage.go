@@ -70,7 +70,15 @@ func (p *Percentage) UnmarshalXMLAttr(attr xml.Attr) error {
 		return fmt.Errorf("dml.Percentage: parsing %q: %w", attr.Value, err)
 	}
 	p.Val = int32(n)
-	p.orig = ""
+	// Keep the source form whenever it is not the canonical rendering of Val
+	// (e.g. a zero-padded "050000" or a signed "+50000"): AttrValue would
+	// otherwise re-emit the canonical "50000" and drift from the source. The
+	// canonical case leaves orig empty so an explicit "0" still reports zero.
+	if strconv.FormatInt(n, 10) != s {
+		p.orig = attr.Value
+	} else {
+		p.orig = ""
+	}
 	return nil
 }
 
