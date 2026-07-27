@@ -11,9 +11,13 @@
 # Test binary, built with `go test -c`
 *.test
 
-# Code coverage profiles and other test artifacts
+# Code coverage profiles and other test artifacts.
+# Deliberately NOT `coverage.*`: that pattern also swallows source files such as
+# a coverage.go, which then never shows up in `git status` (the same silent-loss
+# class as the tracked-and-ignored directory this file used to carry).
 *.out
-coverage.*
+coverage.html
+coverage.txt
 *.coverprofile
 profile.cov
 
@@ -37,5 +41,11 @@ testdata/corpus/
 # .idea/
 # .vscode/
 
-# Harvest failure catalogs are ccrun output (regenerable), never committed
-batch-quarantine.tsv
+# The batched harvest's failure catalogs (testdata/cc/batch-quarantine.tsv and
+# testdata/cc/stress/batch-quarantine.tsv) are deliberately NOT ignored: they
+# are references only (digest, crawl, query-stripped url, stage, signature),
+# they are the durable record of a 30k+-reference harvest that costs days of
+# fetching and loses files to link rot on every re-run, and they sit next to
+# known_failures.tsv, which has always been committed. See testdata/cc/HARVEST.md.
+# The ledger and attempts sidecar stay ignored — they live under
+# testdata/corpus/ and are pure machine-local progress state.

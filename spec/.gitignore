@@ -5,5 +5,7 @@ part3/
 part4/
 msoi29500/
 
-# Optional local shape-type generator derived from python-pptx tooling (MIT)
-gen_spec/
+# NOTE: gen_spec/ is NOT ignored. It used to be, while its contents (Makefile,
+# gen_spec.py, sql/, src_data/, enum/) were tracked — an ignore rule over
+# tracked files only hides anything NEW added there from `git status`, which is
+# how work gets silently lost. The directory is committed; keep it visible.
