@@ -19,6 +19,26 @@
 // to one format's capability type without either adding it to the other two
 // (making it shared) or documenting it as format-specific, this test fails and
 // points at the unclassified method.
+//
+// # Scope, deliberately
+//
+// Two things this guard does NOT cover, both on purpose, both worth knowing
+// before trusting a green run (C572):
+//
+//   - Promoted methods. directMethods excludes everything inherited from an
+//     embedded type, because pptx.Picture embeds BaseShape and would otherwise
+//     drag the entire shape surface (dozens of geometry methods) into the Image
+//     capability's allow-list, where it would say nothing about images. The
+//     cost is a real blind spot: a method added to pptx's BaseShape is promoted
+//     onto every shape capability type and can never be flagged here. Shape
+//     geometry is a pptx-only concept, so a shared-looking method arriving that
+//     way is unlikely — but it is unchecked, not checked-and-fine.
+//
+//   - Capabilities with no per-format handle type. Charts, theme, page/print
+//     setup and protection are reached through methods on the container types
+//     (Document/Sheet/Slide/Workbook/Presentation), which this table cannot
+//     express. They are guarded separately, by signature, in
+//     crossformat_test.go — add new cross-format capabilities there.
 package symmetry_test
 
 import (
