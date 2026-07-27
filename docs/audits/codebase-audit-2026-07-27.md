@@ -716,3 +716,135 @@ one suite and no ratchet (C445).
 8. **Whether the harvest OOM design (C389) was ever exercised end-to-end.** The
    livelock is traced from systemd 255 semantics, not observed; a single capped
    run with a deliberately memory-hungry worker would settle it.
+
+---
+
+## 7. Remediation (PRs #222–#240 + cross-format)
+
+All 223 findings (C360–C582) were assigned to exactly one pull request — verified
+mechanically, no gaps and no double-claims. Every PR: fail-before/pass-after
+regression tests, and `go build ./...`, `go vet ./...`, `go test ./... -count=1`
+and `make lint` (0 issues) green in isolation. The integrated stack was then
+verified as one tree: build, vet, full unit suite, lint, **and the full Common
+Crawl corpus (3,600 wild documents, `ok cctest 959s`)**.
+
+### Findings → PR
+
+**Independent (base `main`)**
+- **#222** `opc-cfb-hardening` — C360, C453, C461
+- **#223** `opc-signature-coverage` — C362, C391, C460
+- **#224** `crypto-integrity-auth` — C361, C385, C397, C462–C466
+- **#225** `xlsx-oxml-fidelity` — C368, C369, C429–C431, C551–C556
+- **#226** `pptx-merge-relids` — C363, C419, C512, C513
+- **#227** `xml-substrate` — C375, C437, C438, C472–C478
+- **#228** `docx-oxml-capture` — C370, C371, C373, C411–C413, C506–C511
+- **#229** `opc-package-integrity` — C376, C377, C390, C392–C396, C447–C459
+- **#230** `chart-fidelity` — C384, C433, C434, C557–C564
+- **#231** `dml-fidelity` — C374, C400, C401, C479–C487
+- **#234** `omml-vml` — C398, C399, C435, C436, C467–C471
+- **#239** `dx-harness-docs` — C388, C389, C443–C446, C572–C582
+
+**Chains (base → tip)**
+- docx: **#228** → **#235** `docx-core-lifecycle` (C372, C402, C407–C410, C488–C493, C504, C505) → **#238** `docx-features` (C403–C406, C494–C503)
+- xlsx: **#225** → **#233** `xlsx-core` (C366, C367, C383, C424–C426, C544–C550) → **#237** `xlsx-features` (C422, C423, C427, C428, C432, C533–C543, C554c)
+- pptx: **#226** → **#232** `pptx-deletion-sweep` (C364, C365, C379, C414) → **#236** `pptx-oxml-fidelity` (C381, C382, C420, C421, C523–C532) → **#240** `pptx-features` (C378, C380, C415–C418, C514–C522)
+
+**Cross-format** (base = the integration branch, since these touch all three
+formats at once): C386, C387, C439–C442, C565–C571.
+
+### Merge order
+
+Independents in any order, but **#239 first** so the CI and harness gates apply
+to the rest; then each chain base→tip; then cross-format. #228 must precede the
+docx chain, #225 the xlsx chain, #226 the pptx chain.
+
+### Integration required five fixes no single PR could make
+
+Each PR is green alone; these exist only in the combination, and are carried by
+the integration branch:
+
+1. **Type incompatibility.** #231's ST_Percentage sweep changed `RPr.Baseline`
+   to `*dml.Percentage`; #240 was authored against `*int32`. Together they did
+   not compile.
+2. **Merge repair.** #227 (`writeCloseIndent`) and #228 (`NamespacePrefix`) add
+   different functions at the same point in `common/xml/builder.go`. A
+   marker-stripping keep-both resolution interleaves the bodies without closing
+   braces and does not compile. **Deliberately no `.gitattributes merge=union`
+   rule** — union merging would hide this class rather than surface it.
+3–5. **Guard reconciliation.** #239's new guards correctly fired on sibling work
+   their author never saw: four undocumented validation codes (`rel-id-dup`,
+   `sldid-rel-type` from #226/#232; `zoom-no-target` from #232; `style-cycle`
+   from #238) added to the README catalog; `xlsx.Sheet.Protect`'s new `error`
+   return recorded in the cross-format symmetry table; and the PML spec
+   baselines lowered to 119/1 and 73/1 — a **deliberate** lowering, because #236
+   removed a typemap entry that pointed a spec example at an unrelated struct so
+   the assertion passed vacuously. Coverage is more honest though the count fell.
+
+### Corrections to this report established during remediation
+
+Workers verified against the schema, the corpus or a runtime probe rather than
+trusting the finding text. Eight findings were wrong in whole or part:
+
+| Finding | Correction |
+|---|---|
+| C367 | The expected 1904 serial for 2020-01-01 is **42369**, not 42368 (systems differ by exactly 1462 days). Independently re-verified. |
+| C400 | `Camera.Fov` is **not** a percentage — `dml-shape3DCamera.xsd:343` types it `ST_FOVAngle` (a restriction of `ST_Angle`, 60000ths of a degree). Only `Camera.Zoom` belongs to the class. |
+| C405 | The nested-table half was **already fixed** by #228's block visitor (a control in a nested table is found pre-fix). Only the hyperlink / `w:ins` half reproduced. |
+| C520 | Claim confirmed, **suggested fix wrong**: `delay="0"` occurs 0 times in 1,200 corpus decks. PowerPoint keeps `indefinite` and adds `<p:cond evt="onBegin" delay="0">` (799/799). Also `filter="zoom"` occurs 0 times; real zoom entrances use `p:set` + two `p:anim` on `ppt_w`/`ppt_h`. |
+| C564 | Mechanism wrong. Charts on chartsheets were **not** invisible: `Sheet.ws()` decodes `<chartsheet>` into `CT_Worksheet` by local name, so `<drawing r:id>` lands in the same field. The real half is that `Workbook.Merge` carries no drawing. |
+| C467 | `alt` was **already modeled** on `v:shape`; that part does not reproduce. |
+| §5 (docx) | `Document.Text()` **does** descend tables nested in body-level SDTs. The divergence is formatting (one line per cell, not a tab-separated row). |
+| §5 (dml) | `SoftEdgeXML.Rad` lacking `omitempty` is **correct**: `CT_SoftEdgesEffect@rad` is `use="required"` with no default, unlike `CT_GlowEffect@rad`. The asymmetry is the schema's. |
+
+Two findings were **upgraded** PLAUSIBLE → CONFIRMED by reproduction: **C502**
+(a nonstandard `styles2.xml` target yields an orphan `/word/styles.xml`; the
+user's style silently never takes effect) and **C503** (two documents both
+carrying `_GoBack` merge to one mispaired bookmark).
+
+Open questions answered: **§6 Q7** — `common/vml` is *not* meant to be a
+writable model (decider: `xlsx/control.go` defines its own private structs to
+read VML back rather than using the package). **§6 Q8** — the harvest OOM
+livelock is real and now *measured*, not inferred: on systemd 255.4 a scope
+whose child blows a 128M cap dies at exit 143 with the ledger line unreached;
+with `OOMPolicy=continue` the orchestrator survives and records `worker_rc=137`.
+
+### New findings discovered during remediation
+
+| ID | Sev | Issue |
+|---|---|---|
+| **C583** | medium | `pptx.Table.SetFirstRow(false)` and its five siblings (plus `Rtl`) are **silent no-ops on a parsed table** — the modeled zero is omitempty-suppressed so the captured `"1"` replays. Fixed in #240 at the setter flush sites. |
+| **C584** | low-med | `CommonSlideData.Name` cannot be cleared: `SetName("")` leaves the parsed name. Not fixed. |
+| **C585** | low | `Placeholder.Idx → 0` unclearable, same mechanism. Fixed in #240. |
+| **C586** | medium | **Root cause of C583/C584/C585 and C381.** `collectStructAttrs` (`common/xml/marshal.go`) filters omitempty-suppressed attributes *before* `ReplayCapturedAttrs`, so replay cannot distinguish "unmodeled attribute" from "modeled zero the caller just cleared". Passing the suppressed names through and dropping matching captured entries would close tension **T-D** for all three formats at once. Not fixed — recommended follow-up. |
+
+Also found while fixing C540: `writeSheetComments` calls `dropPreservedPart(vmlPart)`
+mid-save, so a **second** `SaveBytes` regenerates the VML from scratch and
+discards the form-control shapes and note geometry the first save preserved.
+Pre-existing; fixed in #237 and pinned by `TestRepeatedSaveConverges`.
+
+### Deferred, with reasons
+
+- **C586** — the T-D root fix in `common/xml/marshal.go`; wants its own PR on top
+  of #227, since it changes replay semantics for docx, xlsx and pptx together.
+- **`formatValue`'s `%g`** — #236 fixed the pptx instance locally (C531); the
+  shared float formatting in `common/xml/marshal.go` still drifts docx/xlsx
+  lexical forms. Fold into the C586 PR.
+- **#227's full literal-prefix guard** — prototyped and corpus-clean, but
+  withheld: declarations written through `writeLiteralAttrs` never enter the
+  Builder's namespace map, so an ancestor replaying a captured `xmlns:a14`
+  would be flagged wrongly. Correct order is to make literal declarations
+  visible to the Builder first.
+- **`common/dml/xml_extension.go` prefix gap** (a14/a16/asvg) — needs #227's
+  `LiteralPrefixFor`, which did not exist on #231's base.
+- **C584** — see above.
+- **C582** — 34 stale agent worktrees (~1.1 GB); cleanup owed once no agent runs.
+- Unchanged from the prior wave: **C329**, **C298**, **C333**, and the
+  pivot-cache portion of the xlsx `DeleteSheet` cascade.
+
+### Verification notes
+
+`cctest` exercises open → validate → save → reopen → part-fidelity over real
+documents, so it catches byte drift and structural corruption on files this
+library did not author. It does **not** prove Word/Excel/PowerPoint accept the
+output; findings whose consequence is "Office repairs the file" remain PLAUSIBLE
+until checked against the applications themselves.
