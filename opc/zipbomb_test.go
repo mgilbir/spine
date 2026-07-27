@@ -305,7 +305,7 @@ func TestFileOpen_RejectsDeclaredOversizedPart(t *testing.T) {
 // defense in depth against sources the zip layer does not police; here it is
 // driven with a raw stream to prove it fails at most one byte past the cap.
 func TestBudgetedReadCloser_EnforcesPartLimitMidStream(t *testing.T) {
-	b := &decompressionBudget{maxPart: 1024, charged: make(map[*zip.File]bool)}
+	b := &decompressionBudget{maxPart: 1024, charged: make(map[*zip.File]int64)}
 	src := io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("A"), 64*1024)))
 	rc := &budgetedReadCloser{rc: src, b: b, name: "ppt/bomb.bin"}
 

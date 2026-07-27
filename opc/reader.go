@@ -4,10 +4,18 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"path"
 	"strings"
 	"sync"
 )
+
+// contentTypesPartName is the canonical part name of the mandatory
+// [Content_Types].xml stream. It is matched through canonicalZipEntryName
+// like every other entry, so a producer that spells it "./[Content_Types].xml"
+// or "[content_types].xml" is still recognised.
+const contentTypesPartName = "/[Content_Types].xml"
 
 // MaxDecompressedPartSize bounds how many bytes any single package part may
 // decompress to. It guards against decompression bombs — a small compressed
@@ -31,11 +39,31 @@ var MaxDecompressedPartSize int64 = 1 << 30 // 1 GiB
 // may decompress across all of its parts combined. It complements
 // MaxDecompressedPartSize: a hostile package can honestly declare many parts
 // that each sit under the per-part cap yet together exhaust memory. Each part
-// counts toward the total once, when it is first read; re-reading a part does
-// not consume additional budget. Set it to 0 to disable the bound; raise it
+// contributes at most its own decompressed size to the total, however many
+// times and however partially it is read: a read charges only the bytes beyond
+// the high-water mark the part has already been charged for, so re-reading a
+// part consumes no additional budget while abandoning a stream part-way does
+// not make the remainder free. Set it to 0 to disable the bound; raise it
 // before opening a package whose parts legitimately decompress to more in
 // total. See MaxDecompressedPartSize for the concurrency contract.
 var MaxDecompressedPackageSize int64 = 4 << 30 // 4 GiB
+
+// MaxPackageEntries bounds how many zip entries a package may contain. It is
+// the entry-count dimension the byte-oriented bounds above cannot see: a
+// modestly sized archive can hold hundreds of thousands of tiny entries, each
+// of which becomes a header, a name string and a *File on open, so the
+// in-memory cost is a multiple of the input size before a single part is
+// decompressed. Real OOXML packages hold at most a few thousand entries.
+//
+// The bound is applied immediately after the central directory is parsed, so
+// it caps everything this package builds per entry; archive/zip's own
+// directory parse (which is already bounded by the input size) has run by
+// then. Set it to 0 to disable the bound, or raise it before opening a
+// package that legitimately contains more entries. It is captured once per
+// Reader like the decompression limits — see MaxDecompressedPartSize for the
+// concurrency contract — and can be overridden per Reader through
+// ReaderOptions.
+var MaxPackageEntries = 1 << 16 // 65536
 
 // decompressionBudget holds the decompression limits captured from the
 // package-level variables when a Reader is constructed, plus the running
@@ -51,10 +79,17 @@ type decompressionBudget struct {
 	// accounting must be synchronized.
 	mu sync.Mutex
 
-	// total is the number of bytes decompressed so far, counting each zip
-	// entry once (on first successful read).
-	total   int64
-	charged map[*zip.File]bool
+	// total is the number of bytes decompressed so far, summing each zip
+	// entry's high-water mark.
+	total int64
+
+	// charged records, per zip entry, the high-water mark of bytes already
+	// counted toward total. Every read charges only the delta above that mark,
+	// which is what makes an entry cost its own size at most and at least: a
+	// boolean "already charged" flag set when a stream is opened let a caller
+	// read one byte, abandon the stream and then decompress the whole part for
+	// free, so the package bound only ever cost one byte per part (C376).
+	charged map[*zip.File]int64
 }
 
 // ReaderOptions configures a single Reader, overriding the package-level
@@ -72,6 +107,25 @@ type ReaderOptions struct {
 	// the Reader may decompress across all parts. Zero uses the package-level
 	// default; a negative value disables the bound.
 	MaxDecompressedPackageSize int64
+
+	// MaxPackageEntries overrides the package-level MaxPackageEntries for this
+	// Reader: it bounds how many zip entries the package may contain. Zero
+	// uses the package-level default; a negative value disables the bound.
+	MaxPackageEntries int
+}
+
+// maxPackageEntries resolves the effective entry-count bound for one Reader:
+// a non-zero option overrides the package-level default, and a negative value
+// means unbounded (reported as 0, which every caller treats as disabled).
+func (o ReaderOptions) maxPackageEntries() int {
+	max := MaxPackageEntries
+	if o.MaxPackageEntries != 0 {
+		max = o.MaxPackageEntries
+	}
+	if max < 0 {
+		return 0
+	}
+	return max
 }
 
 // newDecompressionBudget snapshots the limits for one Reader: each option
@@ -81,7 +135,7 @@ func newDecompressionBudget(opts ReaderOptions) *decompressionBudget {
 	b := &decompressionBudget{
 		maxPart:    MaxDecompressedPartSize,
 		maxPackage: MaxDecompressedPackageSize,
-		charged:    make(map[*zip.File]bool),
+		charged:    make(map[*zip.File]int64),
 	}
 	if opts.MaxDecompressedPartSize != 0 {
 		b.maxPart = opts.MaxDecompressedPartSize
@@ -90,6 +144,16 @@ func newDecompressionBudget(opts ReaderOptions) *decompressionBudget {
 		b.maxPackage = opts.MaxDecompressedPackageSize
 	}
 	return b
+}
+
+// declaredSize returns zf's declared uncompressed size clamped into int64, so
+// a header claiming more than 2^63-1 bytes saturates instead of wrapping
+// negative when it takes part in the budget arithmetic.
+func declaredSize(zf *zip.File) int64 {
+	if zf.UncompressedSize64 > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(zf.UncompressedSize64)
 }
 
 // admit performs the declared-size pre-checks for one zip entry and returns
@@ -110,40 +174,62 @@ func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// The package-total bound only applies to entries not yet counted:
-	// re-reading an already-charged part cannot grow the total.
-	if b.maxPackage > 0 && !b.charged[zf] {
+	// The package-total bound applies to the bytes this entry has not been
+	// charged for yet: re-reading the already-charged prefix of a part cannot
+	// grow the total, but everything past its high-water mark can.
+	if b.maxPackage > 0 {
 		pkgRemaining := b.maxPackage - b.total
 		if pkgRemaining < 0 {
 			pkgRemaining = 0
 		}
-		if zf.UncompressedSize64 > uint64(pkgRemaining) {
+		already := b.charged[zf]
+		uncharged := declaredSize(zf) - already
+		if uncharged < 0 {
+			uncharged = 0
+		}
+		if uncharged > pkgRemaining {
 			return 0, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
 		}
-		if limit < 0 || pkgRemaining < limit {
-			limit = pkgRemaining
+		// A read may legitimately reach the entry's high-water mark plus the
+		// package's remaining budget before it would overrun the bound.
+		if cap := already + pkgRemaining; cap >= 0 && (limit < 0 || cap < limit) {
+			limit = cap
 		}
 	}
 	return limit, nil
 }
 
-// charge counts n freshly decompressed bytes for zf toward the package
-// total, once per entry. It re-checks the remaining budget under the lock:
-// the pre-check in admit used a snapshot, and other goroutines may have
-// consumed budget since; this also catches entries whose actual size exceeds
-// their declared size (lying local header).
+// charge records that n bytes have now been decompressed for zf and counts
+// the delta above the entry's previous high-water mark toward the package
+// total. It re-checks the remaining budget under the lock: the pre-check in
+// admit used a snapshot, and other goroutines may have consumed budget since;
+// this also catches entries whose actual size exceeds their declared size
+// (lying local header).
 func (b *decompressionBudget) charge(zf *zip.File, n int64) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.maxPackage <= 0 || b.charged[zf] {
+	if b.maxPackage <= 0 {
 		return nil
 	}
-	if n > b.maxPackage-b.total {
+	delta := n - b.charged[zf]
+	if delta <= 0 {
+		// Nothing beyond what this entry was already charged for.
+		return nil
+	}
+	if delta > b.maxPackage-b.total {
 		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, b.maxPackage, b.total)
 	}
-	b.total += n
-	b.charged[zf] = true
+	b.total += delta
+	b.charged[zf] = n
 	return nil
+}
+
+// chargedBytes reports how many bytes zf has been charged for. It exists for
+// the accounting assertions in the tests.
+func (b *decompressionBudget) chargedBytes(zf *zip.File) int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.charged[zf]
 }
 
 // readZipEntry decompresses a single zip entry, bounding the output to the
@@ -182,9 +268,10 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 // openZipEntry opens a bounded stream over one zip entry. Declared-size
 // violations are rejected immediately; violations only observable while
 // decompressing (lying local headers) surface as Read errors from the
-// returned stream. If the entry has not been charged against the package
-// budget yet, the stream becomes its charger: bytes count toward the budget
-// as they are read.
+// returned stream. The stream charges the package budget as it is consumed,
+// but only for bytes past the entry's high-water mark, so a part costs its
+// own size however it is read and abandoning a stream leaves the untouched
+// remainder still payable.
 func (b *decompressionBudget) openZipEntry(zf *zip.File) (io.ReadCloser, error) {
 	if _, err := b.admit(zf); err != nil {
 		return nil, err
@@ -195,17 +282,7 @@ func (b *decompressionBudget) openZipEntry(zf *zip.File) (io.ReadCloser, error) 
 		return nil, err
 	}
 
-	s := &budgetedReadCloser{rc: rc, b: b, name: zf.Name}
-	// Mark the entry charged now so this stream and any concurrent or later
-	// read of the same entry agree on charge-once semantics; the byte count
-	// itself is added incrementally as the stream is consumed.
-	b.mu.Lock()
-	if b.maxPackage > 0 && !b.charged[zf] {
-		b.charged[zf] = true
-		s.charges = true
-	}
-	b.mu.Unlock()
-	return s, nil
+	return &budgetedReadCloser{rc: rc, b: b, zf: zf, name: zf.Name}, nil
 }
 
 // budgetedReadCloser enforces the decompression limits on a streaming read
@@ -215,11 +292,9 @@ func (b *decompressionBudget) openZipEntry(zf *zip.File) (io.ReadCloser, error) 
 type budgetedReadCloser struct {
 	rc   io.ReadCloser
 	b    *decompressionBudget
+	zf   *zip.File
 	name string
 
-	// charges records whether this stream charges the package budget (it
-	// does unless the entry was already charged when the stream was opened).
-	charges  bool
 	streamed int64 // bytes read through this stream so far
 	err      error // sticky limit-violation error
 }
@@ -238,7 +313,7 @@ func (s *budgetedReadCloser) Read(p []byte) (int, error) {
 	n, err := s.rc.Read(p)
 	if n > 0 {
 		s.streamed += int64(n)
-		if cerr := s.chargeStream(int64(n)); cerr != nil {
+		if cerr := s.chargeStream(); cerr != nil {
 			s.err = cerr
 			return n, cerr
 		}
@@ -250,22 +325,33 @@ func (s *budgetedReadCloser) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// chargeStream adds n freshly decompressed bytes to the package total,
-// failing once the budget is exhausted. Unlike ReadAll, which knows the full
-// part size up front, a stream charges as bytes arrive.
-func (s *budgetedReadCloser) chargeStream(n int64) error {
-	if !s.charges {
+// chargeStream raises the entry's charged high-water mark to the number of
+// bytes this stream has decompressed, adding the delta to the package total
+// and failing once the budget is exhausted. Unlike ReadAll, which knows the
+// full part size up front, a stream charges as bytes arrive; charging the
+// delta rather than a flat "already charged" flag is what keeps a partially
+// consumed and abandoned stream from making the rest of the part free.
+func (s *budgetedReadCloser) chargeStream() error {
+	b := s.b
+	if b.maxPackage <= 0 {
 		return nil
 	}
-	s.b.mu.Lock()
-	s.b.total += n
-	over := s.b.total > s.b.maxPackage
-	// This stream is the entry's only charger, so total minus our own bytes
-	// is what the rest of the package had decompressed.
-	already := s.b.total - s.streamed
-	s.b.mu.Unlock()
+	b.mu.Lock()
+	delta := s.streamed - b.charged[s.zf]
+	if delta <= 0 {
+		// Re-reading bytes another read of this entry already paid for.
+		b.mu.Unlock()
+		return nil
+	}
+	already := b.total
+	over := delta > b.maxPackage-b.total
+	if !over {
+		b.total += delta
+		b.charged[s.zf] = s.streamed
+	}
+	b.mu.Unlock()
 	if over {
-		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", s.name, s.b.maxPackage, already)
+		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", s.name, b.maxPackage, already)
 	}
 	return nil
 }
@@ -343,14 +429,65 @@ type Reader struct {
 	CustomProperties *CustomProperties
 
 	// DirectoryEntries lists the zip directory entries ("_rels/", "word/", …)
-	// present in the source archive, in archive order. OPC ignores directory
-	// entries, but some producers (WPS, Apache POI, some Excel builds) emit
-	// them; a byte-faithful save re-emits the same set via
-	// Writer.WriteDirectoryEntries.
+	// present in the source archive, in archive order, under their raw entry
+	// names. OPC ignores directory entries, but some producers (WPS, Apache
+	// POI, some Excel builds) emit them; a byte-faithful save re-emits the
+	// same set via Writer.WriteDirectoryEntries, which canonicalizes each name
+	// the same way this Reader does, so a producer that separates with
+	// backslashes round-trips too.
 	DirectoryEntries []string
+
+	// DuplicateEntries lists the raw names of zip entries that collapsed onto
+	// the canonical part name of an earlier entry and were therefore left out
+	// of Files. OPC part names are unique and compare case-insensitively, so a
+	// package declaring the same part twice is malformed; the first occurrence
+	// wins (matching GetFile) and the rest are recorded here. Keeping them in
+	// Files would contradict GetFile and make every replay save fail with
+	// ErrDuplicatePart.
+	DuplicateEntries []string
 
 	zipReader *zip.Reader
 	budget    *decompressionBudget
+
+	// index memoizes the case-insensitive part lookups behind a pointer, so
+	// copying a Reader (ReadCloser embeds one by value) shares the index and
+	// does not copy a mutex.
+	index *partIndex
+}
+
+// partIndex is the lazily built lookup index behind Reader.GetFile and
+// Reader.GetRawZipFile. Both were linear case-folding scans, which every save
+// and signing path walks once per part — O(n²) with a case-fold in the inner
+// loop on a package with thousands of parts.
+type partIndex struct {
+	mu sync.Mutex
+
+	// files maps a lowercased canonical part name to the first File carrying
+	// it; nFiles records the len(Reader.Files) the map was built from, so a
+	// caller that appends to the exported slice invalidates it.
+	files  map[string]*File
+	nFiles int
+
+	// raw maps a lowercased canonical entry name to its zip entry.
+	raw map[string]*zip.File
+
+	// foldSensitive records that some indexed name differs under
+	// strings.ToLower from what strings.EqualFold would match (i.e. it carries
+	// non-ASCII letters). Only then does a lookup miss fall back to the exact
+	// EqualFold scan the index replaced.
+	filesFoldSensitive bool
+	rawFoldSensitive   bool
+}
+
+// foldSensitive reports whether s contains a byte outside ASCII, for which
+// strings.ToLower and strings.EqualFold can disagree.
+func foldSensitive(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 // ReadCloser extends Reader with a Close method.
@@ -437,15 +574,25 @@ func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reade
 		return nil, err
 	}
 
+	// Bound the entry count before building anything per entry (C459). The
+	// byte-oriented decompression limits cannot see this dimension: every
+	// entry costs a header, a name and a *File whether or not it is ever read.
+	if max := opts.maxPackageEntries(); max > 0 && len(zr.File) > max {
+		return nil, fmt.Errorf("opc: package contains %d entries, exceeding the %d-entry limit (raise MaxPackageEntries before opening to allow it)", len(zr.File), max)
+	}
+
 	reader := &Reader{
 		zipReader: zr,
 		Files:     make([]*File, 0, len(zr.File)),
 		budget:    newDecompressionBudget(opts),
+		index:     &partIndex{},
 	}
 
-	// First pass: find and parse [Content_Types].xml
+	// First pass: find and parse [Content_Types].xml. The lookup goes through
+	// the same canonicalization as every other entry, so a producer spelling
+	// it "./[Content_Types].xml" is not reported as a corrupted package (C452).
 	for _, zf := range zr.File {
-		if strings.EqualFold(zf.Name, "[Content_Types].xml") {
+		if strings.EqualFold(canonicalZipEntryName(zf.Name), contentTypesPartName) {
 			data, err := reader.budget.readZipEntry(zf)
 			if err != nil {
 				return nil, err
@@ -464,29 +611,43 @@ func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reade
 	}
 
 	// Second pass: create File entries for all parts (excluding special files)
+	seen := make(map[string]bool, len(zr.File))
 	for _, zf := range zr.File {
 		// Index parts under a canonical part name: zip producers (and hostile
 		// packages) emit entry names like "./ppt/presentation.xml",
-		// "word\document.xml" or "a//b.xml", which would otherwise be
-		// unreachable through GetFile and silently droppable on round-trip.
-		// The zip entry itself keeps its original raw name, so
-		// GetRawZipFile(zf.Name) and preserved-part paths still see the
-		// original bytes under the original name. When two entries collapse to
-		// the same canonical name, the first wins (GetFile returns the first
-		// match), consistent with existing duplicate handling.
+		// "word\document.xml", "a//b.xml" or "a/../b.xml", which would
+		// otherwise be unreachable through GetFile and silently droppable on
+		// round-trip. canonicalZipEntryName is the one normalization used at
+		// every boundary — it agrees with NormalizePartName, which is what
+		// GetFile runs its query through. The zip entry itself keeps its
+		// original raw name, so GetRawZipFile still finds the original bytes.
 		name := canonicalZipEntryName(zf.Name)
 
 		// Directory entries carry no part data, but record them so a save can
-		// reproduce the source archive's directory listing.
-		if strings.HasSuffix(zf.Name, "/") || strings.HasSuffix(name, "/") {
+		// reproduce the source archive's directory listing. The raw name is
+		// recorded; Writer.WriteDirectoryEntries canonicalizes it the same way
+		// before emitting, so a backslash-separated directory entry is not
+		// silently dropped on write (C456).
+		if strings.HasSuffix(name, "/") {
 			reader.DirectoryEntries = append(reader.DirectoryEntries, zf.Name)
 			continue
 		}
 
 		// Skip special files
-		if strings.EqualFold(zf.Name, "[Content_Types].xml") {
+		if strings.EqualFold(name, contentTypesPartName) {
 			continue
 		}
+
+		// Two entries collapsing onto one part name is malformed; the first
+		// wins, matching GetFile and this package's documented rule. Keeping
+		// both in Files contradicted that rule and made every replay save fail
+		// with ErrDuplicatePart (C395).
+		key := strings.ToLower(name)
+		if seen[key] {
+			reader.DuplicateEntries = append(reader.DuplicateEntries, zf.Name)
+			continue
+		}
+		seen[key] = true
 
 		contentType := reader.ContentTypes.GetContentType(name)
 
@@ -513,19 +674,31 @@ func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reade
 
 // canonicalZipEntryName converts a raw zip entry name into the canonical
 // leading-slash part name used for lookups: backslash separators become
-// forward slashes, leading "./" segments are stripped, and empty segments
-// ("//") are collapsed. The original raw entry name is untouched — it remains
-// the key for GetRawZipFile and the name under which the entry's bytes were
-// stored.
+// forward slashes and the result is path.Clean-ed, which strips "." segments,
+// collapses empty segments ("//") and resolves ".." — including a leading
+// ".." that would otherwise escape the package root. Cleaning here is what
+// makes this function agree with NormalizePartName, the normalization GetFile
+// runs its query through: without it an entry named "a/../b.xml" was reachable
+// under no name at all and could not be written back out, so a package
+// carrying one could not round-trip (C390).
+//
+// A trailing slash survives cleaning: it is the only marker distinguishing a
+// zip directory entry from a part.
+//
+// The original raw entry name is untouched — it remains the name under which
+// the entry's bytes were stored, and GetRawZipFile canonicalizes both sides of
+// its comparison so a raw name still resolves.
 func canonicalZipEntryName(name string) string {
 	s := strings.ReplaceAll(name, `\`, "/")
-	for strings.HasPrefix(s, "./") {
-		s = strings.TrimPrefix(s, "./")
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
 	}
-	for strings.Contains(s, "//") {
-		s = strings.ReplaceAll(s, "//", "/")
+	dir := len(s) > 1 && strings.HasSuffix(s, "/")
+	s = path.Clean(s)
+	if dir && !strings.HasSuffix(s, "/") {
+		s += "/"
 	}
-	return "/" + strings.TrimPrefix(s, "/")
+	return s
 }
 
 // parsePackageRelationships reads the package-level .rels file.
@@ -635,11 +808,57 @@ func (r *Reader) parseCustomProperties() {
 	}
 }
 
-// GetFile returns the file with the given path, or nil if not found.
+// GetFile returns the file with the given path, or nil if not found. Part
+// names compare case-insensitively, as OPC requires. Lookups are served from a
+// lazily built index rather than a linear scan: every save and signing path
+// resolves parts inside a loop over the parts, which made the whole traversal
+// quadratic.
 func (r *Reader) GetFile(name string) *File {
 	normalizedName := NormalizePartName(name)
-	for _, f := range r.Files {
-		if strings.EqualFold(f.Name, normalizedName) {
+	if r.index == nil {
+		// A Reader assembled by a caller rather than by NewReader.
+		return lookupFileLinear(r.Files, normalizedName)
+	}
+
+	r.index.mu.Lock()
+	if r.index.files == nil || r.index.nFiles != len(r.Files) {
+		m := make(map[string]*File, len(r.Files))
+		fold := false
+		for _, f := range r.Files {
+			if f == nil {
+				continue
+			}
+			if foldSensitive(f.Name) {
+				fold = true
+			}
+			key := strings.ToLower(f.Name)
+			if _, ok := m[key]; !ok {
+				m[key] = f // first wins, matching the scan it replaces
+			}
+		}
+		r.index.files = m
+		r.index.nFiles = len(r.Files)
+		r.index.filesFoldSensitive = fold
+	}
+	f, ok := r.index.files[strings.ToLower(normalizedName)]
+	fold := r.index.filesFoldSensitive
+	r.index.mu.Unlock()
+
+	if ok {
+		return f
+	}
+	if fold {
+		// Some name folds differently under ToLower than under EqualFold
+		// (non-ASCII letters); fall back to the exact comparison.
+		return lookupFileLinear(r.Files, normalizedName)
+	}
+	return nil
+}
+
+// lookupFileLinear is the exact EqualFold scan the index shortcuts.
+func lookupFileLinear(files []*File, normalizedName string) *File {
+	for _, f := range files {
+		if f != nil && strings.EqualFold(f.Name, normalizedName) {
 			return f
 		}
 	}
@@ -648,14 +867,65 @@ func (r *Reader) GetFile(name string) *File {
 
 // GetRawZipFile returns the raw data for a file in the zip archive by name.
 // This can be used to access special files like [Content_Types].xml that are
-// not included in the Files list.
+// not included in the Files list. The name is matched through the same
+// canonicalization as Files, so both the raw entry name and the canonical part
+// name resolve. Like GetFile it is served from a lazily built index.
 func (r *Reader) GetRawZipFile(name string) ([]byte, error) {
-	for _, zf := range r.zipReader.File {
-		if strings.EqualFold(zf.Name, name) {
-			return r.budget.readZipEntry(zf)
+	zf := r.rawZipEntry(name)
+	if zf == nil {
+		return nil, fmt.Errorf("file not found: %s", name)
+	}
+	return r.budget.readZipEntry(zf)
+}
+
+// rawZipEntry resolves a raw or canonical entry name to its zip entry.
+func (r *Reader) rawZipEntry(name string) *zip.File {
+	if r.zipReader == nil {
+		return nil
+	}
+	canonical := canonicalZipEntryName(name)
+	if r.index == nil {
+		return lookupRawLinear(r.zipReader.File, canonical)
+	}
+
+	r.index.mu.Lock()
+	if r.index.raw == nil {
+		m := make(map[string]*zip.File, len(r.zipReader.File))
+		fold := false
+		for _, zf := range r.zipReader.File {
+			c := canonicalZipEntryName(zf.Name)
+			if foldSensitive(c) {
+				fold = true
+			}
+			key := strings.ToLower(c)
+			if _, ok := m[key]; !ok {
+				m[key] = zf // first wins, matching the scan it replaces
+			}
+		}
+		r.index.raw = m
+		r.index.rawFoldSensitive = fold
+	}
+	zf, ok := r.index.raw[strings.ToLower(canonical)]
+	fold := r.index.rawFoldSensitive
+	r.index.mu.Unlock()
+
+	if ok {
+		return zf
+	}
+	if fold {
+		return lookupRawLinear(r.zipReader.File, canonical)
+	}
+	return nil
+}
+
+// lookupRawLinear is the exact EqualFold scan rawZipEntry shortcuts.
+func lookupRawLinear(entries []*zip.File, canonical string) *zip.File {
+	for _, zf := range entries {
+		if strings.EqualFold(canonicalZipEntryName(zf.Name), canonical) {
+			return zf
 		}
 	}
-	return nil, fmt.Errorf("file not found: %s", name)
+	return nil
 }
 
 // GetRelationshipsByType returns all package-level relationships with the specified type.
