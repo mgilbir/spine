@@ -3,6 +3,7 @@ package xlsx
 import (
 	"strings"
 
+	"github.com/mgilbir/spine/internal/sheetref"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -60,7 +61,14 @@ func (s *Sheet) PageSetup() (PageSetup, bool) {
 // element if the sheet lacks one. Only the modeled fields are written; other
 // attributes on a pre-existing element are preserved, so a getter/modify/setter
 // round-trip does not drop a printer-settings relationship or DPI values.
-func (s *Sheet) SetPageSetup(ps PageSetup) {
+//
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet: such a
+// sheet round-trips verbatim and is never regenerated from a worksheet model,
+// so the setting would be discarded at save (C423).
+func (s *Sheet) SetPageSetup(ps PageSetup) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	if s.ws().PageSetup == nil {
@@ -76,6 +84,7 @@ func (s *Sheet) SetPageSetup(ps PageSetup) {
 	cur.FirstPageNumber = cloneUint32(ps.FirstPageNumber)
 	cur.BlackAndWhite = cloneBool(ps.BlackAndWhite)
 	cur.Draft = cloneBool(ps.Draft)
+	return nil
 }
 
 // PageMargins is the set of page margins (in inches) exposed through the public
@@ -108,7 +117,15 @@ func (s *Sheet) PageMargins() (PageMargins, bool) {
 
 // SetPageMargins sets the sheet's page margins (in inches), creating the
 // <pageMargins> element if absent.
-func (s *Sheet) SetPageMargins(m PageMargins) {
+//
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet, like
+// its three siblings: such a sheet round-trips verbatim and is never
+// regenerated from a worksheet model, so the margins would be discarded at save
+// (C423).
+func (s *Sheet) SetPageMargins(m PageMargins) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	s.ws().EnsureChildOrder("pageMargins")
@@ -120,6 +137,7 @@ func (s *Sheet) SetPageMargins(m PageMargins) {
 		Header: m.Header,
 		Footer: m.Footer,
 	}
+	return nil
 }
 
 // HeaderFooter is the modeled content of the worksheet <headerFooter> element:
@@ -162,7 +180,14 @@ func (s *Sheet) HeaderFooter() (HeaderFooter, bool) {
 // SetHeaderFooter sets the sheet's header/footer settings, replacing any
 // existing <headerFooter> element. An empty header/footer string is treated as
 // absent (the child element is omitted); a non-empty string emits the element.
-func (s *Sheet) SetHeaderFooter(hf HeaderFooter) {
+//
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet: such a
+// sheet round-trips verbatim and is never regenerated from a worksheet model,
+// so the setting would be discarded at save (C423).
+func (s *Sheet) SetHeaderFooter(hf HeaderFooter) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	s.ws().EnsureChildOrder("headerFooter")
@@ -178,6 +203,7 @@ func (s *Sheet) SetHeaderFooter(hf HeaderFooter) {
 		FirstHeader:      optString(hf.FirstHeader),
 		FirstFooter:      optString(hf.FirstFooter),
 	}
+	return nil
 }
 
 // PrintOptions is the modeled content of the worksheet <printOptions> element:
@@ -209,7 +235,14 @@ func (s *Sheet) PrintOptions() (PrintOptions, bool) {
 
 // SetPrintOptions sets the sheet's print options, replacing any existing
 // <printOptions> element.
-func (s *Sheet) SetPrintOptions(po PrintOptions) {
+//
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet: such a
+// sheet round-trips verbatim and is never regenerated from a worksheet model,
+// so the setting would be discarded at save (C423).
+func (s *Sheet) SetPrintOptions(po PrintOptions) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	s.ws().EnsureChildOrder("printOptions")
@@ -220,6 +253,7 @@ func (s *Sheet) SetPrintOptions(po PrintOptions) {
 		GridLines:          cloneBool(po.GridLines),
 		GridLinesSet:       cloneBool(po.GridLinesSet),
 	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +264,10 @@ func (s *Sheet) SetPrintOptions(po PrintOptions) {
 // (e.g. "A1:D20"). Each range is made absolute and qualified with the sheet
 // name, then stored in the reserved _xlnm.Print_Area defined name scoped to
 // this sheet. Passing no ranges clears the print area.
+//
+// The stored value embeds the sheet's name literally, and renaming the sheet
+// with SetName does not rewrite it, so the defined name is left pointing at the
+// old name. Call SetPrintArea again after a rename.
 func (s *Sheet) SetPrintArea(ranges ...string) error {
 	if s.workbook == nil {
 		return ErrNoWorkbook
@@ -277,6 +315,9 @@ func (s *Sheet) ClearPrintArea() {
 // range such as "A:B"; either may be empty to leave that dimension unset. The
 // value is stored in the reserved _xlnm.Print_Titles defined name scoped to this
 // sheet. Passing both empty clears the print titles.
+//
+// As with SetPrintArea, the stored value embeds the sheet's name literally and
+// a later SetName does not rewrite it.
 func (s *Sheet) SetPrintTitles(rows, cols string) error {
 	if s.workbook == nil {
 		return ErrNoWorkbook
@@ -389,23 +430,18 @@ func (w *Workbook) clearReservedName(name string, sheetIndex int) {
 // Range/name formatting helpers
 // ---------------------------------------------------------------------------
 
-// quoteSheetName wraps a sheet name in single quotes when Excel requires it —
-// any name that is not a simple identifier — doubling embedded single quotes.
+// quoteSheetName wraps a sheet name in single quotes when Excel requires it,
+// doubling embedded single quotes. Quoting is required both for names that are
+// not simple identifiers and for identifier-shaped names that a formula would
+// lex as something else — a cell reference ("FY2024" is not one, but "Q1",
+// "XFD1" and "R1C1" are) or a boolean literal. Excel always writes those
+// quoted; emitting `Q1!$A$1:$D$20` in _xlnm.Print_Area yields a reference
+// Excel cannot resolve back to the sheet (C534).
+//
+// The rules are shared with the chart <c:f> writers, so they live in
+// internal/sheetref rather than being restated here.
 func quoteSheetName(name string) string {
-	simple := name != ""
-	for i, r := range name {
-		isLetter := r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
-		isDigit := r >= '0' && r <= '9'
-		if isLetter || (i > 0 && (isDigit || r == '.')) {
-			continue
-		}
-		simple = false
-		break
-	}
-	if simple {
-		return name
-	}
-	return "'" + strings.ReplaceAll(name, "'", "''") + "'"
+	return sheetref.QuoteName(name)
 }
 
 // absolutizeRange converts an A1-style range or single reference into its
