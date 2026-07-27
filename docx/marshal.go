@@ -176,12 +176,18 @@ func marshalPeopleXML(people *oxml.CT_People) ([]byte, error) {
 		b.StartElementWithNS(nsW15, "people", commentsExtNamespaces())
 	}
 	for _, person := range people.Person {
-		b.StartElement(nsW15, "person", xmlb.Attr{Namespace: nsW15, Name: "author", Value: person.Author})
+		// The captured attribute lists are replayed rather than discarded: the
+		// model types only w15:author (and providerId/userId on the child), so
+		// rebuilding the element from those alone dropped every other attribute
+		// a producer wrote and re-ordered the ones it kept (C500). Modeled
+		// values still win, so an edited author is authoritative.
+		b.StartElement(nsW15, "person", b.ReplayCapturedAttrs(person.CapturedAttrs,
+			[]xmlb.Attr{{Namespace: nsW15, Name: "author", Value: person.Author}})...)
 		if pi := person.PresenceInfo; pi != nil {
-			b.EmptyElement(nsW15, "presenceInfo",
-				xmlb.Attr{Namespace: nsW15, Name: "providerId", Value: pi.ProviderId},
-				xmlb.Attr{Namespace: nsW15, Name: "userId", Value: pi.UserId},
-			)
+			b.EmptyElement(nsW15, "presenceInfo", b.ReplayCapturedAttrs(pi.CapturedAttrs, []xmlb.Attr{
+				{Namespace: nsW15, Name: "providerId", Value: pi.ProviderId},
+				{Namespace: nsW15, Name: "userId", Value: pi.UserId},
+			})...)
 		}
 		b.EndElement(nsW15, "person")
 	}

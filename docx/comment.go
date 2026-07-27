@@ -269,16 +269,21 @@ func (d *Document) addCommentModel(author, text, parentParaID string) *oxml.CT_C
 		ParaIdParent: parentParaID,
 	})
 
+	// people.xml is regenerated only when the author registry actually gains an
+	// entry. Flagging it unconditionally meant a reply by an author already in
+	// the registry — or a comment with no author at all — rebuilt the part from
+	// the Author/ProviderId/UserId triple alone, shedding every attribute and
+	// child the model does not type (C500).
 	if author != "" && !d.people.Has(author) {
 		d.people.Person = append(d.people.Person, &oxml.CT_Person{
 			Author:       author,
 			PresenceInfo: &oxml.CT_PresenceInfo{ProviderId: "None", UserId: author},
 		})
+		d.peopleModified = true
 	}
 
 	d.commentsModified = true
 	d.commentsExtModified = true
-	d.peopleModified = true
 	return c
 }
 
@@ -413,20 +418,11 @@ func (d *Document) nestReplyAnchor(parentID, newID string) {
 	}
 }
 
-// bodyParagraphs returns the body's top-level paragraphs in document order
-// (top-level plus block-level SDT content; tables are not descended).
-func (d *Document) bodyParagraphs() []*oxml.CT_P {
-	if d.doc() == nil || d.doc().Body == nil {
-		return nil
-	}
-	return d.doc().Body.Paragraphs()
-}
-
 // allBodyParagraphs returns every paragraph reachable from the body in document
-// order, descending into tables (and block-level SDTs). Comment anchoring and
-// threading use this so a comment anchored in a table cell is not invisible to
-// Reply() and AnchorText() (C267): the range markers live in a table-cell
-// paragraph that the top-level-only bodyParagraphs walk never reaches.
+// order, descending into tables (and block-level SDTs). Comment anchoring,
+// threading and paraId allocation all use this so a comment anchored in a table
+// cell is not invisible to Reply() and AnchorText() (C267): the range markers
+// live in a table-cell paragraph that a top-level-only walk never reaches.
 func (d *Document) allBodyParagraphs() []*oxml.CT_P {
 	if d.doc() == nil || d.doc().Body == nil {
 		return nil
@@ -434,31 +430,19 @@ func (d *Document) allBodyParagraphs() []*oxml.CT_P {
 	return d.doc().Body.AllParagraphs()
 }
 
-// nextParaID returns an 8-hex-digit paraId not already used by any body or
-// comment paragraph, or by an existing commentsExtended entry.
+// nextParaID returns an 8-hex-digit paraId not already used by any paragraph in
+// the package (body, headers, footers) or by any comment paragraph or
+// commentsExtended entry.
+//
+// The body scan descends into tables and SDTs. It used bodyParagraphs (the
+// top-level walk) while C267 moved anchoring and threading to allBodyParagraphs,
+// so a table-cell paragraph's existing w14:paraId was not in the used set — an
+// inconsistency the C267 fix left behind (C499). The collision odds are 2^-32
+// per pair either way, but the two walks disagreeing about which paragraphs
+// exist is the kind of thing that becomes a real bug the next time either is
+// reused.
 func (d *Document) nextParaID() string {
-	used := make(map[string]bool)
-	for _, p := range d.bodyParagraphs() {
-		if p != nil && p.ParaId != "" {
-			used[strings.ToUpper(p.ParaId)] = true
-		}
-	}
-	if d.comments != nil {
-		for _, cm := range d.comments.Comment {
-			for _, p := range cm.P {
-				if p != nil && p.ParaId != "" {
-					used[strings.ToUpper(p.ParaId)] = true
-				}
-			}
-		}
-	}
-	if d.commentsExtended != nil {
-		for _, ce := range d.commentsExtended.CommentEx {
-			if ce.ParaId != "" {
-				used[strings.ToUpper(ce.ParaId)] = true
-			}
-		}
-	}
+	used := d.usedParaIDs()
 	for {
 		var buf [4]byte
 		if _, err := rand.Read(buf[:]); err != nil {
@@ -472,6 +456,45 @@ func (d *Document) nextParaID() string {
 			return id
 		}
 	}
+}
+
+// usedParaIDs returns the upper-cased set of w14:paraId values already in use
+// anywhere in the package: every body paragraph (descending into tables and
+// SDTs), every header and footer paragraph, every comment paragraph, and every
+// commentsExtended key.
+func (d *Document) usedParaIDs() map[string]bool {
+	used := make(map[string]bool)
+	consider := func(paras []*oxml.CT_P) {
+		for _, p := range paras {
+			if p != nil && p.ParaId != "" {
+				used[strings.ToUpper(p.ParaId)] = true
+			}
+		}
+	}
+	consider(d.allBodyParagraphs())
+	for _, hp := range d.sortedHeaderParts() {
+		if hp != nil && hp.hdr != nil {
+			consider(hp.hdr.AllParagraphs())
+		}
+	}
+	for _, fp := range d.sortedFooterParts() {
+		if fp != nil && fp.ftr != nil {
+			consider(fp.ftr.AllParagraphs())
+		}
+	}
+	if d.comments != nil {
+		for _, cm := range d.comments.Comment {
+			consider(cm.P)
+		}
+	}
+	if d.commentsExtended != nil {
+		for _, ce := range d.commentsExtended.CommentEx {
+			if ce.ParaId != "" {
+				used[strings.ToUpper(ce.ParaId)] = true
+			}
+		}
+	}
+	return used
 }
 
 // deriveInitials builds up to three uppercase initials from the author's name
