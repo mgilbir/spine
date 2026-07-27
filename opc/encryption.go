@@ -53,7 +53,11 @@ const (
 // It auto-detects the scheme (agile, ECMA-376 standard, or legacy RC4 CryptoAPI).
 // A wrong password returns crypto.ErrWrongPassword. An unsupported encryption
 // scheme (e.g. version-1.1 binary-format RC4, or the extensible scheme) returns
-// crypto.ErrUnsupportedEncryption.
+// crypto.ErrUnsupportedEncryption. An agile package that fails — or cannot
+// perform — its integrity check returns crypto.ErrIntegrityCheckFailed; only
+// the agile scheme authenticates its ciphertext at all, so a package opened
+// from a standard or RC4 container is unauthenticated by construction (see
+// crypto.DecryptWithOptions to learn which you got).
 func OpenEncrypted(r io.ReaderAt, size int64, password string) (*Reader, error) {
 	return OpenEncryptedWithOptions(r, size, password, ReaderOptions{})
 }
@@ -150,7 +154,10 @@ type EncryptOptions struct {
 // emitted. The password must not be empty.
 func SaveEncryptedWithOptions(w io.Writer, packageData []byte, password string, opts EncryptOptions) error {
 	if password == "" {
-		return errors.New("opc: SaveEncrypted requires a non-empty password")
+		// The crypto entry points enforce this too; keep the check here so the
+		// message names the save path, and wrap the sentinel so callers can
+		// match either layer with errors.Is.
+		return fmt.Errorf("opc: SaveEncrypted requires a non-empty password: %w", crypto.ErrInvalidPassword)
 	}
 	var (
 		encInfo, encPkg []byte

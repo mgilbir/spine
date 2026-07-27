@@ -14,9 +14,9 @@ package crypto
 // public save path never writes it, because RC4 is cryptographically broken
 // (EncryptRC4CryptoAPI is exported only to cross-validate the decrypt path
 // against a reference implementation, and says so). The extensible scheme and
-// the obsolete version-1.1 binary-format RC4
-// (§2.3.6), which never wraps an OOXML package, are detected and rejected with
-// ErrUnsupportedEncryption rather than decoded; see Decrypt.
+// the obsolete version-1.1 binary-format RC4 (§2.3.6), which never wraps an
+// OOXML package, are detected and rejected with ErrUnsupportedEncryption rather
+// than decoded; see Decrypt.
 //
 // The implementation uses only the Go standard library's audited primitives
 // (crypto/aes, crypto/cipher, crypto/sha512, crypto/hmac, crypto/rand). It
