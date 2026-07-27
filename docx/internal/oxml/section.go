@@ -385,7 +385,9 @@ func (h *CT_HdrFtrRef) unmarshalAttrs(attrs []xml.Attr) {
 			h.Type = attr.Value
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			h.RID = attr.Value
-		case attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == "r":
+			// Lenience for an undeclared r: prefix: Go's decoder leaves the
+			// literal prefix "r" as the namespace, never yields Local=="r:id".
 			h.RID = attr.Value
 		}
 	}

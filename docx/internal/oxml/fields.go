@@ -42,7 +42,9 @@ func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		switch {
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			h.RID = attr.Value
-		case attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == "r":
+			// Lenience for an undeclared r: prefix: Go's decoder leaves the
+			// literal prefix "r" as the namespace, never yields Local=="r:id".
 			h.RID = attr.Value
 		case attr.Name.Local == "anchor":
 			h.Anchor = attr.Value
