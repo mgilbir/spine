@@ -114,8 +114,16 @@ func (s *Sheet) Name() string {
 // sheet in the workbook; invalid or duplicate names are rejected with an
 // error and the sheet is left unchanged (C71).
 //
+// The name lives in workbook.xml, which is always regenerated, so renaming
+// does not mark the worksheet part dirty: an otherwise untouched sheet still
+// round-trips byte-for-byte and keeps the workbook's calcChain, whether or not
+// the sheet's model happened to be materialized first (C545).
+//
 // Limitation: renaming does not rewrite references to the old name held in
 // formulas or defined names; those still refer to the previous name.
+//
+// A *Sheet obtained before a DeleteSheet call that removed it is detached from
+// its workbook; SetName on such a handle changes nothing.
 func (s *Sheet) SetName(name string) error {
 	if err := ValidateSheetName(name); err != nil {
 		return err
@@ -129,10 +137,9 @@ func (s *Sheet) SetName(name string) error {
 	}
 	s.name = name
 	// Update the workbook model if within bounds
-	if s.workbook != nil && s.index < len(s.workbook.workbook.Sheets.Sheet) {
+	if s.workbook != nil && s.index >= 0 && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
 	}
-	s.markDirty()
 	return nil
 }
 
@@ -145,6 +152,15 @@ func (s *Sheet) Index() int {
 // If the cell doesn't exist in the worksheet data, it is created.
 // The reference is canonicalized (case and leading zeros normalized), so
 // "a1" and "A01" address the same cell as "A1" (C126).
+//
+// Because it creates, Cell is a mutating accessor: probing a range with it
+// materializes a <c>/<row> for every reference visited. Such a cell carries no
+// value, formula, inline string or style and is dropped again when the sheet is
+// serialized, so it neither reaches the file nor inflates <dimension>, but a
+// read-only lookup should use FindCell (or GetCellValue) instead (C425).
+//
+// A chartsheet, dialogsheet or macrosheet has no cell grid; Cell returns
+// ErrNotWorksheet for one.
 func (s *Sheet) Cell(ref string) (*Cell, error) {
 	// A chartsheet/dialogsheet/macrosheet has no worksheet cell grid; refuse the
 	// write rather than overwrite its preserved part with a <worksheet> root (C241).
@@ -224,39 +240,38 @@ func (s *Sheet) SetCellValue(ref string, value interface{}) error {
 	return nil
 }
 
-// GetCellValue returns the display value of a cell as a string.
+// GetCellValue returns the cell's stored value as a string: the resolved text
+// of a shared or inline string, and otherwise the raw <v> literal. It is NOT
+// the display value — the cell's number format is not applied, so a date reads
+// back as its serial and 0.5 formatted as "50%" reads back as "0.5". Use
+// Sheet.Text for the formatted rendering. An absent cell yields "" with no
+// error; an unparseable reference yields ErrInvalidCell, and a chartsheet /
+// dialogsheet / macrosheet ErrNotWorksheet.
 func (s *Sheet) GetCellValue(ref string) (string, error) {
-	if s.ws() == nil {
-		return "", nil
+	if s.opaque {
+		return "", ErrNotWorksheet
 	}
-
 	row, col, err := ParseCellRef(ref)
 	if err != nil {
 		return "", err
 	}
-	ref = FormatCellRef(row, col)
-
-	for i := range s.ws().SheetData.Row {
-		r := &s.ws().SheetData.Row[i]
-		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
-			for _, cell := range r.C {
-				if strings.EqualFold(cell.R, ref) {
-					c := &Cell{sheet: s, cell: cell}
-					return c.String(), nil
-				}
-			}
-		}
+	if c := s.findCell(FormatCellRef(row, col)); c != nil {
+		return c.String(), nil
 	}
-
 	return "", nil
 }
 
-// findCell returns a handle to the cell at ref without creating any row or
-// cell. Unlike Cell, it is a read-only lookup: absent cells (or an invalid
-// reference) return nil, so scanning a range does not spawn phantom empty
-// CT_Cell/CT_Row entries in the model.
+// FindCell returns a handle to the cell at ref without creating anything.
+// Unlike Cell it is a read-only lookup: an absent cell, an unparseable
+// reference, an empty sheet or a non-worksheet sheet all yield nil, so
+// scanning a range never spawns phantom <c>/<row> entries in the model (C425).
+func (s *Sheet) FindCell(ref string) *Cell {
+	return s.findCell(ref)
+}
+
+// findCell is the unexported spelling of FindCell, kept for internal callers.
 func (s *Sheet) findCell(ref string) *Cell {
-	if s.ws() == nil {
+	if s.opaque || s.ws() == nil {
 		return nil
 	}
 	row, col, err := ParseCellRef(ref)
@@ -277,12 +292,20 @@ func (s *Sheet) findCell(ref string) *Cell {
 	return nil
 }
 
-// Rows returns the number of used rows.
+// Rows returns the number of used rows. Rows holding nothing but cells a
+// read-only Cell probe materialized are not counted — they carry no content
+// and are dropped at serialization (C425).
 func (s *Sheet) Rows() int {
 	if s.ws() == nil {
 		return 0
 	}
-	return len(s.ws().SheetData.Row)
+	n := 0
+	for i := range s.ws().SheetData.Row {
+		if !rowIsEmptyPhantom(&s.ws().SheetData.Row[i]) {
+			n++
+		}
+	}
+	return n
 }
 
 // Cols returns the number of used columns (maximum column across all rows).
@@ -292,8 +315,11 @@ func (s *Sheet) Cols() int {
 	}
 
 	maxCol := 0
-	for _, row := range s.ws().SheetData.Row {
-		for _, cell := range row.C {
+	for i := range s.ws().SheetData.Row {
+		for _, cell := range s.ws().SheetData.Row[i].C {
+			if cellIsEmptyPhantom(cell) {
+				continue
+			}
 			_, col, err := ParseCellRef(cell.R)
 			if err == nil && col > maxCol {
 				maxCol = col
@@ -303,108 +329,87 @@ func (s *Sheet) Cols() int {
 	return maxCol
 }
 
+// cellIsEmptyPhantom reports whether a cell carries no information at all: no
+// value, formula, inline string, style, type or any of the optional metadata
+// attributes. Such an element is what a read-only Cell() probe leaves behind,
+// and re-emitting it is pure noise that also inflates the recorded used range
+// (C425). A cell with a style but no value is real content and is not a
+// phantom.
+func cellIsEmptyPhantom(c *oxml.CT_Cell) bool {
+	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && c.S == nil &&
+		c.T == "" && c.Cm == nil && c.Vm == nil && c.Ph == nil && len(c.ExtRaw) == 0)
+}
+
+// rowIsEmptyPhantom reports whether a row carries no cells with content and no
+// row-level properties of its own beyond its number.
+func rowIsEmptyPhantom(r *oxml.CT_Row) bool {
+	if r == nil {
+		return true
+	}
+	for _, c := range r.C {
+		if !cellIsEmptyPhantom(c) {
+			return false
+		}
+	}
+	return r.Spans == "" && r.S == nil && r.CustomFormat == nil && r.Ht == nil &&
+		r.Hidden == nil && r.CustomHeight == nil && r.OutlineLevel == nil &&
+		r.Collapsed == nil && r.ThickTop == nil && r.ThickBot == nil &&
+		r.Ph == nil && r.DyDescent == nil && len(r.ExtRaw) == 0
+}
+
+// pruneEmptyPhantoms drops the contentless <c>/<row> elements a read-only
+// Cell() probe leaves in the model, so a later unrelated edit does not
+// serialize them (C425). It runs on the save path, just before the dimension
+// is recomputed, and only for sheets that are regenerated anyway.
+func pruneEmptyPhantoms(ws *oxml.CT_Worksheet) {
+	rows := ws.SheetData.Row
+	keptRows := rows[:0]
+	for i := range rows {
+		r := &rows[i]
+		if rowIsEmptyPhantom(r) {
+			continue
+		}
+		keptCells := r.C[:0]
+		for _, c := range r.C {
+			if cellIsEmptyPhantom(c) {
+				continue
+			}
+			keptCells = append(keptCells, c)
+		}
+		r.C = keptCells
+		keptRows = append(keptRows, *r)
+	}
+	ws.SheetData.Row = keptRows
+}
+
 // SetColWidth sets the width of a column (1-based). Existing <col> entries
 // covering a range of columns (min < max) are split so the target column is
 // carved out with the new width while the rest of the range keeps its
 // original properties; appending an overlapping entry would be ambiguous and
-// is rejected by Excel (C127).
+// is rejected by Excel (C127). It shares the carve with every other column
+// mutator through editColumn (C383).
+//
+// A chartsheet, dialogsheet or macrosheet has no column grid; SetColWidth
+// returns ErrNotWorksheet for one.
 func (s *Sheet) SetColWidth(col int, width float64) error {
-	if col < 1 || col > MaxCol {
-		return ErrInvalidCell
-	}
-	s.markDirty()
-	s.ensureWS()
-
-	c := uint32(col)
 	w := width
 	customWidth := true
-
-	// Find or create cols element
-	if len(s.ws().Cols) == 0 {
-		s.ws().Cols = append(s.ws().Cols, oxml.CT_Cols{})
-	}
-	s.ws().EnsureChildOrder("cols")
-
-	// Carve the target column out of any entry covering it, across EVERY <cols>
-	// group. colEntry reads all groups, so a covering entry left in a later
-	// group would overlap the carved [c,c] target and be rejected by Excel
-	// (C127). The [c,c] slice of a covering range inherits that range's other
-	// properties (style, hidden, ...) with the new width applied; the remainder
-	// keeps its properties. The target is placed once, at the first covering
-	// entry found.
-	placed := false
-	for gi := range s.ws().Cols {
-		cols := s.ws().Cols[gi].Col
-		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
-		for _, entry := range cols {
-			if entry.Min > c || entry.Max < c {
-				rebuilt = append(rebuilt, entry)
-				continue
-			}
-			if entry.Min < c {
-				left := entry
-				left.Max = c - 1
-				rebuilt = append(rebuilt, left)
-			}
-			if !placed {
-				target := entry
-				target.Min, target.Max = c, c
-				target.Width = &w
-				target.CustomWidth = &customWidth
-				rebuilt = append(rebuilt, target)
-				placed = true
-			}
-			if entry.Max > c {
-				right := entry
-				right.Min = c + 1
-				rebuilt = append(rebuilt, right)
-			}
-		}
-		s.ws().Cols[gi].Col = rebuilt
-	}
-	if !placed {
-		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, oxml.CT_Col{
-			Min:         c,
-			Max:         c,
-			Width:       &w,
-			CustomWidth: &customWidth,
-		})
-	}
-
-	return nil
+	return s.editColumn(col, func(c *oxml.CT_Col) {
+		c.Width = &w
+		c.CustomWidth = &customWidth
+	})
 }
 
-// SetRowHeight sets the height of a row (1-based).
+// SetRowHeight sets the height of a row (1-based). The row must lie inside the
+// worksheet grid; a row past MaxRow yields ErrInvalidCell, matching editRow
+// and SetColWidth rather than silently appending an out-of-grid <row> (C546).
 func (s *Sheet) SetRowHeight(row int, height float64) error {
-	if row < 1 {
-		return ErrInvalidCell
-	}
-	s.markDirty()
-	s.ensureWS()
-
-	s.ws().EnsureChildOrder("sheetData")
-
-	r := uint32(row)
+	h := height
 	customHeight := true
-
-	// Find or create the row. Look rows up via rowNumberOf, not the raw r
-	// attribute: a row may legally omit r (C73), and matching on the attribute
-	// alone would append a duplicate row for the same row number (C230).
-	for i := range s.ws().SheetData.Row {
-		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == r {
-			s.ws().SheetData.Row[i].Ht = &height
-			s.ws().SheetData.Row[i].CustomHeight = &customHeight
-			return nil
-		}
-	}
-
-	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
-		R:            &r,
-		Ht:           &height,
-		CustomHeight: &customHeight,
+	return s.editRow(row, func(r *oxml.CT_Row) {
+		r.Ht = &h
+		r.CustomHeight = &customHeight
 	})
-
-	return nil
 }
 
 // cellRange is a rectangular cell range with 1-based inclusive bounds.
@@ -455,6 +460,9 @@ func parseCellRangeRef(ref string) (cellRange, error) {
 // ErrInvalidRange. A merge that duplicates or overlaps an existing merged
 // range is rejected — Excel refuses overlapping merges (C128).
 func (s *Sheet) MergeCells(startRef, endRef string) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	rng, err := normalizeCellRange(startRef, endRef)
 	if err != nil {
 		return err
@@ -489,6 +497,9 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 
 // UnmergeCells unmerges a range of cells.
 func (s *Sheet) UnmergeCells(startRef, endRef string) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if s.ws() == nil || s.ws().MergeCells == nil {
 		return nil
 	}
@@ -557,6 +568,9 @@ func FormatCellRef(row, col int) string {
 // it removes any existing pane instead of emitting a frozen pane with no
 // splits, which Excel flags as invalid (C133).
 func (s *Sheet) FreezePanes(cellRef string) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	row, col, err := ParseCellRef(cellRef)
 	if err != nil {
 		return err
@@ -659,6 +673,9 @@ func (s *Sheet) SetTabColor(hexColor string) {
 
 // SetAutoFilter sets an auto-filter on the specified range (e.g., "A1:F1").
 func (s *Sheet) SetAutoFilter(rangeRef string) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	s.ws().AutoFilter = &oxml.CT_AutoFilter{
@@ -720,6 +737,9 @@ const (
 
 // AddDataValidation adds a data validation rule to the sheet.
 func (s *Sheet) AddDataValidation(dv DataValidation) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 	if s.ws().DataValidations == nil {

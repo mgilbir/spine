@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
@@ -52,6 +53,12 @@ type Workbook struct {
 	hasCustomPart  bool                  // whether the opened package carried docProps/custom.xml
 	stylesDirty    bool
 	sheetsDirty    bool
+	// deletedParts names every part removed this session (DeleteSheet and its
+	// cascade). The save path must never emit a relationship resolving to one
+	// of them, and Validate resolves part existence against this set as well as
+	// the source reader — otherwise a deletion-induced dangling reference is
+	// invisible to the pre-save gate by construction (C366).
+	deletedParts map[string]bool
 	// persons is the workbook-shared threaded-comment author list (loaded
 	// lazily from xl/persons/personN.xml). personsPartName is the existing
 	// part name to reuse when regenerating, or "" if none existed.
@@ -1112,6 +1119,11 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 	ws := sheet.ensureWS()
 
+	// Drop the contentless <c>/<row> elements a read-only Cell() probe left in
+	// the model before anything reads the grid: they must neither reach the
+	// file nor inflate the recorded used range (C425).
+	pruneEmptyPhantoms(ws)
+
 	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
 	// recorded used range must reflect any cells written since open (C117).
 	updateSheetDimension(ws)
@@ -1428,14 +1440,31 @@ func truncateRunes(s string, n int) string {
 // DeleteSheet removes the sheet at the specified index, together with its
 // preserved part, its content-type override, and its own .rels part (C75).
 // Workbook state that indexes sheets by position is adjusted: the active tab
-// is shifted/clamped and sheet-scoped defined names are re-pointed (names
-// scoped to the deleted sheet are dropped).
+// is shifted/clamped, sheet-scoped defined names are re-pointed (names scoped
+// to the deleted sheet are dropped), every relationship resolving to a removed
+// part is dropped (C366), and references naming the deleted sheet in
+// defined-name values and in surviving sheets' formulas are rewritten to
+// #REF!, matching what Excel does (C424).
+//
+// Not rewritten: references held in chart definition parts and in pivot-cache
+// definitions, which round-trip as preserved bytes; and the pivot caches of the
+// deleted sheet's pivot tables, which are shared workbook-level parts left to a
+// dedicated pass.
+//
+// Every *Sheet handle for a sheet at or after index is invalidated: the
+// handles left in the workbook are re-indexed, but a handle the caller already
+// holds for the removed sheet is detached and must not be used again.
 func (w *Workbook) DeleteSheet(index int) error {
 	if index < 0 || index >= len(w.sheets) {
 		return ErrSheetIndex
 	}
-	if sheet := w.sheets[index]; sheet != nil && sheet.partName != "" {
-		partName := sheet.partName
+	deleted := w.sheets[index]
+	deletedName := ""
+	if deleted != nil {
+		deletedName = deleted.name
+	}
+	if deleted != nil && deleted.partName != "" {
+		partName := deleted.partName
 		// Cascade-delete the parts reachable only from this sheet — drawings,
 		// tables, comments and the media/chart parts they own — before removing
 		// the sheet's own relationships (which the cascade reads). A part still
@@ -1449,15 +1478,213 @@ func (w *Workbook) DeleteSheet(index int) error {
 	for i := index; i < len(w.sheets); i++ {
 		w.sheets[i].index = i
 	}
+	if deleted != nil {
+		// Detach the removed handle so a stale reference cannot rename or dirty
+		// a sheet that now occupies its old index.
+		deleted.workbook = nil
+		deleted.index = -1
+	}
 	w.sheetsDirty = true
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
 
 	w.adjustActiveTabAfterDelete(index)
-	w.adjustDefinedNamesAfterDelete(index)
+	w.adjustDefinedNamesAfterDelete(index, deletedName)
+	w.dropRelationshipsToDeletedParts()
+	w.rewriteFormulasAfterDelete(deletedName)
 
 	return nil
+}
+
+// dropRelationshipsToDeletedParts removes, from every surviving source part's
+// relationship list, each internal relationship whose resolved target was
+// deleted this session. Without it a chartsheet-typed relationship survives the
+// worksheet-only rebuild in rebuildWorksheetRelationships, the resulting set is
+// still set-equivalent to the source, and writeWorkbookRelationships re-emits
+// the original .rels bytes verbatim — still targeting an absent part (C366).
+func (w *Workbook) dropRelationshipsToDeletedParts() {
+	if len(w.deletedParts) == 0 {
+		return
+	}
+	for src, rels := range w.relationships {
+		if w.deletedParts[src] {
+			continue
+		}
+		kept := rels[:0:0]
+		changed := false
+		for _, rel := range rels {
+			if rel != nil && rel.TargetMode != opc.TargetModeExternal &&
+				w.deletedParts[opc.ResolvePartName(src, rel.Target)] {
+				changed = true
+				continue
+			}
+			kept = append(kept, rel)
+		}
+		if changed {
+			w.relationships[src] = kept
+		}
+	}
+}
+
+// rewriteFormulasAfterDelete rewrites, on every surviving sheet, formulas that
+// name the deleted sheet so they read #REF! the way Excel writes them (C424).
+// A sheet whose preserved bytes cannot contain the name is never parsed and
+// never dirtied, so an unrelated deletion keeps every other sheet's bytes.
+func (w *Workbook) rewriteFormulasAfterDelete(deletedName string) {
+	if deletedName == "" {
+		return
+	}
+	for _, sheet := range w.sheets {
+		if sheet == nil || sheet.opaque {
+			continue
+		}
+		if !sheet.mayReferenceSheetName(deletedName) {
+			continue
+		}
+		ws := sheet.ws()
+		if ws == nil {
+			continue
+		}
+		changed := false
+		for i := range ws.SheetData.Row {
+			for _, cell := range ws.SheetData.Row[i].C {
+				if cell == nil || cell.F == nil || cell.F.Value == "" {
+					continue
+				}
+				if v := rewriteDeletedSheetRefs(cell.F.Value, deletedName); v != cell.F.Value {
+					cell.F.Value = v
+					changed = true
+				}
+			}
+		}
+		if changed {
+			sheet.markDirty()
+		}
+	}
+}
+
+// mayReferenceSheetName reports whether the sheet could carry a reference to
+// the given sheet name, by scanning its preserved bytes for the name (raw and
+// XML-escaped). A materialized sheet always says yes: its model may hold
+// formulas the source bytes never did.
+func (s *Sheet) mayReferenceSheetName(name string) bool {
+	if s.wsModel != nil {
+		return true
+	}
+	if s.workbook == nil || s.partName == "" {
+		return false
+	}
+	part, ok := s.workbook.preservedParts[s.partName]
+	if !ok || part == nil {
+		return false
+	}
+	if bytes.Contains(part.Data, []byte(name)) {
+		return true
+	}
+	var esc bytes.Buffer
+	if err := xml.EscapeText(&esc, []byte(name)); err != nil {
+		return true
+	}
+	return bytes.Contains(part.Data, esc.Bytes())
+}
+
+// rewriteDeletedSheetRefs replaces every sheet-qualified reference to
+// sheetName in a formula or defined-name value with "#REF!", the marker Excel
+// writes when the referenced sheet is gone. Both the bare form (Data!A1) and
+// the quoted form ('My Sheet'!A1) are handled; string literals are skipped so
+// a quoted "Data!A1" inside a formula is left alone, and a longer name that
+// merely starts with sheetName (MyData!, DataX!) is not matched.
+func rewriteDeletedSheetRefs(expr, sheetName string) string {
+	if expr == "" || sheetName == "" || !strings.Contains(expr, "!") {
+		return expr
+	}
+	var b strings.Builder
+	b.Grow(len(expr))
+	i := 0
+	for i < len(expr) {
+		switch expr[i] {
+		case '"':
+			// Copy a string literal verbatim ("" escapes an embedded quote).
+			j := i + 1
+			for j < len(expr) {
+				if expr[j] == '"' {
+					if j+1 < len(expr) && expr[j+1] == '"' {
+						j += 2
+						continue
+					}
+					j++
+					break
+				}
+				j++
+			}
+			b.WriteString(expr[i:j])
+			i = j
+		case '\'':
+			name, end, ok := scanQuotedSheetName(expr, i)
+			if ok && end < len(expr) && expr[end] == '!' && strings.EqualFold(name, sheetName) {
+				b.WriteString("#REF!")
+				i = end + 1
+				continue
+			}
+			if ok {
+				b.WriteString(expr[i:end])
+				i = end
+				continue
+			}
+			b.WriteByte(expr[i])
+			i++
+		default:
+			if isSheetNameStart(expr[i]) && (i == 0 || !isSheetNameChar(expr[i-1])) {
+				j := i
+				for j < len(expr) && isSheetNameChar(expr[j]) {
+					j++
+				}
+				if j < len(expr) && expr[j] == '!' && strings.EqualFold(expr[i:j], sheetName) {
+					b.WriteString("#REF!")
+					i = j + 1
+					continue
+				}
+				b.WriteString(expr[i:j])
+				i = j
+				continue
+			}
+			b.WriteByte(expr[i])
+			i++
+		}
+	}
+	return b.String()
+}
+
+// scanQuotedSheetName reads the single-quoted sheet name starting at expr[i]
+// (which must be a quote), returning the unescaped name and the index just
+// past the closing quote. ok is false when the quote is unterminated.
+func scanQuotedSheetName(expr string, i int) (name string, end int, ok bool) {
+	var b strings.Builder
+	j := i + 1
+	for j < len(expr) {
+		if expr[j] == '\'' {
+			if j+1 < len(expr) && expr[j+1] == '\'' {
+				b.WriteByte('\'')
+				j += 2
+				continue
+			}
+			return b.String(), j + 1, true
+		}
+		b.WriteByte(expr[j])
+		j++
+	}
+	return "", i, false
+}
+
+// isSheetNameStart / isSheetNameChar delimit an unquoted sheet-name token in a
+// formula. Excel requires quoting for anything outside this set.
+func isSheetNameStart(c byte) bool {
+	return c == '_' || c == '\\' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c >= 0x80
+}
+
+func isSheetNameChar(c byte) bool {
+	return isSheetNameStart(c) || (c >= '0' && c <= '9') || c == '.'
 }
 
 // sheetPrivateRelTypes are the relationship kinds whose target parts belong to
@@ -1558,6 +1785,14 @@ func (w *Workbook) deletePartAndRels(part string) {
 		w.contentTypes.RemoveOverride(part)
 		w.contentTypes.RemoveOverride(relsName)
 	}
+	// Record the removal so the save path and Validate both resolve against
+	// the output set rather than the source reader, which still holds the part
+	// (C366).
+	if w.deletedParts == nil {
+		w.deletedParts = make(map[string]bool)
+	}
+	w.deletedParts[part] = true
+	w.deletedParts[relsName] = true
 }
 
 // adjustActiveTabAfterDelete shifts workbookView activeTab indices down when
@@ -1589,9 +1824,12 @@ func (w *Workbook) adjustActiveTabAfterDelete(index int) {
 }
 
 // adjustDefinedNamesAfterDelete drops defined names scoped to the deleted
-// sheet and shifts the localSheetId of names scoped to later sheets, which
-// would otherwise point at the wrong sheet (or beyond the sheet list).
-func (w *Workbook) adjustDefinedNamesAfterDelete(index int) {
+// sheet, shifts the localSheetId of names scoped to later sheets (which would
+// otherwise point at the wrong sheet, or beyond the sheet list), and rewrites
+// values that reference the deleted sheet by name to #REF! — fixing only the
+// scope left a workbook-scoped name such as "Data!$A$1" dangling after Data
+// was removed (C424).
+func (w *Workbook) adjustDefinedNamesAfterDelete(index int, deletedName string) {
 	if w.workbook.DefinedNames == nil {
 		return
 	}
@@ -1608,6 +1846,7 @@ func (w *Workbook) adjustDefinedNamesAfterDelete(index int) {
 				dn.LocalSheetId = &v
 			}
 		}
+		dn.Value = rewriteDeletedSheetRefs(dn.Value, deletedName)
 		kept = append(kept, dn)
 	}
 	w.workbook.DefinedNames.DefinedName = kept
@@ -1658,6 +1897,18 @@ func (w *Workbook) SetActiveSheet(index int) error {
 	w.workbook.BookViews.WorkbookView[0].ActiveTab = &idx
 
 	return nil
+}
+
+// Date1904 reports whether the workbook uses the 1904 serial-date system
+// (workbookPr/@date1904, the historical Mac Excel default): serial 0 is
+// 1904-01-01 and there is no fictitious 1900-02-29 leap day. The default is
+// the 1900 system. Cell.Time and Cell.SetTime follow this setting (C367).
+func (w *Workbook) Date1904() bool {
+	if w == nil || w.workbook == nil || w.workbook.WorkbookPr == nil {
+		return false
+	}
+	d := w.workbook.WorkbookPr.Date1904
+	return d != nil && d.Val
 }
 
 // ForceFullCalc reports whether the workbook is marked to recalculate every
@@ -1734,7 +1985,14 @@ func ParseCellRef(ref string) (row, col int, err error) {
 		}
 	}
 
-	// Parse row number
+	// Parse row number. strconv.Atoi accepts a leading sign, so "A+5" would
+	// otherwise silently address A5 and the caller would write to a cell it
+	// never named (C547); require the row to be digits only.
+	for i := 0; i < len(rowStr); i++ {
+		if rowStr[i] < '0' || rowStr[i] > '9' {
+			return 0, 0, ErrInvalidCell
+		}
+	}
 	row, err = strconv.Atoi(rowStr)
 	if err != nil || row < 1 || row > MaxRow {
 		return 0, 0, ErrInvalidCell
@@ -1756,12 +2014,17 @@ type DefinedName struct {
 	Description string
 }
 
-// AddDefinedName adds a workbook-scoped defined name.
+// AddDefinedName adds a workbook-scoped defined name. The name must be legal
+// for Excel (see ValidateDefinedName) and must not already exist at workbook
+// scope; otherwise an error is returned and the workbook is left unchanged
+// (C426).
 func (w *Workbook) AddDefinedName(name, ref string) error {
 	return w.addDefinedName(name, ref, -1)
 }
 
-// AddDefinedNameScoped adds a sheet-scoped defined name.
+// AddDefinedNameScoped adds a sheet-scoped defined name. The name must be
+// legal for Excel (see ValidateDefinedName) and must not already exist on that
+// sheet.
 func (w *Workbook) AddDefinedNameScoped(name, ref string, sheetIndex int) error {
 	if sheetIndex < 0 || sheetIndex >= len(w.sheets) {
 		return ErrSheetIndex
@@ -1770,6 +2033,12 @@ func (w *Workbook) AddDefinedNameScoped(name, ref string, sheetIndex int) error 
 }
 
 func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
+	if err := ValidateDefinedName(name); err != nil {
+		return err
+	}
+	if err := w.checkDefinedNameCollision(name, sheetIndex); err != nil {
+		return err
+	}
 	if w.workbook.DefinedNames == nil {
 		w.workbook.DefinedNames = &oxml.CT_DefinedNames{}
 	}

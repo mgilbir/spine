@@ -43,10 +43,40 @@ func (w *Workbook) Validate() validate.Report {
 	w.validateHyperlinks(c)
 	w.validateDataValidations(c)
 	w.validateCharts(c)
+	w.validateDeletedPartRefs(c)
 	if w.reader != nil {
 		w.validatePackage(c)
 	}
 	return c.Report()
+}
+
+// validateDeletedPartRefs reports relationships that still resolve to a part
+// removed this session. The package-level relationship check runs only for an
+// opened workbook and resolves against the source reader, where a deleted part
+// still exists, so a deletion-induced dangling reference is invisible to it by
+// construction (T-A / C366). This check resolves against the *output* set — the
+// parts the save will actually write — and therefore also runs after Close.
+// It cannot yield a false positive: deletedParts holds only parts this session
+// removed from the package.
+func (w *Workbook) validateDeletedPartRefs(c *validate.Collector) {
+	if len(w.deletedParts) == 0 {
+		return
+	}
+	for src, rels := range w.relationships {
+		if w.deletedParts[src] {
+			continue
+		}
+		for _, rel := range rels {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			target := opc.ResolvePartName(src, rel.Target)
+			if w.deletedParts[target] {
+				c.Errorf(validate.CodeDanglingRel, src,
+					fmt.Sprintf("relationship %q targets %q, which was removed from the package this session", rel.ID, rel.Target))
+			}
+		}
+	}
 }
 
 // validateComments reports comment defects that Open tolerates but that Excel
@@ -351,7 +381,8 @@ func (w *Workbook) knownPartNames() []string {
 	seen := make(map[string]bool)
 	var out []string
 	add := func(name string) {
-		if name == "" || seen[name] {
+		// Parts removed this session are not in the output set (C366).
+		if name == "" || seen[name] || w.deletedParts[name] {
 			return
 		}
 		seen[name] = true
@@ -377,6 +408,12 @@ func (w *Workbook) knownPartNames() []string {
 // model collection. Deliberately over-inclusive so relationship-target checks
 // never yield a false positive.
 func (w *Workbook) partExists(name string) bool {
+	// A part removed this session is gone from the output even though the
+	// source reader still holds it; resolving against the reader alone is what
+	// made every deletion-induced dangling reference invisible (T-A / C366).
+	if w.deletedParts[name] {
+		return false
+	}
 	if w.reader != nil && w.reader.GetFile(name) != nil {
 		return true
 	}
