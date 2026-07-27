@@ -412,37 +412,9 @@ func collectRemovedPicRefs(spTree *oxml.ShapeTree, refs []oxml.ChildRef) (spids 
 		}
 	}
 
-	var descend func(g *oxml.GroupShape, depth int)
-	descend = func(g *oxml.GroupShape, depth int) {
-		// Groups nest arbitrarily; a parsed tree cannot be cyclic, but bound the
-		// recursion anyway so a hand-built model cannot spin here.
-		if g == nil || depth > maxGroupNestDepth {
-			return
-		}
-		if g.NvGrpSpPr != nil && g.NvGrpSpPr.CNvPr != nil {
-			spids = append(spids, g.NvGrpSpPr.CNvPr.Id)
-		}
-		for _, sp := range g.Shapes {
-			if sp != nil && sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
-				spids = append(spids, sp.NvSpPr.CNvPr.Id)
-			}
-		}
-		for _, pic := range g.Pictures {
-			collect(pic)
-		}
-		for _, gf := range g.GraphicFrames {
-			if gf != nil && gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
-				spids = append(spids, gf.NvGraphicFramePr.CNvPr.Id)
-			}
-		}
-		for _, cxn := range g.ConnectionShapes {
-			if cxn != nil && cxn.NvCxnSpPr != nil && cxn.NvCxnSpPr.CNvPr != nil {
-				spids = append(spids, cxn.NvCxnSpPr.CNvPr.Id)
-			}
-		}
-		for _, sub := range g.GroupShapes {
-			descend(sub, depth+1)
-		}
+	descend := func(g *oxml.GroupShape, depth int) {
+		eachShapeIDInGroup(g, depth, func(id uint32) { spids = append(spids, id) })
+		eachPictureInGroup(g, depth, collect)
 	}
 
 	for _, ref := range refs {
@@ -461,6 +433,61 @@ func collectRemovedPicRefs(spTree *oxml.ShapeTree, refs []oxml.ChildRef) (spids 
 		}
 	}
 	return spids, relIDs
+}
+
+// eachShapeIDInGroup calls fn with the cNvPr id of the group itself and of
+// every descendant, regardless of kind, recursing through nested groups.
+//
+// It is shared by the removal sweep (collectRemovedPicRefs, C379) and by the
+// animation target check (Slide.shapeIDsInTree, C416) so the two cannot drift:
+// both need the answer to "which shape ids does this subtree contain", and the
+// removal side having its own narrower version is what let C379 exist.
+func eachShapeIDInGroup(g *oxml.GroupShape, depth int, fn func(uint32)) {
+	// Groups nest arbitrarily; a parsed tree cannot be cyclic, but bound the
+	// recursion anyway so a hand-built model cannot spin here.
+	if g == nil || depth > maxGroupNestDepth {
+		return
+	}
+	if g.NvGrpSpPr != nil && g.NvGrpSpPr.CNvPr != nil {
+		fn(g.NvGrpSpPr.CNvPr.Id)
+	}
+	for _, sp := range g.Shapes {
+		if sp != nil && sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
+			fn(sp.NvSpPr.CNvPr.Id)
+		}
+	}
+	for _, pic := range g.Pictures {
+		if pic != nil && pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
+			fn(pic.NvPicPr.CNvPr.Id)
+		}
+	}
+	for _, gf := range g.GraphicFrames {
+		if gf != nil && gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
+			fn(gf.NvGraphicFramePr.CNvPr.Id)
+		}
+	}
+	for _, cxn := range g.ConnectionShapes {
+		if cxn != nil && cxn.NvCxnSpPr != nil && cxn.NvCxnSpPr.CNvPr != nil {
+			fn(cxn.NvCxnSpPr.CNvPr.Id)
+		}
+	}
+	for _, sub := range g.GroupShapes {
+		eachShapeIDInGroup(sub, depth+1, fn)
+	}
+}
+
+// eachPictureInGroup calls fn with every picture in the group, recursing
+// through nested groups.
+func eachPictureInGroup(g *oxml.GroupShape, depth int, fn func(*oxml.Picture)) {
+	if g == nil || depth > maxGroupNestDepth {
+		return
+	}
+	for _, pic := range g.Pictures {
+		fn(pic)
+	}
+	for _, sub := range g.GroupShapes {
+		eachPictureInGroup(sub, depth+1, fn)
+	}
 }
 
 // maxGroupNestDepth bounds the group recursion in collectRemovedPicRefs. Real

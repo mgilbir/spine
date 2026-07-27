@@ -815,6 +815,68 @@ func textBoxToOxml(tb *TextBox, id uint32) *oxml.Shape {
 // shape stored (via Fill/Line/Shadow ApplyToSpPr) into the SpPr being
 // marshaled. Every fill kind is copied, not just SolidFill, so gradient,
 // pattern, and no-fill values are not dropped.
+// mergeLn overlays the line members the domain model represents (width, cap,
+// compound, alignment, fill, dash) onto the parsed a:ln and returns it.
+//
+// Assigning src wholesale — which is what SetLineWidth/SetLineColor/SetLineDash
+// and Connector.SetLine used to cause — replaced the parsed line with the three
+// properties dml.Line models, so a connector with cap="rnd" and a:headEnd /
+// a:tailEnd lost both arrowheads and its cap on a width change. Arrowheads are
+// the normal case for connectors, and the same path styles AutoShape and
+// TextBox lines (C417).
+func mergeLn(dst, src *dml.Ln) *dml.Ln {
+	if dst == nil {
+		return src
+	}
+	if src.W != nil {
+		dst.W = src.W
+	}
+	if src.Cap != "" {
+		dst.Cap = src.Cap
+	}
+	if src.Cmpd != "" {
+		dst.Cmpd = src.Cmpd
+	}
+	if src.Algn != "" {
+		dst.Algn = src.Algn
+	}
+	// The line fill is an exclusive choice, so a set member replaces the whole
+	// group rather than joining it.
+	if src.NoFill != nil || src.SolidFill != nil || src.GradFill != nil || src.PattFill != nil {
+		dst.NoFill, dst.SolidFill, dst.GradFill, dst.PattFill = nil, nil, nil, nil
+		switch {
+		case src.NoFill != nil:
+			dst.NoFill = src.NoFill
+		case src.SolidFill != nil:
+			dst.SolidFill = src.SolidFill
+		case src.GradFill != nil:
+			dst.GradFill = src.GradFill
+		case src.PattFill != nil:
+			dst.PattFill = src.PattFill
+		}
+	}
+	// So is the dash: a preset dash displaces a parsed custom one.
+	if src.PrstDash != nil {
+		dst.PrstDash, dst.CustDash = src.PrstDash, nil
+	} else if src.CustDash != nil {
+		dst.PrstDash, dst.CustDash = nil, src.CustDash
+	}
+	// And the join.
+	if src.Round != nil || src.Bevel != nil || src.Miter != nil {
+		dst.Round, dst.Bevel, dst.Miter = src.Round, src.Bevel, src.Miter
+	}
+	if src.HeadEnd != nil {
+		dst.HeadEnd = src.HeadEnd
+	}
+	if src.TailEnd != nil {
+		dst.TailEnd = src.TailEnd
+	}
+	if src.ExtLst != nil {
+		dst.ExtLst = src.ExtLst
+	}
+	return dst
+}
+
 func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 	if src == nil {
 		return
@@ -843,7 +905,7 @@ func applyShapeStyle(dst *dml.SpPr, src *dml.SpPr) {
 		}
 	}
 	if src.Ln != nil {
-		dst.Ln = src.Ln
+		dst.Ln = mergeLn(dst.Ln, src.Ln)
 	}
 	// Effects merge per member: the overlay starts empty for a materialized
 	// shape, so setting one effect (glow, shadow, reflection, soft edge) must
