@@ -74,6 +74,14 @@ var ErrNilPresentation = errors.New("pptx: source presentation is nil")
 // one and the destination does not (a deck carries at most one of each, so a
 // second source does not add a duplicate). The notes master is imported before
 // the slides so each imported notes slide can wire to it.
+//
+// The source presentation other may be modified as a side effect: each of its
+// slides is marshaled to take an authoritative snapshot, which flushes that
+// slide's pending shape edits, embeds pending media (images/audio/video) into
+// the source package, allocates shape ids, and resolves media timing and
+// animations. The copy taken into this presentation is independent, but callers
+// that reuse other after appending should expect its in-memory model to reflect
+// those flushed edits.
 func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 	if other == nil {
 		return ErrNilPresentation
