@@ -11,12 +11,11 @@ fixtures have no known public URL (their commented-out entries in
 `external.txt` suffixed `— URL unknown`) and can never be fetched; the corresponding tests always
 skip on a fresh clone.
 
-## Optional python-pptx fixture corpus
+## python-pptx fixture corpus
 
 A handful of pptx tests (`pptx/schema_test.go`) exercise fixtures from
-the [python-pptx](https://github.com/scanny/python-pptx) test suite. To
-use them, copy python-pptx's `tests/` directory to `python-tests/` at
-the repository root (gitignored — it is ~3 MB of Python test code
-carried only for its `test_files/` fixtures). Without it those tests
-skip. python-pptx is MIT-licensed; its license and copyright notice
-apply to the copied fixtures.
+the [python-pptx](https://github.com/scanny/python-pptx) test suite.
+These now live in `python-tests/` at the repository root (committed —
+~3 MB of Python test code carried only for its `test_files/` fixtures),
+so the tests run on a fresh clone with no extra setup. python-pptx is
+MIT-licensed; its license and copyright notice apply to the fixtures.
