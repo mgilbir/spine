@@ -66,6 +66,11 @@ func ClassifyFetchError(err error, transientHint bool) (FetchDisposition, string
 		return DispTransient, ""
 	case errors.Is(err, ErrNotOOXML):
 		return DispPermanent, "fetch:not-ooxml"
+	case errors.Is(err, ErrGateUnavailable):
+		// The DoH resolver was unreachable — an infrastructure blip, not a
+		// verdict. Defer the reference; a later run retries it. Checked before
+		// ErrGateDead so a resolver outage never masquerades as a dead origin.
+		return DispTransient, "fetch:gate-unavailable"
 	case errors.Is(err, ErrGateDead):
 		return DispPermanent, "fetch:dns"
 	case errors.Is(err, ErrGateBlocked):

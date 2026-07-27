@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -124,6 +127,66 @@ func TestLedgerResume(t *testing.T) {
 	}
 }
 
+// TestSelectWorkNoDohSkipNotRetired guards C332: a run with no DoH resolver
+// must not permanently retire live references. It selects them only as skips
+// that are never ledgered, so a later resolver-configured run still picks them.
+func TestSelectWorkNoDohSkipNotRetired(t *testing.T) {
+	refs := []Ref{
+		{Digest: "W1", Kind: kindWARC},
+		{Digest: "L1", Kind: kindLive},
+		{Digest: "L2", Kind: kindLive},
+	}
+	none := func(string) bool { return false }
+
+	// No resolver: the WARC row is selected, the two live rows are passed over
+	// as no-DoH skips WITHOUT being selected or consuming budget.
+	sel := selectWork(refs, 10, false /*hasDoh*/, none, none)
+	if got := digests(sel.work); len(got) != 1 || got[0] != "W1" {
+		t.Fatalf("no-doh selection work = %v, want [W1]", got)
+	}
+	if sel.noDohSkips != 2 {
+		t.Fatalf("no-doh skips = %d, want 2", sel.noDohSkips)
+	}
+	if len(sel.exhausted) != 0 {
+		t.Fatalf("no-doh exhausted = %v, want none", digests(sel.exhausted))
+	}
+
+	// The no-doh run ledgered only the processable rows. Crucially the skipped
+	// live rows are NOT marked done, so a later run with a resolver configured
+	// still selects them.
+	done := map[string]bool{"W1": true}
+	sel2 := selectWork(refs, 10, true /*hasDoh*/, func(d string) bool { return done[d] }, none)
+	if got := digests(sel2.work); len(got) != 2 || got[0] != "L1" || got[1] != "L2" {
+		t.Fatalf("resolver-configured re-run work = %v, want [L1 L2]", got)
+	}
+	if sel2.noDohSkips != 0 {
+		t.Fatalf("resolver-configured re-run skips = %d, want 0", sel2.noDohSkips)
+	}
+}
+
+// TestSelectWorkExhausted checks that a reference whose retry cap is already
+// hit is returned for terminal retirement, not queued for another fetch.
+func TestSelectWorkExhausted(t *testing.T) {
+	refs := []Ref{{Digest: "W1", Kind: kindWARC}, {Digest: "W2", Kind: kindWARC}}
+	none := func(string) bool { return false }
+	exhausted := func(d string) bool { return d == "W2" }
+	sel := selectWork(refs, 10, true, none, exhausted)
+	if got := digests(sel.work); len(got) != 1 || got[0] != "W1" {
+		t.Fatalf("work = %v, want [W1]", got)
+	}
+	if got := digests(sel.exhausted); len(got) != 1 || got[0] != "W2" {
+		t.Fatalf("exhausted = %v, want [W2]", got)
+	}
+}
+
+func digests(refs []Ref) []string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = r.Digest
+	}
+	return out
+}
+
 func TestSignature(t *testing.T) {
 	err := errors.New("12 identical, 3 changed parts (first: word/document9.xml)")
 	got := signature(err)
@@ -169,18 +232,52 @@ func TestLastResultLine(t *testing.T) {
 // TestInterpretWorkerSynthetic exercises the mapping from a worker's raw exit
 // signals to a ledger outcome without spawning real processes.
 func TestInterpretWorkerSynthetic(t *testing.T) {
-	if o, s, _ := interpretWorker(true, nil, "", "D1"); o != outcomeResource || s != "timeout" {
+	if o, s, _ := interpretWorker(true, nil, "", "", "D1"); o != outcomeResource || s != "timeout" {
 		t.Errorf("timeout: got (%s,%s)", o, s)
 	}
-	if o, _, _ := interpretWorker(false, nil, "D1\tpass\n", "D1"); o != outcomePass {
+	if o, _, _ := interpretWorker(false, nil, "D1\tpass\n", "", "D1"); o != outcomePass {
 		t.Errorf("pass: got %s", o)
 	}
-	if o, s, _ := interpretWorker(false, nil, "D1\tfail\tsave\tx", "D1"); o != outcomeFail || s != "save" {
+	if o, s, _ := interpretWorker(false, nil, "D1\tfail\tsave\tx", "", "D1"); o != outcomeFail || s != "save" {
 		t.Errorf("fail: got (%s,%s)", o, s)
 	}
-	if o, s, _ := interpretWorker(false, nil, "unrelated output", "D1"); o != outcomeResource || s != "panic" {
+	if o, s, _ := interpretWorker(false, nil, "unrelated output", "", "D1"); o != outcomeResource || s != "panic" {
 		t.Errorf("silent: got (%s,%s)", o, s)
 	}
+}
+
+// TestInterpretWorkerPanicSignature guards C336: a crashed worker's first panic
+// line is folded into the signature so two different panics cluster distinctly
+// instead of collapsing into one "worker exited with status N".
+func TestInterpretWorkerPanicSignature(t *testing.T) {
+	exit2 := &exec.ExitError{ProcessState: fakeExit(2)}
+
+	stderrA := "panic: runtime error: index out of range [5] with length 3\n\ngoroutine 1 [running]:\nmain.foo()\n"
+	stderrB := "panic: assignment to entry in nil map\n\ngoroutine 1 [running]:\nmain.bar()\n"
+
+	_, _, sigA := interpretWorker(false, exit2, "", stderrA, "D1")
+	_, _, sigB := interpretWorker(false, exit2, "", stderrB, "D1")
+
+	if sigA == sigB {
+		t.Fatalf("distinct panics produced identical signatures: %q", sigA)
+	}
+	for _, sig := range []string{sigA, sigB} {
+		if !strings.HasPrefix(sig, "worker exited with status 2: ") {
+			t.Errorf("signature missing status/panic prefix: %q", sig)
+		}
+	}
+	// With no stderr, the signature falls back to the bare status line.
+	if _, _, sig := interpretWorker(false, exit2, "", "", "D1"); sig != "worker exited with status 2" {
+		t.Errorf("no-stderr signature = %q, want bare status line", sig)
+	}
+}
+
+// fakeExit returns a ProcessState reporting the given exit code, for building
+// an *exec.ExitError without hand-constructing platform-specific wait status.
+func fakeExit(code int) *os.ProcessState {
+	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
+	_ = cmd.Run()
+	return cmd.ProcessState
 }
 
 // TestSpawnWorkerEndToEnd injects fake workers via /bin/sh to prove the
@@ -190,9 +287,9 @@ func TestInterpretWorkerSynthetic(t *testing.T) {
 func TestSpawnWorkerEndToEnd(t *testing.T) {
 	ref := Ref{Digest: "DEAD", Type: "docx"}
 	sh := func(script string, hard time.Duration) (outcome, stage string) {
-		stdout, runErr, timedOut := spawnWorker(context.Background(), "/bin/sh",
+		stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), "/bin/sh",
 			[]string{"-c", script}, ref, hard)
-		o, s, _ := interpretWorker(timedOut, runErr, stdout, ref.Digest)
+		o, s, _ := interpretWorker(timedOut, runErr, stdout, stderr, ref.Digest)
 		return o, s
 	}
 

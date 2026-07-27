@@ -172,7 +172,11 @@ func fetchLive(ctx context.Context, ref Ref, dohURL string, timeout time.Duratio
 	gate := ccharvest.NewHostGate(&http.Client{Timeout: timeout}, dohURL)
 	v, err := gate.Check(ctx, u.Hostname())
 	if err != nil {
-		return nil, true, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateDead, err)
+		// The resolver never answered (endpoint outage/timeout): a transient
+		// infrastructure failure, not a dead-host verdict. Mark it retryable and
+		// tag it with the transient gate sentinel so ClassifyFetchError defers
+		// the reference instead of permanently retiring it.
+		return nil, true, fmt.Errorf("%w (gate: %v)", ccharvest.ErrGateUnavailable, err)
 	}
 	switch v {
 	case ccharvest.VerdictBlocked:
@@ -279,7 +283,13 @@ func emitResult(digest string, r result) {
 // collapsed to N, whitespace flattened, truncated. It matches cctest's
 // signature so quarantine rows cluster consistently across the two tools.
 func signature(err error) string {
-	msg := err.Error()
+	return normalizeSignature(err.Error())
+}
+
+// normalizeSignature collapses digit runs to N, flattens whitespace, and
+// truncates, producing the stable grouping key used for both fetch errors and
+// worker-crash signatures.
+func normalizeSignature(msg string) string {
 	var b strings.Builder
 	lastDigit := false
 	for _, r := range msg {

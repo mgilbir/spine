@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -176,6 +177,45 @@ type batchStats struct {
 // transient failures reached maxFetchAttempts.
 const sigExhausted = "fetch:transient-exhausted"
 
+// selection is the outcome of picking a batch of references to process.
+type selection struct {
+	work       []Ref // references to fetch and test this batch
+	exhausted  []Ref // references to retire terminally (retry cap already hit)
+	noDohSkips int   // live rows passed over because no resolver is configured
+}
+
+// selectWork picks up to batch not-yet-processed references, in manifest order.
+//
+// Live rows with no DoH resolver configured (hasDoh == false) are passed over
+// WITHOUT being selected or ledgered — a skip is not a terminal outcome, so a
+// later run with a resolver configured must still select them — and they do NOT
+// consume batch budget, so the budget is spent on rows this run can actually
+// process. References whose transient retry cap is already exhausted are
+// returned separately so the caller can retire them terminally.
+func selectWork(refs []Ref, batch int, hasDoh bool, done, exhausted func(string) bool) selection {
+	var sel selection
+	selected := 0
+	for _, r := range refs {
+		if selected >= batch {
+			break
+		}
+		if done(r.Digest) {
+			continue
+		}
+		if r.Kind == kindLive && !hasDoh {
+			sel.noDohSkips++
+			continue
+		}
+		selected++
+		if exhausted(r.Digest) {
+			sel.exhausted = append(sel.exhausted, r)
+			continue
+		}
+		sel.work = append(sel.work, r)
+	}
+	return sel
+}
+
 func runOrchestrator(cfg orchConfig) error {
 	if len(cfg.manifests) == 0 {
 		cfg.manifests = []string{"testdata/cc"}
@@ -224,39 +264,25 @@ func runOrchestrator(cfg orchConfig) error {
 
 	stats := &batchStats{failByStage: map[string]int{}, resource: map[string]int{}, manifestDupes: dupes}
 
-	// Select up to cfg.batch not-yet-processed references. Live rows with no
-	// DoH resolver are recorded as skips (they still consume batch budget so a
-	// batch stays bounded and resumable).
-	var work []Ref
+	// Select up to cfg.batch not-yet-processed references.
 	var mu sync.Mutex
 	now := time.Now
-	selected := 0
-	for _, r := range refs {
-		if selected >= cfg.batch {
-			break
-		}
-		if ledger.Has(r.Digest) {
-			continue
-		}
-		selected++
-		if r.Kind == kindLive && cfg.dohURL == "" {
-			_ = ledger.Append(r.Digest, outcomeSkip, "no-doh", "", now())
-			stats.noDohSkips++
-			continue
-		}
-		// A reference whose transient failures already reached the retry cap in
-		// earlier batches is retired terminally now, without another expensive
-		// fetch, so the queue drains instead of looping on a flaky origin.
-		if attempts.Exhausted(r.Digest) {
-			_ = ledger.Append(r.Digest, outcomeFail, "fetch", sigExhausted, now())
-			_ = quarantine.Append(r, "fetch", sigExhausted)
-			stats.failByStage["fetch"]++
-			stats.processed++
-			stats.exhausted++
-			continue
-		}
-		work = append(work, r)
+	sel := selectWork(refs, cfg.batch, cfg.dohURL != "", ledger.Has, attempts.Exhausted)
+	work := sel.work
+	stats.noDohSkips = sel.noDohSkips
+	// References whose transient failures already reached the retry cap in
+	// earlier batches are retired terminally now, without another expensive
+	// fetch, so the queue drains instead of looping on a flaky origin.
+	for _, r := range sel.exhausted {
+		_ = ledger.Append(r.Digest, outcomeFail, "fetch", sigExhausted, now())
+		_ = quarantine.Append(r, "fetch", sigExhausted)
+		stats.failByStage["fetch"]++
+		stats.processed++
+		stats.exhausted++
 	}
+	// Rows consuming batch budget: the work queue plus the terminally-retired
+	// exhausted rows. No-DoH skips do NOT consume budget and are not counted.
+	selected := len(sel.work) + len(sel.exhausted)
 
 	total := len(refs)
 	remaining := 0
@@ -328,14 +354,37 @@ func processRef(self string, r Ref, cfg orchConfig) (outcome, stage, sig string)
 	}
 	// Hard cap allows the worker to bail cleanly on a slow fetch before the
 	// orchestrator kills it; a genuine processing hang is killed here.
-	stdout, runErr, timedOut := spawnWorker(context.Background(), self, args, r, cfg.timeout+10*time.Second)
-	return interpretWorker(timedOut, runErr, stdout, r.Digest)
+	stdout, stderr, runErr, timedOut := spawnWorker(context.Background(), self, args, r, cfg.timeout+10*time.Second)
+	return interpretWorker(timedOut, runErr, stdout, stderr, r.Digest)
+}
+
+// maxWorkerStderr bounds how much of a crashing worker's stderr the
+// orchestrator retains — enough for the panic line and a little context,
+// without letting a worker that floods stderr balloon orchestrator memory.
+const maxWorkerStderr = 8 << 10
+
+// capWriter accumulates up to cap bytes and silently drops the rest, always
+// reporting a full write so the writing process never blocks on a full pipe.
+type capWriter struct {
+	buf bytes.Buffer
+	cap int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if rem := w.cap - w.buf.Len(); rem > 0 {
+		if len(p) > rem {
+			p = p[:rem]
+		}
+		w.buf.Write(p)
+	}
+	return len(p), nil
 }
 
 // spawnWorker runs one worker command with a hard timeout, feeding the Ref as
-// JSON on stdin, and returns its stdout, the run error, and whether the hard
-// timeout fired. exe/args are separated so tests can inject a fake worker.
-func spawnWorker(parent context.Context, exe string, args []string, ref Ref, hard time.Duration) (stdout string, runErr error, timedOut bool) {
+// JSON on stdin, and returns its stdout, a bounded capture of its stderr, the
+// run error, and whether the hard timeout fired. exe/args are separated so
+// tests can inject a fake worker.
+func spawnWorker(parent context.Context, exe string, args []string, ref Ref, hard time.Duration) (stdout, stderr string, runErr error, timedOut bool) {
 	ctx, cancel := context.WithTimeout(parent, hard)
 	defer cancel()
 
@@ -343,17 +392,20 @@ func spawnWorker(parent context.Context, exe string, args []string, ref Ref, har
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Stdin = bytes.NewReader(payload)
 	var outBuf bytes.Buffer
+	errBuf := &capWriter{cap: maxWorkerStderr}
 	cmd.Stdout = &outBuf
-	cmd.Stderr = io.Discard
+	cmd.Stderr = errBuf
 	err := cmd.Run()
-	return outBuf.String(), err, ctx.Err() == context.DeadlineExceeded
+	return outBuf.String(), errBuf.buf.String(), err, ctx.Err() == context.DeadlineExceeded
 }
 
-// interpretWorker maps a worker's (timedOut, runErr, stdout) into a ledger
-// outcome. A clean exit with a valid result line is a genuine pass/fail; a
-// timeout, a signal-kill (OOM), a nonzero exit, or a silent exit are all
-// resource kills attributed to the file, not the batch.
-func interpretWorker(timedOut bool, runErr error, stdout, digest string) (outcome, stage, sig string) {
+// interpretWorker maps a worker's (timedOut, runErr, stdout, stderr) into a
+// ledger outcome. A clean exit with a valid result line is a genuine pass/fail;
+// a timeout, a signal-kill (OOM), a nonzero exit, or a silent exit are all
+// resource kills attributed to the file, not the batch. A nonzero exit folds
+// the worker's first panic line into the signature so distinct crashes cluster
+// distinctly instead of collapsing into one "exited with status N".
+func interpretWorker(timedOut bool, runErr error, stdout, stderr, digest string) (outcome, stage, sig string) {
 	if timedOut {
 		return outcomeResource, "timeout", "worker exceeded per-file timeout"
 	}
@@ -369,9 +421,34 @@ func interpretWorker(timedOut bool, runErr error, stdout, digest string) (outcom
 		if exitErr.ExitCode() == -1 { // terminated by a signal (e.g. OOM SIGKILL)
 			return outcomeResource, "killed", "worker terminated by signal"
 		}
-		return outcomeResource, "panic", fmt.Sprintf("worker exited with status %d", exitErr.ExitCode())
+		sig := fmt.Sprintf("worker exited with status %d", exitErr.ExitCode())
+		if pl := firstPanicLine(stderr); pl != "" {
+			sig += ": " + pl
+		}
+		return outcomeResource, "panic", sig
 	}
 	return outcomeResource, "panic", "worker did not run: " + runErr.Error()
+}
+
+// firstPanicLine extracts the leading diagnostic line from a crashed worker's
+// stderr — the "panic:" / "fatal error:" line of a Go crash, else the first
+// non-empty line — normalized (digit runs collapsed) for stable clustering.
+// It returns "" when stderr is blank.
+func firstPanicLine(stderr string) string {
+	var first string
+	for _, ln := range strings.Split(stderr, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		if first == "" {
+			first = ln
+		}
+		if strings.HasPrefix(ln, "panic:") || strings.HasPrefix(ln, "fatal error:") {
+			return normalizeSignature(ln)
+		}
+	}
+	return normalizeSignature(first)
 }
 
 // lastResultLine returns the last stdout line that begins with the digest and a
