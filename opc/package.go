@@ -2,6 +2,7 @@ package opc
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
@@ -502,20 +503,12 @@ func UnmarshalExtendedProperties(data []byte) (*ExtendedProperties, error) {
 	return ep, nil
 }
 
-// itoa converts an integer to a string without importing strconv.
+// itoa converts an integer to its decimal string representation. It delegates
+// to strconv.Itoa, which correctly handles math.MinInt; a previous hand-rolled
+// implementation infinitely recursed on MinInt because -MinInt overflows back
+// to MinInt.
 func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	var digits []byte
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }
 
 // knownCoreKeys lists the element keys marshalCoreElement can regenerate from
@@ -662,61 +655,72 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 			cp.elementOrder = append(cp.elementOrder, key)
 			cp.presentFields[key] = true
 
-			// Read the element content
+			// Read the element content. A DecodeElement failure is a real
+			// problem for a small file like core.xml: silently swallowing it
+			// would leave the field unset yet still record the key in
+			// elementOrder/presentFields, so a later regenerate would emit a
+			// present-but-empty element with no diagnostic. Surface the error
+			// (identifying the property) instead. Callers such as
+			// Reader.parseCoreProperties already treat this as best-effort and
+			// skip the properties part on error.
 			switch key {
 			case "dcterms:created":
 				var d dcDate
-				if err := decoder.DecodeElement(&d, &t); err == nil {
-					cp.rawDates[key] = d.Value
-					if parsed, ok := parseW3CDTF(d.Value); ok {
-						cp.Created = parsed
-					}
+				if err := decoder.DecodeElement(&d, &t); err != nil {
+					return nil, fmt.Errorf("opc: decoding core property %s: %w", key, err)
+				}
+				cp.rawDates[key] = d.Value
+				if parsed, ok := parseW3CDTF(d.Value); ok {
+					cp.Created = parsed
 				}
 			case "dcterms:modified":
 				var d dcDate
-				if err := decoder.DecodeElement(&d, &t); err == nil {
-					cp.rawDates[key] = d.Value
-					if parsed, ok := parseW3CDTF(d.Value); ok {
-						cp.Modified = parsed
-					}
+				if err := decoder.DecodeElement(&d, &t); err != nil {
+					return nil, fmt.Errorf("opc: decoding core property %s: %w", key, err)
+				}
+				cp.rawDates[key] = d.Value
+				if parsed, ok := parseW3CDTF(d.Value); ok {
+					cp.Modified = parsed
 				}
 			case "cp:lastPrinted":
 				var d dcDate
-				if err := decoder.DecodeElement(&d, &t); err == nil {
-					cp.rawDates[key] = d.Value
-					if parsed, ok := parseW3CDTF(d.Value); ok {
-						cp.LastPrinted = parsed
-					}
+				if err := decoder.DecodeElement(&d, &t); err != nil {
+					return nil, fmt.Errorf("opc: decoding core property %s: %w", key, err)
+				}
+				cp.rawDates[key] = d.Value
+				if parsed, ok := parseW3CDTF(d.Value); ok {
+					cp.LastPrinted = parsed
 				}
 			default:
 				var value string
-				if err := decoder.DecodeElement(&value, &t); err == nil {
-					switch key {
-					case "dc:title":
-						cp.Title = value
-					case "dc:subject":
-						cp.Subject = value
-					case "dc:creator":
-						cp.Creator = value
-					case "dc:description":
-						cp.Description = value
-					case "dc:identifier":
-						cp.Identifier = value
-					case "dc:language":
-						cp.Language = value
-					case "cp:keywords":
-						cp.Keywords = value
-					case "cp:lastModifiedBy":
-						cp.LastModifiedBy = value
-					case "cp:revision":
-						cp.Revision = value
-					case "cp:category":
-						cp.Category = value
-					case "cp:contentStatus":
-						cp.ContentStatus = value
-					case "cp:version":
-						cp.Version = value
-					}
+				if err := decoder.DecodeElement(&value, &t); err != nil {
+					return nil, fmt.Errorf("opc: decoding core property %s: %w", key, err)
+				}
+				switch key {
+				case "dc:title":
+					cp.Title = value
+				case "dc:subject":
+					cp.Subject = value
+				case "dc:creator":
+					cp.Creator = value
+				case "dc:description":
+					cp.Description = value
+				case "dc:identifier":
+					cp.Identifier = value
+				case "dc:language":
+					cp.Language = value
+				case "cp:keywords":
+					cp.Keywords = value
+				case "cp:lastModifiedBy":
+					cp.LastModifiedBy = value
+				case "cp:revision":
+					cp.Revision = value
+				case "cp:category":
+					cp.Category = value
+				case "cp:contentStatus":
+					cp.ContentStatus = value
+				case "cp:version":
+					cp.Version = value
 				}
 			}
 		}
