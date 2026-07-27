@@ -274,8 +274,14 @@ func marshalHdrFtrXML(hf *oxml.CT_HdrFtr, rootElement string) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.WriteHeader()
 
-	nsDecls := xmlb.WordprocessingMLNamespaces()
-	b.StartElementWithNS(xmlb.NSWordprocessingML, rootElement, nsDecls)
+	if hf.OriginalRootAttrs != nil {
+		// Verbatim root replay: keeps mc:Ignorable, xml:space and every
+		// extension declaration the part's captured/raw children reference
+		// (C370). A part built from scratch gets the standard set.
+		b.StartElementWithRootAttrs(xmlb.NSWordprocessingML, rootElement, hf.OriginalRootAttrs)
+	} else {
+		b.StartElementWithNS(xmlb.NSWordprocessingML, rootElement, xmlb.WordprocessingMLNamespaces())
+	}
 	// Route through the childOrder-driven body-content marshal so SDT blocks,
 	// bookmarks, and raw-preserved children in a header/footer are emitted in
 	// document order instead of being dropped.

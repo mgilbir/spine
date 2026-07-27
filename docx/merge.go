@@ -112,7 +112,10 @@ func (d *Document) Append(other *Document) error {
 	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap, noteRemap)
 
 	var rewritten oxml.CT_Document
-	if err := xml.Unmarshal(data, &rewritten); err != nil {
+	// UnmarshalWithSource, not xml.Unmarshal: the capture kit only preserves
+	// unmodeled children when the decoder has its source bytes registered, and
+	// this re-parse is what the appended body is built from (C370).
+	if err := xmlb.UnmarshalWithSource(data, &rewritten); err != nil {
 		return err
 	}
 	if d.doc().Body == nil {
@@ -566,7 +569,7 @@ func (d *Document) importFootnotes(other *Document) (map[string]string, error) {
 		return nil, err
 	}
 	var parsed oxml.CT_Footnotes
-	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &parsed); err != nil {
 		return nil, err
 	}
 	d.ensureFootnotes()
@@ -601,7 +604,7 @@ func (d *Document) importEndnotes(other *Document) (map[string]string, error) {
 		return nil, err
 	}
 	var parsed oxml.CT_Endnotes
-	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &parsed); err != nil {
 		return nil, err
 	}
 	d.ensureEndnotes()
@@ -640,7 +643,7 @@ func (d *Document) importComments(other *Document) (map[string]string, error) {
 		return nil, err
 	}
 	var parsed oxml.CT_Comments
-	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, &parsed); err != nil {
 		return nil, err
 	}
 	if d.comments == nil {
@@ -778,7 +781,7 @@ func (d *Document) carryHdrFtrPart(other *Document, rel *opc.Relationship, kind 
 	data = replaceAttr(data, relIDRefRe, subRemap)
 
 	hf := &oxml.CT_HdrFtr{}
-	if err := xml.Unmarshal(data, hf); err != nil {
+	if err := xmlb.UnmarshalWithSource(data, hf); err != nil {
 		return "", err
 	}
 

@@ -1,6 +1,10 @@
 package oxml
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // CT_Styles is the root element of the styles part (w:styles).
 type CT_Styles struct {
@@ -8,6 +12,27 @@ type CT_Styles struct {
 	DocDefaults  *CT_DocDefaults  `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main docDefaults,omitempty"`
 	LatentStyles *CT_LatentStyles `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main latentStyles,omitempty"`
 	Style        []*CT_Style      `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main style"`
+	// OriginalNSDecls and OriginalRootAttrs preserve the source root's namespace
+	// declarations and verbatim attribute list. Without them a regenerated
+	// styles.xml replayed a fixed three-declaration set, dropping mc:Ignorable
+	// and every extension declaration (xmlns:w14, …) the captured children below
+	// need in order to resolve their prefixes (C370). Nil for a part created
+	// from scratch, which gets the standard declaration set.
+	OriginalNSDecls   []xmlb.NSDecl   `xml:"-"`
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedChildren records the source child sequence, including root-level
+	// children the model does not type.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// UnmarshalXML captures the root's namespace declarations and verbatim
+// attribute list for round-trip fidelity, then decodes the children through the
+// ordered-children capture so unmodeled root children survive.
+func (s *CT_Styles) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.XMLName = start.Name
+	s.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	s.OriginalNSDecls = captureRootNSDecls(start.Attr)
+	return xmlb.UnmarshalOrderedChildren(d, s)
 }
 
 // CT_DocDefaults represents document-wide default properties.

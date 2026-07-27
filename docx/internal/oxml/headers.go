@@ -16,12 +16,22 @@ type CT_HdrFtr struct {
 	BookmarkStart []*CT_BookmarkStart   `xml:"-"`
 	BookmarkEnd   []*CT_BookmarkEnd     `xml:"-"`
 	Raw           []*CT_RawNamedElement `xml:"-"`
-	childOrder    []bodyChildRef
+	// OriginalNSDecls and OriginalRootAttrs preserve the source root's namespace
+	// declarations and verbatim attribute list. A regenerated header/footer
+	// previously replayed a fixed declaration set, dropping mc:Ignorable and
+	// every extension declaration (xmlns:w14, …) that the part's raw-preserved
+	// and captured children need to resolve their prefixes (C370). Nil for a
+	// part created from scratch, which gets the standard declaration set.
+	OriginalNSDecls   []xmlb.NSDecl   `xml:"-"`
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+	childOrder        []bodyChildRef
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_HdrFtr.
 func (hf *CT_HdrFtr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	hf.XMLName = start.Name
+	hf.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	hf.OriginalNSDecls = captureRootNSDecls(start.Attr)
 	return unmarshalBodyContent(d, &hf.P, &hf.Tbl, &hf.SdtBlock, &hf.BookmarkStart, &hf.BookmarkEnd, &hf.Raw, &hf.childOrder)
 }
 
