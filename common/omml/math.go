@@ -22,6 +22,7 @@
 package omml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"reflect"
 	"strings"
@@ -109,6 +110,10 @@ func (m *OMath) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			if text := captureCharData(t); text != nil {
+				m.Items = append(m.Items, text)
+			}
 		case xml.StartElement:
 			it, err := decodeMathItem(d, t)
 			if err != nil {
@@ -145,8 +150,14 @@ func (m *OMath) MarshalContent(b *xmlb.Builder) {
 func (m *OMath) emitMath(b *xmlb.Builder) { m.MarshalToBuilder(b, NS, "oMath") }
 
 // Text returns the concatenated m:t content of the zone, walking every
-// structure's arguments in document order. Raw-captured content contributes
-// nothing.
+// structure's arguments in document order.
+//
+// A math structure this model does not type — a future OMML element — lands
+// in a *Raw, and its m:t descendants are recovered from the captured bytes so
+// extraction degrades rather than silently losing text. Raw *WordprocessingML*
+// content (w:EG_PContentMath runs, w:ins/w:del in m:ctrlPr) contributes
+// nothing: it is Word run content, not math text, and common/omml cannot
+// depend on docx to interpret it.
 func (m *OMath) Text() string {
 	var sb strings.Builder
 	for _, it := range m.Items {
@@ -219,6 +230,11 @@ type Element struct {
 	ArgPr  *ArgPr
 	Items  []MathItem
 	CtrlPr *CtrlPr
+
+	// tail holds content the source placed after m:ctrlPr — a non-conformant
+	// duplicate ctrlPr, or an unknown element written last. Items are emitted
+	// before m:ctrlPr, so these need their own slot to keep source order.
+	tail []MathItem
 }
 
 // UnmarshalXML implements xml.Unmarshaler.
@@ -229,17 +245,24 @@ func (e *Element) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			if text := captureCharData(t); text != nil {
+				e.appendItem(text)
+			}
 		case xml.StartElement:
+			// A repeated m:argPr / m:ctrlPr is non-conformant. Overwriting the
+			// field dropped the first occurrence silently; fall through to the
+			// in-position raw capture so nothing is lost (C471).
 			if t.Name.Space == NS {
-				switch t.Name.Local {
-				case "argPr":
+				switch {
+				case t.Name.Local == "argPr" && e.ArgPr == nil:
 					v := &ArgPr{}
 					if err := d.DecodeElement(v, &t); err != nil {
 						return err
 					}
 					e.ArgPr = v
 					continue
-				case "ctrlPr":
+				case t.Name.Local == "ctrlPr" && e.CtrlPr == nil:
 					v := &CtrlPr{}
 					if err := d.DecodeElement(v, &t); err != nil {
 						return err
@@ -252,16 +275,26 @@ func (e *Element) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
 			if err != nil {
 				return err
 			}
-			e.Items = append(e.Items, it)
+			e.appendItem(it)
 		case xml.EndElement:
 			return nil
 		}
 	}
 }
 
+// appendItem records one content child, keeping anything that follows the
+// element's m:ctrlPr in the tail slot so source order survives.
+func (e *Element) appendItem(it MathItem) {
+	if e.CtrlPr != nil {
+		e.tail = append(e.tail, it)
+		return
+	}
+	e.Items = append(e.Items, it)
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler.
 func (e *Element) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	if e.ArgPr == nil && len(e.Items) == 0 && e.CtrlPr == nil {
+	if e.ArgPr == nil && len(e.Items) == 0 && e.CtrlPr == nil && len(e.tail) == 0 {
 		b.EmptyElement(ns, localName)
 		return
 	}
@@ -274,6 +307,9 @@ func (e *Element) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if e.CtrlPr != nil {
 		e.CtrlPr.MarshalToBuilder(b, NS, "ctrlPr")
+	}
+	for _, it := range e.tail {
+		it.emitMath(b)
 	}
 	b.EndElement(ns, localName)
 }
@@ -351,12 +387,51 @@ func appendElementText(sb *strings.Builder, e *Element) {
 	for _, it := range e.Items {
 		appendItemText(sb, it)
 	}
+	for _, it := range e.tail {
+		appendItemText(sb, it)
+	}
+}
+
+// appendRawMathText appends the m:t text carried by a raw-captured math
+// element — an OMML structure this model does not type. The capture holds the
+// element's inner XML verbatim, with the source's prefixes, so the scan
+// matches on the local name alone: inside an m:-namespace element a <t> is an
+// m:t. Captures outside the math namespace (WordprocessingML content) are not
+// math text and are skipped.
+func appendRawMathText(sb *strings.Builder, r *Raw) {
+	if r.Space != NS || len(r.Content) == 0 {
+		return
+	}
+	d := xml.NewDecoder(bytes.NewReader(r.Content))
+	depth := 0
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if depth > 0 || t.Name.Local == "t" {
+				depth++
+			}
+		case xml.EndElement:
+			if depth > 0 {
+				depth--
+			}
+		case xml.CharData:
+			if depth > 0 {
+				sb.Write(t)
+			}
+		}
+	}
 }
 
 // appendItemText appends the visible text of one math item, walking its
 // arguments in document (schema) order.
 func appendItemText(sb *strings.Builder, it MathItem) {
 	switch v := it.(type) {
+	case *Raw:
+		appendRawMathText(sb, v)
 	case *Run:
 		sb.WriteString(v.Text())
 	case *Accent:

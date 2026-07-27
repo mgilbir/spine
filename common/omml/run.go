@@ -24,10 +24,22 @@ type Text struct {
 	// leading/trailing whitespace (mirrors w:t handling).
 	Space string
 	Value string
+
+	// CapturedAttrs is the verbatim source attribute list. m:t is the single
+	// most common math element, and modeling only xml:space silently dropped
+	// every producer extension and any future schema attribute on it — with
+	// no raw-capture fallback, unlike every other element in this package.
+	// nil means the value was built programmatically.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedEmptyTag records whether an empty m:t was written <m:t/> or
+	// <m:t></m:t>; producers mix both forms within one part.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML implements xml.Unmarshaler.
 func (t *Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	t.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	t.CapturedAttrs = xmlb.CaptureAttrs(start.Attr)
 	for _, a := range start.Attr {
 		if a.Name.Local == "space" && a.Name.Space == xmlNamespace {
 			t.Space = a.Value
@@ -49,10 +61,36 @@ func (t *Text) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
 	}
+	if captured := t.CapturedAttrs; captured != nil {
+		if t.Space == "" {
+			// Space cleared after parse: a captured attribute with no modeled
+			// match replays verbatim, so the stale xml:space has to go or the
+			// modeled zero could never win.
+			captured = withoutAttr(captured, xmlNamespace, "space")
+		}
+		attrs = b.ReplayCapturedAttrs(captured, attrs)
+	}
+	if t.Value == "" && t.CapturedEmptyTag != xmlb.EmptyTagUnknown {
+		b.EmptyElementStyled(t.CapturedEmptyTag, ns, localName, attrs...)
+		return
+	}
 	b.WriteElement(ns, localName, t.Value, attrs...)
 }
 
 func (t *Text) emitRunChild(b *xmlb.Builder) { t.MarshalToBuilder(b, NS, "t") }
+
+// withoutAttr returns captured with the attribute in (space, local) removed.
+// The input is not modified.
+func withoutAttr(captured []xmlb.RootAttr, space, local string) []xmlb.RootAttr {
+	out := make([]xmlb.RootAttr, 0, len(captured))
+	for _, ra := range captured {
+		if !ra.IsNS && ra.Space == space && ra.LocalName == local {
+			continue
+		}
+		out = append(out, ra)
+	}
+	return out
+}
 
 // Run represents CT_R (m:r), a math run. RPr holds the math run properties
 // (m:rPr). Items holds the ordered run content: *Text for m:t and *Raw for
@@ -72,10 +110,22 @@ func (r *Run) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			// Character data directly in m:r (text belongs in m:t) is
+			// non-conformant; keep it in position rather than drop it.
+			if text := captureCharData(t); text != nil {
+				r.Items = append(r.Items, text)
+			}
 		case xml.StartElement:
 			if t.Name.Space == NS {
 				switch t.Name.Local {
 				case "rPr":
+					// A repeated m:rPr is non-conformant; the second used to
+					// overwrite the first silently. Keep the first and let the
+					// duplicate fall through to the raw capture (C471).
+					if r.RPr != nil {
+						break
+					}
 					v := &RunPr{}
 					if err := d.DecodeElement(v, &t); err != nil {
 						return err

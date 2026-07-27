@@ -18,7 +18,9 @@ const xmlNamespace = "http://www.w3.org/XML/1998/namespace"
 // round-trip is therefore never lossier than the raw capture it came from.
 type Raw struct {
 	// Local is the element's local name; Space its namespace URI. An empty
-	// Space means the element was unqualified.
+	// Space means the element was unqualified. An empty Local means the
+	// capture is character data rather than an element: Content then holds
+	// the escaped text and Attrs is nil (see captureCharData).
 	Local string
 	Space string
 	// Attrs preserves the start-tag attributes, including any inline xmlns
@@ -74,12 +76,63 @@ func (r *Raw) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 
 // marshal writes the element under its captured name. An element captured
 // without a namespace defaults to the math namespace.
+//
+// When the captured attributes declare the element's own namespace — a
+// producer extension carrying xmlns:foo="urn:x-foo" on the element itself —
+// the name is replayed literally under the prefix the source bound. The
+// Builder's registry knows nothing about a vendor URI, so resolving through
+// it would strip the prefix (leaving the element in the wrong namespace) or
+// fail the whole marshal; the declaration the capture carries is the
+// authority here.
 func (r *Raw) marshal(b *xmlb.Builder) {
+	if r.Local == "" {
+		// Captured character data, already escaped.
+		b.WriteRaw(r.Content)
+		return
+	}
 	ns := r.Space
 	if ns == "" {
 		ns = NS
 	}
+	captured := xmlb.CaptureAttrs(r.Attrs)
+	if prefix, ok := selfDeclaredPrefix(captured, ns); ok {
+		attrs := xmlb.RawAttrList(captured)
+		if len(r.Content) == 0 {
+			b.EmptyElementLiteral(prefix, r.Local, attrs...)
+			return
+		}
+		b.StartElementLiteral(prefix, r.Local, []xmlb.NSDecl{{Prefix: prefix, URI: ns}}, attrs...)
+		b.WriteRaw(r.Content)
+		b.EndElementLiteral(prefix, r.Local)
+		return
+	}
 	r.MarshalToBuilder(b, ns, r.Local)
+}
+
+// captureCharData returns a raw capture for character data appearing between
+// a container's children, or nil for whitespace — the inter-element
+// formatting of a pretty-printed source, which is not content and normalizes
+// away. Non-whitespace text there is non-conformant, but dropping it silently
+// is the inverse of the leniency this package extends to unknown elements.
+func captureCharData(t xml.CharData) *Raw {
+	s := string(t)
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return &Raw{Content: []byte(xmlb.EscapeText(s))}
+}
+
+// selfDeclaredPrefix returns the prefix a captured attribute list declares for
+// uri and whether such a declaration is present. A default declaration
+// (xmlns="uri") reports the empty prefix, so an element the source wrote
+// unprefixed stays unprefixed.
+func selfDeclaredPrefix(captured []xmlb.RootAttr, uri string) (string, bool) {
+	for _, ra := range captured {
+		if ra.IsNS && ra.Value == uri {
+			return ra.Prefix, true
+		}
+	}
+	return "", false
 }
 
 func (r *Raw) emitMath(b *xmlb.Builder)     { r.marshal(b) }
@@ -129,12 +182,28 @@ func seqFields(prototype interface{}, specs ...string) []seqField {
 func unmarshalSeq(d *xml.Decoder, v interface{}, fields []seqField, extra *[]extraChild) error {
 	rv := reflect.ValueOf(v).Elem()
 	lastRank, lastIdx := -1, 0
+	captureRaw := func(t xml.StartElement) error {
+		r := &Raw{}
+		if err := r.UnmarshalXML(d, t); err != nil {
+			return err
+		}
+		*extra = append(*extra, extraChild{rank: lastRank, idx: lastIdx, raw: r})
+		return nil
+	}
 	for {
 		tok, err := d.Token()
 		if err != nil {
 			return err
 		}
 		switch t := tok.(type) {
+		case xml.CharData:
+			// Non-whitespace character data inside a property bag is
+			// non-conformant, but dropping it silently is the inverse of the
+			// leniency this package applies to unknown elements. Keep it in
+			// position (whitespace of a pretty-printed source is not content).
+			if text := captureCharData(t); text != nil {
+				*extra = append(*extra, extraChild{rank: lastRank, idx: lastIdx, raw: text})
+			}
 		case xml.StartElement:
 			rank := -1
 			if t.Name.Space == NS {
@@ -146,11 +215,9 @@ func unmarshalSeq(d *xml.Decoder, v interface{}, fields []seqField, extra *[]ext
 				}
 			}
 			if rank < 0 {
-				r := &Raw{}
-				if err := r.UnmarshalXML(d, t); err != nil {
+				if err := captureRaw(t); err != nil {
 					return err
 				}
-				*extra = append(*extra, extraChild{rank: lastRank, idx: lastIdx, raw: r})
 				continue
 			}
 			fv := rv.Field(fields[rank].index)
@@ -162,6 +229,15 @@ func unmarshalSeq(d *xml.Decoder, v interface{}, fields []seqField, extra *[]ext
 				lastRank, lastIdx = rank, fv.Len()
 				fv.Set(reflect.Append(fv, ev))
 			} else {
+				if !fv.IsNil() {
+					// A repeated singleton is non-conformant input. Overwriting
+					// the field dropped the first occurrence silently; route the
+					// second to the in-position raw capture so nothing is lost.
+					if err := captureRaw(t); err != nil {
+						return err
+					}
+					continue
+				}
 				ev := reflect.New(fv.Type().Elem())
 				if err := d.DecodeElement(ev.Interface(), &t); err != nil {
 					return err

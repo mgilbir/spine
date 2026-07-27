@@ -1,7 +1,6 @@
 package omml
 
 import (
-	"encoding/xml"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,23 +9,22 @@ import (
 )
 
 // parseFixture decodes a fixture fragment (rooted at any m: element) into v,
-// binding the m: and w: prefixes the way a WML document root does.
+// binding the m: and w: prefixes the way a WML document root does. The
+// declarations go on the fixture's own root element rather than a wrapper so
+// the fixture is the decoded document: the production path
+// (docx.unmarshalMath) does the same, and only a decode whose root is the
+// value being parsed can register its source bytes for the lexical captures
+// (empty-tag style).
 func parseFixture(t *testing.T, fixture string, v interface{}) {
 	t.Helper()
-	wrapped := `<wrap xmlns:m="` + NS + `" xmlns:w="` + xmlb.NSWordprocessingML + `">` +
-		fixture + `</wrap>`
-	dec := xml.NewDecoder(strings.NewReader(wrapped))
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			t.Fatalf("reading wrapper: %v", err)
-		}
-		if _, ok := tok.(xml.StartElement); ok {
-			if err := dec.Decode(v); err != nil {
-				t.Fatalf("Unmarshal failed: %v\nXML: %s", err, fixture)
-			}
-			return
-		}
+	decls := ` xmlns:m="` + NS + `" xmlns:w="` + xmlb.NSWordprocessingML + `"`
+	cut := strings.IndexAny(fixture, " \t\r\n/>")
+	if !strings.HasPrefix(fixture, "<") || cut < 0 {
+		t.Fatalf("fixture does not start with an element: %s", fixture)
+	}
+	src := fixture[:cut] + decls + fixture[cut:]
+	if err := xmlb.UnmarshalWithSource([]byte(src), v); err != nil {
+		t.Fatalf("Unmarshal failed: %v\nXML: %s", err, fixture)
 	}
 }
 
