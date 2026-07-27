@@ -47,8 +47,19 @@ test-race:
 # Full Common Crawl corpus run (~15-20 min; plain `go test ./cctest` checks a
 # fast deterministic subset instead). Regenerate the quarantine after a fix
 # wave with SPINE_CC_UPDATE_QUARANTINE=1 instead of SPINE_CC_FULL=1.
+#
+# Like test-race, this runs inside its own memory-capped systemd scope: it is
+# the other memory-hungry pass CONTRIBUTING.md requires to be capped (thousands
+# of wild Office files, several held in memory at once, some of which decompress
+# very large). Without the scope an OOM kill lands in the terminal's own cgroup
+# and systemd's default OOMPolicy=stop tears the whole terminal down. No
+# GOMEMLIMIT squeeze here — that value exists to compensate for race shadow
+# memory, which is outside GC accounting; a non-race run does not need it.
+CORPUS_MEMMAX  ?= 12G
+CORPUS_SWAPMAX ?= 1G
 test-corpus:
-	SPINE_CC_FULL=1 go test ./cctest -count=1 -timeout 45m
+	systemd-run --user --scope -p MemoryMax=$(CORPUS_MEMMAX) -p MemorySwapMax=$(CORPUS_SWAPMAX) \
+		env SPINE_CC_FULL=1 go test ./cctest -count=1 -timeout 45m
 
 # --- Batched multi-crawl harvest (see testdata/cc/HARVEST.md) ---------------
 #
@@ -66,6 +77,23 @@ harvest-sweep:
 # worker is the largest process) while the lightweight orchestrator survives
 # and records it. Loop this target while the ledger still has unprocessed rows
 # (see the resume loop in testdata/cc/HARVEST.md). Everything is overridable.
+#
+# OOMPolicy=continue is load-bearing, and is the one place in this Makefile
+# where the test-race reasoning inverts. systemd's default (DefaultOOMPolicy=
+# stop) kills the WHOLE unit when the kernel OOM-kills any process in its
+# cgroup — which for test-race is the containment we want, but here would kill
+# the orchestrator along with the worker. The orchestrator records the kill
+# AFTER the worker dies (ledger.Append on outcome resource/killed), so a stopped
+# scope means the offending file is never ledgered and never counted as an
+# attempt; the resume loop then re-selects the same file on every subsequent
+# batch. That is a permanent livelock on one bad file, not a quarantine row.
+# With continue, only the worker dies and the design in tools/ccrun's package
+# doc ("one quarantine row, not a dead batch") actually holds. (C389)
+#
+# Measured on systemd 255.4 with a scope whose child blows a 128M MemoryMax:
+# default policy -> the scope leader is SIGTERMed and never reaches its
+# post-worker line (exit 143); with OOMPolicy=continue -> the leader observes
+# the worker's 137 and carries on (exit 0).
 HARVEST_MEMMAX  ?= 2G
 HARVEST_CPU     ?= 200%
 HARVEST_BATCH   ?= 2000
@@ -77,6 +105,7 @@ HARVEST_QUARANTINE ?= testdata/cc/batch-quarantine.tsv
 harvest-batch: build
 	go build -o testdata/corpus/cc-batch/ccrun ./tools/ccrun
 	systemd-run --user --scope -p MemoryMax=$(HARVEST_MEMMAX) -p CPUQuota=$(HARVEST_CPU) \
+		-p OOMPolicy=continue \
 		testdata/corpus/cc-batch/ccrun \
 		-manifest testdata/cc \
 		-ledger $(HARVEST_LEDGER) \

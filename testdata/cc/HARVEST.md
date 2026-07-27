@@ -22,7 +22,11 @@ web, with extra safeguards:
   DNS-over-HTTPS resolver (RFC 8484). Point `-doh-url` (or the
   `SPINE_DOH_URL` env var) at your resolver, e.g. a NextDNS profile
   endpoint. There is deliberately no default: without a resolver URL the
-  live phase refuses to run. Hosts answering with the unspecified address
+  live phase refuses to run. **Prefer the env var**: a NextDNS-style profile
+  endpoint embeds an account token, and anything on a command line is
+  world-readable through `ps` / `/proc/<pid>/cmdline` for the process's whole
+  lifetime. `ccrun`'s orchestrator hands the resolver to each worker through
+  the worker's environment for exactly that reason (C577). Hosts answering with the unspecified address
   (`0.0.0.0` / `::`) are treated as blocked and skipped; NXDOMAIN/SERVFAIL
   hosts are dead and skipped. Verdicts are cached per host for the run.
 - **Politeness**: these are origin servers, not a CDN — live concurrency is
@@ -178,7 +182,7 @@ directly with the same resource-capped scope (loop it until a batch reports
 
 ```sh
 go build -o testdata/corpus/cc-stress/ccrun ./tools/ccrun
-systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% \
+systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% -p OOMPolicy=continue \
   testdata/corpus/cc-stress/ccrun \
   -manifest   testdata/cc/stress \
   -ledger     testdata/corpus/cc-stress/ledger.tsv \
@@ -209,7 +213,7 @@ take down the run.
 `make harvest-batch` runs one batch inside a resource-capped scope:
 
 ```
-systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% \
+systemd-run --user --scope -p MemoryMax=2G -p CPUQuota=200% -p OOMPolicy=continue \
   ccrun -manifest testdata/cc -ledger … -quarantine … -scratch … -batch 2000 -workers 2 -timeout 90s
 ```
 
@@ -222,6 +226,19 @@ panic) as a `resource:{killed,timeout,panic}` outcome and turns one poison
 file into **one quarantine row, not a dead batch**. A worker only ever exits
 nonzero on a genuine crash/OOM/hang: every ordinary test outcome (pass or a
 staged failure) is a clean `exit 0` with a result line.
+
+**`OOMPolicy=continue` is what makes that true**, and it is the one place where
+the reasoning inverts relative to `make test-race`. systemd's default
+(`DefaultOOMPolicy=stop`) kills the *entire unit* when the kernel OOM-kills any
+process inside its cgroup. For test-race that is the containment we want; here
+it would kill the orchestrator together with the worker — and the orchestrator
+records the kill *after* the worker dies, so the offending reference would never
+reach the ledger and never count as an attempt. The resume loop below would then
+re-select the same file on every batch, forever. Measured on systemd 255.4 with
+a scope whose child blows a 128M `MemoryMax`: with the default policy the scope
+leader is SIGTERMed and never reaches its post-worker line (exit 143); with
+`OOMPolicy=continue` it observes the worker's 137 and carries on (exit 0).
+`make harvest-batch` sets it; a hand-rolled invocation must too.
 
 ### Resumable ledger
 
@@ -277,8 +294,21 @@ Failures accumulate in `testdata/cc/batch-quarantine.tsv`
 (`digest  crawl  url  stage  signature`) — the growing cross-batch,
 cross-run catalog. This is distinct from `known_failures.tsv` /
 cctest's sha16-on-disk quarantine (whose files are **kept**): the batched
-quarantine references files that were already discarded. To debug one, refetch
-it to a named path (it is **not** deleted):
+quarantine references files that were already discarded.
+
+**It is committed** (the header-only seed is in the tree; `ccrun` appends to
+it), on the same grounds as the manifests next to it: it holds references only
+— digest, crawl, the query-stripped url, stage, signature — with no payload and
+no credentials, and it is the *only* durable output of the harvest that is not
+machine-local. "Regenerable" is technically true and practically false: a
+re-run costs days of fetching and cannot recover the files the web has since
+lost, so an uncommitted catalog would exist on exactly one machine. The
+progress state — the ledger and the attempts sidecar under
+`testdata/corpus/cc-batch/` — stays gitignored: it is per-machine bookkeeping,
+carries no findings, and is genuinely rebuilt by re-running.
+
+To debug a quarantined reference, refetch it to a named path (it is **not**
+deleted):
 
 ```sh
 go run ./tools/ccrun -refetch <content_digest> -manifest testdata/cc -out /tmp/bad.docx
