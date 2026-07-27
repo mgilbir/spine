@@ -4,21 +4,26 @@ import (
 	"strings"
 	"testing"
 
-	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
 // C187: a Builder error during part marshaling must surface from Save instead
-// of shipping a malformed part into the package. The trigger here is an
-// extension attribute whose namespace has no registered prefix (the loud
-// writeQName path from C147).
+// of shipping a malformed part into the package. The trigger is an attribute
+// whose namespace has no registered prefix (the loud writeQName path from
+// C147) — here x14ac:dyDescent on a workbook created from scratch, whose
+// builder declares only the SpreadsheetML, relationships and
+// markup-compatibility namespaces.
+//
+// The trigger used to be CT_BookView.ExtAttrs, a bespoke extension-attribute
+// slice that C429 replaced with the CapturedAttrs convention (captured
+// attributes replay with literal names, so they cannot reach writeQName).
 func TestSave_MarshalErrorSurfaces(t *testing.T) {
 	wb := Create()
-	wb.AddSheet("Sheet1")
-	wb.workbook.BookViews = &oxml.CT_BookViews{
-		WorkbookView: []oxml.CT_BookView{{
-			ExtAttrs: []xmlb.Attr{{Namespace: "urn:example:unregistered", Name: "uid", Value: "1"}},
-		}},
+	sheet := wb.AddSheet("Sheet1")
+	dyDescent := 0.25
+	sheet.ws().SheetFormatPr = &oxml.CT_SheetFormatPr{
+		DefaultRowHeight: 15,
+		DyDescent:        &dyDescent,
 	}
 
 	_, err := wb.SaveBytes()
