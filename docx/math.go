@@ -1,7 +1,6 @@
 package docx
 
 import (
-	"encoding/xml"
 	"fmt"
 	"strings"
 
@@ -48,7 +47,7 @@ func (p *Paragraph) MathParas() ([]*omml.OMathPara, error) {
 // the document marshaler declares the math namespace on the root when math
 // is present.
 func (p *Paragraph) AddMath(m *omml.OMath) error {
-	raw, err := marshalMathContent(m.MarshalContent)
+	raw, err := p.marshalMathContent(m.MarshalContent)
 	if err != nil {
 		return fmt.Errorf("docx: marshal math zone: %w", err)
 	}
@@ -59,7 +58,7 @@ func (p *Paragraph) AddMath(m *omml.OMath) error {
 // AddMathPara appends a math paragraph (m:oMathPara) to the paragraph (see
 // AddMath).
 func (p *Paragraph) AddMathPara(mp *omml.OMathPara) error {
-	raw, err := marshalMathContent(mp.MarshalContent)
+	raw, err := p.marshalMathContent(mp.MarshalContent)
 	if err != nil {
 		return fmt.Errorf("docx: marshal math paragraph: %w", err)
 	}
@@ -67,11 +66,54 @@ func (p *Paragraph) AddMathPara(mp *omml.OMathPara) error {
 	return nil
 }
 
+// wmlBuilderNamespaces is the URI→prefix table xmlb.NewWordprocessingMLBuilder
+// installs. A root declaration must not disturb it in either direction: an
+// alias for one of these URIs would re-prefix every modeled element, and a
+// foreign URI claiming one of these prefixes would make two namespaces render
+// identically.
+var wmlBuilderNamespaces = map[string]string{
+	xmlb.NSWordprocessingML:        xmlb.PrefixWordprocessingML,
+	xmlb.NSOfficeDocumentRels:      xmlb.PrefixRelationships,
+	xmlb.NSDrawingML:               xmlb.PrefixDrawingML,
+	xmlb.NSMarkupCompatibility:     xmlb.PrefixMarkupCompatibility,
+	xmlb.NSDrawingMLWordprocessing: "wp",
+	xmlb.NSWord2010:                xmlb.PrefixWord2010,
+	xmlb.NSWord2012:                xmlb.PrefixWord2012,
+	xmlb.NSMath:                    xmlb.PrefixMath,
+}
+
 // marshalMathContent renders inner math content (the children of an
 // m:oMath / m:oMathPara element) with the standard WML prefix set bound —
-// the same prefixes the document marshaler emits around the raw bytes.
-func marshalMathContent(fn func(*xmlb.Builder)) ([]byte, error) {
+// the same prefixes the document marshaler emits around the raw bytes — plus
+// every prefix the document root declares.
+//
+// The two halves of the loop have to agree: unmarshalMath binds the root's
+// declarations so Word content under any root-declared prefix parses, and
+// without the same registration here a raw child in one of them (wps:, wne:,
+// w16:, v:, o:, w10:, a vendor URI) has no prefix to write, so writeQName
+// fails the whole marshal — a math zone that parsed cleanly could not be
+// written back through MathZones → AddMath.
+func (p *Paragraph) marshalMathContent(fn func(*xmlb.Builder)) ([]byte, error) {
 	b := xmlb.NewWordprocessingMLBuilder()
+	if p.document != nil && p.document.doc() != nil {
+		usedPrefix := make(map[string]bool, len(wmlBuilderNamespaces))
+		for _, prefix := range wmlBuilderNamespaces {
+			usedPrefix[prefix] = true
+		}
+		for _, decl := range p.document.doc().OriginalNSDecls {
+			// A default declaration binds no prefix an element name can use,
+			// and a prefix already spoken for by the standard set (or by an
+			// earlier declaration) must not be handed a second URI.
+			if decl.Prefix == "" || decl.URI == "" || usedPrefix[decl.Prefix] {
+				continue
+			}
+			if _, standard := wmlBuilderNamespaces[decl.URI]; standard {
+				continue
+			}
+			usedPrefix[decl.Prefix] = true
+			b.RegisterNamespace(decl.URI, decl.Prefix)
+		}
+	}
 	fn(b)
 	if err := b.Finish(); err != nil {
 		return nil, err
@@ -82,7 +124,9 @@ func marshalMathContent(fn func(*xmlb.Builder)) ([]byte, error) {
 // unmarshalMath parses raw-captured math content by wrapping it in an
 // element that binds the prefixes the content may reference: the standard
 // WML set plus every declaration from the document root, so content written
-// by Word under root-declared prefixes resolves.
+// by Word under root-declared prefixes resolves. The decode registers its
+// source bytes so the model's lexical captures (m:t's <m:t/> vs <m:t></m:t>)
+// see the form the producer wrote.
 func (p *Paragraph) unmarshalMath(raw []byte, localName string, v interface{}) error {
 	var sb strings.Builder
 	sb.WriteString("<")
@@ -114,5 +158,5 @@ func (p *Paragraph) unmarshalMath(raw []byte, localName string, v interface{}) e
 	sb.WriteString("</")
 	sb.WriteString(localName)
 	sb.WriteString(">")
-	return xml.Unmarshal([]byte(sb.String()), v)
+	return xmlb.UnmarshalWithSource([]byte(sb.String()), v)
 }

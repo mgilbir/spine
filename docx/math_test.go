@@ -2,11 +2,11 @@ package docx
 
 import (
 	"bytes"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/common/omml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // mathRun builds a plain-text math run.
@@ -167,8 +167,28 @@ func TestAddMathOnCreatedDocument(t *testing.T) {
 	if got, want := zones[0].Text(), "x=12y"; got != want {
 		t.Errorf("Text() = %q, want %q", got, want)
 	}
-	if !reflect.DeepEqual(m, zones[0]) {
-		t.Errorf("typed model does not survive save/reopen:\nwrote: %#v\n read: %#v", m, zones[0])
+	assertSameMath(t, p, m.MarshalContent, zones[0].MarshalContent)
+}
+
+// assertSameMath compares a written model with the model read back by
+// re-rendering both. A parsed model carries the source's lexical captures
+// (m:t's attribute list and empty-tag form, each val element's presence and
+// qualification) that a model built in code cannot have, so DeepEqual between
+// the two compares provenance, not content. Comparing the rendered bytes is
+// the stronger assertion anyway: it fails on any difference that reaches the
+// document.
+func assertSameMath(t *testing.T, p *Paragraph, wrote, read func(*xmlb.Builder)) {
+	t.Helper()
+	wroteBytes, err := p.marshalMathContent(wrote)
+	if err != nil {
+		t.Fatalf("re-marshal written model: %v", err)
+	}
+	readBytes, err := p.marshalMathContent(read)
+	if err != nil {
+		t.Fatalf("re-marshal read model: %v", err)
+	}
+	if string(wroteBytes) != string(readBytes) {
+		t.Errorf("typed model does not survive save/reopen:\nwrote: %s\n read: %s", wroteBytes, readBytes)
 	}
 }
 
@@ -207,9 +227,7 @@ func TestAddMathParaOnCreatedDocument(t *testing.T) {
 	if len(paras) != 1 {
 		t.Fatalf("math paras after reopen = %d, want 1", len(paras))
 	}
-	if !reflect.DeepEqual(mp, paras[0]) {
-		t.Errorf("typed model does not survive save/reopen:\nwrote: %#v\n read: %#v", mp, paras[0])
-	}
+	assertSameMath(t, p, mp.MarshalContent, paras[0].MarshalContent)
 }
 
 // TestMathZonesEmpty: a paragraph without math returns empty slices, no error.

@@ -739,7 +739,7 @@ func TestBorderTop_RoundTrip(t *testing.T) {
 // the o:signatureline attributes must map to the names in vml-officeDrawing.xsd.
 func TestVMLAttributeMappings(t *testing.T) {
 	var co Callout
-	if err := xml.Unmarshal([]byte(`<callout minusx="t" minusy="f"/>`), &co); err != nil {
+	if err := xml.Unmarshal([]byte(`<callout xmlns="urn:schemas-microsoft-com:office:office" minusx="t" minusy="f"/>`), &co); err != nil {
 		t.Fatalf("unmarshal callout: %v", err)
 	}
 	if co.MinusX != "t" || co.MinusY != "f" {
@@ -747,7 +747,7 @@ func TestVMLAttributeMappings(t *testing.T) {
 	}
 
 	var ex Extrusion
-	if err := xml.Unmarshal([]byte(`<extrusion facet="30000"/>`), &ex); err != nil {
+	if err := xml.Unmarshal([]byte(`<extrusion xmlns="urn:schemas-microsoft-com:office:office" facet="30000"/>`), &ex); err != nil {
 		t.Fatalf("unmarshal extrusion: %v", err)
 	}
 	if ex.Facet != "30000" {
@@ -755,7 +755,7 @@ func TestVMLAttributeMappings(t *testing.T) {
 	}
 
 	var sl SignatureLine
-	src := `<signatureline issignatureline="t" signinginstructionsset="t" allowcomments="f" showsigndate="t"/>`
+	src := `<signatureline xmlns="urn:schemas-microsoft-com:office:office" issignatureline="t" signinginstructionsset="t" allowcomments="f" showsigndate="t"/>`
 	if err := xml.Unmarshal([]byte(src), &sl); err != nil {
 		t.Fatalf("unmarshal signatureline: %v", err)
 	}
