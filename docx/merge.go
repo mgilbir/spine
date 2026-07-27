@@ -110,6 +110,12 @@ func (d *Document) Append(other *Document) error {
 	// Rewrite the colliding ids in the body content, then re-parse and append the
 	// body children in order.
 	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap, noteRemap)
+	// Any relationship reference the import could not carry across — a source
+	// image whose bytes would not resolve, a reference already dangling in the
+	// source — keeps the source's rId, which in the destination silently
+	// resolves to whatever unrelated relationship happens to hold that id.
+	// Aliasing is worse than dangling, so strip those attributes (C489).
+	data = stripUnresolvableRelRefs(data, carriedRelIDs(relRemap, hdrFtrRemap))
 
 	var rewritten oxml.CT_Document
 	// UnmarshalWithSource, not xml.Unmarshal: the capture kit only preserves
@@ -146,8 +152,15 @@ func (d *Document) importRelationships(other *Document, refd map[string]bool) (m
 		}
 		switch {
 		case rel.TargetMode == opc.TargetModeExternal:
-			// External links (hyperlinks, external images): re-register with a
-			// fresh id pointing at the same external target.
+			// External links (hyperlinks, external images) the copied body
+			// actually references: re-register with a fresh id pointing at the
+			// same external target. Externals used to be imported
+			// unconditionally, so a source main-part external the body never
+			// mentions — an attachedTemplate, an external subDoc — was copied
+			// into the destination as a stray relationship (C489).
+			if !refd[rel.ID] {
+				continue
+			}
 			newID := fmt.Sprintf("rId%d", d.nextRelID())
 			d.addPartRelationship(d.mainPart(), &opc.Relationship{
 				ID:         newID,
@@ -914,6 +927,38 @@ func dropUncarriedHdrFtrRefs(data []byte, hdrFtrRemap map[string]string) []byte 
 	return hdrFtrRefRe.ReplaceAllFunc(data, func(m []byte) []byte {
 		sub := ridAttrRe.FindSubmatch(m)
 		if sub != nil && carried[string(sub[1])] {
+			return m
+		}
+		return nil
+	})
+}
+
+// carriedRelIDs returns the freshly assigned destination ids of every
+// relationship the import carried across — the only relationship ids the
+// rewritten body may legitimately still hold. An id left over from the source
+// is not one of them: it is either a reference whose target could not be
+// imported or one that already dangled in the source.
+func carriedRelIDs(remaps ...map[string]string) map[string]bool {
+	set := make(map[string]bool)
+	for _, remap := range remaps {
+		for _, newID := range remap {
+			set[newID] = true
+		}
+	}
+	return set
+}
+
+// stripUnresolvableRelRefs removes the r:*-namespaced relationship-id
+// attributes of the merged body whose id is not among valid. Removing just the
+// attribute — rather than the element that carries it — keeps the content: an
+// a:blip with no r:embed and a w:hyperlink with no r:id are both schema-valid
+// and render as an empty picture frame and as plain text respectively, whereas
+// leaving the id in place would bind the copied content to an unrelated part of
+// the destination.
+func stripUnresolvableRelRefs(data []byte, valid map[string]bool) []byte {
+	return relIDRefRe.ReplaceAllFunc(data, func(m []byte) []byte {
+		sub := relIDRefRe.FindSubmatch(m)
+		if sub == nil || valid[string(sub[2])] {
 			return m
 		}
 		return nil
