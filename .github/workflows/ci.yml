@@ -32,10 +32,25 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The RC4 CryptoAPI cross-validation test drives msoffcrypto-tool as an
+      # independent reference implementation. Without a Python that can import
+      # it, that test skips — so the cross-validation the docs advertise runs
+      # nowhere. Install it here and set SPINE_REQUIRE_MSOFFCRYPTO on the test
+      # step so a missing or broken install fails instead of skipping silently.
+      - name: Set up Python (RC4 cross-validation reference)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install msoffcrypto-tool
+        run: python -m pip install --disable-pip-version-check msoffcrypto-tool
+
       # Runs the full suite. cctest skips without the corpus (expected);
       # the corpus is never fetched in CI.
       - name: Test
         run: go test ./... -count=1
+        env:
+          SPINE_REQUIRE_MSOFFCRYPTO: "1"
 
       # golangci-lint v2.x is required by .golangci.yml; the action's v8
       # major line installs v2. Version pinned to match the maintainer's

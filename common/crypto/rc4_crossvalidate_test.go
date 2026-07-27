@@ -10,9 +10,17 @@ import (
 	"testing"
 )
 
-// pythonWithMsoffcrypto returns a Python interpreter that can import msoffcrypto,
-// or "" (and skips) when none is available. It honors $MSOFFCRYPTO_PY (a path to
-// such an interpreter) and otherwise probes python3/python on PATH.
+// requireMsoffcryptoEnv makes a missing reference implementation a failure
+// rather than a skip. CI sets it (see .github/workflows/ci.yml, which installs
+// msoffcrypto-tool) so that the cross-validation the documentation advertises
+// actually runs somewhere instead of skipping everywhere.
+const requireMsoffcryptoEnv = "SPINE_REQUIRE_MSOFFCRYPTO"
+
+// pythonWithMsoffcrypto returns a Python interpreter that can import msoffcrypto.
+// It honors $MSOFFCRYPTO_PY (a path to such an interpreter) and otherwise probes
+// python3/python on PATH. When none is available it skips — unless
+// $SPINE_REQUIRE_MSOFFCRYPTO is set, in which case the missing reference is a
+// hard failure.
 func pythonWithMsoffcrypto(t *testing.T) string {
 	t.Helper()
 	candidates := []string{os.Getenv("MSOFFCRYPTO_PY"), "python3", "python"}
@@ -26,6 +34,9 @@ func pythonWithMsoffcrypto(t *testing.T) string {
 		if err := exec.Command(py, "-c", "import msoffcrypto.method.rc4_cryptoapi").Run(); err == nil {
 			return py
 		}
+	}
+	if v := os.Getenv(requireMsoffcryptoEnv); v != "" && v != "0" {
+		t.Fatalf("%s is set but no Python with msoffcrypto is available; install msoffcrypto-tool or point $MSOFFCRYPTO_PY at an interpreter that has it", requireMsoffcryptoEnv)
 	}
 	t.Skip("no Python with msoffcrypto available; set MSOFFCRYPTO_PY to cross-validate RC4 CryptoAPI")
 	return ""
