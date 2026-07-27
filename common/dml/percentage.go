@@ -2,7 +2,6 @@ package dml
 
 import (
 	"encoding/xml"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -51,23 +50,42 @@ func (p Percentage) IsZeroAttr() bool {
 }
 
 // UnmarshalXMLAttr implements xml.UnmarshalerAttr.
+//
+// Parsing degrades rather than failing: a value outside int32, a non-integer
+// lexical form, or outright garbage saturates or falls back to zero and keeps
+// the source spelling for verbatim re-emission. Returning an error here would
+// abort DecodeElement and fail the whole part over one wild attribute, which is
+// the opposite of the leniency roundInt64 gives coordinates — and a percentage
+// is never load-bearing enough to justify refusing the document.
 func (p *Percentage) UnmarshalXMLAttr(attr xml.Attr) error {
 	s := strings.TrimSpace(attr.Value)
 	if strings.HasSuffix(s, "%") {
-		// String form: "50%" → 50000, "20.000%" → 20000, "-20%" → -20000
+		// String form: "50%" → 50000, "20.000%" → 20000, "-20%" → -20000.
+		// An unparseable or overflowing number saturates instead of producing
+		// an implementation-defined float→int32 conversion.
 		numStr := strings.TrimSuffix(s, "%")
 		f, err := strconv.ParseFloat(numStr, 64)
 		if err != nil {
-			return fmt.Errorf("dml.Percentage: parsing %q: %w", attr.Value, err)
+			p.Val = 0
+		} else {
+			p.Val = clampToInt32(math.Round(f * 1000))
 		}
-		p.Val = int32(math.Round(f * 1000))
 		p.orig = attr.Value
 		return nil
 	}
-	// Integer form: "50000"
+	// Integer form: "50000". Out-of-range and non-integer values saturate to
+	// the int32 bound (or 0) and are re-emitted verbatim from orig.
 	n, err := strconv.ParseInt(s, 10, 32)
 	if err != nil {
-		return fmt.Errorf("dml.Percentage: parsing %q: %w", attr.Value, err)
+		if wide, wideErr := strconv.ParseInt(s, 10, 64); wideErr == nil {
+			p.Val = clampToInt32(float64(wide))
+		} else if f, floatErr := strconv.ParseFloat(s, 64); floatErr == nil {
+			p.Val = clampToInt32(math.Round(f))
+		} else {
+			p.Val = 0
+		}
+		p.orig = attr.Value
+		return nil
 	}
 	p.Val = int32(n)
 	// Keep the source form whenever it is not the canonical rendering of Val
@@ -80,6 +98,21 @@ func (p *Percentage) UnmarshalXMLAttr(attr xml.Attr) error {
 		p.orig = ""
 	}
 	return nil
+}
+
+// clampToInt32 saturates a float to the int32 range. NaN maps to 0; ±Inf and
+// out-of-range magnitudes map to the corresponding bound, so no value reaches
+// the implementation-defined float→int32 conversion.
+func clampToInt32(f float64) int32 {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f >= math.MaxInt32:
+		return math.MaxInt32
+	case f <= math.MinInt32:
+		return math.MinInt32
+	}
+	return int32(f)
 }
 
 // MarshalXMLAttr implements xml.MarshalerAttr, re-emitting the original

@@ -1,6 +1,7 @@
 package dml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"strconv"
@@ -161,6 +162,116 @@ func writeClrXfSlot(b *xmlb.Builder, ns string, s clrXfSlot) {
 	b.EmptyElement(ns, name)
 }
 
+// encodeClrColor is the encoding/xml counterpart of marshalClrColor: it writes
+// the color element's attributes and its transform children in the captured
+// source order, replaying raw-preserved duplicates as tokens.
+//
+// Without it these five types would fall back to struct-tag marshaling on the
+// stdlib path — dropping every captured duplicate transform (xfRaws is
+// unreachable from tags) and re-emitting the rest in field order rather than
+// document order, which changes the rendered color. The Builder is the
+// production serializer, so this exists to stop the spectest and diagram
+// round-trip suites from asserting a fidelity the stdlib path did not have
+// (the same asymmetry C341 fixed for Ext).
+func encodeClrColor(e *xml.Encoder, start xml.StartElement, attrs []xml.Attr, slots []clrXfSlot, order []clrTransformKind, raws [][]byte) error {
+	start.Attr = append(start.Attr, attrs...)
+	any := len(raws) > 0
+	for _, s := range slots {
+		if s.isSet() {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return e.EncodeElement(struct{}{}, start)
+	}
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	emit := func(s clrXfSlot) error {
+		if s.val == nil && s.empty == nil {
+			return nil
+		}
+		name := xml.Name{Local: clrTransformKindName[s.kind]}
+		if s.val != nil {
+			if *s.val == nil {
+				return nil
+			}
+			return e.EncodeElement(struct{}{}, xml.StartElement{Name: name,
+				Attr: []xml.Attr{{Name: xml.Name{Local: "val"}, Value: (*s.val).Val.AttrValue()}}})
+		}
+		if *s.empty == nil {
+			return nil
+		}
+		return e.EncodeElement(struct{}{}, xml.StartElement{Name: name})
+	}
+	if len(order) > 0 {
+		byKind := make(map[clrTransformKind]clrXfSlot, len(slots))
+		for _, s := range slots {
+			byKind[s.kind] = s
+		}
+		for _, kind := range order {
+			if kind >= clrRawKindBase {
+				i := int(kind - clrRawKindBase)
+				if i < len(raws) {
+					if err := encodeRawFragment(e, raws[i]); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if err := emit(byKind[kind]); err != nil {
+				return err
+			}
+		}
+	} else {
+		for _, s := range slots {
+			if s.isSet() {
+				if err := emit(s); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return e.EncodeToken(start.End())
+}
+
+// encodeRawFragment replays captured raw bytes as tokens: encoding/xml has no
+// raw-write API (mirrors BlipEffect.marshalXML). A captured transform is always
+// a DrawingML sibling of the color element, and its "a:" prefix is bound
+// outside the fragment, so the unresolvable prefix is dropped and the element
+// inherits the enclosing namespace rather than being emitted with a bogus
+// xmlns="a".
+func encodeRawFragment(e *xml.Encoder, raw []byte) error {
+	sub := xml.NewDecoder(bytes.NewReader(raw))
+	for {
+		tok, err := sub.Token()
+		if err != nil {
+			return nil // truncated fragment: stop replaying, do not fail the marshal
+		}
+		if err := e.EncodeToken(stripFragmentNS(fixupRawToken(tok))); err != nil {
+			return err
+		}
+	}
+}
+
+// stripFragmentNS clears the namespace Go's decoder derived from an unbound
+// prefix on a re-tokenized fragment.
+func stripFragmentNS(tok xml.Token) xml.Token {
+	switch t := tok.(type) {
+	case xml.StartElement:
+		t.Name.Space = ""
+		for i := range t.Attr {
+			t.Attr[i].Name.Space = ""
+		}
+		return t
+	case xml.EndElement:
+		t.Name.Space = ""
+		return t
+	}
+	return tok
+}
+
 // srgbSlots returns the transform slots of an SrgbClr in field order.
 func (c *SrgbClr) srgbSlots() []clrXfSlot {
 	return []clrXfSlot{
@@ -186,6 +297,13 @@ func (c *SrgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		return nil
 	}, c.srgbSlots(), &c.xfOrder, &c.xfRaws)
+}
+
+// MarshalXML implements xml.Marshaler, mirroring MarshalToBuilder on the
+// encoding/xml path; see encodeClrColor.
+func (c *SrgbClr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	attrs := []xml.Attr{{Name: xml.Name{Local: "val"}, Value: c.Val}}
+	return encodeClrColor(e, start, attrs, c.srgbSlots(), c.xfOrder, c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -222,6 +340,16 @@ func (c *SystemClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		return nil
 	}, c.sysSlots(), &c.xfOrder, &c.xfRaws)
+}
+
+// MarshalXML implements xml.Marshaler, mirroring MarshalToBuilder on the
+// encoding/xml path; see encodeClrColor.
+func (c *SystemClr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	attrs := []xml.Attr{{Name: xml.Name{Local: "val"}, Value: c.Val}}
+	if c.LastClr != "" {
+		attrs = append(attrs, xml.Attr{Name: xml.Name{Local: "lastClr"}, Value: c.LastClr})
+	}
+	return encodeClrColor(e, start, attrs, c.sysSlots(), c.xfOrder, c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -271,6 +399,17 @@ func (c *HslClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	}, c.hslSlots(), &c.xfOrder, &c.xfRaws)
 }
 
+// MarshalXML implements xml.Marshaler, mirroring MarshalToBuilder on the
+// encoding/xml path; see encodeClrColor.
+func (c *HslClr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	attrs := []xml.Attr{
+		{Name: xml.Name{Local: "hue"}, Value: strconv.FormatInt(int64(c.Hue), 10)},
+		{Name: xml.Name{Local: "sat"}, Value: c.Sat.AttrValue()},
+		{Name: xml.Name{Local: "lum"}, Value: c.Lum.AttrValue()},
+	}
+	return encodeClrColor(e, start, attrs, c.hslSlots(), c.xfOrder, c.xfRaws)
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
 func (c *HslClr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	attrs := []xmlb.Attr{
@@ -305,6 +444,13 @@ func (c *PrstClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		return nil
 	}, c.prstSlots(), &c.xfOrder, &c.xfRaws)
+}
+
+// MarshalXML implements xml.Marshaler, mirroring MarshalToBuilder on the
+// encoding/xml path; see encodeClrColor.
+func (c *PrstClr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	attrs := []xml.Attr{{Name: xml.Name{Local: "val"}, Value: c.Val}}
+	return encodeClrColor(e, start, attrs, c.prstSlots(), c.xfOrder, c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
@@ -342,6 +488,17 @@ func (c *ScRgbClr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		return nil
 	}, c.scrgbSlots(), &c.xfOrder, &c.xfRaws)
+}
+
+// MarshalXML implements xml.Marshaler, mirroring MarshalToBuilder on the
+// encoding/xml path; see encodeClrColor.
+func (c *ScRgbClr) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	attrs := []xml.Attr{
+		{Name: xml.Name{Local: "r"}, Value: c.R.AttrValue()},
+		{Name: xml.Name{Local: "g"}, Value: c.G.AttrValue()},
+		{Name: xml.Name{Local: "b"}, Value: c.B.AttrValue()},
+	}
+	return encodeClrColor(e, start, attrs, c.scrgbSlots(), c.xfOrder, c.xfRaws)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, replaying transform order.
