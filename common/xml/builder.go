@@ -42,6 +42,13 @@ type elemFrame struct {
 type nsRestore struct {
 	uri         string
 	wasDeclared bool
+	// restorePrefix marks entries that also mutated the URI's prefix binding
+	// (inline/literal element opens rebind b.namespaces[uri]); the
+	// declareNamespaceIfNeeded path leaves the binding untouched and does not
+	// set this. prevPrefix/hadPrefix record the binding to put back.
+	restorePrefix bool
+	prevPrefix    string
+	hadPrefix     bool
 }
 
 // qualifiedName returns the name as it is written to the output:
@@ -69,6 +76,16 @@ func (b *Builder) applyNSRestores(restores []nsRestore) {
 			b.declaredNamespaces[r.uri] = true
 		} else {
 			delete(b.declaredNamespaces, r.uri)
+		}
+		// An inline/literal element that rebound the URI's prefix has now gone
+		// out of scope, so the binding must go back too — otherwise a later
+		// sibling in the same namespace emits the out-of-scope prefix.
+		if r.restorePrefix {
+			if r.hadPrefix {
+				b.namespaces[r.uri] = r.prevPrefix
+			} else {
+				delete(b.namespaces, r.uri)
+			}
 		}
 	}
 }
@@ -607,7 +624,14 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 // previous declared-state automatically.
 func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ...Attr) {
 	b.flushOpenTag()
-	b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: nsURI, wasDeclared: b.declaredNamespaces[nsURI]})
+	prev, had := b.namespaces[nsURI]
+	b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{
+		uri:           nsURI,
+		wasDeclared:   b.declaredNamespaces[nsURI],
+		restorePrefix: true,
+		prevPrefix:    prev,
+		hadPrefix:     had,
+	})
 	b.namespaces[nsURI] = prefix
 	b.declaredNamespaces[nsURI] = true
 

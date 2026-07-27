@@ -522,7 +522,13 @@ func (b *Builder) hasStructChildren(parentNS string, val reflect.Value) bool {
 		}
 
 		if info.chardata {
-			if !isZeroValue(fval) {
+			// Mirror marshalStructChildren: a non-string chardata field always
+			// emits content (even a zero), an empty string does not. omitempty
+			// is checked here since it follows this branch.
+			if info.omitempty && isZeroValue(fval) {
+				continue
+			}
+			if fval.Kind() != reflect.String || fval.Len() > 0 {
 				return true
 			}
 			continue
@@ -588,18 +594,28 @@ func (b *Builder) marshalStructChildren(parentNS string, val reflect.Value) {
 			continue
 		}
 
-		// innerxml: write raw bytes
+		// innerxml: write raw bytes through WriteRaw so trailingWS / empty-write
+		// handling matches every other raw-write site (avoids a stray separator
+		// after raw content in separator mode).
 		if info.innerxml {
 			if fval.Kind() == reflect.Slice && fval.Type().Elem().Kind() == reflect.Uint8 && fval.Len() > 0 {
-				b.flushOpenTag()
-				b.buf.Write(fval.Bytes())
+				b.WriteRaw(fval.Bytes())
 			}
 			continue
 		}
 
-		// chardata: write escaped text
+		// chardata: write escaped text. A non-string field always has content
+		// (an int 0 must emit "0", not vanish); an empty string genuinely has
+		// none. flushOpenTag first so the text isn't fused into a deferred
+		// start tag under collapse-empty. omitempty was already handled above.
 		if info.chardata {
-			if !isZeroValue(fval) {
+			if fval.Kind() == reflect.String {
+				if fval.Len() > 0 {
+					b.flushOpenTag()
+					b.writeTextEscaped(fval.String())
+				}
+			} else {
+				b.flushOpenTag()
 				b.writeTextEscaped(formatValue(fval))
 			}
 			continue

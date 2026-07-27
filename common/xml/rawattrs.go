@@ -55,8 +55,38 @@ func CaptureAttrsSource(d *xml.Decoder, attrs []xml.Attr) []RootAttr {
 	}
 	for i := range out {
 		out[i].Raw = raws[i]
+		// C348: if the attribute's namespace stayed unmapped (an unknown
+		// extension namespace declared on an ancestor, so prefixForAttr found
+		// neither a same-tag declaration nor a table entry), recover the
+		// producer's prefix from the verbatim rendering. This keeps the
+		// prefix on replay paths that reconstruct the name from Prefix +
+		// LocalName, so an unknown future namespace degrades gracefully
+		// instead of silently dropping its prefix.
+		if !out[i].IsNS && out[i].Prefix == "" && out[i].Space != "" {
+			if p := prefixFromRawAttr(raws[i]); p != "" {
+				out[i].Prefix = p
+			}
+		}
 	}
 	return out
+}
+
+// prefixFromRawAttr extracts the namespace prefix from a verbatim attribute
+// rendering (RootAttr.Raw, which includes leading whitespace), e.g.
+// ` xr:uid="{…}"` → "xr". Returns "" when the rendering carries no prefix.
+func prefixFromRawAttr(raw string) string {
+	i := 0
+	for i < len(raw) && isXMLSpace(raw[i]) {
+		i++
+	}
+	start := i
+	for i < len(raw) && raw[i] != '=' && raw[i] != ':' && !isXMLSpace(raw[i]) {
+		i++
+	}
+	if i < len(raw) && raw[i] == ':' {
+		return raw[start:i]
+	}
+	return ""
 }
 
 // lexTagAttrs splits a start tag's content (without '<', '>' and any trailing
@@ -75,6 +105,13 @@ func lexTagAttrs(tag []byte) ([]string, bool) {
 			i++
 		}
 		if i >= len(tag) {
+			// Trailing whitespace before '>' (e.g. `<a foo="1" >`) has no
+			// attribute to attach to and cannot be represented as a
+			// per-attribute slice; signal the caller to fall back to the
+			// verbatim source rather than silently dropping it on replay.
+			if attrStart < i {
+				return nil, false
+			}
 			return raws, true
 		}
 		// Attribute name.
@@ -274,7 +311,14 @@ func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, 
 		if d.URI == "" {
 			continue
 		}
-		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: d.URI, wasDeclared: b.declaredNamespaces[d.URI]})
+		prev, had := b.namespaces[d.URI]
+		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{
+			uri:           d.URI,
+			wasDeclared:   b.declaredNamespaces[d.URI],
+			restorePrefix: true,
+			prevPrefix:    prev,
+			hadPrefix:     had,
+		})
 		b.namespaces[d.URI] = d.Prefix
 		b.declaredNamespaces[d.URI] = true
 	}
