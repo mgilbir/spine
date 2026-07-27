@@ -511,12 +511,23 @@ func (c *TableCell) SetColSpan(span int) {
 
 // normalizeMergeCells enforces the DrawingML invariant that every grid cell a
 // gridSpan/rowSpan covers carries the matching hMerge/vMerge continuation flag,
-// so each row still emits one a:tc per grid column. A bare SetColSpan(2) would
-// otherwise leave an ordinary neighbor cell, giving the row more columns than
-// the table grid has (C310). It is idempotent and runs just before the table
-// is serialized; covered cells it touches are marked dirty so the in-place
-// patch path flushes them too.
+// and only those cells do, so each row still emits one a:tc per grid column. A
+// bare SetColSpan(2) would otherwise leave an ordinary neighbor cell, giving the
+// row more columns than the table grid has (C310). It is idempotent and runs
+// just before the table is serialized; cells whose flags it changes are marked
+// dirty so the in-place patch path flushes them too.
+//
+// The flags are recomputed from the spans rather than only set. Setting them
+// made a span widen-only: after SetColSpan(2), save, SetColSpan(1), save, the
+// covered cell still carried hMerge="1" with no spanning master left — a grid
+// PowerPoint reads as a merge that has no owner (C418). Since hMerge/vMerge are
+// unexported and derived, recomputing here is the whole un-merge path.
 func (t *Table) normalizeMergeCells() {
+	// want records, for each covered grid position, which continuation flags a
+	// spanning master requires there.
+	type flags struct{ h, v bool }
+	want := make(map[[2]int]flags)
+
 	for i, row := range t.rows {
 		for j, cell := range row.cells {
 			cs, rs := cell.colSpan, cell.rowSpan
@@ -534,16 +545,25 @@ func (t *Table) normalizeMergeCells() {
 					if r == i && k == j {
 						continue // the master cell keeps its span attributes
 					}
-					nc := t.rows[r].cells[k]
-					if k > j && !nc.hMerge {
-						nc.hMerge = true
-						nc.dirty = true
-					}
-					if r > i && !nc.vMerge {
-						nc.vMerge = true
-						nc.dirty = true
-					}
+					f := want[[2]int{r, k}]
+					f.h = f.h || k > j
+					f.v = f.v || r > i
+					want[[2]int{r, k}] = f
 				}
+			}
+		}
+	}
+
+	for i, row := range t.rows {
+		for j, cell := range row.cells {
+			f := want[[2]int{i, j}]
+			if cell.hMerge != f.h {
+				cell.hMerge = f.h
+				cell.dirty = true
+			}
+			if cell.vMerge != f.v {
+				cell.vMerge = f.v
+				cell.dirty = true
 			}
 		}
 	}

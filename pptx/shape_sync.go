@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -199,11 +200,43 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 	updateTxBody(&sp.TxBody, tf)
 }
 
+// dropCapturedAttrs removes the named attributes from a captured attribute
+// list, returning the remainder.
+//
+// ReplayCapturedAttrs replays any captured attribute the model does not match,
+// which is what makes an unmodeled attribute and an explicit zero survive — and
+// simultaneously makes a modeled value impossible to *clear*, because
+// omitempty suppresses the zero the setter just wrote and replay then restores
+// the source's value (audit tension T-D). A setter that owns an attribute must
+// therefore drop it from the capture: after that, "modeled wins" holds even
+// when the modeled value is a zero. Attributes not named here are untouched, so
+// the fidelity guarantee for everything the model does not represent is intact.
+func dropCapturedAttrs(captured []xmlb.RootAttr, names ...string) []xmlb.RootAttr {
+	if len(captured) == 0 {
+		return captured
+	}
+	drop := make(map[string]bool, len(names))
+	for _, n := range names {
+		drop[n] = true
+	}
+	out := captured[:0]
+	for _, a := range captured {
+		if !a.IsNS && a.Prefix == "" && drop[a.LocalName] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // flushPlaceholderAttrs writes the modeled placeholder attributes (type,
 // orient, idx, sz) into the parsed p:ph node, creating the nvPr/ph chain when
-// the shape had none. The captured attr list on p:ph keeps the modeled values
-// authoritative (see Builder.ReplayCapturedAttrs), so a changed idx/orient/sz
-// wins while unmodeled attributes on p:ph survive the flush.
+// the shape had none. Unmodeled attributes on p:ph survive the flush.
+//
+// The four modeled attributes are dropped from the capture first: p:ph@idx is
+// omitempty, so SetIndex(0) used to write a zero that was suppressed and then
+// replaced by the source's idx="3" on replay — the setter was a silent no-op
+// (C585). The same applied to clearing type/orient/sz.
 func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 	if sp.NvSpPr == nil {
 		return
@@ -215,6 +248,7 @@ func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 		sp.NvSpPr.NvPr.Ph = &oxml.Placeholder{}
 	}
 	p := sp.NvSpPr.NvPr.Ph
+	p.CapturedAttrs = dropCapturedAttrs(p.CapturedAttrs, "type", "orient", "sz", "idx")
 	p.Type = string(ph.phType)
 	p.Orient = string(ph.orientation)
 	p.Sz = string(ph.size)
@@ -662,6 +696,14 @@ func patchTableNode(atbl *oxml.ATable, t *Table) {
 			atbl.TblPr = &oxml.ATblPr{}
 		}
 		pr := atbl.TblPr
+		// All six banding/heading flags are omitempty booleans the domain model
+		// mirrors, so clearing one wrote a false that was suppressed and then
+		// replaced by the source's ="1" on replay: SetFirstRow(false) and its
+		// five siblings were silent no-ops on any parsed table (C583). Dropping
+		// them from the capture makes the modeled value authoritative in both
+		// directions. rtl is not modeled here, so it stays captured.
+		pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs,
+			"firstRow", "firstCol", "lastRow", "lastCol", "bandRow", "bandCol")
 		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
 		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
 		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
