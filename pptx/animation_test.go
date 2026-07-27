@@ -252,7 +252,12 @@ func TestAddAnimation_ByParagraphInsideGroup(t *testing.T) {
 	tb.TextFrame().AddParagraph().AddRun().SetText("three")
 	tb.SetPosition(dml.Inches(1), dml.Inches(1))
 	tb.SetSize(dml.Inches(2), dml.Inches(1))
-	g.AddChild(tb)
+	// GroupShape.AddChild is signatureless (no error) on this branch's base
+	// but gains an error return once the group-child-validation chain is also
+	// merged; a TextBox is always an accepted child, so the add cannot fail
+	// here. The nolint keeps errcheck quiet in the merged tree while the plain
+	// statement still compiles on this branch in isolation.
+	g.AddChild(tb) //nolint:errcheck
 	if err := s.AddShape(g); err != nil {
 		t.Fatal(err)
 	}
