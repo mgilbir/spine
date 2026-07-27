@@ -7,6 +7,59 @@ import (
 	"strings"
 )
 
+// This file also holds the package's single attribute-parse policy for numeric
+// SpreadsheetML attributes: parse-or-skip. A value the schema's type cannot
+// represent leaves the field unset, so the marshaler omits the attribute and
+// the verbatim capture (where the type has one) replays the producer's original
+// text. The two rejected alternatives were both live bugs (C552): fabricating a
+// zero silently rewrote data — an unparsable f/@si became si="0", merging
+// distinct shared-formula groups — and returning the parse error failed the
+// whole Open over one advisory hint. Every numeric attribute in this package
+// goes through these helpers; none parse inline.
+
+// parseUintPtr returns the parsed value of an xsd:unsignedInt attribute, or nil
+// when the text does not parse.
+func parseUintPtr(s string) *uint32 {
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if err != nil {
+		return nil
+	}
+	v := uint32(n)
+	return &v
+}
+
+// parseUint8Ptr returns the parsed value of an xsd:unsignedByte attribute, or
+// nil when the text does not parse.
+func parseUint8Ptr(s string) *uint8 {
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 8)
+	if err != nil {
+		return nil
+	}
+	v := uint8(n)
+	return &v
+}
+
+// parseIntPtr returns the parsed value of an xsd:int attribute, or nil when the
+// text does not parse.
+func parseIntPtr(s string) *int32 {
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
+	if err != nil {
+		return nil
+	}
+	v := int32(n)
+	return &v
+}
+
+// parseFloatPtr returns the parsed value of an xsd:double attribute, or nil
+// when the text does not parse.
+func parseFloatPtr(s string) *float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
 // parseOnOff parses ECMA-376 ST_OnOff leniently. The schema admits
 // true/false/1/0/on/off, but strconv.ParseBool (which Go's reflection decoder
 // uses for bool fields) rejects on/off and any other spelling, failing the
@@ -107,6 +160,16 @@ func (v BoolLex) AttrValue() string {
 // IsZeroAttr implements xmlb.AttrValuer for omitempty handling: a BoolLex is
 // zero only when it was never set (an explicit source "0" is retained).
 func (v BoolLex) IsZeroAttr() bool { return !v.Val && v.orig == "" }
+
+// parseBoolLex parses an ST_OnOff attribute into a BoolLex. Parsing is lenient
+// (see BoolLex.UnmarshalXMLAttr), so this never fails; the helper exists so the
+// hand-written unmarshalers do not each repeat the allocate-and-check dance.
+func parseBoolLex(attr xml.Attr) *BoolLex {
+	v := &BoolLex{}
+	// UnmarshalXMLAttr degrades unknown spellings rather than erroring.
+	_ = v.UnmarshalXMLAttr(attr)
+	return v
+}
 
 // FloatLex is a floating-point attribute value that re-emits its source
 // lexical form (e.g. Excel's iterateDelta="1E-4", which Go would otherwise

@@ -444,19 +444,6 @@ func floatAttr(name string, v float64) xmlb.Attr {
 
 func boolPtr(v bool) *bool { return &v }
 
-func parseFloatPtr(s string) *float64 {
-	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-	if err != nil {
-		return nil
-	}
-	return &v
-}
-
-func parseUintPtr(s string) *uint32 {
-	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if err != nil {
-		return nil
-	}
-	v := uint32(n)
-	return &v
-}
+// The numeric attribute parsers these files share (parseUintPtr, parseIntPtr,
+// parseUint8Ptr, parseFloatPtr) live in lexical.go alongside the rest of the
+// package's attribute-parse policy.

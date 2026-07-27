@@ -4,49 +4,36 @@ package oxml
 
 import (
 	"encoding/xml"
-	"fmt"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-// CT_Sst is the root element of sharedStrings.xml.
+// CT_Sst is the root element of sharedStrings.xml. The part has no writer:
+// new strings are written inline on the cell and an opened sharedStrings.xml
+// round-trips through its preserved raw bytes, so this type is read-only and
+// carries no round-trip capture (C554).
 type CT_Sst struct {
 	XMLName     xml.Name `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main sst"`
 	Count       *uint32  `xml:"count,attr,omitempty"`
 	UniqueCount *uint32  `xml:"uniqueCount,attr,omitempty"`
 	Si          []CT_Rst `xml:"si"`
-	// OriginalNSDecls preserves the namespace declarations from the original XML
-	// for byte-identical round-trip of sharedStrings.xml.
-	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
 }
 
-// UnmarshalXML implements custom unmarshaling for CT_Sst.
+// UnmarshalXML implements custom unmarshaling for CT_Sst. Unparsable counts
+// leave the field unset rather than failing the whole Open: count/uniqueCount
+// are advisory hints Excel recomputes, and a single malformed one must not
+// make the workbook unopenable (C552).
 func (sst *CT_Sst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	sst.XMLName = start.Name
 	for _, attr := range start.Attr {
+		if attr.Name.Space != "" {
+			continue
+		}
 		switch attr.Name.Local {
 		case "count":
-			var v uint32
-			if _, err := parseUint32(attr.Value, &v); err != nil {
-				return err
-			}
-			sst.Count = &v
+			sst.Count = parseUintPtr(attr.Value)
 		case "uniqueCount":
-			var v uint32
-			if _, err := parseUint32(attr.Value, &v); err != nil {
-				return err
-			}
-			sst.UniqueCount = &v
-		}
-		// Capture namespace declarations for round-trip preservation
-		if attr.Name.Space == "xmlns" {
-			sst.OriginalNSDecls = append(sst.OriginalNSDecls, xmlb.NSDecl{
-				Prefix: attr.Name.Local,
-				URI:    attr.Value,
-			})
-		} else if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
-			// Default namespace: xmlns="URI"
-			sst.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, sst.OriginalNSDecls...)
+			sst.UniqueCount = parseUintPtr(attr.Value)
 		}
 	}
 
@@ -73,11 +60,6 @@ func (sst *CT_Sst) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			return nil
 		}
 	}
-}
-
-// parseUint32 parses a uint32 from a string using fmt.Sscanf.
-func parseUint32(s string, v *uint32) (int, error) {
-	return fmt.Sscanf(s, "%d", v)
 }
 
 // CT_Rst represents a rich text string item (si element child, also used for
