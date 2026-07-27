@@ -83,6 +83,89 @@ func corpusDir() string {
 	return filepath.Join("..", "testdata", "corpus", "cc")
 }
 
+// corpusPopulation is the result of scanning the corpus root: the sorted file
+// list per document type, plus which per-type directories exist at all. The
+// distinction matters because ccfetch creates all of them up front (see
+// tools/ccfetch/main.go), so their mere existence says nothing about whether a
+// fetch ever completed.
+type corpusPopulation struct {
+	files map[string][]string
+	dirs  map[string]bool
+}
+
+// scanCorpus lists the corpus files under dir, per document type.
+func scanCorpus(dir string) (corpusPopulation, error) {
+	p := corpusPopulation{
+		files: make(map[string][]string, len(docTypes)),
+		dirs:  make(map[string]bool, len(docTypes)),
+	}
+	for _, typ := range docTypes {
+		sub := filepath.Join(dir, typ)
+		if fi, err := os.Stat(sub); err == nil && fi.IsDir() {
+			p.dirs[typ] = true
+		}
+		files, err := filepath.Glob(filepath.Join(sub, "*."+typ))
+		if err != nil {
+			return p, fmt.Errorf("globbing %s: %w", sub, err)
+		}
+		sort.Strings(files)
+		p.files[typ] = files
+	}
+	return p, nil
+}
+
+// defect reports why a corpus root that exists is nonetheless not a corpus, or
+// nil when it is usable. An absent root is the caller's skip case and never
+// reaches here; what this catches is the root that exists and yields no
+// subtests — the state an aborted or never-run fetch leaves behind, in which
+// both `go test ./cctest` and `make test-corpus` exit 0 having checked nothing.
+//
+// A per-type directory that does not exist is fine (a corpus can legitimately
+// hold one document type); a directory that exists and is empty is the
+// signature of the interrupted fetch, so it fails.
+func (p corpusPopulation) defect(dir string) error {
+	total := 0
+	var empty []string
+	for _, typ := range docTypes {
+		total += len(p.files[typ])
+		if p.dirs[typ] && len(p.files[typ]) == 0 {
+			empty = append(empty, typ)
+		}
+	}
+	if total == 0 {
+		return fmt.Errorf("corpus root %s exists but holds no corpus files: "+
+			"an interrupted or never-run fetch leaves the per-type directories behind empty. "+
+			"Run 'make fetch-cc' to populate it, or remove %s to make the corpus absent (the test then skips)",
+			dir, dir)
+	}
+	if len(empty) > 0 {
+		return fmt.Errorf("corpus at %s is partially fetched: %d file(s) present, but the %s "+
+			"director%s exist and hold none. Re-run 'make fetch-cc' to finish the fetch, or remove the "+
+			"empty director%s if this corpus is deliberately %s-only",
+			dir, total, strings.Join(empty, ", "), plural(len(empty), "y", "ies"),
+			plural(len(empty), "y", "ies"), strings.Join(presentTypes(p), "/"))
+	}
+	return nil
+}
+
+// presentTypes lists the document types this corpus actually holds files for.
+func presentTypes(p corpusPopulation) []string {
+	var out []string
+	for _, typ := range docTypes {
+		if len(p.files[typ]) > 0 {
+			out = append(out, typ)
+		}
+	}
+	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // quarantineEntry is one row of testdata/cc/known_failures.tsv.
 type quarantineEntry struct {
 	typ, note string
@@ -185,6 +268,18 @@ func TestCCCorpus(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Skipf("Common Crawl corpus not present at %s (run 'make fetch-cc'); skipping", dir)
 	}
+	// The root existing is not the same as the corpus existing: ccfetch creates
+	// <root>/<type> for every document type before it fetches anything, so a
+	// fetch interrupted at row 0 leaves a stat-able tree whose globs are empty.
+	// Skipping on absence is intended; passing on an empty or half-populated
+	// tree is a green run that verified nothing, so that fails loudly. (C443)
+	pop, err := scanCorpus(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pop.defect(dir); err != nil {
+		t.Fatal(err)
+	}
 
 	update := os.Getenv("SPINE_CC_UPDATE_QUARANTINE") != ""
 	full := update || os.Getenv("SPINE_CC_FULL") != ""
@@ -244,11 +339,7 @@ func TestCCCorpus(t *testing.T) {
 
 	sem := make(chan struct{}, maxParallel)
 	for _, typ := range docTypes {
-		files, err := filepath.Glob(filepath.Join(dir, typ, "*."+typ))
-		if err != nil {
-			t.Fatal(err)
-		}
-		sort.Strings(files)
+		files := pop.files[typ]
 		// Record every locally present sha16 before any subset truncation, so
 		// update-mode carry-forward sees the full local corpus.
 		for _, path := range files {
@@ -384,34 +475,20 @@ func checkFile(t *testing.T, agg *aggregate, typ, sha16, path string, update boo
 	// part. Wild originals can be damaged in ways the library tolerates but
 	// a strict zip read does not (e.g. CRC mismatches), so a re-read
 	// failure is a fidelity finding, not a test bug.
-	origParts, err := testutil.ReadZipPartsBytes(data)
+	origParts, err := testutil.ReadZipEntriesBytes(data)
 	if err != nil {
 		fail("fidelity", fmt.Errorf("re-reading original parts: %w", err))
 		return
 	}
-	savedParts, err := testutil.ReadZipPartsBytes(saved)
+	savedParts, err := testutil.ReadZipEntriesBytes(saved)
 	if err != nil {
 		fail("fidelity", fmt.Errorf("reading saved parts: %w", err))
 		return
 	}
-	identical := 0
-	var changed, missing, extra []string
-	for _, name := range testutil.SortedKeys(origParts) {
-		sv, ok := savedParts[name]
-		switch {
-		case !ok:
-			missing = append(missing, name)
-		case !bytes.Equal(origParts[name], sv):
-			changed = append(changed, name)
-		default:
-			identical++
-		}
-	}
-	for _, name := range testutil.SortedKeys(savedParts) {
-		if _, ok := origParts[name]; !ok {
-			extra = append(extra, name)
-		}
-	}
+	// Multiset comparison: wild packages do carry duplicate zip entry names, and
+	// a name-keyed map would compare only one of them on each side, hiding a
+	// dropped or duplicated entry entirely (C573).
+	identical, missing, extra, changed := testutil.DiffZipEntries(origParts, savedParts)
 	if len(changed)+len(missing)+len(extra) > 0 {
 		first := ""
 		switch {
