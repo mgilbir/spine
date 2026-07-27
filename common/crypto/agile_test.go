@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,10 +131,104 @@ func TestAgileSpinCountCapped(t *testing.T) {
 	}
 }
 
+// TestAgileSpinCountCeilingIsOfficeScale pins the ceiling near Office's own
+// spinCount. The cap existed but was 100x Office's 100000, which left a few
+// hundred descriptor bytes able to buy seconds of SHA-512 work per attempt —
+// all of it spent before anything about the caller's password is known.
+func TestAgileSpinCountCeilingIsOfficeScale(t *testing.T) {
+	const officeSpinCount = 100000
+	if maxSpinCount > 10*officeSpinCount {
+		t.Fatalf("maxSpinCount = %d, more than 10x Office's %d: a hostile descriptor buys too much pre-password work", maxSpinCount, officeSpinCount)
+	}
+	if maxSpinCount < officeSpinCount {
+		t.Fatalf("maxSpinCount = %d, below Office's own %d", maxSpinCount, officeSpinCount)
+	}
+
+	info, enc, err := Encrypt([]byte("secret"), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 5,000,000 is well inside the old ceiling and costs seconds of hashing.
+	hostile := bytes.Replace(info, []byte(`spinCount="100000"`), []byte(`spinCount="5000000"`), 1)
+	if bytes.Equal(hostile, info) {
+		t.Fatal("failed to rewrite spinCount in descriptor")
+	}
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() { _, e := Decrypt(hostile, enc, "pw"); done <- e }()
+	select {
+	case e := <-done:
+		if !errors.Is(e, ErrMalformedEncryptionInfo) {
+			t.Fatalf("spinCount 5000000: got %v, want ErrMalformedEncryptionInfo", e)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Fatalf("rejecting an over-large spinCount took %v; the derivation ran first", elapsed)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Decrypt did not return for spinCount 5000000")
+	}
+}
+
+// TestEncryptRejectsUnusablePasswords covers the empty-password guard (which
+// previously lived only in opc.SaveEncryptedWithOptions, so the crypto entry
+// points would happily "protect" a document with no password at all) and the
+// two silent interop divergences alongside it: a password that is not valid
+// UTF-8 hashes as U+FFFD replacement characters, and one longer than Office's
+// 255-character limit cannot be typed on the other side.
+func TestEncryptRejectsUnusablePasswords(t *testing.T) {
+	longPassword := strings.Repeat("a", maxPasswordUTF16Units+1)
+	cases := []struct {
+		name, password string
+	}{
+		{"empty", ""},
+		{"invalid-utf8", "pass\xffword"},
+		{"too-long", longPassword},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, err := Encrypt([]byte("x"), c.password); !errors.Is(err, ErrInvalidPassword) {
+				t.Fatalf("Encrypt: got %v, want ErrInvalidPassword", err)
+			}
+			if _, _, err := EncryptStandard([]byte("x"), c.password, 256); !errors.Is(err, ErrInvalidPassword) {
+				t.Fatalf("EncryptStandard: got %v, want ErrInvalidPassword", err)
+			}
+			if _, _, err := EncryptRC4CryptoAPI([]byte("x"), c.password, 40); !errors.Is(err, ErrInvalidPassword) {
+				t.Fatalf("EncryptRC4CryptoAPI: got %v, want ErrInvalidPassword", err)
+			}
+		})
+	}
+
+	// The boundary itself is accepted, and a non-BMP password still counts in
+	// UTF-16 code units (a surrogate pair is two).
+	atLimit := strings.Repeat("a", maxPasswordUTF16Units)
+	if _, _, err := Encrypt([]byte("x"), atLimit); err != nil {
+		t.Fatalf("password of exactly %d characters: %v", maxPasswordUTF16Units, err)
+	}
+	surrogateHeavy := strings.Repeat("\U0001F510", maxPasswordUTF16Units/2+1)
+	if _, _, err := Encrypt([]byte("x"), surrogateHeavy); !errors.Is(err, ErrInvalidPassword) {
+		t.Fatalf("surrogate-pair password over the limit: got %v, want ErrInvalidPassword", err)
+	}
+}
+
 func TestPasswordToUTF16LE(t *testing.T) {
 	got := passwordToUTF16LE("AB")
 	want := []byte{'A', 0x00, 'B', 0x00}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	// Non-BMP runes become surrogate pairs, as in the UTF-16 strings Office
+	// hashes: U+1F510 is D83D DD10.
+	got = passwordToUTF16LE("\U0001F510")
+	want = []byte{0x3D, 0xD8, 0x10, 0xDD}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("surrogate pair: got % x, want % x", got, want)
+	}
+
+	// Nothing is truncated: the read path must hash whatever it is given, so a
+	// long password cannot collide with its own 255-character prefix.
+	long := strings.Repeat("z", maxPasswordUTF16Units+10)
+	if n := len(passwordToUTF16LE(long)); n != 2*len(long) {
+		t.Fatalf("encoded %d bytes for a %d-character password, want %d", n, len(long), 2*len(long))
 	}
 }

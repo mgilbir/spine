@@ -10,9 +10,11 @@ package crypto
 // Office 2010+ default) is implemented here; the older ECMA-376 "standard"
 // scheme (§2.3.4.5, AES/SHA-1) lives in standard.go, and the legacy RC4
 // CryptoAPI scheme (§2.3.5) in rc4.go. Decrypt auto-detects among them from the
-// EncryptionInfo version. RC4 CryptoAPI is decrypt-only — it opens legacy files
-// but saving RC4 is deliberately not offered, because RC4 is cryptographically
-// broken. The extensible scheme and the obsolete version-1.1 binary-format RC4
+// EncryptionInfo version. RC4 CryptoAPI exists here to open legacy files: the
+// public save path never writes it, because RC4 is cryptographically broken
+// (EncryptRC4CryptoAPI is exported only to cross-validate the decrypt path
+// against a reference implementation, and says so). The extensible scheme and
+// the obsolete version-1.1 binary-format RC4
 // (§2.3.6), which never wraps an OOXML package, are detected and rejected with
 // ErrUnsupportedEncryption rather than decoded; see Decrypt.
 //
@@ -35,6 +37,8 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 var (
@@ -44,20 +48,34 @@ var (
 	ErrWrongPassword = errors.New("crypto: wrong password")
 
 	// ErrUnsupportedEncryption indicates the document uses an encryption scheme
-	// this package does not implement — a legacy RC4/CryptoAPI scheme, the
-	// extensible scheme, or an agile/standard descriptor requesting a cipher,
-	// chaining mode, or hash that is not supported. Agile AES-CBC/SHA-512 and
-	// ECMA-376 standard AES-ECB/SHA-1 are the supported schemes.
+	// this package does not implement — the extensible scheme, the obsolete
+	// version-1.1 binary-format RC4 scheme, or an agile/standard descriptor
+	// requesting a cipher, chaining mode, or hash that is not supported. The
+	// implemented schemes are agile AES-CBC (AES-128/192/256 with
+	// SHA-1/256/384/512 on read; AES-256/SHA-512 on write), ECMA-376 standard
+	// AES-ECB/SHA-1, and legacy RC4 CryptoAPI (§2.3.5).
 	ErrUnsupportedEncryption = errors.New("crypto: unsupported encryption scheme")
 
-	// ErrIntegrityCheckFailed indicates the encrypted package failed its
-	// HMAC integrity check: the ciphertext was truncated or tampered with even
-	// though the password verified. It is distinct from ErrWrongPassword.
+	// ErrIntegrityCheckFailed indicates the encrypted package is not
+	// authenticated: either its HMAC did not match — the ciphertext was
+	// truncated or tampered with even though the password verified — or the
+	// agile descriptor carries no usable dataIntegrity block to check it
+	// against. Because the descriptor is not itself authenticated, a missing
+	// dataIntegrity element is indistinguishable from one an attacker stripped,
+	// so it is reported the same way; see DecryptOptions for the opt-in that
+	// relaxes it. It is distinct from ErrWrongPassword: the password was right.
 	ErrIntegrityCheckFailed = errors.New("crypto: encrypted package failed integrity check")
 
 	// ErrMalformedEncryptionInfo indicates the EncryptionInfo stream could not
 	// be parsed as a recognized descriptor.
 	ErrMalformedEncryptionInfo = errors.New("crypto: malformed EncryptionInfo")
+
+	// ErrInvalidPassword indicates a password handed to an encryption entry
+	// point cannot be used to protect a document: it is empty, it is not valid
+	// UTF-8, or it is longer than the 255 characters Office accepts. Only
+	// Encrypt, EncryptStandard and EncryptRC4CryptoAPI return it; a password
+	// that simply does not match an existing document returns ErrWrongPassword.
+	ErrInvalidPassword = errors.New("crypto: invalid password")
 )
 
 // Block keys are fixed 8-byte constants defined by [MS-OFFCRYPTO] §2.3.4.12
@@ -131,9 +149,96 @@ const passwordKeyEncryptorURI = "http://schemas.microsoft.com/office/2006/keyEnc
 // maxSpinCount caps the attacker-controlled spinCount read from EncryptionInfo.
 // Each iteration is a SHA-512 (or shorter hash) invocation and deriveKey runs
 // spinCount iterations three times before the password is verified, so a large
-// value stalls a core for minutes. Office writes 100000; this ceiling is
-// generous enough for any legitimate producer while bounding the pre-check work.
-const maxSpinCount = 10_000_000
+// value stalls a core: a few hundred descriptor bytes buy seconds of work that
+// happens before anything about the caller's password is known. Office writes
+// 100000; this ceiling allows ten times that — generous for any legitimate
+// producer — while keeping the pre-check work under a second on current
+// hardware.
+const maxSpinCount = 1_000_000
+
+// Scheme identifies which [MS-OFFCRYPTO] password-encryption scheme produced an
+// encrypted container. DecryptWithOptions reports it so a caller can tell an
+// authenticated agile package from the older schemes, which carry no integrity
+// protection at all.
+type Scheme int
+
+const (
+	// SchemeUnknown is the zero value. DecryptWithOptions never reports it
+	// together with a nil error.
+	SchemeUnknown Scheme = iota
+
+	// SchemeAgile is agile encryption ([MS-OFFCRYPTO] §2.3.4.10–§2.3.4.15):
+	// AES-CBC with per-segment IVs and an iterated key derivation. It is the
+	// only scheme that authenticates the ciphertext (an HMAC over the
+	// EncryptedPackage stream, keyed from the document key).
+	SchemeAgile
+
+	// SchemeStandard is ECMA-376 standard encryption (§2.3.4.5–§2.3.4.9):
+	// AES-ECB with SHA-1 key derivation. It has no integrity protection, so a
+	// successful decryption proves only that the password matched the stored
+	// verifier — not that the bytes are the ones the author encrypted.
+	SchemeStandard
+
+	// SchemeRC4CryptoAPI is the obsolete RC4 CryptoAPI scheme (§2.3.5). The
+	// cipher is broken, the key derivation is a single un-iterated SHA-1, and
+	// there is no integrity protection. Decrypt-only; treat the plaintext as
+	// unauthenticated.
+	SchemeRC4CryptoAPI
+)
+
+// String renders the scheme name used in this package's documentation.
+func (s Scheme) String() string {
+	switch s {
+	case SchemeAgile:
+		return "agile"
+	case SchemeStandard:
+		return "ECMA-376 standard"
+	case SchemeRC4CryptoAPI:
+		return "RC4 CryptoAPI"
+	default:
+		return "unknown"
+	}
+}
+
+// DecryptOptions configures DecryptWithOptions. The zero value is the strict,
+// recommended behavior and matches Decrypt.
+type DecryptOptions struct {
+	// AllowMissingDataIntegrity accepts an agile-encrypted package whose
+	// EncryptionInfo descriptor carries no dataIntegrity element, decrypting it
+	// WITHOUT verifying the package HMAC.
+	//
+	// Leave it false unless you know you need it. The descriptor is plaintext
+	// and is not covered by any MAC, verifier, or key derivation, so an
+	// attacker who can modify the file can delete the dataIntegrity element as
+	// easily as they can flip bits in the (malleable, CBC-mode) ciphertext.
+	// Honoring its absence therefore turns an authenticated format into an
+	// unauthenticated one at the attacker's option, which is why the default is
+	// to reject it with ErrIntegrityCheckFailed. Office always emits
+	// dataIntegrity; this exists only for a third-party producer that does not,
+	// and it must be a deliberate caller decision — it is never inferred from
+	// the file. It never relaxes a *failed* HMAC, and never accepts a
+	// half-present dataIntegrity block (one of the two attributes missing),
+	// which no honest producer writes.
+	AllowMissingDataIntegrity bool
+}
+
+// DecryptResult is the outcome of DecryptWithOptions: the recovered package
+// plus what is known about how it was protected.
+type DecryptResult struct {
+	// Package is the plaintext OOXML package (an ordinary .zip).
+	Package []byte
+
+	// Scheme is the encryption scheme the container used.
+	Scheme Scheme
+
+	// IntegrityVerified reports whether the returned bytes were authenticated
+	// with a cryptographic checksum before being returned. It is true only for
+	// SchemeAgile packages whose dataIntegrity HMAC verified. When it is false
+	// the plaintext is unauthenticated: the password was right, but nothing
+	// proves the bytes are the ones the author encrypted, so treat the package
+	// as untrusted input.
+	IntegrityVerified bool
+}
 
 // Decrypt recovers the plaintext OOXML package (an ordinary .zip) from the two
 // streams of an encrypted document container: the EncryptionInfo descriptor
@@ -143,37 +248,68 @@ const maxSpinCount = 10_000_000
 // minor=4), ECMA-376 standard encryption (minor=2, AES), and legacy RC4 CryptoAPI
 // encryption (minor=2, RC4 — [MS-OFFCRYPTO] §2.3.5) are supported. The extensible
 // scheme and the older version-1.1 binary-format RC4 (§2.3.6) return
-// ErrUnsupportedEncryption. A wrong password returns ErrWrongPassword.
+// ErrUnsupportedEncryption. A wrong password returns ErrWrongPassword. An agile
+// package whose HMAC does not verify — or whose descriptor carries no
+// dataIntegrity block to verify against — returns ErrIntegrityCheckFailed.
+//
+// Only agile packages are authenticated; the standard and RC4 schemes have no
+// integrity protection, so their plaintext is attacker-malleable even when the
+// password is correct. Use DecryptWithOptions to learn which scheme produced the
+// bytes and whether they were authenticated.
 func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, error) {
+	res, err := DecryptWithOptions(encryptionInfo, encryptedPackage, password, DecryptOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return res.Package, nil
+}
+
+// DecryptWithOptions is Decrypt with control over how strictly the agile
+// integrity block is required, and with the scheme and authentication status of
+// the recovered bytes reported back.
+func DecryptWithOptions(encryptionInfo, encryptedPackage []byte, password string, opts DecryptOptions) (DecryptResult, error) {
 	if len(encryptionInfo) < 8 {
-		return nil, fmt.Errorf("%w: stream is %d bytes, need at least 8", ErrMalformedEncryptionInfo, len(encryptionInfo))
+		return DecryptResult{}, fmt.Errorf("%w: stream is %d bytes, need at least 8", ErrMalformedEncryptionInfo, len(encryptionInfo))
 	}
 	major := binary.LittleEndian.Uint16(encryptionInfo[0:2])
 	minor := binary.LittleEndian.Uint16(encryptionInfo[2:4])
 
 	switch {
 	case major == 4 && minor == 4:
-		return agileDecrypt(encryptionInfo[8:], encryptedPackage, password)
+		plain, verified, err := agileDecrypt(encryptionInfo[8:], encryptedPackage, password, opts)
+		if err != nil {
+			return DecryptResult{}, err
+		}
+		return DecryptResult{Package: plain, Scheme: SchemeAgile, IntegrityVerified: verified}, nil
 	case (major == 2 || major == 3 || major == 4) && minor == 2:
 		// Minor version 2 covers both the AES-based ECMA-376 "standard" scheme and
 		// legacy RC4 CryptoAPI ([MS-OFFCRYPTO] §2.3.5); they share the binary
-		// EncryptionHeader layout and are distinguished by its AlgID. The 4-byte
-		// version prefix is followed directly by that header.
+		// EncryptionHeader layout and are distinguished by its AlgID (and, when
+		// that is zero, by the fAES flag). The 4-byte version prefix is followed
+		// directly by that header.
 		info := encryptionInfo[4:]
 		if isRC4CryptoAPI(info) {
-			return rc4CryptoAPIDecrypt(info, encryptedPackage, password)
+			plain, err := rc4CryptoAPIDecrypt(info, encryptedPackage, password)
+			if err != nil {
+				return DecryptResult{}, err
+			}
+			return DecryptResult{Package: plain, Scheme: SchemeRC4CryptoAPI}, nil
 		}
-		return standardDecrypt(info, encryptedPackage, password)
+		plain, err := standardDecrypt(info, encryptedPackage, password)
+		if err != nil {
+			return DecryptResult{}, err
+		}
+		return DecryptResult{Package: plain, Scheme: SchemeStandard}, nil
 	case (major == 3 || major == 4) && minor == 3:
-		return nil, fmt.Errorf("%w: extensible encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
+		return DecryptResult{}, fmt.Errorf("%w: extensible encryption (version %d.%d) is not supported", ErrUnsupportedEncryption, major, minor)
 	case minor == 1:
 		// Version-1.1 RC4 ([MS-OFFCRYPTO] §2.3.6) is the obsolete binary-format
 		// (.doc/.xls/.ppt) scheme; it never wraps an OOXML .zip package, so it is
 		// identified but not decoded here (RC4 CryptoAPI, the scheme that can wrap
 		// OOXML, is handled by the minor==2 case above).
-		return nil, fmt.Errorf("%w: version-1.1 binary-format RC4 encryption (version %d.%d) does not wrap OOXML packages and is not supported", ErrUnsupportedEncryption, major, minor)
+		return DecryptResult{}, fmt.Errorf("%w: version-1.1 binary-format RC4 encryption (version %d.%d) does not wrap OOXML packages and is not supported", ErrUnsupportedEncryption, major, minor)
 	default:
-		return nil, fmt.Errorf("%w: unrecognized EncryptionInfo version %d.%d", ErrUnsupportedEncryption, major, minor)
+		return DecryptResult{}, fmt.Errorf("%w: unrecognized EncryptionInfo version %d.%d", ErrUnsupportedEncryption, major, minor)
 	}
 }
 
@@ -183,9 +319,42 @@ func Decrypt(encryptionInfo, encryptedPackage []byte, password string) ([]byte, 
 // ciphertext. It always uses the modern Office defaults — AES-256 in CBC mode
 // with SHA-512 key derivation — and generates fresh random salts and keys with
 // crypto/rand on every call, so encrypting the same package twice yields
-// different ciphertext.
+// different ciphertext. The descriptor always carries a dataIntegrity block, so
+// the result is authenticated.
+//
+// The password must be a non-empty, valid-UTF-8 string of at most 255
+// characters (see ErrInvalidPassword): those are the passwords Office can
+// represent, and encrypting under any other string would produce a document no
+// Office build could open.
 func Encrypt(packageData []byte, password string) (encryptionInfo, encryptedPackage []byte, err error) {
+	if err := validatePassword(password); err != nil {
+		return nil, nil, err
+	}
 	return agileEncrypt(packageData, password)
+}
+
+// maxPasswordUTF16Units is the longest password Office accepts, in UTF-16 code
+// units — the units its password fields are counted and hashed in. Office's
+// password prompts cap input at 255 characters, so a longer string cannot be
+// entered on the other side of the interop boundary and is rejected here rather
+// than silently producing an unopenable document.
+const maxPasswordUTF16Units = 255
+
+// validatePassword rejects passwords that cannot round-trip through Office.
+// It guards the encryption entry points only: the decrypt path must accept
+// whatever the caller has, and reports a non-matching password as
+// ErrWrongPassword.
+func validatePassword(password string) error {
+	if password == "" {
+		return fmt.Errorf("%w: the password is empty; encrypting with an empty password protects nothing", ErrInvalidPassword)
+	}
+	if !utf8.ValidString(password) {
+		return fmt.Errorf("%w: the password is not valid UTF-8; its invalid bytes would be hashed as U+FFFD replacement characters and no other implementation would derive the same key", ErrInvalidPassword)
+	}
+	if n := len(utf16.Encode([]rune(password))); n > maxPasswordUTF16Units {
+		return fmt.Errorf("%w: the password is %d UTF-16 characters, exceeding the %d Office accepts", ErrInvalidPassword, n, maxPasswordUTF16Units)
+	}
+	return nil
 }
 
 // hashFactory returns a constructor for the named hash algorithm and its digest
@@ -244,53 +413,66 @@ func validateCommon(cipherAlg, chaining, hashAlg string, keyBits, blockSize, has
 }
 
 // agileDecrypt implements the agile decryption pipeline over the XML portion of
-// EncryptionInfo (version header already stripped) and the EncryptedPackage.
-func agileDecrypt(infoXML, encryptedPackage []byte, password string) ([]byte, error) {
+// EncryptionInfo (version header already stripped) and the EncryptedPackage. It
+// reports whether the returned plaintext was authenticated by the package HMAC,
+// which is true for every descriptor it accepts unless the caller opted out of
+// requiring one.
+func agileDecrypt(infoXML, encryptedPackage []byte, password string, opts DecryptOptions) ([]byte, bool, error) {
 	var info agileEncryptionInfo
 	if err := xml.Unmarshal(infoXML, &info); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrMalformedEncryptionInfo, err)
+		return nil, false, fmt.Errorf("%w: %v", ErrMalformedEncryptionInfo, err)
 	}
 
 	enc, err := findPasswordEncryptor(&info)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+
+	// Decide up front whether this descriptor is one we are willing to trust at
+	// all. The dataIntegrity block is the only thing that authenticates the
+	// ciphertext, and nothing authenticates the descriptor itself, so a missing
+	// block must be refused rather than treated as "integrity not requested" —
+	// see checkDataIntegrity.
+	checkHmac, err := checkDataIntegrity(info.DataIntegrity, opts.AllowMissingDataIntegrity)
+	if err != nil {
+		return nil, false, err
 	}
 
 	// Reject an over-large spinCount before any key derivation runs: deriveKey
 	// hashes spinCount times and is called three times below, all before the
 	// password is checked.
 	if enc.SpinCount < 0 || enc.SpinCount > maxSpinCount {
-		return nil, fmt.Errorf("%w: spinCount %d out of range [0, %d]", ErrMalformedEncryptionInfo, enc.SpinCount, maxSpinCount)
+		return nil, false, fmt.Errorf("%w: spinCount %d out of range [0, %d]", ErrMalformedEncryptionInfo, enc.SpinCount, maxSpinCount)
 	}
 
 	kp, err := validateCommon(enc.CipherAlgorithm, enc.CipherChaining, enc.HashAlgorithm, enc.KeyBits, enc.BlockSize, enc.HashSize)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	dp, err := validateCommon(info.KeyData.CipherAlgorithm, info.KeyData.CipherChaining, info.KeyData.HashAlgorithm, info.KeyData.KeyBits, info.KeyData.BlockSize, info.KeyData.HashSize)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	pkSalt, err := decodeB64(enc.SaltValue, "encryptedKey saltValue")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	keyDataSalt, err := decodeB64(info.KeyData.SaltValue, "keyData saltValue")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	encVerInput, err := decodeB64(enc.EncryptedVerifierHashInput, "encryptedVerifierHashInput")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	encVerValue, err := decodeB64(enc.EncryptedVerifierHashValue, "encryptedVerifierHashValue")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	encKeyValue, err := decodeB64(enc.EncryptedKeyValue, "encryptedKeyValue")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	pwUTF16 := passwordToUTF16LE(password)
@@ -298,46 +480,95 @@ func agileDecrypt(infoXML, encryptedPackage []byte, password string) ([]byte, er
 	// Verify the password against the stored verifier before trusting any key.
 	verInputKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyVerifierHashInput)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	verInput, err := aesCBCDecrypt(verInputKey, pkSalt, encVerInput)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	verValueKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyVerifierHashValue)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	verValue, err := aesCBCDecrypt(verValueKey, pkSalt, encVerValue)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	h := kp.newHash()
 	h.Write(verInput)
 	if !hmac.Equal(h.Sum(nil), truncate(verValue, kp.hashSize)) {
-		return nil, ErrWrongPassword
+		return nil, false, ErrWrongPassword
 	}
 
 	// Decrypt the intermediate key that actually protects the package.
 	keyValueKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyEncryptedKeyValue)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	secretKey, err := aesCBCDecrypt(keyValueKey, pkSalt, encKeyValue)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	secretKey = truncate(secretKey, dp.keyBytes)
 
-	// Optional but strong: verify the package HMAC when the descriptor carries
-	// a dataIntegrity block, so tampering or truncation is caught.
-	if info.DataIntegrity.EncryptedHmacKey != "" && info.DataIntegrity.EncryptedHmacValue != "" {
+	// Authenticate the ciphertext before decrypting it: AES-CBC is malleable and
+	// the plaintext is handed on as a package, so tampering or truncation must be
+	// caught here, not by whatever parses the result.
+	if checkHmac {
 		if err := verifyIntegrity(&info, dp, secretKey, keyDataSalt, encryptedPackage); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
-	return decryptPackage(dp, secretKey, keyDataSalt, encryptedPackage)
+	plain, err := decryptPackage(dp, secretKey, keyDataSalt, encryptedPackage)
+	if err != nil {
+		return nil, false, err
+	}
+	return plain, checkHmac, nil
+}
+
+// checkDataIntegrity decides whether an agile descriptor's dataIntegrity block
+// can and must be verified, and reports the descriptor as unauthenticated when
+// it cannot be.
+//
+// The block is what binds the EncryptedPackage bytes to the document key. It is
+// not itself authenticated — the descriptor is plaintext and no MAC, verifier
+// or key derivation covers it — so an attacker who can flip bits in the
+// (CBC-mode, malleable) ciphertext can equally delete the element or rename one
+// of its attributes. Verifying "when present" therefore means verifying only
+// when the attacker permits it, which is no protection at all: it is refused
+// instead. Office always writes dataIntegrity; a caller who must read a
+// third-party producer that does not can opt out explicitly, per file, with
+// DecryptOptions.AllowMissingDataIntegrity — never inferred from the bytes.
+//
+// A half-present block (exactly one of the two attributes) is refused even
+// under the opt-out: no producer writes one, but stripping one attribute is the
+// cheapest way to make an "if both present" check skip.
+func checkDataIntegrity(di agileDataIntegrity, allowMissing bool) (verify bool, err error) {
+	haveKey := di.EncryptedHmacKey != ""
+	haveValue := di.EncryptedHmacValue != ""
+	switch {
+	case haveKey && haveValue:
+		return true, nil
+	case haveKey != haveValue:
+		return false, fmt.Errorf("%w: the dataIntegrity block declares only %s, so the package HMAC cannot be checked",
+			ErrIntegrityCheckFailed, presentHmacAttr(haveKey))
+	case allowMissing:
+		return false, nil
+	default:
+		return false, fmt.Errorf("%w: the descriptor carries no dataIntegrity block, so the package HMAC cannot be checked; "+
+			"an agile encryptor always writes one and stripping it is how tampered ciphertext is made to look valid "+
+			"(set DecryptOptions.AllowMissingDataIntegrity to accept unauthenticated agile packages anyway)",
+			ErrIntegrityCheckFailed)
+	}
+}
+
+// presentHmacAttr names the one dataIntegrity attribute that was supplied.
+func presentHmacAttr(haveKey bool) string {
+	if haveKey {
+		return "encryptedHmacKey"
+	}
+	return "encryptedHmacValue"
 }
 
 // findPasswordEncryptor returns the password keyEncryptor, the only kind this
@@ -737,19 +968,26 @@ func truncate(b []byte, n int) []byte {
 }
 
 // passwordToUTF16LE encodes the password as little-endian UTF-16 without a BOM,
-// the form the agile key derivation hashes.
+// the form every [MS-OFFCRYPTO] key derivation hashes. Non-BMP runes become
+// surrogate pairs, exactly as they appear in the UTF-16 strings Office hashes.
+//
+// Two properties are deliberate and are why the encryption entry points
+// validate their password first (see validatePassword):
+//
+//   - The whole string is encoded; there is no truncation. Office's password
+//     prompts stop at 255 characters, so no Office-written document was keyed
+//     from a truncated longer string, and silently dropping the tail here would
+//     make two different passwords open the same file.
+//   - Invalid UTF-8 yields one U+FFFD per bad byte (Go's []rune conversion).
+//     That is a lossy, spine-specific reading of bytes Office cannot represent,
+//     so it is rejected on the write path rather than baked into a key. On the
+//     read path it is harmless: such a password simply fails the verifier and
+//     Decrypt reports ErrWrongPassword.
 func passwordToUTF16LE(password string) []byte {
-	out := make([]byte, 0, len(password)*2)
-	for _, r := range password {
-		if r > 0xFFFF {
-			// Encode as a UTF-16 surrogate pair.
-			r -= 0x10000
-			hi := 0xD800 + (r >> 10)
-			lo := 0xDC00 + (r & 0x3FF)
-			out = append(out, byte(hi), byte(hi>>8), byte(lo), byte(lo>>8))
-			continue
-		}
-		out = append(out, byte(r), byte(r>>8))
+	units := utf16.Encode([]rune(password))
+	out := make([]byte, 0, len(units)*2)
+	for _, u := range units {
+		out = append(out, byte(u), byte(u>>8))
 	}
 	return out
 }
