@@ -176,7 +176,9 @@ func TestHyperlink_HandleStableAfterMutations(t *testing.T) {
 func TestProtection_DefaultCreatePathRoundTrip(t *testing.T) {
 	w := Create()
 	s := w.AddSheet("S")
-	s.Protect(SheetProtectionOptions{})
+	if err := s.Protect(SheetProtectionOptions{}); err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
 
 	rw := reopen(t, w)
 	p := firstSheet(t, rw).Protection()
@@ -205,11 +207,13 @@ func TestProtection_DefaultCreatePathRoundTrip(t *testing.T) {
 func TestProtection_PasswordAndAllowRoundTrip(t *testing.T) {
 	w := Create()
 	s := w.AddSheet("S")
-	s.Protect(SheetProtectionOptions{
+	if err := s.Protect(SheetProtectionOptions{
 		Password:        "secret",
 		AllowSort:       true,
 		AllowAutoFilter: true,
-	})
+	}); err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
 
 	rw := reopen(t, w)
 	p := firstSheet(t, rw).Protection()
@@ -233,7 +237,9 @@ func TestProtection_PasswordAndAllowRoundTrip(t *testing.T) {
 func TestProtection_Unprotect(t *testing.T) {
 	w := Create()
 	s := w.AddSheet("S")
-	s.Protect(SheetProtectionOptions{})
+	if err := s.Protect(SheetProtectionOptions{}); err != nil {
+		t.Fatalf("Protect: %v", err)
+	}
 	s.Unprotect()
 	rw := reopen(t, w)
 	if p := firstSheet(t, rw).Protection(); p != nil {

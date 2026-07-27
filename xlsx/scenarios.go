@@ -65,6 +65,9 @@ func (s *Sheet) Scenarios() []Scenario {
 // regenerated on save (the sheet's other scenarios, if any, are re-emitted from
 // the typed model rather than their preserved bytes).
 func (s *Sheet) AddScenario(sc Scenario) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if strings.TrimSpace(sc.Name) == "" {
 		return fmt.Errorf("xlsx: scenario name must not be empty")
 	}

@@ -240,13 +240,17 @@ func TestSparklineMutateColorsMarkers(t *testing.T) {
 	if !rg[0].Markers() {
 		t.Error("markers not preserved")
 	}
-	if rg[0].g.ColorNegative == nil || !strings.EqualFold(rg[0].g.ColorNegative.Rgb, "FFFF0000") {
-		t.Errorf("negative color = %+v", rg[0].g.ColorNegative)
+	m := rg[0].resolve()
+	if m == nil {
+		t.Fatal("reopened group did not resolve")
 	}
-	if rg[0].g.ColorMarkers == nil || !strings.EqualFold(rg[0].g.ColorMarkers.Rgb, "FF00B050") {
-		t.Errorf("markers color = %+v", rg[0].g.ColorMarkers)
+	if m.ColorNegative == nil || !strings.EqualFold(m.ColorNegative.Rgb, "FFFF0000") {
+		t.Errorf("negative color = %+v", m.ColorNegative)
 	}
-	if rg[0].g.High == nil || !*rg[0].g.High {
+	if m.ColorMarkers == nil || !strings.EqualFold(m.ColorMarkers.Rgb, "FF00B050") {
+		t.Errorf("markers color = %+v", m.ColorMarkers)
+	}
+	if m.High == nil || !*m.High {
 		t.Error("high flag not preserved")
 	}
 }

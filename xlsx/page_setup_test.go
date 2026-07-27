@@ -30,7 +30,7 @@ func saveReopenSheet(t *testing.T, wb *Workbook) *Sheet {
 func TestPageSetupRoundTrip(t *testing.T) {
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
-	sheet.SetPageSetup(PageSetup{
+	if err := sheet.SetPageSetup(PageSetup{
 		Orientation:     OrientationLandscape,
 		PaperSize:       u32(9),
 		Scale:           u32(80),
@@ -39,7 +39,9 @@ func TestPageSetupRoundTrip(t *testing.T) {
 		FirstPageNumber: u32(3),
 		BlackAndWhite:   b(true),
 		Draft:           b(true),
-	})
+	}); err != nil {
+		t.Fatalf("SetPageSetup: %v", err)
+	}
 
 	sh := saveReopenSheet(t, wb)
 	got, ok := sh.PageSetup()
@@ -93,7 +95,9 @@ func TestPageMarginsRoundTrip(t *testing.T) {
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
 	want := PageMargins{Left: 0.7, Right: 0.7, Top: 0.75, Bottom: 0.75, Header: 0.3, Footer: 0.3}
-	sheet.SetPageMargins(want)
+	if err := sheet.SetPageMargins(want); err != nil {
+		t.Fatalf("SetPageMargins: %v", err)
+	}
 
 	sh := saveReopenSheet(t, wb)
 	got, ok := sh.PageMargins()
@@ -108,7 +112,7 @@ func TestPageMarginsRoundTrip(t *testing.T) {
 func TestHeaderFooterRoundTrip(t *testing.T) {
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
-	sheet.SetHeaderFooter(HeaderFooter{
+	if err := sheet.SetHeaderFooter(HeaderFooter{
 		DifferentOddEven: b(true),
 		ScaleWithDoc:     b(false),
 		OddHeader:        "&LLeft&CCenter&RRight",
@@ -117,7 +121,9 @@ func TestHeaderFooterRoundTrip(t *testing.T) {
 		EvenFooter:       "&CEven footer",
 		FirstHeader:      "&CFirst",
 		FirstFooter:      "&CFirst footer",
-	})
+	}); err != nil {
+		t.Fatalf("SetHeaderFooter: %v", err)
+	}
 
 	sh := saveReopenSheet(t, wb)
 	got, ok := sh.HeaderFooter()
@@ -147,12 +153,14 @@ func TestHeaderFooterRoundTrip(t *testing.T) {
 func TestPrintOptionsRoundTrip(t *testing.T) {
 	wb := Create()
 	sheet := wb.AddSheet("Sheet1")
-	sheet.SetPrintOptions(PrintOptions{
+	if err := sheet.SetPrintOptions(PrintOptions{
 		HorizontalCentered: b(true),
 		VerticalCentered:   b(true),
 		GridLines:          b(true),
 		Headings:           b(true),
-	})
+	}); err != nil {
+		t.Fatalf("SetPrintOptions: %v", err)
+	}
 
 	sh := saveReopenSheet(t, wb)
 	got, ok := sh.PrintOptions()

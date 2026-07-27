@@ -228,21 +228,21 @@ func main() {
 	// (using Excel's &L/&C/&R section codes and &P/&N page-number codes), a
 	// print area covering just the table, and the header row repeated on every
 	// printed page.
-	sheet.SetPageSetup(xlsx.PageSetup{
+	must(sheet.SetPageSetup(xlsx.PageSetup{
 		Orientation: xlsx.OrientationLandscape,
 		FitToWidth:  u32(1),
 		FitToHeight: u32(0), // 0 = as many pages tall as needed
-	})
-	sheet.SetPageMargins(xlsx.PageMargins{
+	}))
+	must(sheet.SetPageMargins(xlsx.PageMargins{
 		Left: 0.5, Right: 0.5, Top: 0.75, Bottom: 0.75, Header: 0.3, Footer: 0.3,
-	})
-	sheet.SetHeaderFooter(xlsx.HeaderFooter{
+	}))
+	must(sheet.SetHeaderFooter(xlsx.HeaderFooter{
 		OddHeader: "&LQuarterly Sales Report&RFY2026",
 		OddFooter: "&LConfidential&CPage &P of &N&R&D",
-	})
-	sheet.SetPrintOptions(xlsx.PrintOptions{
+	}))
+	must(sheet.SetPrintOptions(xlsx.PrintOptions{
 		HorizontalCentered: boolPtr(true),
-	})
+	}))
 	must(sheet.SetPrintArea(tableRange))
 	must(sheet.SetPrintTitles(fmt.Sprintf("%d:%d", headerRow, headerRow), ""))
 
@@ -283,10 +283,10 @@ func main() {
 	// Protect the sheet. The zero-value options lock every operation and allow
 	// only selection; we additionally allow AutoFilter so readers can still use
 	// the table's filter dropdowns.
-	sheet.Protect(xlsx.SheetProtectionOptions{
+	must(sheet.Protect(xlsx.SheetProtectionOptions{
 		Password:        "review",
 		AllowAutoFilter: true,
-	})
+	}))
 
 	// Protect the workbook's structure so sheets can't be added, removed,
 	// reordered or unhidden (this would reveal the chart's hidden data sheet).

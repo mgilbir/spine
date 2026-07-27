@@ -161,9 +161,18 @@ type SheetProtectionOptions struct {
 // existing <sheetProtection> element. It works on both created and opened
 // workbooks; a save regenerates the worksheet with the new protection.
 //
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet. Excel
+// does support protecting a chartsheet, but such a sheet is round-tripped
+// verbatim here rather than regenerated from a worksheet model, so the setting
+// could not be persisted; reporting that is better than accepting the call and
+// discarding it at save (C423).
+//
 // Excel sheet protection is a UI guard, not encryption. Even with a password it
 // is trivially removed; do not use it to protect confidential data.
-func (s *Sheet) Protect(opts SheetProtectionOptions) {
+func (s *Sheet) Protect(opts SheetProtectionOptions) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.markDirty()
 	s.ensureWorksheet()
 
@@ -213,11 +222,14 @@ func (s *Sheet) Protect(opts SheetProtectionOptions) {
 
 	s.ws().SheetProtection = sp
 	s.ws().EnsureChildOrder("sheetProtection")
+	return nil
 }
 
 // Unprotect removes sheet protection, if any.
 func (s *Sheet) Unprotect() {
-	if s.ws() == nil || s.ws().SheetProtection == nil {
+	// Protect refuses an opaque sheet; Unprotect must not pretend to act on one
+	// either, since the model it would edit is never written back (C423).
+	if s.opaque || s.ws() == nil || s.ws().SheetProtection == nil {
 		return
 	}
 	s.markDirty()

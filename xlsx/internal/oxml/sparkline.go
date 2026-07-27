@@ -71,6 +71,19 @@ type CT_SparklineGroup struct {
 	// references live on each CT_Sparkline instead.
 	F          string
 	Sparklines []CT_Sparkline
+
+	// Raw is the verbatim source of this group element, captured at parse time
+	// and empty for a group built programmatically. Dirty marks a group whose
+	// modeled fields were changed since it was parsed.
+	//
+	// This type models only the attributes and children Excel commonly emits,
+	// with no passthrough for the rest, so regenerating an untouched group from
+	// it silently drops whatever it did not model — Excel-2016+ attributes such
+	// as xr2:uid above all. Marshal therefore replays Raw for every group that
+	// is neither new nor Dirty, so adding or editing one group in a sheet leaves
+	// its siblings byte-for-byte as they were found (C432).
+	Raw   []byte
+	Dirty bool
 }
 
 // SparklineColor models an x14 color child (colorSeries, colorNegative, ...).
@@ -109,7 +122,7 @@ func ParseSparklineGroups(raw []byte) (*CT_SparklineGroups, error) {
 			continue
 		}
 		if start.Name.Local == "sparklineGroups" {
-			if err := sg.decode(dec); err != nil {
+			if err := sg.decode(dec, raw); err != nil {
 				return nil, err
 			}
 			return sg, nil
@@ -118,9 +131,14 @@ func ParseSparklineGroups(raw []byte) (*CT_SparklineGroups, error) {
 	return sg, nil
 }
 
-// decode reads sparklineGroup children until the sparklineGroups end tag.
-func (sg *CT_SparklineGroups) decode(dec *xml.Decoder) error {
+// decode reads sparklineGroup children until the sparklineGroups end tag,
+// capturing each group's verbatim source span from src so Marshal can replay an
+// untouched group instead of regenerating it from the narrow model (C432).
+func (sg *CT_SparklineGroups) decode(dec *xml.Decoder, src []byte) error {
 	for {
+		// The offset before Token() is the group element's '<': any whitespace
+		// preceding it was already consumed as its own CharData token.
+		off := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
 			return err
@@ -131,6 +149,11 @@ func (sg *CT_SparklineGroups) decode(dec *xml.Decoder) error {
 				var g CT_SparklineGroup
 				if err := g.decode(dec, t); err != nil {
 					return err
+				}
+				// decode consumed through the group's end tag, so InputOffset is
+				// now just past it.
+				if end := dec.InputOffset(); off >= 0 && end > off && int(end) <= len(src) {
+					g.Raw = append([]byte(nil), src[off:end]...)
 				}
 				sg.Groups = append(sg.Groups, g)
 			} else if err := dec.Skip(); err != nil {
@@ -328,6 +351,15 @@ func (sg *CT_SparklineGroups) Marshal() []byte {
 	b.RegisterNamespace(NSXM, "xm")
 	b.StartElement(NSX14, "sparklineGroups", xmlb.Attr{Name: "xmlns:xm", Value: NSXM})
 	for i := range sg.Groups {
+		// Replay an untouched parsed group verbatim: this model has no
+		// attribute/child passthrough, so regenerating one would strip whatever
+		// it does not represent (C432). The captured span carries the source's
+		// own x14/xm prefixes, which the enclosing <ext> and the xmlns:xm above
+		// still bind.
+		if g := &sg.Groups[i]; len(g.Raw) > 0 && !g.Dirty {
+			b.WriteRaw(g.Raw)
+			continue
+		}
 		sg.Groups[i].marshal(b)
 	}
 	b.EndElement(NSX14, "sparklineGroups")

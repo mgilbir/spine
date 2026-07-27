@@ -239,14 +239,22 @@ func NewColorScaleRule(points ...ColorScalePoint) ConditionalRule {
 }
 
 // NewDataBarRule builds a dataBar rule with the given bar color and lower/upper
-// bounds. A bound with an empty Type defaults to "min" (low) / "max" (high). It
-// carries its own formatting.
+// bounds. A bound with an empty Type defaults to "min" (low) / "max" (high);
+// any other Type must be a valid ST_CfvoType. It carries its own formatting.
 func NewDataBarRule(color string, low, high ConditionalValueObject) ConditionalRule {
 	if low.Type == "" {
 		low.Type = "min"
 	}
 	if high.Type == "" {
 		high.Type = "max"
+	}
+	// Any string used to reach the part unchecked, so a typo produced a
+	// repair prompt instead of an error at the call (C542).
+	if err := validateCfvoType(low.Type); err != nil {
+		return ConditionalRule{err: fmt.Errorf("xlsx: dataBar rule: low %w", err)}
+	}
+	if err := validateCfvoType(high.Type); err != nil {
+		return ConditionalRule{err: fmt.Errorf("xlsx: dataBar rule: high %w", err)}
 	}
 	db := &oxml.CT_DataBar{
 		Cfvo: []oxml.CT_Cfvo{
@@ -262,24 +270,59 @@ func NewDataBarRule(color string, low, high ConditionalValueObject) ConditionalR
 
 // NewIconSetRule builds an iconSet rule using the named icon collection (e.g.
 // "3TrafficLights1", "4Arrows", "5Rating"). When no thresholds are given, one
-// percent threshold per icon is generated (evenly spaced from 0). It carries
-// its own formatting.
+// percent threshold per icon is generated (evenly spaced from 0). When
+// thresholds are given there must be exactly one per icon in the set — Excel
+// prompts to repair a file whose cfvo count does not match the icon count. It
+// carries its own formatting.
 func NewIconSetRule(iconSet string, thresholds ...ConditionalValueObject) ConditionalRule {
 	if iconSet == "" {
 		return ConditionalRule{err: fmt.Errorf("xlsx: iconSet rule needs an icon set name")}
 	}
+	n := iconSetCount(iconSet)
 	is := &oxml.CT_IconSet{IconSet: iconSet}
 	if len(thresholds) == 0 {
-		n := iconSetCount(iconSet)
 		for i := 0; i < n; i++ {
-			is.Cfvo = append(is.Cfvo, oxml.CT_Cfvo{Type: "percent", Val: strconv.Itoa(i * 100 / n)})
+			// Round rather than truncate: for a 3-icon set Excel writes
+			// 0/33/67, and integer division gave 0/33/66 (C542).
+			is.Cfvo = append(is.Cfvo, oxml.CT_Cfvo{Type: "percent", Val: strconv.Itoa((i*100 + n/2) / n)})
 		}
 	} else {
+		if len(thresholds) != n {
+			return ConditionalRule{err: fmt.Errorf(
+				"xlsx: iconSet %q takes exactly %d thresholds, got %d", iconSet, n, len(thresholds))}
+		}
 		for _, t := range thresholds {
+			if err := validateCfvoType(t.Type); err != nil {
+				return ConditionalRule{err: fmt.Errorf("xlsx: iconSet rule: %w", err)}
+			}
 			is.Cfvo = append(is.Cfvo, oxml.CT_Cfvo{Type: t.Type, Val: t.Value})
 		}
 	}
 	return ConditionalRule{rule: oxml.CT_CfRule{Type: "iconSet", IconSet: is}}
+}
+
+// cfvoTypes is ST_CfvoType, the value kinds a conditional-format value object
+// may declare.
+var cfvoTypes = map[string]bool{
+	"num":        true,
+	"percent":    true,
+	"max":        true,
+	"min":        true,
+	"formula":    true,
+	"percentile": true,
+}
+
+// validateCfvoType rejects a cfvo type outside ST_CfvoType. An unknown value is
+// written into the part verbatim and makes Excel offer to repair the workbook,
+// so it is caught at the call that supplied it (C542).
+func validateCfvoType(t string) error {
+	if t == "" {
+		return fmt.Errorf("threshold needs a Type (one of num, percent, max, min, formula, percentile)")
+	}
+	if !cfvoTypes[t] {
+		return fmt.Errorf("unknown threshold type %q (want num, percent, max, min, formula or percentile)", t)
+	}
+	return nil
 }
 
 // iconSetCount reads the leading icon count of an icon-set name (e.g. "3" from
@@ -299,6 +342,9 @@ func iconSetCount(name string) int {
 // layer on top of earlier ones. It returns an error if the range is invalid,
 // no rules are given, or a rule was built with invalid parameters.
 func (s *Sheet) AddConditionalFormat(cellRange string, rules ...ConditionalRule) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if len(rules) == 0 {
 		return fmt.Errorf("xlsx: AddConditionalFormat requires at least one rule")
 	}

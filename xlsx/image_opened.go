@@ -360,32 +360,18 @@ func relsPartFor(partName string) string {
 }
 
 // ensureDrawingInChildOrder inserts "drawing" into a parsed worksheet's
-// captured child order at its schema position (after colBreaks, before
-// legacyDrawing/tableParts/extLst) so the ChildOrder-gated marshal emits it.
-// It is a no-op when the order is empty (a from-scratch sheet marshals in
-// schema order) or already contains "drawing".
+// captured child order at its schema position so the ChildOrder-gated marshal
+// emits it. It is a no-op when the order is empty (a from-scratch sheet
+// marshals in schema order) or already contains "drawing".
+//
+// This was a hand-rolled duplicate of CT_Worksheet.EnsureChildOrder that
+// recognized only three of the elements following <drawing> and, unlike the
+// shared ranker, could not rank the "unknown:N" entries that stand for
+// unmodeled children — so on a worksheet whose only post-drawing child was an
+// unknown element the reference was appended after it, out of schema order
+// (C554c). The shared ranker is the single implementation.
 func ensureDrawingInChildOrder(ws *oxml.CT_Worksheet) {
-	if len(ws.ChildOrder) == 0 {
-		return
-	}
-	for _, name := range ws.ChildOrder {
-		if name == "drawing" {
-			return
-		}
-	}
-	// Elements that follow drawing in the schema; insert before the first
-	// present one.
-	after := map[string]bool{"legacyDrawing": true, "tableParts": true, "extLst": true}
-	insertAt := len(ws.ChildOrder)
-	for i, name := range ws.ChildOrder {
-		if after[name] {
-			insertAt = i
-			break
-		}
-	}
-	ws.ChildOrder = append(ws.ChildOrder, "")
-	copy(ws.ChildOrder[insertAt+1:], ws.ChildOrder[insertAt:])
-	ws.ChildOrder[insertAt] = "drawing"
+	ws.EnsureChildOrder("drawing")
 }
 
 // sheetsHaveImages reports whether any sheet carries pending images.
