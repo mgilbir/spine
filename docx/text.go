@@ -23,6 +23,12 @@ import (
 // tab ("\t") and rows by "\n"; a cell's own paragraphs are joined by a single
 // space so each table row stays on one line. Tracked deletions and math
 // (oMath) text are not included, mirroring the per-element accessors.
+//
+// One divergence: a table nested inside a block-level content control has its
+// text included, in document order, but as one line per cell paragraph rather
+// than as tab-separated rows — the content control's content is reached as a
+// flat paragraph sequence. Extract such a table through Document.Tables if you
+// need its row and cell structure.
 func (d *Document) Text() string {
 	var sb strings.Builder
 
@@ -107,14 +113,31 @@ func appendLine(sb *strings.Builder, s string) {
 	sb.WriteString(s)
 }
 
-// sortedHeaderParts returns the header parts ordered by part name so
-// Text() is deterministic (the headers map has no inherent order).
-func (d *Document) sortedHeaderParts() []*headerPart {
+// sortedHeaderNames returns the header part names in sorted order. Every walk
+// over the headers map goes through this (or sortedHeaderParts) so results are
+// deterministic — the map itself has no inherent order.
+func (d *Document) sortedHeaderNames() []string {
 	keys := make([]string, 0, len(d.headers))
 	for k := range d.headers {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	return keys
+}
+
+// sortedFooterNames returns the footer part names in sorted order.
+func (d *Document) sortedFooterNames() []string {
+	keys := make([]string, 0, len(d.footers))
+	for k := range d.footers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// sortedHeaderParts returns the header parts ordered by part name.
+func (d *Document) sortedHeaderParts() []*headerPart {
+	keys := d.sortedHeaderNames()
 	out := make([]*headerPart, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, d.headers[k])
@@ -124,11 +147,7 @@ func (d *Document) sortedHeaderParts() []*headerPart {
 
 // sortedFooterParts returns the footer parts ordered by part name.
 func (d *Document) sortedFooterParts() []*footerPart {
-	keys := make([]string, 0, len(d.footers))
-	for k := range d.footers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := d.sortedFooterNames()
 	out := make([]*footerPart, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, d.footers[k])

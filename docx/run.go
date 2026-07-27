@@ -467,10 +467,18 @@ func (r *Run) AddSymbol(font, char string) {
 	r.r.AppendSym(&oxml.CT_Sym{Font: font, Char: char})
 }
 
-// Clear removes all content from the run.
+// Clear removes all content from the run. Relationships referenced only by the
+// removed content — a drawing's r:embed, an OLE object's r:id — are reclaimed,
+// along with any media part added in this session that nothing else points at
+// (C407).
 func (r *Run) Clear() {
 	r.touch()
+	removed := make(map[string]bool)
+	addRunRelRefs(removed, r.r)
 	r.r.ClearContent()
+	if r.paragraph != nil {
+		r.paragraph.sweepRemovedRelRefs(removed)
+	}
 }
 
 func (r *Run) ensureRPr() {
