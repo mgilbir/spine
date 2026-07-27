@@ -344,6 +344,21 @@ func TestAppendOntoOpenedDestImportsMaster(t *testing.T) {
 		t.Fatalf("reopened SlideCount = %d, want 2", got)
 	}
 	assertZipEntryCountAtLeast(t, out, "ppt/slideMasters/slideMaster", 2)
+
+	// SlideCount and Validate are both blind to the rel-id collision this test
+	// was written to exercise: SlideCount counts sldId entries whose rels
+	// resolve to any parseable part, and a slideMaster parses fine as a
+	// "slide". Assert what actually has to hold — unique rel ids, and every
+	// sldId bound to a rel of type slide whose target exists (C363).
+	assertPresentationRelIntegrity(t, out)
+	parts := zipParts(t, out)
+	assertNoDuplicateRelIDs(t, parts)
+	assertAllRelTargetsPresent(t, parts)
+	// The appended slide must really be a slide part, not a master reached
+	// through a hijacked r:id.
+	if texts := mergeSlideTexts(t, out); len(texts) != 2 || texts[1] != "Seed-A" {
+		t.Errorf("reopened slide texts = %v, want the appended slide's own text at index 1", texts)
+	}
 }
 
 func assertZipEntryCountAtLeast(t *testing.T, data []byte, prefix string, want int) {

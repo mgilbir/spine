@@ -1,8 +1,6 @@
 package pptx
 
 import (
-	"fmt"
-
 	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -80,11 +78,7 @@ func (p *Presentation) SetVBAProject(data []byte) {
 	delete(p.removedParts, name)
 
 	if p.vbaRelID() == "" {
-		p.relationships[presentationPartName] = append(p.relationships[presentationPartName], &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", p.nextPresentationRelID()),
-			Type:   opc.RelTypeVBAProject,
-			Target: "vbaProject.bin",
-		})
+		p.addPresentationRel(opc.RelTypeVBAProject, "vbaProject.bin")
 	}
 	p.flavor = opc.MacroFlavor(p.Flavor())
 }
@@ -110,22 +104,4 @@ func (p *Presentation) RemoveVBAProject() {
 	delete(p.otherParts, name)
 	p.markPartRemoved(name)
 	p.flavor = opc.PlainFlavor(p.Flavor())
-}
-
-// nextPresentationRelID returns a relationship id not used by any existing
-// presentation relationship, seeding past both p.nextRelID and the highest id
-// currently on the presentation part's relationships.
-func (p *Presentation) nextPresentationRelID() int {
-	max := p.nextRelID - 1
-	for _, rel := range p.relationships[presentationPartName] {
-		if rel == nil {
-			continue
-		}
-		var id int
-		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > max {
-			max = id
-		}
-	}
-	p.nextRelID = max + 2
-	return max + 1
 }

@@ -256,33 +256,12 @@ func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
 // ensureAuthorsRelationship adds the presentation -> authors.xml relationship
 // when it is not already present.
 func (p *Presentation) ensureAuthorsRelationship() {
-	const presPart = "/ppt/presentation.xml"
-	for _, rel := range p.relationships[presPart] {
+	for _, rel := range p.relationships[presentationPartName] {
 		if rel != nil && rel.Type == opc.RelTypeAuthors {
 			return
 		}
 	}
-	p.relationships[presPart] = append(p.relationships[presPart], &opc.Relationship{
-		ID:         p.nextPresRelID(),
-		Type:       opc.RelTypeAuthors,
-		Target:     relativeTarget(presPart, modernAuthorsPart),
-		TargetMode: opc.TargetModeInternal,
-	})
-}
-
-// nextPresRelID allocates the next free rId for the presentation part.
-func (p *Presentation) nextPresRelID() string {
-	maxID := 0
-	for _, r := range p.relationships["/ppt/presentation.xml"] {
-		var id int
-		if _, err := fmt.Sscanf(r.ID, "rId%d", &id); err == nil && id > maxID {
-			maxID = id
-		}
-	}
-	if maxID < p.nextRelID {
-		maxID = p.nextRelID - 1
-	}
-	return fmt.Sprintf("rId%d", maxID+1)
+	p.addPresentationRel(opc.RelTypeAuthors, relativeTarget(presentationPartName, modernAuthorsPart))
 }
 
 // nextAvailableModernCommentName returns a free modernComment part name.
