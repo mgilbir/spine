@@ -2,6 +2,7 @@ package vml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
 )
 
@@ -760,5 +761,82 @@ func TestVMLAttributeMappings(t *testing.T) {
 	}
 	if sl.IsSignatureLine != "t" || sl.SigningInstructionsSet != "t" || sl.AllowComments != "f" || sl.ShowSignDate != "t" {
 		t.Errorf("signatureline attributes not captured: %+v", sl)
+	}
+}
+
+// TestTextbox_PreservesMultipleLocalChildren pins C343 (KNOWN C107): a v:textbox
+// stored each local-namespace child into a single RawContent (only the last
+// survived) and had no MarshalXML (nothing re-emitted). The ordered LocalContent
+// slice plus MarshalXML now round-trip every child in order.
+func TestTextbox_PreservesMultipleLocalChildren(t *testing.T) {
+	input := `<textbox xmlns="urn:schemas-microsoft-com:vml" id="tb1">` +
+		`<div class="first">alpha</div>` +
+		`<div class="second">beta</div>` +
+		`</textbox>`
+	var tb Textbox
+	if err := xml.Unmarshal([]byte(input), &tb); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(tb.LocalContent) != 2 {
+		t.Fatalf("LocalContent = %d children, want 2", len(tb.LocalContent))
+	}
+	out, err := xml.Marshal(&tb)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(out)
+	first := strings.Index(s, "alpha")
+	second := strings.Index(s, "beta")
+	if first < 0 || second < 0 {
+		t.Fatalf("both children must survive re-marshal: %s", s)
+	}
+	if first > second {
+		t.Errorf("children re-marshaled out of order: %s", s)
+	}
+	if !strings.Contains(s, `class="first"`) || !strings.Contains(s, `class="second"`) {
+		t.Errorf("child attributes dropped: %s", s)
+	}
+}
+
+// TestClientData_PreservesPresenceFlag pins C343 (KNOWN C108): a presence-only
+// flag such as <x:MoveWithCells/> unmarshaled to "" under a string,omitempty
+// model and was then dropped on marshal, losing the flag. As *string the
+// present-but-empty element survives.
+func TestClientData_PreservesPresenceFlag(t *testing.T) {
+	input := `<ClientData xmlns="urn:schemas-microsoft-com:office:excel" ObjectType="Pict">` +
+		`<MoveWithCells/><SizeWithCells/>` +
+		`</ClientData>`
+	var cd ClientData
+	if err := xml.Unmarshal([]byte(input), &cd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if cd.MoveWithCells == nil {
+		t.Error("MoveWithCells presence flag lost on unmarshal (nil)")
+	}
+	if cd.SizeWithCells == nil {
+		t.Error("SizeWithCells presence flag lost on unmarshal (nil)")
+	}
+	out, err := xml.Marshal(&cd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), "MoveWithCells") {
+		t.Errorf("MoveWithCells dropped on re-marshal: %s", out)
+	}
+	if !strings.Contains(string(out), "SizeWithCells") {
+		t.Errorf("SizeWithCells dropped on re-marshal: %s", out)
+	}
+
+	// An absent flag must stay absent (nil pointer -> omitted).
+	var empty ClientData
+	if err := xml.Unmarshal([]byte(`<ClientData xmlns="urn:schemas-microsoft-com:office:excel" ObjectType="Note"/>`), &empty); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if empty.MoveWithCells != nil {
+		t.Error("absent MoveWithCells should be nil")
+	}
+	eo, _ := xml.Marshal(&empty)
+	if strings.Contains(string(eo), "MoveWithCells") {
+		t.Errorf("absent flag emitted: %s", eo)
 	}
 }
