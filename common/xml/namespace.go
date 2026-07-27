@@ -81,6 +81,21 @@ const (
 	NSSpreadsheet2009    = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
 	NSSpreadsheet2009AC  = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"
 
+	// SpreadsheetML revision-tracking and 2015+ extension namespaces
+	// (conventionally the xr / xr* / x16r2 prefixes). Declared on part roots
+	// and referenced by attributes on descendant elements (e.g. xr:uid), so a
+	// captured attribute in one of these often carries only its URI (the
+	// declaration lives on an ancestor). URIs confirmed against the Common
+	// Crawl xlsx corpus.
+	NSSpreadsheetRevision   = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
+	NSSpreadsheetRevision2  = "http://schemas.microsoft.com/office/spreadsheetml/2015/revision2"
+	NSSpreadsheetRevision3  = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision3"
+	NSSpreadsheetRevision6  = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision6"
+	NSSpreadsheetRevision9  = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision9"
+	NSSpreadsheetRevision10 = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision10"
+	NSSpreadsheetRevision16 = "http://schemas.microsoft.com/office/spreadsheetml/2017/revision16"
+	NSSpreadsheet2015Main   = "http://schemas.microsoft.com/office/spreadsheetml/2015/02/main"
+
 	// Wordprocessing drawing extension namespaces (Word 2010 DrawingML shapes)
 	NSWordprocessingShape  = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
 	NSWordprocessingGroup  = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
@@ -133,6 +148,20 @@ var ExtensionPrefixToNS = map[string]string{
 	"wpc":   NSWordprocessingCanvas,
 	"v":     NSVML,
 	"o":     NSVMLOffice,
+	// SpreadsheetML revision-tracking / 2015+ extension namespaces and the
+	// 2018 PowerPoint comment namespace. Without these, a captured attribute
+	// in one of them (declared on an ancestor, so no same-tag declaration to
+	// resolve from) loses its prefix and silently re-emits as a bare local
+	// name (C348 / known C147).
+	"xr":    NSSpreadsheetRevision,
+	"xr2":   NSSpreadsheetRevision2,
+	"xr3":   NSSpreadsheetRevision3,
+	"xr6":   NSSpreadsheetRevision6,
+	"xr9":   NSSpreadsheetRevision9,
+	"xr10":  NSSpreadsheetRevision10,
+	"xr16":  NSSpreadsheetRevision16,
+	"x16r2": NSSpreadsheet2015Main,
+	"p188":  NSPowerPointComment2018,
 }
 
 // Extension URI constants identify known extension types by their URI attribute.
