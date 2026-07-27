@@ -47,11 +47,25 @@ func (c *Cell) Value() interface{} {
 	case CellTypeBoolean:
 		return c.Bool()
 	case CellTypeFormula:
-		// Return the cached value if available
-		if c.cell.V != nil {
+		// Return the cached formula result typed by its cached-value type
+		// (c.cell.T), the same way a literal cell of that type reads back: a
+		// numeric result (t="n" or absent) yields float64, t="b" yields bool,
+		// and a string/error result yields string. Without this a numeric
+		// formula like =1+1 would read back as the string "2". When no cached
+		// value is present, fall back to the formula text.
+		if c.cell.V == nil {
+			return c.Formula()
+		}
+		switch c.cell.T {
+		case "n", "":
+			return c.Float()
+		case "b":
+			return c.Bool()
+		case "s", "str", "inlineStr":
+			return c.String()
+		default:
 			return *c.cell.V
 		}
-		return c.Formula()
 	default:
 		return nil
 	}

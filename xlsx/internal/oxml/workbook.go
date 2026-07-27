@@ -15,8 +15,7 @@ import (
 
 // SpreadsheetML namespace constants
 const (
-	nsSML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-	nsR   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	nsR = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 )
 
 // Workbook child element type constants for child ordering.
@@ -41,7 +40,6 @@ type WbUnknownChild struct {
 type CT_Workbook struct {
 	XMLName            xml.Name                `xml:"http://schemas.openxmlformats.org/spreadsheetml/2006/main workbook"`
 	Conformance        string                  `xml:"conformance,attr,omitempty"`
-	Ignorable          string                  `xml:"-"` // mc:Ignorable attribute value
 	FileVersion        *CT_FileVersion         `xml:"fileVersion,omitempty"`
 	WorkbookPr         *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
 	WorkbookProtection *CT_WorkbookProtection  `xml:"workbookProtection,omitempty"`
@@ -105,9 +103,6 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	for _, attr := range start.Attr {
 		if attr.Name.Local == "conformance" && attr.Name.Space == "" {
 			wb.Conformance = attr.Value
-		}
-		if attr.Name.Local == "Ignorable" {
-			wb.Ignorable = attr.Value
 		}
 	}
 
@@ -883,8 +878,6 @@ func (s *CT_Sheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			s.State = attr.Value
 		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			s.RID = attr.Value
-		case attr.Name.Local == "r:id":
-			s.RID = attr.Value
 		}
 	}
 	return d.Skip()
@@ -1226,16 +1219,28 @@ func (e *CT_Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	e.ElemPrefix, e.elemPrefixCaptured = xmlb.ElementPrefix(d)
 	uriSeen := false
 	for _, attr := range start.Attr {
-		if attr.Name.Local == "uri" && attr.Name.Space == "" {
+		switch {
+		case attr.Name.Local == "uri" && attr.Name.Space == "":
 			e.URI = attr.Value
 			uriSeen = true
-		} else if attr.Name.Space == "xmlns" {
-			// Capture inline namespace declarations (e.g., xmlns:x15="...")
+		case attr.Name.Space == "xmlns":
+			// Capture a prefixed inline namespace declaration (xmlns:x15="...").
 			if !uriSeen && len(e.InlineNSDecls) == 0 {
 				e.NSDeclsFirst = true
 			}
 			e.InlineNSDecls = append(e.InlineNSDecls, xmlb.NSDecl{
 				Prefix: attr.Name.Local,
+				URI:    attr.Value,
+			})
+		case attr.Name.Space == "" && attr.Name.Local == "xmlns":
+			// Capture a default-namespace declaration on the ext element itself
+			// (<ext xmlns="..." uri="...">); Go reports it as Space=="" with
+			// Local=="xmlns", distinct from the prefixed form above.
+			if !uriSeen && len(e.InlineNSDecls) == 0 {
+				e.NSDeclsFirst = true
+			}
+			e.InlineNSDecls = append(e.InlineNSDecls, xmlb.NSDecl{
+				Prefix: "",
 				URI:    attr.Value,
 			})
 		}
@@ -1259,7 +1264,11 @@ func (e *CT_Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))
 	}
 	for _, nsd := range e.InlineNSDecls {
-		attrs = append(attrs, xmlb.Attr{Name: "xmlns:" + nsd.Prefix, Value: nsd.URI})
+		name := "xmlns"
+		if nsd.Prefix != "" {
+			name = "xmlns:" + nsd.Prefix
+		}
+		attrs = append(attrs, xmlb.Attr{Name: name, Value: nsd.URI})
 	}
 	if e.NSDeclsFirst {
 		attrs = append(attrs, xmlb.StrAttr("uri", e.URI))

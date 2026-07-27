@@ -69,10 +69,12 @@ func (c *Chart) layout() DataLayout {
 	if c.kind == KindBubble {
 		return c.bubbleLayout(sheet, n)
 	}
+	if c.kind == KindScatter {
+		return c.scatterLayout(sheet)
+	}
 
-	scatter := c.kind == KindScatter
-	// Categories / scatter-X occupy column A (col 1). Series start at column B.
-	if !scatter && n > 0 {
+	// Categories occupy column A (col 1). Series start at column B.
+	if n > 0 {
 		dl.CategoriesRef = rangeRef(sheet, 1, 2, 1, n+1)
 	}
 	for i := range c.series {
@@ -82,9 +84,30 @@ func (c *Chart) layout() DataLayout {
 		}
 		if n > 0 {
 			sl.ValuesRef = rangeRef(sheet, col, 2, col, n+1)
-			if scatter {
-				sl.XValuesRef = rangeRef(sheet, 1, 2, 1, n+1)
-			}
+		}
+		dl.Series = append(dl.Series, sl)
+	}
+	return dl
+}
+
+// scatterLayout computes the DataLayout for a scatter chart. Each series takes
+// two adjacent columns — its own X values and its Y values (with the series name
+// in row 1) — so every series' c:xVal references a distinct column that holds
+// that series' X, rather than every series sharing column A (C251). The columns
+// are A/B, C/D, E/F, ... for series 0, 1, 2, ...
+func (c *Chart) scatterLayout(sheet string) DataLayout {
+	dl := DataLayout{Sheet: sheet}
+	for i, s := range c.series {
+		xCol := 1 + 2*i // A, C, E, ...
+		yCol := xCol + 1
+		sl := SeriesLayout{NameRef: cellRef(sheet, yCol, 1)}
+		np := len(s.Values)
+		if len(s.XValues) > np {
+			np = len(s.XValues)
+		}
+		if np > 0 {
+			sl.XValuesRef = rangeRef(sheet, xCol, 2, xCol, np+1)
+			sl.ValuesRef = rangeRef(sheet, yCol, 2, yCol, np+1)
 		}
 		dl.Series = append(dl.Series, sl)
 	}

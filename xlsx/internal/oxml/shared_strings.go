@@ -83,16 +83,29 @@ func parseUint32(s string, v *uint32) (int, error) {
 // CT_Rst represents a rich text string item (si element child, also used for
 // inline strings in worksheet cells).
 type CT_Rst struct {
-	T          *string        `xml:"t,omitempty"`
-	R          []CT_RElt      `xml:"r,omitempty"`
-	PhoneticPr *CT_PhoneticPr `xml:"phoneticPr,omitempty"`
+	T *string   `xml:"t,omitempty"`
+	R []CT_RElt `xml:"r,omitempty"`
+	// RPh holds the phonetic runs (furigana) of a Japanese string. They sit
+	// between the runs and phoneticPr in schema order; captured so an inline
+	// string or shared string carrying phonetic guides round-trips them on a
+	// dirty save rather than losing them on regeneration.
+	RPh        []CT_PhoneticRun `xml:"rPh,omitempty"`
+	PhoneticPr *CT_PhoneticPr   `xml:"phoneticPr,omitempty"`
+}
+
+// CT_PhoneticRun represents an rPh element: a phonetic-guide run spanning the
+// base-text character range [sb, eb) with its reading in the t child.
+type CT_PhoneticRun struct {
+	Sb uint32 `xml:"sb,attr"`
+	Eb uint32 `xml:"eb,attr"`
+	T  string `xml:"t"`
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Rst. The plain
 // text element carries xml:space="preserve" when the value has leading or
 // trailing whitespace, which XML processors would otherwise strip.
 func (rst *CT_Rst) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	if rst.T == nil && len(rst.R) == 0 && rst.PhoneticPr == nil {
+	if rst.T == nil && len(rst.R) == 0 && len(rst.RPh) == 0 && rst.PhoneticPr == nil {
 		b.EmptyElement(ns, localName)
 		return
 	}
@@ -106,6 +119,9 @@ func (rst *CT_Rst) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	for i := range rst.R {
 		b.MarshalElement(ns, "r", &rst.R[i])
+	}
+	for i := range rst.RPh {
+		b.MarshalElement(ns, "rPh", &rst.RPh[i])
 	}
 	if rst.PhoneticPr != nil {
 		b.MarshalElement(ns, "phoneticPr", rst.PhoneticPr)

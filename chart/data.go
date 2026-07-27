@@ -35,6 +35,88 @@ func (c *Chart) EmbeddedWorkbook() ([]byte, DataLayout, error) {
 	return data, dl, nil
 }
 
+// DataCell is one populated cell in a chart's data table, addressed by 1-based
+// column and row, holding either a string (a category label or series name) or
+// a number (a data value).
+type DataCell struct {
+	Col    int
+	Row    int
+	Text   string
+	Number float64
+	IsText bool
+}
+
+// DataCells returns the chart's data as the cells its c:f references point at,
+// in the fixed layout described by Layout: categories (or scatter X) in column
+// A rows 2.., each category-style series' name in row 1 with its values below in
+// columns B, C, ..., and — for bubble charts — shared X in column A with each
+// series occupying a Y column (name in row 1) and an adjacent size column.
+//
+// It is the single layout-driven cell source shared by the embedded workbook
+// (data.go) and the xlsx host data sheet (xlsx/chart.go), so the written cells,
+// the numeric/string caches, and the c:f references cannot drift apart.
+func (c *Chart) DataCells() []DataCell {
+	var cells []DataCell
+	num := func(col, row int, v float64) {
+		cells = append(cells, DataCell{Col: col, Row: row, Number: v})
+	}
+	str := func(col, row int, s string) {
+		cells = append(cells, DataCell{Col: col, Row: row, Text: s, IsText: true})
+	}
+
+	if c.kind == KindBubble {
+		// Shared X in column A; each series takes a Y column (name in row 1) and
+		// an adjacent size column, matching bubbleLayout.
+		if len(c.series) > 0 {
+			for i, x := range c.series[0].XValues {
+				num(1, i+2, x)
+			}
+		}
+		for si, s := range c.series {
+			yCol := 2 + 2*si
+			sizeCol := yCol + 1
+			str(yCol, 1, s.Name)
+			for i, v := range s.Values {
+				num(yCol, i+2, v)
+			}
+			for i, v := range s.Sizes {
+				num(sizeCol, i+2, v)
+			}
+		}
+		return cells
+	}
+
+	if c.kind == KindScatter {
+		// Each series takes its own X column and Y column (A/B, C/D, ...) so its
+		// c:xVal reference and cache agree with the written cells, matching
+		// scatterLayout (C251).
+		for si, s := range c.series {
+			xCol := 1 + 2*si
+			yCol := xCol + 1
+			str(yCol, 1, s.Name)
+			for i, x := range s.XValues {
+				num(xCol, i+2, x)
+			}
+			for i, v := range s.Values {
+				num(yCol, i+2, v)
+			}
+		}
+		return cells
+	}
+
+	for i, label := range c.categories {
+		str(1, i+2, label)
+	}
+	for si, s := range c.series {
+		col := si + 2 // B, C, ...
+		str(col, 1, s.Name)
+		for i, v := range s.Values {
+			num(col, i+2, v)
+		}
+	}
+	return cells
+}
+
 // embedCell is one populated cell in the embedded worksheet: either a string
 // (a category label or series name) or a number (a data value).
 type embedCell struct {
@@ -45,52 +127,16 @@ type embedCell struct {
 }
 
 // embeddedRows returns the populated cells grouped by 1-based row, in the fixed
-// layout the chart's c:f references point at: categories (or scatter X) in
-// column A rows 2.., and each series' name in row 1 with its values below, in
-// columns B, C, ...
+// layout the chart's c:f references point at (see DataCells).
 func (c *Chart) embeddedRows() map[int][]embedCell {
 	rows := map[int][]embedCell{}
-	add := func(row int, cell embedCell) { rows[row] = append(rows[row], cell) }
-
-	if c.kind == KindBubble {
-		// Shared X in column A; each series takes a Y column (name in row 1) and
-		// an adjacent size column, matching bubbleLayout.
-		if len(c.series) > 0 {
-			for i, x := range c.series[0].XValues {
-				add(i+2, embedCell{col: 1, number: x})
-			}
-		}
-		for si, s := range c.series {
-			yCol := 2 + 2*si
-			sizeCol := yCol + 1
-			add(1, embedCell{col: yCol, text: s.Name, isText: true})
-			for i, v := range s.Values {
-				add(i+2, embedCell{col: yCol, number: v})
-			}
-			for i, v := range s.Sizes {
-				add(i+2, embedCell{col: sizeCol, number: v})
-			}
-		}
-		return rows
-	}
-
-	if c.kind == KindScatter {
-		if len(c.series) > 0 {
-			for i, x := range c.series[0].XValues {
-				add(i+2, embedCell{col: 1, number: x})
-			}
-		}
-	} else {
-		for i, label := range c.categories {
-			add(i+2, embedCell{col: 1, text: label, isText: true})
-		}
-	}
-	for si, s := range c.series {
-		col := si + 2 // B, C, ...
-		add(1, embedCell{col: col, text: s.Name, isText: true})
-		for i, v := range s.Values {
-			add(i+2, embedCell{col: col, number: v})
-		}
+	for _, dc := range c.DataCells() {
+		rows[dc.Row] = append(rows[dc.Row], embedCell{
+			col:    dc.Col,
+			text:   dc.Text,
+			number: dc.Number,
+			isText: dc.IsText,
+		})
 	}
 	return rows
 }

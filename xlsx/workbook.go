@@ -646,11 +646,11 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 	// .rels parts rebuilt here, so the verbatim stream skips their stale
 	// originals; personRelTarget names a regenerated person list to wire into
 	// the workbook .rels.
-	var rebuiltRels map[string]bool
+	var rebuiltRels, rebuiltParts map[string]bool
 	var personRelTarget string
 	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
-		rebuiltRels, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
+		rebuiltRels, rebuiltParts, personRelTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
@@ -730,6 +730,11 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 			continue
 		}
 		if strings.HasSuffix(name, ".rels") && name != workbookRelsName {
+			continue
+		}
+		// A drawing merged with session-added anchors was written fresh above;
+		// skip its stale preserved bytes (C249).
+		if rebuiltParts[name] {
 			continue
 		}
 		if _, ok := worksheetParts[name]; ok {
@@ -967,7 +972,7 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	var personTarget string
 	if w.sheetsHaveImages() || w.sheetsHaveCharts() || w.sheetsHaveComments() || w.sheetsHavePendingHyperlinkRels() || w.sheetsHaveTables() || w.sheetsHavePivots() || w.sheetsHaveOLE() {
 		var err error
-		_, personTarget, err = w.saveOpenedSheetAttachments(writer)
+		_, _, personTarget, err = w.saveOpenedSheetAttachments(writer)
 		if err != nil {
 			return err
 		}
@@ -1255,9 +1260,14 @@ func (w *Workbook) Styles() *StyleManager {
 	return newStyleManager(w.stylesheet, func() { w.stylesDirty = true })
 }
 
-// Sheets returns all sheets in the workbook.
+// Sheets returns all sheets in the workbook. The returned slice is a copy of
+// the workbook's backing slice, so sorting, truncating or otherwise mutating
+// it does not desynchronize the workbook's internal sheet order (and the cached
+// per-sheet index). The Sheet pointers themselves are shared.
 func (w *Workbook) Sheets() []*Sheet {
-	return w.sheets
+	out := make([]*Sheet, len(w.sheets))
+	copy(out, w.sheets)
+	return out
 }
 
 // SheetCount returns the number of sheets.
@@ -1412,14 +1422,14 @@ func (w *Workbook) DeleteSheet(index int) error {
 	}
 	if sheet := w.sheets[index]; sheet != nil && sheet.partName != "" {
 		partName := sheet.partName
-		relsName := opc.GetRelationshipsPartName(partName)
-		delete(w.preservedParts, partName)
-		delete(w.preservedParts, relsName)
-		delete(w.relationships, partName)
-		if w.contentTypes != nil {
-			w.contentTypes.RemoveOverride(partName)
-			w.contentTypes.RemoveOverride(relsName)
+		// Cascade-delete the parts reachable only from this sheet — drawings,
+		// tables, comments and the media/chart parts they own — before removing
+		// the sheet's own relationships (which the cascade reads). A part still
+		// referenced by another sheet or part is preserved.
+		for part := range w.cascadeDeletableParts(partName) {
+			w.deletePartAndRels(part)
 		}
+		w.deletePartAndRels(partName)
 	}
 	w.sheets = append(w.sheets[:index], w.sheets[index+1:]...)
 	for i := index; i < len(w.sheets); i++ {
@@ -1434,6 +1444,106 @@ func (w *Workbook) DeleteSheet(index int) error {
 	w.adjustDefinedNamesAfterDelete(index)
 
 	return nil
+}
+
+// sheetPrivateRelTypes are the relationship kinds whose target parts belong to
+// a single worksheet. DeleteSheet cascade-deletes these (and the parts they
+// transitively own); the closure guard preserves anything still referenced
+// elsewhere. Pivot-table parts are deliberately excluded: their caches are
+// shared with the workbook and other pivots and are left to a dedicated pass.
+var sheetPrivateRelTypes = map[string]bool{
+	opc.RelTypeDrawing:         true,
+	opc.RelTypeTable:           true,
+	opc.RelTypeVMLDrawing:      true,
+	opc.RelTypeComments:        true,
+	opc.RelTypeThreadedComment: true,
+}
+
+// cascadeDeletableParts returns the set of parts safe to remove together with
+// the sheet whose part is sheetPart. It seeds from the sheet-private parts the
+// sheet's rels point at (drawings, tables, comments, ...), expands transitively
+// through those parts' own rels (a drawing owns its media and chart parts),
+// then drops any part still referenced by a relationship originating outside
+// the candidate set (excluding the sheet being deleted). The final removal is
+// iterated to a fixed point so that sparing a shared part also spares the parts
+// only it referenced.
+func (w *Workbook) cascadeDeletableParts(sheetPart string) map[string]bool {
+	del := make(map[string]bool)
+	var queue []string
+
+	// Seed: sheet-private targets of the deleted sheet's rels.
+	for _, rel := range w.relationships[sheetPart] {
+		if rel == nil || rel.TargetMode == opc.TargetModeExternal || !sheetPrivateRelTypes[rel.Type] {
+			continue
+		}
+		if target := opc.ResolvePartName(sheetPart, rel.Target); target != "" && !del[target] {
+			del[target] = true
+			queue = append(queue, target)
+		}
+	}
+
+	// Expand transitively through each candidate's own rels (media, charts, ...).
+	for len(queue) > 0 {
+		part := queue[0]
+		queue = queue[1:]
+		for _, rel := range w.relationships[part] {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			if target := opc.ResolvePartName(part, rel.Target); target != "" && !del[target] {
+				del[target] = true
+				queue = append(queue, target)
+			}
+		}
+	}
+
+	// Closure guard: never delete a part referenced from outside the delete set.
+	for {
+		changed := false
+		for part := range del {
+			if w.partReferencedFromOutside(part, del, sheetPart) {
+				delete(del, part)
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return del
+}
+
+// partReferencedFromOutside reports whether any relationship targeting part
+// originates from a source part that is neither the sheet being deleted nor a
+// member of the delete set.
+func (w *Workbook) partReferencedFromOutside(part string, del map[string]bool, sheetPart string) bool {
+	for src, rels := range w.relationships {
+		if src == sheetPart || del[src] {
+			continue
+		}
+		for _, rel := range rels {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			if opc.ResolvePartName(src, rel.Target) == part {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// deletePartAndRels removes a part, its relationships part, and their content
+// type registrations from the workbook.
+func (w *Workbook) deletePartAndRels(part string) {
+	relsName := opc.GetRelationshipsPartName(part)
+	delete(w.preservedParts, part)
+	delete(w.preservedParts, relsName)
+	delete(w.relationships, part)
+	if w.contentTypes != nil {
+		w.contentTypes.RemoveOverride(part)
+		w.contentTypes.RemoveOverride(relsName)
+	}
 }
 
 // adjustActiveTabAfterDelete shifts workbookView activeTab indices down when
@@ -1585,16 +1695,13 @@ func ParseCellRef(ref string) (row, col int, err error) {
 		return 0, 0, ErrInvalidCell
 	}
 
-	// Split into column letters and row number
+	// Split into column letters and row number. Accept any mix of upper- and
+	// lower-case letters ("Aa1", "aB3") the way Excel does, rather than
+	// requiring the prefix to be uniformly one case; the prefix is upper-cased
+	// below before it is decoded into a column number.
 	i := 0
-	for i < len(ref) && ref[i] >= 'A' && ref[i] <= 'Z' {
+	for i < len(ref) && ((ref[i] >= 'A' && ref[i] <= 'Z') || (ref[i] >= 'a' && ref[i] <= 'z')) {
 		i++
-	}
-	if i == 0 {
-		// Try lowercase
-		for i < len(ref) && ref[i] >= 'a' && ref[i] <= 'z' {
-			i++
-		}
 	}
 	if i == 0 || i == len(ref) {
 		return 0, 0, ErrInvalidCell

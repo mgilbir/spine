@@ -212,6 +212,13 @@ func (s *Sheet) removeHyperlinkForRef(ref string) {
 		if strings.EqualFold(hl.Ref, ref) {
 			if hl.RID != "" {
 				s.removePendingHyperlinkRel(hl.RID)
+				// Also record the id so a relationship loaded from the opened
+				// file (kept in w.relationships[partName], not in the pending
+				// list) is filtered out of the rebuilt sheet .rels at save.
+				if s.removedHyperlinkRIDs == nil {
+					s.removedHyperlinkRIDs = make(map[string]bool)
+				}
+				s.removedHyperlinkRIDs[hl.RID] = true
 			}
 			continue
 		}

@@ -18,6 +18,7 @@ type Image struct {
 	anchorCell  string // top-left anchor cell (e.g. "B2"); "" if not cell-anchored
 	widthEMU    int64  // rendered width in EMU (0 if not readily available)
 	heightEMU   int64  // rendered height in EMU (0 if not readily available)
+	svgData     []byte // original SVG bytes when the image was added as SVG; nil otherwise
 }
 
 // emuToPoints converts EMU to points (914400 EMU per inch, 72 pt per inch).
@@ -26,8 +27,16 @@ func emuToPoints(emu int64) float64 { return float64(emu) * 72 / 914400 }
 // AltText returns the image's alternative-text description, or "" if none.
 func (i *Image) AltText() string { return i.altText }
 
-// Data returns the raw image bytes.
+// Data returns the raw image bytes. For an SVG image added via AddImage the
+// bytes are the raster (PNG) fallback embedded for viewers that cannot render
+// SVG; use SVGData to retrieve the original SVG.
 func (i *Image) Data() []byte { return i.data }
+
+// SVGData returns the original SVG bytes for an image added as SVG via
+// AddImage, or nil when the image is not an SVG (or its SVG variant is not
+// available, e.g. an image loaded from an opened file). When non-nil, Data
+// returns the raster fallback for the same image.
+func (i *Image) SVGData() []byte { return i.svgData }
 
 // ContentType returns the image's OPC content type (e.g. "image/png").
 func (i *Image) ContentType() string { return i.contentType }
@@ -86,6 +95,7 @@ func (s *Sheet) pendingImages() []*Image {
 			anchorCell:  FormatCellRef(img.fromRow+1, img.fromCol+1),
 			widthEMU:    img.widthEMU,
 			heightEMU:   img.heightEMU,
+			svgData:     img.svgData,
 		})
 	}
 	return out

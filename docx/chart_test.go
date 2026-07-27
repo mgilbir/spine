@@ -264,6 +264,48 @@ func TestChartContentTypesAndWiring(t *testing.T) {
 	}
 }
 
+// TestChartExternalData verifies a docx chart references its embedded workbook
+// via c:externalData, whose r:id resolves to the chart part's package
+// relationship targeting the embedded .xlsx (C240). Without it Word's "Edit
+// Data" is broken because the embedded workbook is orphaned.
+func TestChartExternalData(t *testing.T) {
+	c := chart.NewColumn().SetCategories([]string{"a", "b"})
+	c.AddSeries("s", []float64{1, 2})
+	doc := Create()
+	if err := doc.AddChart(c, 100, 100); err != nil {
+		t.Fatalf("AddChart: %v", err)
+	}
+	data, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+
+	chartXML := mustZipEntry(t, data, "word/charts/chart1.xml")
+	i := strings.Index(chartXML, "<c:externalData")
+	if i < 0 {
+		t.Fatalf("chart1.xml missing c:externalData:\n%s", chartXML)
+	}
+	seg := chartXML[i:]
+	if end := strings.IndexByte(seg, '>'); end >= 0 {
+		seg = seg[:end]
+	}
+	relID := attrValue([]byte(seg), []byte(` r:id="`))
+	if relID == "" {
+		t.Fatalf("c:externalData missing r:id: %q", seg)
+	}
+
+	// The r:id must resolve, in the chart part's own rels, to the embedded
+	// workbook via a package relationship.
+	chartRels := mustZipEntry(t, data, "word/charts/_rels/chart1.xml.rels")
+	if !strings.Contains(chartRels, `Id="`+relID+`"`) {
+		t.Errorf("chart rels has no relationship %q:\n%s", relID, chartRels)
+	}
+	if !strings.Contains(chartRels, "relationships/package") ||
+		!strings.Contains(chartRels, "../embeddings/Microsoft_Excel_Worksheet1.xlsx") {
+		t.Errorf("relationship %q does not target the embedded workbook:\n%s", relID, chartRels)
+	}
+}
+
 // TestChartChildOrder places a chart in a paragraph between two text runs and
 // checks the inline drawing keeps its position in the run order.
 func TestChartChildOrder(t *testing.T) {

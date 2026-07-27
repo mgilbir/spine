@@ -241,12 +241,19 @@ func (s *Sheet) Comments() []*Comment {
 			}
 			root := byID[tc.ParentID]
 			c := s.threadedToComment(tc)
+			if root == nil {
+				// Orphan reply: its parentId matches no thread root (the root was
+				// deleted, or parentId points at another reply). Surface it as a
+				// top-level comment so its text isn't silently dropped.
+				c.rootID = tc.ID
+				c.parent = nil
+				roots = append(roots, c)
+				continue
+			}
 			c.rootID = tc.ParentID
 			c.parent = root
-			c.resolved = root != nil && root.resolved
-			if root != nil {
-				root.replies = append(root.replies, c)
-			}
+			c.resolved = root.resolved
+			root.replies = append(root.replies, c)
 		}
 		out = append(out, roots...)
 	}

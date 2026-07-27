@@ -34,8 +34,6 @@ type CT_Worksheet struct {
 	Scenarios             *CT_Scenarios              `xml:"-"`
 	AutoFilter            *CT_AutoFilter             `xml:"autoFilter,omitempty"`
 	SortState             *CT_SortState              `xml:"sortState,omitempty"`
-	DataConsolidate       *struct{}                  `xml:"-"`
-	CustomSheetViews      *struct{}                  `xml:"-"`
 	MergeCells            *CT_MergeCells             `xml:"mergeCells,omitempty"`
 	PhoneticPr            *CT_PhoneticPr             `xml:"phoneticPr,omitempty"`
 	ConditionalFormatting []CT_ConditionalFormatting `xml:"conditionalFormatting"`
@@ -865,15 +863,19 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "r" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.R = &v
+			// Assign only when the reference parses: an unparsable r="abc"
+			// previously left v==0, emitting a schema-invalid r="0".
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				r.R = &v
+			}
 		case attr.Name.Local == "spans" && attr.Name.Space == "":
 			r.Spans = attr.Value
 		case attr.Name.Local == "s" && attr.Name.Space == "":
-			var v uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.S = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
+				v := uint32(n)
+				r.S = &v
+			}
 		case attr.Name.Local == "ht" && attr.Name.Space == "":
 			v, err := strconv.ParseFloat(attr.Value, 64)
 			if err == nil {
@@ -886,9 +888,10 @@ func (r *CT_Row) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			b := attr.Value == "1" || attr.Value == "true"
 			r.CustomHeight = &b
 		case attr.Name.Local == "outlineLevel" && attr.Name.Space == "":
-			var v uint8
-			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
-			r.OutlineLevel = &v
+			if n, err := strconv.ParseUint(attr.Value, 10, 8); err == nil {
+				v := uint8(n)
+				r.OutlineLevel = &v
+			}
 		case attr.Name.Local == "collapsed" && attr.Name.Space == "":
 			b := attr.Value == "1" || attr.Value == "true"
 			r.Collapsed = &b
@@ -1008,14 +1011,19 @@ type CT_Cell struct {
 	T  string          `xml:"t,attr,omitempty"`
 	Cm *uint32         `xml:"cm,attr,omitempty"`
 	Vm *uint32         `xml:"vm,attr,omitempty"`
+	// Ph is the show-phonetic flag Excel sets on a cell in a Japanese
+	// phonetic-guide workbook; it is the last CT_Cell attribute in schema order
+	// (r, s, t, cm, vm, ph). Captured so such a cell round-trips rather than
+	// silently losing its phonetic marking on a dirty save.
+	Ph *bool           `xml:"ph,attr,omitempty"`
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
 	Is *CT_Rst         `xml:"is,omitempty"`
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_Cell. Attributes are
-// emitted in schema order (r, s, t, cm, vm) so a metadata-linked cell reparses
-// identically.
+// emitted in schema order (r, s, t, cm, vm, ph) so a metadata-linked or
+// phonetic cell reparses identically.
 func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	attrs = append(attrs, xmlb.StrAttr("r", c.R))
@@ -1030,6 +1038,9 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if c.Vm != nil {
 		attrs = append(attrs, xmlb.UintAttr("vm", *c.Vm))
+	}
+	if c.Ph != nil {
+		attrs = append(attrs, xmlb.BoolAttr("ph", *c.Ph))
 	}
 
 	if c.F == nil && c.V == nil && c.Is == nil {
@@ -1162,7 +1173,7 @@ func (h *CT_Hyperlink) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		switch {
 		case attr.Name.Local == "ref":
 			h.Ref = attr.Value
-		case (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			h.RID = attr.Value
 		case attr.Name.Local == "location":
 			h.Location = attr.Value
@@ -1285,7 +1296,7 @@ func (ps *CT_PageSetup) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			var v uint32
 			_, _ = fmt.Sscanf(attr.Value, "%d", &v)
 			ps.Copies = &v
-		case (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id":
+		case attr.Name.Local == "id" && attr.Name.Space == nsR:
 			ps.RID = attr.Value
 		}
 	}
@@ -1384,7 +1395,7 @@ type CT_Drawing struct {
 // UnmarshalXML implements custom unmarshaling for CT_Drawing.
 func (d *CT_Drawing) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			d.RID = attr.Value
 		}
 	}
@@ -1404,7 +1415,7 @@ type CT_LegacyDrawing struct {
 // UnmarshalXML implements custom unmarshaling for CT_LegacyDrawing.
 func (ld *CT_LegacyDrawing) UnmarshalXML(dec *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			ld.RID = attr.Value
 		}
 	}
@@ -1434,7 +1445,7 @@ type CT_TablePart struct {
 // UnmarshalXML implements custom unmarshaling for CT_TablePart.
 func (tp *CT_TablePart) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
-		if (attr.Name.Local == "id" && attr.Name.Space == nsR) || attr.Name.Local == "r:id" {
+		if attr.Name.Local == "id" && attr.Name.Space == nsR {
 			tp.RID = attr.Value
 		}
 	}
