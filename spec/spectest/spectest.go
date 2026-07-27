@@ -142,6 +142,11 @@ func TestUnmarshalExamples(t *testing.T, examples []Example, typeMap map[string]
 func TestUnmarshalExamplesWithSkips(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, outOfScope map[string]string) {
 	t.Helper()
 
+	// Unmapped elements skip rather than fail, so the skip count is the only
+	// signal that model coverage shrank. checkCoverage ratchets it (C445).
+	var cov coverage
+	defer func() { checkCoverage(t, cov) }()
+
 	for _, ex := range examples {
 		if ex.Classification != "clean" && ex.Classification != "ellipsis_strippable" {
 			continue
@@ -159,6 +164,7 @@ func TestUnmarshalExamplesWithSkips(t *testing.T, examples []Example, typeMap ma
 		if ex.RootElement != nil {
 			rootElem = *ex.RootElement
 		}
+		cov.classify(rootElem, typeMap, outOfScope)
 
 		t.Run(ex.ID, func(t *testing.T) {
 			LogBreadcrumb(t, ex)
@@ -212,6 +218,11 @@ func TestRoundTripExamplesWithSkips(t *testing.T, examples []Example, typeMap ma
 func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]reflect.Type, wrapFn func(string) string, marshalFn MarshalFunc, outOfScope map[string]string) {
 	t.Helper()
 
+	// See TestUnmarshalExamplesWithSkips: unmapped elements skip, so the counts
+	// are ratcheted against a committed baseline (C445).
+	var cov coverage
+	defer func() { checkCoverage(t, cov) }()
+
 	for _, ex := range examples {
 		// Only round-trip clean examples (ellipsis-stripped are incomplete)
 		if ex.Classification != "clean" {
@@ -225,6 +236,7 @@ func testRoundTripExamples(t *testing.T, examples []Example, typeMap map[string]
 		if ex.RootElement != nil {
 			rootElem = *ex.RootElement
 		}
+		cov.classify(rootElem, typeMap, outOfScope)
 
 		t.Run(ex.ID, func(t *testing.T) {
 			LogBreadcrumb(t, ex)

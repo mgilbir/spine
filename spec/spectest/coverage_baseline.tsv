@@ -1,0 +1,32 @@
+# Spec-example coverage baseline (C445). One row per example suite:
+#
+#	suite<TAB>mapped<TAB>unmapped<TAB>out-of-scope
+#
+# mapped        examples really asserted (a Go type is registered for the root element)
+# unmapped      examples SKIPPED with "No Go type mapped" — what this ratchet exists for
+# out-of-scope  examples skipped through a suite's outOfScope map, with a written reason
+#
+# The check (spec/spectest/coverage.go) is one-directional: mapped may only
+# rise, unmapped and out-of-scope may only fall. Modeling more types therefore
+# never requires touching this file first; shrinking the model does, and that
+# edit is what makes the loss reviewable instead of a green run with more skips.
+#
+# The xlsx (SML) rows are the outlier and read as a debt figure: a majority of
+# the SML examples have no modeled type, against 0 unmapped for WML/PML/DML.
+#
+# Regenerate:
+#	rm -f spec/spectest/coverage_baseline.tsv.observed
+#	SPINE_SPEC_UPDATE_BASELINE=1 go test ./... -run SpecExamples -count=1
+#	sort spec/spectest/coverage_baseline.tsv.observed   # then paste the rows below
+TestDML_SpecExamples_RoundTrip	197	0	0
+TestDML_SpecExamples_Unmarshal	386	0	0
+TestOMML_SpecExamples_RoundTrip	121	0	0
+TestOMML_SpecExamples_Unmarshal	121	0	0
+TestPML_SpecExamples_RoundTrip	74	0	0
+TestPML_SpecExamples_Unmarshal	120	0	0
+TestSML_SpecExamples_RoundTrip	63	67	1
+TestSML_SpecExamples_Unmarshal	67	137	2
+TestVML_SpecExamples_RoundTrip	176	0	0
+TestVML_SpecExamples_Unmarshal	940	0	2
+TestWML_SpecExamples_RoundTrip	686	0	1
+TestWML_SpecExamples_Unmarshal	1306	0	5
