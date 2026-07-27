@@ -236,11 +236,20 @@ func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 // custDataLst and controls children in their schema position.
 func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
+	var cleared []xmlb.ClearedAttr
 	if c.Name != "" {
 		attrs = append(attrs, xmlb.StrAttr("name", c.Name))
+	} else {
+		// SetName("") used to be a silent no-op on a parsed slide: the empty
+		// name emitted no modeled attribute, and a captured attribute with no
+		// modeled match replays verbatim, so the source's name came back
+		// (C584). Reporting it as cleared lets replay tell the clear from a
+		// producer's explicit name="" — which still round-trips, since an empty
+		// captured value agrees with the model's zero.
+		cleared = append(cleared, xmlb.ClearedAttr{Name: "name", Lexical: xmlb.AttrLexText})
 	}
 	if c.CapturedAttrs != nil {
-		attrs = b.ReplayCapturedAttrs(c.CapturedAttrs, attrs)
+		attrs = b.ReplayCapturedAttrsClearing(c.CapturedAttrs, attrs, cleared)
 	}
 	b.StartElement(ns, localName, attrs...)
 	if c.Bg != nil {

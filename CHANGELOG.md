@@ -210,6 +210,33 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- Setters that clear a value now take effect on parsed documents across all
+  three formats. Attribute fidelity is preserved by replaying the source's
+  verbatim attribute list, under the rule "a captured attribute the model does
+  not match replays as-is" — which is what makes an unmodeled attribute and an
+  explicitly-written zero survive a round trip, and simultaneously made a
+  modeled value impossible to *clear*: `omitempty` suppressed the zero the
+  setter had just written, so replay restored the source's value and the setter
+  was a silent no-op. `pptx.Table.SetFirstRow(false)` and its five siblings,
+  `Placeholder.SetIndex(0)`, `Slide.SetName("")` and `TableCell.SetVerticalAlign("")`
+  were all affected. The Builder now passes `omitempty`-suppressed attributes to
+  replay as *cleared* rather than dropping them beforehand, and replay discards
+  a captured attribute only when the captured value denotes something other than
+  the zero the model holds — so a producer's explicit `firstRow="0"`,
+  `showComments="0"` or `spokes="0"` still round-trips untouched, and a value the
+  field's lexical space cannot represent (a leniently-coerced `rot="0.4"`, an
+  attribute in a namespace the model never read) is always kept. New:
+  `xmlb.Builder.ReplayCapturedAttrsClearing`, `xmlb.ClearedAttr`,
+  `xmlb.AttrLexicalSpace`; `ReplayCapturedAttrs` is unchanged and now delegates
+  (C583, C584, C585, C586).
+- Numeric attributes no longer drift lexically on a document nobody edited. A
+  float attribute re-rendered through `%g`, so a producer's
+  `tint="-4.9989318521683403E-2"` came back as a decimal expansion and
+  `val="1.0"` as `val="1"`. Replay already kept the producer's spelling when a
+  modeled boolean differed from the capture only in form (`"false"` vs `"0"`);
+  numeric attributes now get the same treatment, keyed off the modeled field's
+  kind so a string-valued attribute whose contents merely look numeric keeps its
+  exact spelling (C531, C556).
 - OPC signature manifest reference URIs are now correct for part names and
   content types that need percent-encoding. Verification percent-decodes a
   reference URI, but signing wrote the part name and the `?ContentType=` query
