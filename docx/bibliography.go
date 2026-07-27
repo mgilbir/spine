@@ -383,9 +383,13 @@ func (d *Document) writeBibliographyPart(writer *opc.Writer, created bool) error
 	if err != nil {
 		return err
 	}
-	if err := writer.WritePart(bibliographyPartName, "application/xml", data); err != nil {
+	// The resolved part name, not the conventional one: an opened package can
+	// point its customXml relationship at any name, and rewriting the store to
+	// the conventional location would orphan the original (C502).
+	part := d.bibliographyPartName()
+	if err := writer.WritePart(part, "application/xml", data); err != nil {
 		return err
 	}
-	d.ensureDocRelationship(opc.RelTypeBibliography, "bibliography/sources.xml")
+	d.ensureDocRelationship(opc.RelTypeBibliography, d.metaRelTarget(part))
 	return nil
 }

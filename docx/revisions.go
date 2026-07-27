@@ -658,4 +658,3 @@ func newMoveRevision(rm oxml.RawMove, notify func()) *Revision {
 	}
 	return rev
 }
-
