@@ -625,12 +625,21 @@ func timingMaxIDs(t *oxml.Timing) (maxID, nextGrp uint32) {
 	return maxID, 0
 }
 
-// walkCTns visits every common time node reachable from a time-node list,
-// descending through par/seq/excl nodes and behavior bodies.
+// walkCTns visits every common time node reachable from a time-node list.
+//
+// It must cover every child kind CT_TimeNodeList models — the group nodes
+// (par/seq/excl), all eight behavior kinds, the command node, and the two media
+// nodes. timingMaxIDs seeds an id allocator from this walk, so a kind the
+// walker cannot see makes the allocator hand out ids that are already in use:
+// the library's own auto-play tree (buildAutoplayTiming) puts a cTn under both
+// p:cmd and a root p:video/p:audio, and those two ids used to be invisible here
+// (C378). TestWalkCTns_CoverageTableIsComplete fails if a new kind is added to
+// the oxml type without being added below.
 func walkCTns(tnl *oxml.TimeNodeList, fn func(*oxml.CommonTimeNode)) {
 	if tnl == nil {
 		return
 	}
+	// Group nodes carry their cTn directly.
 	for _, p := range tnl.Par {
 		if p != nil {
 			walkCTnNode(p.CTn, fn)
@@ -646,29 +655,37 @@ func walkCTns(tnl *oxml.TimeNodeList, fn func(*oxml.CommonTimeNode)) {
 			walkCTnNode(ex.CTn, fn)
 		}
 	}
-	for _, b := range tnl.Set {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+	// Behavior nodes carry theirs under p:cBhvr.
+	walkBhvrCTns(tnl.Set, fn, func(b *oxml.Set) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.Anim, fn, func(b *oxml.Animate) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimClr, fn, func(b *oxml.AnimateColor) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimEffect, fn, func(b *oxml.AnimateEffect) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimMotion, fn, func(b *oxml.AnimateMotion) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimRot, fn, func(b *oxml.AnimateRotation) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimScale, fn, func(b *oxml.AnimateScale) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.Cmd, fn, func(b *oxml.Command) *oxml.CommonBehavior { return b.CBhvr })
+	// Media nodes carry theirs under p:cMediaNode.
+	for _, au := range tnl.Audio {
+		if au != nil && au.CMediaNode != nil {
+			walkCTnNode(au.CMediaNode.CTn, fn)
 		}
 	}
-	for _, b := range tnl.Anim {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+	for _, vd := range tnl.Video {
+		if vd != nil && vd.CMediaNode != nil {
+			walkCTnNode(vd.CMediaNode.CTn, fn)
 		}
 	}
-	for _, b := range tnl.AnimEffect {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+}
+
+// walkBhvrCTns walks the cTn of every behavior node in a slice, given the
+// accessor for that node type's p:cBhvr.
+func walkBhvrCTns[T any](nodes []*T, fn func(*oxml.CommonTimeNode), bhvr func(*T) *oxml.CommonBehavior) {
+	for _, n := range nodes {
+		if n == nil {
+			continue
 		}
-	}
-	for _, b := range tnl.AnimRot {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
-		}
-	}
-	for _, b := range tnl.AnimScale {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+		if cb := bhvr(n); cb != nil {
+			walkCTnNode(cb.CTn, fn)
 		}
 	}
 }

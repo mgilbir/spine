@@ -1101,18 +1101,28 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 		R: make([]*dml.R, 0, len(p.runs)),
 	}
 
-	// Set paragraph properties if needed
-	needSpacing := p.lineSpacing != 0 || p.spaceBefore != 0 || p.spaceAfter != 0
+	// Set paragraph properties if needed. An explicitly-set zero counts: the
+	// caller asking for "no space before" must reach the XML, since omitting the
+	// element means "inherit" (C518).
+	needSpacing := p.lineSpacing != 0 || p.spaceBefore != 0 || p.spaceAfter != 0 ||
+		p.isSet(paraPropSpaceBefore|paraPropSpaceAfter)
 	needBulletStyle := p.bulletColor != nil || p.bulletSizePct != 0 || p.bulletFont != ""
 	needIndent := p.marL != nil || p.indent != nil || len(p.tabStops) > 0
-	if p.alignment != "" || p.level > 0 || p.bulletType != BulletInherit ||
-		needSpacing || needBulletStyle || needIndent {
-		lvl := int32(p.level)
+	if p.alignment != "" || p.level > 0 || p.isSet(paraPropLevel) ||
+		p.bulletType != BulletInherit || needSpacing || needBulletStyle || needIndent {
 		ap.PPr = &dml.PPr{
 			MarL:   p.marL,
 			Indent: p.indent,
 			Algn:   string(p.alignment),
-			Lvl:    &lvl,
+		}
+
+		// Emit lvl only when the paragraph is actually at a nonzero level or the
+		// caller set one explicitly. Emitting lvl="0" unconditionally put an
+		// attribute on every regenerated paragraph that the source never carried
+		// (C517).
+		if p.level > 0 || p.isSet(paraPropLevel) {
+			lvl := int32(p.level)
+			ap.PPr.Lvl = &lvl
 		}
 
 		// Bullet styling (color/size/font) applies to whichever bullet kind the
@@ -1131,41 +1141,22 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 		// BulletInherit (the default) emits nothing so the paragraph keeps the
 		// layout/master bullet even when other properties (alignment, spacing)
 		// are set.
-		switch p.bulletType {
-		case BulletNone:
-			ap.PPr.BuNone = &dml.BuNone{}
-		case BulletChar:
-			ap.PPr.BuChar = &dml.BuChar{Char: p.bulletChar}
-		case BulletNumber, BulletAuto:
-			scheme := string(p.bulletAutoNumType)
-			if scheme == "" {
-				scheme = "arabicPeriod"
-			}
-			ap.PPr.BuAutoNum = &dml.BuAutoNum{Type: scheme, StartAt: p.bulletAutoNumStartAt}
-		}
+		applyBulletKind(ap.PPr, p)
 
-		if len(p.tabStops) > 0 {
-			tabLst := &dml.TabLst{Tab: make([]*dml.Tab, 0, len(p.tabStops))}
-			for _, ts := range p.tabStops {
-				pos := int32(ts.Position)
-				algn := ts.Align
-				if algn == "" {
-					algn = TabAlignLeft
-				}
-				tabLst.Tab = append(tabLst.Tab, &dml.Tab{Pos: &pos, Algn: string(algn)})
-			}
-			ap.PPr.TabLst = tabLst
-		}
+		ap.PPr.TabLst = tabStopsToOxml(p.tabStops)
 
 		// Spacing (symmetric with the oxml->domain read): line spacing is a
-		// percentage, space before/after are point values.
+		// percentage, space before/after are point values. An explicit zero set
+		// through the setter is emitted rather than suppressed, so "no space
+		// before this paragraph" is expressible and does not silently inherit
+		// (C518); line spacing keeps its documented 0 == inherit meaning.
 		if p.lineSpacing != 0 {
 			ap.PPr.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.NewPercentage(p.lineSpacing)}}
 		}
-		if p.spaceBefore != 0 {
+		if p.spaceBefore != 0 || p.isSet(paraPropSpaceBefore) {
 			ap.PPr.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
 		}
-		if p.spaceAfter != 0 {
+		if p.spaceAfter != 0 || p.isSet(paraPropSpaceAfter) {
 			ap.PPr.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: int32(p.spaceAfter)}}
 		}
 	}
@@ -1185,10 +1176,12 @@ func runToOxml(r *Run) *dml.R {
 		T: r.text,
 	}
 
-	// Set run properties if any formatting is applied
+	// Set run properties if any formatting is applied. An explicitly-set false
+	// counts: omitting b/i means "inherit", so a run the caller un-bolded must
+	// still emit b="0" or it re-inherits bold from its placeholder (C518).
 	if r.fontName != "" || r.fontSize > 0 || r.bold || r.italic ||
 		r.underline != "" || r.strike != "" || r.color != nil || r.baseline != 0 ||
-		r.highlight != nil {
+		r.highlight != nil || r.isSet(runPropBold|runPropItalic) {
 		ar.RPr = &dml.RPr{}
 
 		if r.highlight != nil {
@@ -1199,13 +1192,13 @@ func runToOxml(r *Run) *dml.R {
 			ar.RPr.Sz = int32(r.fontSize * 100) // Convert points to hundredths
 		}
 
-		if r.bold {
-			b := true
+		if r.bold || r.isSet(runPropBold) {
+			b := r.bold
 			ar.RPr.B = &b
 		}
 
-		if r.italic {
-			i := true
+		if r.italic || r.isSet(runPropItalic) {
+			i := r.italic
 			ar.RPr.I = &i
 		}
 
