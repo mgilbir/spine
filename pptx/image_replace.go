@@ -66,7 +66,11 @@ func (p *Presentation) embedImageForPart(ownerPart string, data []byte, contentT
 // addImageRel themselves.
 func (p *Presentation) embedImagePart(data []byte, contentType string) string {
 	for name, part := range p.otherParts {
-		if part != nil && strings.HasPrefix(name, "/ppt/media/") && bytes.Equal(part.Data, data) {
+		// Dedup on both bytes and content type: two parts with identical bytes
+		// but different content types (e.g. an image reused as a different MIME
+		// type) are distinct parts and must not collapse (C354).
+		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
+			part.ContentType == contentType && bytes.Equal(part.Data, data) {
 			return name
 		}
 	}

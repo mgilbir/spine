@@ -173,3 +173,25 @@ func TestSlideSetBackgroundImageTwice_GCsOldImage(t *testing.T) {
 		}
 	}
 }
+
+// TestEmbedImagePart_DedupHonorsContentType confirms two media parts with
+// identical bytes but different content types do not collapse to one, while
+// identical bytes with the same content type reuse the existing part (C354).
+func TestEmbedImagePart_DedupHonorsContentType(t *testing.T) {
+	p := Create()
+	data := []byte("shared-bytes")
+
+	png1 := p.embedImagePart(data, "image/png")
+	png2 := p.embedImagePart(data, "image/png")
+	if png1 != png2 {
+		t.Errorf("same bytes + same content type should reuse the part: %q != %q", png1, png2)
+	}
+
+	jpeg := p.embedImagePart(data, "image/jpeg")
+	if jpeg == png1 {
+		t.Errorf("same bytes + different content type must not collapse: both %q", jpeg)
+	}
+	if p.otherParts[jpeg].ContentType != "image/jpeg" {
+		t.Errorf("jpeg part content type = %q, want image/jpeg", p.otherParts[jpeg].ContentType)
+	}
+}
