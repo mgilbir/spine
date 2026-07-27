@@ -241,9 +241,9 @@ func (s *Slide) AddOLEObject(data []byte, progID string, opts ...OLEObjectOption
 	if progID == "" {
 		return nil, fmt.Errorf("pptx: AddOLEObject: progID is empty")
 	}
-	if s.partName == "" {
-		s.partName = p.nextAvailableSlidePartName()
-	}
+	// No partName guard here: AddSlide assigns the part name eagerly so rels are
+	// never keyed under "" (and the loader sets it from the package), making the
+	// guard this replaced unreachable (C522).
 
 	cfg := oleObjectConfig{
 		x: oleDefaultX, y: oleDefaultY, width: oleDefaultWidth, height: oleDefaultHeight,

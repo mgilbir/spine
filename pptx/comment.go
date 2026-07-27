@@ -39,8 +39,7 @@ type Comment struct {
 	date     time.Time
 	resolved bool
 
-	x, y   int64
-	hasPos bool
+	x, y int64
 
 	parent  *Comment
 	replies []*Comment
@@ -105,9 +104,9 @@ func (c *Comment) Parent() *Comment { return c.parent }
 // Slide returns the slide the comment is attached to (pptx-specific).
 func (c *Comment) Slide() *Slide { return c.slide }
 
-// Position returns the comment anchor position in EMUs (pptx-specific). The
-// second boolean-free form matches the two comment mechanisms; a comment with
-// no explicit position returns (0, 0).
+// Position returns the comment anchor position in EMUs (pptx-specific). A
+// comment with no explicit position returns (0, 0), which both comment
+// mechanisms treat as the slide origin.
 func (c *Comment) Position() (x, y int64) { return c.x, c.y }
 
 // AnchorShapeID returns the id of the shape a modern comment is anchored to and
@@ -197,7 +196,7 @@ func (s *Slide) readLegacyComments(partName string, authors map[uint32]string) [
 			date:   parseCommentDate(cm.Dt),
 		}
 		if cm.Pos != nil {
-			c.x, c.y, c.hasPos = cm.Pos.X, cm.Pos.Y, true
+			c.x, c.y = cm.Pos.X, cm.Pos.Y
 		}
 		out = append(out, c)
 	}
@@ -226,7 +225,7 @@ func (s *Slide) readModernThread(partName string, authors map[string]string) *Co
 		partName: partName,
 	}
 	if x, y, ok := modernPos(cm.PreChildren); ok {
-		top.x, top.y, top.hasPos = x, y, true
+		top.x, top.y = x, y
 	}
 	for _, r := range cm.Replies {
 		child := &Comment{

@@ -25,6 +25,10 @@ type TextFrame struct {
 	// explicit zero; writing them would replace the inherited ~91440/45720
 	// defaults with zeros and shift the text.
 	marginsDirty bool
+	// marginsExplicit records that the source body carried at least one inset,
+	// so Margins can distinguish "inherits the ~91440/45720 defaults" from
+	// "explicitly zero" — both of which materialize as a zero TextMargins.
+	marginsExplicit bool
 
 	// bodyDirty is set when anchor/wrap/margins change; contentDirty when the
 	// paragraph list changes. Together with the per-paragraph and per-run
@@ -71,6 +75,9 @@ func NewTextFrame() *TextFrame {
 			Right:  dml.Inches(0.1),
 			Bottom: dml.Inches(0.05),
 		},
+		// A frame built here always writes its four insets (textFrameToOxml), so
+		// these margins are the frame's own rather than an inherited default.
+		marginsExplicit: true,
 	}
 }
 
@@ -144,9 +151,25 @@ func (tf *TextFrame) SetAutofit(autofit AutofitType) {
 	tf.bodyDirty = true
 }
 
-// Margins returns the text margins.
+// Margins returns the text margins (the a:bodyPr insets).
+//
+// A parsed body that carries no inset attributes inherits them from its
+// placeholder/layout/master — in practice PowerPoint's 91440/45720 defaults —
+// but reports a zero TextMargins here, which is indistinguishable from insets
+// explicitly set to zero. Use MarginsSet to tell the two apart before treating
+// the result as the effective margin.
 func (tf *TextFrame) Margins() TextMargins {
 	return tf.margins
+}
+
+// MarginsSet reports whether the returned Margins are the frame's own, rather
+// than a zero value standing in for inherited insets.
+//
+// It is true when the parsed body carried at least one of lIns/tIns/rIns/bIns,
+// and after any SetMargins call. When it is false the frame inherits its insets
+// and Margins says nothing about what they render as.
+func (tf *TextFrame) MarginsSet() bool {
+	return tf != nil && (tf.marginsExplicit || tf.marginsDirty)
 }
 
 // SetMargins sets the text margins.
@@ -218,7 +241,44 @@ type Paragraph struct {
 	marL     *int32
 	indent   *int32
 	tabStops []TabStop
+	// setProps records which properties the caller assigned through a setter.
+	// The flush patches a parsed a:pPr in place and overlays only these, so a
+	// paragraph edited through this API keeps the properties the domain model
+	// does not represent — defRPr, rtl, fontAlgn, defTabSz, buSzPts (C517) — and
+	// so an explicit zero (SetLineSpacing(0), SetSpaceBefore(0)) is
+	// distinguishable from "never set" (C518).
+	setProps paraProp
 	dirty    bool
+}
+
+// paraProp is a bit per Paragraph property, recording that the caller set it
+// explicitly (see Paragraph.setProps).
+type paraProp uint16
+
+const (
+	paraPropAlign paraProp = 1 << iota
+	paraPropLevel
+	paraPropLineSpacing
+	paraPropSpaceBefore
+	paraPropSpaceAfter
+	paraPropBullet
+	paraPropBulletChar
+	paraPropBulletAutoNum
+	paraPropBulletColor
+	paraPropBulletSize
+	paraPropBulletFont
+	paraPropMarginLeft
+	paraPropIndent
+	paraPropTabStops
+)
+
+// isSet reports whether the caller explicitly assigned the given property.
+func (p *Paragraph) isSet(prop paraProp) bool { return p.setProps&prop != 0 }
+
+// markSet records an explicit assignment and marks the paragraph dirty.
+func (p *Paragraph) markSet(prop paraProp) {
+	p.setProps |= prop
+	p.dirty = true
 }
 
 // AutoNumberScheme names an automatic-numbering bullet scheme (a:buAutoNum@type,
@@ -326,7 +386,7 @@ func (p *Paragraph) Alignment() enum.TextAlign {
 // SetAlignment sets the paragraph alignment.
 func (p *Paragraph) SetAlignment(align enum.TextAlign) {
 	p.alignment = align
-	p.dirty = true
+	p.markSet(paraPropAlign)
 }
 
 // Level returns the indentation level (0-8).
@@ -342,7 +402,7 @@ func (p *Paragraph) SetLevel(level int) {
 		level = 8
 	}
 	p.level = level
-	p.dirty = true
+	p.markSet(paraPropLevel)
 }
 
 // LineSpacing returns the line spacing in hundredths of a percent.
@@ -356,7 +416,7 @@ func (p *Paragraph) LineSpacing() int32 {
 // 0 restores the default: inherit from the placeholder/layout/master.
 func (p *Paragraph) SetLineSpacing(spacing int32) {
 	p.lineSpacing = spacing
-	p.dirty = true
+	p.markSet(paraPropLineSpacing)
 }
 
 // SpaceBefore returns the space before the paragraph.
@@ -367,7 +427,7 @@ func (p *Paragraph) SpaceBefore() dml.EMU {
 // SetSpaceBefore sets the space before the paragraph.
 func (p *Paragraph) SetSpaceBefore(space dml.EMU) {
 	p.spaceBefore = space
-	p.dirty = true
+	p.markSet(paraPropSpaceBefore)
 }
 
 // SpaceAfter returns the space after the paragraph.
@@ -378,7 +438,7 @@ func (p *Paragraph) SpaceAfter() dml.EMU {
 // SetSpaceAfter sets the space after the paragraph.
 func (p *Paragraph) SetSpaceAfter(space dml.EMU) {
 	p.spaceAfter = space
-	p.dirty = true
+	p.markSet(paraPropSpaceAfter)
 }
 
 // Bullet returns the bullet type.
@@ -389,7 +449,7 @@ func (p *Paragraph) Bullet() BulletType {
 // SetBullet sets the bullet type.
 func (p *Paragraph) SetBullet(bulletType BulletType) {
 	p.bulletType = bulletType
-	p.dirty = true
+	p.markSet(paraPropBullet)
 }
 
 // BulletChar returns the bullet character.
@@ -401,7 +461,7 @@ func (p *Paragraph) BulletChar() string {
 func (p *Paragraph) SetBulletChar(char string) {
 	p.bulletChar = char
 	p.bulletType = BulletChar
-	p.dirty = true
+	p.markSet(paraPropBulletChar | paraPropBullet)
 }
 
 // SetBulletAutoNumber sets the paragraph to an automatically numbered bullet
@@ -415,7 +475,7 @@ func (p *Paragraph) SetBulletAutoNumber(scheme AutoNumberScheme, startAt int32) 
 	p.bulletType = BulletNumber
 	p.bulletAutoNumType = scheme
 	p.bulletAutoNumStartAt = startAt
-	p.dirty = true
+	p.markSet(paraPropBulletAutoNum | paraPropBullet)
 }
 
 // BulletAutoNumberScheme returns the auto-numbering scheme, or an empty string
@@ -438,7 +498,7 @@ func (p *Paragraph) BulletColor() *dml.Color {
 // color.
 func (p *Paragraph) SetBulletColor(color dml.Color) {
 	p.bulletColor = &color
-	p.dirty = true
+	p.markSet(paraPropBulletColor)
 }
 
 // BulletSizePercent returns the bullet size as a percentage of the text size in
@@ -451,7 +511,7 @@ func (p *Paragraph) BulletSizePercent() int32 {
 // (a:buSzPct), in the dml.Percentage unit scale (100000 = 100%).
 func (p *Paragraph) SetBulletSizePercent(pct int32) {
 	p.bulletSizePct = pct
-	p.dirty = true
+	p.markSet(paraPropBulletSize)
 }
 
 // BulletFont returns the bullet font typeface (a:buFont), or an empty string
@@ -464,7 +524,7 @@ func (p *Paragraph) BulletFont() string {
 // numbered bullets.
 func (p *Paragraph) SetBulletFont(typeface string) {
 	p.bulletFont = typeface
-	p.dirty = true
+	p.markSet(paraPropBulletFont)
 }
 
 // MarginLeft returns the paragraph left margin in EMU (a:pPr@marL), or 0 when
@@ -480,7 +540,7 @@ func (p *Paragraph) MarginLeft() dml.EMU {
 func (p *Paragraph) SetMarginLeft(marL dml.EMU) {
 	v := int32(marL)
 	p.marL = &v
-	p.dirty = true
+	p.markSet(paraPropMarginLeft)
 }
 
 // Indent returns the first-line indent in EMU (a:pPr@indent), or 0 when unset.
@@ -497,7 +557,7 @@ func (p *Paragraph) Indent() dml.EMU {
 func (p *Paragraph) SetIndent(indent dml.EMU) {
 	v := int32(indent)
 	p.indent = &v
-	p.dirty = true
+	p.markSet(paraPropIndent)
 }
 
 // TabStops returns the paragraph's explicit tab stops (a:tabLst), in order.
@@ -508,13 +568,13 @@ func (p *Paragraph) TabStops() []TabStop {
 // SetTabStops replaces the paragraph's explicit tab stops (a:tabLst).
 func (p *Paragraph) SetTabStops(stops []TabStop) {
 	p.tabStops = stops
-	p.dirty = true
+	p.markSet(paraPropTabStops)
 }
 
 // AddTabStop appends a single tab stop to the paragraph (a:tabLst).
 func (p *Paragraph) AddTabStop(stop TabStop) {
 	p.tabStops = append(p.tabStops, stop)
-	p.dirty = true
+	p.markSet(paraPropTabStops)
 }
 
 // Run represents a run of text with consistent formatting.
@@ -530,7 +590,42 @@ type Run struct {
 	highlight *dml.Color
 	baseline  int32 // percentage, positive for superscript, negative for subscript
 	hyperlink *Hyperlink
-	dirty     bool
+	// setProps records which properties the caller assigned through a setter.
+	// The flush patches a parsed a:rPr in place and overlays only these, so a
+	// run edited through this API keeps every property the domain model does not
+	// represent — lumMod/lumOff theme tints on its color, lang, spc, kern, cap,
+	// text effects (C380). It also distinguishes "not set" from "set to the zero
+	// value", so SetBold(false) can emit an explicit b="0" instead of being
+	// suppressed as a zero and re-inheriting bold from the placeholder (C518).
+	setProps runProp
+	dirty    bool
+}
+
+// runProp is a bit per Run property, recording that the caller set it
+// explicitly (see Run.setProps).
+type runProp uint16
+
+const (
+	runPropText runProp = 1 << iota
+	runPropFont
+	runPropSize
+	runPropBold
+	runPropItalic
+	runPropUnderline
+	runPropStrike
+	runPropColor
+	runPropHighlight
+	runPropBaseline
+	runPropHyperlink
+)
+
+// isSet reports whether the caller explicitly assigned the given property.
+func (r *Run) isSet(p runProp) bool { return r.setProps&p != 0 }
+
+// markSet records an explicit assignment and marks the run dirty.
+func (r *Run) markSet(p runProp) {
+	r.setProps |= p
+	r.dirty = true
 }
 
 // NewRun creates a new run. Font size, underline, and strike default to their
@@ -551,7 +646,7 @@ func (r *Run) Text() string {
 // SetText sets the text content.
 func (r *Run) SetText(text string) {
 	r.text = text
-	r.dirty = true
+	r.markSet(runPropText)
 }
 
 // Font returns the font name.
@@ -562,7 +657,7 @@ func (r *Run) Font() string {
 // SetFont sets the font name.
 func (r *Run) SetFont(name string) {
 	r.fontName = name
-	r.dirty = true
+	r.markSet(runPropFont)
 }
 
 // FontSize returns the font size in points.
@@ -573,7 +668,7 @@ func (r *Run) FontSize() float64 {
 // SetFontSize sets the font size in points.
 func (r *Run) SetFontSize(size float64) {
 	r.fontSize = size
-	r.dirty = true
+	r.markSet(runPropSize)
 }
 
 // Bold returns whether the run is bold.
@@ -584,7 +679,7 @@ func (r *Run) Bold() bool {
 // SetBold sets whether the run is bold.
 func (r *Run) SetBold(bold bool) {
 	r.bold = bold
-	r.dirty = true
+	r.markSet(runPropBold)
 }
 
 // Italic returns whether the run is italic.
@@ -595,7 +690,7 @@ func (r *Run) Italic() bool {
 // SetItalic sets whether the run is italic.
 func (r *Run) SetItalic(italic bool) {
 	r.italic = italic
-	r.dirty = true
+	r.markSet(runPropItalic)
 }
 
 // Underline returns the underline style. The empty string means unset: the
@@ -608,7 +703,7 @@ func (r *Run) Underline() enum.UnderlineStyle {
 // suppress an inherited underline; the empty string restores inheritance.
 func (r *Run) SetUnderline(style enum.UnderlineStyle) {
 	r.underline = style
-	r.dirty = true
+	r.markSet(runPropUnderline)
 }
 
 // Strike returns the strikethrough style. The empty string means unset: the
@@ -621,7 +716,7 @@ func (r *Run) Strike() enum.StrikeStyle {
 // suppress an inherited strike; the empty string restores inheritance.
 func (r *Run) SetStrike(style enum.StrikeStyle) {
 	r.strike = style
-	r.dirty = true
+	r.markSet(runPropStrike)
 }
 
 // Color returns the text color.
@@ -632,7 +727,7 @@ func (r *Run) Color() *dml.Color {
 // SetColor sets the text color.
 func (r *Run) SetColor(color dml.Color) {
 	r.color = &color
-	r.dirty = true
+	r.markSet(runPropColor)
 }
 
 // Highlight returns the highlight color.
@@ -643,7 +738,7 @@ func (r *Run) Highlight() *dml.Color {
 // SetHighlight sets the highlight color.
 func (r *Run) SetHighlight(color dml.Color) {
 	r.highlight = &color
-	r.dirty = true
+	r.markSet(runPropHighlight)
 }
 
 // Baseline returns the baseline offset percentage.
@@ -655,19 +750,19 @@ func (r *Run) Baseline() int32 {
 // SetBaseline sets the baseline offset percentage.
 func (r *Run) SetBaseline(baseline int32) {
 	r.baseline = baseline
-	r.dirty = true
+	r.markSet(runPropBaseline)
 }
 
 // SetSuperscript configures the run as superscript.
 func (r *Run) SetSuperscript() {
 	r.baseline = 30000 // 30%
-	r.dirty = true
+	r.markSet(runPropBaseline)
 }
 
 // SetSubscript configures the run as subscript.
 func (r *Run) SetSubscript() {
 	r.baseline = -30000 // -30%
-	r.dirty = true
+	r.markSet(runPropBaseline)
 }
 
 // Hyperlink returns the run's hyperlink (an a:hlinkClick on the run properties),
@@ -676,19 +771,29 @@ func (r *Run) Hyperlink() *Hyperlink {
 	return r.hyperlink
 }
 
+// RemoveHyperlink detaches the run's hyperlink, deleting the a:hlinkClick from
+// its a:rPr on the next save. It is a no-op on a run that carries none.
+//
+// The run hyperlink setters could only ever attach one: the flush wrote it when
+// non-nil and no API could say "remove this" (C521).
+func (r *Run) RemoveHyperlink() {
+	r.hyperlink = nil
+	r.markSet(runPropHyperlink)
+}
+
 // SetHyperlink attaches an external-URL hyperlink to the run and returns it. The
 // External relationship is allocated in the slide's rels on save.
 func (r *Run) SetHyperlink(url string) *Hyperlink {
-	r.hyperlink = newExternalHyperlink(url, func() { r.dirty = true })
-	r.dirty = true
+	r.hyperlink = newExternalHyperlink(url, func() { r.markSet(runPropHyperlink) })
+	r.markSet(runPropHyperlink)
 	return r.hyperlink
 }
 
 // SetActionHyperlink attaches a slide-show action hyperlink (e.g. ActionNextSlide)
 // to the run and returns it. Action verbs need no relationship.
 func (r *Run) SetActionHyperlink(action string) *Hyperlink {
-	r.hyperlink = newActionHyperlink(action, func() { r.dirty = true })
-	r.dirty = true
+	r.hyperlink = newActionHyperlink(action, func() { r.markSet(runPropHyperlink) })
+	r.markSet(runPropHyperlink)
 	return r.hyperlink
 }
 
@@ -696,7 +801,7 @@ func (r *Run) SetActionHyperlink(action string) *Hyperlink {
 // index and returns it. The RelTypeSlide relationship is allocated on save. If
 // the index is out of range for the deck at save time, no hyperlink is emitted.
 func (r *Run) SetHyperlinkToSlide(index int) *Hyperlink {
-	r.hyperlink = newSlideJumpHyperlink(index, func() { r.dirty = true })
-	r.dirty = true
+	r.hyperlink = newSlideJumpHyperlink(index, func() { r.markSet(runPropHyperlink) })
+	r.markSet(runPropHyperlink)
 	return r.hyperlink
 }

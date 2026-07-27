@@ -33,8 +33,12 @@ func (l Line) ApplyToSpPr(spPr *SpPr) {
 	// Color as solid fill on the line
 	ln.SolidFill = colorToSolidFill(l.Color)
 
-	// Dash style
-	if l.Dash != "" && l.Dash != DashSolid {
+	// Dash style. DashSolid emits an explicit prstDash val="solid" rather than
+	// nothing: consumers that merge this overlay onto a parsed a:ln treat an
+	// absent member as "leave alone", so an omitted element would make
+	// "set this line back to solid" unexpressible on a line parsed as dashed
+	// (C417). "solid" is a valid ST_PresetLineDashVal.
+	if l.Dash != "" {
 		ln.PrstDash = &PrstDash{Val: string(l.Dash)}
 	}
 

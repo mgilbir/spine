@@ -120,3 +120,115 @@ func TestSetTransitionMorphEmbedsStartSound(t *testing.T) {
 		t.Errorf("p:snd missing sound name")
 	}
 }
+
+// C516: SetTransition carries the sound into the morph AlternateContent (the
+// C312 fix above), but Transition() never parsed p:sndAc back out of it. A
+// read-modify-write — the natural way to tweak one field of an existing
+// transition — therefore stripped the sound and its embedded clip reference,
+// while the base-schema path round-tripped it correctly through
+// soundActionFromOxml. The two paths are now coherent.
+func TestMorphTransitionReadModifyWriteKeepsSound(t *testing.T) {
+	base := Create()
+	base.AddSlide()
+	data, err := base.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pres := openBytes(t, data)
+	pres.Slides()[0].SetTransition(Transition{
+		Type:        TransitionMorph,
+		MorphOption: MorphByWord,
+		Duration:    1.25,
+		Sound: &TransitionSound{
+			StartSoundData:        []byte("RIFF....WAVEfmt "),
+			StartSoundContentType: "audio/wav",
+			StartSoundName:        "chime",
+			StartSoundLoop:        true,
+		},
+	})
+	saved, err := pres.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen, read the transition back, and write it straight out again.
+	pres2 := openBytes(t, saved)
+	slide := pres2.Slides()[0]
+	got := slide.Transition()
+	if got == nil {
+		t.Fatal("Transition() reported no transition for a morph")
+	}
+	if got.Sound == nil {
+		t.Fatal("Transition() dropped the morph's sound, so a read-modify-write deletes it")
+	}
+	if got.Sound.StartSoundName != "chime" {
+		t.Errorf("start sound name = %q, want chime", got.Sound.StartSoundName)
+	}
+	if !got.Sound.StartSoundLoop {
+		t.Error("start sound loop flag was not read back")
+	}
+
+	slide.SetTransition(*got)
+	out, err := pres2.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sx := string(zipPart(t, out, "ppt/slides/slide1.xml"))
+
+	if n := strings.Count(sx, "<p:stSnd"); n != 2 {
+		t.Errorf("after a read-modify-write %d p:stSnd remain, want 2\n%s", n, sx)
+	}
+	if !strings.Contains(sx, `name="chime"`) {
+		t.Errorf("read-modify-write lost the sound name\n%s", sx)
+	}
+	if !strings.Contains(sx, `loop="1"`) {
+		t.Errorf("read-modify-write lost the sound loop flag\n%s", sx)
+	}
+	// The clip must still be referenced, not dropped or re-embedded.
+	if !strings.Contains(sx, `r:embed=`) {
+		t.Errorf("read-modify-write lost the embedded start-sound reference\n%s", sx)
+	}
+}
+
+// C516: a morph with no sound must read back as having none, and one carrying
+// only p:endSnd (which needs no audio part) must round-trip that.
+func TestMorphTransitionSoundReadBackEdgeCases(t *testing.T) {
+	t.Run("no sound", func(t *testing.T) {
+		pres := Create()
+		pres.AddSlide().SetTransition(Transition{Type: TransitionMorph, Duration: 0.5})
+		data, err := pres.SaveBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := openBytes(t, data).Slides()[0].Transition()
+		if got == nil {
+			t.Fatal("Transition() reported no transition for a morph")
+		}
+		if got.Sound != nil {
+			t.Errorf("a soundless morph read back a sound: %+v", got.Sound)
+		}
+	})
+
+	t.Run("endSnd only", func(t *testing.T) {
+		pres := Create()
+		pres.AddSlide().SetTransition(Transition{
+			Type:     TransitionMorph,
+			Duration: 0.5,
+			Sound:    &TransitionSound{StopPreviousSound: true},
+		})
+		data, err := pres.SaveBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := openBytes(t, data).Slides()[0].Transition()
+		if got == nil || got.Sound == nil {
+			t.Fatalf("the endSnd-only sound was not read back: %+v", got)
+		}
+		if !got.Sound.StopPreviousSound {
+			t.Error("StopPreviousSound was not read back")
+		}
+		if got.Sound.StartSoundName != "" {
+			t.Errorf("invented a start sound name: %q", got.Sound.StartSoundName)
+		}
+	})
+}

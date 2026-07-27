@@ -64,6 +64,21 @@ func (p *Presentation) Sections() []*Section {
 
 // AddSection appends a new, empty section with the given name and returns it.
 // The section is written into the presentation's p14 extension list on save.
+//
+// Section membership is tracked by slide id, independently of slide order.
+// Two consequences are worth knowing, because PowerPoint's own UI maintains
+// invariants this package does not enforce:
+//
+//   - Sections need not cover every slide. PowerPoint's UI always partitions
+//     the whole deck, so a slide left in no section is a state its editor does
+//     not produce.
+//   - Presentation.MoveSlide reorders the slide list without reassigning
+//     sections, so a slide moved across a section boundary keeps its old
+//     section and the sections stop being contiguous runs of the slide order.
+//     Call MoveSlideToSection afterwards to reassign it.
+//
+// Neither is enforced here: the schema permits both, and how PowerPoint reacts
+// to a deck that violates them is unverified.
 func (p *Presentation) AddSection(name string) *Section {
 	sl := p.ensureSectionLst()
 	sec := &oxml.P14Section{Name: name, ID: newGUID()}

@@ -48,10 +48,19 @@ func TestAddAnimation_EffectBodies(t *testing.T) {
 		wants  []string
 	}{
 		{EffectAppear, []string{`presetClass="entr"`, `presetID="1"`, `<p:strVal val="visible"/>`}},
-		{EffectFadeIn, []string{`presetClass="entr"`, `filter="fade"`, `transition="in"`}},
+		// C520: every entrance effect pairs its motion with a p:set that makes
+		// the target visible first (5848/5848 real entrance effects do).
+		{EffectFadeIn, []string{`presetClass="entr"`, `filter="fade"`, `transition="in"`, `<p:strVal val="visible"/>`}},
 		{EffectFlyIn, []string{`presetClass="entr"`, `presetID="2"`, `<p:attrName>ppt_y</p:attrName>`, `1+#ppt_h/2`}},
-		{EffectWipe, []string{`presetClass="entr"`, `filter="wipe(up)"`}},
-		{EffectZoom, []string{`presetClass="entr"`, `filter="zoom"`}},
+		{EffectWipe, []string{`presetClass="entr"`, `filter="wipe(up)"`, `<p:strVal val="visible"/>`}},
+		// C520: zoom is not a filter transition. filter="zoom" occurs zero times
+		// in 1200 real decks; all 44 real presetID-23 entrances interpolate
+		// ppt_w/ppt_h from 0, which is what this asserts now.
+		{EffectZoom, []string{
+			`presetClass="entr"`, `presetID="23"`, `<p:strVal val="visible"/>`,
+			`<p:attrName>ppt_w</p:attrName>`, `<p:attrName>ppt_h</p:attrName>`,
+			`<p:strVal val="#ppt_w"/>`, `<p:strVal val="#ppt_h"/>`,
+		}},
 		{EffectPulse, []string{`presetClass="emph"`, `<p:animScale>`, `<p:by x="110000" y="110000"/>`, `autoRev="1"`}},
 		{EffectSpin, []string{`presetClass="emph"`, `<p:animRot by="21600000">`, `<p:attrName>r</p:attrName>`}},
 		{EffectGrowShrink, []string{`presetClass="emph"`, `<p:by x="150000" y="150000"/>`}},

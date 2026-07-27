@@ -374,6 +374,13 @@ type TableCell struct {
 	margins        *cellMargins
 	marginsCleared bool
 
+	// bordersCleared records, per edge, a SetBorderX(nil) call, so the flush
+	// deletes that parsed border. Borders are not parsed into the domain model,
+	// so a nil edge on its own means "not modeled here" and must leave the
+	// source alone; without the distinction there was no way to remove a border
+	// at all (C521). Same shape as marginsCleared above.
+	bordersCleared cellBorderEdges
+
 	// sourceTc is the a:tc node this cell was parsed from (or last flushed
 	// into). A structural regeneration reuses its tcPr and txBody for
 	// surviving cells, so parsed styling (margins, borders, fills) is not
@@ -511,12 +518,23 @@ func (c *TableCell) SetColSpan(span int) {
 
 // normalizeMergeCells enforces the DrawingML invariant that every grid cell a
 // gridSpan/rowSpan covers carries the matching hMerge/vMerge continuation flag,
-// so each row still emits one a:tc per grid column. A bare SetColSpan(2) would
-// otherwise leave an ordinary neighbor cell, giving the row more columns than
-// the table grid has (C310). It is idempotent and runs just before the table
-// is serialized; covered cells it touches are marked dirty so the in-place
-// patch path flushes them too.
+// and only those cells do, so each row still emits one a:tc per grid column. A
+// bare SetColSpan(2) would otherwise leave an ordinary neighbor cell, giving the
+// row more columns than the table grid has (C310). It is idempotent and runs
+// just before the table is serialized; cells whose flags it changes are marked
+// dirty so the in-place patch path flushes them too.
+//
+// The flags are recomputed from the spans rather than only set. Setting them
+// made a span widen-only: after SetColSpan(2), save, SetColSpan(1), save, the
+// covered cell still carried hMerge="1" with no spanning master left — a grid
+// PowerPoint reads as a merge that has no owner (C418). Since hMerge/vMerge are
+// unexported and derived, recomputing here is the whole un-merge path.
 func (t *Table) normalizeMergeCells() {
+	// want records, for each covered grid position, which continuation flags a
+	// spanning master requires there.
+	type flags struct{ h, v bool }
+	want := make(map[[2]int]flags)
+
 	for i, row := range t.rows {
 		for j, cell := range row.cells {
 			cs, rs := cell.colSpan, cell.rowSpan
@@ -534,16 +552,25 @@ func (t *Table) normalizeMergeCells() {
 					if r == i && k == j {
 						continue // the master cell keeps its span attributes
 					}
-					nc := t.rows[r].cells[k]
-					if k > j && !nc.hMerge {
-						nc.hMerge = true
-						nc.dirty = true
-					}
-					if r > i && !nc.vMerge {
-						nc.vMerge = true
-						nc.dirty = true
-					}
+					f := want[[2]int{r, k}]
+					f.h = f.h || k > j
+					f.v = f.v || r > i
+					want[[2]int{r, k}] = f
 				}
+			}
+		}
+	}
+
+	for i, row := range t.rows {
+		for j, cell := range row.cells {
+			f := want[[2]int{i, j}]
+			if cell.hMerge != f.h {
+				cell.hMerge = f.h
+				cell.dirty = true
+			}
+			if cell.vMerge != f.v {
+				cell.vMerge = f.v
+				cell.dirty = true
 			}
 		}
 	}
@@ -570,25 +597,55 @@ const (
 // SetBorderLeft sets the left border.
 func (c *TableCell) SetBorderLeft(border *TableBorder) {
 	c.borderLeft = border
-	c.dirty = true
+	c.markBorder(borderLeft, border)
 }
 
-// SetBorderRight sets the right border.
+// SetBorderRight sets the right border. A nil border removes it.
 func (c *TableCell) SetBorderRight(border *TableBorder) {
 	c.borderRight = border
-	c.dirty = true
+	c.markBorder(borderRight, border)
 }
 
-// SetBorderTop sets the top border.
+// SetBorderTop sets the top border. A nil border removes it.
 func (c *TableCell) SetBorderTop(border *TableBorder) {
 	c.borderTop = border
+	c.markBorder(borderTop, border)
+}
+
+// SetBorderBottom sets the bottom border. A nil border removes it.
+func (c *TableCell) SetBorderBottom(border *TableBorder) {
+	c.borderBottom = border
+	c.markBorder(borderBottom, border)
+}
+
+// cellBorderEdge identifies one edge of a table cell's border box.
+type cellBorderEdge uint8
+
+const (
+	borderLeft cellBorderEdge = iota
+	borderRight
+	borderTop
+	borderBottom
+)
+
+// cellBorderEdges is a set of cell border edges.
+type cellBorderEdges uint8
+
+// markBorder records the caller's intent for one edge and marks the cell dirty.
+// A nil border is an explicit removal, which the flush must act on; a non-nil
+// one clears any earlier removal.
+func (c *TableCell) markBorder(edge cellBorderEdge, border *TableBorder) {
+	if border == nil {
+		c.bordersCleared |= 1 << edge
+	} else {
+		c.bordersCleared &^= 1 << edge
+	}
 	c.dirty = true
 }
 
-// SetBorderBottom sets the bottom border.
-func (c *TableCell) SetBorderBottom(border *TableBorder) {
-	c.borderBottom = border
-	c.dirty = true
+// isBorderCleared reports whether the caller explicitly removed this edge.
+func (c *TableCell) isBorderCleared(edge cellBorderEdge) bool {
+	return c.bordersCleared&(1<<edge) != 0
 }
 
 // SetBorders sets all borders to the same value.

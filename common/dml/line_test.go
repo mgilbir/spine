@@ -52,7 +52,13 @@ func TestLine_WithDash(t *testing.T) {
 	}
 }
 
-func TestLine_SolidDashNotSet(t *testing.T) {
+// C417: an explicit DashSolid must emit prstDash val="solid", not nothing.
+// Consumers overlay this Ln onto a parsed a:ln and treat an absent member as
+// "leave alone" (so that a width change does not wipe the line's arrowheads and
+// cap). Omitting the element for solid would therefore make "set this dashed
+// line back to solid" unexpressible. An unset Dash still emits nothing — see
+// TestLine_UnsetDashEmitsNothing.
+func TestLine_SolidDashIsExplicit(t *testing.T) {
 	l := Line{
 		Width: 1.0,
 		Color: ColorBlack,
@@ -62,9 +68,23 @@ func TestLine_SolidDashNotSet(t *testing.T) {
 	spPr := &SpPr{}
 	l.ApplyToSpPr(spPr)
 
-	// "solid" dash should not set PrstDash element
+	if spPr.Ln.PrstDash == nil {
+		t.Fatal("expected an explicit PrstDash for solid dash")
+	}
+	if spPr.Ln.PrstDash.Val != "solid" {
+		t.Errorf("PrstDash.Val = %s, want solid", spPr.Ln.PrstDash.Val)
+	}
+}
+
+// An unset Dash means "inherit": it must emit no prstDash at all.
+func TestLine_UnsetDashEmitsNothing(t *testing.T) {
+	l := Line{Width: 1.0, Color: ColorBlack}
+
+	spPr := &SpPr{}
+	l.ApplyToSpPr(spPr)
+
 	if spPr.Ln.PrstDash != nil {
-		t.Error("expected PrstDash to be nil for solid dash")
+		t.Errorf("expected no PrstDash for an unset dash, got %q", spPr.Ln.PrstDash.Val)
 	}
 }
 

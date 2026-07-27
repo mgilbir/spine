@@ -97,15 +97,36 @@ func (t AnimationTrigger) String() string {
 	}
 }
 
-// Animation is a handle to a slide animation. AddAnimation returns one so the
-// effect can be further configured (e.g. build-by-paragraph) before the deck is
-// saved; Animations returns them for reading back existing timing.
+// Animation is a handle to a slide animation.
+//
+// There are two kinds, and only one of them is live (C519):
+//
+//   - The handle AddAnimation returns is pending: it is held by the slide until
+//     the next save flushes it into the p:timing tree, so SetByParagraph on it
+//     takes effect.
+//   - The handles Animations returns for effects already in the timing tree are
+//     reconstructions built by reading it. They report the effect faithfully,
+//     but they are not connected to the tree, so mutating one changes nothing.
+//     Editable reports which kind a handle is.
+//
+// Rewriting an existing effect is not supported; add a new one instead.
 type Animation struct {
 	shapeID     uint32
 	effect      AnimationEffect
 	trigger     AnimationTrigger
 	byParagraph bool
+	// parsed marks a handle reconstructed from the timing tree by Animations,
+	// as opposed to one queued by AddAnimation. Mutators on a parsed handle
+	// change only the handle.
+	parsed bool
 }
+
+// Editable reports whether mutating this handle affects the deck.
+//
+// It is true for a handle returned by AddAnimation and not yet saved, and false
+// for one returned by Animations for an effect already in the timing tree —
+// which is a read-only reconstruction (see the type documentation).
+func (a *Animation) Editable() bool { return !a.parsed }
 
 // ShapeID returns the cNvPr id of the shape the animation targets.
 func (a *Animation) ShapeID() uint32 { return a.shapeID }
@@ -123,9 +144,23 @@ func (a *Animation) ByParagraph() bool { return a.byParagraph }
 // at a time, each paragraph revealed on its own click. It applies only to a
 // shape with a text body of more than one paragraph; otherwise the whole shape
 // animates as one. Returns the animation for chaining.
+// It has no effect on a handle returned by Animations for an effect already in
+// the timing tree — that handle is a read-only reconstruction (see Editable).
 func (a *Animation) SetByParagraph(v bool) *Animation {
 	a.byParagraph = v
 	return a
+}
+
+// Supported reports whether this package can emit the effect. It is false for
+// EffectUnknown, which Animations reports for a timing node whose preset is not
+// recognized, and which AddAnimation cannot serialize.
+//
+// Copying animations between decks by feeding Animations' output back into
+// AddAnimation therefore drops the unrecognized ones; check this first to
+// notice (C519).
+func (e AnimationEffect) Supported() bool {
+	_, ok := animEffectDefs[e]
+	return ok
 }
 
 // AddAnimation adds an animation targeting the shape with the given cNvPr id
@@ -136,10 +171,16 @@ func (a *Animation) SetByParagraph(v bool) *Animation {
 //
 // shapeID must be a resolved (non-zero) cNvPr id. A shape created through this
 // package reports id 0 from Shape.ID until the deck is first saved, so pass a
-// shape's id only after a save (or use the id read back from a loaded deck); an
-// animation targeting id 0 is dropped at save time rather than emitting a
-// dangling spid="0" target. Build-by-paragraph (SetByParagraph) is honored even
-// when the target shape is nested inside a group.
+// shape's id only after a save (or use the id read back from a loaded deck).
+// Build-by-paragraph (SetByParagraph) is honored even when the target shape is
+// nested inside a group.
+//
+// An animation is dropped at save time, rather than emitting a target the deck
+// does not contain, when its shapeID is 0, when the shape it names is no longer
+// in the slide's shape tree (C416), or when effect is one this package cannot
+// emit — EffectUnknown, which is what Animations reports for an unrecognized
+// preset. Use AnimationEffect.Supported to check the last case before relying
+// on a round trip through Animations.
 func (s *Slide) AddAnimation(shapeID uint32, effect AnimationEffect, trigger AnimationTrigger) *Animation {
 	// Materialize the slide so the save regenerates the part (and flushes this
 	// animation into the timing tree) instead of passing the original bytes
@@ -244,6 +285,27 @@ func animMove(g *animIDGen, tgt *oxml.TargetElement, attr, from, to string) *oxm
 	}
 }
 
+// animGrow builds a p:anim that interpolates a size property (ppt_w/ppt_h)
+// from zero to the target's natural size — the motion behind a zoom entrance.
+// The start value is an xsd:double (p:fltVal), matching what PowerPoint writes,
+// while the end is the formula reference.
+func animGrow(g *animIDGen, tgt *oxml.TargetElement, attr string) *oxml.Animate {
+	return &oxml.Animate{
+		CalcMode:  "lin",
+		ValueType: "num",
+		CBhvr: &oxml.CommonBehavior{
+			Additive:    "base",
+			CTn:         &oxml.CommonTimeNode{Id: g.alloc(), Dur: "500", Fill: "hold"},
+			TgtEl:       tgt,
+			AttrNameLst: &oxml.AttributeNameList{AttrName: []string{attr}},
+		},
+		TavLst: &oxml.TimeAnimateValueList{Tav: []*oxml.TimeAnimateValue{
+			{Tm: "0", Val: &oxml.AnimVariant{FltVal: &oxml.AnimVariantFloat{Val: 0}}},
+			{Tm: "100000", Val: strv("#" + attr)},
+		}},
+	}
+}
+
 // animRotBy builds a p:animRot that rotates the target by an angle in 60000ths
 // of a degree (21600000 = one full turn).
 func animRotBy(g *animIDGen, tgt *oxml.TargetElement, by int32) *oxml.AnimateRotation {
@@ -278,8 +340,14 @@ var animEffectDefs = map[AnimationEffect]effectDef{
 		l.AppendSet(setVis(g, mk(), "visible", ""))
 		return l
 	}},
+	// Every entrance effect pairs its motion with a p:set that makes the target
+	// visible first — without it the shape is already on screen when its
+	// entrance runs. Confirmed on 1200 Common Crawl decks: 5848 of 5848 real
+	// entrance effects carrying an in-transition p:animEffect have this p:set,
+	// with no counterexample of any filter kind (C520).
 	EffectFadeIn: {"entr", 10, 0, func(g *animIDGen, mk func() *oxml.TargetElement) *oxml.TimeNodeList {
 		l := &oxml.TimeNodeList{}
+		l.AppendSet(setVis(g, mk(), "visible", "0"))
 		l.AppendAnimEffect(animEff(g, mk(), "in", "fade"))
 		return l
 	}},
@@ -291,12 +359,19 @@ var animEffectDefs = map[AnimationEffect]effectDef{
 	}},
 	EffectWipe: {"entr", 22, 4, func(g *animIDGen, mk func() *oxml.TargetElement) *oxml.TimeNodeList {
 		l := &oxml.TimeNodeList{}
+		l.AppendSet(setVis(g, mk(), "visible", "0"))
 		l.AppendAnimEffect(animEff(g, mk(), "in", "wipe(up)"))
 		return l
 	}},
+	// Zoom is not a filter transition. PowerPoint builds presetID 23 from a
+	// visibility set plus two p:anim interpolating ppt_w and ppt_h from 0 to
+	// their natural size; filter="zoom" occurs zero times in 1200 real decks,
+	// while all 44 real presetID-23 nodes use this shape (C520).
 	EffectZoom: {"entr", 23, 16, func(g *animIDGen, mk func() *oxml.TargetElement) *oxml.TimeNodeList {
 		l := &oxml.TimeNodeList{}
-		l.AppendAnimEffect(animEff(g, mk(), "in", "zoom"))
+		l.AppendSet(setVis(g, mk(), "visible", "0"))
+		l.AppendAnim(animGrow(g, mk(), "ppt_w"))
+		l.AppendAnim(animGrow(g, mk(), "ppt_h"))
 		return l
 	}},
 	EffectPulse: {"emph", 1, 0, func(g *animIDGen, mk func() *oxml.TargetElement) *oxml.TimeNodeList {
@@ -361,10 +436,11 @@ func nodeTypeFor(t AnimationTrigger) string {
 // click nodes: an on-click effect opens a new click group, while with/after
 // previous effects join the current group.
 type seqBuilder struct {
-	mainList *oxml.TimeNodeList // the mainSeq's childTnLst
-	idgen    *animIDGen
-	grpNext  uint32
-	curGroup *oxml.TimeNodeList // current click group's childTnLst, or nil
+	mainList  *oxml.TimeNodeList // the mainSeq's childTnLst
+	idgen     *animIDGen
+	grpNext   uint32
+	mainSeqID uint32             // the mainSeq's own cTn id, referenced by onBegin triggers
+	curGroup  *oxml.TimeNodeList // current click group's childTnLst, or nil
 }
 
 func (sb *seqBuilder) nextGrp() uint32 {
@@ -373,10 +449,20 @@ func (sb *seqBuilder) nextGrp() uint32 {
 	return g
 }
 
-// newClickPar builds a click time node (waits for a click) wrapping a with-group
-// node (starts immediately), returning the par and the group's childTnLst that
-// effect nodes are appended to.
-func newClickPar(g *animIDGen) (*oxml.ParallelTimeNode, *oxml.TimeNodeList) {
+// newClickPar builds a click time node wrapping a with-group node (which starts
+// immediately), returning the par and the group's childTnLst that effect nodes
+// are appended to.
+//
+// A group that leads with a with-previous or after-previous effect must also
+// start when the sequence itself begins, not only on a click — otherwise the
+// first effect of a slide marked "with previous" still waits for the user
+// (C520). PowerPoint expresses that by keeping delay="indefinite" and adding a
+// second condition triggered by the mainSeq's own time node; it does not use
+// delay="0". Verified across 1200 Common Crawl decks: 799 of 799 groups leading
+// with a with/after-previous effect carry exactly this pair, 6292 of 6292
+// click-led groups carry the bare indefinite, and a lone delay="0" on a click
+// group occurs zero times.
+func newClickPar(g *animIDGen, trigger AnimationTrigger, mainSeqID uint32) (*oxml.ParallelTimeNode, *oxml.TimeNodeList) {
 	clickID := g.alloc()
 	groupID := g.alloc()
 	group := &oxml.TimeNodeList{}
@@ -384,8 +470,16 @@ func newClickPar(g *animIDGen) (*oxml.ParallelTimeNode, *oxml.TimeNodeList) {
 	inner.AppendPar(&oxml.ParallelTimeNode{CTn: &oxml.CommonTimeNode{
 		Id: groupID, Fill: "hold", StCondLst: condDelay("0"), ChildTnLst: group,
 	}})
+	stCond := condDelay("indefinite")
+	if trigger != TriggerOnClick && mainSeqID != 0 {
+		stCond.Cond = append(stCond.Cond, &oxml.Condition{
+			Evt:   "onBegin",
+			Delay: "0",
+			Tn:    &oxml.TimeNode{Val: mainSeqID},
+		})
+	}
 	par := &oxml.ParallelTimeNode{CTn: &oxml.CommonTimeNode{
-		Id: clickID, Fill: "hold", StCondLst: condDelay("indefinite"), ChildTnLst: inner,
+		Id: clickID, Fill: "hold", StCondLst: stCond, ChildTnLst: inner,
 	}}
 	return par, group
 }
@@ -410,7 +504,7 @@ func buildEffectPar(def effectDef, nodeType string, grpID uint32, g *animIDGen, 
 
 func (sb *seqBuilder) addEffect(def effectDef, trigger AnimationTrigger, grpID uint32, mk func() *oxml.TargetElement) {
 	if trigger == TriggerOnClick || sb.curGroup == nil {
-		par, group := newClickPar(sb.idgen)
+		par, group := newClickPar(sb.idgen, trigger, sb.mainSeqID)
 		sb.mainList.AppendPar(par)
 		sb.curGroup = group
 	}
@@ -437,8 +531,13 @@ func (s *Slide) applyAnimations() {
 	t := s.sx().Timing
 	maxID, nextGrp := timingMaxIDs(t)
 	idgen := &animIDGen{next: maxID}
-	mainList := mainSeqChildList(t, idgen)
-	sb := &seqBuilder{mainList: mainList, idgen: idgen, grpNext: nextGrp}
+	mainList, mainSeqID := mainSeqChildList(t, idgen)
+	sb := &seqBuilder{mainList: mainList, idgen: idgen, grpNext: nextGrp, mainSeqID: mainSeqID}
+
+	// The animations flush after the shape tree has been synced, so the tree
+	// here is the one the save will write: an id absent from it is a target the
+	// deck will not contain.
+	present := s.shapeIDsInTree()
 
 	added := false
 	for _, a := range anims {
@@ -451,6 +550,13 @@ func (s *Slide) applyAnimations() {
 		// caller passed a still-unassigned Shape.ID (see AddAnimation). Skip it
 		// rather than emit an effect targeting spid="0" (C354).
 		if a.shapeID == 0 {
+			continue
+		}
+		// Likewise skip a target that no longer resolves: authoring an animation
+		// and then removing its shape used to emit a p:spTgt naming a spid the
+		// slide no longer contains. pruneAutoTiming covers only the generated
+		// autoplay refs, never pendingAnims, so nothing else caught this (C416).
+		if !present[a.shapeID] {
 			continue
 		}
 		if a.byParagraph {
@@ -489,10 +595,12 @@ func (s *Slide) applyAnimations() {
 	}
 }
 
-// mainSeqChildList returns the childTnLst of the timing tree's main sequence,
-// creating the tmRoot and/or mainSeq scaffolding (with fresh ids from g) when
-// they are absent. The returned list is where click groups are appended.
-func mainSeqChildList(t *oxml.Timing, g *animIDGen) *oxml.TimeNodeList {
+// mainSeqChildList returns the childTnLst of the timing tree's main sequence
+// and that sequence's own cTn id, creating the tmRoot and/or mainSeq
+// scaffolding (with fresh ids from g) when they are absent. The returned list
+// is where click groups are appended; the id is what an onBegin trigger
+// condition references (see newClickPar).
+func mainSeqChildList(t *oxml.Timing, g *animIDGen) (*oxml.TimeNodeList, uint32) {
 	if t.TnLst == nil {
 		t.TnLst = &oxml.TimeNodeList{}
 	}
@@ -518,18 +626,56 @@ func mainSeqChildList(t *oxml.Timing, g *animIDGen) *oxml.TimeNodeList {
 			if sq.CTn.ChildTnLst == nil {
 				sq.CTn.ChildTnLst = &oxml.TimeNodeList{}
 			}
-			return sq.CTn.ChildTnLst
+			return sq.CTn.ChildTnLst, sq.CTn.Id
 		}
 	}
 	mainChild := &oxml.TimeNodeList{}
+	mainSeqID := g.alloc()
 	root.ChildTnLst.AppendSeq(&oxml.SequenceTimeNode{
 		Concurrent:  true,
 		NextAc:      "seek",
-		CTn:         &oxml.CommonTimeNode{Id: g.alloc(), Dur: "indefinite", NodeType: "mainSeq", ChildTnLst: mainChild},
+		CTn:         &oxml.CommonTimeNode{Id: mainSeqID, Dur: "indefinite", NodeType: "mainSeq", ChildTnLst: mainChild},
 		PrevCondLst: slideEventCond("onPrev"),
 		NextCondLst: slideEventCond("onNext"),
 	})
-	return mainChild
+	return mainChild, mainSeqID
+}
+
+// shapeIDsInTree returns the set of cNvPr ids the slide's shape tree contains,
+// descending into groups. An animation whose target is not in this set would
+// emit a p:spTgt naming a shape the saved slide does not have (C416).
+func (s *Slide) shapeIDsInTree() map[uint32]bool {
+	present := map[uint32]bool{}
+	if s.sx() == nil || s.sx().CSld == nil || s.sx().CSld.SpTree == nil {
+		return present
+	}
+	tree := s.sx().CSld.SpTree
+	for _, sp := range tree.Sp {
+		if sp != nil && sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
+			present[sp.NvSpPr.CNvPr.Id] = true
+		}
+	}
+	for _, pic := range tree.Pic {
+		if pic != nil && pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
+			present[pic.NvPicPr.CNvPr.Id] = true
+		}
+	}
+	for _, gf := range tree.GraphicFrame {
+		if gf != nil && gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
+			present[gf.NvGraphicFramePr.CNvPr.Id] = true
+		}
+	}
+	for _, cxn := range tree.CxnSp {
+		if cxn != nil && cxn.NvCxnSpPr != nil && cxn.NvCxnSpPr.CNvPr != nil {
+			present[cxn.NvCxnSpPr.CNvPr.Id] = true
+		}
+	}
+	// Groups reuse the removal sweep's descent so the two views of "which ids
+	// does this subtree hold" cannot drift apart.
+	for _, grp := range tree.GrpSp {
+		eachShapeIDInGroup(grp, 0, func(id uint32) { present[id] = true })
+	}
+	return present
 }
 
 // paragraphCount returns the number of paragraphs in the text body of the shape
@@ -625,12 +771,21 @@ func timingMaxIDs(t *oxml.Timing) (maxID, nextGrp uint32) {
 	return maxID, 0
 }
 
-// walkCTns visits every common time node reachable from a time-node list,
-// descending through par/seq/excl nodes and behavior bodies.
+// walkCTns visits every common time node reachable from a time-node list.
+//
+// It must cover every child kind CT_TimeNodeList models — the group nodes
+// (par/seq/excl), all eight behavior kinds, the command node, and the two media
+// nodes. timingMaxIDs seeds an id allocator from this walk, so a kind the
+// walker cannot see makes the allocator hand out ids that are already in use:
+// the library's own auto-play tree (buildAutoplayTiming) puts a cTn under both
+// p:cmd and a root p:video/p:audio, and those two ids used to be invisible here
+// (C378). TestWalkCTns_CoverageTableIsComplete fails if a new kind is added to
+// the oxml type without being added below.
 func walkCTns(tnl *oxml.TimeNodeList, fn func(*oxml.CommonTimeNode)) {
 	if tnl == nil {
 		return
 	}
+	// Group nodes carry their cTn directly.
 	for _, p := range tnl.Par {
 		if p != nil {
 			walkCTnNode(p.CTn, fn)
@@ -646,29 +801,37 @@ func walkCTns(tnl *oxml.TimeNodeList, fn func(*oxml.CommonTimeNode)) {
 			walkCTnNode(ex.CTn, fn)
 		}
 	}
-	for _, b := range tnl.Set {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+	// Behavior nodes carry theirs under p:cBhvr.
+	walkBhvrCTns(tnl.Set, fn, func(b *oxml.Set) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.Anim, fn, func(b *oxml.Animate) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimClr, fn, func(b *oxml.AnimateColor) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimEffect, fn, func(b *oxml.AnimateEffect) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimMotion, fn, func(b *oxml.AnimateMotion) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimRot, fn, func(b *oxml.AnimateRotation) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.AnimScale, fn, func(b *oxml.AnimateScale) *oxml.CommonBehavior { return b.CBhvr })
+	walkBhvrCTns(tnl.Cmd, fn, func(b *oxml.Command) *oxml.CommonBehavior { return b.CBhvr })
+	// Media nodes carry theirs under p:cMediaNode.
+	for _, au := range tnl.Audio {
+		if au != nil && au.CMediaNode != nil {
+			walkCTnNode(au.CMediaNode.CTn, fn)
 		}
 	}
-	for _, b := range tnl.Anim {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+	for _, vd := range tnl.Video {
+		if vd != nil && vd.CMediaNode != nil {
+			walkCTnNode(vd.CMediaNode.CTn, fn)
 		}
 	}
-	for _, b := range tnl.AnimEffect {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+}
+
+// walkBhvrCTns walks the cTn of every behavior node in a slice, given the
+// accessor for that node type's p:cBhvr.
+func walkBhvrCTns[T any](nodes []*T, fn func(*oxml.CommonTimeNode), bhvr func(*T) *oxml.CommonBehavior) {
+	for _, n := range nodes {
+		if n == nil {
+			continue
 		}
-	}
-	for _, b := range tnl.AnimRot {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
-		}
-	}
-	for _, b := range tnl.AnimScale {
-		if b != nil && b.CBhvr != nil {
-			walkCTnNode(b.CBhvr.CTn, fn)
+		if cb := bhvr(n); cb != nil {
+			walkCTnNode(cb.CTn, fn)
 		}
 	}
 }
@@ -741,7 +904,9 @@ func effectFromCTn(c *oxml.CommonTimeNode) *Animation {
 	if !ok {
 		eff = EffectUnknown
 	}
-	a := &Animation{effect: eff}
+	// Reconstructed from the tree, so not connected to it: mutators on this
+	// handle change only the handle (C519).
+	a := &Animation{effect: eff, parsed: true}
 	switch c.NodeType {
 	case "withEffect":
 		a.trigger = TriggerWithPrevious

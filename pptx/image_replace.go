@@ -65,7 +65,10 @@ func (p *Presentation) embedImageForPart(ownerPart string, data []byte, contentT
 // whose id space is shared with its layout rels) allocate it and call
 // addImageRel themselves.
 func (p *Presentation) embedImagePart(data []byte, contentType string) string {
-	for name, part := range p.otherParts {
+	// Sorted scan so the reused part is the same one on every run; see
+	// embedMediaData (C515).
+	for _, name := range sortedKeys(p.otherParts) {
+		part := p.otherParts[name]
 		// Dedup on both bytes and content type: two parts with identical bytes
 		// but different content types (e.g. an image reused as a different MIME
 		// type) are distinct parts and must not collapse (C354).

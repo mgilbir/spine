@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -168,11 +169,8 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		return
 	}
 	if base.dirty {
-		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.name != "" {
-			sp.NvSpPr.CNvPr.Name = base.name
-		}
-		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.hyperlink != nil {
-			sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
+		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
+			flushShapeNameAndLink(sp.NvSpPr.CNvPr, base)
 		}
 		if sp.SpPr == nil {
 			sp.SpPr = &dml.SpPr{}
@@ -199,11 +197,66 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 	updateTxBody(&sp.TxBody, tf)
 }
 
+// flushShapeNameAndLink writes the shape's name and hyperlink into its parsed
+// p:cNvPr.
+//
+// Both used to be write-only affordances: the name was written only when
+// non-empty, so SetName("") was silently ignored, and the hyperlink only when
+// non-nil, with no API able to remove one (C521). The explicit-intent flags
+// distinguish "the caller set this" from "the domain model does not carry it",
+// so a shape dirtied for an unrelated reason still leaves both alone.
+func flushShapeNameAndLink(cNvPr *dml.CNvPr, base *BaseShape) {
+	if base.nameSet {
+		cNvPr.Name = base.name
+		// name is required on cNvPr and not omitempty, so an explicit "" is
+		// emitted as name="" rather than dropping the attribute.
+		cNvPr.CapturedAttrs = dropCapturedAttrs(cNvPr.CapturedAttrs, "name")
+	}
+	switch {
+	case base.hyperlink != nil:
+		cNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
+	case base.hyperlinkCleared:
+		cNvPr.HlinkClick = nil
+	}
+}
+
+// dropCapturedAttrs removes the named attributes from a captured attribute
+// list, returning the remainder.
+//
+// ReplayCapturedAttrs replays any captured attribute the model does not match,
+// which is what makes an unmodeled attribute and an explicit zero survive — and
+// simultaneously makes a modeled value impossible to *clear*, because
+// omitempty suppresses the zero the setter just wrote and replay then restores
+// the source's value (audit tension T-D). A setter that owns an attribute must
+// therefore drop it from the capture: after that, "modeled wins" holds even
+// when the modeled value is a zero. Attributes not named here are untouched, so
+// the fidelity guarantee for everything the model does not represent is intact.
+func dropCapturedAttrs(captured []xmlb.RootAttr, names ...string) []xmlb.RootAttr {
+	if len(captured) == 0 {
+		return captured
+	}
+	drop := make(map[string]bool, len(names))
+	for _, n := range names {
+		drop[n] = true
+	}
+	out := captured[:0]
+	for _, a := range captured {
+		if !a.IsNS && a.Prefix == "" && drop[a.LocalName] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // flushPlaceholderAttrs writes the modeled placeholder attributes (type,
 // orient, idx, sz) into the parsed p:ph node, creating the nvPr/ph chain when
-// the shape had none. The captured attr list on p:ph keeps the modeled values
-// authoritative (see Builder.ReplayCapturedAttrs), so a changed idx/orient/sz
-// wins while unmodeled attributes on p:ph survive the flush.
+// the shape had none. Unmodeled attributes on p:ph survive the flush.
+//
+// The four modeled attributes are dropped from the capture first: p:ph@idx is
+// omitempty, so SetIndex(0) used to write a zero that was suppressed and then
+// replaced by the source's idx="3" on replay — the setter was a silent no-op
+// (C585). The same applied to clearing type/orient/sz.
 func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 	if sp.NvSpPr == nil {
 		return
@@ -215,6 +268,7 @@ func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 		sp.NvSpPr.NvPr.Ph = &oxml.Placeholder{}
 	}
 	p := sp.NvSpPr.NvPr.Ph
+	p.CapturedAttrs = dropCapturedAttrs(p.CapturedAttrs, "type", "orient", "sz", "idx")
 	p.Type = string(ph.phType)
 	p.Orient = string(ph.orientation)
 	p.Sz = string(ph.size)
@@ -318,18 +372,196 @@ func patchParagraphsInPlace(parsed []*dml.P, paras []*Paragraph) bool {
 	for k, dp := range paras {
 		pnode := parsed[k]
 		if dp.dirty {
-			// A paragraph-level property change: refresh the modeled subset of
-			// pPr from the domain model, leaving the interleaved a:br/a:fld
-			// children and endParaRPr in place.
-			pnode.PPr = paragraphToOxml(dp).PPr
+			patchParagraphPropsInPlace(pnode, dp)
 		}
 		for i, dr := range dp.runs {
 			if dr.dirty {
-				pnode.R[i] = runToOxml(dr)
+				patchRunInPlace(pnode.R[i], dr)
 			}
 		}
 	}
 	return true
+}
+
+// patchRunInPlace overlays a dirty run's explicitly-set properties onto its
+// parsed a:r, leaving everything else as parsed.
+//
+// Regenerating the run from the domain model instead (the pre-C380 behavior)
+// narrowed it to the modeled subset: a run styled "Accent1, Lighter 40%"
+// (schemeClr accent1 + lumMod 60000 + lumOff 40000) came back as a bare
+// accent1 — the text visibly changed color on screen — and lang, spc, kern,
+// cap and the rPr effect lists went with it, after nothing more than a
+// SetText. Only what the caller actually assigned is written here, so an
+// untouched property keeps its source form (audit tension T-B, "patch don't
+// regenerate").
+func patchRunInPlace(node *dml.R, r *Run) {
+	if node == nil || r == nil {
+		return
+	}
+	if r.isSet(runPropText) {
+		node.T = r.text
+	}
+	const rprProps = runPropFont | runPropSize | runPropBold | runPropItalic |
+		runPropUnderline | runPropStrike | runPropColor | runPropHighlight |
+		runPropBaseline | runPropHyperlink
+	if r.setProps&rprProps == 0 {
+		return
+	}
+	if node.RPr == nil {
+		node.RPr = &dml.RPr{}
+	}
+	rpr := node.RPr
+	if r.isSet(runPropSize) {
+		rpr.Sz = int32(r.fontSize * 100) // points -> hundredths
+	}
+	if r.isSet(runPropBold) {
+		// Written through a pointer so an explicit SetBold(false) emits b="0"
+		// rather than being suppressed as a zero value and re-inheriting bold
+		// from the placeholder (C518).
+		b := r.bold
+		rpr.B = &b
+	}
+	if r.isSet(runPropItalic) {
+		i := r.italic
+		rpr.I = &i
+	}
+	if r.isSet(runPropUnderline) {
+		rpr.U = string(r.underline)
+	}
+	if r.isSet(runPropStrike) {
+		rpr.Strike = string(r.strike)
+	}
+	if r.isSet(runPropBaseline) {
+		baseline := r.baseline
+		rpr.Baseline = &baseline
+	}
+	if r.isSet(runPropFont) {
+		if r.fontName == "" {
+			rpr.Latin = nil
+		} else {
+			rpr.Latin = &dml.TextFont{Typeface: r.fontName}
+		}
+	}
+	if r.isSet(runPropColor) {
+		rpr.SolidFill = colorToOxml(r.color)
+	}
+	if r.isSet(runPropHighlight) {
+		rpr.Highlight = colorToColorChoiceOxml(r.highlight)
+	}
+	if r.isSet(runPropHyperlink) {
+		rpr.HlinkClick = hyperlinkToXML(r.hyperlink)
+	}
+}
+
+// patchParagraphPropsInPlace overlays a dirty paragraph's explicitly-set
+// properties onto its parsed a:pPr, leaving everything else as parsed.
+//
+// Replacing the whole a:pPr with paragraphToOxml's output (the pre-C517
+// behavior) dropped defRPr, rtl, fontAlgn, defTabSz and buSzPts from any
+// paragraph the caller merely realigned, and emitted lvl="0" on a paragraph
+// that never carried one.
+func patchParagraphPropsInPlace(node *dml.P, p *Paragraph) {
+	if node == nil || p == nil || p.setProps == 0 {
+		return
+	}
+	if node.PPr == nil {
+		node.PPr = &dml.PPr{}
+	}
+	pp := node.PPr
+	if p.isSet(paraPropAlign) {
+		pp.Algn = string(p.alignment)
+	}
+	if p.isSet(paraPropLevel) {
+		lvl := int32(p.level)
+		pp.Lvl = &lvl
+	}
+	if p.isSet(paraPropMarginLeft) {
+		pp.MarL = p.marL
+	}
+	if p.isSet(paraPropIndent) {
+		pp.Indent = p.indent
+	}
+	if p.isSet(paraPropBulletColor) {
+		// a:buClr and a:buClrTx are an exclusive choice.
+		pp.BuClr, pp.BuClrTx = colorToBuClr(p.bulletColor), nil
+	}
+	if p.isSet(paraPropBulletSize) {
+		// a:buSzPct, a:buSzPts and a:buSzTx are an exclusive choice; setting a
+		// percentage clears the point-size and follow-text forms.
+		pp.BuSzPct, pp.BuSzPts, pp.BuSzTx = nil, nil, nil
+		if p.bulletSizePct != 0 {
+			pp.BuSzPct = &dml.BuSzPct{Val: dml.NewPercentage(p.bulletSizePct)}
+		}
+	}
+	if p.isSet(paraPropBulletFont) {
+		// a:buFont and a:buFontTx are an exclusive choice.
+		pp.BuFont, pp.BuFontTx = nil, nil
+		if p.bulletFont != "" {
+			pp.BuFont = &dml.BuFont{Typeface: p.bulletFont}
+		}
+	}
+	if p.isSet(paraPropBullet | paraPropBulletChar | paraPropBulletAutoNum) {
+		applyBulletKind(pp, p)
+	}
+	if p.isSet(paraPropTabStops) {
+		pp.TabLst = tabStopsToOxml(p.tabStops)
+	}
+	if p.isSet(paraPropLineSpacing) {
+		// 0 is documented as "restore inheritance", so it clears the element.
+		pp.LnSpc = nil
+		if p.lineSpacing != 0 {
+			pp.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.NewPercentage(p.lineSpacing)}}
+		}
+	}
+	if p.isSet(paraPropSpaceBefore) {
+		pp.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
+	}
+	if p.isSet(paraPropSpaceAfter) {
+		pp.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: int32(p.spaceAfter)}}
+	}
+}
+
+// applyBulletKind writes the paragraph's bullet kind into pPr, clearing the
+// other kinds of the a:buNone/a:buAutoNum/a:buChar/a:buBlip exclusive choice so
+// a switch between kinds does not leave two of them behind.
+func applyBulletKind(pp *dml.PPr, p *Paragraph) {
+	pp.BuNone, pp.BuAutoNum, pp.BuChar, pp.BuBlip = nil, nil, nil, nil
+	switch p.bulletType {
+	case BulletNone:
+		pp.BuNone = &dml.BuNone{}
+	case BulletChar:
+		pp.BuChar = &dml.BuChar{Char: p.bulletChar}
+	case BulletNumber, BulletAuto:
+		pp.BuAutoNum = &dml.BuAutoNum{Type: autoNumScheme(p), StartAt: p.bulletAutoNumStartAt}
+	}
+	// BulletInherit leaves all four cleared, restoring inheritance.
+}
+
+// autoNumScheme returns the paragraph's auto-numbering scheme, defaulting to
+// arabicPeriod when none was chosen.
+func autoNumScheme(p *Paragraph) string {
+	if s := string(p.bulletAutoNumType); s != "" {
+		return s
+	}
+	return "arabicPeriod"
+}
+
+// tabStopsToOxml converts the domain tab stops to an a:tabLst, or nil when
+// there are none (which clears a parsed list).
+func tabStopsToOxml(stops []TabStop) *dml.TabLst {
+	if len(stops) == 0 {
+		return nil
+	}
+	tabLst := &dml.TabLst{Tab: make([]*dml.Tab, 0, len(stops))}
+	for _, ts := range stops {
+		pos := int32(ts.Position)
+		algn := ts.Align
+		if algn == "" {
+			algn = TabAlignLeft
+		}
+		tabLst.Tab = append(tabLst.Tab, &dml.Tab{Pos: &pos, Algn: string(algn)})
+	}
+	return tabLst
 }
 
 // updatePictureNode flushes a dirty picture (or embedded media shape) into its
@@ -354,14 +586,9 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 		return
 	}
 	if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
-		if base.name != "" {
-			pic.NvPicPr.CNvPr.Name = base.name
-		}
+		flushShapeNameAndLink(pic.NvPicPr.CNvPr, base)
 		if domainPic != nil {
 			pic.NvPicPr.CNvPr.Descr = domainPic.description
-		}
-		if base.hyperlink != nil {
-			pic.NvPicPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
 		}
 	}
 	if pic.SpPr == nil {
@@ -484,6 +711,14 @@ func patchTableNode(atbl *oxml.ATable, t *Table) {
 			atbl.TblPr = &oxml.ATblPr{}
 		}
 		pr := atbl.TblPr
+		// All six banding/heading flags are omitempty booleans the domain model
+		// mirrors, so clearing one wrote a false that was suppressed and then
+		// replaced by the source's ="1" on replay: SetFirstRow(false) and its
+		// five siblings were silent no-ops on any parsed table (C583). Dropping
+		// them from the capture makes the modeled value authoritative in both
+		// directions. rtl is not modeled here, so it stays captured.
+		pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs,
+			"firstRow", "firstCol", "lastRow", "lastCol", "bandRow", "bandCol")
 		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
 		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
 		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
@@ -522,22 +757,22 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 		tc.TcPr = &oxml.ATcPr{}
 	}
 	pr := tc.TcPr
-	if cell.vertAlign != "" {
-		pr.Anchor = string(cell.vertAlign)
-	}
+	// The anchor is parsed into the domain model, so writing it unconditionally
+	// is a no-op for a cell that never had one and lets SetVerticalAlign("")
+	// clear a parsed anchor, which the old non-empty guard made impossible
+	// (C521). It is also omitempty, so the captured value has to go with it or
+	// replay would restore it (the T-D trap, as in C583).
+	pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs, "anchor")
+	pr.Anchor = string(cell.vertAlign)
 	applyCellMargins(pr, cell)
-	if cell.borderLeft != nil {
-		pr.LnL = tableBorderToLn(cell.borderLeft)
-	}
-	if cell.borderRight != nil {
-		pr.LnR = tableBorderToLn(cell.borderRight)
-	}
-	if cell.borderTop != nil {
-		pr.LnT = tableBorderToLn(cell.borderTop)
-	}
-	if cell.borderBottom != nil {
-		pr.LnB = tableBorderToLn(cell.borderBottom)
-	}
+	// Borders are not parsed into the domain model, so a nil edge means "not
+	// modeled here" and must leave the parsed border alone — only an explicit
+	// SetBorderX(nil) removes one. Without that distinction there was no way to
+	// remove a border at all (C521).
+	applyCellBorder(&pr.LnL, cell.borderLeft, cell.isBorderCleared(borderLeft))
+	applyCellBorder(&pr.LnR, cell.borderRight, cell.isBorderCleared(borderRight))
+	applyCellBorder(&pr.LnT, cell.borderTop, cell.isBorderCleared(borderTop))
+	applyCellBorder(&pr.LnB, cell.borderBottom, cell.isBorderCleared(borderBottom))
 	if cell.fill != nil {
 		pr.SolidFill = colorToOxml(cell.fill)
 		pr.NoFill = nil
@@ -558,6 +793,17 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	}
 	tc.HMerge = cell.hMerge
 	tc.VMerge = cell.vMerge
+}
+
+// applyCellBorder writes one cell edge: a modeled border replaces the parsed
+// one, an explicit removal deletes it, and neither leaves it untouched.
+func applyCellBorder(dst **dml.Ln, border *TableBorder, cleared bool) {
+	switch {
+	case border != nil:
+		*dst = tableBorderToLn(border)
+	case cleared:
+		*dst = nil
+	}
 }
 
 // applyCellMargins writes explicit cell text insets into the parsed tcPr, or
