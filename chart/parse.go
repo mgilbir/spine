@@ -12,9 +12,19 @@ import (
 )
 
 // Parse reads a DrawingML chart.xml part (c:chartSpace) into a Chart: its type,
-// title, categories, and series names and values (recovered from the cached
-// values, falling back to literal data). It is what each format's Charts()
-// reader builds on.
+// title, legend, axis titles, data labels, grouping, number format, categories,
+// and series names, values and colors (recovered from the cached values,
+// falling back to literal data). It is what each format's Charts() reader
+// builds on.
+//
+// Parse is lossy by design: a Chart is the builder's model, not a faithful
+// c:chartSpace. What a round-trip through Parse and MarshalChartXML does not
+// carry over is re-emitted at the builder's defaults — per-series markers and
+// smoothing, doughnut hole size, gap width and overlap, explicit axis
+// identifiers, scaling, tick and gridline settings, dispBlanksAs, per-point
+// formatting (c:dPt), trendlines, error bars, data tables, 3D view angles, and
+// any extension list. Anything the plot area holds that the model cannot
+// represent at all is reported by ParseNotes rather than dropped silently.
 func Parse(chartXML []byte) (*Chart, error) {
 	var cs dmlchart.ChartSpace
 	if err := xml.Unmarshal(chartXML, &cs); err != nil {
@@ -26,41 +36,45 @@ func Parse(chartXML []byte) (*Chart, error) {
 	pa := cs.Chart.PlotArea
 
 	var c *Chart
+	// selected names the plot-area group (or, for a combination chart, groups)
+	// the Chart was built from; every other group present is reported by
+	// droppedGroupNotes.
+	var selected string
 	switch {
 	case len(pa.BarChart)+len(pa.LineChart)+len(pa.AreaChart) > 1:
 		// More than one category-type group means a combination chart (mixed
 		// series types, or a secondary axis with a repeated type).
-		c = parseCombo(pa)
+		c, selected = parseCombo(pa), "combo"
 	case len(pa.BarChart) > 0:
-		c = parseBar(pa.BarChart[0])
+		c, selected = parseBar(pa.BarChart[0]), "barChart"
 	case len(pa.LineChart) > 0:
-		c = parseLine(pa.LineChart[0])
+		c, selected = parseLine(pa.LineChart[0]), "lineChart"
 	case len(pa.PieChart) > 0:
-		c = parsePie(pa.PieChart[0])
+		c, selected = parsePie(pa.PieChart[0]), "pieChart"
 	case len(pa.DoughnutChart) > 0:
-		c = parseDoughnut(pa.DoughnutChart[0])
+		c, selected = parseDoughnut(pa.DoughnutChart[0]), "doughnutChart"
 	case len(pa.RadarChart) > 0:
-		c = parseRadar(pa.RadarChart[0])
+		c, selected = parseRadar(pa.RadarChart[0]), "radarChart"
 	case len(pa.AreaChart) > 0:
-		c = parseArea(pa.AreaChart[0])
+		c, selected = parseArea(pa.AreaChart[0]), "areaChart"
 	case len(pa.ScatterChart) > 0:
-		c = parseScatter(pa.ScatterChart[0])
+		c, selected = parseScatter(pa.ScatterChart[0]), "scatterChart"
 	case len(pa.BubbleChart) > 0:
-		c = parseBubble(pa.BubbleChart[0])
+		c, selected = parseBubble(pa.BubbleChart[0]), "bubbleChart"
 	case len(pa.StockChart) > 0:
-		c = parseStock(pa.StockChart[0])
+		c, selected = parseStock(pa.StockChart[0]), "stockChart"
 	case len(pa.SurfaceChart) > 0:
-		c = parseSurface(pa.SurfaceChart[0])
+		c, selected = parseSurface(pa.SurfaceChart[0]), "surfaceChart"
 	case len(pa.OfPieChart) > 0:
-		c = parseOfPie(pa.OfPieChart[0])
+		c, selected = parseOfPie(pa.OfPieChart[0]), "ofPieChart"
 	case len(pa.Bar3DChart) > 0:
-		c = parseBar3D(pa.Bar3DChart[0])
+		c, selected = parseBar3D(pa.Bar3DChart[0]), "bar3DChart"
 	case len(pa.Line3DChart) > 0:
-		c = parseLine3D(pa.Line3DChart[0])
+		c, selected = parseLine3D(pa.Line3DChart[0]), "line3DChart"
 	case len(pa.Pie3DChart) > 0:
-		c = parsePie3D(pa.Pie3DChart[0])
+		c, selected = parsePie3D(pa.Pie3DChart[0]), "pie3DChart"
 	case len(pa.Area3DChart) > 0:
-		c = parseArea3D(pa.Area3DChart[0])
+		c, selected = parseArea3D(pa.Area3DChart[0]), "area3DChart"
 	default:
 		return nil, fmt.Errorf("chart: unsupported or empty chart type")
 	}
@@ -82,7 +96,72 @@ func Parse(chartXML []byte) (*Chart, error) {
 			c.DataRef = sheet
 		}
 	}
+	if code := firstFormatCode(pa); code != "" {
+		// The cached formatCode is the chart's number format; without it a
+		// re-marshaled chart silently reverts every value to "General" (C560).
+		c.NumberFormat = code
+	}
+	c.parseNotes = append(c.parseNotes, droppedGroupNotes(pa, selected, c.kind)...)
 	return c, nil
+}
+
+// plotGroupCounts lists the chart-type groups a plot area holds, by element
+// name, in schema order. It is the basis for reporting the groups Parse could
+// not represent (C563).
+func plotGroupCounts(pa *dmlchart.PlotArea) []struct {
+	name  string
+	count int
+} {
+	return []struct {
+		name  string
+		count int
+	}{
+		{"areaChart", len(pa.AreaChart)},
+		{"area3DChart", len(pa.Area3DChart)},
+		{"barChart", len(pa.BarChart)},
+		{"bar3DChart", len(pa.Bar3DChart)},
+		{"bubbleChart", len(pa.BubbleChart)},
+		{"doughnutChart", len(pa.DoughnutChart)},
+		{"lineChart", len(pa.LineChart)},
+		{"line3DChart", len(pa.Line3DChart)},
+		{"ofPieChart", len(pa.OfPieChart)},
+		{"pieChart", len(pa.PieChart)},
+		{"pie3DChart", len(pa.Pie3DChart)},
+		{"radarChart", len(pa.RadarChart)},
+		{"scatterChart", len(pa.ScatterChart)},
+		{"stockChart", len(pa.StockChart)},
+		{"surfaceChart", len(pa.SurfaceChart)},
+		{"surface3DChart", len(pa.Surface3DChart)},
+	}
+}
+
+// droppedGroupNotes describes the chart-type groups Parse did not represent.
+// A plot area may legally hold several groups (one barChart plus one
+// scatterChart, say); the model carries one kind, and a combination chart
+// covers only the bar/line/area triple. The rest are dropped — reporting them
+// lets a caller tell "this is a column chart" from "it had four groups and I
+// kept the bars". selected names the group the Chart was built from, or "combo"
+// when every bar, line, and area group was consumed.
+func droppedGroupNotes(pa *dmlchart.PlotArea, selected string, kind Kind) []string {
+	var notes []string
+	for _, g := range plotGroupCounts(pa) {
+		dropped := g.count
+		switch {
+		case selected == "combo":
+			if g.name == "barChart" || g.name == "lineChart" || g.name == "areaChart" {
+				dropped = 0
+			}
+		case g.name == selected:
+			// Only the first element of the selected group is represented.
+			dropped--
+		}
+		if dropped > 0 {
+			notes = append(notes, fmt.Sprintf(
+				"chart: plot area holds %d c:%s group(s) this model does not represent; only the %s data was read",
+				dropped, g.name, kind.String()))
+		}
+	}
+	return notes
 }
 
 func parseBar(bc *dmlchart.BarChart) *Chart {
@@ -93,6 +172,7 @@ func parseBar(bc *dmlchart.BarChart) *Chart {
 	c := newChart(kind)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(bc.DLbls)
+	c.grouping = barGroupingOf(bc.Grouping)
 	for i, s := range bc.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -110,6 +190,7 @@ func parseLine(lc *dmlchart.LineChart) *Chart {
 	c := newChart(KindLine)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(lc.DLbls)
+	c.grouping = groupingOf(lc.Grouping)
 	for i, s := range lc.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -127,6 +208,7 @@ func parseArea(ac *dmlchart.AreaChart) *Chart {
 	c := newChart(KindArea)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(ac.DLbls)
+	c.grouping = groupingOf(ac.Grouping)
 	for i, s := range ac.Ser {
 		if i == 0 {
 			c.categories = categoriesFrom(s.Cat)
@@ -229,6 +311,7 @@ func parseBar3D(bc *dmlchart.Bar3DChart) *Chart {
 	c := newChart(kind)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(bc.DLbls)
+	c.grouping = barGroupingOf(bc.Grouping)
 	for i, s := range bc.Ser {
 		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
 	}
@@ -239,6 +322,7 @@ func parseLine3D(lc *dmlchart.Line3DChart) *Chart {
 	c := newChart(KindLine3D)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(lc.DLbls)
+	c.grouping = groupingOf(lc.Grouping)
 	for i, s := range lc.Ser {
 		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
 	}
@@ -249,6 +333,7 @@ func parseArea3D(ac *dmlchart.Area3DChart) *Chart {
 	c := newChart(KindArea3D)
 	c.showLegend = false
 	c.dataLabels = dLblsShowVal(ac.DLbls)
+	c.grouping = groupingOf(ac.Grouping)
 	for i, s := range ac.Ser {
 		addCatSer(c, i, s.Tx, s.Cat, s.Val, s.SpPr)
 	}
@@ -642,125 +727,180 @@ func axisTitles(pa *dmlchart.PlotArea) (cat, val string) {
 	return cat, val
 }
 
-// firstCatRef returns the first category/value formula reference found, used to
-// recover the DataRef sheet name.
+// eachSeriesData calls fn with every series' category-like source (c:cat, or
+// c:xVal for scatter and bubble) and its value source (c:val / c:yVal), in
+// plot-area order, until fn returns false. It is the one traversal of the plot
+// area's series: recovering the DataRef sheet and the cached number format both
+// walk it, so neither can fall out of step with the chart types the package
+// supports.
+func eachSeriesData(pa *dmlchart.PlotArea, fn func(cat *dmlchart.AxDataSource, val *dmlchart.NumDataSource) bool) {
+	for _, g := range pa.BarChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.LineChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.PieChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.DoughnutChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.RadarChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.AreaChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.ScatterChart {
+		for _, s := range g.Ser {
+			if !fn(s.XVal, s.YVal) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.BubbleChart {
+		for _, s := range g.Ser {
+			if !fn(s.XVal, s.YVal) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.Bar3DChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.Line3DChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.Area3DChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.Pie3DChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.OfPieChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.StockChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+	for _, g := range pa.SurfaceChart {
+		for _, s := range g.Ser {
+			if !fn(s.Cat, s.Val) {
+				return
+			}
+		}
+	}
+}
+
+// firstCatRef returns the first category (or scatter/bubble X) formula
+// reference found, used to recover the DataRef sheet name.
 func firstCatRef(pa *dmlchart.PlotArea) string {
-	catOf := func(src *dmlchart.AxDataSource) string {
-		if src == nil {
-			return ""
+	ref := ""
+	eachSeriesData(pa, func(cat *dmlchart.AxDataSource, _ *dmlchart.NumDataSource) bool {
+		switch {
+		case cat == nil:
+		case cat.StrRef != nil && cat.StrRef.F != "":
+			ref = cat.StrRef.F
+		case cat.NumRef != nil && cat.NumRef.F != "":
+			ref = cat.NumRef.F
 		}
-		if src.StrRef != nil {
-			return src.StrRef.F
+		return ref == ""
+	})
+	return ref
+}
+
+// firstFormatCode returns the number format cached with the first series that
+// declares one. Parse restores it as the chart's NumberFormat: without it a
+// currency or percentage chart read back and re-marshaled silently reverts
+// every value to "General" (C560).
+func firstFormatCode(pa *dmlchart.PlotArea) string {
+	code := ""
+	eachSeriesData(pa, func(_ *dmlchart.AxDataSource, val *dmlchart.NumDataSource) bool {
+		switch {
+		case val == nil:
+		case val.NumRef != nil && val.NumRef.NumCache != nil:
+			code = val.NumRef.NumCache.FormatCode
+		case val.NumLit != nil:
+			code = val.NumLit.FormatCode
 		}
-		if src.NumRef != nil {
-			return src.NumRef.F
-		}
+		return code == ""
+	})
+	return code
+}
+
+// groupingOf recovers an ST_Grouping value (line and area charts).
+func groupingOf(g *dmlchart.Grouping) Grouping {
+	if g == nil {
 		return ""
 	}
-	for _, bc := range pa.BarChart {
-		for _, s := range bc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
+	return groupingValue(g.Val)
+}
+
+// barGroupingOf recovers an ST_BarGrouping value (bar, column, and 3D bar
+// charts).
+func barGroupingOf(g *dmlchart.BarGrouping) Grouping {
+	if g == nil {
+		return ""
 	}
-	for _, lc := range pa.LineChart {
-		for _, s := range lc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, pc := range pa.PieChart {
-		for _, s := range pc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, dc := range pa.DoughnutChart {
-		for _, s := range dc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, rc := range pa.RadarChart {
-		for _, s := range rc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, ac := range pa.AreaChart {
-		for _, s := range ac.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, sc := range pa.ScatterChart {
-		for _, s := range sc.Ser {
-			if r := catOf(s.XVal); r != "" {
-				return r
-			}
-		}
-	}
-	for _, bc := range pa.BubbleChart {
-		for _, s := range bc.Ser {
-			if r := catOf(s.XVal); r != "" {
-				return r
-			}
-		}
-	}
-	for _, bc := range pa.Bar3DChart {
-		for _, s := range bc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, lc := range pa.Line3DChart {
-		for _, s := range lc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, ac := range pa.Area3DChart {
-		for _, s := range ac.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, pc := range pa.Pie3DChart {
-		for _, s := range pc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, oc := range pa.OfPieChart {
-		for _, s := range oc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, stc := range pa.StockChart {
-		for _, s := range stc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
-	}
-	for _, sc := range pa.SurfaceChart {
-		for _, s := range sc.Ser {
-			if r := catOf(s.Cat); r != "" {
-				return r
-			}
-		}
+	return groupingValue(g.Val)
+}
+
+// groupingValue maps a schema grouping token to a Grouping, ignoring anything
+// outside the enumeration so an unknown token falls back to the kind's default
+// rather than being written back verbatim.
+func groupingValue(val string) Grouping {
+	switch Grouping(val) {
+	case GroupingClustered, GroupingStandard, GroupingStacked, GroupingPercentStacked:
+		return Grouping(val)
 	}
 	return ""
 }

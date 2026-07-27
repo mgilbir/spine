@@ -116,14 +116,33 @@ func (k Kind) String() string {
 
 // isComboMember reports whether a kind can be a series' plot type inside a
 // combination chart. Only the category chart types that share a value axis
-// combine: column, line, and area.
+// combine: column, bar, line, and area.
 func (k Kind) isComboMember() bool {
-	return k == KindColumn || k == KindLine || k == KindArea
+	return k == KindColumn || k == KindBar || k == KindLine || k == KindArea
 }
 
 // defaultHoleSize is the doughnut hole diameter as a percentage of the outer
 // radius (CT_HoleSize, 1-90). 50 matches Office's default for a new doughnut.
 const defaultHoleSize = 50
+
+// Grouping is how a bar, line, or area chart arranges the series of one
+// chart-type group (ST_BarGrouping / ST_Grouping).
+type Grouping string
+
+const (
+	// GroupingClustered draws each series side by side. It is the default for
+	// bar and column charts; line and area charts have no clustered form and
+	// fall back to GroupingStandard.
+	GroupingClustered Grouping = "clustered"
+	// GroupingStandard draws each series independently against the value axis.
+	// It is the default for line and area charts.
+	GroupingStandard Grouping = "standard"
+	// GroupingStacked stacks the series of a category on top of one another.
+	GroupingStacked Grouping = "stacked"
+	// GroupingPercentStacked stacks the series of a category and scales each
+	// stack to 100%.
+	GroupingPercentStacked Grouping = "percentStacked"
+)
 
 // LegendPosition is a legend placement (CT_LegendPos values).
 type LegendPosition string
@@ -151,7 +170,7 @@ type Series struct {
 	Color string
 
 	// PlotType selects how the series renders in a combination chart
-	// (KindColumn, KindLine, or KindArea). It is consulted only for combo
+	// (KindColumn, KindBar, KindLine, or KindArea). It is consulted only for combo
 	// charts (NewCombo); other chart kinds render every series the chart's own
 	// way and ignore it. The zero value is KindColumn. Set it with SetType.
 	PlotType Kind
@@ -172,9 +191,9 @@ func (s *Series) SetColor(hexRGB string) *Series {
 }
 
 // SetType sets the series' plot type for a combination chart (NewCombo) and
-// returns the series for chaining. Only KindColumn, KindLine, and KindArea
-// combine; MarshalChartXML reports an error if a combo series carries any other
-// type. It has no effect on single-type charts.
+// returns the series for chaining. Only KindColumn, KindBar, KindLine, and
+// KindArea combine; MarshalChartXML reports an error if a combo series carries
+// any other type. It has no effect on single-type charts.
 func (s *Series) SetType(kind Kind) *Series {
 	s.PlotType = kind
 	return s
@@ -205,6 +224,15 @@ type Chart struct {
 	// dataLabels emits c:dLbls (showVal) so each point's value renders on the
 	// chart. Set with SetDataLabels.
 	dataLabels bool
+
+	// grouping is the bar/line/area chart-type group's arrangement. Empty means
+	// the per-kind default (clustered for bars, standard for lines and areas).
+	// Set with SetGrouping; recovered by Parse.
+	grouping Grouping
+
+	// parseNotes records what Parse could not represent in this model. It is nil
+	// for a chart built with a New* constructor. Read with ParseNotes.
+	parseNotes []string
 
 	// DataRef is the sheet name that c:f formula references are built
 	// against (e.g. "Sheet1" -> "Sheet1!$B$2:$B$5"). Format integrations set
@@ -238,7 +266,10 @@ func NewBar() *Chart { return newChart(KindBar) }
 // NewLine returns a line chart.
 func NewLine() *Chart { return newChart(KindLine) }
 
-// NewPie returns a pie chart.
+// NewPie returns a pie chart. A pie plots a single series (its first): the
+// remaining series are kept in the chart's data — the embedded workbook and the
+// xlsx data sheet hold every column, so the extra series stay editable — but
+// only the first is rendered. Use NewDoughnut for a multi-series ring chart.
 func NewPie() *Chart { return newChart(KindPie) }
 
 // NewScatter returns an XY scatter chart.
@@ -247,15 +278,15 @@ func NewScatter() *Chart { return newChart(KindScatter) }
 // NewArea returns an area chart.
 func NewArea() *Chart { return newChart(KindArea) }
 
-// NewDoughnut returns a doughnut chart: a pie chart with a hole. Like a pie it
-// plots a single series (its first).
+// NewDoughnut returns a doughnut chart: a pie chart with a hole. Unlike a pie
+// it plots every series, each as a concentric ring from the inside out.
 func NewDoughnut() *Chart { return newChart(KindDoughnut) }
 
 // NewRadar returns a radar (spider) chart.
 func NewRadar() *Chart { return newChart(KindRadar) }
 
 // NewCombo returns a combination chart. Add series as usual, then give each one
-// a plot type with Series.SetType (KindColumn, KindLine, or KindArea) and,
+// a plot type with Series.SetType (KindColumn, KindBar, KindLine, or KindArea) and,
 // optionally, move it to the secondary value axis with Series.SetSecondaryAxis.
 // Series without an explicit type render as columns. All series share the
 // category axis and, unless moved, the primary value axis.
@@ -266,8 +297,12 @@ func NewCombo() *Chart { return newChart(KindCombo) }
 func NewBubble() *Chart { return newChart(KindBubble) }
 
 // NewStock returns a stock (high-low-close) chart. Add one series per price
-// line (e.g. "High", "Low", "Close") with AddSeries; a high-low line joins the
-// points in each category.
+// line with AddSeries; a high-low line joins the points in each category.
+//
+// CT_StockChart takes three or four series in a fixed order — high, low, close,
+// optionally preceded by open — so MarshalChartXML reports an error for a stock
+// chart with any other number of series rather than emitting a part Office
+// reports as damaged.
 func NewStock() *Chart { return newChart(KindStock) }
 
 // NewSurface returns a surface chart: a filled topological contour. Add series
@@ -316,6 +351,62 @@ func (c *Chart) AxisTitles() (category, value string) { return c.catAxisName, c.
 // DataLabels reports whether value data labels are shown on the chart.
 func (c *Chart) DataLabels() bool { return c.dataLabels }
 
+// Grouping returns how the chart arranges the series of its chart-type group.
+// The zero value ("") means the per-kind default: clustered for bar and column
+// charts, standard for line and area charts. It is recovered by Parse, so a
+// stacked chart read back from a file reports GroupingStacked.
+func (c *Chart) Grouping() Grouping { return c.grouping }
+
+// SetGrouping sets how the series of a bar, column, line, or area chart are
+// arranged — clustered (the bar default), standard (the line/area default),
+// stacked, or percentStacked — and returns the chart for chaining. Chart kinds
+// with no grouping in their schema (pie family, scatter, bubble, radar, stock,
+// surface) ignore it. A stacked bar chart also emits the full overlap Office
+// uses, so the bars sit on one another rather than beside each other.
+//
+// GroupingClustered has no line/area equivalent and is emitted as
+// GroupingStandard there.
+func (c *Chart) SetGrouping(g Grouping) *Chart {
+	c.grouping = g
+	return c
+}
+
+// ParseNotes returns the diagnostics Parse recorded while reading an existing
+// chart.xml: one line per piece of the source part this model cannot represent,
+// such as a plot area holding chart-type groups beyond the one the Chart kind
+// stands for (C563). It is empty for a chart built with a New* constructor, and
+// for a parsed chart whose plot area was fully represented.
+//
+// The notes describe read-time loss only. They do not affect marshaling: a
+// chart with notes still serializes, it just does not carry everything its
+// source did.
+func (c *Chart) ParseNotes() []string { return c.parseNotes }
+
+// Clone returns a deep copy of the chart: the copy's series are new values, so
+// mutating either chart (or its series) leaves the other alone.
+//
+// Each format's AddChart points the chart's references at its own host sheet,
+// so it clones first — a single *Chart added to two sheets, or to a document
+// and a presentation, would otherwise end up with the last host's sheet name in
+// every copy of its c:f references (C562).
+func (c *Chart) Clone() *Chart {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.categories = append([]string(nil), c.categories...)
+	cp.parseNotes = append([]string(nil), c.parseNotes...)
+	cp.series = make([]*Series, len(c.series))
+	for i, s := range c.series {
+		s2 := *s
+		s2.Values = append([]float64(nil), s.Values...)
+		s2.XValues = append([]float64(nil), s.XValues...)
+		s2.Sizes = append([]float64(nil), s.Sizes...)
+		cp.series[i] = &s2
+	}
+	return &cp
+}
+
 // SetTitle sets the chart title. An empty string clears it.
 func (c *Chart) SetTitle(title string) *Chart {
 	c.title = title
@@ -331,6 +422,10 @@ func (c *Chart) SetCategories(labels []string) *Chart {
 
 // AddSeries appends a named series of values and returns it. For scatter
 // charts use AddXYSeries instead.
+//
+// A series must carry at least one value: MarshalChartXML rejects an empty one
+// rather than emitting a cache declaring no points. Use Blank for a gap in the
+// data — a blank point is cached and written as an empty cell, not as zero.
 func (c *Chart) AddSeries(name string, values []float64) *Series {
 	s := &Series{Name: name, Values: append([]float64(nil), values...)}
 	c.series = append(c.series, s)
@@ -450,4 +545,24 @@ func (c *Chart) numberFormat() string {
 		return "General"
 	}
 	return c.NumberFormat
+}
+
+// barGrouping resolves the chart's grouping to an ST_BarGrouping value, which
+// defaults to clustered.
+func (c *Chart) barGrouping() Grouping {
+	switch c.grouping {
+	case GroupingStandard, GroupingStacked, GroupingPercentStacked, GroupingClustered:
+		return c.grouping
+	}
+	return GroupingClustered
+}
+
+// lineGrouping resolves the chart's grouping to an ST_Grouping value, which has
+// no clustered form and defaults to standard.
+func (c *Chart) lineGrouping() Grouping {
+	switch c.grouping {
+	case GroupingStacked, GroupingPercentStacked, GroupingStandard:
+		return c.grouping
+	}
+	return GroupingStandard
 }

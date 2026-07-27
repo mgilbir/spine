@@ -506,10 +506,11 @@ func TestAddBubbleChartDataLayout(t *testing.T) {
 		t.Fatalf("OpenReader: %v", err)
 	}
 
-	// The chart's layout holds the exact c:f references serialized into
+	// The layout of the chart the sheet holds (AddChart's own copy, pointed at
+	// the dedicated data sheet) holds the exact c:f references serialized into
 	// chart.xml (MarshalChartXML builds both from the same layout); assert the
 	// cells they point at carry each series' values.
-	layout := c.Layout()
+	layout := sheet.Charts()[0].Layout()
 	if len(layout.Series) != len(sers) {
 		t.Fatalf("layout series = %d, want %d", len(layout.Series), len(sers))
 	}
@@ -569,7 +570,7 @@ func TestAddScatterChartPerSeriesX(t *testing.T) {
 		t.Fatalf("OpenReader: %v", err)
 	}
 
-	layout := c.Layout()
+	layout := sheet.Charts()[0].Layout()
 	if len(layout.Series) != 2 {
 		t.Fatalf("layout series = %d, want 2", len(layout.Series))
 	}

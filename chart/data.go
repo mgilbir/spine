@@ -55,9 +55,19 @@ type DataCell struct {
 // It is the single layout-driven cell source shared by the embedded workbook
 // (data.go) and the xlsx host data sheet (xlsx/chart.go), so the written cells,
 // the numeric/string caches, and the c:f references cannot drift apart.
+//
+// Blank data points (see Blank) produce no cell: the position is simply left
+// empty, matching the omitted c:pt in the cache and the empty cell Excel itself
+// writes. Rows and columns are therefore not necessarily contiguous.
 func (c *Chart) DataCells() []DataCell {
 	var cells []DataCell
 	num := func(col, row int, v float64) {
+		if IsBlank(v) {
+			// A blank point has no cell. Writing the NaN sentinel through
+			// instead produced <v>NaN</v> in the embedded workbook and a #NUM!
+			// error cell in an xlsx host sheet (C384).
+			return
+		}
 		cells = append(cells, DataCell{Col: col, Row: row, Number: v})
 	}
 	str := func(col, row int, s string) {
@@ -218,7 +228,7 @@ func (c *Chart) marshalEmbeddedSheet() []byte {
 				b.EndElement(xmlb.NSSpreadsheetML, "c")
 			} else {
 				b.StartElement(xmlb.NSSpreadsheetML, "c", xmlb.StrAttr("r", ref))
-				b.WriteElement(xmlb.NSSpreadsheetML, "v", strconv.FormatFloat(cell.number, 'f', -1, 64))
+				b.WriteElement(xmlb.NSSpreadsheetML, "v", formatFloat(cell.number))
 				b.EndElement(xmlb.NSSpreadsheetML, "c")
 			}
 		}

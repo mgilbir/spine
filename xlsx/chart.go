@@ -19,7 +19,7 @@ const (
 // chart.xml (with c:f references already pointing at the dedicated data sheet
 // written by AddChart) and the two-cell anchor describing its placement.
 type sheetChart struct {
-	def       *chart.Chart // the chart definition (for the same-session reader)
+	def       *chart.Chart // AddChart's own copy (for the same-session reader)
 	chartXML  []byte       // serialized chart.xml part
 	dataSheet string       // name of the worksheet holding the chart's data
 	fromCol   int          // 0-based column of the top-left anchor cell
@@ -43,6 +43,11 @@ type sheetChart struct {
 //
 // AddChart works on both created (Create) and opened (Open/OpenReader)
 // workbooks; the chart, drawing and data parts are added on the next save.
+//
+// The chart is copied, so the caller's *chart.Chart is left untouched (its
+// DataRef keeps whatever it had) and one chart value can be added to several
+// sheets, workbooks, or documents. Later edits to the caller's chart do not
+// change what this sheet saves.
 func (s *Sheet) AddChart(anchor string, c *chart.Chart) error {
 	if c == nil {
 		return fmt.Errorf("xlsx: AddChart: nil chart")
@@ -55,6 +60,11 @@ func (s *Sheet) AddChart(anchor string, c *chart.Chart) error {
 	if err != nil {
 		return fmt.Errorf("xlsx: AddChart: %w", err)
 	}
+
+	// Work on a copy: pointing the references at this workbook's data sheet
+	// must not rewrite the caller's chart, which may be added to another sheet
+	// or another document afterwards (C562).
+	c = c.Clone()
 
 	// Point the chart's references at a dedicated hidden data worksheet, but
 	// marshal the chart XML BEFORE attaching that sheet to the workbook: a

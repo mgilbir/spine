@@ -13,6 +13,7 @@ func TestRoundTripCategoryKindsExtra(t *testing.T) {
 	cats := []string{"Q1", "Q2", "Q3", "Q4"}
 	s1 := []float64{10, 20, 30, 40}
 	s2 := []float64{5, 15, 25, 2.5}
+	s3 := []float64{7, 17, 27, 3.5}
 
 	cases := []struct {
 		name     string
@@ -21,21 +22,26 @@ func TestRoundTripCategoryKindsExtra(t *testing.T) {
 		want     []string // substrings the output must contain, in any order
 		single   bool     // true for the pie-family kinds that plot one series
 		hasSerAx bool
+		// third adds a third series: CT_StockChart requires three or four.
+		third bool
 	}{
-		{"column3d", NewColumn3D, KindColumn3D, []string{"<c:bar3DChart>", "<c:barDir val=\"col\"/>", "<c:view3D>", "<c:serAx>"}, false, true},
-		{"bar3d", NewBar3D, KindBar3D, []string{"<c:bar3DChart>", "<c:barDir val=\"bar\"/>", "<c:serAx>"}, false, true},
-		{"line3d", NewLine3D, KindLine3D, []string{"<c:line3DChart>", "<c:view3D>", "<c:serAx>"}, false, true},
-		{"area3d", NewArea3D, KindArea3D, []string{"<c:area3DChart>", "<c:view3D>", "<c:serAx>"}, false, true},
-		{"pie3d", NewPie3D, KindPie3D, []string{"<c:pie3DChart>", "<c:view3D>"}, true, false},
-		{"ofpie", NewOfPie, KindOfPie, []string{"<c:ofPieChart>", "<c:ofPieType val=\"pie\"/>"}, true, false},
-		{"stock", NewStock, KindStock, []string{"<c:stockChart>", "<c:hiLowLines/>", "<c:catAx>", "<c:valAx>"}, false, false},
-		{"surface", NewSurface, KindSurface, []string{"<c:surfaceChart>", "<c:serAx>"}, false, true},
+		{"column3d", NewColumn3D, KindColumn3D, []string{"<c:bar3DChart>", "<c:barDir val=\"col\"/>", "<c:view3D>", "<c:serAx>"}, false, true, false},
+		{"bar3d", NewBar3D, KindBar3D, []string{"<c:bar3DChart>", "<c:barDir val=\"bar\"/>", "<c:serAx>"}, false, true, false},
+		{"line3d", NewLine3D, KindLine3D, []string{"<c:line3DChart>", "<c:view3D>", "<c:serAx>"}, false, true, false},
+		{"area3d", NewArea3D, KindArea3D, []string{"<c:area3DChart>", "<c:view3D>", "<c:serAx>"}, false, true, false},
+		{"pie3d", NewPie3D, KindPie3D, []string{"<c:pie3DChart>", "<c:view3D>"}, true, false, false},
+		{"ofpie", NewOfPie, KindOfPie, []string{"<c:ofPieChart>", "<c:ofPieType val=\"pie\"/>"}, true, false, false},
+		{"stock", NewStock, KindStock, []string{"<c:stockChart>", "<c:hiLowLines/>", "<c:catAx>", "<c:valAx>"}, false, false, true},
+		{"surface", NewSurface, KindSurface, []string{"<c:surfaceChart>", "<c:serAx>"}, false, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := tc.make().SetTitle("T " + tc.name).SetCategories(cats)
 			c.AddSeries("North", s1)
 			c.AddSeries("South", s2)
+			if tc.third {
+				c.AddSeries("Close", s3)
+			}
 
 			xmlBytes, err := c.MarshalChartXML()
 			if err != nil {
@@ -67,6 +73,9 @@ func TestRoundTripCategoryKindsExtra(t *testing.T) {
 			wantN := 2
 			if tc.single {
 				wantN = 1
+			}
+			if tc.third {
+				wantN = 3
 			}
 			if len(gs) != wantN {
 				t.Fatalf("series count: got %d want %d", len(gs), wantN)

@@ -2,8 +2,12 @@
 
 A format-agnostic `chart` package builds DrawingML charts (column, bar, line,
 pie, doughnut, radar, scatter, area, combination, bubble, stock, surface,
-pie-of-pie, and 3D column/bar/line/pie/area charts) and serializes a valid
-`chart.xml` with cached values, plus a matching embedded workbook. Series carry
+pie-of-pie, and 3D column/bar/line/pie/area charts) and serializes a
+schema-valid `chart.xml` with cached values, plus a matching embedded workbook
+whose cells are exactly the ones the chart's `c:f` references point at. Data
+that cannot be expressed in a valid part — a chart with no series, a series
+with no values, a stock chart without its three or four price lines — is
+rejected by `MarshalChartXML` with an error rather than written out. Series carry
 optional solid colors (`Series.SetColor`), and the chart renders value data
 labels chart-wide (`Chart.SetDataLabels`); combination charts (`NewCombo`) mix
 per-series types (`Series.SetType`) across a primary and secondary value axis
@@ -71,6 +75,57 @@ Formatting is opt-in and symmetric with the constructors:
 - `Series.SetColor("#1F77B4")` gives a series a solid RGB fill
   (`c:spPr` / `a:solidFill` / `a:srgbClr`); the leading `#` is optional and the
   value is recovered on read as `Series.Color`.
+- `SetGrouping` arranges a bar, column, line, or area chart's series:
+  `GroupingClustered` (the bar default), `GroupingStandard` (the line/area
+  default), `GroupingStacked`, or `GroupingPercentStacked`. A stacked bar chart
+  also emits the full overlap Office uses. It round-trips through `Charts()`
+  (`Chart.Grouping()`).
+
+### Blank data points
+
+A spreadsheet cell can be empty, and a chart plots that as a gap rather than as
+zero. `chart.Blank()` is the value that marks one, and `chart.IsBlank(v)` is the
+predicate every consumer of `Series.Values` should use before treating a value
+as a number (it is a NaN, so `==` never matches it):
+
+```go
+c.AddSeries("North", []float64{10, chart.Blank(), 30})
+```
+
+A blank is written the way Excel writes one: it counts towards the cache's
+`ptCount` but emits no `c:pt`, and the corresponding cell of the data sheet (or
+the embedded workbook) is left empty. Reading a chart back turns each gap in a
+cache into a blank at the same index, so a series always stays aligned with its
+categories.
+
+### Which series a chart plots
+
+Every chart type plots all of its series except the single-series pie family:
+`NewPie`, `NewPie3D`, and `NewOfPie` render the first series only. `NewDoughnut`
+plots every series, one concentric ring each. The data of an unplotted series is
+still written to the data sheet, so nothing is lost and the chart can be
+re-pointed at it in Office.
+
+`NewStock` requires three or four series — high, low, close, optionally preceded
+by open — and reports an error otherwise, as CT_StockChart admits no other
+count.
+
+### What `Charts()` recovers, and what it does not
+
+A `*chart.Chart` is this package's builder model, not a faithful `c:chartSpace`.
+Reading recovers the type, title, legend, axis titles, data labels, grouping,
+number format, categories, and each series' name, values, and color. Everything
+else is re-emitted at the builder's defaults if the chart is marshaled again:
+per-series markers and smoothing, doughnut hole size, gap width and overlap,
+explicit axis identifiers, scaling, tick and gridline settings, `dispBlanksAs`,
+per-point formatting, trendlines, error bars, data tables, 3D view angles, and
+extension lists. Plan a read-modify-re-embed pipeline accordingly — it rebuilds
+the part rather than editing it.
+
+A plot area can also hold chart-type groups the model has no place for (a
+`barChart` and a `scatterChart` side by side, say). Those are dropped, and each
+one is reported by `Chart.ParseNotes()` so a caller can tell "this is a column
+chart" from "it had two groups and I kept one".
 
 A **combination chart** mixes series types on a shared category axis. Give each
 series a plot type with `Series.SetType` (`KindColumn`, `KindLine`, or
@@ -88,7 +143,10 @@ c.AddSeries("Margin %", []float64{12, 15, 14, 18}).
 `SecondaryAxis` recovered.
 
 All types (including combination charts) flow through every format's `AddChart`
-and are read back by `Charts()`.
+and are read back by `Charts()`. `AddChart` copies the chart before pointing its
+references at the host's data sheet, so the value you pass keeps its own
+`DataRef` and can be added to several sheets, workbooks, or documents; later
+edits to it do not change what an earlier host saves.
 
 This package is the shared core. Each format wires it in with an `AddChart`
 method and a `Charts()` reader (xlsx references the host sheet; docx and pptx
@@ -146,6 +204,11 @@ touched. Charts and images coexist in one drawing part per sheet. `AddChart`
 persists on both the `Create` and `Open` save paths, and a zero-modification
 open→save of a chart-bearing workbook stays byte-identical (the chart and
 drawing parts are preserved verbatim unless a chart is added or modified).
+
+`Sheet.Charts` covers chartsheets as well as worksheets, so `Workbook.Charts`
+really does span every sheet of an opened workbook. One gap remains: a sheet
+copied in with `Workbook.Merge` brings no drawing across, so charts on the
+source sheet do not come with it and are not reported.
 
 ## Charts in Word documents
 

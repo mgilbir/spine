@@ -55,6 +55,10 @@ func (d *Document) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 // in the text flow like an inline image. The chart's data is written to an
 // embedded workbook (word/embeddings/…xlsx) that the chart part references, so
 // Office can edit the values.
+//
+// The chart is copied, so the caller's *chart.Chart is left untouched and one
+// chart value can be added to several documents (or to a workbook) without the
+// last host's sheet name leaking into the others.
 func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	if c == nil {
 		return fmt.Errorf("docx: AddChart: nil chart")
@@ -63,6 +67,11 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	if doc == nil {
 		return fmt.Errorf("docx: AddChart: paragraph is not attached to a document")
 	}
+
+	// Work on a copy: pointing the references at this document's embedded
+	// workbook must not rewrite the caller's chart, which may be added to
+	// another document or a worksheet afterwards (C562).
+	c = c.Clone()
 
 	// Build the embedded workbook and point the chart's c:f references at its
 	// Sheet1 ranges. The layout's sheet is the reference base the chart.xml is
