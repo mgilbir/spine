@@ -1,9 +1,20 @@
-# Continuous integration: build, vet, test, and lint the module.
-# Mirrors the local merge gates documented in CONTRIBUTING.md
-# (make build / vet / test / lint). The Common Crawl corpus fidelity
-# suite is intentionally NOT run here — it stays a maintainer-run step
-# (`make test-corpus`); `go test ./cctest` skips gracefully when the
-# corpus is absent, so the standard `go test ./...` below is complete.
+# Continuous integration: build, vet, test, and lint the module — the local
+# merge gates from CONTRIBUTING.md (make build / vet / test / lint).
+#
+# What this job does NOT cover, stated plainly so a green check is not read as
+# more than it is (C578):
+#
+#   - The Common Crawl corpus fidelity suite. Deliberate: it stays a
+#     maintainer-run step (`make test-corpus`), and `go test ./cctest` skips
+#     when the corpus is absent.
+#   - The race detector and the fuzz targets. Both run on a schedule instead,
+#     in .github/workflows/scheduled.yml — they are too slow for every push.
+#   - Anything but linux/amd64. The library is pure Go with no build tags, but
+#     path handling and file modes are only exercised on Ubuntu here.
+#
+# External fixtures ARE fetched below (`make fetch`, best-effort). Without that
+# step every external-fixture test skipped in CI permanently, so a whole class
+# of round-trip tests was advertised as covered and never ran.
 name: CI
 
 on:
@@ -28,6 +39,16 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+      # Downloads the external round-trip fixtures. fetch.sh is best-effort by
+      # design (a dead URL is reported and skipped), so this cannot brick the
+      # run; without it, though, every test that needs one of those files skips
+      # and CI silently covers less than it claims. Report what landed.
+      - name: Fetch external fixtures
+        run: |
+          make fetch
+          echo "--- fetched fixtures ---"
+          find . -path '*/testdata/external/*' -type f | sort
 
       - name: Vet
         run: go vet ./...

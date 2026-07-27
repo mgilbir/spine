@@ -1,0 +1,73 @@
+# Scheduled deep checks: the race detector and the fuzz targets.
+#
+# Neither ran anywhere automatically before (C578). They are too slow for every
+# push — `-race` multiplies both time and RSS, and the fuzz sweep runs 20+
+# targets — so they run nightly instead, and on demand.
+#
+# On memory caps: CONTRIBUTING.md requires memory-hungry runs to go through a
+# `systemd-run --user --scope`, because on a developer's machine a kernel OOM
+# kill in the terminal's own cgroup tears the terminal down. A GitHub runner is
+# a disposable VM, so the job itself is that isolation boundary — an OOM kill
+# ends this job and nothing else. The cheap caps here are GOMEMLIMIT and a
+# bounded -p, which keep the run inside the runner's memory rather than relying
+# on the OOM killer at all. The corpus is not fetched, so cctest skips and the
+# race run stays far below the local figures.
+name: Scheduled
+
+on:
+  schedule:
+    # 04:17 UTC daily — off the hour to avoid the scheduler's busiest minute.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Fetch external fixtures
+        run: make fetch
+
+      # -p bounds concurrent package test binaries; GOMEMLIMIT makes each one
+      # GC hard well before the runner's ceiling (race shadow memory sits
+      # outside GC accounting, hence the conservative value).
+      - name: Test with the race detector
+        run: go test -race -p 2 ./... -count=1 -timeout 45m
+        env:
+          GOMEMLIMIT: 4GiB
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # make fuzz discovers every target at run time and gives each a short
+      # fixed budget, so a newly added target is picked up with no edit here.
+      # A crasher is written under testdata/fuzz/<Target>/ — upload it so the
+      # failure is reproducible from the run.
+      - name: Fuzz smoke run
+        run: make fuzz FUZZTIME=45s
+
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: '**/testdata/fuzz/**'
+          if-no-files-found: ignore
