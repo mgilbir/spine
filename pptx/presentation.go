@@ -1582,6 +1582,45 @@ func (p *Presentation) presentationRelationships() []*opc.Relationship {
 	return rels
 }
 
+// outputRelationships computes the whole package's relationship map as the save
+// path will emit it: the presentation part's set comes from
+// presentationRelationships (pending slide rels included, departed ones gone),
+// and the .rels of parts the save will not write are omitted, mirroring the skip
+// in save's relationship loop.
+//
+// It is the source-side half of answering relationship questions against the
+// output rather than the input; partExists is the target-side half. Together
+// they are what lets Validate see a deletion-induced dangling reference at all
+// (audit tension T-A). Pure: it copies, and mutates nothing.
+func (p *Presentation) outputRelationships() map[string][]*opc.Relationship {
+	currentSlideParts := make(map[string]bool, len(p.slides))
+	for _, s := range p.slides {
+		if s != nil && s.partName != "" {
+			currentSlideParts[s.partName] = true
+		}
+	}
+	out := make(map[string][]*opc.Relationship, len(p.relationships))
+	for partName, rels := range p.relationships {
+		if partName == presentationPartName || len(rels) == 0 {
+			continue
+		}
+		// A part deleted this session takes its .rels with it, and so does a
+		// slide part no longer in sldIdLst — except a preserved unreferenced
+		// slide, whose rels the save keeps (C118).
+		if p.removedParts[partName] {
+			continue
+		}
+		if strings.HasPrefix(partName, "/ppt/slides/") && !currentSlideParts[partName] && !p.unreferencedSlides[partName] {
+			continue
+		}
+		out[partName] = rels
+	}
+	if presRels := p.presentationRelationships(); len(presRels) > 0 {
+		out[presentationPartName] = presRels
+	}
+	return out
+}
+
 // remapCustomShowRefs rewrites custom-show slide references through an old->new
 // relationship-id map, so a p:custShow recorded against a slide's earlier id
 // still points at that same slide after saveNew reassigns relationship ids by
@@ -2304,6 +2343,62 @@ func (p *Presentation) deepCloneNotesSlide(newSlidePart string) {
 	}
 }
 
+// deepCloneCommentParts gives the slide at newSlidePart its own copy of every
+// comment part it currently references — legacy p:cmLst and modern threaded
+// alike — instead of the copy it inherited verbatim from the slide it was
+// duplicated from (C414).
+//
+// A comments part belongs to exactly one slide in ECMA's model, so sharing one
+// between two slides is wrong twice over: an edit through either slide changed
+// both, and the modern part's pc:sldMk sldId still named the *source* slide, so
+// the duplicate carried a thread anchored somewhere else. The anchor rewrite
+// reuses the merge path's helper, which faces the identical problem when a slide
+// is imported from another deck.
+func (p *Presentation) deepCloneCommentParts(newSlidePart string, srcSlideID, newSlideID uint32) {
+	for _, rel := range p.relationships[newSlidePart] {
+		if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+			continue
+		}
+		if rel.Type != opc.RelTypeComments && rel.Type != opc.RelTypeModernComments {
+			continue
+		}
+		srcPart := opc.ResolvePartName(newSlidePart, rel.Target)
+		part, ok := p.otherParts[srcPart]
+		if !ok || part == nil {
+			continue
+		}
+
+		newPart := p.freePartNameLike(srcPart)
+		copied := *part
+		// Clone the bytes: the two parts diverge from here (the anchor rewrite
+		// below is the first divergence), so they must not share a backing array.
+		copied.Data = bytes.Clone(part.Data)
+		p.otherParts[newPart] = &copied
+		rel.Target = relativeTarget(newSlidePart, newPart)
+
+		// Carry the part's own relationships, repointing any slide back-reference
+		// at the duplicate.
+		var partRels []*opc.Relationship
+		for _, pr := range p.relationships[srcPart] {
+			if pr == nil {
+				continue
+			}
+			c := *pr
+			if c.Type == opc.RelTypeSlide && c.TargetMode != opc.TargetModeExternal {
+				c.Target = relativeTarget(newPart, newSlidePart)
+			}
+			partRels = append(partRels, &c)
+		}
+		if len(partRels) > 0 {
+			p.relationships[newPart] = partRels
+		}
+
+		if rel.Type == opc.RelTypeModernComments {
+			p.rewriteModernCommentSlideID(newPart, srcSlideID, newSlideID)
+		}
+	}
+}
+
 // nextAvailableNotesName returns a notesSlide part name not already in use.
 func (p *Presentation) nextAvailableNotesName() string {
 	for i := 1; ; i++ {
@@ -2366,6 +2461,12 @@ func (p *Presentation) AddSlideWithLayout(layout *SlideLayout) *Slide {
 // up pointing at whatever unrelated slide later reused the freed part name,
 // C88). Media and image parts may be shared between slides, so they are
 // garbage-collected at save time instead (C221).
+//
+// References held by everything that stays are swept too: another slide's
+// slide-jump hyperlink relationship (C364), the removed slide's membership in
+// any section (C307) and in any custom show (C365). Without the sweep the saved
+// package carried a relationship to a part it did not contain — OPC-invalid —
+// and a p:custShow r:id that resolved to nothing.
 func (p *Presentation) RemoveSlide(index int) error {
 	if index < 0 || index >= len(p.slides) {
 		return ErrSlideIndex
@@ -2379,6 +2480,7 @@ func (p *Presentation) RemoveSlide(index int) error {
 		p.removeSlideOwnedParts(partName)
 		delete(p.relationships, partName)
 		p.markPartRemoved(partName)
+		p.sweepInboundPartReferences(partName)
 	}
 	p.mediaGCNeeded = true
 
@@ -2386,6 +2488,11 @@ func (p *Presentation) RemoveSlide(index int) error {
 	// section list does not emit a p14:sldId that no longer resolves to a slide
 	// in the sldIdLst (a dangling reference Validate does not flag) — C307.
 	p.removeSlideFromSections(removed.id)
+
+	// Same for custom shows, which name their members by presentation-level
+	// relationship id: the rel goes away with the slide, so an entry left behind
+	// is a schema-invalid ST_RelationshipId (C365).
+	p.removeSlideFromCustomShows(removed.relID)
 
 	// Remove the slide
 	p.slides = append(p.slides[:index], p.slides[index+1:]...)
@@ -2445,6 +2552,140 @@ func (p *Presentation) partReferencedElsewhere(target, exclude string) bool {
 		}
 	}
 	return false
+}
+
+// sweepInboundPartReferences drops every relationship — on any part other than
+// the removed part itself — that resolves to it, and strips the matching r:id
+// out of the referring slide's XML.
+//
+// Deletion used to clean only the removed node and its own outgoing edges, never
+// the inbound ones (C364): a surviving slide with a slide-jump hyperlink kept
+// both its RelTypeSlide relationship, now targeting a part absent from the zip,
+// and the ppaction://hlinksldjump that used it. A relationship to a part the
+// package does not contain is an OPC violation, so the relationship goes
+// unconditionally; the reference in the content is cleared where the model can
+// express it (slide-jump hlinkClicks, via the same helper the merge path uses
+// for jumps whose target was not carried).
+//
+// Only parts referencing the removed one are touched, so a deck that holds no
+// inbound reference is not disturbed and still round-trips byte-identically.
+func (p *Presentation) sweepInboundPartReferences(removedPart string) {
+	if removedPart == "" {
+		return
+	}
+	// Snapshot the source part names first: materializing a referring slide
+	// below may add relationship entries, and mutating the map under range is
+	// only safe for keys that already exist.
+	sources := make([]string, 0, len(p.relationships))
+	for src := range p.relationships {
+		if src != removedPart {
+			sources = append(sources, src)
+		}
+	}
+	for _, src := range sources {
+		var dangling []string
+		for _, rel := range p.relationships[src] {
+			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+				continue
+			}
+			if opc.ResolvePartName(src, rel.Target) == removedPart {
+				dangling = append(dangling, rel.ID)
+			}
+		}
+		if len(dangling) == 0 {
+			continue
+		}
+		p.stripSlideReferences(src, dangling)
+		p.dropRelationships(src, dangling)
+	}
+}
+
+// stripSlideReferences clears the given relationship ids from the slide stored
+// at partName: the slide-jump action in its XML, and the materialized Hyperlink
+// handles that carry the id (which would otherwise re-allocate a relationship
+// for a stale slide index on the next save).
+func (p *Presentation) stripSlideReferences(partName string, relIDs []string) {
+	s := p.slideByPart(partName)
+	if s == nil {
+		return
+	}
+	sx := s.sx()
+	if sx == nil {
+		return
+	}
+	gone := make(map[string]bool, len(relIDs))
+	for _, id := range relIDs {
+		gone[id] = true
+		stripSlideJumpRel(sx, id)
+	}
+	s.forEachHyperlink(func(h *Hyperlink) {
+		if h != nil && gone[h.relID] {
+			h.clearTarget()
+		}
+	})
+}
+
+// dropRelationships removes the relationships with the given ids from partName's
+// relationship set.
+func (p *Presentation) dropRelationships(partName string, relIDs []string) {
+	rels := p.relationships[partName]
+	if len(rels) == 0 || len(relIDs) == 0 {
+		return
+	}
+	gone := make(map[string]bool, len(relIDs))
+	for _, id := range relIDs {
+		gone[id] = true
+	}
+	kept := make([]*opc.Relationship, 0, len(rels))
+	for _, rel := range rels {
+		if rel != nil && gone[rel.ID] {
+			continue
+		}
+		kept = append(kept, rel)
+	}
+	p.relationships[partName] = kept
+}
+
+// slideByPart returns the slide stored at partName, or nil.
+func (p *Presentation) slideByPart(partName string) *Slide {
+	for _, s := range p.slides {
+		if s != nil && s.partName == partName {
+			return s
+		}
+	}
+	return nil
+}
+
+// removeSlideFromCustomShows strips relID from every custom show's slide list.
+// A show left with no members is dropped: CT_CustomShow requires a p:sldLst with
+// at least one p:sld, so emitting the emptied show would be schema-invalid in a
+// second way (C365).
+func (p *Presentation) removeSlideFromCustomShows(relID string) {
+	if relID == "" || p.presentation == nil || p.presentation.CustShowLst == nil {
+		return
+	}
+	lst := p.presentation.CustShowLst
+	kept := make([]oxml.CustomShow, 0, len(lst.CustShow))
+	for _, cs := range lst.CustShow {
+		if cs.SldLst != nil {
+			refs := cs.SldLst.Sld[:0]
+			for _, ref := range cs.SldLst.Sld {
+				if ref.Id != relID {
+					refs = append(refs, ref)
+				}
+			}
+			cs.SldLst.Sld = refs
+		}
+		if cs.SldLst == nil || len(cs.SldLst.Sld) == 0 {
+			continue
+		}
+		kept = append(kept, cs)
+	}
+	if len(kept) == 0 {
+		p.presentation.CustShowLst = nil
+		return
+	}
+	lst.CustShow = kept
 }
 
 // markPartRemoved records a part deleted this session so the save can drop

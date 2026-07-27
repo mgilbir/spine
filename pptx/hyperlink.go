@@ -113,6 +113,26 @@ func (h *Hyperlink) cloneReset(markDirty func()) *Hyperlink {
 	return &out
 }
 
+// clearTarget blanks every target binding of a hyperlink whose destination is
+// gone — the deletion sweep calls it when the slide a jump pointed at was
+// removed (C364). slideJump in particular must be cleared, not just relID: it is
+// resolved by *index* at save time, so a jump left flagged would silently
+// re-allocate a relationship to whatever slide now occupies the freed position.
+// The owner is not marked dirty: the XML side is stripped separately, and
+// flagging the shape would force a resync of content the removal did not touch.
+func (h *Hyperlink) clearTarget() {
+	if h == nil {
+		return
+	}
+	h.url = ""
+	h.anchor = ""
+	h.isExternal = false
+	h.slideJump = false
+	h.slideJumpIndex = 0
+	h.action = ""
+	h.relID = ""
+}
+
 // --- constructors used by the run/shape setters ---
 
 func newExternalHyperlink(url string, markDirty func()) *Hyperlink {
