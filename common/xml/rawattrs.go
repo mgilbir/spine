@@ -3,6 +3,7 @@ package xml
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 )
 
 // This file provides verbatim attribute capture and replay for elements whose
@@ -147,6 +148,80 @@ func lexTagAttrs(tag []byte) ([]string, bool) {
 	}
 }
 
+// attrNSDecl reports whether a builder attribute is a namespace declaration,
+// returning the prefix it binds ("" for a default xmlns=) and the URI it binds
+// it to. Both the modeled form (Name "xmlns" or "xmlns:prefix") and a
+// capture that carries only its verbatim source rendering are recognised: the
+// literal paths write Raw as-is, so a declaration reaching the output only
+// through Raw must still register, or the Builder's picture of what the output
+// declares would be short by exactly the declarations it copied verbatim.
+func attrNSDecl(a Attr) (prefix, uri string, ok bool) {
+	name, value := a.Name, a.Value
+	if name == "" {
+		if a.Raw == "" {
+			return "", "", false
+		}
+		name, value, ok = lexRawAttrNameValue(a.Raw)
+		if !ok {
+			return "", "", false
+		}
+	}
+	switch {
+	case name == "xmlns":
+		return "", value, true
+	case strings.HasPrefix(name, "xmlns:"):
+		return name[len("xmlns:"):], value, true
+	}
+	return "", "", false
+}
+
+// lexRawAttrNameValue splits a verbatim attribute rendering (leading
+// whitespace, name, '=', quoted value) into its name and unescaped-enough
+// value. Only the two entity forms an xmlns URI can realistically carry are
+// resolved; ok is false for any shape it does not understand.
+func lexRawAttrNameValue(raw string) (name, value string, ok bool) {
+	i := 0
+	for i < len(raw) && isXMLSpace(raw[i]) {
+		i++
+	}
+	start := i
+	for i < len(raw) && raw[i] != '=' && !isXMLSpace(raw[i]) {
+		i++
+	}
+	name = raw[start:i]
+	for i < len(raw) && isXMLSpace(raw[i]) {
+		i++
+	}
+	if i >= len(raw) || raw[i] != '=' {
+		return "", "", false
+	}
+	i++
+	for i < len(raw) && isXMLSpace(raw[i]) {
+		i++
+	}
+	if i >= len(raw) || (raw[i] != '"' && raw[i] != '\'') {
+		return "", "", false
+	}
+	quote := raw[i]
+	i++
+	end := strings.IndexByte(raw[i:], quote)
+	if end < 0 {
+		return "", "", false
+	}
+	value = rawAttrValueUnescaper.Replace(raw[i : i+end])
+	return name, value, true
+}
+
+// rawAttrValueUnescaper reverses the escaping a namespace URI can carry in a
+// source attribute value.
+var rawAttrValueUnescaper = strings.NewReplacer(
+	"&amp;", "&",
+	"&lt;", "<",
+	"&gt;", ">",
+	"&quot;", `"`,
+	"&apos;", "'",
+)
+
 // isXMLSpace reports whether c is XML whitespace.
 func isXMLSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
@@ -228,6 +303,12 @@ func prefixForAttr(space string, seen []RootAttr) string {
 // markup-compatibility namespace as ve:, and a default xmlns= declaration
 // means no prefix at all — must not rely on it; resolve through
 // Builder.LiteralPrefixFor instead, which consults the live binding.
+//
+// Deprecated: this cannot see the live namespace scope, so it answers with a
+// prefix nothing declares whenever the source aliased the namespace or declared
+// it as the default. Use Builder.LiteralPrefixForCaptured, which takes the same
+// three inputs and falls back to this answer only when no authority knows
+// better. No caller in this module uses this function any more.
 func RawAttrPrefix(raw []RootAttr, uri, fallback string) string {
 	for _, ra := range raw {
 		if ra.IsNS && ra.Value == uri && ra.Prefix != "" {
@@ -290,6 +371,26 @@ func (b *Builder) LiteralPrefixFor(uri string, elemPrefix string, hasElemPrefix 
 	return fallback
 }
 
+// LiteralPrefixForCaptured is LiteralPrefixFor for the common case of a replay
+// whose element prefix was not captured verbatim: the element's own captured
+// declarations decide, then the Builder's live in-scope binding, and only then
+// the static fallback. It is the replacement for RawAttrPrefix — the same three
+// inputs, reordered so the Builder is the receiver — and unlike it, it cannot
+// answer with a prefix nothing declares while a declaration is in scope.
+func (b *Builder) LiteralPrefixForCaptured(uri string, captured []RootAttr, fallback string) string {
+	return b.LiteralPrefixFor(uri, "", false, captured, fallback)
+}
+
+// PrefixInScope reports whether some namespace declaration currently in scope
+// binds prefix. Callers replaying an element under a verbatim source prefix use
+// it to decide whether they must carry the declaration themselves: knowing the
+// element's *namespace* is registered is not enough, because the registration
+// may be under a different prefix than the one being written, which is the
+// C375 shape. The reserved xml prefix always reports true.
+func (b *Builder) PrefixInScope(prefix string) bool {
+	return b.prefixInScope(prefix)
+}
+
 // RawAttrList converts a captured RootAttr list into literal builder
 // attributes: declarations become literal xmlns / xmlns:prefix attributes and
 // regular attributes keep their prefixed names, preserving the interleaved
@@ -349,6 +450,7 @@ func (ra RootAttr) attr() Attr {
 // children whose declarations and attributes must keep their source order.
 func (b *Builder) EmptyElementLiteral(prefix, localName string, attrs ...Attr) {
 	b.flushOpenTag()
+	b.checkLiteralPrefix(prefix, localName, attrs)
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	if prefix != "" {
@@ -361,6 +463,9 @@ func (b *Builder) EmptyElementLiteral(prefix, localName string, attrs ...Attr) {
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	// A self-closing element has no children, so any declaration it carries
+	// goes out of scope immediately.
+	b.releasePendingPrefixDecls()
 }
 
 // StartElementLiteral opens an element under an explicit prefix with literal
@@ -371,6 +476,8 @@ func (b *Builder) EmptyElementLiteral(prefix, localName string, attrs ...Attr) {
 func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, attrs ...Attr) {
 	b.flushOpenTag()
 	b.checkLiteralBinds(prefix, localName, binds, attrs)
+	b.checkLiteralPrefix(prefix, localName, attrs)
+	b.registerLiteralNSDecls(attrs)
 	for _, d := range binds {
 		if d.URI == "" {
 			continue
@@ -465,6 +572,75 @@ func (b *Builder) checkLiteralBinds(prefix, localName string, binds []NSDecl, at
 	}
 }
 
+// registerLiteralNSDecls binds the namespaces an opened literal element
+// declares through its verbatim attribute list, so typed descendants resolve
+// their prefixes against what the output actually declares rather than against
+// an outer scope the element has already overridden. The bindings are scoped to
+// the element: EndElementLiteral restores whatever they replaced.
+//
+// A binding already in scope under the very prefix being declared is left
+// alone. Not doing so would be harmless for name resolution but would mark the
+// URI declared a second time, and the redundant-declaration bookkeeping of
+// declareNamespaceIfNeeded is what decides whether a descendant re-emits an
+// xmlns — i.e. it is a byte-level decision, so it stays untouched here.
+//
+// xmlns="" is skipped: it un-declares the default namespace rather than
+// binding a URI, and registering the empty URI would make writeQName believe
+// unqualified names are in a namespace.
+func (b *Builder) registerLiteralNSDecls(attrs []Attr) {
+	for _, a := range attrs {
+		declPrefix, uri, ok := attrNSDecl(a)
+		if !ok || uri == "" {
+			continue
+		}
+		if b.declaredNamespaces[uri] {
+			if bound, has := b.namespaces[uri]; has && bound == declPrefix {
+				continue
+			}
+		}
+		prev, had := b.namespaces[uri]
+		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{
+			uri:           uri,
+			wasDeclared:   b.declaredNamespaces[uri],
+			restorePrefix: true,
+			prevPrefix:    prev,
+			hadPrefix:     had,
+		})
+		b.namespaces[uri] = declPrefix
+		b.declaredNamespaces[uri] = true
+	}
+}
+
+// checkLiteralPrefix enforces that a literal-replay element is written under a
+// prefix some declaration in scope actually binds. The literal paths emit the
+// element name verbatim and so bypass writeQName's unbound-prefix check, which
+// is how C375 shipped: an mc:AlternateContent re-emitted under the hardcoded
+// "mc" in a file that aliases the namespace as ve: is malformed XML, and
+// Finish() returned nil for it. Prefix resolution is the caller's job
+// (Builder.LiteralPrefixFor consults every authority in turn); this is the
+// backstop that keeps a wrong answer from reaching a saved package.
+//
+// The check is scope-based rather than URI-based on purpose: one URI may be
+// declared under two prefixes and StartElementWithNS declares URIs without
+// registering a prefix for them, so neither namespaces nor declaredNamespaces
+// can answer "is this prefix bound here". prefixScope can.
+//
+// It stays quiet until a root element has been written, keeping #227's
+// carve-out: a rootless Builder is a fragment whose prefixes are declared by
+// whatever the fragment is spliced into, and the Builder cannot see that scope.
+func (b *Builder) checkLiteralPrefix(prefix, localName string, attrs []Attr) {
+	if b.err != nil || !b.hasRoot || prefix == "" || b.prefixInScope(prefix) {
+		return
+	}
+	for _, a := range attrs {
+		if declPrefix, _, ok := attrNSDecl(a); ok && declPrefix == prefix {
+			return
+		}
+	}
+	b.err = fmt.Errorf("xml: <%s:%s> written under prefix %q that no declaration in scope binds",
+		prefix, localName, prefix)
+}
+
 // EndElementLiteral closes an element opened with StartElementLiteral.
 func (b *Builder) EndElementLiteral(prefix, localName string) {
 	qname := localName
@@ -491,8 +667,13 @@ func (b *Builder) EndElementLiteral(prefix, localName string) {
 }
 
 // writeLiteralAttrs writes attributes with their names emitted verbatim,
-// preferring a captured verbatim source rendering (Attr.Raw).
+// preferring a captured verbatim source rendering (Attr.Raw). Namespace
+// declarations among them are recorded in the Builder's prefix scope: the
+// output really does declare them, and until it knew that, the Builder could
+// not tell a prefix bound by a replayed ancestor declaration from one bound by
+// nothing at all.
 func (b *Builder) writeLiteralAttrs(attrs []Attr) {
+	b.noteAttrPrefixDecls(attrs)
 	for _, attr := range attrs {
 		if attr.Raw != "" {
 			b.buf.WriteString(attr.Raw)

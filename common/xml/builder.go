@@ -27,6 +27,17 @@ type Builder struct {
 	stack              []elemFrame       // open elements, for balance checking and namespace scoping
 	pendingNSRestores  []nsRestore       // inline decl state to attach to the next opened element
 	err                error             // first structural error encountered
+
+	// prefixScope counts, per prefix, how many in-scope declarations bind it.
+	// namespaces/declaredNamespaces are keyed by URI and cannot answer the
+	// question the literal-replay paths need — "is this *prefix* bound here?" —
+	// because one URI may be declared under two prefixes (Word 2007 writes both
+	// mc: and ve:) and because StartElementWithNS declares a URI without
+	// necessarily registering a prefix for it. Every path that writes an xmlns
+	// attribute increments the count; the element that carries the declaration
+	// decrements it when it closes.
+	prefixScope        map[string]int
+	pendingPrefixDecls []string // prefixes declared by the tag being written
 }
 
 // elemFrame records an open element: its qualified name (for balance checking)
@@ -42,6 +53,9 @@ type elemFrame struct {
 	// emitting the sibling separator there would turn it into character data
 	// inside the element (<t></t> becoming <t> </t>).
 	startLen int
+	// prefixDecls lists the prefixes this element's own xmlns attributes bind,
+	// so their scope ends with the element (see Builder.prefixScope).
+	prefixDecls []string
 }
 
 // nsRestore captures the declared-state of a namespace before an element
@@ -72,8 +86,57 @@ func (b *Builder) qualifiedName(namespace, localName string) string {
 // Any pending inline namespace declarations are attached to the new frame so
 // they are un-declared (restored) when the element closes.
 func (b *Builder) pushElem(qname string) {
-	b.stack = append(b.stack, elemFrame{qname: qname, restores: b.pendingNSRestores, startLen: b.buf.Len()})
+	b.stack = append(b.stack, elemFrame{
+		qname:       qname,
+		restores:    b.pendingNSRestores,
+		startLen:    b.buf.Len(),
+		prefixDecls: b.pendingPrefixDecls,
+	})
 	b.pendingNSRestores = nil
+	b.pendingPrefixDecls = nil
+}
+
+// notePrefixDecl records that the tag currently being written declares prefix
+// (the empty string for a default xmlns=). The declaration's scope is the
+// element carrying it, so the count is released by popElem for an element that
+// stays open and by releasePendingPrefixDecls for one that does not.
+func (b *Builder) notePrefixDecl(prefix string) {
+	if b.prefixScope == nil {
+		b.prefixScope = make(map[string]int)
+	}
+	b.prefixScope[prefix]++
+	b.pendingPrefixDecls = append(b.pendingPrefixDecls, prefix)
+}
+
+// noteAttrPrefixDecls records every xmlns declaration in an attribute list.
+func (b *Builder) noteAttrPrefixDecls(attrs []Attr) {
+	for _, a := range attrs {
+		if prefix, _, ok := attrNSDecl(a); ok {
+			b.notePrefixDecl(prefix)
+		}
+	}
+}
+
+// releasePrefixDecls ends the scope of the given prefix declarations.
+func (b *Builder) releasePrefixDecls(prefixes []string) {
+	for _, p := range prefixes {
+		if b.prefixScope[p] > 0 {
+			b.prefixScope[p]--
+		}
+	}
+}
+
+// releasePendingPrefixDecls ends the scope of declarations written on a tag
+// that does not stay open (self-closing or text-only element).
+func (b *Builder) releasePendingPrefixDecls() {
+	b.releasePrefixDecls(b.pendingPrefixDecls)
+	b.pendingPrefixDecls = nil
+}
+
+// prefixInScope reports whether some declaration currently in scope binds
+// prefix. The reserved xml prefix is always bound and never declared.
+func (b *Builder) prefixInScope(prefix string) bool {
+	return prefix == "xml" || b.prefixScope[prefix] > 0
 }
 
 // markContentStart records the output length at which the innermost open
@@ -87,8 +150,14 @@ func (b *Builder) markContentStart() {
 }
 
 // applyNSRestores restores the declared-namespace state captured in restores.
+// Entries are undone in reverse order: one element may rebind the same URI more
+// than once (a captured attribute list repeating a declaration, or a bind whose
+// declaration is also present among the literal attributes), and each entry
+// records the state as it was when that entry was pushed. Replaying them
+// forwards would leave the URI holding an intermediate binding.
 func (b *Builder) applyNSRestores(restores []nsRestore) {
-	for _, r := range restores {
+	for i := len(restores) - 1; i >= 0; i-- {
+		r := restores[i]
 		if r.wasDeclared {
 			b.declaredNamespaces[r.uri] = true
 		} else {
@@ -123,6 +192,7 @@ func (b *Builder) popElem(qname string) int {
 	top := b.stack[len(b.stack)-1]
 	b.stack = b.stack[:len(b.stack)-1]
 	b.applyNSRestores(top.restores)
+	b.releasePrefixDecls(top.prefixDecls)
 	if top.qname != qname && b.err == nil {
 		b.err = fmt.Errorf("xml: closing </%s> does not match open <%s>", qname, top.qname)
 	}
@@ -262,6 +332,9 @@ func (b *Builder) WriteHeader() {
 // writeOneAttr writes a single attribute, preferring its verbatim source
 // rendering when captured (Attr.Raw).
 func (b *Builder) writeOneAttr(attr Attr) {
+	if prefix, _, ok := attrNSDecl(attr); ok {
+		b.notePrefixDecl(prefix)
+	}
 	if attr.Raw != "" {
 		b.buf.WriteString(attr.Raw)
 		return
@@ -325,6 +398,7 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 		b.writeAttrEscaped(ns.URI)
 		b.buf.WriteByte('"')
 		b.declaredNamespaces[ns.URI] = true
+		b.notePrefixDecl(ns.Prefix)
 	}
 
 	// Write attributes
@@ -392,6 +466,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 				b.writeAttrEscaped(ra.Value)
 				b.buf.WriteByte('"')
 			}
+			b.notePrefixDecl(ra.Prefix)
 			b.declaredNamespaces[ra.Value] = true
 			// Also register the prefix so writeQName can resolve it for
 			// extension elements and attrs — but never clobber the binding
@@ -423,6 +498,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	}
 
 	// Write any extra attributes
+	b.noteAttrPrefixDecls(extraAttrs)
 	for _, attr := range extraAttrs {
 		if attr.Raw != "" {
 			b.buf.WriteString(attr.Raw)
@@ -503,6 +579,7 @@ func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, r
 	b.writeLiteralAttrs(merged)
 
 	// Write any extra attributes (same handling as StartElementWithRootAttrs).
+	b.noteAttrPrefixDecls(extraAttrs)
 	for _, attr := range extraAttrs {
 		if attr.Raw != "" {
 			b.buf.WriteString(attr.Raw)
@@ -631,6 +708,7 @@ func (b *Builder) declareNamespaceIfNeeded(namespace string) bool {
 func (b *Builder) endPendingNSScope() {
 	b.applyNSRestores(b.pendingNSRestores)
 	b.pendingNSRestores = nil
+	b.releasePendingPrefixDecls()
 }
 
 // prependNamespaceDecls checks if the element namespace or any attribute
@@ -727,6 +805,8 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	// This element's own declarations (its inline xmlns and any among attrs)
+	// are scoped to it and it has no children, so nothing needs recording.
 }
 
 // StartElementInlineNS starts an element with an inline namespace declaration.
@@ -746,6 +826,12 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 	})
 	b.namespaces[nsURI] = prefix
 	b.declaredNamespaces[nsURI] = true
+	b.notePrefixDecl(prefix)
+	// Callers pass further declarations among attrs (an a:ext replaying the
+	// xmlns:a14 the producer wrote on it); they are in scope for the children
+	// this element is about to open, so they must be recorded too — otherwise
+	// the literal-prefix check would flag a legitimate a14: descendant.
+	b.noteAttrPrefixDecls(attrs)
 
 	b.writeIndent()
 	b.buf.WriteByte('<')

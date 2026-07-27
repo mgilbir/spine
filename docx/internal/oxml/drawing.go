@@ -165,7 +165,18 @@ func (re *CT_RawElement) undeclaredNSDecl(b *xmlb.Builder, ns string) (xmlb.Attr
 	if ns == "" {
 		return xmlb.Attr{}, false
 	}
-	if _, registered := b.NamespacePrefix(ns); registered {
+	// A registration for the URI is only good enough when the prefix this
+	// element is actually written under is itself declared in scope: one URI
+	// can be registered under one prefix and declared under another (Word 2007
+	// binds markup-compatibility to both mc and ve), and replaying <ve:x>
+	// against an mc registration writes a prefix nothing binds — C375's shape,
+	// which the literal path emits verbatim and so never catches.
+	//
+	// An unprefixed element is left exactly as it was: whether it needs a
+	// default declaration depends on the in-scope default namespace, which is a
+	// separate question from this one and not one to answer by changing bytes.
+	if _, registered := b.NamespacePrefix(ns); registered &&
+		(re.ElemPrefix == "" || b.PrefixInScope(re.ElemPrefix)) {
 		return xmlb.Attr{}, false
 	}
 	for _, a := range re.Attrs {
