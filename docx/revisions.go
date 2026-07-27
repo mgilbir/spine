@@ -57,7 +57,7 @@ func (p *Paragraph) AddInsertedRunWithDate(author, text string, date time.Time) 
 		Date:   formatRevisionDate(date),
 	}
 	block.AppendR(r)
-	p.p.AppendIns(block)
+	p.mut().AppendIns(block)
 	return &Run{paragraph: p, r: r}
 }
 
@@ -76,7 +76,7 @@ func (r *Run) MarkInserted(author string) *Run {
 // (recorded in UTC), for deterministic output.
 func (r *Run) MarkInsertedWithDate(author string, date time.Time) *Run {
 	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
-	oxml.WrapRunInsertion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	oxml.WrapRunInsertion(r.mutParagraph(), r.r, id, author, formatRevisionDate(date))
 	return r
 }
 
@@ -98,7 +98,7 @@ func (r *Run) MarkDeleted(author string) *Run {
 // (recorded in UTC), for deterministic output.
 func (r *Run) MarkDeletedWithDate(author string, date time.Time) *Run {
 	id := strconv.Itoa(r.paragraph.document.nextRevisionID())
-	oxml.WrapRunDeletion(r.paragraph.p, r.r, id, author, formatRevisionDate(date))
+	oxml.WrapRunDeletion(r.mutParagraph(), r.r, id, author, formatRevisionDate(date))
 	return r
 }
 
@@ -143,9 +143,10 @@ func (p *Paragraph) addMove(kind, author, name, text string, date time.Time) {
 	contentID := strconv.Itoa(p.document.nextRevisionID())
 	ds := formatRevisionDate(date)
 	r := &oxml.CT_R{T: []*oxml.CT_Text{{Space: "preserve", Text: text}}}
-	p.p.AppendRaw(oxml.NewMoveRangeStart(kind+"RangeStart", rangeID, author, ds, name))
-	p.p.AppendRaw(oxml.NewMoveBlock(kind, contentID, author, ds, r))
-	p.p.AppendRaw(oxml.NewMoveRangeEnd(kind+"RangeEnd", rangeID))
+	cp := p.mut()
+	cp.AppendRaw(oxml.NewMoveRangeStart(kind+"RangeStart", rangeID, author, ds, name))
+	cp.AppendRaw(oxml.NewMoveBlock(kind, contentID, author, ds, r))
+	cp.AppendRaw(oxml.NewMoveRangeEnd(kind+"RangeEnd", rangeID))
 }
 
 // RevisionType names the kind of a tracked change (a Word revision).

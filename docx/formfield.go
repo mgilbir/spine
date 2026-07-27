@@ -275,11 +275,12 @@ func (p *Paragraph) AddFormField(opts FormFieldOptions) *Run {
 	end := &oxml.CT_R{}
 	end.AppendFldChar(&oxml.CT_FldChar{FldCharType: "end"})
 
-	p.p.AppendR(begin)
-	p.p.AppendR(instr)
-	p.p.AppendR(separate)
-	p.p.AppendR(result)
-	p.p.AppendR(end)
+	cp := p.mut()
+	cp.AppendR(begin)
+	cp.AppendR(instr)
+	cp.AppendR(separate)
+	cp.AppendR(result)
+	cp.AppendR(end)
 	return &Run{paragraph: p, r: result}
 }
 

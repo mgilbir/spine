@@ -122,13 +122,13 @@ func (r *Run) anchorNoteRef(id string, endnote bool) {
 	} else {
 		refRun.AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
 	}
-	if r.paragraph.p.InsertRunAfter(r.r, refRun) {
+	if r.mutParagraph().InsertRunAfter(r.r, refRun) {
 		return
 	}
 	if endnote {
-		r.r.AppendEndnoteRef(&oxml.CT_FtnEdnRef{Id: id})
+		r.mut().AppendEndnoteRef(&oxml.CT_FtnEdnRef{Id: id})
 	} else {
-		r.r.AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
+		r.mut().AppendFtnRef(&oxml.CT_FtnEdnRef{Id: id})
 	}
 }
 

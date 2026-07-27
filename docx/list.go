@@ -123,7 +123,7 @@ func (d *Document) AddNumberedList() *ListStyle {
 // SetListStyle applies a list style to the paragraph at the given level (0-based).
 func (p *Paragraph) SetListStyle(list *ListStyle, level int) {
 	p.ensurePPr()
-	p.p.PPr.NumPr = &oxml.CT_NumPr{
+	p.mut().PPr.NumPr = &oxml.CT_NumPr{
 		NumId: &oxml.CT_DecimalNumber{Val: list.numID},
 		Ilvl:  &oxml.CT_DecimalNumber{Val: level},
 	}
@@ -132,7 +132,7 @@ func (p *Paragraph) SetListStyle(list *ListStyle, level int) {
 // RemoveListStyle removes any list style from the paragraph.
 func (p *Paragraph) RemoveListStyle() {
 	if p.p.PPr != nil {
-		p.p.PPr.NumPr = nil
+		p.mut().PPr.NumPr = nil
 	}
 }
 

@@ -66,7 +66,7 @@ func (p *Paragraph) AddSignatureLine(opts SignatureLineOptions) *Run {
 	pict := buildSignatureLinePict(opts, seq)
 	r := &oxml.CT_R{}
 	r.AppendPict(pict)
-	p.p.AppendR(r)
+	p.mut().AppendR(r)
 	return &Run{paragraph: p, r: r}
 }
 

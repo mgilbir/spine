@@ -37,7 +37,7 @@ func (p *Paragraph) AddField(t FieldType) *Run {
 	result := &oxml.CT_R{}
 	result.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: "1"}})
 	fld.R = append(fld.R, result)
-	p.p.AppendFldSimple(fld)
+	p.mut().AppendFldSimple(fld)
 	return &Run{paragraph: p, r: result}
 }
 
@@ -61,7 +61,7 @@ func (p *Paragraph) AddMergeField(name string) *Run {
 	result := &oxml.CT_R{}
 	result.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: "«" + name + "»"}})
 	fld.R = append(fld.R, result)
-	p.p.AppendFldSimple(fld)
+	p.mut().AppendFldSimple(fld)
 	return &Run{paragraph: p, r: result}
 }
 

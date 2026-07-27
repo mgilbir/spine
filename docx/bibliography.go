@@ -140,7 +140,7 @@ func (p *Paragraph) AddCitation(sourceTag string) *Run {
 	result := &oxml.CT_R{}
 	result.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: p.citationPlaceholder(sourceTag)}})
 	fld.R = append(fld.R, result)
-	p.p.AppendFldSimple(fld)
+	p.mut().AppendFldSimple(fld)
 	return &Run{paragraph: p, r: result}
 }
 

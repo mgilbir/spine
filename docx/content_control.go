@@ -188,7 +188,7 @@ func (p *Paragraph) AddContentControl(tag, value string) *ContentControl {
 
 	sr := &oxml.CT_SdtRun{SdtPr: pr}
 	sr.SetContentText(value)
-	p.p.AppendSdtRun(sr)
+	p.mut().AppendSdtRun(sr)
 	return &ContentControl{doc: p.document, run: sr}
 }
 

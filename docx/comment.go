@@ -150,9 +150,8 @@ func (c *Comment) SetInitials(initials string) {
 // anchors over the body only, so a comment added to a header paragraph is
 // written but never reachable through Reply or AnchorText.
 func (p *Paragraph) AddComment(author, text string) *Comment {
-	p.touch()
 	c := p.document.addCommentModel(author, text, "")
-	p.p.AddCommentAroundParagraph(c.Id)
+	p.mut().AddCommentAroundParagraph(c.Id)
 	return &Comment{document: p.document, c: c}
 }
 
@@ -172,10 +171,9 @@ func (r *Run) AddComment(author, text string) *Comment {
 	if !r.paragraph.p.HasDirectChildRun(r.r) {
 		return nil
 	}
-	r.touch()
 	doc := r.paragraph.document
 	c := doc.addCommentModel(author, text, "")
-	r.paragraph.p.AddCommentAroundRun(r.r, c.Id)
+	r.mutParagraph().AddCommentAroundRun(r.r, c.Id)
 	return &Comment{document: doc, c: c}
 }
 
@@ -198,11 +196,9 @@ func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comm
 	if !ok {
 		return nil
 	}
-	start.paragraph.touch()
-	end.paragraph.touch()
 	c := d.addCommentModel(author, text, "")
-	start.paragraph.p.InsertCommentStartBeforeRun(start.r, c.Id)
-	end.paragraph.p.InsertCommentEndAndRefAfterRun(end.r, c.Id)
+	start.paragraph.mut().InsertCommentStartBeforeRun(start.r, c.Id)
+	end.paragraph.mut().InsertCommentEndAndRefAfterRun(end.r, c.Id)
 	return &Comment{document: d, c: c}
 }
 

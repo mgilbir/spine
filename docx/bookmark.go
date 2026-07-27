@@ -79,8 +79,7 @@ func (d *Document) allBookmarkParagraphs() []*oxml.CT_P {
 // name.
 func (p *Paragraph) AddBookmark(name string) *Bookmark {
 	id := p.document.nextBookmarkID()
-	p.touch()
-	p.p.AddBookmarkAroundParagraph(id, name)
+	p.mut().AddBookmarkAroundParagraph(id, name)
 	return &Bookmark{document: p.document, name: name, id: id}
 }
 
@@ -103,10 +102,8 @@ func (d *Document) AddBookmarkOnRange(name string, start, end *Run) *Bookmark {
 		return nil
 	}
 	id := d.nextBookmarkID()
-	start.paragraph.touch()
-	end.paragraph.touch()
-	start.paragraph.p.InsertBookmarkStartBeforeRun(start.r, id, name)
-	end.paragraph.p.InsertBookmarkEndAfterRun(end.r, id)
+	start.paragraph.mut().InsertBookmarkStartBeforeRun(start.r, id, name)
+	end.paragraph.mut().InsertBookmarkEndAfterRun(end.r, id)
 	return &Bookmark{document: d, name: name, id: id}
 }
 
