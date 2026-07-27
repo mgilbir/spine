@@ -1,6 +1,7 @@
 package diagram
 
 import (
+	"fmt"
 	"strconv"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -58,13 +59,20 @@ type Parts struct {
 // minimal-but-valid definitions that Office renders: the layout provides the
 // chosen algorithm, the quick-style a subtle-fill node style, and the colors a
 // theme-accent color cycle.
-func Build(kind Kind, nodes []BuildNode) Parts {
+//
+// It returns an error only when serializing the data model fails, which would
+// otherwise ship a truncated part.
+func Build(kind Kind, nodes []BuildNode) (Parts, error) {
+	data, err := buildDataModel(nodes)
+	if err != nil {
+		return Parts{}, err
+	}
 	return Parts{
-		Data:       buildDataModel(nodes),
+		Data:       data,
 		Layout:     layoutDefXML(kind),
 		QuickStyle: []byte(quickStyleXML),
 		Colors:     []byte(colorsXML),
-	}
+	}, nil
 }
 
 // buildDataModel serializes a dgm:dataModel from the node outline. It assigns a
@@ -72,7 +80,7 @@ func Build(kind Kind, nodes []BuildNode) Parts {
 // a parOf connection from each node's parent (the doc root for a top-level node)
 // carrying the child's ordinal among its siblings, so the reader reconstructs
 // the same forest.
-func buildDataModel(nodes []BuildNode) []byte {
+func buildDataModel(nodes []BuildNode) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(NsDiagram, xmlb.PrefixDrawingMLDiagram)
 	b.RegisterNamespace(xmlb.NSDrawingML, xmlb.PrefixDrawingML)
@@ -141,7 +149,13 @@ func buildDataModel(nodes []BuildNode) []byte {
 
 	b.EmptyElement(NsDiagram, "whole")
 	b.EndElement(NsDiagram, "dataModel")
-	return b.Bytes()
+	// Finish reports unbalanced elements and any deferred write error. Without
+	// this check a Builder failure silently shipped a truncated dgm:dataModel
+	// part (ThemeEditor.Marshal has always checked; this did not).
+	if err := b.Finish(); err != nil {
+		return nil, fmt.Errorf("diagram: build data model: %w", err)
+	}
+	return b.Bytes(), nil
 }
 
 // writePtText emits a data point's text body (dgm:t). A non-empty text becomes a

@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -78,19 +78,28 @@ var percentAttrsByComplexType = map[string][]string{
 // ("// Foo represents CT_Bar (a:baz)").
 func TestPercentClassSchemaTypeDiff(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse package: %v", err)
+		t.Fatalf("read package dir: %v", err)
 	}
-	pkg, ok := pkgs["dml"]
-	if !ok {
-		t.Fatal("package dml not found in .")
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		files = append(files, f)
+	}
+	if len(files) == 0 {
+		t.Fatal("no package sources found in .")
 	}
 
 	checked := 0
-	for _, file := range pkg.Files {
+	for _, file := range files {
 		for _, decl := range file.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok || gd.Tok != token.TYPE {
@@ -204,4 +213,3 @@ func exprString(e ast.Expr) string {
 		return "?"
 	}
 }
-

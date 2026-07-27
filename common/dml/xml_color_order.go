@@ -63,8 +63,17 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 		case xml.StartElement:
 			kind, ok := clrTransformNameMap[t.Name.Local]
 			if !ok {
+				// An unmodeled child (a future transform, an mc:AlternateContent
+				// wrapper, an extension element): preserve it verbatim at its
+				// position rather than skipping it. Typed dispatch must never be
+				// lossier than raw capture — the package's own rule, which the
+				// bare d.Skip here violated.
 				if err := d.Skip(); err != nil {
 					return err
+				}
+				if raw := xmlb.RawTokenBytes(d, pre); raw != nil {
+					*order = append(*order, clrRawKindBase+clrTransformKind(len(*raws)))
+					*raws = append(*raws, bytes.Clone(raw))
 				}
 				continue
 			}
@@ -78,8 +87,10 @@ func unmarshalClrColor(d *xml.Decoder, start xml.StartElement, setAttr func(xml.
 					return err
 				}
 				if raw := xmlb.RawTokenBytes(d, pre); raw != nil {
+					// Clone: retaining a sub-slice of the part source would pin
+					// the whole part in memory for the model's lifetime (C282).
 					*order = append(*order, clrRawKindBase+clrTransformKind(len(*raws)))
-					*raws = append(*raws, raw)
+					*raws = append(*raws, bytes.Clone(raw))
 				}
 				continue
 			}

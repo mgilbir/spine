@@ -27,12 +27,20 @@ type CTStyleLabel struct {
 	ExtLst        *dml.ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
 }
 
-// ColorList represents CT_Colors (dgm:fillClrLst, etc.) - list of colors
+// ColorList represents CT_Colors (dgm:fillClrLst, etc.) - list of colors.
+// Its children are a repeated a:EG_ColorChoice and are positional; all six
+// color kinds are modeled and their document order is preserved. See
+// colors_order.go.
 type ColorList struct {
-	Meth      string                `xml:"meth,attr,omitempty"` // ST_ClrAppMethod: span, cycle, repeat
-	HueDir    string                `xml:"hueDir,attr,omitempty"` // ST_HueDir: cw, ccw
-	SrgbClr   []*dml.SrgbClr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
-	SchemeClr []*dml.SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	Meth      string                    `xml:"meth,attr,omitempty"`   // ST_ClrAppMethod: span, cycle, repeat
+	HueDir    string                    `xml:"hueDir,attr,omitempty"` // ST_HueDir: cw, ccw
+	ScRgbClr  []*dml.ScRgbClr           `xml:"-"`
+	SrgbClr   []*dml.SrgbClr            `xml:"-"`
+	HslClr    []*dml.HslClr             `xml:"-"`
+	SysClr    []*dml.SystemClr          `xml:"-"`
+	SchemeClr []*dml.SchemeClrTransform `xml:"-"`
+	PrstClr   []*dml.PrstClr            `xml:"-"`
+	clrOrder  []clrRef
 }
 
 // ColorsDefHdr represents CT_ColorTransformHeader (dgm:colorsDefHdr)

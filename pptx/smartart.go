@@ -239,7 +239,9 @@ func (sf *SmartArtFrame) setBounds(x, y, w, h int64) {
 //
 // It returns the created diagram as a SmartArt (the same read view returned by
 // Slide.SmartArt), so Nodes reports the outline back immediately. It returns nil
-// only when the slide is not attached to a presentation.
+// when the slide is not attached to a presentation, or when serializing the
+// diagram parts fails (in which case nothing is added rather than a truncated
+// data part).
 func (s *Slide) AddSmartArt(kind SmartArtKind, nodes ...*SmartArtNode) *SmartArt {
 	p := s.presentation
 	if p == nil {
@@ -251,7 +253,12 @@ func (s *Slide) AddSmartArt(kind SmartArtKind, nodes ...*SmartArtNode) *SmartArt
 		s.partName = p.nextAvailableSlidePartName()
 	}
 
-	parts := diagram.Build(kind.diagramKind(), toBuildNodes(nodes))
+	parts, err := diagram.Build(kind.diagramKind(), toBuildNodes(nodes))
+	if err != nil {
+		// Serializing the diagram failed; adding a truncated data part would
+		// produce an unopenable deck, so add nothing.
+		return nil
+	}
 
 	// Allocate a shared index so the four parts share the ...N.xml suffix Office
 	// uses (data1.xml, layout1.xml, quickStyle1.xml, colors1.xml).

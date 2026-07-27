@@ -47,8 +47,16 @@ type Pt struct {
 	ExtLst  *dml.ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram extLst,omitempty"`
 }
 
-// PrSet represents CT_ElemPropSet (dgm:prSet) - element property set
+// PrSet represents CT_ElemPropSet (dgm:prSet) - element property set.
+//
+// CT_ElemPropSet is not attribute-only: it carries a dgm:presLayoutVars
+// (CT_LayoutVariablePropertySet) and a dgm:style (a:CT_ShapeStyle), both of
+// which a parse→marshal silently discarded until C485. PowerPoint writes
+// presLayoutVars on presentation points and style on manually restyled nodes.
 type PrSet struct {
+	PresLayoutVars *VarLst    `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram presLayoutVars,omitempty"`
+	Style          *dml.Style `xml:"http://schemas.openxmlformats.org/drawingml/2006/diagram style,omitempty"`
+
 	PresAssocID   string `xml:"presAssocID,attr,omitempty"`
 	PresName      string `xml:"presName,attr,omitempty"`
 	PresStyleLbl  string `xml:"presStyleLbl,attr,omitempty"`

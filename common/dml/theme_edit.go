@@ -227,23 +227,85 @@ func (c *ThemeColorScheme) SetFollowedHyperlink(col Color) {
 }
 
 // themeSlotColor resolves a color slot to a concrete color: srgbClr directly,
-// sysClr via its lastClr rendering. An empty or unresolved slot yields the
-// zero Color.
+// sysClr via its lastClr rendering, scrgbClr by converting its r/g/b
+// percentages, and schemeClr as the theme reference it is.
+//
+// The remaining kinds (hslClr, prstClr) and a slot whose value does not parse
+// yield the zero Color, which is indistinguishable from opaque black — callers
+// that must tell "black" from "unresolvable" should read the slot off
+// ClrScheme directly. Previously *every* kind but srgbClr/sysClr collapsed that
+// way, so a scheme whose dk1 was an scrgbClr or an alias reported black.
 func themeSlotColor(cc *ColorChoice) Color {
 	if cc == nil {
 		return Color{}
 	}
-	if cc.SrgbClr != nil {
+	switch {
+	case cc.SrgbClr != nil:
 		if rgb, err := ParseRGB(cc.SrgbClr.Val); err == nil {
 			return rgb.ToColor()
 		}
-	}
-	if cc.SysClr != nil && cc.SysClr.LastClr != "" {
-		if rgb, err := ParseRGB(cc.SysClr.LastClr); err == nil {
-			return rgb.ToColor()
+	case cc.SysClr != nil:
+		if cc.SysClr.LastClr != "" {
+			if rgb, err := ParseRGB(cc.SysClr.LastClr); err == nil {
+				return rgb.ToColor()
+			}
+		}
+	case cc.ScrgbClr != nil:
+		return NewRGB(
+			pctToByte(cc.ScrgbClr.R), pctToByte(cc.ScrgbClr.G), pctToByte(cc.ScrgbClr.B),
+		).ToColor()
+	case cc.SchemeClr != nil:
+		if tc, ok := parseThemeColorName(cc.SchemeClr.Val); ok {
+			return tc.ToColor()
 		}
 	}
 	return Color{}
+}
+
+// pctToByte converts an ST_Percentage channel value (0..100000) to an 8-bit
+// channel, clamping out-of-range input.
+func pctToByte(p Percentage) uint8 {
+	v := p.Int32()
+	if v <= 0 {
+		return 0
+	}
+	if v >= 100000 {
+		return 255
+	}
+	return uint8((int64(v)*255 + 50000) / 100000)
+}
+
+// parseThemeColorName maps an ST_SchemeColorVal to its ThemeColor, reporting
+// whether the name is one the model can represent (phClr, bg1/tx1/bg2/tx2 and
+// anything unknown are not).
+func parseThemeColorName(name string) (ThemeColor, bool) {
+	switch name {
+	case "dk1":
+		return ThemeColorDark1, true
+	case "lt1":
+		return ThemeColorLight1, true
+	case "dk2":
+		return ThemeColorDark2, true
+	case "lt2":
+		return ThemeColorLight2, true
+	case "accent1":
+		return ThemeColorAccent1, true
+	case "accent2":
+		return ThemeColorAccent2, true
+	case "accent3":
+		return ThemeColorAccent3, true
+	case "accent4":
+		return ThemeColorAccent4, true
+	case "accent5":
+		return ThemeColorAccent5, true
+	case "accent6":
+		return ThemeColorAccent6, true
+	case "hlink":
+		return ThemeColorHyperlink, true
+	case "folHlink":
+		return ThemeColorFollowedHyperlink, true
+	}
+	return 0, false
 }
 
 // themeSlotChoice builds a color slot from a concrete color as a plain
