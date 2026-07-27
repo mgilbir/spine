@@ -1,6 +1,9 @@
 package xml
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"fmt"
+)
 
 // This file provides verbatim attribute capture and replay for elements whose
 // producers interleave xmlns declarations with regular attributes (extension
@@ -218,11 +221,71 @@ func prefixForAttr(space string, seen []RootAttr) string {
 // RawAttrPrefix returns the prefix a captured element's own namespace was
 // declared with, or fallback when the capture carries no declaration for it
 // (the declaration is in an ancestor's scope).
+//
+// The fallback is a static well-known prefix, so it is only correct when the
+// ancestor scope happens to use that same prefix. Callers whose element may be
+// written under a producer-chosen alias — Word 2007 aliases the
+// markup-compatibility namespace as ve:, and a default xmlns= declaration
+// means no prefix at all — must not rely on it; resolve through
+// Builder.LiteralPrefixFor instead, which consults the live binding.
 func RawAttrPrefix(raw []RootAttr, uri, fallback string) string {
 	for _, ra := range raw {
 		if ra.IsNS && ra.Value == uri && ra.Prefix != "" {
 			return ra.Prefix
 		}
+	}
+	return fallback
+}
+
+// RawAttrNSDecl returns the prefix a captured attribute list declares for uri
+// and whether such a declaration is present. Unlike RawAttrPrefix it reports a
+// default declaration (xmlns="uri") as the empty prefix rather than skipping
+// it, so an element whose namespace the source declared as the default is
+// re-emitted unprefixed instead of gaining an undeclared one.
+func RawAttrNSDecl(raw []RootAttr, uri string) (string, bool) {
+	for _, ra := range raw {
+		if ra.IsNS && ra.Value == uri {
+			return ra.Prefix, true
+		}
+	}
+	return "", false
+}
+
+// DeclaredPrefix returns the prefix uri is bound to in the Builder's live
+// scope and whether uri currently has a declaration in scope. It is the
+// authoritative answer for "what prefix must an element in this namespace be
+// written with here", ahead of any static prefix table.
+func (b *Builder) DeclaredPrefix(uri string) (string, bool) {
+	if !b.declaredNamespaces[uri] {
+		return "", false
+	}
+	prefix, ok := b.namespaces[uri]
+	return prefix, ok
+}
+
+// LiteralPrefixFor resolves the prefix a literal-replay element in uri must be
+// written with, consulting the three prefix authorities in the only order that
+// is sound:
+//
+//  1. elemPrefix — the verbatim prefix the source wrote on this very element
+//     (xmlb.ElementPrefix), which is authoritative even when the element's own
+//     declaration list names a different alias for the same URI;
+//  2. the element's captured declarations, including a default xmlns=;
+//  3. the Builder's live in-scope binding, which is what an ancestor
+//     declaration (the normal case) actually bound.
+//
+// fallback — a static well-known prefix — is used only when none of the three
+// knows anything, i.e. for values built programmatically. Passing
+// hasElemPrefix=false skips step 1.
+func (b *Builder) LiteralPrefixFor(uri string, elemPrefix string, hasElemPrefix bool, captured []RootAttr, fallback string) string {
+	if hasElemPrefix {
+		return elemPrefix
+	}
+	if p, ok := RawAttrNSDecl(captured, uri); ok {
+		return p
+	}
+	if p, ok := b.DeclaredPrefix(uri); ok {
+		return p
 	}
 	return fallback
 }
@@ -307,6 +370,7 @@ func (b *Builder) EmptyElementLiteral(prefix, localName string, attrs ...Attr) {
 // attrs (none are synthesized). Close with EndElementLiteral.
 func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, attrs ...Attr) {
 	b.flushOpenTag()
+	b.checkLiteralBinds(prefix, localName, binds, attrs)
 	for _, d := range binds {
 		if d.URI == "" {
 			continue
@@ -346,6 +410,61 @@ func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, 
 	b.level++
 }
 
+// checkLiteralBinds enforces StartElementLiteral's contract that every entry in
+// binds is backed by a declaration the element actually writes, or by one
+// already in scope with the same prefix. The literal-replay paths emit element
+// and attribute names verbatim and so bypass writeQName's unbound-prefix check
+// — registering a binding without emitting its declaration produces malformed
+// XML that Finish() blesses (C375: an mc:AlternateContent whose mc prefix was
+// never declared). Recording the error here closes that hole for the one input
+// that can create it, the caller-supplied binds.
+//
+// The check is deliberately narrow. It stays quiet until a root element has
+// been written (a rootless Builder is a fragment whose prefixes are declared
+// externally), and it never inspects the element's own prefix or its attribute
+// names, which legitimately come from ancestor scopes the Builder does not
+// model.
+func (b *Builder) checkLiteralBinds(prefix, localName string, binds []NSDecl, attrs []Attr) {
+	if b.err != nil || !b.hasRoot || len(binds) == 0 {
+		return
+	}
+	for _, d := range binds {
+		if d.URI == "" {
+			continue
+		}
+		// Already declared in scope under the very prefix being bound: the
+		// element does not need to repeat the declaration. A URI declared
+		// with no registered prefix (StartElementWithNS declares without
+		// registering) is accepted too — the binding is unknown, not known to
+		// conflict, and a false positive here would fail a legitimate save.
+		if b.declaredNamespaces[d.URI] {
+			if bound, ok := b.namespaces[d.URI]; !ok || bound == d.Prefix {
+				continue
+			}
+		}
+		want := "xmlns"
+		if d.Prefix != "" {
+			want = "xmlns:" + d.Prefix
+		}
+		found := false
+		for _, a := range attrs {
+			if a.Name == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			name := localName
+			if prefix != "" {
+				name = prefix + ":" + localName
+			}
+			b.err = fmt.Errorf("xml: <%s> binds namespace %q to prefix %q without declaring it "+
+				"(no %s attribute and no matching declaration in scope)", name, d.URI, d.Prefix, want)
+			return
+		}
+	}
+}
+
 // EndElementLiteral closes an element opened with StartElementLiteral.
 func (b *Builder) EndElementLiteral(prefix, localName string) {
 	qname := localName
@@ -361,8 +480,8 @@ func (b *Builder) EndElementLiteral(prefix, localName string) {
 		}
 		return
 	}
-	b.popElem(qname)
-	b.writeIndent()
+	startLen := b.popElem(qname)
+	b.writeCloseIndent(startLen)
 	b.buf.WriteString("</")
 	b.buf.WriteString(qname)
 	b.buf.WriteByte('>')

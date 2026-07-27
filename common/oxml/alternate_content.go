@@ -51,12 +51,20 @@ type AlternateContent struct {
 	// TrailSep is the whitespace between the last child and the
 	// mc:AlternateContent end tag.
 	TrailSep string
+	// ElemPrefix is the verbatim prefix the source wrote on the
+	// mc:AlternateContent element ("" for a default xmlns= declaration).
+	// Word 2007 aliases the markup-compatibility namespace as ve:, and the
+	// declaration usually sits on an ancestor, so neither a static "mc" nor
+	// the element's own attribute list can be trusted to name it.
+	ElemPrefix         string
+	elemPrefixCaptured bool
 }
 
 // UnmarshalXML implements custom XML unmarshaling for AlternateContent.
 // Parses every mc:Choice and the mc:Fallback child, capturing inner content as
 // raw bytes.
 func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ac.ElemPrefix, ac.elemPrefixCaptured = xmlb.ElementPrefix(d)
 	ac.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	var pendingSep string
 	for {
@@ -85,7 +93,12 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 			}
 			switch t.Name.Local {
 			case "Choice":
-				choice := AlternateContentChoice{CapturedAttrs: xmlb.CaptureAttrs(t.Attr), LeadSep: pendingSep}
+				// CaptureAttrsSource, not CaptureAttrs: the decoder is
+				// positioned right past this child's start tag, so the
+				// producer's quote style and spacing (Requires='p14') are
+				// still recoverable and must be, or a zero-modification save
+				// re-quotes them.
+				choice := AlternateContentChoice{CapturedAttrs: xmlb.CaptureAttrsSource(d, t.Attr), LeadSep: pendingSep}
 				pendingSep = ""
 				for _, attr := range t.Attr {
 					if attr.Name.Local == "Requires" {
@@ -104,7 +117,9 @@ func (ac *AlternateContent) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 				ac.HasFallback = true
 				ac.FallbackLeadSep = pendingSep
 				pendingSep = ""
-				ac.FallbackAttrs = xmlb.CaptureAttrs(t.Attr)
+				// See the Choice branch: verbatim renderings are only
+				// recoverable while the decoder sits on this start tag.
+				ac.FallbackAttrs = xmlb.CaptureAttrsSource(d, t.Attr)
 				var inner struct {
 					Content []byte `xml:",innerxml"`
 				}
@@ -135,9 +150,22 @@ func (ac *AlternateContent) MarshalToBuilder(b *xmlb.Builder, ns, localName stri
 	// source (PowerPoint puts the extension declarations on mc:Choice, not on
 	// the parent), and mc:Fallback only gets xmlns="" when the source had it.
 	if ac.CapturedAttrs != nil {
-		prefix := xmlb.RawAttrPrefix(ac.CapturedAttrs, nsMC, prefixMC)
-		b.StartElementLiteral(prefix, localName,
-			[]xmlb.NSDecl{{Prefix: prefix, URI: nsMC}}, xmlb.RawAttrList(ac.CapturedAttrs)...)
+		// Three authorities can name this element's prefix and only one of
+		// them is right per source: the prefix the producer actually wrote,
+		// this element's own declarations, and the live in-scope binding. A
+		// static "mc" fallback is wrong for both a Word 2007 file (which
+		// aliases the namespace as ve: and declares it at the root) and a
+		// default xmlns= declaration — in either case it emits a prefix that
+		// is never declared, and the literal path would not notice.
+		prefix := b.LiteralPrefixFor(nsMC, ac.ElemPrefix, ac.elemPrefixCaptured, ac.CapturedAttrs, prefixMC)
+		// Bind the namespace for the element's scope only when this element
+		// carries the declaration; when it came from an ancestor the binding
+		// is already live and must not be re-declared or re-bound.
+		var binds []xmlb.NSDecl
+		if declPrefix, own := xmlb.RawAttrNSDecl(ac.CapturedAttrs, nsMC); own {
+			binds = []xmlb.NSDecl{{Prefix: declPrefix, URI: nsMC}}
+		}
+		b.StartElementLiteral(prefix, localName, binds, xmlb.RawAttrList(ac.CapturedAttrs)...)
 		for _, choice := range ac.Choices {
 			attrs := xmlb.RawAttrList(choice.CapturedAttrs)
 			if choice.CapturedAttrs == nil {
