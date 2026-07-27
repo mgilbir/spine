@@ -3,14 +3,41 @@ package oxml
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// A sldMasterId id of 0 is invalid (ST_SlideMasterId requires >= 2147483648), so
+// the reflection safety-net marshaler omits it rather than emitting id="0" (C355).
+func TestSlideMasterID_MarshalToBuilder_OmitsZeroID(t *testing.T) {
+	b := xmlb.NewPresentationMLBuilder()
+	SlideMasterID{ID: 0, RID: "rId1"}.MarshalToBuilder(b, xmlb.NSPresentationML, "sldMasterId")
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	out := b.String()
+	if strings.Contains(out, `id="0"`) {
+		t.Errorf("emitted invalid id=\"0\":\n%s", out)
+	}
+	if !strings.Contains(out, `r:id="rId1"`) {
+		t.Errorf("dropped r:id:\n%s", out)
+	}
+
+	// A valid high id is still emitted.
+	b2 := xmlb.NewPresentationMLBuilder()
+	SlideMasterID{ID: 2147483648, RID: "rId2"}.MarshalToBuilder(b2, xmlb.NSPresentationML, "sldMasterId")
+	if err := b2.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	if got := b2.String(); !strings.Contains(got, `id="2147483648"`) {
+		t.Errorf("valid id not emitted:\n%s", got)
+	}
+}
 
 func TestPresentation_MarshalUnmarshal(t *testing.T) {
 	p := &Presentation{
-		XmlnsA: NsDrawingML,
-		XmlnsR: NsRelationships,
-		XmlnsP: NsPresentationML,
 		SlideSize: &SlideSize{Cx: 9144000, Cy: 6858000},
 		SlideIDs: &SlideIDs{
 			SlideID: []SlideID{

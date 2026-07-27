@@ -27,9 +27,6 @@ type Presentation struct {
 	// built programmatically, which emit the standard a/r/p declarations and
 	// the XSD attribute order.
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
-	XmlnsA            string          `xml:"xmlns:a,attr,omitempty"`
-	XmlnsR            string          `xml:"xmlns:r,attr,omitempty"`
-	XmlnsP            string          `xml:"xmlns:p,attr,omitempty"`
 
 	// Attributes from CT_Presentation (pml.xsd lines 1057-1068)
 	ServerZoom               string  `xml:"serverZoom,attr,omitempty"`
@@ -203,23 +200,14 @@ type SlideMasterID struct {
 	ExtLst    *ExtensionList `xml:"extLst,omitempty"`
 }
 
-// MarshalXML implements custom XML marshaling for SlideMasterID.
-// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
-func (s SlideMasterID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	if s.ID > 0 {
-		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
-	}
-	// Use r:id directly - the r prefix is declared in the root presentation element
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
-	return e.EncodeElement(struct{}{}, start)
-}
-
 // MarshalToBuilder implements xmlb.BuilderMarshaler (see SlideLayoutID). The
 // presentation.xml writer emits sldMasterId entries explicitly, so this is a
 // safety net for any reflection path and to satisfy the Builder's C106 guard.
 func (s SlideMasterID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	if !s.IDOmitted {
+	// A sldMasterId id is ST_SlideMasterId (>= 2147483648 per the schema), so 0
+	// is never valid: omit it rather than emit id="0" (C355).
+	if !s.IDOmitted && s.ID != 0 {
 		attrs = append(attrs, xmlb.UintAttr("id", s.ID))
 	}
 	if s.RID != "" {
@@ -234,9 +222,9 @@ func (s SlideMasterID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// UnmarshalXML implements custom XML unmarshaling for SlideMasterID.
-// Handles both namespaced (relationships:id) and prefixed (r:id) formats,
-// and captures the optional extLst child (C225).
+// UnmarshalXML implements custom XML unmarshaling for SlideMasterID. The
+// relationship id arrives as the namespace-resolved r:id (Space is the
+// relationships URI, Local is "id"); it captures the optional extLst child (C225).
 func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	s.IDOmitted = true
 	for _, attr := range start.Attr {
@@ -249,9 +237,6 @@ func (s *SlideMasterID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			s.IDOmitted = false
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			// Relationship ID with full namespace
-			s.RID = attr.Value
-		case attr.Name.Local == "r:id":
-			// Relationship ID with r: prefix (our marshaled format)
 			s.RID = attr.Value
 		}
 	}
