@@ -97,15 +97,36 @@ func (t AnimationTrigger) String() string {
 	}
 }
 
-// Animation is a handle to a slide animation. AddAnimation returns one so the
-// effect can be further configured (e.g. build-by-paragraph) before the deck is
-// saved; Animations returns them for reading back existing timing.
+// Animation is a handle to a slide animation.
+//
+// There are two kinds, and only one of them is live (C519):
+//
+//   - The handle AddAnimation returns is pending: it is held by the slide until
+//     the next save flushes it into the p:timing tree, so SetByParagraph on it
+//     takes effect.
+//   - The handles Animations returns for effects already in the timing tree are
+//     reconstructions built by reading it. They report the effect faithfully,
+//     but they are not connected to the tree, so mutating one changes nothing.
+//     Editable reports which kind a handle is.
+//
+// Rewriting an existing effect is not supported; add a new one instead.
 type Animation struct {
 	shapeID     uint32
 	effect      AnimationEffect
 	trigger     AnimationTrigger
 	byParagraph bool
+	// parsed marks a handle reconstructed from the timing tree by Animations,
+	// as opposed to one queued by AddAnimation. Mutators on a parsed handle
+	// change only the handle.
+	parsed bool
 }
+
+// Editable reports whether mutating this handle affects the deck.
+//
+// It is true for a handle returned by AddAnimation and not yet saved, and false
+// for one returned by Animations for an effect already in the timing tree —
+// which is a read-only reconstruction (see the type documentation).
+func (a *Animation) Editable() bool { return !a.parsed }
 
 // ShapeID returns the cNvPr id of the shape the animation targets.
 func (a *Animation) ShapeID() uint32 { return a.shapeID }
@@ -123,9 +144,23 @@ func (a *Animation) ByParagraph() bool { return a.byParagraph }
 // at a time, each paragraph revealed on its own click. It applies only to a
 // shape with a text body of more than one paragraph; otherwise the whole shape
 // animates as one. Returns the animation for chaining.
+// It has no effect on a handle returned by Animations for an effect already in
+// the timing tree — that handle is a read-only reconstruction (see Editable).
 func (a *Animation) SetByParagraph(v bool) *Animation {
 	a.byParagraph = v
 	return a
+}
+
+// Supported reports whether this package can emit the effect. It is false for
+// EffectUnknown, which Animations reports for a timing node whose preset is not
+// recognized, and which AddAnimation cannot serialize.
+//
+// Copying animations between decks by feeding Animations' output back into
+// AddAnimation therefore drops the unrecognized ones; check this first to
+// notice (C519).
+func (e AnimationEffect) Supported() bool {
+	_, ok := animEffectDefs[e]
+	return ok
 }
 
 // AddAnimation adds an animation targeting the shape with the given cNvPr id
@@ -136,10 +171,16 @@ func (a *Animation) SetByParagraph(v bool) *Animation {
 //
 // shapeID must be a resolved (non-zero) cNvPr id. A shape created through this
 // package reports id 0 from Shape.ID until the deck is first saved, so pass a
-// shape's id only after a save (or use the id read back from a loaded deck); an
-// animation targeting id 0 is dropped at save time rather than emitting a
-// dangling spid="0" target. Build-by-paragraph (SetByParagraph) is honored even
-// when the target shape is nested inside a group.
+// shape's id only after a save (or use the id read back from a loaded deck).
+// Build-by-paragraph (SetByParagraph) is honored even when the target shape is
+// nested inside a group.
+//
+// An animation is dropped at save time, rather than emitting a target the deck
+// does not contain, when its shapeID is 0, when the shape it names is no longer
+// in the slide's shape tree (C416), or when effect is one this package cannot
+// emit — EffectUnknown, which is what Animations reports for an unrecognized
+// preset. Use AnimationEffect.Supported to check the last case before relying
+// on a round trip through Animations.
 func (s *Slide) AddAnimation(shapeID uint32, effect AnimationEffect, trigger AnimationTrigger) *Animation {
 	// Materialize the slide so the save regenerates the part (and flushes this
 	// animation into the timing tree) instead of passing the original bytes
@@ -863,7 +904,9 @@ func effectFromCTn(c *oxml.CommonTimeNode) *Animation {
 	if !ok {
 		eff = EffectUnknown
 	}
-	a := &Animation{effect: eff}
+	// Reconstructed from the tree, so not connected to it: mutators on this
+	// handle change only the handle (C519).
+	a := &Animation{effect: eff, parsed: true}
 	switch c.NodeType {
 	case "withEffect":
 		a.trigger = TriggerWithPrevious

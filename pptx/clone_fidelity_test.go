@@ -100,7 +100,7 @@ func TestParagraphClone_CopiesEveryField(t *testing.T) {
 		}
 
 		switch f.Type.Kind() {
-		case reflect.Ptr, reflect.Slice:
+		case reflect.Pointer, reflect.Slice:
 			// A reference field must be present and must not alias the original,
 			// or editing the clone would reach back into it.
 			if gf.IsZero() {

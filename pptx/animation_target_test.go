@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -126,5 +127,59 @@ func TestAddAnimation_OnClickGroup_HasNoOnBeginCondition(t *testing.T) {
 	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
 	if strings.Contains(xml, `evt="onBegin"`) {
 		t.Errorf("a click-triggered group gained an onBegin start condition:\n%s", xml)
+	}
+}
+
+// C519: Animations returns two identical-looking handle kinds with different
+// semantics — a pending one from AddAnimation whose mutators work, and a
+// reconstruction from the timing tree whose mutators do not. Editable
+// distinguishes them.
+func TestAnimationHandle_EditableDistinguishesPendingFromParsed(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	s.AddTextBox().TextFrame().SetText("a\nb")
+
+	if _, err := p.SaveBytes(); err != nil {
+		t.Fatal(err)
+	}
+	pending := s.AddAnimation(2, EffectFadeIn, TriggerOnClick)
+	if !pending.Editable() {
+		t.Error("a handle from AddAnimation must report Editable")
+	}
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p2.Slides()[0].Animations()
+	if len(got) == 0 {
+		t.Fatal("the saved animation did not read back")
+	}
+	for _, a := range got {
+		if a.Editable() {
+			t.Errorf("a parsed animation handle claims to be editable: %+v", a)
+		}
+	}
+}
+
+// C519: AddAnimation silently drops an effect it cannot emit — notably
+// EffectUnknown, which is exactly what Animations reports for an unrecognized
+// preset, so echoing a read-back value loses it. Supported makes that checkable.
+func TestAnimationEffect_Supported(t *testing.T) {
+	if EffectUnknown.Supported() {
+		t.Error("EffectUnknown must not report Supported: AddAnimation cannot emit it")
+	}
+	for _, e := range []AnimationEffect{
+		EffectAppear, EffectFadeIn, EffectFlyIn, EffectWipe, EffectZoom,
+		EffectPulse, EffectSpin, EffectGrowShrink,
+		EffectDisappear, EffectFadeOut, EffectFlyOut,
+	} {
+		if !e.Supported() {
+			t.Errorf("%s must report Supported", e)
+		}
 	}
 }

@@ -374,6 +374,13 @@ type TableCell struct {
 	margins        *cellMargins
 	marginsCleared bool
 
+	// bordersCleared records, per edge, a SetBorderX(nil) call, so the flush
+	// deletes that parsed border. Borders are not parsed into the domain model,
+	// so a nil edge on its own means "not modeled here" and must leave the
+	// source alone; without the distinction there was no way to remove a border
+	// at all (C521). Same shape as marginsCleared above.
+	bordersCleared cellBorderEdges
+
 	// sourceTc is the a:tc node this cell was parsed from (or last flushed
 	// into). A structural regeneration reuses its tcPr and txBody for
 	// surviving cells, so parsed styling (margins, borders, fills) is not
@@ -590,25 +597,55 @@ const (
 // SetBorderLeft sets the left border.
 func (c *TableCell) SetBorderLeft(border *TableBorder) {
 	c.borderLeft = border
-	c.dirty = true
+	c.markBorder(borderLeft, border)
 }
 
-// SetBorderRight sets the right border.
+// SetBorderRight sets the right border. A nil border removes it.
 func (c *TableCell) SetBorderRight(border *TableBorder) {
 	c.borderRight = border
-	c.dirty = true
+	c.markBorder(borderRight, border)
 }
 
-// SetBorderTop sets the top border.
+// SetBorderTop sets the top border. A nil border removes it.
 func (c *TableCell) SetBorderTop(border *TableBorder) {
 	c.borderTop = border
+	c.markBorder(borderTop, border)
+}
+
+// SetBorderBottom sets the bottom border. A nil border removes it.
+func (c *TableCell) SetBorderBottom(border *TableBorder) {
+	c.borderBottom = border
+	c.markBorder(borderBottom, border)
+}
+
+// cellBorderEdge identifies one edge of a table cell's border box.
+type cellBorderEdge uint8
+
+const (
+	borderLeft cellBorderEdge = iota
+	borderRight
+	borderTop
+	borderBottom
+)
+
+// cellBorderEdges is a set of cell border edges.
+type cellBorderEdges uint8
+
+// markBorder records the caller's intent for one edge and marks the cell dirty.
+// A nil border is an explicit removal, which the flush must act on; a non-nil
+// one clears any earlier removal.
+func (c *TableCell) markBorder(edge cellBorderEdge, border *TableBorder) {
+	if border == nil {
+		c.bordersCleared |= 1 << edge
+	} else {
+		c.bordersCleared &^= 1 << edge
+	}
 	c.dirty = true
 }
 
-// SetBorderBottom sets the bottom border.
-func (c *TableCell) SetBorderBottom(border *TableBorder) {
-	c.borderBottom = border
-	c.dirty = true
+// isBorderCleared reports whether the caller explicitly removed this edge.
+func (c *TableCell) isBorderCleared(edge cellBorderEdge) bool {
+	return c.bordersCleared&(1<<edge) != 0
 }
 
 // SetBorders sets all borders to the same value.

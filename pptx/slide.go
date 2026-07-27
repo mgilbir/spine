@@ -189,9 +189,16 @@ func (s *Slide) Shapes() []Shape {
 
 // AddShape adds a shape to the slide. It returns an error for shape types the
 // library cannot serialize (previously such shapes were accepted and then
-// silently dropped on save). All shape types constructible through this
-// package — TextBox, PlaceholderShape, AutoShape, Table, Picture, Video,
-// Audio, and GroupShape — are supported.
+// silently dropped on save).
+//
+// The accepted types are TextBox, PlaceholderShape, AutoShape, Table, Picture,
+// Video, Audio, GroupShape and Connector.
+//
+// ChartFrame, SmartArtFrame and OLEObjectFrame are rejected: they own parts and
+// relationships as well as a shape-tree node, so they are created through
+// AddChart, AddSmartArt and AddOLEObject rather than assembled and handed over.
+// RemoveShape does accept them, so a frame removed by mistake cannot be re-added
+// as the same object — recreate it through its Add* constructor.
 func (s *Slide) AddShape(shape Shape) error {
 	switch shape.(type) {
 	case *TextBox, *PlaceholderShape, *AutoShape, *Table, *Picture, *Video, *Audio, *GroupShape, *Connector:

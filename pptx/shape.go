@@ -109,12 +109,36 @@ type BaseShape struct {
 
 	// hyperlink is the shape-level hyperlink (a:hlinkClick on p:cNvPr), or nil.
 	hyperlink *Hyperlink
+
+	// nameSet records an explicit SetName, so the flush can tell "the caller
+	// wants this name" (including the empty one) from "this shape was created
+	// through the API and never named". Without it the flush had to skip an
+	// empty name, and SetName("") was silently ignored (C521).
+	nameSet bool
+	// hyperlinkCleared records a RemoveHyperlink, so the flush deletes the
+	// parsed a:hlinkClick instead of leaving it (a nil hyperlink otherwise means
+	// "not modeled here", which must not delete anything).
+	hyperlinkCleared bool
 }
 
 // Hyperlink returns the shape-level hyperlink, or nil when the shape carries
 // none.
 func (s *BaseShape) Hyperlink() *Hyperlink {
 	return s.hyperlink
+}
+
+// RemoveHyperlink detaches the shape-level hyperlink, deleting the
+// a:hlinkClick from the shape's p:cNvPr on the next save. It is a no-op on a
+// shape that carries none.
+//
+// The setters could only ever attach a hyperlink: the flush wrote it when
+// non-nil and there was no way to say "remove this one" (C521). The
+// relationship the removed hyperlink used is garbage-collected with the slide's
+// other unreferenced rels.
+func (s *BaseShape) RemoveHyperlink() {
+	s.hyperlink = nil
+	s.hyperlinkCleared = true
+	s.dirty = true
 }
 
 // setHyperlinkURL attaches an external-URL hyperlink to the shape.
@@ -186,6 +210,7 @@ func (s *BaseShape) ID() uint32 {
 // SetName sets the name of the shape.
 func (s *BaseShape) SetName(name string) {
 	s.name = name
+	s.nameSet = true
 	s.dirty = true
 }
 

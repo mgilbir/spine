@@ -169,11 +169,8 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		return
 	}
 	if base.dirty {
-		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.name != "" {
-			sp.NvSpPr.CNvPr.Name = base.name
-		}
-		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil && base.hyperlink != nil {
-			sp.NvSpPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
+		if sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
+			flushShapeNameAndLink(sp.NvSpPr.CNvPr, base)
 		}
 		if sp.SpPr == nil {
 			sp.SpPr = &dml.SpPr{}
@@ -198,6 +195,29 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 		return
 	}
 	updateTxBody(&sp.TxBody, tf)
+}
+
+// flushShapeNameAndLink writes the shape's name and hyperlink into its parsed
+// p:cNvPr.
+//
+// Both used to be write-only affordances: the name was written only when
+// non-empty, so SetName("") was silently ignored, and the hyperlink only when
+// non-nil, with no API able to remove one (C521). The explicit-intent flags
+// distinguish "the caller set this" from "the domain model does not carry it",
+// so a shape dirtied for an unrelated reason still leaves both alone.
+func flushShapeNameAndLink(cNvPr *dml.CNvPr, base *BaseShape) {
+	if base.nameSet {
+		cNvPr.Name = base.name
+		// name is required on cNvPr and not omitempty, so an explicit "" is
+		// emitted as name="" rather than dropping the attribute.
+		cNvPr.CapturedAttrs = dropCapturedAttrs(cNvPr.CapturedAttrs, "name")
+	}
+	switch {
+	case base.hyperlink != nil:
+		cNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
+	case base.hyperlinkCleared:
+		cNvPr.HlinkClick = nil
+	}
 }
 
 // dropCapturedAttrs removes the named attributes from a captured attribute
@@ -566,14 +586,9 @@ func updatePictureNode(pic *oxml.Picture, shape Shape) {
 		return
 	}
 	if pic.NvPicPr != nil && pic.NvPicPr.CNvPr != nil {
-		if base.name != "" {
-			pic.NvPicPr.CNvPr.Name = base.name
-		}
+		flushShapeNameAndLink(pic.NvPicPr.CNvPr, base)
 		if domainPic != nil {
 			pic.NvPicPr.CNvPr.Descr = domainPic.description
-		}
-		if base.hyperlink != nil {
-			pic.NvPicPr.CNvPr.HlinkClick = hyperlinkToXML(base.hyperlink)
 		}
 	}
 	if pic.SpPr == nil {
@@ -742,22 +757,22 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 		tc.TcPr = &oxml.ATcPr{}
 	}
 	pr := tc.TcPr
-	if cell.vertAlign != "" {
-		pr.Anchor = string(cell.vertAlign)
-	}
+	// The anchor is parsed into the domain model, so writing it unconditionally
+	// is a no-op for a cell that never had one and lets SetVerticalAlign("")
+	// clear a parsed anchor, which the old non-empty guard made impossible
+	// (C521). It is also omitempty, so the captured value has to go with it or
+	// replay would restore it (the T-D trap, as in C583).
+	pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs, "anchor")
+	pr.Anchor = string(cell.vertAlign)
 	applyCellMargins(pr, cell)
-	if cell.borderLeft != nil {
-		pr.LnL = tableBorderToLn(cell.borderLeft)
-	}
-	if cell.borderRight != nil {
-		pr.LnR = tableBorderToLn(cell.borderRight)
-	}
-	if cell.borderTop != nil {
-		pr.LnT = tableBorderToLn(cell.borderTop)
-	}
-	if cell.borderBottom != nil {
-		pr.LnB = tableBorderToLn(cell.borderBottom)
-	}
+	// Borders are not parsed into the domain model, so a nil edge means "not
+	// modeled here" and must leave the parsed border alone — only an explicit
+	// SetBorderX(nil) removes one. Without that distinction there was no way to
+	// remove a border at all (C521).
+	applyCellBorder(&pr.LnL, cell.borderLeft, cell.isBorderCleared(borderLeft))
+	applyCellBorder(&pr.LnR, cell.borderRight, cell.isBorderCleared(borderRight))
+	applyCellBorder(&pr.LnT, cell.borderTop, cell.isBorderCleared(borderTop))
+	applyCellBorder(&pr.LnB, cell.borderBottom, cell.isBorderCleared(borderBottom))
 	if cell.fill != nil {
 		pr.SolidFill = colorToOxml(cell.fill)
 		pr.NoFill = nil
@@ -778,6 +793,17 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	}
 	tc.HMerge = cell.hMerge
 	tc.VMerge = cell.vMerge
+}
+
+// applyCellBorder writes one cell edge: a modeled border replaces the parsed
+// one, an explicit removal deletes it, and neither leaves it untouched.
+func applyCellBorder(dst **dml.Ln, border *TableBorder, cleared bool) {
+	switch {
+	case border != nil:
+		*dst = tableBorderToLn(border)
+	case cleared:
+		*dst = nil
+	}
 }
 
 // applyCellMargins writes explicit cell text insets into the parsed tcPr, or

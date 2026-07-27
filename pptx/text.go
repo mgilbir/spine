@@ -748,6 +748,16 @@ func (r *Run) Hyperlink() *Hyperlink {
 	return r.hyperlink
 }
 
+// RemoveHyperlink detaches the run's hyperlink, deleting the a:hlinkClick from
+// its a:rPr on the next save. It is a no-op on a run that carries none.
+//
+// The run hyperlink setters could only ever attach one: the flush wrote it when
+// non-nil and no API could say "remove this" (C521).
+func (r *Run) RemoveHyperlink() {
+	r.hyperlink = nil
+	r.markSet(runPropHyperlink)
+}
+
 // SetHyperlink attaches an external-URL hyperlink to the run and returns it. The
 // External relationship is allocated in the slide's rels on save.
 func (r *Run) SetHyperlink(url string) *Hyperlink {

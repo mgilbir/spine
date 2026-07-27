@@ -333,8 +333,8 @@ func updateConnectorNode(cs *oxml.ConnectionShape, c *Connector) {
 	if !c.dirty {
 		return
 	}
-	if cs.NvCxnSpPr != nil && cs.NvCxnSpPr.CNvPr != nil && c.name != "" {
-		cs.NvCxnSpPr.CNvPr.Name = c.name
+	if cs.NvCxnSpPr != nil && cs.NvCxnSpPr.CNvPr != nil {
+		flushShapeNameAndLink(cs.NvCxnSpPr.CNvPr, &c.BaseShape)
 	}
 	if cs.SpPr == nil {
 		cs.SpPr = &dml.SpPr{}
