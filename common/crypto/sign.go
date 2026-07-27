@@ -206,10 +206,26 @@ func Verify(pub crypto.PublicKey, sigURI string, signedInfo, signature []byte) e
 
 // ecdsaDERToP1363 converts an ASN.1 DER ECDSA signature (as crypto.Signer
 // produces) into the fixed-width r‖s encoding XML-DSig uses.
+//
+// r and s are range-checked against the curve order before conversion: asn1
+// happily unmarshals a negative or oversized INTEGER, and big.Int.FillBytes
+// panics on both. A crypto.Signer is caller-supplied — it may be a hardware
+// token, a remote service, or a stub — so a malformed signature has to come
+// back as an error, not as a panic in the caller's goroutine.
 func ecdsaDERToP1363(der []byte, curve elliptic.Curve) ([]byte, error) {
 	var parsed struct{ R, S *big.Int }
 	if _, err := asn1.Unmarshal(der, &parsed); err != nil {
 		return nil, fmt.Errorf("crypto: parsing ECDSA DER signature: %w", err)
+	}
+	if parsed.R == nil || parsed.S == nil {
+		return nil, errors.New("crypto: ECDSA DER signature is missing r or s")
+	}
+	order := curve.Params().N
+	if parsed.R.Sign() <= 0 || parsed.R.Cmp(order) >= 0 {
+		return nil, fmt.Errorf("crypto: ECDSA signature r is out of range for curve %s", curve.Params().Name)
+	}
+	if parsed.S.Sign() <= 0 || parsed.S.Cmp(order) >= 0 {
+		return nil, fmt.Errorf("crypto: ECDSA signature s is out of range for curve %s", curve.Params().Name)
 	}
 	n := (curve.Params().BitSize + 7) / 8
 	out := make([]byte, 2*n)
