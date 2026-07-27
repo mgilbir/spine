@@ -12,8 +12,8 @@ everything else.
 
 ### Cells, formulas, and styling
 
-- Create workbooks with multiple sheets
-- Read and write cell values (strings, numbers, booleans)
+- Create workbooks with multiple sheets, and delete one (`Workbook.DeleteSheet`) — see [Adding and deleting sheets](#adding-and-deleting-sheets)
+- Read and write cell values. `Cell.Value()` returns the value typed: `string`, `float64`, `bool`, and `time.Time` for a date-formatted cell. For a formula cell it returns the *cached result*, typed the same way a literal cell of that type reads back (`=1+1` reads as `float64(2)`, not the string `"2"`); when the file carries no cached value it falls back to the formula text. `Cell.Type()` reports which case you are in
 - Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring; saving a workbook with a new dynamic-array formula synthesizes `xl/metadata.xml` (the `XLDAPR` record) and tags the spill master cell with `cm`, so Excel shows the spill without a recalc
 - Cell styling (fonts, fills, borders, number formats, alignment)
 - Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
@@ -73,6 +73,29 @@ bars — reading each control's type, linked cell (`x:FmlaLink`), source range,
 checkbox state, and its VML/`ctrlProps` parts; the control parts are preserved
 verbatim on save.
 
+## Adding and deleting sheets
+
+`Workbook.AddSheet` appends a sheet; `Workbook.DeleteSheet(index)` removes one.
+Deletion is a cascade, not just a list edit: the sheet's preserved part, its
+content-type override and its `.rels` part go, and so do the parts reachable
+only from that sheet — its drawings, tables and comments, and transitively the
+media and chart parts those own. A part still referenced from anywhere else is
+kept. Workbook state that indexes sheets by position is adjusted too: the active
+tab is shifted or clamped, and sheet-scoped defined names are re-pointed (names
+scoped to the deleted sheet are dropped).
+
+Two deliberate exceptions: pivot-table parts are *not* cascade-deleted, because
+their caches are shared with the workbook and with other pivots; and hiding
+rather than deleting is the safer edit when other sheets' formulas reference the
+one you are about to remove — spine does not rewrite formulas.
+
+```go
+wb, _ := xlsx.Open("book.xlsx")
+if err := wb.DeleteSheet(2); err != nil {
+    log.Fatal(err)
+}
+```
+
 ## Merging and copying sheets
 
 Combine or divide packages with automatic id, part-name, and relationship
@@ -131,6 +154,13 @@ data validation) plus worksheet images and conditional-formatting rules. The
 `Hyperlink` type (`URL`, `Anchor`, `Tooltip`, `SetTooltip`) and the image read
 accessors (`AltText`, `Data`, `ContentType`) are shared with the `docx` and
 `pptx` APIs.
+
+For an image added as SVG, `Data()` returns the **raster (PNG) fallback** that
+was embedded alongside it for viewers that cannot render SVG —
+`Image.SVGData()` returns the original SVG bytes. `SVGData()` is nil when the
+image is not an SVG, and also when its SVG variant is not available (an image
+read back from an opened file), so treat a nil result as "no SVG here" rather
+than as an error.
 
 ```go
 wb, _ := xlsx.Open("book.xlsx")

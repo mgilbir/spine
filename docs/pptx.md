@@ -69,6 +69,15 @@ between decks, carrying each slide's own layout, master, theme (deduplicating
 identical masters/layouts), notes slide, and the source deck's notes master and
 handout master (when the destination has none).
 
+**`AppendSlidesFrom` may modify the source deck.** To take an authoritative
+snapshot it marshals each of the source's slides, and marshaling is what flushes
+a slide's pending edits: shape ids are allocated, pending media (images, audio,
+video) is embedded into the *source* package, and media timing and animations
+are resolved. The copy taken into the destination is fully independent, but a
+caller that keeps using `other` afterwards — or saves it — will see a source
+whose in-memory model reflects those flushed edits. If the source must stay
+pristine, open it again from disk rather than reusing the handle.
+
 ## Text extraction
 
 `pptx.Presentation.Text()` / `Slide.Text()` return all shapes incl. groups and
@@ -265,6 +274,14 @@ slide's rels on save; `ppaction://` verbs need none. A zero-modification
 open→save of a hyperlink- or picture-bearing deck is byte-identical, and setting
 a hyperlink on a run in an opened slide patches that slide in place without
 disturbing the others.
+
+`SetHyperlinkToSlide` takes a 0-based slide index that is only resolved at save
+time — the target slide may not exist yet when you set the link. If the index is
+still out of range for the deck when it is saved, **no hyperlink is emitted at
+all**: the alternative is a `ppaction://hlinksldjump` with no target, which is a
+dangling action PowerPoint may reject. The call itself returns a `*Hyperlink`
+either way and reports no error, so validate the index yourself against
+`Presentation.SlideCount()` if a silently absent link would be a problem.
 
 ## Slide layouts
 

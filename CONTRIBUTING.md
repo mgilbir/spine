@@ -14,16 +14,21 @@ The lint baseline is zero: `make lint` must exit clean before a change is
 mergeable.
 
 Memory-hungry runs (`-race`, full-corpus passes) must go through a
-resource-capped `systemd-run --user --scope` — that is what `make test-race`
-and `make harvest-batch` do. A bare run shares the terminal's cgroup, and one
-kernel OOM kill there makes systemd (default `OOMPolicy=stop`) tear down the
-whole terminal scope, killing your shell and everything in it. Inside a capped
-scope the kill is contained to the test. Generic pattern for any heavy
-one-off:
+resource-capped `systemd-run --user --scope` — that is what `make test-race`,
+`make test-corpus` and `make harvest-batch` do. A bare run shares the terminal's
+cgroup, and one kernel OOM kill there makes systemd (default `OOMPolicy=stop`)
+tear down the whole terminal scope, killing your shell and everything in it.
+Inside a capped scope the kill is contained to the test. Generic pattern for any
+heavy one-off:
 
 ```bash
 systemd-run --user --scope -p MemoryMax=12G -p MemorySwapMax=1G -- <command>
 ```
+
+`OOMPolicy=stop` is the right default for a *test* run — containment is the
+point. `make harvest-batch` is the one place that sets `OOMPolicy=continue`
+instead, because there the OOM kill is an expected outcome the surviving
+orchestrator must record; see the comment on that target.
 
 ## Test fixtures
 
@@ -101,6 +106,29 @@ appends to a typed slice on a parsed model must also maintain the
 corresponding childOrder bookkeeping; a mutator that skips it will
 serialize its element in the wrong place (or not at all) on files where
 the element did not already exist.
+
+## Documentation
+
+Godoc and the guides in `docs/` are not independent. When you change or qualify
+a **behavior** — a call that becomes a no-op in some state, an argument that is
+resolved late and can silently drop the operation, a side effect on an argument,
+a return type that widens — write the caveat in the godoc **and** re-read the
+guide section that covers the feature. Historically the caveat landed in godoc
+and the guide was never touched: `AppendSlidesFrom` mutating its source,
+out-of-range slide jumps being dropped, `Image.SVGData` versus `Data`,
+`DeleteSheet`'s cascade and `Cell.Value` returning `time.Time` and typed formula
+results all shipped that way (C579). The previous docs audit verified that every
+guide snippet *executes*, which is exactly the check a caveat drift survives.
+
+Two mechanical guards exist, and both are cheap to extend:
+
+- `internal/docsguard` pins the README's validation-severity catalog to the
+  severities the validators actually emit, and pins a list of caveat-bearing
+  APIs to the guide sections that must keep documenting them. Add a row when you
+  add a caveat.
+- The README's validation table lives between `<!-- validation-catalog:begin -->`
+  and `<!-- validation-catalog:end -->` markers; do not restructure it without
+  updating the parser in that package.
 
 ## Commit style
 
