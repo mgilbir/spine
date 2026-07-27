@@ -49,12 +49,68 @@ const (
 // standardEncryptionInfo is the parsed standard EncryptionInfo (the binary
 // EncryptionHeader plus EncryptionVerifier), version header already consumed.
 type standardEncryptionInfo struct {
+	flags       uint32 // EncryptionInfo.Flags ([MS-OFFCRYPTO] §2.3.4.4)
+	headerFlags uint32 // EncryptionHeader.Flags (§2.3.2), a copy of the above
 	algID       uint32
 	algIDHash   uint32
 	keyBits     int
 	salt        []byte
 	encVerifier []byte // 16 bytes
 	encVerHash  []byte // 32 bytes (AES)
+}
+
+// resolveAlgorithm normalizes the two "determined by the other field" encodings
+// [MS-OFFCRYPTO] §2.3.4.5 permits, so the rest of the decrypt path sees a
+// concrete AlgID and key size:
+//
+//   - AlgID 0 means "determined by Flags": with fAES set the cipher is AES and
+//     the key size comes from KeySize; with fAES clear it is RC4, which this
+//     path does not handle (Decrypt routes those to rc4.go).
+//   - KeySize 0 means "determined by AlgID", which names the size directly.
+//
+// Files that use them are spec-conformant, so failing to resolve them here is
+// what made a legitimate AES document report a wrong password.
+func (info *standardEncryptionInfo) resolveAlgorithm() error {
+	// Either flags word may carry fAES; §2.3.4.4 requires the EncryptionInfo
+	// and EncryptionHeader copies to agree, so accept the bit from either.
+	flags := info.flags | info.headerFlags
+
+	if info.algID == 0 {
+		if flags&stdFlagAES == 0 {
+			return fmt.Errorf("%w: standard EncryptionHeader AlgID 0 with the fAES flag clear denotes RC4, not AES", ErrUnsupportedEncryption)
+		}
+		if info.keyBits == 0 {
+			// Both fields defer to the other; AES-128 is the smallest AES the
+			// scheme defines and the reading msoffcrypto-tool takes.
+			info.keyBits = 128
+		}
+		switch info.keyBits {
+		case 128:
+			info.algID = stdAlgAES128
+		case 192:
+			info.algID = stdAlgAES192
+		case 256:
+			info.algID = stdAlgAES256
+		default:
+			return fmt.Errorf("%w: standard AES key size %d bits", ErrUnsupportedEncryption, info.keyBits)
+		}
+		return nil
+	}
+
+	if info.algID == stdAlgRC4 || (info.algID&0xFF00) != 0x6600 {
+		return fmt.Errorf("%w: standard EncryptionHeader AlgID %#x is not AES", ErrUnsupportedEncryption, info.algID)
+	}
+	if info.keyBits == 0 {
+		switch info.algID {
+		case stdAlgAES128:
+			info.keyBits = 128
+		case stdAlgAES192:
+			info.keyBits = 192
+		case stdAlgAES256:
+			info.keyBits = 256
+		}
+	}
+	return nil
 }
 
 // standardDecrypt recovers the plaintext package from a standard-encryption
@@ -65,8 +121,8 @@ func standardDecrypt(infoAfterVersion, encryptedPackage []byte, password string)
 	if err != nil {
 		return nil, err
 	}
-	if info.algID == stdAlgRC4 || (info.algID&0xFF00) != 0x6600 {
-		return nil, fmt.Errorf("%w: standard EncryptionHeader AlgID %#x is not AES", ErrUnsupportedEncryption, info.algID)
+	if err := info.resolveAlgorithm(); err != nil {
+		return nil, err
 	}
 	if info.algIDHash != 0 && info.algIDHash != stdAlgIDHashSHA1 {
 		return nil, fmt.Errorf("%w: standard EncryptionHeader AlgIDHash %#x is not SHA-1", ErrUnsupportedEncryption, info.algIDHash)
@@ -112,6 +168,8 @@ func parseStandardEncryptionInfo(b []byte) (standardEncryptionInfo, error) {
 		return info, fmt.Errorf("%w: standard EncryptionHeader size %d is out of range", ErrMalformedEncryptionInfo, headerSize)
 	}
 	header := b[8 : 8+headerSize]
+	info.flags = binary.LittleEndian.Uint32(b[0:4])
+	info.headerFlags = binary.LittleEndian.Uint32(header[0:4])
 	info.algID = binary.LittleEndian.Uint32(header[8:12])
 	info.algIDHash = binary.LittleEndian.Uint32(header[12:16])
 	info.keyBits = int(binary.LittleEndian.Uint32(header[16:20]))
@@ -168,7 +226,13 @@ func standardDecryptPackage(key, encryptedPackage []byte) ([]byte, error) {
 // The standard scheme is weaker than agile (SHA-1, no per-block IV, no package
 // integrity HMAC) and is offered only for compatibility with tools and older
 // Office builds that expect it; new documents should prefer agile Encrypt.
+//
+// The password must be a non-empty, valid-UTF-8 string of at most 255
+// characters; see ErrInvalidPassword.
 func EncryptStandard(packageData []byte, password string, keyBits int) (encryptionInfo, encryptedPackage []byte, err error) {
+	if err := validatePassword(password); err != nil {
+		return nil, nil, err
+	}
 	var algID uint32
 	switch keyBits {
 	case 128:
