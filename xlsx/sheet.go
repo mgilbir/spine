@@ -357,29 +357,51 @@ func rowIsEmptyPhantom(r *oxml.CT_Row) bool {
 		r.Ph == nil && r.DyDescent == nil && len(r.ExtRaw) == 0
 }
 
-// pruneEmptyPhantoms drops the contentless <c>/<row> elements a read-only
-// Cell() probe leaves in the model, so a later unrelated edit does not
-// serialize them (C425). It runs on the save path, just before the dimension
-// is recomputed, and only for sheets that are regenerated anyway.
-func pruneEmptyPhantoms(ws *oxml.CT_Worksheet) {
-	rows := ws.SheetData.Row
-	keptRows := rows[:0]
+// prunedRows returns rows without the contentless <c>/<row> elements a
+// read-only Cell() probe leaves in the model, so a later unrelated edit does
+// not serialize them nor inflate the recorded used range (C425).
+//
+// It returns rows itself when there is nothing to drop, and otherwise a fresh
+// slice: the durable model is never mutated, so a *Cell handle the caller
+// still holds keeps addressing the model even across a save that omitted its
+// (then empty) cell.
+func prunedRows(rows []oxml.CT_Row) []oxml.CT_Row {
+	prune := false
 	for i := range rows {
-		r := &rows[i]
-		if rowIsEmptyPhantom(r) {
+		if rowIsEmptyPhantom(&rows[i]) {
+			prune = true
+			break
+		}
+		for _, c := range rows[i].C {
+			if cellIsEmptyPhantom(c) {
+				prune = true
+				break
+			}
+		}
+		if prune {
+			break
+		}
+	}
+	if !prune {
+		return rows
+	}
+	out := make([]oxml.CT_Row, 0, len(rows))
+	for i := range rows {
+		r := rows[i] // value copy; its C slice is replaced below, never sliced in place
+		if rowIsEmptyPhantom(&r) {
 			continue
 		}
-		keptCells := r.C[:0]
+		kept := make([]*oxml.CT_Cell, 0, len(r.C))
 		for _, c := range r.C {
 			if cellIsEmptyPhantom(c) {
 				continue
 			}
-			keptCells = append(keptCells, c)
+			kept = append(kept, c)
 		}
-		r.C = keptCells
-		keptRows = append(keptRows, *r)
+		r.C = kept
+		out = append(out, r)
 	}
-	ws.SheetData.Row = keptRows
+	return out
 }
 
 // SetColWidth sets the width of a column (1-based). Existing <col> entries

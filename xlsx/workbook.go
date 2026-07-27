@@ -1119,10 +1119,14 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 	ws := sheet.ensureWS()
 
-	// Drop the contentless <c>/<row> elements a read-only Cell() probe left in
-	// the model before anything reads the grid: they must neither reach the
-	// file nor inflate the recorded used range (C425).
-	pruneEmptyPhantoms(ws)
+	// Serialize a view without the contentless <c>/<row> elements a read-only
+	// Cell() probe left in the model: they must neither reach the file nor
+	// inflate the recorded used range (C425). The durable model is untouched,
+	// so a *Cell handle the caller holds stays valid; the pruned view is
+	// swapped in only for the dimension pass and the marshal.
+	origRows := ws.SheetData.Row
+	ws.SheetData.Row = prunedRows(origRows)
+	defer func() { ws.SheetData.Row = origRows }()
 
 	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
 	// recorded used range must reflect any cells written since open (C117).

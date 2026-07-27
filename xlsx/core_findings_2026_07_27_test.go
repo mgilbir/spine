@@ -456,6 +456,36 @@ func TestPhantomCellsNotSerialized(t *testing.T) {
 	}
 }
 
+// TestPhantomCellHandleSurvivesSave pins that pruning at save is a view, not a
+// model mutation: a handle to a then-empty cell still addresses the model.
+func TestPhantomCellHandleSurvivesSave(t *testing.T) {
+	src := buildDatePackage(t, "", "1")
+	wb, err := OpenReader(bytes.NewReader(src), int64(len(src)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	sh, _ := wb.Sheet(0)
+	probe, err := sh.Cell("Z999")
+	if err != nil {
+		t.Fatalf("Cell: %v", err)
+	}
+	if err := sh.SetCellValue("A1", 7); err != nil {
+		t.Fatalf("SetCellValue: %v", err)
+	}
+	if _, err := wb.SaveBytes(); err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	probe.SetString("late")
+	out, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	sheetXML := string(readZipPart(t, out, "xl/worksheets/sheet1.xml"))
+	if !strings.Contains(sheetXML, `r="Z999"`) || !strings.Contains(sheetXML, "late") {
+		t.Errorf("write through a pre-save cell handle was lost:\n%s", sheetXML)
+	}
+}
+
 // TestPhantomCellsNotCounted guards the C425 read-side symptom: a probe must
 // not inflate Rows()/Cols().
 func TestPhantomCellsNotCounted(t *testing.T) {
