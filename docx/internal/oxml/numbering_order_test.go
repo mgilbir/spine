@@ -38,3 +38,35 @@ func TestCTNumbering_PreservesChildOrder(t *testing.T) {
 		t.Errorf("children not in source order (want abstractNum, numPicBullet, num): %q", out)
 	}
 }
+
+// C506: the C352 document-order rewrite made emitNum run only after the raw
+// loop, so on a part with no w:num of its own a session-added w:num (and
+// w:abstractNum) landed after a raw w:numIdMacAtCleanup — which the schema
+// places last in CT_Numbering. numIdMacAtCleanup is a must-precede trigger just
+// like num.
+func TestCTNumbering_SessionDefsPrecedeNumIdMacAtCleanup(t *testing.T) {
+	src := `<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+		`<w:numPicBullet w:numPicBulletId="0"/>` +
+		`<w:numIdMacAtCleanup w:val="9"/>` +
+		`</w:numbering>`
+	var n CT_Numbering
+	if err := xmlb.UnmarshalWithSource([]byte(src), &n); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	n.AbstractNum = append(n.AbstractNum, &CT_AbstractNum{AbstractNumId: "3"})
+	n.Num = append(n.Num, &CT_Num{NumId: "7"})
+
+	b := xmlb.NewWordprocessingMLBuilder()
+	n.MarshalToBuilder(b, xmlb.NSWordprocessingML, "numbering")
+	out := string(b.Bytes())
+
+	iAbstract := strings.Index(out, "<w:abstractNum ")
+	iNum := strings.Index(out, "<w:num ")
+	iCleanup := strings.Index(out, "<w:numIdMacAtCleanup")
+	if iAbstract < 0 || iNum < 0 || iCleanup < 0 {
+		t.Fatalf("missing child in output: %q", out)
+	}
+	if iAbstract >= iNum || iNum >= iCleanup {
+		t.Errorf("schema order violated (want abstractNum < num < numIdMacAtCleanup): %q", out)
+	}
+}
