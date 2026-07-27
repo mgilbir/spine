@@ -87,6 +87,17 @@ Office's application-specific signature object (`SignatureInfoV1`) so Office's
 signature UI recognizes them (see `common/xml` for the inclusive Canonical XML
 1.0 implementation).
 
+`SignatureInfo.CoveredParts` reports what a signature actually protects, and
+follows the whole trust chain to say so: `SignatureValue` covers `SignedInfo`, a
+`SignedInfo` reference covers an `<Object>`, and only the manifest of a covered
+`<Object>` contributes parts. Anyone can append an `<Object>` with a manifest of
+correct digests to a signed package without the private key; such an Object is
+reported through `Problems` and makes the signature invalid, never as coverage.
+Verification also accepts the SHA-1 algorithms older Office signatures use, so
+`Valid` alone does not imply a modern algorithm — reject
+`info.UsesWeakAlgorithms()` (see `WeakAlgorithms`, `DigestMethods`) if your
+policy requires SHA-256.
+
 ## VBA macros
 
 Extract, inject/replace, and remove the `vbaProject.bin` project on

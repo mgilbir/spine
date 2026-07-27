@@ -87,6 +87,7 @@ caller sees is listed.
   (C354, #220).
 - opc: core-property decode errors are surfaced instead of being silently
   dropped, and integer formatting is `MinInt`-safe (C344, C345, #209).
+  the XAdES `QualifyingProperties` Object Office emits — are unaffected.
 
 ### Fixed
 
@@ -100,6 +101,7 @@ caller sees is listed.
   wild packages carry are percent-encoded, the content type is escaped for the
   query component, and verification resolves the literal name before falling
   back to the decoded one (#223).
+  back to the decoded one.
 - `SignatureInfo`'s documentation referred to a `DigestMethod` field that did
   not exist. The digest algorithms are now reported for real, in
   `DigestMethods`, alongside a new `WeakAlgorithms` field and
@@ -228,6 +230,7 @@ caller sees is listed.
   its fixtures (C576). The batched harvest's failure catalog
   (`testdata/cc/batch-quarantine.tsv`) is committed rather than gitignored, and
   `spec/gen_spec/` is no longer both tracked and ignored (C574, C575).
+  Office signatures use, so a caller that wants to refuse them now can.
 
 ## 0.1.0 - 2026-07-22
 

@@ -1,11 +1,14 @@
 package opc
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/x509"
 	"encoding/base64"
+	stdxml "encoding/xml"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +25,13 @@ import (
 // SignatureValue over the canonicalized SignedInfo against the signer's
 // embedded X.509 certificate; signing builds the same structure and writes the
 // signature parts into a copy of the package.
+//
+// The trust chain is SignedInfo → Object → Manifest → part, and verification
+// walks it as a chain: SignatureValue covers SignedInfo, a SignedInfo reference
+// covers an <Object>, and only the manifest of a covered Object says anything
+// about the package. An <Object> that no verified SignedInfo reference reaches
+// is unsigned — anyone can append one to a signed package — so its manifest is
+// reported as a Problem rather than as coverage.
 //
 // Canonicalization uses inclusive Canonical XML 1.0 (see common/xml/c14n.go).
 // The signer emits SHA-256 digests and RSA-SHA256 / ECDSA-SHA256 signatures;
@@ -105,23 +115,54 @@ type SignatureInfo struct {
 	NotBefore time.Time
 	NotAfter  time.Time
 
-	// SigningTime is the time recorded in the signature's SignatureTime
-	// property, or the zero time when absent.
+	// SigningTime is the time recorded in the SignatureTime property of a
+	// signed <Object>, or the zero time when absent. A SignatureTime carried by
+	// an <Object> the signature does not cover is ignored.
 	SigningTime time.Time
 
-	// SignatureMethod and DigestMethod are the algorithm URIs used.
+	// SignatureMethod is the algorithm URI of the SignatureValue, as declared by
+	// SignedInfo (for example the URI for RSA-SHA256).
 	SignatureMethod string
 
-	// CoveredParts lists the package part names the signature's manifest
-	// covers, in the order they appear.
+	// DigestMethods lists the distinct digest algorithm URIs of the references
+	// that were checked, in first-seen order. A signature normally uses one
+	// throughout, but nothing requires it to.
+	DigestMethods []string
+
+	// WeakAlgorithms lists the algorithm URIs among SignatureMethod and
+	// DigestMethods that are no longer collision resistant (the SHA-1 and MD5
+	// based methods). The verifier accepts those algorithms for compatibility
+	// with older Office signatures, so Valid can be true for a SHA-1 signature:
+	// a caller that wants to refuse one must test this field (or the equivalent
+	// UsesWeakAlgorithms).
+	WeakAlgorithms []string
+
+	// CoveredParts lists the package part names this signature cryptographically
+	// protects, in the order they appear. A part is listed only when it is
+	// covered by the manifest of an <Object> whose own digest was signed — that
+	// is, an Object reached by a SignedInfo reference that verified — and only
+	// when SignedInfoValid is true. Manifest entries in any other <Object> are
+	// not signed by the certificate holder and never appear here.
 	CoveredParts []string
 
-	// References details every reference that was checked.
+	// References details every reference that was checked. It is diagnostic
+	// output, not a coverage statement: a reference is listed once it has been
+	// evaluated, whether or not the signature as a whole is trustworthy. Use
+	// CoveredParts to learn what the signature actually protects.
 	References []ReferenceResult
 
 	// Problems lists human-readable reasons the signature is not Valid.
 	Problems []string
 }
+
+// UsesWeakAlgorithms reports whether the signature relies on a digest or
+// signature algorithm that is no longer collision resistant (SHA-1 or MD5
+// based). Such signatures still verify — the verifier accepts them so that
+// older Office signatures remain inspectable — so a caller with a modern
+// policy should reject them explicitly:
+//
+//	if !info.Valid || info.UsesWeakAlgorithms() { … }
+func (i SignatureInfo) UsesWeakAlgorithms() bool { return len(i.WeakAlgorithms) > 0 }
 
 // ReferenceResult reports the verification of a single XML-DSig reference.
 type ReferenceResult struct {
@@ -301,6 +342,9 @@ func (r *Reader) verifySignaturePart(partName string) (SignatureInfo, error) {
 	}
 
 	info.SignatureMethod = sig.SignedInfo.SignatureMethod.Algorithm
+	if isWeakAlgorithm(info.SignatureMethod) {
+		info.WeakAlgorithms = append(info.WeakAlgorithms, info.SignatureMethod)
+	}
 
 	// Certificate.
 	cert := parseFirstCertificate(sig.KeyInfo.X509Certificates)
@@ -331,18 +375,55 @@ func (r *Reader) verifySignaturePart(partName string) (SignatureInfo, error) {
 		}
 	}
 
-	// SignedInfo references (each addresses an <Object> in this signature).
+	// SignedInfo references. Each addresses an <Object> of this signature, and a
+	// reference that verifies is the *only* thing that binds an Object into the
+	// signature: everything outside SignedInfo is attacker-controlled once the
+	// package has left the signer's hands. signedObjects therefore records the
+	// Objects whose canonical bytes were actually covered by SignatureValue, and
+	// the covered part set below is derived from those Objects alone.
+	owners := objectIDOwners(data)
+	signedObjects := make(map[int]bool, len(sig.Objects))
+	referencedIDs := make(map[string]bool, len(sig.SignedInfo.References))
 	for _, ref := range sig.SignedInfo.References {
 		res := r.verifyObjectReference(ref, tree)
 		info.References = append(info.References, res)
+		info.addDigestMethod(ref.DigestMethod.Algorithm)
+		id := sameDocumentID(ref.URI)
+		if id == "" {
+			continue
+		}
+		referencedIDs[id] = true
+		// owners maps an Id to the top-level <Object> that carries it, and to
+		// -1 when the first element bearing that Id in document order is
+		// something else. That first-in-document-order rule is exactly the one
+		// C14NNode.FindByID applied when computing the digest above, so a
+		// duplicate Id later in the document cannot claim a digest that was
+		// computed over an earlier element.
+		if idx, ok := owners[id]; ok && idx >= 0 && res.Valid {
+			signedObjects[idx] = true
+		}
 	}
 
-	// Manifest references inside each Object (parts and relationships).
-	for _, obj := range sig.Objects {
+	// Manifest references inside the Objects the signature covers (parts and
+	// relationships). An Object the signature does not cover contributes
+	// nothing: its manifest is unsigned, so the parts it lists are not signed
+	// by the certificate holder.
+	forgedCoverage := false
+	for i, obj := range sig.Objects {
+		if !signedObjects[i] {
+			if problem := unsignedObjectProblem(obj, referencedIDs); problem != "" {
+				info.Problems = append(info.Problems, problem)
+				forgedCoverage = true
+			}
+			continue
+		}
 		for _, ref := range obj.Manifest.References {
 			res, part := r.verifyManifestReference(ref)
 			info.References = append(info.References, res)
-			if part != "" {
+			info.addDigestMethod(ref.DigestMethod.Algorithm)
+			// Coverage is a statement about what the certificate holder signed,
+			// so it is claimed only when SignatureValue itself verified.
+			if part != "" && info.SignedInfoValid {
 				info.CoveredParts = append(info.CoveredParts, part)
 			}
 		}
@@ -360,16 +441,126 @@ func (r *Reader) verifySignaturePart(partName string) (SignatureInfo, error) {
 			}
 		}
 	}
-	info.Valid = info.SignedInfoValid && allRefsValid && len(info.References) > 0
+	info.Valid = info.SignedInfoValid && allRefsValid && !forgedCoverage && len(info.References) > 0
 	return info, nil
+}
+
+// addDigestMethod records a digest algorithm URI seen on a checked reference,
+// keeping the list distinct and in first-seen order.
+func (i *SignatureInfo) addDigestMethod(uri string) {
+	if uri == "" {
+		return
+	}
+	for _, seen := range i.DigestMethods {
+		if seen == uri {
+			return
+		}
+	}
+	i.DigestMethods = append(i.DigestMethods, uri)
+	if isWeakAlgorithm(uri) {
+		i.WeakAlgorithms = append(i.WeakAlgorithms, uri)
+	}
+}
+
+// isWeakAlgorithm reports whether an XML-DSig algorithm URI names a digest or
+// signature method built on a hash that is no longer collision resistant. The
+// verifier accepts these (older Office signatures use them); the point of
+// naming them is to let a caller refuse them.
+func isWeakAlgorithm(uri string) bool {
+	lower := strings.ToLower(uri)
+	return strings.HasSuffix(lower, "sha1") || strings.HasSuffix(lower, "md5")
+}
+
+// sameDocumentID returns the id a same-document reference URI ("#id")
+// addresses, or "" when the URI is not of that form.
+func sameDocumentID(uri string) string {
+	if !strings.HasPrefix(uri, "#") {
+		return ""
+	}
+	return uri[1:]
+}
+
+// objectIDOwners scans a signature document and maps every Id value to the
+// position, among the top-level <Object> elements, of the Object that carries
+// it — or to -1 when the first element bearing that Id in document order is not
+// a top-level Object (the root Signature, an element nested inside an Object, a
+// foreign element smuggled into KeyInfo, …).
+//
+// Only the first element with a given Id is recorded, which mirrors
+// C14NNode.FindByID: the digest of a same-document reference is always computed
+// over the first match in document order, so a later duplicate can never
+// inherit the trust of an earlier element's verified digest.
+//
+// The positions line up with the Objects slice unmarshalled from the same
+// document: both count the direct <Object> children of the root, in order.
+// A truncated or malformed tail simply yields fewer entries, which is
+// fail-closed — an Object whose Id is not resolved here is never treated as
+// signed.
+func objectIDOwners(data []byte) map[string]int {
+	owners := make(map[string]int)
+	dec := xmlb.NewDecoder(bytes.NewReader(data))
+	depth, objects := 0, 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return owners
+		}
+		switch t := tok.(type) {
+		case stdxml.StartElement:
+			idx := -1
+			if depth == 1 && t.Name.Local == "Object" {
+				idx = objects
+				objects++
+			}
+			for _, a := range t.Attr {
+				// Namespace declarations are not attributes for id lookup, and
+				// the id may carry any prefix (xd:Id, wsu:Id, …), matching the
+				// local-name test FindByID uses.
+				if a.Name.Space == "xmlns" || a.Name.Local != "Id" {
+					continue
+				}
+				if _, seen := owners[a.Value]; !seen {
+					owners[a.Value] = idx
+				}
+			}
+			depth++
+		case stdxml.EndElement:
+			depth--
+		}
+	}
+}
+
+// unsignedObjectProblem describes an <Object> that the signature does not cover
+// but which claims package coverage anyway, or "" when the Object claims none.
+//
+// An uncovered Object with no manifest is benign and common: Office packages
+// carry an unreferenced <Object> holding the XAdES QualifyingProperties (its
+// SignedProperties child, not the Object, is what SignedInfo references), and
+// such an Object says nothing about the package. An uncovered Object that does
+// carry a manifest is the C362 forgery: it asserts that parts are signed when
+// no signature covers the assertion.
+func unsignedObjectProblem(obj xmlObject, referencedIDs map[string]bool) string {
+	n := len(obj.Manifest.References)
+	if n == 0 {
+		return ""
+	}
+	what := "an <Object> with no Id"
+	if obj.ID != "" {
+		what = "<Object> " + obj.ID
+	}
+	claim := " claims " + itoa(n) + " manifest reference(s) but "
+	if obj.ID != "" && referencedIDs[obj.ID] {
+		return what + claim + "its SignedInfo reference does not cover it; its coverage claims are ignored"
+	}
+	return what + claim + "no SignedInfo reference covers it; its coverage claims are ignored"
 }
 
 // verifyObjectReference checks a SignedInfo reference to a same-document
 // <Object> element: it canonicalizes the object and compares the digest.
 func (r *Reader) verifyObjectReference(ref xmlReference, tree *xmlb.C14NNode) ReferenceResult {
 	res := ReferenceResult{URI: ref.URI, Kind: "object"}
-	id := strings.TrimPrefix(ref.URI, "#")
-	if id == "" || !strings.HasPrefix(ref.URI, "#") {
+	id := sameDocumentID(ref.URI)
+	if id == "" {
 		res.Detail = "object reference " + ref.URI + " is not a same-document reference"
 		return res
 	}
@@ -395,7 +586,7 @@ func (r *Reader) verifyObjectReference(ref xmlReference, tree *xmlb.C14NNode) Re
 // It returns the covered part name (empty when the reference is unusable).
 func (r *Reader) verifyManifestReference(ref xmlReference) (ReferenceResult, string) {
 	res := ReferenceResult{URI: ref.URI}
-	partName := partNameFromURI(ref.URI)
+	partName := r.resolveManifestPartName(ref.URI)
 	if partName == "" {
 		res.Detail = "manifest reference " + ref.URI + " has no part name"
 		return res, ""
@@ -930,15 +1121,147 @@ func (r *Reader) partDigest(digestURI, name string) ([]byte, error) {
 
 // partReferenceURI builds the content-type-qualified reference URI OPC uses to
 // address a package part inside a signature manifest.
+//
+// A part name that conforms to the OPC grammar (ECMA-376 Part 2 §9.1.1) is
+// already a URI path — the grammar admits only pchar and percent-encoded octets
+// — so it is emitted verbatim, which is both what Office writes and what a
+// third-party verifier resolves back to the same part. Names that only wild
+// packages carry (a space, a bare '%', non-ASCII bytes: all illegal in a part
+// name, all preserved verbatim by this library) are percent-encoded so the
+// reference stays a well-formed URI; verification undoes that (see
+// resolveManifestPartName). The content type is escaped for the query
+// component, so a type carrying '&' or a space cannot break the query apart for
+// a verifier that parses it.
 func partReferenceURI(partName, contentType string) string {
+	uri := escapeURIPath(partName)
 	if contentType == "" {
+		return uri
+	}
+	return uri + "?ContentType=" + escapeURIQueryValue(contentType)
+}
+
+// escapeURIPath percent-encodes a part name for use as a URI path, leaving
+// every character the OPC part-name grammar allows untouched (so a conformant
+// part name is returned unchanged, percent-escapes included).
+func escapeURIPath(partName string) string {
+	if !needsURIPathEscape(partName) {
 		return partName
 	}
-	return partName + "?ContentType=" + contentType
+	return (&url.URL{Path: partName}).EscapedPath()
+}
+
+// needsURIPathEscape reports whether partName contains anything the part-name
+// grammar forbids and that therefore has to be percent-encoded to appear in a
+// URI. A conformant name (pchar plus well-formed percent-escapes) needs none.
+func needsURIPathEscape(partName string) bool {
+	for i := 0; i < len(partName); i++ {
+		c := partName[i]
+		switch {
+		case c == '/' || isPartNameChar(c):
+		case c == '%':
+			if i+2 >= len(partName) || !isHexDigit(partName[i+1]) || !isHexDigit(partName[i+2]) {
+				return true
+			}
+			i += 2
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// escapeURIQueryValue percent-encodes s for use as a value in a reference URI's
+// query. Characters of RFC 3986's query production are kept literal — so the
+// usual "?ContentType=application/…+xml" is unchanged — except '&', which would
+// otherwise let a content type introduce a second query parameter.
+func escapeURIQueryValue(s string) string {
+	escape := false
+	for i := 0; i < len(s); i++ {
+		if !isURIQueryChar(s[i]) {
+			escape = true
+			break
+		}
+	}
+	if !escape {
+		return s
+	}
+	const hexDigits = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isURIQueryChar(c) {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hexDigits[c>>4])
+		b.WriteByte(hexDigits[c&0x0f])
+	}
+	return b.String()
+}
+
+// isURIQueryChar reports whether c may appear literally in the query component
+// of a reference URI: RFC 3986's query production (pchar / "/" / "?") minus
+// '&' and '?', which are reserved here for splitting the query itself.
+func isURIQueryChar(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '-' || c == '.' || c == '_' || c == '~':
+		return true
+	case c == '!' || c == '$' || c == '\'' || c == '(' || c == ')' ||
+		c == '*' || c == '+' || c == ',' || c == ';' || c == '=':
+		return true
+	case c == ':' || c == '@' || c == '/':
+		return true
+	}
+	return false
+}
+
+// resolveManifestPartName maps a manifest reference URI to the part of this
+// package it addresses. A conformant reference URI *is* the part name, so the
+// literal form is tried first; only when the package has no such part is the
+// percent-decoded form tried, which is what a producer that had to escape a
+// grammar-illegal part name wrote. When neither exists the literal form is
+// returned, so the failure is reported under the name the signature actually
+// carries.
+func (r *Reader) resolveManifestPartName(uri string) string {
+	literal := literalPartNameFromURI(uri)
+	if literal == "" {
+		return ""
+	}
+	if r.GetFile(literal) != nil {
+		return literal
+	}
+	if decoded := partNameFromURI(uri); decoded != "" && decoded != literal && r.GetFile(decoded) != nil {
+		return decoded
+	}
+	return literal
+}
+
+// literalPartNameFromURI strips the ?ContentType= query and any fragment from a
+// manifest reference URI and normalizes what is left, without percent-decoding:
+// the result is the part name a conformant producer wrote.
+func literalPartNameFromURI(uri string) string {
+	if i := strings.IndexByte(uri, '?'); i >= 0 {
+		uri = uri[:i]
+	}
+	if i := strings.IndexByte(uri, '#'); i >= 0 {
+		uri = uri[:i]
+	}
+	if uri == "" {
+		return ""
+	}
+	if !strings.HasPrefix(uri, "/") {
+		uri = "/" + uri
+	}
+	return NormalizePartName(uri)
 }
 
 // partNameFromURI extracts and normalizes the package part name from a manifest
-// reference URI, discarding the ?ContentType= query.
+// reference URI, discarding the ?ContentType= query and percent-decoding what
+// remains.
 func partNameFromURI(uri string) string {
 	if i := strings.IndexByte(uri, '?'); i >= 0 {
 		uri = uri[:i]
