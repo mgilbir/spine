@@ -44,6 +44,12 @@ type sheetChart struct {
 // AddChart works on both created (Create) and opened (Open/OpenReader)
 // workbooks; the chart, drawing and data parts are added on the next save.
 func (s *Sheet) AddChart(anchor string, c *chart.Chart) error {
+	// An opaque sheet has no worksheet model to attach a drawing to and is
+	// skipped by saveOpenedSheetAttachments, so accepting the chart here would
+	// silently drop it (C423).
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if c == nil {
 		return fmt.Errorf("xlsx: AddChart: nil chart")
 	}

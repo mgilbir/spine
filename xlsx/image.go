@@ -60,6 +60,14 @@ const (
 )
 
 // ImageOptions configures how an image is placed on a sheet.
+//
+// Placement is limited to whole cells. An anchor pins the image to a cell's
+// top-left corner: the colOff/rowOff sub-cell offsets DrawingML allows are
+// always written as 0, and absolute anchors (xdr:absoluteAnchor, a position
+// fixed in EMU rather than relative to the grid) are not produced at all.
+// Pixel dimensions are converted at a fixed 96 DPI (9525 EMU per pixel), so an
+// image authored for a different DPI is scaled accordingly. Alt text can be
+// read back from an opened workbook but cannot be set here.
 type ImageOptions struct {
 	// WidthPx and HeightPx set the rendered image size in pixels. When either
 	// is zero, the image's intrinsic pixel dimension is used for that axis,
@@ -86,14 +94,18 @@ type ImageOptions struct {
 // AddImage works on both created (Create) and opened (Open/OpenReader)
 // workbooks. On an opened workbook the drawing, media, and relationship parts
 // are added alongside whatever the package already carries, with part names
-// chosen to avoid the existing ones.
+// chosen to avoid the existing ones. When the target sheet already has a
+// drawing from the original file, the new anchors are appended to it and its
+// existing shapes are kept (C249); only sheets with no drawing at all get a
+// fresh drawing part.
 //
-// One caveat for opened workbooks: if the target sheet already has a drawing
-// from the original file, the images added here are written to a new drawing
-// that replaces it as the sheet's referenced drawing (the original drawing's
-// shapes are no longer shown). Adding images to sheets without an existing
-// drawing — the common templating case — is unaffected.
+// It returns ErrNotWorksheet on a chartsheet, dialogsheet or macrosheet: such a
+// sheet round-trips verbatim and has no worksheet model to attach a drawing to,
+// so the image would be dropped at save (C423).
 func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if len(data) == 0 {
 		return fmt.Errorf("xlsx: AddImage: empty image data")
 	}
@@ -148,7 +160,7 @@ func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
 		img.toCol = toCol - 1
 		img.toRow = toRow - 1
 		s.images = append(s.images, img)
-		s.dirty = true
+		s.markDirty()
 		return nil
 	}
 
@@ -160,7 +172,7 @@ func (s *Sheet) AddImage(cellRef string, data []byte, opts ImageOptions) error {
 	img.heightEMU = int64(heightPx) * emuPerPixel
 
 	s.images = append(s.images, img)
-	s.dirty = true
+	s.markDirty()
 	return nil
 }
 
@@ -250,7 +262,13 @@ func drawingAnchorsXML(images []sheetImage, rels []imageRels, charts []sheetChar
 		shapeID := shapeIDBase + i + 1
 		pic := picXML(shapeID, rels[i], img)
 		if img.twoCell {
-			fmt.Fprintf(&b, `<xdr:twoCellAnchor editAs="oneCell">`+
+			// ST_EditAs: "oneCell" means move-but-do-not-resize, "twoCell" (the
+			// schema default) means move and resize. ImageOptions.ToCell
+			// documents resize-with-cells and picXML emits a 0x0 a:ext
+			// placeholder for Excel to derive the size from the anchors, both of
+			// which describe twoCell — the emitted "oneCell" contradicted them
+			// and pinned the shape at 0x0 (C427).
+			fmt.Fprintf(&b, `<xdr:twoCellAnchor editAs="twoCell">`+
 				`<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`+
 				`<xdr:to><xdr:col>%d</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>`+
 				`%s`+
