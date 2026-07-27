@@ -18,6 +18,7 @@ type Builder struct {
 	declaredNamespaces map[string]bool   // URIs that have been declared (root or inline)
 	hasRoot            bool              // true after StartElementWithNS is called
 	selfClosingSpace   bool              // true: " />" false: "/>"
+	selfCloseWS        string            // per-instance whitespace before "/>" (overrides selfClosingSpace)
 	collapseEmpty      bool              // write empty Start/End pairs as self-closing elements
 	openTag            bool              // a start tag has been written but not yet closed with '>'
 	elemSeparator      string            // inserted between sibling elements (e.g., " ")
@@ -35,6 +36,12 @@ type Builder struct {
 type elemFrame struct {
 	qname    string
 	restores []nsRestore
+	// startLen is the output length immediately after this element's start
+	// tag was completed. An end tag arriving with the buffer still that long
+	// means the element wrote no content, which the separator mode must know:
+	// emitting the sibling separator there would turn it into character data
+	// inside the element (<t></t> becoming <t> </t>).
+	startLen int
 }
 
 // nsRestore captures the declared-state of a namespace before an element
@@ -65,8 +72,18 @@ func (b *Builder) qualifiedName(namespace, localName string) string {
 // Any pending inline namespace declarations are attached to the new frame so
 // they are un-declared (restored) when the element closes.
 func (b *Builder) pushElem(qname string) {
-	b.stack = append(b.stack, elemFrame{qname: qname, restores: b.pendingNSRestores})
+	b.stack = append(b.stack, elemFrame{qname: qname, restores: b.pendingNSRestores, startLen: b.buf.Len()})
 	b.pendingNSRestores = nil
+}
+
+// markContentStart records the output length at which the innermost open
+// element's content begins. Callers that write the start tag before pushing
+// the frame get this from pushElem; the collapse-empty path defers the '>' to
+// flushOpenTag, which calls this to correct the baseline.
+func (b *Builder) markContentStart() {
+	if n := len(b.stack); n > 0 {
+		b.stack[n-1].startLen = b.buf.Len()
+	}
 }
 
 // applyNSRestores restores the declared-namespace state captured in restores.
@@ -94,12 +111,14 @@ func (b *Builder) applyNSRestores(restores []nsRestore) {
 // stack, recording the first structural error and preventing the indentation
 // level from going negative on an unbalanced close. Inline namespace
 // declarations carried by the closing element go out of scope here.
-func (b *Builder) popElem(qname string) {
+// It returns the closed element's content baseline (elemFrame.startLen), or -1
+// when there was no open element to pop.
+func (b *Builder) popElem(qname string) int {
 	if len(b.stack) == 0 {
 		if b.err == nil {
 			b.err = fmt.Errorf("xml: closing </%s> with no open element", qname)
 		}
-		return
+		return -1
 	}
 	top := b.stack[len(b.stack)-1]
 	b.stack = b.stack[:len(b.stack)-1]
@@ -110,6 +129,7 @@ func (b *Builder) popElem(qname string) {
 	if b.level > 0 {
 		b.level--
 	}
+	return top.startLen
 }
 
 // Err returns the first structural error the Builder encountered (an unbalanced
@@ -198,6 +218,7 @@ func (b *Builder) flushOpenTag() {
 	if b.indent != "" {
 		b.buf.WriteByte('\n')
 	}
+	b.markContentStart()
 }
 
 // SetElementSeparator sets a string to insert between sibling elements (e.g., " " for spaced format).
@@ -218,8 +239,14 @@ func (b *Builder) WriteRaw(data []byte) {
 	b.trailingWS = last == ' ' || last == '\t' || last == '\n' || last == '\r'
 }
 
-// writeSelfClose writes the self-closing tag end ("/>" or " />").
+// writeSelfClose writes the self-closing tag end ("/>" or " />"), or the
+// per-instance whitespace run a capture recorded (EmptyElementStyled).
 func (b *Builder) writeSelfClose() {
+	if b.selfCloseWS != "" {
+		b.buf.WriteString(b.selfCloseWS)
+		b.buf.WriteString("/>")
+		return
+	}
 	if b.selfClosingSpace {
 		b.buf.WriteString(" />")
 	} else {
@@ -366,11 +393,16 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 				b.buf.WriteByte('"')
 			}
 			b.declaredNamespaces[ra.Value] = true
-			// Also register prefix so writeQName can resolve it for extension
-			// attrs — but never clobber the binding chosen for the root's own
-			// namespace above (a default declaration must keep element names
-			// unprefixed even when a prefixed alias for the same URI exists).
-			if ra.Prefix != "" && ra.Value != namespace {
+			// Also register the prefix so writeQName can resolve it for
+			// extension elements and attrs — but never clobber the binding
+			// chosen for the root's own namespace above (a default declaration
+			// must keep element names unprefixed even when a prefixed alias for
+			// the same URI exists). A *default* declaration for some other URI
+			// binds that URI to the empty prefix and must be registered too:
+			// marking it declared while leaving b.namespaces untouched would
+			// let a modeled child in that namespace emit a stale prefix (or
+			// none, silently landing in the wrong namespace).
+			if ra.Value != namespace {
 				b.namespaces[ra.Value] = ra.Prefix
 			}
 		} else if ra.Raw != "" {
@@ -454,7 +486,9 @@ func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, r
 			continue
 		}
 		b.declaredNamespaces[ra.Value] = true
-		if ra.Prefix != "" && ra.Value != namespace {
+		// A default declaration for a non-root URI binds it to the empty
+		// prefix; register that too (see StartElementWithRootAttrs).
+		if ra.Value != namespace {
 			b.namespaces[ra.Value] = ra.Prefix
 		}
 	}
@@ -506,14 +540,14 @@ func (b *Builder) EndElement(namespace, localName string) {
 		}
 		return
 	}
-	b.popElem(b.qualifiedName(namespace, localName))
+	startLen := b.popElem(b.qualifiedName(namespace, localName))
 	if b.rootEndTag != "" && b.level == 0 {
 		// The captured source form of the document element's end tag (some
 		// producers write "</p:sld >").
 		b.buf.WriteString(b.rootEndTag)
 		return
 	}
-	b.writeIndent()
+	b.writeCloseIndent(startLen)
 	b.buf.WriteString("</")
 	b.writeQName(namespace, localName)
 	b.buf.WriteByte('>')
@@ -746,8 +780,8 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 
 // EndElementInlineNS ends an element that was started with StartElementInlineNS.
 func (b *Builder) EndElementInlineNS(prefix, localName string) {
-	b.popElem(prefix + ":" + localName)
-	b.writeIndent()
+	startLen := b.popElem(prefix + ":" + localName)
+	b.writeCloseIndent(startLen)
 	b.buf.WriteString("</")
 	b.buf.WriteString(prefix)
 	b.buf.WriteByte(':')
@@ -768,6 +802,20 @@ func (b *Builder) ResetNamespaceDeclaration(nsURI string) {
 // (either at the root level or via an inline declaration).
 func (b *Builder) IsNamespaceDeclared(nsURI string) bool {
 	return b.declaredNamespaces[nsURI]
+}
+
+// writeCloseIndent writes the indentation (or sibling separator) before an end
+// tag, given the closing element's content baseline from popElem. In separator
+// mode an element that wrote nothing since its start tag gets no separator:
+// there is no sibling boundary to mark, and the separator would land *inside*
+// the element as character data — turning a source's <t></t> into <t> </t>,
+// which changes the document and cannot round-trip.
+func (b *Builder) writeCloseIndent(startLen int) {
+	if b.indent == "" && b.elemSeparator != "" && startLen >= 0 && b.buf.Len() == startLen {
+		b.trailingWS = false
+		return
+	}
+	b.writeIndent()
 }
 
 // writeIndent writes the current indentation or element separator.
