@@ -124,6 +124,11 @@ const (
 
 	// SpreadsheetML relationship types
 	RelTypeWorksheet     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+	// Non-worksheet sheet relationship types. A workbook links to a chartsheet or
+	// dialogsheet part through these instead of RelTypeWorksheet; such a sheet is
+	// preserved opaquely and keeps its own (correctly typed) relationship on save.
+	RelTypeChartsheet  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chartsheet"
+	RelTypeDialogsheet = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/dialogsheet"
 	RelTypeSharedStrings = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"
 	RelTypeCalcChain     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain"
 	RelTypeDrawing       = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing"

@@ -142,10 +142,15 @@ type pendingOLE struct {
 // VML Pict shape), which Excel opens without a repair prompt. The object is
 // re-extractable through Workbook.OLEObjects and round-trips on save.
 //
-// Limitation: a sheet that already carries legacy comments or a pre-existing
-// <oleObjects>/legacyDrawing element is rejected — both own the sheet's single
-// legacy VML drawing, and merging an authored object into it is out of scope.
-// Add the object to a sheet without those, or on a fresh sheet.
+// Comments and OLE objects coexist: adding comments to the sheet after this
+// call folds their note shapes into the same legacy VML drawing under one
+// <legacyDrawing> (C283).
+//
+// Limitation: the reverse order is still rejected — a sheet that already carries
+// comments, or a pre-existing <oleObjects>/legacyDrawing element (e.g. a form
+// control), owns the single legacy VML drawing, and merging an authored object
+// into an existing one is out of scope. Add the OLE object first (then comments),
+// or add it on a sheet without those.
 func (s *Sheet) AddOLEObject(spec OLEObjectSpec) error {
 	if len(spec.Data) == 0 {
 		return fmt.Errorf("xlsx: AddOLEObject: Data must not be empty")
@@ -153,7 +158,7 @@ func (s *Sheet) AddOLEObject(spec OLEObjectSpec) error {
 	if len(spec.Preview) > 0 && (spec.PreviewContentType == "" || spec.PreviewExt == "") {
 		return fmt.Errorf("xlsx: AddOLEObject: Preview requires PreviewContentType and PreviewExt")
 	}
-	if s.comments != nil {
+	if s.hasComments() {
 		return fmt.Errorf("xlsx: AddOLEObject: sheet already has comments, which own its legacy VML drawing")
 	}
 	if s.ws() != nil && (s.ws().OleObjects != nil || s.ws().LegacyDrawing != nil) {
@@ -265,10 +270,20 @@ func (w *Workbook) writeSheetOLE(
 		})
 	}
 
-	// One VML drawing renders all of the sheet's OLE shapes; the worksheet
-	// <legacyDrawing> points at it.
+	// A sheet's comments and OLE objects share one legacy VML part. When the
+	// sheet also has comment notes (writeSheetComments ran first and deferred the
+	// VML to this path), render their note shapes into the same drawing so a
+	// single <legacyDrawing> covers both. Their shape ids were reserved above the
+	// OLE shapes' ids (1025..) by writeSheetComments (C283).
+	noteShapes := ""
+	if sc := sheet.comments; sc != nil && sc.mutated && sc.legacy != nil && len(sc.legacy.Comments) > 0 {
+		noteShapes = buildCommentVMLShapes(sc.legacy)
+	}
+
+	// One VML drawing renders all of the sheet's OLE shapes (and any comment note
+	// shapes); the worksheet <legacyDrawing> points at it.
 	vmlPart := allocName(used, vmlSeq, "/xl/drawings/vmlDrawing%d.vml")
-	if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, buildOLEVML(shapes)); err != nil {
+	if err := writer.WritePart(vmlPart, opc.ContentTypeVMLDrawing, buildOLEVML(shapes, noteShapes)); err != nil {
 		return nil, err
 	}
 	if len(vmlRels) > 0 {
@@ -298,7 +313,12 @@ type oleShape struct {
 // a Pict shape anchored to its cell. Geometry is approximate (Excel recomputes
 // it from column widths on open); the shape exists so the object's shapeId
 // resolves and Excel renders it without a repair prompt.
-func buildOLEVML(shapes []oleShape) []byte {
+//
+// noteShapes, when non-empty, is the pre-rendered set of comment note-box shapes
+// (from buildCommentVMLShapes) to fold into the same drawing so comments and OLE
+// objects can coexist under one <legacyDrawing>; the note-box shapetype is
+// emitted alongside them.
+func buildOLEVML(shapes []oleShape, noteShapes string) []byte {
 	var b strings.Builder
 	b.WriteString(`<xml xmlns:v="urn:schemas-microsoft-com:vml"` + "\n")
 	b.WriteString(` xmlns:o="urn:schemas-microsoft-com:office:office"` + "\n")
@@ -331,6 +351,10 @@ func buildOLEVML(shapes []oleShape) []byte {
 		b.WriteString(`   <x:AutoPict/>` + "\n")
 		b.WriteString(`  </x:ClientData>` + "\n")
 		b.WriteString(` </v:shape>`)
+	}
+	if noteShapes != "" {
+		b.WriteString(vmlNoteShapetype)
+		b.WriteString(noteShapes)
 	}
 	b.WriteString(`</xml>` + "\n")
 	return []byte(b.String())

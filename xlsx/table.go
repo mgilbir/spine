@@ -440,6 +440,17 @@ func (w *Workbook) writeSheetTables(writer *opc.Writer, sheet *Sheet, sheetRels 
 	}
 	ensureTablePartsInChildOrder(sheet.ws())
 
+	// Rebuild the session-added <tableParts> from scratch each save so a repeated
+	// save stays a projection: truncate back to the entries that predated this
+	// session's AddTable calls, then re-append. Without this the durable model
+	// grew every pass, so a second SaveBytes emitted duplicate <tablePart>
+	// entries with duplicate r:ids (C257).
+	if !sheet.tablePartsBaselineSet {
+		sheet.tablePartsBaseline = len(sheet.ws().TableParts.TablePart)
+		sheet.tablePartsBaselineSet = true
+	}
+	sheet.ws().TableParts.TablePart = sheet.ws().TableParts.TablePart[:sheet.tablePartsBaseline]
+
 	for _, tbl := range sheet.newTables {
 		tablePart, tableFile := allocTableName(used, tableSeq)
 		if err := writer.WritePart(tablePart, opc.ContentTypeTable, oxml.MarshalTable(tbl.model)); err != nil {

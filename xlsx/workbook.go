@@ -315,11 +315,14 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 	wbRels := w.relationships[mainPartName]
 
 	for i, sheetDef := range w.workbook.Sheets.Sheet {
-		// Resolve the sheet's part name from its r:id
+		// Resolve the sheet's part name from its r:id, keeping the relationship
+		// type so non-worksheet sheets (chartsheet/dialogsheet) can be detected.
 		partName := ""
+		relType := ""
 		for _, rel := range wbRels {
 			if rel.ID == sheetDef.RID {
 				partName = opc.ResolvePartName(mainPartName, rel.Target)
+				relType = rel.Type
 				break
 			}
 		}
@@ -339,6 +342,15 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 			return fmt.Errorf("xlsx: sheet %q references missing worksheet part %s", sheetDef.Name, partName)
 		}
 
+		// A <sheet> may resolve to a chartsheet/dialogsheet/macrosheet part, whose
+		// root is not <worksheet>. Such a sheet is preserved opaquely: its part
+		// bytes, its (correctly typed) relationship and its content-type override
+		// round-trip verbatim, it is excluded from the worksheet relationship
+		// rebuild, and the worksheet mutation API refuses it. Parsing it as a
+		// worksheet, or emitting a worksheet-typed relationship for it, corrupts
+		// the file on the first save after any edit (C241).
+		opaque := isNonWorksheetSheet(part.ContentType, relType)
+
 		sheet := &Sheet{
 			workbook: w,
 			name:     sheetDef.Name,
@@ -346,20 +358,41 @@ func (w *Workbook) loadSheets(mainPartName string) error {
 			partName: partName,
 			relID:    sheetDef.RID,
 			state:    sheetDef.State,
+			opaque:   opaque,
 		}
 
-		// Validate the sheet up front (C60/C78: a malformed sheet must fail
+		// Validate a worksheet up front (C60/C78: a malformed sheet must fail
 		// Open, not silently become an empty model that fabricates content on a
 		// later save), but discard the model — it is re-parsed lazily on first
 		// access (see Sheet.ws). A workbook that is round-tripped unmodified
-		// then holds only the raw sheet bytes, not a full model per sheet.
-		if err := xmlb.Unmarshal(part.Data, &oxml.CT_Worksheet{}); err != nil {
-			return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
+		// then holds only the raw sheet bytes, not a full model per sheet. An
+		// opaque (non-worksheet) sheet is never parsed as a worksheet.
+		if !opaque {
+			if err := xmlb.Unmarshal(part.Data, &oxml.CT_Worksheet{}); err != nil {
+				return fmt.Errorf("xlsx: parsing sheet part %s: %w", partName, err)
+			}
 		}
 
 		w.sheets = append(w.sheets, sheet)
 	}
 	return nil
+}
+
+// isNonWorksheetSheet reports whether a workbook <sheet> entry resolves to a part
+// that is not an ordinary worksheet — a chartsheet, dialogsheet or (Excel 4.0)
+// macrosheet. The content type recorded for the part is authoritative; the
+// relationship type is a fallback for packages that omit the override.
+func isNonWorksheetSheet(contentType, relType string) bool {
+	switch contentType {
+	case opc.ContentTypeChartsheet, opc.ContentTypeDialogsheet,
+		opc.ContentTypeMacrosheet, opc.ContentTypeIntlMacrosheet:
+		return true
+	}
+	switch relType {
+	case opc.RelTypeChartsheet, opc.RelTypeDialogsheet:
+		return true
+	}
+	return false
 }
 
 // buildStringTable extracts plain text from the shared string table.
@@ -640,6 +673,12 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 
 	worksheetParts := make(map[string]struct{}, len(w.sheets))
 	for _, sheet := range w.sheets {
+		// Opaque (chartsheet/dialogsheet/macrosheet) parts are never regenerated
+		// from a worksheet model; keeping them out of worksheetParts leaves their
+		// preserved bytes to round-trip verbatim (C241).
+		if sheet.opaque {
+			continue
+		}
 		if sheet.partName != "" && sheet.wsModel != nil && sheet.dirty {
 			worksheetParts[sheet.partName] = struct{}{}
 		}
@@ -767,6 +806,13 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 		worksheetTargets := make(map[string]struct{}, len(w.sheets))
 		for i, sheet := range w.sheets {
+			// Opaque sheets keep their own relationship (chartsheet/dialogsheet
+			// type) and preserved bytes: exclude them from the worksheet target
+			// set so rebuildWorksheetRelationships does not synthesize a second,
+			// worksheet-typed relationship for the same part (C241).
+			if sheet.opaque {
+				continue
+			}
 			partName, target := w.roundTripSheetPartName(sheet, i+1)
 			if sheet.partName == "" {
 				sheet.partName = partName
@@ -961,10 +1007,12 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		}
 	}
 
-	// Relationship ids after the worksheets are the next free ones.
-	nextRelID := len(w.sheets) + 1
-
-	// Write styles.xml if a stylesheet exists
+	// Write styles.xml if a stylesheet exists. Every workbook relationship added
+	// past the worksheets allocates its id by scanning the ids already in use
+	// (nextRelationshipID) rather than a hand-maintained counter: the pivot-cache
+	// and metadata relationships below allocate that way too, so a hand-counted id
+	// could duplicate one of theirs (C258 — e.g. a pivot cache and the VBA project
+	// both taking rId3).
 	if w.stylesheet != nil {
 		stylesPartName := "/xl/styles.xml"
 		stylesData, err := marshalStylesheetXML(w.stylesheet)
@@ -976,18 +1024,17 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 		}
 
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypeStyles,
 			Target: "styles.xml",
 		})
-		nextRelID++
 	}
 
 	// Wire the workbook-shared person list (threaded-comment authors) when the
 	// attachment pass regenerated one.
 	if personTarget != "" {
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypePerson,
 			Target: personTarget,
 		})
@@ -1005,10 +1052,11 @@ func (w *Workbook) saveNew(writer *opc.Writer) error {
 	}
 
 	// Wire and write the VBA project part when injected into a created workbook.
-	// This is the last relationship id consumed, so no further increment.
+	// Its relationship id is scan-allocated so it never collides with the
+	// styles/person/pivot-cache/metadata relationships assigned above (C258).
 	if w.vbaModified && !w.vbaRemove {
 		wbRels = append(wbRels, &opc.Relationship{
-			ID:     fmt.Sprintf("rId%d", nextRelID),
+			ID:     fmt.Sprintf("rId%d", nextRelationshipID(relIDSet(wbRels))),
 			Type:   opc.RelTypeVBAProject,
 			Target: strings.TrimPrefix(w.vbaPartName, "/xl/"),
 		})
@@ -1089,6 +1137,12 @@ func rebuildWorksheetRelationships(existing []*opc.Relationship, sheets []*Sheet
 	}
 
 	for _, sheet := range sheets {
+		// Opaque sheets (chartsheet/dialogsheet/macrosheet) keep their own
+		// relationship of the correct type; never emit a worksheet-typed one for
+		// them (C241).
+		if sheet.opaque {
+			continue
+		}
 		partName := sheet.partName
 		if partName == "" {
 			continue

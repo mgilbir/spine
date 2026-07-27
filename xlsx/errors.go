@@ -46,4 +46,10 @@ var (
 	// operation that stores state at the workbook level (such as a print area or
 	// print titles, which live in workbook-scoped defined names) cannot proceed.
 	ErrNoWorkbook = errors.New("xlsx: sheet is not attached to a workbook")
+
+	// ErrNotWorksheet indicates a worksheet operation (such as writing a cell) was
+	// attempted on a non-worksheet sheet — a chartsheet, dialogsheet or
+	// macrosheet. Such a sheet is preserved opaquely and has no worksheet cell
+	// grid to mutate.
+	ErrNotWorksheet = errors.New("xlsx: sheet is not a worksheet")
 )
