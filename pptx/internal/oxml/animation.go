@@ -138,6 +138,24 @@ func (tnl *TimeNodeList) AppendAnimScale(a *AnimateScale) {
 	tnl.AnimScale = append(tnl.AnimScale, a)
 }
 
+// AppendExcl adds an exclusive time node, maintaining child order.
+func (tnl *TimeNodeList) AppendExcl(e *ExclusiveTimeNode) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlExcl, len(tnl.Excl)})
+	tnl.Excl = append(tnl.Excl, e)
+}
+
+// AppendAnimClr adds an animate-color behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnimClr(a *AnimateColor) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimClr, len(tnl.AnimClr)})
+	tnl.AnimClr = append(tnl.AnimClr, a)
+}
+
+// AppendAnimMotion adds an animate-motion behavior node, maintaining child order.
+func (tnl *TimeNodeList) AppendAnimMotion(a *AnimateMotion) {
+	tnl.childOrder = append(tnl.childOrder, tnlChildRef{tnlAnimMotion, len(tnl.AnimMotion)})
+	tnl.AnimMotion = append(tnl.AnimMotion, a)
+}
+
 func (tnl *TimeNodeList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for {
 		tok, err := d.Token()
@@ -371,6 +389,19 @@ type SequenceTimeNode struct {
 	CTn         *CommonTimeNode `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cTn,omitempty"`
 	PrevCondLst *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main prevCondLst,omitempty"`
 	NextCondLst *ConditionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main nextCondLst,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list so an explicit
+	// concurrent="0" (which omitempty would otherwise drop) round-trips; see
+	// common/xml.CaptureAttrs.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source attribute
+// order, unmodeled attributes, and explicit zero values such as concurrent="0")
+// before decoding through the struct tags; the reflection marshaler replays it.
+func (s *SequenceTimeNode) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias SequenceTimeNode
+	return d.DecodeElement((*alias)(s), &start)
 }
 
 // ExclusiveTimeNode represents CT_TLTimeNodeExclusive (p:excl)
@@ -696,6 +727,19 @@ type AnimateRotation struct {
 	From  int32           `xml:"from,attr,omitempty"`
 	To    int32           `xml:"to,attr,omitempty"`
 	CBhvr *CommonBehavior `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cBhvr,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list so explicit zero
+	// values (by/from/to="0", which omitempty would otherwise drop) round-trip;
+	// see common/xml.CaptureAttrs.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source attribute
+// order, unmodeled attributes, and explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (ar *AnimateRotation) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ar.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias AnimateRotation
+	return d.DecodeElement((*alias)(ar), &start)
 }
 
 // AnimateScale represents CT_TLAnimateScaleBehavior (p:animScale)
@@ -705,6 +749,20 @@ type AnimateScale struct {
 	By           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main by,omitempty"`
 	From         *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main from,omitempty"`
 	To           *Point          `xml:"http://schemas.openxmlformats.org/presentationml/2006/main to,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list so an explicit
+	// zoomContents="0" (which omitempty would otherwise drop) round-trips; see
+	// common/xml.CaptureAttrs.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source attribute
+// order, unmodeled attributes, and explicit zero values such as
+// zoomContents="0") before decoding through the struct tags; the reflection
+// marshaler replays it.
+func (as *AnimateScale) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	as.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias AnimateScale
+	return d.DecodeElement((*alias)(as), &start)
 }
 
 // Set represents CT_TLSetBehavior (p:set)
