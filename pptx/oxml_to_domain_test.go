@@ -1229,7 +1229,7 @@ func TestOxmlToTextFrame(t *testing.T) {
 func TestOxmlToRun_Formatting(t *testing.T) {
 	bTrue := true
 	sz := int32(2400) // 24pt
-	baseline := int32(30000)
+	baseline := dml.NewPercentage(30000)
 
 	r := &dml.R{
 		T: "Formatted",

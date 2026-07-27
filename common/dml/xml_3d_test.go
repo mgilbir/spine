@@ -44,8 +44,8 @@ func TestDML_CT_Camera(t *testing.T) {
 	if v.Fov != 3600000 {
 		t.Errorf("Fov = %d, want 3600000", v.Fov)
 	}
-	if v.Zoom != 100000 {
-		t.Errorf("Zoom = %d, want 100000", v.Zoom)
+	if v.Zoom.Int32() != 100000 {
+		t.Errorf("Zoom = %d, want 100000", v.Zoom.Int32())
 	}
 	if v.Rot == nil {
 		t.Error("Rot is nil")

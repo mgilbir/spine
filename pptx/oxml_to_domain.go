@@ -803,7 +803,7 @@ func oxmlToRun(r *dml.R) *Run {
 
 		// Baseline (super/subscript)
 		if rpr.Baseline != nil {
-			run.baseline = *rpr.Baseline
+			run.baseline = rpr.Baseline.Int32()
 		}
 
 		// Font name

@@ -583,7 +583,8 @@ type RPr struct {
 	Cap            string          `xml:"cap,attr,omitempty"`
 	Spc            *int32          `xml:"spc,attr,omitempty"`
 	NormalizeH     *bool           `xml:"normalizeH,attr,omitempty"`
-	Baseline       *int32          `xml:"baseline,attr,omitempty"`
+	Baseline       *Percentage     `xml:"baseline,attr,omitempty"` // ST_Percentage: accepts the transitional "30%" form
+
 	NoProof        *bool           `xml:"noProof,attr,omitempty"`
 	Dirty          *bool           `xml:"dirty,attr,omitempty"`
 	Err            *bool           `xml:"err,attr,omitempty"`

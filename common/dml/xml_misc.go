@@ -2,20 +2,30 @@
 
 package dml
 
-// Wsp represents CT_WordprocessingShape (wsp) from dml-wordprocessingDrawing.xsd.
-// Children follow the XSD (cNvPr, cNvSpPr|cNvCnPr, spPr, style, extLst, bodyPr),
-// qualified in the wordprocessingDrawing namespace. The txbx/linkedTxbx choice
-// is not modeled: CT_TextboxInfo contains WML block-level content (w:txbxContent),
-// which needs WML types this package does not depend on.
+// Wsp represents CT_WordprocessingShape (wps:wsp).
+//
+// The type is NOT from dml-wordprocessingDrawing.xsd, which the doc comment
+// used to claim: that schema's target namespace
+// (.../drawingml/2006/wordprocessingDrawing) defines the wp:inline/wp:anchor
+// wrappers and contains no wsp element at all. CT_WordprocessingShape lives in
+// the Microsoft wordprocessingShape 2010 namespace, which is what Word writes
+// and what this library's own docx shape/text-box/WordArt builders emit
+// (docx.buildWspXML). Tagging the children under the 2006 URI meant a real
+// wps:wsp parsed into an empty struct (C486).
+//
+// Children follow the schema (cNvPr, cNvSpPr|cNvCnPr, spPr, style, extLst,
+// bodyPr). The txbx/linkedTxbx choice is not modeled: CT_TextboxInfo contains
+// WML block-level content (w:txbxContent), which needs WML types this package
+// does not depend on.
 type Wsp struct {
 	NormalEastAsianFlow *bool       `xml:"normalEastAsianFlow,attr,omitempty"`
-	CNvPr               *CNvPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvPr,omitempty"`
-	CNvSpPr             *CNvSpPr    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvSpPr,omitempty"`
-	CNvCnPr             *CNvCxnSpPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvCnPr,omitempty"`
-	SpPr                *SpPr       `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing spPr,omitempty"`
-	Style               *Style      `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing style,omitempty"`
-	ExtLst              *ExtLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing extLst,omitempty"`
-	BodyPr              *BodyPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing bodyPr,omitempty"`
+	CNvPr               *CNvPr      `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvPr,omitempty"`
+	CNvSpPr             *CNvSpPr    `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvSpPr,omitempty"`
+	CNvCnPr             *CNvCxnSpPr `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvCnPr,omitempty"`
+	SpPr                *SpPr       `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape spPr,omitempty"`
+	Style               *Style      `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape style,omitempty"`
+	ExtLst              *ExtLst     `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape extLst,omitempty"`
+	BodyPr              *BodyPr     `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape bodyPr,omitempty"`
 }
 
 // DiagramBg represents CT_BackgroundFormatting (dgm:bg) in diagram context

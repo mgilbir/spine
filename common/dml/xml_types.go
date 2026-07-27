@@ -964,15 +964,32 @@ func fixupRawToken(tok xml.Token) xml.Token {
 	return tok
 }
 
-// TileXML represents CT_TileInfoProperties (a:tile)
+// TileXML represents CT_TileInfoProperties (a:tile).
+//
+// sx/sy are ST_Percentage with a 100000 default. A canonical source "0" leaves
+// Percentage.orig empty, so IsZeroAttr reports zero and omitempty would delete
+// the attribute — flipping an explicit 0% scale to the 100000 default. The
+// pointer treatment Tx/Ty use does not compose with Percentage's own
+// lexical-form capture, so CapturedAttrs replays the source attribute instead
+// (the AlphaModFix trap, one element over).
 type TileXML struct {
 	// Tx/Ty are pointers so explicit tx="0" ty="0" survive the round trip.
-	Tx   *int64     `xml:"tx,attr,omitempty"`
-	Ty   *int64     `xml:"ty,attr,omitempty"`
-	Sx   Percentage `xml:"sx,attr,omitempty"`
-	Sy   Percentage `xml:"sy,attr,omitempty"`
-	Flip string     `xml:"flip,attr,omitempty"`
-	Algn string     `xml:"algn,attr,omitempty"`
+	Tx            *int64          `xml:"tx,attr,omitempty"`
+	Ty            *int64          `xml:"ty,attr,omitempty"`
+	Sx            Percentage      `xml:"sx,attr,omitempty"`
+	Sy            Percentage      `xml:"sy,attr,omitempty"`
+	Flip          string          `xml:"flip,attr,omitempty"`
+	Algn          string          `xml:"algn,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (tx *TileXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	tx.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias TileXML
+	return d.DecodeElement((*alias)(tx), &start)
 }
 
 // StretchXML represents CT_StretchInfoProperties (a:stretch)

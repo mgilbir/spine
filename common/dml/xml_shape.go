@@ -50,19 +50,31 @@ type Cxn struct {
 	Idx uint32 `xml:"idx,attr"`
 }
 
-// CxnSpLocks represents CT_ConnectorLocking (a:cxnSpLocks)
+// CxnSpLocks represents CT_ConnectorLocking (a:cxnSpLocks). Every AG_Locking
+// flag defaults to false, so bool+omitempty cannot express an explicit
+// noGrp="0"; CapturedAttrs replays it, matching SpLocks/PicLocks.
 type CxnSpLocks struct {
-	NoGrp              bool    `xml:"noGrp,attr,omitempty"`
-	NoSelect           bool    `xml:"noSelect,attr,omitempty"`
-	NoRot              bool    `xml:"noRot,attr,omitempty"`
-	NoChangeAspect     bool    `xml:"noChangeAspect,attr,omitempty"`
-	NoMove             bool    `xml:"noMove,attr,omitempty"`
-	NoResize           bool    `xml:"noResize,attr,omitempty"`
-	NoEditPoints       bool    `xml:"noEditPoints,attr,omitempty"`
-	NoAdjustHandles    bool    `xml:"noAdjustHandles,attr,omitempty"`
-	NoChangeArrowheads bool    `xml:"noChangeArrowheads,attr,omitempty"`
-	NoChangeShapeType  bool    `xml:"noChangeShapeType,attr,omitempty"`
-	ExtLst             *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	NoGrp              bool            `xml:"noGrp,attr,omitempty"`
+	NoSelect           bool            `xml:"noSelect,attr,omitempty"`
+	NoRot              bool            `xml:"noRot,attr,omitempty"`
+	NoChangeAspect     bool            `xml:"noChangeAspect,attr,omitempty"`
+	NoMove             bool            `xml:"noMove,attr,omitempty"`
+	NoResize           bool            `xml:"noResize,attr,omitempty"`
+	NoEditPoints       bool            `xml:"noEditPoints,attr,omitempty"`
+	NoAdjustHandles    bool            `xml:"noAdjustHandles,attr,omitempty"`
+	NoChangeArrowheads bool            `xml:"noChangeArrowheads,attr,omitempty"`
+	NoChangeShapeType  bool            `xml:"noChangeShapeType,attr,omitempty"`
+	ExtLst             *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs      []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (clk *CxnSpLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	clk.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CxnSpLocks
+	return d.DecodeElement((*alias)(clk), &start)
 }
 
 // PicLocks represents CT_PictureLocking (a:picLocks): the full AG_Locking
@@ -118,16 +130,27 @@ func (slk *SpLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return d.DecodeElement((*alias)(slk), &start)
 }
 
-// GrpSpLocks represents CT_GroupLocking (a:grpSpLocks)
+// GrpSpLocks represents CT_GroupLocking (a:grpSpLocks). See CxnSpLocks for the
+// CapturedAttrs rationale.
 type GrpSpLocks struct {
-	NoGrp          bool    `xml:"noGrp,attr,omitempty"`
-	NoUngrp        bool    `xml:"noUngrp,attr,omitempty"`
-	NoSelect       bool    `xml:"noSelect,attr,omitempty"`
-	NoRot          bool    `xml:"noRot,attr,omitempty"`
-	NoChangeAspect bool    `xml:"noChangeAspect,attr,omitempty"`
-	NoMove         bool    `xml:"noMove,attr,omitempty"`
-	NoResize       bool    `xml:"noResize,attr,omitempty"`
-	ExtLst         *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	NoGrp          bool            `xml:"noGrp,attr,omitempty"`
+	NoUngrp        bool            `xml:"noUngrp,attr,omitempty"`
+	NoSelect       bool            `xml:"noSelect,attr,omitempty"`
+	NoRot          bool            `xml:"noRot,attr,omitempty"`
+	NoChangeAspect bool            `xml:"noChangeAspect,attr,omitempty"`
+	NoMove         bool            `xml:"noMove,attr,omitempty"`
+	NoResize       bool            `xml:"noResize,attr,omitempty"`
+	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (glk *GrpSpLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	glk.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias GrpSpLocks
+	return d.DecodeElement((*alias)(glk), &start)
 }
 
 // Style represents CT_ShapeStyle (a:style)
@@ -193,15 +216,26 @@ type CNvGrpSpPr struct {
 	ExtLst     *ExtLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
-// GraphicFrameLocks represents CT_GraphicalObjectFrameLocking (a:graphicFrameLocks)
+// GraphicFrameLocks represents CT_GraphicalObjectFrameLocking
+// (a:graphicFrameLocks). See CxnSpLocks for the CapturedAttrs rationale.
 type GraphicFrameLocks struct {
-	NoGrp          bool    `xml:"noGrp,attr,omitempty"`
-	NoDrilldown    bool    `xml:"noDrilldown,attr,omitempty"`
-	NoSelect       bool    `xml:"noSelect,attr,omitempty"`
-	NoChangeAspect bool    `xml:"noChangeAspect,attr,omitempty"`
-	NoMove         bool    `xml:"noMove,attr,omitempty"`
-	NoResize       bool    `xml:"noResize,attr,omitempty"`
-	ExtLst         *ExtLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	NoGrp          bool            `xml:"noGrp,attr,omitempty"`
+	NoDrilldown    bool            `xml:"noDrilldown,attr,omitempty"`
+	NoSelect       bool            `xml:"noSelect,attr,omitempty"`
+	NoChangeAspect bool            `xml:"noChangeAspect,attr,omitempty"`
+	NoMove         bool            `xml:"noMove,attr,omitempty"`
+	NoResize       bool            `xml:"noResize,attr,omitempty"`
+	ExtLst         *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs  []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order, unmodeled attributes, explicit zero values) before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (gfl *GraphicFrameLocks) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	gfl.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias GraphicFrameLocks
+	return d.DecodeElement((*alias)(gfl), &start)
 }
 
 // CNvGraphicFramePr represents CT_NonVisualGraphicFrameProperties

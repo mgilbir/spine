@@ -116,11 +116,22 @@ func colorAlpha(c Color) *ColorTransform {
 	return &ColorTransform{Val: NewPercentage(int32(a))}
 }
 
-// colorToSrgbClr builds an <a:srgbClr> from a color's RGB value and opacity.
-// It is used for RGB colors and as a best-effort fallback for colors whose
-// kind the Color model cannot otherwise represent as its own element.
+// colorToSrgbClr builds an <a:srgbClr> from a color's RGB value, tint/shade
+// and opacity. It is used for RGB colors and as a best-effort fallback for
+// colors whose kind the Color model cannot otherwise represent as its own
+// element.
+//
+// a:tint / a:shade are EG_ColorTransform members and apply to any color kind,
+// so WithTint means the same thing on an RGB color as on a theme color; only
+// emitting it under a:schemeClr made WithTint a silent no-op for the whole
+// NewSolidFill/gradient-stop/line-color/shadow-color surface (C479).
 func colorToSrgbClr(c Color) *SrgbClr {
 	srgb := &SrgbClr{Val: c.RGB.String()}
+	if tint, shade := colorTintShade(c); tint != nil {
+		srgb.Tint = tint
+	} else if shade != nil {
+		srgb.Shade = shade
+	}
 	srgb.Alpha = colorAlpha(c)
 	return srgb
 }
@@ -129,18 +140,29 @@ func colorToSrgbClr(c Color) *SrgbClr {
 // tint/shade and any partial opacity.
 func colorToSchemeClr(c Color) *SchemeClrTransform {
 	scheme := &SchemeClrTransform{Val: c.Theme.String()}
-	if c.Tint != 0 {
-		tintVal := int32(math.Round(c.Tint * 100000))
-		if c.Tint > 0 {
-			scheme.Tint = append(scheme.Tint, &ColorTransform{Val: NewPercentage(tintVal)})
-		} else {
-			scheme.Shade = append(scheme.Shade, &ColorTransform{Val: NewPercentage(-tintVal)})
-		}
+	if tint, shade := colorTintShade(c); tint != nil {
+		scheme.Tint = append(scheme.Tint, tint)
+	} else if shade != nil {
+		scheme.Shade = append(scheme.Shade, shade)
 	}
 	if a := colorAlpha(c); a != nil {
 		scheme.Alpha = append(scheme.Alpha, a)
 	}
 	return scheme
+}
+
+// colorTintShade renders a color's tint as the transform it maps to: a
+// positive tint is a:tint, a negative one a:shade with the magnitude. At most
+// one of the two is non-nil; both are nil when no tint was set.
+func colorTintShade(c Color) (tint, shade *ColorTransform) {
+	if c.Tint == 0 {
+		return nil, nil
+	}
+	val := int32(math.Round(c.Tint * 100000))
+	if c.Tint > 0 {
+		return &ColorTransform{Val: NewPercentage(val)}, nil
+	}
+	return nil, &ColorTransform{Val: NewPercentage(-val)}
 }
 
 func colorToSolidFill(c Color) *SolidFill {

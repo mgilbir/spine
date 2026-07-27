@@ -106,7 +106,10 @@ type GlowXML struct {
 	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// SoftEdgeXML represents CT_SoftEdgesEffect (a:softEdge)
+// SoftEdgeXML represents CT_SoftEdgesEffect (a:softEdge). Unlike GlowXML.Rad
+// (optional, default 0) this rad is use="required" with no default, so it
+// deliberately carries no omitempty: an explicit rad="0" must survive and an
+// element without it would be schema-invalid.
 type SoftEdgeXML struct {
 	Rad int64 `xml:"rad,attr"`
 }
@@ -181,16 +184,17 @@ func (ec *EffectContainer) UnmarshalXML(d *xml.Decoder, start xml.StartElement) 
 	return nil
 }
 
-// effectiveChildren returns the captured child list, or a synthesized single
-// blur child when the container was built programmatically via the Blur field.
+// effectiveChildren returns the captured child list with the Blur field
+// substituted at its captured position, or a synthesized single blur child
+// when the container was built programmatically via the Blur field.
+//
+// Blur is documented as settable after parse. Simply preferring Children made
+// that half-true: mutating through the parsed pointer worked, but assigning a
+// new *BlurXML (or clearing it) was silently discarded because the captured
+// child still held the old pointer. Substituting here makes "post-parse edits
+// win" hold for both, matching marshalCapturedChildren's contract.
 func (ec *EffectContainer) effectiveChildren() []*effectChild {
-	if len(ec.Children) > 0 {
-		return ec.Children
-	}
-	if ec.Blur != nil {
-		return []*effectChild{{Blur: ec.Blur}}
-	}
-	return nil
+	return substituteBlurChild(ec.Children, ec.Blur)
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, emitting the effect
@@ -679,9 +683,11 @@ type AlphaOutset struct {
 	Rad int64 `xml:"rad,attr,omitempty"`
 }
 
-// AlphaBiLevel represents CT_AlphaBiLevelEffect (a:alphaBiLevel)
+// AlphaBiLevel represents CT_AlphaBiLevelEffect (a:alphaBiLevel). thresh is
+// ST_PositiveFixedPercentage, so it is a Percentage: an int32 rejects the
+// transitional "50%" lexical form and fails the whole part (see Percentage).
 type AlphaBiLevel struct {
-	Thresh int32 `xml:"thresh,attr"`
+	Thresh Percentage `xml:"thresh,attr"`
 }
 
 // AlphaCeiling represents CT_AlphaCeilingEffect (a:alphaCeiling)
@@ -701,9 +707,10 @@ type AlphaInv struct {
 	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
-// AlphaRepl represents CT_AlphaReplaceEffect (a:alphaRepl)
+// AlphaRepl represents CT_AlphaReplaceEffect (a:alphaRepl). a is
+// ST_PositiveFixedPercentage; see AlphaBiLevel.
 type AlphaRepl struct {
-	A int32 `xml:"a,attr"`
+	A Percentage `xml:"a,attr"`
 }
 
 // EffectDag represents CT_EffectContainer (a:effectDag). Same content model as
@@ -741,16 +748,86 @@ func (ed *EffectDag) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 	return nil
 }
 
-// effectiveChildren returns the captured child list, or a synthesized single
-// cont child when the dag was built programmatically via the Cont field.
+// effectiveChildren returns the captured child list with the Cont field
+// substituted at its captured position, or a synthesized single cont child
+// when the dag was built programmatically via the Cont field. See
+// EffectContainer.effectiveChildren for why the substitution is necessary.
 func (ed *EffectDag) effectiveChildren() []*effectChild {
-	if len(ed.Children) > 0 {
-		return ed.Children
+	return substituteContChild(ed.Children, ed.Cont)
+}
+
+// substituteBlurChild replays a captured effect-child list with the container's
+// Blur field re-bound at the position the source wrote it.
+func substituteBlurChild(children []*effectChild, blur *BlurXML) []*effectChild {
+	replace := func(c *effectChild) *effectChild {
+		if blur == nil {
+			return nil
+		}
+		return &effectChild{Blur: blur}
 	}
-	if ed.Cont != nil {
-		return []*effectChild{{Cont: ed.Cont}}
+	return substituteFirst(children, func(c *effectChild) bool { return c.Blur != nil },
+		func(c *effectChild) bool { return c.Blur == blur }, replace, blur == nil)
+}
+
+// substituteContChild is substituteBlurChild for EffectDag's Cont field.
+func substituteContChild(children []*effectChild, cont *EffectContainer) []*effectChild {
+	replace := func(c *effectChild) *effectChild {
+		if cont == nil {
+			return nil
+		}
+		return &effectChild{Cont: cont}
 	}
-	return nil
+	return substituteFirst(children, func(c *effectChild) bool { return c.Cont != nil },
+		func(c *effectChild) bool { return c.Cont == cont }, replace, cont == nil)
+}
+
+// substituteFirst rebinds the first child matching match to replace(child), or
+// appends replace(nil) when no child matches and the field is set. A nil
+// replacement drops the child (the caller cleared the field). The captured
+// slice is never mutated: a copy is made only when something actually changes.
+func substituteFirst(children []*effectChild, match, same func(*effectChild) bool,
+	replace func(*effectChild) *effectChild, fieldNil bool) []*effectChild {
+	if len(children) == 0 {
+		if fieldNil {
+			return nil
+		}
+		if c := replace(nil); c != nil {
+			return []*effectChild{c}
+		}
+		return nil
+	}
+	idx := -1
+	for i, c := range children {
+		if match(c) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		// Field set after parse on a container that captured no child of this
+		// kind: append it, the only position available.
+		if fieldNil {
+			return children
+		}
+		if c := replace(nil); c != nil {
+			return append(append([]*effectChild(nil), children...), c)
+		}
+		return children
+	}
+	if same(children[idx]) {
+		return children // the field still points at the captured child
+	}
+	out := make([]*effectChild, 0, len(children))
+	for i, c := range children {
+		if i != idx {
+			out = append(out, c)
+			continue
+		}
+		if nc := replace(c); nc != nil {
+			out = append(out, nc)
+		}
+	}
+	return out
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler, emitting the effect
