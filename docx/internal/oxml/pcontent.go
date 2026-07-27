@@ -36,6 +36,10 @@ type ContentVisitor struct {
 	TrackChange func(*CT_RunTrackChange)
 	// Hyperlink is called for each w:hyperlink before its content is visited.
 	Hyperlink func(*CT_Hyperlink)
+	// BookmarkStart and BookmarkEnd are called for each w:bookmarkStart /
+	// w:bookmarkEnd marker, wherever it sits in the content nesting.
+	BookmarkStart func(*CT_BookmarkStart)
+	BookmarkEnd   func(*CT_BookmarkEnd)
 }
 
 // VisitContent walks a paragraph-content container's children in document
@@ -78,6 +82,14 @@ func visitContentRefs(refs pContentRefs, v ContentVisitor) {
 				}
 				visitContentRefs(f.contentRefs(), v)
 			}
+		case pChildBookmarkStart:
+			if bs, ok := refs.valueAt(ref).(*CT_BookmarkStart); ok && bs != nil && v.BookmarkStart != nil {
+				v.BookmarkStart(bs)
+			}
+		case pChildBookmarkEnd:
+			if be, ok := refs.valueAt(ref).(*CT_BookmarkEnd); ok && be != nil && v.BookmarkEnd != nil {
+				v.BookmarkEnd(be)
+			}
 		case pChildSdtRun:
 			if s, ok := refs.valueAt(ref).(*CT_SdtRun); ok && s != nil {
 				if v.SdtRun != nil {
@@ -111,6 +123,12 @@ func (refs pContentRefs) orderedChildren() []pChildRef {
 	}
 	if refs.hyperlink != nil {
 		add(pChildHyperlink, len(*refs.hyperlink))
+	}
+	if refs.bookmarkStart != nil {
+		add(pChildBookmarkStart, len(*refs.bookmarkStart))
+	}
+	if refs.bookmarkEnd != nil {
+		add(pChildBookmarkEnd, len(*refs.bookmarkEnd))
 	}
 	if refs.ins != nil {
 		add(pChildIns, len(*refs.ins))
