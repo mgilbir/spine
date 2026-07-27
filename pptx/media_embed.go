@@ -357,17 +357,27 @@ func (s *Slide) flushMediaProps(pic *oxml.Picture, m *mediaShape, kind mediaKind
 	}
 }
 
-// collectRemovedPicRefs gathers, for each removed p:pic node, its shape id
-// and the relationship ids it references (poster/image blip, svg blip,
-// p14:media embed, video/audio file link). Called before the nodes are
-// deleted from the tree; whether a rel id is safe to drop is decided later by
-// gcSlideRels, which checks the remaining slide XML for other references.
+// collectRemovedPicRefs gathers, for each removed node, the shape ids and the
+// relationship ids (poster/image blip, svg blip, p14:media embed, video/audio
+// file link) that go away with it. Called before the nodes are deleted from the
+// tree; whether a rel id is safe to drop is decided later by gcSlideRels, which
+// checks the remaining slide XML for other references.
+//
+// A removed p:grpSp is descended into, recursively. Matching only ChildPic left
+// media inside a removed group leaking its rels and its media part, and left the
+// generated p:timing tree targeting a spid that no longer existed — the same
+// defect the top-level case fixes, one level of nesting down (C379). The add and
+// flush paths have always descended into groups (forEachShape, flushGroupChild,
+// paragraphCountInGroup); the removal side was the asymmetric one, so the walk
+// below collects every descendant's shape id regardless of kind. Extra spids are
+// harmless — pruneAutoTiming matches them against the refs it built the tree
+// from — and a per-shape resource added later to some other node kind is one
+// switch arm here rather than a new instance of this bug.
 func collectRemovedPicRefs(spTree *oxml.ShapeTree, refs []oxml.ChildRef) (spids []uint32, relIDs []string) {
-	for _, ref := range refs {
-		if ref.Kind != oxml.ChildPic || ref.Index < 0 || ref.Index >= len(spTree.Pic) {
-			continue
+	collect := func(pic *oxml.Picture) {
+		if pic == nil {
+			return
 		}
-		pic := spTree.Pic[ref.Index]
 		if pic.NvPicPr != nil {
 			if pic.NvPicPr.CNvPr != nil {
 				spids = append(spids, pic.NvPicPr.CNvPr.Id)
@@ -401,8 +411,62 @@ func collectRemovedPicRefs(spTree *oxml.ShapeTree, refs []oxml.ChildRef) (spids 
 			}
 		}
 	}
+
+	var descend func(g *oxml.GroupShape, depth int)
+	descend = func(g *oxml.GroupShape, depth int) {
+		// Groups nest arbitrarily; a parsed tree cannot be cyclic, but bound the
+		// recursion anyway so a hand-built model cannot spin here.
+		if g == nil || depth > maxGroupNestDepth {
+			return
+		}
+		if g.NvGrpSpPr != nil && g.NvGrpSpPr.CNvPr != nil {
+			spids = append(spids, g.NvGrpSpPr.CNvPr.Id)
+		}
+		for _, sp := range g.Shapes {
+			if sp != nil && sp.NvSpPr != nil && sp.NvSpPr.CNvPr != nil {
+				spids = append(spids, sp.NvSpPr.CNvPr.Id)
+			}
+		}
+		for _, pic := range g.Pictures {
+			collect(pic)
+		}
+		for _, gf := range g.GraphicFrames {
+			if gf != nil && gf.NvGraphicFramePr != nil && gf.NvGraphicFramePr.CNvPr != nil {
+				spids = append(spids, gf.NvGraphicFramePr.CNvPr.Id)
+			}
+		}
+		for _, cxn := range g.ConnectionShapes {
+			if cxn != nil && cxn.NvCxnSpPr != nil && cxn.NvCxnSpPr.CNvPr != nil {
+				spids = append(spids, cxn.NvCxnSpPr.CNvPr.Id)
+			}
+		}
+		for _, sub := range g.GroupShapes {
+			descend(sub, depth+1)
+		}
+	}
+
+	for _, ref := range refs {
+		if ref.Index < 0 {
+			continue
+		}
+		switch ref.Kind {
+		case oxml.ChildPic:
+			if ref.Index < len(spTree.Pic) {
+				collect(spTree.Pic[ref.Index])
+			}
+		case oxml.ChildGrpSp:
+			if ref.Index < len(spTree.GrpSp) {
+				descend(spTree.GrpSp[ref.Index], 0)
+			}
+		}
+	}
 	return spids, relIDs
 }
+
+// maxGroupNestDepth bounds the group recursion in collectRemovedPicRefs. Real
+// decks nest a handful deep; the bound exists only so a malformed or
+// hand-assembled model cannot make the walk unbounded.
+const maxGroupNestDepth = 64
 
 // removableRelType reports whether a slide relationship type may be garbage
 // collected once its id is no longer referenced by the slide XML. Only the

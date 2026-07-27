@@ -1581,6 +1581,24 @@ func pictureToOxml(p *Picture, id uint32) *oxml.Picture {
 // Duplicate creates a copy of the slide and adds it after this slide. It
 // returns nil when called on a handle that was already removed (C302), rather
 // than duplicating whatever slide now sits at the freed index.
+//
+// Parts that ECMA models as belonging to one slide are copied, not shared: the
+// notes slide, and the legacy and modern comment parts — the modern thread's
+// pc:sldMk anchor is rewritten to the duplicate's slide id, so the copied thread
+// belongs to the slide it now lives on rather than still naming the source
+// (C414). Editing either slide's notes or comments therefore leaves the other
+// alone.
+//
+// Everything else the slide references is shared with the original: images,
+// media, charts, SmartArt (diagram data/layout/colors/drawing) and embedded OLE
+// objects are pointed at by both slides' relationships. That is valid OPC — a
+// part may be the target of any number of relationships — and it keeps a
+// duplicate from doubling the package size for content neither slide will
+// diverge on. It is also currently unobservable through this API: Charts() and
+// the SmartArt/OLE accessors return parsed snapshots with no write-back, so
+// there is no way to mutate one slide's copy. PowerPoint, by contrast, deep
+// copies these on its own duplicate command, so a deck round-tripped through
+// this library and then edited in PowerPoint may diverge from one edited here.
 func (s *Slide) Duplicate() *Slide {
 	if s.presentation == nil || s.index < 0 {
 		return nil
@@ -1626,6 +1644,9 @@ func (s *Slide) Duplicate() *Slide {
 		// Give the duplicate its own notes slide rather than sharing the
 		// original's (otherwise editing one slide's notes changes the other).
 		s.presentation.deepCloneNotesSlide(newSlide.partName)
+		// Same for comments, which ECMA also models per slide — and whose modern
+		// form additionally records which slide the thread hangs off (C414).
+		s.presentation.deepCloneCommentParts(newSlide.partName, s.id, newSlide.id)
 	}
 	if newSlide.sxModel == nil {
 		newSlide.sxModel = newSlideXML()

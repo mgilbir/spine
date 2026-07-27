@@ -21,6 +21,7 @@ const (
 	codeChartNoRel      = "chart-no-rel"      // chart graphicFrame r:id with no target part
 	codeRelIDDup        = "rel-id-dup"        // same relationship id twice in one .rels scope
 	codeSldIDRelType    = "sldid-rel-type"    // sldId/custShow r:id resolving to a non-slide rel
+	codeZoomNoTarget    = "zoom-no-target"    // slide zoom whose target sldId is not in the deck
 )
 
 // Validate walks the in-memory presentation model and reports structural
@@ -39,6 +40,7 @@ func (p *Presentation) Validate() validate.Report {
 	p.validateCommentAuthors(c)
 	p.validateHyperlinks(c)
 	p.validateCharts(c)
+	p.validateZoomTargets(c)
 	if p.reader != nil {
 		// Package-level checks compare against the parts the source package
 		// carries. For a freshly created deck the writer synthesizes content
@@ -371,6 +373,48 @@ func (p *Presentation) validateCharts(c *validate.Collector) {
 	}
 }
 
+// validateZoomTargets warns when a Slide Zoom points at a slide the deck no
+// longer contains. This is the zoom half of the deletion-sweep class (C364): a
+// zoom binds to its target by *numeric* p:sldId, not by relationship, so
+// RemoveSlide's relationship sweep cannot reach it and the frame's target id is
+// inside preserved raw graphicData this library will not rewrite. Reporting it
+// is what the model can honestly do; a dangling zoom renders as a dead thumbnail
+// in PowerPoint rather than corrupting the file, hence a warning.
+//
+// Zoom frames wrapped in mc:AlternateContent (the form PowerPoint writes for
+// backward compatibility) are preserved as opaque content and are not walked
+// here, so the check is a floor, not a ceiling.
+func (p *Presentation) validateZoomTargets(c *validate.Collector) {
+	live := make(map[uint32]bool, len(p.slides))
+	for _, s := range p.slides {
+		if s != nil {
+			live[s.id] = true
+		}
+	}
+	for _, s := range p.slides {
+		// Read sxModel directly (never sx()): a never-accessed slide is
+		// unmodified, and its zoom targets were consistent when the deck was
+		// written — skip it rather than force a parse of every slide.
+		if s == nil || s.sxModel == nil || s.sxModel.CSld == nil || s.sxModel.CSld.SpTree == nil {
+			continue
+		}
+		for _, gf := range s.sxModel.CSld.SpTree.GraphicFrame {
+			if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil {
+				continue
+			}
+			if kind, ok := zoomKindForURI(gf.Graphic.GraphicData.URI); !ok || kind != ZoomKindSlide {
+				continue
+			}
+			target, _ := parseZoomTargets(gf.Graphic.GraphicData.RawContent)
+			if target == 0 || live[target] {
+				continue
+			}
+			c.Warnf(codeZoomNoTarget, s.partName,
+				fmt.Sprintf("slide zoom targets slide id %d, which is not in the presentation's slide list", target))
+		}
+	}
+}
+
 // xmlUnmarshal reports whether data decodes into v without error (nil data
 // yields false).
 func xmlUnmarshal(data []byte, v any) bool {
@@ -394,7 +438,10 @@ func (p *Presentation) validatePackage(c *validate.Collector) {
 
 	validate.CheckDuplicateParts(c, parts)
 	validate.CheckContentTypes(c, parts, ct)
-	validate.CheckRelationshipTargets(c, p.relationships, exists)
+	// Both sides of the target check run against the output set: the source-side
+	// map is what the save will write (outputRelationships) and the target-side
+	// predicate is what the save will contain (partExists).
+	validate.CheckRelationshipTargets(c, p.outputRelationships(), exists)
 }
 
 // knownPartNames returns the part names present in the source package plus the
@@ -438,14 +485,25 @@ func (p *Presentation) knownPartNames() []string {
 	return out
 }
 
-// partExists reports whether a part name is present in the source package or in
-// a model collection. It is deliberately over-inclusive (a removed part still
-// counted as present) so relationship-target checks never yield a false
-// positive.
+// partExists reports whether a part name will be present in the package the save
+// path writes.
+//
+// Answering against the *output* set rather than the source reader is what makes
+// deletion-induced dangling references visible to the pre-save gate at all. The
+// old order asked the reader first, where a part deleted this session is still
+// sitting; every removal therefore produced a package with relationships to
+// parts it did not contain while Validate reported it clean — not because the
+// check was weak but because it was structurally unable to see it (audit tension
+// T-A; C364, C365 are the pptx instances).
+//
+// The order matters: a live model object claiming the name wins, because a
+// removed part name can be reused within the same session (RemoveSlide followed
+// by AddSlide, or SetVBAProject after RemoveVBAProject). Only when nothing in
+// the model claims the name does removedParts get to answer "gone", and only
+// then does the source package get consulted. It stays over-inclusive everywhere
+// else — preserved furniture the writer always emits is reported present — so
+// the check keeps its no-false-positives contract.
 func (p *Presentation) partExists(name string) bool {
-	if p.reader != nil && p.reader.GetFile(name) != nil {
-		return true
-	}
 	for _, s := range p.slides {
 		if s != nil && s.partName == name {
 			return true
@@ -476,7 +534,12 @@ func (p *Presentation) partExists(name string) bool {
 		"/docProps/thumbnail.jpeg":
 		return true
 	}
-	return false
+	// Deleted this session and not re-claimed: the save will not write it, so
+	// the source package carrying it is irrelevant.
+	if p.removedParts[name] {
+		return false
+	}
+	return p.reader != nil && p.reader.GetFile(name) != nil
 }
 
 // relIDSet returns the set of relationship ids in rels.
