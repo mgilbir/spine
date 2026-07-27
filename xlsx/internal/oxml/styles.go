@@ -4,6 +4,7 @@ package oxml
 
 import (
 	"encoding/xml"
+	"reflect"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -245,15 +246,28 @@ type CT_Borders struct {
 }
 
 // CT_Border represents a single border definition with optional edge properties.
+// The fields are declared in schema sequence order (start, end, left, right,
+// top, bottom, diagonal, vertical, horizontal), which is the order the
+// reflection marshaler emits them in.
+//
+// Start/End are the logical (reading-order-relative) edges some producers write
+// instead of left/right, and Vertical/Horizontal are the inner grid lines a
+// differential format (dxf) uses to border the cells inside a conditional-format
+// range. All four were unmodeled, so reflection unmarshal dropped them and any
+// unrelated style edit regenerated styles.xml without them (C430).
 type CT_Border struct {
 	DiagonalUp   *bool        `xml:"diagonalUp,attr,omitempty"`
 	DiagonalDown *bool        `xml:"diagonalDown,attr,omitempty"`
 	Outline      *bool        `xml:"outline,attr,omitempty"`
+	Start        *CT_BorderPr `xml:"start,omitempty"`
+	End          *CT_BorderPr `xml:"end,omitempty"`
 	Left         *CT_BorderPr `xml:"left,omitempty"`
 	Right        *CT_BorderPr `xml:"right,omitempty"`
 	Top          *CT_BorderPr `xml:"top,omitempty"`
 	Bottom       *CT_BorderPr `xml:"bottom,omitempty"`
 	Diagonal     *CT_BorderPr `xml:"diagonal,omitempty"`
+	Vertical     *CT_BorderPr `xml:"vertical,omitempty"`
+	Horizontal   *CT_BorderPr `xml:"horizontal,omitempty"`
 }
 
 // CT_BorderPr represents a single border edge property with style and color.
@@ -293,6 +307,19 @@ type CT_Xf struct {
 	ApplyProtection   *bool              `xml:"applyProtection,attr,omitempty"`
 	Alignment         *CT_CellAlignment  `xml:"alignment,omitempty"`
 	Protection        *CT_CellProtection `xml:"protection,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a styles.xml regeneration; the reflection
+	// marshaler replays it. No styles type carried a capture at all before
+	// C430, so every dxf/xf/cellStyle extension list was dropped by any
+	// unrelated style edit.
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// xfModeledChildren maps CT_Xf's modeled child local names to their struct
+// field indices.
+var xfModeledChildren = map[string]int{
+	"alignment":  structFieldIndex(reflect.TypeOf(CT_Xf{}), "Alignment"),
+	"protection": structFieldIndex(reflect.TypeOf(CT_Xf{}), "Protection"),
 }
 
 // CT_CellAlignment represents cell alignment properties.
@@ -330,6 +357,9 @@ type CT_CellStyle struct {
 	ILevel        *uint32 `xml:"iLevel,attr,omitempty"`
 	Hidden        *bool   `xml:"hidden,attr,omitempty"`
 	CustomBuiltin *bool   `xml:"customBuiltin,attr,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a styles.xml regeneration (C430).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
 }
 
 // --- Differential Formatting ---
@@ -348,6 +378,36 @@ type CT_Dxf struct {
 	Alignment  *CT_CellAlignment  `xml:"alignment,omitempty"`
 	Border     *CT_Border         `xml:"border,omitempty"`
 	Protection *CT_CellProtection `xml:"protection,omitempty"`
+	// CapturedChildren records the source child sequence so the extLst this
+	// type does not model survives a styles.xml regeneration (C430).
+	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// dxfModeledChildren maps CT_Dxf's modeled child local names to their struct
+// field indices.
+var dxfModeledChildren = map[string]int{
+	"font":       structFieldIndex(reflect.TypeOf(CT_Dxf{}), "Font"),
+	"numFmt":     structFieldIndex(reflect.TypeOf(CT_Dxf{}), "NumFmt"),
+	"fill":       structFieldIndex(reflect.TypeOf(CT_Dxf{}), "Fill"),
+	"alignment":  structFieldIndex(reflect.TypeOf(CT_Dxf{}), "Alignment"),
+	"border":     structFieldIndex(reflect.TypeOf(CT_Dxf{}), "Border"),
+	"protection": structFieldIndex(reflect.TypeOf(CT_Dxf{}), "Protection"),
+}
+
+// UnmarshalXML decodes a dxf, preserving its unmodeled extLst verbatim (C430).
+func (dxf *CT_Dxf) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	type alias CT_Dxf
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(dxf)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, dxfModeledChildren); cap != nil {
+		dxf.CapturedChildren = cap
+	}
+	return nil
 }
 
 // --- Table Styles ---
@@ -420,13 +480,24 @@ func (bd *CT_Border) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 	return d.DecodeElement((*alias)(bd), &start)
 }
 
-// UnmarshalXML coerces the quotePrefix/pivotButton/apply* booleans.
+// UnmarshalXML coerces the quotePrefix/pivotButton/apply* booleans and
+// preserves the unmodeled extLst verbatim (C430).
 func (xf *CT_Xf) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	start.Attr = coerceBoolAttrs(start.Attr, "quotePrefix", "pivotButton",
 		"applyNumberFormat", "applyFont", "applyFill", "applyBorder",
 		"applyAlignment", "applyProtection")
 	type alias CT_Xf
-	return d.DecodeElement((*alias)(xf), &start)
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(xf)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, xfModeledChildren); cap != nil {
+		xf.CapturedChildren = cap
+	}
+	return nil
 }
 
 // UnmarshalXML coerces the wrapText/justifyLastLine/shrinkToFit booleans.
@@ -443,11 +514,23 @@ func (p *CT_CellProtection) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 	return d.DecodeElement((*alias)(p), &start)
 }
 
-// UnmarshalXML coerces the hidden/customBuiltin booleans.
+// UnmarshalXML coerces the hidden/customBuiltin booleans and preserves the
+// unmodeled extLst verbatim (C430). CT_CellStyle models no child elements, so
+// every child it carries is captured.
 func (cs *CT_CellStyle) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	start.Attr = coerceBoolAttrs(start.Attr, "hidden", "customBuiltin")
 	type alias CT_CellStyle
-	return d.DecodeElement((*alias)(cs), &start)
+	aux := struct {
+		*alias
+		Inner []byte `xml:",innerxml"`
+	}{alias: (*alias)(cs)}
+	if err := d.DecodeElement(&aux, &start); err != nil {
+		return err
+	}
+	if cap := captureUnmodeledChildren(aux.Inner, nil); cap != nil {
+		cs.CapturedChildren = cap
+	}
+	return nil
 }
 
 // UnmarshalXML coerces the pivot/table booleans.
