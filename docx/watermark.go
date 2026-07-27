@@ -13,6 +13,7 @@ import (
 	"math"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -533,7 +534,7 @@ func buildTextWatermarkDrawingML(text string, opts WatermarkOptions, seq int) *o
 	b.WriteString(`<w:p><w:pPr><w:jc w:val="center"/></w:pPr>`)
 	fmt.Fprintf(&b, `<w:r><w:rPr><w:rFonts w:ascii="%s" w:hAnsi="%s"/><w:color w:val="%s"/><w:sz w:val="72"/></w:rPr>`,
 		escapeXMLAttr(font), escapeXMLAttr(font), escapeXMLAttr(colorHex))
-	fmt.Fprintf(&b, `<w:t xml:space="preserve">%s</w:t></w:r>`, escapeXMLText(text))
+	fmt.Fprintf(&b, `<w:t xml:space="preserve">%s</w:t></w:r>`, xmlb.EscapeText(text))
 	b.WriteString(`</w:p>`)
 	b.WriteString(`</w:txbxContent></wps:txbx>`)
 	b.WriteString(`<wps:bodyPr rot="0" vertOverflow="overflow" horzOverflow="overflow" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr" anchorCtr="0"><a:noAutofit/></wps:bodyPr>`)
@@ -668,17 +669,6 @@ func escapeXMLAttr(s string) string {
 		"\n", "&#xA;",
 		"\r", "&#xD;",
 		"\t", "&#x9;",
-	)
-	return r.Replace(s)
-}
-
-// escapeXMLText escapes a string for use as XML character data in the
-// DrawingML watermark's text box (w:t content).
-func escapeXMLText(s string) string {
-	r := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
 	)
 	return r.Replace(s)
 }

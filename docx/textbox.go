@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
@@ -245,7 +246,7 @@ func buildShapeDrawingXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bo
 			`%s`+
 			`</wp:inline>`,
 		tb.widthEMU, tb.heightEMU,
-		id, xmlEscapeAttr(name),
+		id, xmlb.EscapeAttrValue(name),
 		graphic,
 	))
 }
@@ -281,7 +282,7 @@ func buildShapeAnchorXML(id int, name string, tb *TextBox, opts TextBoxOptions, 
 		hRel, pointsToEMU(opts.Anchor.X),
 		vRel, pointsToEMU(opts.Anchor.Y),
 		tb.widthEMU, tb.heightEMU,
-		id, xmlEscapeAttr(name),
+		id, xmlb.EscapeAttrValue(name),
 		graphic,
 	))
 }
@@ -304,10 +305,10 @@ func buildWspXML(id int, name, cNvSpPr, txbx string, xEMU, yEMU, cx, cy int64, s
 			`%s`+
 			`<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="91440" tIns="45720" rIns="91440" bIns="45720" anchor="t" anchorCtr="0">%s<a:noAutofit/></wps:bodyPr>`+
 			`</wps:wsp>`,
-		id, xmlEscapeAttr(name),
+		id, xmlb.EscapeAttrValue(name),
 		cNvSpPr,
 		xEMU, yEMU, cx, cy,
-		xmlEscapeAttr(string(shape)),
+		xmlb.EscapeAttrValue(string(shape)),
 		fill, ln,
 		txbx,
 		bodyPrExtra,
@@ -345,7 +346,7 @@ func buildVMLTextBoxXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bool
 	if opts.NoFill {
 		fill = `filled="f"`
 	} else if opts.FillColor != "" {
-		fill = `fillcolor="#` + xmlEscapeAttr(strings.ToLower(opts.FillColor)) + `"`
+		fill = `fillcolor="#` + xmlb.EscapeAttrValue(strings.ToLower(opts.FillColor)) + `"`
 	} else if !isTextBox {
 		fill = `filled="f"`
 	}
@@ -354,7 +355,7 @@ func buildVMLTextBoxXML(id int, tb *TextBox, opts TextBoxOptions, isTextBox bool
 	if opts.NoBorder {
 		stroke = `stroked="f"`
 	} else if opts.BorderColor != "" {
-		stroke = `strokecolor="#` + xmlEscapeAttr(strings.ToLower(opts.BorderColor)) + `"`
+		stroke = `strokecolor="#` + xmlb.EscapeAttrValue(strings.ToLower(opts.BorderColor)) + `"`
 	}
 
 	style := fmt.Sprintf("width:%.2fpt;height:%.2fpt", widthPt, heightPt)
@@ -382,7 +383,7 @@ func fillXML(opts TextBoxOptions, isTextBox bool) string {
 		}
 		color = "FFFFFF"
 	}
-	return fmt.Sprintf(`<a:solidFill><a:srgbClr val="%s"/></a:solidFill>`, xmlEscapeAttr(color))
+	return fmt.Sprintf(`<a:solidFill><a:srgbClr val="%s"/></a:solidFill>`, xmlb.EscapeAttrValue(color))
 }
 
 // lnXML builds the a:ln (outline) fragment for a shape's spPr.
@@ -400,7 +401,7 @@ func lnXML(opts TextBoxOptions) string {
 	}
 	return fmt.Sprintf(
 		`<a:ln w="%d"><a:solidFill><a:srgbClr val="%s"/></a:solidFill></a:ln>`,
-		width, xmlEscapeAttr(color))
+		width, xmlb.EscapeAttrValue(color))
 }
 
 // txbxContentXML builds the WordprocessingML body of a text box: one w:p per
@@ -413,20 +414,12 @@ func txbxContentXML(text string) string {
 		b.WriteString(`<w:p>`)
 		if line != "" {
 			b.WriteString(`<w:r><w:t xml:space="preserve">`)
-			b.WriteString(xmlEscapeText(line))
+			b.WriteString(xmlb.EscapeText(line))
 			b.WriteString(`</w:t></w:r>`)
 		}
 		b.WriteString(`</w:p>`)
 	}
 	return b.String()
-}
-
-// xmlEscapeText escapes a string for use as XML character data.
-func xmlEscapeText(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
 }
 
 // --- read ---

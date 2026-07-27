@@ -2,6 +2,7 @@ package docx
 
 import (
 	"bytes"
+	"encoding/xml"
 	"os"
 	"strings"
 	"testing"
@@ -120,6 +121,57 @@ func TestAddCustomXMLPart(t *testing.T) {
 	got := rd.CustomXMLParts()
 	if len(got) != 1 || got[0].ItemID() != part.ItemID() {
 		t.Fatalf("reopened parts = %+v", got)
+	}
+}
+
+// TestAddCustomXMLPartEscapesSchemaURI adds a data part whose root-element
+// namespace URI legally contains an ampersand. That URI is recorded as a
+// schemaRef and written into the itemProps ds:uri attribute; concatenated raw
+// it produces malformed XML (a bare & in an attribute value), corrupting the
+// saved part. Regression test for C350: the URI must be attribute-escaped so
+// the itemProps part is well-formed and reparses to the original URI.
+func TestAddCustomXMLPartEscapesSchemaURI(t *testing.T) {
+	doc := Create()
+	const nsURI = "http://x/?a=1&b=2"
+	data := []byte(`<root xmlns="http://x/?a=1&amp;b=2"><a>1</a></root>`)
+	part, err := doc.AddCustomXMLPart(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(part.SchemaRefs()) != 1 || part.SchemaRefs()[0] != nsURI {
+		t.Fatalf("schemaRefs = %v, want [%q]", part.SchemaRefs(), nsURI)
+	}
+
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	props, ok := zipEntry(t, saved, "customXml/itemProps1.xml")
+	if !ok {
+		t.Fatal("itemProps1.xml missing")
+	}
+	// The ampersand must be escaped, and the raw (malformed) form must be absent.
+	if !bytes.Contains(props, []byte(`ds:uri="http://x/?a=1&amp;b=2"`)) {
+		t.Errorf("itemProps did not attribute-escape the schema URI: %q", props)
+	}
+	if bytes.Contains(props, []byte(`ds:uri="http://x/?a=1&b=2"`)) {
+		t.Errorf("itemProps contains an unescaped ampersand: %q", props)
+	}
+	// The saved part must be well-formed XML.
+	if err := xml.Unmarshal(props, new(struct {
+		XMLName xml.Name
+	})); err != nil {
+		t.Errorf("itemProps1.xml is not well-formed: %v", err)
+	}
+
+	// Reopen and confirm the schema ref round-trips to the original URI.
+	rd, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatalf("saved doc does not reopen: %v", err)
+	}
+	got := rd.CustomXMLParts()
+	if len(got) != 1 || len(got[0].SchemaRefs()) != 1 || got[0].SchemaRefs()[0] != nsURI {
+		t.Fatalf("reopened schemaRefs = %+v", got)
 	}
 }
 

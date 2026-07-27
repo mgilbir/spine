@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
@@ -115,7 +116,7 @@ func buildWordArtDrawingXML(id int, tb *TextBox, opts WordArtOptions) []byte {
 
 	var warp string
 	if opts.Warp != WarpNone {
-		warp = fmt.Sprintf(`<a:prstTxWarp prst="%s"><a:avLst/></a:prstTxWarp>`, xmlEscapeAttr(string(opts.Warp)))
+		warp = fmt.Sprintf(`<a:prstTxWarp prst="%s"><a:avLst/></a:prstTxWarp>`, xmlb.EscapeAttrValue(string(opts.Warp)))
 	}
 
 	txbx := `<wps:txbx><w:txbxContent>` + wordArtTxbxContentXML(tb.text, opts) + `</w:txbxContent></wps:txbx>`
@@ -138,7 +139,7 @@ func buildWordArtDrawingXML(id int, tb *TextBox, opts WordArtOptions) []byte {
 			`%s`+
 			`</wp:inline>`,
 		tb.widthEMU, tb.heightEMU,
-		id, xmlEscapeAttr(name),
+		id, xmlb.EscapeAttrValue(name),
 		graphic,
 	))
 }
@@ -164,7 +165,7 @@ func wordArtTxbxContentXML(text string, opts WordArtOptions) string {
 	}
 	rPr := fmt.Sprintf(
 		`<w:rPr>%s<w:color w:val="%s"/><w:sz w:val="%d"/><w:szCs w:val="%d"/></w:rPr>`,
-		bold, xmlEscapeAttr(color), sizeHalf, sizeHalf)
+		bold, xmlb.EscapeAttrValue(color), sizeHalf, sizeHalf)
 
 	lines := strings.Split(text, "\n")
 	var b strings.Builder
@@ -174,7 +175,7 @@ func wordArtTxbxContentXML(text string, opts WordArtOptions) string {
 			b.WriteString(`<w:r>`)
 			b.WriteString(rPr)
 			b.WriteString(`<w:t xml:space="preserve">`)
-			b.WriteString(xmlEscapeText(line))
+			b.WriteString(xmlb.EscapeText(line))
 			b.WriteString(`</w:t></w:r>`)
 		}
 		b.WriteString(`</w:p>`)

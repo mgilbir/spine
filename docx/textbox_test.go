@@ -82,6 +82,38 @@ func TestAddTextBoxMultiline(t *testing.T) {
 	}
 }
 
+// TestAddTextBoxCaptionEscapesCR verifies a carriage return in a text box
+// caption is emitted as a &#xD; character reference rather than a raw CR. XML
+// §2.11 end-of-line handling makes a conforming parser normalize a literal CR
+// in element content to a newline on reparse, so a raw CR would silently become
+// a newline and the caption would not round-trip. Regression test for C349.
+func TestAddTextBoxCaptionEscapesCR(t *testing.T) {
+	doc := Create()
+	doc.AddTextBox("before\rafter", TextBoxOptions{})
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docXML, ok := zipEntry(t, saved, "word/document.xml")
+	if !ok {
+		t.Fatal("document.xml missing")
+	}
+	if !bytes.Contains(docXML, []byte("before&#xD;after")) {
+		t.Errorf("document.xml did not escape the CR as &#xD;; got %q", docXML)
+	}
+	reopened, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := reopened.TextBoxes()
+	if len(boxes) != 1 {
+		t.Fatalf("TextBoxes() = %d, want 1", len(boxes))
+	}
+	if got := boxes[0].Text(); got != "before\rafter" {
+		t.Errorf("reopened Text() = %q, want %q (CR lost to EOL normalization)", got, "before\rafter")
+	}
+}
+
 // TestAddFloatingTextBox anchors a text box and confirms the anchor markup and
 // the Floating flag survive a round trip.
 func TestAddFloatingTextBox(t *testing.T) {
