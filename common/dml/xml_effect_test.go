@@ -195,6 +195,72 @@ func TestDML_CT_AlphaModulateFixedEffect_ZeroRoundTrip(t *testing.T) {
 	}
 }
 
+// TestDML_EffectContainer_PreservesUnmodeledChildren pins C340 (KNOWN C146):
+// CT_EffectContainer (a:cont / a:effectDag) modeled only a:blur, so a blip's
+// <a:alphaMod><a:cont>…<a:alphaModFix/>…</a:cont></a:alphaMod> re-marshaled with
+// the alphaModFix (and every other unmodeled effect) deleted — and because the
+// container is reached through TYPED dispatch it bypassed the raw-capture
+// fallback, contradicting BlipEffect's "typed dispatch must never be lossier
+// than raw capture". The container now captures unmodeled children raw and
+// replays them in document order.
+func TestDML_EffectContainer_PreservesUnmodeledChildren(t *testing.T) {
+	var am AlphaMod
+	input := `<a:alphaMod xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+		`<a:cont type="sib"><a:alphaModFix amt="50000"/><a:blur rad="100"/></a:cont>` +
+		`</a:alphaMod>`
+	if err := xml.Unmarshal([]byte(input), &am); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if am.Cont == nil {
+		t.Fatal("Cont is nil")
+	}
+	if len(am.Cont.Children) != 2 {
+		t.Fatalf("Children = %d, want 2 (alphaModFix raw + blur typed)", len(am.Cont.Children))
+	}
+
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NsDrawingML, "a")
+	b.MarshalElement(NsDrawingML, "alphaMod", &am)
+	if err := b.Err(); err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `<a:alphaModFix amt="50000"`) {
+		t.Errorf("alphaModFix deleted on re-marshal: %s", out)
+	}
+	if !strings.Contains(out, `<a:blur rad="100"`) {
+		t.Errorf("blur dropped on re-marshal: %s", out)
+	}
+	if !strings.Contains(out, `type="sib"`) {
+		t.Errorf("cont type attr dropped: %s", out)
+	}
+}
+
+// TestDML_EffectDag_PreservesUnmodeledChildren pins the same C340 gap on
+// a:effectDag: an unmodeled effect child (a:outerShdw) must survive re-marshal.
+func TestDML_EffectDag_PreservesUnmodeledChildren(t *testing.T) {
+	var ed EffectDag
+	input := `<a:effectDag xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" type="tree">` +
+		`<a:cont><a:outerShdw blurRad="40000"><a:srgbClr val="000000"/></a:outerShdw></a:cont>` +
+		`</a:effectDag>`
+	if err := xml.Unmarshal([]byte(input), &ed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NsDrawingML, "a")
+	b.MarshalElement(NsDrawingML, "effectDag", &ed)
+	if err := b.Err(); err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `<a:outerShdw blurRad="40000"`) {
+		t.Errorf("outerShdw deleted on re-marshal: %s", out)
+	}
+	if !strings.Contains(out, `<a:srgbClr val="000000"`) {
+		t.Errorf("nested color dropped: %s", out)
+	}
+}
+
 // TestDML_CT_BiLevelEffect tests CT_BiLevelEffect type (a:biLevel)
 func TestDML_CT_BiLevelEffect(t *testing.T) {
 	var v BiLevelXML

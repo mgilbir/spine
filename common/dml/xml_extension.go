@@ -4,6 +4,7 @@
 package dml
 
 import (
+	"bytes"
 	"encoding/xml"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -552,7 +553,41 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	// only synthesizes its own declaration when it carries no capture.
 	attrs := xmlb.NSDeclAttrs([]xmlb.Attr{xmlb.StrAttr("uri", e.URI)}, e.InlineNSDecls)
 	b.StartElement(ns, localName, attrs...)
+	e.marshalContent(b)
+	b.EndElement(ns, localName)
+}
 
+// MarshalXML implements xml.Marshaler for the encoding/xml path. All content
+// fields are xml:"-", so without this the reflection-free stdlib encoder would
+// emit <a:ext uri="…"></a:ext> and silently delete the a16/a14 child. The
+// element is rendered through the Builder (which owns the extension prefix and
+// inline-declaration logic in marshalContent) and its self-contained tokens are
+// replayed into the encoder.
+func (e *Ext) MarshalXML(enc *xml.Encoder, start xml.StartElement) error {
+	b := xmlb.NewBuilder()
+	attrs := xmlb.NSDeclAttrs([]xmlb.Attr{xmlb.StrAttr("uri", e.URI)}, e.InlineNSDecls)
+	b.StartElementInlineNS(nsA, xmlb.PrefixDrawingML, "ext", attrs...)
+	e.marshalContent(b)
+	b.EndElementInlineNS(xmlb.PrefixDrawingML, "ext")
+	if err := b.Err(); err != nil {
+		return err
+	}
+	dec := xml.NewDecoder(bytes.NewReader(b.Bytes()))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		if err := enc.EncodeToken(fixupRawToken(tok)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// marshalContent writes the a:ext child content (the typed extension element or
+// the raw fallback) between the element's start and end tags.
+func (e *Ext) marshalContent(b *xmlb.Builder) {
 	switch {
 	case e.CreationId != nil:
 		if raw := e.CreationId.CapturedAttrs; raw != nil {
@@ -703,8 +738,6 @@ func (e *Ext) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			b.WriteRaw(e.RawContent)
 		}
 	}
-
-	b.EndElement(ns, localName)
 }
 
 // marshalA14Simple writes a simple a14 extension element with an optional val attribute.

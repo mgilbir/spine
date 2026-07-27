@@ -3,7 +3,10 @@ package dml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // TestDML_CT_AudioFile tests CT_AudioFile type (a:audioFile)
@@ -241,5 +244,44 @@ func TestDML_CT_GraphicalObjectData_Unknown(t *testing.T) {
 	}
 	if len(v.RawContent) == 0 {
 		t.Error("RawContent should not be empty for unknown graphic data")
+	}
+}
+
+// TestDML_GraphicData_RoundTripsRawContent pins C342: GraphicData captured the
+// content of an unknown-URI graphic (chart, diagram, ...) into RawContent but
+// had no marshal path, so a parse->marshal deleted it, leaving an empty
+// <a:graphicData uri="..."/>. Both marshal paths now replay the content.
+func TestDML_GraphicData_RoundTripsRawContent(t *testing.T) {
+	input := `<a:graphicData xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+		`uri="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+		`<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" ` +
+		`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1"/>` +
+		`</a:graphicData>`
+	var gd GraphicData
+	if err := xml.Unmarshal([]byte(input), &gd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(gd.RawContent) == 0 {
+		t.Fatal("RawContent empty after unmarshal")
+	}
+
+	// Builder path (primary): the raw child must be replayed verbatim.
+	b := xmlb.NewBuilder()
+	b.RegisterNamespace(NsDrawingML, "a")
+	b.MarshalElement(NsDrawingML, "graphicData", &gd)
+	if err := b.Err(); err != nil {
+		t.Fatalf("builder marshal: %v", err)
+	}
+	if out := b.String(); !strings.Contains(out, "c:chart") || !strings.Contains(out, `r:id="rId1"`) {
+		t.Errorf("chart content deleted on builder marshal: %s", out)
+	}
+
+	// encoding/xml path.
+	xout, err := xml.Marshal(&gd)
+	if err != nil {
+		t.Fatalf("xml marshal: %v", err)
+	}
+	if !strings.Contains(string(xout), "chart") || !strings.Contains(string(xout), "rId1") {
+		t.Errorf("chart content deleted on xml.Marshal: %s", xout)
 	}
 }

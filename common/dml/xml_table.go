@@ -32,6 +32,11 @@ type TblPr struct {
 	GrpFill       *GrpFill        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
 	EffectLst     *EffectLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
 	EffectDag     *EffectDag      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	// TableStyle and TableStyleId are the two arms of an xs:choice: a tblPr
+	// carries either an inline <a:tableStyle> (CT_TableStyle) or a
+	// <a:tableStyleId> GUID reference. TableStyle is declared first so it is
+	// parsed and re-emitted ahead of TableStyleId, matching the schema order.
+	TableStyle    *TableStyle     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyle,omitempty"`
 	TableStyleId  string          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tableStyleId,omitempty"`
 	ExtLst        *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs

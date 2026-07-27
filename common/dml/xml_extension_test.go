@@ -52,6 +52,32 @@ func TestDML_CT_OfficeArtExtension_CreationId(t *testing.T) {
 	}
 }
 
+// TestDML_CT_OfficeArtExtension_MarshalXMLPreservesChild pins C341: every Ext
+// content field is xml:"-", so xml.Marshal of an Ext (or anything containing an
+// ExtLst) emitted <ext uri="…"></ext> with the a16/a14 child deleted, because
+// the type had no MarshalXML for the encoding/xml path. The added MarshalXML
+// renders the typed child through the Builder so it survives.
+func TestDML_CT_OfficeArtExtension_MarshalXMLPreservesChild(t *testing.T) {
+	e := &Ext{
+		URI:        "{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}",
+		CreationId: &CreationId{Id: "{ABCD1234-5678-9012-3456-789012345678}"},
+	}
+	out, err := xml.Marshal(e)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "creationId") {
+		t.Errorf("a16:creationId child deleted on xml.Marshal: %s", s)
+	}
+	if !strings.Contains(s, "{ABCD1234-5678-9012-3456-789012345678}") {
+		t.Errorf("creationId id lost on xml.Marshal: %s", s)
+	}
+	if !strings.Contains(s, "{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}") {
+		t.Errorf("ext uri lost on xml.Marshal: %s", s)
+	}
+}
+
 // TestDML_CT_OfficeArtExtension_UseLocalDpi tests typed dispatch for useLocalDpi
 func TestDML_CT_OfficeArtExtension_UseLocalDpi(t *testing.T) {
 	var v Ext
