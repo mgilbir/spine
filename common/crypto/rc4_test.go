@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"strconv"
 	"testing"
 )
 
@@ -118,14 +119,5 @@ func TestRC4CryptoAPIDispatch(t *testing.T) {
 }
 
 func keyBitsName(b int) string {
-	switch b {
-	case 40:
-		return "40-bit"
-	case 56:
-		return "56-bit"
-	case 128:
-		return "128-bit"
-	default:
-		return "other"
-	}
+	return strconv.Itoa(b) + "-bit"
 }

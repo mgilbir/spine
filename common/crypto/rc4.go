@@ -236,8 +236,14 @@ func rc4CryptoAPIDeriveKey(passwordUTF16, salt []byte, keyBits, block int) []byt
 // isRC4CryptoAPI reports whether a version-2/3/4, minor-2 EncryptionInfo stream
 // (with the 4-byte version prefix already removed) describes RC4 CryptoAPI rather
 // than the AES-based standard scheme, distinguished by the EncryptionHeader
-// AlgID. Standard AES uses AlgIDs in the 0x6600 family; RC4 uses 0x6801 (or 0,
-// meaning the RC4 default).
+// AlgID. Standard AES uses AlgIDs in the 0x6600 family; RC4 uses 0x6801.
+//
+// AlgID 0 means "determined by Flags" ([MS-OFFCRYPTO] §2.3.4.5), so it is *not*
+// on its own an RC4 marker: the fAES bit decides, and a conformant AES file may
+// well carry AlgID 0. Reading the AlgID alone routed such a file into the RC4
+// path, where its verifier could never match and the caller was told the
+// password was wrong — the one error that invites retrying passwords forever on
+// a file that decrypts fine.
 func isRC4CryptoAPI(infoAfterVersion []byte) bool {
 	if len(infoAfterVersion) < 20 {
 		return false
@@ -247,7 +253,17 @@ func isRC4CryptoAPI(infoAfterVersion []byte) bool {
 		return false
 	}
 	algID := binary.LittleEndian.Uint32(infoAfterVersion[16:20])
-	return algID == stdAlgRC4 || algID == 0
+	switch algID {
+	case stdAlgRC4:
+		return true
+	case 0:
+		// EncryptionInfo.Flags at [0:4] and its EncryptionHeader.Flags copy at
+		// [8:12] must agree (§2.3.4.4); accept fAES from either.
+		flags := binary.LittleEndian.Uint32(infoAfterVersion[0:4]) | binary.LittleEndian.Uint32(infoAfterVersion[8:12])
+		return flags&stdFlagAES == 0
+	default:
+		return false
+	}
 }
 
 // EncryptRC4CryptoAPI produces the two streams of an RC4 CryptoAPI container
@@ -260,7 +276,13 @@ func isRC4CryptoAPI(infoAfterVersion []byte) bool {
 // This function exists to exercise and cross-validate the decrypt path against a
 // reference implementation; it is intentionally NOT wired into opc.SaveEncrypted.
 // Never use it to protect data — encrypt new documents with the agile scheme.
+//
+// The password must be a non-empty, valid-UTF-8 string of at most 255
+// characters; see ErrInvalidPassword.
 func EncryptRC4CryptoAPI(packageData []byte, password string, keyBits int) (encryptionInfo, encryptedPackage []byte, err error) {
+	if err := validatePassword(password); err != nil {
+		return nil, nil, err
+	}
 	if keyBits == 0 {
 		keyBits = rc4DefaultKeyBits
 	}

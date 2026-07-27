@@ -5,29 +5,52 @@
 // crypto/sha512, crypto/hmac, crypto/rsa, crypto/ecdsa, crypto/rand) and pulls
 // in no external crypto modules; the sole exception is the obsolete RC4 stream
 // cipher, which the standard library no longer ships and which is implemented
-// here from its public specification for the read path only.
+// here from its public specification.
 //
 // # Password-based encryption ([MS-OFFCRYPTO])
 //
 // Decrypt recovers the plaintext OOXML package from an encrypted container,
-// auto-detecting the scheme from the EncryptionInfo version:
+// auto-detecting the scheme from the EncryptionInfo version;
+// DecryptWithOptions additionally reports which scheme it was and whether the
+// bytes were authenticated:
 //
-//   - Agile encryption (§2.3.4.10–§2.3.4.15): AES-256 in CBC mode with SHA-512
-//     key derivation, the Office 2010+ default. Read and write — Encrypt
-//     produces it and it is the scheme the public save path uses.
+//   - Agile encryption (§2.3.4.10–§2.3.4.15), the Office 2010+ default. Read and
+//     write. The read path accepts AES-128/192/256 in CBC mode with
+//     SHA-1/256/384/512 key derivation; Encrypt writes the modern Office
+//     defaults, AES-256 with SHA-512, and it is the scheme the public save path
+//     uses.
 //   - ECMA-376 standard encryption (§2.3.4.5–§2.3.4.9): AES in ECB mode with
 //     SHA-1 key derivation, written by Office 2007. Read and write —
 //     EncryptStandard produces it.
-//   - RC4 CryptoAPI (§2.3.5): the obsolete RC4 stream-cipher scheme. Decrypt
-//     only. This package can open legacy RC4-encrypted packages, but the public
-//     save path deliberately does not offer RC4 because the cipher and its
-//     single un-iterated SHA-1 key derivation are cryptographically broken.
-//     EncryptRC4CryptoAPI exists solely to cross-validate the decrypt path in
-//     tests and is intentionally not wired into opc.SaveEncrypted.
+//   - RC4 CryptoAPI (§2.3.5): the obsolete RC4 stream-cipher scheme. This
+//     package can open legacy RC4-encrypted packages; the public save path
+//     (opc.SaveEncrypted) deliberately does not offer RC4, because the cipher
+//     and its single un-iterated SHA-1 key derivation are cryptographically
+//     broken. The exported EncryptRC4CryptoAPI exists to exercise and
+//     cross-validate that decrypt path against a reference implementation, and
+//     is documented as not for protecting data.
 //
 // The extensible scheme and the version-1.1 binary-format RC4 scheme (§2.3.6,
 // used by the legacy .doc/.xls/.ppt formats, which never wrap an OOXML .zip)
 // are recognized and rejected with ErrUnsupportedEncryption rather than decoded.
+//
+// # What a successful decryption proves
+//
+// Only agile encryption authenticates the ciphertext: its descriptor carries a
+// dataIntegrity block holding an HMAC over the EncryptedPackage stream, keyed
+// from the document key, and Decrypt requires it — a descriptor without one is
+// rejected with ErrIntegrityCheckFailed, because the descriptor is plaintext
+// and an attacker who can tamper with the ciphertext can equally delete the
+// element that asks for the check (see DecryptOptions for the explicit,
+// per-call opt-out). For the standard and RC4 schemes there is no such check
+// anywhere in the format: a successful decryption proves only that the password
+// matched a stored verifier, not that the bytes are the ones the author
+// encrypted. DecryptResult.IntegrityVerified reports which of the two you got;
+// when it is false, treat the recovered package as untrusted input.
+//
+// The encryption entry points (Encrypt, EncryptStandard, EncryptRC4CryptoAPI)
+// require a non-empty, valid-UTF-8 password of at most 255 characters — the
+// passwords Office can represent — and return ErrInvalidPassword otherwise.
 //
 // # XML digital signatures
 //
@@ -50,8 +73,22 @@
 //
 // # Errors
 //
-// Callers can match these sentinels with errors.Is: ErrWrongPassword (the
-// supplied password did not match the document's stored verifier) and
-// ErrUnsupportedEncryption (the document uses an encryption scheme this package
-// does not implement).
+// Callers can match these sentinels with errors.Is:
+//
+//   - ErrWrongPassword — the supplied password did not match the document's
+//     stored verifier. Prompt again; nothing is known about the document's
+//     contents.
+//   - ErrIntegrityCheckFailed — the password was right but the package is not
+//     authenticated: its HMAC did not match, or the agile descriptor carries no
+//     usable dataIntegrity block. Do not retry with another password and do not
+//     use the bytes; the file has been truncated, corrupted or tampered with.
+//   - ErrUnsupportedEncryption — the document uses an encryption scheme, cipher,
+//     chaining mode or hash this package does not implement.
+//   - ErrMalformedEncryptionInfo — the EncryptionInfo stream could not be parsed
+//     as a recognized descriptor (or declares out-of-range parameters, such as a
+//     spinCount far beyond what any producer writes).
+//   - ErrInvalidPassword — the password handed to an encryption entry point
+//     cannot protect a document: empty, not valid UTF-8, or over 255 characters.
+//   - ErrUnsupportedAlgorithm — the signing side was asked for a digest,
+//     signature method or key type it does not implement.
 package crypto
