@@ -42,7 +42,7 @@
 //
 // Run with:
 //
-//	go run ./examples/pptx_diagram            # writes to a temp file
+//	go run ./examples/pptx_diagram            # writes to diagram.pptx
 //	go run ./examples/pptx_diagram out.pptx   # writes to out.pptx
 package main
 
@@ -66,10 +66,16 @@ const (
 )
 
 func main() {
-	// Resolve the output path (temp file by default so repeated runs stay tidy).
-	outputPath := filepath.Join(os.TempDir(), "spine-pptx-diagram.pptx")
+	// Resolve the output path. Like every other example, it defaults to the
+	// working directory.
+	outputPath := "diagram.pptx"
 	if len(os.Args) > 1 {
 		outputPath = os.Args[1]
+	}
+	if dir := filepath.Dir(outputPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Fatalf("Failed to create output directory: %v", err)
+		}
 	}
 
 	// Phase 1: build the deck (shapes, master/layout edits, notes) and save it.

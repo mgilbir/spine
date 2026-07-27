@@ -36,7 +36,7 @@
 //
 // Run with:
 //
-//	go run ./examples/pptx_deck            # writes to a temp file
+//	go run ./examples/pptx_deck            # writes to deck.pptx
 //	go run ./examples/pptx_deck out.pptx   # writes to out.pptx
 package main
 
@@ -60,10 +60,16 @@ const (
 )
 
 func main() {
-	// Resolve the output path (temp file by default so repeated runs stay tidy).
-	outputPath := filepath.Join(os.TempDir(), "spine-pptx-deck.pptx")
+	// Resolve the output path. Like every other example, it defaults to the
+	// working directory.
+	outputPath := "deck.pptx"
 	if len(os.Args) > 1 {
 		outputPath = os.Args[1]
+	}
+	if dir := filepath.Dir(outputPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Fatalf("Failed to create output directory: %v", err)
+		}
 	}
 
 	// Phase 1: build the deck and save it. This assigns shape ids on disk.
