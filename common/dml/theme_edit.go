@@ -73,8 +73,24 @@ func (e *ThemeEditor) Marshal() ([]byte, error) {
 	prolog := xmlb.CaptureProlog(e.raw)
 	b.WriteProlog(prolog)
 	b.SetRootEndTag(prolog.RootEnd)
-	b.MarshalRoot(xmlb.NSDrawingML, "theme", e.theme,
-		[]xmlb.NSDecl{{Prefix: xmlb.PrefixDrawingML, URI: xmlb.NSDrawingML}})
+	if e.theme.CapturedAttrs != nil {
+		// Replay the source root attribute list verbatim (its declaration
+		// order, any mc:Ignorable, any extension prefix declared up here for a
+		// nested a:ext), with the modeled name winning when SetName changed it.
+		// The fixed decl set below would both drop those and re-declare
+		// xmlns:a a second time.
+		var modeled []xmlb.Attr
+		if e.theme.Name != "" {
+			modeled = append(modeled, xmlb.StrAttr("name", e.theme.Name))
+		}
+		b.StartElementWithRootAttrsMerged(xmlb.NSDrawingML, "theme", e.theme.CapturedAttrs, modeled)
+		b.MarshalChildren(xmlb.NSDrawingML, e.theme)
+		b.EndElement(xmlb.NSDrawingML, "theme")
+	} else {
+		// Programmatically built theme: canonical declaration.
+		b.MarshalRoot(xmlb.NSDrawingML, "theme", e.theme,
+			[]xmlb.NSDecl{{Prefix: xmlb.PrefixDrawingML, URI: xmlb.NSDrawingML}})
+	}
 	b.WriteTrailer(prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("dml: marshal theme: %w", err)

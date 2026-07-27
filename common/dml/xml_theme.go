@@ -8,12 +8,50 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-// Theme represents CT_OfficeStyleSheet (a:theme)
+// Theme represents CT_OfficeStyleSheet (a:theme).
+//
+// Every child of the complex type is modeled, in schema order. custClrLst and
+// extLst were unmodeled until C374, and because docx.Document.Theme and
+// xlsx.Workbook.Theme regenerate the whole part from this struct once any
+// setter runs, a one-line SetName deleted the theme's custom color list and its
+// extension list — which on every Office 2013+ theme carries
+// <a:ext uri="{05A4C25C-...}"><thm15:themeFamily .../></a:ext>. The same
+// omission existed on five nested types; see their ExtLst fields.
 type Theme struct {
 	Name              string             `xml:"name,attr,omitempty"`
 	ThemeElements     *ThemeElements     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main themeElements,omitempty"`
 	ObjectDefaults    *ObjectDefaults    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main objectDefaults,omitempty"`
 	ExtraClrSchemeLst *ExtraClrSchemeLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extraClrSchemeLst,omitempty"`
+	CustClrLst        *CustClrLst        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main custClrLst,omitempty"`
+	ExtLst            *ExtLst            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
+	CapturedAttrs     []xmlb.RootAttr    `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
+}
+
+// UnmarshalXML captures the element's verbatim attribute list (source
+// attribute order and any unmodeled attributes, e.g. an mc:Ignorable a
+// producer put on a:theme) before decoding through the struct tags.
+func (th *Theme) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	th.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Theme
+	return d.DecodeElement((*alias)(th), &start)
+}
+
+// CustClrLst represents CT_CustomColorList (a:custClrLst), the theme's list of
+// named custom colors.
+type CustClrLst struct {
+	CustClr []*CustClr `xml:"http://schemas.openxmlformats.org/drawingml/2006/main custClr,omitempty"`
+}
+
+// CustClr represents CT_CustomColor (a:custClr): a name plus one
+// EG_ColorChoice, so all six color kinds are modeled.
+type CustClr struct {
+	Name      string              `xml:"name,attr,omitempty"`
+	ScRgbClr  *ScRgbClr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main scrgbClr,omitempty"`
+	SrgbClr   *SrgbClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srgbClr,omitempty"`
+	HslClr    *HslClr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hslClr,omitempty"`
+	SysClr    *SystemClr          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sysClr,omitempty"`
+	SchemeClr *SchemeClrTransform `xml:"http://schemas.openxmlformats.org/drawingml/2006/main schemeClr,omitempty"`
+	PrstClr   *PrstClr            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main prstClr,omitempty"`
 }
 
 // ThemeElements represents CT_BaseStyles (a:themeElements)
@@ -21,6 +59,7 @@ type ThemeElements struct {
 	ClrScheme  *ClrScheme  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrScheme,omitempty"`
 	FontScheme *FontScheme `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fontScheme,omitempty"`
 	FmtScheme  *FmtScheme  `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fmtScheme,omitempty"`
+	ExtLst     *ExtLst     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ClrScheme represents CT_ColorScheme (a:clrScheme)
@@ -38,6 +77,7 @@ type ClrScheme struct {
 	Accent6  *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main accent6,omitempty"`
 	Hlink    *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main hlink,omitempty"`
 	FolHlink *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main folHlink,omitempty"`
+	ExtLst   *ExtLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // FontScheme represents CT_FontScheme (a:fontScheme)
@@ -45,14 +85,16 @@ type FontScheme struct {
 	Name      string          `xml:"name,attr"`
 	MajorFont *FontCollection `xml:"http://schemas.openxmlformats.org/drawingml/2006/main majorFont,omitempty"`
 	MinorFont *FontCollection `xml:"http://schemas.openxmlformats.org/drawingml/2006/main minorFont,omitempty"`
+	ExtLst    *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // FontCollection represents CT_FontCollection (a:majorFont, a:minorFont)
 type FontCollection struct {
-	Latin *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
-	Ea    *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
-	Cs    *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
-	Font  []*SupplementalFont `xml:"http://schemas.openxmlformats.org/drawingml/2006/main font,omitempty"`
+	Latin  *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main latin,omitempty"`
+	Ea     *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main ea,omitempty"`
+	Cs     *TextFont           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main cs,omitempty"`
+	Font   []*SupplementalFont `xml:"http://schemas.openxmlformats.org/drawingml/2006/main font,omitempty"`
+	ExtLst *ExtLst             `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // SupplementalFont represents CT_SupplementalFont (a:font)
@@ -70,14 +112,18 @@ type FmtScheme struct {
 	BgFillStyleLst *BgFillStyleLst `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bgFillStyleLst,omitempty"`
 }
 
-// FillStyleLst represents CT_FillStyleList (a:fillStyleLst)
+// FillStyleLst represents CT_FillStyleList (a:fillStyleLst). Its children are
+// a repeated EG_FillProperties choice whose POSITION is what a shape's
+// <a:fillRef idx="n"/> selects, so the cross-kind document order is captured
+// and replayed; see xml_fill_order.go.
 type FillStyleLst struct {
-	NoFill    []*NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill []*SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  []*GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill  []*BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  []*PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill   []*GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	NoFill    []*NoFillXML   `xml:"-"`
+	SolidFill []*SolidFill   `xml:"-"`
+	GradFill  []*GradFill    `xml:"-"`
+	BlipFill  []*BlipFillXML `xml:"-"`
+	PattFill  []*PattFill    `xml:"-"`
+	GrpFill   []*GrpFill     `xml:"-"`
+	fillOrder []fillChoiceRef
 }
 
 // LnStyleLst represents CT_LineStyleList (a:lnStyleLst)
@@ -98,21 +144,24 @@ type EffectStyle struct {
 	Sp3d      *Sp3d      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main sp3d,omitempty"`
 }
 
-// BgFillStyleLst represents CT_BackgroundFillStyleList (a:bgFillStyleLst)
+// BgFillStyleLst represents CT_BackgroundFillStyleList (a:bgFillStyleLst).
+// Positional like FillStyleLst; see it.
 type BgFillStyleLst struct {
-	NoFill    []*NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill []*SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  []*GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill  []*BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  []*PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill   []*GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	NoFill    []*NoFillXML   `xml:"-"`
+	SolidFill []*SolidFill   `xml:"-"`
+	GradFill  []*GradFill    `xml:"-"`
+	BlipFill  []*BlipFillXML `xml:"-"`
+	PattFill  []*PattFill    `xml:"-"`
+	GrpFill   []*GrpFill     `xml:"-"`
+	fillOrder []fillChoiceRef
 }
 
 // ObjectDefaults represents CT_ObjectStyleDefaults (a:objectDefaults)
 type ObjectDefaults struct {
-	SpDef *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spDef,omitempty"`
-	LnDef *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnDef,omitempty"`
-	TxDef *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txDef,omitempty"`
+	SpDef  *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main spDef,omitempty"`
+	LnDef  *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lnDef,omitempty"`
+	TxDef  *DefaultShapeDefinition `xml:"http://schemas.openxmlformats.org/drawingml/2006/main txDef,omitempty"`
+	ExtLst *ExtLst                 `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // DefaultShapeDefinition represents CT_DefaultShapeDefinition (a:spDef, a:lnDef, a:txDef)
@@ -121,6 +170,7 @@ type DefaultShapeDefinition struct {
 	BodyPr   *BodyPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main bodyPr,omitempty"`
 	LstStyle *LstStyle `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lstStyle,omitempty"`
 	Style    *Style    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main style,omitempty"`
+	ExtLst   *ExtLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
 // ExtraClrSchemeLst represents CT_ColorSchemeList (a:extraClrSchemeLst)
