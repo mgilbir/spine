@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
@@ -211,6 +213,46 @@ func (p *Presentation) authorIDForName(name string) string {
 	return a.ID
 }
 
+// importModernCommentAuthors merges the source deck's modern author list
+// (ppt/authors.xml) into this deck's, deduplicating by GUID so an imported
+// threaded comment's AuthorID keeps resolving to a real name. The authors part
+// is (re)written and the presentation -> authors relationship ensured. Called
+// when a merged slide carries a modern (threaded) comments relationship.
+func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
+	data := srcPres.rawPartData(modernAuthorsPart)
+	if data == nil {
+		return
+	}
+	srcList, err := oxml.ParseModernAuthorList(data)
+	if err != nil || srcList == nil {
+		return
+	}
+	dst := p.loadModernAuthors()
+	if dst == nil {
+		dst = &oxml.ModernAuthorList{}
+		p.modernAuthors = dst
+		p.modernAuthorsLoaded = true
+	}
+	have := make(map[string]bool, len(dst.Authors))
+	for _, a := range dst.Authors {
+		if a != nil {
+			have[a.ID] = true
+		}
+	}
+	for _, a := range srcList.Authors {
+		if a == nil || have[a.ID] {
+			continue
+		}
+		dst.Authors = append(dst.Authors, a)
+		have[a.ID] = true
+	}
+	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
+		ContentType: opc.ContentTypeAuthors,
+		Data:        dst.Marshal(),
+	}
+	p.ensureAuthorsRelationship()
+}
+
 // ensureAuthorsRelationship adds the presentation -> authors.xml relationship
 // when it is not already present.
 func (p *Presentation) ensureAuthorsRelationship() {
@@ -292,15 +334,21 @@ func randUint32() uint32 {
 	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
 }
 
-// initialsOf derives up to two uppercase initials from a display name.
+// initialsOf derives up to two uppercase initials from a display name. Initials
+// are taken by decoding the first rune of each whitespace-separated field, so a
+// non-ASCII name ("Émile Zola") yields "ÉZ" rather than the U+FFFD produced by
+// slicing the first byte of a multibyte rune.
 func initialsOf(name string) string {
-	fields := strings.Fields(name)
-	var sb strings.Builder
-	for _, f := range fields {
-		sb.WriteString(strings.ToUpper(f[:1]))
-		if sb.Len() >= 2 {
+	initials := make([]rune, 0, 2)
+	for _, f := range strings.Fields(name) {
+		r, _ := utf8.DecodeRuneInString(f)
+		if r == utf8.RuneError {
+			continue
+		}
+		initials = append(initials, unicode.ToUpper(r))
+		if len(initials) >= 2 {
 			break
 		}
 	}
-	return sb.String()
+	return string(initials)
 }

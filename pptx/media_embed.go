@@ -426,6 +426,26 @@ func (s *Slide) gcSlideRels(relIDs []string) {
 	if len(relIDs) == 0 || s.presentation == nil || s.sx() == nil {
 		return
 	}
+	slideXML, err := marshalSlide(s.sx())
+	if err != nil {
+		// A slide that fails to marshal keeps its relationships; the error
+		// surfaces from the Save path that marshals the slide part itself.
+		return
+	}
+	s.presentation.gcPartRels(s.partName, slideXML, relIDs)
+}
+
+// gcPartRels removes partName's media/image relationships with the given ids
+// when partXML — the freshly marshaled part — no longer references them. It is
+// the part-agnostic core of gcSlideRels, shared with slide-layout and
+// slide-master background swaps. Ids still referenced by partXML are kept
+// (parts and rels can be shared by several nodes in one part); package-level
+// media parts are never removed here, only their rels, so the save's media GC
+// (mediaGCNeeded) decides part removal after re-checking every part.
+func (p *Presentation) gcPartRels(partName string, partXML []byte, relIDs []string) {
+	if len(relIDs) == 0 || p == nil {
+		return
+	}
 	candidates := make(map[string]bool, len(relIDs))
 	for _, id := range relIDs {
 		if id != "" {
@@ -435,28 +455,22 @@ func (s *Slide) gcSlideRels(relIDs []string) {
 	if len(candidates) == 0 {
 		return
 	}
-	slideXML, err := marshalSlide(s.sx())
-	if err != nil {
-		// A slide that fails to marshal keeps its relationships; the error
-		// surfaces from the Save path that marshals the slide part itself.
-		return
-	}
-	rels := s.presentation.relationships[s.partName]
+	rels := p.relationships[partName]
 	kept := rels[:0]
 	changed := false
 	for _, rel := range rels {
 		if candidates[rel.ID] && removableRelType(rel.Type) &&
-			!bytes.Contains(slideXML, []byte(`"`+rel.ID+`"`)) {
+			!bytes.Contains(partXML, []byte(`"`+rel.ID+`"`)) {
 			changed = true
 			continue
 		}
 		kept = append(kept, rel)
 	}
 	if changed {
-		s.presentation.relationships[s.partName] = kept
+		p.relationships[partName] = kept
 		// Dropped relationships may leave media parts unreferenced; allow the
 		// save to garbage-collect them (C221).
-		s.presentation.mediaGCNeeded = true
+		p.mediaGCNeeded = true
 	}
 }
 

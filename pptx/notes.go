@@ -234,12 +234,14 @@ func marshalNotesSlide(ns *oxml.NotesSlide) []byte {
 	b.SetCollapseEmptyElements(true)
 	b.WriteHeader()
 
+	// showMasterSp/showMasterPhAnim default to true; emit the explicit lexical
+	// value whenever set so an authored showMasterSp="0" is preserved (C316).
 	var attrs []xmlb.Attr
-	if ns.ShowMasterSp {
-		attrs = append(attrs, xmlb.StrAttr("showMasterSp", "1"))
+	if ns.ShowMasterSp != nil {
+		attrs = append(attrs, xmlb.BoolAttr("showMasterSp", *ns.ShowMasterSp))
 	}
-	if ns.ShowMasterPhAnim {
-		attrs = append(attrs, xmlb.StrAttr("showMasterPhAnim", "1"))
+	if ns.ShowMasterPhAnim != nil {
+		attrs = append(attrs, xmlb.BoolAttr("showMasterPhAnim", *ns.ShowMasterPhAnim))
 	}
 	b.StartElementWithNS(nsP, "notes", xmlb.PresentationMLNamespaces(), attrs...)
 	if ns.CSld != nil {

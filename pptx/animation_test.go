@@ -2,8 +2,11 @@ package pptx
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/common/dml"
 )
 
 // AddAnimation builds a valid p:timing main sequence: a tmRoot par, a mainSeq,
@@ -211,6 +214,90 @@ func TestAddAnimation_ByParagraph(t *testing.T) {
 	}
 	if !anims[0].ByParagraph() {
 		t.Error("read-back animation should report ByParagraph")
+	}
+}
+
+// An animation whose target shape id is still unresolved (0, e.g. Shape.ID
+// read before the first save) is dropped rather than emitting a broken
+// spid="0" target (C354).
+func TestAddAnimation_ZeroShapeIDDropped(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	s.AddTextBox().TextFrame().SetText("x")
+	s.AddAnimation(0, EffectFadeIn, TriggerOnClick)
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if strings.Contains(xml, `spid="0"`) {
+		t.Errorf("animation with unresolved shape id emitted spid=\"0\":\n%s", xml)
+	}
+}
+
+// Build-by-paragraph is honored when the target shape is nested inside a group:
+// paragraphCount descends into the p:grpSp so the per-paragraph build is emitted
+// (C354).
+func TestAddAnimation_ByParagraphInsideGroup(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	g := NewGroupShape()
+	g.SetName("Grp")
+	g.SetPosition(dml.Inches(1), dml.Inches(1))
+	g.SetSize(dml.Inches(4), dml.Inches(2))
+	tb := NewTextBox()
+	tb.SetText("one")
+	tb.TextFrame().AddParagraph().AddRun().SetText("two")
+	tb.TextFrame().AddParagraph().AddRun().SetText("three")
+	tb.SetPosition(dml.Inches(1), dml.Inches(1))
+	tb.SetSize(dml.Inches(2), dml.Inches(1))
+	// GroupShape.AddChild is signatureless (no error) on this branch's base
+	// but gains an error return once the group-child-validation chain is also
+	// merged; a TextBox is always an accepted child, so the add cannot fail
+	// here. The nolint keeps errcheck quiet in the merged tree while the plain
+	// statement still compiles on this branch in isolation.
+	g.AddChild(tb) //nolint:errcheck
+	if err := s.AddShape(g); err != nil {
+		t.Fatal(err)
+	}
+
+	// First save assigns the nested child its slide-wide cNvPr id.
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := p2.Slide(0)
+	var childID uint32
+	for _, sh := range rs.Shapes() {
+		if grp, ok := sh.(*GroupShape); ok {
+			for _, c := range grp.Children() {
+				if _, ok := c.(*TextBox); ok {
+					childID = c.(*TextBox).ID()
+				}
+			}
+		}
+	}
+	if childID == 0 {
+		t.Fatal("could not resolve nested child shape id")
+	}
+
+	rs.AddAnimation(childID, EffectFadeIn, TriggerOnClick).SetByParagraph(true)
+	data2, err := p2.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := string(zipPart(t, data2, "ppt/slides/slide1.xml"))
+	wantBldP := `<p:bldP spid="` + strconv.FormatUint(uint64(childID), 10)
+	if !strings.Contains(xml, wantBldP) || !strings.Contains(xml, `build="p"`) {
+		t.Errorf("missing build-by-paragraph bldP for grouped target\n%s", xml)
+	}
+	if c := strings.Count(xml, `nodeType="clickEffect"`); c != 3 {
+		t.Errorf("want 3 per-paragraph clickEffects for grouped target, got %d\n%s", c, xml)
 	}
 }
 

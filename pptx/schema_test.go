@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -234,20 +235,22 @@ func TestSchema_SlideIDMarshalUnmarshal(t *testing.T) {
 	// This test verifies marshal output is correct.
 }
 
-// TestSchema_SlideMasterIDMarshalUnmarshal tests that SlideMasterID properly marshals/unmarshals.
+// TestSchema_SlideMasterIDMarshalUnmarshal tests that SlideMasterID serializes
+// through the production Builder path (the sole path since the dead stdlib
+// serializer was removed in C355), emitting the compact r:id form.
 func TestSchema_SlideMasterIDMarshalUnmarshal(t *testing.T) {
 	original := oxml.SlideMasterID{
 		ID:  2147483648,
 		RID: "rId1",
 	}
 
-	// Marshal
-	data, err := xml.Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
+	b := xmlb.NewPresentationMLBuilder()
+	original.MarshalToBuilder(b, xmlb.NSPresentationML, "sldMasterId")
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
 	}
 
-	xmlStr := string(data)
+	xmlStr := b.String()
 	t.Logf("Marshaled XML: %s", xmlStr)
 
 	// Should contain r:id and the value
@@ -260,11 +263,6 @@ func TestSchema_SlideMasterIDMarshalUnmarshal(t *testing.T) {
 	if !strings.Contains(xmlStr, "2147483648") {
 		t.Error("Marshaled XML should contain numeric ID")
 	}
-
-	// Note: Isolated unmarshal without namespace context doesn't work correctly
-	// because Go's XML parser needs xmlns:r declaration to resolve the r: prefix.
-	// The actual round-trip works because the full document has proper namespaces.
-	// This test verifies marshal output is correct.
 }
 
 // TestSchema_ContentPreservation tests that slide content is preserved during round-trip.

@@ -424,7 +424,8 @@ func (a *AutoShape) SetHyperlink(url string) *Hyperlink { return a.setHyperlinkU
 func (a *AutoShape) SetActionHyperlink(action string) *Hyperlink { return a.setActionHyperlink(action) }
 
 // SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
-// index; the RelTypeSlide relationship is allocated on save.
+// index; the RelTypeSlide relationship is allocated on save. If the index is out
+// of range for the deck at save time, no hyperlink is emitted.
 func (a *AutoShape) SetHyperlinkToSlide(index int) *Hyperlink { return a.setSlideLink(index) }
 
 // --- Fill, Line, Shadow for TextBox ---
@@ -456,7 +457,8 @@ func (t *TextBox) SetHyperlink(url string) *Hyperlink { return t.setHyperlinkURL
 func (t *TextBox) SetActionHyperlink(action string) *Hyperlink { return t.setActionHyperlink(action) }
 
 // SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
-// index; the RelTypeSlide relationship is allocated on save.
+// index; the RelTypeSlide relationship is allocated on save. If the index is out
+// of range for the deck at save time, no hyperlink is emitted.
 func (t *TextBox) SetHyperlinkToSlide(index int) *Hyperlink { return t.setSlideLink(index) }
 
 // Common preset geometry names

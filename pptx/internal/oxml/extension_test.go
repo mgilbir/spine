@@ -117,6 +117,29 @@ func TestExtension_KnownURI_TypedDispatchStillWorks(t *testing.T) {
 	}
 }
 
+// A programmatically built p14:media with a Link (externally linked media)
+// emits its r:link attribute rather than dropping it (C355).
+func TestExtension_P14Media_LinkEmitted(t *testing.T) {
+	el := &ExtensionList{
+		Ext: []Extension{{
+			URI:   xmlb.ExtURIMedia,
+			Media: &P14Media{Embed: "rId1", Link: "rId2"},
+		}},
+	}
+	b := xmlb.NewPresentationMLBuilder()
+	b.MarshalElement(xmlb.NSPresentationML, "extLst", el)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `r:embed="rId1"`) {
+		t.Errorf("p14:media dropped r:embed:\n%s", out)
+	}
+	if !strings.Contains(out, `r:link="rId2"`) {
+		t.Errorf("p14:media dropped programmatic r:link:\n%s", out)
+	}
+}
+
 // A p14:sectionLst extension parses into the typed Section model and, when
 // unmodified, replays its source bytes verbatim (byte-identical round-trip).
 func TestExtension_SectionLst_RoundTrip(t *testing.T) {

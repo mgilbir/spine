@@ -144,6 +144,29 @@ func TestSlideJumpHyperlink_CreateRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSlideJumpHyperlink_OutOfRangeDropped confirms a slide jump whose target
+// index does not exist emits no hlinkClick at all rather than a dangling
+// ppaction://hlinksldjump verb with no r:id (C354).
+func TestSlideJumpHyperlink_OutOfRangeDropped(t *testing.T) {
+	p := Create()
+	s := p.AddSlide() // the only slide: index 0
+	run := s.AddTextBox().TextFrame().AddParagraph().AddRun()
+	run.SetText("bad jump")
+	run.SetHyperlinkToSlide(5) // out of range
+
+	data, err := s.marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	xml := string(data)
+	if strings.Contains(xml, "hlinksldjump") {
+		t.Errorf("out-of-range slide jump emitted a dangling jump action:\n%s", xml)
+	}
+	if strings.Contains(xml, "hlinkClick") {
+		t.Errorf("out-of-range slide jump emitted an hlinkClick:\n%s", xml)
+	}
+}
+
 // TestActionHyperlink_CreateRoundTrip sets a ppaction:// verb on a run (no
 // relationship) and confirms it round-trips as the anchor.
 func TestActionHyperlink_CreateRoundTrip(t *testing.T) {

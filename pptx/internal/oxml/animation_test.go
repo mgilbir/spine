@@ -2,8 +2,45 @@ package oxml
 
 import (
 	"encoding/xml"
+	"strings"
 	"testing"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
+
+// TestTimingExplicitZeros_Survive confirms that explicit zero timing attributes
+// (p:seq concurrent="0", p:animRot by/from/to="0", p:animScale zoomContents="0")
+// survive the always-remarshaled timing path via CapturedAttrs, instead of being
+// dropped by omitempty (C355).
+func TestTimingExplicitZeros_Survive(t *testing.T) {
+	src := sldOpen + `>` +
+		`<p:cSld><p:spTree>` +
+		`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+		`<p:grpSpPr/>` +
+		`</p:spTree></p:cSld>` +
+		`<p:timing><p:tnLst>` +
+		`<p:seq concurrent="0"><p:cTn id="1"/></p:seq>` +
+		`<p:animRot by="0" from="0" to="0"><p:cBhvr><p:cTn id="2"/></p:cBhvr></p:animRot>` +
+		`<p:animScale zoomContents="0"><p:cBhvr><p:cTn id="3"/></p:cBhvr></p:animScale>` +
+		`</p:tnLst></p:timing>` +
+		`</p:sld>`
+
+	var sld Slide
+	if err := xml.Unmarshal([]byte(src), &sld); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	b := xmlb.NewPresentationMLBuilder()
+	sld.MarshalRootToBuilder(b)
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	got := b.String()
+	for _, want := range []string{`concurrent="0"`, `by="0"`, `from="0"`, `to="0"`, `zoomContents="0"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("explicit zero %s dropped on marshal:\n%s", want, got)
+		}
+	}
+}
 
 func TestTiming_RoundTrip(t *testing.T) {
 	xmlStr := `<timing xmlns="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -1123,7 +1160,8 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			boc := &BuildOleChart{SpId: tt.spId, Bld: tt.bld, AnimBg: tt.animBg}
+			animBg := tt.animBg
+			boc := &BuildOleChart{SpId: tt.spId, Bld: tt.bld, AnimBg: &animBg}
 			out, err := xml.Marshal(boc)
 			if err != nil {
 				t.Fatalf("Marshal failed: %v", err)
@@ -1142,6 +1180,23 @@ func TestBuildOleChart_RoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+// C317: an explicit animBg="0" on a p:bldOleChart (animBg defaults to true)
+// must survive the always-remarshaled timing path. Before the *bool fix the
+// plain bool + omitempty dropped the attribute, so readers re-applied the
+// default true.
+func TestBuildOleChart_PreservesExplicitAnimBgFalse(t *testing.T) {
+	src := sldOpen + `>` +
+		`<p:cSld><p:spTree>` +
+		`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+		`<p:grpSpPr/>` +
+		`</p:spTree></p:cSld>` +
+		`<p:timing><p:bldLst>` +
+		`<p:bldOleChart spid="4" animBg="0"/>` +
+		`</p:bldLst></p:timing>` +
+		`</p:sld>`
+	roundTripSlideBytes(t, src)
 }
 
 func TestBuildGraphic_RoundTrip(t *testing.T) {

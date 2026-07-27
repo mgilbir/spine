@@ -138,6 +138,42 @@ func TestReadModernComments(t *testing.T) {
 	}
 }
 
+// TestMergePreservesCommentAuthor merges a slide carrying an authored threaded
+// comment into a fresh deck and confirms the comment's author survives the
+// merge (C313): importSlide must carry the modern author list — which hangs off
+// presentation.xml, not the slide — so the reopened comment does not lose its
+// author.
+func TestMergePreservesCommentAuthor(t *testing.T) {
+	src := Create()
+	ss := src.AddSlide()
+	ss.AddTextBox().TextFrame().SetText("Src")
+	if c := ss.AddComment("Grace Hopper", "Please review"); c == nil {
+		t.Fatal("AddComment returned nil")
+	}
+
+	dst := Create()
+	dst.AddSlide().AddTextBox().TextFrame().SetText("Dst")
+	if err := dst.AppendSlidesFrom(src); err != nil {
+		t.Fatalf("AppendSlidesFrom: %v", err)
+	}
+
+	rp := reopen(t, dst)
+	rs, err := rp.Slide(1) // imported slide (dst slide 0 is "Dst")
+	if err != nil {
+		t.Fatalf("Slide(1): %v", err)
+	}
+	comments := rs.Comments()
+	if len(comments) != 1 {
+		t.Fatalf("got %d comments on merged slide, want 1", len(comments))
+	}
+	if got := comments[0].Author(); got != "Grace Hopper" {
+		t.Errorf("author = %q, want Grace Hopper (author lost on merge)", got)
+	}
+	if got := comments[0].Text(); got != "Please review" {
+		t.Errorf("text = %q, want Please review", got)
+	}
+}
+
 func TestAddModernCommentRoundTrip(t *testing.T) {
 	p, err := Open("testdata/test.pptx")
 	if err != nil {
@@ -364,5 +400,50 @@ func TestPresentationComments(t *testing.T) {
 	}
 	if got := len(p.Comments()); got != p.SlideCount() {
 		t.Errorf("Presentation.Comments() = %d, want %d", got, p.SlideCount())
+	}
+}
+
+// C315: an author whose name starts with a multibyte rune must yield correct
+// initials, not the U+FFFD produced by slicing the first byte.
+func TestInitialsOf_Unicode(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"Émile Zola", "ÉZ"},
+		{"Ada Lovelace", "AL"},
+		{"Ólafur", "Ó"},
+		{"محمد علي", "مع"},
+		{"", ""},
+		{"   ", ""},
+		{"cormac mccarthy", "CM"},
+	}
+	for _, tc := range cases {
+		if got := initialsOf(tc.name); got != tc.want {
+			t.Errorf("initialsOf(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// C315 end-to-end: the initials of a non-ASCII author survive into authors.xml
+// rather than being mangled to U+FFFD.
+func TestAddComment_NonASCIIAuthorInitials(t *testing.T) {
+	p, err := Open("testdata/test.pptx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	s := firstSlide(t, p)
+	s.AddComment("Émile Zola", "un commentaire")
+
+	rp := reopen(t, p)
+	authors := rp.rawPartData(modernAuthorsPart)
+	if authors == nil {
+		t.Fatal("authors.xml missing after reopen")
+	}
+	if !bytes.Contains(authors, []byte(`initials="ÉZ"`)) {
+		t.Errorf("authors.xml missing initials=\"ÉZ\":\n%s", authors)
+	}
+	if bytes.ContainsRune(authors, '�') {
+		t.Errorf("authors.xml contains U+FFFD replacement char:\n%s", authors)
 	}
 }

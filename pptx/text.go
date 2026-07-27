@@ -693,7 +693,8 @@ func (r *Run) SetActionHyperlink(action string) *Hyperlink {
 }
 
 // SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
-// index and returns it. The RelTypeSlide relationship is allocated on save.
+// index and returns it. The RelTypeSlide relationship is allocated on save. If
+// the index is out of range for the deck at save time, no hyperlink is emitted.
 func (r *Run) SetHyperlinkToSlide(index int) *Hyperlink {
 	r.hyperlink = newSlideJumpHyperlink(index, func() { r.dirty = true })
 	r.dirty = true

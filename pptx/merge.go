@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -20,13 +21,32 @@ type mergeCtx struct {
 	parts   map[string]string             // source part name -> new part name
 	masters map[*SlideMaster]*SlideMaster // source master -> destination master
 	layouts map[*SlideLayout]*SlideLayout // source layout -> destination layout
+	// slideParts maps a source slide part name to the new slide part it was
+	// imported as, so internal slide-jump hyperlinks between slides of the same
+	// merge batch can be remapped to their imported targets.
+	slideParts map[string]string
+	// pendingJumps holds slide-jump (RelTypeSlide) hyperlink rels deferred until
+	// every slide of the batch is imported, when both forward and backward jump
+	// targets are known (see resolvePendingSlideJumps).
+	pendingJumps []pendingSlideJump
+}
+
+// pendingSlideJump is a deferred internal slide-jump hyperlink: the imported
+// slide that carries it, a copy of the source relationship (whose id backs the
+// hlinkClick's r:id in the copied slide XML), and the source part name of the
+// slide it targets.
+type pendingSlideJump struct {
+	slide     *Slide
+	rel       *opc.Relationship
+	srcTarget string
 }
 
 func newMergeCtx() *mergeCtx {
 	return &mergeCtx{
-		parts:   make(map[string]string),
-		masters: make(map[*SlideMaster]*SlideMaster),
-		layouts: make(map[*SlideLayout]*SlideLayout),
+		parts:      make(map[string]string),
+		masters:    make(map[*SlideMaster]*SlideMaster),
+		layouts:    make(map[*SlideLayout]*SlideLayout),
+		slideParts: make(map[string]string),
 	}
 }
 
@@ -54,6 +74,14 @@ var ErrNilPresentation = errors.New("pptx: source presentation is nil")
 // one and the destination does not (a deck carries at most one of each, so a
 // second source does not add a duplicate). The notes master is imported before
 // the slides so each imported notes slide can wire to it.
+//
+// The source presentation other may be modified as a side effect: each of its
+// slides is marshaled to take an authoritative snapshot, which flushes that
+// slide's pending shape edits, embeds pending media (images/audio/video) into
+// the source package, allocates shape ids, and resolves media timing and
+// animations. The copy taken into this presentation is independent, but callers
+// that reuse other after appending should expect its in-memory model to reflect
+// those flushed edits.
 func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 	if other == nil {
 		return ErrNilPresentation
@@ -73,6 +101,7 @@ func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 		}
 		ns.materializeShapes()
 	}
+	p.resolvePendingSlideJumps(ctx)
 	p.importHandoutMaster(other, ctx)
 	return nil
 }
@@ -105,6 +134,7 @@ func (p *Presentation) ExtractSlides(indices []int) (*Presentation, error) {
 		}
 		ns.materializeShapes()
 	}
+	out.resolvePendingSlideJumps(ctx)
 	out.importHandoutMaster(p, ctx)
 	return out, nil
 }
@@ -132,6 +162,7 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 	}
 	ns.sxModel = &copyXML
 	ns.sxParsed = true
+	ctx.slideParts[src.partName] = ns.partName
 
 	srcPres := src.presentation
 	var newRels []*opc.Relationship
@@ -145,6 +176,19 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 			// re-wired from the ns.layout pointer at save; the slide body never
 			// references the layout by r:id, so dropping this rel is safe.
 			continue
+		case opc.RelTypeSlide:
+			// A slide-jump hyperlink target (a:hlinkClick action=hlinksldjump).
+			// The target slide is not an auxiliary part importPart can carry, so
+			// defer it: after the whole batch is imported every source->new slide
+			// mapping is known, letting resolvePendingSlideJumps remap the jump to
+			// its imported target (forward or backward) or, when the target is not
+			// part of this merge, strip the now-dangling r:id from the copied XML.
+			srcTarget := opc.ResolvePartName(src.partName, rel.Target)
+			c := *rel
+			ctx.pendingJumps = append(ctx.pendingJumps, pendingSlideJump{
+				slide: ns, rel: &c, srcTarget: srcTarget,
+			})
+			continue
 		case opc.RelTypeNotesSlide:
 			srcNotes := opc.ResolvePartName(src.partName, rel.Target)
 			newNotes := p.importNotesSlide(srcPres, srcNotes, ns.partName, ctx)
@@ -153,6 +197,35 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 			}
 			c := *rel
 			c.Target = relativeTarget(ns.partName, newNotes)
+			newRels = append(newRels, &c)
+			continue
+		case opc.RelTypeModernComments:
+			// Carry the threaded-comment part, then bring its authors across
+			// (they hang off presentation.xml, not the slide, so importPart would
+			// never reach them) and rewrite the comment's slide-anchor id from the
+			// source slide id to the new one.
+			srcTarget := opc.ResolvePartName(src.partName, rel.Target)
+			newTarget := p.importPart(srcPres, srcTarget, ctx.parts)
+			if newTarget == "" {
+				continue
+			}
+			p.importModernCommentAuthors(srcPres)
+			p.rewriteModernCommentSlideID(newTarget, src.id, ns.id)
+			c := *rel
+			c.Target = relativeTarget(ns.partName, newTarget)
+			newRels = append(newRels, &c)
+			continue
+		case opc.RelTypeComments:
+			// Carry the legacy comment part and its author list (referenced from
+			// presentation.xml, not the slide).
+			srcTarget := opc.ResolvePartName(src.partName, rel.Target)
+			newTarget := p.importPart(srcPres, srcTarget, ctx.parts)
+			if newTarget == "" {
+				continue
+			}
+			p.importLegacyCommentAuthors(srcPres)
+			c := *rel
+			c.Target = relativeTarget(ns.partName, newTarget)
 			newRels = append(newRels, &c)
 			continue
 		}
@@ -185,6 +258,212 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 		ns.layout = p.matchLayout(src.layout)
 	}
 	return ns, nil
+}
+
+// resolvePendingSlideJumps finishes the internal slide-jump hyperlinks deferred
+// during import. A jump whose target slide was part of the same merge batch is
+// re-wired to the imported target (keeping the copied XML's r:id, which the
+// re-added relationship now backs); a jump to a slide outside the batch has its
+// dangling r:id stripped from the copied slide so no relationship reference is
+// left pointing at a part that was never carried.
+func (p *Presentation) resolvePendingSlideJumps(ctx *mergeCtx) {
+	for _, pj := range ctx.pendingJumps {
+		if newTarget := ctx.slideParts[pj.srcTarget]; newTarget != "" {
+			c := *pj.rel
+			c.Target = relativeTarget(pj.slide.partName, newTarget)
+			p.relationships[pj.slide.partName] = append(p.relationships[pj.slide.partName], &c)
+			continue
+		}
+		stripSlideJumpRel(pj.slide.sx(), pj.rel.ID)
+	}
+}
+
+// relTypeCommentAuthors is the presentation -> commentAuthors.xml relationship
+// type (no opc constant exists; spine reads the part by its fixed name).
+const relTypeCommentAuthors = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors"
+
+// importLegacyCommentAuthors carries the source deck's legacy comment author
+// list (ppt/commentAuthors.xml) when this deck has none, so imported legacy
+// comments keep their author names (resolved by numeric authorId). When the
+// destination already has legacy authors the numeric ids could collide, so it
+// is left untouched rather than risk mis-attributing comments.
+func (p *Presentation) importLegacyCommentAuthors(srcPres *Presentation) {
+	if _, ok := p.otherParts[legacyAuthorsPart]; ok {
+		return
+	}
+	src, ok := srcPres.otherParts[legacyAuthorsPart]
+	if !ok || src == nil {
+		return
+	}
+	copied := *src
+	copied.Data = bytes.Clone(src.Data)
+	p.otherParts[legacyAuthorsPart] = &copied
+
+	for _, rel := range p.relationships[presentationPartName] {
+		if rel != nil && rel.Type == relTypeCommentAuthors {
+			return
+		}
+	}
+	presRels := p.relationships[presentationPartName]
+	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
+		ID:         fmt.Sprintf("rId%d", nextRelationshipID(presRels)),
+		Type:       relTypeCommentAuthors,
+		Target:     partNameToRelTarget(legacyAuthorsPart, "/ppt/"),
+		TargetMode: opc.TargetModeInternal,
+	})
+}
+
+// rewriteModernCommentSlideID retargets a carried modern comment part's slide
+// anchor (pc:sldMk sldId) from the source slide id to the new slide id, so the
+// imported thread anchors to the slide it now lives on. The sldId attribute is
+// unique to the sldMk within a comment part, so a scoped byte replacement is
+// safe and avoids reparsing the thread.
+func (p *Presentation) rewriteModernCommentSlideID(partName string, oldID, newID uint32) {
+	if oldID == newID {
+		return
+	}
+	part, ok := p.otherParts[partName]
+	if !ok || part == nil {
+		return
+	}
+	old := []byte(fmt.Sprintf(`sldId="%d"`, oldID))
+	repl := []byte(fmt.Sprintf(`sldId="%d"`, newID))
+	part.Data = bytes.ReplaceAll(part.Data, old, repl)
+}
+
+// stripSlideJumpRel removes the relationship id relID from every a:hlinkClick in
+// the slide, clearing the hlinksldjump action so the link neither dangles nor
+// jumps to a slide that is not present. It walks shape non-visual properties and
+// text-run properties, descending into groups.
+func stripSlideJumpRel(sx *oxml.Slide, relID string) {
+	if sx == nil || relID == "" || sx.CSld == nil || sx.CSld.SpTree == nil {
+		return
+	}
+	stripSlideJumpInTree(sx.CSld.SpTree, relID)
+}
+
+func stripSlideJumpInTree(st *oxml.ShapeTree, relID string) {
+	for _, sp := range st.Sp {
+		if sp == nil {
+			continue
+		}
+		if sp.NvSpPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(sp.NvSpPr.CNvPr), relID)
+		}
+		stripSlideJumpInTxBody(sp.TxBody, relID)
+	}
+	for _, pic := range st.Pic {
+		if pic != nil && pic.NvPicPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(pic.NvPicPr.CNvPr), relID)
+		}
+	}
+	for _, gf := range st.GraphicFrame {
+		if gf != nil && gf.NvGraphicFramePr != nil {
+			clearSlideJumpHlink(cNvPrHlink(gf.NvGraphicFramePr.CNvPr), relID)
+		}
+	}
+	for _, cs := range st.CxnSp {
+		if cs != nil && cs.NvCxnSpPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(cs.NvCxnSpPr.CNvPr), relID)
+		}
+	}
+	for _, gs := range st.GrpSp {
+		stripSlideJumpInGroup(gs, relID)
+	}
+}
+
+func stripSlideJumpInGroup(gs *oxml.GroupShape, relID string) {
+	if gs == nil {
+		return
+	}
+	for _, sp := range gs.Shapes {
+		if sp == nil {
+			continue
+		}
+		if sp.NvSpPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(sp.NvSpPr.CNvPr), relID)
+		}
+		stripSlideJumpInTxBody(sp.TxBody, relID)
+	}
+	for _, pic := range gs.Pictures {
+		if pic != nil && pic.NvPicPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(pic.NvPicPr.CNvPr), relID)
+		}
+	}
+	for _, gf := range gs.GraphicFrames {
+		if gf != nil && gf.NvGraphicFramePr != nil {
+			clearSlideJumpHlink(cNvPrHlink(gf.NvGraphicFramePr.CNvPr), relID)
+		}
+	}
+	for _, cs := range gs.ConnectionShapes {
+		if cs != nil && cs.NvCxnSpPr != nil {
+			clearSlideJumpHlink(cNvPrHlink(cs.NvCxnSpPr.CNvPr), relID)
+		}
+	}
+	for _, sub := range gs.GroupShapes {
+		stripSlideJumpInGroup(sub, relID)
+	}
+}
+
+func stripSlideJumpInTxBody(tb *dml.TxBody, relID string) {
+	if tb == nil {
+		return
+	}
+	for _, para := range tb.P {
+		if para == nil {
+			continue
+		}
+		for _, r := range para.R {
+			if r != nil && r.RPr != nil {
+				clearSlideJumpHlink(r.RPr.HlinkClick, relID)
+			}
+		}
+		for _, f := range para.Fld {
+			if f != nil && f.RPr != nil {
+				clearSlideJumpHlink(f.RPr.HlinkClick, relID)
+			}
+		}
+		if para.EndParaRPr != nil {
+			clearSlideJumpHlink(para.EndParaRPr.HlinkClick, relID)
+		}
+	}
+}
+
+// cNvPrHlink returns the a:hlinkClick attached to a shape's non-visual props.
+func cNvPrHlink(cNvPr *dml.CNvPr) *dml.HlinkXML {
+	if cNvPr == nil {
+		return nil
+	}
+	return cNvPr.HlinkClick
+}
+
+// clearSlideJumpHlink strips the r:id (relID) and the hlinksldjump action from a
+// matching a:hlinkClick, including the verbatim captured attributes that would
+// otherwise replay the stale r:id/action on marshal.
+func clearSlideJumpHlink(h *dml.HlinkXML, relID string) {
+	if h == nil || h.Id == nil || *h.Id != relID {
+		return
+	}
+	h.Id = nil
+	clearedAction := false
+	if h.Action == "ppaction://hlinksldjump" {
+		h.Action = ""
+		clearedAction = true
+	}
+	if len(h.CapturedAttrs) == 0 {
+		return
+	}
+	kept := h.CapturedAttrs[:0]
+	for _, ra := range h.CapturedAttrs {
+		if !ra.IsNS && ra.LocalName == "id" {
+			continue // the r:id we just cleared
+		}
+		if clearedAction && !ra.IsNS && ra.LocalName == "action" {
+			continue
+		}
+		kept = append(kept, ra)
+	}
+	h.CapturedAttrs = kept
 }
 
 // importPart copies the part named srcName from srcPres into p (recursively

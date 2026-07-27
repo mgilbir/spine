@@ -117,21 +117,10 @@ type SlideLayoutID struct {
 	ExtLst *ExtensionList `xml:"extLst,omitempty"`
 }
 
-// MarshalXML implements custom XML marshaling for SlideLayoutID.
-// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
-func (s SlideLayoutID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	if s.ID > 0 {
-		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
-	}
-	// Use r:id directly - the r prefix is declared in the root slideMaster element
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
-	return e.EncodeElement(struct{}{}, start)
-}
-
 // MarshalToBuilder implements xmlb.BuilderMarshaler so the Builder emits this
-// entry through its own namespace/prefix bookkeeping (r:id) rather than the
-// stdlib encoder. Without it the reflection marshaler would ignore MarshalXML
-// and the Builder now refuses to marshal xml.Marshaler types silently (C106).
+// entry through its own namespace/prefix bookkeeping (r:id). This is the sole
+// serialization path; the production writers marshal slide masters through the
+// Builder, so no stdlib xml.Marshaler shadow is needed (C355).
 func (s SlideLayoutID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
 	if s.ID > 0 {
@@ -149,9 +138,9 @@ func (s SlideLayoutID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
-// UnmarshalXML implements custom XML unmarshaling for SlideLayoutID.
-// Handles both namespaced (relationships:id) and prefixed (r:id) formats,
-// and captures the optional extLst child (C225).
+// UnmarshalXML implements custom XML unmarshaling for SlideLayoutID. The
+// relationship id arrives as the namespace-resolved r:id (Space is the
+// relationships URI, Local is "id"); it captures the optional extLst child (C225).
 func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
@@ -162,9 +151,6 @@ func (s *SlideLayoutID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 			s.ID = id
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			// Relationship ID with full namespace
-			s.RID = attr.Value
-		case attr.Name.Local == "r:id":
-			// Relationship ID with r: prefix (our marshaled format)
 			s.RID = attr.Value
 		}
 	}

@@ -2,7 +2,6 @@ package oxml
 
 import (
 	"encoding/xml"
-	"fmt"
 
 	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -301,9 +300,8 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		if err := validateXSDBoolean("p14:showMediaCtrls", w.V.Val); err != nil {
-			return err
-		}
+		// Lenient: an out-of-lexical-space xsd:boolean (e.g. a wild "N") must not
+		// abort Open. Val is preserved verbatim and re-emitted as-is (C355).
 		e.ShowMediaCtrls = &w.V
 
 	case xmlb.ExtURIDefaultImageDpi:
@@ -322,9 +320,7 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		if err := validateXSDBoolean("p14:discardImageEditData", w.V.Val); err != nil {
-			return err
-		}
+		// Lenient xsd:boolean; see ShowMediaCtrls above (C355).
 		e.DiscardImageEdit = &w.V
 
 	case xmlb.ExtURILaserClr:
@@ -361,9 +357,7 @@ func (e *Extension) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		if err := d.DecodeElement(&w, &start); err != nil {
 			return err
 		}
-		if err := validateXSDBoolean("p15:chartTrackingRefBased", w.V.Val); err != nil {
-			return err
-		}
+		// Lenient xsd:boolean; see ShowMediaCtrls above (C355).
 		e.ChartTrackingRefBased = &w.V
 
 	case xmlb.ExtURISectionLst:
@@ -435,6 +429,9 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			if e.Media.Embed != "" {
 				override["r:embed"] = e.Media.Embed
 			}
+			if e.Media.Link != "" {
+				override["r:link"] = e.Media.Link
+			}
 			prefix := xmlb.RawAttrPrefix(raw, nsP14, xmlb.PrefixPowerPoint2010)
 			if len(e.Media.RawContent) > 0 {
 				b.StartElementLiteral(prefix, "media", nil, xmlb.RawAttrListOverride(raw, override)...)
@@ -445,15 +442,20 @@ func (e *Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			}
 			break
 		}
+		// Programmatic media (no captured attrs): emit r:embed and, when set,
+		// r:link (externally linked media) — the latter was previously dropped
+		// (C355).
+		mediaAttrs := []xmlb.Attr{xmlb.RelAttr("embed", e.Media.Embed)}
+		if e.Media.Link != "" {
+			mediaAttrs = append(mediaAttrs, xmlb.RelAttr("link", e.Media.Link))
+		}
 		if len(e.Media.RawContent) > 0 {
-			b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
-				xmlb.RelAttr("embed", e.Media.Embed))
+			b.StartElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media", mediaAttrs...)
 			b.WriteRaw(e.Media.RawContent)
 			b.EndElementInlineNS(xmlb.PrefixPowerPoint2010, "media")
 			b.ResetNamespaceDeclaration(nsP14)
 		} else {
-			b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media",
-				xmlb.RelAttr("embed", e.Media.Embed))
+			b.EmptyElementInlineNS(nsP14, xmlb.PrefixPowerPoint2010, "media", mediaAttrs...)
 		}
 
 	case e.ShowMediaCtrls != nil:
@@ -529,16 +531,6 @@ func marshalP15Bool(b *xmlb.Builder, localName, val string) {
 	} else {
 		b.EmptyElementInlineNS(nsP15, xmlb.PrefixPowerPoint2012, localName)
 	}
-}
-
-// validateXSDBoolean checks that val is within the xsd:boolean lexical space
-// ("0", "1", "true", "false") or absent (empty string).
-func validateXSDBoolean(elem, val string) error {
-	switch val {
-	case "", "0", "1", "true", "false":
-		return nil
-	}
-	return fmt.Errorf("%s: invalid xsd:boolean value %q for val attribute", elem, val)
 }
 
 // marshalColorChoice writes a DML color choice (a:srgbClr, a:schemeClr, etc.).

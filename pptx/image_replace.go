@@ -66,7 +66,11 @@ func (p *Presentation) embedImageForPart(ownerPart string, data []byte, contentT
 // addImageRel themselves.
 func (p *Presentation) embedImagePart(data []byte, contentType string) string {
 	for name, part := range p.otherParts {
-		if part != nil && strings.HasPrefix(name, "/ppt/media/") && bytes.Equal(part.Data, data) {
+		// Dedup on both bytes and content type: two parts with identical bytes
+		// but different content types (e.g. an image reused as a different MIME
+		// type) are distinct parts and must not collapse (C354).
+		if part != nil && strings.HasPrefix(name, "/ppt/media/") &&
+			part.ContentType == contentType && bytes.Equal(part.Data, data) {
 			return name
 		}
 	}
@@ -244,6 +248,15 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 		return fmt.Errorf("pptx: picture %q (relID=%q) not found in slide XML", pic.name, pic.relID)
 	}
 
+	// Capture the rels the outgoing image referenced so they (and their media
+	// parts) can be garbage-collected after the swap — otherwise bulk template
+	// image replacement accretes one dead image part per replacement (C314).
+	var oldRelID, oldSvgRelID string
+	if oxmlPic.BlipFill != nil && oxmlPic.BlipFill.Blip != nil {
+		oldRelID = oxmlPic.BlipFill.Blip.Embed
+		oldSvgRelID = blipSVGEmbed(oxmlPic.BlipFill.Blip)
+	}
+
 	// Embed the raster fallback and update the primary blip reference.
 	relID := s.embedImageData(pic.imageData, pic.contentType)
 
@@ -279,6 +292,10 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 	// Update the Go-level relID
 	pic.relID = relID
 
+	// Drop the old image rel + media part now that nothing references them
+	// (gcSlideRels re-checks the slide XML, so a still-shared image is kept).
+	s.gcSlideRels([]string{oldRelID, oldSvgRelID})
+
 	// Clear the pending image data
 	pic.imageData = nil
 	pic.imagePath = ""
@@ -286,6 +303,19 @@ func (s *Slide) replacePictureImage(pic *Picture) error {
 	pic.svgContentType = ""
 
 	return nil
+}
+
+// blipSVGEmbed returns the r:embed of a blip's SVG-blip extension, or "".
+func blipSVGEmbed(blip *dml.Blip) string {
+	if blip == nil || blip.ExtLst == nil {
+		return ""
+	}
+	for _, ext := range blip.ExtLst.Ext {
+		if ext != nil && ext.SvgBlip != nil && ext.SvgBlip.Embed != "" {
+			return ext.SvgBlip.Embed
+		}
+	}
+	return ""
 }
 
 func setBlipSVGExtension(blip *dml.Blip, svgRelID string) {

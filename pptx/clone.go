@@ -104,6 +104,12 @@ func (r *Run) clone() *Run {
 	out := *r
 	out.color = cloneColor(r.color)
 	out.highlight = cloneColor(r.highlight)
+	// Deep-copy the hyperlink so the clone shares no state with the original:
+	// each clone must allocate its own relationship on save (a shared relID is
+	// filled once and the second placement is skipped, dangling), and editing
+	// the clone's link must not mutate the original. markDirty is rebound to
+	// this run so a later tooltip/target edit still re-flushes it.
+	out.hyperlink = r.hyperlink.cloneReset(func() { out.dirty = true })
 	return &out
 }
 
@@ -169,28 +175,47 @@ func (t *Table) CloneColumn(srcIndex, dstIndex int) bool {
 func CloneShape(shape Shape) Shape {
 	switch s := shape.(type) {
 	case *TextBox:
-		return &TextBox{
+		c := &TextBox{
 			BaseShape: cloneBaseShape(s.BaseShape),
 			textFrame: s.textFrame.clone(),
 			spPr:      cloneSpPr(s.spPr),
 		}
+		rebindShapeHyperlink(&c.BaseShape)
+		return c
 	case *AutoShape:
-		return &AutoShape{
+		c := &AutoShape{
 			BaseShape:      cloneBaseShape(s.BaseShape),
 			presetGeometry: s.presetGeometry,
 			textFrame:      s.textFrame.clone(),
 			spPr:           cloneSpPr(s.spPr),
 		}
+		rebindShapeHyperlink(&c.BaseShape)
+		return c
 	}
 	return nil
 }
 
 // cloneBaseShape copies the base fields but drops the source node identity:
 // the clone is a new shape and must not alias the original's parsed node, or
-// id-matched in-place updates would hit the original.
+// id-matched in-place updates would hit the original. The shape-level hyperlink
+// is deep-copied with its per-placement state reset (see Hyperlink.cloneReset)
+// so the clone allocates its own relationship and edits to it do not touch the
+// original; markDirty is rebound to the clone by rebindShapeHyperlink once the
+// enclosing shape's final address is known.
 func cloneBaseShape(b BaseShape) BaseShape {
 	b.sourceID = 0
+	b.hyperlink = b.hyperlink.cloneReset(nil)
 	return b
+}
+
+// rebindShapeHyperlink points a cloned shape's hyperlink markDirty at the
+// shape's own dirty flag, so a tooltip/target edit re-flushes the clone rather
+// than a stale copy. cloneBaseShape returns the BaseShape by value, so the
+// binding can only be made after it is embedded in the final shape.
+func rebindShapeHyperlink(b *BaseShape) {
+	if b.hyperlink != nil {
+		b.hyperlink.markDirty = func() { b.dirty = true }
+	}
 }
 
 // cloneSpPr deep-copies shape drawing properties through their XML encoding
