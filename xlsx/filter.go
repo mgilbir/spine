@@ -50,7 +50,18 @@ type CustomFilter struct {
 // SetFilterColumn sets (or replaces) the filter predicate for a single column
 // of the sheet's auto-filter. An auto-filter range must already be set with
 // SetAutoFilter.
+//
+// The predicate is recorded but not applied: this package does not evaluate it
+// against the sheet's data and does not hide the rows it excludes. Excel
+// persists a filtered-out row as <row hidden="1">, and writes no such flags
+// here, so the saved workbook opens showing every row with the filter dropdown
+// indicating a predicate is set. Re-applying the filter in Excel (Data >
+// Reapply) hides the rows. Set the row-hidden flags with SetRowHidden if the
+// file must open already filtered.
 func (s *Sheet) SetFilterColumn(fc FilterColumn) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	s.ensureWorksheet()
 	if s.ws().AutoFilter == nil {
 		return fmt.Errorf("xlsx: no auto-filter set; call SetAutoFilter first")
@@ -124,7 +135,9 @@ func (s *Sheet) FilterColumns() []FilterColumn {
 // ClearFilterColumns removes all per-column filter predicates while leaving the
 // auto-filter range in place.
 func (s *Sheet) ClearFilterColumns() {
-	if s.ws() == nil || s.ws().AutoFilter == nil {
+	// An opaque sheet is never regenerated from its worksheet model, so
+	// mutating that model here would change nothing at save (C423).
+	if s.opaque || s.ws() == nil || s.ws().AutoFilter == nil {
 		return
 	}
 	if len(s.ws().AutoFilter.FilterColumn) == 0 {
@@ -202,24 +215,49 @@ type SortCondition struct {
 	CustomList string
 }
 
-// SetSortState writes the sheet's sort state (as a worksheet-level sortState
-// element). The Ref must be set.
+// SetSortState writes the sheet's sort state. It updates the element the sheet
+// already carries — the worksheet-level <sortState>, or the one nested in
+// <autoFilter> when that is where the sort state lives — and creates a
+// worksheet-level element only when the sheet has neither. The Ref must be set.
+//
+// Only the modeled fields are overwritten; the target element's unmodeled
+// children (the x14 sort-by-color conditions in its extLst) are left alone.
+// Rebuilding the element from scratch dropped them on every call.
 func (s *Sheet) SetSortState(ss SortState) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if ss.Ref == "" {
 		return fmt.Errorf("xlsx: sort state requires a Ref range")
 	}
 	s.ensureWorksheet()
 	s.markDirty()
 
-	out := &oxml.CT_SortState{Ref: ss.Ref, SortMethod: ss.SortMethod}
+	// Patch in place so CapturedChildren (the unmodeled extLst) survives.
+	out := s.ws().SortState
+	switch {
+	case out != nil:
+	case s.ws().AutoFilter != nil && s.ws().AutoFilter.SortState != nil:
+		out = s.ws().AutoFilter.SortState
+	default:
+		out = &oxml.CT_SortState{}
+		s.ws().SortState = out
+		s.ws().EnsureChildOrder("sortState")
+	}
+
+	out.Ref = ss.Ref
+	out.SortMethod = ss.SortMethod
+	out.CaseSensitive = nil
 	if ss.CaseSensitive {
 		cs := true
 		out.CaseSensitive = &cs
 	}
+	out.ColumnSort = nil
 	if ss.ColumnSort {
 		col := true
 		out.ColumnSort = &col
 	}
+	out.SortCondition = nil
 	for _, c := range ss.Conditions {
 		cond := oxml.CT_SortCondition{Ref: c.Ref, SortBy: c.SortBy, CustomList: c.CustomList}
 		if c.Descending {
@@ -228,8 +266,6 @@ func (s *Sheet) SetSortState(ss SortState) error {
 		}
 		out.SortCondition = append(out.SortCondition, cond)
 	}
-	s.ws().SortState = out
-	s.ws().EnsureChildOrder("sortState")
 	return nil
 }
 
@@ -250,13 +286,25 @@ func (s *Sheet) SortState() (SortState, bool) {
 	return oxmlToSortState(src), true
 }
 
-// RemoveSortState removes the worksheet-level sort state.
+// RemoveSortState removes the sheet's sort state, both the worksheet-level
+// <sortState> element and the one nested in <autoFilter>. It removes exactly
+// what SortState reads: removing only the worksheet-level element left
+// SortState still reporting ok on the files — common Excel output — whose sort
+// state lives inside <autoFilter> (C536). The auto-filter range itself is kept;
+// use RemoveAutoFilter to drop that.
 func (s *Sheet) RemoveSortState() {
-	if s.ws() == nil || s.ws().SortState == nil {
+	if s.opaque || s.ws() == nil {
+		return
+	}
+	nested := s.ws().AutoFilter != nil && s.ws().AutoFilter.SortState != nil
+	if s.ws().SortState == nil && !nested {
 		return
 	}
 	s.markDirty()
 	s.ws().SortState = nil
+	if nested {
+		s.ws().AutoFilter.SortState = nil
+	}
 }
 
 func oxmlToSortState(src *oxml.CT_SortState) SortState {

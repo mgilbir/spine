@@ -152,6 +152,9 @@ type pendingOLE struct {
 // into an existing one is out of scope. Add the OLE object first (then comments),
 // or add it on a sheet without those.
 func (s *Sheet) AddOLEObject(spec OLEObjectSpec) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if len(spec.Data) == 0 {
 		return fmt.Errorf("xlsx: AddOLEObject: Data must not be empty")
 	}
