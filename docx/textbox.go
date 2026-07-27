@@ -135,7 +135,22 @@ func (tb *TextBox) IsVML() bool { return tb.vml }
 // nextShapeID returns the next docPr id for a text box or shape. Ids start
 // above shapeIDBase so they do not collide with the small drawing ids that
 // images and charts derive from their part numbers.
+//
+// On first use the counter is seeded past the highest docPr id at or above
+// shapeIDBase already present in the opened document's drawings. Without that
+// seed every session restarted at shapeIDBase+1, so a text box added to a
+// document that was itself produced by this library got the id a box in it
+// already carries — save, reopen, AddTextBox, save yielded two
+// <wp:docPr id="100001"> in one document (C409). AddShape, AddShapeGroup,
+// AddWordArt, AddSignatureLine and AddOLEObject all share this counter and were
+// all affected.
 func (d *Document) nextShapeID() int {
+	if !d.shapeIDInit {
+		d.shapeIDInit = true
+		if _, maxShape := d.maxExistingDocPrIDs(); maxShape >= shapeIDBase {
+			d.shapeIDSeq = maxShape - shapeIDBase
+		}
+	}
 	d.shapeIDSeq++
 	return shapeIDBase + d.shapeIDSeq
 }
@@ -436,19 +451,22 @@ func (d *Document) TextBoxes() []*TextBox {
 			out = appendParagraphTextBoxes(out, p)
 		}
 	}
-	for _, hp := range d.headers {
+	// AllParagraphs, not the top-level P slice: a text box inside a header
+	// table (a very common layout) was invisible while the godoc promised
+	// "including boxes nested in tables, headers, and footers" (C490).
+	for _, hp := range d.sortedHeaderParts() {
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
-		for _, p := range hp.hdr.P {
+		for _, p := range hp.hdr.AllParagraphs() {
 			out = appendParagraphTextBoxes(out, p)
 		}
 	}
-	for _, fp := range d.footers {
+	for _, fp := range d.sortedFooterParts() {
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
-		for _, p := range fp.ftr.P {
+		for _, p := range fp.ftr.AllParagraphs() {
 			out = appendParagraphTextBoxes(out, p)
 		}
 	}

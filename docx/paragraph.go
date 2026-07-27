@@ -28,12 +28,20 @@ func (p *Paragraph) Text() string {
 // hyperlinks, structured document tags, tracked changes, fields, and
 // raw-preserved inline elements — so no stale text (e.g. hyperlink display
 // text) survives next to the new content. Paragraph properties are kept.
+//
+// Relationships that only the removed content referenced (a hyperlink's
+// External rel, an image's r:embed, and any media part added in this session
+// that nothing else points at) are reclaimed, so repeatedly filling a template
+// no longer accretes dead relationships (C407).
 func (p *Paragraph) SetText(text string) {
 	p.touch()
+	removed := make(map[string]bool)
+	addParagraphRelRefs(removed, p.p)
 	p.p.ClearContent()
 	p.p.AppendR(&oxml.CT_R{
 		T: []*oxml.CT_Text{{Space: "preserve", Text: text}},
 	})
+	p.sweepRemovedRelRefs(removed)
 }
 
 // Runs returns all runs in the paragraph.
@@ -70,19 +78,33 @@ func (p *Paragraph) SetStyle(style string) {
 	p.p.PPr.PStyle = &oxml.CT_String{Val: style}
 }
 
-// Alignment returns the paragraph alignment.
+// Alignment returns the paragraph alignment, or AlignmentLeft when the
+// paragraph declares none — which conflates "unset, so inherited from the
+// style" with an explicit left alignment. Use AlignmentOK to tell them apart.
 func (p *Paragraph) Alignment() Alignment {
-	if p.p.PPr != nil && p.p.PPr.Jc != nil {
-		switch p.p.PPr.Jc.Val {
-		case "center":
-			return AlignmentCenter
-		case "right":
-			return AlignmentRight
-		case "both":
-			return AlignmentJustify
-		}
+	a, _ := p.AlignmentOK()
+	return a
+}
+
+// AlignmentOK returns the paragraph's own alignment (w:jc) and whether it
+// declares one. It is the ok-bool form the newer getters use; Alignment keeps
+// the older single-value shape. An unrecognized w:jc value (there are a dozen
+// beyond the four this package models — distribute, thaiDistribute, ...)
+// reports AlignmentLeft with ok true: the paragraph does declare an alignment,
+// it is just not one this API can name.
+func (p *Paragraph) AlignmentOK() (Alignment, bool) {
+	if p.p.PPr == nil || p.p.PPr.Jc == nil {
+		return AlignmentLeft, false
 	}
-	return AlignmentLeft
+	switch p.p.PPr.Jc.Val {
+	case "center":
+		return AlignmentCenter, true
+	case "right", "end":
+		return AlignmentRight, true
+	case "both", "distribute":
+		return AlignmentJustify, true
+	}
+	return AlignmentLeft, true
 }
 
 // SetAlignment sets the paragraph alignment.
@@ -105,10 +127,18 @@ func (p *Paragraph) SetAlignment(align Alignment) {
 
 // Clear removes all runs from the paragraph, including their entries in the
 // recorded child order, so a later AddRun does not resolve a stale reference
-// to the new run and duplicate it.
+// to the new run and duplicate it. Hyperlinks and other non-run children are
+// kept — use SetText to replace everything.
+//
+// Relationships referenced only by the removed runs are reclaimed (C407).
 func (p *Paragraph) Clear() {
 	p.touch()
+	removed := make(map[string]bool)
+	for _, r := range p.p.R {
+		addRunRelRefs(removed, r)
+	}
 	p.p.SetRuns(nil)
+	p.sweepRemovedRelRefs(removed)
 }
 
 // --- Spacing ---

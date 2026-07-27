@@ -457,3 +457,108 @@ func TestAppendNil(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNilDocument", err)
 	}
 }
+
+// TestAppendSkipsUnreferencedExternalRel is the first half of C489: external
+// relationships of the source main part were imported unconditionally, so a rel
+// the copied body never mentions — an attachedTemplate, an external subDoc —
+// was copied into the destination as a stray.
+func TestAppendSkipsUnreferencedExternalRel(t *testing.T) {
+	dst := Create()
+	dst.AddParagraphWithText("destination")
+
+	src := Create()
+	src.AddParagraphWithText("source body with no links")
+	// An external relationship the body does not reference (what an
+	// attachedTemplate or a mailMerge source looks like in the rels).
+	src.addDocRelationship(&opc.Relationship{
+		ID:         "rId99",
+		Type:       "http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate",
+		Target:     "file:///C:/templates/company.dotx",
+		TargetMode: opc.TargetModeExternal,
+	})
+
+	if err := dst.Append(src); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	rels := zipEntryString(t, data, "word/_rels/document.xml.rels")
+	if strings.Contains(rels, "company.dotx") {
+		t.Errorf("an external relationship the copied body never references was imported:\n%s", rels)
+	}
+}
+
+// TestAppendImportsReferencedExternalRel is the guard on the gate above: an
+// external the body does reference must still be carried across.
+func TestAppendImportsReferencedExternalRel(t *testing.T) {
+	dst := Create()
+	dst.AddParagraphWithText("destination")
+
+	src := Create()
+	src.AddParagraph().AddHyperlink("visit", "https://carried.example/")
+
+	if err := dst.Append(src); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	rels := zipEntryString(t, data, "word/_rels/document.xml.rels")
+	if !strings.Contains(rels, "carried.example") {
+		t.Errorf("a referenced external relationship was not imported:\n%s", rels)
+	}
+	body := zipEntryString(t, data, "word/document.xml")
+	if !strings.Contains(body, "<w:hyperlink") || !strings.Contains(body, "visit") {
+		t.Errorf("the copied hyperlink lost its element:\n%s", body)
+	}
+	if r := dst.Validate(); danglingRelCount(r) != 0 {
+		t.Errorf("dangling relationship after append: %v", r)
+	}
+}
+
+// TestAppendStripsUnresolvableRelRef is the second half of C489: a body
+// reference whose target could not be imported kept the source's rId, which in
+// the destination silently resolves to whatever unrelated relationship happens
+// to hold that id. Aliasing is worse than dangling, so the attribute is
+// stripped.
+func TestAppendStripsUnresolvableRelRef(t *testing.T) {
+	dst := Create()
+	// Give the destination an image so rId1 in the destination means something
+	// unrelated to whatever rId1 meant in the source.
+	if _, err := dst.AddParagraph().AddRun().AddImageFromBytes(minimalPNG(), opc.ContentTypePNG); err != nil {
+		t.Fatalf("add image: %v", err)
+	}
+
+	// A source whose body references rId1 with no relationship behind it at all.
+	src := Create()
+	src.AddParagraph().AddRun().r.AppendDrawing(&oxml.CT_Drawing{RawContent: []byte(
+		`<wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ` +
+			`xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ` +
+			`xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" ` +
+			`xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+			`<wp:extent cx="100" cy="100"/><wp:docPr id="3" name="Dangling"/>` +
+			`<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+			`<pic:pic><pic:nvPicPr><pic:cNvPr id="3" name="Dangling"/><pic:cNvPicPr/></pic:nvPicPr>` +
+			`<pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill><pic:spPr/></pic:pic>` +
+			`</a:graphicData></a:graphic></wp:inline>`)})
+
+	if err := dst.Append(src); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	data, err := dst.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	body := zipEntryString(t, data, "word/document.xml")
+	// Exactly one r:embed survives — the destination's own image. The copied
+	// drawing must not have been bound to it.
+	if n := strings.Count(body, `r:embed=`); n != 1 {
+		t.Errorf("r:embed count = %d, want 1 (the destination's own image):\n%s", n, body)
+	}
+	if !strings.Contains(body, `name="Dangling"`) {
+		t.Errorf("the copied drawing was removed rather than unbound:\n%s", body)
+	}
+}

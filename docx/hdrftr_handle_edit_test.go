@@ -104,6 +104,15 @@ func TestHeaderHandleEditsPersist(t *testing.T) {
 	if !strings.Contains(s, `descr="NEW ALT 2026"`) {
 		t.Errorf("image alt-text edit not written to header:\n%s", s)
 	}
+	// The edit must patch the drawing, not rebuild it: asserting only the
+	// descr string let the rebuild's ECMA-invalid <wp:docPr id="0"> and its
+	// lost picture name pass under test for a whole release (C372).
+	if !strings.Contains(s, `<wp:docPr id="1" name="Picture 1" descr="NEW ALT 2026"/>`) {
+		t.Errorf("alt-text edit rebuilt the drawing instead of patching descr:\n%s", s)
+	}
+	if strings.Contains(s, `id="0"`) {
+		t.Errorf(`header drawing carries the invalid docPr id="0":`+"\n%s", s)
+	}
 	if !strings.Contains(s, `w:tooltip="NEW TIP"`) {
 		t.Errorf("hyperlink tooltip edit not written to header:\n%s", s)
 	}

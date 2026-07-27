@@ -36,6 +36,15 @@ type InlineImage struct {
 	// are applied to it directly: matching by position in the run would let a
 	// handle for the second image overwrite the first one's drawing.
 	drawing *oxml.CT_Drawing
+	// parsed marks a handle read back from an existing drawing (see
+	// parseDrawingImage) rather than authored by AddImage*. Edits to a parsed
+	// drawing patch just the attribute the setter owns in the original bytes;
+	// regenerating the drawing from this narrow model would silently drop the
+	// docPr id (emitting the ECMA-invalid id="0", duplicated across every
+	// edited image), the anchor offsets and relativeFrom, the wrap element,
+	// the z-order, any rotation or spPr extras, and would rewrite an r:link
+	// (linked) image as an r:embed (C372).
+	parsed bool
 
 	floating bool
 	anchor   Anchor
@@ -55,19 +64,28 @@ type Anchor struct {
 	BehindText bool
 }
 
-// SetSize sets the image size in points.
+// SetSize sets the image size in points. For an image read back from an opened
+// document the wp:extent and the picture's a:xfrm/a:ext are resized in place;
+// everything else in the drawing — its position, wrap, rotation and effects —
+// is left exactly as the producer wrote it.
 func (img *InlineImage) SetSize(widthPt, heightPt float64) {
 	img.touch()
 	img.widthEMU = int64(math.Round(widthPt * 914400 / 72))
 	img.heightEMU = int64(math.Round(heightPt * 914400 / 72))
-	img.updateDrawingXML()
+	img.applyEdit(func(raw []byte) []byte {
+		return patchDrawingExtent(raw, img.widthEMU, img.heightEMU)
+	})
 }
 
-// SetAltText sets the alt text description for the image.
+// SetAltText sets the alt text description for the image. For an image read
+// back from an opened document only the drawing's docPr descr attribute is
+// rewritten; the rest of the drawing is left verbatim.
 func (img *InlineImage) SetAltText(text string) {
 	img.touch()
 	img.altText = text
-	img.updateDrawingXML()
+	img.applyEdit(func(raw []byte) []byte {
+		return setRawTagAttr(raw, "docPr", "descr", text, 0)
+	})
 }
 
 // touch flags the header/footer part this image belongs to as modified, so an
@@ -80,13 +98,42 @@ func (img *InlineImage) touch() {
 	}
 }
 
-func (img *InlineImage) updateDrawingXML() {
+// applyEdit writes an edit back into the drawing this handle owns; other
+// drawings in the same run are untouched.
+//
+// A drawing authored by AddImage* is regenerated from the model — the model is
+// its only source of truth. A drawing parsed from an opened document is patched
+// instead: patch receives its current raw bytes and returns them with just the
+// edited attribute changed, so the producer's own markup survives the edit
+// (C372, and the §4 T-B "patch, don't regenerate" direction).
+func (img *InlineImage) applyEdit(patch func([]byte) []byte) {
 	if img.drawing == nil {
 		return
 	}
-	// Regenerate the drawing this handle owns (inline or anchored); other
-	// drawings in the same run are untouched.
+	if img.parsed {
+		img.drawing.RawContent = patch(img.drawing.RawContent)
+		return
+	}
 	img.drawing.RawContent = img.buildDrawingXML()
+}
+
+// patchDrawingExtent resizes a drawing in place: the wrapper's wp:extent and,
+// when the drawing carries one, the picture's a:xfrm/a:ext. The a:ext inside
+// an a:extLst is never touched (its local name is extLst, not ext), and a
+// drawing without an a:xfrm — a chart frame, a wps shape — keeps its own
+// geometry.
+func patchDrawingExtent(raw []byte, cxEMU, cyEMU int64) []byte {
+	cx := strconv.FormatInt(cxEMU, 10)
+	cy := strconv.FormatInt(cyEMU, 10)
+	raw = setRawTagAttr(raw, "extent", "cx", cx, 0)
+	raw = setRawTagAttr(raw, "extent", "cy", cy, 0)
+	for _, kv := range [2][2]string{{"cx", cx}, {"cy", cy}} {
+		// Re-locate the xfrm each pass: the previous patch shifted offsets.
+		if _, xe := rawTagRange(raw, "xfrm", 0); xe >= 0 {
+			raw = setRawTagAttr(raw, "ext", kv[0], kv[1], xe)
+		}
+	}
+	return raw
 }
 
 // pointsToEMU converts points to EMU (914400 EMU per inch, 72 pt per inch).
@@ -312,12 +359,10 @@ func (r *Run) AddFloatingSVGImage(svgData, fallbackData []byte, fallbackContentT
 // ownerPart names the part that contains the run's drawing: document.xml for
 // body paragraphs, the header/footer part for paragraphs in a header or
 // footer — an r:embed only resolves through the rels of the part it appears
-// in.
+// in. It is the run-level spelling of Paragraph.ownerPartName, which the two
+// used to implement independently (C505).
 func (r *Run) ownerPart() string {
-	if r.paragraph.hfPart != "" {
-		return r.paragraph.hfPart
-	}
-	return r.paragraph.document.mainPart()
+	return r.paragraph.ownerPartName()
 }
 
 // nextDocPrID returns the next document-unique wp:docPr id for an image or
@@ -331,25 +376,50 @@ func (r *Run) ownerPart() string {
 func (d *Document) nextDocPrID() int {
 	if !d.docPrIDInit {
 		d.docPrIDInit = true
-		d.docPrIDSeq = d.maxExistingDocPrID()
+		d.docPrIDSeq, _ = d.maxExistingDocPrIDs()
 	}
 	d.docPrIDSeq++
 	return d.docPrIDSeq
 }
 
-// maxExistingDocPrID returns the highest wp:docPr id (below shapeIDBase) found
-// in the drawings of the opened document's body, headers, and footers, or 0.
-func (d *Document) maxExistingDocPrID() int {
-	max := 0
+// maxExistingDocPrIDs scans every drawing reachable from the opened document —
+// the body, the headers and the footers, including drawings wrapped in an
+// mc:AlternateContent — and returns the highest wp:docPr id below shapeIDBase
+// (the image/chart space) and the highest at or above it (the text box / shape
+// space). Both are 0 when the document carries no drawing with that kind of id.
+//
+// Both counters are seeded from this one scan: they partition a single
+// document-wide id space, and an allocator that ignores what the opened
+// document already contains hands out an id the document already uses (C409 for
+// shapes, the image/chart case being the one already fixed).
+func (d *Document) maxExistingDocPrIDs() (maxImage, maxShape int) {
+	consider := func(raw []byte) {
+		for _, id := range rawTagIntAttrs(raw, "docPr", "id") {
+			if id >= shapeIDBase {
+				if id > maxShape {
+					maxShape = id
+				}
+				continue
+			}
+			if id > maxImage {
+				maxImage = id
+			}
+		}
+	}
 	scan := func(paras []*oxml.CT_P) {
 		for _, p := range paras {
 			for _, r := range oxmlParagraphRuns(p) {
 				for _, dr := range r.Drawing {
-					if dr == nil {
-						continue
+					if dr != nil {
+						consider(dr.RawContent)
 					}
-					if id := docPrID(dr.RawContent); id > max && id < shapeIDBase {
-						max = id
+				}
+				// A text box or shape written with a VML fallback lives inside
+				// an mc:AlternateContent, whose mc:Choice carries the very
+				// w:drawing (and docPr id) the shape counter must not reuse.
+				for _, ac := range r.AlternateContent {
+					if ac != nil {
+						consider(ac.RawContent)
 					}
 				}
 			}
@@ -368,17 +438,19 @@ func (d *Document) maxExistingDocPrID() int {
 			scan(fp.ftr.AllParagraphs())
 		}
 	}
-	return max
+	return maxImage, maxShape
 }
 
-// docPrID returns the numeric id of the wp:docPr element in a drawing's raw
-// content, or 0 when it has none.
+// docPrID returns the numeric id of the first wp:docPr element in a drawing's
+// raw content, or 0 when it has none. The element is matched on its local name
+// and its attributes are really parsed, so neither an unconventional prefix
+// binding nor an id that is not the first attribute defeats it (C491).
 func docPrID(raw []byte) int {
-	v := attrValue(raw, []byte(`<wp:docPr id="`))
-	if v == "" {
+	v, ok := rawTagAttr(raw, "docPr", "id", 0)
+	if !ok {
 		return 0
 	}
-	n, err := strconv.Atoi(v)
+	n, err := strconv.Atoi(strings.TrimSpace(v))
 	if err != nil {
 		return 0
 	}

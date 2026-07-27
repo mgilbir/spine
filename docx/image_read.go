@@ -2,7 +2,6 @@ package docx
 
 import (
 	"bytes"
-	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
@@ -176,14 +175,23 @@ func parseDrawingImage(run *Run, dr *oxml.CT_Drawing) *InlineImage {
 	if len(embeds) == 0 {
 		return nil
 	}
+	// descr is read off the docPr element itself rather than from the first
+	// ` descr="` anywhere in the fragment: a nested picture's cNvPr, or a text
+	// run inside the drawing, can carry one too (C491).
+	altText, _ := rawTagAttr(raw, "docPr", "descr", 0)
+	floating, cx, cy, _ := scanDrawingGeometry(raw)
 	img := &InlineImage{
-		relID:     embeds[0],
-		altText:   xmlUnescape(attrValue(raw, []byte(` descr="`))),
-		drawing:   dr,
-		run:       run,
-		floating:  bytes.Contains(raw, []byte("<wp:anchor")),
-		widthEMU:  extentValue(raw, 'x'),
-		heightEMU: extentValue(raw, 'y'),
+		relID:   embeds[0],
+		altText: xmlUnescape(altText),
+		drawing: dr,
+		run:     run,
+		// Handles built here own existing markup: their setters patch it
+		// rather than regenerate the drawing (C372).
+		parsed:    true,
+		drawingID: uint32(docPrID(raw)),
+		floating:  floating,
+		widthEMU:  cx,
+		heightEMU: cy,
 	}
 	// A second embed on the blip is the SVG variant carried by the svgBlip
 	// extension.
@@ -206,32 +214,6 @@ func attrValue(raw, marker []byte) string {
 		return ""
 	}
 	return string(rest[:j])
-}
-
-// extentValue returns the cx (axis 'x') or cy (axis 'y') EMU value from the
-// drawing's wp:extent element, or 0 if absent/unparseable.
-func extentValue(raw []byte, axis byte) int64 {
-	i := bytes.Index(raw, []byte("<wp:extent"))
-	if i < 0 {
-		return 0
-	}
-	seg := raw[i:]
-	if end := bytes.IndexByte(seg, '>'); end >= 0 {
-		seg = seg[:end]
-	}
-	marker := []byte(` cx="`)
-	if axis == 'y' {
-		marker = []byte(` cy="`)
-	}
-	v := attrValue(seg, marker)
-	if v == "" {
-		return 0
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // xmlUnescape reverses xmlEscapeAttr for reading attribute values.

@@ -75,10 +75,20 @@ func (s *Section) SetOrientation(orient Orientation) {
 	}
 }
 
-// Margins returns the page margins in points.
+// Margins returns the page margins in points, or the zero PageMargins when the
+// section declares none. Use MarginsOK to tell "no w:pgMar" apart from a
+// section whose margins really are zero.
 func (s *Section) Margins() PageMargins {
+	m, _ := s.MarginsOK()
+	return m
+}
+
+// MarginsOK returns the page margins in points and whether the section declares
+// them (w:pgMar). It is the ok-bool form the other Section getters use; Margins
+// keeps the older single-value shape.
+func (s *Section) MarginsOK() (PageMargins, bool) {
 	if s.sectPr.PgMar == nil {
-		return PageMargins{}
+		return PageMargins{}, false
 	}
 	m := s.sectPr.PgMar
 	return PageMargins{
@@ -88,10 +98,16 @@ func (s *Section) Margins() PageMargins {
 		Right:  twipsToPoints(m.Right),
 		Header: twipsToPoints(m.Header),
 		Footer: twipsToPoints(m.Footer),
-	}
+	}, true
 }
 
-// SetMargins sets the page margins in points.
+// SetMargins sets the page margins in points. All six values are written,
+// including zeros: PageMargins is a complete description of the section's
+// margins, so a zero Header distance (a header flush to the top of the page)
+// must be expressible. Header and Footer used to be written only when positive,
+// which made zero mean "leave whatever was there" for those two fields alone
+// and unlike the other four (C493). Read the current values with MarginsOK,
+// change what you need, and set the struct back to adjust one field.
 func (s *Section) SetMargins(m PageMargins) {
 	if s.sectPr.PgMar == nil {
 		s.sectPr.PgMar = &oxml.CT_PgMar{}
@@ -100,12 +116,8 @@ func (s *Section) SetMargins(m PageMargins) {
 	s.sectPr.PgMar.Bottom = pointsToTwips(m.Bottom)
 	s.sectPr.PgMar.Left = pointsToTwips(m.Left)
 	s.sectPr.PgMar.Right = pointsToTwips(m.Right)
-	if m.Header > 0 {
-		s.sectPr.PgMar.Header = pointsToTwips(m.Header)
-	}
-	if m.Footer > 0 {
-		s.sectPr.PgMar.Footer = pointsToTwips(m.Footer)
-	}
+	s.sectPr.PgMar.Header = pointsToTwips(m.Header)
+	s.sectPr.PgMar.Footer = pointsToTwips(m.Footer)
 }
 
 // Predefined page sizes in points.

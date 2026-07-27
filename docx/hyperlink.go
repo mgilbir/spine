@@ -11,10 +11,13 @@ import (
 // text.
 const hyperlinkStyleID = "Hyperlink"
 
-// Hyperlink is a hyperlink in a document. Its accessors are shared verbatim
-// with the xlsx and pptx hyperlink APIs so the three formats are symmetric:
-// URL for an external target, Anchor for an internal one (a bookmark name in
-// docx), and Tooltip for the screen-tip. Only the anchoring differs by format.
+// Hyperlink is a hyperlink in a document. Its READ accessors mirror the xlsx
+// and pptx hyperlink APIs so the three formats are symmetric: URL for an
+// external target, Anchor for an internal one (a bookmark name in docx), and
+// Tooltip for the screen-tip; only the anchoring differs by format. Retargeting
+// is not part of that shared surface — none of the three formats has a SetURL
+// or SetAnchor, so a link's destination is fixed once it is created and
+// SetTooltip is the only mutator here.
 type Hyperlink struct {
 	document *Document
 	h        *oxml.CT_Hyperlink

@@ -175,7 +175,15 @@ func TestAddHeader_NamingWithGaps(t *testing.T) {
 }
 
 // C161: AddHeader/AddFooter must never clobber a parsed header/footer in the
-// in-memory maps — the derived part name is always a fresh key.
+// in-memory maps — the derived part name is always a fresh key, so the new
+// header is a distinct part rather than an in-place overwrite of the parsed
+// model another handle may already point at.
+//
+// C492 extends this: the section can hold at most one reference per type, so
+// once the reference has been repointed the replaced part is unreferenced and
+// is released (its map entry, its relationship and its bytes) instead of
+// accreting in the package forever. The parsed model itself is never mutated —
+// that is what "does not clobber" means here.
 func TestAddHeaderFooter_DoesNotClobberParsedParts(t *testing.T) {
 	doc := Create()
 	doc.AddHeader(HeaderDefault).AddParagraphWithText("ORIGINAL-HEADER")
@@ -190,20 +198,36 @@ func TestAddHeaderFooter_DoesNotClobberParsedParts(t *testing.T) {
 	if !ok {
 		t.Fatal("parsed footer1.xml not in footers map")
 	}
+	hdrParas, ftrParas := len(parsedHdr.hdr.AllParagraphs()), len(parsedFtr.ftr.AllParagraphs())
 
 	doc.AddHeader(HeaderDefault)
 	doc.AddFooter(FooterDefault)
 
-	if got := doc.headers["/word/header1.xml"]; got != parsedHdr {
-		t.Error("AddHeader clobbered the parsed header1.xml entry")
+	// The new parts took fresh names, so nothing was written over the parsed
+	// models: they still hold exactly the content they were parsed with.
+	if got := len(parsedHdr.hdr.AllParagraphs()); got != hdrParas || hdrParas == 0 {
+		t.Errorf("parsed header model mutated in place: %d paragraphs, want %d", got, hdrParas)
 	}
-	if got := doc.footers["/word/footer1.xml"]; got != parsedFtr {
-		t.Error("AddFooter clobbered the parsed footer1.xml entry")
+	if got := len(parsedFtr.ftr.AllParagraphs()); got != ftrParas || ftrParas == 0 {
+		t.Errorf("parsed footer model mutated in place: %d paragraphs, want %d", got, ftrParas)
 	}
-	if len(doc.headers) != 2 {
-		t.Errorf("headers map has %d entries, want 2", len(doc.headers))
+	if _, ok := doc.headers["/word/header2.xml"]; !ok {
+		t.Error("the replacement header did not take a fresh part name")
 	}
-	if len(doc.footers) != 2 {
-		t.Errorf("footers map has %d entries, want 2", len(doc.footers))
+	if _, ok := doc.footers["/word/footer2.xml"]; !ok {
+		t.Error("the replacement footer did not take a fresh part name")
+	}
+	// ...and the replaced part is released rather than orphaned (C492).
+	if _, ok := doc.headers["/word/header1.xml"]; ok {
+		t.Error("replaced header1.xml still in the headers map")
+	}
+	if _, ok := doc.footers["/word/footer1.xml"]; ok {
+		t.Error("replaced footer1.xml still in the footers map")
+	}
+	if len(doc.headers) != 1 {
+		t.Errorf("headers map has %d entries, want 1", len(doc.headers))
+	}
+	if len(doc.footers) != 1 {
+		t.Errorf("footers map has %d entries, want 1", len(doc.footers))
 	}
 }
