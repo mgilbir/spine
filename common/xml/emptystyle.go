@@ -29,14 +29,107 @@ const (
 	// EmptyTagSelfCloseTight is <name/> — no space before the slash — even
 	// when the part-level style writes " />".
 	EmptyTagSelfCloseTight
-	// EmptyTagSelfCloseSpaced is <name /> even when the part-level style
-	// writes "/>".
+	// EmptyTagSelfCloseSpaced is <name /> — exactly one space before the
+	// slash — even when the part-level style writes "/>".
 	EmptyTagSelfCloseSpaced
+	// emptyTagWSBase is the first value of the encoded whitespace-run block.
+	// A style at or above it is a self-closing tag whose whitespace run
+	// before the slash is something other than a single space (a tab, a line
+	// break, or a short mixed run); the run itself is packed into the value,
+	// see selfCloseStyleFor / selfCloseWS. Keeping the type a uint8 matters:
+	// it is embedded per instance in ~60 model structs (one per run, cell,
+	// property bag), so a string-bearing struct would add ~24 bytes to every
+	// captured element of a document.
+	emptyTagWSBase
 )
+
+// selfCloseWSChars are the whitespace bytes a self-closing run is built from,
+// indexed by their 2-bit code. XML whitespace is exactly these four.
+var selfCloseWSChars = [4]byte{' ', '\t', '\n', '\r'}
+
+// selfCloseWSCode returns c's 2-bit code, or ok=false when c is not XML
+// whitespace.
+func selfCloseWSCode(c byte) (uint8, bool) {
+	switch c {
+	case ' ':
+		return 0, true
+	case '\t':
+		return 1, true
+	case '\n':
+		return 2, true
+	case '\r':
+		return 3, true
+	}
+	return 0, false
+}
+
+// Block sizes of the packed whitespace-run encoding: runs of one, two and
+// three whitespace bytes occupy 4, 16 and 64 consecutive style values, so the
+// largest style is emptyTagWSBase+83 — still a uint8.
+const (
+	selfCloseWS1 = 4
+	selfCloseWS2 = selfCloseWS1 * 4
+	selfCloseWS3 = selfCloseWS2 * 4
+)
+
+// selfCloseStyleFor classifies the whitespace run a source wrote between a
+// self-closing tag's content and its slash. An empty run is tight, a single
+// space is the canonical spaced form, and any other run of up to three
+// whitespace bytes is packed into the style so replay reproduces it verbatim.
+// Runs longer than three bytes are not representable and degrade to the spaced
+// form (a documented, byte-level-only drift; no OOXML producer writes them).
+func selfCloseStyleFor(run []byte) EmptyTagStyle {
+	switch len(run) {
+	case 0:
+		return EmptyTagSelfCloseTight
+	case 1:
+		if run[0] == ' ' {
+			return EmptyTagSelfCloseSpaced
+		}
+		c, ok := selfCloseWSCode(run[0])
+		if !ok {
+			return EmptyTagSelfCloseSpaced
+		}
+		return emptyTagWSBase + EmptyTagStyle(c)
+	case 2, 3:
+		var n uint8
+		for _, c := range run {
+			code, ok := selfCloseWSCode(c)
+			if !ok {
+				return EmptyTagSelfCloseSpaced
+			}
+			n = n*4 + code
+		}
+		if len(run) == 2 {
+			return emptyTagWSBase + EmptyTagStyle(selfCloseWS1+n)
+		}
+		return emptyTagWSBase + EmptyTagStyle(selfCloseWS1+selfCloseWS2+n)
+	}
+	return EmptyTagSelfCloseSpaced
+}
+
+// selfCloseWS unpacks the whitespace run encoded in a style at or above
+// emptyTagWSBase. It is only reached for the exotic runs selfCloseStyleFor
+// packs (never for the tight or single-space forms), so the string allocation
+// is off every normal path.
+func (s EmptyTagStyle) selfCloseWS() string {
+	n := int(s - emptyTagWSBase)
+	switch {
+	case n < selfCloseWS1:
+		return string(selfCloseWSChars[n : n+1])
+	case n < selfCloseWS1+selfCloseWS2:
+		n -= selfCloseWS1
+		return string([]byte{selfCloseWSChars[n/4], selfCloseWSChars[n%4]})
+	case n < selfCloseWS1+selfCloseWS2+selfCloseWS3:
+		n -= selfCloseWS1 + selfCloseWS2
+		return string([]byte{selfCloseWSChars[n/16], selfCloseWSChars[(n/4)%4], selfCloseWSChars[n%4]})
+	}
+	return " "
+}
 
 // IsSelfClose reports whether the style is any self-closing form.
 func (s EmptyTagStyle) IsSelfClose() bool {
-	return s == EmptyTagSelfClose || s == EmptyTagSelfCloseTight || s == EmptyTagSelfCloseSpaced
+	return s == EmptyTagSelfClose || s >= EmptyTagSelfCloseTight
 }
 
 // decoderSources maps a live *xml.Decoder to the raw bytes it reads, letting
@@ -67,8 +160,10 @@ func UnmarshalWithSource(data []byte, v interface{}) error {
 // was written. Call it at the top of an UnmarshalXML implementation (or right
 // after receiving a StartElement token): the decoder's input offset then
 // points just past the tag's '>', and the preceding byte distinguishes
-// <name/> from <name>. Returns EmptyTagUnknown when the decoder has no
-// registered source (e.g. plain xml.Unmarshal).
+// <name/> from <name>. For a self-closing tag the whole whitespace run before
+// the slash is captured, not merely its presence, so <t/>, <t />, <t\t/> and
+// <leaf\n/> each replay verbatim. Returns EmptyTagUnknown when the decoder has
+// no registered source (e.g. plain xml.Unmarshal).
 func CaptureEmptyTagStyle(d *xml.Decoder) EmptyTagStyle {
 	v, ok := decoderSources.Load(d)
 	if !ok {
@@ -80,10 +175,14 @@ func CaptureEmptyTagStyle(d *xml.Decoder) EmptyTagStyle {
 		return EmptyTagUnknown
 	}
 	if data[off-2] == '/' {
-		if off >= 3 && (data[off-3] == ' ' || data[off-3] == '\t') {
-			return EmptyTagSelfCloseSpaced
+		// Walk back over the whitespace run between the tag's content and the
+		// slash. The scan always terminates: a start tag begins with '<'.
+		end := off - 2
+		start := end
+		for start > 0 && isXMLSpace(data[start-1]) {
+			start--
 		}
-		return EmptyTagSelfCloseTight
+		return selfCloseStyleFor(data[start:end])
 	}
 	return EmptyTagExpanded
 }
@@ -169,8 +268,10 @@ func ElementPrefix(d *xml.Decoder) (string, bool) {
 }
 
 // RawTokenBytes returns the verbatim source bytes of the token the decoder
-// just consumed, given the input offset taken right before Token(). Returns
-// nil without a registered source or on inconsistent offsets.
+// just consumed, given the input offset taken right before Token(). The
+// returned slice is an independent copy, so callers may retain it in
+// long-lived model state without pinning the source (see CaptureRawInner).
+// Returns nil without a registered source or on inconsistent offsets.
 func RawTokenBytes(d *xml.Decoder, pre int64) []byte {
 	v, ok := decoderSources.Load(d)
 	if !ok {
@@ -181,26 +282,40 @@ func RawTokenBytes(d *xml.Decoder, pre int64) []byte {
 	if pre < 0 || post > int64(len(data)) || pre >= post {
 		return nil
 	}
-	return data[pre:post]
+	// Copy: every production caller retains the result for the model's
+	// lifetime (root comments and inter-child whitespace in docx's
+	// RootExtras, duplicate color transforms, xlsx per-gap whitespace), and a
+	// sub-slice of the registered source would hold the whole part alive —
+	// exactly the pinning class C282 fixed elsewhere, and the reason docx
+	// re-reads document.xml instead of keeping its bytes. The spans are
+	// single tokens (a comment, a whitespace gap, one skipped element), so
+	// the copy is cheap.
+	return bytes.Clone(data[pre:post])
 }
 
 // EmptyElementStyled writes a childless element honoring a captured source
 // style: expanded (<name></name>) when the capture says so, self-closing
 // otherwise (matching the emission the callers used before capture existed).
 func (b *Builder) EmptyElementStyled(style EmptyTagStyle, namespace, localName string, attrs ...Attr) {
-	switch style {
-	case EmptyTagExpanded:
+	switch {
+	case style == EmptyTagExpanded:
 		b.StartElement(namespace, localName, attrs...)
 		// Complete the deferred '>' so the pair cannot collapse.
 		b.flushOpenTag()
 		b.EndElement(namespace, localName)
-	case EmptyTagSelfCloseTight, EmptyTagSelfCloseSpaced:
+	case style == EmptyTagSelfCloseTight || style == EmptyTagSelfCloseSpaced:
 		// Per-instance spacing wins over the part-level flag: producers mix
 		// "/>" and " />" within one part.
 		saved := b.selfClosingSpace
 		b.selfClosingSpace = style == EmptyTagSelfCloseSpaced
 		b.EmptyElement(namespace, localName, attrs...)
 		b.selfClosingSpace = saved
+	case style >= emptyTagWSBase:
+		// A captured whitespace run other than a single space.
+		saved := b.selfCloseWS
+		b.selfCloseWS = style.selfCloseWS()
+		b.EmptyElement(namespace, localName, attrs...)
+		b.selfCloseWS = saved
 	default:
 		b.EmptyElement(namespace, localName, attrs...)
 	}

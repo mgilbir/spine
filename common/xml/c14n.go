@@ -24,7 +24,11 @@ import (
 // element the lexicographically smaller one is chosen. Signature content binds
 // each URI to a single prefix, so this reconstruction is exact for the inputs
 // that matter and, where it is not, a re-canonicalization simply fails to match
-// a digest (a false negative) rather than accepting altered content.
+// a digest (a false negative) rather than accepting altered content. Prefix
+// reconstruction is the only approximation: document-subset canonicalization
+// (C14NNode.Canonical) implements §2.4 in full, rendering both the namespace
+// declarations and the xml-namespace attributes (xml:lang, xml:space,
+// xml:base) that the apex element inherits from ancestors outside the subset.
 //
 // Comments are not part of the node-set (the "#WithComments" variant is not
 // implemented); processing instructions and the XML declaration are likewise
@@ -53,6 +57,13 @@ type c14nElem struct {
 	inScope  map[string]string // full prefix→URI map in scope ("" key = default)
 	attrs    []c14nAttr        // non-namespace attributes
 	children []c14nNode
+	// inheritedXML holds the xml-namespace attributes (xml:lang, xml:space,
+	// xml:base, …) that ancestors declare and this element does not override,
+	// nearest ancestor winning. Canonical XML 1.0 §2.4 requires them to be
+	// imported onto the apex element of a document subset; they are ignored
+	// when the element is rendered as a descendant, where the ancestor's own
+	// start tag already carries them.
+	inheritedXML map[string]string
 }
 
 func (*c14nElem) isC14N() {}
@@ -147,6 +158,9 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 	var root *c14nElem
 	var stack []*c14nElem
 	scopeStack := []map[string]string{{"xml": xmlNamespaceURI}}
+	// xmlAttrStack[i] is the set of xml-namespace attributes in force for the
+	// element at depth i, i.e. its own merged over its ancestors'.
+	xmlAttrStack := []map[string]string{nil}
 
 	for {
 		tok, err := dec.Token()
@@ -176,6 +190,9 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 			}
 			el := &c14nElem{local: t.Name.Local, uri: t.Name.Space, inScope: scope}
 			el.prefix = pickElemPrefix(scope, t.Name.Space)
+			// Allocated lazily: most elements carry no xml:* attribute, and
+			// this runs per element of a signature part.
+			var ownXML map[string]string
 			for _, a := range t.Attr {
 				if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
 					continue
@@ -184,8 +201,37 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 				if a.Name.Space != "" {
 					at.prefix = pickAttrPrefix(scope, a.Name.Space)
 				}
+				if a.Name.Space == xmlNamespaceURI {
+					if ownXML == nil {
+						ownXML = map[string]string{}
+					}
+					ownXML[a.Name.Local] = a.Value
+				}
 				el.attrs = append(el.attrs, at)
 			}
+			// Ancestor xml:* attributes this element does not itself carry are
+			// what a subset canonicalization must import onto it.
+			ancestorXML := xmlAttrStack[len(xmlAttrStack)-1]
+			for name, value := range ancestorXML {
+				if _, own := ownXML[name]; own {
+					continue
+				}
+				if el.inheritedXML == nil {
+					el.inheritedXML = map[string]string{}
+				}
+				el.inheritedXML[name] = value
+			}
+			var inForce map[string]string
+			if len(ancestorXML) > 0 || len(ownXML) > 0 {
+				inForce = make(map[string]string, len(ancestorXML)+len(ownXML))
+				for name, value := range ancestorXML {
+					inForce[name] = value
+				}
+				for name, value := range ownXML {
+					inForce[name] = value
+				}
+			}
+			xmlAttrStack = append(xmlAttrStack, inForce)
 			if root == nil {
 				root = el
 			} else {
@@ -198,6 +244,7 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 			if len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 				scopeStack = scopeStack[:len(scopeStack)-1]
+				xmlAttrStack = xmlAttrStack[:len(xmlAttrStack)-1]
 			}
 		case stdxml.CharData:
 			if len(stack) > 0 {
@@ -271,11 +318,27 @@ func (e *c14nElem) qname() string {
 
 func (e *c14nElem) canonical() []byte {
 	var buf bytes.Buffer
-	e.render(&buf, map[string]string{})
+	// e is the apex of the node-set, so ancestor xml:* attributes are imported
+	// onto it (Canonical XML 1.0 §2.4). Descendants get nil: their ancestors
+	// are inside the subset and render those attributes themselves.
+	e.render(&buf, map[string]string{}, e.inheritedXMLAttrs())
 	return buf.Bytes()
 }
 
-func (e *c14nElem) render(buf *bytes.Buffer, rendered map[string]string) {
+// inheritedXMLAttrs renders the ancestor xml:* attributes as canonical
+// attributes for the apex element.
+func (e *c14nElem) inheritedXMLAttrs() []c14nAttr {
+	if len(e.inheritedXML) == 0 {
+		return nil
+	}
+	out := make([]c14nAttr, 0, len(e.inheritedXML))
+	for name, value := range e.inheritedXML {
+		out = append(out, c14nAttr{prefix: "xml", local: name, uri: xmlNamespaceURI, value: value})
+	}
+	return out
+}
+
+func (e *c14nElem) render(buf *bytes.Buffer, rendered map[string]string, inherited []c14nAttr) {
 	buf.WriteByte('<')
 	buf.WriteString(e.qname())
 
@@ -322,8 +385,9 @@ func (e *c14nElem) render(buf *bytes.Buffer, rendered map[string]string) {
 		childRendered[ns.prefix] = ns.uri
 	}
 
-	attrs := make([]c14nAttr, len(e.attrs))
-	copy(attrs, e.attrs)
+	attrs := make([]c14nAttr, 0, len(e.attrs)+len(inherited))
+	attrs = append(attrs, e.attrs...)
+	attrs = append(attrs, inherited...)
 	sort.SliceStable(attrs, func(i, j int) bool {
 		if attrs[i].uri != attrs[j].uri {
 			return attrs[i].uri < attrs[j].uri
@@ -346,7 +410,7 @@ func (e *c14nElem) render(buf *bytes.Buffer, rendered map[string]string) {
 	for _, c := range e.children {
 		switch n := c.(type) {
 		case *c14nElem:
-			n.render(buf, childRendered)
+			n.render(buf, childRendered, nil)
 		case *c14nText:
 			writeC14NText(buf, n.data)
 		}

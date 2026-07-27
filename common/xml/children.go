@@ -97,8 +97,20 @@ type childSlot struct {
 //
 // Children the struct does not model — and second occurrences of singleton
 // fields — are preserved as verbatim raw bytes when the decoder has a
-// registered source (UnmarshalWithSource); without one they are skipped,
-// matching the plain reflection decode this replaces.
+// registered source (UnmarshalWithSource); without one they are dropped, and
+// nothing records that they were there. Two consequences are worth stating
+// because they are *not* what encoding/xml would do:
+//
+//   - A duplicated singleton is first-wins here (the first occurrence decodes
+//     into the field, later ones are kept as raw children so the source
+//     sequence replays); encoding/xml is last-wins and keeps no trace of the
+//     earlier ones. A struct whose schema permits repeats should model the
+//     child as a slice rather than rely on either behaviour.
+//   - Character data between children is captured verbatim (whitespace and,
+//     with a source registered, non-whitespace text), so an element with mixed
+//     content keeps its text. Without a registered source that text is lost —
+//     the same inert-capture failure mode as unknown children. Structs with a
+//     `,chardata` field must not use this decoder: it never populates one.
 func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 	val := reflect.ValueOf(v).Elem()
 	typ := val.Type()
@@ -190,9 +202,13 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
 			cap.Raw = append(cap.Raw, bytes.Clone(src[pre:post]))
 		case xml.CharData:
-			// Whitespace between children (pretty-printed property bags) is
-			// captured verbatim from the raw source — the token itself is
-			// EOL-normalized by the decoder — and replayed as a raw child.
+			// Character data between children is captured verbatim from the
+			// raw source — the token itself is EOL-normalized by the decoder —
+			// and replayed as a raw child. This covers both the whitespace of
+			// pretty-printed property bags and genuine mixed content: dropping
+			// non-whitespace text here would silently delete user content the
+			// moment a struct that opted into ordered capture gained a
+			// text-bearing child, with no guard and no error.
 			if src == nil {
 				continue
 			}
@@ -201,9 +217,6 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 				continue
 			}
 			raw := src[pre:post]
-			if !isWhitespace(raw) {
-				continue
-			}
 			cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
 			// Clone: retaining a sub-slice of src would pin the whole part in
 			// memory for the model's lifetime (see C282).
@@ -215,16 +228,6 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			return nil
 		}
 	}
-}
-
-// isWhitespace reports whether every byte is XML whitespace.
-func isWhitespace(b []byte) bool {
-	for _, c := range b {
-		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
-			return false
-		}
-	}
-	return len(b) > 0
 }
 
 // decodeChildInto decodes one element into a singleton field (pointer or
