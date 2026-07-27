@@ -34,8 +34,11 @@ type CT_Document struct {
 	CollapseEmpty bool `xml:"-"`
 	// RootExtras preserves comments (Aspose writes a generator comment right
 	// after the root start tag) and whitespace among the root's children,
-	// keyed by position: 0 = before w:background/w:body, 1 = after it.
-	RootExtras [2][][]byte `xml:"-"`
+	// keyed by position: 0 = before w:background, 1 = between w:background and
+	// w:body, 2 = after w:body. Keeping the middle slot distinct stops
+	// whitespace between a background and the body from replaying before the
+	// background.
+	RootExtras [3][][]byte `xml:"-"`
 }
 
 // UnmarshalXML implements custom unmarshaling for CT_Document.
@@ -73,11 +76,16 @@ func (doc *CT_Document) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 				if err := d.DecodeElement(doc.Body, &t); err != nil {
 					return err
 				}
-				slot = 1
+				slot = 2
 			case "background":
 				doc.Background = &CT_Background{}
 				if err := d.DecodeElement(doc.Background, &t); err != nil {
 					return err
+				}
+				// Advance past the pre-background region so whitespace/comments
+				// before w:body land in the middle slot, not before w:background.
+				if slot < 1 {
+					slot = 1
 				}
 			default:
 				if err := d.Skip(); err != nil {
@@ -117,10 +125,13 @@ func (doc *CT_Document) MarshalToBuilder(b *xmlb.Builder, ns, localName string) 
 	if doc.Background != nil {
 		b.MarshalElement(ns, "background", doc.Background)
 	}
+	for _, raw := range doc.RootExtras[1] {
+		b.WriteRaw(raw)
+	}
 	if doc.Body != nil {
 		doc.Body.MarshalToBuilder(b, ns, "body")
 	}
-	for _, raw := range doc.RootExtras[1] {
+	for _, raw := range doc.RootExtras[2] {
 		b.WriteRaw(raw)
 	}
 	b.EndElement(ns, localName)

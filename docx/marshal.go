@@ -70,10 +70,13 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 	if doc.Background != nil {
 		b.MarshalElement(nsW, "background", doc.Background)
 	}
+	for _, raw := range doc.RootExtras[1] {
+		b.WriteRaw(raw)
+	}
 	if doc.Body != nil {
 		doc.Body.MarshalToBuilder(b, nsW, "body")
 	}
-	for _, raw := range doc.RootExtras[1] {
+	for _, raw := range doc.RootExtras[2] {
 		b.WriteRaw(raw)
 	}
 
