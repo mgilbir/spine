@@ -536,7 +536,15 @@ func viewBoolAttr(sv *oxml.CT_SheetView, get func(*oxml.CT_SheetView) *bool, def
 
 // editRow finds (or creates) the row for a 1-based row number and applies
 // apply to it. It marks the sheet dirty and records the sheetData child order.
+// Rows are looked up via rowNumberOf, not the raw r attribute: a row may
+// legally omit r (C73), and matching on the attribute alone would append a
+// duplicate row for the same row number (C230).
 func (s *Sheet) editRow(row int, apply func(*oxml.CT_Row)) error {
+	// A chartsheet/dialogsheet/macrosheet has no row grid; refuse rather than
+	// report success for a change markDirty would discard (C241, C423).
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if row < 1 || row > MaxRow {
 		return ErrInvalidCell
 	}
@@ -557,10 +565,27 @@ func (s *Sheet) editRow(row int, apply func(*oxml.CT_Row)) error {
 	return nil
 }
 
-// editColumn carves the target 1-based column out of any <col> entry that spans
-// it and applies apply to the single-column entry, mirroring SetColWidth so the
-// rest of a spanned range keeps its properties.
+// editColumn carves the target 1-based column out of every <col> entry that
+// spans it — across EVERY <cols> group, not just the first — and applies apply
+// to the resulting single-column entry.
+//
+// This is the one place the column carve lives: SetColWidth, SetColumnHidden,
+// SetColumnStyle, SetColumnOutlineLevel, SetColumnCollapsed and GroupColumns
+// all route through it. colEntry resolves a column against all groups, so a
+// covering entry left in a later group would overlap the carved [c,c] target
+// and be rejected by Excel — the C127 defect, which had been fixed in
+// SetColWidth alone and re-opened here as C383 because the two carves were
+// ~90% duplicated. The [c,c] slice of a covering range inherits that range's
+// other properties (width, style, hidden, ...) before apply runs, so a
+// property the caller does not set is preserved; the remainder of the range
+// keeps its own. The target is placed once, at the first covering entry found;
+// a column no entry covers gets a fresh entry in the first group.
 func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
+	// A chartsheet/dialogsheet/macrosheet has no column grid; refuse rather
+	// than report success for a change markDirty would discard (C241, C423).
+	if s.opaque {
+		return ErrNotWorksheet
+	}
 	if col < 1 || col > MaxCol {
 		return ErrInvalidCell
 	}
@@ -572,37 +597,39 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 	s.ws().EnsureChildOrder("cols")
 
 	c := uint32(col)
-	cols := s.ws().Cols[0].Col
-	rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
 	placed := false
-	for _, entry := range cols {
-		if entry.Min > c || entry.Max < c {
-			rebuilt = append(rebuilt, entry)
-			continue
+	for gi := range s.ws().Cols {
+		cols := s.ws().Cols[gi].Col
+		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
+		for _, entry := range cols {
+			if entry.Min > c || entry.Max < c {
+				rebuilt = append(rebuilt, entry)
+				continue
+			}
+			if entry.Min < c {
+				left := entry
+				left.Max = c - 1
+				rebuilt = append(rebuilt, left)
+			}
+			if !placed {
+				target := entry
+				target.Min, target.Max = c, c
+				apply(&target)
+				rebuilt = append(rebuilt, target)
+				placed = true
+			}
+			if entry.Max > c {
+				right := entry
+				right.Min = c + 1
+				rebuilt = append(rebuilt, right)
+			}
 		}
-		if entry.Min < c {
-			left := entry
-			left.Max = c - 1
-			rebuilt = append(rebuilt, left)
-		}
-		if !placed {
-			target := entry
-			target.Min, target.Max = c, c
-			apply(&target)
-			rebuilt = append(rebuilt, target)
-			placed = true
-		}
-		if entry.Max > c {
-			right := entry
-			right.Min = c + 1
-			rebuilt = append(rebuilt, right)
-		}
+		s.ws().Cols[gi].Col = rebuilt
 	}
 	if !placed {
 		target := oxml.CT_Col{Min: c, Max: c}
 		apply(&target)
-		rebuilt = append(rebuilt, target)
+		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
 	}
-	s.ws().Cols[0].Col = rebuilt
 	return nil
 }
