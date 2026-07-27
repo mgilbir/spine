@@ -17,56 +17,75 @@ import (
 // is a cell/range reference within the workbook such as "Sheet2!A1", URL is "").
 type Hyperlink struct {
 	sheet *Sheet
-	hl    *oxml.CT_Hyperlink // backing model element (nil-safe accessors below)
-	url   string             // resolved external target ("" for an internal link)
+	ref   string // anchor cell/range ref; re-resolves the backing model element
+}
+
+// resolve locates the current backing model element by anchor ref. Handles hold
+// a ref rather than a pointer into the []CT_Hyperlink value slice, because a
+// later SetHyperlink (append reallocates) or removeHyperlinkForRef (compacts in
+// place) would otherwise detach or alias a stored pointer, so a mutation through
+// the handle would be lost or land on another cell's hyperlink (C246).
+func (h *Hyperlink) resolve() *oxml.CT_Hyperlink {
+	if h == nil || h.sheet == nil || h.sheet.ws() == nil || h.sheet.ws().Hyperlinks == nil {
+		return nil
+	}
+	links := h.sheet.ws().Hyperlinks.Hyperlink
+	for i := range links {
+		if strings.EqualFold(links[i].Ref, h.ref) {
+			return &links[i]
+		}
+	}
+	return nil
 }
 
 // URL returns the external target of the hyperlink, or "" if the hyperlink is
 // internal (points at a location within the workbook).
 func (h *Hyperlink) URL() string {
-	if h == nil {
+	hl := h.resolve()
+	if hl == nil || hl.RID == "" {
 		return ""
 	}
-	return h.url
+	return h.sheet.resolveHyperlinkURL(hl.RID)
 }
 
 // Anchor returns the internal target of the hyperlink — a cell or range
 // reference within the workbook, such as "Sheet2!A1" — or "" if the hyperlink is
 // external.
 func (h *Hyperlink) Anchor() string {
-	if h == nil || h.hl == nil {
+	hl := h.resolve()
+	if hl == nil || hl.RID != "" {
 		return ""
 	}
-	if h.url != "" {
-		return ""
-	}
-	return h.hl.Location
+	return hl.Location
 }
 
 // Tooltip returns the hyperlink's tooltip (screen-tip) text, or "" if none.
 func (h *Hyperlink) Tooltip() string {
-	if h == nil || h.hl == nil {
+	hl := h.resolve()
+	if hl == nil {
 		return ""
 	}
-	return h.hl.Tooltip
+	return hl.Tooltip
 }
 
 // Ref returns the cell reference the hyperlink is anchored to (e.g. "A1"). This
 // is the xlsx-specific anchor, an addition to the shared hyperlink surface.
 func (h *Hyperlink) Ref() string {
-	if h == nil || h.hl == nil {
+	hl := h.resolve()
+	if hl == nil {
 		return ""
 	}
-	return h.hl.Ref
+	return hl.Ref
 }
 
 // SetTooltip sets the hyperlink's tooltip (screen-tip) text and marks the sheet
 // dirty so a save persists it.
 func (h *Hyperlink) SetTooltip(tooltip string) {
-	if h == nil || h.hl == nil {
+	hl := h.resolve()
+	if hl == nil {
 		return
 	}
-	h.hl.Tooltip = tooltip
+	hl.Tooltip = tooltip
 	if h.sheet != nil {
 		h.sheet.markDirty()
 	}
@@ -109,11 +128,7 @@ func (c *Cell) Hyperlink() *Hyperlink {
 // external target from the sheet relationships (or the pending set for links
 // added this session).
 func (s *Sheet) newHyperlink(hl *oxml.CT_Hyperlink) *Hyperlink {
-	h := &Hyperlink{sheet: s, hl: hl}
-	if hl.RID != "" {
-		h.url = s.resolveHyperlinkURL(hl.RID)
-	}
-	return h
+	return &Hyperlink{sheet: s, ref: hl.Ref}
 }
 
 // resolveHyperlinkURL resolves a hyperlink relationship id to its external
@@ -156,7 +171,7 @@ func (c *Cell) SetHyperlink(url string) *Hyperlink {
 		TargetMode: opc.TargetModeExternal,
 	})
 	s.markDirty()
-	return &Hyperlink{sheet: s, hl: s.lastHyperlink(), url: url}
+	return &Hyperlink{sheet: s, ref: c.cell.R}
 }
 
 // SetInternalHyperlink sets an internal hyperlink on the cell pointing at a
@@ -170,7 +185,7 @@ func (c *Cell) SetInternalHyperlink(location string) *Hyperlink {
 	hl := oxml.CT_Hyperlink{Ref: c.cell.R, Location: location}
 	s.appendHyperlink(hl)
 	s.markDirty()
-	return &Hyperlink{sheet: s, hl: s.lastHyperlink()}
+	return &Hyperlink{sheet: s, ref: c.cell.R}
 }
 
 // appendHyperlink appends a hyperlink to the worksheet model, creating the
@@ -182,12 +197,6 @@ func (s *Sheet) appendHyperlink(hl oxml.CT_Hyperlink) {
 	}
 	s.ws().EnsureChildOrder("hyperlinks")
 	s.ws().Hyperlinks.Hyperlink = append(s.ws().Hyperlinks.Hyperlink, hl)
-}
-
-// lastHyperlink returns a pointer to the most recently appended hyperlink.
-func (s *Sheet) lastHyperlink() *oxml.CT_Hyperlink {
-	hl := s.ws().Hyperlinks.Hyperlink
-	return &hl[len(hl)-1]
 }
 
 // removeHyperlinkForRef drops any existing hyperlink anchored exactly to ref

@@ -3,6 +3,7 @@
 package oxml
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"strconv"
@@ -44,7 +45,11 @@ type CT_Workbook struct {
 	FileVersion        *CT_FileVersion         `xml:"fileVersion,omitempty"`
 	WorkbookPr         *CT_WorkbookPr          `xml:"workbookPr,omitempty"`
 	WorkbookProtection *CT_WorkbookProtection  `xml:"workbookProtection,omitempty"`
-	AlternateContent   *coxml.AlternateContent `xml:"-"` // mc:AlternateContent child element
+	// AlternateContent holds every root-level mc:AlternateContent block in
+	// source order. The element is repeatable; a single pointer collapsed two
+	// distinct blocks to the last while both ChildOrder entries remained, so a
+	// zero-mod save duplicated one and lost the other (C319).
+	AlternateContent []*coxml.AlternateContent `xml:"-"`
 	BookViews          *CT_BookViews           `xml:"bookViews,omitempty"`
 	Sheets             CT_Sheets               `xml:"sheets"`
 	DefinedNames       *CT_DefinedNames        `xml:"definedNames,omitempty"`
@@ -174,10 +179,11 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				}
 				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookProtection)
 			case "AlternateContent":
-				wb.AlternateContent = &coxml.AlternateContent{}
-				if err := d.DecodeElement(wb.AlternateContent, &t); err != nil {
+				ac := &coxml.AlternateContent{}
+				if err := d.DecodeElement(ac, &t); err != nil {
 					return err
 				}
+				wb.AlternateContent = append(wb.AlternateContent, ac)
 				wb.ChildOrder = append(wb.ChildOrder, wbChildAlternateContent)
 			case "bookViews":
 				wb.BookViews = &CT_BookViews{}
@@ -555,6 +561,11 @@ type CT_BookView struct {
 	// alphabetically, so a fixed emission order cannot serve both.
 	attrOrder        []string
 	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
+	// rawChildren preserves the verbatim inner XML of a workbookView that
+	// carries children this type does not model (extLst); re-emitted on
+	// marshal so a dirty save does not drop them (C320). nil when the element
+	// is childless.
+	rawChildren []byte
 }
 
 // bookViewAttrOrder lists the modeled workbookView attribute names in
@@ -661,7 +672,18 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 			})
 		}
 	}
-	return d.Skip()
+	// Preserve any modeled-less children (extLst) verbatim rather than dropping
+	// them; the marshaler re-emits them between the start and end tags.
+	var inner struct {
+		Content []byte `xml:",innerxml"`
+	}
+	if err := d.DecodeElement(&inner, &start); err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(inner.Content)) > 0 {
+		bv.rawChildren = inner.Content
+	}
+	return nil
 }
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_BookView.
@@ -687,7 +709,7 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			}
 		}
 		attrs = append(attrs, bv.ExtAttrs...)
-		b.EmptyElementStyled(bv.CapturedEmptyTag, ns, localName, attrs...)
+		bv.emit(b, ns, localName, attrs)
 		return
 	}
 	var attrs []xmlb.Attr
@@ -732,6 +754,19 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	// Append extension attributes (e.g., xr2:uid)
 	attrs = append(attrs, bv.ExtAttrs...)
+	bv.emit(b, ns, localName, attrs)
+}
+
+// emit writes the workbookView element, expanding it around any preserved
+// unmodeled children (extLst) and otherwise honoring the captured empty-tag
+// style.
+func (bv *CT_BookView) emit(b *xmlb.Builder, ns, localName string, attrs []xmlb.Attr) {
+	if len(bv.rawChildren) > 0 {
+		b.StartElement(ns, localName, attrs...)
+		b.WriteRaw(bv.rawChildren)
+		b.EndElement(ns, localName)
+		return
+	}
 	b.EmptyElementStyled(bv.CapturedEmptyTag, ns, localName, attrs...)
 }
 
@@ -1155,11 +1190,15 @@ type CT_ExtensionList struct {
 	// (some producers declare the extension namespace here, e.g.
 	// <extLst xmlns:x15="...">); nil for lists built programmatically.
 	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedEmptyTag records how a present-but-empty <extLst> was written
+	// (<extLst/> vs <extLst></extLst>), so an empty list still round-trips.
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 }
 
 // UnmarshalXML captures the element's verbatim attribute list before decoding
 // the ext children.
 func (el *CT_ExtensionList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	el.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	el.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	type alias CT_ExtensionList
 	return d.DecodeElement((*alias)(el), &start)

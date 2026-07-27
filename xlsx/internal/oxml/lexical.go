@@ -74,7 +74,11 @@ type BoolLex struct {
 // NewBoolLex returns a BoolLex marshaling as "1"/"0".
 func NewBoolLex(v bool) *BoolLex { return &BoolLex{Val: v} }
 
-// UnmarshalXMLAttr implements xml.UnmarshalerAttr.
+// UnmarshalXMLAttr implements xml.UnmarshalerAttr. It parses ST_OnOff
+// leniently: 1/0/true/false are exact, on/off and any other spelling degrade
+// through parseOnOff (unknown → false) rather than failing the whole Open on a
+// single odd value (C322). The source spelling is kept in orig and replayed
+// verbatim on marshal, so a value like date1904="on" round-trips unchanged.
 func (v *BoolLex) UnmarshalXMLAttr(attr xml.Attr) error {
 	switch attr.Value {
 	case "1", "true":
@@ -82,7 +86,7 @@ func (v *BoolLex) UnmarshalXMLAttr(attr xml.Attr) error {
 	case "0", "false":
 		v.Val = false
 	default:
-		return fmt.Errorf("oxml.BoolLex: invalid boolean %q", attr.Value)
+		v.Val = parseOnOff(attr.Value)
 	}
 	v.orig = attr.Value
 	return nil

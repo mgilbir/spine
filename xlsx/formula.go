@@ -107,6 +107,35 @@ func translateFormula(formula string, dRow, dCol int) string {
 			}
 			b.WriteString(formula[i:j])
 			i = j
+		case isFormulaDigit(c) || (c == '.' && i+1 < n && isFormulaDigit(formula[i+1])):
+			// Numeric literal, including a scientific-notation exponent
+			// ([eE][+-]?digits): copy verbatim. Without this, the exponent of
+			// a constant such as 1.5E2 would be lexed as the cell reference E2
+			// and shifted along with the real references (C285).
+			j := i
+			for j < n && isFormulaDigit(formula[j]) {
+				j++
+			}
+			if j < n && formula[j] == '.' {
+				j++
+				for j < n && isFormulaDigit(formula[j]) {
+					j++
+				}
+			}
+			if j < n && (formula[j] == 'e' || formula[j] == 'E') {
+				k := j + 1
+				if k < n && (formula[k] == '+' || formula[k] == '-') {
+					k++
+				}
+				if k < n && isFormulaDigit(formula[k]) {
+					for k < n && isFormulaDigit(formula[k]) {
+						k++
+					}
+					j = k
+				}
+			}
+			b.WriteString(formula[i:j])
+			i = j
 		case c == '$' || isFormulaAlpha(c) || c == '_':
 			// Consume a maximal identifier-like token so that ref-shaped
 			// substrings of longer names (MyName1, LOG10) are not shifted.
@@ -133,6 +162,11 @@ func translateFormula(formula string, dRow, dCol int) string {
 // isFormulaAlpha reports whether c is an ASCII letter.
 func isFormulaAlpha(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+// isFormulaDigit reports whether c is an ASCII decimal digit.
+func isFormulaDigit(c byte) bool {
+	return c >= '0' && c <= '9'
 }
 
 // isFormulaTokenChar reports whether c can appear in an identifier-like

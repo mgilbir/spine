@@ -34,6 +34,9 @@ type CT_Stylesheet struct {
 // UnmarshalXML implements custom unmarshaling for CT_Stylesheet.
 func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	ss.XMLName = start.Name
+	// Pre-scan every root namespace declaration so a regular attribute whose
+	// xmlns decl follows it on the same tag still resolves its prefix (C324).
+	rootNSByURI := rootDeclPrefixes(start.Attr)
 	// Capture all root-element attributes in order for round-trip preservation,
 	// distinguishing namespace declarations from regular attributes (the same
 	// treatment CT_Worksheet got for C74).
@@ -47,25 +50,7 @@ func (ss *CT_Stylesheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) er
 			ss.OriginalNSDecls = append([]xmlb.NSDecl{{Prefix: "", URI: attr.Value}}, ss.OriginalNSDecls...)
 			ss.OriginalRootAttrs = append(ss.OriginalRootAttrs, xmlb.RootAttr{IsNS: true, Prefix: "", Value: attr.Value})
 		default:
-			prefix := ""
-			switch attr.Name.Space {
-			case xmlb.NSMarkupCompatibility:
-				prefix = xmlb.PrefixMarkupCompatibility
-			case nsR:
-				prefix = "r"
-			case xmlb.NSXML:
-				// Reserved prefix, never declared: xml:space etc.
-				prefix = "xml"
-			case "":
-				// no prefix
-			default:
-				for _, ra := range ss.OriginalRootAttrs {
-					if ra.IsNS && ra.Value == attr.Name.Space {
-						prefix = ra.Prefix
-						break
-					}
-				}
-			}
+			prefix := resolveRootAttrPrefix(attr.Name.Space, rootNSByURI)
 			ss.OriginalRootAttrs = append(ss.OriginalRootAttrs, xmlb.RootAttr{IsNS: false, Prefix: prefix, LocalName: attr.Name.Local, Value: attr.Value})
 		}
 	}

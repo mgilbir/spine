@@ -113,6 +113,64 @@ func TestHyperlink_ReplaceRemovesRel(t *testing.T) {
 	}
 }
 
+// TestHyperlink_HandleStableAfterMutations guards against C246: a Hyperlink
+// handle must keep addressing its own cell's model element after later
+// SetHyperlink appends (which reallocate the value slice) or replacements
+// (which compact it in place). Before the fix the handle held a raw pointer
+// into the []CT_Hyperlink slice, so a SetTooltip through it was lost or landed
+// on another cell's hyperlink.
+func TestHyperlink_HandleStableAfterMutations(t *testing.T) {
+	t.Run("append_does_not_detach_handle", func(t *testing.T) {
+		w := Create()
+		s := w.AddSheet("S")
+		a1, _ := s.Cell("A1")
+		hA := a1.SetHyperlink("https://example.com/a1")
+
+		// Force several appends (each may reallocate the backing slice).
+		for _, ref := range []string{"B1", "C1", "D1", "E1", "F1"} {
+			c, _ := s.Cell(ref)
+			c.SetHyperlink("https://example.com/" + ref)
+		}
+
+		hA.SetTooltip("T")
+
+		got, _ := s.Cell("A1")
+		if tip := got.Hyperlink().Tooltip(); tip != "T" {
+			t.Errorf("A1 tooltip after later appends = %q, want %q", tip, "T")
+		}
+		// Survives a save+reopen too.
+		rw := reopen(t, w)
+		rc, _ := firstSheet(t, rw).Cell("A1")
+		if tip := rc.Hyperlink().Tooltip(); tip != "T" {
+			t.Errorf("A1 tooltip after reopen = %q, want %q", tip, "T")
+		}
+	})
+
+	t.Run("replace_does_not_cross_wire_handle", func(t *testing.T) {
+		w := Create()
+		s := w.AddSheet("S")
+		a1, _ := s.Cell("A1")
+		a1.SetHyperlink("https://example.com/a1")
+		b1, _ := s.Cell("B1")
+		hB := b1.SetHyperlink("https://example.com/b1") // pre-replacement handle for B1
+
+		// Replace A1's link: this compacts the value slice in place, which in the
+		// buggy version aliased hB onto A1's new entry.
+		a1.SetHyperlink("https://example.com/a1-new")
+
+		hB.SetTooltip("B1TIP")
+
+		gotB, _ := s.Cell("B1")
+		if tip := gotB.Hyperlink().Tooltip(); tip != "B1TIP" {
+			t.Errorf("B1 tooltip = %q, want %q", tip, "B1TIP")
+		}
+		gotA, _ := s.Cell("A1")
+		if tip := gotA.Hyperlink().Tooltip(); tip != "" {
+			t.Errorf("A1 tooltip cross-wired to %q, want empty", tip)
+		}
+	})
+}
+
 // --- Sheet protection -------------------------------------------------------
 
 func TestProtection_DefaultCreatePathRoundTrip(t *testing.T) {

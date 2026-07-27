@@ -60,6 +60,7 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 
 // marshalWorkbookChildrenOrdered marshals workbook children in their original order.
 func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
+	acIdx := 0
 	for _, childName := range wb.ChildOrder {
 		switch {
 		case childName == "fileVersion" && wb.FileVersion != nil:
@@ -68,8 +69,9 @@ func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 			b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
 		case childName == "workbookProtection" && wb.WorkbookProtection != nil:
 			marshalWorkbookProtection(b, wb.WorkbookProtection)
-		case childName == "AlternateContent" && wb.AlternateContent != nil:
-			wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
+		case childName == "AlternateContent" && acIdx < len(wb.AlternateContent):
+			wb.AlternateContent[acIdx].MarshalToBuilder(b, nsSML, "AlternateContent")
+			acIdx++
 		case childName == "bookViews" && wb.BookViews != nil:
 			b.MarshalElement(nsSML, "bookViews", wb.BookViews)
 		case childName == "sheets":
@@ -109,8 +111,8 @@ func marshalWorkbookChildrenDefault(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	if wb.WorkbookProtection != nil {
 		marshalWorkbookProtection(b, wb.WorkbookProtection)
 	}
-	if wb.AlternateContent != nil {
-		wb.AlternateContent.MarshalToBuilder(b, nsSML, "AlternateContent")
+	for _, ac := range wb.AlternateContent {
+		ac.MarshalToBuilder(b, nsSML, "AlternateContent")
 	}
 	if wb.BookViews != nil {
 		b.MarshalElement(nsSML, "bookViews", wb.BookViews)
@@ -181,7 +183,15 @@ func hasRawKids(cc *xmlb.ChildCapture) bool {
 
 // marshalWorkbookExtLst marshals the extLst element.
 func marshalWorkbookExtLst(b *xmlb.Builder, wb *oxml.CT_Workbook) {
-	if wb.ExtLst == nil || len(wb.ExtLst.Ext) == 0 {
+	if wb.ExtLst == nil {
+		return
+	}
+	if len(wb.ExtLst.Ext) == 0 {
+		// A present-but-empty <extLst/> recorded in ChildOrder must survive:
+		// dropping it drifts from the producer's bytes (mirror empty
+		// <definedNames/>). ChildOrder is only recorded when the element was
+		// parsed, so this never emits a spurious extLst for a new workbook.
+		b.EmptyElementStyled(wb.ExtLst.CapturedEmptyTag, nsSML, "extLst", xmlb.RawAttrList(wb.ExtLst.CapturedAttrs)...)
 		return
 	}
 	// Replay declarations the source carried on the extLst element itself
@@ -240,7 +250,9 @@ func marshalStylesheetXML(ss *oxml.CT_Stylesheet) ([]byte, error) {
 		b.MarshalElement(nsSML, "colors", ss.Colors)
 	}
 	if ss.ExtLst != nil && len(ss.ExtLst.Ext) > 0 {
-		b.StartElement(nsSML, "extLst")
+		// Replay declarations the source carried on the extLst element itself
+		// (e.g. <extLst xmlns:x14="...">), as the worksheet/workbook paths do.
+		b.StartElement(nsSML, "extLst", xmlb.RawAttrList(ss.ExtLst.CapturedAttrs)...)
 		for i := range ss.ExtLst.Ext {
 			ss.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
 		}
@@ -472,7 +484,10 @@ func marshalWorksheetExtLst(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
 	if ws.ExtLst == nil || len(ws.ExtLst.Ext) == 0 {
 		return
 	}
-	b.StartElement(nsSML, "extLst")
+	// Replay declarations the source carried on the extLst element itself
+	// (e.g. <extLst xmlns:x14="...">); dropping them re-emits x14:-prefixed
+	// children under an undeclared prefix (malformed XML).
+	b.StartElement(nsSML, "extLst", xmlb.RawAttrList(ws.ExtLst.CapturedAttrs)...)
 	for i := range ws.ExtLst.Ext {
 		ws.ExtLst.Ext[i].MarshalToBuilder(b, nsSML, "ext")
 	}
