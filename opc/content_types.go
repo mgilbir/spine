@@ -251,15 +251,14 @@ type ContentTypes struct {
 	// (e.g. "JPG", not "jpg").
 	origExt map[string]string
 
-	// OriginalXMLSep is the exact byte sequence between the XML declaration and
-	// the root <Types> element in the parsed file (typically "\r\n", but some
-	// producers use "\n"). It is empty for a ContentTypes created from scratch,
-	// which defaults to "\r\n" on marshal.
-	OriginalXMLSep string
-
 	// prolog is the full prolog capture from the parsed file (declaration
-	// presence and form, separator, trailer). When captured it wins over
-	// OriginalXMLSep, so a source without an XML declaration does not gain one.
+	// presence and form, separator, trailer, and the exact spelling of the
+	// </Types> end tag). It is always populated for a parsed instance and is
+	// the single source of truth for the prolog on marshal; the exported
+	// OriginalXMLSep field it replaced was dead for every parsed instance —
+	// xmlb.CaptureProlog sets Captured unconditionally, so the branch that
+	// read OriginalXMLSep was unreachable and extractXMLSeparator was computed
+	// on every parse and could never affect the output (C448).
 	prolog xmlb.Prolog
 
 	// entryOrder preserves the document order of every <Default> and
@@ -309,6 +308,9 @@ type ctEntry struct {
 	// space records this entry's self-closing style (" />" vs "/>");
 	// producers mix both forms within one file.
 	space bool
+	// verbatim marks an entry that is not a Default/Override at all — a
+	// comment inside <Types> — whose raw span is replayed unconditionally.
+	verbatim bool
 }
 
 // NewContentTypes creates a new ContentTypes with default extension mappings.
@@ -343,7 +345,6 @@ func (ct *ContentTypes) Clone() *ContentTypes {
 		defaultOrder:   slices.Clone(ct.defaultOrder),
 		overrideOrder:  slices.Clone(ct.overrideOrder),
 		origExt:        maps.Clone(ct.origExt),
-		OriginalXMLSep: ct.OriginalXMLSep,
 		prolog:         ct.prolog,
 		entryOrder:     slices.Clone(ct.entryOrder),
 		selfCloseSpace: ct.selfCloseSpace,
@@ -469,12 +470,7 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 		buf.WriteString(ct.prolog.Decl)
 		buf.WriteString(ct.prolog.Sep)
 	} else {
-		buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
-		sep := ct.OriginalXMLSep
-		if sep == "" {
-			sep = "\r\n"
-		}
-		buf.WriteString(sep)
+		buf.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n")
 	}
 	if ct.rootTag != "" {
 		// Verbatim source root tag: preserves declarations beyond the default
@@ -491,6 +487,14 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	seenDefault := make(map[string]bool, len(ct.Defaults))
 	seenOverride := make(map[string]bool, len(ct.Overrides))
 	for _, e := range ct.entryOrder {
+		if e.verbatim {
+			// A comment (or other non-entry markup) inside <Types>, replayed at
+			// its source position. It used to fall into the token loop's
+			// default branch, which discarded its raw span (C449).
+			buf.WriteString(e.sep)
+			buf.WriteString(e.raw)
+			continue
+		}
 		if e.isDefault {
 			if seenDefault[e.key] {
 				continue
@@ -552,7 +556,14 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	}
 
 	buf.WriteString(ct.closeSep)
-	buf.WriteString("</Types>")
+	// Replay the source's own end tag when it is non-canonical ("</Types >");
+	// hardcoding the canonical form silently rewrote it on the
+	// preserved-then-modified path the fidelity machinery exists for (C449).
+	if ct.prolog.RootEnd != "" {
+		buf.WriteString(ct.prolog.RootEnd)
+	} else {
+		buf.WriteString("</Types>")
+	}
 	if ct.prolog.Captured {
 		buf.WriteString(ct.prolog.Trailer)
 	}
@@ -677,34 +688,32 @@ func (ct *ContentTypes) orderedOverrides() []string {
 	return append(result, extra...)
 }
 
-// extractXMLSeparator returns the exact bytes appearing between the XML
-// declaration ("?>") and the root element ("<") in data. This is usually
-// "\r\n" but some producers emit a bare "\n"; capturing it lets Marshal
-// reproduce the original prolog byte-for-byte. Returns "" when no separator is
-// found.
-func extractXMLSeparator(data []byte) string {
-	end := bytes.Index(data, []byte("?>"))
-	if end < 0 {
-		return ""
-	}
-	rest := data[end+2:]
-	lt := bytes.IndexByte(rest, '<')
-	if lt < 0 {
-		return ""
-	}
-	return string(rest[:lt])
+// inContentTypesNamespace reports whether an element belongs to the content
+// types vocabulary. ECMA-376 Part 2 puts Types/Default/Override in
+// ContentTypesNamespace; the empty namespace is tolerated because this parser
+// has always accepted namespace-less legacy files (coreElementKey does the
+// same for core.xml). Anything else is a foreign element that a conformant
+// consumer ignores, and honouring it let a hostile package steer every
+// downstream part-kind decision — worksheet versus chartsheet, main-part
+// flavour, VBA presence — through an <evil:Override> (C393).
+func inContentTypesNamespace(name xml.Name) bool {
+	return name.Space == ContentTypesNamespace || name.Space == ""
 }
 
 // UnmarshalContentTypes parses content types XML into a ContentTypes struct.
 // The parse walks the document token by token so the interleaved order of
 // Default and Override entries — and each entry's attribute order — is
 // captured for byte-faithful regeneration.
+//
+// Only elements in the content types namespace (or in no namespace, for
+// legacy files without declarations) are honoured; a Default or Override in
+// any other namespace is preserved verbatim on regeneration but contributes
+// no mapping.
 func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	ct := &ContentTypes{
 		Defaults:       make(map[string]string),
 		Overrides:      make(map[string]string),
 		origExt:        make(map[string]string),
-		OriginalXMLSep: extractXMLSeparator(data),
 		prolog:         xmlb.CaptureProlog(data),
 		selfCloseSpace: xmlb.DetectSelfClosingSpace(data),
 	}
@@ -725,6 +734,7 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 			}
 			return nil, err
 		}
+		tokStart := last
 		cur := d.InputOffset()
 		raw := ""
 		if last >= 0 && cur >= last && cur <= int64(len(data)) {
@@ -741,8 +751,18 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 			continue
 		}
 		if ee, ok := tok.(xml.EndElement); ok {
-			if ee.Name.Local == "Types" {
+			if ee.Name.Local == "Types" && inContentTypesNamespace(ee.Name) {
 				ct.closeSep = pendingSep
+			}
+			pendingSep = ""
+			continue
+		}
+		if _, ok := tok.(xml.Comment); ok {
+			// A comment inside <Types>: keep its raw span (with the whitespace
+			// that preceded it) so regeneration re-emits it in place. Comments
+			// before the root are already covered by the prolog capture.
+			if sawTypes {
+				ct.entryOrder = append(ct.entryOrder, ctEntry{verbatim: true, sep: pendingSep, raw: raw})
 			}
 			pendingSep = ""
 			continue
@@ -754,9 +774,27 @@ func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
 		}
 		sep := pendingSep
 		pendingSep = ""
-		// raw holds this element's verbatim tag text; a self-closing tag ends
-		// in "/>" and its style is " />" when a space precedes the slash.
-		space := strings.HasSuffix(raw, "/>") && strings.HasSuffix(raw, " />")
+		// raw holds this element's verbatim tag text; a self-closing tag's
+		// style is " />" when a space precedes the slash.
+		space := strings.HasSuffix(raw, " />")
+
+		if !inContentTypesNamespace(se.Name) {
+			// Foreign-namespace element: not a content-type declaration. Skip
+			// the whole subtree and keep its markup verbatim, rather than
+			// letting its local name steer the package's part-kind decisions
+			// (C393). Skipping is what keeps the replay well-formed: capturing
+			// only the start tag would drop the matching end tag.
+			if err := d.Skip(); err != nil {
+				return nil, err
+			}
+			last = d.InputOffset()
+			full := raw
+			if tokStart >= 0 && last >= tokStart && last <= int64(len(data)) {
+				full = string(data[tokStart:last])
+			}
+			ct.entryOrder = append(ct.entryOrder, ctEntry{verbatim: true, sep: sep, raw: full})
+			continue
+		}
 
 		switch se.Name.Local {
 		case "Types":
