@@ -3,6 +3,7 @@ package pptx
 import (
 	"encoding/xml"
 	"fmt"
+	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
 	"github.com/mgilbir/spine/opc"
@@ -18,6 +19,8 @@ const (
 	codeCommentNoAuthor = "comment-no-author" // comment authorId with no matching author
 	codeHyperlinkNoRel  = "hyperlink-no-rel"  // hlinkClick r:id with no matching slide rel
 	codeChartNoRel      = "chart-no-rel"      // chart graphicFrame r:id with no target part
+	codeRelIDDup        = "rel-id-dup"        // same relationship id twice in one .rels scope
+	codeSldIDRelType    = "sldid-rel-type"    // sldId/custShow r:id resolving to a non-slide rel
 )
 
 // Validate walks the in-memory presentation model and reports structural
@@ -32,6 +35,7 @@ func (p *Presentation) Validate() validate.Report {
 	c := validate.New()
 	p.validateShapeIDs(c)
 	p.validateIDListReferences(c)
+	p.validatePresentationRelIDs(c)
 	p.validateCommentAuthors(c)
 	p.validateHyperlinks(c)
 	p.validateCharts(c)
@@ -184,6 +188,88 @@ func (p *Presentation) validateIDListReferences(c *validate.Collector) {
 			}
 		}
 	}
+}
+
+// validatePresentationRelIDs gates the two invariants that C363 violated while
+// every existing check reported the package clean:
+//
+//  1. relationship ids are unique within presentation.xml.rels;
+//  2. every p:sldId and p:custShow reference resolves to a relationship of type
+//     slide.
+//
+// Both are checked against the relationship set the save path will actually
+// write (presentationRelationships), not against p.relationships: a slide added
+// this session has no entry in the map until save, and a rel whose slide is gone
+// still does. Validating the registered set would both miss real collisions and
+// invent phantom ones — audit tension T-A in miniature.
+//
+// Neither check consults the source package, so both hold for created and opened
+// decks alike.
+func (p *Presentation) validatePresentationRelIDs(c *validate.Collector) {
+	rels := p.presentationRelationships()
+	if len(rels) == 0 {
+		return
+	}
+	byID := make(map[string]*opc.Relationship, len(rels))
+	reported := make(map[string]bool)
+	for _, rel := range rels {
+		if rel == nil {
+			continue
+		}
+		if prev, dup := byID[rel.ID]; dup {
+			if !reported[rel.ID] {
+				c.Errorf(codeRelIDDup, presMainPartName,
+					fmt.Sprintf("relationship id %q is used twice (%s and %s)", rel.ID, prev.Target, rel.Target))
+				reported[rel.ID] = true
+			}
+			continue
+		}
+		byID[rel.ID] = rel
+	}
+
+	// A slide entry binding to anything but a slide relationship means the two
+	// id spaces collided: PowerPoint resolves the sldId through the rel and
+	// loads a master (or nothing) where a slide belongs.
+	check := func(what, relID string) {
+		if relID == "" {
+			return
+		}
+		rel, ok := byID[relID]
+		if !ok {
+			c.Errorf(validate.CodeDanglingRel, presMainPartName,
+				fmt.Sprintf("%s references relationship %q with no matching relationship", what, relID))
+			return
+		}
+		if rel.Type != opc.RelTypeSlide {
+			c.Errorf(codeSldIDRelType, presMainPartName,
+				fmt.Sprintf("%s references relationship %q, which targets %s as a %s relationship, not a slide",
+					what, relID, rel.Target, shortRelType(rel.Type)))
+		}
+	}
+	for i, s := range p.slides {
+		if s != nil {
+			check(fmt.Sprintf("sldId for slide %d", i+1), s.relID)
+		}
+	}
+	if p.presentation != nil && p.presentation.CustShowLst != nil {
+		for _, cs := range p.presentation.CustShowLst.CustShow {
+			if cs.SldLst == nil {
+				continue
+			}
+			for _, ref := range cs.SldLst.Sld {
+				check(fmt.Sprintf("custShow %q entry", cs.Name), ref.Id)
+			}
+		}
+	}
+}
+
+// shortRelType trims a relationship type URI to its last path segment for
+// readable diagnostics.
+func shortRelType(relType string) string {
+	if i := strings.LastIndexByte(relType, '/'); i >= 0 && i+1 < len(relType) {
+		return relType[i+1:]
+	}
+	return relType
 }
 
 // validateCommentAuthors warns when a comment references an author id that has

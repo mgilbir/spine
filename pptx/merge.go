@@ -252,7 +252,11 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 	// Carry the slide's own layout (and the master + theme it depends on),
 	// falling back to a type-matched destination layout when the source layout
 	// cannot be resolved.
-	if layout := p.importLayout(srcPres, src.layout, ctx); layout != nil {
+	layout, err := p.importLayout(srcPres, src.layout, ctx)
+	if err != nil {
+		return nil, err
+	}
+	if layout != nil {
 		ns.layout = layout
 	} else {
 		ns.layout = p.matchLayout(src.layout)
@@ -304,13 +308,7 @@ func (p *Presentation) importLegacyCommentAuthors(srcPres *Presentation) {
 			return
 		}
 	}
-	presRels := p.relationships[presentationPartName]
-	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
-		ID:         fmt.Sprintf("rId%d", nextRelationshipID(presRels)),
-		Type:       relTypeCommentAuthors,
-		Target:     partNameToRelTarget(legacyAuthorsPart, "/ppt/"),
-		TargetMode: opc.TargetModeInternal,
-	})
+	p.addPresentationRel(relTypeCommentAuthors, partNameToRelTarget(legacyAuthorsPart, "/ppt/"))
 }
 
 // rewriteModernCommentSlideID retargets a carried modern comment part's slide
@@ -537,56 +535,73 @@ func (p *Presentation) freePartNameLike(src string) string {
 // importLayout resolves the destination layout for a source slide's layout,
 // importing the master (and all its layouts and theme) it depends on. When the
 // master is reused from the destination (deduplicated), the byte-identical
-// layout under it is reused; a fresh master brings every layout with it. Returns
-// nil when src is nil, its master cannot be imported, or no matching layout is
-// found under a deduplicated master (the caller then falls back to matchLayout).
-func (p *Presentation) importLayout(srcPres *Presentation, src *SlideLayout, ctx *mergeCtx) *SlideLayout {
+// layout under it is reused; a fresh master brings every layout with it.
+//
+// Returns (nil, nil) when src is nil, its master cannot be imported, or no
+// matching layout is found under a deduplicated master — the caller then falls
+// back to matchLayout. A non-nil error means the source layout or its master
+// could not be round-tripped, and the merge must abort rather than silently
+// substitute default furniture (C513).
+func (p *Presentation) importLayout(srcPres *Presentation, src *SlideLayout, ctx *mergeCtx) (*SlideLayout, error) {
 	if src == nil {
-		return nil
+		return nil, nil
 	}
 	if l, ok := ctx.layouts[src]; ok {
-		return l
+		return l, nil
 	}
-	master := p.importMaster(srcPres, src.master, ctx)
+	master, err := p.importMaster(srcPres, src.master, ctx)
+	if err != nil {
+		return nil, err
+	}
 	if master == nil {
-		return nil
+		return nil, nil
 	}
 	// A fresh master import populates ctx.layouts for all its layouts, so a hit
 	// here means the master was newly imported; a miss means it was reused from
 	// the destination, where an identical layout is looked up (or the caller
 	// falls back).
 	if l, ok := ctx.layouts[src]; ok {
-		return l
+		return l, nil
 	}
-	return findEquivalentLayout(master, src)
+	return findEquivalentLayout(master, src), nil
 }
 
 // importMaster carries the source master — its theme and every layout — into p,
 // reusing a destination master that is byte-for-byte identical (same master XML
 // and theme) rather than duplicating it. On a fresh import ctx.layouts is
-// populated for each of the master's layouts. Returns nil when src is nil.
-func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx *mergeCtx) *SlideMaster {
+// populated for each of the master's layouts. Returns (nil, nil) when src is
+// nil.
+//
+// A master that fails to round-trip is a hard error, not a fallback: leaving
+// nm.masterXML nil made SlideMaster.marshal substitute newMasterXML(), so every
+// slide under the source master silently acquired generic default furniture
+// while the merge reported success (C513).
+func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx *mergeCtx) (*SlideMaster, error) {
 	if src == nil {
-		return nil
+		return nil, nil
 	}
 	if m, ok := ctx.masters[src]; ok {
-		return m
+		return m, nil
 	}
 	if dm := p.findEquivalentMaster(srcPres, src); dm != nil {
 		ctx.masters[src] = dm
-		return dm
+		return dm, nil
 	}
 
 	nm := &SlideMaster{presentation: p, numericID: 0}
-	if data, err := src.marshal(); err == nil {
-		clone := &oxml.SlideMaster{}
-		if xml.Unmarshal(data, clone) == nil {
-			nm.masterXML = clone
-		}
+	data, err := src.marshal()
+	if err != nil {
+		return nil, fmt.Errorf("pptx: import slide master %q: %w", src.partName, err)
 	}
+	clone := &oxml.SlideMaster{}
+	if err := xml.Unmarshal(data, clone); err != nil {
+		return nil, fmt.Errorf("pptx: import slide master %q: %w", src.partName, err)
+	}
+	nm.masterXML = clone
 	nm.partName = p.nextAvailableMasterPartName()
 	p.slideMasters = append(p.slideMasters, nm)
 	ctx.masters[src] = nm
+	p.reindexCollidingLayoutIDs(nm)
 
 	// Carry every layout of the master, preserving each layout's relationship id
 	// so the master's verbatim sldLayoutIdLst (which references layouts by r:id)
@@ -595,10 +610,11 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 		if srcLayout == nil {
 			continue
 		}
-		nl := p.addImportedLayout(nm, srcPres, srcLayout, srcLayout.relID, ctx)
-		if nl != nil {
-			ctx.layouts[srcLayout] = nl
+		nl, err := p.addImportedLayout(nm, srcPres, srcLayout, srcLayout.relID, ctx)
+		if err != nil {
+			return nil, err
 		}
+		ctx.layouts[srcLayout] = nl
 	}
 
 	// Carry the master's remaining relationships — media (e.g. an image
@@ -640,9 +656,8 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 			newTheme := p.freeThemePartName()
 			p.themeData[newTheme] = bytes.Clone(data)
 			nm.themePartName = newTheme
-			masterRels := p.relationships[nm.partName]
-			p.relationships[nm.partName] = append(masterRels, &opc.Relationship{
-				ID:         fmt.Sprintf("rId%d", nextRelationshipID(masterRels)),
+			p.relationships[nm.partName] = append(p.relationships[nm.partName], &opc.Relationship{
+				ID:         fmt.Sprintf("rId%d", p.nextRelIDNum(nm.partName)),
 				Type:       opc.RelTypeTheme,
 				Target:     partNameToRelTarget(newTheme, path.Dir(nm.partName)+"/"),
 				TargetMode: opc.TargetModeInternal,
@@ -655,15 +670,8 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 	// The from-scratch save path (saveNew) rebuilds these rels and reassigns
 	// relID; it dedupes this pre-registered rel by type+target so it is not
 	// emitted twice.
-	presRels := p.relationships["/ppt/presentation.xml"]
-	nm.relID = fmt.Sprintf("rId%d", nextRelationshipID(presRels))
-	p.relationships["/ppt/presentation.xml"] = append(presRels, &opc.Relationship{
-		ID:         nm.relID,
-		Type:       opc.RelTypeSlideMaster,
-		Target:     partNameToRelTarget(nm.partName, "/ppt/"),
-		TargetMode: opc.TargetModeInternal,
-	})
-	return nm
+	nm.relID = p.addPresentationRel(opc.RelTypeSlideMaster, partNameToRelTarget(nm.partName, "/ppt/")).ID
+	return nm, nil
 }
 
 // addImportedLayout appends a deep copy of src as a new layout under master with
@@ -673,22 +681,26 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 // own non-master relationships (e.g. an image background) are carried through
 // importPart so its r:embed references resolve to carried media instead of
 // dangling or rebinding to the master's theme (C237).
-func (p *Presentation) addImportedLayout(master *SlideMaster, srcPres *Presentation, src *SlideLayout, relID string, ctx *mergeCtx) *SlideLayout {
+//
+// A layout that fails to round-trip is a hard error: swallowing it dropped the
+// layout from the import and left the slide silently re-pointed at a
+// type-matched destination layout with different placeholders (C513).
+func (p *Presentation) addImportedLayout(master *SlideMaster, srcPres *Presentation, src *SlideLayout, relID string, ctx *mergeCtx) (*SlideLayout, error) {
 	nl := &SlideLayout{
 		presentation: p,
 		master:       master,
 		layoutType:   src.layoutType,
 		name:         src.name,
 	}
-	if data, err := src.marshal(); err == nil {
-		clone := &oxml.SlideLayout{}
-		if xml.Unmarshal(data, clone) == nil {
-			nl.layoutXML = clone
-		}
+	data, err := src.marshal()
+	if err != nil {
+		return nil, fmt.Errorf("pptx: import slide layout %q: %w", src.partName, err)
 	}
-	if nl.layoutXML == nil {
-		return nil
+	clone := &oxml.SlideLayout{}
+	if err := xml.Unmarshal(data, clone); err != nil {
+		return nil, fmt.Errorf("pptx: import slide layout %q: %w", src.partName, err)
 	}
+	nl.layoutXML = clone
 	if relID == "" {
 		relID = fmt.Sprintf("rId%d", master.nextLayoutRelIDNum())
 	}
@@ -718,7 +730,7 @@ func (p *Presentation) addImportedLayout(master *SlideMaster, srcPres *Presentat
 	}
 
 	master.registerLayoutRelationships(nl)
-	return nl
+	return nl, nil
 }
 
 // findEquivalentMaster returns a destination master byte-for-byte identical to
@@ -933,14 +945,7 @@ func (p *Presentation) importHandoutMaster(srcPres *Presentation, ctx *mergeCtx)
 	}
 
 	// presentation -> handoutMaster relationship + handoutMasterIdLst entry.
-	presRels := p.relationships[presentationPartName]
-	relID := fmt.Sprintf("rId%d", nextRelationshipID(presRels))
-	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
-		ID:         relID,
-		Type:       opc.RelTypeHandoutMaster,
-		Target:     partNameToRelTarget(newName, "/ppt/"),
-		TargetMode: opc.TargetModeInternal,
-	})
+	relID := p.addPresentationRel(opc.RelTypeHandoutMaster, partNameToRelTarget(newName, "/ppt/")).ID
 	if p.presentation.HandoutMasterIDs == nil {
 		p.presentation.HandoutMasterIDs = &oxml.HandoutMasterIDs{}
 	}
@@ -1041,14 +1046,7 @@ func (p *Presentation) importNotesMaster(srcPres *Presentation, ctx *mergeCtx) {
 	}
 
 	// presentation -> notesMaster relationship + notesMasterIdLst entry.
-	presRels := p.relationships[presentationPartName]
-	relID := fmt.Sprintf("rId%d", nextRelationshipID(presRels))
-	p.relationships[presentationPartName] = append(presRels, &opc.Relationship{
-		ID:         relID,
-		Type:       opc.RelTypeNotesMaster,
-		Target:     partNameToRelTarget(newName, "/ppt/"),
-		TargetMode: opc.TargetModeInternal,
-	})
+	relID := p.addPresentationRel(opc.RelTypeNotesMaster, partNameToRelTarget(newName, "/ppt/")).ID
 	if p.presentation.NotesMasterIDs == nil {
 		p.presentation.NotesMasterIDs = &oxml.NotesMasterIDs{}
 	}

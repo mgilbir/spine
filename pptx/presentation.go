@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"sort"
@@ -720,8 +721,7 @@ func (p *Presentation) initializeDefaultMasterAndLayouts() {
 	master := createDefaultMaster(w, h)
 	master.presentation = p
 	master.partName = "/ppt/slideMasters/slideMaster1.xml"
-	master.relID = fmt.Sprintf("rId%d", p.nextRelID)
-	p.nextRelID++
+	master.relID = fmt.Sprintf("rId%d", p.nextPresentationRelID())
 
 	// Add default layouts
 	defaultLayouts := []SlideLayoutType{
@@ -1376,6 +1376,15 @@ func hasRelForTarget(rels []*opc.Relationship, relType, target string) bool {
 	return false
 }
 
+// nextRelationshipID returns the lowest rIdN number unused by rels.
+//
+// It is scope-blind by construction: it sees only the slice it is handed, so it
+// is correct only when that slice is the complete relationship set for exactly
+// one part. It must NEVER be used for the presentation part, whose id space has
+// a second, invisible claimant — p.nextRelID, holding ids handed to slides whose
+// relationships only enter p.relationships at save time (C363). Presentation
+// allocation goes through nextPresentationRelID / addPresentationRel; the
+// TestNoBlindPresentationRelIDAllocation guard enforces that statically.
 func nextRelationshipID(rels []*opc.Relationship) int {
 	maxID := 0
 	for _, rel := range rels {
@@ -1385,6 +1394,59 @@ func nextRelationshipID(rels []*opc.Relationship) int {
 		}
 	}
 	return maxID + 1
+}
+
+// nextRelIDNum returns a relationship id number free for partName's own
+// relationship scope, routing the presentation part to the allocator that also
+// consults p.nextRelID. Prefer it over calling nextRelationshipID with a map
+// lookup: it cannot be handed the wrong scope.
+func (p *Presentation) nextRelIDNum(partName string) int {
+	if partName == presentationPartName {
+		return p.nextPresentationRelID()
+	}
+	return nextRelationshipID(p.relationships[partName])
+}
+
+// nextPresentationRelID returns a relationship id number free for the
+// presentation part and reserves it, so two consecutive calls never collide.
+//
+// This is the single allocator for presentation-level relationship ids. The
+// presentation part is the one scope with two claimants that cannot see each
+// other: relationships already registered in p.relationships, and p.nextRelID,
+// which holds ids handed out to slides by AddSlide whose relationships are only
+// materialized by writePresentationRelationships at save time. An allocator
+// reading just one of the two hands out an id the other already owns — the save
+// path then keeps the first relationship carrying that id and drops the second
+// as a duplicate, leaving p:sldId entries resolved to slideMaster/notesMaster
+// relationships (C363). Consult both, and bump p.nextRelID past the result.
+func (p *Presentation) nextPresentationRelID() int {
+	maxID := p.nextRelID - 1
+	for _, rel := range p.relationships[presentationPartName] {
+		if rel == nil {
+			continue
+		}
+		var id int
+		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+			maxID = id
+		}
+	}
+	p.nextRelID = maxID + 2
+	return maxID + 1
+}
+
+// addPresentationRel appends a relationship on the presentation part with a
+// freshly allocated, collision-free id and returns it. Every presentation-level
+// relationship added outside the save path's own rebuild should be created here
+// rather than by formatting an id and appending by hand.
+func (p *Presentation) addPresentationRel(relType, target string) *opc.Relationship {
+	rel := &opc.Relationship{
+		ID:         fmt.Sprintf("rId%d", p.nextPresentationRelID()),
+		Type:       relType,
+		Target:     target,
+		TargetMode: opc.TargetModeInternal,
+	}
+	p.relationships[presentationPartName] = append(p.relationships[presentationPartName], rel)
+	return rel
 }
 
 // partNameToRelsPath converts a part name to its .rels file path.
@@ -1397,6 +1459,26 @@ func partNameToRelsPath(partName string) string {
 
 // writePresentationRelationships writes the presentation.xml.rels file.
 func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error {
+	rels := p.presentationRelationships()
+
+	if data := p.unchangedRawRels("/ppt/presentation.xml", rels); data != nil {
+		return writer.WritePreservedPart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
+	}
+
+	data, err := opc.MarshalRelationships(rels)
+	if err != nil {
+		return err
+	}
+
+	return writer.WritePart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
+}
+
+// presentationRelationships computes the relationship set the save path will
+// emit for presentation.xml. It is pure — it reads the model and writes nothing
+// — so Validate can gate on the relationships that will actually be written
+// rather than on the ones currently registered, which differ (pending slide rels
+// are not in the map yet, and rels for departed slides still are).
+func (p *Presentation) presentationRelationships() []*opc.Relationship {
 	var rels []*opc.Relationship
 	currentSlideTargets := make(map[string]string, len(p.slides))
 	for i, slide := range p.slides {
@@ -1417,6 +1499,19 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 			if rel.Type == opc.RelTypeSlide {
 				target, ok := currentSlideTargets[rel.ID]
 				if !ok {
+					// Not one of the slides in sldIdLst. A slide part the
+					// package carries without listing it there is preserved
+					// verbatim in otherParts (C118); dropping its relationship
+					// would leave the part rel-orphaned and — because the rel
+					// set then differs from the parsed original — would also
+					// force presentation.xml.rels to be regenerated, losing
+					// byte-identity on an otherwise untouched deck (C512).
+					// Anything else here is a rel whose slide really is gone.
+					if p.unreferencedSlides[opc.ResolvePartName("/ppt/presentation.xml", rel.Target)] {
+						copied := *rel
+						rels = append(rels, &copied)
+						existingIDs[rel.ID] = true
+					}
 					continue
 				}
 				copied := *rel
@@ -1484,16 +1579,7 @@ func (p *Presentation) writePresentationRelationships(writer *opc.Writer) error 
 		}
 	}
 
-	if data := p.unchangedRawRels("/ppt/presentation.xml", rels); data != nil {
-		return writer.WritePreservedPart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
-	}
-
-	data, err := opc.MarshalRelationships(rels)
-	if err != nil {
-		return err
-	}
-
-	return writer.WritePart("/ppt/_rels/presentation.xml.rels", opc.ContentTypeRelationships, data)
+	return rels
 }
 
 // remapCustomShowRefs rewrites custom-show slide references through an old->new
@@ -1998,6 +2084,33 @@ func splitPath(path string) []string {
 	return parts
 }
 
+// slideMasterIDBase and slideLayoutIDBase are the low ends of ST_SlideMasterId
+// and ST_SlideLayoutId (both are unsignedInt constrained to >= 2147483648;
+// sldLayoutId conventionally starts one higher). Both id spaces are
+// document-unique, not master-unique.
+const (
+	slideMasterIDBase uint32 = 2147483648
+	slideLayoutIDBase uint32 = 2147483649
+)
+
+// nextIDAbove returns the first id at or above base that no item already holds,
+// reading each item's id through id (0 meaning "carries none"). It saturates at
+// math.MaxUint32 rather than wrapping.
+func nextIDAbove[T any](base uint32, items []T, id func(T) uint32) uint32 {
+	next := base
+	for _, it := range items {
+		v := id(it)
+		if v == 0 || v < next {
+			continue
+		}
+		if v == math.MaxUint32 {
+			return math.MaxUint32
+		}
+		next = v + 1
+	}
+	return next
+}
+
 // marshalPresentation generates the presentation.xml content.
 func (p *Presentation) marshalPresentation() ([]byte, error) {
 	// Update slide master IDs
@@ -2005,10 +2118,23 @@ func (p *Presentation) marshalPresentation() ([]byte, error) {
 		p.presentation.SlideMasterIDs = &oxml.SlideMasterIDs{
 			SlideMasterID: make([]oxml.SlideMasterID, len(p.slideMasters)),
 		}
+		// ST_SlideMasterId values are document-unique. Masters that carry no id
+		// of their own take one above every id the preserved masters already
+		// hold rather than the fixed base+index: a destination master preserving
+		// e.g. 2147483649 at index 0 collided with the index-1 fallback (C419).
+		nextMasterID := nextIDAbove(slideMasterIDBase, p.slideMasters, func(m *SlideMaster) uint32 {
+			if m == nil {
+				return 0
+			}
+			return m.numericID
+		})
 		for i, master := range p.slideMasters {
 			id := master.numericID
 			if id == 0 && !master.idOmitted {
-				id = uint32(2147483648 + i) // High IDs as per spec
+				id = nextMasterID
+				if nextMasterID < math.MaxUint32 {
+					nextMasterID++
+				}
 			}
 			p.presentation.SlideMasterIDs.SlideMasterID[i] = oxml.SlideMasterID{
 				ID:        id,
@@ -2088,8 +2214,11 @@ func (p *Presentation) slidePartByIndex(index int) string {
 
 // AddSlide adds a new blank slide to the presentation.
 func (p *Presentation) AddSlide() *Slide {
-	relID := fmt.Sprintf("rId%d", p.nextRelID)
-	p.nextRelID++
+	// The slide's presentation relationship is only materialized at save, so
+	// its id must be reserved against both claimants of the presentation id
+	// space right now — otherwise a merge-time importer allocating from
+	// p.relationships alone reuses it and the save drops one of the two (C363).
+	relID := fmt.Sprintf("rId%d", p.nextPresentationRelID())
 
 	slide := &Slide{
 		presentation: p,

@@ -470,15 +470,19 @@ func (sm *SlideMaster) marshal() ([]byte, error) {
 
 	// Update layout ID list only if layouts were modified or IDs are missing.
 	// Preserve original layout IDs for round-trip fidelity.
-	if sm.layoutsModified || sm.masterXML.SlideLayoutIDs == nil {
+	if sm.regeneratesLayoutIDs() {
 		if len(sm.layouts) > 0 {
 			sm.masterXML.SlideLayoutIDs = &oxml.SlideLayoutIDs{
 				SlideLayoutID: make([]oxml.SlideLayoutID, len(sm.layouts)),
 			}
+			next := sm.layoutIDStart()
 			for i, layout := range sm.layouts {
 				sm.masterXML.SlideLayoutIDs.SlideLayoutID[i] = oxml.SlideLayoutID{
-					ID:  uint32(2147483649 + i), // Starting from high number as per OOXML spec
+					ID:  next,
 					RID: layout.relID,
+				}
+				if next < math.MaxUint32 {
+					next++
 				}
 			}
 		}
@@ -486,6 +490,96 @@ func (sm *SlideMaster) marshal() ([]byte, error) {
 
 	// Use the namespace-aware marshaler for PowerPoint compatibility
 	return marshalSlideMaster(sm.masterXML)
+}
+
+// reindexCollidingLayoutIDs renumbers a freshly imported master's preserved
+// sldLayoutIdLst when any of its ids is already claimed by another master in
+// this deck.
+//
+// ST_SlideLayoutId is document-unique, but the source's ids were allocated
+// against the source deck alone, so importing them verbatim reproduces the
+// destination's own range one-for-one — two masters then advertise the same
+// layout ids (C419). The numeric id is not a link target (layouts are bound to
+// the master by r:id), so renumbering is lossless. Non-colliding lists are left
+// exactly as imported.
+func (p *Presentation) reindexCollidingLayoutIDs(nm *SlideMaster) {
+	if nm == nil || nm.masterXML == nil || nm.masterXML.SlideLayoutIDs == nil {
+		return
+	}
+	taken := make(map[uint32]bool)
+	next := slideLayoutIDBase
+	for _, m := range p.slideMasters {
+		if m == nil || m == nm || m.masterXML == nil || m.masterXML.SlideLayoutIDs == nil {
+			continue
+		}
+		for _, l := range m.masterXML.SlideLayoutIDs.SlideLayoutID {
+			taken[l.ID] = true
+		}
+		next = nextIDAbove(next, m.masterXML.SlideLayoutIDs.SlideLayoutID, func(l oxml.SlideLayoutID) uint32 {
+			return l.ID
+		})
+	}
+	ids := nm.masterXML.SlideLayoutIDs.SlideLayoutID
+	collides := false
+	for _, l := range ids {
+		if taken[l.ID] {
+			collides = true
+			break
+		}
+	}
+	if !collides {
+		return
+	}
+	for i := range ids {
+		ids[i].ID = next
+		if next < math.MaxUint32 {
+			next++
+		}
+	}
+}
+
+// regeneratesLayoutIDs reports whether this master's sldLayoutIdLst is rebuilt
+// from sm.layouts on marshal rather than preserved verbatim.
+func (sm *SlideMaster) regeneratesLayoutIDs() bool {
+	return sm.layoutsModified || sm.masterXML == nil || sm.masterXML.SlideLayoutIDs == nil
+}
+
+// layoutIDStart returns the first ST_SlideLayoutId this master may assign when
+// it rebuilds its sldLayoutIdLst.
+//
+// ST_SlideLayoutId is unique per document, not per master, so the fixed
+// base+index scheme gave every regenerating master the same range: two modified
+// masters in one deck emitted overlapping layout ids, and a modified master
+// overlapped any preserved master starting at the same base (C419). Start above
+// every id the preserved masters hold, then hand each regenerating master its
+// own disjoint block in deck order so the result is deterministic and
+// independent of marshal order.
+func (sm *SlideMaster) layoutIDStart() uint32 {
+	if sm.presentation == nil {
+		return slideLayoutIDBase
+	}
+	next := slideLayoutIDBase
+	for _, m := range sm.presentation.slideMasters {
+		if m == nil || m == sm || m.regeneratesLayoutIDs() {
+			continue
+		}
+		next = nextIDAbove(next, m.masterXML.SlideLayoutIDs.SlideLayoutID, func(l oxml.SlideLayoutID) uint32 {
+			return l.ID
+		})
+	}
+	for _, m := range sm.presentation.slideMasters {
+		if m == sm {
+			break
+		}
+		if m == nil || !m.regeneratesLayoutIDs() {
+			continue
+		}
+		if remaining := math.MaxUint32 - next; uint32(len(m.layouts)) >= remaining {
+			return math.MaxUint32
+		}
+		next += uint32(len(m.layouts))
+	}
+	return next
 }
 
 // newMasterXML creates a new slide master XML structure.
@@ -605,7 +699,7 @@ func (sm *SlideMaster) nextLayoutRelIDNum() int {
 		}
 	}
 	if sm.presentation != nil && sm.partName != "" {
-		if id := nextRelationshipID(sm.presentation.relationships[sm.partName]) - 1; id > maxRel {
+		if id := sm.presentation.nextRelIDNum(sm.partName) - 1; id > maxRel {
 			maxRel = id
 		}
 	}
@@ -629,9 +723,8 @@ func (sm *SlideMaster) registerLayoutRelationships(layout *SlideLayout) {
 		Target:     partNameToRelTarget(layout.partName, path.Dir(sm.partName)+"/"),
 		TargetMode: opc.TargetModeInternal,
 	})
-	layoutRels := p.relationships[layout.partName]
-	p.relationships[layout.partName] = append(layoutRels, &opc.Relationship{
-		ID:         fmt.Sprintf("rId%d", nextRelationshipID(layoutRels)),
+	p.relationships[layout.partName] = append(p.relationships[layout.partName], &opc.Relationship{
+		ID:         fmt.Sprintf("rId%d", p.nextRelIDNum(layout.partName)),
 		Type:       opc.RelTypeSlideMaster,
 		Target:     partNameToRelTarget(sm.partName, path.Dir(layout.partName)+"/"),
 		TargetMode: opc.TargetModeInternal,
