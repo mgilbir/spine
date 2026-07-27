@@ -289,9 +289,18 @@ func (cp *CoreProperties) Marshal() ([]byte, error) {
 		order = defaultElementOrder
 	}
 
-	// Write elements in the preserved (or default) order
+	// Write elements in the preserved (or default) order, at most once each.
+	// elementOrder records every occurrence, so a source with a repeated
+	// element (dc:title is maxOccurs=1, but wild files carry duplicates) used
+	// to be re-emitted once per occurrence — each carrying the last-parsed
+	// value, which is both schema-invalid and a silent rewrite of the first
+	// element's data. orderedDefaults/orderedOverrides already dedup this way
+	// (C396).
 	written := make(map[string]bool, len(order))
 	for _, key := range order {
+		if written[key] {
+			continue
+		}
 		if raw, ok := cp.unknownChildren[key]; ok {
 			// Unknown child captured at parse time: re-emit verbatim at its
 			// original position so vendor extensions survive regeneration.
@@ -534,13 +543,43 @@ var corePropsRootPrefixes = map[string]string{
 	"xsi":      nsXsi,
 }
 
+// rootNSDecls collects the namespace declarations carried on the source
+// <coreProperties> root as prefix→URI (the default declaration under the empty
+// prefix). Go's decoder reports "xmlns:p" as Space="xmlns" Local="p" and a
+// default "xmlns" as Space="" Local="xmlns".
+func rootNSDecls(attrs []xml.Attr) map[string]string {
+	var m map[string]string
+	for _, a := range attrs {
+		prefix := ""
+		switch {
+		case a.Name.Space == "xmlns":
+			prefix = a.Name.Local
+		case a.Name.Space == "" && a.Name.Local == "xmlns":
+			prefix = ""
+		default:
+			continue
+		}
+		if m == nil {
+			m = make(map[string]string, len(attrs))
+		}
+		m[prefix] = a.Value
+	}
+	return m
+}
+
 // ensureSelfContainedNS returns raw — a verbatim-captured child element of
-// cp:coreProperties — with a namespace declaration for its own prefix injected
-// into the start tag when the source declared that prefix on an ancestor
-// (typically the root). The regenerated root only declares the standard
-// prefixes, so without the injection the re-emitted element would reference an
-// undeclared prefix and the output would not be namespace-well-formed.
-func ensureSelfContainedNS(raw, space string) string {
+// cp:coreProperties — with namespace declarations injected into its start tag
+// for every prefix it uses that the source declared on an ancestor (typically
+// the root). The regenerated root only declares the standard five prefixes, so
+// without the injection the re-emitted element would reference an undeclared
+// prefix and the output would not be namespace-well-formed.
+//
+// space is the element's own resolved namespace URI and rootNS the source
+// root's declarations. Prefixes used by *descendants* and by attributes count
+// too: injecting only the element's own prefix left exactly the ill-formed
+// output this function exists to prevent, e.g. `<x:a xmlns:x=…><y:b/></x:a>`
+// with y declared on the source root (C454).
+func ensureSelfContainedNS(raw, space string, rootNS map[string]string) string {
 	if len(raw) < 2 || raw[0] != '<' {
 		return raw
 	}
@@ -558,16 +597,116 @@ func ensureSelfContainedNS(raw, space string) string {
 	if c := strings.IndexByte(name, ':'); c >= 0 {
 		prefix = name[:c]
 	}
-	if prefix == "" {
-		if space == "" || strings.Contains(raw, `xmlns=`) {
-			return raw
-		}
-		return raw[:i] + ` xmlns="` + xmlb.EscapeAttrValue(space) + `"` + raw[i:]
+
+	// The element's own start tag — the only scope whose declarations put a
+	// prefix in scope for the injection point.
+	startTag := raw[:startTagEnd(raw)]
+
+	var inject strings.Builder
+	if prefix == "" && space != "" && !declaresDefaultNS(startTag) {
+		inject.WriteString(` xmlns="` + xmlb.EscapeAttrValue(space) + `"`)
 	}
-	if corePropsRootPrefixes[prefix] == space || strings.Contains(raw, "xmlns:"+prefix+"=") {
+
+	// Re-parse the captured fragment. Go's decoder leaves Name.Space set to
+	// the raw prefix when that prefix is undeclared *within the fragment*, so
+	// any Space matching a source-root prefix is precisely a use that needs a
+	// declaration carried over.
+	need := undeclaredPrefixes(raw, rootNS)
+	if prefix != "" && space != "" {
+		// The element's own prefix: the decoder resolved it against the outer
+		// document, so it is not reported by undeclaredPrefixes.
+		need[prefix] = space
+	}
+	for _, p := range slices.Sorted(maps.Keys(need)) {
+		uri := need[p]
+		if corePropsRootPrefixes[p] == uri || declaresPrefix(startTag, p) {
+			continue
+		}
+		inject.WriteString(" xmlns:" + p + `="` + xmlb.EscapeAttrValue(uri) + `"`)
+	}
+	if inject.Len() == 0 {
 		return raw
 	}
-	return raw[:i] + " xmlns:" + prefix + `="` + xmlb.EscapeAttrValue(space) + `"` + raw[i:]
+	return raw[:i] + inject.String() + raw[i:]
+}
+
+// declaresPrefix reports whether the start tag startTag declares prefix. Only
+// the element's own start tag is inspected: a declaration on a descendant does
+// not put the prefix in scope here, yet a substring search over the whole
+// fragment used to find one and suppress a needed injection (C454).
+func declaresPrefix(startTag, prefix string) bool {
+	return strings.Contains(startTag, "xmlns:"+prefix+"=")
+}
+
+// declaresDefaultNS reports whether the element's own start tag carries a
+// default namespace declaration.
+func declaresDefaultNS(startTag string) bool {
+	for i := 1; i+6 <= len(startTag); i++ {
+		if startTag[i:i+6] != "xmlns=" {
+			continue
+		}
+		switch startTag[i-1] {
+		case ' ', '\t', '\r', '\n':
+			return true
+		}
+	}
+	return false
+}
+
+// startTagEnd returns the offset one past the '>' closing raw's start tag,
+// skipping any '>' inside a quoted attribute value. It returns len(raw) when
+// no close is found, so the caller degrades to inspecting the whole fragment
+// rather than slicing garbage.
+func startTagEnd(raw string) int {
+	quote := byte(0)
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '>':
+			return i + 1
+		}
+	}
+	return len(raw)
+}
+
+// undeclaredPrefixes returns the prefix→URI declarations from rootNS that the
+// fragment raw relies on without declaring them itself. It walks raw with the
+// XML decoder: a prefix that is undeclared inside the fragment surfaces as
+// Name.Space equal to the literal prefix, which cannot collide with a URI.
+func undeclaredPrefixes(raw string, rootNS map[string]string) map[string]string {
+	need := make(map[string]string)
+	if len(rootNS) == 0 {
+		return need
+	}
+	dec := xml.NewDecoder(strings.NewReader(raw))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if uri, found := rootNS[se.Name.Space]; found && se.Name.Space != "" {
+			need[se.Name.Space] = uri
+		}
+		for _, a := range se.Attr {
+			if a.Name.Space == "" || a.Name.Space == "xmlns" {
+				continue
+			}
+			if uri, found := rootNS[a.Name.Space]; found {
+				need[a.Name.Space] = uri
+			}
+		}
+	}
+	return need
 }
 
 // coreElementKey returns the prefixed element key (e.g. "dc:title", "cp:keywords")
@@ -615,6 +754,7 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 	src := string(data)
 	decoder := xmlb.NewDecoder(strings.NewReader(src))
 	var inRoot bool
+	var rootNS map[string]string
 
 	for {
 		// Offset of the upcoming token; for a StartElement this is the byte
@@ -633,8 +773,21 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if !inRoot {
-				// This is the root <cp:coreProperties> element
+				// The root element must actually be coreProperties. Accepting
+				// any root name meant "<foo><dc:title>x</dc:title></foo>"
+				// parsed as core properties while the error below claimed to
+				// check for a missing coreProperties root — a check that did
+				// not exist (C451). The namespace is not required to match:
+				// producers spell it in several ways and the parse is
+				// best-effort, but the element name is unambiguous.
+				if t.Name.Local != "coreProperties" {
+					return nil, &xml.SyntaxError{Msg: "missing coreProperties root element", Line: 1}
+				}
 				inRoot = true
+				// Record the prefixes the source declared on the root: an
+				// unknown child re-emitted verbatim may rely on any of them,
+				// and the regenerated root declares only the standard five.
+				rootNS = rootNSDecls(t.Attr)
 				continue
 			}
 
@@ -646,7 +799,7 @@ func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 				if err := decoder.Skip(); err != nil {
 					return nil, err
 				}
-				raw := ensureSelfContainedNS(src[tokStart:decoder.InputOffset()], t.Name.Space)
+				raw := ensureSelfContainedNS(src[tokStart:decoder.InputOffset()], t.Name.Space, rootNS)
 				ukey := "unknown:" + itoa(len(cp.unknownChildren))
 				cp.elementOrder = append(cp.elementOrder, ukey)
 				cp.unknownChildren[ukey] = raw

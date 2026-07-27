@@ -174,7 +174,16 @@ func normalizeCustomValue(v any) (any, error) {
 // fmtid; a new property is appended with the next free pid and the standard
 // custom-properties fmtid. The value must be a string, int/int32/int64,
 // float32/float64, bool, or time.Time.
+//
+// Reader.CustomProperties is documented as nil when the package carries no
+// custom properties, so nil is the state a caller is most likely to hold when
+// reaching for Set. A nil receiver cannot be appended to, so it reports an
+// error naming the fix rather than panicking as it used to (C455); every other
+// method on the type nil-guards.
 func (cp *CustomProperties) Set(name string, value any) error {
+	if cp == nil {
+		return fmt.Errorf("opc: Set on a nil *CustomProperties; allocate one first (&opc.CustomProperties{} is a ready-to-use empty set)")
+	}
 	if name == "" {
 		return fmt.Errorf("opc: custom property name must not be empty")
 	}
@@ -283,12 +292,19 @@ func marshalVTValue(b *strings.Builder, value any, rawVT string) {
 // and no whitespace between <property> elements. Regeneration only happens when
 // the set was modified; an unmodified part round-trips as its preserved source
 // bytes, so this need not reproduce every producer's formatting.
+//
+// A nil receiver marshals to an empty but well-formed part rather than
+// panicking, matching the nil-guarded readers on this type (C455).
 func (cp *CustomProperties) Marshal() ([]byte, error) {
+	var props []*customProperty
+	if cp != nil {
+		props = cp.props
+	}
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n")
 	b.WriteString(`<Properties xmlns="` + nsCustomProperties + `"`)
 	b.WriteString(` xmlns:vt="` + nsDocPropsVTypes + `">`)
-	for _, p := range cp.props {
+	for _, p := range props {
 		b.WriteString(`<property fmtid="`)
 		b.WriteString(xmlb.EscapeAttrValue(p.fmtid))
 		b.WriteString(`" pid="`)
@@ -361,6 +377,15 @@ func UnmarshalCustomProperties(data []byte) (*CustomProperties, error) {
 			continue
 		}
 		if !inRoot {
+			// The root must actually be <Properties>. Accepting any root name
+			// meant an arbitrary document parsed as custom properties while
+			// the error below claimed to check for a missing Properties root —
+			// a check that did not exist (C451). The namespace is not
+			// required to match: the parse is best-effort and producers spell
+			// it in several ways, but the element name is unambiguous.
+			if start.Name.Local != "Properties" {
+				return nil, &xml.SyntaxError{Msg: "missing custom Properties root element", Line: 1}
+			}
 			inRoot = true
 			continue
 		}

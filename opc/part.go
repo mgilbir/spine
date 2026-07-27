@@ -25,6 +25,19 @@ import (
 // rules, since wild packages contain entries (e.g. "/[trash]/0000.dat")
 // whose names violate the grammar and round-trip fidelity must preserve
 // them.
+//
+// Two rules of §9.1.1 are deliberately not enforced here, because both are
+// properties of a package rather than of a name in isolation:
+//
+//   - The part-name/directory collision rule: a part name must not be a
+//     prefix of another part name followed by a segment separator. A package
+//     may therefore legally declare both "/word/media" and
+//     "/word/media/image1.png" — a combination no filesystem-backed extractor
+//     can materialize, since one path cannot be both a file and a directory.
+//     Callers that unpack to a filesystem must check for it themselves.
+//   - Any length bound. ECMA-376 sets none, but zip consumers and file
+//     systems do (a 255-byte path segment, a 260-character Windows MAX_PATH),
+//     so a name this function accepts can still be unwritable in practice.
 func ValidatePartName(name string) error {
 	if err := validatePartNameShape(name); err != nil {
 		return err
