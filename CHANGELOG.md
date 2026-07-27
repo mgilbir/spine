@@ -42,6 +42,68 @@
 - docx: `w:headerReference`/`w:footerReference` built programmatically now always
   emit `w:type` before `r:id` (Word's order); the two models of the element
   disagreed.
+- docx: `InlineImage.SetSize`/`SetAltText` on an image read back from an opened
+  document now patch the attribute the setter owns instead of rebuilding the
+  whole drawing from the narrow image model. Resizing a floating image used to
+  reset its position to (0,0) column/paragraph-relative, turn `wrapSquare` into
+  `wrapNone`, drop rotation and every `spPr` extra, reset `relativeHeight`,
+  rewrite a linked (`r:link`) image as an embedded one, and emit the
+  ECMA-invalid `<wp:docPr id="0">` — duplicated across every edited image.
+- docx: `Document.Properties` edits are no longer silently dropped when the
+  opened package carries no core-properties part; the part, its content-type
+  override and its package relationship are created, matching what `Create` plus
+  save has always done.
+- docx: `Paragraph.SetText`, `Paragraph.Clear` and `Run.Clear` now reclaim the
+  part-scoped relationships that only the removed content referenced — a
+  hyperlink's External relationship, a drawing's `r:embed` — along with any media
+  part added in the same session that nothing else points at. Filling a template
+  repeatedly used to accrete one dead relationship per replaced link, with no API
+  able to reclaim them.
+- docx: bookmark ids are allocated against the headers and footers as well as the
+  body, so two `AddBookmark` calls on paragraphs of two headers no longer get the
+  same id; `Document.Bookmarks` now returns header and footer bookmarks (and
+  `Bookmark.Text` resolves them) as its documentation always claimed.
+- docx: text box, shape, WordArt, signature-line and OLE ids are seeded from the
+  drawings already in the opened document. Every session restarted the counter,
+  so save → reopen → `AddTextBox` → save produced two `<wp:docPr id="100001">` in
+  one document. `wp:docPr` ids are also parsed as real attributes now, so a
+  producer that writes `name` before `id` no longer defeats the seed.
+- docx: a `word/_rels/document.xml.rels` this library cannot decode is passed
+  through verbatim instead of being dropped from the saved package, which used to
+  sever every image, hyperlink, header and styles reference in the document.
+- docx: `AddSectionBreak` gives the new final section a copy of the section it
+  splits off from — page size, margins, columns and header/footer references —
+  as Word's own section break does. It used to leave an empty `sectPr`, so an A4
+  landscape document with headers continued as unfurnished Letter portrait pages.
+- docx: `Append` no longer imports external relationships of the source main part
+  that the copied body never references (a stray `attachedTemplate`), and a
+  copied reference whose target could not be imported has its `r:` attribute
+  stripped rather than left pointing at whatever unrelated relationship holds
+  that id in the destination.
+- docx: `Document.TextBoxes` finds boxes nested in header and footer tables, and
+  the pre-save validation walk reaches paragraphs inside tables and content
+  controls in every part, as both already documented.
+- docx: a repeated `AddHeader`/`AddFooter` of the same type releases the header
+  or footer it replaced — its part, its `.rels` and its relationship — instead of
+  leaving them in the package unreferenced. A part another section still
+  references is kept.
+- docx: `Section.SetMargins` writes all six values, so a zero header or footer
+  distance is expressible; previously those two alone were written only when
+  positive.
+- docx: `[Content_Types].xml` keeps the producer's formatting even when the
+  session adds parts. The raw bytes were skipped whenever anything was added, on
+  the belief the new content types would go missing; the writer merges them in.
+
+### Added
+
+- docx: `Document.Headers`, `Document.Footers`, `Document.Header(section, type)`
+  and `Document.Footer(section, type)` return editable handles for the headers
+  and footers of an opened document, with `Header.Paragraphs`/`Footer.Paragraphs`
+  and `PartName`. Their content was previously reachable only obliquely, through
+  `Hyperlinks`, `Images` or `ReplaceText`.
+- docx: `Section.MarginsOK` and `Paragraph.AlignmentOK` return `(value, ok)`, so
+  "the section/paragraph declares none" is distinguishable from an explicit zero
+  or an explicit left alignment. `Margins` and `Alignment` keep their shapes.
 
 ## 0.1.0 - 2026-07-22
 
