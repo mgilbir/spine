@@ -160,10 +160,16 @@ func hyperlinkToXML(h *Hyperlink) *dml.HlinkXML {
 			x.Id = &id
 		}
 	case h.slideJump:
-		if h.relID != "" {
-			id := h.relID
-			x.Id = &id
+		// A slide jump needs an allocated RelTypeSlide relationship (r:id).
+		// allocateHyperlinkRels leaves relID empty only when the jump target is
+		// out of range (see Slide.SetHyperlinkToSlide), so emitting the
+		// ppaction://hlinksldjump verb here would produce a dangling jump with no
+		// target. Drop the whole hlinkClick instead of writing a broken action.
+		if h.relID == "" {
+			return nil
 		}
+		id := h.relID
+		x.Id = &id
 		x.Action = "ppaction://hlinksldjump"
 	case h.action != "":
 		x.Action = h.action

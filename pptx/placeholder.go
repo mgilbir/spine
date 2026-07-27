@@ -175,7 +175,8 @@ func (p *PlaceholderShape) SetActionHyperlink(action string) *Hyperlink {
 }
 
 // SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
-// index; the RelTypeSlide relationship is allocated on save.
+// index; the RelTypeSlide relationship is allocated on save. If the index is out
+// of range for the deck at save time, no hyperlink is emitted.
 func (p *PlaceholderShape) SetHyperlinkToSlide(index int) *Hyperlink { return p.setSlideLink(index) }
 
 // IsTitle returns true if this is a title placeholder.

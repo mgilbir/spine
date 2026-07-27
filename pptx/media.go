@@ -199,7 +199,8 @@ func (p *Picture) SetHyperlink(url string) *Hyperlink { return p.setHyperlinkURL
 func (p *Picture) SetActionHyperlink(action string) *Hyperlink { return p.setActionHyperlink(action) }
 
 // SetHyperlinkToSlide attaches an internal jump to the slide at the given 0-based
-// index; the RelTypeSlide relationship is allocated on save.
+// index; the RelTypeSlide relationship is allocated on save. If the index is out
+// of range for the deck at save time, no hyperlink is emitted.
 func (p *Picture) SetHyperlinkToSlide(index int) *Hyperlink { return p.setSlideLink(index) }
 
 // Description returns the image description (alt text).
