@@ -40,6 +40,52 @@ func (p *ModernCommentPart) Marshal() []byte {
 	return b.Bytes()
 }
 
+// replayP188Attrs renders a parsed element's verbatim attribute list with the
+// modeled fields substituted: source order, unmodeled attributes and the exact
+// set of attributes the producer wrote all survive, so re-marshaling does not
+// invent initials=""/userId=""/providerId="" or reorder what it did not touch
+// (C525).
+//
+// A modeled field that is empty normally means "not set" and leaves the
+// captured value alone. Names listed in clearable invert that: an empty modeled
+// value removes the attribute, which is what makes a clearing setter
+// (SetResolved(false) dropping @status) actually take effect rather than being
+// shadowed by the captured original.
+func replayP188Attrs(captured []xmlb.RootAttr, model map[string]string, clearable ...string) []xmlb.Attr {
+	override := make(map[string]string, len(model))
+	for name, v := range model {
+		if v != "" {
+			override[name] = v
+		}
+	}
+	attrs := xmlb.RawAttrListOverride(captured, override)
+	if len(clearable) == 0 {
+		return attrs
+	}
+	out := attrs[:0]
+	for _, a := range attrs {
+		drop := false
+		for _, name := range clearable {
+			if a.Name == name && model[name] == "" {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func endP188(b *xmlb.Builder, prefix, localName string) {
+	if prefix == "" {
+		b.EndElement(nsP188, localName)
+		return
+	}
+	b.EndElementLiteral(prefix, localName)
+}
+
 func (c *ModernComment) marshal(b *xmlb.Builder) {
 	attrs := []xmlb.Attr{
 		xmlb.StrAttr("id", c.ID),
@@ -51,23 +97,37 @@ func (c *ModernComment) marshal(b *xmlb.Builder) {
 	if c.Created != "" {
 		attrs = append(attrs, xmlb.StrAttr("created", c.Created))
 	}
-	attrs = append(attrs, c.ExtraAttrs...)
-	b.StartElement(nsP188, "cm", attrs...)
+	prefix := ""
+	if c.CapturedAttrs == nil {
+		attrs = append(attrs, c.ExtraAttrs...)
+		b.StartElement(nsP188, "cm", attrs...)
+	} else {
+		prefix = xmlb.RawAttrPrefix(c.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		b.StartElementLiteral(prefix, "cm", nil, replayP188Attrs(c.CapturedAttrs, map[string]string{
+			"id": c.ID, "authorId": c.AuthorID, "status": c.Status, "created": c.Created,
+		}, "status")...)
+	}
 	for _, raw := range c.PreChildren {
 		b.WriteRaw(raw)
 	}
-	if len(c.Replies) > 0 {
-		b.StartElement(nsP188, "replyLst")
-		for _, r := range c.Replies {
-			r.marshal(b)
+	// An empty <p188:replyLst/> in the source is kept: dropping it changed bytes
+	// that did not need touching (C525).
+	if len(c.Replies) > 0 || c.HasReplyLst {
+		if len(c.Replies) == 0 {
+			b.EmptyElement(nsP188, "replyLst")
+		} else {
+			b.StartElement(nsP188, "replyLst")
+			for _, r := range c.Replies {
+				r.marshal(b)
+			}
+			b.EndElement(nsP188, "replyLst")
 		}
-		b.EndElement(nsP188, "replyLst")
 	}
 	marshalBody(b, c.TxBody, c.BodyText)
 	for _, raw := range c.PostChildren {
 		b.WriteRaw(raw)
 	}
-	b.EndElement(nsP188, "cm")
+	endP188(b, prefix, "cm")
 }
 
 func (r *ModernReply) marshal(b *xmlb.Builder) {
@@ -78,8 +138,16 @@ func (r *ModernReply) marshal(b *xmlb.Builder) {
 	if r.Created != "" {
 		attrs = append(attrs, xmlb.StrAttr("created", r.Created))
 	}
-	attrs = append(attrs, r.ExtraAttrs...)
-	b.StartElement(nsP188, "reply", attrs...)
+	prefix := ""
+	if r.CapturedAttrs == nil {
+		attrs = append(attrs, r.ExtraAttrs...)
+		b.StartElement(nsP188, "reply", attrs...)
+	} else {
+		prefix = xmlb.RawAttrPrefix(r.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		b.StartElementLiteral(prefix, "reply", nil, replayP188Attrs(r.CapturedAttrs, map[string]string{
+			"id": r.ID, "authorId": r.AuthorID, "created": r.Created,
+		})...)
+	}
 	for _, raw := range r.PreChildren {
 		b.WriteRaw(raw)
 	}
@@ -87,7 +155,7 @@ func (r *ModernReply) marshal(b *xmlb.Builder) {
 	for _, raw := range r.PostChildren {
 		b.WriteRaw(raw)
 	}
-	b.EndElement(nsP188, "reply")
+	endP188(b, prefix, "reply")
 }
 
 // marshalBody writes the p188:txBody: the preserved raw body when present,
@@ -125,6 +193,24 @@ func (l *ModernAuthorList) Marshal() []byte {
 }
 
 func (a *ModernAuthor) marshal(b *xmlb.Builder) {
+	if a.CapturedAttrs != nil {
+		// Verbatim replay: an author that carried no initials/userId/providerId
+		// does not gain initials=""/userId=""/providerId="", and the producer's
+		// attribute order survives (C525).
+		prefix := xmlb.RawAttrPrefix(a.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		attrs := replayP188Attrs(a.CapturedAttrs, map[string]string{
+			"id": a.ID, "name": a.Name, "initials": a.Initials,
+			"userId": a.UserID, "providerId": a.ProviderID,
+		})
+		if len(a.RawInner) == 0 {
+			b.EmptyElementLiteral(prefix, "author", attrs...)
+			return
+		}
+		b.StartElementLiteral(prefix, "author", nil, attrs...)
+		b.WriteRaw(a.RawInner)
+		b.EndElementLiteral(prefix, "author")
+		return
+	}
 	attrs := []xmlb.Attr{
 		xmlb.StrAttr("id", a.ID),
 		xmlb.StrAttr("name", a.Name),

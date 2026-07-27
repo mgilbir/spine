@@ -283,14 +283,11 @@ func unmarshalIDEntryChildren(d *xml.Decoder, dst **ExtensionList) error {
 	}
 }
 
-// MarshalXML implements custom XML marshaling for SlideID.
-// Uses r:id attribute to match OOXML conventions (requires xmlns:r declaration in parent).
-func (s SlideID) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "id"}, Value: fmt.Sprintf("%d", s.ID)})
-	// Use r:id directly - the r prefix is declared in the root presentation element
-	start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "r:id"}, Value: s.RID})
-	return e.EncodeElement(struct{}{}, start)
-}
+// The stdlib MarshalXML that used to live here encoded struct{}{} — dropping a
+// parsed sldId extLst — and wrote a literal, un-namespaced "r:id" attribute. It
+// was reachable only from tests; production goes through MarshalToBuilder
+// below. C355 deleted exactly this shape for SlideLayoutID and SlideMasterID,
+// so it is gone here too (C532).
 
 // MarshalToBuilder implements xmlb.BuilderMarshaler (see SlideLayoutID). The
 // presentation.xml writer emits sldId entries explicitly, so this is a safety

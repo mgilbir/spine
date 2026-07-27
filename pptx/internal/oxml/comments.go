@@ -25,6 +25,18 @@ type Comment struct {
 	Pos      *Point2D       `xml:"http://schemas.openxmlformats.org/presentationml/2006/main pos,omitempty"`
 	Text     string         `xml:"http://schemas.openxmlformats.org/presentationml/2006/main text,omitempty"`
 	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	// CapturedAttrs preserves the verbatim source attribute list (attribute
+	// order and any unmodeled attribute) across the comments part's
+	// regeneration; see common/xml.CaptureAttrs.
+	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (cm *Comment) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	cm.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias Comment
+	return d.DecodeElement((*alias)(cm), &start)
 }
 
 // Point2D represents CT_Point2D for comment position (x,y in EMUs)
@@ -38,19 +50,26 @@ type CommentAuthorList struct {
 	CmAuthor []*CommentAuthor `xml:"http://schemas.openxmlformats.org/presentationml/2006/main cmAuthor,omitempty"`
 }
 
-// CommentAuthor represents CT_CommentAuthor (p:cmAuthor)
+// CommentAuthor represents CT_CommentAuthor (p:cmAuthor). lastIdx and clrIdx
+// are XSD default-0, so an explicit clrIdx="0" (PowerPoint's first author
+// colour, very common) would be deleted by omitempty when the authors part is
+// regenerated — CapturedAttrs keeps it (C420).
 type CommentAuthor struct {
-	Id       uint32         `xml:"id,attr"`
-	Name     string         `xml:"name,attr"`
-	Initials string         `xml:"initials,attr,omitempty"`
-	LastIdx  uint32         `xml:"lastIdx,attr,omitempty"`
-	ClrIdx   uint32         `xml:"clrIdx,attr,omitempty"`
-	ExtLst   *ExtensionList `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	Id            uint32          `xml:"id,attr"`
+	Name          string          `xml:"name,attr"`
+	Initials      string          `xml:"initials,attr,omitempty"`
+	LastIdx       uint32          `xml:"lastIdx,attr,omitempty"`
+	ClrIdx        uint32          `xml:"clrIdx,attr,omitempty"`
+	ExtLst        *ExtensionList  `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see common/xml.CaptureAttrs
 }
 
-// CommentText represents the text content of a comment (p:text).
-type CommentText struct {
-	Value string `xml:",chardata"`
+// UnmarshalXML captures the element's verbatim attribute list before decoding
+// through the struct tags; the reflection marshaler replays it.
+func (ca *CommentAuthor) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ca.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias CommentAuthor
+	return d.DecodeElement((*alias)(ca), &start)
 }
 
 // --- Notes ---
@@ -65,6 +84,21 @@ type NotesSlide struct {
 	ExtLst           *ExtensionList   `xml:"http://schemas.openxmlformats.org/presentationml/2006/main extLst,omitempty"`
 	ShowMasterSp     *bool            `xml:"showMasterSp,attr,omitempty"`
 	ShowMasterPhAnim *bool            `xml:"showMasterPhAnim,attr,omitempty"`
+	// OriginalRootAttrs preserves the p:notes root's verbatim attribute list;
+	// see Slide.OriginalRootAttrs. Without it a regenerated notes part carried
+	// only the a/r/p declarations, so an mc:AlternateContent in the notes shape
+	// tree — the normal PowerPoint form for ink and other guarded content — was
+	// re-emitted with no xmlns:mc anywhere in the part, and every extra root
+	// declaration and mc:Ignorable was dropped (C421).
+	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
+}
+
+// UnmarshalXML captures the root element's verbatim attribute list before
+// decoding through the struct tags.
+func (ns *NotesSlide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	ns.OriginalRootAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
+	type alias NotesSlide
+	return d.DecodeElement((*alias)(ns), &start)
 }
 
 // NotesMaster represents CT_NotesMaster (p:notesMaster)

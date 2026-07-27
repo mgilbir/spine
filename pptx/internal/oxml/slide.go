@@ -42,6 +42,8 @@ type Slide struct {
 	Timing            *Timing             `xml:"timing,omitempty"`
 	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
 	acAnchors         []string
+	rawChildren       [][]byte
+	rawAnchors        []string
 }
 
 // SlideLayout is the root element of a slide layout part.
@@ -76,6 +78,8 @@ type SlideLayout struct {
 	Hf                  *HeaderFooter       `xml:"hf,omitempty"`
 	ExtLst              *ExtensionList      `xml:"extLst,omitempty"`
 	acAnchors           []string
+	rawChildren         [][]byte
+	rawAnchors          []string
 }
 
 // SlideMaster is the root element of a slide master part.
@@ -103,6 +107,8 @@ type SlideMaster struct {
 	TxStyles          *TxStyles           `xml:"txStyles,omitempty"`
 	ExtLst            *ExtensionList      `xml:"extLst,omitempty"`
 	acAnchors         []string
+	rawChildren       [][]byte
+	rawAnchors        []string
 }
 
 // SlideLayoutIDs contains a list of slide layout ID references.
@@ -184,15 +190,6 @@ func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 			c.Name = attr.Value
 		}
 	}
-	captureRaw := func(t xml.StartElement) ([]byte, error) {
-		var inner struct {
-			Content []byte `xml:",innerxml"`
-		}
-		if err := d.DecodeElement(&inner, &t); err != nil {
-			return nil, err
-		}
-		return encodeRawChild(t, inner.Content), nil
-	}
 	for {
 		tok, err := d.Token()
 		if err != nil {
@@ -212,11 +209,11 @@ func (c *CommonSlideData) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 					return err
 				}
 			case "custDataLst":
-				if c.CustDataLst, err = captureRaw(t); err != nil {
+				if c.CustDataLst, err = captureRaw(d, t); err != nil {
 					return err
 				}
 			case "controls":
-				if c.Controls, err = captureRaw(t); err != nil {
+				if c.Controls, err = captureRaw(d, t); err != nil {
 					return err
 				}
 			case "extLst":
@@ -643,14 +640,12 @@ func (st *ShapeTree) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 				}
 				// Unmodeled child (p:contentPart, extLst, ...): capture the
 				// whole element raw so a save re-emits it in position (C32).
-				var inner struct {
-					Content []byte `xml:",innerxml"`
-				}
-				if err := d.DecodeElement(&inner, &t); err != nil {
+				raw, err := captureRaw(d, t)
+				if err != nil {
 					return err
 				}
 				st.childOrder = append(st.childOrder, ChildRef{ChildRawXML, len(st.RawXML)})
-				st.RawXML = append(st.RawXML, encodeRawChild(t, inner.Content))
+				st.RawXML = append(st.RawXML, raw)
 			}
 		case xml.EndElement:
 			return nil

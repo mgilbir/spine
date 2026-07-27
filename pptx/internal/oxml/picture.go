@@ -289,14 +289,12 @@ func (gs *GroupShape) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error
 				}
 				// Unmodeled child (p:contentPart, extLst, ...): capture the
 				// whole element raw so a save re-emits it in position (C32).
-				var inner struct {
-					Content []byte `xml:",innerxml"`
-				}
-				if err := d.DecodeElement(&inner, &t); err != nil {
+				raw, err := captureRaw(d, t)
+				if err != nil {
 					return err
 				}
 				gs.childOrder = append(gs.childOrder, ChildRef{ChildRawXML, len(gs.RawXML)})
-				gs.RawXML = append(gs.RawXML, encodeRawChild(t, inner.Content))
+				gs.RawXML = append(gs.RawXML, raw)
 			}
 		case xml.EndElement:
 			return nil

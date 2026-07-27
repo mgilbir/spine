@@ -67,6 +67,56 @@ func padAnchors(anchors []string, n int) []string {
 	return anchors
 }
 
+// Root-level children the schema does not define (a future p:* element, an
+// unknown-namespace sibling) used to be d.Skip()ed and therefore deleted on
+// save — the opposite of what the shape tree, group shapes and cSld do, which
+// raw-capture such children (C32/C33). They are now captured verbatim and
+// replayed at their source position (C528).
+//
+// Positions are tracked with the same anchor mechanism as mc:AlternateContent,
+// except that an unknown child also becomes an anchor itself: the next sibling
+// (AC or unknown) anchors to it, so a run of unknown children and the ACs
+// interleaved with them all keep their order. rawAnchorKey values cannot
+// collide with a typed child name because of the leading NUL.
+
+func rawAnchorKey(i int) string { return "\x00raw:" + strconv.Itoa(i) }
+
+func rawAnchorAt(anchors []string, i int) string {
+	if i < len(anchors) {
+		return anchors[i]
+	}
+	return acDefaultAnchor
+}
+
+// rootChildEmitter emits the AlternateContent and unknown-child siblings
+// anchored at a given typed child, following the chain of unknown children
+// (each of which anchors the next sibling).
+func rootChildEmitter(b *xmlb.Builder, acs []*AlternateContent, acAnchors []string, raws [][]byte, rawAnchors []string) func(string) {
+	return func(anchor string) {
+		for {
+			for i, ac := range acs {
+				if acAnchorAt(acAnchors, i) == anchor {
+					b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
+				}
+			}
+			// At most one unknown child carries any given anchor, since each one
+			// advances it.
+			next := -1
+			for i := range raws {
+				if rawAnchorAt(rawAnchors, i) == anchor {
+					next = i
+					break
+				}
+			}
+			if next < 0 {
+				return
+			}
+			b.WriteRaw(raws[next])
+			anchor = rawAnchorKey(next)
+		}
+	}
+}
+
 // parseXSDBool parses an ST_OnOff / xsd:boolean attribute value, ignoring
 // input outside the schema (leaving the field absent). ECMA-376 ST_OnOff
 // admits on/off in addition to the xsd:boolean 1/0/true/false, which
@@ -151,9 +201,13 @@ func (s *Slide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					return err
 				}
 			default:
-				if err := d.Skip(); err != nil {
+				raw, err := captureRaw(d, t)
+				if err != nil {
 					return err
 				}
+				s.rawChildren = append(s.rawChildren, raw)
+				s.rawAnchors = append(s.rawAnchors, anchor)
+				anchor = rawAnchorKey(len(s.rawChildren) - 1)
 				continue
 			}
 			anchor = t.Name.Local
@@ -164,15 +218,9 @@ func (s *Slide) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 }
 
 // marshalRootChildren writes the slide's children in schema order with the
-// AlternateContent siblings restored to their anchored positions.
+// AlternateContent and unknown siblings restored to their anchored positions.
 func (s *Slide) marshalRootChildren(b *xmlb.Builder) {
-	emitAC := func(anchor string) {
-		for i, ac := range s.AlternateContent {
-			if acAnchorAt(s.acAnchors, i) == anchor {
-				b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
-			}
-		}
-	}
+	emitAC := rootChildEmitter(b, s.AlternateContent, s.acAnchors, s.rawChildren, s.rawAnchors)
 	emitAC("")
 	if s.CSld != nil {
 		b.MarshalElement(xmlb.NSPresentationML, "cSld", s.CSld)
@@ -308,9 +356,13 @@ func (sl *SlideLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 					return err
 				}
 			default:
-				if err := d.Skip(); err != nil {
+				raw, err := captureRaw(d, t)
+				if err != nil {
 					return err
 				}
+				sl.rawChildren = append(sl.rawChildren, raw)
+				sl.rawAnchors = append(sl.rawAnchors, anchor)
+				anchor = rawAnchorKey(len(sl.rawChildren) - 1)
 				continue
 			}
 			anchor = t.Name.Local
@@ -321,13 +373,7 @@ func (sl *SlideLayout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 }
 
 func (sl *SlideLayout) marshalRootChildren(b *xmlb.Builder) {
-	emitAC := func(anchor string) {
-		for i, ac := range sl.AlternateContent {
-			if acAnchorAt(sl.acAnchors, i) == anchor {
-				b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
-			}
-		}
-	}
+	emitAC := rootChildEmitter(b, sl.AlternateContent, sl.acAnchors, sl.rawChildren, sl.rawAnchors)
 	emitAC("")
 	if sl.CSld != nil {
 		b.MarshalElement(xmlb.NSPresentationML, "cSld", sl.CSld)
@@ -471,9 +517,13 @@ func (sm *SlideMaster) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 					return err
 				}
 			default:
-				if err := d.Skip(); err != nil {
+				raw, err := captureRaw(d, t)
+				if err != nil {
 					return err
 				}
+				sm.rawChildren = append(sm.rawChildren, raw)
+				sm.rawAnchors = append(sm.rawAnchors, anchor)
+				anchor = rawAnchorKey(len(sm.rawChildren) - 1)
 				continue
 			}
 			anchor = t.Name.Local
@@ -484,13 +534,7 @@ func (sm *SlideMaster) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 }
 
 func (sm *SlideMaster) marshalRootChildren(b *xmlb.Builder) {
-	emitAC := func(anchor string) {
-		for i, ac := range sm.AlternateContent {
-			if acAnchorAt(sm.acAnchors, i) == anchor {
-				b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
-			}
-		}
-	}
+	emitAC := rootChildEmitter(b, sm.AlternateContent, sm.acAnchors, sm.rawChildren, sm.rawAnchors)
 	emitAC("")
 	if sm.CSld != nil {
 		b.MarshalElement(xmlb.NSPresentationML, "cSld", sm.CSld)

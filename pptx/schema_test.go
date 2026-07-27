@@ -205,34 +205,53 @@ func TestSchema_RelationshipIDs(t *testing.T) {
 	}
 }
 
-// TestSchema_SlideIDMarshalUnmarshal tests that SlideID properly marshals/unmarshals r:id.
+// TestSchema_SlideIDMarshalUnmarshal tests that SlideID serializes through the
+// production Builder path (the sole path since the dead stdlib serializer was
+// removed in C532), emitting the compact r:id form and keeping a parsed extLst.
 func TestSchema_SlideIDMarshalUnmarshal(t *testing.T) {
-	original := oxml.SlideID{
-		ID:  256,
-		RID: "rId2",
+	b := xmlb.NewPresentationMLBuilder()
+	oxml.SlideID{ID: 256, RID: "rId2"}.MarshalToBuilder(b, xmlb.NSPresentationML, "sldId")
+	if err := b.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	got := b.String()
+	t.Logf("Marshaled XML: %s", got)
+	if !strings.Contains(got, `r:id="rId2"`) {
+		t.Errorf("r:id not emitted in compact form:\n%s", got)
+	}
+	if !strings.Contains(got, `id="256"`) {
+		t.Errorf("numeric id not emitted:\n%s", got)
 	}
 
-	// Marshal
-	data, err := xml.Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
+	// A sldId that carried an extLst keeps it (C225); the deleted stdlib
+	// serializer encoded struct{}{} and dropped it silently.
+	src := `<p:sldIdLst xmlns:p="` + xmlb.NSPresentationML + `" xmlns:r="` + xmlb.NSOfficeDocumentRels + `">` +
+		`<p:sldId id="257" r:id="rId3"><p:extLst><p:ext uri="{DEADBEEF}"><q:x xmlns:q="urn:q"/></p:ext></p:extLst></p:sldId>` +
+		`</p:sldIdLst>`
+	var lst oxml.SlideIDs
+	if err := xml.Unmarshal([]byte(src), &lst); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(lst.SlideID) != 1 || lst.SlideID[0].ExtLst == nil {
+		t.Fatalf("sldId extLst not parsed: %+v", lst.SlideID)
+	}
+	b2 := xmlb.NewPresentationMLBuilder()
+	lst.SlideID[0].MarshalToBuilder(b2, xmlb.NSPresentationML, "sldId")
+	if err := b2.Finish(); err != nil {
+		t.Fatalf("builder: %v", err)
+	}
+	if out := b2.String(); !strings.Contains(out, "extLst") {
+		t.Errorf("sldId extLst dropped on re-marshal:\n%s", out)
 	}
 
-	xmlStr := string(data)
-	t.Logf("Marshaled XML: %s", xmlStr)
-
-	// Should contain r:id and the value
-	if !strings.Contains(xmlStr, "r:id") {
-		t.Error("Marshaled XML should contain r:id attribute")
+	// The stdlib shadow is gone for good: it encoded struct{}{} (dropping the
+	// extLst above) and wrote a literal, un-namespaced "r:id". SlideLayoutID and
+	// SlideMasterID lost theirs in C355; SlideID keeps parity (C532).
+	for _, v := range []any{oxml.SlideID{}, oxml.SlideLayoutID{}, oxml.SlideMasterID{}} {
+		if m, ok := v.(xml.Marshaler); ok {
+			t.Errorf("%T reintroduced a stdlib xml.Marshaler shadow (%T); the Builder path is the only serializer", v, m)
+		}
 	}
-	if !strings.Contains(xmlStr, "rId2") {
-		t.Error("Marshaled XML should contain rId2 value")
-	}
-
-	// Note: Isolated unmarshal without namespace context doesn't work correctly
-	// because Go's XML parser needs xmlns:r declaration to resolve the r: prefix.
-	// The actual round-trip works because the full document has proper namespaces.
-	// This test verifies marshal output is correct.
 }
 
 // TestSchema_SlideMasterIDMarshalUnmarshal tests that SlideMasterID serializes
