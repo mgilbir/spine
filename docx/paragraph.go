@@ -29,6 +29,7 @@ func (p *Paragraph) Text() string {
 // raw-preserved inline elements — so no stale text (e.g. hyperlink display
 // text) survives next to the new content. Paragraph properties are kept.
 func (p *Paragraph) SetText(text string) {
+	p.touch()
 	p.p.ClearContent()
 	p.p.AppendR(&oxml.CT_R{
 		T: []*oxml.CT_Text{{Space: "preserve", Text: text}},
@@ -46,6 +47,7 @@ func (p *Paragraph) Runs() []*Run {
 
 // AddRun adds a new run to the paragraph.
 func (p *Paragraph) AddRun() *Run {
+	p.touch()
 	r := &oxml.CT_R{}
 	p.p.AppendR(r)
 	return &Run{paragraph: p, r: r}
@@ -61,6 +63,7 @@ func (p *Paragraph) Style() string {
 
 // SetStyle sets the paragraph style.
 func (p *Paragraph) SetStyle(style string) {
+	p.touch()
 	if p.p.PPr == nil {
 		p.p.PPr = &oxml.CT_PPr{}
 	}
@@ -84,6 +87,7 @@ func (p *Paragraph) Alignment() Alignment {
 
 // SetAlignment sets the paragraph alignment.
 func (p *Paragraph) SetAlignment(align Alignment) {
+	p.touch()
 	if p.p.PPr == nil {
 		p.p.PPr = &oxml.CT_PPr{}
 	}
@@ -103,6 +107,7 @@ func (p *Paragraph) SetAlignment(align Alignment) {
 // recorded child order, so a later AddRun does not resolve a stale reference
 // to the new run and duplicate it.
 func (p *Paragraph) Clear() {
+	p.touch()
 	p.p.SetRuns(nil)
 }
 
@@ -257,6 +262,7 @@ func (p *Paragraph) AddTabStop(stop TabStop) {
 
 // ClearTabStops removes all explicit tab stops from the paragraph.
 func (p *Paragraph) ClearTabStops() {
+	p.touch()
 	if p.p.PPr != nil {
 		p.p.PPr.Tabs = nil
 	}
@@ -296,7 +302,22 @@ func (p *Paragraph) SetPageBreakBefore(brk bool) {
 
 // --- helpers ---
 
+// touch flags the header/footer part this paragraph belongs to as modified, so
+// an edit made through a live handle into a reopened header/footer is written
+// back instead of being masked by the preserved original bytes. It is a no-op
+// for paragraphs in the main document part (markHdrFtrModified only acts on a
+// preserved header/footer part).
+func (p *Paragraph) touch() {
+	if p != nil && p.hfPart != "" && p.document != nil {
+		p.document.markHdrFtrModified(p.hfPart)
+	}
+}
+
 func (p *Paragraph) ensurePPr() {
+	// Property setters funnel through here before mutating, so flagging the
+	// owning header/footer part here covers them in one place. A no-op for
+	// paragraphs in the main document part.
+	p.touch()
 	if p.p.PPr == nil {
 		p.p.PPr = &oxml.CT_PPr{}
 	}

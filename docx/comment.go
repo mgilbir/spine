@@ -129,7 +129,7 @@ func (c *Comment) Replies() []*Comment {
 // markers (docx-specific). It is "" for a point anchor with no spanned text and
 // for a comment whose range cannot be resolved in the document.
 func (c *Comment) AnchorText() string {
-	text, _ := oxml.AnchorText(c.document.bodyParagraphs(), c.c.Id)
+	text, _ := oxml.AnchorText(c.document.allBodyParagraphs(), c.c.Id)
 	return text
 }
 
@@ -162,8 +162,19 @@ func (r *Run) AddComment(author, text string) *Comment {
 // AddCommentOnRange attaches a comment spanning from the start run to the end
 // run (inclusive). The runs may live in the same paragraph or in different
 // paragraphs; the range markers are placed around them and the reference mark
-// after the end run.
+// after the end run. It returns nil if either run is not a direct child run of
+// its paragraph (e.g. a run nested inside a hyperlink), adding no comment so
+// comments.xml gains no orphan entry with no anchor.
 func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comment {
+	if start == nil || end == nil || start.paragraph == nil || end.paragraph == nil {
+		return nil
+	}
+	// Verify both range markers can be anchored before creating the comment
+	// model: a nested (non-direct-child) endpoint must not leave an orphan
+	// comment in comments.xml with no document anchor (C296).
+	if !start.paragraph.p.HasDirectChildRun(start.r) || !end.paragraph.p.HasDirectChildRun(end.r) {
+		return nil
+	}
 	c := d.addCommentModel(author, text, "")
 	start.paragraph.p.InsertCommentStartBeforeRun(start.r, c.Id)
 	end.paragraph.p.InsertCommentEndAndRefAfterRun(end.r, c.Id)
@@ -363,7 +374,7 @@ func (d *Document) ensureParaID(c *oxml.CT_Comment) {
 // nestReplyAnchor places the reply's range markers nested inside the parent's,
 // so the reply shares the parent's anchored span.
 func (d *Document) nestReplyAnchor(parentID, newID string) {
-	paras := d.bodyParagraphs()
+	paras := d.allBodyParagraphs()
 	for _, p := range paras {
 		if p.NestCommentStartAfter(parentID, newID) {
 			break
@@ -381,12 +392,25 @@ func (d *Document) nestReplyAnchor(parentID, newID string) {
 	}
 }
 
-// bodyParagraphs returns the body's paragraphs in document order.
+// bodyParagraphs returns the body's top-level paragraphs in document order
+// (top-level plus block-level SDT content; tables are not descended).
 func (d *Document) bodyParagraphs() []*oxml.CT_P {
 	if d.doc() == nil || d.doc().Body == nil {
 		return nil
 	}
 	return d.doc().Body.Paragraphs()
+}
+
+// allBodyParagraphs returns every paragraph reachable from the body in document
+// order, descending into tables (and block-level SDTs). Comment anchoring and
+// threading use this so a comment anchored in a table cell is not invisible to
+// Reply() and AnchorText() (C267): the range markers live in a table-cell
+// paragraph that the top-level-only bodyParagraphs walk never reaches.
+func (d *Document) allBodyParagraphs() []*oxml.CT_P {
+	if d.doc() == nil || d.doc().Body == nil {
+		return nil
+	}
+	return d.doc().Body.AllParagraphs()
 }
 
 // nextParaID returns an 8-hex-digit paraId not already used by any body or

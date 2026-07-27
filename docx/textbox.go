@@ -505,20 +505,92 @@ func parseTextBox(raw []byte, vml bool, dr *oxml.CT_Drawing) *TextBox {
 	if !bytes.Contains(raw, []byte("txbxContent")) {
 		return nil
 	}
+	floating, cx, cy, prst := scanDrawingGeometry(raw)
 	tb := &TextBox{
 		text:     extractTxbxText(raw),
-		floating: bytes.Contains(raw, []byte(":anchor")) || bytes.Contains(raw, []byte("<anchor")),
+		floating: floating,
 		vml:      vml,
-		shape:    ShapeType(attrValue(raw, []byte(` prst="`))),
+		shape:    ShapeType(prst),
 		drawing:  dr,
 	}
 	if vml {
 		tb.widthEMU, tb.heightEMU = vmlSizeEMU(raw)
 	} else {
-		tb.widthEMU = extentValue(raw, 'x')
-		tb.heightEMU = extentValue(raw, 'y')
+		tb.widthEMU = cx
+		tb.heightEMU = cy
 	}
 	return tb
+}
+
+// scanDrawingGeometry decodes a drawing fragment to read its wrapper geometry:
+// whether it is floating (a wp:anchor wrapper rather than wp:inline), its
+// wp:extent size, and its a:prstGeom preset shape. It walks the fragment with
+// the XML decoder rather than substring-matching raw bytes, because the box's
+// own escaped body text can contain literals like ":anchor" or a prst="…"
+// attribute that a byte scan would misread. Elements inside the w:txbxContent
+// body are ignored so only the wrapper's own geometry is reported. Undeclared
+// prefixes (wp:, a:, w:) are tolerated: the decoder still reports the local
+// name. Values are 0/"" when the fragment carries no such element.
+func scanDrawingGeometry(raw []byte) (floating bool, cx, cy int64, prst string) {
+	dec := xml.NewDecoder(bytes.NewReader(raw))
+	txbxDepth := 0
+	haveExtent := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "txbxContent" {
+				txbxDepth++
+				continue
+			}
+			if txbxDepth > 0 {
+				// Inside the text body: not part of the wrapper geometry.
+				continue
+			}
+			switch t.Name.Local {
+			case "anchor":
+				floating = true
+			case "extent":
+				if !haveExtent {
+					cx = attrInt(t.Attr, "cx")
+					cy = attrInt(t.Attr, "cy")
+					haveExtent = true
+				}
+			case "prstGeom":
+				if prst == "" {
+					prst = attrStr(t.Attr, "prst")
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == "txbxContent" && txbxDepth > 0 {
+				txbxDepth--
+			}
+		}
+	}
+	return floating, cx, cy, prst
+}
+
+// attrStr returns the value of the attribute with the given local name, or "".
+func attrStr(attrs []xml.Attr, local string) string {
+	for _, a := range attrs {
+		if a.Name.Local == local {
+			return a.Value
+		}
+	}
+	return ""
+}
+
+// attrInt returns the attribute with the given local name parsed as an int64,
+// or 0 when absent or unparseable.
+func attrInt(attrs []xml.Attr, local string) int64 {
+	n, err := strconv.ParseInt(attrStr(attrs, local), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // extractTxbxText extracts the plain text of the first w:txbxContent in raw,

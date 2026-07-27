@@ -74,7 +74,27 @@ func (h *Hyperlink) Text() string {
 }
 
 // SetTooltip sets the hyperlink's screen-tip.
-func (h *Hyperlink) SetTooltip(tooltip string) { h.h.Tooltip = tooltip }
+func (h *Hyperlink) SetTooltip(tooltip string) {
+	h.touch()
+	h.h.Tooltip = tooltip
+}
+
+// touch flags the header/footer part this hyperlink belongs to as modified, so
+// an edit made through a live handle into a reopened header/footer is written
+// back instead of being masked by the preserved original bytes. A no-op for
+// hyperlinks in the main document part.
+func (h *Hyperlink) touch() {
+	if h == nil {
+		return
+	}
+	if h.para != nil {
+		h.para.touch()
+		return
+	}
+	if h.document != nil {
+		h.document.markHdrFtrModified(h.part)
+	}
+}
 
 // --- read ---
 
@@ -114,7 +134,8 @@ func (p *Paragraph) Hyperlinks() []*Hyperlink {
 }
 
 // Hyperlinks returns every hyperlink in the document, in document order,
-// including hyperlinks nested in tables and structured document tags.
+// including hyperlinks nested in tables and structured document tags, and those
+// in headers and footers (table-nested ones included).
 func (d *Document) Hyperlinks() []*Hyperlink {
 	var out []*Hyperlink
 	if d.doc() != nil && d.doc().Body != nil {
@@ -131,7 +152,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 		if hp == nil || hp.hdr == nil {
 			continue
 		}
-		for _, cp := range hp.hdr.P {
+		for _, cp := range hp.hdr.AllParagraphs() {
 			para := &Paragraph{document: d, p: cp, hfPart: name}
 			for _, h := range cp.Hyperlink {
 				if h != nil {
@@ -144,7 +165,7 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 		if fp == nil || fp.ftr == nil {
 			continue
 		}
-		for _, cp := range fp.ftr.P {
+		for _, cp := range fp.ftr.AllParagraphs() {
 			para := &Paragraph{document: d, p: cp, hfPart: name}
 			for _, h := range cp.Hyperlink {
 				if h != nil {
@@ -163,8 +184,9 @@ func (d *Document) Hyperlinks() []*Hyperlink {
 // resolves to an External relationship (RelTypeHyperlink) in the part's
 // relationships.
 func (p *Paragraph) AddHyperlink(text, url string) *Hyperlink {
+	p.touch()
 	owner := p.ownerPartName()
-	relID := fmt.Sprintf("rId%d", p.document.nextRelID())
+	relID := fmt.Sprintf("rId%d", p.document.nextRelIDForPart(owner))
 	p.document.addPartRelationship(owner, &opc.Relationship{
 		ID:         relID,
 		Type:       opc.RelTypeHyperlink,
@@ -181,6 +203,7 @@ func (p *Paragraph) AddHyperlink(text, url string) *Hyperlink {
 // an in-document bookmark (w:anchor). No relationship is created; compose it
 // with AddBookmark to link to a bookmark added in the same session.
 func (p *Paragraph) AddInternalHyperlink(text, bookmarkName string) *Hyperlink {
+	p.touch()
 	owner := p.ownerPartName()
 	h := &oxml.CT_Hyperlink{Anchor: bookmarkName, History: "1"}
 	h.R = []*oxml.CT_R{newHyperlinkRun(text)}

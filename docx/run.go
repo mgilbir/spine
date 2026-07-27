@@ -25,6 +25,7 @@ func (r *Run) Text() string {
 
 // SetText sets the text content, replacing all existing text elements.
 func (r *Run) SetText(text string) {
+	r.touch()
 	r.r.SetTexts([]*oxml.CT_Text{{Space: "preserve", Text: text}})
 }
 
@@ -48,6 +49,7 @@ func (r *Run) SetBold(bold bool) {
 // ClearBold removes the run's explicit bold setting so it inherits from the
 // paragraph/style.
 func (r *Run) ClearBold() {
+	r.touch()
 	if r.r.RPr != nil {
 		r.r.RPr.B = nil
 	}
@@ -79,6 +81,7 @@ func (r *Run) SetItalic(italic bool) {
 
 // ClearItalic removes the run's explicit italic setting so it inherits.
 func (r *Run) ClearItalic() {
+	r.touch()
 	if r.r.RPr != nil {
 		r.r.RPr.I = nil
 	}
@@ -119,6 +122,7 @@ func (r *Run) SetStrike(strike bool) {
 
 // ClearStrike removes the run's explicit strikethrough setting so it inherits.
 func (r *Run) ClearStrike() {
+	r.touch()
 	if r.r.RPr != nil {
 		r.r.RPr.Strike = nil
 	}
@@ -179,11 +183,13 @@ func (r *Run) SetColor(color string) {
 
 // AddBreak adds a line break to the run.
 func (r *Run) AddBreak() {
+	r.touch()
 	r.r.AppendBr(&oxml.CT_Br{})
 }
 
 // AddTab adds a tab to the run.
 func (r *Run) AddTab() {
+	r.touch()
 	r.r.AppendTab()
 }
 
@@ -265,6 +271,7 @@ func (r *Run) Highlight() string {
 // SetHighlight sets the run's highlight to a named color (e.g. "yellow",
 // "green", "cyan"). Passing an empty string or "none" removes the highlight.
 func (r *Run) SetHighlight(color string) {
+	r.touch()
 	if color == "" {
 		if r.r.RPr != nil {
 			r.r.RPr.Highlight = nil
@@ -288,6 +295,7 @@ func (r *Run) VerticalAlign() enum.VerticalAlignRun {
 // (w:vertAlign). Passing an empty string clears the setting so the run inherits
 // its vertical alignment.
 func (r *Run) SetVerticalAlign(align enum.VerticalAlignRun) {
+	r.touch()
 	if align == "" {
 		if r.r.RPr != nil {
 			r.r.RPr.VertAlign = nil
@@ -340,6 +348,7 @@ func (r *Run) SetCaps(caps bool) {
 
 // ClearCaps removes the run's explicit all-capitals setting so it inherits.
 func (r *Run) ClearCaps() {
+	r.touch()
 	if r.r.RPr != nil {
 		r.r.RPr.Caps = nil
 	}
@@ -360,6 +369,7 @@ func (r *Run) SetSmallCaps(smallCaps bool) {
 // ClearSmallCaps removes the run's explicit small-capitals setting so it
 // inherits from the style.
 func (r *Run) ClearSmallCaps() {
+	r.touch()
 	if r.r.RPr != nil {
 		r.r.RPr.SmallCaps = nil
 	}
@@ -436,6 +446,7 @@ func (r *Run) Style() string {
 // complementing the paragraph and style-definition APIs. Passing "" removes the
 // character style so the run inherits from its paragraph style.
 func (r *Run) SetStyle(id string) {
+	r.touch()
 	if id == "" {
 		if r.r.RPr != nil {
 			r.r.RPr.RStyle = nil
@@ -452,16 +463,35 @@ func (r *Run) SetStyle(id string) {
 // offset Word uses for symbol fonts is part of the stored value and is not added
 // here.
 func (r *Run) AddSymbol(font, char string) {
+	r.touch()
 	r.r.AppendSym(&oxml.CT_Sym{Font: font, Char: char})
 }
 
 // Clear removes all content from the run.
 func (r *Run) Clear() {
+	r.touch()
 	r.r.ClearContent()
 }
 
 func (r *Run) ensureRPr() {
+	// Every property setter funnels through here before mutating, so flagging
+	// the owning header/footer part here covers all of them in one place: an
+	// edit through a live handle into a reopened header/footer must regenerate
+	// that part on save, not write the preserved raw bytes. A no-op for runs in
+	// the main document part.
+	r.touch()
 	if r.r.RPr == nil {
 		r.r.RPr = &oxml.CT_RPr{}
+	}
+}
+
+// touch flags the header/footer part this run belongs to as modified, so an
+// edit made through a live handle into a reopened header/footer is written back
+// instead of being masked by the preserved original bytes. It resolves to a
+// no-op for runs in the main document part (markHdrFtrModified only acts on a
+// preserved header/footer part).
+func (r *Run) touch() {
+	if r != nil && r.paragraph != nil {
+		r.paragraph.touch()
 	}
 }

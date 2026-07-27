@@ -33,6 +33,11 @@ type Document struct {
 	// built by Create). When false at save time the body was never touched, so
 	// the original bytes pass through unchanged.
 	docParsed bool
+	// docParseErr caches a failure of the lazy body parse in doc(). Open
+	// validates the same bytes up front, so a non-nil value here signals
+	// in-memory corruption rather than a malformed file; doc() surfaces it as a
+	// clear panic instead of returning a nil model that callers would nil-deref.
+	docParseErr error
 	// mainPartName is the resolved name of the main document part from the
 	// package root relationships (usually /word/document.xml, but e.g.
 	// /word/document2.xml occurs in the wild). The save paths regenerate THIS
@@ -67,8 +72,23 @@ type Document struct {
 	contentTypesData []byte                    // raw [Content_Types].xml
 	imageParts       []*imagePart              // images to be written
 	chartParts       []*chartPart              // charts (with embedded workbooks) to be written
-	nextRelIDVal     int                       // counter for relationship IDs
+	importedParts    []*importedPart           // parts carried over verbatim by Append (charts, OLE objects, ...)
+	nextRelIDVal     int                       // counter for main-part relationship IDs
+	// nextRelIDByPart holds the next free numeric rId per owner part, seeded
+	// past the highest existing rId in that part's own .rels. Relationship ids
+	// are scoped per part (each part has its own .rels), so a header/footer part
+	// whose rels already carry ids above the main part's max must not reuse the
+	// main-part counter or it would emit a duplicate Id (C297). See
+	// nextRelIDForPart.
+	nextRelIDByPart map[string]int
 	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
+	// docPrIDSeq is the document-wide counter for the wp:docPr ids of images and
+	// charts, so an AddImage* and an AddChart in the same document never emit the
+	// same id (ECMA-376 requires document-unique wp:docPr ids). It is seeded once
+	// past the highest docPr id already present in an opened document's drawings.
+	// See nextDocPrID.
+	docPrIDSeq  int
+	docPrIDInit bool
 	// revisionIDVal is the highest tracked-change id (w:id) handed out so far;
 	// revisionIDInit records that the initial scan of existing ids has run. See
 	// nextRevisionID in revisions.go.
@@ -174,6 +194,19 @@ func (d *Document) mainPart() string {
 	return mainDocumentPart
 }
 
+// corePropertiesPartName returns the package part the core-properties
+// relationship resolves to (usually /docProps/core.xml, but System.IO.Packaging
+// producers point it at a *.psmdcp part). Returns "" when the package declares
+// no core-properties relationship.
+func (d *Document) corePropertiesPartName() string {
+	for _, rel := range d.relationships["/"] {
+		if rel != nil && rel.Type == opc.RelTypeCore {
+			return opc.ResolvePartName("/", rel.Target)
+		}
+	}
+	return ""
+}
+
 // doc returns the parsed main-document body, parsing it lazily from the
 // original main-part bytes on first access. Marking docParsed means the save
 // will regenerate the part from the model (still byte-identical for an
@@ -181,7 +214,11 @@ func (d *Document) mainPart() string {
 // false and round-trips its original bytes verbatim. Open validates the body up
 // front, so a lazy parse here does not re-surface the malformed-document error
 // Open already reports. Returns nil only when the original bytes are
-// unavailable (e.g. a hand-constructed Document).
+// unavailable (e.g. a hand-constructed Document). If the bytes are present but
+// the lazy parse fails — near-unreachable, since Open already parsed the same
+// bytes — it panics with a diagnostic message rather than returning a nil model
+// that mutation callers (AddParagraph, AddTable, DefaultSection, …) would
+// silently nil-deref.
 func (d *Document) doc() *oxml.CT_Document {
 	if d.docModel == nil && !d.docParsed {
 		d.docParsed = true
@@ -190,10 +227,17 @@ func (d *Document) doc() *oxml.CT_Document {
 			m.Prolog = xmlb.CaptureProlog(raw)
 			m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
 			m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
-			if err := xmlb.UnmarshalWithSource(raw, m); err == nil {
+			if err := xmlb.UnmarshalWithSource(raw, m); err != nil {
+				d.docParseErr = err
+			} else {
 				d.docModel = m
 			}
 		}
+	}
+	if d.docParseErr != nil {
+		panic(fmt.Sprintf("docx: lazy parse of main document part %s failed: %v "+
+			"(Open validated the same bytes, so this indicates in-memory corruption)",
+			d.mainPart(), d.docParseErr))
 	}
 	return d.docModel
 }
@@ -407,8 +451,6 @@ func (d *Document) loadAllParts(mainPartName string) error {
 
 		switch {
 		case strings.HasSuffix(name, ".rels"):
-			continue
-		case name == mainPartName:
 			continue
 		case name == "/docProps/core.xml":
 			continue
@@ -683,9 +725,34 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// *.psmdcp part instead; that part round-trips verbatim among the
 	// preserved parts, and setting writer.Properties would synthesize a
 	// docProps/core.xml the source never had.
+	//
+	// When the core properties live in such a non-standard part AND the session
+	// edited them, the edit is written back into that part below (retargeting
+	// writer.Properties to /docProps/core.xml would orphan it: the preserved
+	// root .rels still points at the original part, so the reader would read the
+	// stale copy and the package would carry two core-property parts, C294).
+	corePropsEdited := d.hasCoreProps && !d.Properties.Equal(d.propsSnapshot)
+	corePartName := d.corePropertiesPartName()
+	_, hasPsmdcpCorePart := d.preservedParts[corePartName]
+	psmdcpCore := corePartName != "" && corePartName != "/docProps/core.xml" && hasPsmdcpCorePart
 	_, hasCorePart := d.preservedParts["/docProps/core.xml"]
-	if d.hasCoreProps && (hasCorePart || !d.Properties.Equal(d.propsSnapshot)) {
+	if d.hasCoreProps && (hasCorePart || corePropsEdited) && !psmdcpCore {
 		writer.Properties = &d.Properties
+	}
+
+	// Regenerated core-property bytes for a non-standard (e.g. *.psmdcp) core
+	// part whose properties the session edited. Written in place of the
+	// preserved bytes below, keeping the root .rels target and the content-type
+	// override unchanged.
+	regenCoreName := ""
+	var regenCoreData []byte
+	if psmdcpCore && corePropsEdited {
+		data, err := d.Properties.Marshal()
+		if err != nil {
+			return err
+		}
+		regenCoreName = corePartName
+		regenCoreData = data
 	}
 
 	// Custom properties: an unmodified docProps/custom.xml round-trips as its
@@ -821,6 +888,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == themeName {
 			continue
 		}
+		// Regenerated below from the edited core properties (a non-standard,
+		// e.g. *.psmdcp, core part whose bytes carry the edited props).
+		if name == regenCoreName {
+			continue
+		}
 		if err := writer.WritePreservedPart(name, d.preservedParts[name].ContentType, d.preservedParts[name].Data); err != nil {
 			return err
 		}
@@ -829,6 +901,15 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// Write the regenerated theme part (only when the session edited it).
 	if themeData != nil {
 		if err := writer.WritePreservedPart(themeName, d.preservedParts[themeName].ContentType, themeData); err != nil {
+			return err
+		}
+	}
+
+	// Write the edited core properties back into their non-standard source part
+	// (keeping the root .rels target and content-type override), so the reader
+	// reads the edit and the package keeps exactly one core-property part.
+	if regenCoreData != nil {
+		if err := writer.WritePreservedPart(regenCoreName, d.preservedParts[regenCoreName].ContentType, regenCoreData); err != nil {
 			return err
 		}
 	}
@@ -979,6 +1060,9 @@ func (d *Document) writeAddedParts(writer *opc.Writer) error {
 		}
 	}
 	if err := d.writeChartParts(writer); err != nil {
+		return err
+	}
+	if err := d.writeImportedParts(writer); err != nil {
 		return err
 	}
 	if err := d.writePendingCustomXMLParts(writer); err != nil {
@@ -1480,7 +1564,10 @@ func (d *Document) AddTable(rows, cols int) *Table {
 	return &Table{document: d, tbl: tbl}
 }
 
-// nextRelID returns the next available relationship ID number.
+// nextRelID returns the next available relationship ID number for the main
+// document part. Relationships registered into a header/footer (or any other)
+// part's own .rels must use nextRelIDForPart so ids stay unique within that
+// part's scope (C297).
 func (d *Document) nextRelID() int {
 	if d.nextRelIDVal == 0 {
 		// Seed past the highest existing numeric rId, not the count: rIds are
@@ -1497,6 +1584,34 @@ func (d *Document) nextRelID() int {
 	id := d.nextRelIDVal
 	d.nextRelIDVal++
 	return id
+}
+
+// nextRelIDForPart returns the next available relationship ID number scoped to
+// the owner part named by part. Relationship ids live in each part's own .rels,
+// so an id written into a header/footer part must be unique within that part —
+// not merely past the main part's max. The counter is seeded once per part past
+// the highest existing numeric rId already in that part's rels, so a wild header
+// whose .rels carry ids above the main part cannot get a duplicate Id (C297).
+// For the main part it matches nextRelID.
+func (d *Document) nextRelIDForPart(part string) int {
+	if part == "" || part == d.mainPart() {
+		return d.nextRelID()
+	}
+	if d.nextRelIDByPart == nil {
+		d.nextRelIDByPart = make(map[string]int)
+	}
+	next, ok := d.nextRelIDByPart[part]
+	if !ok {
+		max := 0
+		for _, rel := range d.relationships[part] {
+			if n := relIDNumber(rel.ID); n > max {
+				max = n
+			}
+		}
+		next = max + 1
+	}
+	d.nextRelIDByPart[part] = next + 1
+	return next
 }
 
 // relIDNumber parses the numeric suffix of a relationship id like "rId7",
@@ -1556,28 +1671,33 @@ func (d *Document) nextImageNumber() int {
 // parts added earlier in this session, and everything preserved from the
 // opened package, so the returned name never collides with an existing part
 // and is always a fresh key into d.headers/d.footers (an existing parsed
-// header is never clobbered in memory).
+// header is never clobbered in memory). OPC part names are case-insensitive, so
+// a wild /word/Header1.xml occupies the same name as the generated
+// /word/header1.xml: the used-name set and the candidate are compared
+// lower-cased (as nextImageNumber does) or the chosen name would collide
+// case-insensitively at save time.
 func (d *Document) nextHdrFtrPartName(kind string) string {
 	used := make(map[string]bool,
 		len(d.preservedParts)+len(d.headers)+len(d.footers)+len(d.newHeaderParts)+len(d.newFooterParts))
+	mark := func(name string) { used[strings.ToLower(name)] = true }
 	for name := range d.preservedParts {
-		used[name] = true
+		mark(name)
 	}
 	for name := range d.headers {
-		used[name] = true
+		mark(name)
 	}
 	for name := range d.footers {
-		used[name] = true
+		mark(name)
 	}
 	for _, hp := range d.newHeaderParts {
-		used[hp.partName] = true
+		mark(hp.partName)
 	}
 	for _, fp := range d.newFooterParts {
-		used[fp.partName] = true
+		mark(fp.partName)
 	}
 	for n := 1; ; n++ {
 		name := fmt.Sprintf("/word/%s%d.xml", kind, n)
-		if !used[name] {
+		if !used[strings.ToLower(name)] {
 			return name
 		}
 	}

@@ -196,17 +196,34 @@ func toCTMailMerge(mm *MailMerge) *oxml.CT_MailMerge {
 }
 
 // MergeFields returns the distinct MERGEFIELD field names present in the
-// document body, in first-appearance order. Both simple fields (w:fldSimple)
-// and complex fields (w:fldChar/w:instrText run sequences) are scanned, in
-// paragraphs anywhere in the body including inside tables.
+// document, in first-appearance order. Both simple fields (w:fldSimple) and
+// complex fields (w:fldChar/w:instrText run sequences) are scanned, in
+// paragraphs anywhere in the body and in every header and footer, including
+// paragraphs nested inside tables. This matches FormFields, which also covers
+// headers and footers.
 func (d *Document) MergeFields() []string {
-	if d.doc() == nil || d.doc().Body == nil {
-		return nil
-	}
 	var out []string
 	seen := map[string]bool{}
-	for _, p := range d.doc().Body.AllParagraphs() {
-		collectParagraphMergeFields(p, &out, seen)
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
+			collectParagraphMergeFields(p, &out, seen)
+		}
+	}
+	for _, hp := range d.headers {
+		if hp == nil || hp.hdr == nil {
+			continue
+		}
+		for _, p := range hp.hdr.AllParagraphs() {
+			collectParagraphMergeFields(p, &out, seen)
+		}
+	}
+	for _, fp := range d.footers {
+		if fp == nil || fp.ftr == nil {
+			continue
+		}
+		for _, p := range fp.ftr.AllParagraphs() {
+			collectParagraphMergeFields(p, &out, seen)
+		}
 	}
 	return out
 }

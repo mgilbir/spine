@@ -226,7 +226,7 @@ func (p *Paragraph) AddOLEObject(data []byte, progID string, opts OLEEmbedOption
 // relationship in the owning part's scope, returning the relationship id and the
 // part name. The part is written by writeAddedParts alongside image parts.
 func (d *Document) registerOLEPart(owner string, data []byte) (relID, partName string) {
-	relID = fmt.Sprintf("rId%d", d.nextRelID())
+	relID = fmt.Sprintf("rId%d", d.nextRelIDForPart(owner))
 	partName = fmt.Sprintf("/word/embeddings/oleObject%d.bin", d.nextEmbeddingNumber())
 	d.imageParts = append(d.imageParts, &imagePart{
 		data:        data,

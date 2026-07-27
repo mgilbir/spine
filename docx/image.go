@@ -57,6 +57,7 @@ type Anchor struct {
 
 // SetSize sets the image size in points.
 func (img *InlineImage) SetSize(widthPt, heightPt float64) {
+	img.touch()
 	img.widthEMU = int64(math.Round(widthPt * 914400 / 72))
 	img.heightEMU = int64(math.Round(heightPt * 914400 / 72))
 	img.updateDrawingXML()
@@ -64,8 +65,19 @@ func (img *InlineImage) SetSize(widthPt, heightPt float64) {
 
 // SetAltText sets the alt text description for the image.
 func (img *InlineImage) SetAltText(text string) {
+	img.touch()
 	img.altText = text
 	img.updateDrawingXML()
+}
+
+// touch flags the header/footer part this image belongs to as modified, so an
+// edit made through a live handle into a reopened header/footer is written back
+// instead of being masked by the preserved original bytes. A no-op for images
+// in the main document part.
+func (img *InlineImage) touch() {
+	if img != nil && img.run != nil {
+		img.run.touch()
+	}
 }
 
 func (img *InlineImage) updateDrawingXML() {
@@ -308,13 +320,78 @@ func (r *Run) ownerPart() string {
 	return r.paragraph.document.mainPart()
 }
 
+// nextDocPrID returns the next document-unique wp:docPr id for an image or
+// chart drawing. Images and charts share this one counter (independent of their
+// media/chart part numbers), so an AddImage and an AddChart in the same document
+// no longer both emit id="1". On first use it seeds past the highest docPr id
+// already present in an opened document's drawings so a freshly added drawing
+// never reuses an existing id. Text boxes and shapes keep their own high-offset
+// counter (nextShapeID); the seed ignores ids in that range to keep the two
+// spaces from bleeding into each other.
+func (d *Document) nextDocPrID() int {
+	if !d.docPrIDInit {
+		d.docPrIDInit = true
+		d.docPrIDSeq = d.maxExistingDocPrID()
+	}
+	d.docPrIDSeq++
+	return d.docPrIDSeq
+}
+
+// maxExistingDocPrID returns the highest wp:docPr id (below shapeIDBase) found
+// in the drawings of the opened document's body, headers, and footers, or 0.
+func (d *Document) maxExistingDocPrID() int {
+	max := 0
+	scan := func(paras []*oxml.CT_P) {
+		for _, p := range paras {
+			for _, r := range oxmlParagraphRuns(p) {
+				for _, dr := range r.Drawing {
+					if dr == nil {
+						continue
+					}
+					if id := docPrID(dr.RawContent); id > max && id < shapeIDBase {
+						max = id
+					}
+				}
+			}
+		}
+	}
+	if body := d.doc(); body != nil && body.Body != nil {
+		scan(body.Body.AllParagraphs())
+	}
+	for _, hp := range d.headers {
+		if hp != nil && hp.hdr != nil {
+			scan(hp.hdr.AllParagraphs())
+		}
+	}
+	for _, fp := range d.footers {
+		if fp != nil && fp.ftr != nil {
+			scan(fp.ftr.AllParagraphs())
+		}
+	}
+	return max
+}
+
+// docPrID returns the numeric id of the wp:docPr element in a drawing's raw
+// content, or 0 when it has none.
+func docPrID(raw []byte) int {
+	v := attrValue(raw, []byte(`<wp:docPr id="`))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // registerImagePart stores an image part and registers its relationship in
 // the owning part's scope (document.xml or a header/footer part), returning
 // the relationship id and the image number. The part number is derived from
 // parts already in the package, so adding to an opened document that already
 // carries media/imageN.* does not collide (audit C155).
 func (doc *Document) registerImagePart(owner string, data []byte, contentType, ext string) (relID string, num int) {
-	relID = fmt.Sprintf("rId%d", doc.nextRelID())
+	relID = fmt.Sprintf("rId%d", doc.nextRelIDForPart(owner))
 
 	// Reuse an identical image already added in this session (e.g. the same
 	// picture in the body and a header) instead of writing a duplicate media
@@ -354,13 +431,13 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 		return nil, fmt.Errorf("run is not attached to a document")
 	}
 
-	relID, num := doc.registerImagePart(r.ownerPart(), data, contentType, ext)
+	relID, _ := doc.registerImagePart(r.ownerPart(), data, contentType, ext)
 
 	img := &InlineImage{
 		relID:     relID,
 		widthEMU:  int64(100 * 914400 / 72), // 100pt default; override via SetSize
 		heightEMU: int64(100 * 914400 / 72),
-		drawingID: uint32(num),
+		drawingID: uint32(doc.nextDocPrID()),
 		run:       r,
 		floating:  floating,
 		anchor:    anchor,
@@ -371,6 +448,10 @@ func (r *Run) addImageData(data []byte, contentType, ext string, anchor Anchor, 
 	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
 	img.drawing = drawing
 	r.r.AppendDrawing(drawing)
+	// A drawing added to a reopened header/footer run must regenerate that part
+	// on save; otherwise the media part and its relationship are written but the
+	// preserved header bytes (lacking the drawing) win, orphaning both.
+	r.touch()
 	return img, nil
 }
 
@@ -395,7 +476,7 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	// placed in a header resolves both the raster and SVG rels from the
 	// header part's own rels.
 	owner := r.ownerPart()
-	rasterRelID, num := doc.registerImagePart(owner, fallbackData, fallbackCT, fallbackExt)
+	rasterRelID, _ := doc.registerImagePart(owner, fallbackData, fallbackCT, fallbackExt)
 	svgRelID, _ := doc.registerImagePart(owner, svgData, opc.ContentTypeSVG, ".svg")
 
 	img := &InlineImage{
@@ -403,7 +484,7 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 		svgRelID:  svgRelID,
 		widthEMU:  int64(100 * 914400 / 72),
 		heightEMU: int64(100 * 914400 / 72),
-		drawingID: uint32(num),
+		drawingID: uint32(doc.nextDocPrID()),
 		run:       r,
 		floating:  floating,
 		anchor:    anchor,
@@ -413,6 +494,9 @@ func (r *Run) addSVGImageData(svgData, fallbackData []byte, fallbackCT string, a
 	drawing := &oxml.CT_Drawing{RawContent: img.buildDrawingXML()}
 	img.drawing = drawing
 	r.r.AppendDrawing(drawing)
+	// See addImageData: flag a reopened header/footer part so its regenerated
+	// bytes carry the new drawing (and its image relationships resolve).
+	r.touch()
 	return img, nil
 }
 

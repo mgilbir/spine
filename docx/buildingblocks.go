@@ -27,8 +27,9 @@ const defaultGlossaryPart = "/word/glossary/document.xml"
 
 // BuildingBlock is one entry of the glossary document (a w:docPart) — a reusable
 // content fragment such as an AutoText entry, a cover page, or a header/footer
-// gallery item. Building blocks are read-only in this API; the glossary part is
-// preserved verbatim on save.
+// gallery item. BuildingBlocks reads the existing entries; AddBuildingBlock
+// authors new ones (regenerating, or newly creating, the glossary part on
+// save). A glossary part that this session never touches is preserved verbatim.
 type BuildingBlock struct {
 	name        string
 	gallery     string
@@ -116,39 +117,55 @@ type ctValAttr struct {
 }
 
 // BuildingBlocks returns the document's building blocks (glossary docParts) in
-// document order, or nil when the document has no glossary part. The glossary
-// part is preserved verbatim on save; this API is read-only.
+// document order, including blocks added this session with AddBuildingBlock, or
+// nil when the document has neither a glossary part nor any pending block. The
+// existing docParts are preserved verbatim on save; the session-added ones are
+// appended (mirroring where writeGlossaryPart splices them, before the closing
+// </w:docParts>), so read-your-writes holds within a session.
 func (d *Document) BuildingBlocks() []*BuildingBlock {
-	part, ok := d.preservedParts[d.glossaryPartName()]
-	if !ok {
-		return nil
-	}
-	var meta ctGlossaryMeta
-	if err := xmlb.Unmarshal(part.Data, &meta); err != nil {
-		return nil
-	}
-	out := make([]*BuildingBlock, 0, len(meta.DocParts.DocPart))
-	for _, dp := range meta.DocParts.DocPart {
-		bb := &BuildingBlock{}
-		if pr := dp.Pr; pr != nil {
-			bb.name = pr.Name.Val
-			bb.description = pr.Description.Val
-			bb.guid = pr.Guid.Val
-			if pr.Category != nil {
-				bb.category = pr.Category.Name.Val
-				bb.gallery = pr.Category.Gallery.Val
-			}
-			if pr.Types != nil {
-				for _, t := range pr.Types.Type {
-					if t.Val != "" {
-						bb.types = append(bb.types, t.Val)
+	var out []*BuildingBlock
+	if part, ok := d.preservedParts[d.glossaryPartName()]; ok {
+		var meta ctGlossaryMeta
+		if err := xmlb.Unmarshal(part.Data, &meta); err == nil {
+			for _, dp := range meta.DocParts.DocPart {
+				bb := &BuildingBlock{}
+				if pr := dp.Pr; pr != nil {
+					bb.name = pr.Name.Val
+					bb.description = pr.Description.Val
+					bb.guid = pr.Guid.Val
+					if pr.Category != nil {
+						bb.category = pr.Category.Name.Val
+						bb.gallery = pr.Category.Gallery.Val
+					}
+					if pr.Types != nil {
+						for _, t := range pr.Types.Type {
+							if t.Val != "" {
+								bb.types = append(bb.types, t.Val)
+							}
+						}
 					}
 				}
+				out = append(out, bb)
 			}
 		}
-		out = append(out, bb)
+	}
+	for _, def := range d.pendingBuildingBlocks {
+		out = append(out, buildingBlockFromDef(def))
 	}
 	return out
+}
+
+// buildingBlockFromDef builds a read view of a building block queued this
+// session, so BuildingBlocks() surfaces it before the document is reopened.
+func buildingBlockFromDef(def BuildingBlockDef) *BuildingBlock {
+	return &BuildingBlock{
+		name:        def.Name,
+		gallery:     def.Gallery,
+		category:    def.Category,
+		types:       append([]string(nil), def.Types...),
+		description: def.Description,
+		guid:        def.GUID,
+	}
 }
 
 // BuildingBlockDef describes a building block (a glossary w:docPart) to author

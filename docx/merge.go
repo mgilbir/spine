@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -31,6 +33,13 @@ var (
 	hdrFtrRefRe = regexp.MustCompile(`<w:(?:header|footer)Reference\b[^>]*(?:/>|>\s*</w:(?:header|footer)Reference>)`)
 	// ridAttrRe extracts the r:id value from a reference element.
 	ridAttrRe = regexp.MustCompile(`\br:id="([^"]*)"`)
+	// Note and comment references carry a w:id that indexes the footnotes,
+	// endnotes, or comments part — remapped when the imported definitions are
+	// given fresh, non-colliding ids. Each pattern is scoped to its own element
+	// so an unrelated w:id (a tracked-change id, a bookmark id) is never touched.
+	ftnRefRe     = regexp.MustCompile(`(<w:footnoteReference\b[^>]*\bw:id=")([^"]*)(")`)
+	ednRefRe     = regexp.MustCompile(`(<w:endnoteReference\b[^>]*\bw:id=")([^"]*)(")`)
+	commentRefRe = regexp.MustCompile(`(<w:comment(?:Reference|RangeStart|RangeEnd)\b[^>]*\bw:id=")([^"]*)(")`)
 )
 
 // Append appends the body content (paragraphs, tables, and block-level
@@ -40,6 +49,13 @@ var (
 // their ids are remapped when they collide with differing definitions already
 // in this document, with every reference in the copied content rewritten to
 // match.
+//
+// Footnotes, endnotes, and comments referenced by the copied content are merged
+// too: the source definitions are imported with fresh ids disjoint from this
+// document's, and the copied reference marks are rewritten to point at them, so
+// an appended footnote keeps its own text rather than aliasing onto a
+// destination note that happens to share its id. Comment threading metadata
+// (commentsExtended, people) is not merged.
 //
 // The final (body-level) section properties of other are not copied, so the
 // appended content joins this document's last section. Section breaks inside
@@ -59,27 +75,41 @@ func (d *Document) Append(other *Document) error {
 		return nil
 	}
 
-	relRemap, err := d.importRelationships(other)
-	if err != nil {
-		return err
-	}
-	styleRemap := d.importStyles(other)
-	numRemap, err := d.importNumbering(other)
-	if err != nil {
-		return err
-	}
-	hdrFtrRemap, err := d.importHeadersFooters(other)
-	if err != nil {
-		return err
-	}
-
-	// Serialize other's main part, rewrite the colliding ids in the body
-	// content, then re-parse and append the body children in order.
+	// Serialize other's main part up front: the reference-id remaps are driven by
+	// the relationship ids the copied body actually references, and the serialized
+	// bytes are the same ones rewritten and re-parsed below.
 	data, err := marshalDocumentXML(other.doc())
 	if err != nil {
 		return err
 	}
-	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap)
+	refd := referencedRelIDs(data)
+
+	relRemap, err := d.importRelationships(other, refd)
+	if err != nil {
+		return err
+	}
+	styleRemap, addedStyles := d.importStyles(other)
+	numRemap, addedAbstractNums, err := d.importNumbering(other)
+	if err != nil {
+		return err
+	}
+	// The style and numbering remaps are now both known, so rewrite the
+	// cross-references buried inside the copied definitions themselves (a style's
+	// numId, an abstractNum level's pStyle/numStyleLink) — the serialized-body
+	// rewrite below never reaches them.
+	remapCopiedCrossRefs(addedStyles, addedAbstractNums, styleRemap, numRemap)
+	hdrFtrRemap, err := d.importHeadersFooters(other)
+	if err != nil {
+		return err
+	}
+	noteRemap, err := d.importNotesComments(other)
+	if err != nil {
+		return err
+	}
+
+	// Rewrite the colliding ids in the body content, then re-parse and append the
+	// body children in order.
+	data = rewriteReferences(data, relRemap, styleRemap, numRemap, hdrFtrRemap, noteRemap)
 
 	var rewritten oxml.CT_Document
 	if err := xml.Unmarshal(data, &rewritten); err != nil {
@@ -92,11 +122,21 @@ func (d *Document) Append(other *Document) error {
 	return nil
 }
 
-// importRelationships copies the media (and external link) relationships of
-// other's main part into this document, returning a map from other's
-// relationship id to the newly assigned id.
-func (d *Document) importRelationships(other *Document) (map[string]string, error) {
+// importRelationships copies the relationships of other's main part that the
+// copied body references into this document, returning a map from other's
+// relationship id to the newly assigned id. External links and images are
+// re-registered through the media path; every other internal relationship the
+// body references (charts, OLE objects, ActiveX, ...) is brought over as a fresh
+// package part — with its own transitive relationships — so no reference in the
+// merged body is left dangling or silently aliased onto an unrelated part.
+// Header and footer relationships are handled separately by importHeadersFooters
+// and skipped here. refd is the set of relationship ids the copied body actually
+// references; a main-part relationship the body does not reference (styles,
+// numbering, footnotes, ...) is not a body reference and is carried by its own
+// dedicated importer, so it is skipped.
+func (d *Document) importRelationships(other *Document, refd map[string]bool) (map[string]string, error) {
 	remap := make(map[string]string)
+	visited := make(map[string]string)
 	for _, rel := range other.relationships[other.mainPart()] {
 		if rel == nil {
 			continue
@@ -121,9 +161,234 @@ func (d *Document) importRelationships(other *Document) (map[string]string, erro
 			ext := path.Ext(rel.Target)
 			newID, _ := d.registerImagePart(d.mainPart(), data, contentType, ext)
 			remap[rel.ID] = newID
+		case rel.Type == opc.RelTypeHeader || rel.Type == opc.RelTypeFooter:
+			// Carried by importHeadersFooters, which remaps these ids itself.
+			continue
+		case refd[rel.ID]:
+			// An internal part the body references (chart, OLE object, ...):
+			// import the part tree and remap the reference.
+			newID, err := d.importInternalPart(other, rel, visited)
+			if err != nil {
+				return nil, err
+			}
+			if newID != "" {
+				remap[rel.ID] = newID
+			}
 		}
 	}
 	return remap, nil
+}
+
+// referencedRelIDs returns the set of relationship ids (rId...) referenced by
+// the r:*-namespaced attributes of the serialized body — the ids that must
+// resolve to a relationship after the merge.
+func referencedRelIDs(data []byte) map[string]bool {
+	set := make(map[string]bool)
+	for _, m := range relIDRefRe.FindAllSubmatch(data, -1) {
+		set[string(m[2])] = true
+	}
+	return set
+}
+
+// importInternalPart copies the source part targeted by an internal main-part
+// relationship (a chart, OLE object, ActiveX control, ...) into this document
+// under a fresh, collision-free part name — transitively importing the part's
+// own relationships — and registers a fresh main-part relationship pointing at
+// it, returning the new relationship id. It returns "" when the target part's
+// bytes cannot be resolved.
+func (d *Document) importInternalPart(other *Document, rel *opc.Relationship, visited map[string]string) (string, error) {
+	srcPart := opc.ResolvePartName(other.mainPart(), rel.Target)
+	newName, err := d.importPartTree(other, srcPart, visited)
+	if err != nil {
+		return "", err
+	}
+	if newName == "" {
+		return "", nil
+	}
+	newID := fmt.Sprintf("rId%d", d.nextRelID())
+	d.addPartRelationship(d.mainPart(), &opc.Relationship{
+		ID:     newID,
+		Type:   rel.Type,
+		Target: relativePartTarget(d.mainPart(), newName),
+	})
+	return newID, nil
+}
+
+// importPartTree copies srcPart (of other) into this document under a fresh part
+// name, recursively importing every part it relates to and rewriting its own
+// r:id references to the freshly assigned ids. visited memoizes source part →
+// new part name so a part shared by several references is imported once and any
+// relationship cycle terminates. It returns the new part name, or "" when the
+// source bytes cannot be resolved.
+func (d *Document) importPartTree(other *Document, srcPart string, visited map[string]string) (string, error) {
+	if newName, ok := visited[srcPart]; ok {
+		return newName, nil
+	}
+	data, contentType, ok := other.rawPartBytes(srcPart)
+	if !ok {
+		return "", nil
+	}
+	newName := d.freshImportName(srcPart)
+	ip := &importedPart{partName: newName, contentType: contentType}
+	// Reserve the name (so nested imports pick a different one) and record it
+	// before recursing so a cycle back to srcPart resolves to this same part.
+	d.importedParts = append(d.importedParts, ip)
+	visited[srcPart] = newName
+
+	subRemap := make(map[string]string)
+	for _, r := range other.relationships[srcPart] {
+		if r == nil {
+			continue
+		}
+		if r.TargetMode == opc.TargetModeExternal {
+			newID := fmt.Sprintf("rId%d", d.nextRelID())
+			d.addPartRelationship(newName, &opc.Relationship{
+				ID:         newID,
+				Type:       r.Type,
+				Target:     r.Target,
+				TargetMode: opc.TargetModeExternal,
+			})
+			subRemap[r.ID] = newID
+			continue
+		}
+		childSrc := opc.ResolvePartName(srcPart, r.Target)
+		childNew, err := d.importPartTree(other, childSrc, visited)
+		if err != nil {
+			return "", err
+		}
+		if childNew == "" {
+			continue
+		}
+		newID := fmt.Sprintf("rId%d", d.nextRelID())
+		d.addPartRelationship(newName, &opc.Relationship{
+			ID:     newID,
+			Type:   r.Type,
+			Target: relativePartTarget(newName, childNew),
+		})
+		subRemap[r.ID] = newID
+	}
+	// Rewrite the r:id references inside XML parts only; binary parts (embedded
+	// workbooks, images, OLE binaries) must pass through byte-for-byte.
+	if strings.HasSuffix(strings.ToLower(srcPart), ".xml") {
+		data = replaceAttr(data, relIDRefRe, subRemap)
+	}
+	ip.data = data
+	return newName, nil
+}
+
+// rawPartBytes resolves the bytes and content type of one of this document's own
+// package parts by name, covering parts preserved from an opened package, parts
+// captured raw, images and charts added through the mutation API, and (last) the
+// source reader. Used by Append to read the parts of the document being merged.
+func (d *Document) rawPartBytes(name string) ([]byte, string, bool) {
+	if p, ok := d.preservedParts[name]; ok {
+		return p.Data, p.ContentType, true
+	}
+	if p, ok := d.otherParts[name]; ok {
+		return p.Data, p.ContentType, true
+	}
+	for _, ip := range d.imageParts {
+		if ip.partName == name {
+			return ip.data, ip.contentType, true
+		}
+	}
+	for _, cp := range d.chartParts {
+		if cp.partName == name {
+			return cp.data, opc.ContentTypeChart, true
+		}
+		if cp.embedName == name {
+			return cp.embedData, opc.ContentTypeSpreadsheetPackage, true
+		}
+	}
+	if d.reader != nil {
+		if f := d.reader.GetFile(name); f != nil {
+			if data, err := f.ReadAll(); err == nil {
+				return data, f.ContentType, true
+			}
+		}
+	}
+	return nil, "", false
+}
+
+// freshImportName returns a part name based on srcPart that collides with no
+// part already present in this document, appending a numeric suffix before the
+// extension when the preferred name is taken.
+func (d *Document) freshImportName(srcPart string) string {
+	if !d.partNameTaken(srcPart) {
+		return srcPart
+	}
+	ext := path.Ext(srcPart)
+	base := srcPart[:len(srcPart)-len(ext)]
+	for i := 1; ; i++ {
+		cand := fmt.Sprintf("%s_%d%s", base, i, ext)
+		if !d.partNameTaken(cand) {
+			return cand
+		}
+	}
+}
+
+// partNameTaken reports whether a part name is already occupied by any part this
+// document will write, comparing case-insensitively (OPC part names are
+// case-insensitive).
+func (d *Document) partNameTaken(name string) bool {
+	lname := strings.ToLower(name)
+	if _, ok := d.preservedParts[name]; ok {
+		return true
+	}
+	if _, ok := d.otherParts[name]; ok {
+		return true
+	}
+	if _, ok := d.headers[name]; ok {
+		return true
+	}
+	if _, ok := d.footers[name]; ok {
+		return true
+	}
+	for _, ip := range d.importedParts {
+		if strings.ToLower(ip.partName) == lname {
+			return true
+		}
+	}
+	for _, ip := range d.imageParts {
+		if strings.ToLower(ip.partName) == lname {
+			return true
+		}
+	}
+	for _, cp := range d.chartParts {
+		if strings.ToLower(cp.partName) == lname || strings.ToLower(cp.embedName) == lname {
+			return true
+		}
+	}
+	if d.reader != nil && d.reader.GetFile(name) != nil {
+		return true
+	}
+	return false
+}
+
+// writeImportedParts writes the parts carried over by Append (charts, OLE
+// objects, ...) together with their own relationships. Called from
+// writeAddedParts on both save lifecycles.
+func (d *Document) writeImportedParts(writer *opc.Writer) error {
+	for _, ip := range d.importedParts {
+		if err := writer.WritePart(ip.partName, ip.contentType, ip.data); err != nil {
+			return err
+		}
+		if rels := d.relationships[ip.partName]; len(rels) > 0 {
+			if err := writer.WritePartRelationships(ip.partName, rels); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// importedPart is a package part copied verbatim from a source document during
+// Append, together with its resolved content type. Its own relationships live in
+// d.relationships keyed by partName.
+type importedPart struct {
+	partName    string
+	contentType string
+	data        []byte
 }
 
 // imageBytes resolves the bytes and content type for an image relationship of
@@ -146,10 +411,10 @@ func (d *Document) imageBytes(rel *opc.Relationship) ([]byte, string, bool) {
 // whose id is unused (or already identical) is copied verbatim; a style whose
 // id collides with a different definition is given a fresh id, recorded in the
 // returned remap so references in the copied content can be rewritten.
-func (d *Document) importStyles(other *Document) map[string]string {
+func (d *Document) importStyles(other *Document) (map[string]string, []*oxml.CT_Style) {
 	remap := make(map[string]string)
 	if other.styles == nil || len(other.styles.Style) == 0 {
-		return remap
+		return remap, nil
 	}
 	d.ensureStyles()
 
@@ -194,7 +459,7 @@ func (d *Document) importStyles(other *Document) map[string]string {
 	if len(toAdd) > 0 {
 		d.stylesModified = true
 	}
-	return remap
+	return remap, toAdd
 }
 
 // importNumbering copies other's numbering definitions (abstract numbering and
@@ -204,38 +469,40 @@ func (d *Document) importStyles(other *Document) map[string]string {
 // source (kept as raw XML in CT_Numbering.Raw) are carried: the source part is
 // serialized and re-parsed fully typed so the raw originals surface as
 // CT_AbstractNum/CT_Num that go through the same remapping path.
-func (d *Document) importNumbering(other *Document) (map[string]string, error) {
+func (d *Document) importNumbering(other *Document) (map[string]string, []*oxml.CT_AbstractNum, error) {
 	numRemap := make(map[string]string)
 	if other.numbering == nil {
-		return numRemap, nil
+		return numRemap, nil, nil
 	}
 	absDefs, numDefs, err := typedNumberingDefs(other.numbering)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(absDefs) == 0 && len(numDefs) == 0 {
-		return numRemap, nil
+		return numRemap, nil, nil
 	}
 	if d.numbering == nil {
 		d.numbering = &oxml.CT_Numbering{}
 	}
 
+	var addedAbs []*oxml.CT_AbstractNum
 	absRemap := make(map[string]string)
 	for _, srcAbs := range absDefs {
 		clone := &oxml.CT_AbstractNum{}
 		if err := deepCopyXML(clone, srcAbs); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		newID := strconv.Itoa(d.nextAbstractNumID())
 		absRemap[clone.AbstractNumId] = newID
 		clone.AbstractNumId = newID
 		d.numbering.AbstractNum = append(d.numbering.AbstractNum, clone)
 		d.numbering.ParsedAbstractNumIDs = append(d.numbering.ParsedAbstractNumIDs, newID)
+		addedAbs = append(addedAbs, clone)
 	}
 	for _, srcNum := range numDefs {
 		clone := &oxml.CT_Num{}
 		if err := deepCopyXML(clone, srcNum); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		newID := strconv.Itoa(d.nextNumID())
 		numRemap[clone.NumId] = newID
@@ -252,7 +519,151 @@ func (d *Document) importNumbering(other *Document) (map[string]string, error) {
 		d.numbering.ParsedNumIDs = append(d.numbering.ParsedNumIDs, newID)
 	}
 	d.numberingModified = true
-	return numRemap, nil
+	return numRemap, addedAbs, nil
+}
+
+// noteCommentRemap holds the footnote, endnote, and comment id remaps produced
+// by importNotesComments, keyed by the source w:id and giving the fresh id the
+// definition was imported under.
+type noteCommentRemap struct {
+	footnote map[string]string
+	endnote  map[string]string
+	comment  map[string]string
+}
+
+// importNotesComments merges the source's footnotes, endnotes, and comments into
+// this document. Each imported definition is given a fresh id disjoint from this
+// document's existing ids, and the returned remaps let the copied body's
+// reference marks be rewritten to point at their own imported definitions
+// instead of silently resolving to this document's unrelated notes/comments.
+func (d *Document) importNotesComments(other *Document) (noteCommentRemap, error) {
+	var out noteCommentRemap
+	var err error
+	if out.footnote, err = d.importFootnotes(other); err != nil {
+		return out, err
+	}
+	if out.endnote, err = d.importEndnotes(other); err != nil {
+		return out, err
+	}
+	if out.comment, err = d.importComments(other); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// importFootnotes copies the source's user footnotes into this document with
+// fresh ids (past this document's highest), returning a map from the source id
+// to the assigned id. The mandatory separator notes are shared infrastructure
+// and are not duplicated. Serialize-then-reparse produces independent copies:
+// note bodies use xml:"-" fields that deepCopyXML cannot clone.
+func (d *Document) importFootnotes(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.footnotes == nil || len(other.footnotes.Footnote) == 0 {
+		return remap, nil
+	}
+	data, err := marshalFootnotesXML(other.footnotes)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Footnotes
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	d.ensureFootnotes()
+	next := d.footnotes.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, n := range parsed.Footnote {
+		if n == nil || isSeparatorNote(n) {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[n.Id] = newID
+		n.Id = newID
+		d.footnotes.Footnote = append(d.footnotes.Footnote, n)
+	}
+	if len(remap) > 0 {
+		d.footnotesModified = true
+	}
+	return remap, nil
+}
+
+// importEndnotes is the endnote counterpart of importFootnotes.
+func (d *Document) importEndnotes(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.endnotes == nil || len(other.endnotes.Endnote) == 0 {
+		return remap, nil
+	}
+	data, err := marshalEndnotesXML(other.endnotes)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Endnotes
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	d.ensureEndnotes()
+	next := d.endnotes.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, n := range parsed.Endnote {
+		if n == nil || isSeparatorNote(n) {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[n.Id] = newID
+		n.Id = newID
+		d.endnotes.Endnote = append(d.endnotes.Endnote, n)
+	}
+	if len(remap) > 0 {
+		d.endnotesModified = true
+	}
+	return remap, nil
+}
+
+// importComments copies the source's comment definitions into this document with
+// fresh ids, returning a map from the source id to the assigned id. The comment
+// threading metadata (commentsExtended, people) is not merged: it threads on
+// w14:paraId, which is preserved unchanged, so the definitions and their body
+// references stay consistent while the merge remains bounded.
+func (d *Document) importComments(other *Document) (map[string]string, error) {
+	remap := make(map[string]string)
+	if other.comments == nil || len(other.comments.Comment) == 0 {
+		return remap, nil
+	}
+	data, err := marshalCommentsXML(other.comments)
+	if err != nil {
+		return nil, err
+	}
+	var parsed oxml.CT_Comments
+	if err := xmlb.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	if d.comments == nil {
+		d.comments = &oxml.CT_Comments{}
+	}
+	next := d.comments.MaxID() + 1
+	if next < 1 {
+		next = 1
+	}
+	for _, cm := range parsed.Comment {
+		if cm == nil {
+			continue
+		}
+		newID := strconv.Itoa(next)
+		next++
+		remap[cm.Id] = newID
+		cm.Id = newID
+		d.comments.Comment = append(d.comments.Comment, cm)
+	}
+	if len(remap) > 0 {
+		d.commentsModified = true
+	}
+	return remap, nil
 }
 
 // typedNumberingDefs returns the abstractNum and num definitions of a numbering
@@ -465,7 +876,7 @@ func (d *Document) partImageBytes(base string, rel *opc.Relationship) ([]byte, s
 // so both are remapped in one pass; any header/footer reference whose part was
 // not carried across (other's dropped final section) is stripped so no dangling
 // relationship id survives.
-func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string) []byte {
+func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap map[string]string, noteRemap noteCommentRemap) []byte {
 	combined := relRemap
 	if len(hdrFtrRemap) > 0 {
 		combined = make(map[string]string, len(relRemap)+len(hdrFtrRemap))
@@ -481,6 +892,9 @@ func rewriteReferences(data []byte, relRemap, styleRemap, numRemap, hdrFtrRemap 
 	data = replaceAttr(data, rStyleRefRe, styleRemap)
 	data = replaceAttr(data, tblStyleRe, styleRemap)
 	data = replaceAttr(data, numIDRefRe, numRemap)
+	data = replaceAttr(data, ftnRefRe, noteRemap.footnote)
+	data = replaceAttr(data, ednRefRe, noteRemap.endnote)
+	data = replaceAttr(data, commentRefRe, noteRemap.comment)
 	data = dropUncarriedHdrFtrRefs(data, hdrFtrRemap)
 	return data
 }
@@ -566,5 +980,50 @@ func remapStyleRef(ref **oxml.CT_String, remap map[string]string) {
 	}
 	if newID, ok := remap[(*ref).Val]; ok {
 		(*ref).Val = newID
+	}
+}
+
+// remapCopiedCrossRefs rewrites the style/numbering cross-references that live
+// inside the copied style and numbering definitions themselves, which the
+// serialized-body rewrite never sees: a paragraph style's w:pPr/w:numPr/w:numId
+// (through numRemap) and an abstractNum level's w:pStyle plus the abstractNum's
+// w:numStyleLink/w:styleLink (through styleRemap). Without this a copied style's
+// numId keeps pointing at the source's numbering — now the destination's
+// unrelated list after that numId was remapped.
+func remapCopiedCrossRefs(styles []*oxml.CT_Style, absNums []*oxml.CT_AbstractNum, styleRemap, numRemap map[string]string) {
+	for _, s := range styles {
+		if s == nil || s.PPr == nil || s.PPr.NumPr == nil {
+			continue
+		}
+		remapNumIDVal(s.PPr.NumPr.NumId, numRemap)
+	}
+	for _, a := range absNums {
+		if a == nil {
+			continue
+		}
+		remapStyleRef(&a.NumStyleLink, styleRemap)
+		remapStyleRef(&a.StyleLink, styleRemap)
+		for _, lvl := range a.Lvl {
+			if lvl == nil {
+				continue
+			}
+			remapStyleRef(&lvl.PStyle, styleRemap)
+			if lvl.PPr != nil && lvl.PPr.NumPr != nil {
+				remapNumIDVal(lvl.PPr.NumPr.NumId, numRemap)
+			}
+		}
+	}
+}
+
+// remapNumIDVal rewrites a numId value through numRemap (whose keys and values
+// are decimal strings), leaving it untouched when the id is absent or nil.
+func remapNumIDVal(numID *oxml.CT_DecimalNumber, numRemap map[string]string) {
+	if numID == nil {
+		return
+	}
+	if mapped, ok := numRemap[strconv.Itoa(numID.Val)]; ok {
+		if v, err := strconv.Atoi(mapped); err == nil {
+			numID.Val = v
+		}
 	}
 }

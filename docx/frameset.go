@@ -21,8 +21,10 @@ const defaultWebSettingsPart = "/word/webSettings.xml"
 const relTypeFrame = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/frame"
 
 // Frameset is a web-layout frameset (w:frameset): a recursive split of the
-// window into rows or columns of frames and nested framesets. Framesets are
-// read-only in this API; the web-settings part is preserved verbatim on save.
+// window into rows or columns of frames and nested framesets. Frameset reads
+// the existing tree; SetFrameset authors one (regenerating, or newly creating,
+// the web-settings part on save). A web-settings part that this session never
+// touches is preserved verbatim.
 type Frameset struct {
 	size      string
 	layout    string
@@ -96,9 +98,13 @@ func (d *Document) webSettingsPartName() string {
 
 // Frameset returns the document's top-level frameset (the window split defined
 // in the web-settings part), or nil when the document is not a frameset
-// document. Framesets are read-only; the web-settings part is preserved
-// verbatim on save.
+// document. A frameset authored this session with SetFrameset is reflected here
+// (it takes precedence, mirroring how the save replaces the existing frameset
+// subtree), so read-your-writes holds within a session.
 func (d *Document) Frameset() *Frameset {
+	if d.pendingFrameset != nil {
+		return framesetFromDef(*d.pendingFrameset)
+	}
 	wsName := d.webSettingsPartName()
 	part, ok := d.preservedParts[wsName]
 	if !ok {
@@ -185,6 +191,31 @@ func parseFrame(dec *xml.Decoder, start xml.StartElement, rels []*opc.Relationsh
 			}
 		}
 	}
+}
+
+// framesetFromDef builds a read view of a frameset queued this session with
+// SetFrameset, so Frameset() reflects it before the document is reopened. Frame
+// source targets carry through directly; the frame relationship ids are only
+// allocated at save, so SourceID is empty in this session view.
+func framesetFromDef(def FramesetDef) *Frameset {
+	fs := &Frameset{
+		size:   def.Size,
+		layout: def.Layout,
+		title:  def.Title,
+	}
+	for _, child := range def.Framesets {
+		fs.framesets = append(fs.framesets, framesetFromDef(child))
+	}
+	for _, fr := range def.Frames {
+		fs.frames = append(fs.frames, &Frame{
+			name:         fr.Name,
+			title:        fr.Title,
+			size:         fr.Size,
+			scrollbar:    fr.Scrollbar,
+			sourceTarget: fr.SourceTarget,
+		})
+	}
+	return fs
 }
 
 // attrVal returns the value of the local-named attribute, ignoring namespace.

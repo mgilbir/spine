@@ -87,7 +87,7 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 	embedName := fmt.Sprintf("/word/embeddings/Microsoft_Excel_Worksheet%d.xlsx", num)
 
 	owner := p.ownerPart()
-	relID := fmt.Sprintf("rId%d", doc.nextRelID())
+	relID := fmt.Sprintf("rId%d", doc.nextRelIDForPart(owner))
 
 	cp := &chartPart{
 		partName:  chartName,
@@ -114,8 +114,14 @@ func (p *Paragraph) AddChart(c *chart.Chart, widthEMU, heightEMU int64) error {
 		Target: "../embeddings/" + embedName[len("/word/embeddings/"):],
 	})
 
-	drawing := &oxml.CT_Drawing{RawContent: buildChartDrawingXML(int(num), relID, widthEMU, heightEMU)}
+	// The wp:docPr id is document-unique across images and charts (not derived
+	// from the chart part number), so an AddImage and an AddChart never collide.
+	drawing := &oxml.CT_Drawing{RawContent: buildChartDrawingXML(doc.nextDocPrID(), relID, widthEMU, heightEMU)}
 	p.AddRun().r.AppendDrawing(drawing)
+	// A chart added to a reopened header/footer paragraph must regenerate that
+	// part on save so the drawing and its chart relationship are not masked by
+	// the preserved original bytes. A no-op for the main document part.
+	p.touch()
 	return nil
 }
 
@@ -152,22 +158,31 @@ func buildChartDrawingXML(drawingID int, relID string, widthEMU, heightEMU int64
 	return []byte(xml)
 }
 
-// nextChartNumber returns the smallest positive N for which no
-// /word/charts/chartN.xml part exists, scanning the parts preserved from an
-// opened package as well as charts added in this session, so names stay
-// collision-free across open→add→save cycles.
+// nextChartNumber returns the smallest positive N for which neither a
+// /word/charts/chartN.xml chart part nor a
+// /word/embeddings/Microsoft_Excel_WorksheetN.xlsx embedded-workbook part
+// exists, scanning the parts preserved from an opened package as well as
+// charts added in this session, so both names AddChart derives from N stay
+// collision-free across open→add→save cycles. The embedded-workbook name reuses
+// N, so a package carrying an orphan Microsoft_Excel_Worksheet1.xlsx (but no
+// chart1.xml) must still skip N=1, or writeChartParts would hit
+// ErrDuplicatePart on the embedding. OPC part names are case-insensitive, so
+// both patterns are matched lower-cased.
 func (d *Document) nextChartNumber() int {
 	used := make(map[int]bool)
-	mark := func(name string) {
-		const prefix = "/word/charts/chart"
+	markFix := func(name, prefix, suffix string) {
 		name = strings.ToLower(name)
-		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".xml") {
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
 			return
 		}
-		n, err := strconv.Atoi(name[len(prefix) : len(name)-len(".xml")])
+		n, err := strconv.Atoi(name[len(prefix) : len(name)-len(suffix)])
 		if err == nil && n > 0 {
 			used[n] = true
 		}
+	}
+	mark := func(name string) {
+		markFix(name, "/word/charts/chart", ".xml")
+		markFix(name, "/word/embeddings/microsoft_excel_worksheet", ".xlsx")
 	}
 	for name := range d.preservedParts {
 		mark(name)
@@ -177,6 +192,7 @@ func (d *Document) nextChartNumber() int {
 	}
 	for _, cp := range d.chartParts {
 		mark(cp.partName)
+		mark(cp.embedName)
 	}
 	for n := 1; ; n++ {
 		if !used[n] {
@@ -210,32 +226,56 @@ func (d *Document) writeChartParts(writer *opc.Writer) error {
 
 // Charts returns every chart in the document, in document order, parsed into
 // chart.Chart definitions. Charts are found by scanning the drawings in every
-// body paragraph (including runs nested in hyperlinks and tracked changes) for
-// a c:chart reference, resolving its relationship to the chart part, and parsing
-// that part. Charts whose part cannot be resolved or parsed are skipped.
+// paragraph — the body and every header and footer, descending into tables and
+// including runs nested in hyperlinks and tracked changes — for a c:chart
+// reference, resolving its relationship to the chart part (in the paragraph's
+// owning part scope), and parsing that part. Charts whose part cannot be
+// resolved or parsed are skipped.
 func (d *Document) Charts() []*chart.Chart {
 	var out []*chart.Chart
-	if d.doc() == nil || d.doc().Body == nil {
-		return nil
+	if d.doc() != nil && d.doc().Body != nil {
+		for _, p := range d.doc().Body.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p})
+		}
 	}
-	for _, p := range d.doc().Body.AllParagraphs() {
-		para := &Paragraph{document: d, p: p}
-		for _, cr := range oxmlParagraphRuns(p) {
-			for _, dr := range cr.Drawing {
-				if dr == nil {
-					continue
-				}
-				relID := scanChartRelID(dr.RawContent)
-				if relID == "" {
-					continue
-				}
-				data := d.resolveChartXML(para.ownerPart(), relID)
-				if len(data) == 0 {
-					continue
-				}
-				if c, err := chart.Parse(data); err == nil && c != nil {
-					out = append(out, c)
-				}
+	for name, hp := range d.headers {
+		if hp == nil || hp.hdr == nil {
+			continue
+		}
+		for _, p := range hp.hdr.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p, hfPart: name})
+		}
+	}
+	for name, fp := range d.footers {
+		if fp == nil || fp.ftr == nil {
+			continue
+		}
+		for _, p := range fp.ftr.AllParagraphs() {
+			out = d.appendParagraphCharts(out, &Paragraph{document: d, p: p, hfPart: name})
+		}
+	}
+	return out
+}
+
+// appendParagraphCharts appends the charts referenced by a paragraph's drawings
+// (resolving each c:chart relationship in the paragraph's owning part scope) to
+// out.
+func (d *Document) appendParagraphCharts(out []*chart.Chart, para *Paragraph) []*chart.Chart {
+	for _, cr := range oxmlParagraphRuns(para.p) {
+		for _, dr := range cr.Drawing {
+			if dr == nil {
+				continue
+			}
+			relID := scanChartRelID(dr.RawContent)
+			if relID == "" {
+				continue
+			}
+			data := d.resolveChartXML(para.ownerPart(), relID)
+			if len(data) == 0 {
+				continue
+			}
+			if c, err := chart.Parse(data); err == nil && c != nil {
+				out = append(out, c)
 			}
 		}
 	}

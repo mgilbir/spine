@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -224,4 +225,65 @@ func TestNextImageNumberCaseInsensitive(t *testing.T) {
 	if _, ok := zipEntry(t, saved, "word/media/IMAGE1.PNG"); !ok {
 		t.Fatal("original media part lost")
 	}
+}
+
+// nextHdrFtrPartName matched header/footer part names case-sensitively while
+// OPC part names are case-insensitive, so a wild /word/Header1.xml left
+// header1.xml "free" by exact-map lookup and AddHeader chose a name that
+// collides case-insensitively — two case-colliding entries at save time.
+func TestNextHdrFtrPartNameCaseInsensitive(t *testing.T) {
+	fixture := buildFixtureDocx(t, map[string]string{
+		"[Content_Types].xml": fixtureContentTypes,
+		"_rels/.rels":         fixtureRootRels,
+		"word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<w:document ` + fixtureWNS + `><w:body><w:p/></w:body></w:document>`,
+		// A wild header part whose basename differs only in case from the name
+		// the namer would otherwise generate.
+		"word/Header1.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+			`<w:hdr ` + fixtureWNS + `><w:p><w:r><w:t>wild</w:t></w:r></w:p></w:hdr>`,
+	})
+	doc := openFixture(t, fixture)
+
+	got := doc.nextHdrFtrPartName("header")
+	if strings.EqualFold(got, "/word/Header1.xml") {
+		t.Fatalf("chosen header part %q collides case-insensitively with /word/Header1.xml", got)
+	}
+
+	// End-to-end: AddHeader must not produce a name colliding with any part
+	// already preserved from the package.
+	h := doc.AddHeader(HeaderDefault)
+	for name := range doc.preservedParts {
+		if strings.EqualFold(name, h.partName) {
+			t.Fatalf("AddHeader chose %q, colliding case-insensitively with preserved %q", h.partName, name)
+		}
+	}
+}
+
+// doc() swallowed a failure of the lazy body parse and returned a nil model, so
+// a mutation caller (AddParagraph, AddTable, DefaultSection, …) would
+// nil-deref with an opaque panic far from the cause. The parse error is now
+// cached and surfaced as a diagnostic panic naming the part.
+func TestDocLazyParseFailurePanicsClearly(t *testing.T) {
+	// A Document with corrupt lazy state: the main part's preserved bytes are
+	// not well-formed XML, so the lazy parse in doc() fails.
+	d := &Document{
+		preservedParts: map[string]*coxml.RawPart{
+			mainDocumentPart: {Data: []byte("<w:document><<< not well-formed")},
+		},
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected a panic from doc() on a failed lazy parse, got none")
+		}
+		msg, _ := r.(string)
+		if !strings.Contains(msg, mainDocumentPart) {
+			t.Fatalf("panic message does not name the failing part: %v", r)
+		}
+	}()
+
+	// AddParagraph reaches the body through doc(); with a nil model this used to
+	// nil-deref opaquely.
+	d.AddParagraph()
 }
