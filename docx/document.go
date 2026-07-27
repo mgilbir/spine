@@ -81,7 +81,16 @@ type Document struct {
 	// main-part counter or it would emit a duplicate Id (C297). See
 	// nextRelIDForPart.
 	nextRelIDByPart map[string]int
-	shapeIDSeq       int                       // counter for text box / shape docPr ids (see nextShapeID)
+	// unparsedRels holds the source parts whose .rels file was present in the
+	// package but could not be decoded, so relationships[part] is unset for a
+	// reason other than "the part has none". The save path must not treat that
+	// as an empty set and regenerate — see writeDocumentRelationships (C410).
+	unparsedRels map[string]bool
+	// shapeIDSeq is the counter for text box / shape docPr ids, offset from
+	// shapeIDBase; shapeIDInit records that the initial scan of the opened
+	// document's existing shape ids has run. See nextShapeID.
+	shapeIDSeq  int
+	shapeIDInit bool
 	// docPrIDSeq is the document-wide counter for the wp:docPr ids of images and
 	// charts, so an AddImage* and an AddChart in the same document never emit the
 	// same id (ECMA-376 requires document-unique wp:docPr ids). It is seeded once
@@ -105,6 +114,15 @@ type Document struct {
 	// appear here. Empty on a zero-modification save, so untouched documents
 	// round-trip byte-for-byte.
 	modifiedHdrFtrParts map[string]bool
+	// droppedParts holds the names of parts that came from the opened package
+	// but are no longer referenced by anything this save will write, so the
+	// preserved-parts loops skip them. The only producer is a repeated
+	// AddHeader/AddFooter of the same type replacing a preserved
+	// header/footer: the section can hold at most one reference per type, so
+	// the replaced part and its .rels would otherwise stay in the package
+	// forever with nothing pointing at them (C492). Empty on a
+	// zero-modification save.
+	droppedParts map[string]bool
 	// watermarkSeq hands out unique VML shape ids / spids for watermark shapes
 	// so multiple watermarked headers (default/first/even) never collide.
 	watermarkSeq int
@@ -141,8 +159,9 @@ type Document struct {
 	themePartName string // theme part name, set when theme resolves to a part
 	// vbaModified records that SetVBAProject or RemoveVBAProject ran this
 	// session; vbaRemove distinguishes removal from injection. When set, the
-	// round-trip save regenerates [Content_Types].xml (see hasAddedParts),
-	// writes/drops the VBA part, and re-emits the flipped main-part flavor. A
+	// round-trip save writes/drops the VBA part and re-emits the flipped
+	// main-part flavor (its content-type override is merged into the preserved
+	// [Content_Types].xml by the writer). A
 	// zero-modification save leaves them false and any existing vbaProject.bin
 	// round-trips byte-for-byte among the preserved parts. See vba.go.
 	vbaModified bool
@@ -391,6 +410,12 @@ func openFromReader(reader *opc.ReadCloser) (*Document, error) {
 		d.Properties = *reader.Properties
 		d.hasCoreProps = true
 		d.propsSnapshot = reader.Properties.Clone()
+	} else {
+		// A package with no (readable) core-properties part still gets a
+		// baseline, so "did the session edit Properties?" is answerable for it
+		// too — CoreProperties.Equal(nil) is false, which would otherwise read
+		// every untouched save as an edit (C402).
+		d.propsSnapshot = &opc.CoreProperties{}
 	}
 
 	if reader.CustomProperties != nil {
@@ -626,12 +651,20 @@ func (d *Document) loadAllRelationships() {
 			continue
 		}
 
+		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		rels, err := opc.UnmarshalRelationships(data)
 		if err != nil {
+			// Record the failure. The part's relationships stay unmodeled and
+			// its raw bytes pass through on save; without this marker an
+			// undecodable main-part .rels was indistinguishable from a part
+			// with no relationships and got dropped from the output (C410).
+			if d.unparsedRels == nil {
+				d.unparsedRels = make(map[string]bool)
+			}
+			d.unparsedRels[sourcePart] = true
 			continue
 		}
 
-		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		d.relationships[sourcePart] = rels
 	}
 }
@@ -744,7 +777,15 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	_, hasPsmdcpCorePart := d.preservedParts[corePartName]
 	psmdcpCore := corePartName != "" && corePartName != "/docProps/core.xml" && hasPsmdcpCorePart
 	_, hasCorePart := d.preservedParts["/docProps/core.xml"]
-	if d.hasCoreProps && (hasCorePart || corePropsEdited) && !psmdcpCore {
+	// C402: a package that declares no core-properties relationship at all had
+	// hasCoreProps false, so the guard above short-circuited and every edit to
+	// the public Properties field was silently dropped — while Create+Save
+	// writes the same field unconditionally. Treat a Properties value that
+	// differs from the zero baseline as "create the part", and inject its
+	// package relationship into the preserved root .rels below, exactly as the
+	// custom-properties path already does.
+	createCorePart := !d.hasCoreProps && corePartName == "" && !d.Properties.Equal(d.propsSnapshot)
+	if (d.hasCoreProps && (hasCorePart || corePropsEdited) && !psmdcpCore) || createCorePart {
 		writer.Properties = &d.Properties
 	}
 
@@ -788,11 +829,19 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		writer.ContentTypes = d.reader.ContentTypes.Clone()
 	}
 
-	// Write [Content_Types].xml as raw file if preserved. When parts were added
-	// after open (images/headers/footers), skip the raw copy so the writer
-	// regenerates [Content_Types].xml from the (preserved plus newly registered)
-	// content types — otherwise the new parts' content types would be missing.
-	if len(d.contentTypesData) > 0 && !d.hasAddedParts() {
+	// Write [Content_Types].xml as the preserved raw file whenever the package
+	// had one. The writer defers it to Close and merges in every content type
+	// registered after this call (WriteRawFile snapshots the registrations it
+	// already had), reproducing the source's prolog, entry order, attribute
+	// order and self-closing style byte-for-byte and appending the new entries.
+	//
+	// This used to be skipped whenever the mutation API had added a part, on the
+	// theory that the new parts' content types would otherwise be missing — the
+	// writer's merge makes that false, and the skip cost every package that
+	// gained a single image its [Content_Types].xml formatting for no reason
+	// (C504). The flag also never listed importedParts or modifiedHdrFtrParts,
+	// so it was wrong in both directions.
+	if len(d.contentTypesData) > 0 {
 		if err := writer.WriteRawFile("[Content_Types].xml", d.contentTypesData); err != nil {
 			return err
 		}
@@ -833,6 +882,10 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	sort.Strings(preservedNames)
 	for _, name := range preservedNames {
 		if name == mainPartName {
+			continue
+		}
+		// A header/footer this session unreferenced, and its .rels (C492).
+		if d.droppedParts[name] {
 			continue
 		}
 		if name == "/docProps/core.xml" {
@@ -931,6 +984,9 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if name == mainRelsName {
 			continue
 		}
+		if d.droppedParts[name] {
+			continue
+		}
 		// The .rels of a header/footer regenerated this session is rewritten from
 		// the parsed relationship set (it may now reference a watermark image),
 		// so skip the preserved copy here.
@@ -949,6 +1005,13 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		// preserved bytes so unrelated relationships keep their exact form.
 		if name == "/_rels/.rels" && customModified && !d.hasCustomPart {
 			if aug, _, ok := opc.EnsureRelationshipInRels(data, opc.RelTypeCustom, "docProps/custom.xml"); ok {
+				data = aug
+			}
+		}
+		// Same for a core-properties part created this session because the
+		// opened package had none (C402).
+		if name == "/_rels/.rels" && createCorePart {
+			if aug, _, ok := opc.EnsureRelationshipInRels(data, opc.RelTypeCore, "docProps/core.xml"); ok {
 				data = aug
 			}
 		}
@@ -1301,18 +1364,6 @@ func (d *Document) ensureDocRelationship(relType, target string) {
 	})
 }
 
-// hasAddedParts reports whether the mutation API added parts or modified a
-// metadata part, requiring [Content_Types].xml to be regenerated so the new
-// parts' content types are declared.
-func (d *Document) hasAddedParts() bool {
-	return len(d.imageParts) > 0 || len(d.chartParts) > 0 || len(d.newHeaderParts) > 0 || len(d.newFooterParts) > 0 ||
-		len(d.pendingCustomXML) > 0 ||
-		d.numberingModified || d.settingsModified || d.stylesModified ||
-		d.commentsModified || d.commentsExtModified || d.peopleModified ||
-		d.footnotesModified || d.endnotesModified || d.vbaModified || d.sourcesModified ||
-		d.glossaryModified || d.framesetModified
-}
-
 // saveNew saves a newly created document.
 func (d *Document) saveNew(writer *opc.Writer) error {
 	writer.Properties = &d.Properties
@@ -1455,11 +1506,38 @@ func (d *Document) saveNew(writer *opc.Writer) error {
 // bytes are preserved verbatim so producer formatting (declaration style, line
 // endings, trailing newline) survives the round trip.
 func (d *Document) writeDocumentRelationships(writer *opc.Writer) error {
+	relsName := opc.GetRelationshipsPartName(d.mainPart())
 	rels, ok := d.relationships[d.mainPart()]
+	if d.unparsedRels[d.mainPart()] {
+		// The source .rels exists but this library could not decode it, so the
+		// modeled set is not a faithful picture of the package. Passing the raw
+		// bytes through keeps every reference intact; a session that also added
+		// a main-part relationship cannot be reconciled with bytes that do not
+		// parse, and failing loudly beats writing a package that silently lost
+		// either the original relationships or the new one.
+		part, havePart := d.preservedParts[relsName]
+		if havePart && len(rels) == 0 {
+			return writer.WritePreservedPart(relsName, part.ContentType, part.Data)
+		}
+		if havePart {
+			return fmt.Errorf("docx: %s could not be parsed at open, so the %d relationship(s) added this session cannot be merged into it", relsName, len(rels))
+		}
+	}
 	if !ok || len(rels) == 0 {
+		// No relationships in the model. The package may still carry a .rels
+		// the open could not decode: loadAllRelationships skips a part whose
+		// .rels UnmarshalRelationships rejects, and the preserved-parts loop
+		// skips this exact name unconditionally, so returning here dropped
+		// word/_rels/document.xml.rels from the output entirely — severing
+		// every image, hyperlink, header, footer and styles reference in a
+		// document whose body was never materialized, so the Validate gate
+		// never looked (C410). Pass the source bytes through instead: a .rels
+		// this library cannot parse is still a .rels Word can.
+		if part, ok := d.preservedParts[relsName]; ok {
+			return writer.WritePreservedPart(relsName, part.ContentType, part.Data)
+		}
 		return nil
 	}
-	relsName := opc.GetRelationshipsPartName(d.mainPart())
 	if part, ok := d.preservedParts[relsName]; ok {
 		orig, err := opc.UnmarshalRelationships(part.Data)
 		// Exact order match, or the same set in a different order — OPC
@@ -1738,10 +1816,10 @@ func (d *Document) removeDocRelationship(relID string) {
 
 // dropSessionHeader removes a header added earlier in this session, identified
 // by its document relationship ID: the pending part, its part-scoped
-// relationships, and its document.xml relationship. A relID that does not
-// match a session-added header (e.g. one parsed from the original package) is
-// left untouched — preserved parts are never dropped.
-func (d *Document) dropSessionHeader(relID string) {
+// relationships, and its document.xml relationship. It reports whether it
+// matched. A relID that belongs to a header parsed from the original package is
+// left to dropUnreferencedHdrFtr.
+func (d *Document) dropSessionHeader(relID string) bool {
 	for i, hp := range d.newHeaderParts {
 		if hp.relID != relID {
 			continue
@@ -1750,12 +1828,13 @@ func (d *Document) dropSessionHeader(relID string) {
 		delete(d.relationships, hp.partName)
 		d.newHeaderParts = append(d.newHeaderParts[:i], d.newHeaderParts[i+1:]...)
 		d.removeDocRelationship(relID)
-		return
+		return true
 	}
+	return false
 }
 
 // dropSessionFooter is the footer counterpart of dropSessionHeader.
-func (d *Document) dropSessionFooter(relID string) {
+func (d *Document) dropSessionFooter(relID string) bool {
 	for i, fp := range d.newFooterParts {
 		if fp.relID != relID {
 			continue
@@ -1764,8 +1843,84 @@ func (d *Document) dropSessionFooter(relID string) {
 		delete(d.relationships, fp.partName)
 		d.newFooterParts = append(d.newFooterParts[:i], d.newFooterParts[i+1:]...)
 		d.removeDocRelationship(relID)
+		return true
+	}
+	return false
+}
+
+// dropUnreferencedHdrFtr releases a header/footer that came from the opened
+// package and that no section in the document references any more — what a
+// repeated AddHeader/AddFooter of the same type leaves behind when it repoints
+// an existing reference. The part, its .rels and its document.xml relationship
+// are dropped from the save.
+//
+// It first re-checks every section in the document (the body's own sectPr and
+// each paragraph-level one), because a multi-section document can reference the
+// same header from more than one section and AddHeader only repoints the final
+// one; a still-referenced part is kept. Media the dropped part embedded stays
+// in the package: it may be shared with the body or another header, and
+// preserved bytes are never deleted on a guess (C492).
+func (d *Document) dropUnreferencedHdrFtr(relID string) {
+	if relID == "" || d.hdrFtrRefInUse(relID) {
 		return
 	}
+	main := d.mainPart()
+	target := ""
+	for _, rel := range d.relationships[main] {
+		if rel != nil && rel.ID == relID && rel.TargetMode != opc.TargetModeExternal {
+			target = opc.ResolvePartName(main, rel.Target)
+			break
+		}
+	}
+	d.removeDocRelationship(relID)
+	if target == "" {
+		return
+	}
+	delete(d.headers, target)
+	delete(d.footers, target)
+	delete(d.relationships, target)
+	delete(d.modifiedHdrFtrParts, target)
+	if _, preserved := d.preservedParts[target]; !preserved {
+		return
+	}
+	if d.droppedParts == nil {
+		d.droppedParts = make(map[string]bool)
+	}
+	d.droppedParts[target] = true
+	d.droppedParts[opc.GetRelationshipsPartName(target)] = true
+}
+
+// hdrFtrRefInUse reports whether any section in the document still carries a
+// header or footer reference with the given relationship id.
+func (d *Document) hdrFtrRefInUse(relID string) bool {
+	uses := func(sectPr *oxml.CT_SectPr) bool {
+		if sectPr == nil {
+			return false
+		}
+		for _, ref := range sectPr.HeaderReference {
+			if ref != nil && ref.RID == relID {
+				return true
+			}
+		}
+		for _, ref := range sectPr.FooterReference {
+			if ref != nil && ref.RID == relID {
+				return true
+			}
+		}
+		return false
+	}
+	if d.doc() == nil || d.doc().Body == nil {
+		return false
+	}
+	if uses(d.doc().Body.SectPr) {
+		return true
+	}
+	for _, p := range d.doc().Body.AllParagraphs() {
+		if p != nil && p.PPr != nil && uses(p.PPr.SectPr) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultSection returns the document's default (last) section.
@@ -1781,10 +1936,18 @@ func (d *Document) DefaultSection() *Section {
 }
 
 // AddSectionBreak adds a section break by setting section properties on the
-// last block-level paragraph and creating a new default section. When the
-// body's last block is not a paragraph (e.g. the document ends with a table),
-// a new paragraph is appended after it to carry the section properties —
-// attaching them to an earlier paragraph would move the section boundary.
+// last block-level paragraph and creating a new final section. When the body's
+// last block is not a paragraph (e.g. the document ends with a table), a new
+// paragraph is appended after it to carry the section properties — attaching
+// them to an earlier paragraph would move the section boundary.
+//
+// The new final section is a copy of the section it splits off from, which is
+// what Word's own "insert section break" does: page size, margins, columns and
+// the header/footer references carry across, so content after the break keeps
+// the document's furniture. Leaving it empty reverted everything after the
+// break to Word's defaults — an A4 landscape document with headers continued as
+// unfurnished Letter portrait pages (C488). Adjust the returned Section to make
+// the new section differ.
 func (d *Document) AddSectionBreak() *Section {
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
@@ -1806,7 +1969,32 @@ func (d *Document) AddSectionBreak() *Section {
 	}
 	lastP.PPr.SectPr = oldSectPr
 
-	// Create new body-level section
-	d.doc().Body.SectPr = &oxml.CT_SectPr{}
+	// Create the new body-level section as an independent clone of the one
+	// just pushed into the break paragraph.
+	d.doc().Body.SectPr = cloneSectPr(oldSectPr)
 	return &Section{sectPr: d.doc().Body.SectPr}
+}
+
+// cloneSectPr returns an independent deep copy of src, produced by serializing
+// it and parsing the result back. Going through the part's own marshal/parse
+// pair copies everything the model carries — the typed children, the captured
+// attributes, and the verbatim unmodeled children — without sharing a single
+// child pointer with src, so a setter on one section cannot reach into the
+// other. It falls back to a fresh empty sectPr if either half fails.
+func cloneSectPr(src *oxml.CT_SectPr) *oxml.CT_SectPr {
+	if src == nil {
+		return &oxml.CT_SectPr{}
+	}
+	data, err := marshalDocumentXML(&oxml.CT_Document{Body: &oxml.CT_Body{SectPr: src}})
+	if err != nil {
+		return &oxml.CT_SectPr{}
+	}
+	var parsed oxml.CT_Document
+	if err := xmlb.UnmarshalWithSource(data, &parsed); err != nil {
+		return &oxml.CT_SectPr{}
+	}
+	if parsed.Body == nil || parsed.Body.SectPr == nil {
+		return &oxml.CT_SectPr{}
+	}
+	return parsed.Body.SectPr
 }
