@@ -143,7 +143,11 @@ func (s *CT_Scenario) marshal(b *xmlb.Builder, ns string) {
 		count = *s.Count
 	}
 	attrs = append(attrs, xmlb.Attr{Name: "count", Value: strconv.FormatUint(uint64(count), 10)})
-	attrs = append(attrs, xmlb.StrAttr("user", s.User))
+	if s.User != "" {
+		// user is optional; emitting user="" on a scenario whose source had no
+		// author invented an attribute the producer never wrote (C556).
+		attrs = append(attrs, xmlb.StrAttr("user", s.User))
+	}
 	if s.Comment != "" {
 		attrs = append(attrs, xmlb.StrAttr("comment", s.Comment))
 	}

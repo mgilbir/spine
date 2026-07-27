@@ -73,9 +73,9 @@ type CT_Workbook struct {
 	PerGapWS bool     `xml:"-"`
 	// OriginalRootAttrs preserves all root element attributes (namespace declarations
 	// and regular attributes like mc:Ignorable) in their original order for round-trip.
+	// A parsed workbook always has it, so there is no separate NSDecl fallback:
+	// the marshaler's other branch serves workbooks built from scratch (C554).
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
-	// OriginalNSDecls preserves namespace declarations (fallback for new workbooks).
-	OriginalNSDecls []xmlb.NSDecl `xml:"-"`
 	// Prolog preserves the source part's XML declaration and surrounding
 	// whitespace for byte-faithful regeneration. Set from raw part data
 	// during loading.
@@ -112,6 +112,22 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 		if ra.IsNS && ra.Prefix != "" {
 			nsPrefixMap[ra.Value] = ra.Prefix
 		}
+	}
+
+	// Tracks the non-repeatable children already recorded in ChildOrder. A
+	// malformed source can repeat a child the schema declares once; parsing is
+	// last-wins, but a second ChildOrder entry made the marshaler emit the
+	// surviving element twice (C553). AlternateContent is repeatable and each
+	// occurrence keeps its own entry.
+	seenSingleton := make(map[string]bool)
+	record := func(name string) {
+		if name != wbChildAlternateContent {
+			if seenSingleton[name] {
+				return
+			}
+			seenSingleton[name] = true
+		}
+		wb.ChildOrder = append(wb.ChildOrder, name)
 	}
 
 	for {
@@ -151,13 +167,13 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				if err := d.DecodeElement(wb.FileVersion, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildFileVersion)
+				record(wbChildFileVersion)
 			case "workbookPr":
 				wb.WorkbookPr = &CT_WorkbookPr{}
 				if err := d.DecodeElement(wb.WorkbookPr, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookPr)
+				record(wbChildWorkbookPr)
 			case "workbookProtection":
 				wb.WorkbookProtection = &CT_WorkbookProtection{}
 				if err := d.DecodeElement(wb.WorkbookProtection, &t); err != nil {
@@ -168,47 +184,52 @@ func (wb *CT_Workbook) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 				// style), exactly as the unknown-child path did before this element
 				// gained a typed model. Protect/Unprotect clear Raw so the typed
 				// canonical form is marshaled instead.
+				// The '<' check mirrors the unknown-child path: a slice that does
+				// not start on a start tag means the offsets do not index
+				// RawSource (misconfigured caller), and WriteRaw would splice the
+				// fragment in unchecked. Fall back to the typed marshal.
 				if end := d.InputOffset(); wb.RawSource != nil &&
-					tokStart >= 0 && end > tokStart && end <= int64(len(wb.RawSource)) {
+					tokStart >= 0 && end > tokStart && end <= int64(len(wb.RawSource)) &&
+					wb.RawSource[tokStart] == '<' {
 					wb.WorkbookProtection.Raw = append([]byte(nil), wb.RawSource[tokStart:end]...)
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildWorkbookProtection)
+				record(wbChildWorkbookProtection)
 			case "AlternateContent":
 				ac := &coxml.AlternateContent{}
 				if err := d.DecodeElement(ac, &t); err != nil {
 					return err
 				}
 				wb.AlternateContent = append(wb.AlternateContent, ac)
-				wb.ChildOrder = append(wb.ChildOrder, wbChildAlternateContent)
+				record(wbChildAlternateContent)
 			case "bookViews":
 				wb.BookViews = &CT_BookViews{}
 				if err := d.DecodeElement(wb.BookViews, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildBookViews)
+				record(wbChildBookViews)
 			case "sheets":
 				if err := d.DecodeElement(&wb.Sheets, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildSheets)
+				record(wbChildSheets)
 			case "definedNames":
 				wb.DefinedNames = &CT_DefinedNames{}
 				if err := d.DecodeElement(wb.DefinedNames, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildDefinedNames)
+				record(wbChildDefinedNames)
 			case "calcPr":
 				wb.CalcPr = &CT_CalcPr{}
 				if err := d.DecodeElement(wb.CalcPr, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildCalcPr)
+				record(wbChildCalcPr)
 			case "extLst":
 				wb.ExtLst = &CT_ExtensionList{}
 				if err := d.DecodeElement(wb.ExtLst, &t); err != nil {
 					return err
 				}
-				wb.ChildOrder = append(wb.ChildOrder, wbChildExtLst)
+				record(wbChildExtLst)
 			default:
 				// Capture unknown child elements as raw bytes
 				var raw struct {
@@ -469,7 +490,13 @@ func (fv *CT_FileVersion) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 // workbookSaltValue + workbookSpinCount + workbookAlgorithmName). Neither is
 // exposed once written.
 type CT_WorkbookProtection struct {
-	WorkbookPassword       string `xml:"workbookPassword,attr,omitempty"`
+	WorkbookPassword string `xml:"workbookPassword,attr,omitempty"`
+	// The *CharacterSet attributes name the code page the legacy 16-bit
+	// password hash was computed over; without them a non-Latin password
+	// cannot be re-verified, so they are modeled rather than dropped when
+	// Protect/Unprotect discards the verbatim Raw.
+	WorkbookPasswordCharacterSet  string `xml:"workbookPasswordCharacterSet,attr,omitempty"`
+	RevisionsPasswordCharacterSet string `xml:"revisionsPasswordCharacterSet,attr,omitempty"`
 	WorkbookHashValue      string `xml:"workbookHashValue,attr,omitempty"`
 	WorkbookSaltValue      string `xml:"workbookSaltValue,attr,omitempty"`
 	WorkbookSpinCount      string `xml:"workbookSpinCount,attr,omitempty"`
@@ -534,27 +561,32 @@ func (bv *CT_BookViews) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 	return xmlb.UnmarshalOrderedChildren(d, bv)
 }
 
-// CT_BookView represents a workbookView element. Has custom UnmarshalXML/MarshalToBuilder
-// to handle extension attributes (e.g., xr2:uid) for round-trip preservation.
+// CT_BookView represents a workbookView element.
 type CT_BookView struct {
-	Visibility             string      `xml:"-"`
-	Minimized              *BoolLex    `xml:"-"`
-	ShowHorizontalScroll   *BoolLex    `xml:"-"`
-	ShowVerticalScroll     *BoolLex    `xml:"-"`
-	ShowSheetTabs          *BoolLex    `xml:"-"`
-	XWindow                *int32      `xml:"-"`
-	YWindow                *int32      `xml:"-"`
-	WindowWidth            *uint32     `xml:"-"`
-	WindowHeight           *uint32     `xml:"-"`
-	TabRatio               *uint32     `xml:"-"`
-	FirstSheet             *uint32     `xml:"-"`
-	ActiveTab              *uint32     `xml:"-"`
-	AutoFilterDateGrouping *BoolLex    `xml:"-"`
-	ExtAttrs               []xmlb.Attr `xml:"-"` // extension attrs (e.g., xr2:uid)
-	// attrOrder records the source order of the known attributes above:
-	// Excel writes them in XSD order but Apache POI writes them
-	// alphabetically, so a fixed emission order cannot serve both.
-	attrOrder        []string
+	Visibility             string   `xml:"-"`
+	Minimized              *BoolLex `xml:"-"`
+	ShowHorizontalScroll   *BoolLex `xml:"-"`
+	ShowVerticalScroll     *BoolLex `xml:"-"`
+	ShowSheetTabs          *BoolLex `xml:"-"`
+	XWindow                *int32   `xml:"-"`
+	YWindow                *int32   `xml:"-"`
+	WindowWidth            *uint32  `xml:"-"`
+	WindowHeight           *uint32  `xml:"-"`
+	TabRatio               *uint32  `xml:"-"`
+	FirstSheet             *uint32  `xml:"-"`
+	ActiveTab              *uint32  `xml:"-"`
+	AutoFilterDateGrouping *BoolLex `xml:"-"`
+	// CapturedAttrs preserves the verbatim source attribute list; the marshaler
+	// replays it so the producer's attribute order (Excel writes XSD order,
+	// Apache POI alphabetical), its unmodeled extension attributes (xr2:uid)
+	// and any namespace declaration carried on the element itself all survive.
+	//
+	// This replaces a bespoke attrOrder/ExtAttrs pair that predated the
+	// convention and skipped inline xmlns declarations while still capturing
+	// the attributes that needed them, so a workbookView carrying its own
+	// xmlns:xr2 opened fine and then made every save fail with "no prefix
+	// registered for namespace" (C429).
+	CapturedAttrs    []xmlb.RootAttr    `xml:"-"`
 	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"` // empty-element style; see common/xml.CaptureEmptyTagStyle
 	// rawChildren preserves the verbatim inner XML of a workbookView that
 	// carries children this type does not model (extLst); re-emitted on
@@ -563,108 +595,41 @@ type CT_BookView struct {
 	rawChildren []byte
 }
 
-// bookViewAttrOrder lists the modeled workbookView attribute names in
-// canonical (XSD) emission order.
-var bookViewAttrOrder = []string{
-	"visibility", "minimized", "showHorizontalScroll", "showVerticalScroll",
-	"showSheetTabs", "xWindow", "yWindow", "windowWidth", "windowHeight",
-	"tabRatio", "firstSheet", "activeTab", "autoFilterDateGrouping",
-}
-
-// bookViewAttrNames is the set of modeled workbookView attribute names.
-var bookViewAttrNames = func() map[string]bool {
-	m := make(map[string]bool, len(bookViewAttrOrder))
-	for _, n := range bookViewAttrOrder {
-		m[n] = true
-	}
-	return m
-}()
-
 // UnmarshalXML implements custom unmarshaling for CT_BookView.
 func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	bv.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
+	bv.CapturedAttrs = xmlb.CaptureAttrsSource(d, start.Attr)
 	for _, attr := range start.Attr {
-		if attr.Name.Space == "" && bookViewAttrNames[attr.Name.Local] {
-			bv.attrOrder = append(bv.attrOrder, attr.Name.Local)
+		if attr.Name.Space != "" || attr.Name.Local == "xmlns" {
+			continue
 		}
 		switch attr.Name.Local {
 		case "visibility":
 			bv.Visibility = attr.Value
 		case "minimized":
-			v := &BoolLex{}
-			if err := v.UnmarshalXMLAttr(attr); err != nil {
-				return err
-			}
-			bv.Minimized = v
+			bv.Minimized = parseBoolLex(attr)
 		case "showHorizontalScroll":
-			v := &BoolLex{}
-			if err := v.UnmarshalXMLAttr(attr); err != nil {
-				return err
-			}
-			bv.ShowHorizontalScroll = v
+			bv.ShowHorizontalScroll = parseBoolLex(attr)
 		case "showVerticalScroll":
-			v := &BoolLex{}
-			if err := v.UnmarshalXMLAttr(attr); err != nil {
-				return err
-			}
-			bv.ShowVerticalScroll = v
+			bv.ShowVerticalScroll = parseBoolLex(attr)
 		case "showSheetTabs":
-			v := &BoolLex{}
-			if err := v.UnmarshalXMLAttr(attr); err != nil {
-				return err
-			}
-			bv.ShowSheetTabs = v
+			bv.ShowSheetTabs = parseBoolLex(attr)
 		case "xWindow":
-			if n, err := strconv.ParseInt(attr.Value, 10, 32); err == nil {
-				v := int32(n)
-				bv.XWindow = &v
-			}
+			bv.XWindow = parseIntPtr(attr.Value)
 		case "yWindow":
-			if n, err := strconv.ParseInt(attr.Value, 10, 32); err == nil {
-				v := int32(n)
-				bv.YWindow = &v
-			}
+			bv.YWindow = parseIntPtr(attr.Value)
 		case "windowWidth":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				bv.WindowWidth = &v
-			}
+			bv.WindowWidth = parseUintPtr(attr.Value)
 		case "windowHeight":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				bv.WindowHeight = &v
-			}
+			bv.WindowHeight = parseUintPtr(attr.Value)
 		case "tabRatio":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				bv.TabRatio = &v
-			}
+			bv.TabRatio = parseUintPtr(attr.Value)
 		case "firstSheet":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				bv.FirstSheet = &v
-			}
+			bv.FirstSheet = parseUintPtr(attr.Value)
 		case "activeTab":
-			if n, err := strconv.ParseUint(attr.Value, 10, 32); err == nil {
-				v := uint32(n)
-				bv.ActiveTab = &v
-			}
+			bv.ActiveTab = parseUintPtr(attr.Value)
 		case "autoFilterDateGrouping":
-			v := &BoolLex{}
-			if err := v.UnmarshalXMLAttr(attr); err != nil {
-				return err
-			}
-			bv.AutoFilterDateGrouping = v
-		default:
-			if attr.Name.Space == "xmlns" || (attr.Name.Space == "" && attr.Name.Local == "xmlns") {
-				continue // skip namespace declarations
-			}
-			// Extension attribute (e.g., xr2:uid) - store with namespace URI
-			bv.ExtAttrs = append(bv.ExtAttrs, xmlb.Attr{
-				Namespace: attr.Name.Space,
-				Name:      attr.Name.Local,
-				Value:     attr.Value,
-			})
+			bv.AutoFilterDateGrouping = parseBoolLex(attr)
 		}
 	}
 	// Preserve any modeled-less children (extLst) verbatim rather than dropping
@@ -681,32 +646,11 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	return nil
 }
 
-// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_BookView.
-// Attributes are written in the captured source order (Excel uses XSD order,
-// POI alphabetical); values built programmatically use the fixed XSD order.
+// MarshalToBuilder implements xmlb.BuilderMarshaler for CT_BookView. Modeled
+// attributes are built in canonical (XSD) order, then reconciled against the
+// captured source list so a parsed element keeps its producer's ordering,
+// declarations and unmodeled attributes while post-parse edits still win.
 func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	if len(bv.attrOrder) > 0 {
-		attrs := make([]xmlb.Attr, 0, len(bv.attrOrder)+len(bv.ExtAttrs))
-		seen := make(map[string]bool, len(bv.attrOrder))
-		for _, name := range bv.attrOrder {
-			seen[name] = true
-			if a, ok := bv.namedAttr(name); ok {
-				attrs = append(attrs, a)
-			}
-		}
-		// Fields set after parse (mutation API) follow in canonical order.
-		for _, name := range bookViewAttrOrder {
-			if seen[name] {
-				continue
-			}
-			if a, ok := bv.namedAttr(name); ok {
-				attrs = append(attrs, a)
-			}
-		}
-		attrs = append(attrs, bv.ExtAttrs...)
-		bv.emit(b, ns, localName, attrs)
-		return
-	}
 	var attrs []xmlb.Attr
 	if bv.Visibility != "" {
 		attrs = append(attrs, xmlb.StrAttr("visibility", bv.Visibility))
@@ -747,8 +691,9 @@ func (bv *CT_BookView) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if bv.AutoFilterDateGrouping != nil {
 		attrs = append(attrs, xmlb.StrAttr("autoFilterDateGrouping", bv.AutoFilterDateGrouping.AttrValue()))
 	}
-	// Append extension attributes (e.g., xr2:uid)
-	attrs = append(attrs, bv.ExtAttrs...)
+	if bv.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrs(bv.CapturedAttrs, attrs)
+	}
 	bv.emit(b, ns, localName, attrs)
 }
 
@@ -763,66 +708,6 @@ func (bv *CT_BookView) emit(b *xmlb.Builder, ns, localName string, attrs []xmlb.
 		return
 	}
 	b.EmptyElementStyled(bv.CapturedEmptyTag, ns, localName, attrs...)
-}
-
-// namedAttr returns the Attr for one modeled workbookView attribute, or
-// ok=false when the field is unset.
-func (bv *CT_BookView) namedAttr(name string) (xmlb.Attr, bool) {
-	switch name {
-	case "visibility":
-		if bv.Visibility != "" {
-			return xmlb.StrAttr("visibility", bv.Visibility), true
-		}
-	case "minimized":
-		if bv.Minimized != nil {
-			return xmlb.StrAttr("minimized", bv.Minimized.AttrValue()), true
-		}
-	case "showHorizontalScroll":
-		if bv.ShowHorizontalScroll != nil {
-			return xmlb.StrAttr("showHorizontalScroll", bv.ShowHorizontalScroll.AttrValue()), true
-		}
-	case "showVerticalScroll":
-		if bv.ShowVerticalScroll != nil {
-			return xmlb.StrAttr("showVerticalScroll", bv.ShowVerticalScroll.AttrValue()), true
-		}
-	case "showSheetTabs":
-		if bv.ShowSheetTabs != nil {
-			return xmlb.StrAttr("showSheetTabs", bv.ShowSheetTabs.AttrValue()), true
-		}
-	case "xWindow":
-		if bv.XWindow != nil {
-			return xmlb.Int32Attr("xWindow", *bv.XWindow), true
-		}
-	case "yWindow":
-		if bv.YWindow != nil {
-			return xmlb.Int32Attr("yWindow", *bv.YWindow), true
-		}
-	case "windowWidth":
-		if bv.WindowWidth != nil {
-			return xmlb.UintAttr("windowWidth", *bv.WindowWidth), true
-		}
-	case "windowHeight":
-		if bv.WindowHeight != nil {
-			return xmlb.UintAttr("windowHeight", *bv.WindowHeight), true
-		}
-	case "tabRatio":
-		if bv.TabRatio != nil {
-			return xmlb.UintAttr("tabRatio", *bv.TabRatio), true
-		}
-	case "firstSheet":
-		if bv.FirstSheet != nil {
-			return xmlb.UintAttr("firstSheet", *bv.FirstSheet), true
-		}
-	case "activeTab":
-		if bv.ActiveTab != nil {
-			return xmlb.UintAttr("activeTab", *bv.ActiveTab), true
-		}
-	case "autoFilterDateGrouping":
-		if bv.AutoFilterDateGrouping != nil {
-			return xmlb.StrAttr("autoFilterDateGrouping", bv.AutoFilterDateGrouping.AttrValue()), true
-		}
-	}
-	return xmlb.Attr{}, false
 }
 
 // CT_Sheets represents the sheets element.
@@ -973,6 +858,11 @@ type CT_DefinedName struct {
 	// CapturedAttrs preserves the verbatim source attribute list; replayed
 	// on marshal.
 	CapturedAttrs []xmlb.RootAttr `xml:"-"`
+	// CapturedEmptyTag records how a valueless <definedName> was written. An
+	// expanded <definedName …></definedName> has no inner bytes for rawValue to
+	// hold, so without the style the marshaler's empty-content path collapsed it
+	// to <definedName …/> — byte drift on an always-regenerated part (C551).
+	CapturedEmptyTag xmlb.EmptyTagStyle `xml:"-"`
 	// rawValue preserves the verbatim source form of the value — producer
 	// entity choices (&apos;, &#039;, &quot;) and raw CR bytes in _x000D_
 	// sequences the decoder normalizes. Replayed only while Value still
@@ -1050,7 +940,7 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 	}
 
 	// Read chardata content, keeping its verbatim source form for replay.
-	style := xmlb.CaptureEmptyTagStyle(d)
+	dn.CapturedEmptyTag = xmlb.CaptureEmptyTagStyle(d)
 	innerStart, hasSrc := xmlb.InputOffsetOf(d)
 	var content struct {
 		Value string `xml:",chardata"`
@@ -1059,7 +949,7 @@ func (dn *CT_DefinedName) UnmarshalXML(d *xml.Decoder, start xml.StartElement) e
 		return err
 	}
 	dn.Value = content.Value
-	if hasSrc && !style.IsSelfClose() {
+	if hasSrc && !dn.CapturedEmptyTag.IsSelfClose() {
 		dn.rawValue = xmlb.CaptureRawInner(d, innerStart)
 		dn.origValue = dn.Value
 	}
@@ -1122,6 +1012,13 @@ func (dn *CT_DefinedName) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 		b.StartElement(ns, localName, attrs...)
 		b.WriteRaw(dn.rawValue)
 		b.EndElement(ns, localName)
+		return
+	}
+	if dn.Value == "" {
+		// No content to write: honor the source's empty-tag form rather than
+		// always self-closing. rawValue is nil for an expanded-but-empty
+		// element, so this is the only place the distinction survives (C551).
+		b.EmptyElementStyled(dn.CapturedEmptyTag, ns, localName, attrs...)
 		return
 	}
 	b.WriteElement(ns, localName, dn.Value, attrs...)

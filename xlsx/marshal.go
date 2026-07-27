@@ -3,6 +3,7 @@ package xlsx
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -13,6 +14,41 @@ const (
 	nsSML = xmlb.NSSpreadsheetML
 	nsR   = xmlb.NSOfficeDocumentRels
 )
+
+// declEncodingUTF8 rewrites the encoding pseudo-attribute of a captured XML
+// declaration to UTF-8, preserving everything else about the producer's
+// declaration (version, standalone, spacing, quote style, any byte-order mark).
+// A regenerated part is always emitted as UTF-8, so replaying a source
+// declaration that names a single-byte code page would mislabel it (C369).
+// Declarations without an encoding pseudo-attribute are returned unchanged.
+func declEncodingUTF8(decl string) string {
+	i := strings.Index(decl, "encoding")
+	if i < 0 {
+		return decl
+	}
+	j := i + len("encoding")
+	skipSpace := func() {
+		for j < len(decl) && (decl[j] == ' ' || decl[j] == '\t' || decl[j] == '\r' || decl[j] == '\n') {
+			j++
+		}
+	}
+	skipSpace()
+	if j >= len(decl) || decl[j] != '=' {
+		return decl
+	}
+	j++
+	skipSpace()
+	if j >= len(decl) || (decl[j] != '"' && decl[j] != '\'') {
+		return decl
+	}
+	quote := decl[j]
+	j++
+	end := strings.IndexByte(decl[j:], quote)
+	if end < 0 {
+		return decl
+	}
+	return decl[:j] + "UTF-8" + decl[j+end:]
+}
 
 // marshalWorkbookXML marshals a workbook to XML.
 func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
@@ -30,11 +66,10 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 		// Use preserved root attributes in their original order
 		b.StartElementWithRootAttrs(nsSML, "workbook", wb.OriginalRootAttrs)
 	} else {
-		// New workbook: use standard namespace declarations
+		// New workbook: use standard namespace declarations. A parsed workbook
+		// always populates OriginalRootAttrs, so this branch only ever serves
+		// workbooks built from scratch (C554).
 		nsDecls := xmlb.SpreadsheetMLNamespaces()
-		if len(wb.OriginalNSDecls) > 0 {
-			nsDecls = wb.OriginalNSDecls
-		}
 		var attrs []xmlb.Attr
 		if wb.Conformance != "" {
 			attrs = append(attrs, xmlb.StrAttr("conformance", wb.Conformance))
@@ -58,46 +93,88 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// marshalWorkbookChildrenOrdered marshals workbook children in their original order.
+// marshalWorkbookChildrenOrdered marshals workbook children in their original
+// order, replaying the verbatim whitespace captured between them.
+//
+// A gap is skipped when nothing has been emitted since the previous gap: the
+// ChildOrder entries are gated on the model, so removing an element (e.g.
+// Workbook.Unprotect nils WorkbookProtection) leaves its entry emitting nothing
+// between two captured gaps, and replaying both doubled the separator in a
+// pretty-printed workbook (C555).
 func marshalWorkbookChildrenOrdered(b *xmlb.Builder, wb *oxml.CT_Workbook) {
 	acIdx := 0
+	pendingGap := false
 	for _, childName := range wb.ChildOrder {
-		switch {
-		case childName == "fileVersion" && wb.FileVersion != nil:
-			b.MarshalElement(nsSML, "fileVersion", wb.FileVersion)
-		case childName == "workbookPr" && wb.WorkbookPr != nil:
-			b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
-		case childName == "workbookProtection" && wb.WorkbookProtection != nil:
-			marshalWorkbookProtection(b, wb.WorkbookProtection)
-		case childName == "AlternateContent" && acIdx < len(wb.AlternateContent):
-			wb.AlternateContent[acIdx].MarshalToBuilder(b, nsSML, "AlternateContent")
-			acIdx++
-		case childName == "bookViews" && wb.BookViews != nil:
-			b.MarshalElement(nsSML, "bookViews", wb.BookViews)
-		case childName == "sheets":
-			marshalWorkbookSheets(b, wb)
-		case childName == "definedNames":
-			marshalWorkbookDefinedNames(b, wb)
-		case childName == "calcPr" && wb.CalcPr != nil:
-			b.MarshalElement(nsSML, "calcPr", wb.CalcPr)
-		case childName == "pivotCaches" && wb.PivotCaches != nil:
-			wb.PivotCaches.MarshalToBuilder(b, nsSML, "pivotCaches")
-		case childName == "extLst":
-			marshalWorkbookExtLst(b, wb)
-		case strings.HasPrefix(childName, "unknown:"):
-			var idx int
-			_, _ = fmt.Sscanf(childName, "unknown:%d", &idx)
-			if idx < len(wb.UnknownChildren) {
-				b.WriteRaw(wb.UnknownChildren[idx].Data)
+		if idx, ok := rawIndex(childName, "ws:"); ok {
+			if pendingGap {
+				continue
 			}
-		case strings.HasPrefix(childName, "ws:"):
-			var idx int
-			_, _ = fmt.Sscanf(childName, "ws:%d", &idx)
 			if idx < len(wb.WsRaw) {
 				b.WriteRaw(wb.WsRaw[idx])
+				pendingGap = true
 			}
+			continue
+		}
+		if marshalWorkbookChild(b, wb, childName, &acIdx) {
+			pendingGap = false
 		}
 	}
+}
+
+// rawIndex parses a "prefix:N" ChildOrder entry, returning N.
+func rawIndex(entry, prefix string) (int, bool) {
+	rest, ok := strings.CutPrefix(entry, prefix)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// marshalWorkbookChild emits one non-whitespace ChildOrder entry, reporting
+// whether it wrote anything. An entry whose backing model was cleared after
+// parse writes nothing and returns false, which is what lets the caller
+// coalesce the whitespace around it.
+func marshalWorkbookChild(b *xmlb.Builder, wb *oxml.CT_Workbook, childName string, acIdx *int) bool {
+	switch {
+	case childName == "fileVersion" && wb.FileVersion != nil:
+		b.MarshalElement(nsSML, "fileVersion", wb.FileVersion)
+	case childName == "workbookPr" && wb.WorkbookPr != nil:
+		b.MarshalElement(nsSML, "workbookPr", wb.WorkbookPr)
+	case childName == "workbookProtection" && wb.WorkbookProtection != nil:
+		marshalWorkbookProtection(b, wb.WorkbookProtection)
+	case childName == "AlternateContent" && *acIdx < len(wb.AlternateContent):
+		wb.AlternateContent[*acIdx].MarshalToBuilder(b, nsSML, "AlternateContent")
+		*acIdx++
+	case childName == "bookViews" && wb.BookViews != nil:
+		b.MarshalElement(nsSML, "bookViews", wb.BookViews)
+	case childName == "sheets":
+		marshalWorkbookSheets(b, wb)
+	case childName == "definedNames":
+		if wb.DefinedNames == nil {
+			return false
+		}
+		marshalWorkbookDefinedNames(b, wb)
+	case childName == "calcPr" && wb.CalcPr != nil:
+		b.MarshalElement(nsSML, "calcPr", wb.CalcPr)
+	case childName == "pivotCaches" && wb.PivotCaches != nil:
+		wb.PivotCaches.MarshalToBuilder(b, nsSML, "pivotCaches")
+	case childName == "extLst":
+		if wb.ExtLst == nil {
+			return false
+		}
+		marshalWorkbookExtLst(b, wb)
+	default:
+		if idx, ok := rawIndex(childName, "unknown:"); ok && idx < len(wb.UnknownChildren) {
+			b.WriteRaw(wb.UnknownChildren[idx].Data)
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 // marshalWorkbookChildrenDefault marshals workbook children in standard order (new workbooks).

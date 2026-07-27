@@ -57,6 +57,19 @@ func charsetTranscodes(charset string) bool {
 	}
 }
 
+// OffsetCaptureSafe reports whether an [xml.Decoder]'s input offsets, taken
+// while decoding data through [CharsetReader], still index data itself.
+//
+// A part declaring a single-byte code page is transcoded to UTF-8 on read, so
+// the decoder's offsets index the transcoded stream and any capture that
+// slices the original bytes at those offsets would replay garbage. Callers
+// that hand raw part bytes to an offset-based capture (a RawSource field, a
+// verbatim child slice) must gate the assignment on this predicate;
+// [UnmarshalWithSource] applies it to its own source registration.
+func OffsetCaptureSafe(data []byte) bool {
+	return !charsetTranscodes(declaredCharset(data))
+}
+
 // declaredCharset returns the encoding named in data's XML declaration, or ""
 // when the part has no declaration or no encoding pseudo-attribute. It reads
 // only the declaration bytes; the value is not validated against the supported
