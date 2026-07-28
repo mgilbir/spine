@@ -118,8 +118,9 @@ type SoftEdgeXML struct {
 // pointer: an explicit false must be emitted rather than omitted (which readers
 // treat as true).
 type BlurXML struct {
-	Rad  int64 `xml:"rad,attr,omitempty"`
-	Grow *bool `xml:"grow,attr,omitempty"`
+	Rad           int64           `xml:"rad,attr,omitempty"`
+	Grow          *bool           `xml:"grow,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // PrstShdw represents CT_PresetShadowEffect (a:prstShdw). All six
@@ -431,9 +432,10 @@ type BiLevelXML struct {
 // true in the XSD, so it is a pointer: an explicit useA="0" must be emitted
 // rather than omitted (which readers treat as true).
 type ClrChange struct {
-	UseA    *bool        `xml:"useA,attr,omitempty"`
-	ClrFrom *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrFrom,omitempty"`
-	ClrTo   *ColorChoice `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrTo,omitempty"`
+	UseA          *bool           `xml:"useA,attr,omitempty"`
+	ClrFrom       *ColorChoice    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrFrom,omitempty"`
+	ClrTo         *ColorChoice    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main clrTo,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // ClrRepl represents CT_ColorReplaceEffect (a:clrRepl). All six

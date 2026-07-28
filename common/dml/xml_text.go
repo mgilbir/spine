@@ -631,7 +631,8 @@ func (rp *RPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // fails to parse real input (the value lives in the attribute, so chardata is
 // empty).
 type TextRtl struct {
-	Val bool `xml:"val,attr"`
+	Val           bool            `xml:"val,attr"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // Br represents CT_TextLineBreak (a:br)

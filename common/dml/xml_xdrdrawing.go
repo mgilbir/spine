@@ -3,6 +3,8 @@
 
 package dml
 
+import xmlb "github.com/mgilbir/spine/common/xml"
+
 // XDRTwoCellAnchor represents CT_TwoCellAnchor (xdr:twoCellAnchor)
 type XDRTwoCellAnchor struct {
 	EditAs     string          `xml:"editAs,attr,omitempty"`
@@ -25,24 +27,26 @@ type XDRMarker struct {
 
 // XDRSp represents CT_Shape (xdr:sp)
 type XDRSp struct {
-	Macro    string    `xml:"macro,attr,omitempty"`
-	TextLink string    `xml:"textlink,attr,omitempty"`
-	FLocksText *bool   `xml:"fLocksText,attr,omitempty"`
-	FPublished *bool   `xml:"fPublished,attr,omitempty"`
-	NvSpPr   *XDRNvSpPr `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvSpPr,omitempty"`
-	SpPr     *SpPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
-	Style    *Style     `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
-	TxBody   *TxBody    `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing txBody,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	TextLink      string          `xml:"textlink,attr,omitempty"`
+	FLocksText    *bool           `xml:"fLocksText,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvSpPr        *XDRNvSpPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvSpPr,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
+	TxBody        *TxBody         `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing txBody,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // XDRPic represents CT_Picture (xdr:pic)
 type XDRPic struct {
-	Macro      string        `xml:"macro,attr,omitempty"`
-	FPublished *bool         `xml:"fPublished,attr,omitempty"`
-	NvPicPr    *XDRNvPicPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvPicPr,omitempty"`
-	BlipFill   *BlipFillXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing blipFill,omitempty"`
-	SpPr       *SpPr         `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
-	Style      *Style        `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvPicPr       *XDRNvPicPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvPicPr,omitempty"`
+	BlipFill      *BlipFillXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing blipFill,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // XDRGrpSp represents CT_GroupShape (xdr:grpSp)
@@ -57,17 +61,19 @@ type XDRGrpSp struct {
 
 // XDRCxnSp represents CT_Connector (xdr:cxnSp)
 type XDRCxnSp struct {
-	Macro      string          `xml:"macro,attr,omitempty"`
-	FPublished *bool           `xml:"fPublished,attr,omitempty"`
-	NvCxnSpPr  *XDRNvCxnSpPr  `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvCxnSpPr,omitempty"`
-	SpPr       *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
-	Style      *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvCxnSpPr     *XDRNvCxnSpPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing nvCxnSpPr,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing style,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // XDRClientData represents CT_AnchorClientData (xdr:clientData)
 type XDRClientData struct {
-	FLocksWithSheet  *bool `xml:"fLocksWithSheet,attr,omitempty"`
-	FPrintsWithSheet *bool `xml:"fPrintsWithSheet,attr,omitempty"`
+	FLocksWithSheet  *bool           `xml:"fLocksWithSheet,attr,omitempty"`
+	FPrintsWithSheet *bool           `xml:"fPrintsWithSheet,attr,omitempty"`
+	CapturedAttrs    []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // XDRNvSpPr represents non-visual shape properties (xdr:nvSpPr)

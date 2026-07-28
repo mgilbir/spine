@@ -3,6 +3,8 @@
 
 package dml
 
+import xmlb "github.com/mgilbir/spine/common/xml"
+
 // WPAnchor represents CT_Anchor (wp:anchor) - anchored drawing object.
 // relativeHeight, behindDoc, locked, layoutInCell and allowOverlap are
 // required by the XSD, so they carry no omitempty: their zero values must be
@@ -33,6 +35,8 @@ type WPAnchor struct {
 	DocPr             *CNvPr             `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing docPr,omitempty"`
 	CNvGraphicFramePr *CNvGraphicFramePr `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing cNvGraphicFramePr,omitempty"`
 	Graphic           *Graphic           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main graphic,omitempty"`
+
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // WPInline represents CT_Inline (wp:inline) - inline drawing object
@@ -59,9 +63,10 @@ type WPEffectExtent struct {
 
 // WPWrapPolygon represents CT_WrapPath (wp:wrapPolygon)
 type WPWrapPolygon struct {
-	Edited bool         `xml:"edited,attr,omitempty"`
-	Start  *WPPoint2D   `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing start,omitempty"`
-	LineTo []*WPPoint2D `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing lineTo,omitempty"`
+	Edited        bool            `xml:"edited,attr,omitempty"`
+	Start         *WPPoint2D      `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing start,omitempty"`
+	LineTo        []*WPPoint2D    `xml:"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing lineTo,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // WPPoint2D represents CT_Point2D (wp:start, wp:lineTo)
