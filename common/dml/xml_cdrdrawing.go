@@ -3,6 +3,8 @@
 
 package dml
 
+import xmlb "github.com/mgilbir/spine/common/xml"
+
 // CDRRelSizeAnchor represents CT_RelSizeAnchor (cdr:relSizeAnchor)
 type CDRRelSizeAnchor struct {
 	From *CDRMarker `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing from,omitempty"`
@@ -21,24 +23,26 @@ type CDRMarker struct {
 
 // CDRSp represents CT_Shape (cdr:sp)
 type CDRSp struct {
-	Macro    string       `xml:"macro,attr,omitempty"`
-	TextLink string       `xml:"textlink,attr,omitempty"`
-	FLocksText *bool      `xml:"fLocksText,attr,omitempty"`
-	FPublished *bool      `xml:"fPublished,attr,omitempty"`
-	NvSpPr   *CDRNvSpPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvSpPr,omitempty"`
-	SpPr     *SpPr        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
-	Style    *Style       `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
-	TxBody   *TxBody      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing txBody,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	TextLink      string          `xml:"textlink,attr,omitempty"`
+	FLocksText    *bool           `xml:"fLocksText,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvSpPr        *CDRNvSpPr      `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvSpPr,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
+	TxBody        *TxBody         `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing txBody,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // CDRPic represents CT_Picture (cdr:pic)
 type CDRPic struct {
-	Macro      string        `xml:"macro,attr,omitempty"`
-	FPublished *bool         `xml:"fPublished,attr,omitempty"`
-	NvPicPr    *CDRNvPicPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvPicPr,omitempty"`
-	BlipFill   *BlipFillXML  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing blipFill,omitempty"`
-	SpPr       *SpPr         `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
-	Style      *Style        `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvPicPr       *CDRNvPicPr     `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvPicPr,omitempty"`
+	BlipFill      *BlipFillXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing blipFill,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // CDRGrpSp represents CT_GroupShape (cdr:grpSp)
@@ -53,11 +57,12 @@ type CDRGrpSp struct {
 
 // CDRCxnSp represents CT_Connector (cdr:cxnSp)
 type CDRCxnSp struct {
-	Macro      string          `xml:"macro,attr,omitempty"`
-	FPublished *bool           `xml:"fPublished,attr,omitempty"`
-	NvCxnSpPr  *CDRNvCxnSpPr  `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvCxnSpPr,omitempty"`
-	SpPr       *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
-	Style      *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
+	Macro         string          `xml:"macro,attr,omitempty"`
+	FPublished    *bool           `xml:"fPublished,attr,omitempty"`
+	NvCxnSpPr     *CDRNvCxnSpPr   `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing nvCxnSpPr,omitempty"`
+	SpPr          *SpPr           `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing spPr,omitempty"`
+	Style         *Style          `xml:"http://schemas.openxmlformats.org/drawingml/2006/chartDrawing style,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // CDRNvSpPr represents non-visual shape properties (cdr:nvSpPr)

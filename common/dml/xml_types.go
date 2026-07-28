@@ -558,12 +558,13 @@ type SolidFill struct {
 // "0" must round-trip instead of being deleted (flipping "explicitly false"
 // to "unspecified", which some renderers default to true).
 type GradFill struct {
-	Flip         string   `xml:"flip,attr,omitempty"`
-	RotWithShape *bool    `xml:"rotWithShape,attr,omitempty"`
-	GsLst        *GsLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gsLst,omitempty"`
-	Lin          *Lin     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lin,omitempty"`
-	PathShade    *PathXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main path,omitempty"`
-	TileRect     *RelRect `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tileRect,omitempty"`
+	Flip          string          `xml:"flip,attr,omitempty"`
+	RotWithShape  *bool           `xml:"rotWithShape,attr,omitempty"`
+	GsLst         *GsLst          `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gsLst,omitempty"`
+	Lin           *Lin            `xml:"http://schemas.openxmlformats.org/drawingml/2006/main lin,omitempty"`
+	PathShade     *PathXML        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main path,omitempty"`
+	TileRect      *RelRect        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tileRect,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // GsLst represents CT_GradientStopList (a:gsLst)
@@ -588,8 +589,9 @@ type Gs struct {
 // scaled is optional with no XSD default, so it is a pointer; see GradFill.
 type Lin struct {
 	// Ang is a pointer so an explicit ang="0" survives the round trip.
-	Ang    *int32 `xml:"ang,attr,omitempty"`
-	Scaled *bool  `xml:"scaled,attr,omitempty"`
+	Ang           *int32          `xml:"ang,attr,omitempty"`
+	Scaled        *bool           `xml:"scaled,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // PathXML represents CT_PathShadeProperties (a:path)
@@ -607,12 +609,13 @@ type PattFill struct {
 
 // BlipFillXML represents CT_BlipFillProperties (a:blipFill)
 type BlipFillXML struct {
-	Dpi          *int32      `xml:"dpi,attr,omitempty"`
-	RotWithShape *bool       `xml:"rotWithShape,attr,omitempty"`
-	Blip         *BlipXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
-	SrcRect      *RelRect    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
-	Tile         *TileXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
-	Stretch      *StretchXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
+	Dpi           *int32          `xml:"dpi,attr,omitempty"`
+	RotWithShape  *bool           `xml:"rotWithShape,attr,omitempty"`
+	Blip          *BlipXML        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
+	SrcRect       *RelRect        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
+	Tile          *TileXML        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
+	Stretch       *StretchXML     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // BlipXML represents CT_Blip (a:blip). Its effect children form a repeated

@@ -47,12 +47,14 @@ type AudioCDTime struct {
 
 // NvAudioPr represents non-visual audio properties
 type NvAudioPr struct {
-	IsPhoto bool `xml:"isPhoto,attr,omitempty"`
+	IsPhoto       bool            `xml:"isPhoto,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // CNvAudioPr represents CT_NonVisualAudioProperties (a:cNvAudioPr)
 type CNvAudioPr struct {
-	IsPhoto bool `xml:"isPhoto,attr,omitempty"`
+	IsPhoto       bool            `xml:"isPhoto,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // NvVideoPr represents non-visual video properties
@@ -86,12 +88,13 @@ type MediaFade struct {
 
 // OleObject represents CT_OleObject for OLE embedding
 type OleObject struct {
-	ProgId   string `xml:"progId,attr,omitempty"`
-	Link     string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr,omitempty"`
-	Id       string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
-	ImgW     int64  `xml:"imgW,attr,omitempty"`
-	ImgH     int64  `xml:"imgH,attr,omitempty"`
-	UpdateAutomatic bool `xml:"updateAutomatic,attr,omitempty"`
+	ProgId          string          `xml:"progId,attr,omitempty"`
+	Link            string          `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships link,attr,omitempty"`
+	Id              string          `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	ImgW            int64           `xml:"imgW,attr,omitempty"`
+	ImgH            int64           `xml:"imgH,attr,omitempty"`
+	UpdateAutomatic bool            `xml:"updateAutomatic,attr,omitempty"`
+	CapturedAttrs   []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // Graphic represents CT_GraphicalObject (a:graphic)

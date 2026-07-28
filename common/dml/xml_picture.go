@@ -58,12 +58,13 @@ func (bl *Blip) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 
 // BlipFill represents CT_BlipFillProperties (a:blipFill) - complete blip fill
 type BlipFill struct {
-	Dpi          *uint32  `xml:"dpi,attr,omitempty"`
-	RotWithShape *bool    `xml:"rotWithShape,attr,omitempty"`
-	Blip         *Blip    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
-	SrcRect      *SrcRect `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
-	Tile         *Tile    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
-	Stretch      *Stretch `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
+	Dpi           *uint32         `xml:"dpi,attr,omitempty"`
+	RotWithShape  *bool           `xml:"rotWithShape,attr,omitempty"`
+	Blip          *Blip           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blip,omitempty"`
+	SrcRect       *SrcRect        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main srcRect,omitempty"`
+	Tile          *Tile           `xml:"http://schemas.openxmlformats.org/drawingml/2006/main tile,omitempty"`
+	Stretch       *Stretch        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main stretch,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // --- Image Compression Settings ---

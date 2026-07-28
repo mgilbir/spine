@@ -15,12 +15,10 @@ b55ad2c12c938549	docx	wontfix	corrupt source zip: a media part's stored CRC does
 50ca1aa24305af5d	pptx	wontfix	corrupt source zip: a stored CRC does not match its data, so the original cannot be re-read for comparison
 72ad36899df04e5d	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 7477497e97243151	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-870e964cdd91bc41	pptx	fidelity	the source's a:blipFill writes rotWithShape="true" and the model holds a *bool that regenerates as "1", so the part cannot come back byte-identical. The pretty-printing this row used to blame is handled as of C587; preserving the xsd:boolean lexical form is a separate cross-format change (common/dml BlipFillXML carries no attribute capture)
 87b470224e5e0b97	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
 93946cedae14472c	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 bb2394381b31fbda	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
 c2415d6992818fc2	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
-c80542f5b7d14881	pptx	wontfix	the source's a:blipFill writes rotWithShape="true" and the model holds a *bool that regenerates as "1", so the slide master cannot come back byte-identical. The pretty-printing this row used to blame is handled as of C587; preserving the xsd:boolean lexical form is a separate cross-format change (the shared common/dml BlipFillXML carries no attribute capture)
 d4ad2cefc9ea900d	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 ee6822eda1bd390c	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 fa8f1b9fcb96c53b	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding

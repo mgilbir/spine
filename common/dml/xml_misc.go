@@ -2,6 +2,8 @@
 
 package dml
 
+import xmlb "github.com/mgilbir/spine/common/xml"
+
 // Wsp represents CT_WordprocessingShape (wps:wsp).
 //
 // The type is NOT from dml-wordprocessingDrawing.xsd, which the doc comment
@@ -18,14 +20,15 @@ package dml
 // WML block-level content (w:txbxContent), which needs WML types this package
 // does not depend on.
 type Wsp struct {
-	NormalEastAsianFlow *bool       `xml:"normalEastAsianFlow,attr,omitempty"`
-	CNvPr               *CNvPr      `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvPr,omitempty"`
-	CNvSpPr             *CNvSpPr    `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvSpPr,omitempty"`
-	CNvCnPr             *CNvCxnSpPr `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvCnPr,omitempty"`
-	SpPr                *SpPr       `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape spPr,omitempty"`
-	Style               *Style      `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape style,omitempty"`
-	ExtLst              *ExtLst     `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape extLst,omitempty"`
-	BodyPr              *BodyPr     `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape bodyPr,omitempty"`
+	NormalEastAsianFlow *bool           `xml:"normalEastAsianFlow,attr,omitempty"`
+	CNvPr               *CNvPr          `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvPr,omitempty"`
+	CNvSpPr             *CNvSpPr        `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvSpPr,omitempty"`
+	CNvCnPr             *CNvCxnSpPr     `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape cNvCnPr,omitempty"`
+	SpPr                *SpPr           `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape spPr,omitempty"`
+	Style               *Style          `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape style,omitempty"`
+	ExtLst              *ExtLst         `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape extLst,omitempty"`
+	BodyPr              *BodyPr         `xml:"http://schemas.microsoft.com/office/word/2010/wordprocessingShape bodyPr,omitempty"`
+	CapturedAttrs       []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
 
 // DiagramBg represents CT_BackgroundFormatting (dgm:bg) in diagram context

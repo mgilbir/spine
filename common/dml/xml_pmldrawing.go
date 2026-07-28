@@ -4,6 +4,8 @@
 
 package dml
 
+import xmlb "github.com/mgilbir/spine/common/xml"
+
 // PMLShape represents CT_Shape (p:sp) - PML shape for spec testing
 type PMLShape struct {
 	NvSpPr *PMLNvSpPr `xml:"http://schemas.openxmlformats.org/presentationml/2006/main nvSpPr,omitempty"`
@@ -61,6 +63,7 @@ type PMLNvGrpSpPr struct {
 
 // PMLNvPr represents CT_ApplicationNonVisualDrawingProps (p:nvPr)
 type PMLNvPr struct {
-	IsPhoto   bool   `xml:"isPhoto,attr,omitempty"`
-	UserDrawn bool   `xml:"userDrawn,attr,omitempty"`
+	IsPhoto       bool            `xml:"isPhoto,attr,omitempty"`
+	UserDrawn     bool            `xml:"userDrawn,attr,omitempty"`
+	CapturedAttrs []xmlb.RootAttr `xml:"-"` // verbatim source attrs; see xml_bool_capture.go
 }
