@@ -89,7 +89,7 @@ func TestOrderedChildren_PostParseEditsWin(t *testing.T) {
 	}
 	doc.Props.Sz.Val = "36"       // mutate: new value at captured position
 	doc.Props.B = nil             // remove
-	doc.Props.I = &orderedOnOff{} // add: appended in declaration order
+	doc.Props.I = &orderedOnOff{} // add: spliced at its declaration rank
 	got := marshalOrderedDoc(t, &doc)
 	want := `<w:props><w:sz w:val="36"/><w:i/></w:props>`
 	if got != want {
@@ -133,6 +133,110 @@ func TestInsertTypedField_BeforeTrailingRaw(t *testing.T) {
 	want := `<w:props><w:b/><w:sz w:val="24"/><w14:glow w14:rad="1"/></w:props>`
 	if got != want {
 		t.Errorf("insert-before-raw mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+// C329: a field set after parse is spliced at its declaration rank without the
+// caller having to say so — the append that used to happen here emitted the new
+// child after every captured sibling, which for a type whose content model is
+// an xsd:sequence is schema-invalid.
+func TestOrderedChildren_AddedFieldSplicedAtSchemaPosition(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w">` +
+		`<w:props><w:b/><w:sz w:val="28"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.I = &orderedOnOff{} // the middle field, no InsertTypedField call
+	got := marshalOrderedDoc(t, &doc)
+	want := `<w:props><w:b/><w:i/><w:sz w:val="28"/></w:props>`
+	if got != want {
+		t.Errorf("added field not spliced at its rank:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The splice lands before a trailing raw (unmodeled) child, which is where the
+// schema puts a typed sibling relative to an extension list.
+func TestOrderedChildren_AddedFieldPrecedesTrailingRaw(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w" xmlns:w14="http://example.com/w14">` +
+		`<w:props><w:b/><w14:glow w14:rad="1"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.Sz = &orderedVal{Val: "24"}
+	got := marshalOrderedDoc(t, &doc)
+	want := `<w:props><w:b/><w:sz w:val="24"/><w14:glow w14:rad="1"/></w:props>`
+	if got != want {
+		t.Errorf("added field not placed before the trailing raw child:\n got %s\nwant %s", got, want)
+	}
+}
+
+// Several fields added at once come out in declaration order among themselves.
+func TestOrderedChildren_MultipleAddedFieldsStayOrdered(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w">` +
+		`<w:props><w:alt w:val="1"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.Sz = &orderedVal{Val: "24"}
+	doc.Props.B = &orderedOnOff{}
+	doc.Props.I = &orderedOnOff{}
+	got := marshalOrderedDoc(t, &doc)
+	want := `<w:props><w:b/><w:i/><w:sz w:val="24"/><w:alt w:val="1"/></w:props>`
+	if got != want {
+		t.Errorf("multiple added fields mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+// A source whose children were already out of schema order replays exactly as
+// it came in: the splice must never re-sort what was captured, or a
+// zero-modification save of the many real documents shaped like this would stop
+// being byte-identical.
+func TestOrderedChildren_OutOfOrderSourceIsNotResorted(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w">` +
+		`<w:props><w:sz w:val="28"/><w:i/><w:b/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	want := `<w:props><w:sz w:val="28"/><w:i/><w:b/></w:props>`
+	if got := marshalOrderedDoc(t, &doc); got != want {
+		t.Errorf("captured order was re-sorted:\n got %s\nwant %s", got, want)
+	}
+	// Adding a field to such a bag places it after the last smaller-ranked
+	// captured child; nothing already present moves.
+	doc.Props.Alt = append(doc.Props.Alt, &orderedVal{Val: "9"})
+	want = `<w:props><w:sz w:val="28"/><w:i/><w:b/><w:alt w:val="9"/></w:props>`
+	if got := marshalOrderedDoc(t, &doc); got != want {
+		t.Errorf("addition to an out-of-order bag mismatch:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The splice must not mutate the capture: marshaling twice yields the same
+// bytes, and the recorded source order is untouched.
+func TestOrderedChildren_SpliceLeavesCaptureIntact(t *testing.T) {
+	src := `<w:root xmlns:w="http://example.com/w">` +
+		`<w:props><w:sz w:val="28"/></w:props>` +
+		`</w:root>`
+	var doc orderedDoc
+	if err := UnmarshalWithSource([]byte(src), &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc.Props.B = &orderedOnOff{}
+	before := len(doc.Props.CapturedChildren.Order)
+	first := marshalOrderedDoc(t, &doc)
+	second := marshalOrderedDoc(t, &doc)
+	if first != second {
+		t.Errorf("marshal is not idempotent:\n first  %s\n second %s", first, second)
+	}
+	if got := len(doc.Props.CapturedChildren.Order); got != before {
+		t.Errorf("marshal mutated the capture: %d entries, want %d", got, before)
 	}
 }
 

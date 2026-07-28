@@ -34,6 +34,71 @@ type sdtPrChildRef struct {
 	index int
 }
 
+// sdtPrElementOrder maps each w:sdtPr child to its position in CT_SdtPr's
+// xsd:sequence (ECMA-376 §17.5.2.38): rPr, alias, tag, id, lock, placeholder,
+// temporary, showingPlcHdr, dataBinding, label, tabIndex, then the control-type
+// choice. It ranks both the typed slots and the children preserved raw, so a
+// property set after parse is inserted at a schema-valid position among them
+// rather than appended after every captured child (C329) — SetAlias on a
+// control parsed with a w:id and a w:docPartObj emitted the w:alias last, which
+// the sequence forbids.
+var sdtPrElementOrder = map[string]int{
+	"rPr": 0, "alias": 1, "tag": 2, "id": 3, "lock": 4, "placeholder": 5,
+	"temporary": 6, "showingPlcHdr": 7, "dataBinding": 8, "label": 9,
+	"tabIndex": 10,
+}
+
+// sdtPrControlRank is the rank of the control-type choice, the last member of
+// CT_SdtPr's sequence.
+const sdtPrControlRank = 11
+
+// sdtPrKindRank returns the schema rank of a typed child slot.
+func sdtPrKindRank(kind sdtPrChildKind) int {
+	switch kind {
+	case sdtPrChildAlias:
+		return sdtPrElementOrder["alias"]
+	case sdtPrChildTag:
+		return sdtPrElementOrder["tag"]
+	case sdtPrChildID:
+		return sdtPrElementOrder["id"]
+	case sdtPrChildLock:
+		return sdtPrElementOrder["lock"]
+	default:
+		return sdtPrControlRank
+	}
+}
+
+// rankOf returns the schema rank of a recorded child, and whether it has one.
+// Raw children the schema does not define (extension elements) are unranked and
+// do not move an insertion point.
+func (pr *CT_SdtPr) rankOf(ref sdtPrChildRef) (int, bool) {
+	if ref.kind != sdtPrChildRaw {
+		return sdtPrKindRank(ref.kind), true
+	}
+	if ref.index < len(pr.Raw) {
+		if r, ok := sdtPrElementOrder[pr.Raw[ref.index].Local]; ok {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// insertChild records a child added after parse at its schema position:
+// immediately after the last recorded child that outranks it. Nothing already
+// recorded moves, so an unmodified control still round-trips verbatim.
+func (pr *CT_SdtPr) insertChild(ref sdtPrChildRef) {
+	rank := sdtPrKindRank(ref.kind)
+	pos := 0
+	for i, existing := range pr.childOrder {
+		if r, ok := pr.rankOf(existing); ok && r <= rank {
+			pos = i + 1
+		}
+	}
+	pr.childOrder = append(pr.childOrder, sdtPrChildRef{})
+	copy(pr.childOrder[pos+1:], pr.childOrder[pos:])
+	pr.childOrder[pos] = ref
+}
+
 // CT_SdtPr represents structured document tag properties (w:sdtPr). The tag,
 // alias, id and lock properties plus the control-type child are typed for API
 // access; all other children (run properties, data bindings, placeholders and
@@ -239,10 +304,10 @@ func (pr *CT_SdtPr) SetControl(local, space string) {
 		return
 	}
 	// backfillChildOrder must run while pr.Control is still nil so it does not
-	// record the slot we are about to append explicitly (double emission).
+	// record the slot we are about to insert explicitly (double emission).
 	pr.backfillChildOrder()
 	pr.Control = &CT_SdtControl{Local: local, Space: space}
-	pr.childOrder = append(pr.childOrder, sdtPrChildRef{sdtPrChildControl, 0})
+	pr.insertChild(sdtPrChildRef{sdtPrChildControl, 0})
 }
 
 // setVal sets or clears a simple w:val property, keeping child order coherent so
@@ -262,10 +327,10 @@ func (pr *CT_SdtPr) setVal(slot **CT_SdtValElem, kind sdtPrChildKind, v string) 
 		return
 	}
 	// backfillChildOrder must run while the slot is still nil so it does not
-	// record the child we are about to append explicitly (double emission).
+	// record the child we are about to insert explicitly (double emission).
 	pr.backfillChildOrder()
 	*slot = &CT_SdtValElem{Val: v}
-	pr.childOrder = append(pr.childOrder, sdtPrChildRef{kind, 0})
+	pr.insertChild(sdtPrChildRef{kind, 0})
 }
 
 // dropChild removes a typed child from childOrder after its slot was cleared.
