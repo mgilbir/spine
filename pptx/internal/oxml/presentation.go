@@ -22,6 +22,13 @@ type Presentation struct {
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
 	CollapseEmpty bool `xml:"-"`
+	// SourceXML is the part's verbatim bytes as parsed; nil for decks built
+	// programmatically. presentation.xml is regenerated on every save (the
+	// slide/master id lists are owned by the writer), so a pretty-printed
+	// source would otherwise lose its indentation; the marshaler re-emits
+	// these bytes when the regenerated form differs from them only in
+	// formatting whitespace. See xmlb.EqualIgnoringIndent (C587).
+	SourceXML []byte `xml:"-"`
 	// OriginalRootAttrs preserves the root element's verbatim attribute list
 	// (namespace declarations interleaved with attributes); nil for decks
 	// built programmatically, which emit the standard a/r/p declarations and

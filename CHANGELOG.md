@@ -210,6 +210,21 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- pptx no longer reformats `ppt/presentation.xml`, slide layouts and slide
+  masters on a save that changed nothing. Those three part kinds are rebuilt
+  from the model on every save (the writer owns their id lists and relationship
+  ids), and the rebuild used to impose one canonical serialization — deleting a
+  producer's indentation, collapsing its expanded empty elements and expanding
+  its numeric character references. A deck whose layouts were pretty-printed
+  came back smaller and reformatted from an open/save with no edits. Each of
+  those parts now keeps its source bytes whenever the regenerated form says the
+  same thing, judged by a strict token-for-token comparison that forgives only
+  the spellings XML itself defines as interchangeable. Any real change to the
+  model still regenerates, and a deck built programmatically — which has no
+  source bytes — emits exactly as before. Across the 1200-deck Common Crawl
+  pptx sample this takes zero-modification byte-identity failures from 17 to 2
+  (C587).
+
 - OPC signature manifest reference URIs are now correct for part names and
   content types that need percent-encoding. Verification percent-decodes a
   reference URI, but signing wrote the part name and the `?ContentType=` query
