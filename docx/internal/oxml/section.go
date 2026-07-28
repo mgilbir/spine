@@ -197,6 +197,68 @@ func (sp *CT_SectPr) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 	}
 }
 
+// sectPrChildOrder is CT_SectPr's schema child order: EG_HdrFtrReferences,
+// then EG_SectPrContents, then sectPrChange (ECMA-376 §17.6.18). The two
+// header/footer reference kinds share the leading slot because the marshaler
+// emits that interleaved group as a unit.
+var sectPrChildOrder = []string{
+	"headerReference", "footnotePr", "endnotePr", "type", "pgSz", "pgMar",
+	"paperSrc", "pgBorders", "lnNumType", "pgNumType", "cols", "formProt",
+	"vAlign", "noEndnote", "titlePg", "textDirection", "bidi", "rtlGutter",
+	"docGrid", "printerSettings", "sectPrChange",
+}
+
+// sectPrChildRank maps each schema child of w:sectPr to its position in the
+// sequence. Children absent from it — the ones the model preserves raw — are
+// unranked and never move an insertion point.
+var sectPrChildRank = func() map[string]int {
+	m := make(map[string]int, len(sectPrChildOrder)+1)
+	for i, name := range sectPrChildOrder {
+		m[name] = i
+	}
+	m["footerReference"] = m["headerReference"]
+	return m
+}()
+
+// sectPrEmitOrder merges the captured child sequence with the schema order:
+// each schema child the capture does not cover is spliced in immediately after
+// the last captured child that outranks it, instead of being emitted after the
+// captured children altogether. That trailing emission was C329's shape here —
+// a w:type set on a section parsed with a w:cols came out as
+// <w:cols/><w:type/>, which EG_SectPrContents forbids.
+//
+// Captured entries are never reordered, so an unmodified section (including one
+// whose producer wrote its children out of schema order) replays verbatim.
+func sectPrEmitOrder(childSeq []string) []string {
+	if len(childSeq) == 0 {
+		return sectPrChildOrder // programmatic section: pure schema order
+	}
+	seq := append([]string(nil), childSeq...)
+	seen := make(map[string]bool, len(childSeq))
+	for _, name := range childSeq {
+		seen[name] = true
+	}
+	if seen["footerReference"] {
+		seen["headerReference"] = true
+	}
+	for _, name := range sectPrChildOrder {
+		if seen[name] {
+			continue
+		}
+		rank := sectPrChildRank[name]
+		pos := 0
+		for i, existing := range seq {
+			if r, ok := sectPrChildRank[existing]; ok && r <= rank {
+				pos = i + 1
+			}
+		}
+		seq = append(seq, "")
+		copy(seq[pos+1:], seq[pos:])
+		seq[pos] = name
+	}
+	return seq
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler for CT_SectPr.
 func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
@@ -316,17 +378,10 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			}
 		},
 	}
-	// canonical is the schema emission order used for children the captured
-	// sequence does not cover (programmatic sections, post-parse additions).
-	canonical := []string{"footnotePr", "endnotePr", "type", "pgSz", "pgMar",
-		"paperSrc", "pgBorders", "lnNumType", "pgNumType", "cols", "formProt",
-		"vAlign", "noEndnote", "titlePg", "textDirection", "bidi", "rtlGutter",
-		"docGrid", "printerSettings", "sectPrChange"}
-
 	hdrFtrDone := false
 	emitted := make(map[string]bool)
 	unkIdx := 0
-	for _, name := range sp.childSeq {
+	for _, name := range sectPrEmitOrder(sp.childSeq) {
 		if name == "headerReference" || name == "footerReference" {
 			if !hdrFtrDone {
 				sp.marshalHdrFtrReferences(b, ns)
@@ -350,11 +405,6 @@ func (sp *CT_SectPr) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	if !hdrFtrDone {
 		sp.marshalHdrFtrReferences(b, ns)
-	}
-	for _, name := range canonical {
-		if !emitted[name] {
-			emit[name]()
-		}
 	}
 	// Drain any captured children not covered by childSeq (defensive; for a
 	// parsed section childSeq already accounts for every child).

@@ -13,8 +13,11 @@ import (
 // namespaces such as w14:*, or duplicated singletons like <w:b/><w:b/>) as
 // verbatim raw bytes — and replay it at marshal time. Post-parse edits stay
 // authoritative: a mutated field is re-marshaled from its current value at its
-// captured position, a field the caller nil-ed out is skipped, and fields set
-// after parse (absent from the capture) follow in declaration order.
+// captured position, a field the caller nil-ed out is skipped, and a field set
+// after parse (absent from the capture) is spliced in at its schema position —
+// the declaration order of the struct's fields, which by convention mirrors the
+// type's XSD content model. Captured children are never moved or re-sorted, so
+// a source whose children arrived out of schema order round-trips verbatim.
 //
 // A struct opts in by carrying the conventional field
 //
@@ -45,27 +48,45 @@ type ChildCapture struct {
 // child that follows (including a trailing raw child such as an a:extLst). It is
 // a no-op when the field is already present.
 //
-// Without it, a field set after parse is replayed by marshalCapturedChildren in
-// the trailing "children set after parse" pass — after every captured child,
-// which for a struct whose declaration order is its schema order (e.g. an
-// a:lstStyle's lvl1pPr…lvl9pPr) misorders a newly added element relative to a
-// later sibling or a captured extLst. Callers that add such a field call this to
-// keep the replay in schema order.
+// marshalCapturedChildren applies the same rule to every field set after parse
+// (see schemaInsertPos), so this is not needed to get schema-ordered output; it
+// exists for callers that want the capture itself to reflect the insertion
+// eagerly, before marshal — LstStyle.EnsureLevel records the level it allocates
+// so anything reading the capture sees the final sequence.
 func (cc *ChildCapture) InsertTypedField(fieldIndex int) {
 	for _, ref := range cc.Order {
 		if ref.Field == fieldIndex {
 			return
 		}
 	}
-	pos := 0
-	for i, ref := range cc.Order {
-		if ref.Field >= 0 && ref.Field < fieldIndex {
-			pos = i + 1
-		}
-	}
+	pos := schemaInsertPos(cc.Order, fieldIndex)
 	cc.Order = append(cc.Order, ChildRef{})
 	copy(cc.Order[pos+1:], cc.Order[pos:])
 	cc.Order[pos] = ChildRef{Field: fieldIndex, Index: 0}
+}
+
+// schemaInsertPos returns where a child belonging to struct field fieldIndex
+// belongs in an already-ordered child sequence: immediately after the last
+// typed entry whose field index is less than or equal to fieldIndex, and
+// therefore before every entry that follows — later-ranked siblings and any
+// trailing raw child (an a:extLst, a w:sectPr the model types but the sequence
+// puts last, an unmodeled extension element).
+//
+// The rank is the struct's field declaration order, which by convention in this
+// module mirrors the type's XSD content model (see the child-order guard tests
+// in each oxml package). "After the last smaller-or-equal" rather than "before
+// the first greater" is deliberate: it never steps over a same-field entry, so
+// a new element of a repeated field lands after the ones already captured, and
+// it degrades gracefully on a source whose children were already out of order —
+// no captured entry is ever moved.
+func schemaInsertPos(order []ChildRef, fieldIndex int) int {
+	pos := 0
+	for i, ref := range order {
+		if ref.Field >= 0 && ref.Field <= fieldIndex {
+			pos = i + 1
+		}
+	}
+	return pos
 }
 
 // childCaptureType identifies the conventional CapturedChildren field.
@@ -257,13 +278,12 @@ func setCapturedChildren(val reflect.Value, cc *ChildCapture) {
 // marshalCapturedChildren replays a captured child sequence: typed entries are
 // re-marshaled from the field's current value (post-parse edits win), raw
 // entries are written verbatim, and fields the capture never saw (set after
-// parse) follow in declaration order.
+// parse) are spliced in at their schema position by planCapturedChildren.
 func (b *Builder) marshalCapturedChildren(parentNS string, val reflect.Value, cc *ChildCapture) {
 	typ := val.Type()
 	emittedSingle := make(map[int]bool)
-	emittedSlice := make(map[ChildRef]bool)
 
-	for _, ref := range cc.Order {
+	for _, ref := range planCapturedChildren(typ, val, cc) {
 		if ref.Field < 0 {
 			if ref.Index < len(cc.Raw) {
 				b.WriteRaw(cc.Raw[ref.Index])
@@ -285,7 +305,6 @@ func (b *Builder) marshalCapturedChildren(parentNS string, val reflect.Value, cc
 		}
 		if fv.Kind() == reflect.Slice && fv.Type().Elem().Kind() != reflect.Uint8 {
 			if ref.Index < fv.Len() {
-				emittedSlice[ref] = true
 				b.marshalReflect(elemNS, info.name, fv.Index(ref.Index))
 			}
 			continue
@@ -302,8 +321,47 @@ func (b *Builder) marshalCapturedChildren(parentNS string, val reflect.Value, cc
 		}
 		b.marshalReflect(elemNS, info.name, fv)
 	}
+}
 
-	// Children set after parse (absent from the capture) in declaration order.
+// planCapturedChildren returns the child sequence to emit for one instance: the
+// captured order, with every child set after parse spliced in at its schema
+// position (schemaInsertPos) rather than appended after everything.
+//
+// Appending was C329: a parsed w:pPr carrying a w:sectPr re-emitted a
+// post-parse SetAlignment as <w:sectPr/><w:jc/>, which CT_PPr's xsd:sequence
+// forbids; likewise a w:b added to a w:rPr that already carried a w:rPrChange,
+// which the schema pins last.
+//
+// The captured entries themselves are never moved or re-sorted. A document
+// whose children arrived out of schema order — real producers emit them, and
+// Word tolerates it — replays exactly as it came in, so a zero-modification
+// save stays byte-identical; the ordering rule applies only to what this
+// library adds. The returned slice aliases cc.Order until something is
+// inserted, and the capture itself is left untouched.
+func planCapturedChildren(typ reflect.Type, val reflect.Value, cc *ChildCapture) []ChildRef {
+	captured := make(map[ChildRef]bool, len(cc.Order))
+	capturedField := make(map[int]bool, len(cc.Order))
+	for _, ref := range cc.Order {
+		if ref.Field < 0 {
+			continue
+		}
+		captured[ref] = true
+		capturedField[ref.Field] = true
+	}
+
+	plan := cc.Order
+	cloned := false
+	insert := func(ref ChildRef) {
+		pos := schemaInsertPos(plan, ref.Field)
+		if !cloned {
+			plan = append([]ChildRef(nil), plan...)
+			cloned = true
+		}
+		plan = append(plan, ChildRef{})
+		copy(plan[pos+1:], plan[pos:])
+		plan[pos] = ref
+	}
+
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		if !field.IsExported() || field.Type == xmlNameType {
@@ -317,26 +375,23 @@ func (b *Builder) marshalCapturedChildren(parentNS string, val reflect.Value, cc
 		if info.omitempty && isZeroValue(fv) {
 			continue
 		}
-		elemNS := info.ns
-		if elemNS == "" {
-			elemNS = parentNS
-		}
 		if fv.Kind() == reflect.Slice && fv.Type().Elem().Kind() != reflect.Uint8 {
 			for j := 0; j < fv.Len(); j++ {
-				if !emittedSlice[ChildRef{Field: i, Index: j}] {
-					b.marshalReflect(elemNS, info.name, fv.Index(j))
+				if !captured[ChildRef{Field: i, Index: j}] {
+					insert(ChildRef{Field: i, Index: j})
 				}
 			}
 			continue
 		}
-		if emittedSingle[i] {
+		if capturedField[i] {
 			continue
 		}
 		if fv.Kind() == reflect.Pointer && fv.IsNil() {
 			continue
 		}
-		b.marshalReflect(elemNS, info.name, fv)
+		insert(ChildRef{Field: i})
 	}
+	return plan
 }
 
 // hasCapturedRawChildren reports whether the capture will emit raw children,
