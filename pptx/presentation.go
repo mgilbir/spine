@@ -223,6 +223,7 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	pres.Prolog = xmlb.CaptureProlog(data)
 	pres.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 	pres.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
+	pres.SourceXML = data
 
 	p := &Presentation{
 		reader:          reader,
@@ -544,6 +545,7 @@ func (p *Presentation) loadSlideMasters(mainPartName string, relMap map[string]*
 		masterXML.Prolog = xmlb.CaptureProlog(data)
 		masterXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 		masterXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
+		masterXML.SourceXML = data
 
 		master := &SlideMaster{
 			presentation: p,
@@ -607,6 +609,7 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 			layoutXML.Prolog = xmlb.CaptureProlog(data)
 			layoutXML.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 			layoutXML.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(data)
+			layoutXML.SourceXML = data
 
 			layout := &SlideLayout{
 				presentation: p,

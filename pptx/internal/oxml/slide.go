@@ -58,6 +58,10 @@ type SlideLayout struct {
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
 	CollapseEmpty bool `xml:"-"`
+	// SourceXML is the part's verbatim bytes as parsed; see
+	// Presentation.SourceXML. Layout parts are regenerated on every save, so
+	// this is what keeps a pretty-printed layout indented (C587).
+	SourceXML []byte `xml:"-"`
 	// OriginalRootAttrs preserves the root element's verbatim attribute list;
 	// see Slide.OriginalRootAttrs.
 	OriginalRootAttrs []xmlb.RootAttr `xml:"-"`
@@ -93,6 +97,10 @@ type SlideMaster struct {
 	// CollapseEmpty records whether the source writes empty elements
 	// self-closing, so empty open/close pairs collapse on regeneration.
 	CollapseEmpty bool `xml:"-"`
+	// SourceXML is the part's verbatim bytes as parsed; see
+	// Presentation.SourceXML. Master parts are regenerated on every save, so
+	// this is what keeps a pretty-printed master indented (C587).
+	SourceXML []byte `xml:"-"`
 	// OriginalRootAttrs preserves the root element's verbatim attribute list;
 	// see Slide.OriginalRootAttrs.
 	OriginalRootAttrs []xmlb.RootAttr     `xml:"-"`
