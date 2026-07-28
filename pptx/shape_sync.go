@@ -2,7 +2,6 @@ package pptx
 
 import (
 	"github.com/mgilbir/spine/common/dml"
-	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
 
@@ -207,10 +206,11 @@ func updateShapeNode(sp *oxml.Shape, shape Shape) {
 // so a shape dirtied for an unrelated reason still leaves both alone.
 func flushShapeNameAndLink(cNvPr *dml.CNvPr, base *BaseShape) {
 	if base.nameSet {
-		cNvPr.Name = base.name
 		// name is required on cNvPr and not omitempty, so an explicit "" is
-		// emitted as name="" rather than dropping the attribute.
-		cNvPr.CapturedAttrs = dropCapturedAttrs(cNvPr.CapturedAttrs, "name")
+		// emitted as name="" rather than dropping the attribute; replay
+		// substitutes the modeled value into the captured entry, keeping the
+		// producer's attribute order.
+		cNvPr.Name = base.name
 	}
 	switch {
 	case base.hyperlink != nil:
@@ -220,43 +220,15 @@ func flushShapeNameAndLink(cNvPr *dml.CNvPr, base *BaseShape) {
 	}
 }
 
-// dropCapturedAttrs removes the named attributes from a captured attribute
-// list, returning the remainder.
-//
-// ReplayCapturedAttrs replays any captured attribute the model does not match,
-// which is what makes an unmodeled attribute and an explicit zero survive — and
-// simultaneously makes a modeled value impossible to *clear*, because
-// omitempty suppresses the zero the setter just wrote and replay then restores
-// the source's value (audit tension T-D). A setter that owns an attribute must
-// therefore drop it from the capture: after that, "modeled wins" holds even
-// when the modeled value is a zero. Attributes not named here are untouched, so
-// the fidelity guarantee for everything the model does not represent is intact.
-func dropCapturedAttrs(captured []xmlb.RootAttr, names ...string) []xmlb.RootAttr {
-	if len(captured) == 0 {
-		return captured
-	}
-	drop := make(map[string]bool, len(names))
-	for _, n := range names {
-		drop[n] = true
-	}
-	out := captured[:0]
-	for _, a := range captured {
-		if !a.IsNS && a.Prefix == "" && drop[a.LocalName] {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
 // flushPlaceholderAttrs writes the modeled placeholder attributes (type,
 // orient, idx, sz) into the parsed p:ph node, creating the nvPr/ph chain when
 // the shape had none. Unmodeled attributes on p:ph survive the flush.
 //
-// The four modeled attributes are dropped from the capture first: p:ph@idx is
-// omitempty, so SetIndex(0) used to write a zero that was suppressed and then
-// replaced by the source's idx="3" on replay — the setter was a silent no-op
-// (C585). The same applied to clearing type/orient/sz.
+// All four are omitempty, so clearing one used to be a silent no-op: the zero
+// the setter wrote was suppressed and the source's value came back on replay
+// (C585). The Builder now reports omitempty-suppressed attributes to replay as
+// cleared, so writing the modeled zero is enough — see
+// xmlb.ReplayCapturedAttrsClearing.
 func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 	if sp.NvSpPr == nil {
 		return
@@ -268,7 +240,6 @@ func flushPlaceholderAttrs(sp *oxml.Shape, ph *PlaceholderShape) {
 		sp.NvSpPr.NvPr.Ph = &oxml.Placeholder{}
 	}
 	p := sp.NvSpPr.NvPr.Ph
-	p.CapturedAttrs = dropCapturedAttrs(p.CapturedAttrs, "type", "orient", "sz", "idx")
 	p.Type = string(ph.phType)
 	p.Orient = string(ph.orientation)
 	p.Sz = string(ph.size)
@@ -714,11 +685,10 @@ func patchTableNode(atbl *oxml.ATable, t *Table) {
 		// All six banding/heading flags are omitempty booleans the domain model
 		// mirrors, so clearing one wrote a false that was suppressed and then
 		// replaced by the source's ="1" on replay: SetFirstRow(false) and its
-		// five siblings were silent no-ops on any parsed table (C583). Dropping
-		// them from the capture makes the modeled value authoritative in both
-		// directions. rtl is not modeled here, so it stays captured.
-		pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs,
-			"firstRow", "firstCol", "lastRow", "lastCol", "bandRow", "bandCol")
+		// five siblings were silent no-ops on any parsed table (C583). Replay
+		// now sees the suppressed zeros and drops the stale capture itself, so
+		// writing the modeled values is enough. rtl is not modeled here and
+		// stays captured either way.
 		pr.FirstRow, pr.FirstCol = t.firstRow, t.firstCol
 		pr.LastRow, pr.LastCol = t.lastRow, t.lastCol
 		pr.BandRow, pr.BandCol = t.bandRow, t.bandCol
@@ -760,9 +730,9 @@ func applyCellProps(tc *oxml.ATc, cell *TableCell) {
 	// The anchor is parsed into the domain model, so writing it unconditionally
 	// is a no-op for a cell that never had one and lets SetVerticalAlign("")
 	// clear a parsed anchor, which the old non-empty guard made impossible
-	// (C521). It is also omitempty, so the captured value has to go with it or
-	// replay would restore it (the T-D trap, as in C583).
-	pr.CapturedAttrs = dropCapturedAttrs(pr.CapturedAttrs, "anchor")
+	// (C521). It is omitempty, so the clear only reaches the XML because replay
+	// drops a captured attribute whose modeled field was suppressed as a zero
+	// (the T-D trap, as in C583).
 	pr.Anchor = string(cell.vertAlign)
 	applyCellMargins(pr, cell)
 	// Borders are not parsed into the domain model, so a nil edge means "not

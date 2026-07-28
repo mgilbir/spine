@@ -991,6 +991,14 @@ type Attr struct {
 	// including its leading whitespace (e.g. ` w:val='x'`); it is written
 	// as-is, preserving the producer's prefix, quote style, and spacing.
 	Raw string
+	// Numeric marks an attribute whose modeled field is of a numeric kind, so
+	// ReplayCapturedAttrs may compare it to a captured value *by number* rather
+	// than by text and keep the producer's lexical form when the two agree
+	// (val="1.0", tint="-4.9989318521683403E-2"). It is set by the reflection
+	// marshaler; a hand-written marshal that leaves it false gets the stricter
+	// textual comparison, which is never wrong, only less faithful. It never
+	// affects how the attribute is written.
+	Numeric bool
 }
 
 // NSDecl represents a namespace declaration.

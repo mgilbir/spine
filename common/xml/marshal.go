@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -326,8 +327,15 @@ func capturedEmptyTagOf(val reflect.Value) EmptyTagStyle {
 // xml:"-") holding the verbatim source attribute list; when non-nil it is
 // replayed via ReplayCapturedAttrs so the source's attribute order, inline
 // xmlns declarations, and unmodeled attributes survive the round trip.
+//
+// Attributes an omitempty tag suppresses are not silently discarded: they are
+// collected separately and handed to replay as the "cleared" list, so a modeled
+// field the caller reset to its zero value can actually delete the source's
+// attribute instead of having it replayed back (C586, tension T-D). See
+// ReplayCapturedAttrsClearing for why that is sound.
 func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 	var attrs []Attr
+	var cleared []ClearedAttr
 	var captured []RootAttr
 	typ := val.Type()
 
@@ -355,10 +363,19 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 		// A nil pointer has no value to emit: omit the attribute even without
 		// omitempty, matching encoding/xml (previously the Builder diverged
 		// and emitted attr="").
+		//
+		// A nil pointer is deliberately *not* reported as cleared. Parsing sets
+		// the pointer whenever the source carried the attribute, so nil next to
+		// a captured attribute means the model never read it — "we hold no
+		// value", not "the caller cleared it". This is what keeps the XSD
+		// default-TRUE attributes modeled as *bool (C526) safe.
 		if fval.Kind() == reflect.Pointer && fval.IsNil() {
 			continue
 		}
 		if info.omitempty && isZeroValue(fval) {
+			if z, ok := clearedAttr(info, fval); ok {
+				cleared = append(cleared, z)
+			}
 			continue
 		}
 
@@ -375,13 +392,69 @@ func (b *Builder) collectStructAttrs(val reflect.Value) []Attr {
 			Namespace: info.ns,
 			Name:      info.name,
 			Value:     formatValue(fval),
+			Numeric:   isNumericAttr(fval),
 		})
 	}
 
 	if captured != nil {
-		return b.ReplayCapturedAttrs(captured, attrs)
+		return b.ReplayCapturedAttrsClearing(captured, attrs, cleared)
 	}
 	return attrs
+}
+
+// lexicalSpaceOf maps a field kind to the lexical space its attribute values
+// are drawn from, reporting ok=false for kinds replay cannot reason about.
+func lexicalSpaceOf(k reflect.Kind) (AttrLexicalSpace, bool) {
+	switch k {
+	case reflect.String:
+		return AttrLexText, true
+	case reflect.Bool:
+		return AttrLexBool, true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return AttrLexInt, true
+	case reflect.Float32, reflect.Float64:
+		return AttrLexFloat, true
+	}
+	return 0, false
+}
+
+// isNumericAttr reports whether v renders as a number. A type that renders its
+// own lexical form (AttrValuer) is excluded: its AttrValue is authoritative and
+// must not be second-guessed against a captured spelling.
+func isNumericAttr(v reflect.Value) bool {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return false
+		}
+		v = v.Elem()
+	}
+	if implementsAttrValuer(v) {
+		return false
+	}
+	space, ok := lexicalSpaceOf(v.Kind())
+	return ok && (space == AttrLexInt || space == AttrLexFloat)
+}
+
+// clearedAttr describes an omitempty-suppressed field to replay: the attribute
+// name it would have been written under and the lexical space its values come
+// from. Replay uses the lexical space to decide whether a captured value
+// denotes the zero the model now holds.
+//
+// Only the plain scalar kinds qualify. A pointer never reaches here (nil is
+// handled earlier and a non-nil pointer is not zero), and a type that renders
+// its own lexical form (AttrValuer) is excluded because its lexical space is
+// its own business — for those the captured value is kept, which is the
+// pre-existing behaviour.
+func clearedAttr(info tagInfo, fval reflect.Value) (ClearedAttr, bool) {
+	if implementsAttrValuer(fval) {
+		return ClearedAttr{}, false
+	}
+	space, ok := lexicalSpaceOf(fval.Kind())
+	if !ok {
+		return ClearedAttr{}, false
+	}
+	return ClearedAttr{Namespace: info.ns, Name: info.name, Lexical: space}, true
 }
 
 // implementsMarshalerAttr reports whether v (or its addressable pointer)
@@ -415,26 +488,82 @@ func (b *Builder) renderedAttrName(a Attr) string {
 }
 
 // ReplayCapturedAttrs merges a captured source attribute list with the
+// modeled attributes derived from struct fields. It is
+// ReplayCapturedAttrsClearing with no cleared attributes.
+func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Attr {
+	return b.ReplayCapturedAttrsClearing(captured, modeled, nil)
+}
+
+// ReplayCapturedAttrsClearing merges a captured source attribute list with the
 // modeled attributes derived from struct fields, preserving fidelity on a
 // no-op round trip while keeping model edits authoritative:
 //
 //   - captured entries are emitted in source order;
 //   - a captured declaration (xmlns / xmlns:prefix) is emitted verbatim;
 //   - a captured attribute that matches a modeled one (by rendered name)
-//     takes the modeled value, so post-parse mutations win;
+//     takes the modeled value, so post-parse mutations win — but when the two
+//     differ only in lexical form (a boolean written "false" vs "0", a number
+//     written "1.0" vs "1" or "-4.9989318521683403E-2" vs its decimal
+//     expansion) the producer's spelling is kept, since nothing changed;
 //   - a captured attribute with no modeled match is emitted with its captured
 //     value — this keeps unmodeled attributes and explicit zero values that
 //     omitempty fields cannot represent;
 //   - modeled attributes absent from the capture (set after parse) follow in
 //     model order.
 //
+// cleared holds the modeled attributes an omitempty tag suppressed, each
+// naming the lexical space its field's values come from. A captured attribute
+// matching one of them is dropped when the captured value denotes a value other
+// than the zero the model now holds, and kept otherwise.
+//
+// That test is what distinguishes "the caller cleared this" from "the producer
+// wrote the zero explicitly", which the field alone cannot express: a Go bool
+// that is false because nobody touched it and one that was just reset are the
+// same bit. The capture supplies the missing half. It is a snapshot of what the
+// parse read, so a model that disagrees with it can only have been changed
+// after parse — and a model that agrees with it was not. Concretely:
+//
+//   - captured firstRow="1", model false  → the parse produced true, so the
+//     false came from a setter: drop the attribute (C583).
+//   - captured firstRow="0", model false  → the parse produced false and the
+//     model still says false: nothing was cleared, replay verbatim. This is the
+//     explicit-zero preservation the capture convention exists for, and it is
+//     load-bearing for every attribute whose XSD default is not the Go zero
+//     (showComments="0" means false against a default of true; spokes="0"
+//     against a default of 4).
+//   - captured idx="3", model 0 → drop (C585); captured name="x", model ""
+//     → drop (C584).
+//
+// The inference has one precondition: parsing must populate the modeled field
+// from the attribute it captured. Where it provably did not, the captured entry
+// is kept. Two mechanisms enforce that, and both matter in practice:
+//
+//   - Matching is namespace-aware. A docx field tagged with the full
+//     WordprocessingML URI is only filled by the stdlib from an attribute in
+//     that namespace, so a producer's *unprefixed* color="FFFFFF" leaves the
+//     field zero; it also fails to pair with the cleared entry, and survives.
+//   - The captured value must be readable in the field's own lexical space. The
+//     DrawingML readers degrade a malformed integer to zero on purpose and rely
+//     on the capture to carry the original (roundInt64, coerceIntAttrs), so
+//     rot="0.4" against an int32 field is not an integer lexeme, is not
+//     evidence of a clear, and is replayed verbatim.
+//
+// Every undecidable case resolves toward keeping the capture, so this can miss
+// a clear but never invent one: the failure mode is a setter that does not take
+// effect, not deleted content.
+//
 // The returned attributes carry literal names (Namespace empty), ready for
 // StartElement/EmptyElement.
-func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Attr {
+func (b *Builder) ReplayCapturedAttrsClearing(captured []RootAttr, modeled []Attr, cleared []ClearedAttr) []Attr {
 	used := make([]bool, len(modeled))
 	rendered := make([]string, len(modeled))
 	for i, a := range modeled {
 		rendered[i] = b.renderedAttrName(a)
+	}
+	usedCleared := make([]bool, len(cleared))
+	clearedNames := make([]string, len(cleared))
+	for i, c := range cleared {
+		clearedNames[i] = b.renderedAttrName(Attr{Namespace: c.Namespace, Name: c.Name})
 	}
 	out := make([]Attr, 0, len(captured)+len(modeled))
 	for _, ra := range captured {
@@ -451,9 +580,10 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 				(ra.Space == modeled[i].Namespace && ra.LocalName == modeled[i].Name)) {
 				a := Attr{Name: lit.Name, Value: modeled[i].Value, Raw: lit.Raw}
 				if modeled[i].Value != ra.Value {
-					if boolLexEquivalent(modeled[i].Value, ra.Value) {
-						// Same boolean, different lexical form ("false" vs
-						// "0"): keep the producer's form.
+					if boolLexEquivalent(modeled[i].Value, ra.Value) ||
+						(modeled[i].Numeric && numLexEquivalent(modeled[i].Value, ra.Value)) {
+						// Same value, different lexical form: keep the
+						// producer's spelling rather than renormalizing it.
 						a.Value = ra.Value
 					} else {
 						// The model changed the value: the verbatim source
@@ -467,7 +597,28 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 				break
 			}
 		}
-		if !matched {
+		if matched {
+			continue
+		}
+		// No modeled attribute is being written under this name. It may still
+		// be modeled and merely suppressed as a zero — in which case the model
+		// deliberately says "not present" and the capture must not resurrect it.
+		dropped := false
+		for i, cn := range clearedNames {
+			if usedCleared[i] {
+				continue
+			}
+			// Same match rule as the modeled pass: rendered name, or namespace
+			// plus local name when the capture could not resolve a prefix.
+			if cn != lit.Name &&
+				(ra.Space != cleared[i].Namespace || ra.LocalName != cleared[i].Name) {
+				continue
+			}
+			usedCleared[i] = true
+			dropped = cleared[i].Lexical.differsFromZero(ra.Value)
+			break
+		}
+		if !dropped {
 			out = append(out, lit)
 		}
 	}
@@ -477,6 +628,84 @@ func (b *Builder) ReplayCapturedAttrs(captured []RootAttr, modeled []Attr) []Att
 		}
 	}
 	return out
+}
+
+// AttrLexicalSpace identifies the lexical space a modeled attribute's values
+// are drawn from. It lets replay read a captured value the way the parse would
+// have read it, which is what makes "the model no longer agrees with the
+// source" a sound signal (see ReplayCapturedAttrsClearing).
+type AttrLexicalSpace uint8
+
+const (
+	// AttrLexText is an attribute backed by a string field: any character
+	// sequence is a value, and only "" is the zero.
+	AttrLexText AttrLexicalSpace = iota
+	// AttrLexBool is an xsd:boolean attribute ("true", "false", "1", "0").
+	AttrLexBool
+	// AttrLexInt is an integer-typed attribute. A fractional lexeme is
+	// deliberately *not* in this space: the DrawingML readers round such a
+	// value into the field and rely on the capture to carry the original.
+	AttrLexInt
+	// AttrLexFloat is a floating-point (xsd:double) attribute.
+	AttrLexFloat
+)
+
+// ClearedAttr names a modeled attribute that is currently suppressed because
+// its field holds the zero value, together with the lexical space of that
+// field. Replay uses it to tell a deliberate clear from an explicitly-written
+// zero; see ReplayCapturedAttrsClearing.
+type ClearedAttr struct {
+	Namespace string // namespace URI (empty for no namespace)
+	Name      string // local name
+	Lexical   AttrLexicalSpace
+}
+
+// differsFromZero reports whether a captured attribute value denotes something
+// other than the zero of a field in this lexical space. True means the model
+// must have been changed after parse, so the captured attribute is stale.
+//
+// It answers false whenever the captured value is not a member of the space:
+// such a value cannot have produced the field's current zero by an ordinary
+// parse, so the field was either never populated from it or was leniently
+// coerced, and "the caller cleared it" would be an unfounded conclusion.
+// Keeping the attribute is the pre-existing behaviour and the safe direction —
+// a missed clear is a setter that does not take effect, a wrong drop is data
+// loss.
+func (s AttrLexicalSpace) differsFromZero(capturedValue string) bool {
+	switch s {
+	case AttrLexText:
+		return capturedValue != ""
+	case AttrLexBool:
+		v, ok := parseXSDBool(capturedValue)
+		return ok && v
+	case AttrLexInt:
+		n, err := strconv.ParseInt(strings.TrimSpace(capturedValue), 10, 64)
+		if err != nil {
+			// Not an integer lexeme. Unsigned fields can hold values above
+			// MaxInt64, so try that spelling too before giving up.
+			u, uerr := strconv.ParseUint(strings.TrimSpace(capturedValue), 10, 64)
+			return uerr == nil && u != 0
+		}
+		return n != 0
+	case AttrLexFloat:
+		f, err := strconv.ParseFloat(strings.TrimSpace(capturedValue), 64)
+		return err == nil && f != 0
+	}
+	return false
+}
+
+// parseXSDBool parses an xsd:boolean lexical value. The canonical forms are
+// "true", "false", "1" and "0"; the mixed-case spellings some producers emit
+// are accepted too, since the stdlib decoder also accepts them and so the
+// modeled field would have been populated from them.
+func parseXSDBool(v string) (bool, bool) {
+	switch v {
+	case "1", "true", "True", "TRUE":
+		return true, true
+	case "0", "false", "False", "FALSE":
+		return false, true
+	}
+	return false, false
 }
 
 // boolLexEquivalent reports whether two attribute values are the same
@@ -493,6 +722,23 @@ func boolLexEquivalent(a, b string) bool {
 	}
 	na, nb := norm(a), norm(b)
 	return na == nb && (na == "0" || na == "1")
+}
+
+// numLexEquivalent reports whether two attribute values are the same number
+// written differently ("1" vs "1.0", "7" vs "007", a decimal expansion vs the
+// E-notation the producer used). Callers must only apply it to attributes whose
+// modeled field is numeric (Attr.Numeric): a string-valued attribute whose
+// contents merely look like numbers keeps its exact spelling.
+func numLexEquivalent(a, b string) bool {
+	fa, err := strconv.ParseFloat(a, 64)
+	if err != nil {
+		return false
+	}
+	fb, err := strconv.ParseFloat(b, 64)
+	if err != nil {
+		return false
+	}
+	return fa == fb
 }
 
 // hasStructChildren reports whether a struct has any non-empty child elements to write.

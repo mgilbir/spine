@@ -173,6 +173,66 @@ func TestTable_NarrowingRowSpan_ClearsTheContinuationFlag(t *testing.T) {
 	}
 }
 
+// C586: the six flags used to be dropped from the capture unconditionally by
+// the setter's flush, which cleared them correctly but also deleted a zero the
+// producer had written *explicitly*. Replay now decides per attribute — it
+// drops a captured value only when the model disagrees with it — so an explicit
+// bandRow="0" survives a flush that clears a different flag.
+func TestTable_ExplicitZeroFlagSurvivesAFlush(t *testing.T) {
+	deck := tableWithExplicitZeroFlags(t)
+	p, err := OpenReader(bytes.NewReader(deck), int64(len(deck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Touch the table props so the flush path runs.
+	firstTable(t, p).SetFirstRow(false)
+
+	saved, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(zipPart(t, saved, "ppt/slides/slide1.xml"))
+
+	if !strings.Contains(out, `bandRow="0"`) {
+		t.Errorf("an explicitly-written bandRow=\"0\" was deleted by the flush:\n%s", out)
+	}
+	if strings.Contains(out, `firstRow="1"`) {
+		t.Errorf("clearing firstRow did not reach the XML:\n%s", out)
+	}
+	if !strings.Contains(out, `rtl="1"`) {
+		t.Errorf("the unmodeled rtl attribute was lost:\n%s", out)
+	}
+}
+
+// tableWithExplicitZeroFlags builds a deck whose a:tblPr carries firstRow="1"
+// alongside an explicitly-written bandRow="0" and an unmodeled rtl="1".
+func tableWithExplicitZeroFlags(t *testing.T) []byte {
+	t.Helper()
+	p := Create()
+	s := p.AddSlide()
+	s.AddTable(2, 2)
+
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rewriteZipPart(t, data, "ppt/slides/slide1.xml", func(xml []byte) []byte {
+		re := regexp.MustCompile(`<a:tblPr[^>]*>`)
+		loc := re.FindIndex(xml)
+		if loc == nil {
+			t.Fatalf("no a:tblPr in the table:\n%s", xml)
+		}
+		const attrs = ` rtl="1" firstRow="1" bandRow="0"`
+		tail := ">"
+		if bytes.HasSuffix(xml[loc[0]:loc[1]], []byte("/>")) {
+			tail = "/>"
+		}
+		out := append([]byte{}, xml[:loc[0]]...)
+		out = append(out, "<a:tblPr"+attrs+tail...)
+		return append(out, xml[loc[1]:]...)
+	})
+}
+
 // C418: widening still works — the recompute must not break the C310 fix.
 func TestTable_WideningColSpan_StillMarksCoveredCells(t *testing.T) {
 	p := Create()

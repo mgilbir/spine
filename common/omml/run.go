@@ -58,17 +58,21 @@ func (t *Text) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // MarshalToBuilder implements xmlb.BuilderMarshaler.
 func (t *Text) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
+	var cleared []xmlb.ClearedAttr
 	if t.Space != "" {
 		attrs = append(attrs, xmlb.Attr{Name: "xml:space", Value: t.Space})
+	} else {
+		// Space cleared after parse: a captured attribute with no modeled match
+		// replays verbatim, so the stale xml:space has to go or the modeled zero
+		// could never win. Reporting it as cleared lets replay drop it only when
+		// the capture actually disagrees, so a producer's xml:space="" still
+		// round-trips.
+		cleared = append(cleared, xmlb.ClearedAttr{
+			Namespace: xmlNamespace, Name: "space", Lexical: xmlb.AttrLexText,
+		})
 	}
-	if captured := t.CapturedAttrs; captured != nil {
-		if t.Space == "" {
-			// Space cleared after parse: a captured attribute with no modeled
-			// match replays verbatim, so the stale xml:space has to go or the
-			// modeled zero could never win.
-			captured = withoutAttr(captured, xmlNamespace, "space")
-		}
-		attrs = b.ReplayCapturedAttrs(captured, attrs)
+	if t.CapturedAttrs != nil {
+		attrs = b.ReplayCapturedAttrsClearing(t.CapturedAttrs, attrs, cleared)
 	}
 	if t.Value == "" && t.CapturedEmptyTag != xmlb.EmptyTagUnknown {
 		b.EmptyElementStyled(t.CapturedEmptyTag, ns, localName, attrs...)
@@ -78,19 +82,6 @@ func (t *Text) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 }
 
 func (t *Text) emitRunChild(b *xmlb.Builder) { t.MarshalToBuilder(b, NS, "t") }
-
-// withoutAttr returns captured with the attribute in (space, local) removed.
-// The input is not modified.
-func withoutAttr(captured []xmlb.RootAttr, space, local string) []xmlb.RootAttr {
-	out := make([]xmlb.RootAttr, 0, len(captured))
-	for _, ra := range captured {
-		if !ra.IsNS && ra.Space == space && ra.LocalName == local {
-			continue
-		}
-		out = append(out, ra)
-	}
-	return out
-}
 
 // Run represents CT_R (m:r), a math run. RPr holds the math run properties
 // (m:rPr). Items holds the ordered run content: *Text for m:t and *Raw for
