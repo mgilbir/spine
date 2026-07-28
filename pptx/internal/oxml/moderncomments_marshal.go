@@ -102,7 +102,7 @@ func (c *ModernComment) marshal(b *xmlb.Builder) {
 		attrs = append(attrs, c.ExtraAttrs...)
 		b.StartElement(nsP188, "cm", attrs...)
 	} else {
-		prefix = xmlb.RawAttrPrefix(c.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		prefix = b.LiteralPrefixForCaptured(nsP188, c.CapturedAttrs, xmlb.PrefixPowerPointComment)
 		b.StartElementLiteral(prefix, "cm", nil, replayP188Attrs(c.CapturedAttrs, map[string]string{
 			"id": c.ID, "authorId": c.AuthorID, "status": c.Status, "created": c.Created,
 		}, "status")...)
@@ -143,7 +143,7 @@ func (r *ModernReply) marshal(b *xmlb.Builder) {
 		attrs = append(attrs, r.ExtraAttrs...)
 		b.StartElement(nsP188, "reply", attrs...)
 	} else {
-		prefix = xmlb.RawAttrPrefix(r.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		prefix = b.LiteralPrefixForCaptured(nsP188, r.CapturedAttrs, xmlb.PrefixPowerPointComment)
 		b.StartElementLiteral(prefix, "reply", nil, replayP188Attrs(r.CapturedAttrs, map[string]string{
 			"id": r.ID, "authorId": r.AuthorID, "created": r.Created,
 		})...)
@@ -197,7 +197,7 @@ func (a *ModernAuthor) marshal(b *xmlb.Builder) {
 		// Verbatim replay: an author that carried no initials/userId/providerId
 		// does not gain initials=""/userId=""/providerId="", and the producer's
 		// attribute order survives (C525).
-		prefix := xmlb.RawAttrPrefix(a.CapturedAttrs, nsP188, xmlb.PrefixPowerPointComment)
+		prefix := b.LiteralPrefixForCaptured(nsP188, a.CapturedAttrs, xmlb.PrefixPowerPointComment)
 		attrs := replayP188Attrs(a.CapturedAttrs, map[string]string{
 			"id": a.ID, "name": a.Name, "initials": a.Initials,
 			"userId": a.UserID, "providerId": a.ProviderID,

@@ -46,8 +46,10 @@ type Style struct {
 type RelId struct {
 	Id string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 	// CapturedAttrs preserves the verbatim source attribute list (declaration
-	// placement and order vary; some sources omit xmlns:r, relying on the
-	// root); replayed on marshal so nothing is invented or reordered.
+	// placement and order vary; some sources omit xmlns:c and xmlns:r, relying
+	// on the root); replayed on marshal so nothing is invented or reordered.
+	// Because the declaration may be an ancestor's, the element's prefix is
+	// resolved against the Builder's live scope rather than assumed to be "c".
 	CapturedAttrs []xmlb.RootAttr `xml:"-"`
 }
 
@@ -64,9 +66,13 @@ func (r *RelId) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (r *RelId) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if r.CapturedAttrs != nil {
 		// Verbatim replay: the source's declarations and order, with a
-		// mutated r:id still winning via the override.
+		// mutated r:id still winning via the override. The prefix comes from
+		// the element's own declaration, else from the live scope, and only
+		// then from the canonical "c" — a source that relies on a root
+		// declaration under another alias (or a default xmlns=) would
+		// otherwise get a c: prefix nothing in the document binds (C375).
 		b.EmptyElementLiteral(
-			xmlb.RawAttrPrefix(r.CapturedAttrs, xmlb.NSDrawingMLChart, "c"), localName,
+			b.LiteralPrefixForCaptured(xmlb.NSDrawingMLChart, r.CapturedAttrs, xmlb.PrefixDrawingMLChart), localName,
 			xmlb.RawAttrListOverride(r.CapturedAttrs, map[string]string{"r:id": r.Id})...)
 		return
 	}

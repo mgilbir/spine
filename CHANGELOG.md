@@ -252,6 +252,17 @@ godoc tooling steers callers off them (C565, C567).
   numeric attributes now get the same treatment, keyed off the modeled field's
   kind so a string-valued attribute whose contents merely look numeric keeps its
   exact spelling (C531, C556).
+- Verbatim-replay elements no longer re-emit a hardcoded namespace prefix that
+  the document never declares. C375 fixed this for `mc:AlternateContent`; the
+  same static fallback was still in place for `c:chart`, for every a14/a16/asvg
+  drawing extension leaf, and for the p14/p15 and p188 PresentationML ones — 16
+  sites in all. A file that declares one of those namespaces on an ancestor
+  under its own alias, or as the default namespace, got malformed XML back from
+  a save that changed nothing. Each site now resolves through the live
+  in-scope binding, and the Builder rejects an element written under a prefix
+  no declaration in scope binds instead of shipping it: the literal paths write
+  names verbatim, so this class was invisible to both `Builder.Finish` and a
+  plain well-formedness check (C375).
 - OPC signature manifest reference URIs are now correct for part names and
   content types that need percent-encoding. Verification percent-decodes a
   reference URI, but signing wrote the part name and the `?ContentType=` query
