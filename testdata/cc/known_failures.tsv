@@ -1,18 +1,39 @@
 sha16	type	stage	note
+0676b4c0c5aa2c2d	docx	wontfix	ISO-Strict OOXML: the library implements the Transitional schema and rejects Strict packages by design rather than mis-parsing them
 0c104a77d3dc1bef	docx	wontfix	source part is not well-formed XML (illegal character codes); the library deliberately rejects it rather than launder invalid XML through a save
+4c43182bde7eb64a	docx	wontfix	decoder XML EOL normalization: the part is CRLF pretty-printed and XML 1.0 §2.11 folds CRLF to LF before the model sees it; byte-identical output would need raw-token decoding
+6086ecc20d693c5e	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
+7ee5b8f527473d7e	docx	wontfix	source part is not well-formed XML (illegal character codes); the library deliberately rejects it rather than launder invalid XML through a save
+8b0e6abae5cd7a71	docx	wontfix	corrupt source zip: a stored CRC does not match its data, so the original cannot be re-read for comparison
+a6b2ab0bee608e76	docx	wontfix	ISO-Strict OOXML: the library implements the Transitional schema and rejects Strict packages by design rather than mis-parsing them
+b55ad2c12c938549	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
+128b0b554cac5427	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
 1611b83e61fb9e6a	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
+2035c866d93a781a	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+221004cf565ed15c	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
 252d70e22a796e16	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 2d0f0f1c5a078d24	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 33b9a24c6b3cf429	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-4c43182bde7eb64a	docx	wontfix	decoder XML EOL normalization: the part is CRLF pretty-printed and XML 1.0 §2.11 folds CRLF to LF before the model sees it; byte-identical output would need raw-token decoding
-6086ecc20d693c5e	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
+467b7733ecb7f26a	pptx	wontfix	corrupt source zip: a stored CRC does not match its data, so the original cannot be re-read for comparison
+50ca1aa24305af5d	pptx	wontfix	corrupt source zip: a stored CRC does not match its data, so the original cannot be re-read for comparison
+6c0517d8554dcec1	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
 72ad36899df04e5d	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
+7330e2df353e31cc	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
 7477497e97243151	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-7ee5b8f527473d7e	docx	wontfix	source part is not well-formed XML (illegal character codes); the library deliberately rejects it rather than launder invalid XML through a save
+8343569175a72d8d	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+870e964cdd91bc41	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+87b470224e5e0b97	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
 93946cedae14472c	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 95af7570f3d04866	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
-b55ad2c12c938549	docx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
+964194c77c8710f2	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+968bc2142a8eb8c2	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+9ed3e17c42eb185f	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+a89740398057830c	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+b6395bfef8979a83	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+b7f6af69910f99a1	pptx	fidelity	C587: pretty-printed source; pptx regenerates presentation.xml/slideLayouts/slideMasters and drops the producer's inter-element whitespace (xlsx solves this with per-gap capture). Remove this row when C587 lands.
+bb2394381b31fbda	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
 be7b7b389d22ae85	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
+c2415d6992818fc2	pptx	wontfix	corrupt source zip: the slide master part's local header is unreadable
 c80542f5b7d14881	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
 d4ad2cefc9ea900d	pptx	wontfix	corrupt source zip: a media part's stored CRC does not match its data; the library tolerates the part but a strict re-read of the original cannot
 dd49be7af892e40b	pptx	wontfix	whitespace-preserving producer: the pml part tree is pretty-printed with inter-element whitespace at every level, which the typed model does not capture; needs raw-token decoding
