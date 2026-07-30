@@ -171,6 +171,28 @@ godoc tooling steers callers off them (C565, C567).
   are unchanged. `xmlb.FormatFloat` is now the single policy for every output
   path, and a build-failing guard keeps it that way (C531, C556, C559).
 
+- xlsx: a save records the write time in `docProps/core.xml`
+  (`dcterms:modified`) when — and only when — the session actually changed the
+  workbook, matching the behaviour pptx gained in the same wave.
+
+  xlsx never touched `Modified` before, so a workbook edited beyond recognition
+  kept whatever write time its producer left behind, and one built with `Create`
+  carried none at all. Stamping *every* save is the other obvious
+  option and is worse: it makes `SaveBytes` non-idempotent, so the same content
+  saved either side of a second boundary produces two different packages. There
+  is deliberately no option to choose between accuracy and determinism, because
+  they only conflict when nothing changed — and when nothing changed, an
+  unchanged save still reproduces the package byte-for-byte.
+
+  Reading is not editing. Detection keys off the mutation flags the save path
+  already trusts, never off the decision to regenerate a part — which merely
+  *accessing* a model sets. Accessors that materialize state on access do not
+  stamp (`xlsx.Sheet.Cell` creates the `<row>`/`<c>` it returns,
+  `Workbook.Styles` materializes a default stylesheet), a mutator that returns
+  an error does not stamp, and an xlsx edit to an opaque
+  chartsheet/dialogsheet — which the save discards — does not stamp either.
+  Assigning `Properties.Modified` yourself still wins over the automatic value.
+
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // C78: a sheet part whose XML fails to parse must be an Open error. Silently
@@ -152,13 +153,23 @@ func TestNonStandardMainWorkbookPartName(t *testing.T) {
 
 // Wave-2 finding: preserved parts were written in map-iteration order, so the
 // zip entry order (and therefore whole-archive bytes) differed between runs.
+//
+// Each pass is a separate edit session, and an edit records its write time in
+// dcterms:modified (see modified.go), which two passes either side of a second
+// boundary would legitimately disagree about — the flake TestFurnitureDeterministic
+// showed in pptx for three audits. Pinning Properties.Modified (an explicit
+// assignment the save respects) keeps the subject of this test the zip entry
+// order rather than the clock; the stamp's own determinism is pinned by
+// TestEditedWorkbookSaveIsStillIdempotent.
 func TestXlsxSaveIsDeterministic(t *testing.T) {
+	pinned := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	build := func() []byte {
 		wb, err := Open("testdata/minimal.xlsx")
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer wb.Close() //nolint:errcheck
+		wb.Properties.Modified = pinned
 		sheet, err := wb.Sheet(0)
 		if err != nil {
 			t.Fatal(err)

@@ -63,6 +63,9 @@ func (s *Sheet) SetVisibility(v SheetVisibility) error {
 	if s.workbook != nil && s.index >= 0 && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].SetState(string(v))
 	}
+	// Workbook-level state: persists from the always-regenerated workbook.xml
+	// without a sheet flag, so the content edit is recorded here instead.
+	s.workbook.markContentEdited()
 	return nil
 }
 
