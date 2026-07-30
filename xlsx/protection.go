@@ -316,14 +316,20 @@ func (w *Workbook) Protect(opts WorkbookProtectionOptions) {
 	}
 	w.workbook.WorkbookProtection = wp
 	w.workbook.EnsureChildOrder("workbookProtection")
+	// <workbookProtection> lives in workbook.xml, which is always regenerated,
+	// so this persists without a regeneration flag; record the content edit.
+	w.markContentEdited()
 }
 
 // Unprotect removes workbook-structure protection, if any.
 func (w *Workbook) Unprotect() {
-	if w.workbook == nil {
+	if w.workbook == nil || w.workbook.WorkbookProtection == nil {
 		return
 	}
 	w.workbook.WorkbookProtection = nil
+	// See Protect. Unprotecting a workbook that was not protected changes
+	// nothing, so it is not recorded as an edit.
+	w.markContentEdited()
 }
 
 // legacyPasswordHash computes Excel's legacy 16-bit worksheet-protection

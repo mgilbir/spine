@@ -157,6 +157,19 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Changed
 
+- xlsx: a save records the write time in `docProps/core.xml`
+  (`dcterms:modified`) when — and only when — the session actually changed the
+  workbook. Saving never touched the timestamp before, so an edited workbook
+  kept whatever write time it was opened with, and one built with `Create` had
+  none at all. There is deliberately no option to turn this off: an unchanged
+  save still reproduces the package byte-for-byte, so accuracy and determinism
+  do not conflict. Reading is not editing — accessors that materialize model
+  state on access (`Sheet.Cell` creates the `<row>`/`<c>` it returns,
+  `Workbook.Styles` materializes a default stylesheet) do not stamp, a mutator
+  that returns an error does not stamp, and an edit to an opaque
+  chartsheet/dialogsheet — which the save discards — does not stamp either.
+  Assigning `Properties.Modified` yourself still wins over the automatic value.
+  This matches the behavior pptx gained in the same wave.
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`

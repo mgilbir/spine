@@ -74,6 +74,13 @@ var nonDurableFields = map[string]bool{
 	"reader":                true, // the source zip handle, released by Close
 	"themeResolved":         true, // lazily resolved theme editor
 	"themePartName":         true, // resolved on lazy load
+	// Change-detection bookkeeping for the dcterms:modified stamp (modified.go).
+	// None of it is serialized: it records THAT content changed, so counting it
+	// as a mutation would make markContentEdited itself look like a mutator and
+	// taint every caller that only records an edit.
+	"contentEdits":      true,
+	"savedContentEdits": true,
+	"stampedModified":   true,
 }
 
 // mutationFlagExempt lists the exported methods that mutate durable state
@@ -178,6 +185,89 @@ func TestExportedMutatorsFlagState(t *testing.T) {
 	}
 }
 
+// editRecordingCalls are the calls that record "this session changed content",
+// which is what makes a save stamp dcterms:modified (modified.go).
+//
+// The regeneration flags count because every one of them bumps the counter from
+// inside the flag itself: markDirty does it within its opaque-sheet guard, the
+// StyleManager onModify hook does it alongside stylesDirty, and markCommentsDirty
+// routes through markDirty. Deriving the stamp from the flags that already have
+// to be right is the point — a mutator cannot record an edit it does not persist,
+// or persist an edit it does not record.
+var editRecordingCalls = func() map[string]bool {
+	m := map[string]bool{"markContentEdited": true}
+	for k := range flagCalls {
+		m[k] = true
+	}
+	return m
+}()
+
+// stampExemptMutators lists the exported methods that mutate durable state
+// without recording a content edit, each with the reason that is correct. It is
+// deliberately a subset of mutationFlagExempt: a mutator that sets no
+// regeneration flag has nothing else that could record the change, so it must
+// call markContentEdited unless it is not really an edit at all.
+var stampExemptMutators = map[string]string{
+	"Sheet.Cell": "Cell is a materializing accessor (C425): a lookup creates the " +
+		"<row>/<c> so the handle is writable, and the phantom entries are dropped again " +
+		"by the marshaler. Recording an edit here would stamp dcterms:modified for a " +
+		"caller who only read the sheet — the exact trap the rule exists to avoid.",
+	"Sheet.CellByRowCol": "Delegates to Sheet.Cell; same reason.",
+	"Workbook.Styles": "Materializes the in-memory default stylesheet for a package with " +
+		"no styles part. That is a READ (it grew xl/styles.xml out of nothing until PR " +
+		"#257); the manager's onModify hook records the edit as soon as a mutating method " +
+		"appends.",
+	"Workbook.Theme": "Resolves the theme editor lazily — a read. dml.ThemeEditor's " +
+		"Modified bit never resets, so a theme edit is recorded at save time by " +
+		"applyThemeEdits, which compares the re-serialized theme against the bytes the " +
+		"part currently holds.",
+}
+
+// TestExportedMutatorsRecordAnEdit fails when an exported method mutates
+// durable document state without any path to the content-edit counter that
+// drives the dcterms:modified stamp. It is the stamp-side twin of
+// TestExportedMutatorsFlagState: that one asks "will this edit be written out",
+// this one asks "will the file say when it was".
+func TestExportedMutatorsRecordAnEdit(t *testing.T) {
+	pkg := parsePackageForGuard(t)
+
+	usedExemptions := map[string]bool{}
+	for _, key := range sortedKeys(pkg.funcs) {
+		f := pkg.funcs[key]
+		if f.recv == "" || !ast.IsExported(f.name) {
+			continue
+		}
+		if !pkg.reaches(key, func(x *guardFunc) bool { return x.mutates }) {
+			continue
+		}
+		if pkg.reaches(key, func(x *guardFunc) bool { return x.recordsEdit }) {
+			continue
+		}
+		if _, ok := stampExemptMutators[key]; ok {
+			usedExemptions[key] = true
+			continue
+		}
+		t.Errorf("%s (%s) mutates %s but never records a content edit.\n"+
+			"Call markDirty (or whichever regeneration flag owns the part it writes), or "+
+			"markContentEdited when the change persists without a flag because workbook.xml "+
+			"is always regenerated — otherwise a save will not stamp dcterms:modified for it. "+
+			"If it is not really an edit, add an entry to stampExemptMutators.",
+			key, f.pos, strings.Join(f.mutSites, ", "))
+	}
+
+	for _, key := range sortedKeys(stampExemptMutators) {
+		if usedExemptions[key] {
+			continue
+		}
+		if _, ok := pkg.funcs[key]; !ok {
+			t.Errorf("stampExemptMutators lists %s, which no longer exists; drop the entry", key)
+			continue
+		}
+		t.Errorf("stampExemptMutators lists %s, but it now records a content edit "+
+			"(or no longer mutates). Drop the entry so the list stays auditable.", key)
+	}
+}
+
 // TestSheetDirtyIsOnlySetByMarkDirty guards the invariant markDirty encodes:
 // an opaque (chartsheet/dialogsheet/macrosheet) sheet is preserved verbatim and
 // must never be flagged, because the save path's sheet loops that decide
@@ -209,6 +299,7 @@ type guardFunc struct {
 	pos          string
 	mutates      bool
 	flags        bool
+	recordsEdit  bool
 	calls        map[string]bool
 	mutSites     []string
 	dirtyAssigns []string
@@ -383,6 +474,11 @@ func analyzeGuardFunc(fset *token.FileSet, fd *ast.FuncDecl, recvVar, recvType s
 				}
 			}
 		case *ast.IncDecStmt:
+			// Same exclusions as the assignment case: ++ on a bookkeeping
+			// counter is not a mutation of the document model.
+			if sel, isSel := s.X.(*ast.SelectorExpr); isSel && nonDurableFields[sel.Sel.Name] {
+				break
+			}
 			if isModelLValue(s.X, recvVar, tainted) {
 				note(s.X)
 			}
@@ -390,6 +486,9 @@ func analyzeGuardFunc(fset *token.FileSet, fd *ast.FuncDecl, recvVar, recvType s
 			if sel, ok := s.Fun.(*ast.SelectorExpr); ok {
 				if flagCalls[sel.Sel.Name] {
 					f.flags = true
+				}
+				if editRecordingCalls[sel.Sel.Name] {
+					f.recordsEdit = true
 				}
 				if id, ok := sel.X.(*ast.Ident); ok && id.Name == recvVar && recvType != "" {
 					f.calls[recvType+"."+sel.Sel.Name] = true
