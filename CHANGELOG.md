@@ -157,22 +157,43 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Changed
 
-- docx: saving a document that this session changed records the write time in
-  `docProps/core.xml` (`dcterms:modified`); saving one it did not leaves the
-  package byte-for-byte as it was. docx never touched `Modified`, so a document
-  edited beyond recognition kept whatever write time its producer left behind
-  and a document built by `Create` carried none — while stamping every save (the
-  behaviour pptx had) makes `SaveBytes` non-idempotent, which is what a save
-  either side of a second boundary turns into two different packages. There is
-  no option to choose between the two: they only conflict when nothing changed.
-  Detection reuses the flags the save path already trusts — the
-  `Paragraph.mut()`/`Run.mut()` funnel, the per-part `*Modified` flags, and the
-  handles onto the main document part — so a read never stamps, however much of
-  the document it materializes, and `TestMutationsFlagTheirPart` derives the set
-  from the source rather than a list. Setting `Properties.Modified` yourself
-  still wins. Regenerated core properties are now written at the position the
-  source part occupied instead of being appended last, so an edited document
-  reopened and re-saved reproduces its own bytes.
+- All formats: floating-point values written into XML now always use plain
+  decimal notation, never exponent form — `1000000`, not `1e+06`. Go's `%g`,
+  which the shared marshaler used, switches to E-notation at magnitudes at or
+  above 1e6 and below 1e-4. That range is reached by ordinary data (a sparkline's
+  manual axis bound, a pivot field's grouping interval, a chart axis scale), and
+  Office writes plain decimal in all of those positions, so the old output was
+  both unlike every real producer's and — for a value parsed at that magnitude —
+  a re-spelling of the source, which is byte drift. Precision is unaffected: the
+  shortest round-tripping decimal is still used. Values whose source spelling
+  must survive verbatim (Excel's `1E-4` iteration deltas, its
+  `-4.9989318521683403E-2` theme tints) were already handled by lexical types and
+  are unchanged. `xmlb.FormatFloat` is now the single policy for every output
+  path, and a build-failing guard keeps it that way (C531, C556, C559).
+
+- docx and xlsx: a save records the write time in `docProps/core.xml`
+  (`dcterms:modified`) when — and only when — the session actually changed the
+  document, matching the behaviour pptx gained in the same wave. All three
+  formats now agree.
+
+  Neither format touched `Modified` before, so a document edited beyond
+  recognition kept whatever write time its producer left behind, and one built
+  with `Create` carried none at all. Stamping *every* save is the other obvious
+  option and is worse: it makes `SaveBytes` non-idempotent, so the same content
+  saved either side of a second boundary produces two different packages. There
+  is deliberately no option to choose between accuracy and determinism, because
+  they only conflict when nothing changed — and when nothing changed, an
+  unchanged save still reproduces the package byte-for-byte.
+
+  Reading is not editing. Detection keys off the mutation flags the save path
+  already trusts, never off the decision to regenerate a part — which merely
+  *accessing* a model sets. Accessors that materialize state on access do not
+  stamp (`xlsx.Sheet.Cell` creates the `<row>`/`<c>` it returns,
+  `Workbook.Styles` materializes a default stylesheet), a mutator that returns
+  an error does not stamp, and an xlsx edit to an opaque
+  chartsheet/dialogsheet — which the save discards — does not stamp either.
+  Assigning `Properties.Modified` yourself still wins over the automatic value.
+
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`
@@ -226,6 +247,19 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- Three results that varied between runs because a map was iterated in Go's
+  randomized order now do not. `pptx.Presentation.Validate` listed the parts
+  added during the session — embedded media, merged masters, notes — in map
+  order, so a deck with two embedded images reported its findings in a different
+  order each time; `xlsx.Workbook.Validate` did the same for the dangling
+  references left by `DeleteSheet`. And `opc.ContentTypes.RemoveOverride`, when
+  it fell back to a case-insensitive match, deleted whichever of two
+  case-colliding overrides the runtime happened to visit first, so the saved
+  `[Content_Types].xml` differed run to run for such a package. All three now
+  work from a sorted list. The class is guarded going forward by
+  `internal/maporder`, which type-checks the serialization packages and reports
+  a map range whose key or value reaches a Builder, an unsorted returned slice,
+  or a `return` (C497, C515).
 - docx: four paragraph mutators no longer lose their edit when the paragraph
   belongs to a header or footer read from a file. A header or footer
   round-trips as preserved raw bytes unless the session flags its part, and

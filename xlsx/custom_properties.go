@@ -18,7 +18,15 @@ func (w *Workbook) SetCustomProperty(name string, value any) error {
 	if w.customProps == nil {
 		w.customProps = &opc.CustomProperties{}
 	}
-	return w.customProps.Set(name, value)
+	if err := w.customProps.Set(name, value); err != nil {
+		return err
+	}
+	// docProps/custom.xml regeneration is derived by customPropertiesModified()
+	// rather than a flag, and that comparison latches once it differs from the
+	// snapshot taken at open — so the edit is counted here, where a rejected
+	// value has already been ruled out.
+	w.markContentEdited()
+	return nil
 }
 
 // RemoveCustomProperty removes the named custom property, reporting whether it
@@ -27,7 +35,11 @@ func (w *Workbook) RemoveCustomProperty(name string) bool {
 	if w.customProps == nil {
 		return false
 	}
-	return w.customProps.Remove(name)
+	if !w.customProps.Remove(name) {
+		return false
+	}
+	w.markContentEdited()
+	return true
 }
 
 // customPropertiesModified reports whether the custom properties were edited or

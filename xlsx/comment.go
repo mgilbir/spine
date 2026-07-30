@@ -656,6 +656,7 @@ func (w *Workbook) ensurePerson(displayName string) *oxml.CT_Person {
 		ProviderID:  "None",
 	})
 	w.personsDirty = true
+	w.markContentEdited()
 	return &w.persons.Persons[len(w.persons.Persons)-1]
 }
 

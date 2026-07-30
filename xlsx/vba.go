@@ -74,6 +74,7 @@ func (w *Workbook) SetVBAProject(data []byte) {
 	w.vbaData = append([]byte(nil), data...)
 	w.vbaRemove = false
 	w.vbaModified = true
+	w.markContentEdited()
 
 	main := w.mainPart()
 	w.relationships[main] = ensureRelationship(w.relationships[main], opc.RelTypeVBAProject, path.Base(name))
@@ -93,6 +94,7 @@ func (w *Workbook) RemoveVBAProject() {
 	w.vbaData = nil
 	w.vbaRemove = true
 	w.vbaModified = true
+	w.markContentEdited()
 
 	main := w.mainPart()
 	if id := w.vbaRelID(); id != "" {

@@ -391,6 +391,10 @@ func (w *Workbook) setReservedName(name string, sheetIndex int, value string) {
 	// Workbook marshaling is ChildOrder-gated for opened files: a definedNames
 	// element the original lacked must be inserted at its schema position (C12).
 	w.workbook.EnsureChildOrder("definedNames")
+	// Reserved names live in workbook.xml, which is always regenerated, so this
+	// needs no regeneration flag — but it is a content change and nothing else
+	// records it.
+	w.markContentEdited()
 	for i := range w.workbook.DefinedNames.DefinedName {
 		dn := &w.workbook.DefinedNames.DefinedName[i]
 		if dn.Name == name && dn.LocalSheetId != nil && int(*dn.LocalSheetId) == sheetIndex {
@@ -419,6 +423,11 @@ func (w *Workbook) clearReservedName(name string, sheetIndex int) {
 			continue
 		}
 		kept = append(kept, dn)
+	}
+	if len(kept) != len(names) {
+		// Clearing a name that was not there changes nothing, so only a real
+		// removal records a content edit.
+		w.markContentEdited()
 	}
 	w.workbook.DefinedNames.DefinedName = kept
 	if len(kept) == 0 {

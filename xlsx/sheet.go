@@ -158,6 +158,11 @@ func (s *Sheet) SetName(name string) error {
 	if s.workbook != nil && s.index >= 0 && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
 	}
+	// The rename persists from the always-regenerated workbook.xml and so needs
+	// no regeneration flag; it is still a content change, and nothing else would
+	// record it. Only reached once the new name has been accepted, so a rejected
+	// rename does not move dcterms:modified.
+	s.workbook.markContentEdited()
 	return nil
 }
 
@@ -871,6 +876,10 @@ func (s *Sheet) markDirty() {
 	// sheet would otherwise be treated as a rewritable worksheet on save (C241).
 	if s != nil && !s.opaque {
 		s.dirty = true
+		// Recording the edit here, inside the guard, is what makes the
+		// dcterms:modified stamp inherit this flag's correctness: an edit the
+		// save path discards (opaque sheet) does not move the timestamp either.
+		s.workbook.markContentEdited()
 	}
 }
 

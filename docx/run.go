@@ -1,7 +1,6 @@
 package docx
 
 import (
-	"fmt"
 	"strconv"
 
 	"github.com/mgilbir/spine/common/enum"
@@ -162,9 +161,7 @@ func (r *Run) FontSize() float64 {
 // SetFontSize sets the font size in points.
 func (r *Run) SetFontSize(size float64) {
 	r.ensureRPr()
-	// Store as half-points
-	hp := size * 2
-	r.r.RPr.Sz = &oxml.CT_HpsMeasure{Val: fmt.Sprintf("%g", hp)}
+	r.r.RPr.Sz = &oxml.CT_HpsMeasure{Val: halfPoints(size)}
 }
 
 // Color returns the text color as a hex string.
@@ -410,7 +407,7 @@ func (r *Run) Position() float64 {
 // Positive values raise the text above the baseline, negative values lower it.
 func (r *Run) SetPosition(points float64) {
 	r.ensureRPr()
-	r.r.RPr.Position = &oxml.CT_SignedHpsMeasure{Val: fmt.Sprintf("%g", points*2)}
+	r.r.RPr.Position = &oxml.CT_SignedHpsMeasure{Val: halfPoints(points)}
 }
 
 // Kerning returns the minimum font size in points at which kerning is applied
@@ -430,7 +427,7 @@ func (r *Run) Kerning() float64 {
 // are kerned (w:kern). A value of 0 disables kerning.
 func (r *Run) SetKerning(points float64) {
 	r.ensureRPr()
-	r.r.RPr.Kern = &oxml.CT_HpsMeasure{Val: fmt.Sprintf("%g", points*2)}
+	r.r.RPr.Kern = &oxml.CT_HpsMeasure{Val: halfPoints(points)}
 }
 
 // Style returns the run's character style id (w:rStyle), or "" when the run

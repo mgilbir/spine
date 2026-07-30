@@ -3,6 +3,7 @@ package xlsx
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
@@ -62,11 +63,19 @@ func (w *Workbook) validateDeletedPartRefs(c *validate.Collector) {
 	if len(w.deletedParts) == 0 {
 		return
 	}
-	for src, rels := range w.relationships {
+	// Part-name order, not map order: a workbook with two parts still pointing
+	// at a deleted one would otherwise report the two findings in a different
+	// order on every run (C497/C515).
+	srcs := make([]string, 0, len(w.relationships))
+	for src := range w.relationships {
+		srcs = append(srcs, src)
+	}
+	sort.Strings(srcs)
+	for _, src := range srcs {
 		if w.deletedParts[src] {
 			continue
 		}
-		for _, rel := range rels {
+		for _, rel := range w.relationships[src] {
 			if rel == nil || rel.TargetMode == opc.TargetModeExternal {
 				continue
 			}

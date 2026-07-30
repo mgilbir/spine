@@ -34,10 +34,10 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          # The module has no third-party requirements, so there is no go.sum for
-          # the toolchain cache to key on; leaving it enabled logs a "Dependencies
-          # file is not found" warning on every run.
-          cache: false
+          # The module gained its first requirement (golang.org/x/tools, for
+          # internal/maporder) and so its first go.sum, which is what the
+          # toolchain cache keys on. Caching is setup-go's default; it used to
+          # be turned off here because there was no dependency file to find.
 
       - name: Fetch external fixtures
         run: make fetch
@@ -60,10 +60,10 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          # The module has no third-party requirements, so there is no go.sum for
-          # the toolchain cache to key on; leaving it enabled logs a "Dependencies
-          # file is not found" warning on every run.
-          cache: false
+          # The module gained its first requirement (golang.org/x/tools, for
+          # internal/maporder) and so its first go.sum, which is what the
+          # toolchain cache keys on. Caching is setup-go's default; it used to
+          # be turned off here because there was no dependency file to find.
 
       # make fuzz discovers every target at run time and gives each a short
       # fixed budget, so a newly added target is picked up with no edit here.

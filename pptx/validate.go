@@ -476,10 +476,15 @@ func (p *Presentation) knownPartNames() []string {
 			add(l.partName)
 		}
 	}
-	for name := range p.otherParts {
+	// Part-name order, not map order: otherParts and themeData hold the parts
+	// this session added (embedded media, merged masters, notes), which are not
+	// in reader.Files and so are not already deduplicated by add. Ranging the
+	// maps put them into the list — and therefore into the validation report —
+	// in a different order on every run (C497/C515).
+	for _, name := range sortedKeys(p.otherParts) {
 		add(name)
 	}
-	for name := range p.themeData {
+	for _, name := range sortedKeys(p.themeData) {
 		add(name)
 	}
 	return out

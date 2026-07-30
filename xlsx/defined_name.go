@@ -135,6 +135,10 @@ func (w *Workbook) AddDefinedNameFull(dn DefinedName) error {
 		out.Hidden = oxml.NewBoolLex(true)
 	}
 	w.workbook.DefinedNames.DefinedName = append(w.workbook.DefinedNames.DefinedName, out)
+	// Defined names live in workbook.xml, which is always regenerated, so they
+	// persist without a regeneration flag; record the content edit so the save
+	// stamps dcterms:modified. Reached only after validation has passed.
+	w.markContentEdited()
 	return nil
 }
 
@@ -178,5 +182,8 @@ func (w *Workbook) removeDefinedName(name string, sheetIndex int) bool {
 	} else {
 		w.workbook.DefinedNames.DefinedName = kept
 	}
+	// Only a removal that actually happened reaches here (see the early return
+	// above), so a no-op call does not move dcterms:modified.
+	w.markContentEdited()
 	return true
 }

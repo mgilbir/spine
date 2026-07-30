@@ -484,6 +484,7 @@ func (w *Workbook) allocateDxf(d oxml.CT_Dxf) uint32 {
 	if w.stylesheet == nil {
 		w.stylesheet = defaultStylesheet()
 		w.stylesDirty = true
+		w.markContentEdited()
 	}
 	if w.stylesheet.Dxfs == nil {
 		w.stylesheet.Dxfs = &oxml.CT_Dxfs{}
@@ -498,6 +499,7 @@ func (w *Workbook) allocateDxf(d oxml.CT_Dxf) uint32 {
 	count := uint32(len(w.stylesheet.Dxfs.Dxf))
 	w.stylesheet.Dxfs.Count = &count
 	w.stylesDirty = true
+	w.markContentEdited()
 	return idx
 }
 

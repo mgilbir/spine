@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -93,6 +94,22 @@ type Workbook struct {
 	vbaRemove   bool
 	vbaData     []byte // injected/replacement VBA project bytes (nil when removing)
 	vbaPartName string // resolved vbaProject.bin part name
+
+	// contentEdits counts the content changes made through this workbook's API;
+	// savedContentEdits is the count the last completed save persisted. A save
+	// stamps Properties.Modified exactly when the two differ, so an untouched
+	// round-trip stays byte-identical while a real edit records an accurate
+	// write time. They are counters rather than a flag because none of the
+	// regeneration flags above is ever cleared, which makes "one edit saved
+	// twice" and "two edits either side of a save" indistinguishable. See
+	// markContentEdited and contentChanged in modified.go.
+	contentEdits      int
+	savedContentEdits int
+	// stampedModified is the Properties.Modified value stampModified wrote on a
+	// previous save of this workbook, so a caller's own assignment can still be
+	// told apart from ours after Modified has stopped matching propsSnapshot.
+	// Zero when this workbook has never stamped.
+	stampedModified time.Time
 }
 
 // pendingPivotCache records one pivot cache definition part written this save
@@ -456,12 +473,18 @@ func Create() *Workbook {
 		Sheets: oxml.CT_Sheets{},
 	}
 
-	return &Workbook{
+	w := &Workbook{
 		workbook:       wb,
 		mainPartName:   defaultMainPartName,
 		preservedParts: make(map[string]*coxml.RawPart),
 		relationships:  make(map[string][]*opc.Relationship),
 	}
+	// Snapshot the (empty) properties so a caller's own Properties.Modified
+	// assignment can be told from the value a save of this workbook stamped
+	// (see stampModified); without it a created workbook's explicit timestamp
+	// would be overwritten by the first save that records content.
+	w.propsSnapshot = w.Properties.Clone()
+	return w
 }
 
 // defaultMainPartName is the conventional name of the main workbook part,
@@ -536,6 +559,14 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 // were never accessed, which are never even parsed — while touched parts are
 // regenerated from the model. A workbook built with Create is generated entirely
 // from the model. This holds after Close, too (see Close).
+//
+// Modification time: when the session changed the workbook's content, the save
+// records its own time in Properties.Modified (docProps/core.xml,
+// dcterms:modified). When it did not — including a session that only read the
+// workbook, and a repeat save of one already written — the timestamp is left
+// exactly as it was, so an unchanged save still reproduces the package
+// byte-for-byte. Assigning Properties.Modified yourself takes precedence over
+// the automatic value. See modified.go.
 func (w *Workbook) SaveTo(dst io.Writer) error {
 	if len(w.sheets) == 0 {
 		return ErrNoSheets
@@ -553,6 +584,17 @@ func (w *Workbook) SaveToUnvalidated(dst io.Writer) error {
 	if len(w.sheets) == 0 {
 		return ErrNoSheets
 	}
+	// Fold any theme edit back into the preserved theme bytes before change
+	// detection reads them: that is the single point where a Theme() edit
+	// becomes a recorded content change, and an untouched theme is left
+	// byte-identical.
+	w.applyThemeEdits()
+	// Record the write time in dcterms:modified, but only when this session
+	// actually changed something. Stamping unconditionally would make SaveBytes
+	// non-idempotent; never stamping loses a real edit's write time. Must run
+	// before either save path, because whether the stamp happened is also what
+	// decides between regenerating docProps/core.xml and preserving its bytes.
+	w.stampModified()
 	writer := opc.NewWriter(dst)
 	var err error
 	// Use the durable opened flag, not w.reader: Close() releases the reader
@@ -570,7 +612,14 @@ func (w *Workbook) SaveToUnvalidated(dst io.Writer) error {
 		_ = writer.Abort()
 		return err
 	}
-	return writer.Close()
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	// The package now on the wire is the new baseline for change detection, so
+	// saving the same workbook again reproduces these bytes rather than
+	// reporting the edits it has just written out as still outstanding.
+	w.noteSaved()
+	return nil
 }
 
 // WriteToBuffer saves the workbook to an in-memory buffer.
@@ -689,16 +738,30 @@ func (w *Workbook) saveRoundTrip(writer *opc.Writer) error {
 		}
 	}
 
-	// Write core.xml as preserved raw bytes only when the in-memory
-	// properties still match the snapshot taken at open. Writing the raw part
-	// first would win under the opc writer's skip-if-written rule and
-	// silently drop any edits; when the properties changed, skip the raw copy
-	// so Close regenerates core.xml from w.Properties.
-	// Also write the raw part when it was never parsed (malformed
-	// core-properties relationship type): it must round-trip verbatim.
-	if !w.hasCoreProps || w.Properties.Equal(w.propsSnapshot) {
-		if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
+	// Write core.xml as preserved raw bytes when the in-memory properties still
+	// match the snapshot taken at open (producer formatting varies, so
+	// regenerating drifts), or when they were never parsed at all (malformed
+	// core-properties relationship type: the part must round-trip verbatim).
+	// Writing the raw part would otherwise win under the opc writer's
+	// skip-if-written rule and silently drop the edits.
+	//
+	// Edited properties — including the dcterms:modified stamp a content change
+	// applies — regenerate the part, but it is written HERE rather than left to
+	// Close, which appends it after everything else. The source stored core.xml
+	// at this position, and moving it means saving an edited workbook and then
+	// re-saving the reopened result — which preserves the part where it was
+	// found — produces a different archive for the same content.
+	if part, ok := w.preservedParts["/docProps/core.xml"]; ok {
+		if !w.hasCoreProps || w.Properties.Equal(w.propsSnapshot) {
 			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
+				return err
+			}
+		} else {
+			data, err := w.Properties.Marshal()
+			if err != nil {
+				return err
+			}
+			if err := writer.WritePart("/docProps/core.xml", part.ContentType, data); err != nil {
 				return err
 			}
 		}
@@ -1304,7 +1367,13 @@ func (w *Workbook) Styles() *StyleManager {
 		// w.stylesheet is non-nil, without consulting stylesDirty.
 		w.stylesheet = defaultStylesheet()
 	}
-	return newStyleManager(w.stylesheet, func() { w.stylesDirty = true })
+	// The hook fires only from a mutating StyleManager method, which is exactly
+	// where the content edit is recorded too — resolving the styles model above
+	// is a read and must reach neither.
+	return newStyleManager(w.stylesheet, func() {
+		w.stylesDirty = true
+		w.markContentEdited()
+	})
 }
 
 // Sheets returns all sheets in the workbook. The returned slice is a copy of
@@ -1387,6 +1456,7 @@ func (w *Workbook) addSheet(name string) *Sheet {
 	}
 	w.sheets = append(w.sheets, sheet)
 	w.sheetsDirty = true
+	w.markContentEdited()
 
 	// Update the workbook model. SheetId must be unique across the workbook's
 	// lifetime — allocating len(sheets) collides after a delete+add, so use one
@@ -1564,6 +1634,7 @@ func (w *Workbook) DeleteSheet(index int) error {
 		deleted.index = -1
 	}
 	w.sheetsDirty = true
+	w.markContentEdited()
 
 	// Update the workbook model
 	w.workbook.Sheets.Sheet = append(w.workbook.Sheets.Sheet[:index], w.workbook.Sheets.Sheet[index+1:]...)
@@ -1985,6 +2056,9 @@ func (w *Workbook) SetActiveSheet(index int) error {
 
 	idx := uint32(index)
 	w.workbook.BookViews.WorkbookView[0].ActiveTab = &idx
+	// workbook.xml is always regenerated, so no flag is needed for this to
+	// persist; the content edit is recorded so the save stamps.
+	w.markContentEdited()
 
 	return nil
 }
@@ -2022,7 +2096,13 @@ func (w *Workbook) SetForceFullCalc(force bool) {
 	}
 	if !force {
 		if w.workbook.CalcPr != nil {
+			// Clearing a flag that was not set changes nothing, so it is not
+			// recorded as an edit (and does not move dcterms:modified).
+			had := w.workbook.CalcPr.FullCalcOnLoad != nil
 			w.workbook.CalcPr.SetFullCalcOnLoad(nil)
+			if had {
+				w.markContentEdited()
+			}
 		}
 		return
 	}
@@ -2034,6 +2114,9 @@ func (w *Workbook) SetForceFullCalc(force bool) {
 	// save.
 	w.workbook.EnsureChildOrder("calcPr")
 	w.workbook.CalcPr.SetFullCalcOnLoad(oxml.NewBoolLex(true))
+	// calcPr lives in workbook.xml, which is always regenerated: no flag needed
+	// for the setting to persist, but the content edit still has to be recorded.
+	w.markContentEdited()
 }
 
 // Worksheet grid limits (Excel 2007+): 1,048,576 rows by 16,384 columns (XFD).
@@ -2145,6 +2228,9 @@ func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
 	}
 
 	w.workbook.DefinedNames.DefinedName = append(w.workbook.DefinedNames.DefinedName, dn)
+	// See AddDefinedNameFull: workbook.xml is always regenerated, so this needs
+	// no flag, but the content edit still has to be recorded.
+	w.markContentEdited()
 	return nil
 }
 
