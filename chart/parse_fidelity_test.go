@@ -270,3 +270,142 @@ func TestRepeatedGroupOfSameTypeReported(t *testing.T) {
 		t.Fatalf("ParseNotes() = %v, want notes for both the pie and the scatter group", notes)
 	}
 }
+
+// --- data-reference recovery (found by FuzzParseChartXML on corpus charts) ---
+
+// TestSheetOfDecodesTheQuotedForm pins the two reference forms whose sheet name
+// was returned in its *quoted* lexical shape. DataRef holds an unquoted name —
+// SetDataRef takes one and quoteSheet re-quotes it on the way out — so leaving
+// the escaping on meant every save re-escaped it: one save already pointed the
+// chart at a sheet that does not exist, and the apostrophe run then doubled on
+// each save after that.
+func TestSheetOfDecodesTheQuotedForm(t *testing.T) {
+	cases := map[string]string{
+		`Sheet1!$A$1`:                                "Sheet1",
+		`'My Sheet'!$A$2:$A$5`:                       "My Sheet",
+		`'Vue d''ensemble FC'!$B$1`:                  "Vue d'ensemble FC",
+		`'O''Brien''s'!$B$1`:                         "O'Brien's",
+		`('Ship By Ship'!$Z$2,'Ship By Ship'!$AD$2)`: "Ship By Ship",
+		`(Data!$Z$2,Data!$AD$2)`:                     "Data",
+		`$A$1`:                                       "",
+	}
+	for ref, want := range cases {
+		if got := sheetOf(ref); got != want {
+			t.Errorf("sheetOf(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
+// TestQuotedSheetNameSurvivesTwoSaves is the end-to-end form of the same
+// defect: the reference a second save writes must equal the one the first
+// wrote. Before the fix the apostrophe run grew on every pass.
+func TestQuotedSheetNameSurvivesTwoSaves(t *testing.T) {
+	src := strings.ReplaceAll(stackedBarChartXML, `Sheet1!`, `'Vue d''ensemble FC'!`)
+	c, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.DataRef != "Vue d'ensemble FC" {
+		t.Fatalf("DataRef = %q, want the sheet's own name", c.DataRef)
+	}
+	first, err := c.MarshalChartXML()
+	if err != nil {
+		t.Fatalf("MarshalChartXML: %v", err)
+	}
+	if !strings.Contains(string(first), `<c:f>'Vue d''ensemble FC'!$B$1</c:f>`) {
+		t.Errorf("first save did not reproduce the sheet reference:\n%s", first)
+	}
+	again, err := Parse(first)
+	if err != nil {
+		t.Fatalf("Parse of our own output: %v", err)
+	}
+	second, err := again.MarshalChartXML()
+	if err != nil {
+		t.Fatalf("second MarshalChartXML: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("the reference changed on the second save:\n%s\n%s", first, second)
+	}
+}
+
+// TestScatterKeepsItsSheetAcrossTwoSaves pins the value-source fallback in
+// firstDataRef. A scatter series whose X source is categorical parses to no
+// XValues, so the next save writes c:xVal as a literal with no c:f; recovering
+// the sheet from the X source alone therefore lost it on the second read and
+// every reference silently moved to the default "Sheet1".
+func TestScatterKeepsItsSheetAcrossTwoSaves(t *testing.T) {
+	const src = `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+		`<c:chart><c:plotArea><c:layout/><c:scatterChart><c:scatterStyle val="lineMarker"/>` +
+		`<c:ser><c:idx val="0"/><c:order val="0"/>` +
+		`<c:tx><c:strRef><c:f>'Through Egypt'!$B$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>Trip</c:v></c:pt></c:strCache></c:strRef></c:tx>` +
+		`<c:xVal><c:strRef><c:f>'Through Egypt'!$A$2:$A$3</c:f><c:strCache><c:ptCount val="2"/><c:pt idx="0"><c:v>Jan</c:v></c:pt><c:pt idx="1"><c:v>Feb</c:v></c:pt></c:strCache></c:strRef></c:xVal>` +
+		`<c:yVal><c:numRef><c:f>'Through Egypt'!$B$2:$B$3</c:f><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>1.5</c:v></c:pt><c:pt idx="1"><c:v>2.5</c:v></c:pt></c:numCache></c:numRef></c:yVal>` +
+		`</c:ser><c:axId val="1"/><c:axId val="2"/></c:scatterChart></c:plotArea></c:chart></c:chartSpace>`
+
+	c, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	first, err := c.MarshalChartXML()
+	if err != nil {
+		t.Fatalf("MarshalChartXML: %v", err)
+	}
+	again, err := Parse(first)
+	if err != nil {
+		t.Fatalf("Parse of our own output: %v", err)
+	}
+	if again.DataRef != "Through Egypt" {
+		t.Fatalf("DataRef after a save/read cycle = %q, want %q", again.DataRef, "Through Egypt")
+	}
+	second, err := again.MarshalChartXML()
+	if err != nil {
+		t.Fatalf("second MarshalChartXML: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("the chart's references changed on the second save:\n%s\n%s", first, second)
+	}
+}
+
+// TestCachePointCountIsClamped pins the allocation amplification
+// FuzzParseChartXML found: a cache's ptCount is a length field in the file's
+// own bytes, and sizing the value slice from it let a 374-byte part drive a
+// 400 MB allocation. The clamp keeps every count a producer can write exact and
+// truncates the rest.
+func TestCachePointCountIsClamped(t *testing.T) {
+	build := func(ptCount string) []byte {
+		return []byte(`<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+			`<c:chart><c:plotArea><c:layout/><c:barChart><c:barDir val="col"/>` +
+			`<c:ser><c:idx val="0"/><c:order val="0"/>` +
+			`<c:val><c:numLit><c:ptCount val="` + ptCount + `"/><c:pt idx="0"><c:v>1</c:v></c:pt></c:numLit></c:val>` +
+			`</c:ser><c:axId val="1"/><c:axId val="2"/></c:barChart></c:plotArea></c:chart></c:chartSpace>`)
+	}
+	for _, tc := range []struct {
+		ptCount string
+		want    int
+	}{
+		{"3", 3},
+		{"32000", 32000}, // Excel's own per-series limit stays exact
+		{"50000000", maxCachePoints},
+		{"4294967295", maxCachePoints},
+	} {
+		c, err := Parse(build(tc.ptCount))
+		if err != nil {
+			t.Fatalf("ptCount=%s: Parse: %v", tc.ptCount, err)
+		}
+		if got := len(c.SeriesList()[0].Values); got != tc.want {
+			t.Errorf("ptCount=%s: %d values, want %d", tc.ptCount, got, tc.want)
+		}
+	}
+	// A sparse point index is a length field too.
+	c, err := Parse([]byte(`<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+		`<c:chart><c:plotArea><c:layout/><c:barChart><c:barDir val="col"/>` +
+		`<c:ser><c:idx val="0"/><c:order val="0"/>` +
+		`<c:val><c:numLit><c:pt idx="2000000000"><c:v>1</c:v></c:pt></c:numLit></c:val>` +
+		`</c:ser><c:axId val="1"/><c:axId val="2"/></c:barChart></c:plotArea></c:chart></c:chartSpace>`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := len(c.SeriesList()[0].Values); got != maxCachePoints {
+		t.Errorf("sparse idx: %d values, want the clamp %d", got, maxCachePoints)
+	}
+}
