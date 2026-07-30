@@ -29,10 +29,10 @@ jobs:
   build-test-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           # Pin to the version declared in go.mod (go 1.25).
           go-version-file: go.mod
@@ -63,7 +63,7 @@ jobs:
       # nowhere. Install it here and set SPINE_REQUIRE_MSOFFCRYPTO on the test
       # step so a missing or broken install fails instead of skipping silently.
       - name: Set up Python (RC4 cross-validation reference)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
@@ -81,7 +81,7 @@ jobs:
       # major line installs v2. Version pinned to match the maintainer's
       # working toolchain (baseline is zero issues).
       - name: Lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: ./...
