@@ -6,6 +6,7 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -17,6 +18,35 @@ import (
 // satisfied by a clock that happens not to tick sleeps past a second boundary
 // first — dcterms:modified is written at RFC3339 (one second) resolution, which
 // is exactly how a per-save stamp hid for three audits as a 1-in-300 flake.
+//
+// The time-sensitive tests run inside a testing/synctest bubble, whose clock is
+// fake: it starts at 2000-01-01T00:00:00Z and only advances when every goroutine
+// in the bubble is durably blocked, which here means "by exactly the amount this
+// test slept". Two things follow, and the first is the point of the arrangement.
+//
+// A test can name the instant the save is about to stamp — sleep a second, read
+// time.Now(), save — and assert the stored dcterms:modified is *that value*
+// rather than merely "later than before". Exact equality is the stronger claim:
+// "did it move forward" is also satisfied by a stamp that lands anywhere in the
+// future, including one written by an unrelated save, and it silently inverts
+// into a wrong assertion for any fixture whose stored time is newer than the
+// bubble epoch (buildThemedXlsx stores 2001-02-03, so under the fake clock a
+// correct stamp is *earlier* than the value it replaces). The dual assertion —
+// "it did not stamp" — likewise checks the value still equals the one the
+// fixture stored, not that it failed to increase.
+//
+// The speedup is the side effect: the sleeps are what distinguish "stamped" from
+// "didn't stamp" for a save in the same second as the baseline, so they stay,
+// but they now cost nothing. They must be whole seconds — dcterms:modified
+// serializes at one-second resolution, so a sub-second fake instant would not
+// survive the round trip, and since the library arms no timers the bubble clock
+// advances by the sleeps alone and stays exactly on the second.
+//
+// Tests that never consult the clock (TestExplicitModifiedIsRespected,
+// TestOpaqueSheetEditDoesNotStamp, TestNoCorePartWorkbookGainsNoCorePart,
+// TestEditedCorePropsKeepTheirPartPosition) are deliberately left outside the
+// bubble. Note that t.Run and t.Parallel both panic inside one, so the table
+// tests below bubble each subtest body rather than the loop.
 
 // openFixture opens testdata/minimal.xlsx from its bytes and reports the stored
 // dcterms:modified, so a test asserts against the value on disk rather than one
@@ -53,31 +83,33 @@ func reopenModified(t *testing.T, data []byte) time.Time {
 // exactly as it was and reproduce the package byte-for-byte, however much wall
 // time passes between the saves.
 func TestUntouchedSaveDoesNotStampModified(t *testing.T) {
-	wb, src, before := openFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		wb, src, before := openFixture(t)
 
-	first, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("first SaveBytes: %v", err)
-	}
-	// Cross a second boundary: a per-save stamp cannot survive this.
-	time.Sleep(1100 * time.Millisecond)
-	second, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("second SaveBytes: %v", err)
-	}
+		first, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("first SaveBytes: %v", err)
+		}
+		// Cross a second boundary: a per-save stamp cannot survive this.
+		time.Sleep(time.Second)
+		second, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("second SaveBytes: %v", err)
+		}
 
-	if !bytes.Equal(first, second) {
-		t.Error("re-saving an untouched workbook produced different bytes")
-	}
-	if !wb.Properties.Modified.Equal(before) {
-		t.Errorf("saving an untouched workbook moved Properties.Modified: %v -> %v", before, wb.Properties.Modified)
-	}
-	if got := reopenModified(t, first); !got.Equal(before) {
-		t.Errorf("saving an untouched workbook stamped dcterms:modified: %v -> %v", before, got)
-	}
-	if d := packageDiff(t, src, first); len(d) != 0 {
-		t.Errorf("saving an untouched workbook changed parts: %v", d)
-	}
+		if !bytes.Equal(first, second) {
+			t.Error("re-saving an untouched workbook produced different bytes")
+		}
+		if !wb.Properties.Modified.Equal(before) {
+			t.Errorf("saving an untouched workbook moved Properties.Modified: %v -> %v", before, wb.Properties.Modified)
+		}
+		if got := reopenModified(t, first); !got.Equal(before) {
+			t.Errorf("saving an untouched workbook stamped dcterms:modified: %v -> %v", before, got)
+		}
+		if d := packageDiff(t, src, first); len(d) != 0 {
+			t.Errorf("saving an untouched workbook changed parts: %v", d)
+		}
+	})
 }
 
 // TestReadOnlyAccessDoesNotStampModified is the trap the rule has to avoid.
@@ -87,61 +119,70 @@ func TestUntouchedSaveDoesNotStampModified(t *testing.T) {
 // until PR #257. Keying the stamp off "will this part be regenerated" would
 // bump dcterms:modified for a caller who only read the workbook.
 func TestReadOnlyAccessDoesNotStampModified(t *testing.T) {
-	wb, src, before := openFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		wb, src, before := openFixture(t)
 
-	// Everything a reader would touch, including the two materializing paths.
-	callEveryAccessor(t, reflect.ValueOf(wb), "Workbook")
-	_ = wb.Styles().NamedStyles()
-	_ = wb.Theme()
-	_ = wb.CustomProperties()
-	_ = wb.DefinedNames()
-	for _, sheet := range wb.Sheets() {
-		callEveryAccessor(t, reflect.ValueOf(sheet), "Sheet")
-		if c, err := sheet.Cell("Z99"); err == nil && c != nil {
-			callEveryAccessor(t, reflect.ValueOf(c), "Cell")
-			_ = c.Value()
+		// Everything a reader would touch, including the two materializing paths.
+		callEveryAccessor(t, reflect.ValueOf(wb), "Workbook")
+		_ = wb.Styles().NamedStyles()
+		_ = wb.Theme()
+		_ = wb.CustomProperties()
+		_ = wb.DefinedNames()
+		for _, sheet := range wb.Sheets() {
+			callEveryAccessor(t, reflect.ValueOf(sheet), "Sheet")
+			if c, err := sheet.Cell("Z99"); err == nil && c != nil {
+				callEveryAccessor(t, reflect.ValueOf(c), "Cell")
+				_ = c.Value()
+			}
+			_, _ = sheet.CellValue("A1")
+			_ = sheet.Comments()
 		}
-		_, _ = sheet.CellValue("A1")
-		_ = sheet.Comments()
-	}
 
-	if wb.contentChanged() {
-		t.Error("read-only access recorded a content edit")
-	}
+		if wb.contentChanged() {
+			t.Error("read-only access recorded a content edit")
+		}
 
-	time.Sleep(1100 * time.Millisecond)
-	data, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("SaveBytes: %v", err)
-	}
-	if got := reopenModified(t, data); !got.Equal(before) {
-		t.Errorf("read-only access bumped dcterms:modified: %v -> %v", before, got)
-	}
-	if d := packageDiff(t, src, data); len(d) != 0 {
-		t.Errorf("read-only access changed the saved package: %v", d)
-	}
+		time.Sleep(time.Second)
+		data, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, data); !got.Equal(before) {
+			t.Errorf("read-only access bumped dcterms:modified: %v -> %v", before, got)
+		}
+		if d := packageDiff(t, src, data); len(d) != 0 {
+			t.Errorf("read-only access changed the saved package: %v", d)
+		}
+	})
 }
 
 // TestEditStampsModified is the other half: an edit that really changes the
-// workbook records when it was written.
+// workbook records when it was written — the save time exactly, not some later
+// instant.
 func TestEditStampsModified(t *testing.T) {
-	wb, _, before := openFixture(t)
-	sheet, err := wb.Sheet(0)
-	if err != nil {
-		t.Fatalf("Sheet(0): %v", err)
-	}
-	if err := sheet.SetCellValue("D4", "edited"); err != nil {
-		t.Fatalf("SetCellValue: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		wb, _, before := openFixture(t)
+		sheet, err := wb.Sheet(0)
+		if err != nil {
+			t.Fatalf("Sheet(0): %v", err)
+		}
+		if err := sheet.SetCellValue("D4", "edited"); err != nil {
+			t.Fatalf("SetCellValue: %v", err)
+		}
 
-	data, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("SaveBytes: %v", err)
-	}
-	got := reopenModified(t, data)
-	if !got.After(before) {
-		t.Errorf("edit did not stamp dcterms:modified: was %v, still %v", before, got)
-	}
+		// Move off the instant the workbook was opened at, so a stamp cannot be
+		// confused with the value the fixture already carried, then name the
+		// instant the save is about to record.
+		time.Sleep(time.Second)
+		want := time.Now()
+		data, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, data); !got.Equal(want) {
+			t.Errorf("edit stamped dcterms:modified %v, want the save time %v (the fixture stored %v)", got, want, before)
+		}
+	})
 }
 
 // TestWorkbookLevelEditStampsModified covers the mutators that need no
@@ -190,15 +231,19 @@ func TestWorkbookLevelEditStampsModified(t *testing.T) {
 
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
-			wb, _, before := openFixture(t)
-			mutate(t, wb)
-			data, err := wb.SaveBytes()
-			if err != nil {
-				t.Fatalf("SaveBytes: %v", err)
-			}
-			if got := reopenModified(t, data); !got.After(before) {
-				t.Errorf("%s did not stamp dcterms:modified: was %v, still %v", name, before, got)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				wb, _, before := openFixture(t)
+				mutate(t, wb)
+				time.Sleep(time.Second)
+				want := time.Now()
+				data, err := wb.SaveBytes()
+				if err != nil {
+					t.Fatalf("SaveBytes: %v", err)
+				}
+				if got := reopenModified(t, data); !got.Equal(want) {
+					t.Errorf("%s stamped dcterms:modified %v, want the save time %v (the fixture stored %v)", name, got, want, before)
+				}
+			})
 		})
 	}
 }
@@ -208,27 +253,29 @@ func TestWorkbookLevelEditStampsModified(t *testing.T) {
 // again must reproduce the same bytes — including the same stamp — rather than
 // stamping afresh. A latching flag fails this; so does an unconditional stamp.
 func TestEditedWorkbookSaveIsStillIdempotent(t *testing.T) {
-	wb, _, _ := openFixture(t)
-	sheet, err := wb.Sheet(0)
-	if err != nil {
-		t.Fatalf("Sheet(0): %v", err)
-	}
-	if err := sheet.SetCellValue("D4", "edited"); err != nil {
-		t.Fatalf("SetCellValue: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		wb, _, _ := openFixture(t)
+		sheet, err := wb.Sheet(0)
+		if err != nil {
+			t.Fatalf("Sheet(0): %v", err)
+		}
+		if err := sheet.SetCellValue("D4", "edited"); err != nil {
+			t.Fatalf("SetCellValue: %v", err)
+		}
 
-	first, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("first SaveBytes: %v", err)
-	}
-	time.Sleep(1100 * time.Millisecond)
-	second, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("second SaveBytes: %v", err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Error("re-saving an already-saved edit produced different bytes")
-	}
+		first, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("first SaveBytes: %v", err)
+		}
+		time.Sleep(time.Second)
+		second, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("second SaveBytes: %v", err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Error("re-saving an already-saved edit produced different bytes")
+		}
+	})
 }
 
 // TestSecondEditStampsAgain: after a save has stamped, a further edit must
@@ -236,31 +283,37 @@ func TestEditedWorkbookSaveIsStillIdempotent(t *testing.T) {
 // it still reads "changed", so the second edit is indistinguishable from the
 // first and the save either re-stamps every time or never again.
 func TestSecondEditStampsAgain(t *testing.T) {
-	wb, _, _ := openFixture(t)
-	sheet, err := wb.Sheet(0)
-	if err != nil {
-		t.Fatalf("Sheet(0): %v", err)
-	}
-	if err := sheet.SetCellValue("D4", "first"); err != nil {
-		t.Fatalf("SetCellValue: %v", err)
-	}
-	first, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("first SaveBytes: %v", err)
-	}
-	afterFirst := reopenModified(t, first)
+	synctest.Test(t, func(t *testing.T) {
+		wb, _, _ := openFixture(t)
+		sheet, err := wb.Sheet(0)
+		if err != nil {
+			t.Fatalf("Sheet(0): %v", err)
+		}
+		if err := sheet.SetCellValue("D4", "first"); err != nil {
+			t.Fatalf("SetCellValue: %v", err)
+		}
+		first, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("first SaveBytes: %v", err)
+		}
+		afterFirst := reopenModified(t, first)
 
-	time.Sleep(1100 * time.Millisecond)
-	if err := sheet.SetCellValue("D5", "second"); err != nil {
-		t.Fatalf("SetCellValue: %v", err)
-	}
-	second, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("second SaveBytes: %v", err)
-	}
-	if got := reopenModified(t, second); !got.After(afterFirst) {
-		t.Errorf("second edit did not re-stamp: %v then %v", afterFirst, got)
-	}
+		time.Sleep(time.Second)
+		want := time.Now()
+		if want.Equal(afterFirst) {
+			t.Fatalf("the second save would stamp the same instant as the first (%v); the guard would be vacuous", want)
+		}
+		if err := sheet.SetCellValue("D5", "second"); err != nil {
+			t.Fatalf("SetCellValue: %v", err)
+		}
+		second, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("second SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, second); !got.Equal(want) {
+			t.Errorf("second edit stamped %v, want the second save time %v (the first save stamped %v)", got, want, afterFirst)
+		}
+	})
 }
 
 // TestExplicitModifiedIsRespected: assigning Properties.Modified is itself a
@@ -306,29 +359,31 @@ func TestRejectedEditDoesNotStamp(t *testing.T) {
 
 	for name, call := range cases {
 		t.Run(name, func(t *testing.T) {
-			wb, src, before := openFixture(t)
-			sheet, err := wb.Sheet(0)
-			if err != nil {
-				t.Fatalf("Sheet(0): %v", err)
-			}
-			cell, err := sheet.Cell("A1")
-			if err != nil {
-				t.Fatalf("Cell: %v", err)
-			}
-			if err := call(cell); err == nil {
-				t.Fatal("expected the invalid style to be rejected")
-			}
-			time.Sleep(1100 * time.Millisecond)
-			data, err := wb.SaveBytes()
-			if err != nil {
-				t.Fatalf("SaveBytes: %v", err)
-			}
-			if got := reopenModified(t, data); !got.Equal(before) {
-				t.Errorf("a rejected mutator stamped dcterms:modified: %v -> %v", before, got)
-			}
-			if d := packageDiff(t, src, data); len(d) != 0 {
-				t.Errorf("a rejected mutator changed the saved package: %v", d)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				wb, src, before := openFixture(t)
+				sheet, err := wb.Sheet(0)
+				if err != nil {
+					t.Fatalf("Sheet(0): %v", err)
+				}
+				cell, err := sheet.Cell("A1")
+				if err != nil {
+					t.Fatalf("Cell: %v", err)
+				}
+				if err := call(cell); err == nil {
+					t.Fatal("expected the invalid style to be rejected")
+				}
+				time.Sleep(time.Second)
+				data, err := wb.SaveBytes()
+				if err != nil {
+					t.Fatalf("SaveBytes: %v", err)
+				}
+				if got := reopenModified(t, data); !got.Equal(before) {
+					t.Errorf("a rejected mutator stamped dcterms:modified: %v -> %v", before, got)
+				}
+				if d := packageDiff(t, src, data); len(d) != 0 {
+					t.Errorf("a rejected mutator changed the saved package: %v", d)
+				}
+			})
 		})
 	}
 }
@@ -373,28 +428,32 @@ func TestOpaqueSheetEditDoesNotStamp(t *testing.T) {
 // side: Create leaves the properties empty, adding content records the write
 // time, and saving again with nothing further changed reproduces those bytes.
 func TestCreatedWorkbookStampsOnContentThenHoldsStill(t *testing.T) {
-	wb := Create()
-	sheet := addSheetT(wb, "Sheet1")
-	if err := sheet.SetCellValue("A1", "hello"); err != nil {
-		t.Fatalf("SetCellValue: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		wb := Create()
+		sheet := addSheetT(wb, "Sheet1")
+		if err := sheet.SetCellValue("A1", "hello"); err != nil {
+			t.Fatalf("SetCellValue: %v", err)
+		}
 
-	first, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("first SaveBytes: %v", err)
-	}
-	if stamped := reopenModified(t, first); stamped.IsZero() {
-		t.Error("a created workbook with content saved without a dcterms:modified stamp")
-	}
+		time.Sleep(time.Second)
+		want := time.Now()
+		first, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("first SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, first); !got.Equal(want) {
+			t.Errorf("a created workbook with content stamped dcterms:modified %v, want the save time %v", got, want)
+		}
 
-	time.Sleep(1100 * time.Millisecond)
-	second, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("second SaveBytes: %v", err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Error("re-saving an unchanged created workbook produced different bytes")
-	}
+		time.Sleep(time.Second)
+		second, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("second SaveBytes: %v", err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Error("re-saving an unchanged created workbook produced different bytes")
+		}
+	})
 }
 
 // TestNoCorePartWorkbookGainsNoCorePart: a package that stores no
@@ -569,56 +628,68 @@ func buildThemedXlsx(t *testing.T) []byte {
 // time by comparing the re-serialized theme against the stored bytes. Reading
 // the theme must not stamp, editing it must, and a repeat save must not stamp
 // again — which the latching bit alone would do.
+//
+// This is the fixture that makes the exact-equality form load-bearing rather
+// than merely stronger: buildThemedXlsx stores 2001-02-03, which is *after* the
+// bubble epoch, so "the stamp moved forward" is not a property a correct save
+// has here. What a correct save does have is "the stamp is the save time".
 func TestThemeEditStampsThenHoldsStill(t *testing.T) {
-	src := buildThemedXlsx(t)
+	synctest.Test(t, func(t *testing.T) {
+		src := buildThemedXlsx(t)
 
-	read, err := OpenReader(bytes.NewReader(src), int64(len(src)))
-	if err != nil {
-		t.Fatalf("OpenReader: %v", err)
-	}
-	defer read.Close() //nolint:errcheck
-	before := read.Properties.Modified
-	if before.IsZero() {
-		t.Fatal("fixture carries no dcterms:modified; the guard would be vacuous")
-	}
-	if th := read.Theme(); th == nil {
-		t.Fatal("Theme() = nil on a workbook that has a theme part")
-	} else if th.ColorScheme() == nil {
-		t.Fatal("ColorScheme() = nil")
-	}
-	data, err := read.SaveBytes()
-	if err != nil {
-		t.Fatalf("SaveBytes: %v", err)
-	}
-	if got := reopenModified(t, data); !got.Equal(before) {
-		t.Errorf("reading the theme stamped dcterms:modified: %v -> %v", before, got)
-	}
+		read, err := OpenReader(bytes.NewReader(src), int64(len(src)))
+		if err != nil {
+			t.Fatalf("OpenReader: %v", err)
+		}
+		defer read.Close() //nolint:errcheck
+		before := read.Properties.Modified
+		if before.IsZero() {
+			t.Fatal("fixture carries no dcterms:modified; the guard would be vacuous")
+		}
+		if th := read.Theme(); th == nil {
+			t.Fatal("Theme() = nil on a workbook that has a theme part")
+		} else if th.ColorScheme() == nil {
+			t.Fatal("ColorScheme() = nil")
+		}
+		data, err := read.SaveBytes()
+		if err != nil {
+			t.Fatalf("SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, data); !got.Equal(before) {
+			t.Errorf("reading the theme stamped dcterms:modified: %v -> %v", before, got)
+		}
 
-	wb, err := OpenReader(bytes.NewReader(src), int64(len(src)))
-	if err != nil {
-		t.Fatalf("OpenReader: %v", err)
-	}
-	defer wb.Close() //nolint:errcheck
-	green, err := dml.ParseRGB("00FF00")
-	if err != nil {
-		t.Fatalf("ParseRGB: %v", err)
-	}
-	wb.Theme().ColorScheme().SetAccent2(green.ToColor())
+		wb, err := OpenReader(bytes.NewReader(src), int64(len(src)))
+		if err != nil {
+			t.Fatalf("OpenReader: %v", err)
+		}
+		defer wb.Close() //nolint:errcheck
+		green, err := dml.ParseRGB("00FF00")
+		if err != nil {
+			t.Fatalf("ParseRGB: %v", err)
+		}
+		wb.Theme().ColorScheme().SetAccent2(green.ToColor())
 
-	first, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("first SaveBytes: %v", err)
-	}
-	if got := reopenModified(t, first); !got.After(before) {
-		t.Errorf("a theme edit did not stamp dcterms:modified: was %v, still %v", before, got)
-	}
+		time.Sleep(time.Second)
+		want := time.Now()
+		if want.Equal(before) {
+			t.Fatalf("the save would stamp the instant the fixture already stores (%v); the guard would be vacuous", want)
+		}
+		first, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("first SaveBytes: %v", err)
+		}
+		if got := reopenModified(t, first); !got.Equal(want) {
+			t.Errorf("a theme edit stamped dcterms:modified %v, want the save time %v (the fixture stored %v)", got, want, before)
+		}
 
-	time.Sleep(1100 * time.Millisecond)
-	second, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("second SaveBytes: %v", err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Error("re-saving an already-saved theme edit produced different bytes")
-	}
+		time.Sleep(time.Second)
+		second, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("second SaveBytes: %v", err)
+		}
+		if !bytes.Equal(first, second) {
+			t.Error("re-saving an already-saved theme edit produced different bytes")
+		}
+	})
 }
