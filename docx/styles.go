@@ -93,7 +93,7 @@ func (m *StyleManager) AddStyle(styleType StyleType, id, name string) *Style {
 		Name:    &oxml.CT_String{Val: name},
 	}
 	m.document.styles.Style = append(m.document.styles.Style, s)
-	m.document.stylesModified = true
+	m.document.markStylesModified()
 	return &Style{document: m.document, s: s}
 }
 
@@ -372,7 +372,7 @@ func (s *Style) SetColor(color string) *Style {
 // modified flags the styles part dirty so the round-trip save regenerates it,
 // and returns the receiver for chaining.
 func (s *Style) modified() *Style {
-	s.document.stylesModified = true
+	s.document.markStylesModified()
 	return s
 }
 

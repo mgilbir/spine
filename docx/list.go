@@ -37,7 +37,7 @@ func (ls *ListStyle) RestartAt(level, start int) *ListStyle {
 	for _, ov := range num.LvlOverride {
 		if ov != nil && ov.Ilvl == ilvl {
 			ov.StartOverride = &oxml.CT_DecimalNumber{Val: start}
-			ls.document.numberingModified = true
+			ls.document.markNumberingModified()
 			return ls
 		}
 	}
@@ -45,7 +45,7 @@ func (ls *ListStyle) RestartAt(level, start int) *ListStyle {
 		Ilvl:          ilvl,
 		StartOverride: &oxml.CT_DecimalNumber{Val: start},
 	})
-	ls.document.numberingModified = true
+	ls.document.markNumberingModified()
 	return ls
 }
 
@@ -111,7 +111,7 @@ func (d *Document) AddBulletList() *ListStyle {
 		NumId:         strconv.Itoa(numID),
 		AbstractNumId: &oxml.CT_DecimalNumber{Val: absID},
 	})
-	d.numberingModified = true
+	d.markNumberingModified()
 
 	return &ListStyle{document: d, numID: numID}
 }
@@ -166,7 +166,7 @@ func (d *Document) AddNumberedList() *ListStyle {
 		NumId:         strconv.Itoa(numID),
 		AbstractNumId: &oxml.CT_DecimalNumber{Val: absID},
 	})
-	d.numberingModified = true
+	d.markNumberingModified()
 
 	return &ListStyle{document: d, numID: numID}
 }

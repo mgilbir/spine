@@ -75,6 +75,7 @@ func (d *Document) Append(other *Document) error {
 		return nil
 	}
 
+	d.markEdited()
 	// Serialize other's main part up front: the reference-id remaps are driven by
 	// the relationship ids the copied body actually references, and the serialized
 	// bytes are the same ones rewritten and re-parsed below.
@@ -537,7 +538,7 @@ func (d *Document) importStyles(other *Document) (map[string]string, []*oxml.CT_
 		d.styles.Style = append(d.styles.Style, s)
 	}
 	if len(toAdd) > 0 {
-		d.stylesModified = true
+		d.markStylesModified()
 	}
 	return remap, toAdd
 }
@@ -598,7 +599,7 @@ func (d *Document) importNumbering(other *Document) (map[string]string, []*oxml.
 		d.numbering.Num = append(d.numbering.Num, clone)
 		d.numbering.ParsedNumIDs = append(d.numbering.ParsedNumIDs, newID)
 	}
-	d.numberingModified = true
+	d.markNumberingModified()
 	return numRemap, addedAbs, nil
 }
 
@@ -665,7 +666,7 @@ func (d *Document) importFootnotes(other *Document) (map[string]string, error) {
 		d.footnotes.Footnote = append(d.footnotes.Footnote, n)
 	}
 	if len(remap) > 0 {
-		d.footnotesModified = true
+		d.markFootnotesModified()
 	}
 	return remap, nil
 }
@@ -700,7 +701,7 @@ func (d *Document) importEndnotes(other *Document) (map[string]string, error) {
 		d.endnotes.Endnote = append(d.endnotes.Endnote, n)
 	}
 	if len(remap) > 0 {
-		d.endnotesModified = true
+		d.markEndnotesModified()
 	}
 	return remap, nil
 }
@@ -759,7 +760,7 @@ func (d *Document) importComments(other *Document) (map[string]string, error) {
 		d.comments.Comment = append(d.comments.Comment, cm)
 	}
 	if len(remap) > 0 {
-		d.commentsModified = true
+		d.markCommentsModified()
 	}
 	return remap, nil
 }

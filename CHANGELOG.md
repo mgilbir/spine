@@ -157,6 +157,22 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Changed
 
+- docx: saving a document that this session changed records the write time in
+  `docProps/core.xml` (`dcterms:modified`); saving one it did not leaves the
+  package byte-for-byte as it was. docx never touched `Modified`, so a document
+  edited beyond recognition kept whatever write time its producer left behind
+  and a document built by `Create` carried none — while stamping every save (the
+  behaviour pptx had) makes `SaveBytes` non-idempotent, which is what a save
+  either side of a second boundary turns into two different packages. There is
+  no option to choose between the two: they only conflict when nothing changed.
+  Detection reuses the flags the save path already trusts — the
+  `Paragraph.mut()`/`Run.mut()` funnel, the per-part `*Modified` flags, and the
+  handles onto the main document part — so a read never stamps, however much of
+  the document it materializes, and `TestMutationsFlagTheirPart` derives the set
+  from the source rather than a list. Setting `Properties.Modified` yourself
+  still wins. Regenerated core properties are now written at the position the
+  source part occupied instead of being appended last, so an edited document
+  reopened and re-saved reproduces its own bytes.
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`

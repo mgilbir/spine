@@ -6,7 +6,20 @@ import (
 
 // Section represents a document section with page layout properties.
 type Section struct {
-	sectPr *oxml.CT_SectPr
+	// document is the owning document, so a layout edit can record itself.
+	// Nil only for a section built outside the package's own constructors.
+	document *Document
+	sectPr   *oxml.CT_SectPr
+}
+
+// touch records a content edit made through this section. The w:sectPr model
+// lives in the main document part, which needs no modification flag — it is
+// regenerated whenever the body was materialized — so this only records the
+// edit for dcterms:modified (see modified.go).
+func (s *Section) touch() {
+	if s != nil && s.document != nil {
+		s.document.markEdited()
+	}
 }
 
 // Orientation represents page orientation.
@@ -34,6 +47,7 @@ func (s *Section) PageSize() (width, height float64) {
 
 // SetPageSize sets the page width and height in points.
 func (s *Section) SetPageSize(width, height float64) {
+	s.touch()
 	if s.sectPr.PgSz == nil {
 		s.sectPr.PgSz = &oxml.CT_PgSz{}
 	}
@@ -51,6 +65,7 @@ func (s *Section) Orientation() Orientation {
 
 // SetOrientation sets the page orientation and swaps dimensions if needed.
 func (s *Section) SetOrientation(orient Orientation) {
+	s.touch()
 	if s.sectPr.PgSz == nil {
 		s.sectPr.PgSz = &oxml.CT_PgSz{}
 		w, h := PageSizeLetter()
@@ -109,6 +124,7 @@ func (s *Section) MarginsOK() (PageMargins, bool) {
 // and unlike the other four (C493). Read the current values with MarginsOK,
 // change what you need, and set the struct back to adjust one field.
 func (s *Section) SetMargins(m PageMargins) {
+	s.touch()
 	if s.sectPr.PgMar == nil {
 		s.sectPr.PgMar = &oxml.CT_PgMar{}
 	}

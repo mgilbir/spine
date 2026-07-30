@@ -300,6 +300,10 @@ func (d *Document) headerPartForRID(rid string) string {
 // save. Parts created in this session (not in preservedParts) are written via
 // newHeaderParts/newFooterParts and are skipped so they are not written twice.
 func (d *Document) markHdrFtrModified(partName string) {
+	// Recorded before the preserved-part check: an edit to a header this
+	// session created is still an edit, it just needs no regeneration flag
+	// because the part is written from the model either way.
+	d.markEdited()
 	if _, ok := d.preservedParts[partName]; !ok {
 		return
 	}

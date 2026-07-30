@@ -142,7 +142,7 @@ func (c *Comment) AnchorText() string {
 // SetInitials overrides the author initials on the comment (docx-specific).
 func (c *Comment) SetInitials(initials string) {
 	c.c.Initials = initials
-	c.document.commentsModified = true
+	c.document.markCommentsModified()
 }
 
 // --- write API ---
@@ -238,7 +238,7 @@ func (c *Comment) SetResolved(resolved bool) {
 		ce := d.ensureCommentEx(paraID)
 		ce.Done = done
 	}
-	d.commentsExtModified = true
+	d.markCommentsExtModified()
 }
 
 // --- internal helpers ---
@@ -285,11 +285,11 @@ func (d *Document) addCommentModel(author, text, parentParaID string) *oxml.CT_C
 			Author:       author,
 			PresenceInfo: &oxml.CT_PresenceInfo{ProviderId: "None", UserId: author},
 		})
-		d.peopleModified = true
+		d.markPeopleModified()
 	}
 
-	d.commentsModified = true
-	d.commentsExtModified = true
+	d.markCommentsModified()
+	d.markCommentsExtModified()
 	return c
 }
 
@@ -333,7 +333,7 @@ func (d *Document) ensureCommentEx(paraID string) *oxml.CT_CommentEx {
 	// change to commentsExtended.xml, and a caller that forgot would leave the
 	// preserved bytes to win over it (C406). Adding no entry leaves the flag
 	// alone, so a zero-modification save still round-trips byte-for-byte.
-	d.commentsExtModified = true
+	d.markCommentsExtModified()
 	return ce
 }
 
@@ -405,7 +405,7 @@ func (d *Document) ensureParaID(c *oxml.CT_Comment) {
 		return
 	}
 	last.ParaId = d.nextParaID()
-	d.commentsModified = true
+	d.markCommentsModified()
 }
 
 // nestReplyAnchor places the reply's range markers nested inside the parent's,

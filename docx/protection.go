@@ -170,7 +170,7 @@ func (d *Document) Protect(opts DocumentProtectionOptions) {
 		d.settings.SetChild("writeProtection", wattrs)
 	}
 
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // Unprotect removes document protection (both w:documentProtection and
@@ -182,7 +182,7 @@ func (d *Document) Unprotect() {
 	removed := d.settings.RemoveChild("documentProtection")
 	removed = d.settings.RemoveChild("writeProtection") || removed
 	if removed {
-		d.settingsModified = true
+		d.markSettingsModified()
 	}
 }
 

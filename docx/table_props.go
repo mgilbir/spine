@@ -50,6 +50,7 @@ func (tc *TableCell) SetVerticalMerge(m VerticalMerge) {
 
 // ClearVerticalMerge removes the cell's w:vMerge element.
 func (tc *TableCell) ClearVerticalMerge() {
+	tc.touch()
 	if tc.tc.TcPr != nil {
 		tc.tc.TcPr.VMerge = nil
 	}

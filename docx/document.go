@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mgilbir/spine/common/dml"
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -204,6 +205,19 @@ type Document struct {
 	// frameset.go.
 	pendingFrameset  *FramesetDef
 	framesetModified bool
+	// modelEdits counts the content edits made through the API;
+	// savedModelEdits is the value a completed save persisted. Their difference
+	// is "this session changed something since the last save", which is what
+	// decides whether Properties.Modified is stamped; stampedModified is the
+	// value the last stamp wrote, so a caller's own assignment can be told
+	// apart from ours. See modified.go.
+	modelEdits      int
+	savedModelEdits int
+	stampedModified time.Time
+	// savedThemeEdit is the theme editor's own modified flag as of the last
+	// completed save; the editor is mutated outside this package, so its flag
+	// is read rather than hooked. See themeEdited.
+	savedThemeEdit bool
 }
 
 // mainDocumentPart is the default name of the main document part. Image
@@ -733,6 +747,12 @@ func (d *Document) SaveBytes() ([]byte, error) {
 // was never accessed, which is never even parsed — while touched parts are
 // regenerated from the model. A document built with Create is generated entirely
 // from the model.
+//
+// When the session changed the document's content, the save records the time in
+// Properties.Modified (docProps/core.xml's dcterms:modified) — and only then, so
+// that saving an unchanged document twice produces identical bytes. Reading the
+// document, however much of it, is not a change. Assigning Properties.Modified
+// yourself takes precedence over the stamp.
 func (d *Document) SaveTo(dst io.Writer) error {
 	if report := d.Validate(); report.HasErrors() {
 		return report
@@ -744,6 +764,12 @@ func (d *Document) SaveTo(dst io.Writer) error {
 // pass. Prefer SaveTo; use this only when a finding is known to be advisory for
 // the caller's use case.
 func (d *Document) SaveToUnvalidated(dst io.Writer) error {
+	// Record the write time in dcterms:modified, but only when this session
+	// actually changed something. Stamping unconditionally would make SaveBytes
+	// non-idempotent; never stamping loses a real edit's write time. Must run
+	// before either save path, because whether the stamp happened is also what
+	// decides between regenerating docProps/core.xml and preserving its bytes.
+	d.stampModified()
 	writer := opc.NewWriter(dst)
 	var err error
 	if d.reader != nil {
@@ -757,7 +783,14 @@ func (d *Document) SaveToUnvalidated(dst io.Writer) error {
 		_ = writer.Abort()
 		return err
 	}
-	return writer.Close()
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	// The package now on the wire is the new baseline for change detection, so
+	// saving the same document again reproduces these bytes rather than
+	// reporting the edits it has just written out as still outstanding.
+	d.noteSaved()
+	return nil
 }
 
 // Close releases resources held by a document opened from a file. Open and
@@ -874,6 +907,21 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 			if err := writer.WritePreservedPart("/docProps/core.xml", part.ContentType, part.Data); err != nil {
 				return err
 			}
+		}
+	} else if part, ok := d.preservedParts["/docProps/core.xml"]; ok {
+		// Edited properties: regenerate the part, but write it here rather than
+		// leaving it to Close, which appends it after everything else. The
+		// source stored core.xml at this position, and moving it means editing
+		// a document and then re-saving the reopened result — which preserves
+		// the part where it was found — produces a different archive for the
+		// same content. Now that a content edit stamps dcterms:modified, that
+		// is the ordinary path rather than a corner case.
+		data, err := d.Properties.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/docProps/core.xml", part.ContentType, data); err != nil {
+			return err
 		}
 	}
 
@@ -1578,6 +1626,7 @@ func (d *Document) Paragraphs() []*Paragraph {
 
 // AddParagraph adds a new paragraph to the document body.
 func (d *Document) AddParagraph() *Paragraph {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
@@ -1635,6 +1684,7 @@ func (d *Document) Tables() []*Table {
 
 // AddTable creates a new table with the specified number of rows and columns.
 func (d *Document) AddTable(rows, cols int) *Table {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
@@ -1944,7 +1994,7 @@ func (d *Document) DefaultSection() *Section {
 	if d.doc().Body.SectPr == nil {
 		d.doc().Body.SectPr = &oxml.CT_SectPr{}
 	}
-	return &Section{sectPr: d.doc().Body.SectPr}
+	return &Section{document: d, sectPr: d.doc().Body.SectPr}
 }
 
 // AddSectionBreak adds a section break by setting section properties on the
@@ -1961,6 +2011,7 @@ func (d *Document) DefaultSection() *Section {
 // unfurnished Letter portrait pages (C488). Adjust the returned Section to make
 // the new section differ.
 func (d *Document) AddSectionBreak() *Section {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
@@ -1984,7 +2035,7 @@ func (d *Document) AddSectionBreak() *Section {
 	// Create the new body-level section as an independent clone of the one
 	// just pushed into the break paragraph.
 	d.doc().Body.SectPr = cloneSectPr(oldSectPr)
-	return &Section{sectPr: d.doc().Body.SectPr}
+	return &Section{document: d, sectPr: d.doc().Body.SectPr}
 }
 
 // cloneSectPr returns an independent deep copy of src, produced by serializing

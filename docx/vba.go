@@ -76,7 +76,7 @@ func (d *Document) SetVBAProject(data []byte) {
 	d.vbaPartName = name
 	d.vbaData = append([]byte(nil), data...)
 	d.vbaRemove = false
-	d.vbaModified = true
+	d.markVBAModified()
 
 	// Wire the main-part relationship if absent (idempotent across repeated
 	// calls and repeated saves).
@@ -102,7 +102,7 @@ func (d *Document) RemoveVBAProject() {
 	d.vbaPartName = name
 	d.vbaData = nil
 	d.vbaRemove = true
-	d.vbaModified = true
+	d.markVBAModified()
 
 	if id := d.vbaRelID(); id != "" {
 		d.removeDocRelationship(id)

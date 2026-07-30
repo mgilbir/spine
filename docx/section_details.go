@@ -52,6 +52,7 @@ func (s *Section) PageBorders() (PageBorders, bool) {
 // SetPageBorders sets the section's page borders, replacing any existing
 // w:pgBorders element.
 func (s *Section) SetPageBorders(b PageBorders) {
+	s.touch()
 	s.sectPr.PgBorders = &oxml.CT_PgBorders{
 		OffsetFrom: b.OffsetFrom,
 		Top:        borderToOxml(b.Top),
@@ -63,6 +64,7 @@ func (s *Section) SetPageBorders(b PageBorders) {
 
 // ClearPageBorders removes the section's w:pgBorders element.
 func (s *Section) ClearPageBorders() {
+	s.touch()
 	s.sectPr.PgBorders = nil
 }
 
@@ -100,6 +102,7 @@ func (s *Section) LineNumbering() (LineNumbering, bool) {
 // SetLineNumbering sets the section's line-numbering settings, replacing any
 // existing w:lnNumType element. Zero-valued CountBy/Start/Distance are omitted.
 func (s *Section) SetLineNumbering(ln LineNumbering) {
+	s.touch()
 	el := &oxml.CT_LnNumType{Restart: ln.Restart}
 	if ln.CountBy != 0 {
 		el.CountBy = strconv.Itoa(ln.CountBy)
@@ -115,6 +118,7 @@ func (s *Section) SetLineNumbering(ln LineNumbering) {
 
 // ClearLineNumbering removes the section's w:lnNumType element.
 func (s *Section) ClearLineNumbering() {
+	s.touch()
 	s.sectPr.LnNumType = nil
 }
 
@@ -133,6 +137,7 @@ func (s *Section) VerticalAlignment() string {
 // Valid values are "top", "center", "both", and "bottom"; passing "" removes
 // the element.
 func (s *Section) SetVerticalAlignment(align string) {
+	s.touch()
 	if align == "" {
 		s.sectPr.VAlign = nil
 		return
@@ -155,6 +160,7 @@ func (s *Section) PaperSource() (first, other int, ok bool) {
 // SetPaperSource sets the printer paper-source bin numbers for the first page
 // and the other pages (w:paperSrc), replacing any existing element.
 func (s *Section) SetPaperSource(first, other int) {
+	s.touch()
 	s.sectPr.PaperSrc = &oxml.CT_PaperSrc{
 		First: strconv.Itoa(first),
 		Other: strconv.Itoa(other),
@@ -163,6 +169,7 @@ func (s *Section) SetPaperSource(first, other int) {
 
 // ClearPaperSource removes the section's w:paperSrc element.
 func (s *Section) ClearPaperSource() {
+	s.touch()
 	s.sectPr.PaperSrc = nil
 }
 
@@ -197,6 +204,7 @@ func (s *Section) DocumentGrid() (DocumentGrid, bool) {
 // SetDocumentGrid sets the section's document grid, replacing any existing
 // w:docGrid element. A zero LinePitch/CharSpace is omitted.
 func (s *Section) SetDocumentGrid(dg DocumentGrid) {
+	s.touch()
 	el := &oxml.CT_DocGrid{Type: dg.Type}
 	if dg.LinePitch != 0 {
 		el.LinePitch = strconv.Itoa(dg.LinePitch)
@@ -209,6 +217,7 @@ func (s *Section) SetDocumentGrid(dg DocumentGrid) {
 
 // ClearDocumentGrid removes the section's w:docGrid element.
 func (s *Section) ClearDocumentGrid() {
+	s.touch()
 	s.sectPr.DocGrid = nil
 }
 
@@ -281,6 +290,7 @@ func (s *Section) FootnoteProperties() (NoteProperties, bool) {
 // SetFootnoteProperties sets the section's footnote numbering properties
 // (w:footnotePr), replacing any existing element.
 func (s *Section) SetFootnoteProperties(np NoteProperties) {
+	s.touch()
 	pos, restart, numFmt, numStart := applyNote(np)
 	s.sectPr.FootnoteProperties = &oxml.CT_FtnProps{
 		Pos:        pos,
@@ -292,6 +302,7 @@ func (s *Section) SetFootnoteProperties(np NoteProperties) {
 
 // ClearFootnoteProperties removes the section's w:footnotePr element.
 func (s *Section) ClearFootnoteProperties() {
+	s.touch()
 	s.sectPr.FootnoteProperties = nil
 }
 
@@ -308,6 +319,7 @@ func (s *Section) EndnoteProperties() (NoteProperties, bool) {
 // SetEndnoteProperties sets the section's endnote numbering properties
 // (w:endnotePr), replacing any existing element.
 func (s *Section) SetEndnoteProperties(np NoteProperties) {
+	s.touch()
 	pos, restart, numFmt, numStart := applyNote(np)
 	s.sectPr.EndnoteProperties = &oxml.CT_EdnProps{
 		Pos:        pos,
@@ -319,5 +331,6 @@ func (s *Section) SetEndnoteProperties(np NoteProperties) {
 
 // ClearEndnoteProperties removes the section's w:endnotePr element.
 func (s *Section) ClearEndnoteProperties() {
+	s.touch()
 	s.sectPr.EndnoteProperties = nil
 }

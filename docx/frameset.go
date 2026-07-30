@@ -295,7 +295,7 @@ func (d *Document) SetFrameset(def FramesetDef) error {
 		return err
 	}
 	d.pendingFrameset = &def
-	d.framesetModified = true
+	d.markFramesetModified()
 	return nil
 }
 

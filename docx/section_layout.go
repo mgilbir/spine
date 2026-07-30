@@ -36,11 +36,11 @@ func (d *Document) Sections() []*Section {
 	var result []*Section
 	for _, p := range d.doc().Body.Paragraphs() {
 		if p.PPr != nil && p.PPr.SectPr != nil {
-			result = append(result, &Section{sectPr: p.PPr.SectPr})
+			result = append(result, &Section{document: d, sectPr: p.PPr.SectPr})
 		}
 	}
 	if d.doc().Body.SectPr != nil {
-		result = append(result, &Section{sectPr: d.doc().Body.SectPr})
+		result = append(result, &Section{document: d, sectPr: d.doc().Body.SectPr})
 	}
 	return result
 }
@@ -57,6 +57,7 @@ func (s *Section) SectionType() string {
 // SetSectionType sets the section's start type. Passing "" removes the w:type
 // element, restoring Word's default (nextPage).
 func (s *Section) SetSectionType(typ string) {
+	s.touch()
 	if typ == "" {
 		s.sectPr.Type = nil
 		return
@@ -73,6 +74,7 @@ func (s *Section) TitlePage() bool {
 // SetTitlePage enables or disables the distinct first-page header/footer. When
 // disabled, the w:titlePg element is removed.
 func (s *Section) SetTitlePage(on bool) {
+	s.touch()
 	if on {
 		s.sectPr.TitlePg = &oxml.CT_OnOff{}
 		return
@@ -108,6 +110,7 @@ func (s *Section) PageNumbering() (PageNumbering, bool) {
 // Format and nil Start) still emits an empty w:pgNumType; use ClearPageNumbering
 // to remove it.
 func (s *Section) SetPageNumbering(pn PageNumbering) {
+	s.touch()
 	if s.sectPr.PgNumType == nil {
 		s.sectPr.PgNumType = &oxml.CT_PgNumType{}
 	}
@@ -121,6 +124,7 @@ func (s *Section) SetPageNumbering(pn PageNumbering) {
 
 // ClearPageNumbering removes the section's w:pgNumType element.
 func (s *Section) ClearPageNumbering() {
+	s.touch()
 	s.sectPr.PgNumType = nil
 }
 
@@ -170,6 +174,7 @@ func (s *Section) Columns() (Columns, bool) {
 // carry Spacing between them, while explicit-width columns are emitted from the
 // Cols slice with EqualWidth="0".
 func (s *Section) SetColumns(cols Columns) {
+	s.touch()
 	c := &oxml.CT_Columns{}
 	count := cols.Count
 	if count < 1 {
@@ -201,6 +206,7 @@ func (s *Section) SetColumns(cols Columns) {
 // ClearColumns removes the section's w:cols element (reverting to a single
 // column).
 func (s *Section) ClearColumns() {
+	s.touch()
 	s.sectPr.Cols = nil
 }
 

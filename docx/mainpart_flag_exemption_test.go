@@ -60,6 +60,15 @@ func TestZeroModificationRaisesNoFlag(t *testing.T) {
 				t.Errorf("reading %s flagged header/footer parts %v for regeneration",
 					path, doc.modifiedHdrFtrParts)
 			}
+			// The same claim for the main document part, which has no flag of
+			// its own: reading it materializes docModel and so makes the save
+			// regenerate the part, but it must not count as an edit or every
+			// read would stamp dcterms:modified (see modified.go).
+			if doc.modelEdits != 0 {
+				t.Errorf("reading %s recorded %d content edits: every read would stamp "+
+					"dcterms:modified and no save would be reproducible",
+					path, doc.modelEdits)
+			}
 
 			// And the save is stable: two zero-modification saves agree byte for
 			// byte, so no read introduced regeneration drift.
@@ -70,12 +79,13 @@ func TestZeroModificationRaisesNoFlag(t *testing.T) {
 	}
 }
 
-// The main document part is the one flag-gated model group TestMutationsFlagTheirPart
-// deliberately does not track (see mutationFlagExempt): Section, Table,
-// TableRow, TableCell and ContentControl all hold w:sectPr / w:tbl / w:sdt
-// nodes that live in document.xml, and document.xml carries no *Modified flag.
+// The main document part carries no *Modified flag: Section, Table, TableRow,
+// TableCell and ContentControl all hold w:sectPr / w:tbl / w:sdt nodes that
+// live in document.xml, and nothing has to be raised for an edit through them
+// to be written out. (TestMutationsFlagTheirPart does track the part now, but
+// for the document's modification time, not for persistence.)
 //
-// The claim that makes that safe is that it needs none — the part is
+// The claim that makes that safe is that it needs no flag — the part is
 // regenerated whenever d.docModel is non-nil, and every constructor of those
 // handles reaches the body through d.doc(), which materializes docModel as a
 // side effect of the read. So obtaining the handle is already the flag.
