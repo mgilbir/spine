@@ -848,3 +848,110 @@ documents, so it catches byte drift and structural corruption on files this
 library did not author. It does **not** prove Word/Excel/PowerPoint accept the
 output; findings whose consequence is "Office repairs the file" remain PLAUSIBLE
 until checked against the applications themselves.
+
+---
+
+## 8. Findings after the wave (C587–C589)
+
+Three further defects surfaced *after* the C360–C582 remediation landed, each
+found by a gate rather than by reading code. They are recorded here because two
+of them had been visible for a long time and were misfiled rather than missed.
+
+| ID | Sev | Issue | Found by | Status |
+|---|---|---|---|---|
+| **C587** | medium | pptx regenerates `presentation.xml`, `slideLayouts/*` and `slideMasters/*` on every save and dropped the producer's inter-element whitespace, so a pretty-printed deck round-tripped minified — identical content, different bytes | corpus refetch | **fixed** (#246, #247) |
+| **C588** | high | `AddTable` was quadratic in column count; the same shape sat in `SetSharedFormula`, `GroupRows`/`GroupColumns`, `AddPivotTable`, `CopySheetFrom` and `writeChartData` | nightly fuzz | **fixed** (#250) |
+| **C589** | medium | `pptx.saveNew` stamped `Properties.Modified` on every save, making `SaveBytes` non-idempotent | nightly race | **fixed** (#253) |
+
+### C587 — a deferred wontfix that turned out to be fixable
+
+Not a new discovery. `testdata/cc/known_failures.tsv` already carried **11
+`wontfix` rows** describing it accurately, including the remedy —
+*"the typed model does not capture [whitespace]; needs raw-token decoding"*.
+The refetched corpus surfaced 13 more files in the same class, and the fix
+(#246) implemented exactly the raw-token comparison those rows asked for.
+
+The fix is a source-byte fallback gated on `xmlb.EqualIgnoringIndent`, which
+forgives only three XML-defined-interchangeable spellings (§2.10 inter-element
+whitespace, §3.1 empty-tag form, §4.1 character references) and is byte-exact
+otherwise. Porting xlsx's `WsRaw`/`PerGapWS` per-gap capture was considered and
+rejected: it covers one element's children, whereas pptx layouts and masters are
+the whole shape tree at arbitrary depth, where a flat positional gap list is
+correct only when the token sequence already matches — and can *misplace*
+whitespace when it does not.
+
+The residual case was `a:blipFill rotWithShape="true"` re-emitting as `"1"`.
+`xsd:boolean` permits both spellings, so a raw-token comparator must not equate
+them — that would be schema knowledge it has no business holding. Fixed in the
+model instead (#247) by giving 21 `common/dml` types `CapturedAttrs`;
+`ReplayCapturedAttrsClearing` already preserved a producer's spelling via
+`boolLexEquivalent`, so nothing new was needed in the comparator.
+
+### C588 — the fuzzer earned its keep
+
+`FuzzXlsxAddTable` killed a worker with "fuzzing process hung or terminated
+unexpectedly: exit status 2". The recorded input passes in isolation and there
+is no leak; the defect is cost. `AddTable` walked its range once per column in
+three places, each doing an O(cells-in-row) `strings.EqualFold` scan, and the
+header loop *creates* cells as it goes, so the row grew underneath it. A CPU
+profile put 52% in `EqualFold`. For the full grid that is ~134 million
+comparisons: **823 ms and 15.5 MB per call**, and sixteen fuzz workers churning
+~275 MB/s of garbage got one OOM-killed.
+
+The sweep found worse than the reported bug: `SetSharedFormula` over 327k cells
+took **16.4 s** (→288 ms), and `GroupColumns` 961 ms (→0.9 ms, 1090x). A second
+independent quadratic sat inside `AddTable` itself — the duplicate-header suffix
+search restarted at 2 for every repeat. `AddConditionalFormat`,
+`AddDataValidation`, `MergeCells` and `SetAutoFilter` were verified clean: they
+store an sqref and never walk the grid.
+
+**The guard is an absolute bound, not a ratio.** The first attempt asserted
+per-item cost growth over a span; it failed on CI at 5.4x, then 6.1x after the
+tolerance was widened, with nothing regressed. Quadratic work multiplies
+per-item cost by the span ratio and `MaxCol` caps the column span at 8x, so the
+check had less than one order of magnitude separating noise from signal, and one
+more widening would have made it pass on the regression it existed to catch. It
+was removed rather than weakened. `TestGroupColumnsIsFast` decides instead:
+4.48 s against a 200 ms bound on the pre-fix code, 3.1 ms after — 22x
+separation, verified by running the new guard against the old implementation.
+
+### C589 — "known flaky" was a diagnosis nobody had made
+
+`TestFurnitureDeterministic` was carried as *"known flaky, ~1/300,
+pre-existing"* through three audits and the entire remediation wave; every
+worker was told to re-run it. It was not flaky. `saveNew` stamped
+`Properties.Modified = time.Now()` on every save, so building the same deck
+twice either side of a second boundary produced different `docProps/core.xml`.
+The ~1/300 rate was simply the odds of a ~3 ms build crossing a second.
+
+The consequence is larger than the test: `SaveBytes` was **not idempotent**,
+which defeats content-addressed storage and reproducible builds — the property
+**C439** was filed and fixed for in docx during this very wave. It also made
+pptx the only format touching `Modified` while saving; docx and xlsx never
+assign it in their save paths. C439's claim that "pptx and xlsx double-saves are
+byte-identical" held only because both saves happened inside the same second.
+
+**Correct resolution:** stamp if and only if the content actually changed. An
+untouched save then stays byte-identical *and* a real edit records an accurate
+time, with no option for a caller to get wrong. Two hazards constrain the
+implementation: "regenerated" is not "modified" (merely accessing a slide
+materialises it and forces regeneration, so keying off the regeneration signal
+would make *reading* a deck bump its timestamp), and the answer must be derived
+from flags that are already load-bearing for correctness rather than from a new
+parallel flag — which is tension **T2** again.
+
+### What these three have in common
+
+None was found by reading code. C587 came from replacing the corpus sample,
+C588 from a fuzz target that had never run to completion (`make fuzz` exits on
+the first failure, so every target after `FuzzXlsxAddTable` had never executed),
+and C589 from a test that had been reporting the bug correctly for months while
+being filed as noise.
+
+Two lessons worth carrying:
+
+- **"Known flaky" is a hypothesis, not a diagnosis.** C589 survived three audits
+  because nobody diffed the two artifacts it was comparing.
+- **A guard that must be loosened until it passes is not a guard.** The C588
+  ratio check was widened once and still failed; the honest move was to delete
+  it and assert something with real dynamic range.
