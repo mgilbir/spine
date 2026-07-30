@@ -3,7 +3,6 @@ package chart
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -879,5 +878,5 @@ func boolPtr(v bool) *bool { return &v }
 // sheet with 'f' made the two disagree textually for the same value, and Office
 // never writes E-notation in a numCache (C559).
 func formatFloat(v float64) string {
-	return strconv.FormatFloat(v, 'f', -1, 64)
+	return xmlb.FormatFloat(v)
 }

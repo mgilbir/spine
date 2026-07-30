@@ -544,11 +544,11 @@ type CT_SheetDimension struct {
 // CT_Color represents a color element with theme, indexed, RGB, or tint.
 //
 // Tint is a FloatLex rather than a plain float64 because Excel writes theme
-// tints in E-notation ("-4.9989318521683403E-2"). The reflection marshaler
-// formats plain floats with %g, which reprints that as "-0.049989318521683403"
-// — numerically identical, textually different, and styles.xml is regenerated
-// whenever any style is added. The lexical form has to live in the value's
-// type: %g has no way to recover the producer's spelling (C556).
+// tints in E-notation ("-4.9989318521683403E-2"). A plain float64 would be
+// reprinted as "-0.049989318521683403" — numerically identical, textually
+// different, and styles.xml is regenerated whenever any style is added. No
+// formatting rule recovers the producer's spelling from the number, so the
+// lexical form has to live in the value's type (C556).
 type CT_Color struct {
 	Auto    *bool     `xml:"auto,attr,omitempty"`
 	Indexed *uint32   `xml:"indexed,attr,omitempty"`

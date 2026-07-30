@@ -278,7 +278,7 @@ func marshalVTValue(b *strings.Builder, value any, rawVT string) {
 		}
 	case float64:
 		b.WriteString("<vt:r8>")
-		b.WriteString(strconv.FormatFloat(x, 'g', -1, 64))
+		b.WriteString(xmlb.FormatFloat(x))
 		b.WriteString("</vt:r8>")
 	case time.Time:
 		b.WriteString("<vt:filetime>")

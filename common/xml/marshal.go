@@ -156,11 +156,43 @@ func formatValue(v reflect.Value) string {
 		return fmt.Sprintf("%d", v.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return fmt.Sprintf("%d", v.Uint())
-	case reflect.Float32, reflect.Float64:
-		return fmt.Sprintf("%g", v.Float())
+	case reflect.Float32:
+		// Round-trip through float32's own shortest form: widening to float64
+		// first and asking for float64's shortest decimal reprints
+		// float32(0.1) as "0.10000000149011612".
+		return strconv.FormatFloat(v.Float(), 'f', -1, 32)
+	case reflect.Float64:
+		return FormatFloat(v.Float())
 	default:
 		return fmt.Sprint(v.Interface())
 	}
+}
+
+// FormatFloat renders a float as an OOXML numeric lexical value: the shortest
+// decimal that round-trips, never in exponent form ("1000000", not "1e+06").
+//
+// This is the one float formatting policy for every XML output path. Go's 'g'
+// verb — the obvious choice, and what this package used to use — switches to
+// exponent notation at magnitudes at or above 1e6 and below 1e-4. That range is
+// not exotic: a sparkline's manual axis bound, a pivot field's numeric grouping
+// interval, and a chart axis scale all reach it with ordinary data. E-notation
+// is legal xsd:double, but Office does not write it in these positions, so
+// emitting it makes spine's output textually unlike every real producer's — and
+// worse, re-emits a *parsed* value at that magnitude in a spelling its own
+// source never used, which is byte drift (C531, C556, C559).
+//
+// Values whose source spelling must survive verbatim cannot be served here at
+// all: by the time a float reaches this function the spelling is gone. Excel
+// writes theme tints as "-4.9989318521683403E-2", and no formatting rule
+// recovers that from the number. Those fields carry a lexical type instead
+// (oxml.FloatLex, oxml.AnimVariantFloat) that replays the original and falls
+// back to this function only for values built programmatically.
+//
+// Extreme magnitudes make long output — 1e300 is 301 characters. That is
+// bounded (about 1080 at the smallest denormal), valid, and absent from
+// documents Office writes, so it is not worth reintroducing E-notation for.
+func FormatFloat(f float64) string {
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 var xmlNameType = reflect.TypeOf(xml.Name{})
