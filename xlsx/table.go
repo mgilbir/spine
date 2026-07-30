@@ -242,7 +242,7 @@ func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
 	// O(cols^2) reference comparisons.
 	header := s.newRowCells(rng.minRow)
 
-	names, err := s.resolveTableColumnNames(header, rng, nCols, opts.Columns)
+	names, err := resolveTableColumnNames(header, rng.minCol, nCols, opts.Columns)
 	if err != nil {
 		return nil, fmt.Errorf("xlsx: AddTable: %w", err)
 	}
@@ -371,8 +371,9 @@ func (s *Sheet) writeTableTotalsRow(model *oxml.CT_Table, rng cellRange, names [
 // override or derived from the header row, ensuring they are non-empty and
 // unique (as Excel requires).
 // The header cells are read through the caller's cursor over the header row, so
-// resolving n columns costs one row scan rather than n.
-func (s *Sheet) resolveTableColumnNames(header *rowCells, rng cellRange, nCols int, override []string) ([]string, error) {
+// resolving n columns costs one row scan rather than n — which is also why this
+// no longer needs the sheet.
+func resolveTableColumnNames(header *rowCells, minCol, nCols int, override []string) ([]string, error) {
 	if override != nil && len(override) != nCols {
 		return nil, fmt.Errorf("Columns has %d entries but the range spans %d columns", len(override), nCols)
 	}
@@ -389,7 +390,7 @@ func (s *Sheet) resolveTableColumnNames(header *rowCells, rng cellRange, nCols i
 		if override != nil {
 			name = strings.TrimSpace(override[i])
 		} else {
-			name = strings.TrimSpace(header.value(rng.minCol + i))
+			name = strings.TrimSpace(header.value(minCol + i))
 		}
 		if name == "" {
 			name = fmt.Sprintf("Column%d", i+1)
