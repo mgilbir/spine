@@ -60,6 +60,7 @@ func (p *Presentation) EmbeddedFonts() []EmbeddedFont {
 // (typically one read back from EmbeddedFonts on a deck that already embeds
 // fonts); an empty id omits that style. Passing an empty slice clears the list.
 func (p *Presentation) SetEmbeddedFonts(fonts []EmbeddedFont) {
+	p.markModelEdited()
 	if p.presentation == nil {
 		p.presentation = &oxml.Presentation{}
 	}
@@ -106,6 +107,7 @@ func (p *Presentation) EmbedFont(name string, regular, bold, italic, boldItalic 
 	if len(regular) == 0 {
 		return fmt.Errorf("pptx: embed font %q: regular style data is required", name)
 	}
+	p.markModelEdited()
 	if p.presentation == nil {
 		p.presentation = &oxml.Presentation{}
 	}
@@ -192,6 +194,7 @@ func (p *Presentation) EmbedTrueTypeFonts() bool {
 
 // SetEmbedTrueTypeFonts sets the embedTrueTypeFonts flag on the presentation.
 func (p *Presentation) SetEmbedTrueTypeFonts(v bool) {
+	p.markModelEdited()
 	if p.presentation == nil {
 		p.presentation = &oxml.Presentation{}
 	}
@@ -230,6 +233,7 @@ func (p *Presentation) CustomShows() []CustomShow {
 // SlideRelIDs must be presentation-level slide relationship ids (see
 // Slide.RelID). Passing an empty slice clears the list.
 func (p *Presentation) SetCustomShows(shows []CustomShow) {
+	p.markModelEdited()
 	if p.presentation == nil {
 		p.presentation = &oxml.Presentation{}
 	}

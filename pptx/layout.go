@@ -48,6 +48,7 @@ func (sl *SlideLayout) Name() string {
 
 // SetName sets the name of the layout.
 func (sl *SlideLayout) SetName(name string) {
+	sl.presentation.markModelEdited()
 	sl.name = name
 	if sl.layoutXML != nil {
 		sl.layoutXML.MatchingName = name
@@ -103,10 +104,15 @@ func (sl *SlideLayout) GetPlaceholder(phType PlaceholderType) *PlaceholderShape 
 // byte-for-byte.
 type EditablePlaceholder struct {
 	sp *oxml.Shape
+	// owner is the deck the wrapped node belongs to, so an edit through this
+	// handle can be recorded. Master and layout parts are regenerated on every
+	// save, so the edit persists without a flag and nothing else would notice
+	// the deck changed.
+	owner *Presentation
 }
 
 // editablePlaceholdersFromSpTree wraps every placeholder shape of a shape tree.
-func editablePlaceholdersFromSpTree(spTree *oxml.ShapeTree) []*EditablePlaceholder {
+func editablePlaceholdersFromSpTree(owner *Presentation, spTree *oxml.ShapeTree) []*EditablePlaceholder {
 	if spTree == nil {
 		return nil
 	}
@@ -115,7 +121,7 @@ func editablePlaceholdersFromSpTree(spTree *oxml.ShapeTree) []*EditablePlacehold
 		if sp == nil || sp.NvSpPr == nil || sp.NvSpPr.NvPr == nil || sp.NvSpPr.NvPr.Ph == nil {
 			continue
 		}
-		out = append(out, &EditablePlaceholder{sp: sp})
+		out = append(out, &EditablePlaceholder{sp: sp, owner: owner})
 	}
 	return out
 }
@@ -143,7 +149,10 @@ func (ep *EditablePlaceholder) Index() uint32 {
 	return 0
 }
 
+// ensureXfrm returns the placeholder's transform, allocating it as needed. Only
+// the setters call it, so it also records the edit (see EditablePlaceholder.owner).
 func (ep *EditablePlaceholder) ensureXfrm() *dml.Xfrm {
+	ep.owner.markModelEdited()
 	if ep.sp.SpPr == nil {
 		ep.sp.SpPr = &dml.SpPr{}
 	}
@@ -202,7 +211,7 @@ func (sl *SlideLayout) EditablePlaceholders() []*EditablePlaceholder {
 	if sl.layoutXML == nil || sl.layoutXML.CSld == nil {
 		return nil
 	}
-	return editablePlaceholdersFromSpTree(sl.layoutXML.CSld.SpTree)
+	return editablePlaceholdersFromSpTree(sl.presentation, sl.layoutXML.CSld.SpTree)
 }
 
 // EditablePlaceholder returns a mutable handle to the first layout placeholder

@@ -22,6 +22,7 @@ func (s *Section) SetName(name string) {
 		return
 	}
 	s.s.Name = name
+	s.pres.markModelEdited()
 	if sl := s.pres.sectionLst(); sl != nil {
 		sl.MarkDirty()
 	}
@@ -84,6 +85,7 @@ func (p *Presentation) AddSection(name string) *Section {
 	sec := &oxml.P14Section{Name: name, ID: newGUID()}
 	sl.Section = append(sl.Section, sec)
 	sl.MarkDirty()
+	p.markModelEdited()
 	return &Section{pres: p, s: sec}
 }
 
@@ -109,6 +111,7 @@ func (p *Presentation) MoveSlideToSection(slide *Slide, section *Section) {
 		section.s.SldId = append(section.s.SldId, id)
 	}
 	sl.MarkDirty()
+	p.markModelEdited()
 }
 
 // sectionLst returns the parsed p14:sectionLst extension, or nil if absent.

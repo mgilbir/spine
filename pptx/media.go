@@ -72,7 +72,14 @@ func (p *Picture) ImagePath() string {
 	return p.imagePath
 }
 
-// SetImagePath sets the path to the image file.
+// SetImagePath records the source path reported by ImagePath. It does NOT read
+// the file or change the picture: nothing on the save path reads imagePath, so
+// a saved deck is unaffected by this call.
+//
+// Deprecated: use SetImage, which reads the file, embeds it, and reports why it
+// could not. This setter looks like it swaps the image and does not; it is kept
+// only because callers that pair it with ImagePath as a label would otherwise
+// break.
 func (p *Picture) SetImagePath(path string) {
 	p.imagePath = path
 }

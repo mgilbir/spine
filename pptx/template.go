@@ -118,8 +118,12 @@ func (s *Slide) replaceTextInXML(replacements map[string]string) {
 	}
 
 	// If anything changed, refresh the Go-level shapes from the XML, keeping
-	// caller-held shape pointers attached (see rematerializeShapes).
+	// caller-held shape pointers attached (see rematerializeShapes). The edit is
+	// written straight into the parsed tree, so nothing else records it —
+	// only mark when a key actually matched, so a scan that replaced nothing
+	// stays a read.
 	if changed {
+		s.presentation.markModelEdited()
 		s.rematerializeShapes()
 	}
 }
@@ -167,6 +171,7 @@ func (s *Slide) replaceTextInNamedShapeXML(shapeName string, replacements map[st
 	}
 
 	if changed {
+		s.presentation.markModelEdited()
 		s.rematerializeShapes()
 	}
 }

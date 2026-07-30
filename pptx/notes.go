@@ -32,6 +32,10 @@ func (s *Slide) Notes() string {
 // is written on the next save.
 func (s *Slide) SetNotes(text string) {
 	p := s.presentation
+	// The notes slide is a preserved raw part rewritten here and then written
+	// out verbatim, so the edit persists with no flag — and nothing else would
+	// record that the deck changed.
+	p.markModelEdited()
 	if ns, partName := s.loadNotesSlide(); ns != nil {
 		setNotesBodyText(ns, text)
 		p.otherParts[partName] = &coxml.RawPart{
