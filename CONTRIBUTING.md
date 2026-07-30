@@ -135,10 +135,21 @@ Two mechanical guards exist, and both are cheap to extend:
 Several invariants in this repo are enforced by tests that read the source
 rather than exercise it: the mutation-flag guards in `docx`, `xlsx` and `pptx`,
 the capture-coverage guard in `pptx/internal/oxml`, the percent-type/schema diff
-in `common/dml`, and the relationship-allocator guards in `pptx`. They exist
-because the same classes of omission kept recurring — a mutator that edits a
-preserved part without flagging it, an attribute that loses its captured
-spelling, an id allocator that ignores what the opened document already contains.
+in `common/dml`, the relationship-allocator guards in `pptx`, and the
+map-iteration-order guard in `internal/maporder`. They exist because the same
+classes of omission kept recurring — a mutator that edits a preserved part
+without flagging it, an attribute that loses its captured spelling, an id
+allocator that ignores what the opened document already contains, a map ranged
+in Go's randomized order on the way to the output.
+
+`internal/maporder` is the one that needs type information, so it is also the
+worked example of getting it without a dependency: `go/parser` plus `go/types`
+with `importer.ForCompiler(fset, "source", nil)` type-checks the six
+serialization packages in about two and a half seconds. Type errors are
+swallowed there, which is exactly how a guard degrades to seeing nothing — so
+`TestGuardSeesEnough` asserts floors on packages, files, functions, typed
+expressions and map ranges, and that four named landmark loops were still
+analysed and still came out clean.
 
 Two properties make one of these worth having, and both are easy to lose:
 
