@@ -51,6 +51,13 @@ const (
 	domainFootnotes mutationDomain = "footnotes.xml"
 	domainEndnotes  mutationDomain = "endnotes.xml"
 	domainSources   mutationDomain = "bibliography/sources.xml"
+	// domainMainPart is document.xml. Unlike the others it is not gated on a
+	// flag for *persistence* — it is regenerated whenever the body was
+	// materialized, which is why the handles that reach it used to be a
+	// domain-level exemption here. It is gated on one for the document's
+	// modification time: a mutator that edits the body without recording the
+	// edit persists it and leaves dcterms:modified stale (see modified.go).
+	domainMainPart mutationDomain = "main document part"
 )
 
 // fieldRef identifies a struct field by its declaring package-local type.
@@ -94,20 +101,40 @@ var domainFields = map[fieldRef]mutationDomain{
 	{"Document", "footnotes"}:        domainFootnotes,
 	{"Document", "endnotes"}:         domainEndnotes,
 	{"Document", "sources"}:          domainSources,
+
+	// The main document part. Paragraph.p and Run.r reach it too, but they are
+	// already listed above: their touch() raises the header/footer flag and
+	// records the edit in one call, so one entry covers both domains.
+	{"Document", "docModel"}:    domainMainPart,
+	{"Table", "tbl"}:            domainMainPart,
+	{"TableRow", "tr"}:          domainMainPart,
+	{"TableCell", "tc"}:         domainMainPart,
+	{"Section", "sectPr"}:       domainMainPart,
+	{"ContentControl", "block"}: domainMainPart,
+	{"ContentControl", "run"}:   domainMainPart,
 }
 
-// domainFlagFields maps a domain to the Document field a mutator must set to
+// domainFlagSetters maps a domain to the Document method a mutator must call to
 // make its edit survive the save.
-var domainFlagFields = map[string]mutationDomain{
-	"stylesModified":      domainStyles,
-	"numberingModified":   domainNumbering,
-	"settingsModified":    domainSettings,
-	"commentsModified":    domainComments,
-	"commentsExtModified": domainCommentEx,
-	"peopleModified":      domainPeople,
-	"footnotesModified":   domainFootnotes,
-	"endnotesModified":    domainEndnotes,
-	"sourcesModified":     domainSources,
+//
+// These used to be plain `d.stylesModified = true` assignments, and the guard
+// looked for the assignment. They are methods now because raising the flag is
+// no longer the whole job: the setter also records the edit for
+// dcterms:modified (mutate.go, modified.go), and a mutator that assigned the
+// field would regenerate the part correctly while leaving the document's
+// modification time stale. Crediting the call and not the field is what keeps
+// the next mutator from finding out the hard way.
+var domainFlagSetters = map[mutationDomain]string{
+	domainStyles:    "markStylesModified",
+	domainNumbering: "markNumberingModified",
+	domainSettings:  "markSettingsModified",
+	domainComments:  "markCommentsModified",
+	domainCommentEx: "markCommentsExtModified",
+	domainPeople:    "markPeopleModified",
+	domainFootnotes: "markFootnotesModified",
+	domainEndnotes:  "markEndnotesModified",
+	domainSources:   "markSourcesModified",
+	domainMainPart:  "markEdited",
 }
 
 // hdrFtrFlagCalls are the calls that flag a header/footer part. markHdrFtrModified
@@ -122,39 +149,46 @@ var hdrFtrFlagCalls = map[string]bool{
 	"markModified":       true,
 }
 
-// domainFlagFuncs are the functions that *are* a domain's flag, rather than
-// setting a Document bool: the header/footer flag is a set of part names, and
+// domainFlagFuncs are the functions that raise a domain's flag: the per-part
+// setters from domainFlagSetters, plus the two that are a flag rather than
+// setting one — the header/footer flag is a set of part names, and
 // Revision.markModified fires a per-part notifier closure.
-var domainFlagFuncs = map[string]mutationDomain{
-	"Document.markHdrFtrModified": domainHdrFtr,
-	"Revision.markModified":       domainHdrFtr,
-}
+var domainFlagFuncs = func() map[string]mutationDomain {
+	m := map[string]mutationDomain{
+		"Document.markHdrFtrModified": domainHdrFtr,
+		"Revision.markModified":       domainHdrFtr,
+	}
+	for domain, setter := range domainFlagSetters {
+		m["Document."+setter] = domain
+	}
+	return m
+}()
 
 // mutationFlagExempt lists the functions allowed to write into a flag-gated
 // model without reaching its flag, each with the reason. Entries are
 // "Type.Method" (or a bare function name), and an entry that stops matching a
 // real function fails the guard, so a rename or a deletion cannot leave a stale
 // excuse behind.
-// It is empty today, and that is the point: every write into a flag-gated
+// It holds one entry, and that is the point: every write into a flag-gated
 // model in this package reaches its flag. An entry here should be rare and
 // argued.
 //
-// The exemptions that do exist are domain-level rather than function-level, and
-// are deliberately absent from domainFields above:
-//
-//   - Section (w:sectPr), Table/TableRow/TableCell (w:tbl) and ContentControl
-//     (w:sdt) hold models that live in the main document part. That part has no
-//     modification flag because it needs none: it is regenerated whenever
-//     d.docModel is non-nil, and every constructor of those handles goes
-//     through d.doc(), which materializes docModel as a side effect of the
-//     read. Reaching one of those handles is therefore already the flag.
-//     TestMainPartHandleEditsPersist checks the claim behaviourally rather than
-//     leaving it as an assertion in a comment.
-//   - Document.Properties, custom properties, VBA, glossary, frameset and
-//     custom-XML edits are gated on flags of their own (customPropertiesModified
-//     is computed by comparing against an open-time snapshot) and are not
-//     reached through a model field, so there is no selector chain to track.
-var mutationFlagExempt = map[string]string{}
+// One exemption is still domain-level rather than function-level, and is
+// deliberately absent from domainFields above: Document.Properties, custom
+// properties, VBA, glossary, frameset and custom-XML edits are gated on flags
+// of their own (customPropertiesModified is computed by comparing against an
+// open-time snapshot) and are not reached through a model field, so there is no
+// selector chain to track.
+var mutationFlagExempt = map[string]string{
+	// Materializes an empty w:sectPr (and w:body) for a caller that asked for
+	// the default section, which is as often a read as an edit —
+	// DefaultSection().PageSize() must not bump the document's modification
+	// time. Every Section *mutator* records the edit itself, so the only
+	// unrecorded change is the empty sectPr a malformed body gains, which the
+	// save would have had to write in any case.
+	"Document.DefaultSection": "materializes the body's sectPr on a read path; " +
+		"the Section setters record the edit themselves",
+}
 
 // --- the guard ---------------------------------------------------------------
 
@@ -177,10 +211,15 @@ func TestMutationsFlagTheirPart(t *testing.T) {
 				usedExempt[name] = true
 				continue
 			}
+			consequence := "the edit is applied in memory and dropped at save"
+			if d == domainMainPart {
+				// The main part is written from the model either way; what is
+				// lost here is the record that the document changed.
+				consequence = "the edit is written out but dcterms:modified is left stale"
+			}
 			problems = append(problems, fmt.Sprintf(
-				"%s (%s) writes into the %s model but never reaches its modification flag: "+
-					"the edit is applied in memory and dropped at save. %s",
-				name, pkg.pos(name), d, remedyFor(d)))
+				"%s (%s) writes into the %s model but never reaches its modification flag: %s. %s",
+				name, pkg.pos(name), d, consequence, remedyFor(d)))
 		}
 	}
 	for _, p := range problems {
@@ -220,6 +259,12 @@ func TestMutationFlagGuardSeesWrites(t *testing.T) {
 		"ListLevel.SetStart":    domainNumbering,
 		// A write through a local aliased to the model.
 		"Document.addCommentModel": domainComments,
+		// The main document part, reached through each of its handles.
+		"Section.SetPageSize":     domainMainPart,
+		"Table.SetStyle":          domainMainPart,
+		"TableCell.SetShading":    domainMainPart,
+		"ContentControl.SetValue": domainMainPart,
+		"Document.AddParagraph":   domainMainPart,
 	}
 	for name, domain := range want {
 		f, ok := pkg.funcs[name]
@@ -243,10 +288,11 @@ func remedyFor(d mutationDomain) string {
 	if d == domainHdrFtr {
 		return "Reach the model through Paragraph.mut()/Run.mut() (see mutate.go) instead of the p/r field."
 	}
-	for field, dom := range domainFlagFields {
-		if dom == d {
-			return "Set d." + field + " = true."
+	if setter, ok := domainFlagSetters[d]; ok {
+		if d == domainMainPart {
+			return "Call d." + setter + "() (or the handle's touch()) — see modified.go."
 		}
+		return "Call d." + setter + "() (see mutate.go)."
 	}
 	return ""
 }
@@ -526,11 +572,6 @@ func (p *mutationPackage) analyzeFunc(fd *ast.FuncDecl, oxmlMutators map[string]
 		switch s := n.(type) {
 		case *ast.AssignStmt:
 			for _, l := range s.Lhs {
-				// A flag assignment is bookkeeping, not a model write.
-				if d, ok := flagAssignment(l, s); ok {
-					f.setsFlag[d] = true
-					continue
-				}
 				// depth >= 1: writing *into* the model. Assigning the handle
 				// field itself (ensureX creating an empty model) is not an edit.
 				noteWrite(l, 1)
@@ -612,26 +653,6 @@ func calleeName(call *ast.CallExpr, localType map[string]string, recvName, recvT
 		}
 	}
 	return ""
-}
-
-// flagAssignment reports the domain flagged by `<expr>.<field> = true`.
-func flagAssignment(lhs ast.Expr, s *ast.AssignStmt) (mutationDomain, bool) {
-	sel, ok := lhs.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
-	}
-	d, ok := domainFlagFields[sel.Sel.Name]
-	if !ok {
-		return "", false
-	}
-	for i, l := range s.Lhs {
-		if l == lhs && i < len(s.Rhs) {
-			if id, ok := s.Rhs[i].(*ast.Ident); ok && id.Name == "false" {
-				return "", false
-			}
-		}
-	}
-	return d, true
 }
 
 // --- helpers -----------------------------------------------------------------

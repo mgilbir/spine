@@ -82,12 +82,12 @@ func (d *Document) AddSource(s Source) error {
 				setBibLeaf(elem, "Guid", g)
 			}
 			d.sources.Source[i] = elem
-			d.sourcesModified = true
+			d.markSourcesModified()
 			return nil
 		}
 	}
 	d.sources.Source = append(d.sources.Source, elem)
-	d.sourcesModified = true
+	d.markSourcesModified()
 	return nil
 }
 
@@ -100,7 +100,7 @@ func (d *Document) RemoveSource(tag string) bool {
 	for i, src := range d.sources.Source {
 		if src.Leaf("Tag") == tag {
 			d.sources.Source = append(d.sources.Source[:i], d.sources.Source[i+1:]...)
-			d.sourcesModified = true
+			d.markSourcesModified()
 			return true
 		}
 	}

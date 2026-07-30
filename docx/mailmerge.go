@@ -111,12 +111,12 @@ func (d *Document) SetMailMerge(mm *MailMerge) {
 			return
 		}
 		d.settings.SetMailMerge(nil)
-		d.settingsModified = true
+		d.markSettingsModified()
 		return
 	}
 	s := d.ensureSettings()
 	s.SetMailMerge(toCTMailMerge(mm))
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // fromCTMailMerge converts the internal model to the public struct.

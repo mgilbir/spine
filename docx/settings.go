@@ -37,7 +37,7 @@ func (d *Document) DefaultTabStop() (float64, bool) {
 func (d *Document) SetDefaultTabStop(points float64) {
 	s := d.ensureSettings()
 	s.SetChild("defaultTabStop", []xml.Attr{wAttr("val", pointsToTwips(points))})
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // EvenAndOddHeaders reports whether the document declares distinct even-page
@@ -53,12 +53,12 @@ func (d *Document) SetEvenAndOddHeaders(on bool) {
 	if on {
 		s := d.ensureSettings()
 		if s.EnsureEvenAndOddHeaders() {
-			d.settingsModified = true
+			d.markSettingsModified()
 		}
 		return
 	}
 	if d.settings != nil && d.settings.RemoveChild("evenAndOddHeaders") {
-		d.settingsModified = true
+		d.markSettingsModified()
 	}
 }
 
@@ -82,7 +82,7 @@ func (d *Document) Zoom() (int, bool) {
 func (d *Document) SetZoom(percent int) {
 	s := d.ensureSettings()
 	s.SetChild("zoom", []xml.Attr{wAttr("percent", strconv.Itoa(percent))})
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // DocumentVariable is a single document variable (w:docVar): a name paired with
@@ -142,7 +142,7 @@ func (d *Document) SetDocumentVariable(name, value string) {
 		vars = append(vars, oxml.CT_DocVar{Name: name, Val: value})
 	}
 	s.SetDocVars(vars)
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // --- Document-level footnote / endnote numbering (w:settings/w:footnotePr,
@@ -217,7 +217,7 @@ func (d *Document) setSettingsNoteProps(local string, np NoteProperties) {
 		existing = c.RawContent
 	}
 	s.SetRawChild(local, buildNotePropsContent(np, existing))
-	d.settingsModified = true
+	d.markSettingsModified()
 }
 
 // removeSettingsChild deletes a settings child by local name and marks the
@@ -227,7 +227,7 @@ func (d *Document) removeSettingsChild(local string) bool {
 		return false
 	}
 	if d.settings.RemoveChild(local) {
-		d.settingsModified = true
+		d.markSettingsModified()
 		return true
 	}
 	return false
@@ -363,7 +363,7 @@ func (d *Document) RemoveDocumentVariable(name string) bool {
 	}
 	if removed {
 		d.settings.SetDocVars(kept)
-		d.settingsModified = true
+		d.markSettingsModified()
 	}
 	return removed
 }

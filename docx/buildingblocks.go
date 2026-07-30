@@ -217,7 +217,7 @@ func (d *Document) AddBuildingBlock(def BuildingBlockDef) error {
 		def.GUID = newBibGUID()
 	}
 	d.pendingBuildingBlocks = append(d.pendingBuildingBlocks, def)
-	d.glossaryModified = true
+	d.markGlossaryModified()
 	return nil
 }
 

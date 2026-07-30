@@ -87,8 +87,19 @@ func (c *ContentControl) props() *oxml.CT_SdtPr {
 	return nil
 }
 
+// touch records a content edit made through this control. The w:sdt model
+// lives in the main document part (or, for a control in a header, in the part
+// the paragraph handles already flag), which needs no modification flag of its
+// own, so this only records the edit for dcterms:modified (see modified.go).
+func (c *ContentControl) touch() {
+	if c != nil && c.doc != nil {
+		c.doc.markEdited()
+	}
+}
+
 // ensureProps returns the control's properties, creating them if absent.
 func (c *ContentControl) ensureProps() *oxml.CT_SdtPr {
+	c.touch()
 	if c.run != nil {
 		return c.run.EnsurePr()
 	}
@@ -132,6 +143,7 @@ func (c *ContentControl) Value() string {
 // SetValue replaces the control's content with a single run of text. Existing
 // content (and its run formatting) is discarded.
 func (c *ContentControl) SetValue(text string) {
+	c.touch()
 	if c.run != nil {
 		c.run.SetContentText(text)
 		return
@@ -185,6 +197,7 @@ func (c *ContentControl) Checked() (checked, ok bool) {
 // but Word assigns one when it saves the document, so a round trip through Word
 // will show the added attribute as a diff.
 func (d *Document) AddContentControl(tag, value string) *ContentControl {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}

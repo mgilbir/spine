@@ -171,13 +171,14 @@ godoc tooling steers callers off them (C565, C567).
   are unchanged. `xmlb.FormatFloat` is now the single policy for every output
   path, and a build-failing guard keeps it that way (C531, C556, C559).
 
-- xlsx: a save records the write time in `docProps/core.xml`
+- docx and xlsx: a save records the write time in `docProps/core.xml`
   (`dcterms:modified`) when — and only when — the session actually changed the
-  workbook, matching the behaviour pptx gained in the same wave.
+  document, matching the behaviour pptx gained in the same wave. All three
+  formats now agree.
 
-  xlsx never touched `Modified` before, so a workbook edited beyond recognition
-  kept whatever write time its producer left behind, and one built with `Create`
-  carried none at all. Stamping *every* save is the other obvious
+  Neither format touched `Modified` before, so a document edited beyond
+  recognition kept whatever write time its producer left behind, and one built
+  with `Create` carried none at all. Stamping *every* save is the other obvious
   option and is worse: it makes `SaveBytes` non-idempotent, so the same content
   saved either side of a second boundary produces two different packages. There
   is deliberately no option to choose between accuracy and determinism, because

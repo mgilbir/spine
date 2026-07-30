@@ -89,7 +89,7 @@ func (r *Run) AddFootnote(text string) *Footnote {
 	d.footnotes.Footnote = append(d.footnotes.Footnote, note)
 
 	r.anchorNoteRef(id, false)
-	d.footnotesModified = true
+	d.markFootnotesModified()
 	return &Footnote{document: d, note: note}
 }
 
@@ -106,7 +106,7 @@ func (r *Run) AddEndnote(text string) *Footnote {
 	d.endnotes.Endnote = append(d.endnotes.Endnote, note)
 
 	r.anchorNoteRef(id, true)
-	d.endnotesModified = true
+	d.markEndnotesModified()
 	return &Footnote{document: d, note: note}
 }
 

@@ -73,6 +73,7 @@ type hdrFtrPart struct {
 // AddHeader adds a header of the specified type to the document's final
 // (default) section.
 func (d *Document) AddHeader(hType HeaderType) *Header {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
@@ -170,6 +171,7 @@ func (d *Document) addHeaderTo(sectPr *oxml.CT_SectPr, hType HeaderType) *Header
 
 // AddFooter adds a footer of the specified type to the document.
 func (d *Document) AddFooter(fType FooterType) *Footer {
+	d.markEdited()
 	if d.doc().Body == nil {
 		d.doc().Body = &oxml.CT_Body{}
 	}
@@ -256,7 +258,7 @@ func (d *Document) ensureEvenAndOddHeaders() {
 		d.settings = &oxml.CT_Settings{}
 	}
 	if d.settings.EnsureEvenAndOddHeaders() {
-		d.settingsModified = true
+		d.markSettingsModified()
 	}
 }
 

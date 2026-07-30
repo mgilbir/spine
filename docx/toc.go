@@ -26,6 +26,7 @@ type TOCOptions struct {
 // document is opened (depending on settings, Word may prompt before
 // updating); until then the placeholder paragraph is shown.
 func (d *Document) AddTableOfContents(opts TOCOptions) error {
+	d.markEdited()
 	min, max := opts.MinLevel, opts.MaxLevel
 	if min == 0 {
 		min = 1

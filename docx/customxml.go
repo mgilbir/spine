@@ -204,6 +204,9 @@ func (d *Document) AddCustomXMLPart(data []byte) (*CustomXMLPart, error) {
 	p.relID = rel.ID
 	d.addDocRelationship(rel)
 	d.pendingCustomXML = append(d.pendingCustomXML, p)
+	// A new package part is a content change, and this one reaches no
+	// flag-gated model, so it records itself (see modified.go).
+	d.markEdited()
 
 	return &CustomXMLPart{
 		partName:   itemName,
@@ -337,5 +340,6 @@ func (c *ContentControl) RemoveDataBinding() bool {
 	if pr == nil {
 		return false
 	}
+	c.touch()
 	return pr.RemoveDataBinding()
 }

@@ -43,8 +43,20 @@ func (t *Table) Rows() []*TableRow {
 	return rows
 }
 
+// touch records a content edit made through this table. The w:tbl model lives
+// in the main document part, which needs no modification flag — it is
+// regenerated whenever the body was materialized — so this only records the
+// edit for dcterms:modified (see modified.go). It is a no-op for a table not
+// attached to a document.
+func (t *Table) touch() {
+	if t != nil && t.document != nil {
+		t.document.markEdited()
+	}
+}
+
 // AddRow adds a new row to the table.
 func (t *Table) AddRow() *TableRow {
+	t.touch()
 	tr := &oxml.CT_Tr{}
 	t.tbl.AppendRow(tr)
 	return &TableRow{table: t, tr: tr}
@@ -106,6 +118,9 @@ func twipWidth(points float64) *oxml.CT_TblWidth {
 }
 
 func (t *Table) ensureTblPr() {
+	// Property setters funnel through here before mutating, so recording the
+	// edit here covers them in one place (see Paragraph.ensurePPr).
+	t.touch()
 	if t.tbl.TblPr == nil {
 		t.tbl.TblPr = &oxml.CT_TblPr{}
 	}
@@ -140,8 +155,16 @@ func (tr *TableRow) Cells() []*TableCell {
 	return cells
 }
 
+// touch records a content edit made through this row (see Table.touch).
+func (tr *TableRow) touch() {
+	if tr != nil && tr.table != nil {
+		tr.table.touch()
+	}
+}
+
 // AddCell adds a new cell to the row.
 func (tr *TableRow) AddCell() *TableCell {
+	tr.touch()
 	tc := &oxml.CT_Tc{}
 	tc.AppendP(&oxml.CT_P{})
 	tr.tr.AppendCell(tc)
@@ -169,6 +192,7 @@ func (tr *TableRow) SetHeaderRow(header bool) {
 }
 
 func (tr *TableRow) ensureTrPr() {
+	tr.touch()
 	if tr.tr.TrPr == nil {
 		tr.tr.TrPr = &oxml.CT_TrPr{}
 	}
@@ -188,6 +212,13 @@ func (tc *TableCell) document() *Document {
 	return tc.row.table.document
 }
 
+// touch records a content edit made through this cell (see Table.touch).
+func (tc *TableCell) touch() {
+	if tc != nil && tc.row != nil {
+		tc.row.touch()
+	}
+}
+
 // Paragraphs returns all paragraphs in the cell.
 func (tc *TableCell) Paragraphs() []*Paragraph {
 	result := make([]*Paragraph, len(tc.tc.P))
@@ -200,6 +231,7 @@ func (tc *TableCell) Paragraphs() []*Paragraph {
 // AddParagraph adds a new paragraph to the cell. The paragraph carries the
 // document backref, so runs created in it can add images end-to-end.
 func (tc *TableCell) AddParagraph() *Paragraph {
+	tc.touch()
 	p := &oxml.CT_P{}
 	tc.tc.AppendP(p)
 	return &Paragraph{document: tc.document(), p: p}
@@ -261,6 +293,7 @@ func (tc *TableCell) SetGridSpan(span int) {
 }
 
 func (tc *TableCell) ensureTcPr() {
+	tc.touch()
 	if tc.tc.TcPr == nil {
 		tc.tc.TcPr = &oxml.CT_TcPr{}
 	}

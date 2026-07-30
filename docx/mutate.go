@@ -51,3 +51,86 @@ func (r *Run) mutParagraph() *oxml.CT_P {
 	r.touch()
 	return r.paragraph.p
 }
+
+// The metadata parts each carry a bool that decides whether the save
+// regenerates the part or writes its preserved bytes. Setting the field
+// directly still works, but every mutator goes through the setter below for the
+// same reason it goes through mut(): the setter is also where the edit is
+// recorded for dcterms:modified (see modified.go), and a mutator that assigns
+// the field would flag the part correctly while leaving the document's
+// modification time stale. TestMutationsFlagTheirPart credits these functions,
+// not the fields, so a mutator that assigns the field directly fails the guard.
+
+// markStylesModified records an edit to styles.xml.
+func (d *Document) markStylesModified() {
+	d.stylesModified = true
+	d.markEdited()
+}
+
+// markNumberingModified records an edit to numbering.xml.
+func (d *Document) markNumberingModified() {
+	d.numberingModified = true
+	d.markEdited()
+}
+
+// markSettingsModified records an edit to settings.xml.
+func (d *Document) markSettingsModified() {
+	d.settingsModified = true
+	d.markEdited()
+}
+
+// markCommentsModified records an edit to comments.xml.
+func (d *Document) markCommentsModified() {
+	d.commentsModified = true
+	d.markEdited()
+}
+
+// markCommentsExtModified records an edit to commentsExtended.xml.
+func (d *Document) markCommentsExtModified() {
+	d.commentsExtModified = true
+	d.markEdited()
+}
+
+// markPeopleModified records an edit to people.xml.
+func (d *Document) markPeopleModified() {
+	d.peopleModified = true
+	d.markEdited()
+}
+
+// markFootnotesModified records an edit to footnotes.xml.
+func (d *Document) markFootnotesModified() {
+	d.footnotesModified = true
+	d.markEdited()
+}
+
+// markEndnotesModified records an edit to endnotes.xml.
+func (d *Document) markEndnotesModified() {
+	d.endnotesModified = true
+	d.markEdited()
+}
+
+// markSourcesModified records an edit to bibliography/sources.xml.
+func (d *Document) markSourcesModified() {
+	d.sourcesModified = true
+	d.markEdited()
+}
+
+// markGlossaryModified records an authored building block, which regenerates
+// the glossary part.
+func (d *Document) markGlossaryModified() {
+	d.glossaryModified = true
+	d.markEdited()
+}
+
+// markFramesetModified records an authored frameset, which regenerates the
+// web-settings part.
+func (d *Document) markFramesetModified() {
+	d.framesetModified = true
+	d.markEdited()
+}
+
+// markVBAModified records an injected or removed VBA project.
+func (d *Document) markVBAModified() {
+	d.vbaModified = true
+	d.markEdited()
+}

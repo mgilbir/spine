@@ -338,7 +338,16 @@ func (p *Paragraph) SetPageBreakBefore(brk bool) {
 // for paragraphs in the main document part (markHdrFtrModified only acts on a
 // preserved header/footer part).
 func (p *Paragraph) touch() {
-	if p != nil && p.hfPart != "" && p.document != nil {
+	if p == nil || p.document == nil {
+		return
+	}
+	// Every body, header and footer mutator reaches this funnel, so it is also
+	// where the content edit is recorded for dcterms:modified (see
+	// modified.go). Unlike the header/footer flag below, that record is not
+	// conditional on the story: an edit to a main-part paragraph needs no
+	// regeneration flag, but it is still an edit.
+	p.document.markEdited()
+	if p.hfPart != "" {
 		p.document.markHdrFtrModified(p.hfPart)
 	}
 }

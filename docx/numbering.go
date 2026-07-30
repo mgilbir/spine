@@ -98,7 +98,7 @@ func (nm *NumberingManager) AddDefinition() *ListDefinition {
 		MultiLevelType: &oxml.CT_String{Val: "hybridMultilevel"},
 	}
 	d.numbering.AbstractNum = append(d.numbering.AbstractNum, abstract)
-	d.numberingModified = true
+	d.markNumberingModified()
 	return &ListDefinition{
 		document: d,
 		abstract: abstract,
@@ -134,7 +134,7 @@ func (ld *ListDefinition) Level(level int) *ListLevel {
 	}
 	ld.levels[level] = lvl
 	ld.rebuildLevels()
-	ld.document.numberingModified = true
+	ld.document.markNumberingModified()
 	return &ListLevel{document: ld.document, lvl: lvl}
 }
 
@@ -158,7 +158,7 @@ func (ld *ListDefinition) rebuildLevels() {
 	}
 	// Reordering the definition's levels is an edit to numbering.xml, so it
 	// flags the part here rather than relying on every caller (C406).
-	ld.document.numberingModified = true
+	ld.document.markNumberingModified()
 }
 
 // ListStyle registers a numbering instance (w:num) pointing at this definition
@@ -171,7 +171,7 @@ func (ld *ListDefinition) ListStyle() *ListStyle {
 			NumId:         strconv.Itoa(ld.numID),
 			AbstractNumId: &oxml.CT_DecimalNumber{Val: ld.absID},
 		})
-		ld.document.numberingModified = true
+		ld.document.markNumberingModified()
 	}
 	return &ListStyle{document: ld.document, numID: ld.numID}
 }
@@ -205,7 +205,7 @@ func (ld *ListDefinition) RestartedListStyle(level, start int) *ListStyle {
 			StartOverride: &oxml.CT_DecimalNumber{Val: start},
 		}},
 	})
-	ld.document.numberingModified = true
+	ld.document.markNumberingModified()
 	return &ListStyle{document: ld.document, numID: numID}
 }
 
@@ -289,6 +289,6 @@ func (l *ListLevel) ensureInd() *oxml.CT_Ind {
 }
 
 func (l *ListLevel) modified() *ListLevel {
-	l.document.numberingModified = true
+	l.document.markNumberingModified()
 	return l
 }
