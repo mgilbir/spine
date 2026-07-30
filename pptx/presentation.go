@@ -1673,8 +1673,13 @@ func (p *Presentation) remapCustomShowRefs(remap map[string]string) {
 
 // saveNew saves a newly created presentation.
 func (p *Presentation) saveNew(writer *opc.Writer) error {
-	// Set properties
-	p.Properties.Modified = time.Now()
+	// Properties.Modified is deliberately not stamped here. Create already sets
+	// Created and Modified, so a new deck carries a sensible timestamp; stamping
+	// again on every save made SaveBytes non-idempotent — two saves either side
+	// of a second boundary produced different docProps/core.xml for an unchanged
+	// deck. docx and xlsx never touch Modified in their save paths, so this also
+	// removes a cross-format difference. A caller who wants the save time
+	// recorded can set Properties.Modified before saving.
 	writer.Properties = &p.Properties
 	if p.customProps != nil && p.customProps.Len() > 0 {
 		writer.CustomProperties = p.customProps
