@@ -357,42 +357,69 @@ func TestBlipEffects_StdlibMarshalKeepsTypedAndRawChildren(t *testing.T) {
 // and re-marshal rebuilds it from that field alone — there is no RawContent
 // fallback to catch anything the hook failed to bind. Any attribute the hook
 // does not read is therefore deleted on save, and the diagram loses its data
-// model. This pins both attributes through the cycle.
+// model.
 //
-// Note the hook binds relId only in the relationships namespace (r:relId),
-// which is the spelling asserted below because it is the only one the model
-// supports. The dsp schema declares the attribute as name="relId" rather than
-// ref="r:id", i.e. unqualified; if producers write it that way, RelId parses
-// empty and the reference is deleted on save with no raw fallback to catch it.
-// That case is deliberately not asserted here — settling it needs a real
-// diagram part to check the spelling against.
+// The hook used to bind relId only in the relationships namespace (r:relId).
+// The dsp schema declares it as name="relId" — unqualified — and every real
+// producer writes it that way: six documents across docx, xlsx and pptx in the
+// Common Crawl corpus all emit
+//
+//	<dsp:dataModelExt xmlns:dsp="..." relId="rId25" minVer="..."/>
+//
+// and none use the r: prefix. So RelId parsed empty on every real file, and the
+// marshaler below omits an empty RelId: the reference was deleted outright.
+//
+// It never showed up in a round trip because diagrams/data*.xml is preserved
+// verbatim rather than regenerated, which is exactly what makes this worth a
+// test — the loss is one regeneration away, and the preserved-bytes path is not
+// a guarantee anyone stated. Both spellings now parse and the unqualified form
+// is what gets written.
 func TestDspDataModelExt_RoundTrip(t *testing.T) {
-	src := `<a:ext xmlns:a="` + NsDrawingML + `" xmlns:dsp="` + xmlb.NSDrawingDiagram2008 +
-		`" xmlns:r="` + xmlb.NSOfficeDocumentRels + `" uri="` + xmlb.ExtURIDataModelExt + `">` +
-		`<dsp:dataModelExt r:relId="rId7" minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>` +
-		`</a:ext>`
-	var e Ext
-	if err := xml.Unmarshal([]byte(src), &e); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if e.DataModelExt == nil {
-		t.Fatal("dsp:dataModelExt not dispatched to its typed field")
-	}
-	if e.DataModelExt.RelId != "rId7" {
-		t.Errorf("relId = %q, want rId7: the diagram's data-model relationship is dropped",
-			e.DataModelExt.RelId)
-	}
-	if e.DataModelExt.MinVer != "http://schemas.openxmlformats.org/drawingml/2006/diagram" {
-		t.Errorf("minVer = %q, want the diagram namespace", e.DataModelExt.MinVer)
+	const minVer = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+	cases := []struct {
+		name string
+		attr string
+	}{
+		// What every producer in the corpus actually writes.
+		{"unqualified, as producers write it", `relId="rId7"`},
+		// Accepted too: leniency on parse costs nothing.
+		{"r:-qualified", `r:relId="rId7"`},
 	}
 
-	out := buildFragment(t, "ext", &e)
-	for _, frag := range []string{`r:relId="rId7"`,
-		`minVer="http://schemas.openxmlformats.org/drawingml/2006/diagram"`,
-		"dataModelExt", xmlb.ExtURIDataModelExt} {
-		if !strings.Contains(out, frag) {
-			t.Errorf("dsp:dataModelExt lost %s on re-marshal: %s", frag, out)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<a:ext xmlns:a="` + NsDrawingML + `" xmlns:dsp="` + xmlb.NSDrawingDiagram2008 +
+				`" xmlns:r="` + xmlb.NSOfficeDocumentRels + `" uri="` + xmlb.ExtURIDataModelExt + `">` +
+				`<dsp:dataModelExt ` + tc.attr + ` minVer="` + minVer + `"/>` +
+				`</a:ext>`
+			var e Ext
+			if err := xml.Unmarshal([]byte(src), &e); err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if e.DataModelExt == nil {
+				t.Fatal("dsp:dataModelExt not dispatched to its typed field")
+			}
+			if e.DataModelExt.RelId != "rId7" {
+				t.Errorf("relId = %q, want rId7: the diagram's data-model relationship is dropped",
+					e.DataModelExt.RelId)
+			}
+			if e.DataModelExt.MinVer != minVer {
+				t.Errorf("minVer = %q, want the diagram namespace", e.DataModelExt.MinVer)
+			}
+
+			out := buildFragment(t, "ext", &e)
+			for _, frag := range []string{`relId="rId7"`, `minVer="` + minVer + `"`,
+				"dataModelExt", xmlb.ExtURIDataModelExt} {
+				if !strings.Contains(out, frag) {
+					t.Errorf("dsp:dataModelExt lost %s on re-marshal: %s", frag, out)
+				}
+			}
+			// Emitted unqualified, matching the schema and every producer: the
+			// r: form would drift a parsed document on save.
+			if strings.Contains(out, `r:relId=`) {
+				t.Errorf("re-marshal wrote r:relId, which no producer uses: %s", out)
+			}
+		})
 	}
 }
 

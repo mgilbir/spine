@@ -384,7 +384,20 @@ func (v *A14ShadowObscured) UnmarshalXML(d *xml.Decoder, start xml.StartElement)
 func (v *DspDataModelExt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	for _, attr := range start.Attr {
 		switch {
-		case attr.Name.Local == "relId" && attr.Name.Space == xmlb.NSOfficeDocumentRels:
+		// The dsp schema declares this as name="relId", not ref="r:id", so it
+		// is unqualified — and every real producer writes it that way
+		// (confirmed across docx, xlsx and pptx documents in the corpus).
+		// Binding only the r:-qualified spelling left RelId empty on every real
+		// file, and because this ext has a recognised URI it is rebuilt from
+		// the typed field with no RawContent fallback: the marshaler below
+		// omits an empty RelId, so the SmartArt data model reference was
+		// deleted outright. Not observed in a round trip only because
+		// diagrams/data*.xml is preserved verbatim rather than regenerated —
+		// the loss is one regeneration away, which is tension T1.
+		//
+		// The qualified form is still accepted: it costs nothing and this
+		// package's rule for wild input is to be lenient on parse.
+		case attr.Name.Local == "relId" && (attr.Name.Space == "" || attr.Name.Space == xmlb.NSOfficeDocumentRels):
 			v.RelId = attr.Value
 		case attr.Name.Local == "minVer":
 			v.MinVer = attr.Value
@@ -726,7 +739,10 @@ func (e *Ext) marshalContent(b *xmlb.Builder) {
 	case e.DataModelExt != nil:
 		var attrs []xmlb.Attr
 		if e.DataModelExt.RelId != "" {
-			attrs = append(attrs, xmlb.RelAttr("relId", e.DataModelExt.RelId))
+			// Unqualified, matching the schema and every producer. Emitting
+			// r:relId here would have made a parsed document drift on save the
+			// moment the parse side started binding the real spelling.
+			attrs = append(attrs, xmlb.StrAttr("relId", e.DataModelExt.RelId))
 		}
 		if e.DataModelExt.MinVer != "" {
 			attrs = append(attrs, xmlb.StrAttr("minVer", e.DataModelExt.MinVer))
