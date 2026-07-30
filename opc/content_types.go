@@ -435,11 +435,15 @@ func (ct *ContentTypes) SetOverride(partName, contentType string) {
 func (ct *ContentTypes) RemoveOverride(partName string) {
 	name := partName
 	if _, ok := ct.Overrides[name]; !ok {
+		// Lowest matching name, not the first one the map happens to yield: a
+		// package can legitimately carry two overrides that differ only in case
+		// (CheckDuplicateParts exists because such packages are real), and
+		// taking whichever the runtime visited first made the surviving
+		// override — and so the saved [Content_Types].xml — vary between runs.
 		name = ""
 		for existing := range ct.Overrides {
-			if strings.EqualFold(existing, partName) {
+			if strings.EqualFold(existing, partName) && (name == "" || existing < name) {
 				name = existing
-				break
 			}
 		}
 		if name == "" {
