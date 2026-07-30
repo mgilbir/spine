@@ -376,14 +376,25 @@ func (d *Document) threadFrom(root *oxml.CT_Comment) []*oxml.CT_Comment {
 	if d.commentsExtended == nil {
 		return out
 	}
+	// The queue is appended to while it is being walked, so a comment that
+	// parents itself — w15:paraIdParent equal to its own w15:paraId — would be
+	// re-queued on every visit and grow the slice without bound. A wild file can
+	// say that, and nothing in the parse rejects it. Comments() happens to
+	// filter such a comment out as a reply before this is reached, but that is a
+	// coincidence of the filter rather than a guard, so visit each comment once.
+	seen := map[*oxml.CT_Comment]bool{root: true}
 	for i := 0; i < len(out); i++ {
 		paraID := out[i].LastParaID()
 		if paraID == "" {
 			continue
 		}
 		for _, cm := range d.comments.Comment {
+			if seen[cm] {
+				continue
+			}
 			ce := d.commentExFor(cm)
 			if ce != nil && ce.ParaIdParent == paraID {
+				seen[cm] = true
 				out = append(out, cm)
 			}
 		}
