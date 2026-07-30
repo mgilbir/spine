@@ -34,6 +34,7 @@ package fuzzbound
 import (
 	"fmt"
 	"runtime/metrics"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -126,6 +127,17 @@ const grossFactor = 4
 // times the budget or more) is reported from the first measurement.
 func (b Budget) Check(tb testing.TB, n int, fn func()) {
 	tb.Helper()
+	if Tripped() {
+		// A budget has already been reported in this process. Running fn again
+		// would repeat the allocation that broke it, and tb.Fatalf only ends
+		// the current seed: `go test` walks the whole seed corpus, so a
+		// regression that allocates 16 GiB per seed accumulates across dozens
+		// of them and the process is OOM-killed before the report reaches
+		// anyone. Measured with C360 replanted — the -fuzz run reported in
+		// 0.02s while `go test -run` over the same corpus died silently even
+		// inside a 4G cap. The first report is the useful one; skip the rest.
+		tb.Skip("a resource budget was already exceeded in this process; skipping to keep the first report readable")
+	}
 	allocated, elapsed := Measure(fn)
 	why := b.exceeded(n, allocated, elapsed)
 	if why == "" {
@@ -137,8 +149,24 @@ func (b Budget) Check(tb testing.TB, n int, fn func()) {
 			return
 		}
 	}
+	trip()
 	tb.Fatalf("%s over budget for a %d-byte input: %s", b.What, n, why)
 }
+
+// tripped latches the first budget violation in this process.
+//
+// It is deliberately process-wide rather than per-Budget: the failure mode it
+// guards against is memory exhaustion, and it does not matter which budget
+// noticed first. Nothing resets it — a test binary that has seen one blow-up
+// has nothing useful left to measure.
+var tripped atomic.Bool
+
+// Tripped reports whether a resource budget has already been exceeded in this
+// process. A fuzz target should consult it before doing the work it measures,
+// so the run that broke the budget is also the last one to allocate.
+func Tripped() bool { return tripped.Load() }
+
+func trip() { tripped.Store(true) }
 
 // gross reports whether a measurement is too far past the budget to be noise.
 func (b Budget) gross(n int, allocated uint64, elapsed time.Duration) bool {

@@ -1,5 +1,5 @@
 .PHONY: build vet fetch fetch-strict fetch-cc test test-race test-corpus \
-	lint fuzz cover cover-dark harvest-sweep harvest-batch
+	lint fuzz fuzz-run cover cover-dark harvest-sweep harvest-batch
 
 build:
 	go build ./...
@@ -156,8 +156,36 @@ harvest-batch: build
 # write-path/API fuzzers) and runs each for a short fixed time, so a newly
 # added target is picked up automatically. Deeper fuzzing is -fuzztime-driven;
 # see CONTRIBUTING.md ("Fuzzing").
+#
+# Capped for the same reason as test-race, and more urgently: fuzzing *searches*
+# for pathological input, so finding one is the success case — and for the
+# parsers these targets drive, the historical failure mode is a single huge
+# allocation. C360 sized a slice from an unvalidated CFB header field: a
+# 512-byte file asked for 16 GiB, and buildFAT then appends into that slice, so
+# the pages are really faulted in rather than merely reserved. Measured on a
+# regression: 20.9 GB anon-RSS.
+#
+# Uncapped, that lands in the terminal's own cgroup, and on a machine with less
+# RAM than the allocation it is a *global* OOM (CONSTRAINT_NONE) rather than a
+# cgroup one. systemd's DefaultOOMPolicy=stop then tears down the whole terminal
+# scope — observed, with a tmux session losing 16h of accumulated work. Inside
+# this scope the same regression is contained: the kernel kills the test in its
+# own cgroup and the scope alone fails with 'oom-kill'.
+#
+# The cap is deliberately far below the machine: a runaway should die fast and
+# attributably rather than swap the box. Legitimate fuzz inputs are small.
+#
+# fuzz-run is the uncapped loop, exposed for environments that already impose a
+# limit (CI containers) — invoking it directly outside one is what this target
+# exists to prevent.
 FUZZTIME ?= 30s
+FUZZ_MEMMAX  ?= 4G
+FUZZ_SWAPMAX ?= 0
 fuzz:
+	systemd-run --user --scope -p MemoryMax=$(FUZZ_MEMMAX) -p MemorySwapMax=$(FUZZ_SWAPMAX) \
+		$(MAKE) fuzz-run FUZZTIME=$(FUZZTIME)
+
+fuzz-run:
 	@set -e; \
 	pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
 	for pkg in $$pkgs; do \
