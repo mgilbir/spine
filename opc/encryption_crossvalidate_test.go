@@ -11,9 +11,25 @@ import (
 	"testing"
 )
 
-// findMsoffcrypto locates the external msoffcrypto-tool used for cross-validation.
-// It checks $MSOFFCRYPTO_TOOL and PATH; when absent the caller skips the test so
-// the suite stays green in environments without the Python tool installed.
+// requireMsoffcryptoEnv turns a missing reference implementation from a skip
+// into a hard failure. CI sets it (see .github/workflows/ci.yml, which installs
+// msoffcrypto-tool) so the cross-validation actually runs somewhere.
+//
+// Without it these tests skip silently wherever the tool is absent, which is the
+// worst failure mode a cross-validation can have: the suite stays green while
+// the only check that compares this library against an independent
+// implementation runs nowhere at all. common/crypto's RC4 cross-validation
+// already drew that conclusion and honored this variable; this package did not,
+// so every scheme checked here — agile, standard at three key sizes, the
+// DataSpaces variants and the chained-DIFAT container — could have stopped being
+// verified against anything but ourselves without one test turning red.
+const requireMsoffcryptoEnv = "SPINE_REQUIRE_MSOFFCRYPTO"
+
+// findMsoffcrypto locates the external msoffcrypto-tool used for
+// cross-validation. It checks $MSOFFCRYPTO_TOOL and PATH; when absent it skips
+// so the suite stays green in environments without the Python tool — unless
+// $SPINE_REQUIRE_MSOFFCRYPTO is set, in which case the missing reference is a
+// failure rather than a shrug.
 func findMsoffcrypto(t *testing.T) string {
 	t.Helper()
 	if p := os.Getenv("MSOFFCRYPTO_TOOL"); p != "" {
@@ -21,6 +37,9 @@ func findMsoffcrypto(t *testing.T) string {
 	}
 	if p, err := exec.LookPath("msoffcrypto-tool"); err == nil {
 		return p
+	}
+	if v := os.Getenv(requireMsoffcryptoEnv); v != "" && v != "0" {
+		t.Fatalf("%s is set but msoffcrypto-tool is not available; install it or point $MSOFFCRYPTO_TOOL at it", requireMsoffcryptoEnv)
 	}
 	t.Skip("msoffcrypto-tool not available; set MSOFFCRYPTO_TOOL or add it to PATH to cross-validate encryption")
 	return ""
