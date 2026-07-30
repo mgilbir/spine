@@ -81,7 +81,7 @@ jobs:
       # major line installs v2. Version pinned to match the maintainer's
       # working toolchain (baseline is zero issues).
       - name: Lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: ./...
