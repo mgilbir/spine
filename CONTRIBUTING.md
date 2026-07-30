@@ -283,7 +283,39 @@ as the obvious ast-grep rule and got the Go `method_declaration` /
 not: it silently excluded nothing and reported a false positive. The same slip in
 the other direction reports "clean" forever.
 
-So: sweep with ast-grep, then promote anything real to a Go test. Prefer
+`semgrep` is the heavier option and earns its weight on one specific kind of
+question. Both tools are effectively intra-procedural, so neither can answer
+"this getter reads a field the materializer never assigns" — that spans two
+functions. But semgrep can express **negation and helper-call awareness within
+one function**, which ast-grep's relational rules cannot, and that is often
+enough once the question is restated.
+
+That restatement is the transferable part. The getter-versus-materializer
+property was undecidable as posed; rewritten as *a materializer that reads the
+parsed node's `SpPr` but never mirrors it into the overlay* it fits inside a
+single function, and a rule with one `pattern` plus three `pattern-not`s — the
+third covering the helper form `$HELPER(&$DST.spPr, ...)` — retro-found both
+buggy materializers behind C599. Two false positives came with them, both
+dismissed in seconds because the types had no overlay field at all.
+
+**When a cross-function property blocks you, look for an equivalent
+single-function restatement.** That is what turned "cannot be automated" into two
+true positives.
+
+Know the limits before reaching for either:
+
+- ast-grep matched C599's eight buggy methods only by their *formatting* —
+  one-line delegating getters. `Connector.line()` is correct and has a body, so
+  it did not match; reformat either and the answer flips in both directions. It
+  found the right set for the wrong reason.
+- Some questions are not in the Go source at all. Whether a
+  `RawAttrListOverride` call site is safe depends on whether the attribute is
+  *schema-required*, which no rule over the code can see. There the guard does
+  not analyse — it forces the decision to be written down per call site and
+  fails when a new site appears undeclared.
+
+So: sweep with ast-grep, reach for semgrep when the question needs negation,
+then promote anything real to a Go test. Prefer
 `go/ast` and `go/types` for the promoted version — they are in the standard
 library, this module has no third-party requirements, and the questions that
 matter here ("does this method transitively reach `markDirty`?", "are these map

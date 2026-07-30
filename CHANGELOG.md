@@ -258,6 +258,39 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- pptx: `Comment.SetResolved` no longer loses the change on a comment read from
+  a file. Modern comment threads re-marshal by replaying the producer's verbatim
+  attribute list with modeled values substituted, and the substitution only
+  reached attributes the source had already written. `@status` is optional and
+  absent on an *unresolved* comment — precisely the comment anyone resolves — so
+  the model was updated, the original attributes were serialized, and the
+  resolve vanished with no error. `Resolved()` reported true in memory, the
+  saved part carried no status, and reopening reported false. Attribute names
+  the caller declares authoritative are now honored in both directions: an empty
+  value removes the attribute and a non-empty one is appended when the source
+  lacked it, appended last so every attribute the producer wrote keeps its
+  original position and an unmodified part still re-marshals byte for byte.
+- pptx: `AutoShape` and `TextBox`'s `Glow`, `Reflection`, `SoftEdge` and `Bevel`
+  return the shape's effects instead of nil for any shape read from a file. The
+  domain handle's shape properties are an overlay — empty for a materialized
+  shape, merged onto the parsed node at save, which is what lets setting one
+  effect leave the others alone — and the materializer populated preset geometry
+  and bounds from the parsed node but never the effects. A shape carrying a red
+  glow reported `Glow() == nil` while the glow sat in its XML, which inverts the
+  natural `if s.Glow() == nil { s.SetGlow(...) }`. No data was lost: the
+  save-time merge was always correct, so only the read side was wrong. Reading
+  the getters still does not mark the deck edited.
+- All formats: `dsp:dataModelExt/@relId` — the relationship id of a SmartArt
+  data model — is bound the way producers actually spell it. The schema declares
+  it unqualified and every real document writes it that way, but the parser
+  accepted only the `r:`-qualified form, so the value parsed empty on every real
+  file. That extension has a recognized URI and is rebuilt from its typed field
+  with no raw fallback, so the reference was deleted outright. It surfaced only
+  now because diagram data parts round-trip as preserved bytes rather than being
+  regenerated — the loss was one regeneration away. Both spellings now parse and
+  the unqualified form is written.
+
+
 - Three results that varied between runs because a map was iterated in Go's
   randomized order now do not. `pptx.Presentation.Validate` listed the parts
   added during the session — embedded media, merged masters, notes — in map

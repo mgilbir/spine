@@ -1129,3 +1129,72 @@ is 2022, xlsx's `buildThemedXlsx` is 2001). Under a bubble,
 `Modified.After(baseline)` therefore **fails for a correctly stamping save**.
 Exact-instant equality is what makes the conversion possible at all — all three
 formats hit this, including the one predicted not to.
+
+## 11. The coverage sweep (C598–C600)
+
+§9 ended on the claim that the value of the next audit is lower than the value
+of the next guard. This section is the test of that claim, and it mostly holds —
+but with a correction: a *measurement* pointed at the code no guard was watching,
+and three real defects were sitting there.
+
+A whole-module coverage pass (`-coverpkg=./...`, corpus enabled) reported **245
+library functions that no test executed**. The number itself is not the finding.
+Coverage was used strictly as a *finder*: the value is in the patterns, because
+each one predicts a specific kind of bug that nothing else would catch.
+
+| pattern | example | the bug it predicts |
+|---|---|---|
+| sibling left behind | `WidthEMU` covered, `HeightEMU` not, same type | transposition — and a fixture with equal dimensions passes under it |
+| truncated family | accents 1–2 tested, 3–6 dark | a setter writing its neighbour's slot |
+| inverse untested | eleven `Clear*` whose `Set` side was tested | `Clear` zeroing the value instead of removing the element |
+| fallback path | `lookupFileLinear`, `lookupRawLinear` | already produced C596 in this exact shape |
+| size-triggered branch | `writeDIFATSectors`, only above ~7 MB | never reached by any fixture |
+
+### The three defects
+
+| ID | Sev | Issue | Found by |
+|---|---|---|---|
+| **C598** | high | `Comment.SetResolved` on a comment read from a file was **silently dropped on save**. `replayP188Attrs` substitutes modeled values only into attributes the source already wrote, and `@status` is optional and absent on an unresolved comment — the only kind anyone resolves. Data loss with no error | setter round-trip guard |
+| **C599** | medium | `AutoShape`/`TextBox` `Glow`, `Reflection`, `SoftEdge` and `Bevel` returned nil for **every shape read from a file**, while the effect sat in the XML. The materializer copied preset geometry and bounds off the parsed node but not the effects, and the getters read the overlay. A silent wrong answer that inverts `if s.Glow() == nil` | coverage sweep |
+| **C600** | medium | `dsp:dataModelExt/@relId` was bound only in the relationships namespace; the schema declares it unqualified and every producer writes it that way, so it parsed empty on every real file and the SmartArt data-model reference was **deleted** on regeneration. Masked today only because diagram data parts are preserved verbatim — tension T1, one regeneration from live | coverage sweep |
+
+### What the sweep says about testing here
+
+Every prior effect test set a value and read it back on the **same in-memory
+handle**, where the setter had already populated the overlay. That passes whether
+or not parsing works at all. The rule worth carrying: **assert through a reopen,
+or you have tested half the code.** `TestEverySetterSurvivesSaveAndReopen` now
+drives 114 setter/getter pairs that way, and it is what found C598.
+
+Two guards came out of the same work:
+
+- **`TestNoExponentFloatFormatting`** — see §9.
+- **`TestRawAttrListOverrideSitesAreDeclared`** — C598's mechanism generalizes:
+  `RawAttrListOverride` iterates the *captured* list, so any name the source
+  lacked is silently ignored. Whether a call site is safe depends on whether the
+  attribute is schema-required, which is a fact about the schema and not about
+  the Go source — no static rule can decide it. The guard therefore forces the
+  decision to be written down per call site and fails on a new undeclared one.
+  Reviewing all sites found no second live instance, and two latent ones
+  (`p14:media`'s either/or `@r:embed`/`@r:link`, and the modern-comment author's
+  optional `@initials`/`@userId`/`@providerId`) that are safe only because
+  nothing mutates those parsed structures today.
+
+### On the tooling question
+
+`ast-grep` and `semgrep` were both tried on C599's class. Neither can decide it:
+"a getter reads field X, and the materializer never assigns X" spans two
+functions, and both tools are effectively intra-procedural. ast-grep matched the
+eight buggy methods only by their *formatting* — one-line delegating getters —
+so `Connector.line()`, which is correct but has a body, did not match; reformat
+either and the answer flips.
+
+semgrep did better, but only after **restating the property so it fits in one
+function**: *a materializer that reads the parsed node's `SpPr` but never mirrors
+it into the overlay.* That retro-found both buggy materializers, with two false
+positives dismissible in seconds (the types had no overlay field at all). The
+transferable technique is the restatement, not the rule.
+
+Neither is committed. The reasoning in `CONTRIBUTING.md` stands: a rule outside
+the test suite is a guard nobody watches, and the durable check here is
+behavioural.
