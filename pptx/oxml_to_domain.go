@@ -311,6 +311,31 @@ func oxmlShapeToPlaceholder(sp *oxml.Shape) *PlaceholderShape {
 	return ph
 }
 
+// carryEffectsFromOxml copies a parsed shape's effect list and 3D properties
+// onto the domain shape's SpPr overlay.
+//
+// The overlay starts empty for a materialized shape and is merged onto the
+// parsed node at save (mergeSpPr), which is what lets setting one effect leave
+// the others alone. But the effect *getters* read the overlay, so without this
+// they answered nil for every shape read from a file — a shape carrying a red
+// glow reported Glow() == nil while the glow sat in the XML. That is a silent
+// wrong answer, not a missing feature: a caller testing `if s.Glow() == nil`
+// before setting one gets the opposite of the truth.
+//
+// This is the same thing the materializer already does for preset geometry and
+// bounds; effects were simply left out. Copying them back is idempotent at save
+// — the merge writes the parsed values over themselves — so byte identity is
+// unaffected, and it deliberately does not touch dirty: reading is not editing,
+// and materializing a shape must not make the save regenerate it.
+func carryEffectsFromOxml(dst *dml.SpPr, src *dml.SpPr) {
+	if src == nil {
+		return
+	}
+	dst.EffectLst = src.EffectLst
+	dst.EffectDag = src.EffectDag
+	dst.Sp3d = src.Sp3d
+}
+
 // oxmlShapeToTextBox converts an oxml.Shape with TxBox=true to a TextBox.
 func oxmlShapeToTextBox(sp *oxml.Shape) *TextBox {
 	tb := &TextBox{
@@ -320,6 +345,7 @@ func oxmlShapeToTextBox(sp *oxml.Shape) *TextBox {
 	if sp.NvSpPr != nil {
 		populateBaseShapeFromOxml(&tb.BaseShape, sp.NvSpPr.CNvPr, sp.SpPr)
 	}
+	carryEffectsFromOxml(&tb.spPr, sp.SpPr)
 
 	if sp.TxBody != nil {
 		tb.textFrame = oxmlToTextFrame(sp.TxBody)
@@ -342,6 +368,7 @@ func oxmlShapeToAutoShape(sp *oxml.Shape) *AutoShape {
 	if sp.NvSpPr != nil {
 		populateBaseShapeFromOxml(&as.BaseShape, sp.NvSpPr.CNvPr, sp.SpPr)
 	}
+	carryEffectsFromOxml(&as.spPr, sp.SpPr)
 
 	if sp.TxBody != nil {
 		as.textFrame = oxmlToTextFrame(sp.TxBody)
