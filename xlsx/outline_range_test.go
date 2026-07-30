@@ -279,15 +279,16 @@ func assertFasterThan(t *testing.T, what string, limit time.Duration, op func() 
 	}
 }
 
-func TestGroupColumnsScalesLinearly(t *testing.T) {
-	if testing.Short() {
-		t.Skip("timing-sensitive; skipped under -short")
-	}
-	// MaxCol is 16384, so the widest honest span is a 8x step from 2000.
-	assertLinearInSpan(t, "GroupColumns", 2000, 16000, func(n int) error {
-		return addSheetT(Create(), "S").GroupColumns(1, n)
-	})
-}
+// GroupColumns has no per-item ratio check on purpose. MaxCol caps the column
+// span at 8x, and quadratic work multiplies per-item cost by exactly that span
+// ratio — so "mild cache effects" and "quadratic" live within one factor of 8
+// of each other. On a shared CI runner that gap closes: the check measured 5.4x
+// and then 6.1x there against 2.3-3.2x locally, twice failing on noise with
+// nothing regressed. Raising the threshold to survive that would have put it
+// within a quarter of the 8x quadratic signature, i.e. a guard that tolerates
+// the bug it exists to catch. TestGroupColumnsIsFast decides instead, on an
+// absolute bound with 22x separation measured against the pre-fix code.
+// GroupRows keeps its ratio check: a 16x span leaves real headroom.
 
 // assertLinearInSpan runs an operation over a small and a large span and
 // compares the per-item cost rather than the total. Linear work keeps the
