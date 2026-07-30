@@ -157,6 +157,20 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Changed
 
+- All formats: floating-point values written into XML now always use plain
+  decimal notation, never exponent form — `1000000`, not `1e+06`. Go's `%g`,
+  which the shared marshaler used, switches to E-notation at magnitudes at or
+  above 1e6 and below 1e-4. That range is reached by ordinary data (a sparkline's
+  manual axis bound, a pivot field's grouping interval, a chart axis scale), and
+  Office writes plain decimal in all of those positions, so the old output was
+  both unlike every real producer's and — for a value parsed at that magnitude —
+  a re-spelling of the source, which is byte drift. Precision is unaffected: the
+  shortest round-tripping decimal is still used. Values whose source spelling
+  must survive verbatim (Excel's `1E-4` iteration deltas, its
+  `-4.9989318521683403E-2` theme tints) were already handled by lexical types and
+  are unchanged. `xmlb.FormatFloat` is now the single policy for every output
+  path, and a build-failing guard keeps it that way (C531, C556, C559).
+
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`

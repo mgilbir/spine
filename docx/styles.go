@@ -1,10 +1,10 @@
 package docx
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 )
 
@@ -413,9 +413,11 @@ func (s *Style) ensureInd() *oxml.CT_Ind {
 }
 
 // halfPoints renders a point size as the half-point string w:sz stores (12pt →
-// "24"), matching Run.SetFontSize.
+// "24"). It is the single spelling for every half-point measure in the package
+// — w:sz, w:position, w:kern — so a size cannot be written one way here and
+// another way through Run.
 func halfPoints(points float64) string {
-	return fmt.Sprintf("%g", points*2)
+	return xmlb.FormatFloat(points * 2)
 }
 
 // lineSpacingAuto renders a proportional line-spacing multiplier as the 240ths

@@ -1018,11 +1018,10 @@ type AnimVariantInt struct {
 
 // AnimVariantFloat represents CT_TLAnimVariantFloatVal.
 //
-// The reflection marshaler renders float64 attributes with %g, which is not the
-// identity on xsd:double lexical space: val="1.0" comes back as "1", "1E3" as
-// "1000", and magnitudes at or beyond 1e21 / below 1e-5 flip to exponent form.
-// Lex keeps the producer's spelling so the always-remarshaled timing path does
-// not rewrite it (C531).
+// No float formatting is the identity on xsd:double lexical space: val="1.0"
+// comes back as "1" and "1E3" as "1000" whatever verb is used. Lex keeps the
+// producer's spelling so the always-remarshaled timing path does not rewrite it
+// (C531).
 type AnimVariantFloat struct {
 	Val float64 `xml:"-"`
 	// Lex is the source lexical form of val; empty for values built
@@ -1051,7 +1050,7 @@ func (f *AnimVariantFloat) AttrValue() string {
 	if f.Lex != "" {
 		return f.Lex
 	}
-	return strconv.FormatFloat(f.Val, 'g', -1, 64)
+	return xmlb.FormatFloat(f.Val)
 }
 
 // MarshalToBuilder writes p:fltVal with the preserved lexical form.
