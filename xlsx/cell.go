@@ -774,8 +774,12 @@ type AlignmentStyle struct {
 }
 
 // SetStyle creates a style from the given definition and applies it to the cell.
+//
+// A rejected style (an out-of-range rotation or indent, a negative number-format
+// id) leaves the cell and the sheet untouched: the dirty flag is set by
+// SetStyleIndex on the success path only, so a failed call cannot force the
+// worksheet part to be regenerated on save (C544 shape).
 func (c *Cell) SetStyle(style CellStyle) error {
-	c.markSheetDirty()
 	if c.sheet == nil || c.sheet.workbook == nil {
 		return fmt.Errorf("xlsx: cell is not associated with a workbook")
 	}

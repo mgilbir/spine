@@ -159,12 +159,12 @@ func copySheetImages(src, dst *Sheet, srcWB *Workbook) {
 			img.svgData = bytes.Clone(img.svgData)
 		}
 		dst.images = append(dst.images, img)
-		dst.dirty = true
+		dst.markDirty()
 	}
 	// Images loaded from an opened source's drawing part.
 	for _, img := range openedSheetImages(src, srcWB) {
 		dst.images = append(dst.images, img)
-		dst.dirty = true
+		dst.markDirty()
 	}
 }
 

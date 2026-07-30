@@ -210,6 +210,24 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- xlsx: reading no longer dirties the workbook. `Workbook.Styles()` on a package
+  that carries no `xl/styles.xml` marked styles dirty just to materialize the
+  in-memory default stylesheet, so a plain `wb.Styles().NamedStyles()` — a read —
+  grew a styles part, a content-type override and a workbook relationship in the
+  saved file. `Cell.SetStyle` and `Cell.SetNamedStyle` marked the sheet dirty on
+  their first line, before validating, so a *rejected* call (an out-of-range text
+  rotation, an unknown style name) regenerated a worksheet that had not changed.
+  Both now flag only when something actually changed. A new reflective guard
+  calls every exported read-shaped method on `Workbook`, `Sheet` and `Cell` and
+  asserts the saved package is byte-for-byte unchanged, so a future accessor that
+  starts flagging fails the build.
+- xlsx: editing a comment on a chartsheet, dialogsheet or macrosheet no longer
+  rebuilds `xl/_rels/workbook.xml.rels`. `markCommentsDirty` assigned the sheet's
+  dirty flag directly, bypassing the guard that keeps an opaque sheet — one
+  preserved verbatim and never regenerated — from ever being flagged. A new AST
+  guard enforces that only `markDirty` may assign that flag, and a second one
+  fails when any exported method mutates durable state without reaching a
+  regeneration flag unless it carries a documented exemption.
 - pptx no longer reformats `ppt/presentation.xml`, slide layouts and slide
   masters on a save that changed nothing. Those three part kinds are rebuilt
   from the model on every save (the writer owns their id lists and relationship

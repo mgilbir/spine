@@ -260,7 +260,7 @@ func (w *Workbook) saveOpenedSheetAttachments(writer *opc.Writer) (rebuiltRels, 
 			return nil, nil, "", err
 		}
 		rebuiltRels[relsPartFor(sheet.partName)] = true
-		sheet.dirty = true
+		sheet.markDirty()
 	}
 
 	// Workbook-shared person list (threaded comment authors).

@@ -630,7 +630,15 @@ func (s *Sheet) markCommentsDirty() {
 	if s.comments != nil {
 		s.comments.dirtyMark()
 	}
-	s.dirty = true
+	// Route through markDirty rather than assigning s.dirty: an opaque
+	// (chartsheet/dialogsheet/macrosheet) sheet is preserved verbatim and must
+	// never be flagged, and a raw assignment bypasses that guard the way
+	// AddImage's did (C241/C423). A Comment handle can reach here from an
+	// opaque sheet — Sheet.Comments loads whatever comment parts the sheet's
+	// rels name, without an opaque check — and a dirty opaque sheet still
+	// reaches the unguarded sheet loops on the save path, dropping calcChain.xml
+	// and rebuilding the workbook rels for a change that is then discarded.
+	s.markDirty()
 }
 
 func (sc *sheetComments) dirtyMark() { sc.mutated = true }

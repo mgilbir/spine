@@ -1227,8 +1227,11 @@ func ptrBoolEqual(a, b *bool) bool {
 
 // SetNamedStyle applies a previously defined named style (see
 // StyleManager.AddNamedStyle) to the cell by name.
+//
+// An unknown name leaves the cell and the sheet untouched: the dirty flag is
+// set by SetStyleIndex on the success path only, so a failed lookup cannot
+// force the worksheet part to be regenerated on save (C544 shape).
 func (c *Cell) SetNamedStyle(name string) error {
-	c.markSheetDirty()
 	if c.sheet == nil || c.sheet.workbook == nil {
 		return fmt.Errorf("xlsx: cell is not associated with a workbook")
 	}

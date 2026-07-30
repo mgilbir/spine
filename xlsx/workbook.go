@@ -1289,15 +1289,20 @@ func nextWorksheetPartName(preserved map[string]*coxml.RawPart, sheets []*Sheet,
 }
 
 // Styles returns the StyleManager for this workbook. If no stylesheet exists
-// yet (e.g. for a newly created workbook), a default one is created and styles
-// are marked dirty. Merely reading styles from an existing workbook does not
-// mark them dirty (which would force styles.xml to be regenerated and break
-// byte-identical round-trip); the returned manager marks styles dirty only when
-// a mutating method is called.
+// yet (e.g. for a newly created workbook), a default one is materialized in
+// memory. Merely reading styles does not mark them dirty (which would force
+// styles.xml to be regenerated and break byte-identical round-trip); the
+// returned manager marks styles dirty only when a mutating method is called.
 func (w *Workbook) Styles() *StyleManager {
 	if w.stylesheet == nil {
+		// Materializing the default stylesheet for a package that carries no
+		// styles part is a READ, so it must not set stylesDirty: an opened
+		// workbook with no xl/styles.xml otherwise grew one — plus a
+		// content-type override and a workbook relationship — from nothing but
+		// wb.Styles().NamedStyles() (C425 shape; the mutating-accessor class).
+		// Created workbooks are unaffected: saveNew writes styles.xml whenever
+		// w.stylesheet is non-nil, without consulting stylesDirty.
 		w.stylesheet = defaultStylesheet()
-		w.stylesDirty = true
 	}
 	return newStyleManager(w.stylesheet, func() { w.stylesDirty = true })
 }
