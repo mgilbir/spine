@@ -229,6 +229,56 @@ func TestGroupRowsScalesLinearly(t *testing.T) {
 	})
 }
 
+// TestGroupRowsIsFast and TestGroupColumnsIsFast are the guards that actually
+// decide whether the quadratic came back. The per-item ratio checks above are a
+// coarse smoke test: they measure wall clock on whatever machine happens to run
+// them, and the column span is capped at 8x by MaxCol, so the gap between "mild
+// cache effects" and "quadratic" is only 8x wide. On a shared CI runner that gap
+// closes — GroupColumns measured 5.4x there against a 2.3-3.2x local range.
+// An absolute bound has no such problem: the pre-fix cost was ~225ms for 8000
+// rows and ~960ms for 8000 columns, against ~2ms and ~1ms now, so a bound two
+// orders of magnitude above the fixed cost still catches a regression outright
+// while being immune to scheduler noise.
+func TestGroupRowsIsFast(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipped under -short")
+	}
+	assertFasterThan(t, "GroupRows(1, 64000)", 400*time.Millisecond, func() error {
+		return addSheetT(Create(), "S").GroupRows(1, 64000)
+	})
+}
+
+func TestGroupColumnsIsFast(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing-sensitive; skipped under -short")
+	}
+	assertFasterThan(t, "GroupColumns(1, 16000)", 200*time.Millisecond, func() error {
+		return addSheetT(Create(), "S").GroupColumns(1, 16000)
+	})
+}
+
+// assertFasterThan runs op three times and asserts the best run beats limit.
+// Taking the best discards scheduler noise without hiding a real regression:
+// quadratic work is slower than the bound on every run, not just the unlucky
+// ones.
+func assertFasterThan(t *testing.T, what string, limit time.Duration, op func() error) {
+	t.Helper()
+	best := time.Duration(1<<63 - 1)
+	for i := 0; i < 3; i++ {
+		start := time.Now()
+		if err := op(); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if d := time.Since(start); d < best {
+			best = d
+		}
+	}
+	t.Logf("%s: %v (limit %v)", what, best, limit)
+	if best > limit {
+		t.Errorf("%s took %v, want <= %v: the linear-time path has regressed", what, best, limit)
+	}
+}
+
 func TestGroupColumnsScalesLinearly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing-sensitive; skipped under -short")
@@ -271,10 +321,14 @@ func assertLinearInSpan(t *testing.T, what string, small, large int, run func(in
 	if perSmall <= 0 {
 		return
 	}
-	// Quadratic work would multiply the per-item cost by the span ratio
-	// (8x-16x here); 4x leaves ample room for cache and GC effects.
-	if ratio := perLarge / perSmall; ratio > 4 {
-		t.Errorf("%s scales super-linearly: per-item cost grew %.1fx over a %dx wider span (%.0f -> %.0f ns/item); want <= 4x",
+	// Quadratic work multiplies the per-item cost by the span ratio (8x for
+	// columns, 16x for rows). 4x looked like ample headroom on a quiet machine
+	// but measured 5.4x on a shared CI runner against a 2.3-3.2x local range,
+	// so it failed on noise rather than on a regression. 6x keeps this below
+	// the 8x quadratic signature while surviving a loaded runner; the absolute
+	// bounds in TestGroup*IsFast are what decisively catch the regression.
+	if ratio := perLarge / perSmall; ratio > 6 {
+		t.Errorf("%s scales super-linearly: per-item cost grew %.1fx over a %dx wider span (%.0f -> %.0f ns/item); want <= 6x",
 			what, ratio, large/small, perSmall, perLarge)
 	}
 }
