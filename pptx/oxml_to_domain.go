@@ -833,7 +833,13 @@ func oxmlToRun(r *dml.R) *Run {
 		// resolved later, once slide context is available.
 		if rpr.HlinkClick != nil {
 			run.hyperlink = hyperlinkFromXML(rpr.HlinkClick)
-			run.hyperlink.markDirty = func() { run.dirty = true }
+			// markSet, not a bare dirty flag: patchRunInPlace writes
+			// rpr.HlinkClick only for a run that explicitly set the hyperlink
+			// property, so marking the run dirty alone flushed everything else
+			// and dropped the edit (a SetTooltip on a hyperlink read back from a
+			// file was silently lost). This is the binding Run.SetHyperlink
+			// itself uses.
+			run.hyperlink.markDirty = func() { run.markSet(runPropHyperlink) }
 		}
 	}
 

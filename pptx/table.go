@@ -648,11 +648,20 @@ func (c *TableCell) isBorderCleared(edge cellBorderEdge) bool {
 	return c.bordersCleared&(1<<edge) != 0
 }
 
-// SetBorders sets all borders to the same value.
+// SetBorders sets all four borders to the same value. A nil border removes them,
+// as it does on the per-edge setters.
+//
+// It routes each edge through markBorder rather than setting dirty directly:
+// the flush writes a removal only for edges bordersCleared records, so setting
+// the fields and the dirty flag alone made SetBorders(nil) mark the cell dirty
+// and then leave every parsed a:ln* in place — a silent no-op, and the opposite
+// of what SetBorderLeft(nil) does to the same cell.
 func (c *TableCell) SetBorders(border *TableBorder) {
 	c.borderLeft = border
 	c.borderRight = border
 	c.borderTop = border
 	c.borderBottom = border
-	c.dirty = true
+	for _, edge := range []cellBorderEdge{borderLeft, borderRight, borderTop, borderBottom} {
+		c.markBorder(edge, border)
+	}
 }

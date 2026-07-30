@@ -39,6 +39,10 @@ func (s *Slide) AddCommentAt(x, y int64, author, text string) *Comment {
 
 func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *Comment {
 	p := s.presentation
+	// Comment parts are preserved raw parts written here and re-emitted
+	// verbatim, so the write needs no flag to persist and nothing else records
+	// that the deck changed.
+	p.markModelEdited()
 	authorID := p.authorIDForName(author)
 
 	cm := &oxml.ModernComment{
@@ -153,6 +157,9 @@ func (c *Comment) SetResolved(resolved bool) {
 
 // rewriteModernThread re-marshals a modern comment thread part in place.
 func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) {
+	// Every thread edit (Reply, Resolve, SetResolved) lands here; see
+	// addModernComment for why the write itself needs no flag.
+	p.markModelEdited()
 	part := &oxml.ModernCommentPart{Comment: cm}
 	p.otherParts[partName] = &coxml.RawPart{
 		ContentType: opc.ContentTypeModernComments,

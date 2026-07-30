@@ -45,6 +45,7 @@ func (sm *SlideMaster) Name() string {
 
 // SetName sets the name of the slide master.
 func (sm *SlideMaster) SetName(name string) {
+	sm.presentation.markModelEdited()
 	if sm.masterXML == nil {
 		sm.masterXML = &oxml.SlideMaster{}
 	}
@@ -173,7 +174,7 @@ func (sm *SlideMaster) EditablePlaceholders() []*EditablePlaceholder {
 	if sm.masterXML == nil || sm.masterXML.CSld == nil {
 		return nil
 	}
-	return editablePlaceholdersFromSpTree(sm.masterXML.CSld.SpTree)
+	return editablePlaceholdersFromSpTree(sm.presentation, sm.masterXML.CSld.SpTree)
 }
 
 // EditablePlaceholder returns a mutable handle to the first master placeholder
@@ -404,10 +405,14 @@ func levelStyleFromPPr(pp *dml.PPr) *TextLevelStyle {
 // from the source is inserted at its schema position in the parsed child order
 // (dml.LstStyle.EnsureLevel), so adding a brand-new level round-trips in lvlN
 // order rather than after a later sibling or a captured a:extLst.
+// It also records the edit: every SetLevel* setter reaches the master through
+// here, and the master part is regenerated on every save, so none of them needs
+// a flag to persist and nothing else would notice the deck had changed.
 func (ts *MasterTextStyle) ensureLevel(level int) *dml.PPr {
 	if level < 0 || level > 8 {
 		return nil
 	}
+	ts.sm.presentation.markModelEdited()
 	return ts.ensureLst().EnsureLevel(level)
 }
 
@@ -720,6 +725,7 @@ func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 		sm.registerLayoutRelationships(layout)
 	}
 	sm.layoutsModified = true
+	sm.presentation.markModelEdited()
 	return layout
 }
 

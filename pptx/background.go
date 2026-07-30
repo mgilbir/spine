@@ -129,6 +129,7 @@ func (s *Slide) SetBackgroundImage(data []byte, contentType string) error {
 // the layout and master.
 func (s *Slide) ClearBackground() {
 	if s.sx() != nil && s.sx().CSld != nil {
+		s.presentation.markModelEdited()
 		s.sx().CSld.Bg = nil
 	}
 }
@@ -153,8 +154,12 @@ func (s *Slide) BackgroundColor() (dml.Color, bool) {
 // --- Slide master background ---
 
 // ensureCSld returns the master's common slide data, allocating the master XML
-// and cSld as needed.
+// and cSld as needed. Only the background setters call it, and each is about to
+// write, so it also records the edit: the master part is regenerated on every
+// save, which is why these mutators need no flag to persist and why nothing
+// else would notice that the deck changed.
 func (sm *SlideMaster) ensureCSld() *oxml.CommonSlideData {
+	sm.presentation.markModelEdited()
 	if sm.masterXML == nil {
 		sm.masterXML = &oxml.SlideMaster{}
 	}
@@ -223,6 +228,7 @@ func (sm *SlideMaster) nextBackgroundRelID() string {
 // ClearBackground removes the master's explicit background.
 func (sm *SlideMaster) ClearBackground() {
 	if sm.masterXML != nil && sm.masterXML.CSld != nil {
+		sm.presentation.markModelEdited()
 		sm.masterXML.CSld.Bg = nil
 	}
 }
@@ -247,8 +253,9 @@ func (sm *SlideMaster) BackgroundColor() (dml.Color, bool) {
 // --- Slide layout background ---
 
 // ensureCSld returns the layout's common slide data, allocating the layout XML
-// and cSld as needed.
+// and cSld as needed. See SlideMaster.ensureCSld for why it records the edit.
 func (sl *SlideLayout) ensureCSld() *oxml.CommonSlideData {
+	sl.presentation.markModelEdited()
 	if sl.layoutXML == nil {
 		sl.layoutXML = newLayoutXML(sl.layoutType)
 	}
@@ -288,6 +295,7 @@ func (sl *SlideLayout) SetBackgroundImage(data []byte, contentType string) error
 // the master.
 func (sl *SlideLayout) ClearBackground() {
 	if sl.layoutXML != nil && sl.layoutXML.CSld != nil {
+		sl.presentation.markModelEdited()
 		sl.layoutXML.CSld.Bg = nil
 	}
 }

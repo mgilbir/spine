@@ -103,6 +103,10 @@ func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 	}
 	p.resolvePendingSlideJumps(ctx)
 	p.importHandoutMaster(other, ctx)
+	// Imported slides arrive with their model already built, so they are
+	// regenerated without any flag being set; the same holds for the layouts,
+	// masters, themes and preserved parts brought across with them.
+	p.markModelEdited()
 	return nil
 }
 

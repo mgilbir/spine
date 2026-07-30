@@ -70,6 +70,7 @@ func (p *Presentation) VBAProject() []byte {
 // extracted from another document transplants that document's macros and their
 // trust; only inject bytes from a source you trust.
 func (p *Presentation) SetVBAProject(data []byte) {
+	p.markModelEdited()
 	name := p.resolveVBAPartName()
 	p.otherParts[name] = &coxml.RawPart{
 		ContentType: opc.ContentTypeVBAProject,
@@ -103,5 +104,6 @@ func (p *Presentation) RemoveVBAProject() {
 	}
 	delete(p.otherParts, name)
 	p.markPartRemoved(name)
+	p.markModelEdited()
 	p.flavor = opc.PlainFlavor(p.Flavor())
 }

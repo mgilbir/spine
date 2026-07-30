@@ -140,11 +140,27 @@ func (s *Slide) rawBytes() []byte {
 	return raw
 }
 
-// ensureModel returns the slide model, materializing an existing slide's parsed
-// content first (so a mutator preserves it) and allocating an empty model only
-// when the slide has no bytes to parse. Mutators call this before editing so a
-// never-parsed slide is not silently replaced with an empty one.
+// ensureModel returns the slide model for a mutator that is about to edit it
+// directly, materializing an existing slide's parsed content first (so the edit
+// preserves it) and allocating an empty model only when the slide has no bytes
+// to parse. Mutators call this before editing so a never-parsed slide is not
+// silently replaced with an empty one.
+//
+// It also records the edit. Such mutators (SetTransition, the background
+// setters, SetName) need no flag to persist — materializing the model is itself
+// what makes the save regenerate the part — so nothing else notes that the
+// slide changed, and the modification timestamp would miss it. Read paths must
+// use sx()/materialize() instead; ensureModel means "I am about to write".
 func (s *Slide) ensureModel() *oxml.Slide {
+	s.presentation.markModelEdited()
+	return s.materialize()
+}
+
+// materialize returns the slide model, parsing it if needed and allocating an
+// empty one for a slide with no bytes, without recording an edit. It is
+// ensureModel without the write intent, for the save path (which must be able to
+// marshal a slide nobody touched).
+func (s *Slide) materialize() *oxml.Slide {
 	if s.sx() == nil {
 		s.sxModel = newSlideXML()
 		s.sxParsed = true
@@ -484,7 +500,9 @@ func (s *Slide) BodyPlaceholder() *PlaceholderShape {
 // was materialized, so an untouched slide passes its original bytes through
 // without ever reaching here.
 func (s *Slide) marshal() ([]byte, error) {
-	s.ensureModel()
+	// materialize, not ensureModel: serializing a slide is not editing it, and
+	// ensureModel would record a model edit for every slide on every save.
+	s.materialize()
 
 	// Reject media that cannot become a valid package part (no data, or no
 	// recognizable content type) before any of it is written.

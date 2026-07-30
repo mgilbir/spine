@@ -22,6 +22,8 @@ package pptx
 // still saves byte-for-byte.
 
 import (
+	"bytes"
+
 	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
@@ -85,6 +87,14 @@ func (p *Presentation) applyThemeEdits() {
 		data, err := ed.Marshal()
 		if err != nil {
 			continue
+		}
+		// Record the edit only when the bytes actually move. dml.ThemeEditor's
+		// modified bit never resets, so keying off it would report the same theme
+		// edit as outstanding on every subsequent save and re-stamp
+		// dcterms:modified each time; comparing the serialization against what is
+		// already stored answers "changed since the last save" instead.
+		if !bytes.Equal(p.themeData[name], data) {
+			p.markModelEdited()
 		}
 		p.themeData[name] = data
 	}

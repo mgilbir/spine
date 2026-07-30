@@ -18,7 +18,15 @@ func (p *Presentation) SetCustomProperty(name string, value any) error {
 	if p.customProps == nil {
 		p.customProps = &opc.CustomProperties{}
 	}
-	return p.customProps.Set(name, value)
+	if err := p.customProps.Set(name, value); err != nil {
+		return err
+	}
+	// customPropertiesModified (a snapshot comparison) is what makes the save
+	// regenerate the part, so this call is only about recording that the deck
+	// changed: the comparison latches true and cannot distinguish a second edit
+	// made after a save from the first one still being outstanding.
+	p.markModelEdited()
+	return nil
 }
 
 // RemoveCustomProperty removes the named custom property, reporting whether it
@@ -27,7 +35,11 @@ func (p *Presentation) RemoveCustomProperty(name string) bool {
 	if p.customProps == nil {
 		return false
 	}
-	return p.customProps.Remove(name)
+	if !p.customProps.Remove(name) {
+		return false
+	}
+	p.markModelEdited()
+	return true
 }
 
 // customPropertiesModified reports whether the custom properties were edited or

@@ -146,6 +146,23 @@ type Presentation struct {
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
 	dirEntries []string
+
+	// modelEdits counts the edits made to content this package regenerates or
+	// rewrites unconditionally (presentation.xml, masters, layouts, a slide's
+	// own model, and the preserved raw parts): changes that reach the output
+	// without needing a flag to make them persist, and so had no record that
+	// they happened. savedModelEdits is the count the last completed save wrote
+	// out, so a repeat save of an untouched deck sees no outstanding edit. See
+	// markModelEdited and contentChanged in modified.go.
+	modelEdits      int
+	savedModelEdits int
+
+	// stampedModified is the Properties.Modified value stampModified wrote on a
+	// previous save. It is what lets a later content edit stamp again while an
+	// explicit caller assignment is still left alone: without it the two are
+	// indistinguishable, since both show up as Modified differing from
+	// propsSnapshot. Zero when this package has never stamped.
+	stampedModified time.Time
 }
 
 // Open opens a PowerPoint presentation from a file path. The whole package is
@@ -663,10 +680,21 @@ func CreateWithOptions(opts CreateOptions) *Presentation {
 		},
 	}
 
+	// Snapshot the properties Create just set, exactly as Open does, so the save
+	// can tell a caller's explicit Properties.Modified assignment from the value
+	// this constructor wrote (see stampModified).
+	p.propsSnapshot = p.Properties.Clone()
+
 	// Add default master and layouts if requested
 	if opts.IncludeDefaultLayouts {
 		p.initializeDefaultMasterAndLayouts()
 	}
+
+	// The furniture the constructor just built is the deck as created, not an
+	// edit to it: Properties.Modified already records this moment, so saving a
+	// deck straight out of Create must not stamp it again a fraction of a second
+	// later. Adding content afterwards does count, and stamps.
+	p.noteSaved()
 
 	return p
 }
@@ -791,6 +819,12 @@ func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 	// that map, so this is the single point where a Theme() edit becomes
 	// output (C571); an untouched theme is left byte-identical.
 	p.applyThemeEdits()
+	// Record the write time in dcterms:modified, but only when this session
+	// actually changed something. Stamping unconditionally made SaveBytes
+	// non-idempotent; never stamping loses a real edit's write time. Must run
+	// before either save path, because whether the stamp happened is also what
+	// decides between regenerating docProps/core.xml and preserving its bytes.
+	p.stampModified()
 	writer := opc.NewWriter(dst)
 	var err error
 	if p.reader != nil {
@@ -804,7 +838,14 @@ func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 		_ = writer.Abort()
 		return err
 	}
-	return writer.Close()
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	// The package now on the wire is the new baseline for change detection, so
+	// saving the same deck again reproduces these bytes rather than reporting
+	// the edits it has just written out as still outstanding.
+	p.noteSaved()
+	return nil
 }
 
 // SaveAs writes the presentation to a new file path — the "open a template,
@@ -978,11 +1019,26 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 	// the part never gains one on a zero-modification save (some producers
 	// keep core properties in a *.psmdcp part or have none).
 	propsEdited := p.propsSnapshot != nil && !p.Properties.Equal(p.propsSnapshot)
-	if p.hasCorePart && p.corePartRaw != nil && !propsEdited {
+	switch {
+	case p.hasCorePart && p.corePartRaw != nil && !propsEdited:
 		if err := writer.WritePreservedPart("/docProps/core.xml", p.corePartRaw.ContentType, p.corePartRaw.Data); err != nil {
 			return err
 		}
-	} else if p.hasCorePart || propsEdited {
+	case p.hasCorePart && p.corePartRaw != nil:
+		// Edited properties: regenerate the part, but write it here rather than
+		// leaving it to Close, which appends it after everything else. The
+		// source stored core.xml at this position, and moving it means saving an
+		// edited deck and then re-saving the reopened result — which preserves
+		// the part where it was found — produces a different archive for the
+		// same content.
+		data, err := p.Properties.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := writer.WritePart("/docProps/core.xml", p.corePartRaw.ContentType, data); err != nil {
+			return err
+		}
+	case p.hasCorePart || propsEdited:
 		writer.Properties = &p.Properties
 	}
 
@@ -2305,6 +2361,7 @@ func (p *Presentation) AddSlide() *Slide {
 	p.nextSlideID++
 
 	p.slides = append(p.slides, slide)
+	p.markModelEdited()
 	return slide
 }
 
@@ -2512,6 +2569,7 @@ func (p *Presentation) RemoveSlide(index int) error {
 		p.sweepInboundPartReferences(partName)
 	}
 	p.mediaGCNeeded = true
+	p.markModelEdited()
 
 	// Strip the removed slide's id from any section it belonged to, so the
 	// section list does not emit a p14:sldId that no longer resolves to a slide
@@ -2754,6 +2812,7 @@ func (p *Presentation) MoveSlide(from, to int) error {
 	for i := range p.slides {
 		p.slides[i].index = i
 	}
+	p.markModelEdited()
 
 	return nil
 }
@@ -2788,6 +2847,7 @@ func (p *Presentation) SlideHeight() int64 {
 
 // SetSlideSize sets the dimensions of slides.
 func (p *Presentation) SetSlideSize(width, height int64) {
+	p.markModelEdited()
 	p.presentation.SlideSize = &oxml.SlideSize{
 		Cx: width,
 		Cy: height,
