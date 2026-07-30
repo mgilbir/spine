@@ -85,9 +85,38 @@ var overrideSites = map[string]overrideSite{
 	},
 	"pptx/internal/oxml/moderncomments_marshal.go:replayP188Attrs": {
 		kind: appendsWhenMissing,
-		reason: "The clearable list (@status) is authoritative both ways: an empty " +
-			"model value removes the attribute, a non-empty one is appended when the " +
-			"source lacked it. This is the site the rule was written for.",
+		reason: "The wrapper itself. Names passed in its clearable list are " +
+			"authoritative both ways: an empty model value removes the attribute, a " +
+			"non-empty one is appended when the source lacked it. Names outside that " +
+			"list keep RawAttrListOverride's substitute-only behaviour, so each caller " +
+			"is declared separately below.",
+	},
+	"pptx/internal/oxml/moderncomments_marshal.go:ModernComment.marshal": {
+		kind: appendsWhenMissing,
+		reason: "@status is optional and absent on an unresolved comment — the one " +
+			"anyone resolves — so it is passed as clearable and appends when missing. " +
+			"This is the site the rule was written for. @id, @authorId and @created " +
+			"are required on p188:cm.",
+	},
+	"pptx/internal/oxml/moderncomments_marshal.go:ModernReply.marshal": {
+		kind: schemaRequired,
+		reason: "@id, @authorId and @created are all required on p188:reply, so each " +
+			"is present in the captured list of anything that parsed into this model. " +
+			"No clearable list is needed.",
+	},
+	"pptx/internal/oxml/moderncomments_marshal.go:ModernAuthor.marshal": {
+		kind: unreachableToday,
+		reason: "@id and @name are required, but @initials, @userId and @providerId " +
+			"are optional and are NOT passed as clearable — deliberately, because an " +
+			"author whose source wrote initials=\"\" must keep it rather than have it " +
+			"removed, which is what clearable's empty-removes half would do. So a " +
+			"value set on an author parsed without that attribute would be dropped. " +
+			"Unreachable today: nothing mutates a parsed author. AddComment matches an " +
+			"existing author by name and reuses its id, or builds a fresh " +
+			"ModernAuthor with no CapturedAttrs, and no exported API edits author " +
+			"identity. An API that does needs append-without-remove, which is a third " +
+			"behaviour this helper does not yet have — do not simply add these to " +
+			"clearable.",
 	},
 }
 
@@ -245,14 +274,28 @@ func overrideCallSites(path, rel string) []string {
 	return out
 }
 
-// isOverrideCall reports whether a call is to RawAttrListOverride, through any
-// import alias, or unqualified inside common/xml itself.
+// replayEntryPoints are the functions whose safety depends on whether an
+// overridden attribute was present in the source.
+//
+// replayP188Attrs is included because it is a *wrapper* around
+// RawAttrListOverride, and the argument differs per caller rather than per
+// wrapper: its three call sites pass three different model maps and three
+// different clearable lists. Declaring only the wrapper collapsed those into one
+// entry that was true of the @status caller and said nothing about the other
+// two — which is how the first version of this guard was wrong.
+var replayEntryPoints = map[string]bool{
+	"RawAttrListOverride": true,
+	"replayP188Attrs":     true,
+}
+
+// isOverrideCall reports whether a call is to a replay entry point, through any
+// import alias or unqualified within the defining package.
 func isOverrideCall(call *ast.CallExpr) bool {
 	switch fn := call.Fun.(type) {
 	case *ast.SelectorExpr:
-		return fn.Sel.Name == "RawAttrListOverride"
+		return replayEntryPoints[fn.Sel.Name]
 	case *ast.Ident:
-		return fn.Name == "RawAttrListOverride"
+		return replayEntryPoints[fn.Name]
 	}
 	return false
 }
