@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
+	"github.com/mgilbir/spine/internal/maporder/testdata/plantedhelper"
 )
 
 type part struct {
@@ -53,6 +54,16 @@ func badEmitThroughHelper(b *xmlb.Builder, parts map[string]*part) {
 
 func writeOne(b *xmlb.Builder, name string) {
 	b.EmptyElement("", name)
+}
+
+// badEmitAcrossPackages hides the write in another package. Catching this is
+// what the shared object identity of one packages.Load buys: the callee has to
+// resolve to the *types.Func the analyser indexed from plantedhelper's syntax,
+// not to a second copy of it produced by a separate type check.
+func badEmitAcrossPackages(b *xmlb.Builder, parts map[string]*part) {
+	for name := range parts {
+		plantedhelper.WriteInto(b, name)
+	}
 }
 
 // badCollectUnsorted is C497: the returned slice is in map order, but the
@@ -184,4 +195,15 @@ func okDeleteFromMap(parts map[string]*part, drop map[string]bool) {
 	for name := range drop {
 		delete(parts, name)
 	}
+}
+
+// okCallsRenderInAnotherPackage is the cross-package mirror of
+// okMarshalOwnsItsBuilder: plantedhelper.Render builds and returns its own
+// bytes, so reaching across a package boundary is not by itself an emit.
+func okCallsRenderInAnotherPackage(parts map[string]*part) map[string][]byte {
+	out := make(map[string][]byte, len(parts))
+	for name := range parts {
+		out[name] = plantedhelper.Render(name)
+	}
+	return out
 }

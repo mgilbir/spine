@@ -34,12 +34,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          # Pin to the version declared in go.mod (go 1.25).
+          # Pin to the version declared in go.mod (go 1.25.0).
           go-version-file: go.mod
-          # The module has no third-party requirements, so there is no go.sum for
-          # the toolchain cache to key on; leaving it enabled logs a "Dependencies
-          # file is not found" warning on every run.
-          cache: false
+          # The module gained its first requirement (golang.org/x/tools, for
+          # internal/maporder) and so its first go.sum, which is what the
+          # toolchain cache keys on. Caching is setup-go's default; it used to
+          # be turned off here because there was no dependency file to find.
 
       - name: Build
         run: go build ./...

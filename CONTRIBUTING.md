@@ -142,14 +142,20 @@ without flagging it, an attribute that loses its captured spelling, an id
 allocator that ignores what the opened document already contains, a map ranged
 in Go's randomized order on the way to the output.
 
-`internal/maporder` is the one that needs type information, so it is also the
-worked example of getting it without a dependency: `go/parser` plus `go/types`
-with `importer.ForCompiler(fset, "source", nil)` type-checks the six
-serialization packages in about two and a half seconds. Type errors are
-swallowed there, which is exactly how a guard degrades to seeing nothing — so
+`internal/maporder` is the one that needs type information, and it is the worked
+example of how to get it: `golang.org/x/tools/go/packages` — the module's only
+requirement, and the first reason it has a `go.sum`. `go/importer`'s source mode
+is the dependency-free alternative and was tried first; it is four times slower
+(2.5s against 0.6s) because it re-type-checks every transitive dependency, and
+it type-checks each package in isolation, so a call from `docx` into `opc`
+resolves to a *different* `*types.Func` than the one indexed from `opc`'s own
+syntax and the cross-package call graph silently does not work.
+
+A guard that resolves nothing reports a clean repository forever, so
 `TestGuardSeesEnough` asserts floors on packages, files, functions, typed
 expressions and map ranges, and that four named landmark loops were still
-analysed and still came out clean.
+analysed and still came out clean. `Load` also refuses to return a package that
+carries any load error, rather than pressing on with partial types.
 
 Two properties make one of these worth having, and both are easy to lose:
 

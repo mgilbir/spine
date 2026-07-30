@@ -102,19 +102,13 @@ var (
 	loaded error
 )
 
-// analyze runs the sweep once for the whole test binary: source-mode type
-// checking of eighteen packages costs about two and a half seconds, which is
-// worth paying once and not four times.
+// analyze runs the sweep once for the whole test binary: loading and walking
+// eighteen packages costs a little under two seconds, which is worth paying
+// once rather than four times.
 func analyze(t *testing.T) *maporder.Analysis {
 	t.Helper()
 	once.Do(func() {
-		root := repoRoot()
-		dirs, err := maporder.PackageDirs(root)
-		if err != nil {
-			loaded = err
-			return
-		}
-		result, loaded = maporder.Analyze(root, dirs)
+		result, loaded = maporder.Analyze(repoRoot(), maporder.Patterns)
 	})
 	if loaded != nil {
 		t.Fatalf("analysing the repository: %v", loaded)
@@ -160,19 +154,22 @@ func TestNoOrderDependentMapRanges(t *testing.T) {
 // (the guard has gone blind) or if a safe pattern starts being reported (the
 // guard has become noise that people will switch off).
 func TestGuardCatchesPlantedViolations(t *testing.T) {
-	dir := filepath.Join(repoRoot(), "internal", "maporder", "testdata", "planted")
-	an, err := maporder.Analyze(repoRoot(), []string{dir})
+	an, err := maporder.Analyze(repoRoot(), []string{
+		"./internal/maporder/testdata/planted",
+		"./internal/maporder/testdata/plantedhelper",
+	})
 	if err != nil {
 		t.Fatalf("analysing the planted fixture: %v", err)
 	}
-	const prefix = "internal/maporder/testdata/planted/planted.go:"
+	const prefix = "internal/maporder/testdata/planted"
 	wantKinds := map[string]string{
-		"badEmitToBuffer":      maporder.KindEmit,
-		"badEmitToBuilder":     maporder.KindEmit,
-		"badEmitThroughHelper": maporder.KindEmit,
-		"badCollectUnsorted":   maporder.KindCollect,
-		"badSelectFirstMatch":  maporder.KindEscape,
-		"badEscapeOutward":     maporder.KindEscape,
+		"badEmitToBuffer":       maporder.KindEmit,
+		"badEmitToBuilder":      maporder.KindEmit,
+		"badEmitThroughHelper":  maporder.KindEmit,
+		"badEmitAcrossPackages": maporder.KindEmit,
+		"badCollectUnsorted":    maporder.KindCollect,
+		"badSelectFirstMatch":   maporder.KindEscape,
+		"badEscapeOutward":      maporder.KindEscape,
 	}
 	got := map[string]string{}
 	for _, f := range an.Findings {
@@ -265,8 +262,7 @@ func TestReverseLookupMapsAreInjective(t *testing.T) {
 					if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
 						continue
 					}
-					key := strings.TrimPrefix(p.ImportPath, "github.com/mgilbir/spine/") +
-						":" + vs.Names[0].Name
+					key := maporder.ShortPath(p.ImportPath) + ":" + vs.Names[0].Name
 					if _, want := injectiveMaps[key]; !want {
 						continue
 					}

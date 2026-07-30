@@ -27,9 +27,8 @@
 // A syntactic matcher cannot do this job: `range x` looks the same whether x is
 // a map, a slice or a channel, and a purely syntactic sweep of this repository
 // produced twelve candidates that were all false positives. So the analysis is
-// type-directed, using go/types with the standard library's source importer —
-// this module has no third-party requirements and golang.org/x/tools would be
-// one.
+// type-directed, over golang.org/x/tools/go/packages. See Load for why that
+// rather than go/importer.
 //
 // # Classification
 //
@@ -56,7 +55,10 @@
 //
 // Locally defined closures are inlined, because the collect-then-sort helpers
 // in this repository are frequently written as one (`add`, `mark`, `scan`), and
-// a summary that stopped at the call would classify them all as opaque.
+// a summary that stopped at the call would classify them all as opaque. Calls
+// to declared functions are resolved through the call graph instead, across
+// package boundaries as well as within one — a write hidden a package away in a
+// helper that does not own its Builder is the same defect as one written inline.
 package maporder
 
 import (
@@ -135,16 +137,21 @@ var sortFuncs = map[string]bool{
 	"slices.Sort": true, "slices.SortFunc": true, "slices.SortStableFunc": true,
 }
 
-// Analyze type-checks the given package directories and reports every
-// order-dependent map range in them.
-func Analyze(repoRoot string, dirs []string) (*Analysis, error) {
-	prog, err := Load(repoRoot, dirs)
+// Analyze loads the packages matching patterns (rooted at dir) and reports
+// every order-dependent map range in them. Positions are reported relative to
+// dir.
+func Analyze(dir string, patterns []string) (*Analysis, error) {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	prog, err := Load(root, patterns)
 	if err != nil {
 		return nil, err
 	}
 	a := &analyzer{
 		prog:     prog,
-		repoRoot: repoRoot,
+		repoRoot: root,
 		decls:    map[*types.Func]*funcSite{},
 		closures: map[*types.Var]*ast.FuncLit{},
 		emitMemo: map[*types.Func]bool{},
