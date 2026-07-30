@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 // C61: with the main part at a non-standard name (e.g. /word/document2.xml),
@@ -72,13 +73,22 @@ func TestNonStandardMainPartRelationships(t *testing.T) {
 
 // Wave-2 finding: preserved parts were written in map-iteration order, so
 // zip entry order (and therefore whole-archive bytes) differed between runs.
+//
+// Modified is pinned because each build() is a separate *edited* session, and an
+// edit stamps the write time: without it the subject of the test would be the
+// wall clock, and two builds either side of a second boundary would differ for a
+// reason that has nothing to do with entry order. An explicit assignment wins
+// over the automatic stamp. Idempotent saving is pinned by
+// TestSavesAfterEditAreByteIdentical, which is where it belongs.
 func TestSaveIsDeterministic(t *testing.T) {
+	pinned := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	build := func() []byte {
 		doc, err := Open("testdata/svg_test.docx")
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = doc.Close() }()
+		doc.Properties.Modified = pinned
 		doc.AddParagraphWithText("determinism probe")
 		saved, err := doc.SaveBytes()
 		if err != nil {
