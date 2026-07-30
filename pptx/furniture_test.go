@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 // slideXML returns the first slide's XML from a saved deck.
@@ -161,8 +162,19 @@ func TestSetSlideDateFixedAndAuto(t *testing.T) {
 }
 
 func TestFurnitureDeterministic(t *testing.T) {
+	// Create stamps Properties.Created/Modified with time.Now() at
+	// second granularity, and each build makes a fresh deck. Two builds that
+	// land either side of a second boundary therefore differ in
+	// docProps/core.xml no matter how deterministic the furniture is — which is
+	// what made this test fail roughly once in 300 runs and get written off as
+	// "known flaky" rather than read. Pinning the stamps makes the comparison
+	// answerable, and keeps core.xml inside it instead of excluding the one part
+	// that was actually moving.
+	stamp := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	build := func() []byte {
 		p := newDeckWithSlide()
+		p.Properties.Created = stamp
+		p.Properties.Modified = stamp
 		p.SetSlideFooter("Confidential")
 		p.ShowSlideNumbers(true)
 		p.SetSlideDateAuto()
