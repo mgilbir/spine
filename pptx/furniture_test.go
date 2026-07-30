@@ -162,17 +162,18 @@ func TestSetSlideDateFixedAndAuto(t *testing.T) {
 }
 
 func TestFurnitureDeterministic(t *testing.T) {
-	// Create stamps Properties.Created/Modified with time.Now() at
-	// second granularity, and each build makes a fresh deck. Two builds that
-	// land either side of a second boundary therefore differ in
-	// docProps/core.xml no matter how deterministic the furniture is — which is
-	// what made this test fail roughly once in 300 runs and get written off as
-	// "known flaky" rather than read. Pinning the stamps makes the comparison
-	// answerable, and keeps core.xml inside it instead of excluding the one part
-	// that was actually moving.
+	// Create stamps Properties.Created/Modified with time.Now() at second
+	// granularity, and saving stamps Modified again by default, so two builds
+	// either side of a second boundary differ in docProps/core.xml however
+	// deterministic the furniture is. That is what made this test fail about
+	// once in 300 runs and get written off as "known flaky" rather than read.
+	// Turning the save-time stamp off and pinning the create-time ones makes the
+	// comparison answerable, and keeps core.xml inside it rather than excluding
+	// the one part that was actually moving.
 	stamp := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	build := func() []byte {
 		p := newDeckWithSlide()
+		p.SetStampModifiedOnSave(false)
 		p.Properties.Created = stamp
 		p.Properties.Modified = stamp
 		p.SetSlideFooter("Confidential")

@@ -70,6 +70,11 @@ type Presentation struct {
 	// with *.psmdcp core properties or none at all).
 	hasCorePart   bool
 	propsSnapshot *opc.CoreProperties
+
+	// noStampModified disables the save-time Properties.Modified update. It is
+	// inverted so the zero value keeps the default (stamp), which matters
+	// because a Presentation can be built without going through Create.
+	noStampModified bool
 	// corePartRaw preserves the source /docProps/core.xml bytes (and content
 	// type) so an unmodified save reproduces the part verbatim instead of
 	// regenerating it (declaration form, element order, and formatting all
@@ -1673,13 +1678,19 @@ func (p *Presentation) remapCustomShowRefs(remap map[string]string) {
 
 // saveNew saves a newly created presentation.
 func (p *Presentation) saveNew(writer *opc.Writer) error {
-	// Properties.Modified is deliberately not stamped here. Create already sets
-	// Created and Modified, so a new deck carries a sensible timestamp; stamping
-	// again on every save made SaveBytes non-idempotent — two saves either side
-	// of a second boundary produced different docProps/core.xml for an unchanged
-	// deck. docx and xlsx never touch Modified in their save paths, so this also
-	// removes a cross-format difference. A caller who wants the save time
-	// recorded can set Properties.Modified before saving.
+	// Saving a new deck records when it was written, which is what a document
+	// author expects. It costs idempotency: two saves either side of a second
+	// boundary produce different docProps/core.xml for an unchanged deck, which
+	// is why SetStampModifiedOnSave(false) exists for callers that need
+	// reproducible bytes.
+	//
+	// This applies to newly created decks only. saveRoundTrip writes core.xml
+	// solely when the properties differ from the snapshot taken at open, so an
+	// opened deck still round-trips byte-identically; stamping there would make
+	// every save rewrite core.xml.
+	if !p.noStampModified {
+		p.Properties.Modified = time.Now()
+	}
 	writer.Properties = &p.Properties
 	if p.customProps != nil && p.customProps.Len() > 0 {
 		writer.CustomProperties = p.customProps

@@ -109,3 +109,30 @@ func DefaultCreateOptions() CreateOptions {
 		IncludeDefaultLayouts: true,
 	}
 }
+
+// SetStampModifiedOnSave controls whether saving a newly created presentation
+// advances Properties.Modified to the current time.
+//
+// It is enabled by default: a deck written to disk records when it was written.
+// The cost is that SaveBytes is then not idempotent — saving an unchanged deck
+// twice either side of a second boundary yields different docProps/core.xml —
+// so pass false when the output must be reproducible, such as when comparing
+// bytes in a test or feeding a content-addressed store.
+//
+// This governs newly created decks only. A deck opened from a package writes
+// core.xml only when its properties differ from the ones read at open, so an
+// untouched deck round-trips byte-identically either way; stamping there would
+// rewrite core.xml on every save and break that guarantee.
+//
+// Setting Properties.Modified explicitly is independent of this option: with
+// stamping enabled the save-time value wins, with it disabled the value set by
+// the caller is written unchanged.
+func (p *Presentation) SetStampModifiedOnSave(stamp bool) {
+	p.noStampModified = !stamp
+}
+
+// StampModifiedOnSave reports whether saving a newly created presentation
+// advances Properties.Modified. See SetStampModifiedOnSave.
+func (p *Presentation) StampModifiedOnSave() bool {
+	return !p.noStampModified
+}
