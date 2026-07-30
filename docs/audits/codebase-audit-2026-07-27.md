@@ -822,24 +822,34 @@ mid-save, so a **second** `SaveBytes` regenerates the VML from scratch and
 discards the form-control shapes and note geometry the first save preserved.
 Pre-existing; fixed in #237 and pinned by `TestRepeatedSaveConverges`.
 
-### Deferred, with reasons
+### Deferred at the end of the wave — and what became of them
 
-- **C586** — the T-D root fix in `common/xml/marshal.go`; wants its own PR on top
-  of #227, since it changes replay semantics for docx, xlsx and pptx together.
-- **`formatValue`'s `%g`** — #236 fixed the pptx instance locally (C531); the
-  shared float formatting in `common/xml/marshal.go` still drifts docx/xlsx
-  lexical forms. Fold into the C586 PR.
-- **#227's full literal-prefix guard** — prototyped and corpus-clean, but
-  withheld: declarations written through `writeLiteralAttrs` never enter the
-  Builder's namespace map, so an ancestor replaying a captured `xmlns:a14`
-  would be flagged wrongly. Correct order is to make literal declarations
-  visible to the Builder first.
-- **`common/dml/xml_extension.go` prefix gap** (a14/a16/asvg) — needs #227's
-  `LiteralPrefixFor`, which did not exist on #231's base.
-- **C584** — see above.
-- **C582** — 34 stale agent worktrees (~1.1 GB); cleanup owed once no agent runs.
-- Unchanged from the prior wave: **C329**, **C298**, **C333**, and the
-  pivot-cache portion of the xlsx `DeleteSheet` cascade.
+This list was written when the wave landed. Everything on it except the last
+line has since been closed; the dispositions are recorded here rather than the
+entries deleted, so the reason each item was *safe* to defer stays checkable.
+
+| Deferred item | Disposition |
+|---|---|
+| **C586** — the T-D root fix in `common/xml/marshal.go`; wanted its own PR on top of #227, since it changes replay semantics for docx, xlsx and pptx together | **fixed** (#243) |
+| **`formatValue`'s `%g`** — #236 fixed the pptx instance locally (C531); the shared float formatting still drifted docx/xlsx lexical forms | **fixed** (#261) — see §9 |
+| **#227's full literal-prefix guard** — prototyped and corpus-clean, but withheld: declarations written through `writeLiteralAttrs` never enter the Builder's namespace map, so an ancestor replaying a captured `xmlns:a14` would be flagged wrongly. Correct order was to make literal declarations visible to the Builder first | **fixed** (#244), in that order |
+| **`common/dml/xml_extension.go` prefix gap** (a14/a16/asvg) — needed #227's `LiteralPrefixFor`, which did not exist on #231's base | **fixed** (#244) |
+| **C584** — `CommonSlideData.Name` not clearable | **fixed** (#258); verified by round-trip: `<p:cSld name="Original">` → `SetName("")` → `<p:cSld>` |
+| **C582** — 34 stale agent worktrees (~1.1 GB); cleanup owed once no agent runs | **done** |
+| **C329** — schema-order insertion | **fixed** (#248) |
+
+Still open, each blocked on an input rather than on effort:
+
+- **C298** (bibliography `customXml`) — needs a Word-authored fixture; none
+  exists locally and the shape cannot be responsibly guessed.
+- **C333** (WARC `content_digest` validation) — needs live-corpus validation
+  first, or it will reject payloads that are in fact intact.
+- **The pivot-cache portion of the xlsx `DeleteSheet` cascade** — deliberately
+  scoped out of #216; the sheet-reference half shipped.
+- **Seven whitespace rows in `known_failures.tsv`** — almost certainly stale
+  after C587, but unverifiable: the harvest manifests key on Common Crawl's
+  `content_digest`, not cctest's sha16, so those exact files cannot be refetched
+  to confirm. They stay quarantined rather than being cleared on a guess.
 
 ### Verification notes
 
@@ -955,3 +965,99 @@ Two lessons worth carrying:
 - **A guard that must be loosened until it passes is not a guard.** The C588
   ratio check was widened once and still failed; the honest move was to delete
   it and assert something with real dynamic range.
+
+## 9. The guard wave (C590–C596, and the float-format root)
+
+§8 closed with the observation that none of C587–C589 was found by reading
+code. C589 in particular — `SaveBytes` was not idempotent — had been reported by
+a failing test for months while being filed as flake, and its fix raised a
+question the report had already named as tension **T2**: *which* mutations
+actually change a document? Answering it honestly required knowing that every
+mutator flags its part, which nobody had ever checked as a class.
+
+So the work after §8 was not more auditing. It was building mechanical guards
+for the three classes this report kept re-discovering by hand, and fixing what
+they found. Each guard is written to fail on a **new** omission rather than to
+pin today's known set, which is the property §4's tension **T-E** says a rollup
+table lacks.
+
+### What the guards found
+
+| ID | Sev | Issue | Found by |
+|---|---|---|---|
+| **C590** | high | Four public docx paragraph mutators (`AddMath`, `AddMathPara`, `ClearBorders`, `ClearShading`) reached the model through `p.p` instead of `p.mut()`. An equation appended to, or a border cleared from, a **header or footer** paragraph opened from a file succeeded in memory and was discarded at save. `Document.Header`/`Footer` and `Header.Paragraphs` hand out exactly those paragraphs | docx AST mutator sweep |
+| **C591** | medium | Three xlsx writers assigned `Sheet.dirty` directly instead of through `markDirty`, bypassing the guard that stops an opaque (chart/dialog/macro) sheet being flagged. `markCommentsDirty` is reachable from one — `Sheet.Comments` has no opaque check — so editing a note on a chartsheet rewrote `xl/_rels/workbook.xml.rels` for an edit that is then discarded | docx/xlsx AST sweep |
+| **C592** | medium | `Workbook.Styles()` marked styles dirty just to materialize the in-memory default stylesheet, so a plain `wb.Styles().NamedStyles()` — a *read* — grew the saved package by `xl/styles.xml`, a content-type override and a workbook relationship | reflective read-only guard |
+| **C593** | low | `Cell.SetStyle`/`SetNamedStyle` marked the sheet dirty on their first line, before validating, so a **rejected** call (out-of-range rotation, unknown style name) regenerated a worksheet that had not changed | reflective read-only guard |
+| **C594** | medium | `pptx.Presentation.knownPartNames` ranged `otherParts` and `themeData` — the parts a session adds (embedded media, merged masters, notes), which are not in `reader.Files` and so are not covered by the `add` dedup. A deck with two embedded images produced its `Validate` findings in a different order on every call. The same function already sorted header and footer names for this exact reason (C497) | `internal/maporder` |
+| **C595** | low | `xlsx.validateDeletedPartRefs` ranged `w.relationships`, so a workbook with several parts still pointing at something `DeleteSheet` removed reported those findings in a different order each run | `internal/maporder` |
+| **C596** | medium | `opc.RemoveOverride`'s case-insensitive fallback took whichever matching key the map yielded first and stopped. A package carrying two overrides differing only in case is real — `CheckDuplicateParts` exists because of them — so **which one survived, and therefore the bytes of the saved `[Content_Types].xml`, changed between runs**. It now takes the lowest matching name | `internal/maporder` |
+
+Each fix carries a regression test confirmed to fail against `main` before it.
+
+### The guards themselves
+
+- **`TestMutationsFlagTheirPart`** (docx) and **`TestExportedMutatorsFlagState`**
+  (xlsx) — AST sweeps proving every exported mutator reaches its modification
+  flag. Both ship with an **empty** exemption list beyond documented cases.
+- **`TestEveryMutatorMarksTheDeck`** (pptx) — reflects over every exported method
+  whose name starts with a mutation verb, on a registry of live receivers,
+  synthesizes arguments and requires `contentChanged()` to flip. 236 mutators
+  across 24 types run today; a method added to an existing type is covered with
+  no edit, and a new public type fails the completeness check. Each mutator is
+  tried with **two** argument seeds, so a setter that legitimately no-ops when
+  handed the value already in place is not misread as unflagged.
+- **`TestReadOnlyAccessorsPreserveEveryPart`** (xlsx) and
+  `TestZeroModificationRaisesNoFlag` (docx) — the same property from the other
+  side, which is what caught C592 and C593. A guard that only checks "mutators
+  flag" is half a guard: over-flagging is equally a defect, and it is the half
+  that breaks byte identity.
+- **`internal/maporder`** — a `go/packages` analysis classifying every `range`
+  over a map as `emit`, `collect` or `escape`, with a reason-carrying exemption
+  map that fails on a stale entry. It needed `golang.org/x/tools/go/packages`:
+  `go/importer` in source mode type-checks packages in isolation, so the
+  cross-package call graph silently did not work.
+
+### The float-format root, and why the instance fixes were not enough
+
+The deferred `formatValue` item is closed. Go's `'g'` verb switches to
+E-notation at magnitudes **at or above 1e6 and below 1e-4** — not an exotic
+range: a sparkline's manual axis bound, a pivot field's grouping interval and a
+chart axis scale all reach it with ordinary data. E-notation is legal
+`xsd:double`, but Office writes plain decimal in every one of those positions,
+so emitting it both marks the output as non-Office and — for a value that was
+*parsed* at that magnitude — re-emits it in a spelling its own source never
+used. That is byte drift.
+
+This is **T-E** in miniature. It was found and fixed three times as three
+instances — C531 (pptx `AnimVariantFloat`), C556 (xlsx theme tints), C559 (chart
+caches disagreeing textually with the data sheet they mirror) — and each fix was
+correct and local, so the shared formatter underneath them was never touched.
+`xmlb.FormatFloat` is now the single policy, used by the reflection marshaler
+and by every lexical type's programmatic fallback, and
+`TestNoExponentFloatFormatting` fails the build on any new exponent-capable
+float formatting anywhere in the module. Its exemption list is empty.
+
+Two distinctions the fix rests on, both of which cost real time to see:
+
+- **A formatter cannot preserve a spelling.** Excel writes theme tints as
+  `-4.9989318521683403E-2`; by the time a float reaches any formatter the
+  spelling is gone. Those fields need a lexical type that replays the source and
+  falls back to the policy only for programmatic values. No amount of verb
+  selection substitutes for that.
+- **Never using exponent form has a cost**, and it is bounded rather than
+  absent: `1e300` formats as 301 characters. That is valid, absent from
+  documents Office writes, and cheaper than the drift — recorded as a decision
+  in `TestFormatFloatExtremesAreBounded` rather than left to be rediscovered.
+
+### What this section is really about
+
+§8 said none of C587–C589 was found by reading code. That is now the working
+assumption rather than an observation: the classes this report re-found by hand
+across four audits — mutation-not-flagged (T2), map-order-reaches-output,
+instance-fixed-class-open (T-E) — are the ones a machine checks cheaply and a
+reader checks badly. Every one of C590–C596 had survived four adversarial
+passes over the same code.
+
+The corollary is uncomfortable and worth stating: the value of the next audit is
+lower than the value of the next guard, for any class where a guard is possible.

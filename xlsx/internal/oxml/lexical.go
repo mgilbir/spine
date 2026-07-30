@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // This file also holds the package's single attribute-parse policy for numeric
@@ -198,7 +200,7 @@ func (v FloatLex) AttrValue() string {
 	if v.orig != "" {
 		return v.orig
 	}
-	return strconv.FormatFloat(v.Val, 'g', -1, 64)
+	return xmlb.FormatFloat(v.Val)
 }
 
 // IsZeroAttr implements xmlb.AttrValuer for omitempty handling.

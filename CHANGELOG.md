@@ -157,19 +157,42 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Changed
 
+- All formats: floating-point values written into XML now always use plain
+  decimal notation, never exponent form — `1000000`, not `1e+06`. Go's `%g`,
+  which the shared marshaler used, switches to E-notation at magnitudes at or
+  above 1e6 and below 1e-4. That range is reached by ordinary data (a sparkline's
+  manual axis bound, a pivot field's grouping interval, a chart axis scale), and
+  Office writes plain decimal in all of those positions, so the old output was
+  both unlike every real producer's and — for a value parsed at that magnitude —
+  a re-spelling of the source, which is byte drift. Precision is unaffected: the
+  shortest round-tripping decimal is still used. Values whose source spelling
+  must survive verbatim (Excel's `1E-4` iteration deltas, its
+  `-4.9989318521683403E-2` theme tints) were already handled by lexical types and
+  are unchanged. `xmlb.FormatFloat` is now the single policy for every output
+  path, and a build-failing guard keeps it that way (C531, C556, C559).
+
 - xlsx: a save records the write time in `docProps/core.xml`
   (`dcterms:modified`) when — and only when — the session actually changed the
-  workbook. Saving never touched the timestamp before, so an edited workbook
-  kept whatever write time it was opened with, and one built with `Create` had
-  none at all. There is deliberately no option to turn this off: an unchanged
-  save still reproduces the package byte-for-byte, so accuracy and determinism
-  do not conflict. Reading is not editing — accessors that materialize model
-  state on access (`Sheet.Cell` creates the `<row>`/`<c>` it returns,
-  `Workbook.Styles` materializes a default stylesheet) do not stamp, a mutator
-  that returns an error does not stamp, and an edit to an opaque
+  workbook, matching the behaviour pptx gained in the same wave.
+
+  xlsx never touched `Modified` before, so a workbook edited beyond recognition
+  kept whatever write time its producer left behind, and one built with `Create`
+  carried none at all. Stamping *every* save is the other obvious
+  option and is worse: it makes `SaveBytes` non-idempotent, so the same content
+  saved either side of a second boundary produces two different packages. There
+  is deliberately no option to choose between accuracy and determinism, because
+  they only conflict when nothing changed — and when nothing changed, an
+  unchanged save still reproduces the package byte-for-byte.
+
+  Reading is not editing. Detection keys off the mutation flags the save path
+  already trusts, never off the decision to regenerate a part — which merely
+  *accessing* a model sets. Accessors that materialize state on access do not
+  stamp (`xlsx.Sheet.Cell` creates the `<row>`/`<c>` it returns,
+  `Workbook.Styles` materializes a default stylesheet), a mutator that returns
+  an error does not stamp, and an xlsx edit to an opaque
   chartsheet/dialogsheet — which the save discards — does not stamp either.
   Assigning `Properties.Modified` yourself still wins over the automatic value.
-  This matches the behavior pptx gained in the same wave.
+
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
   `a:blip@r:embed` with the SVG referenced through the `asvg:svgBlip`
