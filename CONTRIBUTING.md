@@ -183,6 +183,52 @@ Two properties make one of these worth having, and both are easy to lose:
 Exemptions belong in code with their reason, next to the guard, and a **stale**
 exemption should fail the test too — otherwise the list only grows.
 
+### Coverage is a finder, not a target
+
+`make cover` measures the whole module against the whole module
+(`-coverpkg=./...`) with the corpus enabled; `make cover-dark` lists the library
+functions no test executes at all. Per-package coverage is close to useless
+here — most of this library is exercised across package boundaries, `cctest`
+drives all three formats over real documents and `internal/symmetry` drives them
+together — so a package measured against only its own tests understates itself
+and points at the wrong gaps.
+
+**Do not write tests to raise the number.** A test that calls a function so a
+line turns green asserts nothing, costs maintenance forever, and makes the
+number lie about how well the code is checked. There is no coverage floor in CI
+on purpose: a floor is satisfied by exactly those tests.
+
+What the profile is genuinely good for is pointing at code where a bug could
+exist today and nothing would notice. The patterns worth acting on, in the order
+they have paid off here:
+
+- **A sibling accessor left behind.** `WidthEMU` covered and `HeightEMU` not, on
+  the same type. The bug this predicts — one returning the other's value — is
+  invisible any other way, and a fixture whose width and height are equal will
+  pass under exactly that bug.
+- **A truncated family.** Accents 1 and 2 tested, 3 through 6 not. Test the whole
+  family in one table with a *distinct* value per member, so a setter writing
+  into its neighbour's slot fails; derive the member list where you can, so the
+  next member is covered by construction.
+- **An inverse operation.** The `Set` side tested and the `Clear` side not.
+  Assert on the serialized part, since a `Clear` that writes a zero value rather
+  than removing the element produces a different document and the in-memory
+  getter cannot tell those apart.
+- **A fallback path.** Case-insensitive or lenient branches that only fire on
+  inputs no fixture contains. These have already produced a defect here (C596),
+  and `lookupFileLinear`/`lookupRawLinear` sat dead until a coverage pass found
+  them.
+- **A size-triggered branch.** `writeDIFATSectors` only runs above ~7 MB of CFB
+  payload, so no fixture reached it. Where such a branch produces a file another
+  implementation must read, validate it against one — a symmetric misreading
+  between our own writer and reader passes a round trip and still ships files
+  Office cannot open.
+
+The bar for any test added this way: **mutate the function so it is wrong and
+watch the test fail.** If a mutation you would expect to be caught is not, the
+test is decorative. This is the same rule as the guards above, and the same
+reason.
+
 ### Testing wall-clock behaviour
 
 `dcterms:modified` is a wall-clock value serialized at RFC3339 (one-second)

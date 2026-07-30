@@ -1,5 +1,5 @@
 .PHONY: build vet fetch fetch-strict fetch-cc test test-race test-corpus \
-	lint fuzz harvest-sweep harvest-batch
+	lint fuzz cover cover-dark harvest-sweep harvest-batch
 
 build:
 	go build ./...
@@ -60,6 +60,45 @@ CORPUS_SWAPMAX ?= 1G
 test-corpus:
 	systemd-run --user --scope -p MemoryMax=$(CORPUS_MEMMAX) -p MemorySwapMax=$(CORPUS_SWAPMAX) \
 		env SPINE_CC_FULL=1 go test ./cctest -count=1 -timeout 45m
+
+# --- Coverage ---------------------------------------------------------------
+#
+# cover measures the whole module against the whole module (-coverpkg=./...),
+# not each package against its own tests. Most of this library is exercised
+# across package boundaries — cctest drives docx/xlsx/pptx over real documents,
+# internal/symmetry drives all three — so per-package coverage understates it
+# badly and points at the wrong gaps. Set SPINE_CC_FULL=1 (the default here) to
+# include the corpus, which is what makes "never executed" mean never.
+#
+# It runs in a memory-capped scope for the same reason test-corpus does, and
+# takes appreciably longer than a plain run because every package is
+# instrumented.
+#
+# Treat the number as a *finder*, not a target. A test written to turn a line
+# green is worse than no test: it costs maintenance and asserts nothing. What
+# the profile is good for is pointing at code where a bug could exist today and
+# nothing would notice — see CONTRIBUTING.md.
+COVER_MEMMAX  ?= 14G
+COVER_SWAPMAX ?= 2G
+COVER_OUT     ?= coverage.out
+cover:
+	systemd-run --user --scope -p MemoryMax=$(COVER_MEMMAX) -p MemorySwapMax=$(COVER_SWAPMAX) \
+		env SPINE_CC_FULL=1 go test ./... -coverpkg=./... -coverprofile=$(COVER_OUT) \
+		-covermode=set -timeout 45m
+	@go tool cover -func=$(COVER_OUT) | tail -1
+
+# cover-dark lists the functions no test executes at all, which is the useful
+# view. Library code only: examples/ and tools/ are demo and CLI programs whose
+# coverage says nothing about the library.
+cover-dark: $(COVER_OUT)
+	@go tool cover -func=$(COVER_OUT) \
+		| awk '$$NF == "0.0%"' \
+		| grep -vE 'spine/(examples|tools)/' \
+		| sed 's|github.com/mgilbir/spine/||' \
+		| awk '{printf "%-64s %s\n", $$1, $$2}' \
+		| sort
+	@go tool cover -func=$(COVER_OUT) | awk '$$NF == "0.0%"' | grep -vcE 'spine/(examples|tools)/' \
+		| xargs -I{} echo "-- {} library functions never executed"
 
 # --- Batched multi-crawl harvest (see testdata/cc/HARVEST.md) ---------------
 #
