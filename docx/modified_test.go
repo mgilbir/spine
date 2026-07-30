@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -18,6 +19,25 @@ import (
 // dcterms:modified has one-second resolution, so a wall-clock stamp is
 // invisible to two saves made in the same second. That is exactly how the
 // equivalent pptx defect survived three audits as "flaky, ~1/300".
+//
+// The time-sensitive tests run inside a testing/synctest bubble, whose clock is
+// fake, starts at 2000-01-01T00:00:00Z and only advances when every goroutine
+// in the bubble is durably blocked. The library spawns no goroutines on any
+// save path and sets no timers, so the clock advances by exactly the sleeps
+// written here and by nothing else. That buys two things:
+//
+//   - The instant a save will stamp is known in advance, so the assertion is
+//     "Properties.Modified is exactly this" rather than the weaker "it moved
+//     forward". An inequality is not usable here anyway: the bubble epoch is
+//     older than the dcterms:modified stored in testdata/chart.docx
+//     (2022-02-03), so a correct stamp is *before* the fixture's value.
+//   - The second boundaries cost nothing. The sleeps stay — they are what
+//     distinguishes "stamped" from "didn't stamp" for a save made in the same
+//     second as the baseline — they are simply free now.
+//
+// Every sleep is a whole number of seconds, because dcterms:modified serializes
+// at one-second resolution and a sub-second instant would not survive the round
+// trip through the package.
 
 // fixtureModified is the dcterms:modified value in the fixtures built below.
 const fixtureModified = "2020-01-02T03:04:05Z"
@@ -64,9 +84,11 @@ func baseModified(t *testing.T) time.Time {
 	return ts
 }
 
-// pastSecondBoundary waits long enough that a wall-clock stamp taken after it
-// cannot serialize to the same dcterms:modified as one taken before.
-func pastSecondBoundary() { time.Sleep(1100 * time.Millisecond) }
+// pastSecondBoundary waits long enough that a stamp taken after it cannot
+// serialize to the same dcterms:modified as one taken before. Callers are
+// inside a synctest bubble, so this is a whole second on the fake clock —
+// exact at RFC3339 resolution, and instant in wall-clock terms.
+func pastSecondBoundary() { time.Sleep(time.Second) }
 
 // TestUntouchedSaveDoesNotStampModified: opening a document and saving it
 // changes neither the recorded write time nor a single byte, however long the
@@ -86,25 +108,29 @@ func TestUntouchedSaveDoesNotStampModified(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			raw := tc.fixture(t)
-			doc := openFixture(t, raw)
-			before := doc.Properties.Modified
+			synctest.Test(t, func(t *testing.T) {
+				raw := tc.fixture(t)
+				doc := openFixture(t, raw)
+				before := doc.Properties.Modified
 
-			first := saveDoc(t, doc)
-			pastSecondBoundary()
-			second := saveDoc(t, doc)
+				first := saveDoc(t, doc)
+				pastSecondBoundary()
+				second := saveDoc(t, doc)
 
-			if !doc.Properties.Modified.Equal(before) {
-				t.Errorf("an untouched save moved Properties.Modified from %s to %s",
-					before, doc.Properties.Modified)
-			}
-			if !bytes.Equal(first, second) {
-				t.Errorf("two untouched saves a second apart differ (%d vs %d bytes): "+
-					"SaveBytes is not idempotent", len(first), len(second))
-			}
-			if !bytes.Equal(first, saveDoc(t, openFixture(t, raw))) {
-				t.Error("an untouched save differs from the save of a freshly opened copy")
-			}
+				// Exactly the value the fixture came in with: a save that
+				// stamped would have written the bubble's clock instead.
+				if !doc.Properties.Modified.Equal(before) {
+					t.Errorf("an untouched save moved Properties.Modified from %s to %s",
+						before, doc.Properties.Modified)
+				}
+				if !bytes.Equal(first, second) {
+					t.Errorf("two untouched saves a second apart differ (%d vs %d bytes): "+
+						"SaveBytes is not idempotent", len(first), len(second))
+				}
+				if !bytes.Equal(first, saveDoc(t, openFixture(t, raw))) {
+					t.Error("an untouched save differs from the save of a freshly opened copy")
+				}
+			})
 		})
 	}
 }
@@ -114,29 +140,31 @@ func TestUntouchedSaveDoesNotStampModified(t *testing.T) {
 // stamp off "will this part be regenerated" would fail here, because reading
 // the body materializes docModel and so regenerates document.xml.
 func TestReadOnlyAccessDoesNotStampModified(t *testing.T) {
-	raw, err := os.ReadFile("testdata/chart.docx")
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := openFixture(t, raw)
-	before := doc.Properties.Modified
+	synctest.Test(t, func(t *testing.T) {
+		raw, err := os.ReadFile("testdata/chart.docx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := openFixture(t, raw)
+		before := doc.Properties.Modified
 
-	readEverything(t, doc)
+		readEverything(t, doc)
 
-	pastSecondBoundary()
-	saved := saveDoc(t, doc)
+		pastSecondBoundary()
+		saved := saveDoc(t, doc)
 
-	if !doc.Properties.Modified.Equal(before) {
-		t.Errorf("reading the document moved Properties.Modified from %s to %s",
-			before, doc.Properties.Modified)
-	}
-	if doc.modelEdits != 0 {
-		t.Errorf("reading the document recorded %d content edits", doc.modelEdits)
-	}
-	if untouched := saveDoc(t, openFixture(t, raw)); !bytes.Equal(saved, untouched) {
-		t.Errorf("saving a document that was only read differs from saving an untouched one "+
-			"(%d vs %d bytes)", len(saved), len(untouched))
-	}
+		if !doc.Properties.Modified.Equal(before) {
+			t.Errorf("reading the document moved Properties.Modified from %s to %s",
+				before, doc.Properties.Modified)
+		}
+		if doc.modelEdits != 0 {
+			t.Errorf("reading the document recorded %d content edits", doc.modelEdits)
+		}
+		if untouched := saveDoc(t, openFixture(t, raw)); !bytes.Equal(saved, untouched) {
+			t.Errorf("saving a document that was only read differs from saving an untouched one "+
+				"(%d vs %d bytes)", len(saved), len(untouched))
+		}
+	})
 }
 
 // readEverything walks the read API, including the accessors that build a model
@@ -282,30 +310,36 @@ func TestContentEditStampsModified(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			doc := openFixture(t, raw)
-			before := doc.Properties.Modified
-			start := time.Now().Add(-time.Second)
+			synctest.Test(t, func(t *testing.T) {
+				doc := openFixture(t, raw)
+				before := doc.Properties.Modified
 
-			tc.mutate(t, doc)
-			saved := saveDoc(t, doc)
+				// Nothing but this sleep moves the bubble's clock, so want is
+				// exactly the instant the save below will stamp — and it is a
+				// whole second, so it survives dcterms:modified's resolution.
+				// The sleep is what makes a stamp visible at all: without it a
+				// save in the same second as the open is indistinguishable.
+				pastSecondBoundary()
+				want := time.Now()
 
-			if doc.Properties.Modified.Equal(before) {
-				t.Fatalf("editing the document left Properties.Modified at %s", before)
-			}
-			if doc.Properties.Modified.Before(start) {
-				t.Errorf("Properties.Modified is %s, which predates the edit", doc.Properties.Modified)
-			}
-			// And the stamp is in the written package, not just in memory.
-			// dcterms:modified has one-second resolution, so the round-tripped
-			// value is the stamp truncated, not the stamp.
-			reopened := openFixture(t, saved)
-			if drift := doc.Properties.Modified.Sub(reopened.Properties.Modified); drift < 0 || drift >= time.Second {
-				t.Errorf("saved docProps/core.xml carries %s, want %s (within a second)",
-					reopened.Properties.Modified, doc.Properties.Modified)
-			}
-			if reopened.Properties.Created.IsZero() {
-				t.Error("saved docProps/core.xml lost dcterms:created")
-			}
+				tc.mutate(t, doc)
+				saved := saveDoc(t, doc)
+
+				if doc.Properties.Modified.Equal(before) {
+					t.Fatalf("editing the document left Properties.Modified at %s", before)
+				}
+				if got := doc.Properties.Modified; !got.Equal(want) {
+					t.Errorf("Properties.Modified is %s, want the save instant %s", got, want)
+				}
+				// And the stamp is in the written package, not just in memory.
+				reopened := openFixture(t, saved)
+				if got := reopened.Properties.Modified; !got.Equal(want) {
+					t.Errorf("saved docProps/core.xml carries %s, want %s", got, want)
+				}
+				if reopened.Properties.Created.IsZero() {
+					t.Error("saved docProps/core.xml lost dcterms:created")
+				}
+			})
 		})
 	}
 }
@@ -314,40 +348,58 @@ func TestContentEditStampsModified(t *testing.T) {
 // once per save. Two saves of the same edited document a second apart must
 // agree, or a save-twice pipeline sees two different packages for one edit.
 func TestSavesAfterEditAreByteIdentical(t *testing.T) {
-	doc := openFixture(t, fixtureWithCoreProps(t, modifiedFixtureBody))
-	doc.AddParagraphWithText("EDIT")
+	synctest.Test(t, func(t *testing.T) {
+		doc := openFixture(t, fixtureWithCoreProps(t, modifiedFixtureBody))
+		doc.AddParagraphWithText("EDIT")
 
-	first := saveDoc(t, doc)
-	stamped := doc.Properties.Modified
-	pastSecondBoundary()
-	second := saveDoc(t, doc)
+		pastSecondBoundary()
+		want := time.Now()
+		first := saveDoc(t, doc)
+		stamped := doc.Properties.Modified
+		if !stamped.Equal(want) {
+			t.Fatalf("the first save stamped Properties.Modified %s, want %s", stamped, want)
+		}
 
-	if !doc.Properties.Modified.Equal(stamped) {
-		t.Errorf("a second save of the same edit re-stamped Properties.Modified: %s -> %s",
-			stamped, doc.Properties.Modified)
-	}
-	if !bytes.Equal(first, second) {
-		t.Errorf("two saves of one edit differ (%d vs %d bytes)", len(first), len(second))
-	}
+		pastSecondBoundary()
+		second := saveDoc(t, doc)
+
+		// A save a whole second later: a per-save stamp would be visible.
+		if !doc.Properties.Modified.Equal(stamped) {
+			t.Errorf("a second save of the same edit re-stamped Properties.Modified: %s -> %s",
+				stamped, doc.Properties.Modified)
+		}
+		if !bytes.Equal(first, second) {
+			t.Errorf("two saves of one edit differ (%d vs %d bytes)", len(first), len(second))
+		}
+	})
 }
 
 // TestEditAfterSaveStampsAgain: the counter is baselined at each save rather
 // than latched, so a second round of edits is distinguishable from the first
 // one saved twice.
 func TestEditAfterSaveStampsAgain(t *testing.T) {
-	doc := openFixture(t, fixtureWithCoreProps(t, modifiedFixtureBody))
-	doc.AddParagraphWithText("FIRST")
-	saveDoc(t, doc)
-	first := doc.Properties.Modified
+	synctest.Test(t, func(t *testing.T) {
+		doc := openFixture(t, fixtureWithCoreProps(t, modifiedFixtureBody))
 
-	pastSecondBoundary()
-	doc.AddParagraphWithText("SECOND")
-	saveDoc(t, doc)
+		pastSecondBoundary()
+		wantFirst := time.Now()
+		doc.AddParagraphWithText("FIRST")
+		saveDoc(t, doc)
+		first := doc.Properties.Modified
+		if !first.Equal(wantFirst) {
+			t.Fatalf("the first edit stamped Properties.Modified %s, want %s", first, wantFirst)
+		}
 
-	if !doc.Properties.Modified.After(first) {
-		t.Errorf("an edit made after a save left Properties.Modified at %s (want later than %s)",
-			doc.Properties.Modified, first)
-	}
+		pastSecondBoundary()
+		wantSecond := time.Now()
+		doc.AddParagraphWithText("SECOND")
+		saveDoc(t, doc)
+
+		if got := doc.Properties.Modified; !got.Equal(wantSecond) {
+			t.Errorf("an edit made after a save stamped Properties.Modified %s, want %s "+
+				"(the first save's stamp was %s)", got, wantSecond, first)
+		}
+	})
 }
 
 // TestEditedSaveReopensToTheSameBytes: an edited document, reopened and saved
@@ -431,30 +483,36 @@ func TestPropertiesOnlyEditDoesNotStamp(t *testing.T) {
 // reproducible.
 func TestCreatedDocumentStampsWhenEdited(t *testing.T) {
 	t.Run("with content", func(t *testing.T) {
-		start := time.Now().Add(-time.Second)
-		doc := Create()
-		doc.AddParagraphWithText("hello")
+		synctest.Test(t, func(t *testing.T) {
+			doc := Create()
+			doc.AddParagraphWithText("hello")
 
-		saved := saveDoc(t, doc)
-		got := openFixture(t, saved).Properties.Modified
-		if got.IsZero() {
-			t.Fatal("a created document with content saved with no dcterms:modified")
-		}
-		if got.Before(start) {
-			t.Errorf("dcterms:modified is %s, which predates the edit", got)
-		}
+			pastSecondBoundary()
+			want := time.Now()
+
+			saved := saveDoc(t, doc)
+			got := openFixture(t, saved).Properties.Modified
+			if got.IsZero() {
+				t.Fatal("a created document with content saved with no dcterms:modified")
+			}
+			if !got.Equal(want) {
+				t.Errorf("dcterms:modified is %s, want the save instant %s", got, want)
+			}
+		})
 	})
 
 	t.Run("repeat save", func(t *testing.T) {
-		doc := Create()
-		doc.AddParagraphWithText("hello")
+		synctest.Test(t, func(t *testing.T) {
+			doc := Create()
+			doc.AddParagraphWithText("hello")
 
-		first := saveDoc(t, doc)
-		pastSecondBoundary()
-		second := saveDoc(t, doc)
-		if !bytes.Equal(first, second) {
-			t.Errorf("two saves of a created document differ (%d vs %d bytes)",
-				len(first), len(second))
-		}
+			first := saveDoc(t, doc)
+			pastSecondBoundary()
+			second := saveDoc(t, doc)
+			if !bytes.Equal(first, second) {
+				t.Errorf("two saves of a created document differ (%d vs %d bytes)",
+					len(first), len(second))
+			}
+		})
 	})
 }
