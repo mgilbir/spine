@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
 	dmlchart "github.com/mgilbir/spine/common/dml/chart"
@@ -91,7 +92,7 @@ func Parse(chartXML []byte) (*Chart, error) {
 		c.showLegend = false
 	}
 	c.catAxisName, c.valAxisName = axisTitles(pa)
-	if ref := firstCatRef(pa); ref != "" {
+	if ref := firstDataRef(pa); ref != "" {
 		if sheet := sheetOf(ref); sheet != "" {
 			c.DataRef = sheet
 		}
@@ -644,20 +645,47 @@ func numPoints(nd *dmlchart.NumData) []float64 {
 	return out
 }
 
+// maxCachePoints clamps the length a single c:numCache / c:strCache is trusted
+// to declare.
+//
+// ptCount and a c:pt's idx are length fields in attacker-controlled bytes, and
+// both were used directly as an allocation size: a 374-byte chart part carrying
+// `<c:ptCount val="50000000"/>` allocated 400 MB — a 1,070,000x amplification,
+// the C360 class, found by FuzzParseChartXML. Clamping to a limit the format
+// itself justifies is the same remedy boundedCap applies in opc/cfb.go.
+//
+// 32768 is just above the 32,000 data points Excel allows in one series of a
+// two-dimensional chart (4,000 for a 3-D one), so no cache a producer can write
+// is truncated. A cache claiming more describes a series the application that
+// defines the format would refuse to render. The clamp is stable across a round
+// trip: re-serializing writes the clamped count back, so the fixed point holds.
+const maxCachePoints = 1 << 15
+
 // cacheLen returns the logical length of a numeric or string cache: its declared
 // ptCount, or (when ptCount is absent or smaller than a sparsely-indexed point)
-// one past the largest point index. Excel omits <c:pt> for blank cells, so the
-// point slice is shorter than — and may skip indices within — the cache; sizing
-// from ptCount preserves each point's position.
+// one past the largest point index, clamped to maxCachePoints. Excel omits
+// <c:pt> for blank cells, so the point slice is shorter than — and may skip
+// indices within — the cache; sizing from ptCount preserves each point's
+// position.
 func cacheLen(ptCount *dmlchart.UnsignedInt, maxIdx int) int {
 	n := 0
 	if ptCount != nil && ptCount.Val > 0 {
-		n = int(ptCount.Val)
+		n = boundedCachePoints(uint64(ptCount.Val))
 	}
-	if maxIdx+1 > n {
-		n = maxIdx + 1
+	if maxIdx >= 0 && maxIdx+1 > n {
+		n = boundedCachePoints(uint64(maxIdx) + 1)
 	}
 	return n
+}
+
+// boundedCachePoints clamps a point count taken from parsed bytes. want is
+// widened to uint64 so a value past MaxInt32 cannot overflow into a negative
+// (panicking) length on a 32-bit build.
+func boundedCachePoints(want uint64) int {
+	if want > maxCachePoints {
+		return maxCachePoints
+	}
+	return int(want)
 }
 
 // maxNumPtIdx returns the largest idx among numeric points, or -1 when empty.
@@ -841,17 +869,30 @@ func eachSeriesData(pa *dmlchart.PlotArea, fn func(cat *dmlchart.AxDataSource, v
 	}
 }
 
-// firstCatRef returns the first category (or scatter/bubble X) formula
-// reference found, used to recover the DataRef sheet name.
-func firstCatRef(pa *dmlchart.PlotArea) string {
+// firstDataRef returns the first formula reference found on a series' data —
+// the category (or scatter/bubble X) source, falling back to the value source —
+// used to recover the DataRef sheet name.
+//
+// The value fallback is not cosmetic. A scatter series whose X source is
+// categorical (dates, labels) parses to no XValues, so re-serializing writes
+// c:xVal as a literal with no c:f at all; if only the X source were consulted,
+// reading such a chart back and saving it again lost the sheet name and every
+// reference silently moved to the default "Sheet1". The value source carries a
+// c:f in exactly that case, and it names the same sheet.
+func firstDataRef(pa *dmlchart.PlotArea) string {
 	ref := ""
-	eachSeriesData(pa, func(cat *dmlchart.AxDataSource, _ *dmlchart.NumDataSource) bool {
+	eachSeriesData(pa, func(cat *dmlchart.AxDataSource, val *dmlchart.NumDataSource) bool {
 		switch {
 		case cat == nil:
 		case cat.StrRef != nil && cat.StrRef.F != "":
 			ref = cat.StrRef.F
 		case cat.NumRef != nil && cat.NumRef.F != "":
 			ref = cat.NumRef.F
+		case cat.MultiLvlStrRef != nil && cat.MultiLvlStrRef.F != "":
+			ref = cat.MultiLvlStrRef.F
+		}
+		if ref == "" && val != nil && val.NumRef != nil {
+			ref = val.NumRef.F
 		}
 		return ref == ""
 	})
@@ -907,7 +948,30 @@ func groupingValue(val string) Grouping {
 
 // sheetOf extracts the sheet name from a formula reference like
 // "Sheet1!$A$2:$A$5" or "'My Sheet'!$A$1".
+//
+// The name it returns is the sheet's own name, not its quoted lexical form:
+// DataRef holds an unquoted name (SetDataRef takes one) and quoteSheet puts the
+// quoting back on the way out. Two things follow, and both were wrong until a
+// fuzz round-trip made them visible on real files.
+//
+// A quoted name escapes an apostrophe by doubling it, so a sheet named
+// "Vue d'ensemble" is referenced as
+//
+//	'Vue d''ensemble'!$B$1
+//
+// Returning that doubled form let quoteSheet double it again on every save: one
+// save already pointed the chart at a sheet that does not exist, and the
+// apostrophe run then grew without bound across the saves after that.
+//
+// Excel also writes a multi-area (union) reference as
+//
+//	('Sheet'!$Z$2,'Sheet'!$AD$2)
+//
+// where all areas name the same sheet, but the leading parenthesis left the
+// name as "('Sheet'", which quoteSheet then re-quoted into an equally invalid —
+// and equally growing — reference.
 func sheetOf(ref string) string {
+	ref = strings.TrimPrefix(ref, "(")
 	bang := -1
 	inQuote := false
 	for i := 0; i < len(ref); i++ {
@@ -928,7 +992,7 @@ func sheetOf(ref string) string {
 	}
 	name := ref[:bang]
 	if len(name) >= 2 && name[0] == '\'' && name[len(name)-1] == '\'' {
-		name = name[1 : len(name)-1]
+		name = strings.ReplaceAll(name[1:len(name)-1], "''", "'")
 	}
 	return name
 }
