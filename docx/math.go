@@ -51,7 +51,7 @@ func (p *Paragraph) AddMath(m *omml.OMath) error {
 	if err != nil {
 		return fmt.Errorf("docx: marshal math zone: %w", err)
 	}
-	p.p.AppendOMath(raw)
+	p.mut().AppendOMath(raw)
 	return nil
 }
 
@@ -62,7 +62,7 @@ func (p *Paragraph) AddMathPara(mp *omml.OMathPara) error {
 	if err != nil {
 		return fmt.Errorf("docx: marshal math paragraph: %w", err)
 	}
-	p.p.AppendOMathPara(raw)
+	p.mut().AppendOMathPara(raw)
 	return nil
 }
 

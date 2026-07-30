@@ -329,6 +329,11 @@ func (d *Document) ensureCommentEx(paraID string) *oxml.CT_CommentEx {
 	}
 	ce := &oxml.CT_CommentEx{ParaId: paraID}
 	d.commentsExtended.CommentEx = append(d.commentsExtended.CommentEx, ce)
+	// Flag where the entry is appended, not in each caller: a new entry is a
+	// change to commentsExtended.xml, and a caller that forgot would leave the
+	// preserved bytes to win over it (C406). Adding no entry leaves the flag
+	// alone, so a zero-modification save still round-trips byte-for-byte.
+	d.commentsExtModified = true
 	return ce
 }
 

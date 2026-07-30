@@ -213,13 +213,13 @@ func (p *Paragraph) addShape(text string, opts TextBoxOptions, isTextBox bool) *
 	if opts.VMLFallback && (isTextBox || text != "") {
 		ac := &oxml.CT_RawElement{RawContent: buildTextBoxAlternateContentXML(id, tb, opts, isTextBox)}
 		tb.vml = false
-		p.AddRun().r.AppendAlternateContent(ac)
+		p.AddRun().mut().AppendAlternateContent(ac)
 		return tb
 	}
 
 	drawing := &oxml.CT_Drawing{RawContent: buildShapeDrawingXML(id, tb, opts, isTextBox)}
 	tb.drawing = drawing
-	p.AddRun().r.AppendDrawing(drawing)
+	p.AddRun().mut().AppendDrawing(drawing)
 	return tb
 }
 

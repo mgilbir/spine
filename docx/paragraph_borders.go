@@ -46,7 +46,7 @@ func (p *Paragraph) SetBorders(b ParagraphBorders) {
 // ClearBorders removes the paragraph's w:pBdr element.
 func (p *Paragraph) ClearBorders() {
 	if p.p.PPr != nil {
-		p.p.PPr.PBdr = nil
+		p.mut().PPr.PBdr = nil
 	}
 }
 
@@ -73,6 +73,6 @@ func (p *Paragraph) SetShading(hexColor string) {
 // ClearShading removes the paragraph's w:shd element.
 func (p *Paragraph) ClearShading() {
 	if p.p.PPr != nil {
-		p.p.PPr.Shd = nil
+		p.mut().PPr.Shd = nil
 	}
 }

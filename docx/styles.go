@@ -376,7 +376,12 @@ func (s *Style) modified() *Style {
 	return s
 }
 
+// ensurePPr and ensureRPr are the funnels every property setter on a style goes
+// through, so flagging here covers them in one place: a setter that edited the
+// returned properties without calling modified() would leave styles.xml
+// round-tripping its preserved bytes and lose the edit (the C266/C406 shape).
 func (s *Style) ensurePPr() *oxml.CT_PPr {
+	s.modified()
 	if s.s.PPr == nil {
 		s.s.PPr = &oxml.CT_PPr{}
 	}
@@ -384,6 +389,7 @@ func (s *Style) ensurePPr() *oxml.CT_PPr {
 }
 
 func (s *Style) ensureRPr() *oxml.CT_RPr {
+	s.modified()
 	if s.s.RPr == nil {
 		s.s.RPr = &oxml.CT_RPr{}
 	}
