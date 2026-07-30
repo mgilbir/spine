@@ -82,6 +82,10 @@ counter is `/gc/heap/allocs:bytes`, not RSS, for exactly that reason).
 These targets also assert the API contract on every input: a malformed
 container returns an error and never a partial success, and a strict
 decrypt that accepts an agile package must have verified its HMAC (C361).
+`FuzzSignatureXML` belongs to the same tier: it rewrites the signature
+part of a validly signed package and asserts a coverage-containment
+property — a fuzzer holds no private key, so the reported `CoveredParts`
+may never exceed what the genuine signature covers (C362).
 The budgets are checked against real encrypted documents — including one
 large enough to need chained DIFAT sectors — by
 `TestEncryptionFuzzBudgetsAllow*` and `TestCryptoFuzzBudgetAllows*`, so a
