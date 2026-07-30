@@ -831,7 +831,7 @@ entries deleted, so the reason each item was *safe* to defer stays checkable.
 | Deferred item | Disposition |
 |---|---|
 | **C586** — the T-D root fix in `common/xml/marshal.go`; wanted its own PR on top of #227, since it changes replay semantics for docx, xlsx and pptx together | **fixed** (#243) |
-| **`formatValue`'s `%g`** — #236 fixed the pptx instance locally (C531); the shared float formatting still drifted docx/xlsx lexical forms | **fixed** — see §9 |
+| **`formatValue`'s `%g`** — #236 fixed the pptx instance locally (C531); the shared float formatting still drifted docx/xlsx lexical forms | **fixed** (#261) — see §9 |
 | **#227's full literal-prefix guard** — prototyped and corpus-clean, but withheld: declarations written through `writeLiteralAttrs` never enter the Builder's namespace map, so an ancestor replaying a captured `xmlns:a14` would be flagged wrongly. Correct order was to make literal declarations visible to the Builder first | **fixed** (#244), in that order |
 | **`common/dml/xml_extension.go` prefix gap** (a14/a16/asvg) — needed #227's `LiteralPrefixFor`, which did not exist on #231's base | **fixed** (#244) |
 | **C584** — `CommonSlideData.Name` not clearable | **fixed** (#258); verified by round-trip: `<p:cSld name="Original">` → `SetName("")` → `<p:cSld>` |
