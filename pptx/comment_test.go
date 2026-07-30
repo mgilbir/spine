@@ -364,6 +364,44 @@ func TestModifyModernThreadPreservesRawChildren(t *testing.T) {
 	}
 }
 
+// TestResolveCommentParsedWithoutStatusSurvivesSave is the other direction of
+// the test above, and the one that was broken: resolving a comment that was
+// parsed from a file carrying no @status at all — the normal case, since an
+// unresolved comment has none.
+//
+// The thread's attributes are replayed verbatim from the source so re-marshaling
+// invents nothing, but the replay only substituted values into attributes the
+// producer had already written. A status the source lacked was therefore
+// dropped on the floor: the setter updated the model, the save serialized the
+// original attribute list, and the resolve vanished without an error.
+func TestResolveCommentParsedWithoutStatusSurvivesSave(t *testing.T) {
+	p := Create()
+	s := p.AddSlide()
+	s.AddComment("Ada Lovelace", "please review")
+
+	// Save and reopen first: the bug needs a comment whose attributes came from
+	// a parse, not one this session built.
+	rp := reopen(t, p)
+	c := firstSlide(t, rp).Comments()[0]
+	if c.Resolved() {
+		t.Fatal("a freshly added comment reports itself resolved")
+	}
+	c.SetResolved(true)
+	if !c.Resolved() {
+		t.Fatal("SetResolved(true) did not take on the handle")
+	}
+	if raw := rp.otherParts[c.partName]; raw == nil {
+		t.Fatalf("no thread part at %s", c.partName)
+	} else if !bytes.Contains(raw.Data, []byte(`status="resolved"`)) {
+		t.Errorf("regenerated thread carries no status=\"resolved\":\n%s", raw.Data)
+	}
+
+	final := firstSlide(t, reopen(t, rp)).Comments()[0]
+	if !final.Resolved() {
+		t.Error("Resolved() = false after saving and reopening a comment that was resolved: the resolve never reached the file")
+	}
+}
+
 // TestValidateCommentAuthor flags a comment whose author id resolves to nothing.
 func TestValidateCommentAuthor(t *testing.T) {
 	p, err := Open("testdata/test.pptx")

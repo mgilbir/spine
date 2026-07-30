@@ -84,7 +84,13 @@ func (p *Picture) SetImagePath(path string) {
 	p.imagePath = path
 }
 
-// ImageData returns the raw image data.
+// ImageData returns the pending raw image data: the bytes an unsaved
+// SetImageData/SetImage is carrying, which the save writes into a media part
+// and does not keep. A picture read from an opened deck therefore reports nil
+// here even though it has an image.
+//
+// Use Data to read a picture's bytes: it returns the pending bytes when there
+// are any and falls back to the embedded media part otherwise.
 func (p *Picture) ImageData() []byte {
 	return p.imageData
 }

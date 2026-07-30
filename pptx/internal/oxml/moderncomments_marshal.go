@@ -47,10 +47,17 @@ func (p *ModernCommentPart) Marshal() []byte {
 // (C525).
 //
 // A modeled field that is empty normally means "not set" and leaves the
-// captured value alone. Names listed in clearable invert that: an empty modeled
-// value removes the attribute, which is what makes a clearing setter
-// (SetResolved(false) dropping @status) actually take effect rather than being
-// shadowed by the captured original.
+// captured value alone. Names listed in clearable invert that: the modeled
+// value is authoritative, so an empty one removes the attribute (which is what
+// makes SetResolved(false) drop @status rather than be shadowed by the captured
+// original) and a non-empty one is appended when the source carried no such
+// attribute at all.
+//
+// That last case is not symmetry for its own sake: replaying only what the
+// source wrote meant SetResolved(true) on a comment parsed from a file with no
+// @status — the normal case, since an unresolved comment has none — set the
+// model field and then serialized nothing, silently dropping the resolve on
+// save.
 func replayP188Attrs(captured []xmlb.RootAttr, model map[string]string, clearable ...string) []xmlb.Attr {
 	override := make(map[string]string, len(model))
 	for name, v := range model {
@@ -62,17 +69,29 @@ func replayP188Attrs(captured []xmlb.RootAttr, model map[string]string, clearabl
 	if len(clearable) == 0 {
 		return attrs
 	}
+	seen := make(map[string]bool, len(clearable))
 	out := attrs[:0]
 	for _, a := range attrs {
 		drop := false
 		for _, name := range clearable {
-			if a.Name == name && model[name] == "" {
-				drop = true
-				break
+			if a.Name != name {
+				continue
 			}
+			seen[name] = true
+			drop = model[name] == ""
+			break
 		}
 		if !drop {
 			out = append(out, a)
+		}
+	}
+	// Append, in the caller's order, the clearable attributes the source did
+	// not carry and the model now sets. Appending keeps every attribute the
+	// producer did write in its original position, so a part whose modeled
+	// values are unchanged still re-marshals byte for byte.
+	for _, name := range clearable {
+		if !seen[name] && model[name] != "" {
+			out = append(out, xmlb.StrAttr(name, model[name]))
 		}
 	}
 	return out
