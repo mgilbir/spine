@@ -210,6 +210,19 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- Three results that varied between runs because a map was iterated in Go's
+  randomized order now do not. `pptx.Presentation.Validate` listed the parts
+  added during the session — embedded media, merged masters, notes — in map
+  order, so a deck with two embedded images reported its findings in a different
+  order each time; `xlsx.Workbook.Validate` did the same for the dangling
+  references left by `DeleteSheet`. And `opc.ContentTypes.RemoveOverride`, when
+  it fell back to a case-insensitive match, deleted whichever of two
+  case-colliding overrides the runtime happened to visit first, so the saved
+  `[Content_Types].xml` differed run to run for such a package. All three now
+  work from a sorted list. The class is guarded going forward by
+  `internal/maporder`, which type-checks the serialization packages and reports
+  a map range whose key or value reaches a Builder, an unsorted returned slice,
+  or a `return` (C497, C515).
 - docx: four paragraph mutators no longer lose their edit when the paragraph
   belongs to a header or footer read from a file. A header or footer
   round-trips as preserved raw bytes unless the session flags its part, and
