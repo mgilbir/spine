@@ -701,6 +701,8 @@ release.
 ### Fixed
 
 - common/xml: `Builder.WriteElement` now preserves a captured verbatim
+- xlsx: reading no longer dirties the workbook. `Workbook.Styles()` on a package
+- xlsx: editing a comment on a chartsheet, dialogsheet or macrosheet no longer
   attribute rendering (`Attr.Raw`) instead of always re-quoting with double
   quotes, matching `StartElement`. A producer that wrote `xml:space='preserve'`
   with single quotes on a `w:t` now round-trips it byte-for-byte even when the
