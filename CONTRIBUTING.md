@@ -69,7 +69,30 @@ The revision/content-control fuzzers additionally inject a fuzzed XML
 fragment into a valid package, open it, then run the transform API
 (accept/reject revisions, edit controls) before saving.
 
-In both tiers, errors are the expected outcome on malformed input; any
+**Resource-bounded targets** cover the encrypted-document parsers,
+where "did it panic?" is not a strong enough oracle. `FuzzCFBContainer`
+and `FuzzOpenEncrypted` in `opc`, and `FuzzAgileEncryptionInfo` /
+`FuzzLegacyEncryptionInfo` in `common/crypto`, run every call inside an
+`internal/fuzzbound.Budget`: a bound on bytes allocated and on wall clock,
+each expressed as a floor plus a rate per input byte. The reason is C360,
+where an unvalidated CFB header field made a 512-byte file allocate
+16 GiB — an allocation that does not panic, and whose pages are never
+touched, so it shows up neither as a crash nor as memory pressure (the
+counter is `/gc/heap/allocs:bytes`, not RSS, for exactly that reason).
+These targets also assert the API contract on every input: a malformed
+container returns an error and never a partial success, and a strict
+decrypt that accepts an agile package must have verified its HMAC (C361).
+`FuzzSignatureXML` belongs to the same tier: it rewrites the signature
+part of a validly signed package and asserts a coverage-containment
+property — a fuzzer holds no private key, so the reported `CoveredParts`
+may never exceed what the genuine signature covers (C362).
+The budgets are checked against real encrypted documents — including one
+large enough to need chained DIFAT sectors — by
+`TestEncryptionFuzzBudgetsAllow*` and `TestCryptoFuzzBudgetAllows*`, so a
+budget that would fire on a legitimate file fails in `go test` rather than
+during a fuzz run.
+
+In all tiers, errors are the expected outcome on malformed input; any
 panic is a bug.
 
 `make fuzz` is a short smoke run (30s per target; override with
