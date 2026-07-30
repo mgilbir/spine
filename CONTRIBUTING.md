@@ -135,12 +135,21 @@ Two mechanical guards exist, and both are cheap to extend:
 Several invariants in this repo are enforced by tests that read the source
 rather than exercise it: the mutation-flag guards in `docx`, `xlsx` and `pptx`,
 the capture-coverage guard in `pptx/internal/oxml`, the percent-type/schema diff
-in `common/dml`, the relationship-allocator guards in `pptx`, and the
-map-iteration-order guard in `internal/maporder`. They exist because the same
-classes of omission kept recurring — a mutator that edits a preserved part
-without flagging it, an attribute that loses its captured spelling, an id
-allocator that ignores what the opened document already contains, a map ranged
-in Go's randomized order on the way to the output.
+in `common/dml`, the relationship-allocator guards in `pptx`, the
+map-iteration-order guard in `internal/maporder`, and the float-formatting guard
+in `common/xml`. They exist because the same classes of omission kept recurring
+— a mutator that edits a preserved part without flagging it, an attribute that
+loses its captured spelling, an id allocator that ignores what the opened
+document already contains, a map ranged in Go's randomized order on the way to
+the output, a float printed in a notation Office never writes.
+
+`internal/symmetry` guards a different axis: properties that are supposed to
+hold *across* formats. Most of it compares API shape — which types exist and
+what arguments they take — but shape was only ever a proxy. The
+`dcterms:modified` rule was implemented once per format against three different
+flag topologies and diverged behind identical signatures, which no per-format
+suite could see because each only knows its own answer. If a rule spans formats,
+assert it across formats.
 
 `internal/maporder` is the one that needs type information, and it is the worked
 example of how to get it: `golang.org/x/tools/go/packages` — the module's only
@@ -173,6 +182,41 @@ Two properties make one of these worth having, and both are easy to lose:
 
 Exemptions belong in code with their reason, next to the guard, and a **stale**
 exemption should fail the test too — otherwise the list only grows.
+
+### Testing wall-clock behaviour
+
+`dcterms:modified` is a wall-clock value serialized at RFC3339 (one-second)
+resolution, so a stamp written in the same second as the baseline cannot be told
+from no stamp at all. Tests that pin the "stamp iff the content changed" rule
+therefore have to let a second elapse — which used to mean sleeping for real.
+
+They run under `testing/synctest` (Go 1.25) instead. `synctest.Test` runs the
+body in a bubble whose clock is fake: it starts at 2000-01-01T00:00:00Z and
+jumps instantly when every goroutine in the bubble is durably blocked. It
+reaches `time.Now()` inside the library too, because a bubble captures
+goroutines rather than packages, so the sleeps stay and cost nothing.
+
+Four conventions, each of which is easy to get wrong and two of which fail in
+ways that look like a library bug:
+
+- **Assert the exact instant, not that it moved forward.** A deterministic clock
+  makes the instant a save will stamp knowable. `Modified.After(baseline)`
+  accepts *any* later value, so a stamp at the wrong time reads as success;
+  compare for equality and treat anything else as its own failure.
+- **`Modified.After(baseline)` is not merely weak here, it is wrong.** The bubble
+  epoch is the year 2000 and fixtures are newer (`pptx/testdata/test.pptx` is
+  2012, `docx/testdata/chart.docx` is 2022), so a *correctly* stamping save
+  produces a timestamp earlier than the fixture's and the assertion fails.
+- **Sleep in whole seconds.** A sub-second instant does not survive the RFC3339
+  round trip. The bubble clock advances only by these sleeps, since the library
+  sets no timers of its own.
+- **Put the bubble inside `t.Run`, not around it.** `t.Run` and `t.Parallel`
+  panic inside a bubble.
+
+Converting a timing test can quietly make it vacuous, which is worse than the
+sleeps it removed. Re-run the fail-before toggles *after* converting — for this
+rule, "never stamp" and "stamp every save" — and confirm nothing passes under
+both.
 
 ### Exploratory sweeps
 

@@ -1061,3 +1061,71 @@ passes over the same code.
 
 The corollary is uncomfortable and worth stating: the value of the next audit is
 lower than the value of the next guard, for any class where a guard is possible.
+
+## 10. Cross-format coherence (C597)
+
+§8 recorded C589 — `pptx.saveNew` stamped `Properties.Modified` on every save,
+making `SaveBytes` non-idempotent — and the resolution: **stamp if and only if
+the content actually changed**. That shipped for pptx only. docx and xlsx were
+left with the opposite defect, which the report had not named: they **never**
+stamped, so a document edited beyond recognition kept whatever write time its
+producer left behind, and one built with `Create` carried none at all.
+
+Both closed in #263 (docx) and #262 (xlsx). The rule and its rationale are in
+`docx/modified.go` and `xlsx/modified.go`; the short version is that detection
+must key off the mutation flags the save path already trusts and **never** off
+the decision to regenerate a part, because merely accessing a model sets that.
+
+### C597 — the rule diverged where no per-format test could see it
+
+| ID | Sev | Issue | Found by |
+|---|---|---|---|
+| **C597** | medium | A rule implemented once per format against three different flag topologies disagreed on a case none of the per-format suites could observe. `SetCustomProperty` recorded an edit in pptx and xlsx but not in docx, so the same caller action stamped `dcterms:modified` in two formats and silently did not in the third | driving all three packages through one scenario |
+
+The docx implementation declined to count a custom-property edit, giving as its
+reason that pptx drew the line in the same place. pptx does the opposite:
+`SetCustomProperty` calls `markModelEdited`, for the reason xlsx repeats almost
+verbatim — the snapshot comparison that regenerates `docProps/custom.xml`
+*latches*, so it cannot tell a second edit made after a save from the first one
+still being outstanding.
+
+Every per-format suite passed either way, because each only knows its own
+answer. Fixed in #264, with `TestModifiedStampingAgreesAcrossFormats` in
+`internal/symmetry` driving all three packages through the same scenarios and
+requiring one answer.
+
+This is a distinct class from the tensions in §4, and worth naming as **T-F**:
+*a property that spans formats needs an assertion that spans formats.* The
+existing `internal/symmetry` guards compared API **shape** — which types exist,
+what arguments they take (C566, C571, C572). C597 is the first case where the
+shapes matched perfectly and the **behaviour** behind them did not. Shape
+symmetry was never the property anyone cared about; it was the proxy that was
+cheap to check.
+
+### What the synctest conversion turned up (#265–#268)
+
+`dcterms:modified` is wall-clock at RFC3339 (one-second) resolution, so proving
+a save did *not* stamp meant sleeping past a real second boundary — about 30
+seconds of the suite. Go 1.25's `testing/synctest` runs a test in a bubble whose
+clock is fake, and it reaches `time.Now()` **inside the library**, because a
+bubble captures goroutines rather than packages.
+
+The speedup was the smaller half. Two things surfaced:
+
+- **The assertions were weaker than they looked.** `Modified.After(baseline)`
+  accepts any later value, so a stamp at the wrong instant read as success. A
+  deterministic clock makes the exact instant knowable, so the tests now assert
+  equality and sort anything else into an explicit third outcome. Confirmed live
+  by stamping 42 hours off.
+- **A real coverage hole in pptx.** `TestEditedDeckSaveIsStillIdempotent` passed
+  on `main` under a "never stamp" toggle: never stamping is trivially
+  idempotent, so byte equality alone proved nothing. The exact-instant assertion
+  closes it.
+
+The conversion also carries a trap worth recording, because it is the kind that
+looks like a test bug and is not: the bubble epoch is 2000-01-01, and real
+fixtures are newer (`pptx/testdata/test.pptx` is 2012, `docx/testdata/chart.docx`
+is 2022, xlsx's `buildThemedXlsx` is 2001). Under a bubble,
+`Modified.After(baseline)` therefore **fails for a correctly stamping save**.
+Exact-instant equality is what makes the conversion possible at all — all three
+formats hit this, including the one predicted not to.

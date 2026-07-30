@@ -190,9 +190,20 @@ godoc tooling steers callers off them (C565, C567).
   *accessing* a model sets. Accessors that materialize state on access do not
   stamp (`xlsx.Sheet.Cell` creates the `<row>`/`<c>` it returns,
   `Workbook.Styles` materializes a default stylesheet), a mutator that returns
-  an error does not stamp, and an xlsx edit to an opaque
+  an error does not stamp, a mutator that changes nothing (removing a property
+  that is not there) does not stamp, and an xlsx edit to an opaque
   chartsheet/dialogsheet — which the save discards — does not stamp either.
   Assigning `Properties.Modified` yourself still wins over the automatic value.
+
+  Two cases are worth stating because they are the ones that could go either
+  way. `SetCustomProperty` and `RemoveCustomProperty` **do** stamp, in all three
+  formats: they are real mutators with real setters, and the snapshot comparison
+  that regenerates `docProps/custom.xml` latches, so it cannot distinguish a
+  second edit made after a save from the first still being outstanding.
+  Assigning a `Properties` field — `Properties.Title = "x"` — does **not** stamp
+  in any of them: there is no setter to hook, the change is already detected by
+  comparison against the snapshot taken at open, and a caller authoring metadata
+  is stating what it should say rather than asking for a write time on top.
 
 - pptx: `Slide.AddPictureFromBytes` (and `Picture.SetImage`/`SetImageData`) embed
   SVG data the way PowerPoint expects it — a transparent raster fallback in
