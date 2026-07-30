@@ -104,7 +104,7 @@ func (p *Paragraph) AddWordArt(text string, opts WordArtOptions) *TextBox {
 	id := p.document.nextShapeID()
 	drawing := &oxml.CT_Drawing{RawContent: buildWordArtDrawingXML(id, tb, opts)}
 	tb.drawing = drawing
-	p.AddRun().r.AppendDrawing(drawing)
+	p.AddRun().mut().AppendDrawing(drawing)
 	return tb
 }
 

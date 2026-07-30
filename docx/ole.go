@@ -218,7 +218,7 @@ func (p *Paragraph) AddOLEObject(data []byte, progID string, opts OLEEmbedOption
 	}
 
 	id := doc.nextShapeID()
-	run.r.AppendObject(buildOLEObjectXML(id, width, height, progID, objRelID, iconRelID, opts.DisplayAsIcon))
+	run.mut().AppendObject(buildOLEObjectXML(id, width, height, progID, objRelID, iconRelID, opts.DisplayAsIcon))
 	return obj, nil
 }
 

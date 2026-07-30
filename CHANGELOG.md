@@ -210,6 +210,22 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- docx: four paragraph mutators no longer lose their edit when the paragraph
+  belongs to a header or footer read from a file. A header or footer
+  round-trips as preserved raw bytes unless the session flags its part, and
+  `Paragraph.AddMath`, `Paragraph.AddMathPara`, `Paragraph.ClearBorders` and
+  `Paragraph.ClearShading` reached the paragraph model directly instead of
+  through the flagging accessor, so the change was applied in memory and then
+  masked by the preserved bytes at save. `Document.Header`/`Footer` and
+  `Header.Paragraphs` hand out exactly such paragraphs, so an equation added to
+  a page header, or a border cleared from one, silently did nothing. The
+  companion funnels for styles, numbering, commentsExtended and image edits
+  (`Style.ensurePPr`/`ensureRPr`, `ListLevel.ensureInd`,
+  `ListDefinition.rebuildLevels`, `Document.ensureCommentEx`,
+  `InlineImage.applyEdit`) now raise the flag where the edit happens rather than
+  relying on each caller to remember. A save that changed nothing still raises
+  no flag and still round-trips byte-for-byte (C406, audit tension T2).
+
 - pptx no longer reformats `ppt/presentation.xml`, slide layouts and slide
   masters on a save that changed nothing. Those three part kinds are rebuilt
   from the model on every save (the writer owns their id lists and relationship

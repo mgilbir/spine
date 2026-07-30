@@ -96,7 +96,7 @@ func (p *Paragraph) AddShapeGroup(opts GroupOptions, members ...GroupMember) *Te
 	id := p.document.nextShapeID()
 	drawing := &oxml.CT_Drawing{RawContent: buildGroupDrawingXML(id, tb, opts, members, p.document)}
 	tb.drawing = drawing
-	p.AddRun().r.AppendDrawing(drawing)
+	p.AddRun().mut().AppendDrawing(drawing)
 	return tb
 }
 

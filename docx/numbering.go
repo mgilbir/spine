@@ -156,6 +156,9 @@ func (ld *ListDefinition) rebuildLevels() {
 	for _, k := range keys {
 		ld.abstract.Lvl = append(ld.abstract.Lvl, ld.levels[k])
 	}
+	// Reordering the definition's levels is an edit to numbering.xml, so it
+	// flags the part here rather than relying on every caller (C406).
+	ld.document.numberingModified = true
 }
 
 // ListStyle registers a numbering instance (w:num) pointing at this definition
@@ -272,7 +275,10 @@ func (l *ListLevel) SetAlignment(align Alignment) *ListLevel {
 	return l.modified()
 }
 
+// ensureInd is the funnel the indent setters go through, so flagging here
+// covers them in one place rather than leaving each to remember (C406).
 func (l *ListLevel) ensureInd() *oxml.CT_Ind {
+	l.modified()
 	if l.lvl.PPr == nil {
 		l.lvl.PPr = &oxml.CT_PPr{}
 	}
