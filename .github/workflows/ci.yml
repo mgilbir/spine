@@ -36,6 +36,10 @@ jobs:
         with:
           # Pin to the version declared in go.mod (go 1.25).
           go-version-file: go.mod
+          # The module has no third-party requirements, so there is no go.sum for
+          # the toolchain cache to key on; leaving it enabled logs a "Dependencies
+          # file is not found" warning on every run.
+          cache: false
 
       - name: Build
         run: go build ./...
