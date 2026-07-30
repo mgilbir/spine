@@ -501,13 +501,16 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 	c.cell.V = nil
 	c.cell.Is = nil
 
+	// One cursor per follower row, so filling a wide range stays linear:
+	// Sheet.Cell re-scans the row it is appending to for every column, which
+	// made a shared formula over a wide range cost O(cols^2).
 	for row := rng.minRow; row <= rng.maxRow; row++ {
+		cursor := c.sheet.newRowCells(row)
 		for col := rng.minCol; col <= rng.maxCol; col++ {
 			if row == mRow && col == mCol {
 				continue
 			}
-			fref := FormatCellRef(row, col)
-			follower, err := c.sheet.Cell(fref)
+			follower, err := cursor.cell(col)
 			if err != nil {
 				return err
 			}

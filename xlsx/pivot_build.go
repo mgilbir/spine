@@ -41,12 +41,13 @@ type cellDatum struct {
 func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, error) {
 	nCols := rng.maxCol - rng.minCol + 1
 
-	// Header names.
+	// Header names. Read through one cursor over the header row: a per-column
+	// Sheet.CellValue re-scans every cell in the row, so a wide source range
+	// cost O(cols^2) reference comparisons.
+	headerRow := src.newRowCells(rng.minRow)
 	headers := make([]string, nCols)
 	for j := 0; j < nCols; j++ {
-		ref := FormatCellRef(rng.minRow, rng.minCol+j)
-		v, _ := src.GetCellValue(ref)
-		v = strings.TrimSpace(v)
+		v := strings.TrimSpace(headerRow.value(rng.minCol + j))
 		if v == "" {
 			v = fmt.Sprintf("Column%d", j+1)
 		}
@@ -189,9 +190,11 @@ func buildPivot(src *Sheet, rng cellRange, opts PivotOptions) (*pivotBuild, erro
 		columns[j] = make([]cellDatum, 0, nData)
 	}
 	for r := rng.minRow + 1; r <= rng.maxRow; r++ {
+		// One scan of the row serves all its columns; scanCell's per-cell
+		// lookup walked the whole row again for each column.
+		cursor := src.newRowCells(r)
 		for j := 0; j < nCols; j++ {
-			ref := FormatCellRef(r, rng.minCol+j)
-			columns[j] = append(columns[j], scanCell(src, ref))
+			columns[j] = append(columns[j], scanCell(cursor, rng.minCol+j))
 		}
 	}
 
@@ -466,11 +469,11 @@ func placePivotLayout(b *pivotBuild, anchorRow, anchorCol int) {
 
 // --- source scanning helpers ---
 
-func scanCell(s *Sheet, ref string) cellDatum {
+func scanCell(row *rowCells, col int) cellDatum {
 	// Read-only lookup: scanning the source range must not mutate the source
-	// sheet's model. s.Cell would create phantom empty CT_Cell/CT_Row entries
-	// for every referenced-but-absent cell.
-	cell := s.findCell(ref)
+	// sheet's model. A mutating accessor would create phantom empty
+	// CT_Cell/CT_Row entries for every referenced-but-absent cell.
+	cell := row.find(col)
 	if cell == nil || cell.IsEmpty() {
 		return cellDatum{empty: true}
 	}

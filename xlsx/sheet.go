@@ -610,7 +610,10 @@ func FormatCellRef(row, col int) string {
 	if row < 1 || row > MaxRow || col < 1 || col > MaxCol {
 		return ""
 	}
-	return fmt.Sprintf("%s%d", columnLetters(col), row)
+	// Plain concatenation rather than fmt.Sprintf: this is on the hot path of
+	// every range walk, and the formatted form cost an interface boxing plus a
+	// reflection-driven format pass per cell.
+	return columnLetters(col) + strconv.Itoa(row)
 }
 
 // FreezePanes freezes rows and columns at the specified cell reference.

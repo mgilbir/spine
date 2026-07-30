@@ -364,16 +364,32 @@ func (s *Sheet) GroupRows(startRow, endRow int) error {
 	if startRow < 1 || endRow < startRow {
 		return ErrInvalidRange
 	}
-	for row := startRow; row <= endRow; row++ {
-		level := s.RowOutlineLevel(row)
+	return s.editRowRange(startRow, endRow, func(r *oxml.CT_Row) {
+		level := outlineLevelOf(r.OutlineLevel)
 		if level < maxOutlineLevel {
 			level++
 		}
-		if err := s.SetRowOutlineLevel(row, level); err != nil {
-			return err
-		}
+		setOutlineLevel(&r.OutlineLevel, level)
+	})
+}
+
+// outlineLevelOf reads an optional outline level, treating an unset one as 0.
+func outlineLevelOf(p *uint8) uint8 {
+	if p == nil {
+		return 0
 	}
-	return nil
+	return *p
+}
+
+// setOutlineLevel writes an outline level, clearing the attribute at level 0 so
+// an ungrouped row or column emits no outlineLevel at all.
+func setOutlineLevel(p **uint8, level uint8) {
+	if level == 0 {
+		*p = nil
+		return
+	}
+	l := level
+	*p = &l
 }
 
 // UngroupRows decreases the outline level of every row in [startRow, endRow]
@@ -382,16 +398,13 @@ func (s *Sheet) UngroupRows(startRow, endRow int) error {
 	if startRow < 1 || endRow < startRow {
 		return ErrInvalidRange
 	}
-	for row := startRow; row <= endRow; row++ {
-		level := s.RowOutlineLevel(row)
+	return s.editRowRange(startRow, endRow, func(r *oxml.CT_Row) {
+		level := outlineLevelOf(r.OutlineLevel)
 		if level > 0 {
 			level--
 		}
-		if err := s.SetRowOutlineLevel(row, level); err != nil {
-			return err
-		}
-	}
-	return nil
+		setOutlineLevel(&r.OutlineLevel, level)
+	})
 }
 
 // ColumnOutlineLevel returns a column's outline (grouping) level, 0 when the
@@ -445,16 +458,13 @@ func (s *Sheet) GroupColumns(startCol, endCol int) error {
 	if startCol < 1 || endCol < startCol {
 		return ErrInvalidRange
 	}
-	for col := startCol; col <= endCol; col++ {
-		level := s.ColumnOutlineLevel(col)
+	return s.editColumnRange(startCol, endCol, func(c *oxml.CT_Col) {
+		level := outlineLevelOf(c.OutlineLevel)
 		if level < maxOutlineLevel {
 			level++
 		}
-		if err := s.SetColumnOutlineLevel(col, level); err != nil {
-			return err
-		}
-	}
-	return nil
+		setOutlineLevel(&c.OutlineLevel, level)
+	})
 }
 
 // UngroupColumns decreases the outline level of every column in [startCol,
@@ -463,16 +473,13 @@ func (s *Sheet) UngroupColumns(startCol, endCol int) error {
 	if startCol < 1 || endCol < startCol {
 		return ErrInvalidRange
 	}
-	for col := startCol; col <= endCol; col++ {
-		level := s.ColumnOutlineLevel(col)
+	return s.editColumnRange(startCol, endCol, func(c *oxml.CT_Col) {
+		level := outlineLevelOf(c.OutlineLevel)
 		if level > 0 {
 			level--
 		}
-		if err := s.SetColumnOutlineLevel(col, level); err != nil {
-			return err
-		}
-	}
-	return nil
+		setOutlineLevel(&c.OutlineLevel, level)
+	})
 }
 
 // OutlineSummary reports the sheet's outline summary placement: below reports
@@ -565,6 +572,48 @@ func (s *Sheet) editRow(row int, apply func(*oxml.CT_Row)) error {
 	return nil
 }
 
+// editRowRange applies apply to every row in [startRow, endRow], creating the
+// rows that do not exist yet. It is editRow over a range, done in one pass:
+// calling editRow per row re-scanned SheetData.Row every time, and since the
+// loop appends rows as it goes that made grouping a tall range O(rows^2).
+//
+// The result is identical to the per-row loop, including the first-match-wins
+// choice among duplicate row numbers and the append-at-the-end placement of new
+// rows (marshalling sorts rows into ascending order).
+func (s *Sheet) editRowRange(startRow, endRow int, apply func(*oxml.CT_Row)) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
+	if startRow < 1 || endRow > MaxRow {
+		return ErrInvalidCell
+	}
+	s.markDirty()
+	s.ensureWorksheet()
+	s.ws().EnsureChildOrder("sheetData")
+
+	sd := &s.ws().SheetData
+	byNumber := make(map[uint32]int, len(sd.Row))
+	for i := range sd.Row {
+		if rn, ok := rowNumberOf(&sd.Row[i]); ok {
+			if _, dup := byNumber[rn]; !dup {
+				byNumber[rn] = i
+			}
+		}
+	}
+	for row := startRow; row <= endRow; row++ {
+		r := uint32(row)
+		if i, ok := byNumber[r]; ok {
+			apply(&sd.Row[i])
+			continue
+		}
+		newRow := oxml.CT_Row{R: &r}
+		apply(&newRow)
+		sd.Row = append(sd.Row, newRow)
+		byNumber[r] = len(sd.Row) - 1
+	}
+	return nil
+}
+
 // editColumn carves the target 1-based column out of every <col> entry that
 // spans it — across EVERY <cols> group, not just the first — and applies apply
 // to the resulting single-column entry.
@@ -627,6 +676,79 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 		s.ws().Cols[gi].Col = rebuilt
 	}
 	if !placed {
+		target := oxml.CT_Col{Min: c, Max: c}
+		apply(&target)
+		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
+	}
+	return nil
+}
+
+// editColumnRange is editColumn over [startCol, endCol], carving every column in
+// the range out of the existing <col> entries in a single pass.
+//
+// editColumn rebuilds every <cols> group from scratch on each call, so calling
+// it per column made grouping a wide range O(cols^2) in both time and
+// allocations — a full-width GroupColumns took seconds. One pass produces the
+// same entries in the same order: each covered column becomes its own
+// single-column entry in place (inheriting the covering entry's other
+// attributes, first covering entry wins), the uncovered remainder of an entry is
+// kept as its left/right fragments, and columns no entry covered are appended to
+// the first group in ascending order.
+func (s *Sheet) editColumnRange(startCol, endCol int, apply func(*oxml.CT_Col)) error {
+	if s.opaque {
+		return ErrNotWorksheet
+	}
+	if startCol < 1 || endCol > MaxCol {
+		return ErrInvalidCell
+	}
+	s.markDirty()
+	s.ensureWorksheet()
+	if len(s.ws().Cols) == 0 {
+		s.ws().Cols = append(s.ws().Cols, oxml.CT_Cols{})
+	}
+	s.ws().EnsureChildOrder("cols")
+
+	lo, hi := uint32(startCol), uint32(endCol)
+	placed := make(map[uint32]bool, endCol-startCol+1)
+	for gi := range s.ws().Cols {
+		cols := s.ws().Cols[gi].Col
+		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
+		for _, entry := range cols {
+			if entry.Min > hi || entry.Max < lo {
+				rebuilt = append(rebuilt, entry)
+				continue
+			}
+			if entry.Min < lo {
+				left := entry
+				left.Max = lo - 1
+				rebuilt = append(rebuilt, left)
+			}
+			from, to := max(entry.Min, lo), min(entry.Max, hi)
+			for c := from; c <= to; c++ {
+				// A column already carved out of an earlier group keeps that
+				// entry; this one just loses the overlapping stretch, exactly as
+				// the per-column carve did.
+				if placed[c] {
+					continue
+				}
+				target := entry
+				target.Min, target.Max = c, c
+				apply(&target)
+				rebuilt = append(rebuilt, target)
+				placed[c] = true
+			}
+			if entry.Max > hi {
+				right := entry
+				right.Min = hi + 1
+				rebuilt = append(rebuilt, right)
+			}
+		}
+		s.ws().Cols[gi].Col = rebuilt
+	}
+	for c := lo; c <= hi; c++ {
+		if placed[c] {
+			continue
+		}
 		target := oxml.CT_Col{Min: c, Max: c}
 		apply(&target)
 		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)

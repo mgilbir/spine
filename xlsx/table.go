@@ -235,7 +235,14 @@ func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
 		}
 	}
 
-	names, err := s.resolveTableColumnNames(rng, nCols, opts.Columns)
+	// One cursor over the header row serves both the name resolution and the
+	// write-back below. Resolving the row's cells once keeps AddTable linear in
+	// the column count; going through Sheet.Cell/Sheet.CellValue per column
+	// re-scanned the (growing) row every time, so a full-width table cost
+	// O(cols^2) reference comparisons.
+	header := s.newRowCells(rng.minRow)
+
+	names, err := s.resolveTableColumnNames(header, rng, nCols, opts.Columns)
 	if err != nil {
 		return nil, fmt.Errorf("xlsx: AddTable: %w", err)
 	}
@@ -285,11 +292,11 @@ func (s *Sheet) AddTable(cellRange string, opts TableOptions) (*Table, error) {
 	// from the resolved name, so an unchanged header (e.g. a shared string) is
 	// not needlessly rewritten as an inline string.
 	for i, colName := range names {
-		ref := FormatCellRef(rng.minRow, rng.minCol+i)
-		if cur, err := s.GetCellValue(ref); err == nil && cur == colName {
+		col := rng.minCol + i
+		if header.value(col) == colName {
 			continue
 		}
-		cell, err := s.Cell(ref)
+		cell, err := header.cell(col)
 		if err != nil {
 			return nil, fmt.Errorf("xlsx: AddTable: %w", err)
 		}
@@ -332,10 +339,12 @@ var subtotalFunctionCodes = map[string]int{
 // where the column defines one, otherwise a SUBTOTAL over the column's data
 // body using a structured reference, which is what Excel itself writes.
 func (s *Sheet) writeTableTotalsRow(model *oxml.CT_Table, rng cellRange, names []string) error {
+	// As with the header row: index the totals row once, then write each column
+	// in O(1). Per-column Sheet.Cell calls made this loop quadratic too.
+	totals := s.newRowCells(rng.maxRow)
 	for i, colName := range names {
 		col := &model.Columns[i]
-		ref := FormatCellRef(rng.maxRow, rng.minCol+i)
-		cell, err := s.Cell(ref)
+		cell, err := totals.cell(rng.minCol + i)
 		if err != nil {
 			return err
 		}
@@ -361,34 +370,45 @@ func (s *Sheet) writeTableTotalsRow(model *oxml.CT_Table, rng cellRange, names [
 // resolveTableColumnNames returns the table's column names, either from the
 // override or derived from the header row, ensuring they are non-empty and
 // unique (as Excel requires).
-func (s *Sheet) resolveTableColumnNames(rng cellRange, nCols int, override []string) ([]string, error) {
+// The header cells are read through the caller's cursor over the header row, so
+// resolving n columns costs one row scan rather than n.
+func (s *Sheet) resolveTableColumnNames(header *rowCells, rng cellRange, nCols int, override []string) ([]string, error) {
 	if override != nil && len(override) != nCols {
 		return nil, fmt.Errorf("Columns has %d entries but the range spans %d columns", len(override), nCols)
 	}
 	names := make([]string, nCols)
 	seen := make(map[string]struct{}, nCols)
+	// nextSuffix remembers where the suffix search for a given base name left
+	// off. Restarting it at 2 for every repeat made a range of identically
+	// named headers quadratic in its own right: the k-th "dup" header walked
+	// dup2..dupK before finding a free name. Once a suffix is taken it stays
+	// taken, so resuming from the last one yields exactly the same names.
+	nextSuffix := make(map[string]int)
 	for i := 0; i < nCols; i++ {
 		var name string
 		if override != nil {
 			name = strings.TrimSpace(override[i])
 		} else {
-			ref := FormatCellRef(rng.minRow, rng.minCol+i)
-			v, err := s.GetCellValue(ref)
-			if err != nil {
-				return nil, err
-			}
-			name = strings.TrimSpace(v)
+			name = strings.TrimSpace(header.value(rng.minCol + i))
 		}
 		if name == "" {
 			name = fmt.Sprintf("Column%d", i+1)
 		}
 		// De-duplicate case-insensitively, as Excel does.
 		base := name
-		for n := 2; ; n++ {
-			if _, dup := seen[strings.ToLower(name)]; !dup {
-				break
+		lowerBase := strings.ToLower(base)
+		if _, dup := seen[lowerBase]; dup {
+			n := nextSuffix[lowerBase]
+			if n < 2 {
+				n = 2
 			}
-			name = fmt.Sprintf("%s%d", base, n)
+			for ; ; n++ {
+				name = fmt.Sprintf("%s%d", base, n)
+				if _, dup := seen[strings.ToLower(name)]; !dup {
+					break
+				}
+			}
+			nextSuffix[lowerBase] = n
 		}
 		seen[strings.ToLower(name)] = struct{}{}
 		names[i] = name

@@ -97,13 +97,17 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 	styleCache := make(map[uint32]uint32)
 
 	copyCells := func() error {
+		// Cursors over the destination rows: dst.Cell would re-scan the growing
+		// destination for every source cell, making a whole-sheet copy
+		// quadratic in both the row count and the per-row cell count.
+		cursors := dst.newRowCursors()
 		for i := range src.ws().SheetData.Row {
 			row := &src.ws().SheetData.Row[i]
 			for _, sc := range row.C {
 				if sc == nil || sc.R == "" {
 					continue
 				}
-				dc, err := dst.Cell(sc.R)
+				dc, err := cursors.cellByRef(sc.R)
 				if err != nil {
 					return err
 				}

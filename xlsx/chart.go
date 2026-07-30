@@ -207,6 +207,10 @@ func (w *Workbook) removeChartDataSheet(sheet *Sheet) {
 // category/scatter-only writer laid out wrong (C248) — places each value in the
 // exact cell its reference points at.
 func writeChartData(sheet *Sheet, c *chart.Chart) error {
+	// Cursors per row: Sheet.SetCellValue resolves the row and re-scans it for
+	// every value, so a chart with many points cost O(points^2) as the rows
+	// filled up underneath the loop.
+	cursors := sheet.newRowCursors()
 	for _, dc := range c.DataCells() {
 		var value interface{}
 		if dc.IsText {
@@ -214,16 +218,13 @@ func writeChartData(sheet *Sheet, c *chart.Chart) error {
 		} else {
 			value = dc.Number
 		}
-		if err := sheet.SetCellValue(chartDataCell(dc.Col, dc.Row), value); err != nil {
+		cell, err := cursors.cell(dc.Row, dc.Col)
+		if err != nil {
 			return err
 		}
+		cell.SetValue(value)
 	}
 	return nil
-}
-
-// chartDataCell builds a plain A1 reference from a 1-based column and row.
-func chartDataCell(col, row int) string {
-	return FormatCellRef(row, col)
 }
 
 // sheetsHaveCharts reports whether any sheet carries pending charts.
