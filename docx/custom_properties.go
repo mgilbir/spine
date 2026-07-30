@@ -18,7 +18,16 @@ func (d *Document) SetCustomProperty(name string, value any) error {
 	if d.customProps == nil {
 		d.customProps = &opc.CustomProperties{}
 	}
-	return d.customProps.Set(name, value)
+	if err := d.customProps.Set(name, value); err != nil {
+		return err
+	}
+	// docProps/custom.xml regeneration is derived by customPropertiesModified()
+	// rather than a flag, and that comparison latches once it differs from the
+	// snapshot taken at open — so the edit is counted here, where a rejected
+	// value has already been ruled out. xlsx and pptx record it at the same
+	// point for the same reason.
+	d.markEdited()
+	return nil
 }
 
 // RemoveCustomProperty removes the named custom property, reporting whether it
@@ -27,7 +36,11 @@ func (d *Document) RemoveCustomProperty(name string) bool {
 	if d.customProps == nil {
 		return false
 	}
-	return d.customProps.Remove(name)
+	if !d.customProps.Remove(name) {
+		return false
+	}
+	d.markEdited()
+	return true
 }
 
 // customPropertiesModified reports whether the custom properties were edited or

@@ -123,12 +123,16 @@ func (d *Document) themeEdited() bool {
 // Create when there has not been one). None of the signals it reads is set by
 // merely reading the document.
 //
-// Deliberately not counted: an edit to Properties or to the custom properties.
-// Those are already detected by comparing against the snapshot taken at open —
-// which is what regenerates docProps/core.xml and docProps/custom.xml — and a
+// Deliberately not counted: an assignment to a Properties field. There is no
+// setter to hook, and the change is already detected by comparing against the
+// snapshot taken at open — which is what regenerates docProps/core.xml. A
 // caller authoring the document's metadata is stating what the metadata should
-// say, not asking for a write time on top. pptx draws the line in the same
-// place.
+// say, not asking for a write time on top. All three formats draw that line in
+// the same place.
+//
+// The custom properties are different, and do count: they have real setters, so
+// SetCustomProperty and RemoveCustomProperty record the edit directly (see
+// custom_properties.go), matching xlsx and pptx.
 func (d *Document) contentChanged() bool {
 	return d.modelEdits != d.savedModelEdits || d.themeEdited() != d.savedThemeEdit
 }
