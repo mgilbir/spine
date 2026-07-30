@@ -130,6 +130,59 @@ Two mechanical guards exist, and both are cheap to extend:
   and `<!-- validation-catalog:end -->` markers; do not restructure it without
   updating the parser in that package.
 
+## Mechanical guards
+
+Several invariants in this repo are enforced by tests that read the source
+rather than exercise it: the mutation-flag guards in `docx`, `xlsx` and `pptx`,
+the capture-coverage guard in `pptx/internal/oxml`, the percent-type/schema diff
+in `common/dml`, and the relationship-allocator guards in `pptx`. They exist
+because the same classes of omission kept recurring — a mutator that edits a
+preserved part without flagging it, an attribute that loses its captured
+spelling, an id allocator that ignores what the opened document already contains.
+
+Two properties make one of these worth having, and both are easy to lose:
+
+- **It must fail on a *new* omission, not pin today's known set.** A table of
+  known-good cases goes stale the moment someone adds a method; a guard that
+  derives its subject list from the AST or from reflection covers the new method
+  by construction. Where a hand-maintained list is unavoidable, add a
+  completeness check that fails when the list and the source disagree.
+- **Someone must have watched it fail.** Add the violation the guard exists to
+  catch — a mutator that skips its flag, an attribute without capture — confirm
+  the guard names it, then remove it. A guard whose detection has never been
+  observed is indistinguishable from one that matches nothing, and this repo has
+  shipped both a scaling check that failed on noise instead of regressions and a
+  test dismissed as flaky for three audits while it was reporting a real bug.
+
+Exemptions belong in code with their reason, next to the guard, and a **stale**
+exemption should fail the test too — otherwise the list only grows.
+
+### Exploratory sweeps
+
+`ast-grep` is a good way to *find* a new class before you know whether it is
+real. Rules are quick to write and run without any project setup:
+
+```
+ast-grep scan --inline-rules '...' xlsx/          # ad-hoc
+ast-grep scan -r some-rule.yml xlsx/              # from a file
+```
+
+There is deliberately no `sgconfig.yml` and no committed rule set, and ast-grep
+is not wired into CI. A rule that lives outside the test suite is a guard nobody
+watches, and every invariant currently worth enforcing is already a Go test that
+runs on every push — `TestSheetDirtyIsOnlySetByMarkDirty` covers the same ground
+as the obvious ast-grep rule and got the Go `method_declaration` /
+`function_declaration` distinction right, which the first draft of that rule did
+not: it silently excluded nothing and reported a false positive. The same slip in
+the other direction reports "clean" forever.
+
+So: sweep with ast-grep, then promote anything real to a Go test. Prefer
+`go/ast` and `go/types` for the promoted version — they are in the standard
+library, this module has no third-party requirements, and the questions that
+matter here ("does this method transitively reach `markDirty`?", "are these map
+keys sorted before use?") need types and a call graph, which a syntactic matcher
+cannot answer.
+
 ## Commit style
 
 One logical change per commit, message in the form
