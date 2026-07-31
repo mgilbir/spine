@@ -9,6 +9,8 @@ import (
 	"path"
 	"strings"
 	"sync"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // contentTypesPartName is the canonical part name of the mandatory
@@ -62,6 +64,23 @@ var MaxDecompressedPackageSize int64 = 4 << 30 // 4 GiB
 // package that legitimately contains more entries. It is captured once per
 // Reader like the decompression limits — see MaxDecompressedPartSize for the
 // concurrency contract — and can be overridden per Reader through
+// MaxNestingDepth bounds how deeply elements may nest in any XML part of a
+// package. Set it to 0 to disable the bound; raise it before opening a package
+// that legitimately nests deeper.
+//
+// It is a structural dimension the byte-oriented limits cannot see, in the same
+// way MaxPackageEntries is: nesting costs a decoder frame and a model frame per
+// level regardless of how few bytes express it. A 244 KB slide holding 80,000
+// nested p:grpSp elements cost 627 MB resident, and the per-level cost grows
+// with depth; under a megabyte was enough to kill the process. The default is
+// calibrated against real documents rather than taste — the deepest part in
+// 170,913 parts across 3,600 Common Crawl documents nests 95 levels, so 1000
+// leaves an order of magnitude of headroom over anything a producer writes.
+//
+// Captured once when a Reader is constructed, like the decompression limits;
+// see MaxDecompressedPartSize for the concurrency contract.
+var MaxNestingDepth = 1000
+
 // ReaderOptions.
 var MaxPackageEntries = 1 << 16 // 65536
 
@@ -73,6 +92,7 @@ var MaxPackageEntries = 1 << 16 // 65536
 type decompressionBudget struct {
 	maxPart    int64 // per-part cap; <= 0 disables
 	maxPackage int64 // package-total cap; <= 0 disables
+	maxDepth   int   // per-part XML nesting cap; <= 0 disables
 
 	// mu guards total and charged. All Files of a Reader share one budget and
 	// a read-only Reader invites concurrent part reads, so the running
@@ -113,6 +133,11 @@ type ReaderOptions struct {
 	// uses the package-level default; a negative value disables the bound.
 	MaxPackageEntries int
 
+	// MaxNestingDepth overrides the package-level MaxNestingDepth for this
+	// Reader: it bounds how deeply elements may nest in any XML part. Zero
+	// uses the package-level default; a negative value disables the bound.
+	MaxNestingDepth int
+
 	// AllowMissingDataIntegrity applies only to the encrypted-open paths
 	// (OpenEncryptedWithOptions and the format packages' encrypted opens); the
 	// plain-zip readers ignore it. It is passed straight through to
@@ -152,7 +177,11 @@ func newDecompressionBudget(opts ReaderOptions) *decompressionBudget {
 	b := &decompressionBudget{
 		maxPart:    MaxDecompressedPartSize,
 		maxPackage: MaxDecompressedPackageSize,
+		maxDepth:   MaxNestingDepth,
 		charged:    make(map[*zip.File]int64),
+	}
+	if opts.MaxNestingDepth != 0 {
+		b.maxDepth = opts.MaxNestingDepth
 	}
 	if opts.MaxDecompressedPartSize != 0 {
 		b.maxPart = opts.MaxDecompressedPartSize
@@ -273,6 +302,18 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, b.maxPart)
 	}
 
+	// Nesting is checked here rather than at unmarshal because this is the one
+	// chokepoint every part's bytes pass through, and it is where the limits
+	// captured for this Reader are in scope — common/xml is the substrate and
+	// holds no policy. Only markup is scanned: media parts have no element
+	// structure to nest, and skipping them keeps the cost off the bytes that
+	// dominate a package.
+	if isMarkupPart(zf.Name) {
+		if err := xmlb.CheckNestingDepth(data, b.maxDepth); err != nil {
+			return nil, fmt.Errorf("opc: part %q: %w (raise MaxNestingDepth before opening to allow it)", zf.Name, err)
+		}
+	}
+
 	// Any read that overflowed the package-remaining portion of limit is
 	// caught here: charge re-checks the budget under the lock and the total
 	// only ever grows, so an over-read cannot slip through.
@@ -280,6 +321,17 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// isMarkupPart reports whether a zip entry name looks like XML this package
+// should depth-check. OPC part names are case-insensitive by convention, and
+// the two extensions cover every markup part a package carries: .rels for
+// relationship parts, .xml for everything else (including .vml parts, which are
+// stored as .vml but only reached through drawing parts that are .xml).
+func isMarkupPart(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".rels") ||
+		strings.HasSuffix(lower, ".vml")
 }
 
 // openZipEntry opens a bounded stream over one zip entry. Declared-size
