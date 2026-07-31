@@ -43,8 +43,9 @@ flowchart TD
   and writes them through `common/xml`.
 - **pptx / docx / xlsx** are the format packages. Each imports `opc`, the
   models, `validate`, and `chart`, and each reaches password encryption through
-  `opc`'s CFB bridge for its own `OpenEncrypted`/`SaveEncrypted` pair. Each also
-  has an `internal/oxml` package for its format-specific structs.
+  `opc`'s CFB bridge — reading via `opc.WithPassword` on its ordinary open,
+  writing through its own `SaveEncrypted` pair. Each also has an `internal/oxml`
+  package for its format-specific structs.
 
 ## Save pipeline
 

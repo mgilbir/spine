@@ -78,14 +78,15 @@ type ReaderOptions struct {
 	// Zero or less disables the bound.
 	MaxNestingDepth int
 
-	// MaxEncryptedInputSize bounds how many bytes OpenEncrypted reads before
-	// parsing the CFB container. Zero or less disables the bound. It applies
-	// only to the encrypted-open paths; the plain-zip readers ignore it.
+	// MaxEncryptedInputSize bounds how many bytes an open reads before parsing
+	// the CFB container of an encrypted input. Zero or less disables the bound.
+	// It is consulted only for an input that turns out to be encrypted; a plain
+	// zip is bounded by the decompression limits instead.
 	MaxEncryptedInputSize int64
 
 	// AllowMissingDataIntegrity decrypts an agile-encrypted package whose
 	// EncryptionInfo descriptor carries no dataIntegrity element WITHOUT
-	// verifying the package HMAC. It applies only to the encrypted-open paths.
+	// verifying the package HMAC.
 	//
 	// Leave it false unless you know you need it: the descriptor is plaintext
 	// and unauthenticated, so an attacker who can modify the file can delete
@@ -93,11 +94,25 @@ type ReaderOptions struct {
 	// ciphertext. Honouring its absence turns an authenticated format into an
 	// unauthenticated one at the attacker's option (C361).
 	AllowMissingDataIntegrity bool
+
+	// password, when non-nil, is the password an open uses if the input turns
+	// out to be a password-encrypted (CFB-wrapped) package. Nil means no
+	// password was supplied, and such an input reports ErrEncrypted. Set it
+	// with WithPassword.
+	//
+	// It is a *string, and unexported, so that a password cannot reach a log.
+	// fmt walks unexported fields as readily as exported ones, so a plain
+	// string here — exported or not, at any nesting depth — would appear in
+	// any %v, %+v or %#v of a value containing a ReaderOptions. A pointer
+	// prints as its address instead, and being unexported it also stays out of
+	// encoding/json. TestPasswordDoesNotLeakThroughFormatting holds this.
+	password *string
 }
 
 // DefaultReaderOptions returns the configuration a Reader uses when no option
-// overrides it: every bound set to its Default* constant, and integrity
-// verification required. It is the base every open resolves options on top of.
+// overrides it: every bound set to its Default* constant, integrity
+// verification required, and no password. It is the base every open resolves
+// options on top of.
 //
 // A caller can take it to see or adjust the whole set at once:
 //
@@ -149,8 +164,8 @@ func WithMaxNestingDepth(depth int) ReaderOption {
 	return func(o *ReaderOptions) { o.MaxNestingDepth = depth }
 }
 
-// WithMaxEncryptedInputSize bounds how many bytes OpenEncrypted reads before
-// parsing the CFB container. Zero or less disables the bound.
+// WithMaxEncryptedInputSize bounds how many bytes an open reads before parsing
+// the CFB container of an encrypted input. Zero or less disables the bound.
 func WithMaxEncryptedInputSize(size int64) ReaderOption {
 	return func(o *ReaderOptions) { o.MaxEncryptedInputSize = size }
 }
@@ -160,4 +175,24 @@ func WithMaxEncryptedInputSize(size int64) ReaderOption {
 // HMAC. See ReaderOptions.AllowMissingDataIntegrity for why to leave it off.
 func WithAllowMissingDataIntegrity(allow bool) ReaderOption {
 	return func(o *ReaderOptions) { o.AllowMissingDataIntegrity = allow }
+}
+
+// WithPassword supplies the password for a password-encrypted (CFB-wrapped)
+// package, so an encrypted document opens through the ordinary open:
+//
+//	r, err := opc.OpenReader(path, opc.WithPassword("secret"))
+//
+// The open detects the container from the input's leading bytes, so the same
+// call opens a plain package and an encrypted one; the password is simply
+// unused when the input is a plain zip. Without this option an encrypted input
+// reports ErrEncrypted.
+//
+// A wrong password returns crypto.ErrWrongPassword — including an empty one,
+// which is recorded as given rather than treated as no password at all, since
+// only the caller knows whether they meant to supply one.
+//
+// The password is held out of reach of fmt and encoding/json; see
+// ReaderOptions.password.
+func WithPassword(password string) ReaderOption {
+	return func(o *ReaderOptions) { o.password = &password }
 }

@@ -40,31 +40,29 @@ func encryptedWithoutDataIntegrity(t *testing.T, plain []byte, password string) 
 	return buf.Bytes()
 }
 
-func TestOpenEncryptedWithOptionsPlumbsAllowMissingDataIntegrity(t *testing.T) {
+func TestOpenPlumbsAllowMissingDataIntegrity(t *testing.T) {
 	plain := buildPlainPackage(t, 1000)
 	const password = "hunter2"
 	container := encryptedWithoutDataIntegrity(t, plain, password)
 
-	// Default: strict. A missing integrity block is a hard failure, and the
-	// convenience wrapper must not soften it either.
-	for name, open := range map[string]func() (*Reader, error){
-		"OpenEncrypted": func() (*Reader, error) {
-			return OpenEncrypted(bytes.NewReader(container), int64(len(container)), password)
-		},
-		"OpenEncrypted/no options": func() (*Reader, error) {
-			return OpenEncrypted(bytes.NewReader(container), int64(len(container)), password)
-		},
+	// Default: strict. A missing integrity block is a hard failure, however the
+	// options reach the open — one at a time, or as a prepared ReaderOptions.
+	for name, opts := range map[string][]ReaderOption{
+		"WithPassword":                     {WithPassword(password)},
+		"WithReaderOptions+WithPassword":   {WithReaderOptions(DefaultReaderOptions()), WithPassword(password)},
+		"WithPassword+unrelated overrides": {WithPassword(password), WithMaxNestingDepth(50)},
 	} {
-		if _, err := open(); !errors.Is(err, crypto.ErrIntegrityCheckFailed) {
+		_, err := NewReader(bytes.NewReader(container), int64(len(container)), opts...)
+		if !errors.Is(err, crypto.ErrIntegrityCheckFailed) {
 			t.Fatalf("%s: got %v, want ErrIntegrityCheckFailed", name, err)
 		}
 	}
 
 	// Explicit opt-in: the package opens, and its bytes are the originals.
-	r, err := OpenEncrypted(bytes.NewReader(container), int64(len(container)), password,
-		WithAllowMissingDataIntegrity(true))
+	r, err := NewReader(bytes.NewReader(container), int64(len(container)),
+		WithPassword(password), WithAllowMissingDataIntegrity(true))
 	if err != nil {
-		t.Fatalf("opted-in OpenEncrypted: %v", err)
+		t.Fatalf("opted-in open: %v", err)
 	}
 	f := r.GetFile("/ppt/body.bin")
 	if f == nil {
@@ -99,8 +97,8 @@ func TestAllowMissingDataIntegrityDoesNotRelaxAFailedHMAC(t *testing.T) {
 	}
 	container := buf.Bytes()
 
-	if _, err := OpenEncrypted(bytes.NewReader(container), int64(len(container)), password,
-		WithAllowMissingDataIntegrity(true)); !errors.Is(err, crypto.ErrIntegrityCheckFailed) {
+	if _, err := NewReader(bytes.NewReader(container), int64(len(container)),
+		WithPassword(password), WithAllowMissingDataIntegrity(true)); !errors.Is(err, crypto.ErrIntegrityCheckFailed) {
 		t.Fatalf("tampered ciphertext with the opt-in set: got %v, want ErrIntegrityCheckFailed", err)
 	}
 }

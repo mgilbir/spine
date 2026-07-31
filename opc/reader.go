@@ -489,19 +489,29 @@ func NewReader(r io.ReaderAt, size int64, opt ...ReaderOption) (*Reader, error) 
 }
 
 // newReaderResolved is NewReader with the configuration already resolved, so
-// callers that resolved it once (OpenReader, the encrypted opens) do not do it
-// twice.
+// callers that resolved it once (OpenReader) do not do it twice.
 func newReaderResolved(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
-	// A password-encrypted OOXML document is a CFB container, not a zip. Detect
-	// it from the leading magic and steer the caller to OpenEncrypted instead
-	// of failing with an opaque "not a valid zip file" error.
+	// A password-encrypted OOXML document is a CFB container, not a zip. Which
+	// of the two an input is, is a property of the input rather than a choice
+	// the caller makes, so it is detected here from the leading magic: with
+	// WithPassword the container is decrypted and read as usual, and without
+	// one the open reports ErrEncrypted rather than an opaque "not a valid zip
+	// file".
 	if size >= int64(len(cfbSignature)) {
 		var head [8]byte
 		if n, _ := r.ReadAt(head[:], 0); n == len(head) && isCFB(head[:]) {
-			return nil, ErrEncrypted
+			return openEncrypted(r, size, opts)
 		}
 	}
 
+	return newReaderFromZip(r, size, opts)
+}
+
+// newReaderFromZip builds a Reader over plain (unencrypted) package bytes. It
+// is the tail of newReaderResolved, split out so the encrypted open can rejoin
+// the flow after decrypting without re-running the container detection on the
+// plaintext.
+func newReaderFromZip(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	zr, err := zip.NewReader(guardedReaderAt{r}, size)
 	if err != nil {
 		return nil, err

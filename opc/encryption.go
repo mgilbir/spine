@@ -21,19 +21,17 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/mgilbir/spine/common/options"
 	"io"
 
 	"github.com/mgilbir/spine/common/crypto"
 )
 
 // ErrEncrypted indicates that the input is a password-encrypted (CFB-wrapped)
-// OOXML document rather than a plain zip package. The normal open path returns
-// it so callers can retry with a password: each format package has an
-// OpenEncrypted of its own (docx.OpenEncrypted, xlsx.OpenEncrypted,
-// pptx.OpenEncrypted) returning that format's document model, and
-// opc.OpenEncrypted returns a raw package Reader.
-var ErrEncrypted = errors.New("opc: package is encrypted; open it with the format package's OpenEncrypted (docx/xlsx/pptx), or opc.OpenEncrypted, and a password")
+// OOXML document rather than a plain zip package, and that no password was
+// supplied. Every open takes options, so the retry is the same call with
+// WithPassword added — opc.OpenReader, opc.NewReader, and each format
+// package's Open and OpenReader all accept it.
+var ErrEncrypted = errors.New("opc: package is encrypted; pass opc.WithPassword to the same open to decrypt it")
 
 // stream names inside the CFB container ([MS-OFFCRYPTO] §2.3.4.10).
 const (
@@ -41,32 +39,35 @@ const (
 	cfbStreamEncryptedPackage = "EncryptedPackage"
 )
 
-// OpenEncrypted opens a password-encrypted OOXML package. It reads the CFB
-// container from r, decrypts the inner package with the supplied password, and
-// returns a Reader over the recovered (plain-zip) package bytes exactly as
-// OpenReader would for an unencrypted file.
+// openEncrypted opens the password-encrypted OOXML package in r, which the
+// open path has already recognised as a CFB container from its leading bytes.
+// It decrypts the inner package with the password carried by opts and returns a
+// Reader over the recovered (plain-zip) bytes, exactly as the open would have
+// returned for an unencrypted input. With no password it reports ErrEncrypted,
+// which is what makes the password an ordinary option rather than a separate
+// entry point: one open serves both kinds of input.
 //
-// It auto-detects the scheme (agile, ECMA-376 standard, or legacy RC4 CryptoAPI).
-// A wrong password returns crypto.ErrWrongPassword. An unsupported encryption
+// The scheme is auto-detected (agile, ECMA-376 standard, or legacy RC4
+// CryptoAPI). A wrong password returns crypto.ErrWrongPassword. An unsupported
 // scheme (e.g. version-1.1 binary-format RC4, or the extensible scheme) returns
 // crypto.ErrUnsupportedEncryption. An agile package that fails — or cannot
 // perform — its integrity check returns crypto.ErrIntegrityCheckFailed; only
 // the agile scheme authenticates its ciphertext at all, so a package opened
 // from a standard or RC4 container is unauthenticated by construction (see
 // crypto.DecryptWithOptions to learn which you got).
-func OpenEncrypted(r io.ReaderAt, size int64, password string, opts ...ReaderOption) (*Reader, error) {
-	return openEncryptedResolved(r, size, password, options.Resolve(DefaultReaderOptions(), opts...))
-}
-
-// OpenEncryptedWithOptions is OpenEncrypted with per-Reader options. The
-// decompression limits apply to the decrypted package (the same bounds guard
-// the inner zip against decompression bombs), and
+//
+// The decompression bounds in opts apply to the decrypted package, since the
+// inner zip needs the same guarding as any other, and
 // ReaderOptions.AllowMissingDataIntegrity is passed through to the agile
 // decryptor — the only way to reach crypto.DecryptOptions from an OPC open.
-// Its zero value keeps the strict default: an agile package with a missing or
-// half-present dataIntegrity block fails with crypto.ErrIntegrityCheckFailed.
-func openEncryptedResolved(r io.ReaderAt, size int64, password string, opts ReaderOptions) (*Reader, error) {
+func openEncrypted(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
+	if opts.password == nil {
+		return nil, ErrEncrypted
+	}
 	if size < 0 {
+		// Unreachable through the detecting open, which needs the CFB
+		// signature's worth of bytes before it gets here; kept so the make
+		// below cannot be handed a negative length if that ever changes.
 		return nil, fmt.Errorf("%w: negative size %d", ErrCorruptedPackage, size)
 	}
 	if max := opts.MaxEncryptedInputSize; max > 0 && size > max {
@@ -78,11 +79,17 @@ func openEncryptedResolved(r io.ReaderAt, size int64, password string, opts Read
 		return nil, fmt.Errorf("opc: reading encrypted input: %w", err)
 	}
 
-	plaintext, err := decryptCFBPackage(data, password, opts)
+	plaintext, err := decryptCFBPackage(data, *opts.password, opts)
 	if err != nil {
 		return nil, err
 	}
-	return newReaderResolved(bytes.NewReader(plaintext), int64(len(plaintext)), opts)
+
+	// Read the plaintext as a zip directly rather than back through the
+	// detecting open: a package whose plaintext is itself a CFB container would
+	// otherwise be decrypted again, and again, letting a crafted file drive
+	// recursion as deep as it has layers. One layer of encryption is what the
+	// format defines, so a second one is a corrupt package, not a nesting.
+	return newReaderFromZip(bytes.NewReader(plaintext), int64(len(plaintext)), opts)
 }
 
 // decryptCFBPackage parses the CFB container in data and returns the decrypted

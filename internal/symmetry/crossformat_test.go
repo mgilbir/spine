@@ -187,13 +187,14 @@ var crossFormatRoles = []crossFormatRole{
 
 	{
 		capability: "Encryption",
-		role:       "OpenEncrypted",
+		role:       "encrypted open",
 		note: "CONVERGED (C386). Encryption is format-generic — the same CFB wrapper carries " +
 			"any OOXML zip — but only docx had a wrapper, while xlsx.Open and pptx.Open " +
-			"pointed callers at opc.OpenEncrypted, whose *opc.Reader no public API could " +
-			"turn into a Workbook or Presentation. Note these are package-level functions, " +
-			"not methods, so the reflection points below cover the save half; the open half " +
-			"is exercised by TestEncryptedOpenIsReachableInEveryFormat.",
+			"pointed callers at opc, whose *opc.Reader no public API could turn into a " +
+			"Workbook or Presentation. Every format now opens an encrypted package through " +
+			"its ordinary Open/OpenReader with opc.WithPassword, so there is no separate " +
+			"encrypted entry point to diverge. The reflection points below cover the save " +
+			"half; the open half is exercised by TestEncryptedOpenIsReachableInEveryFormat.",
 		points: []apiPoint{
 			{"docx", reflect.TypeOf(&docx.Document{}), "SaveEncrypted", "func(string, string) error"},
 			{"xlsx", reflect.TypeOf(&xlsx.Workbook{}), "SaveEncrypted", "func(string, string) error"},

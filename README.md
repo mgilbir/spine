@@ -10,7 +10,7 @@ Each bullet links to the guide that carries the detail.
 - **Round-trip preservation** — byte-identical round-trip fidelity for unmodified parts across all formats.
 - **In-memory I/O** — `SaveBytes` and `OpenReader` on all three formats; see [Working with Documents in Memory](#working-with-documents-in-memory).
 - **Merge, append & split** — combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts): [pptx](docs/pptx.md#merging-and-splitting-decks), [docx](docs/docx.md#merging-and-appending-documents), [xlsx](docs/xlsx.md#merging-and-copying-sheets).
-- **Password encryption & digital signatures** — write real AES-encrypted documents (agile and standard schemes) across all three formats, read them back into a document model in every format (`docx.OpenEncrypted`, `xlsx.OpenEncrypted`, `pptx.OpenEncrypted`), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
+- **Password encryption & digital signatures** — write real AES-encrypted documents (agile and standard schemes) across all three formats, read them back into a document model in every format (pass `opc.WithPassword` to the ordinary `Open`), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
 - **VBA macros** — extract, inject/replace, and remove `vbaProject.bin`; see the [trust caveat](docs/encryption-and-signing.md#vba-macros).
 - **Charts** — a format-agnostic builder for column, bar, line, pie, scatter, combo, bubble, and 3D charts wired into all three formats; see [Charts](docs/charts.md).
 - **Text extraction** — a symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion: [docx](docs/docx.md#text-extraction), [xlsx](docs/xlsx.md#text-extraction), [pptx](docs/pptx.md#text-extraction).
@@ -273,7 +273,22 @@ A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything re
 
 ## Resource limits
 
-To bound memory against decompression ("zip bomb") attacks, an opened package is capped by `opc.MaxDecompressedPartSize` (per part, default 1 GiB) and `opc.MaxDecompressedPackageSize` (total across the package, default 4 GiB); `opc.OpenEncrypted` additionally limits its input with `opc.MaxEncryptedInputSize` (default 2 GiB). Raise a limit before opening a legitimately larger file, or set a decompression bound to 0 to disable it. These are plain package-level variables captured when a reader is constructed, so set them during program setup — mutating one concurrently with an open in another goroutine is a data race. To override the two decompression limits for a single reader without touching the globals, pass `opc.ReaderOptions` to `opc.NewReaderWithOptions` / `opc.OpenReaderWithOptions`.
+To bound memory against decompression ("zip bomb") attacks and other resource exhaustion, an opened package is capped by five limits, each with a default and an option that overrides it for one reader:
+
+| Option | Default | Bounds |
+| --- | --- | --- |
+| `opc.WithMaxDecompressedPartSize` | 1 GiB | bytes any single part may decompress to |
+| `opc.WithMaxDecompressedPackageSize` | 4 GiB | bytes decompressed across the whole package |
+| `opc.WithMaxPackageEntries` | 65536 | zip entries in the package |
+| `opc.WithMaxNestingDepth` | 1000 | element nesting depth in any XML part |
+| `opc.WithMaxEncryptedInputSize` | 2 GiB | bytes read from an encrypted input before parsing its container |
+
+```go
+// One reader, raised bounds; nothing global changes.
+doc, err := docx.Open(path, opc.WithMaxDecompressedPartSize(4<<30))
+```
+
+A bound of zero or less disables it. The defaults are the `opc.Default*` constants, and `opc.DefaultReaderOptions()` returns them as a value you can adjust wholesale and pass with `opc.WithReaderOptions`. Configuration is resolved per open, so concurrent opens with different limits need no coordination — there is no global state to mutate, and no window in which one open sees another's settings.
 
 ## Units
 
@@ -341,7 +356,7 @@ Unit tests run against small synthetic fixtures (committed) and larger real-worl
 
 - Go 1.25 or later
 
-Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and `docx.OpenEncrypted`/`opc.OpenEncrypted` surface `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
+Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and the encrypted open surfaces `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
 
 ## License
 

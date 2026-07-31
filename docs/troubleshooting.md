@@ -34,13 +34,17 @@ truth and is verified against the validators by a test.
 
 ## Open returns `opc.ErrEncrypted`
 
-The file is password-protected. The plain open path detects an encrypted input
-and returns `opc.ErrEncrypted` rather than failing obscurely. Reopen it with the
-format's own encrypted entry point and the password —  `docx.OpenEncrypted`,
-`xlsx.OpenEncrypted` or `pptx.OpenEncrypted`, each with an
-`OpenEncryptedReader` variant for in-memory bytes — to get a `*docx.Document`,
-`*xlsx.Workbook` or `*pptx.Presentation`. `opc.OpenEncrypted` remains available
-when you want the raw package rather than a document model. See
+The file is password-protected and the open was given no password. It detects an
+encrypted input and returns `opc.ErrEncrypted` rather than failing obscurely, so
+you can prompt for the password and retry the same call with it:
+
+```go
+doc, err := docx.Open(path, opc.WithPassword(password))
+```
+
+There is no separate encrypted entry point — `Open` and `OpenReader` in every
+format take the option, as do `opc.OpenReader` and `opc.NewReader` when you want
+the raw package rather than a document model. See
 [Encryption and signing](encryption-and-signing.md).
 
 ## Open returns `crypto.ErrWrongPassword`

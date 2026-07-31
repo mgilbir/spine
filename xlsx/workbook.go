@@ -128,27 +128,31 @@ type pendingPivotCache struct {
 // nothing needed the handle, because every part is read up front regardless.)
 // Sheet contents are held as preserved bytes and parsed lazily on first access.
 //
+// Options configure the underlying package reader: opc.WithPassword opens a
+// password-encrypted workbook, and the opc.WithMax* options adjust the bounds
+// that guard against decompression bombs.
+//
 // It returns ErrNotXLSX when the package is not SpreadsheetML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with OpenEncrypted and a password).
-// Each is matchable with errors.Is.
-func Open(path string) (*Workbook, error) {
+// input is password-encrypted and no opc.WithPassword was given. Each is
+// matchable with errors.Is.
+func Open(path string, opts ...opc.ReaderOption) (*Workbook, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return OpenReader(bytes.NewReader(data), int64(len(data)))
+	return OpenReader(bytes.NewReader(data), int64(len(data)), opts...)
 }
 
 // OpenReader opens an Excel workbook from an in-memory reader. Every part is
 // read into memory during the call (worksheet models are then parsed lazily on
 // first access), so r need not remain valid after Open returns, and no OS file
-// handle is retained. It returns the same sentinels as Open (ErrNotXLSX,
-// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is. Open is
-// implemented on top of it.
-func OpenReader(r io.ReaderAt, size int64) (*Workbook, error) {
-	reader, err := opc.NewReader(r, size)
+// handle is retained. It takes the same options and returns the same sentinels
+// as Open (ErrNotXLSX, opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with
+// errors.Is. Open is implemented on top of it.
+func OpenReader(r io.ReaderAt, size int64, opts ...opc.ReaderOption) (*Workbook, error) {
+	reader, err := opc.NewReader(r, size, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,13 +1,13 @@
 package opc
 
 // Fuzz targets for the encrypted-document read path: the CFB container parser
-// (cfb.go) and the OpenEncrypted entry point that drives descriptor parsing,
-// key derivation and decryption over fully attacker-controlled bytes.
+// (cfb.go) and the open path that drives descriptor parsing, key derivation and
+// decryption over fully attacker-controlled bytes.
 //
 // These targets assert more than "it did not panic", because the worst bug this
 // code has shipped would have passed that oracle. C360 sized an allocation from
 // the unvalidated numFATSectors header field: a 512-byte file produced a 16 GiB
-// allocation, reachable through OpenEncrypted. A 16 GiB make does not panic —
+// allocation, reachable through the encrypted open. A 16 GiB make does not panic —
 // it succeeds on a big machine and gets the process OOM-killed on a small one,
 // which reads as infrastructure flake. So every call below runs inside a
 // fuzzbound.Budget that fails when the parse allocates or runs out of
@@ -92,7 +92,7 @@ var (
 		TimePerMiB:        2 * time.Second,
 	}
 	openBudget = fuzzbound.Budget{
-		What:              "OpenEncryptedWithOptions",
+		What:              "NewReader over an encrypted input",
 		Bytes:             fuzzMaxPackageSize + 4<<20,
 		BytesPerInputByte: 16,
 		Time:              15 * time.Second,
@@ -125,7 +125,7 @@ func encryptedSeed(tb testing.TB, opts EncryptOptions) []byte {
 }
 
 // rc4Seed builds a CFB container holding a legacy RC4 CryptoAPI descriptor.
-// SaveEncrypted never writes RC4 (it is broken), but OpenEncrypted reads it, so
+// SaveEncrypted never writes RC4 (it is broken), but the open reads it, so
 // the fuzzer needs a seed that reaches rc4.go.
 func rc4Seed(tb testing.TB) []byte {
 	tb.Helper()
@@ -269,10 +269,10 @@ func FuzzCFBContainer(f *testing.F) {
 	})
 }
 
-// FuzzOpenEncrypted drives the whole encrypted-open path — CFB parse,
-// EncryptionInfo descriptor parse, key derivation, decryption, and the zip
-// reader over the recovered package — with an arbitrary container and an
-// arbitrary password.
+// FuzzOpenEncrypted drives the whole encrypted-open path — container
+// detection, CFB parse, EncryptionInfo descriptor parse, key derivation,
+// decryption, and the zip reader over the recovered package — with an
+// arbitrary container and an arbitrary password.
 //
 // Beyond "no panic" it asserts the resource budgets above, and the API
 // contract: a rejected container yields an error with no plaintext and no
@@ -325,15 +325,18 @@ func FuzzOpenEncrypted(f *testing.F) {
 			oerr error
 		)
 		openBudget.Check(t, len(data), func() {
-			r, oerr = OpenEncrypted(bytes.NewReader(data), int64(len(data)), password, WithReaderOptions(opts))
+			r, oerr = NewReader(bytes.NewReader(data), int64(len(data)), WithReaderOptions(opts), WithPassword(password))
 		})
 		switch {
 		case oerr != nil && r != nil:
-			t.Fatalf("OpenEncrypted returned both a Reader and error %v", oerr)
+			t.Fatalf("the open returned both a Reader and error %v", oerr)
 		case oerr == nil && r == nil:
-			t.Fatal("OpenEncrypted returned a nil Reader and a nil error")
-		case oerr == nil && derr != nil:
-			t.Fatalf("OpenEncrypted accepted a container the decrypt stage rejected with %v", derr)
+			t.Fatal("the open returned a nil Reader and a nil error")
+		case oerr == nil && derr != nil && isCFB(data):
+			// Gated on the input actually being a container: the open now
+			// takes plain zips too, and a mutation that lands on a valid one is
+			// legitimately opened while decryptCFBPackage rejects it.
+			t.Fatalf("the open accepted a container the decrypt stage rejected with %v", derr)
 		}
 		if r == nil {
 			return

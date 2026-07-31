@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/common/crypto"
+	"github.com/mgilbir/spine/opc"
 )
 
 // TestEncryptedDocxRoundTrip opens a plain fixture, saves it encrypted, then
@@ -28,14 +29,14 @@ func TestEncryptedDocxRoundTrip(t *testing.T) {
 	}
 
 	// Wrong password is rejected.
-	if _, err := OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "nope"); !errors.Is(err, crypto.ErrWrongPassword) {
+	if _, err := OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword("nope")); !errors.Is(err, crypto.ErrWrongPassword) {
 		t.Fatalf("wrong password: got %v, want crypto.ErrWrongPassword", err)
 	}
 
 	// Correct password recovers the document.
-	back, err := OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "s3cret!")
+	back, err := OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword("s3cret!"))
 	if err != nil {
-		t.Fatalf("OpenEncryptedReader: %v", err)
+		t.Fatalf("OpenReader with a password: %v", err)
 	}
 	if got := back.Body(); got != wantText {
 		t.Fatalf("text mismatch after encrypted round-trip:\n got %q\nwant %q", got, wantText)

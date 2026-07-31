@@ -97,9 +97,9 @@ func TestEncryptedCrossValidateWithMsoffcrypto(t *testing.T) {
 			}
 
 			// And confirm our own reader recovers the same package.
-			r, err := OpenEncrypted(bytes.NewReader(enc.Bytes()), int64(enc.Len()), password)
+			r, err := NewReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), WithPassword(password))
 			if err != nil {
-				t.Fatalf("OpenEncrypted: %v", err)
+				t.Fatalf("NewReader with password: %v", err)
 			}
 			if ct := r.GetFile("/word/document.xml"); ct == nil {
 				t.Fatalf("%s: decrypted package missing /word/document.xml", c.name)
@@ -170,9 +170,9 @@ func TestEncryptedDIFATCrossValidateWithMsoffcrypto(t *testing.T) {
 	}
 
 	// And our own reader, so a regression in either direction is attributable.
-	r, err := OpenEncrypted(bytes.NewReader(enc.Bytes()), int64(enc.Len()), password)
+	r, err := NewReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), WithPassword(password))
 	if err != nil {
-		t.Fatalf("OpenEncrypted on a chained-DIFAT container: %v", err)
+		t.Fatalf("opening a chained-DIFAT container with a password: %v", err)
 	}
 	if f := r.GetFile("/payload/blob0.bin"); f == nil {
 		t.Fatal("decrypted package missing /payload/blob0.bin")
