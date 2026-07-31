@@ -41,7 +41,7 @@ func TestShapeIDSeededAcrossReopen(t *testing.T) {
 // scan must look inside.
 func TestShapeIDSeedSeesVMLFallbackBoxes(t *testing.T) {
 	doc := Create()
-	doc.AddTextBox("first", TextBoxOptions{VMLFallback: true})
+	doc.AddTextBox("first", TextBoxOptions{})
 	doc, _ = reopen(t, doc)
 
 	doc.AddTextBox("second", TextBoxOptions{})

@@ -85,6 +85,19 @@ caller sees is listed.
   limits need no coordination. The mechanism itself lives in `common/options`,
   so the three decisions it encodes (compose left to right, nil skipped, an
   explicit defaults value as the base) are made once for the module.
+- docx: `TextBoxOptions.VMLFallback` is now `NoVMLFallback`, and the fallback it
+  used to opt into is the default. A text box or shape was written as a bare
+  `wps:wsp` inside `a:graphicData`, whose wildcard is `processContents="strict"`
+  and whose content is a Microsoft extension no ISO schema declares — so a
+  consumer that does not know the extension may neither render it nor skip it,
+  and shows nothing at all. Word wraps the same shape in `mc:AlternateContent`
+  with a legacy VML `w:pict` fallback, which is what makes it both legal and
+  visible down-level; spine now does too, for shapes with and without text. Code
+  passing `VMLFallback: true` was asking for what it now gets by default and
+  should drop the field; `NoVMLFallback: true` restores the smaller,
+  extension-only form for a consumer known to understand it (found by the
+  schema-conformance suite).
+
 - opc, docx, xlsx, pptx: a password is an option, not a separate entry point.
   `opc.OpenEncrypted`, `docx.OpenEncrypted`/`OpenEncryptedReader` and the
   `OpenEncryptedReaderWithOptions` trio are removed in favour of

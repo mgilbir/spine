@@ -82,11 +82,21 @@ type TextBoxOptions struct {
 	BorderWidthEMU int64
 	// NoBorder removes the outline, overriding BorderColor/BorderWidthEMU.
 	NoBorder bool
-	// VMLFallback wraps the DrawingML box in an mc:AlternateContent element with
-	// a Choice (the modern wps drawing) and a Fallback (a legacy VML w:pict text
-	// box), mirroring what Word emits so pre-2010 readers still show the box.
-	// Only meaningful for text boxes/shapes with text; ignored for empty shapes.
-	VMLFallback bool
+	// NoVMLFallback writes the DrawingML shape alone, without the
+	// mc:AlternateContent wrapper and legacy VML w:pict fallback that Word
+	// emits beside it.
+	//
+	// The wrapper is the default because without it the shape is not markup a
+	// conforming consumer can process: it sits in a:graphicData, whose wildcard
+	// is processContents="strict", and wps: is a Microsoft extension no ISO
+	// schema declares — so a reader that does not know the extension may
+	// neither render it nor skip it, and shows nothing at all. That is what the
+	// schema-conformance suite reported ("Element 'wsp': No matching global
+	// element declaration available, but demanded by the strict wildcard").
+	//
+	// Set it only when the output is for a consumer known to understand wps and
+	// the smaller part is worth more than down-level rendering.
+	NoVMLFallback bool
 }
 
 // TextBox is a handle to a DrawingML (wps) or legacy VML text box or shape. It
@@ -208,9 +218,10 @@ func (p *Paragraph) addShape(text string, opts TextBoxOptions, isTextBox bool) *
 	}
 	id := p.document.nextShapeID()
 
-	// A VML fallback needs a text body to fall back to, so it only applies to
-	// text boxes or shapes that carry text.
-	if opts.VMLFallback && (isTextBox || text != "") {
+	// The fallback applies to every shape, with or without text: an empty
+	// v:textbox still carries a w:p, and a shape a down-level reader cannot
+	// draw is exactly the one that needs the legacy form.
+	if !opts.NoVMLFallback {
 		ac := &oxml.CT_RawElement{RawContent: buildTextBoxAlternateContentXML(id, tb, opts, isTextBox)}
 		tb.vml = false
 		p.AddRun().mut().AppendAlternateContent(ac)

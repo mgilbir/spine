@@ -265,7 +265,7 @@ func TestReadAlternateContentTextBoxOnce(t *testing.T) {
 // the text reads back exactly once through the round trip.
 func TestAddTextBoxVMLFallback(t *testing.T) {
 	doc := Create()
-	tb := doc.AddTextBox("Compat box", TextBoxOptions{VMLFallback: true})
+	tb := doc.AddTextBox("Compat box", TextBoxOptions{})
 	if tb == nil {
 		t.Fatal("AddTextBox returned nil")
 	}
