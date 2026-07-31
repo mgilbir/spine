@@ -183,11 +183,19 @@ FUZZ_MEMMAX  ?= 4G
 FUZZ_SWAPMAX ?= 0
 fuzz:
 	systemd-run --user --scope -p MemoryMax=$(FUZZ_MEMMAX) -p MemorySwapMax=$(FUZZ_SWAPMAX) \
-		$(MAKE) fuzz-run FUZZTIME=$(FUZZTIME)
+		$(MAKE) fuzz-run FUZZTIME=$(FUZZTIME) FUZZ_PKGS="$(FUZZ_PKGS)"
 
+# FUZZ_PKGS restricts the sweep to one or more packages, which is what lets CI
+# run each package as its own job: the targets are heavy enough that sharing a
+# single wall-clock budget across all of them leaves each with seconds. Empty
+# means every package that has a target.
+FUZZ_PKGS ?=
 fuzz-run:
 	@set -e; \
-	pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
+	pkgs="$(FUZZ_PKGS)"; \
+	if [ -z "$$pkgs" ]; then \
+		pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
+	fi; \
 	for pkg in $$pkgs; do \
 		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
 			echo "==> ./$$pkg $$target"; \

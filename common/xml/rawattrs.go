@@ -453,11 +453,7 @@ func (b *Builder) EmptyElementLiteral(prefix, localName string, attrs ...Attr) {
 	b.checkLiteralPrefix(prefix, localName, attrs)
 	b.writeIndent()
 	b.buf.WriteByte('<')
-	if prefix != "" {
-		b.buf.WriteString(prefix)
-		b.buf.WriteByte(':')
-	}
-	b.buf.WriteString(localName)
+	b.writePrefixedName(prefix, localName)
 	b.writeLiteralAttrs(attrs)
 	b.writeSelfClose()
 	if b.indent != "" {
@@ -495,11 +491,7 @@ func (b *Builder) StartElementLiteral(prefix, localName string, binds []NSDecl, 
 	}
 	b.writeIndent()
 	b.buf.WriteByte('<')
-	if prefix != "" {
-		b.buf.WriteString(prefix)
-		b.buf.WriteByte(':')
-	}
-	b.buf.WriteString(localName)
+	b.writePrefixedName(prefix, localName)
 	b.writeLiteralAttrs(attrs)
 	if b.collapseEmpty {
 		b.openTag = true
