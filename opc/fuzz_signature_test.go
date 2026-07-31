@@ -247,7 +247,7 @@ func FuzzSignatureXML(f *testing.F) {
 			err   error
 		)
 		signatureBudget.Check(t, len(sigXML), func() {
-			r, rerr := NewReaderWithOptions(bytes.NewReader(pkg), int64(len(pkg)), fuzzReaderOptions())
+			r, rerr := NewReader(bytes.NewReader(pkg), int64(len(pkg)), WithReaderOptions(fuzzReaderOptions()))
 			if rerr != nil {
 				infos, err = nil, nil
 				return

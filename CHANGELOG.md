@@ -63,6 +63,50 @@ caller sees is listed.
   written. It now rejects those kinds instead of accepting-then-dropping,
   mirroring `Slide.AddShape`. Callers that only add supported shape kinds are
   unaffected apart from the new return value (C311, #212).
+- opc: reader configuration has one form. The five package-level limit variables
+  (`MaxDecompressedPartSize`, `MaxDecompressedPackageSize`, `MaxPackageEntries`,
+  `MaxNestingDepth`, `MaxEncryptedInputSize`) are now `Default*` constants, and
+  every knob is set per open with a `ReaderOption`:
+
+      r, err := opc.OpenReader(path, opc.WithMaxNestingDepth(2000))
+
+  The `*WithOptions` entry points are gone: `OpenReader` and `NewReader` take
+  options variadically, which is source-compatible for callers that passed none.
+  `ReaderOptions` remains as the resolved form, produced by
+  `DefaultReaderOptions()` and passable with `WithReaderOptions`, so code that
+  builds the struct keeps working through one more call. Code that assigned a
+  global (`opc.MaxNestingDepth = 2000`) passes the matching option instead.
+
+  Two mechanisms became one, and one rule replaced two: a bound of zero or less
+  disables it, where the globals had used zero for "disabled" and the options
+  zero for "use the global". The globals were also unsafe to change while
+  another goroutine was opening a package — their own doc comments conceded it.
+  Configuration is now resolved per call, so concurrent opens with different
+  limits need no coordination. The mechanism itself lives in `common/options`,
+  so the three decisions it encodes (compose left to right, nil skipped, an
+  explicit defaults value as the base) are made once for the module.
+- opc, docx, xlsx, pptx: a password is an option, not a separate entry point.
+  `opc.OpenEncrypted`, `docx.OpenEncrypted`/`OpenEncryptedReader` and the
+  `OpenEncryptedReaderWithOptions` trio are removed in favour of
+  `opc.WithPassword` on the ordinary open, which every format's `Open` and
+  `OpenReader` now accept:
+
+      doc, err := docx.Open(path, opc.WithPassword("secret"))
+
+  Whether a file is encrypted is a property of the file, not a choice the caller
+  makes: the open already read the leading bytes to detect the CFB container and
+  return `ErrEncrypted`, and now decrypts it there when a password is available.
+  A password is simply unused when the input is a plain package, so a caller
+  that always passes one still reads unencrypted files. This also ends the two
+  knobs whose documentation had to except themselves as applying "only to the
+  encrypted-open paths". `ErrEncrypted` keeps its meaning — an encrypted input
+  and no password — and its message now names the option that fixes it.
+
+  The password is held in an unexported pointer field of `ReaderOptions`, so no
+  `%v`/`%+v`/`%#v` of a configuration value can print it at any nesting depth
+  (`fmt` walks unexported fields, so a plain string would have), it stays out of
+  `encoding/json`, and no error message names it. `SaveEncrypted` and
+  `SaveEncryptedTo` are unchanged in every format.
 
 ### Security
 
@@ -95,22 +139,6 @@ caller sees is listed.
 
 ### Added
 
-- opc: `ReaderOption` functional options for the reader knobs —
-  `WithMaxNestingDepth`, `WithMaxDecompressedPartSize`,
-  `WithMaxDecompressedPackageSize`, `WithMaxPackageEntries` and
-  `WithAllowMissingDataIntegrity` — accepted by `OpenReader`, `NewReader` and
-  `OpenEncrypted` as trailing variadic arguments:
-
-      r, err := opc.OpenReader(path, opc.WithMaxNestingDepth(2000))
-
-  `ReaderOptions` stays the resolved form and the `*WithOptions` entry points
-  still take it, so nothing that builds the struct changes. The options exist
-  because the struct makes a reader of the call site work out which zero values
-  mean "use the default" and which mean "off", and those conventions differ
-  between fields; each option's doc says which applies to it. Options apply left
-  to right, a nil option is ignored so a conditionally-built list can carry a
-  hole, and no options resolves to the package-level defaults.
-
 - opc: `MaxNestingDepth` bounds how deeply elements may nest in any XML part,
   defaulting to 1000. Nesting is a resource dimension the byte-oriented limits
   cannot see — every level costs a decoder frame and a model frame however few
@@ -118,25 +146,23 @@ caller sees is listed.
   244 KB slide holding 80,000 nested `p:grpSp` cost 627 MB resident, and the
   per-level cost grows with depth. The default is calibrated against real
   documents rather than chosen: the deepest part in 170,913 parts across 3,600
-  Common Crawl documents nests 95 levels. Override it per Reader with
-  `WithMaxNestingDepth`, or set the package variable before opening; a negative
-  value disables the bound. `common/xml.CheckNestingDepth` exposes the scan
-  itself for callers working below the package layer.
+  Common Crawl documents nests 95 levels. Override it per open with
+  `WithMaxNestingDepth`; a value of zero or less disables the bound.
+  `common/xml.CheckNestingDepth` exposes the scan itself for callers working
+  below the package layer.
 
 
 - xlsx, pptx: encrypted documents open into a document model, not just a raw
-  package reader. `xlsx.OpenEncrypted`/`OpenEncryptedReader` and
-  `pptx.OpenEncrypted`/`OpenEncryptedReader` mirror docx's, together with
-  `Workbook.SaveEncrypted`/`SaveEncryptedTo` and
-  `Presentation.SaveEncrypted`/`SaveEncryptedTo`. Encryption is format-generic —
-  the same CFB wrapper carries any OOXML zip — but the wrapper existed only for
-  Word, while `xlsx.Open` and `pptx.Open` told callers to use
-  `opc.OpenEncrypted`, whose `*opc.Reader` no public API could turn into a
-  Workbook or Presentation (C386).
-- opc: `ReaderOptions.AllowMissingDataIntegrity` reaches
-  `crypto.DecryptOptions` from the encrypted-open path, with
-  `OpenEncryptedWithOptions` and each format's
-  `OpenEncryptedReaderWithOptions` carrying it. The strict default is unchanged:
+  package reader — `xlsx.Open`/`OpenReader` and `pptx.Open`/`OpenReader` with
+  `opc.WithPassword` — together with `Workbook.SaveEncrypted`/`SaveEncryptedTo`
+  and `Presentation.SaveEncrypted`/`SaveEncryptedTo`. Encryption is
+  format-generic — the same CFB wrapper carries any OOXML zip — but the read
+  side existed only for Word, while `xlsx.Open` and `pptx.Open` pointed callers
+  at opc, whose `*opc.Reader` no public API could turn into a Workbook or
+  Presentation (C386).
+- opc: `WithAllowMissingDataIntegrity` reaches `crypto.DecryptOptions` from an
+  encrypted open, in every format, since every open takes reader options. The
+  strict default is unchanged:
   a missing or half-present agile `dataIntegrity` block still fails with
   `ErrIntegrityCheckFailed` unless the caller opts in explicitly, and the opt-in
   never relaxes a *failed* HMAC (C386, keeping C361).

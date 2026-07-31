@@ -340,25 +340,29 @@ type footerPart struct {
 // Open opens a Word document from a file path. The whole package is read into
 // memory, so the returned Document retains no OS file handle.
 //
+// Options configure the underlying package reader: opc.WithPassword opens a
+// password-encrypted document, and the opc.WithMax* options adjust the bounds
+// that guard against decompression bombs.
+//
 // It returns ErrNotDOCX when the package is not WordprocessingML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with OpenEncrypted, or
-// opc.OpenEncrypted, and a password). Each is matchable with errors.Is.
-func Open(path string) (*Document, error) {
+// input is password-encrypted and no opc.WithPassword was given. Each is
+// matchable with errors.Is.
+func Open(path string, opts ...opc.ReaderOption) (*Document, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return OpenReader(bytes.NewReader(data), int64(len(data)))
+	return OpenReader(bytes.NewReader(data), int64(len(data)), opts...)
 }
 
 // OpenReader opens a Word document from an in-memory reader. The package is read
-// up front, so r need not remain valid after Open returns. It returns the same
-// sentinels as Open (ErrNotDOCX, opc.ErrStrictOOXML, opc.ErrEncrypted),
-// matchable with errors.Is.
-func OpenReader(r io.ReaderAt, size int64) (*Document, error) {
-	reader, err := opc.NewReader(r, size)
+// up front, so r need not remain valid after Open returns. It takes the same
+// options and returns the same sentinels as Open (ErrNotDOCX,
+// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is.
+func OpenReader(r io.ReaderAt, size int64, opts ...opc.ReaderOption) (*Document, error) {
+	reader, err := opc.NewReader(r, size, opts...)
 	if err != nil {
 		return nil, err
 	}

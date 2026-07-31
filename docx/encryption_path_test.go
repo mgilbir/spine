@@ -10,12 +10,13 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/common/crypto"
+	"github.com/mgilbir/spine/opc"
 )
 
-// SaveEncrypted and OpenEncrypted are the file-path wrappers around
-// SaveEncryptedTo and OpenEncryptedReader. They are thin, but they are also the
-// only place the package chooses a file mode and decides how a read error
-// surfaces, and neither of those is visible through the reader/writer forms.
+// SaveEncrypted and Open are the file-path forms of SaveEncryptedTo and
+// OpenReader. They are thin, but they are also the only place the package
+// chooses a file mode and decides how a read error surfaces, and neither of
+// those is visible through the reader/writer forms.
 func TestEncryptedDocx_PathRoundTrip(t *testing.T) {
 	const password = "correct horse battery staple"
 
@@ -60,9 +61,9 @@ func TestEncryptedDocx_PathRoundTrip(t *testing.T) {
 		t.Errorf("SaveEncrypted wrote %d bytes but SaveEncryptedTo produced %d", len(raw), viaWriter.Len())
 	}
 
-	back, err := OpenEncrypted(path, password)
+	back, err := Open(path, opc.WithPassword(password))
 	if err != nil {
-		t.Fatalf("OpenEncrypted: %v", err)
+		t.Fatalf("Open with a password: %v", err)
 	}
 	if got := back.Body(); got != want {
 		t.Errorf("body after the path round trip = %q, want %q", got, want)
@@ -82,21 +83,29 @@ func TestEncryptedDocx_PathErrors(t *testing.T) {
 	}
 
 	t.Run("wrong password", func(t *testing.T) {
-		if _, err := OpenEncrypted(path, "not it"); !errors.Is(err, crypto.ErrWrongPassword) {
-			t.Errorf("OpenEncrypted with a wrong password = %v, want crypto.ErrWrongPassword", err)
+		if _, err := Open(path, opc.WithPassword("not it")); !errors.Is(err, crypto.ErrWrongPassword) {
+			t.Errorf("Open with a wrong password = %v, want crypto.ErrWrongPassword", err)
+		}
+	})
+
+	t.Run("no password", func(t *testing.T) {
+		// Without the option the same call reports what the input is, so a
+		// caller can prompt and retry rather than guess from a zip error.
+		if _, err := Open(path); !errors.Is(err, opc.ErrEncrypted) {
+			t.Errorf("Open of an encrypted file without a password = %v, want opc.ErrEncrypted", err)
 		}
 	})
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := OpenEncrypted(filepath.Join(dir, "absent.docx"), password)
+		_, err := Open(filepath.Join(dir, "absent.docx"), opc.WithPassword(password))
 		if err == nil {
-			t.Fatal("OpenEncrypted on a missing file returned no error")
+			t.Fatal("Open on a missing file returned no error")
 		}
 		// The path wrapper must surface the OS error, not swallow it into a
 		// generic decryption failure — a caller distinguishes "no such file"
 		// from "wrong password" by errors.Is.
 		if !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("OpenEncrypted on a missing file = %v, want an fs.ErrNotExist", err)
+			t.Errorf("Open on a missing file = %v, want an fs.ErrNotExist", err)
 		}
 	})
 

@@ -9,13 +9,13 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/common/crypto"
+	"github.com/mgilbir/spine/opc"
 )
 
-// SaveEncrypted and OpenEncrypted are the file-path wrappers around
-// SaveEncryptedTo / OpenEncryptedReader. They are thin, but a wrong file mode,
-// a truncated write, or a read that never reaches the reader form would not be
-// caught anywhere else, so this is a real temp-file round trip rather than a
-// call for coverage.
+// SaveEncrypted and Open are the file-path forms of SaveEncryptedTo and
+// OpenReader. They are thin, but a wrong file mode, a truncated write, or a
+// read that never reaches the reader form would not be caught anywhere else,
+// so this is a real temp-file round trip rather than a call for coverage.
 func TestEncryptedFileRoundTrip(t *testing.T) {
 	const password = "correct horse battery staple"
 
@@ -58,14 +58,15 @@ func TestEncryptedFileRoundTrip(t *testing.T) {
 	if !bytes.HasPrefix(raw, []byte{0xd0, 0xcf, 0x11, 0xe0}) {
 		t.Errorf("file does not start with the CFB signature: % x", raw[:8])
 	}
-	// Opening it as a normal presentation must fail.
-	if _, err := Open(path); err == nil {
-		t.Error("Open succeeded on an encrypted file")
+	// Opening it without a password must say what the file is, so a caller can
+	// prompt and retry with one.
+	if _, err := Open(path); !errors.Is(err, opc.ErrEncrypted) {
+		t.Errorf("Open of an encrypted file without a password = %v, want opc.ErrEncrypted", err)
 	}
 
-	back, err := OpenEncrypted(path, password)
+	back, err := Open(path, opc.WithPassword(password))
 	if err != nil {
-		t.Fatalf("OpenEncrypted: %v", err)
+		t.Fatalf("Open with a password: %v", err)
 	}
 	if got := len(back.Slides()); got != 1 {
 		t.Fatalf("reopened deck has %d slides, want 1", got)
@@ -85,8 +86,8 @@ func TestEncryptedFileRoundTrip(t *testing.T) {
 	}
 
 	// A wrong password must be reported as such, not as a corrupt file.
-	if _, err := OpenEncrypted(path, "wrong"); !errors.Is(err, crypto.ErrWrongPassword) {
-		t.Errorf("OpenEncrypted with a wrong password = %v, want ErrWrongPassword", err)
+	if _, err := Open(path, opc.WithPassword("wrong")); !errors.Is(err, crypto.ErrWrongPassword) {
+		t.Errorf("Open with a wrong password = %v, want ErrWrongPassword", err)
 	}
 }
 
@@ -94,12 +95,12 @@ func TestEncryptedFileRoundTrip(t *testing.T) {
 // rather than swallowing it into a decryption failure.
 func TestOpenEncryptedMissingFile(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.pptx")
-	p, err := OpenEncrypted(missing, "pw")
+	p, err := Open(missing, opc.WithPassword("pw"))
 	if err == nil {
-		t.Fatal("OpenEncrypted on a missing file returned no error")
+		t.Fatal("Open on a missing file returned no error")
 	}
 	if p != nil {
-		t.Errorf("OpenEncrypted returned a non-nil presentation alongside %v", err)
+		t.Errorf("Open returned a non-nil presentation alongside %v", err)
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("error = %v, want fs.ErrNotExist", err)

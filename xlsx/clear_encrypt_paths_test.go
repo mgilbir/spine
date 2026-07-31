@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mgilbir/spine/common/crypto"
+	"github.com/mgilbir/spine/opc"
 )
 
 // This file covers three unexercised inverse/wrapper operations:
@@ -21,8 +22,8 @@ import (
 //   - Sheet.ClearPrintTitles, where the in-memory getter cannot distinguish
 //     "removed" from "written empty", so the assertions are on the serialized
 //     workbook part.
-//   - OpenEncrypted/SaveEncrypted, the path wrappers around the tested reader
-//     and writer cores.
+//   - Open with a password, and SaveEncrypted: the path wrappers around the
+//     tested reader and writer cores.
 
 // clearFixtureSheet carries one cell of each shape Clear has to reset: an
 // inline string (Is), a formula with a cached value (F+V), a typed boolean, and
@@ -292,9 +293,9 @@ func TestSaveOpenEncryptedFilePathRoundTrip(t *testing.T) {
 		t.Errorf("saved file mode = %v, want owner-writable and non-executable", perm)
 	}
 
-	re, err := OpenEncrypted(path, "pa55word")
+	re, err := Open(path, opc.WithPassword("pa55word"))
 	if err != nil {
-		t.Fatalf("OpenEncrypted: %v", err)
+		t.Fatalf("Open with a password: %v", err)
 	}
 	defer func() { _ = re.Close() }()
 	if got, _ := re.Sheets()[0].GetCellValue("A1"); got != "classified" {
@@ -321,19 +322,22 @@ func TestOpenEncryptedPathErrors(t *testing.T) {
 	}
 	_ = w.Close()
 
-	if _, err := OpenEncrypted(path, "wrong"); !errors.Is(err, crypto.ErrWrongPassword) {
-		t.Errorf("OpenEncrypted with the wrong password: err = %v, want crypto.ErrWrongPassword", err)
+	if _, err := Open(path, opc.WithPassword("wrong")); !errors.Is(err, crypto.ErrWrongPassword) {
+		t.Errorf("Open with the wrong password: err = %v, want crypto.ErrWrongPassword", err)
+	}
+	if _, err := Open(path); !errors.Is(err, opc.ErrEncrypted) {
+		t.Errorf("Open of an encrypted file without a password: err = %v, want opc.ErrEncrypted", err)
 	}
 	missing := filepath.Join(dir, "nope.xlsx")
-	wb, err := OpenEncrypted(missing, "right")
+	wb, err := Open(missing, opc.WithPassword("right"))
 	if err == nil {
-		t.Error("OpenEncrypted on a missing path returned no error")
+		t.Error("Open on a missing path returned no error")
 		_ = wb.Close()
 	} else if !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("OpenEncrypted on a missing path: err = %v, want a not-exist error", err)
+		t.Errorf("Open on a missing path: err = %v, want a not-exist error", err)
 	}
 	if wb != nil {
-		t.Error("OpenEncrypted returned a workbook alongside an error")
+		t.Error("Open returned a workbook alongside an error")
 	}
 }
 

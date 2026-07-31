@@ -67,13 +67,13 @@ func zipEntries(t *testing.T, data []byte) map[string][]byte {
 // ---------------------------------------------------------------------------
 
 // TestEncryptedOpenIsReachableInEveryFormat is the finding in one test: before
-// it, xlsx.Open and pptx.Open both told the caller to "open those with
-// opc.OpenEncrypted and a password", and opc.OpenEncrypted returned an
-// *opc.Reader that no public API could turn into a Workbook or a Presentation
-// (openFromReader is unexported, and OpenReader takes an io.ReaderAt). The
-// documented fallback — crypto.Decrypt — needs the two CFB streams, and the CFB
-// parser is private to opc. Encryption is format-generic, so the gap was pure
-// API.
+// it, xlsx.Open and pptx.Open both told the caller to open an encrypted file
+// through opc, which returned an *opc.Reader that no public API could turn into
+// a Workbook or a Presentation (openFromReader is unexported, and OpenReader
+// takes an io.ReaderAt). The documented fallback — crypto.Decrypt — needs the
+// two CFB streams, and the CFB parser is private to opc. Encryption is
+// format-generic, so the gap was pure API. It is now closed by every format's
+// ordinary open taking opc.WithPassword.
 func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 	const password = "hunter2"
 
@@ -98,9 +98,9 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 			t.Fatalf("plain OpenReader on an encrypted workbook: got %v, want opc.ErrEncrypted", err)
 		}
 
-		got, err := xlsx.OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), password)
+		got, err := xlsx.OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword(password))
 		if err != nil {
-			t.Fatalf("OpenEncryptedReader: %v", err)
+			t.Fatalf("OpenReader with a password: %v", err)
 		}
 		s, err := got.SheetByName("Secret")
 		if err != nil {
@@ -113,7 +113,7 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 		if c.String() != "classified" {
 			t.Errorf("A1 = %q, want %q", c.String(), "classified")
 		}
-		if _, err := xlsx.OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "wrong"); !errors.Is(err, crypto.ErrWrongPassword) {
+		if _, err := xlsx.OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword("wrong")); !errors.Is(err, crypto.ErrWrongPassword) {
 			t.Errorf("wrong password: got %v, want crypto.ErrWrongPassword", err)
 		}
 	})
@@ -131,14 +131,14 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 			t.Fatalf("plain OpenReader on an encrypted deck: got %v, want opc.ErrEncrypted", err)
 		}
 
-		got, err := pptx.OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), password)
+		got, err := pptx.OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword(password))
 		if err != nil {
-			t.Fatalf("OpenEncryptedReader: %v", err)
+			t.Fatalf("OpenReader with a password: %v", err)
 		}
 		if n := len(got.Slides()); n != 1 {
 			t.Fatalf("decrypted deck has %d slides, want 1", n)
 		}
-		if _, err := pptx.OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "wrong"); !errors.Is(err, crypto.ErrWrongPassword) {
+		if _, err := pptx.OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword("wrong")); !errors.Is(err, crypto.ErrWrongPassword) {
 			t.Errorf("wrong password: got %v, want crypto.ErrWrongPassword", err)
 		}
 	})
@@ -151,9 +151,9 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 		if err := d.SaveEncryptedTo(&enc, password); err != nil {
 			t.Fatalf("SaveEncryptedTo: %v", err)
 		}
-		got, err := docx.OpenEncryptedReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), password)
+		got, err := docx.OpenReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), opc.WithPassword(password))
 		if err != nil {
-			t.Fatalf("OpenEncryptedReader: %v", err)
+			t.Fatalf("OpenReader with a password: %v", err)
 		}
 		if n := len(got.Paragraphs()); n == 0 {
 			t.Fatal("decrypted document has no paragraphs")
@@ -167,29 +167,29 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 // unreachable for anyone holding a .docx/.xlsx/.pptx. The strict default is
 // what matters most, so that is what is asserted here.
 func TestEncryptedOpenOptionsAreReachableInEveryFormat(t *testing.T) {
-	strict := opc.ReaderOptions{}
+	var strict []opc.ReaderOption // no options beyond the password: integrity verification required
 	for _, tc := range []struct {
 		format string
-		open   func(r io.ReaderAt, size int64, pw string, opts opc.ReaderOptions) error
+		open   func(r io.ReaderAt, size int64, pw string, opts ...opc.ReaderOption) error
 	}{
-		{"docx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := docx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"docx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := docx.OpenReader(r, size, append([]opc.ReaderOption{opc.WithPassword(pw)}, o...)...)
 			return err
 		}},
-		{"xlsx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := xlsx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"xlsx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := xlsx.OpenReader(r, size, append([]opc.ReaderOption{opc.WithPassword(pw)}, o...)...)
 			return err
 		}},
-		{"pptx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := pptx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"pptx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := pptx.OpenReader(r, size, append([]opc.ReaderOption{opc.WithPassword(pw)}, o...)...)
 			return err
 		}},
 	} {
 		// A plain (unencrypted) zip is not a CFB container, so every format
 		// reports the same failure through the same option-carrying entry point.
 		junk := []byte("not a CFB container at all")
-		if err := tc.open(bytes.NewReader(junk), int64(len(junk)), "pw", strict); err == nil {
-			t.Errorf("%s: OpenEncryptedReaderWithOptions accepted non-container bytes", tc.format)
+		if err := tc.open(bytes.NewReader(junk), int64(len(junk)), "pw", strict...); err == nil {
+			t.Errorf("%s: the open accepted non-container bytes", tc.format)
 		}
 	}
 }

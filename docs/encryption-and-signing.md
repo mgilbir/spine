@@ -12,42 +12,53 @@ error sentinels are the ones you match with `errors.Is`:
 - `crypto.ErrUnsupportedEncryption` — an encryption scheme spine cannot decode
   (e.g. the version-1.1 binary-format RC4 scheme, §2.3.6).
 
-The package-level `opc.ErrEncrypted` is returned by the plain open path when it
-meets an encrypted input; open such a file with the format's `OpenEncrypted`
-(`docx`, `xlsx` or `pptx`) — or `opc.OpenEncrypted` for the raw package — and a
-password instead.
+The package-level `opc.ErrEncrypted` is returned by an open that meets an
+encrypted input and was given no password; retry the same call with
+`opc.WithPassword`.
 
 ## Password encryption
 
 Read and write documents protected with Office's real AES encryption — both the
 modern "agile" scheme ([MS-OFFCRYPTO], AES-256/CBC with SHA-512, the Office
 2010+ default) and the older ECMA-376 "standard" scheme (AES-ECB with SHA-1,
-Office 2007), not the legacy 16-bit obfuscation. `opc.OpenEncrypted(r, size,
-password)` decrypts a CFB-wrapped package into a normal reader, auto-detecting
-the scheme; `opc.SaveEncrypted(w, packageBytes, password)` writes an agile
+Office 2007), not the legacy 16-bit obfuscation. An encrypted document opens
+through the ordinary open — `opc.WithPassword` decrypts the CFB-wrapped package
+into a normal reader, auto-detecting the scheme;
+`opc.SaveEncrypted(w, packageBytes, password)` writes an agile
 container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects
 the scheme (agile or standard), AES key size, and whether to emit the optional
 `\x06DataSpaces` metadata streams some Office builds expect.
 
-Every format wraps it end to end, by file path and in memory:
+Whether a file is encrypted is a property of the file, not a choice the caller
+makes, so there is no separate encrypted entry point: every open detects the CFB
+container from the input's leading bytes and decrypts it when a password is
+available.
+
+```go
+doc, err := docx.Open("secret.docx", opc.WithPassword("hunter2"))
+wb, err := xlsx.OpenReader(r, size, opc.WithPassword("hunter2"))
+pkg, err := opc.NewReader(r, size, opc.WithPassword("hunter2")) // raw *opc.Reader
+```
 
 | Format | Open by path | Open in memory | Save by path | Save in memory |
 | --- | --- | --- | --- | --- |
-| docx | `docx.OpenEncrypted` | `docx.OpenEncryptedReader` | `Document.SaveEncrypted` | `Document.SaveEncryptedTo` |
-| xlsx | `xlsx.OpenEncrypted` | `xlsx.OpenEncryptedReader` | `Workbook.SaveEncrypted` | `Workbook.SaveEncryptedTo` |
-| pptx | `pptx.OpenEncrypted` | `pptx.OpenEncryptedReader` | `Presentation.SaveEncrypted` | `Presentation.SaveEncryptedTo` |
+| docx | `docx.Open` | `docx.OpenReader` | `Document.SaveEncrypted` | `Document.SaveEncryptedTo` |
+| xlsx | `xlsx.Open` | `xlsx.OpenReader` | `Workbook.SaveEncrypted` | `Workbook.SaveEncryptedTo` |
+| pptx | `pptx.Open` | `pptx.OpenReader` | `Presentation.SaveEncrypted` | `Presentation.SaveEncryptedTo` |
 
 Encryption is format-generic — the same CFB wrapper carries any OOXML zip — so
-these are one mechanism with three spellings, not three implementations. Each
-also has an `OpenEncryptedReaderWithOptions` taking `opc.ReaderOptions`, which
-is how the decompression bounds and
-`ReaderOptions.AllowMissingDataIntegrity` (see [Integrity](#integrity)) reach an
-encrypted open. `opc.OpenEncrypted` is still there when you want the raw
-`*opc.Reader` rather than a document model.
+these are one mechanism with three spellings, not three implementations. The
+opens take `opc.ReaderOption`s, which is also how the decompression bounds and
+`opc.WithAllowMissingDataIntegrity` (see [Integrity](#integrity)) reach an
+encrypted open.
 
-The plain open path detects an encrypted input and returns
+The password is held out of reach of `fmt` and `encoding/json`: it lives in an
+unexported pointer field of `opc.ReaderOptions`, so no `%+v` of a configuration
+value — at any nesting depth — can print it, and no error message names it.
+
+An open that meets an encrypted input with no password returns
 `opc.ErrEncrypted`; a wrong password returns `crypto.ErrWrongPassword` (from
-`github.com/mgilbir/spine/common/crypto`). `OpenEncrypted` can additionally
+`github.com/mgilbir/spine/common/crypto`). The open can additionally
 **decrypt** the obsolete legacy RC4 CryptoAPI scheme ([MS-OFFCRYPTO] §2.3.5) —
 the RC4 stream cipher is implemented from its public specification (Go's standard
 library omits RC4), validated against the RFC 6229 vectors, and cross-validated
@@ -76,8 +87,8 @@ Office always emits `dataIntegrity`. For a third-party producer that does not,
 opt out explicitly — never inferred from the file:
 
 ```go
-wb, err := xlsx.OpenEncryptedReaderWithOptions(r, size, password,
-    opc.ReaderOptions{AllowMissingDataIntegrity: true})
+wb, err := xlsx.OpenReader(r, size,
+    opc.WithPassword(password), opc.WithAllowMissingDataIntegrity(true))
 ```
 
 The opt-in accepts only a *missing* block. It never relaxes a failed HMAC and
@@ -86,16 +97,19 @@ honest producer writes. `crypto.DecryptWithOptions` reports which scheme
 produced the bytes and whether they were authenticated
 (`DecryptResult.Scheme`, `DecryptResult.IntegrityVerified`).
 
-### How OpenEncrypted decides
+### How the open decides
 
-`opc.OpenEncrypted` reads the CFB container, pulls out its `EncryptionInfo` and
-`EncryptedPackage` streams, and hands them to `crypto.Decrypt`, which dispatches
-on the `EncryptionInfo` version. The plain open path does the opposite: it
-detects the CFB magic and returns `opc.ErrEncrypted` to steer you here.
+An open reads the input's leading bytes. A zip is read as a package; a CFB
+container is decrypted first — the open pulls out its `EncryptionInfo` and
+`EncryptedPackage` streams and hands them to `crypto.Decrypt`, which dispatches
+on the `EncryptionInfo` version. With no password the same detection is what
+produces `opc.ErrEncrypted` instead of an opaque zip error. The recovered
+plaintext is read as a package directly, so a container nested inside a
+container is a corrupt file rather than a second layer to decrypt.
 
 ```mermaid
 flowchart TD
-    A["opc.OpenEncrypted(r, size, password)"] --> C["readCFB: extract EncryptionInfo + EncryptedPackage streams"]
+    A["opc.NewReader(r, size, opc.WithPassword(pw))"] --> C["readCFB: extract EncryptionInfo + EncryptedPackage streams"]
     C --> D["crypto.Decrypt(encInfo, encPkg, password)"]
     D --> V{"EncryptionInfo version"}
     V -- "4.4" --> AG["agile: AES-256-CBC / SHA-512 (Office 2010+)"]

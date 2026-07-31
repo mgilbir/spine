@@ -168,25 +168,29 @@ type Presentation struct {
 // Open opens a PowerPoint presentation from a file path. The whole package is
 // read into memory, so the returned Presentation retains no OS file handle.
 //
+// Options configure the underlying package reader: opc.WithPassword opens a
+// password-encrypted presentation, and the opc.WithMax* options adjust the
+// bounds that guard against decompression bombs.
+//
 // It returns ErrNotPPTX when the package is not PresentationML,
 // opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted (open those with OpenEncrypted and a password).
-// Each is matchable with errors.Is.
-func Open(path string) (*Presentation, error) {
+// input is password-encrypted and no opc.WithPassword was given. Each is
+// matchable with errors.Is.
+func Open(path string, opts ...opc.ReaderOption) (*Presentation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return OpenReader(bytes.NewReader(data), int64(len(data)))
+	return OpenReader(bytes.NewReader(data), int64(len(data)), opts...)
 }
 
 // OpenReader opens a PowerPoint presentation from an in-memory reader. The
 // package is read up front, so r need not remain valid after Open returns. It
-// returns the same sentinels as Open (ErrNotPPTX, opc.ErrStrictOOXML,
-// opc.ErrEncrypted), matchable with errors.Is.
-func OpenReader(r io.ReaderAt, size int64) (*Presentation, error) {
-	reader, err := opc.NewReader(r, size)
+// takes the same options and returns the same sentinels as Open (ErrNotPPTX,
+// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is.
+func OpenReader(r io.ReaderAt, size int64, opts ...opc.ReaderOption) (*Presentation, error) {
+	reader, err := opc.NewReader(r, size, opts...)
 	if err != nil {
 		return nil, err
 	}

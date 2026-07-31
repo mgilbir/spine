@@ -49,10 +49,11 @@ func TestEncryptedRoundTripRecoversPackageBytes(t *testing.T) {
 			t.Fatalf("bodyLen=%d inner package not recovered exactly: got %d bytes want %d", bodyLen, len(got), len(plain))
 		}
 
-		// And the decrypted package opens and reads correctly through OpenEncrypted.
-		r, err := OpenEncrypted(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "hunter2")
+		// And the decrypted package opens and reads correctly through the
+		// ordinary open with a password.
+		r, err := NewReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), WithPassword("hunter2"))
 		if err != nil {
-			t.Fatalf("bodyLen=%d OpenEncrypted: %v", bodyLen, err)
+			t.Fatalf("bodyLen=%d NewReader with password: %v", bodyLen, err)
 		}
 		f := r.GetFile("/ppt/body.bin")
 		if f == nil {
@@ -146,7 +147,7 @@ func TestEncryptedWrongPassword(t *testing.T) {
 	if err := SaveEncrypted(&enc, plain, "correct horse"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := OpenEncrypted(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "wrong password")
+	_, err := NewReader(bytes.NewReader(enc.Bytes()), int64(enc.Len()), WithPassword("wrong password"))
 	if !errors.Is(err, crypto.ErrWrongPassword) {
 		t.Fatalf("got %v, want crypto.ErrWrongPassword", err)
 	}
@@ -192,8 +193,8 @@ func TestOpenReaderDetectsEncrypted(t *testing.T) {
 	if !errors.Is(err, ErrEncrypted) {
 		t.Fatalf("NewReader on encrypted input: got %v, want ErrEncrypted", err)
 	}
-	if !strings.Contains(err.Error(), "OpenEncrypted") {
-		t.Fatalf("ErrEncrypted message should point to OpenEncrypted, got %q", err.Error())
+	if !strings.Contains(err.Error(), "WithPassword") {
+		t.Fatalf("ErrEncrypted message should name the option that fixes it, got %q", err.Error())
 	}
 }
 

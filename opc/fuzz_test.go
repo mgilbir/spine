@@ -26,7 +26,7 @@ func fuzzExerciseReader(data []byte) {
 		MaxDecompressedPartSize:    16 << 20,
 		MaxDecompressedPackageSize: 64 << 20,
 	}
-	r, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)), opts)
+	r, err := NewReader(bytes.NewReader(data), int64(len(data)), WithReaderOptions(opts))
 	if err != nil {
 		return
 	}

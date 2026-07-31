@@ -80,7 +80,7 @@ func exerciseBudgets(t *testing.T, data []byte, password string) {
 
 	var openErr error
 	budgetHeadroom(t, openBudget, len(data), func() {
-		_, openErr = OpenEncryptedWithOptions(bytes.NewReader(data), int64(len(data)), password, opts)
+		_, openErr = NewReader(bytes.NewReader(data), int64(len(data)), WithReaderOptions(opts), WithPassword(password))
 	})
 	if openErr != nil {
 		t.Fatalf("opening a legitimate container: %v", openErr)
@@ -164,7 +164,7 @@ func TestEncryptionFuzzBudgetsAllowDIFATDocument(t *testing.T) {
 	scaled.Bytes = 64<<20 + 4<<20
 	var openErr error
 	budgetHeadroom(t, scaled, len(data), func() {
-		_, openErr = OpenEncryptedWithOptions(bytes.NewReader(data), int64(len(data)), seedPassword, opts)
+		_, openErr = NewReader(bytes.NewReader(data), int64(len(data)), WithReaderOptions(opts), WithPassword(seedPassword))
 	})
 	if openErr != nil {
 		t.Fatalf("opening a DIFAT container: %v", openErr)

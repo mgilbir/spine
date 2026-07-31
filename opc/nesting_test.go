@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/spine/common/options"
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
@@ -50,9 +51,9 @@ func nestedPackage(t *testing.T, depth int) []byte {
 // readDeepPart opens pkg with opts and reads the nested part, which is where the
 // bound is enforced — reading a part is the one chokepoint every part's bytes
 // pass through.
-func readDeepPart(t *testing.T, pkg []byte, opts ReaderOptions) error {
+func readDeepPart(t *testing.T, pkg []byte, opts ...ReaderOption) error {
 	t.Helper()
-	r, err := NewReaderWithOptions(bytes.NewReader(pkg), int64(len(pkg)), opts)
+	r, err := NewReader(bytes.NewReader(pkg), int64(len(pkg)), opts...)
 	if err != nil {
 		return err
 	}
@@ -70,16 +71,16 @@ func readDeepPart(t *testing.T, pkg []byte, opts ReaderOptions) error {
 // of nested p:grpSp cost 627 MB resident before this bound existed.
 func TestNestingDepthBound(t *testing.T) {
 	shallow := nestedPackage(t, 50)
-	deep := nestedPackage(t, MaxNestingDepth+50)
+	deep := nestedPackage(t, DefaultMaxNestingDepth+50)
 
 	t.Run("real depth is admitted", func(t *testing.T) {
-		if err := readDeepPart(t, shallow, ReaderOptions{}); err != nil {
+		if err := readDeepPart(t, shallow); err != nil {
 			t.Errorf("a 50-level part was rejected: %v", err)
 		}
 	})
 
 	t.Run("past the default is rejected", func(t *testing.T) {
-		err := readDeepPart(t, deep, ReaderOptions{})
+		err := readDeepPart(t, deep)
 		if !errors.Is(err, xmlb.ErrNestingTooDeep) {
 			t.Errorf("error = %v, want one wrapping ErrNestingTooDeep", err)
 		}
@@ -91,8 +92,7 @@ func TestNestingDepthBound(t *testing.T) {
 	})
 
 	t.Run("the option raises it", func(t *testing.T) {
-		opts := ReaderOptions{MaxNestingDepth: MaxNestingDepth + 100}
-		if err := readDeepPart(t, deep, opts); err != nil {
+		if err := readDeepPart(t, deep, WithMaxNestingDepth(DefaultMaxNestingDepth+100)); err != nil {
 			t.Errorf("raising MaxNestingDepth did not admit the part: %v", err)
 		}
 	})
@@ -100,41 +100,16 @@ func TestNestingDepthBound(t *testing.T) {
 	t.Run("a negative option disables it", func(t *testing.T) {
 		// Matches MaxDecompressedPartSize and friends: zero means "use the
 		// package default", negative means unbounded.
-		opts := ReaderOptions{MaxNestingDepth: -1}
-		if err := readDeepPart(t, deep, opts); err != nil {
+		if err := readDeepPart(t, deep, WithMaxNestingDepth(-1)); err != nil {
 			t.Errorf("a negative MaxNestingDepth did not disable the bound: %v", err)
 		}
 	})
 
-	t.Run("zero uses the package default", func(t *testing.T) {
-		if err := readDeepPart(t, deep, ReaderOptions{MaxNestingDepth: 0}); !errors.Is(err, xmlb.ErrNestingTooDeep) {
-			t.Errorf("zero should fall back to the package default, got %v", err)
+	t.Run("zero disables it, like every other bound", func(t *testing.T) {
+		if err := readDeepPart(t, deep, WithMaxNestingDepth(0)); err != nil {
+			t.Errorf("zero should disable the bound, got %v", err)
 		}
 	})
-}
-
-// TestNestingBoundIsCapturedPerReader pins the concurrency contract the sibling
-// limits document: the value is snapshotted when the Reader is built, so a later
-// change to the package variable cannot alter a Reader already open.
-func TestNestingBoundIsCapturedPerReader(t *testing.T) {
-	saved := MaxNestingDepth
-	defer func() { MaxNestingDepth = saved }()
-
-	deep := nestedPackage(t, saved+50)
-	r, err := NewReader(bytes.NewReader(deep), int64(len(deep)))
-	if err != nil {
-		t.Fatalf("NewReader: %v", err)
-	}
-
-	// Raising the global after construction must not admit this Reader's part.
-	MaxNestingDepth = saved + 1000
-	f := r.GetFile("/deep/part.xml")
-	if f == nil {
-		t.Fatal("fixture is missing /deep/part.xml")
-	}
-	if _, err := f.ReadAll(); !errors.Is(err, xmlb.ErrNestingTooDeep) {
-		t.Errorf("the Reader honoured a global raised after it was built: %v", err)
-	}
 }
 
 // TestNonMarkupPartsAreNotScanned documents the one carve-out: media parts have
@@ -153,90 +128,35 @@ func TestNonMarkupPartsAreNotScanned(t *testing.T) {
 	}
 }
 
-// The functional options are the ergonomic surface over ReaderOptions: they
-// name the intent at the call site instead of leaving a reader to work out
-// which zero values mean "default" and which mean "off". They must resolve to
-// exactly the struct a caller would have written by hand, or the two forms
-// drift and only one of them gets tested.
-func TestReaderOptionsResolveToTheSameStruct(t *testing.T) {
-	got := applyReaderOptions([]ReaderOption{
-		WithMaxNestingDepth(2000),
-		WithMaxDecompressedPartSize(1 << 20),
-		WithMaxDecompressedPackageSize(1 << 24),
-		WithMaxPackageEntries(50),
-		WithAllowMissingDataIntegrity(true),
-	})
-	want := ReaderOptions{
-		MaxNestingDepth:            2000,
-		MaxDecompressedPartSize:    1 << 20,
-		MaxDecompressedPackageSize: 1 << 24,
-		MaxPackageEntries:          50,
-		AllowMissingDataIntegrity:  true,
-	}
+// Options resolve on top of the type's own defaults, so a caller who names one
+// bound does not silently disable the others — which is exactly what a bare
+// ReaderOptions literal used to do.
+func TestOptionsResolveOnTopOfDefaults(t *testing.T) {
+	got := options.Resolve(DefaultReaderOptions(), WithMaxNestingDepth(2000))
+	want := DefaultReaderOptions()
+	want.MaxNestingDepth = 2000
 	if got != want {
-		t.Errorf("applyReaderOptions =\n  %+v\nwant\n  %+v", got, want)
+		t.Errorf("resolved =\n  %+v\nwant\n  %+v", got, want)
 	}
 }
 
-func TestReaderOptionsApplyInOrderAndTolerateNil(t *testing.T) {
-	got := applyReaderOptions([]ReaderOption{
-		WithMaxNestingDepth(10),
-		nil, // a caller building a list conditionally can leave a hole
-		WithMaxNestingDepth(20),
-	})
+func TestOptionsApplyInOrderAndTolerateNil(t *testing.T) {
+	got := options.Resolve(DefaultReaderOptions(), WithMaxNestingDepth(10), nil, WithMaxNestingDepth(20))
 	if got.MaxNestingDepth != 20 {
 		t.Errorf("MaxNestingDepth = %d, want the later option (20) to win", got.MaxNestingDepth)
 	}
-	if applyReaderOptions(nil) != (ReaderOptions{}) {
-		t.Error("no options should resolve to the zero struct, i.e. package defaults")
+	if options.Resolve(DefaultReaderOptions()) != DefaultReaderOptions() {
+		t.Error("no options should resolve to the defaults")
 	}
 }
 
-// TestOptionsReachTheReader pins that the variadic entry points actually thread
-// the options through, rather than merely accepting them.
-func TestOptionsReachTheReader(t *testing.T) {
-	deep := nestedPackage(t, MaxNestingDepth+50)
-
-	if _, err := NewReader(bytes.NewReader(deep), int64(len(deep))); err != nil {
-		t.Fatalf("NewReader with no options: %v", err)
+// WithReaderOptions replaces the whole configuration, which is the one option
+// that does not compose field-wise; later options still apply on top.
+func TestWithReaderOptionsReplacesThenComposes(t *testing.T) {
+	base := DefaultReaderOptions()
+	base.MaxPackageEntries = 7
+	got := options.Resolve(DefaultReaderOptions(), WithReaderOptions(base), WithMaxNestingDepth(3))
+	if got.MaxPackageEntries != 7 || got.MaxNestingDepth != 3 {
+		t.Errorf("got %+v, want entries=7 depth=3", got)
 	}
-	// The bound bites at part read, so open and read with each form.
-	mustReject := func(t *testing.T, r *Reader) {
-		t.Helper()
-		f := r.GetFile("/deep/part.xml")
-		if f == nil {
-			t.Fatal("fixture is missing /deep/part.xml")
-		}
-		if _, err := f.ReadAll(); !errors.Is(err, xmlb.ErrNestingTooDeep) {
-			t.Errorf("want ErrNestingTooDeep, got %v", err)
-		}
-	}
-	mustAccept := func(t *testing.T, r *Reader) {
-		t.Helper()
-		f := r.GetFile("/deep/part.xml")
-		if f == nil {
-			t.Fatal("fixture is missing /deep/part.xml")
-		}
-		if _, err := f.ReadAll(); err != nil {
-			t.Errorf("want the part admitted, got %v", err)
-		}
-	}
-
-	r, err := NewReader(bytes.NewReader(deep), int64(len(deep)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustReject(t, r)
-
-	r, err = NewReader(bytes.NewReader(deep), int64(len(deep)), WithMaxNestingDepth(MaxNestingDepth+100))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustAccept(t, r)
-
-	r, err = NewReader(bytes.NewReader(deep), int64(len(deep)), WithMaxNestingDepth(-1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustAccept(t, r)
 }
