@@ -61,8 +61,8 @@ const (
 // the agile scheme authenticates its ciphertext at all, so a package opened
 // from a standard or RC4 container is unauthenticated by construction (see
 // crypto.DecryptWithOptions to learn which you got).
-func OpenEncrypted(r io.ReaderAt, size int64, password string) (*Reader, error) {
-	return OpenEncryptedWithOptions(r, size, password, ReaderOptions{})
+func OpenEncrypted(r io.ReaderAt, size int64, password string, opts ...ReaderOption) (*Reader, error) {
+	return OpenEncryptedWithOptions(r, size, password, applyReaderOptions(opts))
 }
 
 // OpenEncryptedWithOptions is OpenEncrypted with per-Reader options. The
