@@ -313,6 +313,19 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- xlsx: `Sheet.SetTabColor` writes the color as AARRGGBB, like every other color
+  the package writes. It was the one setter that stored the caller's string
+  unnormalized, so the six-digit RGB most callers reach for went out a byte
+  short of the four the `ST_UnsignedIntHex` attribute is defined as, and Excel
+  offered to repair the workbook. The existing test asserted the six digits —
+  the defect written down as an expectation — and is now stated against the
+  schema instead.
+- docx: an authored `word/comments.xml` declares `mc:Ignorable` for the w14/w15
+  prefixes it uses. Comment paragraphs carry `w14:paraId`, and declaring a
+  namespace is not what licenses a consumer to skip markup in it; without the
+  attribute the part is one a strict consumer must reject. A part parsed from a
+  file still replays whatever its producer wrote.
+
 - pptx: `Comment.SetResolved` no longer loses the change on a comment read from
   a file. Modern comment threads re-marshal by replaying the producer's verbatim
   attribute list with modeled values substituted, and the substitution only

@@ -90,7 +90,10 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 
 // commentsNamespaces is the standard root declaration set for a comments part
 // created from scratch: w plus the extension prefixes the comment bodies and
-// their extensions reference (w14:paraId, w15 threading).
+// their extensions reference (w14:paraId, w15 threading). mc: comes with
+// WordprocessingMLNamespaces and must not be added again — a second xmlns:mc
+// on the same element is a duplicate attribute, which is malformed XML that
+// Go's decoder accepts and libxml2 does not.
 func commentsNamespaces() []xmlb.NSDecl {
 	return append(xmlb.WordprocessingMLNamespaces(),
 		xmlb.NSDecl{Prefix: xmlb.PrefixWord2010, URI: xmlb.NSWord2010},
@@ -126,7 +129,15 @@ func marshalCommentsXML(comments *oxml.CT_Comments) ([]byte, error) {
 		}
 		b.StartElementWithRootAttrs(nsW, "comments", comments.OriginalRootAttrs, extra...)
 	} else {
-		b.StartElementWithNS(nsW, "comments", commentsNamespaces())
+		// An authored part declares w14 and w15 and then writes w14:paraId on
+		// the comment's paragraphs. Declaring a namespace is not what licenses
+		// a consumer to skip markup in it — mc:Ignorable is — so without this
+		// the part is one a strict consumer must reject, and the schema says so
+		// (w14:paraId "is not allowed"). Word writes the same list for the same
+		// reason. A parsed part replays whatever its producer wrote instead.
+		b.StartElementWithNS(nsW, "comments", commentsNamespaces(),
+			xmlb.StrAttr(xmlb.PrefixMarkupCompatibility+":Ignorable",
+				xmlb.PrefixWord2010+" "+xmlb.PrefixWord2012))
 	}
 	for _, c := range comments.Comment {
 		c.MarshalToBuilder(b, nsW, "comment")

@@ -184,17 +184,33 @@ func TestSetShowGridLines(t *testing.T) {
 	}
 }
 
+// The tab color is written as AARRGGBB, like every other color this package
+// writes.
+//
+// This test asserted the six digits it was given, which is what the setter
+// happened to store — the one color setter that skipped normalizeHexColor. The
+// attribute is ST_UnsignedIntHex, and xsd:length pins it to four bytes, so the
+// six-digit form is a byte short: Excel offers to repair the workbook, and the
+// schema-conformance suite says so in as many words ("has a length of '3'; this
+// differs from the allowed length of '4'"). The old expectation was the defect
+// written down.
 func TestSetTabColor(t *testing.T) {
 	wb := Create()
 	sheet := addSheetT(wb, "Sheet1")
 
-	sheet.SetTabColor("FF0000")
-
-	if sheet.ws().SheetPr == nil || sheet.ws().SheetPr.TabColor == nil {
-		t.Fatal("expected TabColor to be set")
-	}
-	if sheet.ws().SheetPr.TabColor.Rgb != "FF0000" {
-		t.Errorf("Rgb = %s, want FF0000", sheet.ws().SheetPr.TabColor.Rgb)
+	for _, tc := range []struct{ in, want string }{
+		{"FF0000", "FFFF0000"},   // six digits gain the opaque alpha
+		{"#FF0000", "FFFF0000"},  // a CSS-style hash is accepted too
+		{"80FF0000", "80FF0000"}, // an explicit alpha is left alone
+		{"ff0000", "FFFF0000"},   // and the case is normalized
+	} {
+		sheet.SetTabColor(tc.in)
+		if sheet.ws().SheetPr == nil || sheet.ws().SheetPr.TabColor == nil {
+			t.Fatalf("SetTabColor(%q): expected TabColor to be set", tc.in)
+		}
+		if got := sheet.ws().SheetPr.TabColor.Rgb; got != tc.want {
+			t.Errorf("SetTabColor(%q): Rgb = %s, want %s", tc.in, got, tc.want)
+		}
 	}
 }
 
