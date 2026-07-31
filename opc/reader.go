@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"path"
 	"strings"
 	"sync"
 
@@ -631,18 +630,7 @@ func newReaderFromZip(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, e
 // The original raw entry name is untouched — it remains the name under which
 // the entry's bytes were stored, and GetRawZipFile canonicalizes both sides of
 // its comparison so a raw name still resolves.
-func canonicalZipEntryName(name string) string {
-	s := strings.ReplaceAll(name, `\`, "/")
-	if !strings.HasPrefix(s, "/") {
-		s = "/" + s
-	}
-	dir := len(s) > 1 && strings.HasSuffix(s, "/")
-	s = path.Clean(s)
-	if dir && !strings.HasSuffix(s, "/") {
-		s += "/"
-	}
-	return s
-}
+func canonicalZipEntryName(name string) string { return NormalizePartName(name) }
 
 // parsePackageRelationships reads the package-level .rels file.
 func (r *Reader) parsePackageRelationships() error {

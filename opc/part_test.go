@@ -3,6 +3,7 @@ package opc
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -225,5 +226,70 @@ func TestWritePreservedPart_LenientNames(t *testing.T) {
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+// The two normalizations have to agree, and each has to be idempotent.
+//
+// reader.go states the agreement as a fact — canonicalZipEntryName "agrees with
+// NormalizePartName, which is what GetFile runs its query through" — and it was
+// not true for the two spellings the normalization exists for. A backslash was
+// a separator on the indexing side and an ordinary character on the query side,
+// so a part stored by a producer as "word\document.xml" was indexed as
+// /word/document.xml and could not be asked for under the name it was written
+// with. A leading ".." was resolved on one side and left in place on the other.
+//
+// Stated as a property rather than as examples because the failure was in the
+// spellings nobody thought to write down.
+func TestPartNameNormalizationsAgree(t *testing.T) {
+	inputs := []string{
+		"/a/b.xml", "a/b.xml", "./a/b.xml", "a//b.xml", "a/../b.xml",
+		"/a/../b.xml", "/a/b/../c.xml", "/a/../../b.xml", "../b.xml",
+		"../../../etc/passwd", "/../x.xml", `word\document.xml`,
+		`\word\document.xml`, `a\b/c.xml`, "/ppt/./slides/slide1.xml",
+		"/", "", ".", "..", "//server/share/x.xml", "/a b/c.xml",
+		"/A/B.XML", "/word/media/", "media/", "/a/b/",
+	}
+	for _, in := range inputs {
+		norm := NormalizePartName(in)
+		canon := canonicalZipEntryName(in)
+		if norm != canon {
+			t.Errorf("normalizations disagree on %q: NormalizePartName=%q canonicalZipEntryName=%q",
+				in, norm, canon)
+		}
+		if again := NormalizePartName(norm); again != norm {
+			t.Errorf("NormalizePartName is not idempotent on %q: %q then %q", in, norm, again)
+		}
+		if !strings.HasPrefix(norm, "/") {
+			t.Errorf("NormalizePartName(%q) = %q, which is not rooted", in, norm)
+		}
+		// A name that still carries a parent segment addresses something
+		// outside the package, and two such names can collide on a third.
+		for _, seg := range strings.Split(norm, "/") {
+			if seg == ".." {
+				t.Errorf("NormalizePartName(%q) = %q, which escapes the package root", in, norm)
+			}
+		}
+	}
+}
+
+// A part stored under a producer's backslash spelling is reachable by that
+// spelling, which is the behavior the agreement above buys.
+func TestGetFileAcceptsABackslashSpelling(t *testing.T) {
+	pkg := createTestPackage(t,
+		map[string][]byte{"/word/document.xml": []byte("<document/>")},
+		map[string]string{"/word/document.xml": "application/xml"})
+
+	r, err := NewReader(bytes.NewReader(pkg), int64(len(pkg)))
+	if err != nil {
+		t.Fatalf("NewReader: %v", err)
+	}
+	for _, spelling := range []string{
+		"/word/document.xml", `word\document.xml`, `/word\document.xml`,
+		"word/document.xml", "/word/./document.xml", "/word/../word/document.xml",
+	} {
+		if f := r.GetFile(spelling); f == nil {
+			t.Errorf("GetFile(%q) found nothing; the same part answers to its other spellings", spelling)
+		}
 	}
 }

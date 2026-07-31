@@ -326,6 +326,28 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- common/xml: canonicalization keeps processing instructions, and normalizes
+  attribute values the way a conforming parser does. Both decide what an OPC
+  signature covers. A canonical form that drops processing instructions digests
+  the same whether or not one is present, so a signature over such a part did
+  not cover them and one could be added, altered or removed without invalidating
+  it; the "#WithComments" suffix on the algorithm URI selects whether *comments*
+  are in the node-set and says nothing about processing instructions, which are
+  in it either way. Separately, a literal tab, line feed or carriage return in
+  an attribute value is a space by the time a conforming parser is done with it
+  (XML 1.0 §3.3.3) while the same character written as a reference survives —
+  Go's decoder resolves both to the same rune, so the raw source is consulted to
+  tell them apart. Emitting the two forms identically produced signatures no
+  other implementation could verify, over documents this library did not write.
+  Both were found by checking against libxml2, which the suite now does.
+- opc: `NormalizePartName` resolves parent segments and reads backslashes as
+  separators, so it agrees with the normalization the package index uses, as its
+  documentation already claimed. A part a producer stored as `word\document.xml`
+  was indexed under `/word/document.xml` but could not be asked for by the name
+  it was written with, and a name beginning `../` kept the segment on one side
+  and lost it on the other. Both now normalize the same way, and the two
+  functions are one implementation so they cannot drift apart again.
+
 - xlsx: `Sheet.SetTabColor` writes the color as AARRGGBB, like every other color
   the package writes. It was the one setter that stored the caller's string
   unnormalized, so the six-digit RGB most callers reach for went out a byte
