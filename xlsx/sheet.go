@@ -726,7 +726,13 @@ func (s *Sheet) SetTabColor(hexColor string) {
 	}
 	s.ws().EnsureChildOrder("sheetPr")
 	s.ws().SheetPr.TabColor = &oxml.CT_Color{
-		Rgb: hexColor,
+		// Normalized like every other color this package writes. The attribute
+		// is ST_UnsignedIntHex, which xsd:length pins to four bytes — AARRGGBB —
+		// so the six-digit RGB most callers reach for went out a byte short and
+		// Excel offered to repair the workbook. This was the one color setter
+		// that assigned the caller's string straight through (found by the
+		// schema-conformance suite).
+		Rgb: normalizeHexColor(hexColor),
 	}
 }
 
