@@ -1028,22 +1028,33 @@ func checkNotesSurviveARewrite(t *testing.T, pkg []byte) {
 		othersBefore[i] = s.Notes()
 	}
 
+	// Captured before the rewrite so the attribute check below can tell the
+	// library's output apart from what the source handed it.
+	notesBefore := p.rawPartData(slides[0].notesSlidePartName())
+
 	const written = "rewritten by the fuzz oracle"
 	slides[0].SetNotes(written)
 
-	if part := slides[0].notesSlidePartName(); !hasDrawingMLText(p.rawPartData(part)) {
-		// Known unfixed defect: see TestKnownDefectNotesRewriteDropsTheDrawingMLPrefix,
-		// which holds the reproducer this fuzzer found. The rewrite emits the
-		// note's text as <a:t> on the assumption that a: means DrawingML,
-		// without ensuring the DrawingML namespace is bound to that prefix — so
-		// when the source root declares no a: (or binds it to something else),
-		// the text lands outside DrawingML and reads back as "".
-		//
-		// The carve-out is stated against the emitted bytes rather than against
-		// a guess at the precondition: it covers both ways the binding can be
-		// wrong, and it stops firing the moment the text is emitted in the
-		// right namespace, with nothing to remember to delete.
-		return
+	// The rewritten part must carry its text in DrawingML, and every element
+	// name in it must resolve. Both were carved out here while the Builder
+	// wrote names in namespaces the source root had not declared; both are now
+	// assertions.
+	part := slides[0].notesSlidePartName()
+	rewritten := p.rawPartData(part)
+	if !hasDrawingMLText(rewritten) {
+		t.Fatalf("rewritten %s carries no DrawingML text, so its notes cannot be read back:\n%s", part, rewritten)
+	}
+	if !elementNamespacesResolve(rewritten) {
+		t.Fatalf("rewritten %s has an element in an undeclared namespace:\n%s", part, rewritten)
+	}
+	// Attributes are held to the same standard only when the source's were:
+	// the rewrite replays the root's captured attribute list verbatim, so a
+	// source that carried an attribute in an undeclared prefix (the fuzzer
+	// writes xmlni:p) gets it back. Preserving that is not the same defect as
+	// emitting one, and blaming the library for it here would make the check
+	// unfalsifiable rather than strict.
+	if namespaceWellFormed(notesBefore) && !namespaceWellFormed(rewritten) {
+		t.Fatalf("rewriting a namespace-well-formed %s made it ill-formed:\n%s", part, rewritten)
 	}
 
 	out := pptxSaveHonest(t, p)
@@ -1085,6 +1096,30 @@ func hasDrawingMLText(data []byte) bool {
 		if se, ok := tok.(xml.StartElement); ok &&
 			se.Name.Local == "t" && se.Name.Space == xmlb.NSDrawingML {
 			return true
+		}
+	}
+}
+
+// elementNamespacesResolve reports whether every element name in an XML
+// document resolves to a declared namespace. It is namespaceWellFormed narrowed
+// to element names: those are always the library's own to bind, while an
+// attribute may have been replayed verbatim from a malformed source.
+func elementNamespacesResolve(data []byte) bool {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if space := se.Name.Space; space != "" && space != "xml" && !strings.Contains(space, "://") {
+			return false
 		}
 	}
 }
@@ -1467,9 +1502,9 @@ const minimalNotesSlide = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
 	`<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>` +
 	`</p:spTree></p:cSld></p:notes>`
 
-// TestKnownDefectNotesRewriteDropsTheDrawingMLPrefix reproduces the defect found
-// by FuzzPptxNotesSlideXML, and it is the one on this list that needs no
-// malformed input at all: the notes slide below is valid.
+// TestNotesRewriteBindsTheDrawingMLPrefix pins the fix for the defect
+// FuzzPptxNotesSlideXML found, and it is the one that needed no malformed input
+// at all: the notes slide below is valid.
 //
 // SetNotes has to build a body placeholder, whose text lives in DrawingML. The
 // marshaler declares xmlns:a on each a:-prefixed element it happens to open —
@@ -1484,13 +1519,12 @@ const minimalNotesSlide = `<?xml version="1.0" encoding="UTF-8" standalone="yes"
 //
 // The fuzzer found a second way into the same hole, which is what makes this a
 // binding bug rather than a declaration bug: a source root that binds a: to
-// some URI other than DrawingML. The part stays well-formed, the rewrite still
-// writes its text as a:t, and the text is again outside DrawingML. Both cases
-// come from assuming the prefix means DrawingML instead of ensuring the
-// DrawingML namespace is bound to whatever prefix the text is written under.
-func TestKnownDefectNotesRewriteDropsTheDrawingMLPrefix(t *testing.T) {
-	t.Skip("reproduces an unfixed defect: rewriting a notes slide can leave the a: prefix undeclared")
-
+// some URI other than DrawingML. The part stayed well-formed, the rewrite still
+// wrote its text as a:t, and the text was again outside DrawingML. Both came
+// from assuming the prefix means DrawingML instead of ensuring the DrawingML
+// namespace is bound to whatever prefix the text is written under, which is now
+// what the Builder does for every name it writes (xmlb.Builder.declareInline).
+func TestNotesRewriteBindsTheDrawingMLPrefix(t *testing.T) {
 	pkg := buildFuzzDeck(t)
 	wrapped := fuzzseed.ReplaceZipEntry(pkg, fuzzPartNotesSlide, []byte(minimalNotesSlide))
 	p, err := OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))

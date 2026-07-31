@@ -738,6 +738,7 @@ func FuzzDocxStylesXML(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, pkg, first)
 		assertRootChildrenPreserved(t, data, zipPartBytes(first, part), part)
 		assertRootDeclsPreserved(t, data, zipPartBytes(first, part), part)
 
@@ -966,6 +967,7 @@ func FuzzDocxNumberingXML(f *testing.F) {
 			}
 			first, saveOK = out, true
 			assertPartsAreWellFormed(t, first)
+			assertEmittedNamespacesResolve(t, pkg, first)
 			assertRootChildrenPreserved(t, data, zipPartBytes(first, part), part)
 			assertRootDeclsPreserved(t, data, zipPartBytes(first, part), part)
 
@@ -1100,6 +1102,7 @@ func FuzzDocxSettingsXML(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, pkg, first)
 		assertRootDeclsPreserved(t, data, zipPartBytes(first, part), part)
 
 		d2 := reopenSaved(t, first, "settings round trip")
@@ -1238,6 +1241,7 @@ func FuzzDocxNotesXML(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, pkg, first)
 		// KNOWN FINDING, reported not fixed: assertRootChildrenPreserved is NOT
 		// applied to these two parts. marshalFootnotesXML and
 		// marshalEndnotesXML emit w:footnote / w:endnote children and nothing
@@ -1432,6 +1436,7 @@ func FuzzDocxCommentsXML(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, pkg, first)
 		// KNOWN FINDING, reported not fixed: assertRootChildrenPreserved is NOT
 		// applied to the comment parts, for the same reason as the note parts
 		// above. marshalCommentsXML, marshalCommentsExtendedXML and
@@ -1593,6 +1598,7 @@ func FuzzDocxHeaderFooterXML(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, pkg, first)
 		assertRootDeclsPreserved(t, hdr, zipPartBytes(first, hdrPart), hdrPart)
 		assertRootDeclsPreserved(t, ftr, zipPartBytes(first, ftrPart), ftrPart)
 

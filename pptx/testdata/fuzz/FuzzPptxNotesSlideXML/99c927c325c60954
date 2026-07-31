@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlni:p=\"http://schemas.openxmlformats.org/presentationml/2006/masn\"><p:cSld/></p:notes>")
