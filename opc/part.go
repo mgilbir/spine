@@ -131,18 +131,34 @@ func isPartNameChar(c byte) bool {
 	return false
 }
 
-// NormalizePartName converts a part name to its normalized form.
-// This involves cleaning the path and ensuring proper formatting.
+// NormalizePartName converts a part name to its normalized form: rooted at "/",
+// with backslashes read as separators and dot segments resolved.
+//
+// It is the one normalization used at every boundary — a query through GetFile
+// runs through it, and so does every zip entry name as the package is indexed
+// (canonicalZipEntryName) — so the two have to agree on every spelling, or a
+// caller can ask for a part by the name the producer wrote and be told it is
+// not there.
+//
+// They did not agree, for two spellings that are exactly the ones the
+// normalization exists for. Cleaning before rooting leaves a leading parent
+// segment in place, because path.Clean cannot resolve ".." in a relative path:
+// "../x.xml" became "/../x.xml" here and "/x.xml" there. And a backslash, which
+// producers do write ("word\document.xml"), was a separator there and an
+// ordinary character here. Rooting first and mapping separators fixes both, and
+// a trailing slash is kept so a directory entry stays distinguishable from a
+// part of the same name.
 func NormalizePartName(name string) string {
-	// Clean the path
-	cleaned := path.Clean(name)
-
-	// Ensure leading slash
-	if !strings.HasPrefix(cleaned, "/") {
-		cleaned = "/" + cleaned
+	s := strings.ReplaceAll(name, `\`, "/")
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
 	}
-
-	return cleaned
+	dir := len(s) > 1 && strings.HasSuffix(s, "/")
+	s = path.Clean(s)
+	if dir && !strings.HasSuffix(s, "/") {
+		s += "/"
+	}
+	return s
 }
 
 // ResolvePartName resolves a relative URI against a base part name.

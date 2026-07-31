@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strings"
 
 	stdxml "encoding/xml"
 )
@@ -72,6 +73,17 @@ type c14nText struct{ data string }
 
 func (*c14nText) isC14N() {}
 
+// c14nPI is a processing instruction. Canonical XML keeps them: the
+// "#WithComments" suffix on the algorithm URI selects whether *comments* are
+// in the node-set and says nothing about processing instructions, which are
+// part of it either way (Canonical XML 1.0 §2.3). Dropping them is not a
+// harmless omission in a signature context — a digest computed over a
+// canonical form that ignores them is unchanged when one is added, altered or
+// removed, so the signature covers less than it appears to.
+type c14nPI struct{ target, data string }
+
+func (*c14nPI) isC14N() {}
+
 type c14nAttr struct {
 	prefix string
 	local  string
@@ -87,21 +99,34 @@ type C14NNode struct{ e *c14nElem }
 // ParseC14N parses data into a navigable tree whose nodes can be
 // canonicalized. The returned node is the document's root element.
 func ParseC14N(data []byte) (*C14NNode, error) {
-	root, err := parseC14NTree(data)
+	doc, err := parseC14NTree(data)
 	if err != nil {
 		return nil, err
 	}
-	return &C14NNode{e: root}, nil
+	return &C14NNode{e: doc.root}, nil
 }
 
 // Canonicalize returns the inclusive Canonical XML 1.0 (without comments)
 // serialization of data's root element.
 func Canonicalize(data []byte) ([]byte, error) {
-	root, err := parseC14NTree(data)
+	doc, err := parseC14NTree(data)
 	if err != nil {
 		return nil, err
 	}
-	return root.canonical(), nil
+	// A processing instruction outside the document element is rendered with
+	// the line break that separates it from the element: after it in the
+	// prolog, before it in the epilog (C14N 1.0 §2.3).
+	var buf bytes.Buffer
+	for _, pi := range doc.prolog {
+		writeC14NPI(&buf, pi)
+		buf.WriteByte('\n')
+	}
+	buf.Write(doc.root.canonical())
+	for _, pi := range doc.epilog {
+		buf.WriteByte('\n')
+		writeC14NPI(&buf, pi)
+	}
+	return buf.Bytes(), nil
 }
 
 // Canonical returns the inclusive Canonical XML 1.0 serialization of the
@@ -153,16 +178,27 @@ func findByID(e *c14nElem, id string) *c14nElem {
 	return nil
 }
 
-func parseC14NTree(data []byte) (*c14nElem, error) {
+// c14nDoc is a parsed document: its root element plus the processing
+// instructions that sit outside it, which document-scope canonicalization
+// renders around the root.
+type c14nDoc struct {
+	root           *c14nElem
+	prolog, epilog []*c14nPI
+}
+
+func parseC14NTree(data []byte) (*c14nDoc, error) {
 	dec := NewDecoder(bytes.NewReader(data))
 	var root *c14nElem
+	var prologPIs, epilogPIs []*c14nPI
 	var stack []*c14nElem
 	scopeStack := []map[string]string{{"xml": xmlNamespaceURI}}
 	// xmlAttrStack[i] is the set of xml-namespace attributes in force for the
 	// element at depth i, i.e. its own merged over its ancestors'.
 	xmlAttrStack := []map[string]string{nil}
 
+	var prevTokenEnd int64
 	for {
+		tagStart := prevTokenEnd
 		tok, err := dec.Token()
 		if err != nil {
 			if err == io.EOF {
@@ -170,8 +206,10 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 			}
 			return nil, err
 		}
+		prevTokenEnd = dec.InputOffset()
 		switch t := tok.(type) {
 		case stdxml.StartElement:
+			rawTag := data[tagStart:dec.InputOffset()]
 			// The single root has already closed (its EndElement popped the
 			// stack). A further top-level element would be a second root; reject
 			// it instead of indexing the now-empty stack.
@@ -197,7 +235,7 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 				if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
 					continue
 				}
-				at := c14nAttr{local: a.Name.Local, uri: a.Name.Space, value: a.Value}
+				at := c14nAttr{local: a.Name.Local, uri: a.Name.Space, value: normalizeAttrValue(rawTag, a)}
 				if a.Name.Space != "" {
 					at.prefix = pickAttrPrefix(scope, a.Name.Space)
 				}
@@ -253,15 +291,30 @@ func parseC14NTree(data []byte) (*c14nElem, error) {
 			}
 			// Character data before the root element (whitespace in the
 			// prolog) is discarded, matching C14N of a single element subset.
+		case stdxml.ProcInst:
+			// The XML declaration is not a processing instruction and is not
+			// in the node-set, though Go's decoder reports it as one.
+			if t.Target == "xml" {
+				continue
+			}
+			pi := &c14nPI{target: t.Target, data: string(t.Inst)}
+			if len(stack) > 0 {
+				parent := stack[len(stack)-1]
+				parent.children = append(parent.children, pi)
+			} else if root == nil {
+				prologPIs = append(prologPIs, pi)
+			} else {
+				epilogPIs = append(epilogPIs, pi)
+			}
 		}
-		// Comments, processing instructions, and directives are not part of
-		// the node-set for the without-comments variant.
+		// Comments and directives are not part of the node-set for the
+		// without-comments variant.
 	}
 
 	if root == nil {
 		return nil, errNoRoot
 	}
-	return root, nil
+	return &c14nDoc{root: root, prolog: prologPIs, epilog: epilogPIs}, nil
 }
 
 func cloneScope(m map[string]string) map[string]string {
@@ -413,12 +466,27 @@ func (e *c14nElem) render(buf *bytes.Buffer, rendered map[string]string, inherit
 			n.render(buf, childRendered, nil)
 		case *c14nText:
 			writeC14NText(buf, n.data)
+		case *c14nPI:
+			writeC14NPI(buf, n)
 		}
 	}
 
 	buf.WriteString("</")
 	buf.WriteString(e.qname())
 	buf.WriteByte('>')
+}
+
+// writeC14NPI renders a processing instruction per C14N §2.3: the target, then
+// a single space and the data when the data is non-empty, and nothing between
+// them when it is.
+func writeC14NPI(buf *bytes.Buffer, pi *c14nPI) {
+	buf.WriteString("<?")
+	buf.WriteString(pi.target)
+	if pi.data != "" {
+		buf.WriteByte(' ')
+		buf.WriteString(pi.data)
+	}
+	buf.WriteString("?>")
 }
 
 // writeC14NText escapes character data per C14N: &, <, > and carriage return.
@@ -462,4 +530,93 @@ func writeC14NAttrValue(buf *bytes.Buffer, s string) {
 			buf.WriteByte(s[i])
 		}
 	}
+}
+
+// normalizeAttrValue applies XML 1.0 §3.3.3 attribute-value normalization,
+// which Go's decoder does not.
+//
+// A literal tab, line feed or carriage return inside an attribute value is a
+// space by the time a conforming parser is done with it, while the same
+// character written as a reference (&#x9;) survives and is escaped back to a
+// reference by canonicalization. Go's decoder resolves both to the same rune,
+// so the raw source text is the only place the difference still exists — hence
+// the tag bytes rather than the token.
+//
+// It matters because the two forms canonicalize differently, and a
+// canonicalization that disagrees with every other implementation produces
+// signatures nothing else can verify, over documents this library did not
+// write. Values with no literal whitespace, which is nearly all of them, take
+// the fast path and are returned untouched.
+func normalizeAttrValue(rawTag []byte, a stdxml.Attr) string {
+	if !strings.ContainsAny(a.Value, "\t\n\r") {
+		return a.Value
+	}
+	raw, ok := rawAttrValue(rawTag, a.Name)
+	if !ok {
+		return a.Value
+	}
+	if !bytes.ContainsAny(raw, "\t\n\r") {
+		// Every whitespace character came from a reference, so the decoded
+		// value is already normalized.
+		return a.Value
+	}
+	// Replace the literal whitespace, then let the decoder resolve the
+	// references exactly as it did the first time.
+	replaced := bytes.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, raw)
+	var probe struct {
+		V string `xml:"v,attr"`
+	}
+	doc := append(append([]byte(`<x v="`), replaced...), []byte(`"/>`)...)
+	if err := stdxml.Unmarshal(doc, &probe); err != nil {
+		return a.Value
+	}
+	return probe.V
+}
+
+// rawAttrValue finds the source text of one attribute inside a start tag,
+// between its quotes.
+func rawAttrValue(rawTag []byte, name stdxml.Name) ([]byte, bool) {
+	// The qualified name as written is not recoverable from the resolved one,
+	// so every attribute whose local name matches is considered and the first
+	// with a plausible spelling wins. A tag carrying the same local name under
+	// two prefixes is vanishingly rare and falls back to the decoded value.
+	for i := 0; i+len(name.Local) < len(rawTag); i++ {
+		if !bytes.HasPrefix(rawTag[i:], []byte(name.Local)) {
+			continue
+		}
+		if i > 0 {
+			prev := rawTag[i-1]
+			if prev != ' ' && prev != ':' && prev != '\t' && prev != '\n' && prev != '\r' {
+				continue
+			}
+		}
+		rest := rawTag[i+len(name.Local):]
+		j := 0
+		for j < len(rest) && (rest[j] == ' ' || rest[j] == '\t' || rest[j] == '\n' || rest[j] == '\r') {
+			j++
+		}
+		if j >= len(rest) || rest[j] != '=' {
+			continue
+		}
+		j++
+		for j < len(rest) && (rest[j] == ' ' || rest[j] == '\t' || rest[j] == '\n' || rest[j] == '\r') {
+			j++
+		}
+		if j >= len(rest) || (rest[j] != '"' && rest[j] != '\'') {
+			continue
+		}
+		quote := rest[j]
+		j++
+		end := bytes.IndexByte(rest[j:], quote)
+		if end < 0 {
+			return nil, false
+		}
+		return rest[j : j+end], true
+	}
+	return nil, false
 }
