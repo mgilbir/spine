@@ -62,14 +62,30 @@ const (
 )
 
 // partsBudget bounds one open/save/reopen/save cycle over a mutated package.
-// The pristine fixture costs about 0.5 MiB and 3 ms, so the allowance below
-// leaves better than an order of magnitude of headroom for input that is
-// legitimately more expensive while still catching the failure mode this
-// package has actually shipped: a count or size attribute used unvalidated as
-// an allocation length.
+// It catches the failure mode this package has actually shipped: a count or
+// size attribute used unvalidated as an allocation length.
+//
+// The floor is calibrated against the most expensive input the target actually
+// runs, not against the pristine fixture. That distinction is the whole reason
+// the number moved: the fixture costs about 0.5 MiB, and 24 MiB looked like
+// two orders of magnitude of headroom against it — but a seed in this very
+// corpus declares 500 sheets, and opening and re-saving that costs 31.5 MiB,
+// which is 0.995 of what the old floor allowed. It passed by 124 KiB.
+//
+// A margin that thin is not a bound, it is a coin flip. The nightly race job
+// called it: the race detector adds about 4% on this path, so the seed measured
+// 32.8 MiB there and failed every night while every plain run passed. A Go
+// runtime change or an incidental allocation anywhere in open/save would have
+// done the same.
+//
+// 48 MiB puts that seed at 0.55 of the allowance (0.58 under -race) and leaves
+// every other seed below 0.35. Nothing is lost by the raise: the bug this
+// guards against is an attribute-driven allocation, which overshoots by orders
+// of magnitude — C360's was a 512-byte input asking for 16 GiB — not by the
+// tens of percent this headroom absorbs.
 var partsBudget = fuzzbound.Budget{
 	What:              "opening and re-saving a workbook with one mutated part",
-	Bytes:             24 << 20,
+	Bytes:             48 << 20,
 	BytesPerInputByte: 1024,
 	Time:              5 * time.Second,
 	TimePerMiB:        10 * time.Second,
