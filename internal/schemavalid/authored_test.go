@@ -161,211 +161,199 @@ func testPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-func TestAuthoredDocxConformsToSchema(t *testing.T) {
-	v := newValidator(t)
-
-	for name, build := range map[string]func(*testing.T) *docx.Document{
-		"minimal": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			d.AddParagraph().SetText("hello")
-			return d
-		},
-		"formatted text": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			p := d.AddParagraph()
-			p.SetAlignment(docx.AlignmentCenter)
-			r := p.AddRun()
-			r.SetText("styled")
-			r.SetBold(true)
-			r.SetItalic(true)
-			r.SetFontSize(14)
-			r.SetColor("FF0000")
-			d.AddParagraph().AddHyperlink("link", "https://example.com")
-			return d
-		},
-		"table": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			tbl := d.AddTable(2, 3)
-			rows := tbl.Rows()
-			rows[0].Cells()[0].AddParagraph().SetText("a")
-			rows[1].Cells()[2].AddParagraph().SetText("b")
-			return d
-		},
-		"image": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			if _, err := d.AddParagraph().AddRun().AddImageFromBytes(testPNG(t), "image/png"); err != nil {
-				t.Fatalf("AddImageFromBytes: %v", err)
-			}
-			return d
-		},
-		"text box": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			d.AddTextBox("boxed", docx.TextBoxOptions{})
-			return d
-		},
-		"comment": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			p := d.AddParagraph()
-			p.SetText("body")
-			p.AddComment("Author", "a remark")
-			return d
-		},
-		"headers and footers": func(t *testing.T) *docx.Document {
-			d := docx.Create()
-			d.AddParagraph().SetText("body")
-			d.AddHeader(docx.HeaderDefault).AddParagraph().SetText("head")
-			d.AddFooter(docx.FooterDefault).AddParagraph().SetText("foot")
-			return d
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			out, err := build(t).SaveBytes()
-			if err != nil {
-				t.Fatalf("SaveBytes: %v", err)
-			}
-			validatePackage(t, v, out, docxGaps[name]...)
-		})
-	}
+// The documents the authored-output suites drive. They are package-level so the
+// content-order check runs over exactly the same output as the schema check.
+var docxCases = map[string]func(*testing.T) *docx.Document{
+	"minimal": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		d.AddParagraph().SetText("hello")
+		return d
+	},
+	"formatted text": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		p := d.AddParagraph()
+		p.SetAlignment(docx.AlignmentCenter)
+		r := p.AddRun()
+		r.SetText("styled")
+		r.SetBold(true)
+		r.SetItalic(true)
+		r.SetFontSize(14)
+		r.SetColor("FF0000")
+		d.AddParagraph().AddHyperlink("link", "https://example.com")
+		return d
+	},
+	"table": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		tbl := d.AddTable(2, 3)
+		rows := tbl.Rows()
+		rows[0].Cells()[0].AddParagraph().SetText("a")
+		rows[1].Cells()[2].AddParagraph().SetText("b")
+		return d
+	},
+	"image": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		if _, err := d.AddParagraph().AddRun().AddImageFromBytes(testPNG(t), "image/png"); err != nil {
+			t.Fatalf("AddImageFromBytes: %v", err)
+		}
+		return d
+	},
+	"text box": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		d.AddTextBox("boxed", docx.TextBoxOptions{})
+		return d
+	},
+	"comment": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		p := d.AddParagraph()
+		p.SetText("body")
+		p.AddComment("Author", "a remark")
+		return d
+	},
+	"headers and footers": func(t *testing.T) *docx.Document {
+		d := docx.Create()
+		d.AddParagraph().SetText("body")
+		d.AddHeader(docx.HeaderDefault).AddParagraph().SetText("head")
+		d.AddFooter(docx.FooterDefault).AddParagraph().SetText("foot")
+		return d
+	},
 }
 
-// docxGaps are the conformance failures this suite found and did not fix.
-var docxGaps = map[string][]gap{
-	"text box": {{
-		part:  "word/document.xml",
-		match: "wsp",
-		why: "a text box is written as a bare wps:wsp inside a:graphicData, whose wildcard is " +
-			"processContents=\"strict\", so no consumer that lacks the extension may render or skip it. " +
-			"Word writes the same shape wrapped in mc:AlternateContent with a VML w:pict fallback, which " +
-			"is what makes it legal and what makes it appear in a down-level reader. Wrapping it is a " +
-			"change to the writer, not to this suite",
-	}},
+var xlsxCases = map[string]func(*testing.T) *xlsx.Workbook{
+	"minimal": func(t *testing.T) *xlsx.Workbook {
+		w := xlsx.Create()
+		s, err := w.AddSheet("Data")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetCellValue("A1", "hello"); err != nil {
+			t.Fatal(err)
+		}
+		return w
+	},
+	"typed values": func(t *testing.T) *xlsx.Workbook {
+		w := xlsx.Create()
+		s, err := w.AddSheet("Types")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for ref, val := range map[string]any{
+			"A1": "text", "A2": 42, "A3": 3.5, "A4": true,
+		} {
+			if err := s.SetCellValue(ref, val); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return w
+	},
+	"column widths and sheet view": func(t *testing.T) *xlsx.Workbook {
+		w := xlsx.Create()
+		s, err := w.AddSheet("View")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetCellValue("A1", "wide"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetColWidth(1, 24); err != nil {
+			t.Fatal(err)
+		}
+		s.SetZoom(120)
+		s.SetShowGridLines(false)
+		s.SetTabColor("FF0000")
+		return w
+	},
+	"multiple sheets": func(t *testing.T) *xlsx.Workbook {
+		w := xlsx.Create()
+		for _, n := range []string{"One", "Two", "Three"} {
+			s, err := w.AddSheet(n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetCellValue("A1", n); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return w
+	},
 }
 
-func TestAuthoredXlsxConformsToSchema(t *testing.T) {
-	v := newValidator(t)
-
-	for name, build := range map[string]func(*testing.T) *xlsx.Workbook{
-		"minimal": func(t *testing.T) *xlsx.Workbook {
-			w := xlsx.Create()
-			s, err := w.AddSheet("Data")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := s.SetCellValue("A1", "hello"); err != nil {
-				t.Fatal(err)
-			}
-			return w
-		},
-		"typed values": func(t *testing.T) *xlsx.Workbook {
-			w := xlsx.Create()
-			s, err := w.AddSheet("Types")
-			if err != nil {
-				t.Fatal(err)
-			}
-			for ref, val := range map[string]any{
-				"A1": "text", "A2": 42, "A3": 3.5, "A4": true,
-			} {
-				if err := s.SetCellValue(ref, val); err != nil {
-					t.Fatal(err)
-				}
-			}
-			return w
-		},
-		"column widths and sheet view": func(t *testing.T) *xlsx.Workbook {
-			w := xlsx.Create()
-			s, err := w.AddSheet("View")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := s.SetCellValue("A1", "wide"); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.SetColWidth(1, 24); err != nil {
-				t.Fatal(err)
-			}
-			s.SetZoom(120)
-			s.SetShowGridLines(false)
-			s.SetTabColor("FF0000")
-			return w
-		},
-		"multiple sheets": func(t *testing.T) *xlsx.Workbook {
-			w := xlsx.Create()
-			for _, n := range []string{"One", "Two", "Three"} {
-				s, err := w.AddSheet(n)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := s.SetCellValue("A1", n); err != nil {
-					t.Fatal(err)
-				}
-			}
-			return w
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			w := build(t)
-			out, err := w.SaveBytes()
-			if err != nil {
-				t.Fatalf("SaveBytes: %v", err)
-			}
-			_ = w.Close()
-			validatePackage(t, v, out)
-		})
-	}
-}
-
-func TestAuthoredPptxConformsToSchema(t *testing.T) {
-	v := newValidator(t)
-
-	for name, build := range map[string]func(*testing.T) *pptx.Presentation{
-		"minimal": func(t *testing.T) *pptx.Presentation {
-			p := pptx.Create()
-			p.AddSlide()
-			return p
-		},
-		"text box": func(t *testing.T) *pptx.Presentation {
-			p := pptx.Create()
+var pptxCases = map[string]func(*testing.T) *pptx.Presentation{
+	"minimal": func(t *testing.T) *pptx.Presentation {
+		p := pptx.Create()
+		p.AddSlide()
+		return p
+	},
+	"text box": func(t *testing.T) *pptx.Presentation {
+		p := pptx.Create()
+		s := p.AddSlide()
+		tb := pptx.NewTextBox()
+		tb.SetText("hello")
+		if err := s.AddShape(tb); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	},
+	"speaker notes": func(t *testing.T) *pptx.Presentation {
+		p := pptx.Create()
+		s := p.AddSlide()
+		s.SetNotes("remember to breathe")
+		return p
+	},
+	"image": func(t *testing.T) *pptx.Presentation {
+		p := pptx.Create()
+		s := p.AddSlide()
+		if _, err := s.AddPictureFromBytes(testPNG(t), "image/png"); err != nil {
+			t.Fatalf("AddPictureFromBytes: %v", err)
+		}
+		return p
+	},
+	"widescreen with several slides": func(t *testing.T) *pptx.Presentation {
+		p := pptx.CreateWidescreen()
+		for i := 0; i < 3; i++ {
 			s := p.AddSlide()
 			tb := pptx.NewTextBox()
-			tb.SetText("hello")
+			tb.SetText("slide")
 			if err := s.AddShape(tb); err != nil {
 				t.Fatal(err)
 			}
-			return p
-		},
-		"speaker notes": func(t *testing.T) *pptx.Presentation {
-			p := pptx.Create()
-			s := p.AddSlide()
-			s.SetNotes("remember to breathe")
-			return p
-		},
-		"image": func(t *testing.T) *pptx.Presentation {
-			p := pptx.Create()
-			s := p.AddSlide()
-			if _, err := s.AddPictureFromBytes(testPNG(t), "image/png"); err != nil {
-				t.Fatalf("AddPictureFromBytes: %v", err)
-			}
-			return p
-		},
-		"widescreen with several slides": func(t *testing.T) *pptx.Presentation {
-			p := pptx.CreateWidescreen()
-			for i := 0; i < 3; i++ {
-				s := p.AddSlide()
-				tb := pptx.NewTextBox()
-				tb.SetText("slide")
-				if err := s.AddShape(tb); err != nil {
-					t.Fatal(err)
-				}
-			}
-			return p
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			out, err := build(t).SaveBytes()
-			if err != nil {
-				t.Fatalf("SaveBytes: %v", err)
-			}
-			validatePackage(t, v, out)
-		})
+		}
+		return p
+	},
+}
+
+// authoredPackages saves every case, keyed by format and name.
+func authoredPackages(t *testing.T) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	for name, build := range docxCases {
+		data, err := build(t).SaveBytes()
+		if err != nil {
+			t.Fatalf("docx %s: SaveBytes: %v", name, err)
+		}
+		out["docx/"+name] = data
+	}
+	for name, build := range xlsxCases {
+		w := build(t)
+		data, err := w.SaveBytes()
+		if err != nil {
+			t.Fatalf("xlsx %s: SaveBytes: %v", name, err)
+		}
+		_ = w.Close()
+		out["xlsx/"+name] = data
+	}
+	for name, build := range pptxCases {
+		data, err := build(t).SaveBytes()
+		if err != nil {
+			t.Fatalf("pptx %s: SaveBytes: %v", name, err)
+		}
+		out["pptx/"+name] = data
+	}
+	return out
+}
+
+func TestAuthoredPartsConformToSchema(t *testing.T) {
+	v := newValidator(t)
+	for name, pkg := range authoredPackages(t) {
+		t.Run(name, func(t *testing.T) { validatePackage(t, v, pkg) })
 	}
 }

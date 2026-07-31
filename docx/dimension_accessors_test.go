@@ -96,9 +96,8 @@ func sizedSubjects() []sizedSubject {
 				t.Helper()
 				doc := Create()
 				tb := doc.AddParagraph().AddTextBox("fallback", TextBoxOptions{
-					WidthEMU:    wantWidthEMU,
-					HeightEMU:   wantHeightEMU,
-					VMLFallback: true,
+					WidthEMU:  wantWidthEMU,
+					HeightEMU: wantHeightEMU,
 				})
 				return doc, tb
 			},
