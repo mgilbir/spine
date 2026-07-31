@@ -1,86 +1,163 @@
 package opc
 
-// ReaderOption configures a Reader, following the same shape as
-// pptx.OLEObjectOption: a function that mutates the resolved settings, applied
-// left to right so a later option wins.
-//
-// ReaderOptions itself remains the resolved form and the *WithOptions entry
-// points still take it, so a caller who already builds the struct is
-// unaffected. These exist because the struct form makes every field a decision
-// at the call site — you write a composite literal naming the one limit you
-// care about and, more importantly, a reader of that code has to know which
-// zero values mean "default" and which mean "off". Naming the intent is
-// clearer:
-//
-//	r, err := opc.OpenReader(path, opc.WithMaxNestingDepth(2000))
-//
-// Each option carries its field's own convention, which differs between them:
-// the size and depth bounds treat a negative value as unbounded and zero as
-// "use the package-level default", while AllowMissingDataIntegrity is a plain
-// switch. The doc comment on each option states which applies rather than
-// leaving it to be inferred.
-type ReaderOption func(*ReaderOptions)
+import "github.com/mgilbir/spine/common/options"
 
-// applyReaderOptions resolves a list of options into a ReaderOptions.
-func applyReaderOptions(opts []ReaderOption) ReaderOptions {
-	var o ReaderOptions
-	for _, fn := range opts {
-		if fn != nil {
-			fn(&o)
-		}
+// Reader configuration lives here, in one form.
+//
+// It used to live in three: five mutable package-level variables, a
+// ReaderOptions struct passed to a parallel set of *WithOptions entry points,
+// and functional options over the top. The variables were the oldest layer and
+// the worst — their own doc comments conceded they could not be changed while
+// another goroutine was opening a package — and each later layer was added
+// beside the previous one rather than replacing it, so a caller had to know
+// which of three mechanisms a given knob answered to, and which zero values
+// meant "default" as against "off".
+//
+// Now: DefaultReaderOptions is the starting point, With* options adjust it, and
+// the open functions take them variadically. There is no global state to
+// coordinate, so concurrent opens with different limits need no coordination,
+// and one rule covers every bound — a value of zero or less disables it.
+
+// Default bounds applied to a Reader when no option overrides them. They are
+// constants rather than variables so a process cannot mutate them out from
+// under a Reader that is already open; to use a different value, pass the
+// matching option.
+const (
+	// DefaultMaxDecompressedPartSize bounds how many bytes any single part may
+	// decompress to, guarding against decompression bombs — a small compressed
+	// entry that expands enormously.
+	DefaultMaxDecompressedPartSize int64 = 1 << 30 // 1 GiB
+
+	// DefaultMaxDecompressedPackageSize bounds the total across all parts. It
+	// catches what the per-part bound cannot: a package that honestly declares
+	// many parts, each individually within the limit.
+	DefaultMaxDecompressedPackageSize int64 = 4 << 30 // 4 GiB
+
+	// DefaultMaxPackageEntries bounds how many zip entries a package may
+	// contain. Entry count is a dimension the byte-oriented bounds cannot see:
+	// every entry costs a header, a name and a *File whether or not it is ever
+	// read (C459).
+	DefaultMaxPackageEntries = 1 << 16 // 65536
+
+	// DefaultMaxNestingDepth bounds how deeply elements may nest in any XML
+	// part. Nesting is another dimension the byte bounds cannot see — each
+	// level costs a decoder frame and a model frame however few bytes express
+	// it, so a 244 KB part nesting 80,000 deep cost 627 MB resident, and the
+	// per-level cost grows with depth.
+	//
+	// Calibrated rather than chosen: the deepest part among 170,913 parts in
+	// 3,600 Common Crawl documents nests 95 levels, so this leaves an order of
+	// magnitude of headroom over anything a producer writes.
+	DefaultMaxNestingDepth = 1000
+
+	// DefaultMaxEncryptedInputSize bounds how many bytes OpenEncrypted reads
+	// from its source before parsing the CFB container, so a hostile size
+	// argument cannot drive an unbounded allocation.
+	DefaultMaxEncryptedInputSize int64 = 2 << 30 // 2 GiB
+)
+
+// ReaderOptions is the resolved configuration for one Reader.
+//
+// Build it with DefaultReaderOptions and the With* options rather than by hand:
+// a zero-valued ReaderOptions disables every bound, which is almost never what
+// a caller means.
+type ReaderOptions struct {
+	// MaxDecompressedPartSize bounds how many bytes any single part may
+	// decompress to. Zero or less disables the bound.
+	MaxDecompressedPartSize int64
+
+	// MaxDecompressedPackageSize bounds the total bytes decompressed across all
+	// parts. Zero or less disables the bound.
+	MaxDecompressedPackageSize int64
+
+	// MaxPackageEntries bounds how many zip entries the package may contain.
+	// Zero or less disables the bound.
+	MaxPackageEntries int
+
+	// MaxNestingDepth bounds how deeply elements may nest in any XML part.
+	// Zero or less disables the bound.
+	MaxNestingDepth int
+
+	// MaxEncryptedInputSize bounds how many bytes OpenEncrypted reads before
+	// parsing the CFB container. Zero or less disables the bound. It applies
+	// only to the encrypted-open paths; the plain-zip readers ignore it.
+	MaxEncryptedInputSize int64
+
+	// AllowMissingDataIntegrity decrypts an agile-encrypted package whose
+	// EncryptionInfo descriptor carries no dataIntegrity element WITHOUT
+	// verifying the package HMAC. It applies only to the encrypted-open paths.
+	//
+	// Leave it false unless you know you need it: the descriptor is plaintext
+	// and unauthenticated, so an attacker who can modify the file can delete
+	// that element as easily as they can flip bits in the malleable CBC
+	// ciphertext. Honouring its absence turns an authenticated format into an
+	// unauthenticated one at the attacker's option (C361).
+	AllowMissingDataIntegrity bool
+}
+
+// DefaultReaderOptions returns the configuration a Reader uses when no option
+// overrides it: every bound set to its Default* constant, and integrity
+// verification required. It is the base every open resolves options on top of.
+//
+// A caller can take it to see or adjust the whole set at once:
+//
+//	o := opc.DefaultReaderOptions()
+//	o.MaxNestingDepth = 2000
+//	r, err := opc.OpenReader(path, opc.WithReaderOptions(o))
+func DefaultReaderOptions() ReaderOptions {
+	return ReaderOptions{
+		MaxDecompressedPartSize:    DefaultMaxDecompressedPartSize,
+		MaxDecompressedPackageSize: DefaultMaxDecompressedPackageSize,
+		MaxPackageEntries:          DefaultMaxPackageEntries,
+		MaxNestingDepth:            DefaultMaxNestingDepth,
+		MaxEncryptedInputSize:      DefaultMaxEncryptedInputSize,
+		AllowMissingDataIntegrity:  false,
 	}
-	return o
 }
 
-// WithMaxNestingDepth bounds how deeply elements may nest in any XML part of
-// the package, overriding the package-level MaxNestingDepth for this Reader.
-//
-// Nesting is a resource dimension the byte-oriented limits cannot see: every
-// level costs a decoder frame and a model frame however few bytes express it,
-// so a part well under a megabyte can exhaust memory. The default (1000) is
-// calibrated against real documents — the deepest part in 170,913 parts across
-// 3,600 Common Crawl documents nests 95 levels.
-//
-// Pass a negative depth to disable the bound.
-func WithMaxNestingDepth(depth int) ReaderOption {
-	return func(o *ReaderOptions) { o.MaxNestingDepth = depth }
-}
+// ReaderOption adjusts a Reader's configuration. See package
+// common/options for the rules every option set in this module follows:
+// applied left to right, nil skipped, resolved on top of an explicit default.
+type ReaderOption = options.Option[ReaderOptions]
+
+// WithReaderOptions replaces the whole configuration, so a caller holding a
+// prepared ReaderOptions can pass it where options are expected. Later options
+// still apply on top of it.
+func WithReaderOptions(o ReaderOptions) ReaderOption { return options.Replace(o) }
 
 // WithMaxDecompressedPartSize bounds how many bytes any single part may
-// decompress to, overriding the package-level MaxDecompressedPartSize for this
-// Reader. It guards against decompression bombs. Pass a negative size to
-// disable the bound.
+// decompress to. Zero or less disables the bound.
 func WithMaxDecompressedPartSize(size int64) ReaderOption {
 	return func(o *ReaderOptions) { o.MaxDecompressedPartSize = size }
 }
 
-// WithMaxDecompressedPackageSize bounds the total bytes the Reader may
-// decompress across all parts, overriding the package-level
-// MaxDecompressedPackageSize for this Reader. It catches what the per-part
-// bound cannot: a package that honestly declares many parts, each individually
-// within the limit. Pass a negative size to disable the bound.
+// WithMaxDecompressedPackageSize bounds the total bytes decompressed across all
+// parts. Zero or less disables the bound.
 func WithMaxDecompressedPackageSize(size int64) ReaderOption {
 	return func(o *ReaderOptions) { o.MaxDecompressedPackageSize = size }
 }
 
-// WithMaxPackageEntries bounds how many zip entries the package may contain,
-// overriding the package-level MaxPackageEntries for this Reader. Every entry
-// costs a header, a name and a *File whether or not it is ever read, which the
-// byte-oriented bounds cannot see. Pass a negative count to disable the bound.
+// WithMaxPackageEntries bounds how many zip entries the package may contain.
+// Zero or less disables the bound.
 func WithMaxPackageEntries(entries int) ReaderOption {
 	return func(o *ReaderOptions) { o.MaxPackageEntries = entries }
 }
 
+// WithMaxNestingDepth bounds how deeply elements may nest in any XML part.
+// Zero or less disables the bound.
+func WithMaxNestingDepth(depth int) ReaderOption {
+	return func(o *ReaderOptions) { o.MaxNestingDepth = depth }
+}
+
+// WithMaxEncryptedInputSize bounds how many bytes OpenEncrypted reads before
+// parsing the CFB container. Zero or less disables the bound.
+func WithMaxEncryptedInputSize(size int64) ReaderOption {
+	return func(o *ReaderOptions) { o.MaxEncryptedInputSize = size }
+}
+
 // WithAllowMissingDataIntegrity decrypts an agile-encrypted package whose
-// EncryptionInfo descriptor carries no dataIntegrity element WITHOUT verifying
-// the package HMAC. It applies only to the encrypted-open paths; the plain-zip
-// readers ignore it.
-//
-// Leave it off unless you know you need it. The descriptor is plaintext and
-// unauthenticated, so an attacker who can modify the file can delete that
-// element as easily as they can flip bits in the malleable CBC ciphertext;
-// honouring its absence turns an authenticated format into an unauthenticated
-// one at the attacker's option. That was finding C361.
+// descriptor carries no dataIntegrity element without verifying the package
+// HMAC. See ReaderOptions.AllowMissingDataIntegrity for why to leave it off.
 func WithAllowMissingDataIntegrity(allow bool) ReaderOption {
 	return func(o *ReaderOptions) { o.AllowMissingDataIntegrity = allow }
 }

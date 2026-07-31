@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/mgilbir/spine/common/options"
 	"io"
 
 	"github.com/mgilbir/spine/common/crypto"
@@ -33,14 +34,6 @@ import (
 // pptx.OpenEncrypted) returning that format's document model, and
 // opc.OpenEncrypted returns a raw package Reader.
 var ErrEncrypted = errors.New("opc: package is encrypted; open it with the format package's OpenEncrypted (docx/xlsx/pptx), or opc.OpenEncrypted, and a password")
-
-// MaxEncryptedInputSize bounds how many bytes OpenEncrypted will read from its
-// source before attempting to parse the CFB container, guarding against a
-// hostile size argument that would otherwise drive an unbounded allocation.
-// Raise it before opening a legitimately larger encrypted document. It is a
-// plain package-level variable; mutate it during setup, not concurrently with
-// OpenEncrypted.
-var MaxEncryptedInputSize int64 = 2 << 30 // 2 GiB
 
 // stream names inside the CFB container ([MS-OFFCRYPTO] §2.3.4.10).
 const (
@@ -62,7 +55,7 @@ const (
 // from a standard or RC4 container is unauthenticated by construction (see
 // crypto.DecryptWithOptions to learn which you got).
 func OpenEncrypted(r io.ReaderAt, size int64, password string, opts ...ReaderOption) (*Reader, error) {
-	return OpenEncryptedWithOptions(r, size, password, applyReaderOptions(opts))
+	return openEncryptedResolved(r, size, password, options.Resolve(DefaultReaderOptions(), opts...))
 }
 
 // OpenEncryptedWithOptions is OpenEncrypted with per-Reader options. The
@@ -72,12 +65,12 @@ func OpenEncrypted(r io.ReaderAt, size int64, password string, opts ...ReaderOpt
 // decryptor — the only way to reach crypto.DecryptOptions from an OPC open.
 // Its zero value keeps the strict default: an agile package with a missing or
 // half-present dataIntegrity block fails with crypto.ErrIntegrityCheckFailed.
-func OpenEncryptedWithOptions(r io.ReaderAt, size int64, password string, opts ReaderOptions) (*Reader, error) {
+func openEncryptedResolved(r io.ReaderAt, size int64, password string, opts ReaderOptions) (*Reader, error) {
 	if size < 0 {
 		return nil, fmt.Errorf("%w: negative size %d", ErrCorruptedPackage, size)
 	}
-	if MaxEncryptedInputSize > 0 && size > MaxEncryptedInputSize {
-		return nil, fmt.Errorf("opc: encrypted input is %d bytes, exceeding the %d-byte limit (raise MaxEncryptedInputSize before opening)", size, MaxEncryptedInputSize)
+	if max := opts.MaxEncryptedInputSize; max > 0 && size > max {
+		return nil, fmt.Errorf("opc: encrypted input is %d bytes, exceeding the %d-byte limit (pass WithMaxEncryptedInputSize to allow it)", size, max)
 	}
 
 	data := make([]byte, size)
@@ -89,7 +82,7 @@ func OpenEncryptedWithOptions(r io.ReaderAt, size int64, password string, opts R
 	if err != nil {
 		return nil, err
 	}
-	return NewReaderWithOptions(bytes.NewReader(plaintext), int64(len(plaintext)), opts)
+	return newReaderResolved(bytes.NewReader(plaintext), int64(len(plaintext)), opts)
 }
 
 // decryptCFBPackage parses the CFB container in data and returns the decrypted

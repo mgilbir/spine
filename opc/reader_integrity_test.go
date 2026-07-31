@@ -24,9 +24,9 @@ func TestBudgetChargesAbandonedStreamBytes(t *testing.T) {
 
 	// The audit's measurement: a package budget with room for one 2000-byte
 	// part but not both.
-	withDecompressionLimits(t, 1<<20, openCost+2500)
+	opts := decompressionLimits(1<<20, openCost+2500)
 
-	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)), opts...)
 	if err != nil {
 		t.Fatalf("NewReader() error = %v", err)
 	}
@@ -83,9 +83,9 @@ func TestBudgetChargesAbandonedStreamBytes(t *testing.T) {
 // read three different ways still costs its own size exactly once.
 func TestBudgetChargesEachPartAtMostOnce(t *testing.T) {
 	data, openCost := twoPartPackage(t)
-	withDecompressionLimits(t, 1<<20, openCost+2500)
+	opts := decompressionLimits(1<<20, openCost+2500)
 
-	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)), opts...)
 	if err != nil {
 		t.Fatalf("NewReader() error = %v", err)
 	}
@@ -123,17 +123,17 @@ func TestBudgetAbandonedStreamsAcrossPartsStillBounded(t *testing.T) {
 	}
 	data := createTestPackage(t, parts, nil)
 
-	MaxDecompressedPartSize, MaxDecompressedPackageSize = 1<<20, 1<<30
-	probe, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	probe, err := NewReader(bytes.NewReader(data), int64(len(data)),
+		WithMaxDecompressedPartSize(1<<20), WithMaxDecompressedPackageSize(1<<30))
 	if err != nil {
 		t.Fatalf("NewReader() error = %v", err)
 	}
 	openCost := probe.budget.total
 
 	// Room for two of the four parts.
-	withDecompressionLimits(t, 1<<20, openCost+4500)
+	opts := decompressionLimits(1<<20, openCost+4500)
 
-	reader, err := NewReader(bytes.NewReader(data), int64(len(data)))
+	reader, err := NewReader(bytes.NewReader(data), int64(len(data)), opts...)
 	if err != nil {
 		t.Fatalf("NewReader() error = %v", err)
 	}
@@ -179,20 +179,20 @@ func TestMaxPackageEntries(t *testing.T) {
 	}
 	data := createTestPackage(t, parts, nil)
 
-	if _, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)), ReaderOptions{MaxPackageEntries: 10}); err == nil {
+	if _, err := NewReader(bytes.NewReader(data), int64(len(data)), WithMaxPackageEntries(10)); err == nil {
 		t.Fatal("expected a package with more entries than the bound to be rejected")
 	} else if !strings.Contains(err.Error(), "MaxPackageEntries") {
-		t.Errorf("expected the error to name the knob, got: %v", err)
+		t.Errorf("expected the error to name the option, got: %v", err)
 	}
 
 	// Generous bound and disabled bound both open it.
-	if _, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)), ReaderOptions{MaxPackageEntries: 1000}); err != nil {
-		t.Errorf("NewReaderWithOptions(bound=1000) error = %v", err)
+	if _, err := NewReader(bytes.NewReader(data), int64(len(data)), WithMaxPackageEntries(1000)); err != nil {
+		t.Errorf("NewReader(bound=1000) error = %v", err)
 	}
-	if _, err := NewReaderWithOptions(bytes.NewReader(data), int64(len(data)), ReaderOptions{MaxPackageEntries: -1}); err != nil {
-		t.Errorf("NewReaderWithOptions(bound disabled) error = %v", err)
+	if _, err := NewReader(bytes.NewReader(data), int64(len(data)), WithMaxPackageEntries(-1)); err != nil {
+		t.Errorf("NewReader(bound disabled) error = %v", err)
 	}
-	// The package-level default is generous enough for a real package.
+	// The default is generous enough for a real package.
 	if _, err := NewReader(bytes.NewReader(data), int64(len(data))); err != nil {
 		t.Errorf("NewReader() with the default bound error = %v", err)
 	}

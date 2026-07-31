@@ -167,28 +167,28 @@ func TestEncryptedOpenIsReachableInEveryFormat(t *testing.T) {
 // unreachable for anyone holding a .docx/.xlsx/.pptx. The strict default is
 // what matters most, so that is what is asserted here.
 func TestEncryptedOpenOptionsAreReachableInEveryFormat(t *testing.T) {
-	strict := opc.ReaderOptions{}
+	var strict []opc.ReaderOption // no options: integrity verification required
 	for _, tc := range []struct {
 		format string
-		open   func(r io.ReaderAt, size int64, pw string, opts opc.ReaderOptions) error
+		open   func(r io.ReaderAt, size int64, pw string, opts ...opc.ReaderOption) error
 	}{
-		{"docx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := docx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"docx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := docx.OpenEncryptedReaderWithOptions(r, size, pw, o...)
 			return err
 		}},
-		{"xlsx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := xlsx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"xlsx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := xlsx.OpenEncryptedReaderWithOptions(r, size, pw, o...)
 			return err
 		}},
-		{"pptx", func(r io.ReaderAt, size int64, pw string, o opc.ReaderOptions) error {
-			_, err := pptx.OpenEncryptedReaderWithOptions(r, size, pw, o)
+		{"pptx", func(r io.ReaderAt, size int64, pw string, o ...opc.ReaderOption) error {
+			_, err := pptx.OpenEncryptedReaderWithOptions(r, size, pw, o...)
 			return err
 		}},
 	} {
 		// A plain (unencrypted) zip is not a CFB container, so every format
 		// reports the same failure through the same option-carrying entry point.
 		junk := []byte("not a CFB container at all")
-		if err := tc.open(bytes.NewReader(junk), int64(len(junk)), "pw", strict); err == nil {
+		if err := tc.open(bytes.NewReader(junk), int64(len(junk)), "pw", strict...); err == nil {
 			t.Errorf("%s: OpenEncryptedReaderWithOptions accepted non-container bytes", tc.format)
 		}
 	}

@@ -26,16 +26,16 @@ func OpenEncrypted(path, password string) (*Document, error) {
 // OpenEncryptedReader opens a password-encrypted Word document from an
 // in-memory reader.
 func OpenEncryptedReader(r io.ReaderAt, size int64, password string) (*Document, error) {
-	return OpenEncryptedReaderWithOptions(r, size, password, opc.ReaderOptions{})
+	return OpenEncryptedReaderWithOptions(r, size, password)
 }
 
 // OpenEncryptedReaderWithOptions is OpenEncryptedReader with per-Reader
 // options: the decompression bounds guarding the decrypted inner zip, and
-// opc.ReaderOptions.AllowMissingDataIntegrity, the deliberate opt-in that
+// opc.WithAllowMissingDataIntegrity, the deliberate opt-in that
 // accepts an agile package carrying no dataIntegrity block. The zero value
 // keeps the strict default.
-func OpenEncryptedReaderWithOptions(r io.ReaderAt, size int64, password string, opts opc.ReaderOptions) (*Document, error) {
-	reader, err := opc.OpenEncryptedWithOptions(r, size, password, opts)
+func OpenEncryptedReaderWithOptions(r io.ReaderAt, size int64, password string, opts ...opc.ReaderOption) (*Document, error) {
+	reader, err := opc.OpenEncrypted(r, size, password, opts...)
 	if err != nil {
 		return nil, err
 	}

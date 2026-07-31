@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mgilbir/spine/common/options"
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
@@ -19,73 +20,7 @@ import (
 // or "[content_types].xml" is still recognised.
 const contentTypesPartName = "/[Content_Types].xml"
 
-// MaxDecompressedPartSize bounds how many bytes any single package part may
-// decompress to. It guards against decompression bombs — a small compressed
-// entry that expands to an enormous amount of data — which would otherwise let
-// a hostile package exhaust memory before user code runs (the mandatory
-// [Content_Types].xml is decompressed during NewReader). Set it to 0 to
-// disable the bound; raise it before opening a package that legitimately
-// contains a larger part.
-//
-// Both MaxDecompressedPartSize and MaxDecompressedPackageSize are captured
-// once when a Reader is constructed; changing them affects only packages
-// opened afterwards, never a Reader that is already open. Set them during
-// program setup, before packages are opened: they are plain package-level
-// variables, so mutating one concurrently with OpenReader/NewReader in
-// another goroutine is a data race. To override the limits for a single
-// Reader without touching the globals, pass ReaderOptions to
-// NewReaderWithOptions/OpenReaderWithOptions instead.
-var MaxDecompressedPartSize int64 = 1 << 30 // 1 GiB
-
-// MaxDecompressedPackageSize bounds the total number of bytes a single Reader
-// may decompress across all of its parts combined. It complements
-// MaxDecompressedPartSize: a hostile package can honestly declare many parts
-// that each sit under the per-part cap yet together exhaust memory. Each part
-// contributes at most its own decompressed size to the total, however many
-// times and however partially it is read: a read charges only the bytes beyond
-// the high-water mark the part has already been charged for, so re-reading a
-// part consumes no additional budget while abandoning a stream part-way does
-// not make the remainder free. Set it to 0 to disable the bound; raise it
-// before opening a package whose parts legitimately decompress to more in
-// total. See MaxDecompressedPartSize for the concurrency contract.
-var MaxDecompressedPackageSize int64 = 4 << 30 // 4 GiB
-
-// MaxPackageEntries bounds how many zip entries a package may contain. It is
-// the entry-count dimension the byte-oriented bounds above cannot see: a
-// modestly sized archive can hold hundreds of thousands of tiny entries, each
-// of which becomes a header, a name string and a *File on open, so the
-// in-memory cost is a multiple of the input size before a single part is
-// decompressed. Real OOXML packages hold at most a few thousand entries.
-//
-// The bound is applied immediately after the central directory is parsed, so
-// it caps everything this package builds per entry; archive/zip's own
-// directory parse (which is already bounded by the input size) has run by
-// then. Set it to 0 to disable the bound, or raise it before opening a
-// package that legitimately contains more entries. It is captured once per
-// Reader like the decompression limits — see MaxDecompressedPartSize for the
-// concurrency contract — and can be overridden per Reader through
-// MaxNestingDepth bounds how deeply elements may nest in any XML part of a
-// package. Set it to 0 to disable the bound; raise it before opening a package
-// that legitimately nests deeper.
-//
-// It is a structural dimension the byte-oriented limits cannot see, in the same
-// way MaxPackageEntries is: nesting costs a decoder frame and a model frame per
-// level regardless of how few bytes express it. A 244 KB slide holding 80,000
-// nested p:grpSp elements cost 627 MB resident, and the per-level cost grows
-// with depth; under a megabyte was enough to kill the process. The default is
-// calibrated against real documents rather than taste — the deepest part in
-// 170,913 parts across 3,600 Common Crawl documents nests 95 levels, so 1000
-// leaves an order of magnitude of headroom over anything a producer writes.
-//
-// Captured once when a Reader is constructed, like the decompression limits;
-// see MaxDecompressedPartSize for the concurrency contract.
-var MaxNestingDepth = 1000
-
-// ReaderOptions.
-var MaxPackageEntries = 1 << 16 // 65536
-
-// decompressionBudget holds the decompression limits captured from the
-// package-level variables when a Reader is constructed, plus the running
+// decompressionBudget holds the limits resolved for one Reader, plus the running
 // total of bytes the Reader has decompressed so far. It lives behind a
 // pointer shared by the Reader and all of its Files, so accounting stays
 // consistent even when the Reader value is copied (e.g. into a ReadCloser).
@@ -112,84 +47,16 @@ type decompressionBudget struct {
 	charged map[*zip.File]int64
 }
 
-// ReaderOptions configures a single Reader, overriding the package-level
-// defaults. The zero value means "use the defaults", so ReaderOptions{} is
-// always safe to pass.
-type ReaderOptions struct {
-	// MaxDecompressedPartSize overrides the package-level
-	// MaxDecompressedPartSize for this Reader: it bounds how many bytes any
-	// single part may decompress to. Zero uses the package-level default; a
-	// negative value disables the bound.
-	MaxDecompressedPartSize int64
-
-	// MaxDecompressedPackageSize overrides the package-level
-	// MaxDecompressedPackageSize for this Reader: it bounds the total bytes
-	// the Reader may decompress across all parts. Zero uses the package-level
-	// default; a negative value disables the bound.
-	MaxDecompressedPackageSize int64
-
-	// MaxPackageEntries overrides the package-level MaxPackageEntries for this
-	// Reader: it bounds how many zip entries the package may contain. Zero
-	// uses the package-level default; a negative value disables the bound.
-	MaxPackageEntries int
-
-	// MaxNestingDepth overrides the package-level MaxNestingDepth for this
-	// Reader: it bounds how deeply elements may nest in any XML part. Zero
-	// uses the package-level default; a negative value disables the bound.
-	MaxNestingDepth int
-
-	// AllowMissingDataIntegrity applies only to the encrypted-open paths
-	// (OpenEncryptedWithOptions and the format packages' encrypted opens); the
-	// plain-zip readers ignore it. It is passed straight through to
-	// crypto.DecryptOptions.AllowMissingDataIntegrity: an agile-encrypted
-	// package whose EncryptionInfo descriptor carries no dataIntegrity element
-	// is decrypted WITHOUT verifying the package HMAC.
-	//
-	// Leave it false unless you know you need it. The descriptor is plaintext
-	// and unauthenticated, so an attacker who can modify the file can delete
-	// the dataIntegrity element as easily as they can flip bits in the
-	// (malleable, CBC-mode) ciphertext; honoring its absence therefore turns an
-	// authenticated format into an unauthenticated one at the attacker's
-	// option. The default rejects it with crypto.ErrIntegrityCheckFailed. It
-	// never relaxes a *failed* HMAC and never accepts a half-present
-	// dataIntegrity block.
-	AllowMissingDataIntegrity bool
-}
-
-// maxPackageEntries resolves the effective entry-count bound for one Reader:
-// a non-zero option overrides the package-level default, and a negative value
-// means unbounded (reported as 0, which every caller treats as disabled).
-func (o ReaderOptions) maxPackageEntries() int {
-	max := MaxPackageEntries
-	if o.MaxPackageEntries != 0 {
-		max = o.MaxPackageEntries
-	}
-	if max < 0 {
-		return 0
-	}
-	return max
-}
-
-// newDecompressionBudget snapshots the limits for one Reader: each option
-// field overrides the corresponding package-level variable when non-zero,
-// with negative meaning unbounded (the budget treats <= 0 as disabled).
+// newDecompressionBudget copies the resolved limits for one Reader. Options are
+// resolved before this is reached, so there is no global to fall back to and a
+// bound of zero or less simply means disabled.
 func newDecompressionBudget(opts ReaderOptions) *decompressionBudget {
-	b := &decompressionBudget{
-		maxPart:    MaxDecompressedPartSize,
-		maxPackage: MaxDecompressedPackageSize,
-		maxDepth:   MaxNestingDepth,
+	return &decompressionBudget{
+		maxPart:    opts.MaxDecompressedPartSize,
+		maxPackage: opts.MaxDecompressedPackageSize,
+		maxDepth:   opts.MaxNestingDepth,
 		charged:    make(map[*zip.File]int64),
 	}
-	if opts.MaxNestingDepth != 0 {
-		b.maxDepth = opts.MaxNestingDepth
-	}
-	if opts.MaxDecompressedPartSize != 0 {
-		b.maxPart = opts.MaxDecompressedPartSize
-	}
-	if opts.MaxDecompressedPackageSize != 0 {
-		b.maxPackage = opts.MaxDecompressedPackageSize
-	}
-	return b
 }
 
 // declaredSize returns zf's declared uncompressed size clamped into int64, so
@@ -208,7 +75,7 @@ func declaredSize(zf *zip.File) int64 {
 // per-part cap or the remaining package budget.
 func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 	if b.maxPart > 0 && zf.UncompressedSize64 > uint64(b.maxPart) {
-		return 0, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
+		return 0, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
 	}
 
 	// Effective cap on the bytes actually read; -1 means unbounded.
@@ -299,7 +166,7 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	if b.maxPart > 0 && int64(len(data)) > b.maxPart {
-		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", zf.Name, b.maxPart)
+		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, b.maxPart)
 	}
 
 	// Nesting is checked here rather than at unmarshal because this is the one
@@ -310,7 +177,7 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 	// dominate a package.
 	if isMarkupPart(zf.Name) {
 		if err := xmlb.CheckNestingDepth(data, b.maxDepth); err != nil {
-			return nil, fmt.Errorf("opc: part %q: %w (raise MaxNestingDepth before opening to allow it)", zf.Name, err)
+			return nil, fmt.Errorf("opc: part %q: %w (pass WithMaxNestingDepth to allow it)", zf.Name, err)
 		}
 	}
 
@@ -387,7 +254,7 @@ func (s *budgetedReadCloser) Read(p []byte) (int, error) {
 			return n, cerr
 		}
 		if s.b.maxPart > 0 && s.streamed > s.b.maxPart {
-			s.err = fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (raise MaxDecompressedPartSize before opening to allow it)", s.name, s.b.maxPart)
+			s.err = fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", s.name, s.b.maxPart)
 			return n, s.err
 		}
 	}
@@ -573,15 +440,10 @@ func (rc *ReadCloser) Close() error {
 	return rc.file.Close()
 }
 
-// OpenReader opens an OPC package from a file path, applying any options given
-// (e.g. WithMaxNestingDepth). With none it uses the package-level defaults.
-func OpenReader(path string, opts ...ReaderOption) (*ReadCloser, error) {
-	return OpenReaderWithOptions(path, applyReaderOptions(opts))
-}
-
-// OpenReaderWithOptions opens an OPC package from a file path with per-Reader
-// options (e.g. decompression limits overriding the package-level defaults).
-func OpenReaderWithOptions(path string, opts ReaderOptions) (*ReadCloser, error) {
+// OpenReader opens an OPC package from a file path. With no options it uses
+// DefaultReaderOptions; see the With* options to adjust a bound.
+func OpenReader(path string, opt ...ReaderOption) (*ReadCloser, error) {
+	opts := options.Resolve(DefaultReaderOptions(), opt...)
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -593,7 +455,7 @@ func OpenReaderWithOptions(path string, opts ReaderOptions) (*ReadCloser, error)
 		return nil, err
 	}
 
-	r, err := NewReaderWithOptions(f, fi.Size(), opts)
+	r, err := newReaderResolved(f, fi.Size(), opts)
 	if err != nil {
 		_ = f.Close()
 		return nil, err
@@ -618,18 +480,18 @@ func (g guardedReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return g.r.ReadAt(p, off)
 }
 
-// NewReader creates a Reader from an io.ReaderAt, applying any options given
-// (e.g. WithMaxNestingDepth). With none it uses the package-level defaults.
-func NewReader(r io.ReaderAt, size int64, opts ...ReaderOption) (*Reader, error) {
-	return NewReaderWithOptions(r, size, applyReaderOptions(opts))
+// NewReader creates a Reader from an io.ReaderAt. With no options it uses
+// DefaultReaderOptions(); see the With* options to adjust a bound. The
+// configuration is resolved per call, so concurrent opens with different limits
+// need no coordination.
+func NewReader(r io.ReaderAt, size int64, opt ...ReaderOption) (*Reader, error) {
+	return newReaderResolved(r, size, options.Resolve(DefaultReaderOptions(), opt...))
 }
 
-// NewReaderWithOptions creates a Reader from an io.ReaderAt with per-Reader
-// options. Unlike the package-level MaxDecompressedPartSize and
-// MaxDecompressedPackageSize variables — which remain the documented defaults
-// and require setup-time mutation — the options apply to this Reader alone,
-// so concurrent opens with different limits need no global coordination.
-func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
+// newReaderResolved is NewReader with the configuration already resolved, so
+// callers that resolved it once (OpenReader, the encrypted opens) do not do it
+// twice.
+func newReaderResolved(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	// A password-encrypted OOXML document is a CFB container, not a zip. Detect
 	// it from the leading magic and steer the caller to OpenEncrypted instead
 	// of failing with an opaque "not a valid zip file" error.
@@ -648,8 +510,8 @@ func NewReaderWithOptions(r io.ReaderAt, size int64, opts ReaderOptions) (*Reade
 	// Bound the entry count before building anything per entry (C459). The
 	// byte-oriented decompression limits cannot see this dimension: every
 	// entry costs a header, a name and a *File whether or not it is ever read.
-	if max := opts.maxPackageEntries(); max > 0 && len(zr.File) > max {
-		return nil, fmt.Errorf("opc: package contains %d entries, exceeding the %d-entry limit (raise MaxPackageEntries before opening to allow it)", len(zr.File), max)
+	if max := opts.MaxPackageEntries; max > 0 && len(zr.File) > max {
+		return nil, fmt.Errorf("opc: package contains %d entries, exceeding the %d-entry limit (pass WithMaxPackageEntries to allow it)", len(zr.File), max)
 	}
 
 	reader := &Reader{

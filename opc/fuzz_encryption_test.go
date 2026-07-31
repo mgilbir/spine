@@ -325,7 +325,7 @@ func FuzzOpenEncrypted(f *testing.F) {
 			oerr error
 		)
 		openBudget.Check(t, len(data), func() {
-			r, oerr = OpenEncryptedWithOptions(bytes.NewReader(data), int64(len(data)), password, opts)
+			r, oerr = OpenEncrypted(bytes.NewReader(data), int64(len(data)), password, WithReaderOptions(opts))
 		})
 		switch {
 		case oerr != nil && r != nil:
