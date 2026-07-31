@@ -29,14 +29,25 @@ var ErrFull = errors.New("faultio: write failed")
 // FailAfter returns a writer that accepts n bytes and then fails, writing the
 // portion that fits and reporting a short write with ErrFull, as a real
 // io.Writer must.
-func FailAfter(n int) io.Writer { return &failAfter{limit: n} }
+//
+// Tripped reports whether it ever refused anything, which the caller needs: a
+// limit chosen from one save can exceed what a later save of the same document
+// writes, because a timestamp that advanced between them compresses a byte
+// differently. Such a run never truncates, and demanding an error from it is
+// demanding one the writer had no reason to give.
+func FailAfter(n int) *FailWriter { return &FailWriter{limit: n} }
 
-type failAfter struct {
+// FailWriter accepts a fixed number of bytes and fails after them.
+type FailWriter struct {
 	limit   int
 	written int
+	tripped bool
 }
 
-func (f *failAfter) Write(p []byte) (int, error) {
+// Tripped reports whether the writer ever returned ErrFull.
+func (f *FailWriter) Tripped() bool { return f.tripped }
+
+func (f *FailWriter) Write(p []byte) (int, error) {
 	if f.written+len(p) <= f.limit {
 		f.written += len(p)
 		return len(p), nil
@@ -46,6 +57,7 @@ func (f *failAfter) Write(p []byte) (int, error) {
 		allowed = 0
 	}
 	f.written += allowed
+	f.tripped = true
 	return allowed, ErrFull
 }
 

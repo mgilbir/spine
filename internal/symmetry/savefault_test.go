@@ -97,17 +97,25 @@ func TestSaveIntoAFailingWriterLeavesTheDocumentUsable(t *testing.T) {
 				t.Fatalf("a clean save failed: %v", err)
 			}
 
+			truncated := 0
 			for _, limit := range faultio.Limits(clean.Len()) {
 				// A fresh document per limit: the point is what one failure
 				// does to one document, not what a series of them does.
 				save := sv.build(t)
 
-				err := save(faultio.FailAfter(limit))
+				w := faultio.FailAfter(limit)
+				err := save(w)
 				if err == nil {
-					t.Errorf("limit=%d: saving into a writer that accepts %d of %d bytes reported no error",
-						limit, limit, clean.Len())
+					if w.Tripped() {
+						t.Errorf("limit=%d: the writer refused a write and the save reported no error",
+							limit)
+					}
+					// Otherwise this save simply fit inside the limit — the
+					// baseline it was chosen from was a byte or two larger —
+					// and there is nothing to recover from.
 					continue
 				}
+				truncated++
 				if !errors.Is(err, faultio.ErrFull) {
 					// Wrapping is fine; losing the cause is not, because a
 					// caller distinguishes "the disk is full" from "this
@@ -123,6 +131,9 @@ func TestSaveIntoAFailingWriterLeavesTheDocumentUsable(t *testing.T) {
 				if why := sameDocument(t, clean.Bytes(), retry.Bytes()); why != "" {
 					t.Errorf("limit=%d: the failed save changed the document: %s", limit, why)
 				}
+			}
+			if truncated == 0 {
+				t.Error("no limit actually truncated a save, so nothing was recovered from")
 			}
 		})
 	}
