@@ -95,6 +95,35 @@ caller sees is listed.
 
 ### Added
 
+- opc: `ReaderOption` functional options for the reader knobs —
+  `WithMaxNestingDepth`, `WithMaxDecompressedPartSize`,
+  `WithMaxDecompressedPackageSize`, `WithMaxPackageEntries` and
+  `WithAllowMissingDataIntegrity` — accepted by `OpenReader`, `NewReader` and
+  `OpenEncrypted` as trailing variadic arguments:
+
+      r, err := opc.OpenReader(path, opc.WithMaxNestingDepth(2000))
+
+  `ReaderOptions` stays the resolved form and the `*WithOptions` entry points
+  still take it, so nothing that builds the struct changes. The options exist
+  because the struct makes a reader of the call site work out which zero values
+  mean "use the default" and which mean "off", and those conventions differ
+  between fields; each option's doc says which applies to it. Options apply left
+  to right, a nil option is ignored so a conditionally-built list can carry a
+  hole, and no options resolves to the package-level defaults.
+
+- opc: `MaxNestingDepth` bounds how deeply elements may nest in any XML part,
+  defaulting to 1000. Nesting is a resource dimension the byte-oriented limits
+  cannot see — every level costs a decoder frame and a model frame however few
+  bytes express it — so a part well under a megabyte could exhaust memory: a
+  244 KB slide holding 80,000 nested `p:grpSp` cost 627 MB resident, and the
+  per-level cost grows with depth. The default is calibrated against real
+  documents rather than chosen: the deepest part in 170,913 parts across 3,600
+  Common Crawl documents nests 95 levels. Override it per Reader with
+  `WithMaxNestingDepth`, or set the package variable before opening; a negative
+  value disables the bound. `common/xml.CheckNestingDepth` exposes the scan
+  itself for callers working below the package layer.
+
+
 - xlsx, pptx: encrypted documents open into a document model, not just a raw
   package reader. `xlsx.OpenEncrypted`/`OpenEncryptedReader` and
   `pptx.OpenEncrypted`/`OpenEncryptedReader` mirror docx's, together with

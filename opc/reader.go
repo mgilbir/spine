@@ -573,9 +573,10 @@ func (rc *ReadCloser) Close() error {
 	return rc.file.Close()
 }
 
-// OpenReader opens an OPC package from a file path.
-func OpenReader(path string) (*ReadCloser, error) {
-	return OpenReaderWithOptions(path, ReaderOptions{})
+// OpenReader opens an OPC package from a file path, applying any options given
+// (e.g. WithMaxNestingDepth). With none it uses the package-level defaults.
+func OpenReader(path string, opts ...ReaderOption) (*ReadCloser, error) {
+	return OpenReaderWithOptions(path, applyReaderOptions(opts))
 }
 
 // OpenReaderWithOptions opens an OPC package from a file path with per-Reader
@@ -617,9 +618,10 @@ func (g guardedReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return g.r.ReadAt(p, off)
 }
 
-// NewReader creates a Reader from an io.ReaderAt.
-func NewReader(r io.ReaderAt, size int64) (*Reader, error) {
-	return NewReaderWithOptions(r, size, ReaderOptions{})
+// NewReader creates a Reader from an io.ReaderAt, applying any options given
+// (e.g. WithMaxNestingDepth). With none it uses the package-level defaults.
+func NewReader(r io.ReaderAt, size int64, opts ...ReaderOption) (*Reader, error) {
+	return NewReaderWithOptions(r, size, applyReaderOptions(opts))
 }
 
 // NewReaderWithOptions creates a Reader from an io.ReaderAt with per-Reader
