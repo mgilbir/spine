@@ -16,10 +16,22 @@ import (
 // budgetHeadroom runs fn under b, fails when the budget is exceeded, and logs
 // the fraction of the budget the legitimate document actually used — the number
 // that says how much room a future tightening has.
+//
+// A first sample over budget is measured again before it is believed, which is
+// the rule Budget.Check already applies and this helper did not. It matters
+// because Measure reads /gc/heap/allocs:bytes, a process-wide cumulative
+// counter: anything else allocating while fn runs lands in the sample. That is
+// not hypothetical here — CI reported decryptCFBPackage at 100.8% of its budget
+// for a 4608-byte document, 1.13 MB against a local measurement of 8-24 KB for
+// the same input, a 50x gap no parse produces. fn is a re-parse of a legitimate
+// document in every case, so re-running it is cheap and repeatable.
 func budgetHeadroom(t *testing.T, b fuzzbound.Budget, n int, fn func()) {
 	t.Helper()
-	allocated, elapsed := fuzzbound.Measure(fn)
 	maxBytes, maxTime := b.Allowance(n)
+	allocated, elapsed := fuzzbound.Measure(fn)
+	if allocated > maxBytes || elapsed > maxTime {
+		allocated, elapsed = fuzzbound.Measure(fn)
+	}
 	t.Logf("%s over %d bytes: allocated %d/%d (%.1f%% of budget), took %v/%v (%.2f%% of budget)",
 		b.What, n, allocated, maxBytes, 100*float64(allocated)/float64(maxBytes),
 		elapsed, maxTime, 100*float64(elapsed)/float64(maxTime))
