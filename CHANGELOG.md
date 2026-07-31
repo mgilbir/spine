@@ -326,6 +326,15 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- common/xml: a name a source carries verbatim is no longer turned into one no
+  parser accepts. A colon is a valid XML name character, so `<:/>` and `<A:/>`
+  are well-formed documents whose names are `:` and `A:`; the writer prefixed
+  them anyway and emitted `<w::/>` and `<A:A:/>`, two-colon names that Go's own
+  decoder rejects on the way back in. A save turned a document this library
+  could read into one it could not. Names that already carry a colon are now
+  written as they came, and an element with no name at all is refused rather
+  than written as a bare `<` (found by the new parser-level fuzz targets).
+
 - common/xml: canonicalization keeps processing instructions, and normalizes
   attribute values the way a conforming parser does. Both decide what an OPC
   signature covers. A canonical form that drops processing instructions digests

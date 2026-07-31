@@ -77,7 +77,7 @@ type nsRestore struct {
 // prefix:localName when the namespace resolves to a non-empty prefix,
 // otherwise just localName. Mirrors writeQName.
 func (b *Builder) qualifiedName(namespace, localName string) string {
-	if prefix, ok := b.namespaces[namespace]; ok && prefix != "" {
+	if prefix, ok := b.namespaces[namespace]; ok && prefix != "" && !carriesOwnPrefix(localName) {
 		return prefix + ":" + localName
 	}
 	return localName
@@ -926,12 +926,52 @@ func (b *Builder) prependNamespaceDecls(elemNS string, attrs []Attr) []Attr {
 // whose element silently landed in the wrong namespace.
 func (b *Builder) writeQName(namespace, localName string) {
 	prefix, ok := b.namespaces[namespace]
-	if ok && prefix != "" {
+	if ok && prefix != "" && !carriesOwnPrefix(localName) {
 		b.buf.WriteString(prefix)
 		b.buf.WriteByte(':')
 	}
 	if !ok && namespace != "" && b.err == nil {
 		b.err = fmt.Errorf("xml: no prefix registered for namespace %q (writing %q)", namespace, localName)
+	}
+	if localName == "" && b.err == nil {
+		// There is no way to write an element with no name: the output would be
+		// a bare "<". A source can produce one — <A:/> is well-formed XML whose
+		// name is "A:", and Go's decoder reports that as the prefix A with an
+		// empty local name — so this is reachable from a document, not only
+		// from a caller bug. Recording it means Finish reports it and the save
+		// fails, instead of writing a part nothing can parse (found by
+		// FuzzDocxDocumentPart).
+		b.err = fmt.Errorf("xml: refusing to write an element with an empty name in namespace %q", namespace)
+	}
+	b.buf.WriteString(localName)
+}
+
+// carriesOwnPrefix reports whether a local name already contains a colon, which
+// means a prefix must not be put in front of it.
+//
+// A QName holds at most one colon, so a local name carrying one comes from a
+// source that was not namespace-well-formed — <:/> is the smallest example, and
+// it is perfectly well-formed XML, because the Name production allows a colon.
+// Go's decoder hands it back as a local name of ":", and prefixing that
+// produced <w::/>: two colons, which no parser accepts. The library turned a
+// document it could read into one it could not, on a save that changed nothing
+// else (found by FuzzDocxDocumentPart).
+//
+// Writing the name as it came is the faithful answer: the source said <:/>, and
+// <:/> is what round-trips.
+func carriesOwnPrefix(localName string) bool {
+	return strings.IndexByte(localName, ':') >= 0
+}
+
+// writePrefixedName writes prefix:localName, leaving the prefix off a name that
+// already carries a colon. The paths that compose a name by hand — the inline
+// namespace and literal-replay writers, which carry their own declarations —
+// need the same rule writeQName follows, or they produce the two-colon names
+// that no parser accepts.
+func (b *Builder) writePrefixedName(prefix, localName string) {
+	if prefix != "" && !carriesOwnPrefix(localName) {
+		b.buf.WriteString(prefix)
+		b.buf.WriteByte(':')
 	}
 	b.buf.WriteString(localName)
 }
@@ -942,9 +982,7 @@ func (b *Builder) EmptyElementInlineNS(nsURI, prefix, localName string, attrs ..
 	b.flushOpenTag()
 	b.writeIndent()
 	b.buf.WriteByte('<')
-	b.buf.WriteString(prefix)
-	b.buf.WriteByte(':')
-	b.buf.WriteString(localName)
+	b.writePrefixedName(prefix, localName)
 	b.buf.WriteString(` xmlns:`)
 	b.buf.WriteString(prefix)
 	b.buf.WriteString(`="`)
@@ -997,9 +1035,7 @@ func (b *Builder) StartElementInlineNS(nsURI, prefix, localName string, attrs ..
 
 	b.writeIndent()
 	b.buf.WriteByte('<')
-	b.buf.WriteString(prefix)
-	b.buf.WriteByte(':')
-	b.buf.WriteString(localName)
+	b.writePrefixedName(prefix, localName)
 	b.buf.WriteString(` xmlns:`)
 	b.buf.WriteString(prefix)
 	b.buf.WriteString(`="`)
@@ -1031,9 +1067,7 @@ func (b *Builder) EndElementInlineNS(prefix, localName string) {
 	startLen := b.popElem(prefix + ":" + localName)
 	b.writeCloseIndent(startLen)
 	b.buf.WriteString("</")
-	b.buf.WriteString(prefix)
-	b.buf.WriteByte(':')
-	b.buf.WriteString(localName)
+	b.writePrefixedName(prefix, localName)
 	b.buf.WriteByte('>')
 	if b.indent != "" {
 		b.buf.WriteByte('\n')

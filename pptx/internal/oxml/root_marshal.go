@@ -258,13 +258,6 @@ func (s *Slide) rootAttrs() []xmlb.Attr {
 	return attrs
 }
 
-// MarshalToBuilder implements xmlb.BuilderMarshaler (non-root contexts).
-func (s *Slide) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName, s.rootAttrs()...)
-	s.marshalRootChildren(b)
-	b.EndElement(ns, localName)
-}
-
 // MarshalRootToBuilder writes the p:sld root element with the standard
 // PresentationML namespace declarations.
 func (s *Slide) MarshalRootToBuilder(b *xmlb.Builder) {
@@ -426,13 +419,6 @@ func (sl *SlideLayout) rootAttrs() []xmlb.Attr {
 	return attrs
 }
 
-// MarshalToBuilder implements xmlb.BuilderMarshaler (non-root contexts).
-func (sl *SlideLayout) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName, sl.rootAttrs()...)
-	sl.marshalRootChildren(b)
-	b.EndElement(ns, localName)
-}
-
 // MarshalRootToBuilder writes the p:sldLayout root element with the standard
 // PresentationML namespace declarations.
 func (sl *SlideLayout) MarshalRootToBuilder(b *xmlb.Builder) {
@@ -576,13 +562,6 @@ func (sm *SlideMaster) rootAttrs() []xmlb.Attr {
 		attrs = append(attrs, xmlb.BoolAttr("preserve", true))
 	}
 	return attrs
-}
-
-// MarshalToBuilder implements xmlb.BuilderMarshaler (non-root contexts).
-func (sm *SlideMaster) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
-	b.StartElement(ns, localName, sm.rootAttrs()...)
-	sm.marshalRootChildren(b)
-	b.EndElement(ns, localName)
 }
 
 // MarshalRootToBuilder writes the p:sldMaster root element with the standard

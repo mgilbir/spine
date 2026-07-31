@@ -53,6 +53,30 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The three format packages carry the most targets and the slowest
+          # ones, so they get the longest slots.
+          - pkg: docx
+            fuzztime: 150s
+          - pkg: xlsx
+            fuzztime: 150s
+          - pkg: pptx
+            fuzztime: 150s
+          - pkg: opc
+            fuzztime: 120s
+          - pkg: chart
+            fuzztime: 120s
+          - pkg: common/dml
+            fuzztime: 120s
+          - pkg: common/vml
+            fuzztime: 120s
+          - pkg: common/omml
+            fuzztime: 120s
+          - pkg: common/crypto
+            fuzztime: 120s
     steps:
       - uses: actions/checkout@v7
 
@@ -65,12 +89,23 @@ jobs:
           # toolchain cache keys on. Caching is setup-go's default; it used to
           # be turned off here because there was no dependency file to find.
 
-      # make fuzz discovers every target at run time and gives each a short
-      # fixed budget, so a newly added target is picked up with no edit here.
-      # A crasher is written under testdata/fuzz/<Target>/ — upload it so the
-      # failure is reproducible from the run.
-      - name: Fuzz smoke run
-        run: make fuzz FUZZTIME=45s
+      # Each package is its own job, so the packages fuzz in parallel and every
+      # target gets minutes instead of the seconds it had when one job walked
+      # all sixty of them inside a single hour.
+      #
+      # The budget matters more than it looks. The part-level targets build a
+      # package, open it, save it and open it again, which costs so much that
+      # the fuzzer manages about 11 executions a second — a thousand in a 45s
+      # slot, barely past the seeds it was given. The parser-level targets run
+      # at tens of thousands a second and reach millions in the same slot. Both
+      # kinds are worth having, and neither is served by an equal share of one
+      # hour.
+      #
+      # make fuzz-run still discovers targets at run time, so a new target in an
+      # existing package is picked up with no edit here; a new *package* with
+      # targets needs a line in the matrix.
+      - name: Fuzz ${{ matrix.pkg }}
+        run: make fuzz-run FUZZ_PKGS="${{ matrix.pkg }}" FUZZTIME=${{ matrix.fuzztime }}
 
       - name: Upload crashers
         if: failure()

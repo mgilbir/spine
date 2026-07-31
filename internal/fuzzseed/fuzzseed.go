@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // BuildZip assembles an in-memory zip archive from name/body pairs, in
@@ -336,4 +337,66 @@ func AssertEmittedNamespacesResolve(tb testing.TB, in, out []byte) {
 			"Office reports such a part as damaged and this library reads it back empty",
 			zf.Name, bad)
 	}
+}
+
+// NamesAreValid reports whether every element and attribute name in data
+// satisfies the XML Name production.
+//
+// It is the precondition for expecting a part this library re-emits to parse
+// again. Go's decoder is lenient about names on the way in — it accepts an
+// attribute called "0" and a prefix declared as xmlns:0 — and strict on the way
+// back, so a faithful replay of such a source produces bytes Go itself rejects.
+// That is the source being invalid, not the writer: this library's contract is
+// to reproduce what it was given, and repairing a name would be a silent edit.
+//
+// Note which inputs this does *not* exclude. ":" and "A:" are valid names — a
+// colon is a name character — even though neither is a valid QName, and those
+// are exactly the inputs worth asserting on: well-formed XML that a writer can
+// still turn into bytes no parser accepts.
+func NamesAreValid(data []byte) bool {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			// Ill-formed beyond names; whatever the caller does next decides.
+			return true
+		}
+		var names []xml.Name
+		switch t := tok.(type) {
+		case xml.StartElement:
+			names = append(names, t.Name)
+			for _, a := range t.Attr {
+				names = append(names, a.Name)
+			}
+		case xml.EndElement:
+			names = append(names, t.Name)
+		}
+		for _, n := range names {
+			if !validName(n.Space) || !validName(n.Local) {
+				return false
+			}
+		}
+	}
+}
+
+// validName reports whether s is empty, a resolved namespace URI, or a valid
+// XML Name.
+func validName(s string) bool {
+	if s == "" {
+		return true
+	}
+	// A resolved namespace arrives in Name.Space as a URI rather than a name;
+	// only an unresolved prefix, which cannot contain a slash, is a name here.
+	if strings.ContainsAny(s, "/") {
+		return true
+	}
+	for i, r := range s {
+		switch {
+		case r == ':' || r == '_' || unicode.IsLetter(r):
+		case i > 0 && (r == '-' || r == '.' || unicode.IsDigit(r)):
+		default:
+			return false
+		}
+	}
+	return true
 }
