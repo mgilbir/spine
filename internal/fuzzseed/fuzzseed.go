@@ -6,10 +6,13 @@ package fuzzseed
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/xml"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"testing"
 )
 
 // BuildZip assembles an in-memory zip archive from name/body pairs, in
@@ -197,4 +200,140 @@ func CorpusSeeds(format string, max int, maxSize int64) [][]byte {
 		seeds = append(seeds, data)
 	}
 	return seeds
+}
+
+// ---------------------------------------------------------------------------
+// Namespace resolution
+// ---------------------------------------------------------------------------
+
+// UnresolvedElementNamespaces returns the qualified names in data whose prefix
+// no declaration in scope binds, at most limit of them.
+//
+// Go's decoder is deliberately lenient about this: an undeclared prefix comes
+// back with Name.Space set to the literal prefix rather than to a URI, and
+// decoding carries on. That leniency is why a part can be emitted with an
+// unbound prefix and still round-trip through this library while PowerPoint or
+// Word calls the file damaged and the library's own accessors read the content
+// back as empty — so the test is whether the space is a URI.
+//
+// Element and attribute names are both examined. Attributes matter as much as
+// elements and are sometimes the only evidence: docx.Paragraph.AddHyperlink
+// wrote r:id into a document whose root declared only w:, which no element name
+// records. Attributes are also the names most likely to have been replayed
+// verbatim from a malformed source, so AssertEmittedNamespacesResolve decides
+// blame by comparing against the package the save was built from rather than by
+// narrowing what is checked here.
+func UnresolvedElementNamespaces(data []byte, limit int) []string {
+	// Which spaces count as resolved is decided from the document's own
+	// declarations rather than from the shape of the string. Testing for "://"
+	// looks equivalent and is not: VML and the Office extensions are URNs
+	// (urn:schemas-microsoft-com:vml), so that test reports every correct
+	// watermark, signature line and OLE object as broken.
+	declared := map[string]bool{
+		"":    true,
+		"xml": true,
+		// The reserved prefixes are bound by the XML spec itself and are never
+		// declared, so xml:space="preserve" must not read as unresolved.
+		"http://www.w3.org/XML/1998/namespace": true,
+		"http://www.w3.org/2000/xmlns/":        true,
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		for _, a := range se.Attr {
+			// xmlns:p="URI" arrives as Space "xmlns"; a default xmlns="URI" as
+			// Local "xmlns" with no space.
+			if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
+				declared[a.Value] = true
+			}
+		}
+	}
+
+	// An undeclared prefix decodes with Name.Space set to the prefix itself,
+	// which is never one of the declared URIs — including when the declaration
+	// exists but is out of scope, which is the shape a sibling-scoped inline
+	// declaration produces.
+	dec = xml.NewDecoder(bytes.NewReader(data))
+	var bad []string
+	for len(bad) < limit {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		se, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		if !declared[se.Name.Space] {
+			bad = append(bad, se.Name.Space+":"+se.Name.Local)
+		}
+		for _, a := range se.Attr {
+			if len(bad) >= limit {
+				break
+			}
+			// An xmlns declaration is itself in the reserved xmlns space, and
+			// an unprefixed attribute is in no namespace at all.
+			if a.Name.Space == "xmlns" || a.Name.Space == "" {
+				continue
+			}
+			if !declared[a.Name.Space] {
+				bad = append(bad, a.Name.Space+":"+a.Name.Local+" (attribute of "+se.Name.Local+")")
+			}
+		}
+	}
+	return bad
+}
+
+// AssertEmittedNamespacesResolve fails tb for every XML part in the saved
+// package out that names an element in a namespace nothing declares.
+//
+// A part is held to that standard only when the package it was built from does
+// not already break it: a part preserved verbatim from a source that carried
+// unbound prefixes must keep them, byte for byte, and blaming the writer for
+// what it was handed would make this unfalsifiable. A part with no counterpart
+// in the input was written from nothing and is always the writer's own.
+//
+// It exists because this defect class was invisible by construction. The
+// library's part roots replay the namespace declarations captured from their
+// source, and every name written under them — by the reflection marshaler, by a
+// hand-written MarshalToBuilder, or spliced in as preserved bytes — assumed
+// those declarations covered it. A source that declared less than the writer
+// used produced a part no reader could resolve, with no error on either side:
+// docx.Paragraph.AddHyperlink wrote r:id into a document whose root declared
+// only w:, and pptx.Slide.SetNotes wrote its text as a:t into a notes slide
+// whose root declared only p:. Both are ordinary calls over valid input.
+func AssertEmittedNamespacesResolve(tb testing.TB, in, out []byte) {
+	tb.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		return // not a package; the caller's own oracles cover that
+	}
+	for _, zf := range zr.File {
+		if !strings.HasSuffix(zf.Name, ".xml") && !strings.HasSuffix(zf.Name, ".rels") {
+			continue
+		}
+		emitted := ZipEntry(out, zf.Name)
+		if emitted == nil {
+			continue
+		}
+		bad := UnresolvedElementNamespaces(emitted, 4)
+		if len(bad) == 0 {
+			continue
+		}
+		if source := ZipEntry(in, zf.Name); source != nil && len(UnresolvedElementNamespaces(source, 1)) > 0 {
+			// The source part was already unresolvable; preserving it is not
+			// this library emitting an unbound prefix.
+			continue
+		}
+		tb.Errorf("saved %s names %v in a namespace nothing declares; "+
+			"Office reports such a part as damaged and this library reads it back empty",
+			zf.Name, bad)
+	}
 }

@@ -3,6 +3,7 @@ package xml
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -357,6 +358,8 @@ func (b *Builder) StartElement(namespace, localName string, attrs ...Attr) {
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
+	b.declareInline(namespace, attrs)
+	b.declareInlineForAttrs(attrs)
 
 	for _, attr := range attrs {
 		b.writeOneAttr(attr)
@@ -427,28 +430,14 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 // declaration for the root's namespace wins over a prefixed one, matching the
 // unprefixed element names such a source uses.
 func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAttrs []RootAttr, extraAttrs ...Attr) {
-	rootNSBound := false
-	for _, ra := range rootAttrs {
-		if !ra.IsNS || ra.Value != namespace {
-			continue
-		}
-		if ra.Prefix == "" {
-			// A default declaration covers the root's namespace: element
-			// names stay unprefixed, regardless of any prefixed alias.
-			b.namespaces[namespace] = ""
-			break
-		}
-		if !rootNSBound {
-			b.namespaces[namespace] = ra.Prefix
-			rootNSBound = true
-		}
-	}
+	missing := b.bindRootNamespace(namespace, rootAttrs)
 
 	b.flushOpenTag()
 	b.writeIndent()
 	b.hasRoot = true
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
+	b.writeRootNSDecl(missing, namespace)
 
 	for _, ra := range rootAttrs {
 		if ra.IsNS {
@@ -541,20 +530,7 @@ func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, r
 	// Bind the root element's own namespace before writing the tag name (see
 	// StartElementWithRootAttrs for why the declarations must be consulted
 	// first). A default (xmlns=) declaration wins over a prefixed alias.
-	rootNSBound := false
-	for _, ra := range rootAttrs {
-		if !ra.IsNS || ra.Value != namespace {
-			continue
-		}
-		if ra.Prefix == "" {
-			b.namespaces[namespace] = ""
-			break
-		}
-		if !rootNSBound {
-			b.namespaces[namespace] = ra.Prefix
-			rootNSBound = true
-		}
-	}
+	missing := b.bindRootNamespace(namespace, rootAttrs)
 	// Register declared prefixes so writeQName can resolve extension attrs, and
 	// mark the namespaces declared — without clobbering the root's own binding.
 	for _, ra := range rootAttrs {
@@ -576,6 +552,7 @@ func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, r
 	b.hasRoot = true
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
+	b.writeRootNSDecl(missing, namespace)
 	b.writeLiteralAttrs(merged)
 
 	// Write any extra attributes (same handling as StartElementWithRootAttrs).
@@ -643,6 +620,8 @@ func (b *Builder) EmptyElement(namespace, localName string, attrs ...Attr) {
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
+	b.declareInline(namespace, attrs)
+	b.declareInlineForAttrs(attrs)
 
 	for _, attr := range attrs {
 		b.writeOneAttr(attr)
@@ -661,6 +640,8 @@ func (b *Builder) WriteElement(namespace, localName, content string, attrs ...At
 	b.writeIndent()
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
+	b.declareInline(namespace, attrs)
+	b.declareInlineForAttrs(attrs)
 
 	// writeOneAttr honors a captured verbatim rendering (Attr.Raw), so an
 	// attribute whose source form is preserved — e.g. xml:space='preserve'
@@ -699,6 +680,187 @@ func (b *Builder) declareNamespaceIfNeeded(namespace string) bool {
 		b.declaredNamespaces[namespace] = true
 		b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: namespace, wasDeclared: false})
 		return true
+	}
+	return false
+}
+
+// bindRootNamespace resolves the prefix a root element's name will be written
+// with from the declarations about to be replayed from the source, and returns
+// the declaration the root must carry itself when those declarations do not
+// cover its own namespace (nil when they do).
+//
+// The second half is what keeps a rewritten part readable. Everything below the
+// root declares a namespace lazily, at the element that first needs it
+// (prependNamespaceDecls), but the root's name is written from a declaration
+// list that came from the source — so a source whose root binding is missing or
+// misspelled produced a root, and a first generation of children, in a prefix
+// nothing bound. The part stayed unreadable by this library's own accessors:
+// a notes slide whose xmlns:p was spelled xmlni:p re-emitted <p:notes> with no
+// binding for p, and the text written through Slide.SetNotes read back as ""
+// with no error anywhere — found by FuzzPptxNotesSlideXML. Every part root the
+// library rewrites replays source attributes this way (w:document, w:styles,
+// the xlsx workbook and worksheets, a:theme, p:sld, p:sldLayout, p:sldMaster,
+// p:presentation, p:notes), so the repair belongs here rather than in any one
+// of them.
+//
+// A well-formed source declares its own root namespace, so nothing is emitted
+// for it and a byte-identical round trip is unaffected.
+func (b *Builder) bindRootNamespace(namespace string, rootAttrs []RootAttr) *NSDecl {
+	declared := false
+	rootNSBound := false
+	for _, ra := range rootAttrs {
+		if !ra.IsNS || ra.Value != namespace {
+			continue
+		}
+		declared = true
+		if ra.Prefix == "" {
+			// A default declaration covers the root's namespace: element
+			// names stay unprefixed, regardless of any prefixed alias.
+			b.namespaces[namespace] = ""
+			break
+		}
+		if !rootNSBound {
+			b.namespaces[namespace] = ra.Prefix
+			rootNSBound = true
+		}
+	}
+	if declared || namespace == "" {
+		return nil
+	}
+
+	prefix, ok := b.namespaces[namespace]
+	if !ok {
+		// No prefix registered at all: writeQName records that as the caller
+		// bug it is, and inventing a binding here would only hide it.
+		return nil
+	}
+	if prefix != "" && rootAttrsBindPrefix(rootAttrs, prefix) {
+		// The source binds this prefix to some other URI. Reusing it would
+		// write a duplicate xmlns attribute — not well-formed — and silently
+		// rebind the source's own content, so take a free spelling instead.
+		prefix = freeRootPrefix(rootAttrs, prefix)
+		b.namespaces[namespace] = prefix
+	}
+	return &NSDecl{Prefix: prefix, URI: namespace}
+}
+
+// writeRootNSDecl emits the declaration bindRootNamespace found missing, as the
+// first attribute of the root's start tag.
+func (b *Builder) writeRootNSDecl(decl *NSDecl, namespace string) {
+	if decl == nil {
+		return
+	}
+	if decl.Prefix == "" {
+		b.buf.WriteString(` xmlns="`)
+	} else {
+		b.buf.WriteString(` xmlns:`)
+		b.buf.WriteString(decl.Prefix)
+		b.buf.WriteString(`="`)
+	}
+	b.writeAttrEscaped(decl.URI)
+	b.buf.WriteByte('"')
+	b.declaredNamespaces[namespace] = true
+	b.notePrefixDecl(decl.Prefix)
+	b.pendingNSRestores = append(b.pendingNSRestores, nsRestore{uri: namespace, wasDeclared: false})
+}
+
+// rootAttrsBindPrefix reports whether the source's own root declarations bind
+// prefix to anything.
+func rootAttrsBindPrefix(rootAttrs []RootAttr, prefix string) bool {
+	for _, ra := range rootAttrs {
+		if ra.IsNS && ra.Prefix == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// freeRootPrefix returns want, or want with the lowest numeric suffix the
+// source's declarations leave free. The loop is bounded because a document that
+// has taken a hundred spellings of one prefix is past the point where a
+// hundred-and-first helps; the original is returned then, and the duplicate
+// declaration it produces is the source's own doing.
+func freeRootPrefix(rootAttrs []RootAttr, want string) string {
+	for i := 1; i < 100; i++ {
+		candidate := want + strconv.Itoa(i)
+		if !rootAttrsBindPrefix(rootAttrs, candidate) {
+			return candidate
+		}
+	}
+	return want
+}
+
+// declareInline writes namespace's xmlns declaration as the first attribute of
+// the element whose start tag is being written, when nothing currently in scope
+// declares it. It is the primitive writers' half of the rule the reflection
+// marshaler already followed through prependNamespaceDecls: the Builder never
+// writes a name in a namespace it has not declared.
+//
+// The primitives needed it because a hand-written MarshalToBuilder calls them
+// directly, and those bypassed prependNamespaceDecls entirely. dml.P is one, so
+// rewriting a notes slide whose root declares no a: emitted a:p, a:r and a:t
+// with the prefix unbound — while the reflectively-marshaled siblings around
+// them (a:bodyPr, a:lstStyle) each carried a declaration of their own, which
+// does not scope to a sibling. PowerPoint called such a file damaged and
+// Slide.Notes() read the text back as "", with no error on either side.
+//
+// The declaration is scoped to the element carrying it: declareNamespaceIfNeeded
+// queues the restore that pushElem attaches to the element's frame (or that
+// endPendingNSScope releases for one that never stays open), so a later sibling
+// gets its own declaration rather than inheriting one that has gone out of
+// scope.
+//
+// Nothing is emitted when the root already declared the namespace, which is the
+// case for every well-formed producer, so a byte-identical round trip is
+// unaffected.
+func (b *Builder) declareInline(namespace string, attrs []Attr) {
+	// Without a root element this Builder is writing a fragment whose
+	// declarations live in the document it will be spliced into; matching
+	// prependNamespaceDecls, they are assumed to be there.
+	if !b.hasRoot || attrsDeclare(attrs, namespace) || !b.declareNamespaceIfNeeded(namespace) {
+		return
+	}
+	prefix := b.namespaces[namespace]
+	if prefix == "" {
+		b.buf.WriteString(` xmlns="`)
+	} else {
+		b.buf.WriteString(` xmlns:`)
+		b.buf.WriteString(prefix)
+		b.buf.WriteString(`="`)
+	}
+	b.writeAttrEscaped(namespace)
+	b.buf.WriteByte('"')
+	b.notePrefixDecl(prefix)
+}
+
+// declareInlineForAttrs declares the namespaces an element's own attributes are
+// written in. An attribute prefix needs binding exactly as an element name does
+// — r:id and w14:paraId are written by hand-written marshalers all over this
+// module — and the reflection marshaler already covered its own attributes
+// through prependNamespaceDecls.
+func (b *Builder) declareInlineForAttrs(attrs []Attr) {
+	for _, attr := range attrs {
+		b.declareInline(attr.Namespace, attrs)
+	}
+}
+
+// attrsDeclare reports whether attrs already carry an xmlns declaration for
+// namespace, in either the structured or the verbatim-replay form.
+//
+// Consulting the element's own list is what keeps a declaration from being
+// written twice. The literal-replay paths carry the source's xmlns attributes
+// in this list and write them after the name, so a namespace declared there is
+// not yet marked declared when the name is written: a slide layout replaying
+// <dgm:relIds xmlns:dgm="..."> got a second xmlns:dgm, and a duplicate
+// attribute is not well-formed XML. The corpus caught it on two of 1200 decks.
+func attrsDeclare(attrs []Attr, namespace string) bool {
+	if namespace == "" {
+		return false
+	}
+	for _, a := range attrs {
+		if _, uri, ok := attrNSDecl(a); ok && uri == namespace {
+			return true
+		}
 	}
 	return false
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -310,6 +311,14 @@ func buildOLEObjectXML(id int, widthEMU, heightEMU int64, progID, objRelID, icon
 			{Name: xml.Name{Space: nsWordprocessingML, Local: "dyaOrig"}, Value: strconv.FormatInt(dyaOrig, 10)},
 			{Name: xml.Name{Space: "xmlns", Local: "v"}, Value: "urn:schemas-microsoft-com:vml"},
 			{Name: xml.Name{Space: "xmlns", Local: "o"}, Value: "urn:schemas-microsoft-com:office:office"},
+			// The raw content below carries r:id on both v:imagedata and
+			// o:OLEObject, so r: is declared here for the same reason v: and o:
+			// are: this element is spliced in as bytes, and what the document
+			// root happened to declare is not this code's to assume. A root
+			// that never needed a relationship in its body does not declare r:,
+			// and the object then referenced its parts through an unbound
+			// prefix — a file Word reports as damaged.
+			{Name: xml.Name{Space: "xmlns", Local: "r"}, Value: xmlb.NSOfficeDocumentRels},
 		},
 		RawContent: []byte(raw),
 	}

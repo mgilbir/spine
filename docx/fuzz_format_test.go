@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/internal/fuzzseed"
 )
 
 // assertPartsAreWellFormed decodes every XML part of a saved package. Every
@@ -13,6 +15,13 @@ import (
 // w:styleId, w:initials), which is the one place a stray quote or an invalid
 // character produces a package no reader can open — and the only signal is a
 // parse failure, since the writer itself is happy either way.
+// assertPartsAreWellFormed checks the syntax of every XML part in a saved
+// package. Syntax is only half of it: Go's decoder resolves an undeclared
+// prefix to the literal prefix instead of failing, so a part naming elements in
+// a namespace nothing declares tokenizes cleanly here while Office reports it
+// as damaged. assertEmittedNamespacesResolve is the other half, and takes the
+// package the save was built from so a part preserved verbatim from a source
+// that was already unresolvable is not blamed on the writer.
 func assertPartsAreWellFormed(t *testing.T, data []byte) {
 	t.Helper()
 	zr, err := zipReader(data)
@@ -123,6 +132,7 @@ func FuzzDocxRunAndStyleFormatting(f *testing.F) {
 			return
 		}
 		assertPartsAreWellFormed(t, first)
+		assertEmittedNamespacesResolve(t, nil, first)
 
 		once, err := OpenReader(bytes.NewReader(first), int64(len(first)))
 		if err != nil {
@@ -136,6 +146,7 @@ func FuzzDocxRunAndStyleFormatting(f *testing.F) {
 			t.Fatalf("re-saving a reopened package failed: %v", err)
 		}
 		assertPartsAreWellFormed(t, second)
+		assertEmittedNamespacesResolve(t, nil, second)
 
 		twice, err := OpenReader(bytes.NewReader(second), int64(len(second)))
 		if err != nil {
@@ -149,4 +160,14 @@ func FuzzDocxRunAndStyleFormatting(f *testing.F) {
 				afterOne, afterTwo)
 		}
 	})
+}
+
+// assertEmittedNamespacesResolve holds a saved package to the rule that every
+// element it names resolves to a declared namespace. See
+// fuzzseed.AssertEmittedNamespacesResolve for why the source package is needed
+// to blame it correctly, and for the two ordinary public-API calls that broke
+// the rule before the Builder declared what it writes.
+func assertEmittedNamespacesResolve(t *testing.T, source, saved []byte) {
+	t.Helper()
+	fuzzseed.AssertEmittedNamespacesResolve(t, source, saved)
 }
