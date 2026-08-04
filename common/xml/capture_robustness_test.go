@@ -201,3 +201,39 @@ func wellFormed(s string) error {
 		}
 	}
 }
+
+// A captured root end tag has to be the root's end tag.
+//
+// The capture exists to preserve a producer's odd spacing — "</p:sld >" is
+// written by real tools and has to come back byte for byte — and it decides
+// what to keep by looking at the end of the part. Two things can sit there that
+// are not the document element's close: a trailing comment containing "</"
+// (C280, covered above), and, as the nightly fuzz run found, a part whose root
+// is self-closing followed by something that merely looks like a close.
+//
+// "<A/></ >" is the second: a self-closing root and then garbage, where "</ >"
+// passes a whitespace test because it has a space where the name should be.
+// Replaying it wrote a slide master with an opening tag and no matching close,
+// and the package this library had just written would not re-open.
+func TestCaptureProlog_RootEndMustNameTheRoot(t *testing.T) {
+	for name, tc := range map[string]struct{ in, want string }{
+		// Kept: the non-canonical spacing this capture exists for.
+		"space before the close":   {`<p:sld xmlns:p="u"></p:sld >`, `</p:sld >`},
+		"newline before the close": {"<root></root\n>", "</root\n>"},
+
+		// Not kept: canonical, so the builder's own close stays in charge.
+		"canonical close": {`<p:sld xmlns:p="u"></p:sld>`, ``},
+
+		// Not kept: not the root's end tag at all.
+		"garbage after a self-closing root": {`<A/></ >`, ``},
+		"a different element's close":       {`<root></other >`, ``},
+		"a close inside a trailing comment": {`<root></root><!-- </by> -->`, ``},
+		"nothing but a close":               {`</ >`, ``},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := CaptureProlog([]byte(tc.in)).RootEnd; got != tc.want {
+				t.Errorf("RootEnd = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

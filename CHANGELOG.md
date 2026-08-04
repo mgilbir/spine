@@ -326,6 +326,16 @@ godoc tooling steers callers off them (C565, C567).
 
 ### Fixed
 
+- common/xml: the document element's end tag is captured only when it really is
+  that element's end tag. The capture preserves a producer's non-canonical
+  spacing (`</p:sld >` comes back byte for byte), and it decided what to keep
+  from the end of the part — where something else can sit. A part whose root is
+  self-closing followed by `</ >` passed the test, because that has a space
+  where the name should be, and replaying it wrote a part with an opening tag
+  and no matching close: a package this library had just written would not
+  re-open. The capture now also requires the tag to name the root (found by the
+  nightly fuzz run, which reaches this since each package fuzzes in its own job).
+
 - common/xml: a name a source carries verbatim is no longer turned into one no
   parser accepts. A colon is a valid XML name character, so `<:/>` and `<A:/>`
   are well-formed documents whose names are `:` and `A:`; the writer prefixed

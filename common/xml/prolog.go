@@ -118,8 +118,20 @@ func CaptureProlog(data []byte) Prolog {
 		if lt := bytes.LastIndex(data[:gt], []byte("</")); lt >= 0 {
 			end := data[lt : gt+1]
 			// Only keep a non-canonical form (whitespace before '>'), so the
-			// builder's normal end tag stays in charge otherwise.
-			if bytes.ContainsAny(end[2:len(end)-1], " \t\r\n") {
+			// builder's normal end tag stays in charge otherwise — and only
+			// when it really is the document element's end tag.
+			//
+			// The name check is what stops the capture from replaying whatever
+			// happened to sit at the end of the part. "<A/></ >" is not a
+			// document with an oddly spaced close: it is a self-closing root
+			// followed by garbage, and the tail passes the whitespace test
+			// because "</ >" has a space where the name should be. Replaying it
+			// wrote a part with an opening tag and no matching close, which
+			// this library then could not re-open (found by
+			// FuzzPptxSlideMasterXML).
+			name := rootElementName(data)
+			nonCanonical := bytes.ContainsAny(end[2:len(end)-1], " \t\r\n")
+			if nonCanonical && len(name) > 0 && endTagNames(end, name) {
 				p.RootEnd = string(end)
 			}
 		}
@@ -148,4 +160,45 @@ func (b *Builder) WriteTrailer(p Prolog) {
 	if p.Trailer != "" {
 		b.WriteRaw([]byte(p.Trailer))
 	}
+}
+
+// rootElementName returns the name of the document element, or "" when the data
+// has no start tag.
+func rootElementName(data []byte) []byte {
+	for i := 0; i < len(data); i++ {
+		if data[i] != '<' {
+			continue
+		}
+		// Skip the declaration, comments, doctype and processing instructions.
+		if i+1 < len(data) && (data[i+1] == '?' || data[i+1] == '!' || data[i+1] == '/') {
+			continue
+		}
+		j := i + 1
+		for j < len(data) && !isXMLSpace(data[j]) && data[j] != '>' && data[j] != '/' {
+			j++
+		}
+		if j > i+1 {
+			return data[i+1 : j]
+		}
+		return nil
+	}
+	return nil
+}
+
+// endTagNames reports whether tag is "</name" followed only by whitespace and
+// the closing '>'.
+func endTagNames(tag, name []byte) bool {
+	if len(tag) < 3 || !bytes.HasPrefix(tag, []byte("</")) || tag[len(tag)-1] != '>' {
+		return false
+	}
+	rest := tag[2 : len(tag)-1]
+	if !bytes.HasPrefix(rest, name) {
+		return false
+	}
+	for _, c := range rest[len(name):] {
+		if !isXMLSpace(c) {
+			return false
+		}
+	}
+	return true
 }
