@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<v:group><v:textbox><A/><A:0/></v:textbox><x:ClientData A000000000=\"0\">0000<x:Anchor></x:Anchor></x:ClientData></v:group>")
