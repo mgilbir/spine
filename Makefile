@@ -179,11 +179,32 @@ harvest-batch: build
 # limit (CI containers) — invoking it directly outside one is what this target
 # exists to prevent.
 FUZZTIME ?= 30s
+
+# Minimization is capped well below the 60s Go defaults to, because on these
+# targets it was consuming most of the budget. Every newly found interesting
+# input is minimized, not just every crasher, and minimization runs until it
+# converges or the clock runs out — at 60s and ~15ms per execution it reaches
+# the clock, every time. The exec counter does not advance while it happens, so
+# the cost is invisible: a target reporting "0/sec" for a minute is not stuck,
+# it is minimizing, on three cores.
+#
+# Measured over a fixed 100s from a cold corpus, entries reached:
+#
+#   target                     60s    5s
+#   FuzzPptxAuxPartXML          25    78
+#   FuzzXlsxCommentsXML         30    89
+#   FuzzDocxHeaderFooterXML     47    73
+#
+# 2s is better again (171 for FuzzXlsxCommentsXML), but minimization is what
+# makes a crasher readable, and a nightly exists to produce reproducers someone
+# has to act on. 5s keeps roughly 300 reduction attempts per finding and still
+# buys 1.6-3.1x the coverage.
+FUZZMINIMIZETIME ?= 5s
 FUZZ_MEMMAX  ?= 4G
 FUZZ_SWAPMAX ?= 0
 fuzz:
 	systemd-run --user --scope -p MemoryMax=$(FUZZ_MEMMAX) -p MemorySwapMax=$(FUZZ_SWAPMAX) \
-		$(MAKE) fuzz-run FUZZTIME=$(FUZZTIME) FUZZ_PKGS="$(FUZZ_PKGS)"
+		$(MAKE) fuzz-run FUZZTIME=$(FUZZTIME) FUZZMINIMIZETIME=$(FUZZMINIMIZETIME) FUZZ_PKGS="$(FUZZ_PKGS)"
 
 # FUZZ_PKGS restricts the sweep to one or more packages, which is what lets CI
 # run each package as its own job: the targets are heavy enough that sharing a
@@ -199,7 +220,8 @@ fuzz-run:
 	for pkg in $$pkgs; do \
 		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
 			echo "==> ./$$pkg $$target"; \
-			go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) || exit 1; \
+			go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
+				-fuzzminimizetime $(FUZZMINIMIZETIME) || exit 1; \
 		done; \
 	done
 

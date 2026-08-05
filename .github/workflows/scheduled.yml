@@ -101,6 +101,13 @@ jobs:
       # kinds are worth having, and neither is served by an equal share of one
       # hour.
       #
+      # The reported rate understates the part-level targets, and for a while it
+      # was read here as their per-execution cost. It is not: most of that wall
+      # clock went to minimizing newly found inputs, which the exec counter does
+      # not count. Hence FUZZMINIMIZETIME in the Makefile, where the measurements
+      # are — with it at the 60s default, one of these targets spent 57 of every
+      # 60 seconds minimizing.
+      #
       # make fuzz-run still discovers targets at run time, so a new target in an
       # existing package is picked up with no edit here; a new *package* with
       # targets needs a line in the matrix.
