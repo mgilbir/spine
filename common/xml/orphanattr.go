@@ -106,3 +106,23 @@ func (b *Builder) writeRawAttr(raw string) {
 	}
 	b.buf.WriteString(raw)
 }
+
+// declareRootNamespaceIfMissing writes the binding for namespace when none of
+// declareNS already provides it, so a root element is never written under a
+// prefix nothing declares.
+//
+// The prefix is the one writeQName just used, which is what makes the pair
+// consistent: an empty registration means the name went out bare and the
+// binding has to be the default xmlns, and a registered prefix means the name
+// went out prefixed and the binding has to be xmlns:prefix.
+func (b *Builder) declareRootNamespaceIfMissing(namespace string, declareNS []NSDecl) {
+	if namespace == "" {
+		return
+	}
+	for _, ns := range declareNS {
+		if ns.URI == namespace {
+			return
+		}
+	}
+	b.writeRootNSDecl(&NSDecl{Prefix: b.namespaces[namespace], URI: namespace}, namespace)
+}

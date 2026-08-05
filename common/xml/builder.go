@@ -388,6 +388,20 @@ func (b *Builder) StartElementWithNS(namespace, localName string, declareNS []NS
 	b.buf.WriteByte('<')
 	b.writeQName(namespace, localName)
 
+	// The tag name has just been written under this namespace, so something on
+	// this element has to bind it. Callers routinely pass the source's own
+	// declarations *instead of* the standard set — marshalNumberingXML and its
+	// siblings all do `if len(OriginalNSDecls) > 0 { nsDecls = ... }` — and a
+	// source that declared something else, or nothing, then produced a root
+	// naming a prefix no declaration binds. Word reports such a part as damaged.
+	// FuzzDocxNumberingXML reached it with a numbering.xml of <A0000000
+	// xmlns=""/>: one declaration, none of it WordprocessingML, and the
+	// regenerated root said <w:numbering> with no xmlns:w.
+	//
+	// StartElementWithRootAttrs already resolves this for the verbatim-replay
+	// path; this is the same guarantee for the declaration-list path.
+	b.declareRootNamespaceIfMissing(namespace, declareNS)
+
 	// Write namespace declarations
 	for _, ns := range declareNS {
 		if ns.Prefix == "" {
