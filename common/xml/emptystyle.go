@@ -153,7 +153,16 @@ func UnmarshalWithSource(data []byte, v interface{}) error {
 		decoderSources.Store(d, data)
 		defer decoderSources.Delete(d)
 	}
-	return d.Decode(v)
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	// This is the entry point every preserved part is read through, and a
+	// preserved part is rewritten byte for byte. Accepting content after the
+	// root element here is what let the library emit parts that do not parse.
+	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	return CheckNamespacePrefixes(data)
 }
 
 // CaptureEmptyTagStyle reports how the start tag the decoder just consumed

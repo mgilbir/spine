@@ -337,7 +337,7 @@ func (b *Builder) writeOneAttr(attr Attr) {
 		b.notePrefixDecl(prefix)
 	}
 	if attr.Raw != "" {
-		b.buf.WriteString(attr.Raw)
+		b.writeRawAttr(attr.Raw)
 		return
 	}
 	b.buf.WriteByte(' ')
@@ -443,7 +443,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 		if ra.IsNS {
 			// Namespace declaration
 			if ra.Raw != "" {
-				b.buf.WriteString(ra.Raw)
+				b.writeRawAttr(ra.Raw)
 			} else {
 				if ra.Prefix == "" {
 					b.buf.WriteString(` xmlns="`)
@@ -471,7 +471,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 			}
 		} else if ra.Raw != "" {
 			// Regular attribute with a verbatim source rendering.
-			b.buf.WriteString(ra.Raw)
+			b.writeRawAttr(ra.Raw)
 		} else {
 			// Regular attribute (e.g., mc:Ignorable, conformance)
 			b.buf.WriteByte(' ')
@@ -490,7 +490,7 @@ func (b *Builder) StartElementWithRootAttrs(namespace, localName string, rootAtt
 	b.noteAttrPrefixDecls(extraAttrs)
 	for _, attr := range extraAttrs {
 		if attr.Raw != "" {
-			b.buf.WriteString(attr.Raw)
+			b.writeRawAttr(attr.Raw)
 			continue
 		}
 		b.buf.WriteByte(' ')
@@ -559,7 +559,7 @@ func (b *Builder) StartElementWithRootAttrsMerged(namespace, localName string, r
 	b.noteAttrPrefixDecls(extraAttrs)
 	for _, attr := range extraAttrs {
 		if attr.Raw != "" {
-			b.buf.WriteString(attr.Raw)
+			b.writeRawAttr(attr.Raw)
 			continue
 		}
 		b.buf.WriteByte(' ')
@@ -1310,16 +1310,18 @@ type RootAttr struct {
 // QualifyAttrs resolves namespace-based attribute names to their registered
 // prefixed literal form (e.g. {NSWordprocessingML, "val"} -> "w:val"), for
 // literal emission paths that write names verbatim.
+//
+// An attribute whose namespace nothing declares gets a prefix minted and
+// declared on the same element rather than being written bare — see
+// qualifyOrphanAttrs for why bare is not an option.
 func (b *Builder) QualifyAttrs(attrs []Attr) []Attr {
-	out := make([]Attr, len(attrs))
-	for i, a := range attrs {
-		if a.Namespace != "" {
-			a.Name = b.renderedAttrName(a)
-			a.Namespace = ""
-		}
-		out[i] = a
+	out, decls := b.qualifyOrphanAttrs(attrs)
+	if len(decls) == 0 {
+		return out
 	}
-	return out
+	// The declarations bind prefixes the names above now use, so they belong on
+	// this element, ahead of them.
+	return append(decls, out...)
 }
 
 // PresentationMLNamespaces returns the standard namespace declarations for PresentationML.

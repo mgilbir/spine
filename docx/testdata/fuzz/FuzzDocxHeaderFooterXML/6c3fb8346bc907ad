@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("<w:ftr xmlns:w=\"http://schemas.openxmlformats.orationshipsessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"></w:ftr>elationships\"></w:hdr>")
+[]byte("<w:ftr xmlns:w=\"http://schemas.openxmlformats.orationshipsessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"></w:ftr>")
+string("empty")

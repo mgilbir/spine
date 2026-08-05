@@ -125,8 +125,15 @@ func NewDecoder(r io.Reader) *xml.Decoder {
 // Unmarshal decodes data into v like [xml.Unmarshal], with the library's
 // CharsetReader installed so a non-UTF-8 charset declaration in the prolog is
 // honored rather than rejected.
+//
+// Unlike [xml.Unmarshal] it also requires the document to end after the root
+// element — see [CheckDocumentEnd] for why the difference matters.
 func Unmarshal(data []byte, v any) error {
-	return NewDecoder(bytes.NewReader(data)).Decode(v)
+	d := NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	return CheckDocumentEnd(d)
 }
 
 // latin1Table maps each ISO-8859-1 byte to its Unicode code point: the

@@ -35,7 +35,12 @@
 // children stay unqualified.
 package vml
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"fmt"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
+)
 
 // Namespace URIs of the VML family.
 const (
@@ -567,6 +572,17 @@ func (tb *Textbox) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			} else {
 				// Local-namespace element: preserve each child verbatim, in
 				// order (previously a single RawContent kept only the last).
+				//
+				// The name has to be one this model can write back. Go's
+				// decoder is looser than the Name production and reported the
+				// local name "0" for <A:0/>; capturing it verbatim meant
+				// marshaling an element literally named 0, which does not
+				// reparse. Preserving a child faithfully is the whole point of
+				// this branch, so a name that cannot be preserved is refused
+				// rather than mangled or silently dropped.
+				if !xmlb.IsName(t.Name.Local) {
+					return fmt.Errorf("vml: v:textbox child %q is not a valid XML name", t.Name.Local)
+				}
 				var inner struct {
 					Content []byte `xml:",innerxml"`
 				}

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<w:document><w:body><w:sectPr><pgSz w:w=\"0\"A=\"\"/></w:sectPr></w:body></w:document>")
