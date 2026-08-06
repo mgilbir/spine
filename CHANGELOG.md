@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-08-06
 
 Since 0.1.0 the tree has taken two adversarial-audit remediation waves: the
 C236–C359 findings (PRs #188–#220) and the C360–C582 findings now landing (PRs
@@ -120,6 +120,29 @@ caller sees is listed.
   (`fmt` walks unexported fields, so a plain string would have), it stays out of
   `encoding/json`, and no error message names it. `SaveEncrypted` and
   `SaveEncryptedTo` are unchanged in every format.
+
+- Opening a package now rejects a part that is not well-formed XML, where it
+  used to accept one and hand back a document. Two cases, both of which Go's
+  `encoding/xml` tolerates and no conforming XML processor does:
+
+  - Content after the root element — a second root, a stray end tag, or raw
+    trailing text. `Decode` stops at the end tag closing the element it was
+    asked for and never looks further, so the remainder was accepted in silence.
+  - A namespace prefix nothing declares. Go resolves an unbound prefix to the
+    prefix *itself* rather than failing, so `w:styles` in a document whose
+    `xmlns:w` was corrupted parsed as the namespace `"w"`.
+
+  Neither was harmless to accept. A part is preserved as raw bytes and rewritten
+  verbatim when nothing modifies it, so bytes the parser waved through are the
+  bytes the next save emits: the library opened a document, reported success,
+  and wrote a package whose parts do not parse — one Word reports as damaged.
+  The unbound-prefix case was worse, because the writer then emitted a root
+  carrying the real declarations and silently re-homed every element in that
+  part into a namespace it was never in, which no oracle would have caught.
+
+  A caller reading documents Word itself refuses will now get an error where it
+  previously got a document. Every file in the 3601-document corpus is
+  unaffected. Found independently by four fuzz targets.
 
 ### Security
 
@@ -325,6 +348,16 @@ godoc tooling steers callers off them (C565, C567).
   the XAdES `QualifyingProperties` Object Office emits — are unaffected.
 
 ### Fixed
+
+- common/xml: a root element is always written in a namespace the element itself
+  declares. The part marshalers take the source's declarations *instead of* the
+  standard set when the source has any — right for fidelity, and silently wrong
+  when the captured set does not bind the namespace the root is written in. A
+  `word/numbering.xml` of `<A0000000 xmlns=""/>` came back as `<w:numbering>`
+  with no `xmlns:w`, which Word reports as damaged and this library reads back
+  empty. `StartElementWithRootAttrs` already resolved this for the
+  verbatim-replay path; the declaration-list path now has the same guarantee, so
+  the pairing holds by construction rather than in each caller.
 
 - common/xml: the document element's end tag is captured only when it really is
   that element's end tag. The capture preserves a producer's non-canonical
@@ -593,6 +626,26 @@ godoc tooling steers callers off them (C565, C567).
   `Validate` gated on the output set (C364, C365, C379, C414, #232).
 
 ### Documentation and tooling
+
+- The fuzz sweep caps minimization at 5s (`FUZZMINIMIZETIME`) rather than taking
+  Go's 60s default. Go minimizes every newly found interesting input, not just
+  every crasher, and runs until it converges or the clock expires — on the
+  part-level targets, where one execution costs ~15ms, it always reached the
+  clock. The cost is invisible, because the exec counter does not advance while
+  it happens: a target reporting `0/sec` for a minute is not stuck, it is
+  minimizing, on every core. One target spent 57 of every 60 seconds there.
+  Measured over a fixed 100s from a cold corpus, entries reached went from 25 to
+  78, 30 to 89 and 47 to 73 on the three worst-hit targets; a full CI run went
+  from 5,843 new inputs across 49 targets to 12,647 across all 65. Override with
+  `make fuzz FUZZMINIMIZETIME=2s`.
+
+- Every fuzz fixture is byte-stable across builds, and each format package has a
+  test that proves it by crossing a real second. A fixture that moves cannot be
+  reproduced from a crasher: the corpus accumulated against it describes a
+  package that no longer exists. Six of the eight builders drifted — on
+  `dcterms:modified`, on `dcterms:created`, and on values minted inside the
+  writer with no API to reach them (comment GUIDs and dates, `w14:paraId`,
+  pptx's change id). Only one of the six ever reported it, and only by luck.
 
 - The guides now carry the behavior caveats that had landed only in godoc: that
   `AppendSlidesFrom` may modify the source presentation (marshaling its slides
