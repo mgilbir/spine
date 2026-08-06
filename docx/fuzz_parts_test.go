@@ -60,7 +60,7 @@ import (
 // Those cross-references are the point: they are what makes a mutated
 // secondary part observable at all. Replacing numbering.xml in a document
 // whose body never references a numId proves nothing.
-func buildRichDocxFuzzSeed(f *testing.F) []byte {
+func buildRichDocxFuzzSeed(f testing.TB) []byte {
 	f.Helper()
 	d := Create()
 
@@ -101,11 +101,23 @@ func buildRichDocxFuzzSeed(f *testing.F) []byte {
 	tbl := d.AddTable(2, 2)
 	tbl.Rows()[0].Cells()[0].AddParagraph().SetText("cell text")
 
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	d.Properties.Created = fuzzseed.FixtureModified
+	d.Properties.Modified = fuzzseed.FixtureModified
+
 	valid, err := d.SaveBytes()
 	if err != nil {
 		f.Fatalf("building the rich docx fuzz seed: %v", err)
 	}
-	return valid
+	// Comments carry a date and a paragraph id the writer generates as it
+	// writes them, with no API to reach either; pinning the core properties
+	// above does not cover them. See fuzzseed.PinGenerated.
+	pinned, err := fuzzseed.PinGenerated(valid)
+	if err != nil {
+		f.Fatalf("building the rich docx fuzz seed: %v", err)
+	}
+	return pinned
 }
 
 // maxFuzzedPartBytes caps the size of a substituted part.

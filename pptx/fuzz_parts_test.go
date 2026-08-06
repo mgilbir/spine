@@ -89,11 +89,23 @@ func buildFuzzDeck(tb testing.TB) []byte {
 	s2 := p.AddSlide()
 	s2.AddTextBox().TextFrame().SetText("second slide")
 
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	p.Properties.Created = fuzzseed.FixtureModified
+	p.Properties.Modified = fuzzseed.FixtureModified
+
 	out, err := p.SaveBytes()
 	if err != nil {
 		tb.Fatalf("building fuzz deck: %v", err)
 	}
-	return graftLegacyComments(tb, out)
+	// Comment authors and comments carry GUIDs, a created timestamp and a
+	// change id, all minted as the parts are written and none reachable from
+	// the API. See fuzzseed.PinGenerated.
+	pinned, err := fuzzseed.PinGenerated(graftLegacyComments(tb, out))
+	if err != nil {
+		tb.Fatalf("building fuzz deck: %v", err)
+	}
+	return pinned
 }
 
 // legacyCommentsXML and legacyCommentAuthorsXML are the pre-2018 comment

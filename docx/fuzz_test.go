@@ -10,12 +10,17 @@ import (
 
 // buildValidDocxFuzzSeed creates a small valid document in-process so no
 // corpus binaries need committing.
-func buildValidDocxFuzzSeed(f *testing.F) []byte {
+func buildValidDocxFuzzSeed(f testing.TB) []byte {
 	f.Helper()
 	d := Create()
 	d.AddParagraphWithText("fuzz seed")
 	tbl := d.AddTable(2, 2)
 	tbl.Rows()[0].Cells()[0].AddParagraph().SetText("cell")
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	d.Properties.Created = fuzzseed.FixtureModified
+	d.Properties.Modified = fuzzseed.FixtureModified
+
 	valid, err := d.SaveBytes()
 	if err != nil {
 		f.Fatalf("building valid docx seed: %v", err)

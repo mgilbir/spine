@@ -322,7 +322,8 @@ func buildXlsxCommentsFixture(tb testing.TB) []byte {
 	// synctest, which pins the clock for the modified-stamping tests and for
 	// TestSaveBytesIsIdempotent, cannot be used here: synctest.Test takes a
 	// *testing.T and this runs in fuzz-target setup holding a *testing.F.
-	w.Properties.Modified = fixtureModified
+	w.Properties.Created = fuzzseed.FixtureModified
+	w.Properties.Modified = fuzzseed.FixtureModified
 
 	out, err := w.SaveBytes()
 	if err != nil {
@@ -353,11 +354,6 @@ func buildXlsxCommentsFixture(tb testing.TB) []byte {
 	}
 	return fixed
 }
-
-// fixtureModified is the instant the comment fixture's save records, so the
-// package does not change from one build to the next. Any fixed time does; this
-// one matches the dT values in fixtureThreadedComments below.
-var fixtureModified = time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 
 const fixturePersons = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
 	`<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" ` +
@@ -420,6 +416,11 @@ func buildXlsxPivotFixture(tb testing.TB) []byte {
 	}); err != nil {
 		tb.Fatalf("building pivot fixture: %v", err)
 	}
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	w.Properties.Created = fuzzseed.FixtureModified
+	w.Properties.Modified = fuzzseed.FixtureModified
+
 	out, err := w.SaveBytes()
 	if err != nil {
 		tb.Fatalf("building pivot fixture: %v", err)

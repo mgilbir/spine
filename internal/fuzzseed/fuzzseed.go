@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 )
 
@@ -400,3 +401,40 @@ func validName(s string) bool {
 	}
 	return true
 }
+
+// FixtureModified is the instant a fuzz fixture records as its modified time.
+//
+// A save stamps dcterms:modified from the wall clock at second resolution, so
+// two builds of the same fixture are byte-identical only when they happen to
+// land in the same second. A fixture that is not byte-stable cannot be
+// reproduced from a crasher: the corpus entries accumulated against it describe
+// a package that no longer exists, and a reproducer replays a mutation of
+// different bytes.
+//
+// The odds scale with how long a build takes — negligible at the ~1.5ms a
+// build costs on a developer machine, and high enough under -race and coverage
+// instrumentation to have failed the nightly of 2026-08-06 in two jobs at once,
+// through the one fixture that checked itself (xlsx's comments fixture).
+//
+// Every fixture builder assigns this before saving. An explicit
+// Properties.Modified assignment is a property edit in its own right, which the
+// stampModified rule in each format leaves alone, so the value survives the
+// save; that is what makes pinning at the source better than rewriting
+// docProps/core.xml afterwards.
+//
+// synctest, which pins the clock for the modified-stamping tests, cannot be
+// used here: synctest.Test takes a *testing.T and fixtures are built in
+// fuzz-target setup, which holds a *testing.F.
+//
+// Both wall-clock fields must be pinned, and they move at different moments:
+// Created is stamped when the document is created and Modified when it is
+// saved. pptx writes both into docProps/core.xml, so pinning only Modified left
+// its fixtures drifting on Created.
+//
+// It is assigned field by field at each call site rather than through a helper
+// here, because a helper would have to name opc.CoreProperties — and opc's own
+// tests import this package, so that edge closes an import cycle.
+//
+// Any fixed instant does. This one matches the dT values in xlsx's threaded
+// comment fixture.
+var FixtureModified = time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
