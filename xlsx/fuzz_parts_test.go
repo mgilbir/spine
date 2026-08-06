@@ -305,6 +305,25 @@ func buildXlsxCommentsFixture(tb testing.TB) []byte {
 	root.Reply("Second Reviewer", "checked")
 	s.AddComment("C3", "Third Reviewer", "unrelated note")
 
+	// A save stamps dcterms:modified from the wall clock at second resolution,
+	// so two builds of this fixture are byte-identical only when they land in
+	// the same second — a coin flip weighted by how long a build takes. At
+	// ~1.5ms locally that is invisible; under -race and coverage instrumentation
+	// it is frequent enough to have failed the nightly of 2026-08-06 in both the
+	// race job and the xlsx fuzz job, through the byte-stability assertion in
+	// assertCommentsFixture.
+	//
+	// An explicit assignment is a property edit in its own right and stampModified
+	// leaves it alone, which is what makes this the fix rather than rewriting the
+	// saved core.xml afterwards. The three comment parts below are pinned for the
+	// same reason: a fuzz fixture that is not byte-stable cannot be reproduced
+	// from a crasher.
+	//
+	// synctest, which pins the clock for the modified-stamping tests and for
+	// TestSaveBytesIsIdempotent, cannot be used here: synctest.Test takes a
+	// *testing.T and this runs in fuzz-target setup holding a *testing.F.
+	w.Properties.Modified = fixtureModified
+
 	out, err := w.SaveBytes()
 	if err != nil {
 		tb.Fatalf("building comments fixture: %v", err)
@@ -334,6 +353,11 @@ func buildXlsxCommentsFixture(tb testing.TB) []byte {
 	}
 	return fixed
 }
+
+// fixtureModified is the instant the comment fixture's save records, so the
+// package does not change from one build to the next. Any fixed time does; this
+// one matches the dT values in fixtureThreadedComments below.
+var fixtureModified = time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
 
 const fixturePersons = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
 	`<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" ` +
