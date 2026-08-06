@@ -8,53 +8,75 @@ import (
 	"github.com/mgilbir/spine/internal/fuzzseed"
 )
 
-// The comments fuzz fixture must be byte-identical however much wall-clock time
+// Every fuzz fixture must be byte-identical however much wall-clock time
 // separates two builds of it.
 //
-// assertCommentsFixture already compares two builds, but back to back: they
-// almost always land in the same second, so it agrees for the wrong reason and
-// only reports the drift when a build happens to straddle a second boundary.
-// That is what it did on 2026-08-06, failing the nightly's race job and xlsx
-// fuzz job while every local run passed — a real defect surfacing as a flake.
+// A fixture that moves cannot be reproduced from a crasher: the corpus entries
+// accumulated against it describe a package that no longer exists, and a
+// reproducer replays a mutation of different bytes. Only one fixture ever
+// checked itself — assertCommentsFixture — and it compares two back-to-back
+// builds, which land in the same second and so agree for the wrong reason. On
+// 2026-08-06 one pair straddled a second boundary and failed the nightly's race
+// job and xlsx fuzz job at once, while every local run passed. Five more
+// fixtures across the three format packages had the same defect and no check at
+// all.
 //
 // Crossing the boundary explicitly turns that coin flip into a decision. The
-// sleep is what does the work: without it this test passes whether or not the
-// fixture pins its timestamp.
+// sleep is what does the work: without it this passes whether or not the
+// fixtures pin their timestamp. One sleep covers every fixture in the package.
 //
-// It is a second of real time, not a synctest bubble. synctest is how the
-// modified-stamping tests and TestSaveBytesIsIdempotent pin the clock, and it
-// would be the better tool — but synctest.Test takes a *testing.T, and the
-// build this guards runs in fuzz-target setup holding a *testing.F. The
-// fixture is pinned at the source instead, and this test is the check on that.
-func TestCommentsFixtureIsByteStableAcrossASecond(t *testing.T) {
+// It is real time rather than a synctest bubble because synctest.Test takes a
+// *testing.T and fixtures are built in fuzz-target setup, which holds a
+// *testing.F. The fixtures are pinned at the source instead (see
+// fuzzseed.FixtureModified); this is the check on that.
+func TestXlsxFuzzFixturesAreByteStableAcrossASecond(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sleeps for a second to cross a wall-clock boundary")
 	}
-	first := buildXlsxCommentsFixture(t)
+	build := func() map[string][]byte {
+		return map[string][]byte{
+			"buildXlsxCommentsFixture": buildXlsxCommentsFixture(t),
+			"buildXlsxPivotFixture":    buildXlsxPivotFixture(t),
+			"buildXlsxPartsFixture":    buildXlsxPartsFixture(),
+		}
+	}
+	before := build()
 	time.Sleep(1100 * time.Millisecond)
-	second := buildXlsxCommentsFixture(t)
+	assertFixturesStable(t, before, build())
+}
 
-	if !bytes.Equal(first, second) {
-		t.Errorf("the comments fixture changed across a second boundary (%d bytes then %d): "+
-			"a crasher found against it could not be reproduced", len(first), len(second))
-		for name, a := range fixtureParts(t, first) {
-			if b := fixtureParts(t, second)[name]; !bytes.Equal(a, b) {
-				t.Errorf("  %s differs:\n    first:  %.200s\n    second: %.200s", name, a, b)
-			}
+// assertFixturesStable reports which fixtures changed across the boundary, and
+// which part of each moved. Naming the part is what turns "the fixture moved"
+// into a diagnosis: docProps/core.xml means an unpinned modified stamp, and
+// anything else means a second source of nondeterminism worth its own look.
+func assertFixturesStable(t *testing.T, before, after map[string][]byte) {
+	t.Helper()
+	for name, first := range before {
+		second := after[name]
+		if bytes.Equal(first, second) {
+			continue
+		}
+		t.Errorf("%s changed across a second boundary (%d bytes then %d): "+
+			"a crasher found against it could not be reproduced",
+			name, len(first), len(second))
+		for _, part := range fixtureParts(t, first, second) {
+			t.Errorf("  %s: %s differs", name, part)
 		}
 	}
 }
 
-// fixtureParts returns the fixture entries this test compares, by name.
-func fixtureParts(t *testing.T, pkg []byte) map[string][]byte {
+// fixtureParts returns the entry names whose bytes differ between two packages.
+func fixtureParts(t *testing.T, a, b []byte) []string {
 	t.Helper()
-	out := map[string][]byte{}
+	var out []string
 	for _, name := range []string{
-		"docProps/core.xml", partWorkbook, partSheet1, partComments,
-		partThreadedComments, partPersons, partSharedStrings, partStyles,
+		"docProps/core.xml", "docProps/app.xml", partWorkbook, partSheet1,
+		partComments, partThreadedComments, partPersons, partSharedStrings,
+		partStyles, partTheme, partTable, partPivotCache, partPivotTable,
 	} {
-		if data := fuzzseed.ZipEntry(pkg, name); data != nil {
-			out[name] = data
+		ea, eb := fuzzseed.ZipEntry(a, name), fuzzseed.ZipEntry(b, name)
+		if !bytes.Equal(ea, eb) {
+			out = append(out, name)
 		}
 	}
 	return out

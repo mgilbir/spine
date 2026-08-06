@@ -10,7 +10,7 @@ import (
 
 // buildValidXlsxFuzzSeed creates a small valid workbook in-process so no
 // corpus binaries need committing.
-func buildValidXlsxFuzzSeed(f *testing.F) []byte {
+func buildValidXlsxFuzzSeed(f testing.TB) []byte {
 	f.Helper()
 	w := Create()
 	sheet := addSheetT(w, "Sheet1")
@@ -20,6 +20,11 @@ func buildValidXlsxFuzzSeed(f *testing.F) []byte {
 	if err := sheet.SetCellValue("B2", 42); err != nil {
 		f.Fatalf("building valid xlsx seed: %v", err)
 	}
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	w.Properties.Created = fuzzseed.FixtureModified
+	w.Properties.Modified = fuzzseed.FixtureModified
+
 	valid, err := w.SaveBytes()
 	if err != nil {
 		f.Fatalf("building valid xlsx seed: %v", err)

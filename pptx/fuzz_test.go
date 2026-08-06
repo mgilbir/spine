@@ -10,12 +10,17 @@ import (
 
 // buildValidPptxFuzzSeed creates a small valid presentation in-process so no
 // corpus binaries need committing.
-func buildValidPptxFuzzSeed(f *testing.F) []byte {
+func buildValidPptxFuzzSeed(f testing.TB) []byte {
 	f.Helper()
 	p := Create()
 	slide := p.AddSlide()
 	tb := slide.AddTextBox()
 	tb.TextFrame().SetText("fuzz seed")
+	// Pinned so the fixture is byte-stable across builds; a fixture that moves
+	// cannot be reproduced from a crasher. See fuzzseed.FixtureModified.
+	p.Properties.Created = fuzzseed.FixtureModified
+	p.Properties.Modified = fuzzseed.FixtureModified
+
 	valid, err := p.SaveBytes()
 	if err != nil {
 		f.Fatalf("building valid pptx seed: %v", err)
