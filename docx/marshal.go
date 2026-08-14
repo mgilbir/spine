@@ -57,7 +57,10 @@ func marshalDocumentXML(doc *oxml.CT_Document) ([]byte, error) {
 		// lacked is still appended when captured math requires it.
 		var extra []xmlb.Attr
 		if !mathDeclared && doc.ContainsMath() {
-			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixMath, Value: xmlb.NSMath})
+			// Same rule as the comment part: the source may have bound this
+			// prefix to something else, in which case adding ours would rebind
+			// every m: name in the document.
+			extra = declareUnlessBound(b, extra, nsDecls, doc.OriginalRootAttrs, xmlb.NSMath, xmlb.PrefixMath)
 		}
 		b.StartElementWithRootAttrs(nsW, "document", doc.OriginalRootAttrs, extra...)
 	} else {
@@ -121,12 +124,8 @@ func marshalCommentsXML(comments *oxml.CT_Comments) ([]byte, error) {
 	b.WriteHeader()
 	if comments.OriginalRootAttrs != nil {
 		var extra []xmlb.Attr
-		if !nsDeclsHave(comments.OriginalNSDecls, xmlb.NSWord2010) {
-			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixWord2010, Value: xmlb.NSWord2010})
-		}
-		if !nsDeclsHave(comments.OriginalNSDecls, xmlb.NSWord2012) {
-			extra = append(extra, xmlb.Attr{Name: "xmlns:" + xmlb.PrefixWord2012, Value: xmlb.NSWord2012})
-		}
+		extra = declareUnlessBound(b, extra, comments.OriginalNSDecls, comments.OriginalRootAttrs, xmlb.NSWord2010, xmlb.PrefixWord2010)
+		extra = declareUnlessBound(b, extra, comments.OriginalNSDecls, comments.OriginalRootAttrs, xmlb.NSWord2012, xmlb.PrefixWord2012)
 		b.StartElementWithRootAttrs(nsW, "comments", comments.OriginalRootAttrs, extra...)
 	} else {
 		// An authored part declares w14 and w15 and then writes w14:paraId on
@@ -251,6 +250,32 @@ func marshalEndnotesXML(endnotes *oxml.CT_Endnotes) ([]byte, error) {
 }
 
 // nsDeclsHave reports whether decls declares the given namespace URI.
+// declareUnlessBound adds the declaration a part needs for markup this library
+// writes, without disturbing what the source already said.
+//
+// Three cases, and only the first two used to be handled. The source may
+// already declare the URI (nothing to add); it may declare neither (add the
+// canonical prefix); or — the case that was missed — it may bind the canonical
+// *prefix* to some other URI. A source that wrote xmlns:w15="…micrm…", a
+// mistyped Microsoft URI, has not declared NSWord2012, so the by-URI test said
+// "add it" and the root came out carrying xmlns:w15 twice. The prefix every
+// w15: element in that part resolves through changed meaning on a save that was
+// asked to change nothing (FuzzDocxCommentsXML).
+//
+// Binding a free prefix instead keeps both readings intact: the source's w15
+// still means what the source said, and the markup this library writes gets a
+// prefix of its own, registered so the names come out under it.
+func declareUnlessBound(b *xmlb.Builder, extra []xmlb.Attr, decls []xmlb.NSDecl, rootAttrs []xmlb.RootAttr, uri, prefix string) []xmlb.Attr {
+	if nsDeclsHave(decls, uri) {
+		return extra
+	}
+	if xmlb.RootAttrsBindPrefix(rootAttrs, prefix) {
+		prefix = xmlb.FreeRootPrefix(rootAttrs, prefix)
+		b.RegisterNamespace(uri, prefix)
+	}
+	return append(extra, xmlb.Attr{Name: "xmlns:" + prefix, Value: uri})
+}
+
 func nsDeclsHave(decls []xmlb.NSDecl, uri string) bool {
 	for _, d := range decls {
 		if d.URI == uri {

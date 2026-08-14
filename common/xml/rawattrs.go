@@ -672,7 +672,7 @@ func (b *Builder) writeLiteralAttrs(attrs []Attr) {
 			continue
 		}
 		b.buf.WriteByte(' ')
-		b.buf.WriteString(attr.Name)
+		b.writeAttrName(attr.Name)
 		b.buf.WriteString(`="`)
 		b.writeAttrEscaped(attr.Value)
 		b.buf.WriteByte('"')

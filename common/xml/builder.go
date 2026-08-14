@@ -344,7 +344,7 @@ func (b *Builder) writeOneAttr(attr Attr) {
 	if attr.Namespace != "" {
 		b.writeQName(attr.Namespace, attr.Name)
 	} else {
-		b.buf.WriteString(attr.Name)
+		b.writeAttrName(attr.Name)
 	}
 	b.buf.WriteString(`="`)
 	b.writeAttrEscaped(attr.Value)
@@ -789,6 +789,25 @@ func rootAttrsBindPrefix(rootAttrs []RootAttr, prefix string) bool {
 	return false
 }
 
+// RootAttrsBindPrefix reports whether a captured root declaration list binds
+// prefix to anything at all, regardless of which URI.
+//
+// Callers that add a declaration the source did not carry must ask this first.
+// Asking only whether the *URI* is present is not the same question: a source
+// that bound w15 to a mistyped Microsoft URI has not declared NSWord2012, so a
+// by-URI check adds a second xmlns:w15 — and the prefix every w15: element in
+// that part resolves through silently changes meaning (FuzzDocxCommentsXML).
+func RootAttrsBindPrefix(rootAttrs []RootAttr, prefix string) bool {
+	return rootAttrsBindPrefix(rootAttrs, prefix)
+}
+
+// FreeRootPrefix returns want, or want with the lowest numeric suffix the
+// source's declarations leave free, for callers that must declare a namespace
+// under a prefix the source has not already spoken for.
+func FreeRootPrefix(rootAttrs []RootAttr, want string) string {
+	return freeRootPrefix(rootAttrs, want)
+}
+
 // freeRootPrefix returns want, or want with the lowest numeric suffix the
 // source's declarations leave free. The loop is bounded because a document that
 // has taken a hundred spellings of one prefix is past the point where a
@@ -947,15 +966,48 @@ func (b *Builder) writeQName(namespace, localName string) {
 	if !ok && namespace != "" && b.err == nil {
 		b.err = fmt.Errorf("xml: no prefix registered for namespace %q (writing %q)", namespace, localName)
 	}
-	if localName == "" && b.err == nil {
-		// There is no way to write an element with no name: the output would be
-		// a bare "<". A source can produce one — <A:/> is well-formed XML whose
-		// name is "A:", and Go's decoder reports that as the prefix A with an
-		// empty local name — so this is reachable from a document, not only
-		// from a caller bug. Recording it means Finish reports it and the save
-		// fails, instead of writing a part nothing can parse (found by
-		// FuzzDocxDocumentPart).
-		b.err = fmt.Errorf("xml: refusing to write an element with an empty name in namespace %q", namespace)
+	b.writeLocalName(localName, namespace)
+}
+
+// writeLocalName appends an element's local name, refusing one that cannot be
+// read back. where names the namespace or prefix for the error message.
+//
+// This is the rule both name writers obey. It used to live in writeQName alone,
+// which is how FuzzDocxDocumentPart found <w:> a second time after the first
+// fix: the literal-replay path composes its names through writePrefixedName and
+// never saw the guard. A rule enforced at one of two call sites is not a rule.
+//
+// A source really can produce these. <A:/> is well-formed XML — the Name
+// production allows a colon anywhere — and Go's decoder reports it as the
+// prefix A with an empty local name, so the output would be a bare "<w:>" and
+// the end tag would not match it. Recording the error means Finish reports it
+// and the save fails, rather than writing a part nothing can parse.
+// writeAttrName appends an attribute's name, refusing one that cannot be read
+// back — the same rule writeLocalName applies to elements.
+//
+// An attribute reaches here already composed, which is where it can go wrong:
+// a capture records the namespace and not the prefix, so an attribute in a
+// namespace nothing binds was written under its bare local name. When that
+// local name is not a name on its own the part stops parsing, and because a
+// comment part that fails to parse is simply absent rather than an error, the
+// symptom was 303 comments becoming 2 across a save (FuzzPptxModernCommentXML,
+// from an attribute spelled cre0:0ated).
+func (b *Builder) writeAttrName(name string) {
+	if b.err == nil && !IsQName(name) {
+		b.err = fmt.Errorf("xml: refusing to write the attribute name %q, which is not a valid XML name", name)
+	}
+	b.buf.WriteString(name)
+}
+
+func (b *Builder) writeLocalName(localName, where string) {
+	if b.err == nil {
+		switch {
+		case localName == "":
+			b.err = fmt.Errorf("xml: refusing to write an element with an empty name (%s)", where)
+		case !IsQName(localName):
+			b.err = fmt.Errorf("xml: refusing to write the element name %q, which is not a valid XML name (%s)",
+				localName, where)
+		}
 	}
 	b.buf.WriteString(localName)
 }
@@ -987,7 +1039,7 @@ func (b *Builder) writePrefixedName(prefix, localName string) {
 		b.buf.WriteString(prefix)
 		b.buf.WriteByte(':')
 	}
-	b.buf.WriteString(localName)
+	b.writeLocalName(localName, "prefix "+prefix)
 }
 
 // EmptyElementInlineNS writes a self-closing element with an inline namespace declaration.

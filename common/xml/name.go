@@ -1,6 +1,9 @@
 package xml
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // IsName reports whether s is an XML 1.0 Name (§2.3).
 //
@@ -78,4 +81,24 @@ func isNameChar(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// IsNCName reports whether s is an XML Namespaces NCName (§3): a Name with no
+// colon in it. Prefixes and the local parts of a QName are NCNames.
+func IsNCName(s string) bool {
+	return IsName(s) && strings.IndexByte(s, ':') < 0
+}
+
+// IsQName reports whether s is an XML Namespaces QName: an NCName, optionally
+// preceded by a prefix and a colon.
+//
+// The distinction from IsName is the whole point. XML's own Name production
+// allows a colon anywhere and any number of times — <:/> and <a:b:c/> are
+// well-formed XML — so a name that passes IsName can still be one no
+// namespace-aware consumer accepts, and Word is namespace-aware.
+func IsQName(s string) bool {
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		return IsNCName(s[:i]) && IsNCName(s[i+1:])
+	}
+	return IsNCName(s)
 }
