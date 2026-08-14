@@ -154,7 +154,10 @@ func (c *Chart) embeddedRows() map[int][]embedCell {
 // buildEmbeddedWorkbook serializes the chart's data into a minimal .xlsx
 // package with a single worksheet named sheetName.
 func (c *Chart) buildEmbeddedWorkbook(sheetName string) ([]byte, error) {
-	sheetXML := c.marshalEmbeddedSheet()
+	sheetXML, err := c.marshalEmbeddedSheet()
+	if err != nil {
+		return nil, fmt.Errorf("chart: marshaling the embedded worksheet: %w", err)
+	}
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -184,7 +187,7 @@ func (c *Chart) buildEmbeddedWorkbook(sheetName string) ([]byte, error) {
 }
 
 // marshalEmbeddedSheet renders the worksheet part carrying the chart's data.
-func (c *Chart) marshalEmbeddedSheet() []byte {
+func (c *Chart) marshalEmbeddedSheet() ([]byte, error) {
 	rows := c.embeddedRows()
 	rowNums := make([]int, 0, len(rows))
 	maxRow, maxCol := 0, 0
@@ -236,8 +239,10 @@ func (c *Chart) marshalEmbeddedSheet() []byte {
 	}
 	b.EndElement(xmlb.NSSpreadsheetML, "sheetData")
 	b.EndElement(xmlb.NSSpreadsheetML, "worksheet")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // needsSpacePreserve reports whether s would lose leading/trailing whitespace

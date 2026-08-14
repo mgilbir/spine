@@ -120,7 +120,11 @@ func (w *Workbook) writeSheetComments(
 			sheet.ws().EnsureChildOrder("legacyDrawing")
 		}
 
-		if err := writer.WritePart(commentsPart, opc.ContentTypeSheetComments, oxml.MarshalComments(sc.legacy)); err != nil {
+		data, err := oxml.MarshalComments(sc.legacy)
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling the legacy comments part: %w", err)
+		}
+		if err := writer.WritePart(commentsPart, opc.ContentTypeSheetComments, data); err != nil {
 			return nil, err
 		}
 		sheetRels = ensureRel(sheetRels, commentsRID, opc.RelTypeComments, relTargetFromSheet(commentsPart))
@@ -137,7 +141,11 @@ func (w *Workbook) writeSheetComments(
 		if threadedRID == "" {
 			threadedRID = nextRID()
 		}
-		if err := writer.WritePart(threadedPart, opc.ContentTypeThreadedComments, oxml.MarshalThreadedComments(sc.threaded)); err != nil {
+		data, err := oxml.MarshalThreadedComments(sc.threaded)
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling the threaded comments part: %w", err)
+		}
+		if err := writer.WritePart(threadedPart, opc.ContentTypeThreadedComments, data); err != nil {
 			return nil, err
 		}
 		sheetRels = ensureRel(sheetRels, threadedRID, opc.RelTypeThreadedComment, relTargetFromSheet(threadedPart))
@@ -161,7 +169,11 @@ func (w *Workbook) writeWorkbookPersons(writer *opc.Writer, used map[string]stru
 	} else {
 		w.dropPreservedPart(partName)
 	}
-	if err := writer.WritePart(partName, opc.ContentTypePerson, oxml.MarshalPersonList(w.persons)); err != nil {
+	data, err := oxml.MarshalPersonList(w.persons)
+	if err != nil {
+		return "", fmt.Errorf("xlsx: marshaling the persons part: %w", err)
+	}
+	if err := writer.WritePart(partName, opc.ContentTypePerson, data); err != nil {
 		return "", err
 	}
 	return strings.TrimPrefix(partName, "/xl/"), nil

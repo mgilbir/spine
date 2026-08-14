@@ -151,9 +151,11 @@ func buildDeck(outputPath string) {
 	// SetNotes creates a notesSlide part (wired to the slide, and to the notes
 	// master when the deck has one) if the slide has none yet. Paragraphs are
 	// separated by "\n".
-	s.SetNotes("Talk through the pipeline:\n" +
+	if err := s.SetNotes("Talk through the pipeline:\n" +
 		"1. Extract pulls from the source system.\n" +
-		"2. The connector shows data flowing to the load stage.")
+		"2. The connector shows data flowing to the load stage."); err != nil {
+		log.Fatalf("setting speaker notes: %v", err)
+	}
 
 	if err := p.Save(outputPath); err != nil {
 		log.Fatalf("phase 1 save: %v", err)

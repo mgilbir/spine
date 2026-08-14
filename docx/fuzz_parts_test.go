@@ -77,7 +77,9 @@ func buildRichDocxFuzzSeed(f testing.TB) []byte {
 	run.AddFootnote("a footnote body")
 	run.AddEndnote("an endnote body")
 	c := host.AddComment("Fuzz Author", "a comment body")
-	c.Reply("Second Author", "a reply body")
+	if _, err := c.Reply("Second Author", "a reply body"); err != nil {
+		f.Fatalf("Reply: %v", err)
+	}
 
 	// A numbering definition with two levels and two paragraphs using it, so
 	// the body carries numPr references into numbering.xml.
@@ -1507,13 +1509,16 @@ func mutateComments(d *Document) {
 		if i >= 256 {
 			break
 		}
-		c.SetResolved(true)
+		// This helper mutates; it has no testing handle and docx's SetResolved
+		// cannot fail. A failure that ever did appear would surface on the save
+		// the caller performs next, which is what the oracle checks.
+		_ = c.SetResolved(true)
 		c.SetInitials("FZ")
 		for j, r := range c.Replies() {
 			if j >= 16 {
 				break
 			}
-			r.SetResolved(true)
+			_ = r.SetResolved(true)
 			r.SetInitials("FZ")
 		}
 	}

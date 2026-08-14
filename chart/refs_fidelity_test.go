@@ -148,7 +148,7 @@ func TestCacheAndSheetAgreeOnNumberText(t *testing.T) {
 		t.Fatalf("MarshalChartXML: %v", err)
 	}
 	cacheXML := string(xmlBytes)
-	sheetXML := string(c.marshalEmbeddedSheet())
+	sheetXML := string(mustMarshalSheet(t, c))
 	for _, want := range []string{"1234567", "0.0000125", "1000000000000000000000"} {
 		if !strings.Contains(cacheXML, "<c:v>"+want+"</c:v>") {
 			t.Errorf("numeric cache missing %q:\n%s", want, cacheXML)

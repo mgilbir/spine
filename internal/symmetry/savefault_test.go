@@ -85,7 +85,9 @@ func TestSaveIntoAFailingWriterLeavesTheDocumentUsable(t *testing.T) {
 			if _, err := s.AddPictureFromBytes(testImage(t), "image/png"); err != nil {
 				t.Fatalf("AddPictureFromBytes: %v", err)
 			}
-			s.SetNotes("speaker notes")
+			if err := s.SetNotes("speaker notes"); err != nil {
+				t.Fatalf("SetNotes: %v", err)
+			}
 			return p.SaveTo
 		}},
 	}

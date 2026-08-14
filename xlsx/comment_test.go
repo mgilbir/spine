@@ -143,11 +143,16 @@ func TestAddThreadedComment(t *testing.T) {
 	if c == nil || !c.Threaded() {
 		t.Fatal("AddComment returned nil or non-threaded")
 	}
-	reply := c.Reply("Alan Turing", "Interesting indeed")
+	reply, err := c.Reply("Alan Turing", "Interesting indeed")
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
 	if reply == nil {
 		t.Fatal("Reply returned nil")
 	}
-	c.Resolve()
+	if err := c.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
 
 	data, err := wb.SaveBytes()
 	if err != nil {
@@ -220,11 +225,16 @@ func TestAddCommentOnCreatedWorkbook(t *testing.T) {
 	if c == nil || !c.Threaded() || c.Ref() != "A1" {
 		t.Fatalf("AddComment returned %+v", c)
 	}
-	reply := c.Reply("Second", "looks fine")
+	reply, err := c.Reply("Second", "looks fine")
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
 	if reply == nil {
 		t.Fatal("Reply returned nil")
 	}
-	c.Resolve()
+	if err := c.Resolve(); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
 
 	data, err := wb.SaveBytes()
 	if err != nil {

@@ -302,7 +302,9 @@ func buildXlsxCommentsFixture(tb testing.TB) []byte {
 		}
 	}
 	root := s.AddComment("B2", "Reviewer", "please check")
-	root.Reply("Second Reviewer", "checked")
+	if _, err := root.Reply("Second Reviewer", "checked"); err != nil {
+		tb.Fatalf("Reply: %v", err)
+	}
 	s.AddComment("C3", "Third Reviewer", "unrelated note")
 
 	// A save stamps dcterms:modified from the wall clock at second resolution,

@@ -27,23 +27,26 @@ const modernCreatedLayout = "2006-01-02T15:04:05.000"
 // is what current PowerPoint writes and the only one that supports replies and
 // resolution — even on a deck whose existing comments are legacy (both
 // mechanisms may coexist in one file).
-func (s *Slide) AddComment(author, text string) *Comment {
+func (s *Slide) AddComment(author, text string) (*Comment, error) {
 	return s.addModernComment(author, text, 0, 0, false)
 }
 
 // AddCommentAt attaches a modern threaded comment anchored at the given slide
 // position (x, y in EMUs). See AddComment.
-func (s *Slide) AddCommentAt(x, y int64, author, text string) *Comment {
+func (s *Slide) AddCommentAt(x, y int64, author, text string) (*Comment, error) {
 	return s.addModernComment(author, text, x, y, true)
 }
 
-func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *Comment {
+func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) (*Comment, error) {
 	p := s.presentation
 	// Comment parts are preserved raw parts written here and re-emitted
 	// verbatim, so the write needs no flag to persist and nothing else records
 	// that the deck changed.
 	p.markModelEdited()
-	authorID := p.authorIDForName(author)
+	authorID, err := p.authorIDForName(author)
+	if err != nil {
+		return nil, err
+	}
 
 	cm := &oxml.ModernComment{
 		ID:       newGUID(),
@@ -58,9 +61,13 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *
 
 	partName := p.nextAvailableModernCommentName()
 	part := &oxml.ModernCommentPart{Comment: cm}
+	data, err := part.Marshal()
+	if err != nil {
+		return nil, err
+	}
 	p.otherParts[partName] = &coxml.RawPart{
 		ContentType: opc.ContentTypeModernComments,
-		Data:        part.Marshal(),
+		Data:        data,
 	}
 
 	relID := s.nextRelID()
@@ -83,16 +90,16 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *
 		thread:   cm,
 		partName: partName,
 	}
-	return c
+	return c, nil
 }
 
 // Reply adds a threaded reply authored by author to this comment's thread and
 // returns the reply. Replies require the modern threaded mechanism; calling
 // Reply on a legacy comment is a no-op that returns nil (legacy PowerPoint
 // comments have no threading — add new comments to get modern threads).
-func (c *Comment) Reply(author, text string) *Comment {
+func (c *Comment) Reply(author, text string) (*Comment, error) {
 	if c.kind != commentModern || c.thread == nil {
-		return nil
+		return nil, nil
 	}
 	// Attach to the top-level comment of the thread.
 	top := c
@@ -100,7 +107,10 @@ func (c *Comment) Reply(author, text string) *Comment {
 		top = c.parent
 	}
 	p := c.slide.presentation
-	authorID := p.authorIDForName(author)
+	authorID, err := p.authorIDForName(author)
+	if err != nil {
+		return nil, err
+	}
 
 	r := &oxml.ModernReply{
 		ID:       newGUID(),
@@ -109,7 +119,9 @@ func (c *Comment) Reply(author, text string) *Comment {
 		BodyText: text,
 	}
 	c.thread.Replies = append(c.thread.Replies, r)
-	p.rewriteModernThread(c.partName, c.thread)
+	if err := p.rewriteModernThread(c.partName, c.thread); err != nil {
+		return nil, err
+	}
 
 	child := &Comment{
 		slide:    c.slide,
@@ -125,19 +137,19 @@ func (c *Comment) Reply(author, text string) *Comment {
 		reply:    r,
 	}
 	top.replies = append(top.replies, child)
-	return child
+	return child, nil
 }
 
 // Resolve marks the comment's thread as resolved. See SetResolved.
-func (c *Comment) Resolve() { c.SetResolved(true) }
+func (c *Comment) Resolve() error { return c.SetResolved(true) }
 
 // SetResolved sets whether the comment's thread is resolved, propagating the
 // state across the top-level comment and all of its replies (as PowerPoint
 // does). Legacy comments have no resolved concept; SetResolved is a documented
 // no-op on them.
-func (c *Comment) SetResolved(resolved bool) {
+func (c *Comment) SetResolved(resolved bool) error {
 	if c.kind != commentModern || c.thread == nil {
-		return
+		return nil
 	}
 	top := c
 	if c.parent != nil {
@@ -152,19 +164,24 @@ func (c *Comment) SetResolved(resolved bool) {
 	for _, r := range top.replies {
 		r.resolved = resolved
 	}
-	c.slide.presentation.rewriteModernThread(c.partName, c.thread)
+	return c.slide.presentation.rewriteModernThread(c.partName, c.thread)
 }
 
 // rewriteModernThread re-marshals a modern comment thread part in place.
-func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) {
+func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) error {
 	// Every thread edit (Reply, Resolve, SetResolved) lands here; see
 	// addModernComment for why the write itself needs no flag.
 	p.markModelEdited()
 	part := &oxml.ModernCommentPart{Comment: cm}
+	data, err := part.Marshal()
+	if err != nil {
+		return err
+	}
 	p.otherParts[partName] = &coxml.RawPart{
 		ContentType: opc.ContentTypeModernComments,
-		Data:        part.Marshal(),
+		Data:        data,
 	}
+	return nil
 }
 
 // --- author list management ---
@@ -188,7 +205,7 @@ func (p *Presentation) loadModernAuthors() *oxml.ModernAuthorList {
 // authorIDForName returns the GUID of the author with the given display name,
 // registering a new author (and creating/rewriting authors.xml plus the
 // presentation relationship) when none matches.
-func (p *Presentation) authorIDForName(name string) string {
+func (p *Presentation) authorIDForName(name string) (string, error) {
 	lst := p.loadModernAuthors()
 	if lst == nil {
 		lst = &oxml.ModernAuthorList{}
@@ -197,7 +214,7 @@ func (p *Presentation) authorIDForName(name string) string {
 	}
 	for _, a := range lst.Authors {
 		if a != nil && a.Name == name {
-			return a.ID
+			return a.ID, nil
 		}
 	}
 	a := &oxml.ModernAuthor{
@@ -209,14 +226,18 @@ func (p *Presentation) authorIDForName(name string) string {
 	lst.Authors = append(lst.Authors, a)
 
 	firstAuthor := p.rawPartData(modernAuthorsPart) == nil
+	data, err := lst.Marshal()
+	if err != nil {
+		return "", err
+	}
 	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
 		ContentType: opc.ContentTypeAuthors,
-		Data:        lst.Marshal(),
+		Data:        data,
 	}
 	if firstAuthor {
 		p.ensureAuthorsRelationship()
 	}
-	return a.ID
+	return a.ID, nil
 }
 
 // importModernCommentAuthors merges the source deck's modern author list
@@ -224,14 +245,17 @@ func (p *Presentation) authorIDForName(name string) string {
 // threaded comment's AuthorID keeps resolving to a real name. The authors part
 // is (re)written and the presentation -> authors relationship ensured. Called
 // when a merged slide carries a modern (threaded) comments relationship.
-func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
+func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) error {
 	data := srcPres.rawPartData(modernAuthorsPart)
 	if data == nil {
-		return
+		return nil
 	}
 	srcList, err := oxml.ParseModernAuthorList(data)
 	if err != nil || srcList == nil {
-		return
+		// A source author list this library cannot read is not a reason to fail
+		// the merge: the slides still import, their comments just resolve to
+		// "Unknown" until the deck is repaired.
+		return nil
 	}
 	dst := p.loadModernAuthors()
 	if dst == nil {
@@ -252,11 +276,16 @@ func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
 		dst.Authors = append(dst.Authors, a)
 		have[a.ID] = true
 	}
+	data, err = dst.Marshal()
+	if err != nil {
+		return err
+	}
 	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
 		ContentType: opc.ContentTypeAuthors,
-		Data:        dst.Marshal(),
+		Data:        data,
 	}
 	p.ensureAuthorsRelationship()
+	return nil
 }
 
 // ensureAuthorsRelationship adds the presentation -> authors.xml relationship

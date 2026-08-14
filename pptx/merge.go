@@ -213,7 +213,9 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 			if newTarget == "" {
 				continue
 			}
-			p.importModernCommentAuthors(srcPres)
+			if err := p.importModernCommentAuthors(srcPres); err != nil {
+				return nil, fmt.Errorf("pptx: importing modern comment authors: %w", err)
+			}
 			p.rewriteModernCommentSlideID(newTarget, src.id, ns.id)
 			c := *rel
 			c.Target = relativeTarget(ns.partName, newTarget)

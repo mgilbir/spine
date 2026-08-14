@@ -22,14 +22,20 @@ func (w *Workbook) writeSheetPivotTables(writer *opc.Writer, sheet *Sheet, sheet
 		tablePart, tableFile := allocPivotTableName(used, pivotSeq)
 
 		// Records part.
-		if err := writer.WritePart(recordsPart, opc.ContentTypePivotCacheRecords,
-			oxml.MarshalPivotCacheRecords(pt.records)); err != nil {
+		recData, err := oxml.MarshalPivotCacheRecords(pt.records)
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling the pivot cache records: %w", err)
+		}
+		if err := writer.WritePart(recordsPart, opc.ContentTypePivotCacheRecords, recData); err != nil {
 			return nil, err
 		}
 
 		// Cache definition part, referencing its records via rId1.
-		if err := writer.WritePart(cachePart, opc.ContentTypePivotCacheDefinition,
-			oxml.MarshalPivotCacheDefinition(pt.cache, "rId1")); err != nil {
+		defData, err := oxml.MarshalPivotCacheDefinition(pt.cache, "rId1")
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling the pivot cache definition: %w", err)
+		}
+		if err := writer.WritePart(cachePart, opc.ContentTypePivotCacheDefinition, defData); err != nil {
 			return nil, err
 		}
 		if err := writer.WritePartRelationships(cachePart, []*opc.Relationship{{
@@ -42,8 +48,11 @@ func (w *Workbook) writeSheetPivotTables(writer *opc.Writer, sheet *Sheet, sheet
 		}
 
 		// Pivot table part, referencing its cache definition via rId1.
-		if err := writer.WritePart(tablePart, opc.ContentTypePivotTable,
-			oxml.MarshalPivotTableDefinition(pt.def)); err != nil {
+		tblData, err := oxml.MarshalPivotTableDefinition(pt.def)
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling the pivot table definition: %w", err)
+		}
+		if err := writer.WritePart(tablePart, opc.ContentTypePivotTable, tblData); err != nil {
 			return nil, err
 		}
 		if err := writer.WritePartRelationships(tablePart, []*opc.Relationship{{

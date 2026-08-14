@@ -210,23 +210,23 @@ func (d *Document) AddCommentOnRange(start, end *Run, author, text string) *Comm
 
 // Reply adds a threaded reply to this comment, anchored at the same range and
 // linked to it through commentsExtended.
-func (c *Comment) Reply(author, text string) *Comment {
+func (c *Comment) Reply(author, text string) (*Comment, error) {
 	d := c.document
 	d.ensureParaID(c.c)
 	parentParaID := c.c.LastParaID()
 	nc := d.addCommentModel(author, text, parentParaID)
 	d.nestReplyAnchor(c.c.Id, nc.Id)
-	return &Comment{document: d, c: nc}
+	return &Comment{document: d, c: nc}, nil
 }
 
 // Resolve marks the comment's thread as done.
-func (c *Comment) Resolve() { c.SetResolved(true) }
+func (c *Comment) Resolve() error { return c.SetResolved(true) }
 
 // SetResolved sets whether the comment's thread is marked done. Word resolves a
 // thread as a whole, so the state is applied to every comment in the thread
 // (the root and all of its replies), regardless of which one this handle points
 // at.
-func (c *Comment) SetResolved(resolved bool) {
+func (c *Comment) SetResolved(resolved bool) error {
 	d := c.document
 	done := "0"
 	if resolved {
@@ -239,6 +239,7 @@ func (c *Comment) SetResolved(resolved bool) {
 		ce.Done = done
 	}
 	d.markCommentsExtModified()
+	return nil
 }
 
 // --- internal helpers ---

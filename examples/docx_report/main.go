@@ -277,8 +277,13 @@ func main() {
 	action.AddText(" before the next review.")
 
 	comment := target.AddComment("Reviewer A", "Is the capacity plan finalised?")
-	comment.Reply("Owner", "Draft is ready; final sign-off pending.")
-	comment.Resolve() // mark the whole thread resolved
+	if _, err := comment.Reply("Owner", "Draft is ready; final sign-off pending."); err != nil {
+		log.Fatalf("Reply: %v", err)
+	}
+	// Mark the whole thread resolved.
+	if err := comment.Resolve(); err != nil {
+		log.Fatalf("resolving the comment thread: %v", err)
+	}
 
 	// ── Content Control (Document.AddContentControl) ─────────────────
 	//

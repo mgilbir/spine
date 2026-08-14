@@ -18,8 +18,12 @@ func TestSlideAndPresentationText(t *testing.T) {
 	tbl.Cell(1, 0).SetText("A2")
 	tbl.Cell(1, 1).SetText("B2")
 
-	s1.SetNotes("Speaker notes here")
-	s1.AddComment("Reviewer", "Nice slide")
+	if err := s1.SetNotes("Speaker notes here"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
+	if _, err := s1.AddComment("Reviewer", "Nice slide"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
 
 	s2 := pres.AddSlide()
 	box2 := s2.AddTextBox()

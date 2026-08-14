@@ -296,7 +296,9 @@ var pptxCases = map[string]func(*testing.T) *pptx.Presentation{
 	"speaker notes": func(t *testing.T) *pptx.Presentation {
 		p := pptx.Create()
 		s := p.AddSlide()
-		s.SetNotes("remember to breathe")
+		if err := s.SetNotes("remember to breathe"); err != nil {
+			t.Fatalf("SetNotes: %v", err)
+		}
 		return p
 	},
 	"image": func(t *testing.T) *pptx.Presentation {

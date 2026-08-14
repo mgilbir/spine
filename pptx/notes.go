@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -30,7 +31,7 @@ func (s *Slide) Notes() string {
 // notes slide is preserved. Otherwise a new notesSlide part is created (wired to
 // the slide, and to the notes master when the deck has one) and registered so it
 // is written on the next save.
-func (s *Slide) SetNotes(text string) {
+func (s *Slide) SetNotes(text string) error {
 	p := s.presentation
 	// The notes slide is a preserved raw part rewritten here and then written
 	// out verbatim, so the edit persists with no flag — and nothing else would
@@ -38,17 +39,26 @@ func (s *Slide) SetNotes(text string) {
 	p.markModelEdited()
 	if ns, partName := s.loadNotesSlide(); ns != nil {
 		setNotesBodyText(ns, text)
+		data, err := marshalNotesSlide(ns)
+		if err != nil {
+			return fmt.Errorf("pptx: marshaling the notes slide: %w", err)
+		}
 		p.otherParts[partName] = &coxml.RawPart{
 			ContentType: opc.ContentTypeNotesSlide,
-			Data:        marshalNotesSlide(ns),
+			Data:        data,
 		}
-		return
+		return nil
+	}
+
+	fresh, err := marshalNotesSlide(newNotesSlideModel(text))
+	if err != nil {
+		return fmt.Errorf("pptx: marshaling the notes slide: %w", err)
 	}
 
 	partName := p.nextAvailableNotesName()
 	p.otherParts[partName] = &coxml.RawPart{
 		ContentType: opc.ContentTypeNotesSlide,
-		Data:        marshalNotesSlide(newNotesSlideModel(text)),
+		Data:        fresh,
 	}
 
 	// slide -> notesSlide relationship.
@@ -75,6 +85,7 @@ func (s *Slide) SetNotes(text string) {
 		})
 	}
 	p.relationships[partName] = notesRels
+	return nil
 }
 
 // loadNotesSlide finds and parses the slide's notes slide part, returning the
@@ -235,7 +246,7 @@ func nextNotesShapeID(ns *oxml.NotesSlide) uint32 {
 
 // marshalNotesSlide serializes a notes slide part (p:notes) with the standard
 // PresentationML namespace declarations.
-func marshalNotesSlide(ns *oxml.NotesSlide) []byte {
+func marshalNotesSlide(ns *oxml.NotesSlide) ([]byte, error) {
 	b := xmlb.NewPresentationMLBuilder()
 	b.SetCollapseEmptyElements(true)
 	b.WriteHeader()
@@ -270,6 +281,8 @@ func marshalNotesSlide(ns *oxml.NotesSlide) []byte {
 		b.MarshalElement(nsP, "extLst", ns.ExtLst)
 	}
 	b.EndElement(nsP, "notes")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }

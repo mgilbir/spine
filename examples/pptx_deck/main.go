@@ -113,10 +113,15 @@ func buildDeck(outputPath string) {
 	// Newly added comments always use the modern (2018 threaded) mechanism,
 	// which supports replies and resolution. AddCommentAt anchors it at a slide
 	// position (in EMUs).
-	comment := effectSlide.AddCommentAt(
+	comment, err := effectSlide.AddCommentAt(
 		int64(dml.Inches(9)), int64(dml.Inches(1)),
 		commentAuthor, "Love the glow on this shape — ship it.")
-	comment.Reply("Deck Author", "Thanks! Locking it in.")
+	if err != nil {
+		log.Fatalf("adding a comment: %v", err)
+	}
+	if _, err := comment.Reply("Deck Author", "Thanks! Locking it in."); err != nil {
+		log.Fatalf("replying to a comment: %v", err)
+	}
 
 	if err := p.Save(outputPath); err != nil {
 		log.Fatalf("phase 1 save: %v", err)

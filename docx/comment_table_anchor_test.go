@@ -22,7 +22,10 @@ func TestCommentInTableCellReplyAndAnchor(t *testing.T) {
 		t.Errorf("AnchorText() = %q, want %q (table-cell anchor not found)", got, "cell anchor text")
 	}
 
-	reply := c.Reply("Bob", "a reply")
+	reply, err := c.Reply("Bob", "a reply")
+	if err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
 
 	saved, err := doc.SaveBytes()
 	if err != nil {

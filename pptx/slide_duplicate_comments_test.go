@@ -32,8 +32,8 @@ func TestDuplicateDeepClonesModernComments(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()
 	s.AddTextBox().TextFrame().SetText("original")
-	if c := s.AddComment("Ann", "first thought"); c == nil {
-		t.Fatal("AddComment returned nil")
+	if c, err := s.AddComment("Ann", "first thought"); err != nil || c == nil {
+		t.Fatalf("AddComment: %v (comment %v)", err, c)
 	}
 
 	srcParts := commentPartsOf(p, s.partName)
@@ -75,7 +75,9 @@ func TestDuplicateDeepClonesModernComments(t *testing.T) {
 	if len(dupComments) != 1 {
 		t.Fatalf("duplicate has %d comments, want 1", len(dupComments))
 	}
-	dupComments[0].Reply("Bob", "reply on the duplicate only")
+	if _, err := dupComments[0].Reply("Bob", "reply on the duplicate only"); err != nil {
+		t.Fatalf("Reply: %v", err)
+	}
 	if strings.Contains(string(p.otherParts[srcParts[0]].Data), "reply on the duplicate only") {
 		t.Error("a reply added to the duplicate's thread leaked into the source's comment part")
 	}
@@ -134,7 +136,9 @@ func TestDuplicateDeepClonesLegacyComments(t *testing.T) {
 func TestDuplicateCommentsSurviveOriginalRemoval(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()
-	s.AddComment("Ann", "keep me")
+	if _, err := s.AddComment("Ann", "keep me"); err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
 	dup := s.Duplicate()
 	if dup == nil {
 		t.Fatal("Duplicate returned nil")

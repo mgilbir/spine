@@ -79,12 +79,23 @@ func buildFuzzDeck(tb testing.TB) []byte {
 
 	s1 := p.AddSlide()
 	s1.AddTextBox().TextFrame().SetText("first slide")
-	s1.SetNotes("speaker notes for slide one")
-	c := s1.AddComment("Alice Author", "the original comment")
-	if r := c.Reply("Bob Reader", "a threaded reply"); r == nil {
+	if err := s1.SetNotes("speaker notes for slide one"); err != nil {
+		tb.Fatalf("building fuzz deck: SetNotes: %v", err)
+	}
+	c, err := s1.AddComment("Alice Author", "the original comment")
+	if err != nil {
+		tb.Fatalf("building fuzz deck: AddComment: %v", err)
+	}
+	r, err := c.Reply("Bob Reader", "a threaded reply")
+	if err != nil {
+		tb.Fatalf("building fuzz deck: Reply: %v", err)
+	}
+	if r == nil {
 		tb.Fatal("building fuzz deck: Reply returned nil, so the fixture has no threaded reply")
 	}
-	c.SetResolved(true)
+	if err := c.SetResolved(true); err != nil {
+		tb.Fatalf("building fuzz deck: SetResolved: %v", err)
+	}
 
 	s2 := p.AddSlide()
 	s2.AddTextBox().TextFrame().SetText("second slide")
@@ -739,7 +750,9 @@ func checkCommentsSurviveARewrite(t *testing.T, pkg []byte) {
 	for _, s := range p.Slides() {
 		for _, c := range s.Comments() {
 			was := c.Resolved()
-			c.SetResolved(!was)
+			if err := c.SetResolved(!was); err != nil {
+				t.Fatalf("SetResolved: %v", err)
+			}
 			if isModern(c) {
 				wantResolved = append(wantResolved, !was)
 			} else {
@@ -907,7 +920,10 @@ func checkAuthorReuse(t *testing.T, pkg []byte) {
 		return
 	}
 	const author = "Alice Author"
-	added := slides[0].AddComment(author, "added by the fuzz oracle")
+	added, err := slides[0].AddComment(author, "added by the fuzz oracle")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
 	if added == nil {
 		t.Fatal("AddComment returned nil on a deck with at least one slide")
 	}
@@ -1045,7 +1061,9 @@ func checkNotesSurviveARewrite(t *testing.T, pkg []byte) {
 	notesBefore := p.rawPartData(slides[0].notesSlidePartName())
 
 	const written = "rewritten by the fuzz oracle"
-	slides[0].SetNotes(written)
+	if err := slides[0].SetNotes(written); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	// The rewritten part must carry its text in DrawingML, and every element
 	// name in it must resolve. Both were carved out here while the Builder
@@ -1479,7 +1497,9 @@ func TestKnownDefectSetNotesOverAnUnparseableNotesPart(t *testing.T) {
 
 	slide := p.Slides()[0]
 	const written = "notes written over a broken part"
-	slide.SetNotes(written)
+	if err := slide.SetNotes(written); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	notesRels := 0
 	for _, rel := range p.relationships[slide.partName] {
@@ -1547,7 +1567,9 @@ func TestNotesRewriteBindsTheDrawingMLPrefix(t *testing.T) {
 
 	slide := p.Slides()[0]
 	const written = "hello world"
-	slide.SetNotes(written)
+	if err := slide.SetNotes(written); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	part := slide.notesSlidePartName()
 	if !namespaceWellFormed(p.rawPartData(part)) {

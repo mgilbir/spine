@@ -3,6 +3,7 @@ package docx_test
 import (
 	"bytes"
 	"fmt"
+	"log"
 
 	"github.com/mgilbir/spine/docx"
 )
@@ -45,8 +46,13 @@ func Example_comments() {
 
 	p := doc.AddParagraphWithText("The quick brown fox.")
 	c := p.AddComment("Reviewer", "Please rephrase.")
-	reply := c.Reply("Author", "Done.")
-	reply.Resolve()
+	reply, err := c.Reply("Author", "Done.")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := reply.Resolve(); err != nil {
+		log.Fatal(err)
+	}
 
 	data, err := doc.SaveBytes()
 	if err != nil {

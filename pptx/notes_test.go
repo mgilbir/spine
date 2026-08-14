@@ -26,7 +26,9 @@ func TestSetNotes_CreateRoundTrip(t *testing.T) {
 	s := p.AddSlide()
 
 	const want = "First line of notes\nSecond line"
-	s.SetNotes(want)
+	if err := s.SetNotes(want); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 	if got := s.Notes(); got != want {
 		t.Fatalf("Notes() right after SetNotes = %q, want %q", got, want)
 	}
@@ -55,9 +57,13 @@ func TestSetNotes_ReplaceExisting(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()
 
-	s.SetNotes("original")
+	if err := s.SetNotes("original"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 	before := len(notesParts(p))
-	s.SetNotes("updated")
+	if err := s.SetNotes("updated"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 	after := len(notesParts(p))
 
 	if before != 1 || after != 1 {
@@ -132,7 +138,9 @@ func TestSetNotes_EditExistingPreservesPart(t *testing.T) {
 		{ID: "rId1", Type: opc.RelTypeNotesSlide, Target: "../notesSlides/notesSlide1.xml", TargetMode: opc.TargetModeInternal},
 	}
 
-	s.SetNotes("brand new text")
+	if err := s.SetNotes("brand new text"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	if n := len(notesParts(p)); n != 1 {
 		t.Fatalf("notes part count = %d, want 1 (edit must not add a part)", n)
@@ -179,7 +187,9 @@ func TestSetNotes_PreservesExplicitShowMasterFalse(t *testing.T) {
 		{ID: "rId1", Type: opc.RelTypeNotesSlide, Target: "../notesSlides/notesSlide1.xml", TargetMode: opc.TargetModeInternal},
 	}
 
-	s.SetNotes("brand new text")
+	if err := s.SetNotes("brand new text"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	data := p.otherParts[notesPart].Data
 	if !bytes.Contains(data, []byte(`showMasterSp="0"`)) {

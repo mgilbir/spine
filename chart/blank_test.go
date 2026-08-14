@@ -89,7 +89,7 @@ func TestBlankPointHasNoDataCell(t *testing.T) {
 		}
 	}
 
-	sheetXML := string(c.marshalEmbeddedSheet())
+	sheetXML := string(mustMarshalSheet(t, c))
 	if strings.Contains(sheetXML, "NaN") {
 		t.Errorf("embedded worksheet carries NaN:\n%s", sheetXML)
 	}
@@ -141,7 +141,18 @@ func TestNonFiniteValueIsBlank(t *testing.T) {
 	if bytes.Contains(xmlBytes, []byte("Inf")) {
 		t.Errorf("chart.xml carries an infinity:\n%s", xmlBytes)
 	}
-	if strings.Contains(string(c.marshalEmbeddedSheet()), "Inf") {
+	if strings.Contains(string(mustMarshalSheet(t, c)), "Inf") {
 		t.Error("embedded worksheet carries an infinity")
 	}
+}
+
+// mustMarshalSheet marshals a chart's embedded worksheet, failing the test when
+// the Builder refuses to write it.
+func mustMarshalSheet(t *testing.T, c *Chart) []byte {
+	t.Helper()
+	data, err := c.marshalEmbeddedSheet()
+	if err != nil {
+		t.Fatalf("marshalEmbeddedSheet: %v", err)
+	}
+	return data
 }

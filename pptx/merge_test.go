@@ -217,7 +217,9 @@ func TestAppendSlidesCarriesNotes(t *testing.T) {
 	src := Create()
 	s := src.AddSlide()
 	s.AddTextBox().TextFrame().SetText("Src")
-	s.SetNotes("Speaker note carried across")
+	if err := s.SetNotes("Speaker note carried across"); err != nil {
+		t.Fatalf("SetNotes: %v", err)
+	}
 
 	if err := dst.AppendSlidesFrom(src); err != nil {
 		t.Fatalf("AppendSlidesFrom: %v", err)
