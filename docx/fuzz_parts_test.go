@@ -1440,7 +1440,7 @@ func FuzzDocxCommentsXML(f *testing.F) {
 		var before map[string]commentFacts
 		commentThreadBudget.Check(t, len(pkg), func() {
 			before = commentSnapshot(d)
-			mutateComments(d)
+			mutateComments(t, d)
 		})
 		walkDocument(d)
 		codesBefore := validationCodes(d)
@@ -1488,7 +1488,7 @@ func FuzzDocxCommentsXML(f *testing.F) {
 		}
 		assertNoNewDefects(t, codesBefore, validationCodes(d2), "comments round trip")
 
-		mutateComments(d2)
+		mutateComments(t, d2)
 		second, err := d2.SaveBytes()
 		if err != nil {
 			t.Fatalf("re-saving a package this library just wrote failed: %v", err)
@@ -1504,21 +1504,22 @@ func FuzzDocxCommentsXML(f *testing.F) {
 // thread root: SetResolved walks the thread from whichever comment it is handed,
 // and the walk from a reply takes a different path (up to the root, then back
 // down) than the walk from a root.
-func mutateComments(d *Document) {
+func mutateComments(t *testing.T, d *Document) {
 	for i, c := range d.Comments() {
 		if i >= 256 {
 			break
 		}
-		// This helper mutates; it has no testing handle and docx's SetResolved
-		// cannot fail. A failure that ever did appear would surface on the save
-		// the caller performs next, which is what the oracle checks.
-		_ = c.SetResolved(true)
+		if err := c.SetResolved(true); err != nil {
+			t.Fatalf("SetResolved: %v", err)
+		}
 		c.SetInitials("FZ")
 		for j, r := range c.Replies() {
 			if j >= 16 {
 				break
 			}
-			_ = r.SetResolved(true)
+			if err := r.SetResolved(true); err != nil {
+				t.Fatalf("SetResolved on a reply: %v", err)
+			}
 			r.SetInitials("FZ")
 		}
 	}
