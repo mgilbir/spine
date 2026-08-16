@@ -141,6 +141,7 @@ func TestSetNotes_EditExistingPreservesPart(t *testing.T) {
 		t.Fatalf("Notes() = %q, want %q", got, "brand new text")
 	}
 	// The rewritten part must still be valid PresentationML notes.
+	flushForInspection(t, p)
 	data := p.otherParts[notesPart].Data
 	if !bytes.Contains(data, []byte("<p:notes")) || !bytes.Contains(data, []byte("brand new text")) {
 		t.Fatalf("rewritten notes part not as expected: %s", data)
@@ -181,6 +182,7 @@ func TestSetNotes_PreservesExplicitShowMasterFalse(t *testing.T) {
 
 	s.SetNotes("brand new text")
 
+	flushForInspection(t, p)
 	data := p.otherParts[notesPart].Data
 	if !bytes.Contains(data, []byte(`showMasterSp="0"`)) {
 		t.Errorf("SetNotes dropped explicit showMasterSp=\"0\":\n%s", data)

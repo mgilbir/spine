@@ -540,7 +540,11 @@ func (w *Workbook) writeSheetTables(writer *opc.Writer, sheet *Sheet, sheetRels 
 
 	for _, tbl := range sheet.newTables {
 		tablePart, tableFile := allocTableName(used, tableSeq)
-		if err := writer.WritePart(tablePart, opc.ContentTypeTable, oxml.MarshalTable(tbl.model)); err != nil {
+		tableData, err := oxml.MarshalTable(tbl.model)
+		if err != nil {
+			return nil, fmt.Errorf("xlsx: marshaling table %s: %w", tbl.model.Name, err)
+		}
+		if err := writer.WritePart(tablePart, opc.ContentTypeTable, tableData); err != nil {
 			return nil, err
 		}
 		rid := fmt.Sprintf("rId%d", nextRelationshipID(relUsed))

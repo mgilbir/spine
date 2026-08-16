@@ -1762,6 +1762,12 @@ func (s *Slide) Duplicate() *Slide {
 	// the duplicate as-is.
 	s.applyMediaTiming()
 	s.applyAnimations()
+	// Serialize any deferred notes/comment edit now, for the same reason: the
+	// notes slide and comment threads are copied below as bytes, so an edit
+	// still sitting in a model would not be in the copy. Best-effort like the
+	// image embed above — a part that cannot be serialized keeps its dirty flag
+	// and fails the save that follows.
+	s.presentation.flushBestEffort()
 
 	// AddSlide assigned the duplicate its own part name.
 	newSlide := s.presentation.AddSlide()
@@ -1787,6 +1793,10 @@ func (s *Slide) Duplicate() *Slide {
 		// Same for comments, which ECMA also models per slide — and whose modern
 		// form additionally records which slide the thread hangs off (C414).
 		s.presentation.deepCloneCommentParts(newSlide.partName, s.id, newSlide.id)
+		// The anchor retarget above is a model edit made after the flush that
+		// preceded the copy, so it needs one of its own to reach the copied
+		// part's bytes. Same best-effort contract.
+		s.presentation.flushBestEffort()
 	}
 	if newSlide.sxModel == nil {
 		newSlide.sxModel = newSlideXML()

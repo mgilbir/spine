@@ -178,7 +178,7 @@ func ParsePivotTableDefinition(data []byte) (*CT_PivotTableDefinition, error) {
 // --- Write ---
 
 // MarshalPivotTableDefinition serializes a pivot table definition part.
-func MarshalPivotTableDefinition(def *CT_PivotTableDefinition) []byte {
+func MarshalPivotTableDefinition(def *CT_PivotTableDefinition) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(nsSpreadsheetML, "")
 	b.WriteHeader()
@@ -273,8 +273,10 @@ func MarshalPivotTableDefinition(def *CT_PivotTableDefinition) []byte {
 		xmlb.BoolAttr("showLastColumn", true))
 
 	b.EndElement(nsSpreadsheetML, "pivotTableDefinition")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 func marshalPivotField(b *xmlb.Builder, pf *CT_PivotField) {

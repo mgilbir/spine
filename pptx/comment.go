@@ -203,13 +203,14 @@ func (s *Slide) readLegacyComments(partName string, authors map[uint32]string) [
 	return out
 }
 
+// readModernThread builds the Comment handles for one modern comment part.
+//
+// It reads the part's model rather than re-parsing its bytes, so a thread that
+// has been replied to or resolved this session reads back as edited. Re-parsing
+// here is how a comment added in-session came back as no comment at all.
 func (s *Slide) readModernThread(partName string, authors map[string]string) *Comment {
-	data := s.presentation.rawPartData(partName)
-	if data == nil {
-		return nil
-	}
-	part, err := oxml.ParseModernCommentPart(data)
-	if err != nil || part.Comment == nil {
+	part := s.presentation.commentModel(partName)
+	if part == nil || part.Comment == nil {
 		return nil
 	}
 	cm := part.Comment
@@ -218,7 +219,7 @@ func (s *Slide) readModernThread(partName string, authors map[string]string) *Co
 		kind:     commentModern,
 		id:       cm.ID,
 		author:   authors[cm.AuthorID],
-		text:     oxml.ModernCommentText(cm.TxBody),
+		text:     cm.Text(),
 		date:     parseCommentDate(cm.Created),
 		resolved: cm.Status == "resolved",
 		thread:   cm,
@@ -233,7 +234,7 @@ func (s *Slide) readModernThread(partName string, authors map[string]string) *Co
 			kind:     commentModern,
 			id:       r.ID,
 			author:   authors[r.AuthorID],
-			text:     oxml.ModernCommentText(r.TxBody),
+			text:     r.Text(),
 			date:     parseCommentDate(r.Created),
 			resolved: top.resolved,
 			parent:   top,

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<w:document xmlns:w=\"\"><w:body><w:p><w:r><w:>0</w:></w:r></w:p></w:body></w:document>")

@@ -79,7 +79,7 @@ func (c *CT_Comments) AuthorIndex(author string) int {
 }
 
 // MarshalComments serializes a legacy comments part.
-func MarshalComments(c *CT_Comments) []byte {
+func MarshalComments(c *CT_Comments) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(nsSpreadsheetML, "")
 	b.WriteHeader()
@@ -109,8 +109,10 @@ func MarshalComments(c *CT_Comments) []byte {
 	b.EndElement(nsSpreadsheetML, "commentList")
 
 	b.EndElement(nsSpreadsheetML, "comments")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // PlainText flattens the rich text of a legacy comment to a string.
@@ -197,7 +199,7 @@ func ParseThreadedComments(data []byte) (*CT_ThreadedComments, error) {
 }
 
 // MarshalThreadedComments serializes a threaded-comments part.
-func MarshalThreadedComments(tc *CT_ThreadedComments) []byte {
+func MarshalThreadedComments(tc *CT_ThreadedComments) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(NSThreadedComments, "")
 	b.WriteHeader()
@@ -222,8 +224,10 @@ func MarshalThreadedComments(tc *CT_ThreadedComments) []byte {
 		b.EndElement(NSThreadedComments, "threadedComment")
 	}
 	b.EndElement(NSThreadedComments, "ThreadedComments")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +274,7 @@ func ParsePersonList(data []byte) (*CT_PersonList, error) {
 }
 
 // MarshalPersonList serializes a person-list part.
-func MarshalPersonList(pl *CT_PersonList) []byte {
+func MarshalPersonList(pl *CT_PersonList) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(NSThreadedComments, "")
 	b.RegisterNamespace(nsSpreadsheetML, "x")
@@ -291,8 +295,10 @@ func MarshalPersonList(pl *CT_PersonList) []byte {
 		b.EmptyElement(NSThreadedComments, "person", attrs...)
 	}
 	b.EndElement(NSThreadedComments, "personList")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // Find returns the person with the given display name, or nil.

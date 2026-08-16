@@ -8,7 +8,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -39,9 +38,9 @@ func (s *Slide) AddCommentAt(x, y int64, author, text string) *Comment {
 
 func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *Comment {
 	p := s.presentation
-	// Comment parts are preserved raw parts written here and re-emitted
-	// verbatim, so the write needs no flag to persist and nothing else records
-	// that the deck changed.
+	// Comment parts are preserved raw parts generated from this model and
+	// re-emitted verbatim, so the write needs no flag to persist and nothing
+	// else records that the deck changed.
 	p.markModelEdited()
 	authorID := p.authorIDForName(author)
 
@@ -57,11 +56,7 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *
 	}
 
 	partName := p.nextAvailableModernCommentName()
-	part := &oxml.ModernCommentPart{Comment: cm}
-	p.otherParts[partName] = &coxml.RawPart{
-		ContentType: opc.ContentTypeModernComments,
-		Data:        part.Marshal(),
-	}
+	p.putCommentModel(partName, &oxml.ModernCommentPart{Comment: cm})
 
 	relID := s.nextRelID()
 	p.relationships[s.partName] = append(p.relationships[s.partName], &opc.Relationship{
@@ -155,16 +150,23 @@ func (c *Comment) SetResolved(resolved bool) {
 	c.slide.presentation.rewriteModernThread(c.partName, c.thread)
 }
 
-// rewriteModernThread re-marshals a modern comment thread part in place.
+// rewriteModernThread records that a modern comment thread has been edited, so
+// the flush at save re-serializes its part.
+//
+// It installs the model when the registry has no entry for the part, rather than
+// letting the edit go nowhere. Every Comment handle reaches here with a part the
+// registry already knows — readModernThread and addModernComment are the only
+// two sources of one — so this is a belt-and-braces case, and the belt is that
+// losing a comment edit is invisible until someone reopens the deck.
 func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) {
 	// Every thread edit (Reply, Resolve, SetResolved) lands here; see
 	// addModernComment for why the write itself needs no flag.
 	p.markModelEdited()
-	part := &oxml.ModernCommentPart{Comment: cm}
-	p.otherParts[partName] = &coxml.RawPart{
-		ContentType: opc.ContentTypeModernComments,
-		Data:        part.Marshal(),
+	if e, ok := p.commentModels[partName]; ok && e.model != nil {
+		e.dirty = true
+		return
 	}
+	p.putCommentModel(partName, &oxml.ModernCommentPart{Comment: cm})
 }
 
 // --- author list management ---
@@ -208,12 +210,13 @@ func (p *Presentation) authorIDForName(name string) string {
 	}
 	lst.Authors = append(lst.Authors, a)
 
-	firstAuthor := p.rawPartData(modernAuthorsPart) == nil
-	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
-		ContentType: opc.ContentTypeAuthors,
-		Data:        lst.Marshal(),
-	}
-	if firstAuthor {
+	// Whether the deck already had an authors part, asked before markAuthorsDirty
+	// creates the entry. Asking rawPartData instead would answer "no" every time
+	// once the part is deferred — it holds no bytes until the flush — and every
+	// added author would re-run the relationship wiring.
+	_, hadPart := p.otherParts[modernAuthorsPart]
+	p.markAuthorsDirty()
+	if !hadPart {
 		p.ensureAuthorsRelationship()
 	}
 	return a.ID
@@ -224,13 +227,18 @@ func (p *Presentation) authorIDForName(name string) string {
 // threaded comment's AuthorID keeps resolving to a real name. The authors part
 // is (re)written and the presentation -> authors relationship ensured. Called
 // when a merged slide carries a modern (threaded) comments relationship.
+//
+// The source's author list is taken from its model, not from its serialized
+// bytes. A deck whose comments were added this session has no serialized author
+// list yet — reading the bytes found none and returned early, and every comment
+// merged out of a freshly built deck arrived with its author stripped.
 func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
-	data := srcPres.rawPartData(modernAuthorsPart)
-	if data == nil {
-		return
-	}
-	srcList, err := oxml.ParseModernAuthorList(data)
-	if err != nil || srcList == nil {
+	srcList := srcPres.loadModernAuthors()
+	if srcList == nil {
+		// Either the source has no author list, or it has one this library
+		// cannot read. Neither is a reason to fail the merge: the slides still
+		// import, their comments just resolve to "Unknown" until the deck is
+		// repaired.
 		return
 	}
 	dst := p.loadModernAuthors()
@@ -249,13 +257,13 @@ func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
 		if a == nil || have[a.ID] {
 			continue
 		}
-		dst.Authors = append(dst.Authors, a)
+		// Copy: the source list is now its live model, and the two decks must
+		// not end up sharing an author a later edit on either side could move.
+		imported := *a
+		dst.Authors = append(dst.Authors, &imported)
 		have[a.ID] = true
 	}
-	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
-		ContentType: opc.ContentTypeAuthors,
-		Data:        dst.Marshal(),
-	}
+	p.markAuthorsDirty()
 	p.ensureAuthorsRelationship()
 }
 

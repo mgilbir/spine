@@ -107,12 +107,20 @@ type ModernCommentPart struct {
 }
 
 // ParseModernCommentPart decodes a modernComment part.
+//
+// It goes through xmlb.Unmarshal rather than xml.Unmarshal because this reads a
+// whole part off the package: the part has to be well-formed to its end and has
+// to bind every prefix it uses, and encoding/xml enforces neither. Parsing one
+// that did not cost 303 comments — an attribute spelled cre0:0ated came back
+// with its unknown prefix dropped, the emitted part stopped parsing at that
+// byte, and a comment part that fails to parse is absent rather than an error
+// (FuzzPptxModernCommentXML).
 func ParseModernCommentPart(data []byte) (*ModernCommentPart, error) {
 	var lst struct {
 		XMLName xml.Name
 		CM      *ModernComment `xml:"http://schemas.microsoft.com/office/powerpoint/2018/8/main cm"`
 	}
-	if err := xml.Unmarshal(data, &lst); err != nil {
+	if err := xmlb.Unmarshal(data, &lst); err != nil {
 		return nil, err
 	}
 	return &ModernCommentPart{Comment: lst.CM}, nil
@@ -121,7 +129,7 @@ func ParseModernCommentPart(data []byte) (*ModernCommentPart, error) {
 // ParseModernAuthorList decodes ppt/authors.xml.
 func ParseModernAuthorList(data []byte) (*ModernAuthorList, error) {
 	var lst ModernAuthorList
-	if err := xml.Unmarshal(data, &lst); err != nil {
+	if err := xmlb.Unmarshal(data, &lst); err != nil {
 		return nil, err
 	}
 	return &lst, nil
@@ -325,4 +333,28 @@ func (r *ModernReply) decode(d *xml.Decoder, start xml.StartElement) error {
 // runs joined per paragraph, paragraphs joined by newlines.
 func ModernCommentText(txBody []byte) string {
 	return joinDrawingText(txBody)
+}
+
+// Text returns the comment's plain body text, from whichever of the two body
+// representations this comment carries: the verbatim txBody of a parsed
+// comment, or the BodyText of one this library created and has not serialized
+// yet (marshal synthesizes the txBody from it).
+//
+// Readers have to ask for the text this way rather than reading TxBody. Reading
+// TxBody alone answered "" for every comment added in the current session,
+// which was invisible while every setter serialized on the spot and the reader
+// re-parsed what it wrote.
+func (c *ModernComment) Text() string {
+	if c.TxBody != nil {
+		return ModernCommentText(c.TxBody)
+	}
+	return c.BodyText
+}
+
+// Text returns the reply's plain body text (see ModernComment.Text).
+func (r *ModernReply) Text() string {
+	if r.TxBody != nil {
+		return ModernCommentText(r.TxBody)
+	}
+	return r.BodyText
 }

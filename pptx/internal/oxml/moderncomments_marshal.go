@@ -29,15 +29,17 @@ func newModernBuilder() *xmlb.Builder {
 }
 
 // Marshal serializes a modernComment part (p188:cmLst with one p188:cm).
-func (p *ModernCommentPart) Marshal() []byte {
+func (p *ModernCommentPart) Marshal() ([]byte, error) {
 	b := newModernBuilder()
 	b.StartElementWithNS(nsP188, "cmLst", modernNamespaces())
 	if p.Comment != nil {
 		p.Comment.marshal(b)
 	}
 	b.EndElement(nsP188, "cmLst")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // replayP188Attrs renders a parsed element's verbatim attribute list with the
@@ -200,15 +202,17 @@ func marshalBody(b *xmlb.Builder, raw []byte, text string) {
 }
 
 // Marshal serializes ppt/authors.xml (p188:authorLst).
-func (l *ModernAuthorList) Marshal() []byte {
+func (l *ModernAuthorList) Marshal() ([]byte, error) {
 	b := newModernBuilder()
 	b.StartElementWithNS(nsP188, "authorLst", modernNamespaces())
 	for _, a := range l.Authors {
 		a.marshal(b)
 	}
 	b.EndElement(nsP188, "authorLst")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 func (a *ModernAuthor) marshal(b *xmlb.Builder) {

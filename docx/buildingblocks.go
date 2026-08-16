@@ -240,7 +240,11 @@ func (d *Document) writeGlossaryPart(writer *opc.Writer) error {
 		}
 		data = spliced
 	} else {
-		data = marshalNewGlossary(d.pendingBuildingBlocks)
+		var err error
+		data, err = marshalNewGlossary(d.pendingBuildingBlocks)
+		if err != nil {
+			return fmt.Errorf("docx: marshaling the glossary part: %w", err)
+		}
 	}
 	if err := writer.WritePart(name, contentTypeGlossary, data); err != nil {
 		return err
@@ -273,7 +277,7 @@ func relativePartTarget(base, target string) string {
 
 // marshalNewGlossary builds a fresh glossary part containing the given building
 // blocks wrapped in the w:docParts container Word uses.
-func marshalNewGlossary(defs []BuildingBlockDef) []byte {
+func marshalNewGlossary(defs []BuildingBlockDef) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.SetCollapseEmptyElements(true)
 	b.WriteHeader()
@@ -287,8 +291,10 @@ func marshalNewGlossary(defs []BuildingBlockDef) []byte {
 	}
 	b.EndElementLiteral("w", "docParts")
 	b.EndElementLiteral("w", "glossaryDocument")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // spliceDocParts inserts the given building blocks, serialized as w:docPart

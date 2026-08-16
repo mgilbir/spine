@@ -1,5 +1,56 @@
 # Changelog
 
+## Unreleased
+
+No public API change. Everything below is behavioural, and the behaviour it
+changes is what happens to a document this library cannot write back correctly.
+
+### Fixed
+
+- All three formats: a part that cannot be serialized as valid XML now fails the
+  save instead of being written. The Builder refuses an element or attribute name
+  that is not a QName, and refuses to write in a namespace nothing binds; those
+  errors used to be discarded at the call site (`_ = b.Finish()`), so the part
+  went out anyway. That mattered because a part which fails to parse is *absent*
+  rather than an error to the consumer reading it back: the fuzzers found a
+  comment part where one attribute spelled `cre0:0ated` turned 303 comments into
+  2 across a save, silently. The name and namespace rules are now enforced at
+  every writer site rather than one — the literal-replay path composes names
+  through a different function and never saw the guard, which is how
+  `FuzzDocxDocumentPart` found `<w:>` a second time after the first fix.
+- All three formats: a part read off a package must now be well-formed to its
+  end and must bind every prefix it uses. `xmlb.Unmarshal` applied only the first
+  check while `xmlb.UnmarshalWithSource` applied both, so a part parsed through
+  the weaker entry point still reached the writer carrying an unbound prefix.
+- pptx: a comment added, replied to, or resolved in the current session is now
+  visible to everything that reads the deck before it is saved — `Comments()`,
+  `Slide.Text()`, `Presentation.Text()`, `Validate()`, `Duplicate()`,
+  `AppendSlidesFrom` and `ExtractSlides`. Notes behave the same way. Merging from
+  a deck with unsaved comment or notes edits used to import the slide without
+  them: the merge copied the part's serialized bytes, and those had not been
+  written yet.
+- pptx: `Duplicate` retargets the copied thread's `pc:sldMk` anchor on the
+  comment's model, and only inside the anchor marker, rather than by replacing
+  every `sldId="N"` in the part. A comment whose text quoted XML containing that
+  attribute had its text rewritten too.
+
+### Changed
+
+- pptx: comment and notes edits are applied to a parsed model and serialized once
+  at save, which is how docx and xlsx already worked. The setters —
+  `Slide.SetNotes`, `Slide.AddComment`, `Slide.AddCommentAt`, `Comment.Reply`,
+  `Comment.Resolve`, `Comment.SetResolved` — keep the signatures they had in
+  0.2.0 and cannot fail; a part that cannot be written fails the save, which
+  refuses to produce the package. The previous arrangement re-serialized inside
+  the setter, so a caller who did not check its error got a *successful* save of
+  a file missing the edit.
+
+### Added
+
+- `common/xml`: `IsQName` and `IsNCName` (XML Namespaces §3 name predicates), plus
+  `RootAttrsBindPrefix` and `FreeRootPrefix` for callers that must add a
+  declaration a source did not carry without stealing a prefix it already bound.
+
 ## 0.2.0 - 2026-08-06
 
 Since 0.1.0 the tree has taken two adversarial-audit remediation waves: the

@@ -1052,6 +1052,7 @@ func checkNotesSurviveARewrite(t *testing.T, pkg []byte) {
 	// wrote names in namespaces the source root had not declared; both are now
 	// assertions.
 	part := slides[0].notesSlidePartName()
+	flushForInspection(t, p)
 	rewritten := p.rawPartData(part)
 	if !hasDrawingMLText(rewritten) {
 		t.Fatalf("rewritten %s carries no DrawingML text, so its notes cannot be read back:\n%s", part, rewritten)
@@ -1550,6 +1551,10 @@ func TestNotesRewriteBindsTheDrawingMLPrefix(t *testing.T) {
 	slide.SetNotes(written)
 
 	part := slide.notesSlidePartName()
+	// Without the flush this reads the bytes the source handed us, not the
+	// rewrite — and those are well-formed, so the check would pass by looking at
+	// the wrong thing.
+	flushForInspection(t, p)
 	if !namespaceWellFormed(p.rawPartData(part)) {
 		t.Errorf("rewritten %s is not namespace well-formed:\n%s", part, p.rawPartData(part))
 	}

@@ -498,7 +498,7 @@ func TestC525_ModernCommentPreservesEmptyReplyLstAndAuthorAttrs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	got := string(part.Marshal())
+	got := string(mustMarshal(t, part))
 	if !strings.Contains(got, "replyLst") {
 		t.Errorf("empty <p188:replyLst/> deleted on re-marshal: %s", got)
 	}
@@ -513,7 +513,7 @@ func TestC525_ModernAuthorDoesNotInventEmptyAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	got := string(lst.Marshal())
+	got := string(mustMarshal(t, lst))
 	for _, unwanted := range []string{`initials=""`, `userId=""`, `providerId=""`} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("re-marshal invented %s: %s", unwanted, got)
@@ -533,7 +533,7 @@ func TestC525_ModernAuthorKeepsSourceAttributeOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	got := string(lst.Marshal())
+	got := string(mustMarshal(t, lst))
 	if !strings.Contains(got, `name="Ada" initials="AL" id="{A}" providerId="AD" userId="u@x"`) {
 		t.Errorf("author attribute order not preserved: %s", got)
 	}
@@ -542,8 +542,18 @@ func TestC525_ModernAuthorKeepsSourceAttributeOrder(t *testing.T) {
 // A library-created author (no capture) still takes the canonical form.
 func TestC525_ProgrammaticAuthorKeepsCanonicalForm(t *testing.T) {
 	lst := &ModernAuthorList{Authors: []*ModernAuthor{{ID: "{A}", Name: "Ada"}}}
-	got := string(lst.Marshal())
+	got := string(mustMarshal(t, lst))
 	if !strings.Contains(got, `initials=""`) {
 		t.Errorf("programmatic author lost the canonical attribute set: %s", got)
 	}
+}
+
+// mustMarshal serializes a part, failing the test when the Builder refuses.
+func mustMarshal(t *testing.T, m interface{ Marshal() ([]byte, error) }) []byte {
+	t.Helper()
+	data, err := m.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	return data
 }

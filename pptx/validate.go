@@ -305,8 +305,11 @@ func (p *Presentation) validateCommentAuthors(c *validate.Collector) {
 					}
 				}
 			case opc.RelTypeModernComments:
-				part, err := oxml.ParseModernCommentPart(p.rawPartData(target))
-				if err != nil || part.Comment == nil {
+				// The model, not the bytes: the pre-save gate has to see the
+				// thread as it will be written, and a thread added or replied to
+				// this session has not been serialized yet.
+				part := p.commentModel(target)
+				if part == nil || part.Comment == nil {
 					continue
 				}
 				ids := []string{part.Comment.AuthorID}

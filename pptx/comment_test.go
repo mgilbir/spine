@@ -339,6 +339,7 @@ func TestModifyModernThreadPreservesRawChildren(t *testing.T) {
 	top.SetResolved(false)            // was resolved in the fixture
 	top.Reply("Grace Hopper", "Ping") // add a second reply
 
+	flushForInspection(t, p)
 	raw := string(p.otherParts["/ppt/comments/modernComment1.xml"].Data)
 	for _, want := range []string{
 		"pc:sldMkLst", `sldId="256"`, // anchor marker preserved
@@ -390,6 +391,7 @@ func TestResolveCommentParsedWithoutStatusSurvivesSave(t *testing.T) {
 	if !c.Resolved() {
 		t.Fatal("SetResolved(true) did not take on the handle")
 	}
+	flushForInspection(t, rp)
 	if raw := rp.otherParts[c.partName]; raw == nil {
 		t.Fatalf("no thread part at %s", c.partName)
 	} else if !bytes.Contains(raw.Data, []byte(`status="resolved"`)) {

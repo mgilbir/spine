@@ -126,14 +126,25 @@ func NewDecoder(r io.Reader) *xml.Decoder {
 // CharsetReader installed so a non-UTF-8 charset declaration in the prolog is
 // honored rather than rejected.
 //
-// Unlike [xml.Unmarshal] it also requires the document to end after the root
-// element — see [CheckDocumentEnd] for why the difference matters.
+// Unlike [xml.Unmarshal] it also requires the document to be well-formed to its
+// end and to bind every prefix it uses — see [CheckDocumentEnd] and
+// [CheckNamespacePrefixes] for why the difference matters.
+//
+// The two checks are applied together, and by both part-level entry points.
+// They were not, once: this one took only CheckDocumentEnd while
+// UnmarshalWithSource took both, and a part parsed through the weaker entry
+// point still reached the writer carrying a prefix nothing declared
+// (FuzzPptxModernCommentXML). Two entry points enforcing different rules is one
+// rule and one hole.
 func Unmarshal(data []byte, v any) error {
 	d := NewDecoder(bytes.NewReader(data))
 	if err := d.Decode(v); err != nil {
 		return err
 	}
-	return CheckDocumentEnd(d)
+	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	return CheckNamespacePrefixes(data)
 }
 
 // latin1Table maps each ISO-8859-1 byte to its Unicode code point: the

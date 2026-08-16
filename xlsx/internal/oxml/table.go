@@ -157,7 +157,7 @@ func onOffPtr(v *string) bool {
 // tables created (or modified) this session go through here; tables loaded from
 // an opened workbook round-trip as their original bytes, so this need not
 // reproduce every producer's formatting.
-func MarshalTable(t *CT_Table) []byte {
+func MarshalTable(t *CT_Table) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(nsSpreadsheetML, "")
 	b.WriteHeader()
@@ -230,6 +230,8 @@ func MarshalTable(t *CT_Table) []byte {
 	}
 
 	b.EndElement(nsSpreadsheetML, "table")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }

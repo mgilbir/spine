@@ -349,13 +349,19 @@ func (d *Document) writeFramesetPart(writer *opc.Writer) error {
 	// seeding relationship ids past the ones already on the part.
 	seed := maxRelIDNumber(d.relationships[wsName])
 	var frameRels []*opc.Relationship
-	fragment := marshalFramesetFragment(wPrefix, rPrefix, *d.pendingFrameset, &seed, &frameRels)
+	fragment, err := marshalFramesetFragment(wPrefix, rPrefix, *d.pendingFrameset, &seed, &frameRels)
+	if err != nil {
+		return fmt.Errorf("docx: marshaling the frameset: %w", err)
+	}
 
 	var data []byte
 	if raw == nil {
-		data = marshalNewWebSettings(wPrefix, rPrefix, fragment)
+		data, err = marshalNewWebSettings(wPrefix, rPrefix, fragment)
 	} else {
-		data = buildExistingWebSettings(raw, fragment, wPrefix, rPrefix, rDeclared, len(frameRels) > 0)
+		data, err = buildExistingWebSettings(raw, fragment, wPrefix, rPrefix, rDeclared, len(frameRels) > 0)
+	}
+	if err != nil {
+		return fmt.Errorf("docx: marshaling webSettings.xml: %w", err)
 	}
 	if err := writer.WritePart(wsName, opc.ContentTypeDocWebSettings, data); err != nil {
 		return err
@@ -394,12 +400,14 @@ func maxRelIDNumber(rels []*opc.Relationship) int {
 // marshalFramesetFragment serializes a frameset subtree (no XML header, no root
 // element) and appends a frame relationship for every frame that names a source,
 // allocating ids from *counter.
-func marshalFramesetFragment(wPrefix, rPrefix string, def FramesetDef, counter *int, rels *[]*opc.Relationship) []byte {
+func marshalFramesetFragment(wPrefix, rPrefix string, def FramesetDef, counter *int, rels *[]*opc.Relationship) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.SetCollapseEmptyElements(true)
 	writeFrameset(b, wPrefix, rPrefix, def, counter, rels)
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // writeFrameset serializes a w:frameset element under wPrefix, following the
@@ -465,7 +473,7 @@ func writeFrame(b *xmlb.Builder, wPrefix, rPrefix string, fr FrameDef, counter *
 
 // marshalNewWebSettings builds a fresh web-settings part whose only content is
 // the given frameset fragment.
-func marshalNewWebSettings(wPrefix, rPrefix string, fragment []byte) []byte {
+func marshalNewWebSettings(wPrefix, rPrefix string, fragment []byte) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.WriteHeader()
 	b.StartElementLiteral(wPrefix, "webSettings", nil,
@@ -474,8 +482,10 @@ func marshalNewWebSettings(wPrefix, rPrefix string, fragment []byte) []byte {
 	)
 	b.WriteRaw(fragment)
 	b.EndElementLiteral(wPrefix, "webSettings")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // buildExistingWebSettings splices the frameset fragment into an existing
@@ -483,7 +493,7 @@ func marshalNewWebSettings(wPrefix, rPrefix string, fragment []byte) []byte {
 // inserting one as the first child, and injecting an xmlns:r declaration on the
 // root when frames need it and the part lacks one. Every other byte is
 // preserved. A self-closing (empty) root falls back to a freshly generated part.
-func buildExistingWebSettings(raw, fragment []byte, wPrefix, rPrefix string, rDeclared, hasFrames bool) []byte {
+func buildExistingWebSettings(raw, fragment []byte, wPrefix, rPrefix string, rDeclared, hasFrames bool) ([]byte, error) {
 	_, gt, selfClosing, ok := rootStartTagBounds(raw)
 	if !ok || selfClosing {
 		return marshalNewWebSettings(wPrefix, rPrefix, fragment)
@@ -494,11 +504,11 @@ func buildExistingWebSettings(raw, fragment []byte, wPrefix, rPrefix string, rDe
 		root = spliceRange(raw, gt, gt, decl)
 	}
 	if s, e, found := framesetSpan(root); found {
-		return spliceRange(root, s, e, fragment)
+		return spliceRange(root, s, e, fragment), nil
 	}
 	_, gt2, _, _ := rootStartTagBounds(root)
 	insert := gt2 + 1
-	return spliceRange(root, insert, insert, fragment)
+	return spliceRange(root, insert, insert, fragment), nil
 }
 
 // spliceRange returns raw with the byte range [s,e) replaced by ins.

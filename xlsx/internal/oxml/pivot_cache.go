@@ -209,7 +209,7 @@ const (
 // MarshalPivotCacheDefinition serializes a pivot cache definition. recordsRID
 // is the relationship id (in the cache definition's .rels) that points at the
 // records part.
-func MarshalPivotCacheDefinition(def *CT_PivotCacheDefinition, recordsRID string) []byte {
+func MarshalPivotCacheDefinition(def *CT_PivotCacheDefinition, recordsRID string) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(nsSpreadsheetML, "")
 	b.RegisterNamespace(nsR, "r")
@@ -245,8 +245,10 @@ func MarshalPivotCacheDefinition(def *CT_PivotCacheDefinition, recordsRID string
 	b.EndElement(nsSpreadsheetML, "cacheFields")
 
 	b.EndElement(nsSpreadsheetML, "pivotCacheDefinition")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 func marshalCacheField(b *xmlb.Builder, cf *CT_CacheField) {
@@ -395,7 +397,7 @@ type PivotRecordValue struct {
 }
 
 // MarshalPivotCacheRecords serializes the pivot cache records part.
-func MarshalPivotCacheRecords(records []PivotRecord) []byte {
+func MarshalPivotCacheRecords(records []PivotRecord) ([]byte, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(nsSpreadsheetML, "")
 	b.WriteHeader()
@@ -421,8 +423,10 @@ func MarshalPivotCacheRecords(records []PivotRecord) []byte {
 	}
 
 	b.EndElement(nsSpreadsheetML, "pivotCacheRecords")
-	_ = b.Finish()
-	return b.Bytes()
+	if err := b.Finish(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 // formatFloat renders a float without a trailing ".0" for whole numbers,

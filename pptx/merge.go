@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -89,6 +90,13 @@ func (p *Presentation) AppendSlidesFrom(other *Presentation) error {
 	if other == p {
 		return errors.New("pptx: cannot append a presentation to itself")
 	}
+	// The import copies the source's notes slides and comment threads as bytes,
+	// so the source's deferred edits have to be serialized first. Without this a
+	// slide commented on in this session merged across carrying a comment part
+	// with no bytes in it, and the comment simply was not there on reopen.
+	if err := other.flushPendingParts(); err != nil {
+		return err
+	}
 
 	ctx := newMergeCtx()
 	// Carry the notes master first so the notes slides imported below re-wire
@@ -125,6 +133,11 @@ func (p *Presentation) ExtractSlides(indices []int) (*Presentation, error) {
 		if idx < 0 || idx >= len(p.slides) {
 			return nil, ErrSlideIndex
 		}
+	}
+	// Extraction copies notes and comment parts by their bytes, so this deck's
+	// deferred edits have to be serialized first (see AppendSlidesFrom).
+	if err := p.flushPendingParts(); err != nil {
+		return nil, err
 	}
 
 	out := Create()
@@ -317,20 +330,80 @@ func (p *Presentation) importLegacyCommentAuthors(srcPres *Presentation) {
 
 // rewriteModernCommentSlideID retargets a carried modern comment part's slide
 // anchor (pc:sldMk sldId) from the source slide id to the new slide id, so the
-// imported thread anchors to the slide it now lives on. The sldId attribute is
-// unique to the sldMk within a comment part, so a scoped byte replacement is
-// safe and avoids reparsing the thread.
+// imported thread anchors to the slide it now lives on.
+//
+// The edit is made on the thread's model, and within it only on the anchor
+// marker children — never across the whole part. The attribute was assumed
+// unique to the sldMk, which it is not: a comment whose text quotes some XML
+// containing sldId="256" had that text silently rewritten too, and the marker
+// is not the only child that may carry the attribute.
+//
+// A part that does not parse falls back to the old whole-part replacement.
+// Anchoring an imported thread to the wrong slide is the bug this exists to fix
+// (C414), so on a part this library cannot model it is better to make the
+// imprecise edit than to skip the retarget.
 func (p *Presentation) rewriteModernCommentSlideID(partName string, oldID, newID uint32) {
 	if oldID == newID {
+		return
+	}
+	if model := p.commentModel(partName); model != nil && model.Comment != nil {
+		changed := false
+		for i, raw := range model.Comment.PreChildren {
+			if out, ok := retargetSlideMark(raw, oldID, newID); ok {
+				model.Comment.PreChildren[i] = out
+				changed = true
+			}
+		}
+		if changed {
+			p.markCommentDirty(partName)
+		}
 		return
 	}
 	part, ok := p.otherParts[partName]
 	if !ok || part == nil {
 		return
 	}
+	part.Data = bytes.ReplaceAll(part.Data,
+		[]byte(fmt.Sprintf(`sldId="%d"`, oldID)),
+		[]byte(fmt.Sprintf(`sldId="%d"`, newID)))
+}
+
+// retargetSlideMark rewrites sldId="oldID" to sldId="newID" inside the pc:sldMk
+// start tags of one preserved marker blob, returning the blob unchanged and
+// false when it holds no such marker.
+//
+// Only the bytes of the matching start tag are touched; everything around them
+// is copied through, so a producer's attribute order and spacing survive. Token
+// spans come from the decoder's input offsets because XML tokens are
+// contiguous — the offset after one token is the offset before the next.
+func retargetSlideMark(raw []byte, oldID, newID uint32) ([]byte, bool) {
 	old := []byte(fmt.Sprintf(`sldId="%d"`, oldID))
 	repl := []byte(fmt.Sprintf(`sldId="%d"`, newID))
-	part.Data = bytes.ReplaceAll(part.Data, old, repl)
+
+	dec := xmlb.NewDecoder(bytes.NewReader(raw))
+	var out []byte
+	var copied, prev int64
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			// A blob that stops tokenizing keeps whatever was rewritten before
+			// the bad byte; the rest is copied through untouched.
+			break
+		}
+		cur := dec.InputOffset()
+		if se, ok := tok.(xml.StartElement); ok && se.Name.Local == "sldMk" {
+			if span := raw[prev:cur]; bytes.Contains(span, old) {
+				out = append(out, raw[copied:prev]...)
+				out = append(out, bytes.Replace(span, old, repl, 1)...)
+				copied = cur
+			}
+		}
+		prev = cur
+	}
+	if copied == 0 {
+		return raw, false
+	}
+	return append(out, raw[copied:]...), true
 }
 
 // stripSlideJumpRel removes the relationship id relID from every a:hlinkClick in
