@@ -24,6 +24,11 @@ const (
 // ModernAuthorList models CT_AuthorList (p188:authorLst) in ppt/authors.xml.
 type ModernAuthorList struct {
 	Authors []*ModernAuthor
+	// OriginalRootAttrs is the verbatim root attribute list of a parsed part,
+	// replayed on marshal so the prefixes in every author's preserved inner
+	// content keep meaning what they meant in the source. nil for a list this
+	// library built, which takes the canonical declarations instead.
+	OriginalRootAttrs []xmlb.RootAttr
 }
 
 // ModernAuthor models CT_Author (p188:author).
@@ -104,6 +109,12 @@ type ModernReply struct {
 // p188:cmLst containing exactly one p188:cm (a comment thread).
 type ModernCommentPart struct {
 	Comment *ModernComment
+	// OriginalRootAttrs is the verbatim root attribute list of a parsed part.
+	// The comment's anchor markers, body and extLst are all preserved as raw
+	// bytes, and raw bytes carry a prefix rather than a namespace: replacing the
+	// declarations above them would change what they mean without touching them.
+	// nil for a part this library built.
+	OriginalRootAttrs []xmlb.RootAttr
 }
 
 // ParseModernCommentPart decodes a modernComment part.
@@ -116,14 +127,47 @@ type ModernCommentPart struct {
 // byte, and a comment part that fails to parse is absent rather than an error
 // (FuzzPptxModernCommentXML).
 func ParseModernCommentPart(data []byte) (*ModernCommentPart, error) {
-	var lst struct {
-		XMLName xml.Name
-		CM      *ModernComment `xml:"http://schemas.microsoft.com/office/powerpoint/2018/8/main cm"`
-	}
+	var lst modernCommentRoot
 	if err := xmlb.Unmarshal(data, &lst); err != nil {
 		return nil, err
 	}
-	return &ModernCommentPart{Comment: lst.CM}, nil
+	return &ModernCommentPart{Comment: lst.CM, OriginalRootAttrs: lst.RootAttrs}, nil
+}
+
+// modernCommentRoot decodes p188:cmLst, capturing the root's declarations
+// alongside the thread so the marshaler can replay them.
+type modernCommentRoot struct {
+	CM        *ModernComment
+	RootAttrs []xmlb.RootAttr
+}
+
+func (r *modernCommentRoot) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	// CaptureAttrs, not CaptureAttrsSource: the structured form re-renders each
+	// declaration rather than replaying source bytes, which keeps the attribute
+	// name guard on the writing path.
+	r.RootAttrs = xmlb.CaptureAttrs(start.Attr)
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Space == nsP188 && t.Name.Local == "cm" {
+				cm := &ModernComment{}
+				if err := cm.UnmarshalXML(d, t); err != nil {
+					return err
+				}
+				r.CM = cm
+			} else if err := d.Skip(); err != nil {
+				return err
+			}
+		case xml.EndElement:
+			if t.Name == start.Name {
+				return nil
+			}
+		}
+	}
 }
 
 // ParseModernAuthorList decodes ppt/authors.xml.
@@ -138,6 +182,9 @@ func ParseModernAuthorList(data []byte) (*ModernAuthorList, error) {
 // UnmarshalXML decodes p188:authorLst, capturing every author's known and
 // unknown attributes plus any inner content.
 func (l *ModernAuthorList) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	// See ModernAuthorList.OriginalRootAttrs: an author's RawInner is replayed
+	// verbatim, so the declarations it resolves against have to come back too.
+	l.OriginalRootAttrs = xmlb.CaptureAttrs(start.Attr)
 	for {
 		tok, err := d.Token()
 		if err != nil {
