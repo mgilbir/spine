@@ -310,12 +310,34 @@ func writeNoteValElem(buf *bytes.Buffer, local, v string) {
 // preserveNoteExtraChildren re-emits every child of a note-properties element
 // that is not a numbering element (i.e. separator w:footnote references),
 // keeping their attributes so a numbering edit does not drop the separators.
+// preserveNoteExtraChildren returns the children of a note-properties element
+// that the numbering rewrite does not own — the separator footnote references,
+// and anything else the producer put there — copied verbatim from the source.
+//
+// Copied, not re-synthesized. This used to rebuild each child by concatenating
+// "<w:" with the local name the decoder reported, which went wrong twice over.
+// A name is not always something that can be pasted after a prefix: a source
+// element written <:pos/> is reported with the local name ":pos", so the output
+// was <w::pos/>, which has two colons, is not a QName, and does not parse — the
+// library emitting a settings part it cannot read back (FuzzDocxSettingsXML).
+// And forcing "w:" onto every child moved any child in another namespace into
+// WordprocessingML, the same silent re-homing the comment parts had.
+//
+// Copying the source bytes has neither problem: the name, its prefix, the
+// attributes and their order all survive exactly, and a child in another
+// namespace stays in it. The prefixes resolve because the bytes are spliced back
+// into the same part, whose root declarations are replayed from the same source.
+// A source that was already namespace-invalid stays exactly as invalid as it
+// was, which is the difference between preserving a defect and creating one.
 func preserveNoteExtraChildren(raw []byte) []byte {
 	if len(raw) == 0 {
 		return nil
 	}
 	var buf bytes.Buffer
 	dec := xml.NewDecoder(bytes.NewReader(raw))
+	// XML tokens are contiguous, so the offset after one token is the offset of
+	// the next: prev holds the '<' of the element about to be read.
+	var prev int64
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -323,24 +345,20 @@ func preserveNoteExtraChildren(raw []byte) []byte {
 		}
 		se, ok := tok.(xml.StartElement)
 		if !ok {
+			prev = dec.InputOffset()
 			continue
 		}
-		if noteNumberingChildren[se.Name.Local] {
-			continue
+		start := prev
+		// Skip consumes the element's whole subtree, so a child with content is
+		// carried across intact rather than flattened to an empty tag.
+		if err := dec.Skip(); err != nil {
+			break
 		}
-		buf.WriteString("<w:")
-		buf.WriteString(se.Name.Local)
-		for _, a := range se.Attr {
-			if a.Name.Local == "xmlns" || a.Name.Space == "xmlns" {
-				continue
-			}
-			buf.WriteString(` w:`)
-			buf.WriteString(a.Name.Local)
-			buf.WriteString(`="`)
-			buf.WriteString(xmlb.EscapeAttrValue(a.Value))
-			buf.WriteString(`"`)
+		end := dec.InputOffset()
+		if !noteNumberingChildren[se.Name.Local] {
+			buf.Write(raw[start:end])
 		}
-		buf.WriteString("/>")
+		prev = end
 	}
 	return buf.Bytes()
 }
