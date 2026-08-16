@@ -126,13 +126,8 @@ func TestCommentsAddReplyResolve(t *testing.T) {
 	doc := Create()
 	p := doc.AddParagraphWithText("The quick brown fox")
 	c := p.AddComment("Reviewer One", "Please rephrase this.")
-	reply, err := c.Reply("Reviewer Two", "Agreed, will fix.")
-	if err != nil {
-		t.Fatalf("Reply: %v", err)
-	}
-	if err := reply.Resolve(); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
+	reply := c.Reply("Reviewer Two", "Agreed, will fix.")
+	reply.Resolve()
 
 	saved := saveDoc(t, doc)
 

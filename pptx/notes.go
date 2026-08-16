@@ -1,11 +1,9 @@
 package pptx
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/mgilbir/spine/common/dml"
-	coxml "github.com/mgilbir/spine/common/oxml"
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
@@ -31,35 +29,20 @@ func (s *Slide) Notes() string {
 // notes slide is preserved. Otherwise a new notesSlide part is created (wired to
 // the slide, and to the notes master when the deck has one) and registered so it
 // is written on the next save.
-func (s *Slide) SetNotes(text string) error {
+func (s *Slide) SetNotes(text string) {
 	p := s.presentation
-	// The notes slide is a preserved raw part rewritten here and then written
-	// out verbatim, so the edit persists with no flag — and nothing else would
-	// record that the deck changed.
+	// The notes slide is a preserved raw part rewritten from this model and then
+	// written out verbatim, so the edit persists with no flag — and nothing else
+	// would record that the deck changed.
 	p.markModelEdited()
 	if ns, partName := s.loadNotesSlide(); ns != nil {
 		setNotesBodyText(ns, text)
-		data, err := marshalNotesSlide(ns)
-		if err != nil {
-			return fmt.Errorf("pptx: marshaling the notes slide: %w", err)
-		}
-		p.otherParts[partName] = &coxml.RawPart{
-			ContentType: opc.ContentTypeNotesSlide,
-			Data:        data,
-		}
-		return nil
-	}
-
-	fresh, err := marshalNotesSlide(newNotesSlideModel(text))
-	if err != nil {
-		return fmt.Errorf("pptx: marshaling the notes slide: %w", err)
+		p.markNotesDirty(partName)
+		return
 	}
 
 	partName := p.nextAvailableNotesName()
-	p.otherParts[partName] = &coxml.RawPart{
-		ContentType: opc.ContentTypeNotesSlide,
-		Data:        fresh,
-	}
+	p.putNotesModel(partName, newNotesSlideModel(text))
 
 	// slide -> notesSlide relationship.
 	p.relationships[s.partName] = append(p.relationships[s.partName], &opc.Relationship{
@@ -85,28 +68,24 @@ func (s *Slide) SetNotes(text string) error {
 		})
 	}
 	p.relationships[partName] = notesRels
-	return nil
 }
 
-// loadNotesSlide finds and parses the slide's notes slide part, returning the
-// parsed model and its part name, or (nil, "") when there is no notes slide.
+// loadNotesSlide resolves the slide's notes slide part and returns its model and
+// part name, or (nil, "") when there is no notes slide or it does not parse.
+//
+// The model comes from the presentation's registry, not from a fresh parse of
+// the part bytes: an edit made by SetNotes lives in that model until the save
+// flushes it, so re-parsing here would read back the state before the edit.
 func (s *Slide) loadNotesSlide() (*oxml.NotesSlide, string) {
 	partName := s.notesSlidePartName()
 	if partName == "" {
 		return nil, ""
 	}
-	data := s.presentation.rawPartData(partName)
-	if data == nil {
+	ns := s.presentation.notesModel(partName)
+	if ns == nil {
 		return nil, ""
 	}
-	var ns oxml.NotesSlide
-	// UnmarshalWithSource registers the raw bytes so the root attribute capture
-	// (and the capture kit below it) can recover the producer's verbatim
-	// rendering rather than a re-synthesized one.
-	if err := xmlb.UnmarshalWithSource(data, &ns); err != nil {
-		return nil, ""
-	}
-	return &ns, partName
+	return ns, partName
 }
 
 // notesSlidePartName resolves the slide's notesSlide relationship to a part

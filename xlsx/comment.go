@@ -555,9 +555,9 @@ func (c *Comment) SetRichText(runs []TextRun) {
 // new reply. It is a no-op returning nil for a legacy note, which has no
 // thread. Replies are stored flat with the thread root as parent, matching
 // Excel.
-func (c *Comment) Reply(author, text string) (*Comment, error) {
+func (c *Comment) Reply(author, text string) *Comment {
 	if !c.threaded || c.sheet == nil {
-		return nil, nil
+		return nil
 	}
 	s := c.sheet
 	s.loadComments()
@@ -591,18 +591,18 @@ func (c *Comment) Reply(author, text string) (*Comment, error) {
 		parent:   c,
 	}
 	c.replies = append(c.replies, reply)
-	return reply, nil
+	return reply
 }
 
 // Resolve marks the comment's thread resolved (done). Equivalent to
 // SetResolved(true).
-func (c *Comment) Resolve() error { return c.SetResolved(true) }
+func (c *Comment) Resolve() { c.SetResolved(true) }
 
 // SetResolved sets the resolved (done) state of the comment's thread. It is a
 // no-op for a legacy note.
-func (c *Comment) SetResolved(resolved bool) error {
+func (c *Comment) SetResolved(resolved bool) {
 	if !c.threaded || c.sheet == nil {
-		return nil
+		return
 	}
 	s := c.sheet
 	s.loadComments()
@@ -621,7 +621,6 @@ func (c *Comment) SetResolved(resolved bool) error {
 	}
 	c.resolved = resolved
 	s.markCommentsDirty()
-	return nil
 }
 
 // markCommentsDirty flags the sheet's comment model as modified so save

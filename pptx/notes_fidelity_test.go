@@ -84,9 +84,7 @@ const notesWithAlternateContent = `<?xml version="1.0" encoding="UTF-8" standalo
 func TestSetNotes_PreservesNotesRootDeclarations(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()
-	if err := s.SetNotes("original"); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	s.SetNotes("original")
 	base, err := p.SaveBytes()
 	if err != nil {
 		t.Fatal(err)
@@ -103,9 +101,7 @@ func TestSetNotes_PreservesNotesRootDeclarations(t *testing.T) {
 	if got := slides[0].Notes(); got != "original" {
 		t.Fatalf("seeded notes text = %q", got)
 	}
-	if err := slides[0].SetNotes("updated"); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	slides[0].SetNotes("updated")
 
 	out, err := reopened.SaveBytes()
 	if err != nil {

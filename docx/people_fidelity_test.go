@@ -56,8 +56,8 @@ func TestReplyByKnownAuthorLeavesPeopleAlone(t *testing.T) {
 	if len(comments) != 1 {
 		t.Fatalf("got %d comments, want 1", len(comments))
 	}
-	if c, err := comments[0].Reply("Ann", "reply text"); err != nil || c == nil {
-		t.Fatalf("Reply: %v (comment %v)", err, c)
+	if c := comments[0].Reply("Ann", "reply text"); c == nil {
+		t.Fatal("Reply returned nil")
 	}
 	saved := saveDoc(t, doc)
 	orig := mustZipEntry(t, fixture, "word/people.xml")
@@ -72,8 +72,8 @@ func TestReplyByKnownAuthorLeavesPeopleAlone(t *testing.T) {
 // parse and then never replayed.
 func TestNewAuthorPreservesCapturedPersonAttrs(t *testing.T) {
 	doc := openFixture(t, peopleFixture(t))
-	if c, err := doc.Comments()[0].Reply("Bob", "reply text"); err != nil || c == nil {
-		t.Fatalf("Reply: %v (comment %v)", err, c)
+	if c := doc.Comments()[0].Reply("Bob", "reply text"); c == nil {
+		t.Fatal("Reply returned nil")
 	}
 	people := mustZipEntry(t, saveDoc(t, doc), "word/people.xml")
 	if !strings.Contains(people, `w15:custom="keep-me"`) {

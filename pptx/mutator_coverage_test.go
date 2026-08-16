@@ -65,9 +65,9 @@ var mutatorExemptions = map[string]string{
 	// Not document mutations.
 	"Presentation.EmbedTrueTypeFonts": "getter for the p:presentation flag; the mutator is SetEmbedTrueTypeFonts",
 	"Presentation.ExtractSlides":      "builds and returns a NEW deck; the receiver is only read",
-	"Table.SyncXML":                   "explicit early flush of edits already made; the edits themselves are what flag",
-	"Picture.SetImagePath":            "records the label ImagePath returns; documented as not changing the picture (use SetImage)",
-	"Animation.SetByParagraph":        "documented no-op on an animation read back from a file, where the handle is not editable",
+	"Table.SyncXML":              "explicit early flush of edits already made; the edits themselves are what flag",
+	"Picture.SetImagePath":       "records the label ImagePath returns; documented as not changing the picture (use SetImage)",
+	"Animation.SetByParagraph":   "documented no-op on an animation read back from a file, where the handle is not editable",
 
 	// Need a real argument the synthesizer cannot invent. Each is covered by a
 	// hand-written case in TestMutatorsNeedingRealArguments below.
@@ -92,13 +92,13 @@ var mutatorExemptions = map[string]string{
 // instance must be a pure read: the driver asserts contentChanged is false
 // after navigation, so a getter that marks the deck edited fails here.
 var receiverProviders = map[string]func(t *testing.T, p *Presentation) any{
-	"Presentation":    func(t *testing.T, p *Presentation) any { return p },
-	"Slide":           func(t *testing.T, p *Presentation) any { return p.Slides()[0] },
-	"SlideMaster":     func(t *testing.T, p *Presentation) any { return p.SlideMasters()[0] },
-	"SlideLayout":     func(t *testing.T, p *Presentation) any { return p.SlideLayouts()[0] },
-	"MasterTextStyle": func(t *testing.T, p *Presentation) any { return p.SlideMasters()[0].TitleStyle() },
-	"Section":         func(t *testing.T, p *Presentation) any { return p.Sections()[0] },
-	"Comment":         func(t *testing.T, p *Presentation) any { return p.Slides()[0].Comments()[0] },
+	"Presentation":     func(t *testing.T, p *Presentation) any { return p },
+	"Slide":            func(t *testing.T, p *Presentation) any { return p.Slides()[0] },
+	"SlideMaster":      func(t *testing.T, p *Presentation) any { return p.SlideMasters()[0] },
+	"SlideLayout":      func(t *testing.T, p *Presentation) any { return p.SlideLayouts()[0] },
+	"MasterTextStyle":  func(t *testing.T, p *Presentation) any { return p.SlideMasters()[0].TitleStyle() },
+	"Section":          func(t *testing.T, p *Presentation) any { return p.Sections()[0] },
+	"Comment":          func(t *testing.T, p *Presentation) any { return p.Slides()[0].Comments()[0] },
 	"EditablePlaceholder": func(t *testing.T, p *Presentation) any {
 		return p.SlideLayouts()[0].EditablePlaceholders()[0]
 	},
@@ -190,9 +190,7 @@ func mutatorFixture(t *testing.T) []byte {
 		t.Fatalf("AddShape group: %v", err)
 	}
 
-	if _, err := s.AddComment("Ada Lovelace", "note"); err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
+	s.AddComment("Ada Lovelace", "note")
 	p.AddSection("Intro").AddSlide(s)
 	// Furniture, so the Clear* furniture mutators have something to clear.
 	p.SetSlideFooter("Confidential")

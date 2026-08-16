@@ -77,9 +77,7 @@ func buildRichDocxFuzzSeed(f testing.TB) []byte {
 	run.AddFootnote("a footnote body")
 	run.AddEndnote("an endnote body")
 	c := host.AddComment("Fuzz Author", "a comment body")
-	if _, err := c.Reply("Second Author", "a reply body"); err != nil {
-		f.Fatalf("Reply: %v", err)
-	}
+	c.Reply("Second Author", "a reply body")
 
 	// A numbering definition with two levels and two paragraphs using it, so
 	// the body carries numPr references into numbering.xml.
@@ -1440,7 +1438,7 @@ func FuzzDocxCommentsXML(f *testing.F) {
 		var before map[string]commentFacts
 		commentThreadBudget.Check(t, len(pkg), func() {
 			before = commentSnapshot(d)
-			mutateComments(t, d)
+			mutateComments(d)
 		})
 		walkDocument(d)
 		codesBefore := validationCodes(d)
@@ -1488,7 +1486,7 @@ func FuzzDocxCommentsXML(f *testing.F) {
 		}
 		assertNoNewDefects(t, codesBefore, validationCodes(d2), "comments round trip")
 
-		mutateComments(t, d2)
+		mutateComments(d2)
 		second, err := d2.SaveBytes()
 		if err != nil {
 			t.Fatalf("re-saving a package this library just wrote failed: %v", err)
@@ -1504,22 +1502,18 @@ func FuzzDocxCommentsXML(f *testing.F) {
 // thread root: SetResolved walks the thread from whichever comment it is handed,
 // and the walk from a reply takes a different path (up to the root, then back
 // down) than the walk from a root.
-func mutateComments(t *testing.T, d *Document) {
+func mutateComments(d *Document) {
 	for i, c := range d.Comments() {
 		if i >= 256 {
 			break
 		}
-		if err := c.SetResolved(true); err != nil {
-			t.Fatalf("SetResolved: %v", err)
-		}
+		c.SetResolved(true)
 		c.SetInitials("FZ")
 		for j, r := range c.Replies() {
 			if j >= 16 {
 				break
 			}
-			if err := r.SetResolved(true); err != nil {
-				t.Fatalf("SetResolved on a reply: %v", err)
-			}
+			r.SetResolved(true)
 			r.SetInitials("FZ")
 		}
 	}

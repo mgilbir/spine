@@ -139,9 +139,17 @@ type Presentation struct {
 
 	// modernAuthors caches the parsed ppt/authors.xml (the shared threaded
 	// comment author list). It is loaded lazily and, once a comment write adds
-	// an author, re-marshaled back into otherParts.
+	// an author, re-marshaled back into otherParts by the flush.
 	modernAuthors       *oxml.ModernAuthorList
 	modernAuthorsLoaded bool
+	modernAuthorsDirty  bool
+
+	// notesModels and commentModels hold the parsed notes slides and modern
+	// comment threads, keyed by part name. They are the in-session source of
+	// truth for those two part kinds: a setter edits the model and the flush at
+	// save turns it back into bytes. See partmodels.go.
+	notesModels   map[string]*notesEntry
+	commentModels map[string]*commentEntry
 
 	// dirEntries preserves the source archive's zip directory entries
 	// (Reader.DirectoryEntries) so a round-trip save re-emits them.
@@ -818,6 +826,15 @@ func (p *Presentation) SaveTo(dst io.Writer) error {
 // validation pass. Prefer SaveTo; use this only when a finding is known to be
 // advisory for the caller's use case.
 func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
+	// Serialize the notes slides and comment threads edited this session back
+	// into otherParts, which both save paths write from. This is where a
+	// deferred edit becomes output, and where a part that cannot be written —
+	// a name no namespace-aware reader would accept, carried in from a wild
+	// source — fails the save instead of being written unparseable (see
+	// partmodels.go).
+	if err := p.flushPendingParts(); err != nil {
+		return err
+	}
 	// Fold any theme edit back into the preserved theme bytes before either
 	// save path reads themeData. Both paths write theme parts straight from
 	// that map, so this is the single point where a Theme() edit becomes
@@ -2786,6 +2803,10 @@ func (p *Presentation) markPartRemoved(name string) {
 		p.removedParts = make(map[string]bool)
 	}
 	p.removedParts[name] = true
+	// Drop any parsed model for the part too. A dirty one would otherwise be
+	// re-serialized by the flush and put the part back after the delete removed
+	// it, and a clean one would answer reads for whatever later takes the name.
+	p.forgetPartModel(name)
 }
 
 // MoveSlide moves a slide from one position to another.

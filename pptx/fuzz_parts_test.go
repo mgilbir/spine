@@ -79,23 +79,12 @@ func buildFuzzDeck(tb testing.TB) []byte {
 
 	s1 := p.AddSlide()
 	s1.AddTextBox().TextFrame().SetText("first slide")
-	if err := s1.SetNotes("speaker notes for slide one"); err != nil {
-		tb.Fatalf("building fuzz deck: SetNotes: %v", err)
-	}
-	c, err := s1.AddComment("Alice Author", "the original comment")
-	if err != nil {
-		tb.Fatalf("building fuzz deck: AddComment: %v", err)
-	}
-	r, err := c.Reply("Bob Reader", "a threaded reply")
-	if err != nil {
-		tb.Fatalf("building fuzz deck: Reply: %v", err)
-	}
-	if r == nil {
+	s1.SetNotes("speaker notes for slide one")
+	c := s1.AddComment("Alice Author", "the original comment")
+	if r := c.Reply("Bob Reader", "a threaded reply"); r == nil {
 		tb.Fatal("building fuzz deck: Reply returned nil, so the fixture has no threaded reply")
 	}
-	if err := c.SetResolved(true); err != nil {
-		tb.Fatalf("building fuzz deck: SetResolved: %v", err)
-	}
+	c.SetResolved(true)
 
 	s2 := p.AddSlide()
 	s2.AddTextBox().TextFrame().SetText("second slide")
@@ -750,9 +739,7 @@ func checkCommentsSurviveARewrite(t *testing.T, pkg []byte) {
 	for _, s := range p.Slides() {
 		for _, c := range s.Comments() {
 			was := c.Resolved()
-			if err := c.SetResolved(!was); err != nil {
-				t.Fatalf("SetResolved: %v", err)
-			}
+			c.SetResolved(!was)
 			if isModern(c) {
 				wantResolved = append(wantResolved, !was)
 			} else {
@@ -920,10 +907,7 @@ func checkAuthorReuse(t *testing.T, pkg []byte) {
 		return
 	}
 	const author = "Alice Author"
-	added, err := slides[0].AddComment(author, "added by the fuzz oracle")
-	if err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
+	added := slides[0].AddComment(author, "added by the fuzz oracle")
 	if added == nil {
 		t.Fatal("AddComment returned nil on a deck with at least one slide")
 	}
@@ -1061,15 +1045,14 @@ func checkNotesSurviveARewrite(t *testing.T, pkg []byte) {
 	notesBefore := p.rawPartData(slides[0].notesSlidePartName())
 
 	const written = "rewritten by the fuzz oracle"
-	if err := slides[0].SetNotes(written); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	slides[0].SetNotes(written)
 
 	// The rewritten part must carry its text in DrawingML, and every element
 	// name in it must resolve. Both were carved out here while the Builder
 	// wrote names in namespaces the source root had not declared; both are now
 	// assertions.
 	part := slides[0].notesSlidePartName()
+	flushForInspection(t, p)
 	rewritten := p.rawPartData(part)
 	if !hasDrawingMLText(rewritten) {
 		t.Fatalf("rewritten %s carries no DrawingML text, so its notes cannot be read back:\n%s", part, rewritten)
@@ -1497,9 +1480,7 @@ func TestKnownDefectSetNotesOverAnUnparseableNotesPart(t *testing.T) {
 
 	slide := p.Slides()[0]
 	const written = "notes written over a broken part"
-	if err := slide.SetNotes(written); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	slide.SetNotes(written)
 
 	notesRels := 0
 	for _, rel := range p.relationships[slide.partName] {
@@ -1567,11 +1548,13 @@ func TestNotesRewriteBindsTheDrawingMLPrefix(t *testing.T) {
 
 	slide := p.Slides()[0]
 	const written = "hello world"
-	if err := slide.SetNotes(written); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	slide.SetNotes(written)
 
 	part := slide.notesSlidePartName()
+	// Without the flush this reads the bytes the source handed us, not the
+	// rewrite — and those are well-formed, so the check would pass by looking at
+	// the wrong thing.
+	flushForInspection(t, p)
 	if !namespaceWellFormed(p.rawPartData(part)) {
 		t.Errorf("rewritten %s is not namespace well-formed:\n%s", part, p.rawPartData(part))
 	}

@@ -25,9 +25,7 @@ func writeTempDeck(t *testing.T, data []byte) string {
 func TestCreateFromTemplate_ClearsSlideRelsAndNotes(t *testing.T) {
 	// Build a template deck whose only slide carries secret speaker notes.
 	tpl := Create()
-	if err := tpl.AddSlide().SetNotes("SECRET template notes"); err != nil {
-		t.Fatalf("SetNotes: %v", err)
-	}
+	tpl.AddSlide().SetNotes("SECRET template notes")
 	tplBytes, err := tpl.SaveBytes()
 	if err != nil {
 		t.Fatal(err)

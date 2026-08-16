@@ -85,12 +85,10 @@ func TestReadLegacyComments(t *testing.T) {
 		t.Errorf("Slide() mismatch")
 	}
 	// Legacy comments cannot be replied to or resolved (documented no-ops).
-	if r, err := c.Reply("Bob", "hi"); err != nil || r != nil {
-		t.Errorf("Reply on legacy comment should return nil, nil; got %v, %v", r, err)
+	if c.Reply("Bob", "hi") != nil {
+		t.Errorf("Reply on legacy comment should return nil")
 	}
-	if err := c.Resolve(); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
+	c.Resolve()
 	if c.Resolved() {
 		t.Errorf("Resolve on legacy comment must be a no-op")
 	}
@@ -149,8 +147,8 @@ func TestMergePreservesCommentAuthor(t *testing.T) {
 	src := Create()
 	ss := src.AddSlide()
 	ss.AddTextBox().TextFrame().SetText("Src")
-	if c, err := ss.AddComment("Grace Hopper", "Please review"); err != nil || c == nil {
-		t.Fatalf("AddComment: %v (comment %v)", err, c)
+	if c := ss.AddComment("Grace Hopper", "Please review"); c == nil {
+		t.Fatal("AddComment returned nil")
 	}
 
 	dst := Create()
@@ -186,23 +184,15 @@ func TestAddModernCommentRoundTrip(t *testing.T) {
 		t.Fatalf("expected no comments initially")
 	}
 
-	c, err := s.AddCommentAt(1000, 2000, "Ada Lovelace", "First note")
-	if err != nil {
-		t.Fatalf("AddCommentAt: %v", err)
-	}
+	c := s.AddCommentAt(1000, 2000, "Ada Lovelace", "First note")
 	if c == nil {
 		t.Fatal("AddCommentAt returned nil")
 	}
-	reply, err := c.Reply("Grace Hopper", "Agreed")
-	if err != nil {
-		t.Fatalf("Reply: %v", err)
-	}
+	reply := c.Reply("Grace Hopper", "Agreed")
 	if reply == nil {
 		t.Fatal("Reply returned nil")
 	}
-	if err := c.Resolve(); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
+	c.Resolve()
 
 	rp := reopen(t, p)
 	rs := firstSlide(t, rp)
@@ -253,16 +243,9 @@ func TestAuthorDedup(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	s := firstSlide(t, p)
-	c1, err := s.AddComment("Ada Lovelace", "one")
-	if err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
-	if _, err := s.AddComment("Ada Lovelace", "two"); err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
-	if _, err := c1.Reply("Ada Lovelace", "three"); err != nil {
-		t.Fatalf("Reply: %v", err)
-	}
+	c1 := s.AddComment("Ada Lovelace", "one")
+	s.AddComment("Ada Lovelace", "two")
+	c1.Reply("Ada Lovelace", "three")
 
 	names := p.modernAuthorNames()
 	if len(names) != 1 {
@@ -292,9 +275,7 @@ func TestAddCommentPreservesContent(t *testing.T) {
 	}
 	notesBefore := bytes.Contains(before, []byte("notesSlide"))
 
-	if _, err := s.AddComment("Reviewer", "please expand this"); err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
+	s.AddComment("Reviewer", "please expand this")
 	rp := reopen(t, p)
 	rs := firstSlide(t, rp)
 
@@ -321,13 +302,8 @@ func TestModernCommentByteIdentical(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	s := firstSlide(t, p)
-	c, err := s.AddComment("Ada Lovelace", "note")
-	if err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
-	if _, err := c.Reply("Grace Hopper", "reply"); err != nil {
-		t.Fatalf("Reply: %v", err)
-	}
+	c := s.AddComment("Ada Lovelace", "note")
+	c.Reply("Grace Hopper", "reply")
 
 	b1, err := p.SaveBytes()
 	if err != nil {
@@ -360,13 +336,10 @@ func TestModifyModernThreadPreservesRawChildren(t *testing.T) {
 	injectSlidePart(p, s, "/ppt/comments/modernComment1.xml", opc.ContentTypeModernComments, opc.RelTypeModernComments, modernThreadXML)
 
 	top := s.Comments()[0]
-	if err := top.SetResolved(false); err != nil { // was resolved in the fixture
-		t.Fatalf("SetResolved: %v", err)
-	}
-	if _, err := top.Reply("Grace Hopper", "Ping"); err != nil { // add a second reply
-		t.Fatalf("Reply: %v", err)
-	}
+	top.SetResolved(false)            // was resolved in the fixture
+	top.Reply("Grace Hopper", "Ping") // add a second reply
 
+	flushForInspection(t, p)
 	raw := string(p.otherParts["/ppt/comments/modernComment1.xml"].Data)
 	for _, want := range []string{
 		"pc:sldMkLst", `sldId="256"`, // anchor marker preserved
@@ -405,9 +378,7 @@ func TestModifyModernThreadPreservesRawChildren(t *testing.T) {
 func TestResolveCommentParsedWithoutStatusSurvivesSave(t *testing.T) {
 	p := Create()
 	s := p.AddSlide()
-	if _, err := s.AddComment("Ada Lovelace", "please review"); err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
+	s.AddComment("Ada Lovelace", "please review")
 
 	// Save and reopen first: the bug needs a comment whose attributes came from
 	// a parse, not one this session built.
@@ -416,12 +387,11 @@ func TestResolveCommentParsedWithoutStatusSurvivesSave(t *testing.T) {
 	if c.Resolved() {
 		t.Fatal("a freshly added comment reports itself resolved")
 	}
-	if err := c.SetResolved(true); err != nil {
-		t.Fatalf("SetResolved: %v", err)
-	}
+	c.SetResolved(true)
 	if !c.Resolved() {
 		t.Fatal("SetResolved(true) did not take on the handle")
 	}
+	flushForInspection(t, rp)
 	if raw := rp.otherParts[c.partName]; raw == nil {
 		t.Fatalf("no thread part at %s", c.partName)
 	} else if !bytes.Contains(raw.Data, []byte(`status="resolved"`)) {
@@ -466,9 +436,7 @@ func TestPresentationComments(t *testing.T) {
 	}
 	for i := 0; i < p.SlideCount(); i++ {
 		s, _ := p.Slide(i)
-		if _, err := s.AddComment("Author", "c"); err != nil {
-			t.Fatalf("AddComment: %v", err)
-		}
+		s.AddComment("Author", "c")
 	}
 	if got := len(p.Comments()); got != p.SlideCount() {
 		t.Errorf("Presentation.Comments() = %d, want %d", got, p.SlideCount())
@@ -505,9 +473,7 @@ func TestAddComment_NonASCIIAuthorInitials(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	s := firstSlide(t, p)
-	if _, err := s.AddComment("Émile Zola", "un commentaire"); err != nil {
-		t.Fatalf("AddComment: %v", err)
-	}
+	s.AddComment("Émile Zola", "un commentaire")
 
 	rp := reopen(t, p)
 	authors := rp.rawPartData(modernAuthorsPart)

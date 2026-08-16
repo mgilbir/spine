@@ -202,9 +202,7 @@ func TestAddThenRemoveLeavesNoTrace(t *testing.T) {
 					return savePresentation(t, q)
 				}())
 				s := addTextSlide(t, p, "temporary")
-				if err := s.SetNotes("notes that go with the slide"); err != nil {
-					t.Fatalf("SetNotes: %v", err)
-				}
+				s.SetNotes("notes that go with the slide")
 				if _, err := s.AddPictureFromBytes(testImage(t), "image/png"); err != nil {
 					t.Fatalf("AddPictureFromBytes: %v", err)
 				}
@@ -224,9 +222,7 @@ func TestAddThenRemoveLeavesNoTrace(t *testing.T) {
 				p := pptx.Create()
 				addTextSlide(t, p, "keep")
 				s := addTextSlide(t, p, "temporary")
-				if err := s.SetNotes("notes that go with the slide"); err != nil {
-					t.Fatalf("SetNotes: %v", err)
-				}
+				s.SetNotes("notes that go with the slide")
 				if err := p.RemoveSlide(len(p.Slides()) - 1); err != nil {
 					t.Fatalf("RemoveSlide: %v", err)
 				}

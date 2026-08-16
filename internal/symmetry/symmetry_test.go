@@ -56,7 +56,6 @@ import (
 var (
 	tString  = reflect.TypeOf("")
 	tBool    = reflect.TypeOf(true)
-	tError   = reflect.TypeOf((*error)(nil)).Elem()
 	tInt64   = reflect.TypeOf(int64(0))
 	tFloat64 = reflect.TypeOf(float64(0))
 	tBytes   = reflect.TypeOf([]byte(nil))
@@ -117,16 +116,9 @@ var capabilities = []capability{
 			{name: "Resolved", rets: []retSpec{ret(tBool)}},
 			{name: "Replies", rets: []retSpec{retSelfSlice()}},
 			{name: "Parent", rets: []retSpec{retSelf()}},
-			// All three carry an error. Only pptx can actually fail today — it
-			// re-marshals the modern comment part in place, and a part carrying
-			// a name the Builder refuses to write must not be written. docx and
-			// xlsx mutate their model and return nil, which is the price of the
-			// signature being the same in all three: code written against one
-			// format has to compile against the others, which is what this test
-			// exists to hold.
-			{name: "Reply", args: []reflect.Type{tString, tString}, rets: []retSpec{retSelf(), ret(tError)}},
-			{name: "Resolve", rets: []retSpec{ret(tError)}},
-			{name: "SetResolved", args: []reflect.Type{tBool}, rets: []retSpec{ret(tError)}},
+			{name: "Reply", args: []reflect.Type{tString, tString}, rets: []retSpec{retSelf()}},
+			{name: "Resolve"},
+			{name: "SetResolved", args: []reflect.Type{tBool}},
 		},
 		formats: map[string]reflect.Type{
 			"docx": reflect.TypeOf(&docx.Comment{}),

@@ -100,9 +100,7 @@ func buildIncomingDocument(path string) {
 	// the author's reply. Paragraph.AddComment anchors over the whole paragraph.
 	paras := doc.Paragraphs()
 	c := paras[0].AddComment("Carol", "Can you confirm the exact completion date?")
-	if _, err := c.Reply("Alice", "Yes — it finished on the 1st, ahead of the plan."); err != nil {
-		log.Fatalf("Reply: %v", err)
-	}
+	c.Reply("Alice", "Yes — it finished on the 1st, ahead of the plan.")
 
 	// A second, standalone comment on the other paragraph.
 	paras[1].AddComment("Carol", "Nice, the service count is worth calling out.")

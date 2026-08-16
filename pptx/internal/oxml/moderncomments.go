@@ -334,3 +334,27 @@ func (r *ModernReply) decode(d *xml.Decoder, start xml.StartElement) error {
 func ModernCommentText(txBody []byte) string {
 	return joinDrawingText(txBody)
 }
+
+// Text returns the comment's plain body text, from whichever of the two body
+// representations this comment carries: the verbatim txBody of a parsed
+// comment, or the BodyText of one this library created and has not serialized
+// yet (marshal synthesizes the txBody from it).
+//
+// Readers have to ask for the text this way rather than reading TxBody. Reading
+// TxBody alone answered "" for every comment added in the current session,
+// which was invisible while every setter serialized on the spot and the reader
+// re-parsed what it wrote.
+func (c *ModernComment) Text() string {
+	if c.TxBody != nil {
+		return ModernCommentText(c.TxBody)
+	}
+	return c.BodyText
+}
+
+// Text returns the reply's plain body text (see ModernComment.Text).
+func (r *ModernReply) Text() string {
+	if r.TxBody != nil {
+		return ModernCommentText(r.TxBody)
+	}
+	return r.BodyText
+}

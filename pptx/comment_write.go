@@ -8,7 +8,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	coxml "github.com/mgilbir/spine/common/oxml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -27,26 +26,23 @@ const modernCreatedLayout = "2006-01-02T15:04:05.000"
 // is what current PowerPoint writes and the only one that supports replies and
 // resolution — even on a deck whose existing comments are legacy (both
 // mechanisms may coexist in one file).
-func (s *Slide) AddComment(author, text string) (*Comment, error) {
+func (s *Slide) AddComment(author, text string) *Comment {
 	return s.addModernComment(author, text, 0, 0, false)
 }
 
 // AddCommentAt attaches a modern threaded comment anchored at the given slide
 // position (x, y in EMUs). See AddComment.
-func (s *Slide) AddCommentAt(x, y int64, author, text string) (*Comment, error) {
+func (s *Slide) AddCommentAt(x, y int64, author, text string) *Comment {
 	return s.addModernComment(author, text, x, y, true)
 }
 
-func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) (*Comment, error) {
+func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) *Comment {
 	p := s.presentation
-	// Comment parts are preserved raw parts written here and re-emitted
-	// verbatim, so the write needs no flag to persist and nothing else records
-	// that the deck changed.
+	// Comment parts are preserved raw parts generated from this model and
+	// re-emitted verbatim, so the write needs no flag to persist and nothing
+	// else records that the deck changed.
 	p.markModelEdited()
-	authorID, err := p.authorIDForName(author)
-	if err != nil {
-		return nil, err
-	}
+	authorID := p.authorIDForName(author)
 
 	cm := &oxml.ModernComment{
 		ID:       newGUID(),
@@ -60,15 +56,7 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) (
 	}
 
 	partName := p.nextAvailableModernCommentName()
-	part := &oxml.ModernCommentPart{Comment: cm}
-	data, err := part.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	p.otherParts[partName] = &coxml.RawPart{
-		ContentType: opc.ContentTypeModernComments,
-		Data:        data,
-	}
+	p.putCommentModel(partName, &oxml.ModernCommentPart{Comment: cm})
 
 	relID := s.nextRelID()
 	p.relationships[s.partName] = append(p.relationships[s.partName], &opc.Relationship{
@@ -90,16 +78,16 @@ func (s *Slide) addModernComment(author, text string, x, y int64, hasPos bool) (
 		thread:   cm,
 		partName: partName,
 	}
-	return c, nil
+	return c
 }
 
 // Reply adds a threaded reply authored by author to this comment's thread and
 // returns the reply. Replies require the modern threaded mechanism; calling
 // Reply on a legacy comment is a no-op that returns nil (legacy PowerPoint
 // comments have no threading — add new comments to get modern threads).
-func (c *Comment) Reply(author, text string) (*Comment, error) {
+func (c *Comment) Reply(author, text string) *Comment {
 	if c.kind != commentModern || c.thread == nil {
-		return nil, nil
+		return nil
 	}
 	// Attach to the top-level comment of the thread.
 	top := c
@@ -107,10 +95,7 @@ func (c *Comment) Reply(author, text string) (*Comment, error) {
 		top = c.parent
 	}
 	p := c.slide.presentation
-	authorID, err := p.authorIDForName(author)
-	if err != nil {
-		return nil, err
-	}
+	authorID := p.authorIDForName(author)
 
 	r := &oxml.ModernReply{
 		ID:       newGUID(),
@@ -119,9 +104,7 @@ func (c *Comment) Reply(author, text string) (*Comment, error) {
 		BodyText: text,
 	}
 	c.thread.Replies = append(c.thread.Replies, r)
-	if err := p.rewriteModernThread(c.partName, c.thread); err != nil {
-		return nil, err
-	}
+	p.rewriteModernThread(c.partName, c.thread)
 
 	child := &Comment{
 		slide:    c.slide,
@@ -137,19 +120,19 @@ func (c *Comment) Reply(author, text string) (*Comment, error) {
 		reply:    r,
 	}
 	top.replies = append(top.replies, child)
-	return child, nil
+	return child
 }
 
 // Resolve marks the comment's thread as resolved. See SetResolved.
-func (c *Comment) Resolve() error { return c.SetResolved(true) }
+func (c *Comment) Resolve() { c.SetResolved(true) }
 
 // SetResolved sets whether the comment's thread is resolved, propagating the
 // state across the top-level comment and all of its replies (as PowerPoint
 // does). Legacy comments have no resolved concept; SetResolved is a documented
 // no-op on them.
-func (c *Comment) SetResolved(resolved bool) error {
+func (c *Comment) SetResolved(resolved bool) {
 	if c.kind != commentModern || c.thread == nil {
-		return nil
+		return
 	}
 	top := c
 	if c.parent != nil {
@@ -164,24 +147,26 @@ func (c *Comment) SetResolved(resolved bool) error {
 	for _, r := range top.replies {
 		r.resolved = resolved
 	}
-	return c.slide.presentation.rewriteModernThread(c.partName, c.thread)
+	c.slide.presentation.rewriteModernThread(c.partName, c.thread)
 }
 
-// rewriteModernThread re-marshals a modern comment thread part in place.
-func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) error {
+// rewriteModernThread records that a modern comment thread has been edited, so
+// the flush at save re-serializes its part.
+//
+// It installs the model when the registry has no entry for the part, rather than
+// letting the edit go nowhere. Every Comment handle reaches here with a part the
+// registry already knows — readModernThread and addModernComment are the only
+// two sources of one — so this is a belt-and-braces case, and the belt is that
+// losing a comment edit is invisible until someone reopens the deck.
+func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComment) {
 	// Every thread edit (Reply, Resolve, SetResolved) lands here; see
 	// addModernComment for why the write itself needs no flag.
 	p.markModelEdited()
-	part := &oxml.ModernCommentPart{Comment: cm}
-	data, err := part.Marshal()
-	if err != nil {
-		return err
+	if e, ok := p.commentModels[partName]; ok && e.model != nil {
+		e.dirty = true
+		return
 	}
-	p.otherParts[partName] = &coxml.RawPart{
-		ContentType: opc.ContentTypeModernComments,
-		Data:        data,
-	}
-	return nil
+	p.putCommentModel(partName, &oxml.ModernCommentPart{Comment: cm})
 }
 
 // --- author list management ---
@@ -205,7 +190,7 @@ func (p *Presentation) loadModernAuthors() *oxml.ModernAuthorList {
 // authorIDForName returns the GUID of the author with the given display name,
 // registering a new author (and creating/rewriting authors.xml plus the
 // presentation relationship) when none matches.
-func (p *Presentation) authorIDForName(name string) (string, error) {
+func (p *Presentation) authorIDForName(name string) string {
 	lst := p.loadModernAuthors()
 	if lst == nil {
 		lst = &oxml.ModernAuthorList{}
@@ -214,7 +199,7 @@ func (p *Presentation) authorIDForName(name string) (string, error) {
 	}
 	for _, a := range lst.Authors {
 		if a != nil && a.Name == name {
-			return a.ID, nil
+			return a.ID
 		}
 	}
 	a := &oxml.ModernAuthor{
@@ -225,19 +210,16 @@ func (p *Presentation) authorIDForName(name string) (string, error) {
 	}
 	lst.Authors = append(lst.Authors, a)
 
-	firstAuthor := p.rawPartData(modernAuthorsPart) == nil
-	data, err := lst.Marshal()
-	if err != nil {
-		return "", err
-	}
-	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
-		ContentType: opc.ContentTypeAuthors,
-		Data:        data,
-	}
-	if firstAuthor {
+	// Whether the deck already had an authors part, asked before markAuthorsDirty
+	// creates the entry. Asking rawPartData instead would answer "no" every time
+	// once the part is deferred — it holds no bytes until the flush — and every
+	// added author would re-run the relationship wiring.
+	_, hadPart := p.otherParts[modernAuthorsPart]
+	p.markAuthorsDirty()
+	if !hadPart {
 		p.ensureAuthorsRelationship()
 	}
-	return a.ID, nil
+	return a.ID
 }
 
 // importModernCommentAuthors merges the source deck's modern author list
@@ -245,17 +227,19 @@ func (p *Presentation) authorIDForName(name string) (string, error) {
 // threaded comment's AuthorID keeps resolving to a real name. The authors part
 // is (re)written and the presentation -> authors relationship ensured. Called
 // when a merged slide carries a modern (threaded) comments relationship.
-func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) error {
-	data := srcPres.rawPartData(modernAuthorsPart)
-	if data == nil {
-		return nil
-	}
-	srcList, err := oxml.ParseModernAuthorList(data)
-	if err != nil || srcList == nil {
-		// A source author list this library cannot read is not a reason to fail
-		// the merge: the slides still import, their comments just resolve to
-		// "Unknown" until the deck is repaired.
-		return nil
+//
+// The source's author list is taken from its model, not from its serialized
+// bytes. A deck whose comments were added this session has no serialized author
+// list yet — reading the bytes found none and returned early, and every comment
+// merged out of a freshly built deck arrived with its author stripped.
+func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) {
+	srcList := srcPres.loadModernAuthors()
+	if srcList == nil {
+		// Either the source has no author list, or it has one this library
+		// cannot read. Neither is a reason to fail the merge: the slides still
+		// import, their comments just resolve to "Unknown" until the deck is
+		// repaired.
+		return
 	}
 	dst := p.loadModernAuthors()
 	if dst == nil {
@@ -273,19 +257,14 @@ func (p *Presentation) importModernCommentAuthors(srcPres *Presentation) error {
 		if a == nil || have[a.ID] {
 			continue
 		}
-		dst.Authors = append(dst.Authors, a)
+		// Copy: the source list is now its live model, and the two decks must
+		// not end up sharing an author a later edit on either side could move.
+		imported := *a
+		dst.Authors = append(dst.Authors, &imported)
 		have[a.ID] = true
 	}
-	data, err = dst.Marshal()
-	if err != nil {
-		return err
-	}
-	p.otherParts[modernAuthorsPart] = &coxml.RawPart{
-		ContentType: opc.ContentTypeAuthors,
-		Data:        data,
-	}
+	p.markAuthorsDirty()
 	p.ensureAuthorsRelationship()
-	return nil
 }
 
 // ensureAuthorsRelationship adds the presentation -> authors.xml relationship
