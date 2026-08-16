@@ -7,16 +7,59 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
-// modernNamespaces are the declarations every regenerated modern-comment part
-// carries on its root, matching what PowerPoint writes (a, r, p188). Raw child
-// blobs (anchor marker lists, body runs, extLst) rely on a and p188 being bound
-// here; every extension prefix they use declares itself inline.
+// modernNamespaces are the declarations a modern-comment part carries on its
+// root when this library is generating one from nothing, matching what
+// PowerPoint writes (a, r, p188).
+//
+// They are NOT what a part parsed from a package gets. This set used to be
+// written unconditionally, and it assumed the prefixes in the source's raw
+// child blobs meant what they mean in a PowerPoint-authored file. A source is
+// free to bind a to something else: its blobs then said one thing on the way in
+// and another on the way out, because the bytes were replayed untouched while
+// the declaration above them was replaced. See modernRootDecls.
 func modernNamespaces() []xmlb.NSDecl {
 	return []xmlb.NSDecl{
 		{Prefix: xmlb.PrefixDrawingML, URI: nsAdml},
 		{Prefix: xmlb.PrefixRelationships, URI: nsRel},
 		{Prefix: xmlb.PrefixPowerPointComment, URI: nsP188},
 	}
+}
+
+// modernRootPrefixes points the builder at the prefix the *source* uses for each
+// namespace this marshaler writes, and returns the declarations the root must
+// add because the source carried none.
+//
+// A namespace the source already declares is written under the source's own
+// prefix, so a name this library emits and a name replayed verbatim from a raw
+// blob mean the same thing. A namespace it does not declare is bound to a
+// prefix the source has left free, so adding the declaration cannot change what
+// an existing prefix means — which is the whole failure this exists to prevent,
+// and why asking "is this URI declared" is not the same question as "is this
+// prefix taken".
+func modernRootPrefixes(b *xmlb.Builder, rootAttrs []xmlb.RootAttr) []xmlb.NSDecl {
+	var add []xmlb.NSDecl
+	for _, want := range modernNamespaces() {
+		if prefix, ok := rootAttrsPrefixForURI(rootAttrs, want.URI); ok {
+			b.RegisterNamespace(want.URI, prefix)
+			continue
+		}
+		prefix := xmlb.FreeRootPrefix(rootAttrs, want.Prefix)
+		b.RegisterNamespace(want.URI, prefix)
+		add = append(add, xmlb.NSDecl{Prefix: prefix, URI: want.URI})
+	}
+	return add
+}
+
+// rootAttrsPrefixForURI returns the prefix a captured declaration list binds to
+// uri. The first declaration wins, matching the scope an element at the root
+// sees.
+func rootAttrsPrefixForURI(rootAttrs []xmlb.RootAttr, uri string) (string, bool) {
+	for _, ra := range rootAttrs {
+		if ra.IsNS && ra.Value == uri {
+			return ra.Prefix, true
+		}
+	}
+	return "", false
 }
 
 func newModernBuilder() *xmlb.Builder {
@@ -28,10 +71,22 @@ func newModernBuilder() *xmlb.Builder {
 	return b
 }
 
+// startModernRoot writes the root of a modern-comment or author part: the
+// source's own declarations when the part was parsed, the canonical set when it
+// was not.
+func startModernRoot(b *xmlb.Builder, localName string, rootAttrs []xmlb.RootAttr) {
+	if rootAttrs == nil {
+		b.StartElementWithNS(nsP188, localName, modernNamespaces())
+		return
+	}
+	add := modernRootPrefixes(b, rootAttrs)
+	b.StartElementWithRootAttrs(nsP188, localName, rootAttrs, xmlb.NSDeclAttrs(nil, add)...)
+}
+
 // Marshal serializes a modernComment part (p188:cmLst with one p188:cm).
 func (p *ModernCommentPart) Marshal() ([]byte, error) {
 	b := newModernBuilder()
-	b.StartElementWithNS(nsP188, "cmLst", modernNamespaces())
+	startModernRoot(b, "cmLst", p.OriginalRootAttrs)
 	if p.Comment != nil {
 		p.Comment.marshal(b)
 	}
@@ -204,7 +259,7 @@ func marshalBody(b *xmlb.Builder, raw []byte, text string) {
 // Marshal serializes ppt/authors.xml (p188:authorLst).
 func (l *ModernAuthorList) Marshal() ([]byte, error) {
 	b := newModernBuilder()
-	b.StartElementWithNS(nsP188, "authorLst", modernNamespaces())
+	startModernRoot(b, "authorLst", l.OriginalRootAttrs)
 	for _, a := range l.Authors {
 		a.marshal(b)
 	}
