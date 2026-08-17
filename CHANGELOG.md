@@ -58,6 +58,23 @@ changes is what happens to a document this library cannot write back correctly.
   three formats refused depended only on the parse entry point each happens to
   use, not on any decision. No attribute name in the 3600-document corpus — 170913
   parts — is affected, so nothing that occurs in practice is refused.
+- All three formats: a custom document property whose value element declares a
+  known variant type but carries text that does not parse for it keeps the
+  namespace the source wrote it in. The value was preserved by rebuilding the
+  tag as `vt:` plus the local name, and the variant set is matched on the local
+  name alone, so an element in any other namespace came back out under `vt:` —
+  `<evil:i4>x</evil:i4>` became `<vt:i4>x</vt:i4>`, inert markup promoted to a
+  live property by opening and saving the file.
+- xlsx: parts are read through the entry point that checks them, as docx and pptx
+  already were. Twelve whole-part parses (comments, threaded comments, persons,
+  tables, pivot caches and pivot tables, connections, the drawing parts read for
+  charts and images, and the VML controls part) went through `encoding/xml`,
+  which neither requires the document to end after the root element nor rejects a
+  prefix nothing declares — so a part could be accepted, modeled, and
+  re-serialized from content the parser had silently reinterpreted. Three
+  element-level parses keep the lenient entry point deliberately, since their
+  prefixes resolve against a root that is not in the bytes being parsed. No part
+  in the 1200-document xlsx corpus is affected.
 - docx: rewriting `w:footnotePr` or `w:endnotePr` copies the children it does not
   own from the source bytes instead of rebuilding them. The rebuild concatenated
   `"<w:"` with the local name the decoder reported, which failed three ways: an
