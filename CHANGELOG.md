@@ -65,6 +65,13 @@ changes is what happens to a document this library cannot write back correctly.
   name alone, so an element in any other namespace came back out under `vt:` —
   `<evil:i4>x</evil:i4>` became `<vt:i4>x</vt:i4>`, inert markup promoted to a
   live property by opening and saving the file.
+- pptx, chart, docx: five more parts are read through the entry point that checks
+  them — the pptx legacy comment and `commentAuthors.xml` parts, the chart part,
+  the SmartArt diagram data part, and the numbering part read during a docx
+  merge. Found by making the choice of parser a checked rule rather than a habit;
+  the thirteen parses that are legitimately lenient (deep copies of this
+  library's own output, elements reconstructed out of a larger document, a
+  validation probe, the crypto descriptor) now record that where they are.
 - xlsx: parts are read through the entry point that checks them, as docx and pptx
   already were. Twelve whole-part parses (comments, threaded comments, persons,
   tables, pivot caches and pivot tables, connections, the drawing parts read for
