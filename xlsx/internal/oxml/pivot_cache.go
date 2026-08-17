@@ -477,6 +477,7 @@ func ParsePivotCachesElement(raw []byte) []CT_PivotCache {
 			RID     string `xml:"id,attr"`
 		} `xml:"pivotCache"`
 	}
+	//xmlguard:lenient the workbook's <pivotCaches> element, not a part; its prefixes resolve against the workbook root
 	if err := xml.Unmarshal(raw, &x); err != nil {
 		return nil
 	}

@@ -469,11 +469,15 @@ func decodePropertyValue(decoder *xml.Decoder, src string, prop *customProperty)
 					// markup promoted to a live custom property by a save.
 					// Copying the span keeps whatever namespace the source used
 					// without changing which elements are recognized.
+					//
+					// There is no rebuild to fall back to. The offsets come from
+					// the decode that just consumed this element, so the bounds
+					// hold whenever src is the text that decode read; if they
+					// ever did not, inventing a name would be the bug this
+					// replaced rather than a recovery from it.
 					prop.value = nil
 					if end := decoder.InputOffset(); childStart >= 0 && int(end) <= len(src) && childStart <= end {
 						prop.rawVT = src[childStart:end]
-					} else {
-						prop.rawVT = rebuildScalarElement(t.Name, text)
 					}
 				}
 			} else {
@@ -491,11 +495,4 @@ func decodePropertyValue(decoder *xml.Decoder, src string, prop *customProperty)
 			return decoder.Skip()
 		}
 	}
-}
-
-// rebuildScalarElement reconstructs a simple <vt:local>text</vt:local> element
-// for a declared-but-unparseable scalar, so it survives regeneration.
-func rebuildScalarElement(name xml.Name, text string) string {
-	tag := "vt:" + name.Local
-	return "<" + tag + ">" + xmlEscape(text) + "</" + tag + ">"
 }

@@ -242,6 +242,7 @@ func cloneSpPr(src dml.SpPr) dml.SpPr {
 		return dml.SpPr{}
 	}
 	var out dml.SpPr
+	//xmlguard:lenient deep copy by marshal-then-unmarshal of this library's own output, not a part read
 	if err := xml.Unmarshal(data, &out); err != nil {
 		return dml.SpPr{}
 	}

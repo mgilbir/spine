@@ -47,6 +47,7 @@ func (o *CT_OleObjects) parse(start xml.StartElement, inner []byte) {
 	// resolve against are not in these bytes (see CT_Scenarios.parse).
 	full := encodeUnknownElement(start, inner, nil)
 	var x oleObjectsXML
+	//xmlguard:lenient one element reconstructed from a captured start tag and its inner content; its prefixes resolve against a root that stayed behind
 	if err := xml.Unmarshal(full, &x); err != nil {
 		return
 	}

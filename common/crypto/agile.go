@@ -419,6 +419,7 @@ func validateCommon(cipherAlg, chaining, hashAlg string, keyBits, blockSize, has
 // requiring one.
 func agileDecrypt(infoXML, encryptedPackage []byte, password string, opts DecryptOptions) ([]byte, bool, error) {
 	var info agileEncryptionInfo
+	//xmlguard:lenient EncryptionInfo is not an OPC part; it is the descriptor read out of the encrypted container, and its handling has its own budgets and checks
 	if err := xml.Unmarshal(infoXML, &info); err != nil {
 		return nil, false, fmt.Errorf("%w: %v", ErrMalformedEncryptionInfo, err)
 	}

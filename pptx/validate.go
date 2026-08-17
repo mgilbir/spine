@@ -424,6 +424,7 @@ func xmlUnmarshal(data []byte, v any) bool {
 	if data == nil {
 		return false
 	}
+	//xmlguard:lenient a best-effort probe that reports decodability as a bool; a stricter parse would change what validation reports, not what is written
 	return xml.Unmarshal(data, v) == nil
 }
 

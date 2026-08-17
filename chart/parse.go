@@ -1,8 +1,8 @@
 package chart
 
 import (
-	"encoding/xml"
 	"fmt"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"math"
 	"sort"
 	"strconv"
@@ -28,7 +28,7 @@ import (
 // represent at all is reported by ParseNotes rather than dropped silently.
 func Parse(chartXML []byte) (*Chart, error) {
 	var cs dmlchart.ChartSpace
-	if err := xml.Unmarshal(chartXML, &cs); err != nil {
+	if err := xmlb.Unmarshal(chartXML, &cs); err != nil {
 		return nil, fmt.Errorf("chart: parse chartSpace: %w", err)
 	}
 	if cs.Chart == nil || cs.Chart.PlotArea == nil {

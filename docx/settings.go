@@ -300,6 +300,10 @@ func writeNoteValElem(buf *bytes.Buffer, local, v string) {
 	if v == "" {
 		return
 	}
+	//xmlguard:allow local is a constant chosen by this file (pos, numFmt,
+	// numStart, numRestart), never a name taken from a document — which is the
+	// distinction that made the sibling rebuild in preserveNoteExtraChildren a
+	// defect and leaves this safe.
 	buf.WriteString("<w:")
 	buf.WriteString(local)
 	buf.WriteString(` w:val="`)

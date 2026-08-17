@@ -174,6 +174,7 @@ func (p *Presentation) importSlide(src *Slide, ctx *mergeCtx) (*Slide, error) {
 	ns := p.AddSlide()
 
 	var copyXML oxml.Slide
+	//xmlguard:lenient deep copy of the slide XML this library just marshaled, not a part read
 	if err := xml.Unmarshal(data, &copyXML); err != nil {
 		return nil, err
 	}
@@ -671,6 +672,7 @@ func (p *Presentation) importMaster(srcPres *Presentation, src *SlideMaster, ctx
 		return nil, fmt.Errorf("pptx: import slide master %q: %w", src.partName, err)
 	}
 	clone := &oxml.SlideMaster{}
+	//xmlguard:lenient deep copy by marshal-then-unmarshal of this library's own output, not a part read
 	if err := xml.Unmarshal(data, clone); err != nil {
 		return nil, fmt.Errorf("pptx: import slide master %q: %w", src.partName, err)
 	}
@@ -774,6 +776,7 @@ func (p *Presentation) addImportedLayout(master *SlideMaster, srcPres *Presentat
 		return nil, fmt.Errorf("pptx: import slide layout %q: %w", src.partName, err)
 	}
 	clone := &oxml.SlideLayout{}
+	//xmlguard:lenient deep copy by marshal-then-unmarshal of this library's own output, not a part read
 	if err := xml.Unmarshal(data, clone); err != nil {
 		return nil, fmt.Errorf("pptx: import slide layout %q: %w", src.partName, err)
 	}
