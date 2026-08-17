@@ -33,6 +33,40 @@ changes is what happens to a document this library cannot write back correctly.
   comment's model, and only inside the anchor marker, rather than by replacing
   every `sldId="N"` in the part. A comment whose text quoted XML containing that
   attribute had its text rewritten too.
+- pptx: rewriting a modern comment or author part no longer changes what the
+  prefixes in its preserved content mean. The part was regenerated with a fixed
+  `a`/`r`/`p188` declaration set while its anchor markers, body and `extLst` were
+  replayed as the raw bytes they were parsed from — and raw bytes carry a prefix,
+  not a namespace. A source that bound `a` to anything other than DrawingML had
+  its preserved content silently moved into DrawingML: the bytes untouched, their
+  meaning replaced. Both part kinds now replay the source's own declarations, and
+  a namespace the source did not declare is bound to a prefix it left free, so
+  adding a declaration cannot change what an existing prefix means.
+
+  A document reaches this innocently. It can also be reached on purpose: markup
+  in a namespace no reader interprets is inert to Word and to anything scanning
+  the file, and this promoted it to live DrawingML — including a newly declared
+  `r` — as soon as someone opened the deck, touched a comment and saved. The
+  promotion happened under the saving user's provenance, and nothing changed that
+  a diff of the preserved bytes would show.
+- All three formats: an attribute name replayed from a captured source rendering
+  is now held to the same rule as one this library composes. `writeOneAttr`
+  returned early on a verbatim rendering, so a name that is not a QName — `w:`,
+  `:x`, one with two colons — went out unexamined. Go's decoder accepts all of
+  them; a namespace-aware parser does not, and Word is one, so docx was saving
+  successfully while emitting a comments part Word cannot read. Which of the
+  three formats refused depended only on the parse entry point each happens to
+  use, not on any decision. No attribute name in the 3600-document corpus — 170913
+  parts — is affected, so nothing that occurs in practice is refused.
+- docx: rewriting `w:footnotePr` or `w:endnotePr` copies the children it does not
+  own from the source bytes instead of rebuilding them. The rebuild concatenated
+  `"<w:"` with the local name the decoder reported, which failed three ways: an
+  element written `<:pos/>` is reported with the local name `:pos`, so the output
+  was `<w::pos/>`, which does not parse; forcing `w:` onto every child moved a
+  child in another namespace into WordprocessingML; and the walk emitted every
+  start element in the subtree as its own empty tag, so a child's content came
+  out as its sibling. Nothing on this path went through the XML builder, so none
+  of its name guards could apply to it.
 
 ### Changed
 
