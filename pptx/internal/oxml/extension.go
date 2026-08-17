@@ -219,6 +219,7 @@ func parseSectionLst(raw []byte) (*P14SectionLst, error) {
 			} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main sldIdLst"`
 		} `xml:"http://schemas.microsoft.com/office/powerpoint/2010/main section"`
 	}
+	//xmlguard:lenient one extension element lifted out of a part; its prefixes resolve against a root that is not in these bytes
 	if err := xml.Unmarshal(raw, &w); err != nil {
 		return nil, err
 	}

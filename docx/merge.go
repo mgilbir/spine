@@ -785,7 +785,7 @@ func typedNumberingDefs(n *oxml.CT_Numbering) ([]*oxml.CT_AbstractNum, []*oxml.C
 		AbstractNum []*oxml.CT_AbstractNum `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main abstractNum"`
 		Num         []*oxml.CT_Num         `xml:"http://schemas.openxmlformats.org/wordprocessingml/2006/main num"`
 	}
-	if err := xml.Unmarshal(data, &typed); err != nil {
+	if err := xmlb.Unmarshal(data, &typed); err != nil {
 		return nil, nil, err
 	}
 	return typed.AbstractNum, typed.Num, nil
@@ -1079,6 +1079,7 @@ func deepCopyXML(dst, src any) error {
 	if err != nil {
 		return err
 	}
+	//xmlguard:lenient deep copy by marshal-then-unmarshal of this library's own output, not a part read
 	return xml.Unmarshal(data, dst)
 }
 

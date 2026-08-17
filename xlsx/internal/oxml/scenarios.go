@@ -88,6 +88,7 @@ func (sc *CT_Scenarios) parse(start xml.StartElement, inner []byte) {
 	// resolve against stayed behind on that document's root.
 	full := encodeUnknownElement(start, inner, nil)
 	var x scenariosXML
+	//xmlguard:lenient one element reconstructed from a captured start tag and its inner content; its prefixes resolve against a root that stayed behind
 	if err := xml.Unmarshal(full, &x); err != nil {
 		return
 	}

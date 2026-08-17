@@ -192,16 +192,23 @@ func concatBuildsATag(parts []ast.Expr) bool {
 // line the comment sits on, and the line after it. A bare marker with no reason
 // exempts nothing, so the exemption cannot be used without saying why.
 func suppressedLines(fset *token.FileSet, f *ast.File) map[int]bool {
+	return markedLines(fset, f, suppression)
+}
+
+// markedLines returns the lines a `marker <reason>` comment exempts: every line
+// of the comment group, plus the statement it sits above. A marker with no
+// reason after it exempts nothing, so the check cannot be silenced silently.
+func markedLines(fset *token.FileSet, f *ast.File, marker string) map[int]bool {
 	out := map[int]bool{}
 	for _, group := range f.Comments {
 		marked, reasoned := false, false
 		for _, c := range group.List {
-			idx := strings.Index(c.Text, suppression)
+			idx := strings.Index(c.Text, marker)
 			if idx < 0 {
 				continue
 			}
 			marked = true
-			if strings.TrimSpace(c.Text[idx+len(suppression):]) != "" {
+			if strings.TrimSpace(c.Text[idx+len(marker):]) != "" {
 				reasoned = true
 			}
 		}

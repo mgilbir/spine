@@ -1,7 +1,7 @@
 package diagram
 
 import (
-	"encoding/xml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"sort"
 	"strings"
 )
@@ -11,7 +11,7 @@ import (
 // it is the high-value part for reading a SmartArt/diagram.
 func ParseDataModel(data []byte) (*DataModel, error) {
 	var dm DataModel
-	if err := xml.Unmarshal(data, &dm); err != nil {
+	if err := xmlb.Unmarshal(data, &dm); err != nil {
 		return nil, err
 	}
 	return &dm, nil

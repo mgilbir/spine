@@ -152,6 +152,7 @@ func parseFFData(fc *oxml.CT_FldChar) *oxml.CT_FFData {
 		// the standard decoder can resolve the w: prefix its children use.
 		wrapped := []byte(`<w:ffData xmlns:w="` + oxml.NsWml + `">` + string(rn.RawContent) + `</w:ffData>`)
 		var ff oxml.CT_FFData
+		//xmlguard:lenient wrapped is a synthesized wrapper this function just built, parsed straight back; it never came off a package
 		if err := xml.Unmarshal(wrapped, &ff); err != nil {
 			return nil
 		}

@@ -1779,6 +1779,7 @@ func (s *Slide) Duplicate() *Slide {
 	if src := s.sx(); src != nil {
 		if data, err := marshalSlide(src); err == nil {
 			var copyXML oxml.Slide
+			//xmlguard:lenient deep copy of the slide XML this library just marshaled, not a part read
 			if err := xml.Unmarshal(data, &copyXML); err == nil {
 				newSlide.sxModel = &copyXML
 				newSlide.sxParsed = true

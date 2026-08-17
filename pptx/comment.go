@@ -3,6 +3,7 @@ package pptx
 import (
 	"encoding/xml"
 	"fmt"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"strconv"
 	"strings"
 	"time"
@@ -179,7 +180,7 @@ func (s *Slide) readLegacyComments(partName string, authors map[uint32]string) [
 		return nil
 	}
 	var lst oxml.CommentList
-	if err := xml.Unmarshal(data, &lst); err != nil {
+	if err := xmlb.Unmarshal(data, &lst); err != nil {
 		return nil
 	}
 	var out []*Comment
@@ -306,7 +307,7 @@ func (p *Presentation) legacyAuthorNames() map[uint32]string {
 		return out
 	}
 	var lst oxml.CommentAuthorList
-	if err := xml.Unmarshal(data, &lst); err != nil {
+	if err := xmlb.Unmarshal(data, &lst); err != nil {
 		return out
 	}
 	for _, a := range lst.CmAuthor {
