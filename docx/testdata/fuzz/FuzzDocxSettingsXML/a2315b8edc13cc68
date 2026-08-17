@@ -1,0 +1,6 @@
+go test fuzz v1
+[]byte("<w:settings xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:zoom w:percent=\"240\"/><w:defaultTabStop w:val=\"1440\"/><w:evenAndOddHeaders/><w:docVars><w:docVar w:name=\"FuzzVar\" w:val=\"already here\"/><w:docVar w:name=\"Other\" w:val=\"x\"/></w:docVars><w:footnotePr><:pos w:val=\"pageBottom\"/><w:numFmt w:val=\"decimal\"/><w:numStart w:val=\"1\"/></w:footnotePr></w:settings>")
+int(75)
+float64(18)
+string("replaced")
+bool(false)
