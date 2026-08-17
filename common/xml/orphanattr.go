@@ -1,6 +1,10 @@
 package xml
 
-import "strconv"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // qualifyOrphanAttrs binds a prefix to every attribute namespace that nothing
 // in scope declares, returning the declarations that must be written on the
@@ -100,11 +104,42 @@ func freeAttrPrefix(attrs []Attr, decls []Attr, registered map[string]string) st
 // <w:pgSzA=""/> — a start tag that does not parse, which is what
 // FuzzDocxDocumentPart found. One space is enough to separate them, and it is
 // only ever added where the source had nothing to reproduce.
+// The name it carries is held to the same standard as one this library composes
+// itself. Returning early on Attr.Raw was the third way around that rule, after
+// the two writeQName and writePrefixedName already closed: a captured attribute
+// went out exactly as the source spelled it, so a name that is not a QName —
+// w: , :x , a name with two colons — was replayed unexamined. Go's decoder
+// accepts all of them, which is why nothing downstream noticed; a
+// namespace-aware parser does not, and Word is one. Emitting a part that
+// libxml2 or expat refuses is the defect this module exists to stop, and
+// preserving a source's bad attribute is not a reason to write a part nothing
+// can read.
+//
+// No document in the 3600-file corpus carries such a name, so this refuses
+// nothing that occurs in practice.
 func (b *Builder) writeRawAttr(raw string) {
+	if name := rawAttrName(raw); name != "" && !IsQName(name) && b.err == nil {
+		b.err = fmt.Errorf("xml: refusing to replay the attribute name %q, which is not a valid XML name", name)
+	}
 	if raw != "" && !isXMLSpace(raw[0]) {
 		b.buf.WriteByte(' ')
 	}
 	b.buf.WriteString(raw)
+}
+
+// rawAttrName returns the name part of a verbatim attribute rendering — the
+// text between the leading whitespace and the '=' — or "" when the rendering
+// has no name to check.
+func rawAttrName(raw string) string {
+	i := 0
+	for i < len(raw) && isXMLSpace(raw[i]) {
+		i++
+	}
+	eq := strings.IndexByte(raw[i:], '=')
+	if eq < 0 {
+		return ""
+	}
+	return strings.TrimRight(raw[i:i+eq], " \t\r\n")
 }
 
 // declareRootNamespaceIfMissing writes the binding for namespace when none of
