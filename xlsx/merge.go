@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"path"
 	"strconv"
 	"strings"
@@ -186,7 +187,7 @@ func openedSheetImages(src *Sheet, srcWB *Workbook) []sheetImage {
 		return nil
 	}
 	var wsDr copyWsDr
-	if err := xml.Unmarshal(part.Data, &wsDr); err != nil {
+	if err := xmlb.Unmarshal(part.Data, &wsDr); err != nil {
 		return nil
 	}
 

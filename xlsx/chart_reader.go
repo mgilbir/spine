@@ -1,7 +1,7 @@
 package xlsx
 
 import (
-	"encoding/xml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 
 	"github.com/mgilbir/spine/chart"
 )
@@ -70,7 +70,7 @@ func (s *Sheet) openedCharts() []*chart.Chart {
 		return nil
 	}
 	var wsDr xdrWsDr
-	if err := xml.Unmarshal(part.Data, &wsDr); err != nil {
+	if err := xmlb.Unmarshal(part.Data, &wsDr); err != nil {
 		return nil
 	}
 	anchors := make([]xdrAnchor, 0, len(wsDr.OneCell)+len(wsDr.TwoCell)+len(wsDr.AbsAnchor))
@@ -129,7 +129,7 @@ func (s *Sheet) drawingRelID() string {
 		return ""
 	}
 	var cs opaqueSheetDrawing
-	if err := xml.Unmarshal(part.Data, &cs); err != nil {
+	if err := xmlb.Unmarshal(part.Data, &cs); err != nil {
 		return ""
 	}
 	if cs.Drawing == nil {
