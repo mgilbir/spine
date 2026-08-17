@@ -57,7 +57,7 @@ type xmlComment struct {
 // ParseComments unmarshals a legacy comments part.
 func ParseComments(data []byte) (*CT_Comments, error) {
 	var x xmlComments
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	c := &CT_Comments{Authors: x.Authors.Author}
@@ -180,7 +180,7 @@ type xmlThreadedComment struct {
 // ParseThreadedComments unmarshals a threaded-comments part.
 func ParseThreadedComments(data []byte) (*CT_ThreadedComments, error) {
 	var x xmlThreadedComments
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	tc := &CT_ThreadedComments{}
@@ -263,7 +263,7 @@ type xmlPerson struct {
 // ParsePersonList unmarshals a person-list part.
 func ParsePersonList(data []byte) (*CT_PersonList, error) {
 	var x xmlPersonList
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	pl := &CT_PersonList{}

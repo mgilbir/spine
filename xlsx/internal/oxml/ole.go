@@ -42,6 +42,9 @@ type oleObjectsXML struct {
 // parse best-effort populates the typed model from the parsed start element and
 // its raw inner content. A parse failure still round-trips via Raw.
 func (o *CT_OleObjects) parse(start xml.StartElement, inner []byte) {
+	// encoding/xml rather than the part-level xmlb.Unmarshal: this is one
+	// element lifted out of a larger document, so the declarations its prefixes
+	// resolve against are not in these bytes (see CT_Scenarios.parse).
 	full := encodeUnknownElement(start, inner, nil)
 	var x oleObjectsXML
 	if err := xml.Unmarshal(full, &x); err != nil {

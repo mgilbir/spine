@@ -2,7 +2,7 @@ package xlsx
 
 import (
 	"bytes"
-	"encoding/xml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"sort"
 	"strings"
 
@@ -77,7 +77,7 @@ func (w *Workbook) Connections() []Connection {
 			} `xml:"textPr"`
 		} `xml:"connection"`
 	}
-	if err := xml.Unmarshal(data, &doc); err != nil {
+	if err := xmlb.Unmarshal(data, &doc); err != nil {
 		return nil
 	}
 

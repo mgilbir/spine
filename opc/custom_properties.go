@@ -457,9 +457,24 @@ func decodePropertyValue(decoder *xml.Decoder, src string, prop *customProperty)
 				if v, ok := parseVTScalar(t.Name.Local, text); ok {
 					prop.value = v
 				} else {
-					// Declared type but unparseable text: preserve verbatim.
+					// Declared type but unparseable text: preserve verbatim,
+					// from the source bytes rather than by rebuilding the tag.
+					//
+					// The rebuild wrote "vt:" in front of whatever local name
+					// the decoder reported, and the scalar set is keyed on the
+					// local name alone — deliberately, because producers spell
+					// the variant namespace several ways. Together those moved
+					// an element in any other namespace into docPropsVTypes:
+					// <evil:i4>x</evil:i4> came back as <vt:i4>x</vt:i4>, inert
+					// markup promoted to a live custom property by a save.
+					// Copying the span keeps whatever namespace the source used
+					// without changing which elements are recognized.
 					prop.value = nil
-					prop.rawVT = rebuildScalarElement(t.Name, text)
+					if end := decoder.InputOffset(); childStart >= 0 && int(end) <= len(src) && childStart <= end {
+						prop.rawVT = src[childStart:end]
+					} else {
+						prop.rawVT = rebuildScalarElement(t.Name, text)
+					}
 				}
 			} else {
 				// Unmodeled variant type (vt:vector, vt:cy, …): capture the

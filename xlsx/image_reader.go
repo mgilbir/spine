@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"encoding/xml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 
 	"github.com/mgilbir/spine/opc"
 )
@@ -117,7 +118,7 @@ func (s *Sheet) openedImages() []*Image {
 		return nil
 	}
 	var wsDr xdrWsDr
-	if err := xml.Unmarshal(part.Data, &wsDr); err != nil {
+	if err := xmlb.Unmarshal(part.Data, &wsDr); err != nil {
 		return nil
 	}
 	anchors := make([]xdrAnchor, 0, len(wsDr.OneCell)+len(wsDr.TwoCell)+len(wsDr.AbsAnchor))

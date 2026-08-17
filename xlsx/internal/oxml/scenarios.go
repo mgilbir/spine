@@ -80,6 +80,12 @@ type inputCellsXML struct {
 func (sc *CT_Scenarios) parse(start xml.StartElement, inner []byte) {
 	// Reconstruct the full element bytes and decode. Reusing the same bare
 	// reconstruction the marshaler emits keeps parse and emit symmetric.
+	//
+	// encoding/xml, not xmlb.Unmarshal, and deliberately: the part-level entry
+	// point additionally requires the input to bind every prefix it uses, which
+	// is right for a part read off the package and wrong here. This is one
+	// element lifted out of a larger document, and the declarations its prefixes
+	// resolve against stayed behind on that document's root.
 	full := encodeUnknownElement(start, inner, nil)
 	var x scenariosXML
 	if err := xml.Unmarshal(full, &x); err != nil {

@@ -211,19 +211,39 @@ fuzz:
 # single wall-clock budget across all of them leaves each with seconds. Empty
 # means every package that has a target.
 FUZZ_PKGS ?=
+# A failing target no longer stops the sweep. It used to `exit 1` inside the
+# loop, so the first failure hid every target after it — one docx failure
+# concealed the whole of xlsx and pptx, and the run looked like it had covered
+# them. Failures are collected and listed at the end, and the recipe still exits
+# non-zero, so a sweep reports everything it found in one pass.
+#
+# Note when reading a sweep: a target can fail with "context deadline exceeded"
+# and write no crasher. That is Go's fuzzing worker deadline, not a defect in the
+# code under test — the slow targets (FuzzDocxMailMerge runs two orders of
+# magnitude fewer execs per second than the part fuzzers) can hit it when the
+# machine is loaded by a long back-to-back run, and they pass when run alone.
+# Re-run such a target on its own before believing it.
 fuzz-run:
-	@set -e; \
+	@set -u; \
 	pkgs="$(FUZZ_PKGS)"; \
 	if [ -z "$$pkgs" ]; then \
 		pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
 	fi; \
+	failed=""; \
 	for pkg in $$pkgs; do \
 		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
 			echo "==> ./$$pkg $$target"; \
-			go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
-				-fuzzminimizetime $(FUZZMINIMIZETIME) || exit 1; \
+			if ! go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
+				-fuzzminimizetime $(FUZZMINIMIZETIME); then \
+				failed="$$failed ./$$pkg:$$target"; \
+			fi; \
 		done; \
-	done
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo; echo "FAILED TARGETS:"; \
+		for f in $$failed; do echo "  $$f"; done; \
+		exit 1; \
+	fi
 
 # Requires golangci-lint v2.x; a v1 binary rejects .golangci.yml.
 # Lint covers the whole module, including tools/ccfetch and cctest.

@@ -135,7 +135,7 @@ type xmlPivotTableDefinition struct {
 // ParsePivotTableDefinition decodes a pivot table definition part.
 func ParsePivotTableDefinition(data []byte) (*CT_PivotTableDefinition, error) {
 	var x xmlPivotTableDefinition
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	def := &CT_PivotTableDefinition{

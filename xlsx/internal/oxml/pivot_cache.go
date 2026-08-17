@@ -170,7 +170,7 @@ type xmlPivotCacheDefinition struct {
 // ParsePivotCacheDefinition decodes a pivot cache definition part.
 func ParsePivotCacheDefinition(data []byte) (*CT_PivotCacheDefinition, error) {
 	var x xmlPivotCacheDefinition
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	def := &CT_PivotCacheDefinition{
@@ -467,6 +467,9 @@ func isNameBoundary(c byte) bool {
 // entries, mapping each pivot cache id to the relationship id that resolves its
 // cache definition part. It is used to preserve a workbook's existing pivot
 // caches when a new one is added this session.
+// encoding/xml rather than the part-level xmlb.Unmarshal: raw is the workbook's
+// <pivotCaches> element, not a part, so the declarations its prefixes resolve
+// against are on the workbook root and not in these bytes.
 func ParsePivotCachesElement(raw []byte) []CT_PivotCache {
 	var x struct {
 		Cache []struct {

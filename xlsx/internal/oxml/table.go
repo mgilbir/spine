@@ -110,7 +110,7 @@ type xmlTableStyleInfo struct {
 // ParseTable decodes a table definition part.
 func ParseTable(data []byte) (*CT_Table, error) {
 	var x xmlTable
-	if err := xml.Unmarshal(data, &x); err != nil {
+	if err := xmlb.Unmarshal(data, &x); err != nil {
 		return nil, err
 	}
 	t := &CT_Table{

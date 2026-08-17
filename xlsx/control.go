@@ -2,6 +2,7 @@ package xlsx
 
 import (
 	"encoding/xml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"sort"
 	"strings"
 
@@ -88,7 +89,7 @@ func (s *Sheet) FormControls() []FormControl {
 		return nil
 	}
 	var vml vmlDrawing
-	if err := xml.Unmarshal(part.Data, &vml); err != nil {
+	if err := xmlb.Unmarshal(part.Data, &vml); err != nil {
 		return nil
 	}
 	blocks := s.controlBlocks()
