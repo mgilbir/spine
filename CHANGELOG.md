@@ -1,9 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-08-18
 
-No public API change. Everything below is behavioural, and the behaviour it
-changes is what happens to a document this library cannot write back correctly.
+No public API change. Everything here is behavioural, and what it changes is
+what happens to a document this library cannot write back correctly. Every
+defect below is present in 0.2.0.
+
+Three of them are one defect in different clothes, and they are the reason to
+take this release. Markup in a namespace nothing interprets is inert — Word
+ignores it, and so does anything scanning a file for what it contains. Opening a
+document with 0.2.0, making an ordinary edit and saving could promote that markup
+to live OOXML: the preserved bytes untouched, the declaration above them
+replaced, so a diff of the content shows nothing. It happens by accident to a
+document that merely binds a common prefix to something unusual, and it can be
+arranged deliberately, in which case the promotion carries the saving user's
+provenance rather than the author's. Anyone who opens, edits and re-emits
+documents they did not write should upgrade. The three are the pptx comment and
+author parts, the shared custom-properties path, and the docx note-properties
+rewrite.
+
+Two more are the same idea from the other side: a part this library wrote that
+it cannot read back. A name that is not a QName went out unexamined through a
+verbatim-replay path, and a rebuilt element name could acquire two colons — both
+accepted by Go's decoder, both rejected by every namespace-aware parser, Word
+included.
 
 ### Fixed
 
