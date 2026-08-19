@@ -2,6 +2,7 @@ package chart
 
 import (
 	"encoding/xml"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -278,7 +279,7 @@ func sameFloats(a, b []float64) bool {
 }
 
 // marshalChartSpace renders a ChartSpace exactly as MarshalChartXML does.
-func marshalChartSpace(cs *dmlchart.ChartSpace) (string, bool) {
+func marshalChartSpace(cs *dmlchart.ChartSpace) (string, error) {
 	b := xmlb.NewBuilder()
 	b.RegisterNamespace(xmlb.NSDrawingMLChart, xmlb.PrefixDrawingMLChart)
 	b.RegisterNamespace(xmlb.NSDrawingML, xmlb.PrefixDrawingML)
@@ -292,9 +293,9 @@ func marshalChartSpace(cs *dmlchart.ChartSpace) (string, bool) {
 		{Prefix: xmlb.PrefixRelationships, URI: xmlb.NSOfficeDocumentRels},
 	})
 	if err := b.Finish(); err != nil {
-		return "", false
+		return "", err
 	}
-	return b.String(), true
+	return b.String(), nil
 }
 
 // FuzzChartSpaceRoundTrip drives the layer underneath chart.Parse: the
@@ -327,17 +328,27 @@ func FuzzChartSpaceRoundTrip(f *testing.F) {
 		if err != nil {
 			return
 		}
-		first, ok := marshalChartSpace(&cs)
-		if !ok {
-			t.Fatalf("a parsed chartSpace must marshal")
+		first, err := marshalChartSpace(&cs)
+		if errors.Is(err, xmlb.ErrUnwritableName) {
+			// The model holds a name the Builder will not write, which is a
+			// designed refusal rather than a defect: the part it would produce
+			// is one no namespace-aware parser reads back. This target parses
+			// with encoding/xml on purpose, to reach the model layer directly,
+			// and that is looser than chart.Parse — so it can build states the
+			// library itself rejects at the door. <c:ext xmlns:6=""> is one: a
+			// prefix starting with a digit is not an NCName.
+			return
+		}
+		if err != nil {
+			t.Fatalf("a parsed chartSpace must marshal: %v", err)
 		}
 		var back dmlchart.ChartSpace
 		if err := xml.Unmarshal([]byte(first), &back); err != nil {
 			t.Fatalf("the Builder's output must re-parse: %v\n%s", err, first)
 		}
-		second, ok := marshalChartSpace(&back)
-		if !ok {
-			t.Fatalf("the second marshal must succeed once the first did:\n%s", first)
+		second, err := marshalChartSpace(&back)
+		if err != nil {
+			t.Fatalf("the second marshal must succeed once the first did: %v\n%s", err, first)
 		}
 		if first != second {
 			t.Fatalf("chartSpace marshal is not a fixed point:\n%s\n\n%s", first, second)

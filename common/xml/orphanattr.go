@@ -119,7 +119,7 @@ func freeAttrPrefix(attrs []Attr, decls []Attr, registered map[string]string) st
 // nothing that occurs in practice.
 func (b *Builder) writeRawAttr(raw string) {
 	if name := rawAttrName(raw); name != "" && !IsQName(name) && b.err == nil {
-		b.err = fmt.Errorf("xml: refusing to replay the attribute name %q, which is not a valid XML name", name)
+		b.err = fmt.Errorf("xml: refusing to replay the attribute name %q, which is not a valid XML name: %w", name, ErrUnwritableName)
 	}
 	if raw != "" && !isXMLSpace(raw[0]) {
 		b.buf.WriteByte(' ')
