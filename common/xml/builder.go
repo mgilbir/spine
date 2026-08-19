@@ -994,7 +994,7 @@ func (b *Builder) writeQName(namespace, localName string) {
 // from an attribute spelled cre0:0ated).
 func (b *Builder) writeAttrName(name string) {
 	if b.err == nil && !IsQName(name) {
-		b.err = fmt.Errorf("xml: refusing to write the attribute name %q, which is not a valid XML name", name)
+		b.err = fmt.Errorf("xml: refusing to write the attribute name %q, which is not a valid XML name: %w", name, ErrUnwritableName)
 	}
 	b.buf.WriteString(name)
 }
@@ -1003,10 +1003,10 @@ func (b *Builder) writeLocalName(localName, where string) {
 	if b.err == nil {
 		switch {
 		case localName == "":
-			b.err = fmt.Errorf("xml: refusing to write an element with an empty name (%s)", where)
+			b.err = fmt.Errorf("xml: refusing to write an element with an empty name (%s): %w", where, ErrUnwritableName)
 		case !IsQName(localName):
-			b.err = fmt.Errorf("xml: refusing to write the element name %q, which is not a valid XML name (%s)",
-				localName, where)
+			b.err = fmt.Errorf("xml: refusing to write the element name %q, which is not a valid XML name (%s): %w",
+				localName, where, ErrUnwritableName)
 		}
 	}
 	b.buf.WriteString(localName)

@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"errors"
 	"strings"
 	"unicode/utf8"
 )
@@ -102,3 +103,17 @@ func IsQName(s string) bool {
 	}
 	return IsNCName(s)
 }
+
+// ErrUnwritableName is what every refusal to write a name wraps.
+//
+// The Builder declines to emit an element or attribute name that is not a
+// QName, because the part it would produce is one no namespace-aware parser
+// reads back — and a part that fails to parse is absent to the consumer rather
+// than an error, so writing it loses content silently.
+//
+// It is a distinct sentinel because "this document contains a name that cannot
+// be written" is a different answer from "the save failed". A caller handed a
+// document from somewhere else can tell the two apart with errors.Is and decide
+// whether to repair the document or report it, instead of matching on message
+// text.
+var ErrUnwritableName = errors.New("xml: unwritable name")
