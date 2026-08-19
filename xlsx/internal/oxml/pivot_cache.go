@@ -467,18 +467,19 @@ func isNameBoundary(c byte) bool {
 // entries, mapping each pivot cache id to the relationship id that resolves its
 // cache definition part. It is used to preserve a workbook's existing pivot
 // caches when a new one is added this session.
-// encoding/xml rather than the part-level xmlb.Unmarshal: raw is the workbook's
-// <pivotCaches> element, not a part, so the declarations its prefixes resolve
-// against are on the workbook root and not in these bytes.
-func ParsePivotCachesElement(raw []byte) []CT_PivotCache {
+// raw is the workbook's <pivotCaches> element, not a part, so the declarations
+// its prefixes resolve against are on the workbook root rather than in these
+// bytes — inScope carries them. The bytes cannot simply be given the missing
+// declarations: they are re-emitted verbatim, so adding to them would change
+// what an untouched round trip writes.
+func ParsePivotCachesElement(raw []byte, inScope []string) []CT_PivotCache {
 	var x struct {
 		Cache []struct {
 			CacheId uint32 `xml:"cacheId,attr"`
 			RID     string `xml:"id,attr"`
 		} `xml:"pivotCache"`
 	}
-	//xmlguard:lenient the workbook's <pivotCaches> element, not a part; its prefixes resolve against the workbook root
-	if err := xml.Unmarshal(raw, &x); err != nil {
+	if err := xmlb.UnmarshalFragment(raw, inScope, &x); err != nil {
 		return nil
 	}
 	out := make([]CT_PivotCache, 0, len(x.Cache))
