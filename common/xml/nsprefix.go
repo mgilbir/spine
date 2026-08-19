@@ -38,10 +38,19 @@ import (
 // its URI, which some declaration in scope must therefore have introduced,
 // while an unbound one arrives as itself and matches nothing.
 func CheckNamespacePrefixes(data []byte) error {
+	return checkNamespacePrefixes(data, nil)
+}
+
+func checkNamespacePrefixes(data []byte, inScope []string) error {
 	d := NewDecoder(bytes.NewReader(data))
 	// scopes[i] holds the URIs declared by the i-th open element. A URI is in
 	// scope while any frame holding it is open.
 	declared := map[string]int{NSXML: 1}
+	for _, p := range inScope {
+		if p != "" {
+			declared[p]++
+		}
+	}
 	var scopes [][]string
 
 	for {
@@ -109,4 +118,35 @@ func checkName(name xml.Name, declared map[string]int, what string) error {
 	}
 	return fmt.Errorf("%s %s:%s uses a namespace prefix that nothing declares",
 		what, name.Space, name.Local)
+}
+
+// CheckNamespacePrefixesInScope is CheckNamespacePrefixes for a fragment: bytes
+// lifted out of a document, whose prefixes may be bound by declarations that
+// stayed behind on an ancestor.
+//
+// inScope names those prefixes. They are seeded as though declared, because an
+// unbound prefix is exactly what the decoder reports as the prefix string
+// itself — the same signature the check reads. A prefix the fragment declares
+// for itself still works normally.
+//
+// This exists so a fragment is not simply exempted from the rule. The
+// alternative was to give the reconstructed bytes the missing declarations, but
+// captured bytes are re-emitted verbatim, so adding to them would change what a
+// round trip writes.
+func CheckNamespacePrefixesInScope(data []byte, inScope []string) error {
+	return checkNamespacePrefixes(data, inScope)
+}
+
+// UnmarshalFragment decodes bytes taken from inside a larger document, holding
+// them to the same rules as a whole part except that the prefixes in inScope
+// are treated as bound (see CheckNamespacePrefixesInScope).
+func UnmarshalFragment(data []byte, inScope []string, v any) error {
+	d := NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	return CheckNamespacePrefixesInScope(data, inScope)
 }

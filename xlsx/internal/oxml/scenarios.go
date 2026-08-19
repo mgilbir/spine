@@ -77,7 +77,7 @@ type inputCellsXML struct {
 // parse populates the typed model from the parsed start element and its raw
 // inner content. It is best-effort: a scenarios element that fails to reparse
 // still round-trips via Raw.
-func (sc *CT_Scenarios) parse(start xml.StartElement, inner []byte) {
+func (sc *CT_Scenarios) parse(start xml.StartElement, inner []byte, nsPrefixMap map[string]string) {
 	// Reconstruct the full element bytes and decode. Reusing the same bare
 	// reconstruction the marshaler emits keeps parse and emit symmetric.
 	//
@@ -86,10 +86,9 @@ func (sc *CT_Scenarios) parse(start xml.StartElement, inner []byte) {
 	// is right for a part read off the package and wrong here. This is one
 	// element lifted out of a larger document, and the declarations its prefixes
 	// resolve against stayed behind on that document's root.
-	full := encodeUnknownElement(start, inner, nil)
+	full := encodeUnknownElement(start, inner, nsPrefixMap)
 	var x scenariosXML
-	//xmlguard:lenient one element reconstructed from a captured start tag and its inner content; its prefixes resolve against a root that stayed behind
-	if err := xml.Unmarshal(full, &x); err != nil {
+	if err := xmlb.UnmarshalFragment(full, prefixKeys(nsPrefixMap), &x); err != nil {
 		return
 	}
 	sc.Current = x.Current

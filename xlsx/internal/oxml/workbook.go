@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -410,7 +411,7 @@ func (wb *CT_Workbook) EnsureChildOrder(name string) {
 func (wb *CT_Workbook) ExistingPivotCacheIDs() []uint32 {
 	for _, uc := range wb.UnknownChildren {
 		if IsPivotCachesElement(uc.Data) {
-			entries := ParsePivotCachesElement(uc.Data)
+			entries := ParsePivotCachesElement(uc.Data, wb.declaredPrefixes())
 			ids := make([]uint32, 0, len(entries))
 			for _, e := range entries {
 				ids = append(ids, e.CacheId)
@@ -432,7 +433,7 @@ func (wb *CT_Workbook) TakeExistingPivotCaches() []CT_PivotCache {
 		if !IsPivotCachesElement(uc.Data) {
 			continue
 		}
-		entries := ParsePivotCachesElement(uc.Data)
+		entries := ParsePivotCachesElement(uc.Data, wb.declaredPrefixes())
 		marker := "unknown:" + strconv.Itoa(i)
 		for j, entry := range wb.ChildOrder {
 			if entry == marker {
@@ -1187,4 +1188,40 @@ func (e *CT_Extension) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		b.WriteRaw(e.RawContent)
 	}
 	b.EndElement(ns, localName)
+}
+
+// declaredPrefixes returns the prefixes the workbook root binds, for checking a
+// fragment captured out of it (see xmlb.UnmarshalFragment). A captured child is
+// re-emitted inside this root, so these are exactly the bindings its prefixes
+// resolve against.
+func (wb *CT_Workbook) declaredPrefixes() []string {
+	var out []string
+	for _, ra := range wb.OriginalRootAttrs {
+		if ra.IsNS && ra.Prefix != "" {
+			out = append(out, ra.Prefix)
+		}
+	}
+	return out
+}
+
+// prefixKeys returns the prefixes a captured element's enclosing root binds.
+// The reconstruction declares the prefixes the element's own name and attributes
+// use, but its inner content is raw bytes carried across untouched, so a prefix
+// used only in there still resolves against the root (see
+// xmlb.UnmarshalFragment).
+func prefixKeys(nsPrefixMap map[string]string) []string {
+	if len(nsPrefixMap) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(nsPrefixMap))
+	for prefix := range nsPrefixMap {
+		if prefix != "" {
+			out = append(out, prefix)
+		}
+	}
+	// Sorted because the collection is otherwise in map order. Nothing here
+	// depends on it — the result is used as a set — but a deterministic slice
+	// costs nothing and keeps the rule about map ranges unqualified.
+	sort.Strings(out)
+	return out
 }

@@ -180,7 +180,7 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 					return err
 				}
 				sc := &CT_Scenarios{Raw: encodeUnknownElement(t, raw.Content, nsPrefixMap)}
-				sc.parse(t, raw.Content)
+				sc.parse(t, raw.Content, nsPrefixMap)
 				ws.Scenarios = sc
 			case "autoFilter":
 				ws.AutoFilter = &CT_AutoFilter{}
@@ -270,7 +270,7 @@ func (ws *CT_Worksheet) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 					return err
 				}
 				o := &CT_OleObjects{Raw: encodeUnknownElement(t, raw.Content, nsPrefixMap)}
-				o.parse(t, raw.Content)
+				o.parse(t, raw.Content, nsPrefixMap)
 				ws.OleObjects = o
 			case "tableParts":
 				ws.TableParts = &CT_TableParts{}

@@ -41,14 +41,13 @@ type oleObjectsXML struct {
 
 // parse best-effort populates the typed model from the parsed start element and
 // its raw inner content. A parse failure still round-trips via Raw.
-func (o *CT_OleObjects) parse(start xml.StartElement, inner []byte) {
+func (o *CT_OleObjects) parse(start xml.StartElement, inner []byte, nsPrefixMap map[string]string) {
 	// encoding/xml rather than the part-level xmlb.Unmarshal: this is one
 	// element lifted out of a larger document, so the declarations its prefixes
 	// resolve against are not in these bytes (see CT_Scenarios.parse).
-	full := encodeUnknownElement(start, inner, nil)
+	full := encodeUnknownElement(start, inner, nsPrefixMap)
 	var x oleObjectsXML
-	//xmlguard:lenient one element reconstructed from a captured start tag and its inner content; its prefixes resolve against a root that stayed behind
-	if err := xml.Unmarshal(full, &x); err != nil {
+	if err := xmlb.UnmarshalFragment(full, prefixKeys(nsPrefixMap), &x); err != nil {
 		return
 	}
 	for _, e := range x.OleObject {
