@@ -217,28 +217,58 @@ FUZZ_PKGS ?=
 # them. Failures are collected and listed at the end, and the recipe still exits
 # non-zero, so a sweep reports everything it found in one pass.
 #
-# Note when reading a sweep: a target can fail with "context deadline exceeded"
-# and write no crasher. That is Go's fuzzing worker deadline, not a defect in the
-# code under test — the slow targets (FuzzDocxMailMerge runs two orders of
-# magnitude fewer execs per second than the part fuzzers) can hit it when the
-# machine is loaded by a long back-to-back run, and they pass when run alone.
-# Re-run such a target on its own before believing it.
+# A target that fails with "context deadline exceeded" AND writes no crasher is
+# re-run once, and only then. That pair is Go's fuzzing shutdown race rather than
+# a defect in the code under test: the coordinator gives up waiting on a worker a
+# fraction of a second past the budget, with the execution rate healthy right up
+# to the end. It has cost two nightlies — FuzzDocxMailMerge and
+# FuzzShapeRoundTrip — neither reproducible in isolation, including on the exact
+# toolchain CI uses.
+#
+# The pair is what keeps this narrow, and both halves matter. A crasher means a
+# reproducible defect, so a target that wrote one is never re-run however it
+# phrased its failure. Any other message is never re-run either. A target that
+# hits the deadline twice still fails the sweep. And a target that passes the
+# second time is named under PASSED ON RE-RUN rather than passing silently,
+# because a sweep that hides its own flakiness is how a nightly stops being read.
 fuzz-run:
 	@set -u; \
 	pkgs="$(FUZZ_PKGS)"; \
 	if [ -z "$$pkgs" ]; then \
 		pkgs=$$(git grep -l '^func Fuzz' -- '*_test.go' | xargs -n1 dirname | sort -u); \
 	fi; \
-	failed=""; \
+	failed=""; retried=""; \
 	for pkg in $$pkgs; do \
 		for target in $$(go test -list '^Fuzz' ./$$pkg | grep '^Fuzz'); do \
 			echo "==> ./$$pkg $$target"; \
-			if ! go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
-				-fuzzminimizetime $(FUZZMINIMIZETIME); then \
-				failed="$$failed ./$$pkg:$$target"; \
+			seeds="$$pkg/testdata/fuzz/$$target"; \
+			before=$$(ls "$$seeds" 2>/dev/null | wc -l); \
+			out=$$(mktemp); \
+			if go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
+				-fuzzminimizetime $(FUZZMINIMIZETIME) >"$$out" 2>&1; then \
+				cat "$$out"; rm -f "$$out"; continue; \
 			fi; \
+			cat "$$out"; \
+			after=$$(ls "$$seeds" 2>/dev/null | wc -l); \
+			if [ "$$after" -eq "$$before" ] && grep -q 'context deadline exceeded' "$$out"; then \
+				rm -f "$$out"; \
+				echo "    the fuzzing deadline, and no crasher: re-running $$target once"; \
+				if go test ./$$pkg -run '^$$' -fuzz "^$${target}$$" -fuzztime $(FUZZTIME) \
+					-fuzzminimizetime $(FUZZMINIMIZETIME); then \
+					retried="$$retried ./$$pkg:$$target"; \
+					continue; \
+				fi; \
+				failed="$$failed ./$$pkg:$$target"; \
+				continue; \
+			fi; \
+			rm -f "$$out"; \
+			failed="$$failed ./$$pkg:$$target"; \
 		done; \
 	done; \
+	if [ -n "$$retried" ]; then \
+		echo; echo "PASSED ON RE-RUN (hit the fuzzing deadline, wrote no crasher):"; \
+		for f in $$retried; do echo "  $$f"; done; \
+	fi; \
 	if [ -n "$$failed" ]; then \
 		echo; echo "FAILED TARGETS:"; \
 		for f in $$failed; do echo "  $$f"; done; \
