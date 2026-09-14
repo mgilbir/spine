@@ -1114,20 +1114,109 @@ type CT_Cell struct {
 	R  string          `xml:"r,attr"`
 	S  *uint32         `xml:"s,attr,omitempty"`
 	T  string          `xml:"t,attr,omitempty"`
-	Cm *uint32         `xml:"cm,attr,omitempty"`
-	Vm *uint32         `xml:"vm,attr,omitempty"`
+	F  *CT_CellFormula `xml:"f,omitempty"`
+	V  *string         `xml:"v,omitempty"`
+	Is *CT_Rst         `xml:"is,omitempty"`
+	// rare holds the fields essentially no cell carries. A cell is the most
+	// numerous object in the library — a 4.7 MiB workbook parses to a million
+	// of them — so a field that is almost always unset still costs its width in
+	// every one. Measured over the 25.7M cells of the corpus: cm on 0.01%, ph
+	// on 88 cells, vm on 7, and extLst on none at all, yet between them they
+	// occupied 48 of the struct's 112 bytes. Behind one pointer they cost 8,
+	// and nothing for the cells that do not have them.
+	//
+	// Reached through the accessors below rather than directly, so the nil case
+	// is handled in one place.
+	rare *cellRare
+}
+
+// cellRare carries the CT_Cell fields folded out of the struct itself. Nothing
+// copies a CT_Cell by value — cells are always held as pointers, so that a
+// *Cell handle stays valid when its row grows — so sharing this pointer cannot
+// alias two cells together.
+type cellRare struct {
+	Cm *uint32
+	Vm *uint32
 	// Ph is the show-phonetic flag Excel sets on a cell in a Japanese
 	// phonetic-guide workbook; it is the last CT_Cell attribute in schema order
 	// (r, s, t, cm, vm, ph). Captured so such a cell round-trips rather than
 	// silently losing its phonetic marking on a dirty save.
-	Ph *bool           `xml:"ph,attr,omitempty"`
-	F  *CT_CellFormula `xml:"f,omitempty"`
-	V  *string         `xml:"v,omitempty"`
-	Is *CT_Rst         `xml:"is,omitempty"`
-	// ExtRaw holds the verbatim bytes of children this type does not model
-	// (extLst, last in schema order), so a dirty save re-emits them. Captured
-	// lazily: an ordinary cell allocates nothing for it.
-	ExtRaw [][]byte `xml:"-"`
+	Ph *bool
+	// ExtRaw holds the verbatim bytes of children CT_Cell does not model
+	// (extLst, last in schema order), so a dirty save re-emits them.
+	ExtRaw [][]byte
+}
+
+// ensureRare returns the cell's rare-field block, creating it on first use.
+func (c *CT_Cell) ensureRare() *cellRare {
+	if c.rare == nil {
+		c.rare = &cellRare{}
+	}
+	return c.rare
+}
+
+// Cm returns the cell metadata index, or nil when the cell has none.
+func (c *CT_Cell) Cm() *uint32 {
+	if c.rare == nil {
+		return nil
+	}
+	return c.rare.Cm
+}
+
+// SetCm sets the cell metadata index. Setting nil on a cell that has no rare
+// block leaves it without one, so the common case allocates nothing.
+func (c *CT_Cell) SetCm(v *uint32) {
+	if v == nil && c.rare == nil {
+		return
+	}
+	c.ensureRare().Cm = v
+}
+
+// Vm returns the value metadata index, or nil when the cell has none.
+func (c *CT_Cell) Vm() *uint32 {
+	if c.rare == nil {
+		return nil
+	}
+	return c.rare.Vm
+}
+
+// SetVm sets the value metadata index.
+func (c *CT_Cell) SetVm(v *uint32) {
+	if v == nil && c.rare == nil {
+		return
+	}
+	c.ensureRare().Vm = v
+}
+
+// Ph returns the show-phonetic flag, or nil when the cell has none.
+func (c *CT_Cell) Ph() *bool {
+	if c.rare == nil {
+		return nil
+	}
+	return c.rare.Ph
+}
+
+// SetPh sets the show-phonetic flag.
+func (c *CT_Cell) SetPh(v *bool) {
+	if v == nil && c.rare == nil {
+		return
+	}
+	c.ensureRare().Ph = v
+}
+
+// ExtRaw returns the verbatim bytes of unmodelled children, nil when there are
+// none.
+func (c *CT_Cell) ExtRaw() [][]byte {
+	if c.rare == nil {
+		return nil
+	}
+	return c.rare.ExtRaw
+}
+
+// AppendExtRaw records one unmodelled child's verbatim bytes.
+func (c *CT_Cell) AppendExtRaw(raw []byte) {
+	r := c.ensureRare()
+	r.ExtRaw = append(r.ExtRaw, raw)
 }
 
 // UnmarshalXML decodes a cell, preserving children this type does not model
@@ -1148,11 +1237,11 @@ func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case "t":
 			c.T = attr.Value
 		case "cm":
-			c.Cm = parseUintPtr(attr.Value)
+			c.SetCm(parseUintPtr(attr.Value))
 		case "vm":
-			c.Vm = parseUintPtr(attr.Value)
+			c.SetVm(parseUintPtr(attr.Value))
 		case "ph":
-			c.Ph = boolPtr(parseOnOff(attr.Value))
+			c.SetPh(boolPtr(parseOnOff(attr.Value)))
 		}
 	}
 	for {
@@ -1186,7 +1275,7 @@ func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := d.DecodeElement(&raw, &t); err != nil {
 					return err
 				}
-				c.ExtRaw = append(c.ExtRaw, encodeUnknownElement(t, raw.Content, nil))
+				c.AppendExtRaw(encodeUnknownElement(t, raw.Content, nil))
 			}
 		case xml.EndElement:
 			return nil
@@ -1211,17 +1300,17 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if c.T != "" {
 		attrs = append(attrs, xmlb.StrAttr("t", c.T))
 	}
-	if c.Cm != nil {
-		attrs = append(attrs, xmlb.UintAttr("cm", *c.Cm))
+	if cm := c.Cm(); cm != nil {
+		attrs = append(attrs, xmlb.UintAttr("cm", *cm))
 	}
-	if c.Vm != nil {
-		attrs = append(attrs, xmlb.UintAttr("vm", *c.Vm))
+	if vm := c.Vm(); vm != nil {
+		attrs = append(attrs, xmlb.UintAttr("vm", *vm))
 	}
-	if c.Ph != nil {
-		attrs = append(attrs, xmlb.BoolAttr("ph", *c.Ph))
+	if ph := c.Ph(); ph != nil {
+		attrs = append(attrs, xmlb.BoolAttr("ph", *ph))
 	}
 
-	if c.F == nil && c.V == nil && c.Is == nil && len(c.ExtRaw) == 0 {
+	if c.F == nil && c.V == nil && c.Is == nil && len(c.ExtRaw()) == 0 {
 		b.EmptyElement(ns, localName, attrs...)
 		return
 	}
@@ -1237,7 +1326,7 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 		b.MarshalElement(ns, "is", c.Is)
 	}
 	// extLst is last in schema order.
-	for _, raw := range c.ExtRaw {
+	for _, raw := range c.ExtRaw() {
 		b.WriteRaw(raw)
 	}
 	b.EndElement(ns, localName)

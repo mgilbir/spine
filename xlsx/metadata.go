@@ -51,11 +51,11 @@ func (w *Workbook) prepareDynamicArrayMetadata(writer *opc.Writer, onlyDirty boo
 		}
 		for i := range sheet.ws().SheetData.Row {
 			for _, c := range sheet.ws().SheetData.Row[i].C {
-				if !isDynamicArrayMaster(c) || c.Cm != nil {
+				if !isDynamicArrayMaster(c) || c.Cm() != nil {
 					continue
 				}
 				one := uint32(1)
-				c.Cm = &one
+				c.SetCm(&one)
 				tagged = true
 			}
 		}
