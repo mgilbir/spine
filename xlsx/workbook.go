@@ -1212,6 +1212,7 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 		// rows this sheet's index describes may have just been reordered under
 		// it. Drop it rather than rely on the index's own staleness check.
 		sheet.invalidateRowIndex()
+		sheet.invalidateCellCursor()
 	}()
 
 	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the

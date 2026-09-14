@@ -69,6 +69,9 @@ var nonDurableFields = map[string]bool{
 	"colCov":                true, // lazily built <col> coverage set
 	"colCovRebuilds":        true, // diagnostic counter for that set
 	"colCarves":             true, // diagnostic counter for the carve path
+	"cellCursor":            true, // cached row cursor for cell lookups
+	"cellCursorRebuilds":    true, // diagnostic counter for that cursor
+	"cells":                 true, // rowCells: cell count byCol describes
 	"comments":              true, // lazily loaded comment model
 	"sparklineCache":        true, // lazily parsed sparkline groups
 	"persons":               true, // lazily loaded threaded-comment authors

@@ -103,6 +103,13 @@ type Sheet struct {
 	// rebuilds every <cols> group. Laying out fresh columns must never reach
 	// it; that rebuild is the quadratic cost, so it is what the guard counts.
 	colCarves int
+	// cellCursor is the most recently used row cursor, kept so that filling a
+	// row does not rebuild a column map per cell. See rowCursor in rowcells.go.
+	cellCursor *rowCells
+	// cellCursorRebuilds counts how often that cursor had to be rebuilt.
+	// Filling one row must rebuild it once, not once per cell; the rebuild is
+	// the O(cols) walk, so it is what the guard counts.
+	cellCursorRebuilds int
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
@@ -219,32 +226,13 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Canonicalize: "A01" must address the same cell as "A1", not create a
-	// phantom sibling with a non-canonical r attribute.
-	ref = FormatCellRef(row, col)
-
-	// Find or create the row, through the index rather than a scan from the
-	// start of the sheet: this runs once per cell, and walking it here is what
-	// made building a sheet row by row quadratic (#314).
-	var targetRow *oxml.CT_Row
-	if i, ok := s.lookupRow(ws, uint32(row)); ok {
-		targetRow = &ws.SheetData.Row[i]
-	} else {
-		r := uint32(row)
-		targetRow = &ws.SheetData.Row[s.appendRow(ws, oxml.CT_Row{R: &r})]
-	}
-
-	// Find or create the cell. Cells are stored as pointers so this handle
-	// remains valid even if later cells are appended to the same row.
-	for _, cell := range targetRow.C {
-		if strings.EqualFold(cell.R, ref) {
-			return &Cell{sheet: s, cell: cell}, nil
-		}
-	}
-
-	newCell := &oxml.CT_Cell{R: ref}
-	targetRow.C = append(targetRow.C, newCell)
-	return &Cell{sheet: s, cell: newCell}, nil
+	// Resolve the row and the cell through a cursor: it finds the row by index
+	// rather than walking sheetData (#314) and the cell by column rather than
+	// walking every <c> in the row. Both walks ran once per cell, which made
+	// filling a sheet quadratic in rows and in columns respectively. The cursor
+	// canonicalizes the reference itself ("A01" addresses the same cell as
+	// "A1"), builds the row when it is missing, and appends the new cell.
+	return s.rowCursor(row).cell(col)
 }
 
 // rowNumberOf returns the 1-based row number for a parsed row. A row may omit

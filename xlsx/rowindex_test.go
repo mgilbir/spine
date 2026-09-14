@@ -263,3 +263,139 @@ func BenchmarkSheetCellAppendRows(b *testing.B) {
 		})
 	}
 }
+
+// TestFillingWideRowKeepsOneCursor is the column-side counterpart of
+// TestAppendOnlyBuildKeepsIndexWarm. Filling a row must build one column map,
+// not one per cell: rebuilding per cell is the O(cols) walk that made a wide
+// row quadratic, and it would return every correct value while doing so.
+func TestFillingWideRowKeepsOneCursor(t *testing.T) {
+	const cols = 800
+
+	wb := Create()
+	sh, err := wb.AddSheet("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for c := 1; c <= cols; c++ {
+		ref, err := CellRef(1, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := sh.SetCellValue(ref, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if sh.cellCursorRebuilds > 2 {
+		t.Errorf("cell cursor rebuilt %d times while filling one row of %d cells (want <= 2)",
+			sh.cellCursorRebuilds, cols)
+	}
+	for _, probe := range []int{1, cols / 2, cols} {
+		ref, err := CellRef(1, probe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cell := sh.FindCell(ref)
+		if cell == nil {
+			t.Fatalf("%s missing", ref)
+		}
+		if cell.Float() != float64(probe) {
+			t.Errorf("%s = %v, want %v", ref, cell.Float(), probe)
+		}
+	}
+}
+
+// TestCellCursorSeesCellsAppendedElsewhere guards the direction that corrupts:
+// a cached cursor that had not seen a cell another cursor appended would append
+// a second <c> for the same reference, and Excel rejects a duplicate cell.
+func TestCellCursorSeesCellsAppendedElsewhere(t *testing.T) {
+	wb := Create()
+	sh, err := wb.AddSheet("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Warm the sheet's cached cursor on row 1.
+	if err := sh.SetCellValue("A1", "a"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Append B1 through a different cursor, the way the table and chart paths do.
+	other := sh.newRowCells(1)
+	c, err := other.cell(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SetValue("b")
+
+	// The cached cursor must notice and reuse that cell rather than add another.
+	got, err := sh.Cell("B1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.SetValue("b2")
+
+	ws := sh.ws()
+	i, ok := sh.lookupRow(ws, 1)
+	if !ok {
+		t.Fatal("row 1 missing")
+	}
+	var b1 int
+	for _, cell := range ws.SheetData.Row[i].C {
+		if cell.R == "B1" {
+			b1++
+		}
+	}
+	if b1 != 1 {
+		t.Fatalf("row 1 holds %d cells named B1, want 1", b1)
+	}
+	if v := sh.FindCell("B1"); v == nil || v.String() != "b2" {
+		t.Fatalf("B1 = %v, want \"b2\"", v)
+	}
+}
+
+// TestCellCursorSurvivesMarshalRowSort exercises the cached cursor across the
+// in-place row sort that marshalling performs. The rows are written in
+// descending order so the sort genuinely permutes them, and the cell written
+// afterwards goes to the SAME row the cursor already holds — the one case where
+// a stale cursor is reused rather than replaced. A cursor still pointing at its
+// old position would append the cell to whichever row now sits there.
+func TestCellCursorSurvivesMarshalRowSort(t *testing.T) {
+	wb := Create()
+	sh, err := wb.AddSheet("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r := 5; r >= 1; r-- {
+		if err := sh.SetCellValue(fmt.Sprintf("A%d", r), fmt.Sprintf("row-%d", r)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := wb.SaveBytes(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Row 1 is the row the cursor was left on, and it moved from last to first.
+	if err := sh.SetCellValue("B1", "after-sort"); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := sh.ws()
+	for r := 1; r <= 5; r++ {
+		i, ok := sh.lookupRow(ws, uint32(r))
+		if !ok {
+			t.Fatalf("row %d missing", r)
+		}
+		for _, c := range ws.SheetData.Row[i].C {
+			wantRow := fmt.Sprintf("%d", r)
+			if len(c.R) < 2 || c.R[1:] != wantRow {
+				t.Errorf("row %d holds cell %q, which belongs to another row", r, c.R)
+			}
+		}
+	}
+	if got := sh.FindCell("B1"); got == nil || got.String() != "after-sort" {
+		t.Fatalf("B1 = %v, want \"after-sort\"", got)
+	}
+	if got := sh.FindCell("A5"); got == nil || got.String() != "row-5" {
+		t.Fatalf("A5 = %v, want \"row-5\"", got)
+	}
+}
