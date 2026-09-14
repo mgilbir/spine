@@ -640,9 +640,26 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 	s.ws().EnsureChildOrder("cols")
 
 	c := uint32(col)
+	ws := s.ws()
+
+	// A column no existing entry spans needs no carve: it becomes a fresh
+	// single-column entry, exactly as the !placed branch below does. Answering
+	// that from the coverage set skips rebuilding every group, which is what
+	// made laying out widths column by column quadratic (see colindex.go).
+	cov := s.colCoverageFor(ws)
+	if !cov.covered[c] {
+		target := oxml.CT_Col{Min: c, Max: c}
+		apply(&target)
+		ws.Cols[0].Col = append(ws.Cols[0].Col, target)
+		cov.covered[c] = true
+		cov.entries++
+		return nil
+	}
+
+	s.colCarves++
 	placed := false
-	for gi := range s.ws().Cols {
-		cols := s.ws().Cols[gi].Col
+	for gi := range ws.Cols {
+		cols := ws.Cols[gi].Col
 		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
 		for _, entry := range cols {
 			if entry.Min > c || entry.Max < c {
@@ -667,13 +684,18 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 				rebuilt = append(rebuilt, right)
 			}
 		}
-		s.ws().Cols[gi].Col = rebuilt
+		ws.Cols[gi].Col = rebuilt
 	}
 	if !placed {
 		target := oxml.CT_Col{Min: c, Max: c}
 		apply(&target)
-		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
+		ws.Cols[0].Col = append(ws.Cols[0].Col, target)
 	}
+	// A carve splits one entry into as many as three, so the recorded entry
+	// count no longer matches. Coverage itself is unchanged — the fragments
+	// span the same columns — so refresh the count rather than rebuild.
+	cov.entries = countColEntries(ws)
+	cov.covered[c] = true
 	return nil
 }
 
@@ -747,5 +769,8 @@ func (s *Sheet) editColumnRange(startCol, endCol int, apply func(*oxml.CT_Col)) 
 		apply(&target)
 		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
 	}
+	// This rewrote whole groups; drop the coverage set rather than reason about
+	// whether its entry-count check sees every shape of that change.
+	s.invalidateColCoverage()
 	return nil
 }

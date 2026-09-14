@@ -92,6 +92,17 @@ type Sheet struct {
 	// answer to notice, so the count is asserted on rather than inferred from
 	// a stopwatch. Diagnostic only; nothing serialized depends on it.
 	rowIdxRebuilds int
+	// colCov caches which columns an existing <col> entry already spans, so
+	// laying out column widths does not rebuild every <cols> group per call.
+	// See colindex.go. nil until the first column edit.
+	colCov *colCoverage
+	// colCovRebuilds counts full rebuilds of colCov, for the same reason
+	// rowIdxRebuilds exists: the linearity is asserted, not timed.
+	colCovRebuilds int
+	// colCarves counts the times editColumn took the carve path, which
+	// rebuilds every <cols> group. Laying out fresh columns must never reach
+	// it; that rebuild is the quadratic cost, so it is what the guard counts.
+	colCarves int
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)

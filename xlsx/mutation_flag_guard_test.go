@@ -66,6 +66,9 @@ var nonDurableFields = map[string]bool{
 	"wsParseErr":            true, // lazy-parse failure memo
 	"rowIdx":                true, // lazily built row-number -> position index
 	"rowIdxRebuilds":        true, // diagnostic counter for that index
+	"colCov":                true, // lazily built <col> coverage set
+	"colCovRebuilds":        true, // diagnostic counter for that set
+	"colCarves":             true, // diagnostic counter for the carve path
 	"comments":              true, // lazily loaded comment model
 	"sparklineCache":        true, // lazily parsed sparkline groups
 	"persons":               true, // lazily loaded threaded-comment authors
