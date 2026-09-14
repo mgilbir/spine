@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -2161,56 +2160,18 @@ func (w *Workbook) SetForceFullCalc(force bool) {
 
 // Worksheet grid limits (Excel 2007+): 1,048,576 rows by 16,384 columns (XFD).
 const (
-	MaxRow = 1048576
-	MaxCol = 16384
+	MaxRow = oxml.MaxRow
+	MaxCol = oxml.MaxCol
 )
 
 // ParseCellRef parses a cell reference like "A1" into 1-based row and column
 // numbers. It rejects references outside the worksheet grid and guards against
 // integer overflow from pathologically long column strings.
 func ParseCellRef(ref string) (row, col int, err error) {
-	if ref == "" {
+	row, col, err = oxml.ParseRefString(ref)
+	if err != nil {
 		return 0, 0, ErrInvalidCell
 	}
-
-	// Split into column letters and row number. Accept any mix of upper- and
-	// lower-case letters ("Aa1", "aB3") the way Excel does, rather than
-	// requiring the prefix to be uniformly one case; the prefix is upper-cased
-	// below before it is decoded into a column number.
-	i := 0
-	for i < len(ref) && ((ref[i] >= 'A' && ref[i] <= 'Z') || (ref[i] >= 'a' && ref[i] <= 'z')) {
-		i++
-	}
-	if i == 0 || i == len(ref) {
-		return 0, 0, ErrInvalidCell
-	}
-
-	colStr := strings.ToUpper(ref[:i])
-	rowStr := ref[i:]
-
-	// Parse column letters to number, rejecting anything past the last column
-	// as soon as it overflows the grid (which also prevents int overflow).
-	col = 0
-	for _, c := range colStr {
-		col = col*26 + int(c-'A'+1)
-		if col > MaxCol {
-			return 0, 0, ErrInvalidCell
-		}
-	}
-
-	// Parse row number. strconv.Atoi accepts a leading sign, so "A+5" would
-	// otherwise silently address A5 and the caller would write to a cell it
-	// never named (C547); require the row to be digits only.
-	for i := 0; i < len(rowStr); i++ {
-		if rowStr[i] < '0' || rowStr[i] > '9' {
-			return 0, 0, ErrInvalidCell
-		}
-	}
-	row, err = strconv.Atoi(rowStr)
-	if err != nil || row < 1 || row > MaxRow {
-		return 0, 0, ErrInvalidCell
-	}
-
 	return row, col, nil
 }
 

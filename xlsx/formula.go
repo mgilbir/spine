@@ -26,7 +26,7 @@ func (s *Sheet) materializeSharedGroup(master *oxml.CT_Cell) {
 		return
 	}
 
-	mRow, mCol, mErr := ParseCellRef(master.R)
+	mRow, mCol, mOK := master.RowCol()
 	for i := range s.ws().SheetData.Row {
 		for _, cell := range s.ws().SheetData.Row[i].C {
 			if cell == master {
@@ -40,8 +40,8 @@ func (s *Sheet) materializeSharedGroup(master *oxml.CT_Cell) {
 			if value == "" {
 				// Empty stub: derive the follower's formula from the master's.
 				value = f.Value
-				if mErr == nil {
-					if row, col, err := ParseCellRef(cell.R); err == nil {
+				if mOK {
+					if row, col, ok := cell.RowCol(); ok {
 						value = translateFormula(f.Value, row-mRow, col-mCol)
 					}
 				}

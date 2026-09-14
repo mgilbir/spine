@@ -325,7 +325,7 @@ func (s *Sheet) threadedToComment(tc *oxml.CT_ThreadedComment) *Comment {
 // cell has none. A threaded comment takes precedence over a legacy note.
 func (c *Cell) Comment() *Comment {
 	for _, cm := range c.sheet.Comments() {
-		if strings.EqualFold(cm.ref, c.cell.R) {
+		if strings.EqualFold(cm.ref, c.cell.Ref()) {
 			return cm
 		}
 	}
@@ -381,7 +381,7 @@ func (s *Sheet) removeCommentsAt(ref string) {
 // fallback (so older Excel still renders the text). The author is registered as
 // a person, deduplicated by display name.
 func (c *Cell) AddComment(author, text string) *Comment {
-	return c.sheet.addComment(c.cell.R, author, text)
+	return c.sheet.addComment(c.cell.Ref(), author, text)
 }
 
 // AddComment adds a threaded comment authored by author to the cell at ref (see

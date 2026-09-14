@@ -15,8 +15,8 @@ import (
 func TestRowsSortedOnMarshal(t *testing.T) {
 	r5, r1 := uint32(5), uint32(1)
 	sd := &oxml.CT_SheetData{Row: []oxml.CT_Row{
-		{R: &r5, C: []*oxml.CT_Cell{{R: "A5"}}},
-		{R: &r1, C: []*oxml.CT_Cell{{R: "A1"}}},
+		{R: &r5, C: []*oxml.CT_Cell{cellAt("A5")}},
+		{R: &r1, C: []*oxml.CT_Cell{cellAt("A1")}},
 	}}
 	b := xmlb.NewSpreadsheetMLBuilder()
 	marshalSheetData(b, sd)
@@ -154,7 +154,7 @@ func TestRowWithoutRAttribute(t *testing.T) {
 	// Simulate a parsed row that omitted r, carrying a cell whose ref implies row 3.
 	v := "hello"
 	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
-		C: []*oxml.CT_Cell{{R: "A3", T: "str", V: &v}},
+		C: []*oxml.CT_Cell{cellAt("A3", func(c *oxml.CT_Cell) { c.T = "str"; c.V = &v })},
 	})
 
 	if got, _ := s.GetCellValue("A3"); got != "hello" {
@@ -177,7 +177,7 @@ func TestSetRowHeightOnRowWithoutRAttribute(t *testing.T) {
 	s.ensureWorksheet()
 	v := "7"
 	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
-		C: []*oxml.CT_Cell{{R: "A1", V: &v}},
+		C: []*oxml.CT_Cell{cellAt("A1", func(c *oxml.CT_Cell) { c.V = &v })},
 	})
 
 	if err := s.SetRowHeight(1, 42); err != nil {

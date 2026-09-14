@@ -1065,7 +1065,7 @@ func sortCellsByColumn(cells []*CT_Cell) {
 	prev := 0
 	ordered := true
 	for i, c := range cells {
-		col := cellRefColIndex(c.R)
+		col := int(c.col)
 		if col == 0 {
 			col = prev + 1
 		}
@@ -1111,7 +1111,6 @@ func cellRefColIndex(ref string) int {
 // master cell to its XLDAPR metadata record through it. Vm is the parallel
 // value-metadata index, preserved so a cell that carried one round-trips.
 type CT_Cell struct {
-	R string `xml:"r,attr"`
 	T string `xml:"t,attr,omitempty"`
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
@@ -1136,7 +1135,20 @@ type CT_Cell struct {
 	// sSet distinguishes "no s attribute" from s="0", which a pointer did by
 	// being nil. Reached through StyleIndex/SetStyleIndex/ClearStyleIndex.
 	s    uint32
+	// row and col hold the cell's position, from which its r attribute is
+	// rebuilt on demand. As a string, r cost 16 bytes of header in every cell
+	// plus a separate allocation for the two-to-ten bytes of text — for a value
+	// that is entirely implied by where the cell sits. Across the corpus's
+	// 25.6M references, every single one is already the canonical spelling, so
+	// rebuilding produces the same bytes.
+	//
+	// col is a uint16 because MaxCol is 16384. rSet records whether the source
+	// had an r attribute at all: it is optional, and a cell that omitted it
+	// must keep omitting it (C368), so this is not the same as col == 0.
+	row  uint32
+	col  uint16
 	sSet bool
+	rSet bool
 }
 
 // StyleIndex returns the cell's style index and whether one is set.
@@ -1151,12 +1163,116 @@ func (c *CT_Cell) SetStyleIndex(v uint32) { c.s, c.sSet = v, true }
 // ClearStyleIndex removes the cell's style index, so no s attribute is emitted.
 func (c *CT_Cell) ClearStyleIndex() { c.s, c.sSet = 0, false }
 
+// Ref returns the cell's r attribute: the verbatim text when it was not the
+// canonical spelling, the rebuilt canonical reference otherwise, and "" when
+// the source had no r attribute.
+//
+// It builds a string, so code comparing many cells should use RowCol or Col
+// instead of comparing references.
+func (c *CT_Cell) Ref() string {
+	if !c.rSet {
+		return ""
+	}
+	if c.rare != nil && c.rare.Ref != "" {
+		return c.rare.Ref
+	}
+	return CellRefString(int(c.row), int(c.col))
+}
+
+// RowCol returns the cell's 1-based position and whether it has one. A cell
+// whose r attribute was absent, or was text that does not parse as a reference,
+// reports false and is not addressable by position — exactly as it was when the
+// reference was compared as a string.
+func (c *CT_Cell) RowCol() (row, col int, ok bool) {
+	if !c.rSet || c.row == 0 || c.col == 0 {
+		return 0, 0, false
+	}
+	return int(c.row), int(c.col), true
+}
+
+// Col returns the cell's 1-based column, or 0 when it has no usable reference.
+func (c *CT_Cell) Col() int {
+	if !c.rSet || c.row == 0 || c.col == 0 {
+		return 0
+	}
+	return int(c.col)
+}
+
+// HasRef reports whether the cell carries an r attribute.
+func (c *CT_Cell) HasRef() bool { return c.rSet }
+
+// SetRef records the cell's reference. A reference that is already the
+// canonical spelling of its position is stored as the position alone; anything
+// else — a non-canonical spelling, or text that is not a reference — is kept
+// verbatim so it round-trips, and leaves the cell unaddressable by position
+// when it does not parse.
+func (c *CT_Cell) SetRef(ref string) {
+	c.rSet = true
+	row, col, err := ParseRefString(ref)
+	if err != nil || !refIsCanonical(ref) {
+		c.ensureRare().Ref = ref
+		if err != nil {
+			// Not a reference. The column letters are still read off the front,
+			// because cell ordering at marshal time used to derive a column
+			// from exactly this prefix and a cell with a broken reference kept
+			// its place because of it. row stays 0, so the cell remains
+			// unaddressable, which is also how it was.
+			c.row = 0
+			if n := cellRefColIndex(ref); n > 0 && n <= MaxCol {
+				c.col = uint16(n)
+			} else {
+				c.col = 0
+			}
+			return
+		}
+		c.row, c.col = uint32(row), uint16(col)
+		return
+	}
+	if c.rare != nil {
+		c.rare.Ref = ""
+	}
+	c.row, c.col = uint32(row), uint16(col)
+}
+
+// SetPosition records the cell's position directly, for a cell being created
+// rather than parsed. The emitted reference is the canonical spelling.
+func (c *CT_Cell) SetPosition(row, col int) {
+	c.rSet = true
+	c.row, c.col = uint32(row), uint16(col)
+	if c.rare != nil {
+		c.rare.Ref = ""
+	}
+}
+
+// NewCell returns a cell carrying the given reference. The reference is no
+// longer a settable field, so this is how a cell is built with one.
+func NewCell(ref string) *CT_Cell {
+	c := &CT_Cell{}
+	c.SetRef(ref)
+	return c
+}
+
+// ClearRef removes the cell's reference so no r attribute is emitted.
+func (c *CT_Cell) ClearRef() {
+	c.rSet = false
+	c.row, c.col = 0, 0
+	if c.rare != nil {
+		c.rare.Ref = ""
+	}
+}
+
 // cellRare carries the CT_Cell fields folded out of the struct itself. Nothing
 // copies a CT_Cell by value — cells are always held as pointers, so that a
 // *Cell handle stays valid when its row grows — so sharing this pointer cannot
 // alias two cells together.
 type cellRare struct {
-	Cm *uint32
+	// Ref holds the r attribute verbatim when it is not the canonical spelling
+	// of the cell's position — "A01" for A1, say, or text that does not parse
+	// as a reference at all. No cell in the corpus needs it (0 of 25.6M), so in
+	// practice this costs nothing; it exists so that a file outside the corpus
+	// carrying such a reference still round-trips it unchanged.
+	Ref string
+	Cm  *uint32
 	Vm *uint32
 	// Ph is the show-phonetic flag Excel sets on a cell in a Japanese
 	// phonetic-guide workbook; it is the last CT_Cell attribute in schema order
@@ -1252,7 +1368,7 @@ func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		}
 		switch attr.Name.Local {
 		case "r":
-			c.R = attr.Value
+			c.SetRef(attr.Value)
 		case "s":
 			if v, ok := parseUintVal(attr.Value); ok {
 				c.SetStyleIndex(v)
@@ -1311,11 +1427,11 @@ func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 // phonetic cell reparses identically.
 func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	var attrs []xmlb.Attr
-	if c.R != "" {
+	if ref := c.Ref(); ref != "" {
 		// r is optional: a cell that omitted it in the source keeps it omitted
 		// (its column is implied by position). Emitting r="" instead produced a
 		// schema-invalid empty ST_CellRef (C368).
-		attrs = append(attrs, xmlb.StrAttr("r", c.R))
+		attrs = append(attrs, xmlb.StrAttr("r", ref))
 	}
 	if v, ok := c.StyleIndex(); ok {
 		attrs = append(attrs, xmlb.UintAttr("s", v))

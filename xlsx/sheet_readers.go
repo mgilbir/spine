@@ -161,7 +161,7 @@ func (c *Cell) DataValidation() *DataValidation {
 	}
 	for i := range c.sheet.ws().DataValidations.DataValidation {
 		dv := &c.sheet.ws().DataValidations.DataValidation[i]
-		if sqrefContains(dv.Sqref, c.cell.R) {
+		if sqrefContains(dv.Sqref, c.cell.Ref()) {
 			return dataValidationFromModel(dv)
 		}
 	}

@@ -105,10 +105,10 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 		for i := range src.ws().SheetData.Row {
 			row := &src.ws().SheetData.Row[i]
 			for _, sc := range row.C {
-				if sc == nil || sc.R == "" {
+				if sc == nil || !sc.HasRef() {
 					continue
 				}
-				dc, err := cursors.cellByRef(sc.R)
+				dc, err := cursors.cellByRef(sc.Ref())
 				if err != nil {
 					return err
 				}

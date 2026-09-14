@@ -307,7 +307,7 @@ func (w *Workbook) validateSharedFormulas(c *validate.Collector) {
 				if cell.F.Ref != "" {
 					masters[*cell.F.Si] = true
 				} else {
-					followers = append(followers, follower{ref: cell.R, si: *cell.F.Si})
+					followers = append(followers, follower{ref: cell.Ref(), si: *cell.F.Si})
 				}
 			}
 		}

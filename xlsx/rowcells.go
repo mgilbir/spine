@@ -73,11 +73,11 @@ func (rc *rowCells) index() {
 		if c == nil {
 			continue
 		}
-		r, col, err := ParseCellRef(c.R)
+		r, col, ok := c.RowCol()
 		// Only cells that actually name this row are reachable through it, which
 		// is what Sheet.Cell's full-reference match already implied: a malformed
 		// <c> carrying another row's reference stays unaddressable, as before.
-		if err != nil || r != rc.rowNo {
+		if !ok || r != rc.rowNo {
 			continue
 		}
 		if _, dup := rc.byCol[col]; dup {
@@ -115,8 +115,8 @@ func (rc *rowCells) cell(col int) (*Cell, error) {
 	if rc.sheet.opaque {
 		return nil, ErrNotWorksheet
 	}
-	ref, err := CellRef(rc.rowNo, col)
-	if err != nil {
+	// Validates the position; the reference itself is rebuilt from it on demand.
+	if _, err := CellRef(rc.rowNo, col); err != nil {
 		return nil, err
 	}
 	rc.prepare()
@@ -126,7 +126,8 @@ func (rc *rowCells) cell(col int) (*Cell, error) {
 	if err := rc.ensureRow(); err != nil {
 		return nil, err
 	}
-	nc := &oxml.CT_Cell{R: ref}
+	nc := &oxml.CT_Cell{}
+	nc.SetPosition(rc.rowNo, col)
 	row := rc.row()
 	row.C = append(row.C, nc)
 	rc.byCol[col] = nc

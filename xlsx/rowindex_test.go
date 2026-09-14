@@ -74,7 +74,7 @@ func TestCellTakesFirstDuplicateRow(t *testing.T) {
 	first := ws.SheetData.Row[0]
 	var found bool
 	for _, cell := range first.C {
-		if cell.R == "C3" {
+		if cell.Ref() == "C3" {
 			found = true
 		}
 	}
@@ -178,7 +178,7 @@ func TestRowIndexSelfHealsAfterDirectAppend(t *testing.T) {
 	nine := "nine"
 	ws.SheetData.Row = append(ws.SheetData.Row, oxml.CT_Row{
 		R: &r,
-		C: []*oxml.CT_Cell{{R: "A9", T: "inlineStr", Is: &oxml.CT_Rst{T: &nine}}},
+		C: []*oxml.CT_Cell{cellAt("A9", func(c *oxml.CT_Cell) { c.T = "inlineStr"; c.Is = &oxml.CT_Rst{T: &nine} })},
 	})
 
 	if got := sh.FindCell("A9"); got == nil || got.String() != "nine" {
@@ -341,7 +341,7 @@ func TestCellCursorSeesCellsAppendedElsewhere(t *testing.T) {
 	}
 	var b1 int
 	for _, cell := range ws.SheetData.Row[i].C {
-		if cell.R == "B1" {
+		if cell.Ref() == "B1" {
 			b1++
 		}
 	}
@@ -387,8 +387,8 @@ func TestCellCursorSurvivesMarshalRowSort(t *testing.T) {
 		}
 		for _, c := range ws.SheetData.Row[i].C {
 			wantRow := fmt.Sprintf("%d", r)
-			if len(c.R) < 2 || c.R[1:] != wantRow {
-				t.Errorf("row %d holds cell %q, which belongs to another row", r, c.R)
+			if len(c.Ref()) < 2 || c.Ref()[1:] != wantRow {
+				t.Errorf("row %d holds cell %q, which belongs to another row", r, c.Ref())
 			}
 		}
 	}

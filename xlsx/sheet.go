@@ -257,7 +257,7 @@ func rowNumberOf(r *oxml.CT_Row) (uint32, bool) {
 		return *r.R, true
 	}
 	for _, c := range r.C {
-		if rn, _, err := ParseCellRef(c.R); err == nil {
+		if rn, _, ok := c.RowCol(); ok {
 			return uint32(rn), true
 		}
 	}
@@ -332,7 +332,10 @@ func (s *Sheet) findCell(ref string) *Cell {
 	if err != nil {
 		return nil
 	}
-	ref = FormatCellRef(row, col)
+	// Canonicalization used to matter here because cells were matched by
+	// comparing reference strings; they are matched by position now, so parsing
+	// the caller's reference is the whole of it — "A01" and "A1" reach the same
+	// cell by construction.
 	ws := s.ws()
 	// Unlike Cell, this looked in EVERY row carrying the wanted number, not just
 	// the first, so a sheet with duplicate row numbers could hold the reference
@@ -345,7 +348,7 @@ func (s *Sheet) findCell(ref string) *Cell {
 			return nil
 		}
 		for _, cell := range ws.SheetData.Row[i].C {
-			if strings.EqualFold(cell.R, ref) {
+			if cr, cc, ok := cell.RowCol(); ok && cr == row && cc == col {
 				return &Cell{sheet: s, cell: cell}
 			}
 		}
@@ -355,7 +358,7 @@ func (s *Sheet) findCell(ref string) *Cell {
 		r := &ws.SheetData.Row[i]
 		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
 			for _, cell := range r.C {
-				if strings.EqualFold(cell.R, ref) {
+				if cr, cc, ok := cell.RowCol(); ok && cr == row && cc == col {
 					return &Cell{sheet: s, cell: cell}
 				}
 			}
@@ -392,8 +395,8 @@ func (s *Sheet) Cols() int {
 			if cellIsEmptyPhantom(cell) {
 				continue
 			}
-			_, col, err := ParseCellRef(cell.R)
-			if err == nil && col > maxCol {
+			_, col, ok := cell.RowCol()
+			if ok && col > maxCol {
 				maxCol = col
 			}
 		}
@@ -647,31 +650,12 @@ func CellRef(row, col int) (string, error) {
 
 // columnLetters converts a 1-based column number to column letters. It returns
 // "" for a non-positive column, which callers must treat as invalid.
-func columnLetters(col int) string {
-	if col < 1 {
-		return ""
-	}
-	result := ""
-	for col > 0 {
-		col--
-		result = string(rune('A'+col%26)) + result
-		col /= 26
-	}
-	return result
-}
+func columnLetters(col int) string { return oxml.ColumnLetters(col) }
 
 // FormatCellRef creates a cell reference from 1-based row and column numbers.
 // It returns "" for coordinates outside the worksheet grid rather than an
 // invalid reference such as "5" (column 0).
-func FormatCellRef(row, col int) string {
-	if row < 1 || row > MaxRow || col < 1 || col > MaxCol {
-		return ""
-	}
-	// Plain concatenation rather than fmt.Sprintf: this is on the hot path of
-	// every range walk, and the formatted form cost an interface boxing plus a
-	// reflection-driven format pass per cell.
-	return columnLetters(col) + strconv.Itoa(row)
-}
+func FormatCellRef(row, col int) string { return oxml.CellRefString(row, col) }
 
 // FreezePanes freezes rows and columns at the specified cell reference.
 // For example, "B2" freezes row 1 and column A. The reference is

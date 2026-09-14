@@ -117,7 +117,7 @@ func (c *Cell) Hyperlink() *Hyperlink {
 	}
 	links := c.sheet.ws().Hyperlinks.Hyperlink
 	for i := range links {
-		if strings.EqualFold(links[i].Ref, c.cell.R) || sqrefContains(links[i].Ref, c.cell.R) {
+		if strings.EqualFold(links[i].Ref, c.cell.Ref()) || sqrefContains(links[i].Ref, c.cell.Ref()) {
 			return c.sheet.newHyperlink(&links[i])
 		}
 	}
@@ -159,10 +159,10 @@ func (s *Sheet) resolveHyperlinkURL(rid string) string {
 // re-marshals the worksheet with the hyperlink.
 func (c *Cell) SetHyperlink(url string) *Hyperlink {
 	s := c.sheet
-	s.removeHyperlinkForRef(c.cell.R)
+	s.removeHyperlinkForRef(c.cell.Ref())
 
 	rid := s.nextHyperlinkRID()
-	hl := oxml.CT_Hyperlink{Ref: c.cell.R, RID: rid}
+	hl := oxml.CT_Hyperlink{Ref: c.cell.Ref(), RID: rid}
 	s.appendHyperlink(hl)
 	s.pendingHyperlinkRels = append(s.pendingHyperlinkRels, &opc.Relationship{
 		ID:         rid,
@@ -171,7 +171,7 @@ func (c *Cell) SetHyperlink(url string) *Hyperlink {
 		TargetMode: opc.TargetModeExternal,
 	})
 	s.markDirty()
-	return &Hyperlink{sheet: s, ref: c.cell.R}
+	return &Hyperlink{sheet: s, ref: c.cell.Ref()}
 }
 
 // SetInternalHyperlink sets an internal hyperlink on the cell pointing at a
@@ -180,12 +180,12 @@ func (c *Cell) SetHyperlink(url string) *Hyperlink {
 // relationship. It returns the new Hyperlink so a tooltip can be attached.
 func (c *Cell) SetInternalHyperlink(location string) *Hyperlink {
 	s := c.sheet
-	s.removeHyperlinkForRef(c.cell.R)
+	s.removeHyperlinkForRef(c.cell.Ref())
 
-	hl := oxml.CT_Hyperlink{Ref: c.cell.R, Location: location}
+	hl := oxml.CT_Hyperlink{Ref: c.cell.Ref(), Location: location}
 	s.appendHyperlink(hl)
 	s.markDirty()
-	return &Hyperlink{sheet: s, ref: c.cell.R}
+	return &Hyperlink{sheet: s, ref: c.cell.Ref()}
 }
 
 // appendHyperlink appends a hyperlink to the worksheet model, creating the

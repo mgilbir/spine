@@ -145,7 +145,7 @@ func TestEditRowRangeMatchesPerRow(t *testing.T) {
 		},
 		"duplicate row numbers": {{R: rowNo(3)}, {R: rowNo(3)}},
 		"derived from cells": {
-			{C: []*oxml.CT_Cell{{R: "A4"}}}, // no r attribute
+			{C: []*oxml.CT_Cell{cellAt("A4")}}, // no r attribute
 			{R: rowNo(6)},
 		},
 	}

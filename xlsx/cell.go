@@ -32,7 +32,7 @@ type Cell struct {
 
 // Ref returns the cell reference (e.g., "A1").
 func (c *Cell) Ref() string {
-	return c.cell.R
+	return c.cell.Ref()
 }
 
 // CellError is the value Cell.Value returns for an error cell (t="e"). It
@@ -455,7 +455,7 @@ func (c *Cell) SetDynamicArrayFormula(formula, ref string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
 	if ref == "" {
-		ref = c.cell.R
+		ref = c.cell.Ref()
 	}
 	on := true
 	c.cell.T = ""
@@ -485,12 +485,12 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 	if err != nil {
 		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
 	}
-	mRow, mCol, err := ParseCellRef(c.cell.R)
+	mRow, mCol, err := ParseCellRef(c.cell.Ref())
 	if err != nil {
 		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
 	}
 	if mRow != rng.minRow || mCol != rng.minCol {
-		return fmt.Errorf("xlsx: SetSharedFormula: cell %s must be the top-left cell of range %s", c.cell.R, ref)
+		return fmt.Errorf("xlsx: SetSharedFormula: cell %s must be the top-left cell of range %s", c.cell.Ref(), ref)
 	}
 
 	si := c.sheet.nextSharedFormulaSi()

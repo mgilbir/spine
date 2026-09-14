@@ -25,7 +25,7 @@ func TestOrdinaryCellsAllocateNoRareBlock(t *testing.T) {
 		for _, c := range ws.SheetData.Row[i].C {
 			n++
 			if c.rare != nil {
-				t.Errorf("cell %q allocated a rare block though it sets none of cm/vm/ph/extLst", c.R)
+				t.Errorf("cell %q allocated a rare block though it sets none of cm/vm/ph/extLst", c.Ref())
 			}
 		}
 	}
@@ -37,7 +37,7 @@ func TestOrdinaryCellsAllocateNoRareBlock(t *testing.T) {
 // TestSetNilOnAbsentRareStaysAbsent pins the other half: clearing a field the
 // cell never had must not create the block.
 func TestSetNilOnAbsentRareStaysAbsent(t *testing.T) {
-	c := &CT_Cell{R: "A1"}
+	c := NewCell("A1")
 	c.SetCm(nil)
 	c.SetVm(nil)
 	c.SetPh(nil)
@@ -100,5 +100,68 @@ func TestStyleIndexZeroRoundTrips(t *testing.T) {
 	}
 	if _, ok := cells[1].StyleIndex(); ok {
 		t.Error("B1 has no s attribute but reports a style index")
+	}
+}
+
+// TestClearRefRemovesTheReference pins the contract Ref's rSet check exists
+// for: a cell that had a position and then had its reference cleared must emit
+// no r attribute, rather than rebuilding one from the position it still
+// remembers.
+func TestClearRefRemovesTheReference(t *testing.T) {
+	c := NewCell("C7")
+	if got := c.Ref(); got != "C7" {
+		t.Fatalf("Ref() = %q, want C7", got)
+	}
+	if row, col, ok := c.RowCol(); !ok || row != 7 || col != 3 {
+		t.Fatalf("RowCol() = %d,%d,%v; want 7,3,true", row, col, ok)
+	}
+
+	c.ClearRef()
+	if got := c.Ref(); got != "" {
+		t.Errorf("Ref() after ClearRef = %q, want \"\"", got)
+	}
+	if c.HasRef() {
+		t.Error("HasRef() after ClearRef is true")
+	}
+	if _, _, ok := c.RowCol(); ok {
+		t.Error("RowCol() after ClearRef still reports a position")
+	}
+}
+
+// TestRefIsCanonicalMatchesFormatting pins the shortcut SetRef takes. It
+// decides canonicity by inspecting the text instead of formatting the position
+// and comparing, which cost an allocation per cell on the parse path; the two
+// must agree for every reference, or a cell either loses its original spelling
+// or keeps a redundant copy of it.
+func TestRefIsCanonicalMatchesFormatting(t *testing.T) {
+	refs := []string{
+		"A1", "Z9", "AA1", "XFD1", "XFD1048576", "B10", "A100",
+		"A01", "A0", "a1", "aB3", "Ab3", "A1 ", " A1", "A+1", "A-1",
+		"A1x", "1A", "", "A", "1", "AAAA1", "A1048577",
+	}
+	for _, ref := range refs {
+		row, col, err := ParseRefString(ref)
+		want := err == nil && CellRefString(row, col) == ref
+		if got := err == nil && refIsCanonical(ref); got != want {
+			t.Errorf("refIsCanonical(%q) = %v, but formatting says %v", ref, got, want)
+		}
+	}
+}
+
+// TestColumnLettersRoundTrips guards the rewritten formatter against the
+// parser across the whole column range.
+func TestColumnLettersRoundTrips(t *testing.T) {
+	for col := 1; col <= MaxCol; col++ {
+		letters := ColumnLetters(col)
+		_, got, err := ParseRefString(letters + "1")
+		if err != nil || got != col {
+			t.Fatalf("ColumnLetters(%d) = %q, which parses back to %d (err %v)", col, letters, got, err)
+		}
+	}
+	if got := ColumnLetters(0); got != "" {
+		t.Errorf("ColumnLetters(0) = %q, want \"\"", got)
+	}
+	if got := ColumnLetters(MaxCol); got != "XFD" {
+		t.Errorf("ColumnLetters(MaxCol) = %q, want XFD", got)
 	}
 }
