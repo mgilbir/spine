@@ -2,6 +2,7 @@ package xml
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -12,7 +13,12 @@ import (
 // Unlike Go's encoding/xml, this builder uses prefixed namespaces (p:, a:, r:)
 // which is required for Microsoft Office compatibility.
 type Builder struct {
-	buf                strings.Builder
+	buf strings.Builder
+	// flushed counts the bytes already drained to an io.Writer by DrainTo, so
+	// that positions recorded in elemFrame.startLen stay comparable across a
+	// drain. Without it, draining mid-document resets buf.Len() to zero and
+	// every recorded baseline silently points past the end.
+	flushed            int
 	indent             string
 	level              int
 	namespaces         map[string]string // URI -> prefix
@@ -90,7 +96,7 @@ func (b *Builder) pushElem(qname string) {
 	b.stack = append(b.stack, elemFrame{
 		qname:       qname,
 		restores:    b.pendingNSRestores,
-		startLen:    b.buf.Len(),
+		startLen:    b.pos(),
 		prefixDecls: b.pendingPrefixDecls,
 	})
 	b.pendingNSRestores = nil
@@ -146,7 +152,7 @@ func (b *Builder) prefixInScope(prefix string) bool {
 // flushOpenTag, which calls this to correct the baseline.
 func (b *Builder) markContentStart() {
 	if n := len(b.stack); n > 0 {
-		b.stack[n-1].startLen = b.buf.Len()
+		b.stack[n-1].startLen = b.pos()
 	}
 }
 
@@ -263,6 +269,44 @@ func (b *Builder) String() string {
 // Bytes returns the built XML as bytes.
 func (b *Builder) Bytes() []byte {
 	return []byte(b.buf.String())
+}
+
+// pos is the document position: bytes already drained plus bytes still held.
+// Element baselines are recorded against it rather than against buf.Len() so
+// that they survive DrainTo.
+func (b *Builder) pos() int { return b.flushed + b.buf.Len() }
+
+// DrainTo writes everything buffered so far to w and keeps building. The
+// builder's structural state — open elements, namespace scopes, pending tags —
+// is untouched, so a document can be emitted in pieces without holding all of
+// it in memory. It returns the number of bytes written.
+//
+// This is what lets a worksheet be streamed: a block of rows is built, drained
+// into the package part, and the builder reused for the next block, so the
+// bytes resident at any moment are one block rather than one sheet.
+//
+// Draining is safe because the builder never rewrites what it has already
+// produced: it appends only, and the one construct that looks like backtracking
+// — collapsing an empty element to a self-closing tag — is done by deferring
+// the '>' rather than by rewinding.
+//
+// After a drain, Bytes and String return only the bytes written since it.
+// Mixing them with DrainTo yields a fragment, not a document; a streaming
+// caller should use one or the other.
+func (b *Builder) DrainTo(w io.Writer) (int, error) {
+	if b.err != nil {
+		return 0, b.err
+	}
+	if b.buf.Len() == 0 {
+		return 0, nil
+	}
+	n, err := io.WriteString(w, b.buf.String())
+	b.flushed += n
+	b.buf.Reset()
+	if err != nil {
+		b.err = err
+	}
+	return n, err
 }
 
 // SetSelfClosingSpace controls whether self-closing elements use " />" (true) or "/>" (false).
@@ -1159,7 +1203,7 @@ func (b *Builder) IsNamespaceDeclared(nsURI string) bool {
 // the element as character data — turning a source's <t></t> into <t> </t>,
 // which changes the document and cannot round-trip.
 func (b *Builder) writeCloseIndent(startLen int) {
-	if b.indent == "" && b.elemSeparator != "" && startLen >= 0 && b.buf.Len() == startLen {
+	if b.indent == "" && b.elemSeparator != "" && startLen >= 0 && b.pos() == startLen {
 		b.trailingWS = false
 		return
 	}

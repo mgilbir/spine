@@ -23,6 +23,24 @@ import (
 // mutationFlagExempt with the reason it is safe, the way captureExemptAttrs
 // does in pptx/internal/oxml — a justified exemption list beats silence.
 
+// outsideDocumentModel are receiver types that are not part of the workbook
+// model these guards are about. The rule they enforce — a mutation must reach a
+// regeneration flag, so the change survives a save — presupposes a model that a
+// save serializes. A StreamWriter has none: it writes rows straight into the
+// package as they arrive, so there is nothing to flag and nothing a later save
+// could fail to pick up.
+//
+// They are skipped at analysis rather than exempted by name, for two reasons.
+// Listing every method would need extending each time one is added, which is
+// the rot the exemption lists are written to avoid. And callee resolution here
+// is by name only, so a mutating StreamWriter.Close would make every other
+// Close in the package — Workbook.Close among them — look like it reaches a
+// mutation.
+var outsideDocumentModel = map[string]bool{
+	"StreamWriter": true,
+	"StreamSheet":  true,
+}
+
 // flagCalls are the calls that record "durable state changed, regenerate the
 // owning part". Reaching any of them (directly or through a callee in this
 // package) satisfies the guard.
@@ -378,7 +396,9 @@ func parsePackageForGuard(t *testing.T) *guardPkg {
 				pos:   shortPos(fset.Position(fd.Pos()).String()),
 				calls: map[string]bool{},
 			}
-			analyzeGuardFunc(fset, fd, recvVar, recv, f)
+			if !outsideDocumentModel[recv] {
+				analyzeGuardFunc(fset, fd, recvVar, recv, f)
+			}
 			g.funcs[key] = f
 		}
 	}
