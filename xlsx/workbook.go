@@ -46,6 +46,20 @@ type Workbook struct {
 	stylesheet     *oxml.CT_Stylesheet
 	sheets         []*Sheet
 	preservedParts map[string]*coxml.RawPart
+	// sheetNames and definedNames index the case-insensitive collision checks
+	// AddSheet/UniqueSheetName and AddDefinedName run. See nameindex.go. Both
+	// are lazily built and self-healing; nil until first used.
+	sheetNames   *sheetNameSet
+	definedNames *definedNameSet
+	// maxSheetID caches the highest sheet id in the workbook model, with
+	// sheetIDCount recording how many sheets it was computed from, so
+	// nextSheetID does not rescan on every AddSheet.
+	maxSheetID   uint32
+	sheetIDCount int
+	// nameSetRebuilds counts full rebuilds of the two name sets. Maintaining
+	// them on add is what keeps a run of adds linear, so the guard counts
+	// rebuilds rather than timing the run.
+	nameSetRebuilds int
 	relationships  map[string][]*opc.Relationship
 	hasCoreProps   bool
 	propsSnapshot  *opc.CoreProperties   // Properties as loaded at open; detects edits at save
@@ -1466,6 +1480,9 @@ func (w *Workbook) addSheet(name string) *Sheet {
 		wsParsed: true,
 		dirty:    true,
 	}
+	// Fetch the name set while it still describes w.sheets; it is updated with
+	// the new name below, so a run of adds never rebuilds it.
+	nameSet := w.sheetNameSetFor()
 	w.sheets = append(w.sheets, sheet)
 	w.sheetsDirty = true
 	w.markContentEdited()
@@ -1480,19 +1497,35 @@ func (w *Workbook) addSheet(name string) *Sheet {
 		SheetId: sheetID,
 		RID:     fmt.Sprintf("rId%d", sheetID),
 	})
+	// Keep the id and name caches warm rather than letting the next call
+	// rebuild them; that rebuild per add is the quadratic cost.
+	if sheetID > w.maxSheetID {
+		w.maxSheetID = sheetID
+	}
+	w.sheetIDCount = len(w.workbook.Sheets.Sheet)
+	w.recordSheetName(nameSet, name)
 
 	return sheet
 }
 
 // nextSheetID returns an unused sheet id (one past the current maximum).
 func (w *Workbook) nextSheetID() uint32 {
-	var max uint32
-	for _, s := range w.workbook.Sheets.Sheet {
-		if s.SheetId > max {
-			max = s.SheetId
+	// Scanning every sheet here ran once per AddSheet, which is half of what
+	// made adding sheets quadratic. The cached maximum is recomputed whenever
+	// the sheet count moves, so a delete — which can lower the maximum, and so
+	// must be able to lower this — is picked up.
+	entries := w.workbook.Sheets.Sheet
+	if w.sheetIDCount != len(entries) {
+		var max uint32
+		for _, s := range entries {
+			if s.SheetId > max {
+				max = s.SheetId
+			}
 		}
+		w.maxSheetID = max
+		w.sheetIDCount = len(entries)
 	}
-	return max + 1
+	return w.maxSheetID + 1
 }
 
 // forbiddenSheetNameChars are the characters Excel disallows in a sheet name.
@@ -1565,12 +1598,7 @@ func (w *Workbook) sanitizeSheetName(name string) string {
 // sheetNameExists reports whether a sheet with the given name (case-insensitive)
 // already exists in the workbook.
 func (w *Workbook) sheetNameExists(name string) bool {
-	for _, s := range w.sheets {
-		if strings.EqualFold(s.name, name) {
-			return true
-		}
-	}
-	return false
+	return w.sheetNameSetFor().names[foldKey(name)]
 }
 
 // truncateRunes returns s limited to at most n runes.
@@ -2239,7 +2267,7 @@ func (w *Workbook) addDefinedName(name, ref string, sheetIndex int) error {
 		dn.LocalSheetId = &idx
 	}
 
-	w.workbook.DefinedNames.DefinedName = append(w.workbook.DefinedNames.DefinedName, dn)
+	w.appendDefinedName(dn, sheetIndex)
 	// See AddDefinedNameFull: workbook.xml is always regenerated, so this needs
 	// no flag, but the content edit still has to be recorded.
 	w.markContentEdited()

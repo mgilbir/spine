@@ -182,6 +182,9 @@ func (s *Sheet) SetName(name string) error {
 		}
 	}
 	s.name = name
+	// A rename changes a name without changing how many sheets there are, so
+	// the count-based staleness check cannot see it.
+	s.workbook.invalidateSheetNames()
 	// Update the workbook model if within bounds
 	if s.workbook != nil && s.index >= 0 && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name

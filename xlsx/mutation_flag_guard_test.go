@@ -72,6 +72,11 @@ var nonDurableFields = map[string]bool{
 	"cellCursor":            true, // cached row cursor for cell lookups
 	"cellCursorRebuilds":    true, // diagnostic counter for that cursor
 	"cells":                 true, // rowCells: cell count byCol describes
+	"sheetNames":            true, // lazily built sheet-name collision set
+	"definedNames":          true, // lazily built defined-name collision set
+	"maxSheetID":            true, // cached highest sheet id
+	"sheetIDCount":          true, // sheet count maxSheetID was computed from
+	"nameSetRebuilds":       true, // diagnostic counter for the name sets
 	"comments":              true, // lazily loaded comment model
 	"sparklineCache":        true, // lazily parsed sparkline groups
 	"persons":               true, // lazily loaded threaded-comment authors
