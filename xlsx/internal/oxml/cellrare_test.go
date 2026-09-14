@@ -54,3 +54,51 @@ func TestSetNilOnAbsentRareStaysAbsent(t *testing.T) {
 		t.Fatalf("SetCm did not take: rare=%v cm=%v", c.rare, c.Cm())
 	}
 }
+
+// TestStyleIndexDistinguishesZeroFromAbsent is the property the presence bit
+// exists for. As a *uint32, "no s attribute" was nil and s="0" was a pointer to
+// zero; held by value those collapse unless the bit is kept, and emitting s="0"
+// on a cell that never had it changes the file.
+func TestStyleIndexDistinguishesZeroFromAbsent(t *testing.T) {
+	var c CT_Cell
+	if _, ok := c.StyleIndex(); ok {
+		t.Error("a fresh cell reports a style index")
+	}
+	if c.HasStyle() {
+		t.Error("a fresh cell reports HasStyle")
+	}
+
+	c.SetStyleIndex(0)
+	v, ok := c.StyleIndex()
+	if !ok || v != 0 {
+		t.Errorf("after SetStyleIndex(0): got %v, %v; want 0, true", v, ok)
+	}
+	if !c.HasStyle() {
+		t.Error("s=\"0\" must read as present")
+	}
+
+	c.ClearStyleIndex()
+	if _, ok := c.StyleIndex(); ok {
+		t.Error("ClearStyleIndex left the index present")
+	}
+}
+
+// TestStyleIndexZeroRoundTrips pins the same distinction through the XML, which
+// is where it actually costs something: a cell written with s="0" must come
+// back with it, and one written without s must not gain it.
+func TestStyleIndexZeroRoundTrips(t *testing.T) {
+	ws := &CT_Worksheet{}
+	body := `<worksheet><sheetData><row r="1">` +
+		`<c r="A1" s="0"><v>1</v></c><c r="B1"><v>2</v></c>` +
+		`</row></sheetData></worksheet>`
+	if err := xmlb.UnmarshalWithSource([]byte(body), ws); err != nil {
+		t.Fatal(err)
+	}
+	cells := ws.SheetData.Row[0].C
+	if v, ok := cells[0].StyleIndex(); !ok || v != 0 {
+		t.Errorf(`A1 (s="0"): got %v, %v; want 0, true`, v, ok)
+	}
+	if _, ok := cells[1].StyleIndex(); ok {
+		t.Error("B1 has no s attribute but reports a style index")
+	}
+}

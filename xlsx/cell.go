@@ -182,14 +182,15 @@ func (c *Cell) Type() CellType {
 // built-in date/time number formats (ids 14-22 and 45-47), which is how Excel
 // distinguishes date cells from plain numbers (C132).
 func (c *Cell) hasDateNumberFormat() bool {
-	if c.cell.S == nil || c.sheet == nil || c.sheet.workbook == nil {
+	if !c.cell.HasStyle() || c.sheet == nil || c.sheet.workbook == nil {
 		return false
 	}
 	ss := c.sheet.workbook.stylesheet
 	if ss == nil || ss.CellXfs == nil {
 		return false
 	}
-	idx := int(*c.cell.S)
+	style, _ := c.cell.StyleIndex()
+	idx := int(style)
 	if idx < 0 || idx >= len(ss.CellXfs.Xf) {
 		return false
 	}
@@ -527,13 +528,20 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 
 // Style returns the cell's style index, or nil if not set.
 func (c *Cell) StyleIndex() *uint32 {
-	return c.cell.S
+	// The index is held by value now, so this hands back a copy rather than a
+	// pointer into the model. Writing through the old pointer was never part of
+	// the contract — SetStyleIndex is — and the doc has always described a
+	// value.
+	if v, ok := c.cell.StyleIndex(); ok {
+		return &v
+	}
+	return nil
 }
 
 // SetStyleIndex sets the cell's style index.
 func (c *Cell) SetStyleIndex(index uint32) {
 	c.markSheetDirty()
-	c.cell.S = &index
+	c.cell.SetStyleIndex(index)
 }
 
 // IsEmpty returns true if the cell has no value.

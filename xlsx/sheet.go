@@ -408,7 +408,7 @@ func (s *Sheet) Cols() int {
 // (C425). A cell with a style but no value is real content and is not a
 // phantom.
 func cellIsEmptyPhantom(c *oxml.CT_Cell) bool {
-	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && c.S == nil &&
+	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && !c.HasStyle() &&
 		c.T == "" && c.Cm() == nil && c.Vm() == nil && c.Ph() == nil && len(c.ExtRaw()) == 0)
 }
 

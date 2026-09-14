@@ -21,6 +21,16 @@ import (
 
 // parseUintPtr returns the parsed value of an xsd:unsignedInt attribute, or nil
 // when the text does not parse.
+// parseUintVal is parseUintPtr without the allocation, for fields held by value
+// rather than behind a pointer.
+func parseUintVal(s string) (uint32, bool) {
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if err != nil {
+		return 0, false
+	}
+	return uint32(n), true
+}
+
 func parseUintPtr(s string) *uint32 {
 	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
 	if err != nil {

@@ -115,8 +115,8 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 				if err := copyCellValue(w, other, sc, dc); err != nil {
 					return err
 				}
-				if sc.S != nil {
-					newIdx, err := remapStyleIndex(w, other, *sc.S, styleCache)
+				if srcIdx, ok := sc.StyleIndex(); ok {
+					newIdx, err := remapStyleIndex(w, other, srcIdx, styleCache)
 					if err != nil {
 						return err
 					}

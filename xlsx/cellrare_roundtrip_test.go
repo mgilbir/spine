@@ -62,10 +62,19 @@ func TestRareCellFieldsSurviveADirtySave(t *testing.T) {
 	if ph := a1.cell.Ph(); ph == nil || !*ph {
 		t.Errorf("A1 ph = %v, want true", ph)
 	}
+	// s="0" is the case a presence bit exists for: held by value, "absent" and
+	// "zero" are the same number, and a cell that never had an s attribute must
+	// not gain one. The source gives A1 s="0" and B1 none.
+	if v, ok := a1.cell.StyleIndex(); !ok || v != 0 {
+		t.Errorf(`A1 style index = %v, %v; want 0, true (source had s="0")`, v, ok)
+	}
 
 	b1 := sh2.FindCell("B1")
 	if b1 == nil {
 		t.Fatal("B1 lost")
+	}
+	if _, ok := b1.cell.StyleIndex(); ok {
+		t.Error("B1 gained a style index it never had in the source")
 	}
 	if got := b1.cell.ExtRaw(); len(got) != 1 {
 		t.Fatalf("B1 extLst: got %d raw children, want 1", len(got))
