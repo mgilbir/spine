@@ -12,6 +12,12 @@ import (
 
 // SlideMaster represents a slide master.
 type SlideMaster struct {
+	// maxLayoutRelID caches the highest relationship id among this master's
+	// layouts, with layoutRelIDCount recording how many layouts it was computed
+	// from, so AddLayout does not rescan them. See nextLayoutRelIDNum.
+	maxLayoutRelID      int
+	layoutRelIDCount    int
+	layoutRelIDRescans  int
 	presentation *Presentation
 	partName     string
 	masterXML    *oxml.SlideMaster
@@ -736,18 +742,37 @@ func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 // theme's rId — the <p:sldLayoutId r:id> resolved to theme1.xml and the layout
 // was silently lost on reopen.
 func (sm *SlideMaster) nextLayoutRelIDNum() int {
-	maxRel := 0
-	for _, l := range sm.layouts {
-		if id, ok := relIDNum(l.relID); ok && id > maxRel {
-			maxRel = id
+	// Both halves used to be O(layouts) and both grow by one per AddLayout, so
+	// adding layouts was quadratic. The sibling scan is cached here against the
+	// layout count; the master's own scope is cached in relidcache.go. Like
+	// that one, this only ever raises the maximum, because a maximum that is
+	// too low is the C363 defect (two relationships handed the same id).
+	if sm.layoutRelIDCount != len(sm.layouts) {
+		maxRel := 0
+		for _, l := range sm.layouts {
+			if id, ok := relIDNum(l.relID); ok && id > maxRel {
+				maxRel = id
+			}
 		}
+		sm.maxLayoutRelID = maxRel
+		sm.layoutRelIDCount = len(sm.layouts)
+		sm.layoutRelIDRescans++
 	}
+	maxRel := sm.maxLayoutRelID
 	if sm.presentation != nil && sm.partName != "" {
 		if id := sm.presentation.nextRelIDNum(sm.partName) - 1; id > maxRel {
 			maxRel = id
 		}
 	}
-	return maxRel + 1
+	next := maxRel + 1
+	// The caller assigns this id to a layout it appends immediately. Recording
+	// that keeps the next call off the rescan path; a caller that does not
+	// append leaves the count too high, which is a rescan, never a reused id.
+	if next > sm.maxLayoutRelID {
+		sm.maxLayoutRelID = next
+	}
+	sm.layoutRelIDCount = len(sm.layouts) + 1
+	return next
 }
 
 // registerLayoutRelationships records the relationships a newly added layout
@@ -761,13 +786,13 @@ func (sm *SlideMaster) registerLayoutRelationships(layout *SlideLayout) {
 		return
 	}
 	p := sm.presentation
-	p.relationships[sm.partName] = append(p.relationships[sm.partName], &opc.Relationship{
+	p.appendRelationship(sm.partName, &opc.Relationship{
 		ID:         layout.relID,
 		Type:       opc.RelTypeSlideLayout,
 		Target:     partNameToRelTarget(layout.partName, path.Dir(sm.partName)+"/"),
 		TargetMode: opc.TargetModeInternal,
 	})
-	p.relationships[layout.partName] = append(p.relationships[layout.partName], &opc.Relationship{
+	p.appendRelationship(layout.partName, &opc.Relationship{
 		ID:         fmt.Sprintf("rId%d", p.nextRelIDNum(layout.partName)),
 		Type:       opc.RelTypeSlideMaster,
 		Target:     partNameToRelTarget(sm.partName, path.Dir(layout.partName)+"/"),

@@ -111,6 +111,11 @@ type Presentation struct {
 	// every other part, so running it per SetNotes is the quadratic cost the
 	// cache removes; the guard counts it rather than timing the run.
 	notesMasterResolves int
+	// relIDMax caches the highest relationship id per part scope, so allocating
+	// the next one does not rescan the scope. See relidcache.go.
+	relIDMax map[string]relIDMaxEntry
+	// relIDRescans counts how often that scan actually ran, for the guard.
+	relIDRescans int
 	templatePath string // Path to template file if using one
 
 	// flavor is the main part's content type as recorded at open: one of the
@@ -1534,7 +1539,7 @@ func (p *Presentation) nextRelIDNum(partName string) int {
 	if partName == presentationPartName {
 		return p.nextPresentationRelID()
 	}
-	return nextRelationshipID(p.relationships[partName])
+	return p.maxRelIDFor(partName) + 1
 }
 
 // nextPresentationRelID returns a relationship id number free for the
