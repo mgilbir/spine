@@ -2,7 +2,10 @@ package pptx
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	coxml "github.com/mgilbir/spine/common/oxml"
 )
 
 // TestAddSlideKeepsNameCacheWarm guards the linearity. Allocating a slide part
@@ -13,12 +16,12 @@ func TestAddSlideKeepsNameCacheWarm(t *testing.T) {
 	const slides = 400
 
 	p := Create()
-	before := p.slideNameRebuilds
+	before := p.partNameRebuilds
 	for i := 0; i < slides; i++ {
 		p.AddSlide()
 	}
-	if got := p.slideNameRebuilds - before; got > 2 {
-		t.Errorf("slide name cache rebuilt %d times while adding %d slides (want <= 2)", got, slides)
+	if got := p.partNameRebuilds - before; got > 2 {
+		t.Errorf("part name cache rebuilt %d times while adding %d slides (want <= 2)", got, slides)
 	}
 
 	seen := map[string]bool{}
@@ -84,5 +87,98 @@ func TestSlideNamesStayUniqueAcrossRemoveAndAdd(t *testing.T) {
 	}
 	if _, err := p.SaveBytes(); err != nil {
 		t.Fatalf("save after remove/add churn: %v", err)
+	}
+}
+
+// TestSetNotesResolvesNotesMasterOnce guards the cost that actually dominated
+// SetNotes. notesMasterPartName walks every other part, and SetNotes adds one
+// per slide, so running it per call made giving every slide speaker notes
+// quadratic — 3200 slides took 2.14s while returning the right answer
+// throughout.
+func TestSetNotesResolvesNotesMasterOnce(t *testing.T) {
+	const slides = 400
+
+	p := Create()
+	for i := 0; i < slides; i++ {
+		s := p.AddSlide()
+		s.SetNotes(fmt.Sprintf("notes %d", i))
+	}
+	if p.notesMasterResolves > 2 {
+		t.Errorf("notes master resolved %d times across %d SetNotes calls (want <= 2)",
+			p.notesMasterResolves, slides)
+	}
+	if p.partNameRebuilds > 4 {
+		t.Errorf("part name caches rebuilt %d times across %d slides with notes (want <= 4)",
+			p.partNameRebuilds, slides)
+	}
+	// Every slide must have kept its own notes.
+	for _, probe := range []int{0, slides / 2, slides - 1} {
+		if got, want := p.slides[probe].Notes(), fmt.Sprintf("notes %d", probe); got != want {
+			t.Errorf("slide %d notes = %q, want %q", probe, got, want)
+		}
+	}
+}
+
+// TestNotesSlideNamesAreUniqueAndDense checks the notes allocator hands out
+// distinct names. Two notes slides sharing a part makes the package unopenable.
+func TestNotesSlideNamesAreUniqueAndDense(t *testing.T) {
+	const slides = 50
+
+	p := Create()
+	for i := 0; i < slides; i++ {
+		p.AddSlide().SetNotes(fmt.Sprintf("n%d", i))
+	}
+	seen := map[string]bool{}
+	for name := range p.otherParts {
+		if !strings.HasPrefix(name, "/ppt/notesSlides/") {
+			continue
+		}
+		if seen[name] {
+			t.Errorf("notes part %q appears twice", name)
+		}
+		seen[name] = true
+	}
+	if len(seen) != slides {
+		t.Errorf("got %d notes parts, want %d", len(seen), slides)
+	}
+	if _, err := p.SaveBytes(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+}
+
+// TestNotesMasterInvalidationIsSeen covers the one path that can change the
+// answer: merge adding a notes master. A cache that kept its old answer would
+// point every later notes slide at a master that is no longer the first.
+func TestNotesMasterInvalidationIsSeen(t *testing.T) {
+	p := Create()
+	p.AddSlide().SetNotes("first")
+	before := p.notesMasterPartName()
+
+	// Add several notes masters, the way a merge carrying them would, and tell
+	// the cache. More than one, and spanning the existing name on both sides,
+	// so that "returns the lowest" is distinguishable from "returns whichever
+	// the map yielded last".
+	for _, n := range []string{"0", "3", "7", "9"} {
+		p.otherParts["/ppt/notesMasters/notesMaster"+n+".xml"] = &coxml.RawPart{ContentType: "application/xml"}
+	}
+	p.invalidateNotesMaster()
+
+	after := p.notesMasterPartName()
+	if after == before {
+		t.Errorf("notes master still resolves to %q after ones sorting ahead of it were added", after)
+	}
+	// Recompute the expected minimum from the live parts rather than hardcoding
+	// it, so the assertion stays true whatever Create() starts with.
+	want := ""
+	for name := range p.otherParts {
+		if !strings.HasPrefix(name, "/ppt/notesMasters/") || !strings.HasSuffix(name, ".xml") {
+			continue
+		}
+		if want == "" || name < want {
+			want = name
+		}
+	}
+	if after != want {
+		t.Errorf("notes master = %q, want the lowest-named one %q", after, want)
 	}
 }

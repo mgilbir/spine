@@ -92,13 +92,25 @@ type Presentation struct {
 	presentation *oxml.Presentation
 	nextSlideID  uint32
 	nextRelID    int
-	// slideNameCache holds the slide part names already taken, so AddSlide does
-	// not rebuild that set per slide. See partnames.go.
-	slideNameCache *slideNameAlloc
-	// slideNameRebuilds counts full rebuilds of it. Rebuilding is the O(slides)
-	// walk the cache removes, so a rebuild per add is the same quadratic cost
-	// and the guard counts it rather than timing the run.
-	slideNameRebuilds int
+	// slideNameCache, layoutNameCache and notesNameCache hold the part names
+	// already taken for each kind, so allocating the next one does not rebuild
+	// that set per add. See partnames.go.
+	slideNameCache  *partNameAlloc
+	layoutNameCache *partNameAlloc
+	notesNameCache  *partNameAlloc
+	// partNameRebuilds counts full rebuilds across all three. Rebuilding is the
+	// O(n) walk the caches remove, so a rebuild per add is the same quadratic
+	// cost and the guard counts it rather than timing the run.
+	partNameRebuilds int
+	// notesMasterName is the resolved notes master part name, and
+	// notesMasterResolved records that the lookup has run. See
+	// notesMasterPartName.
+	notesMasterName     string
+	notesMasterResolved bool
+	// notesMasterResolves counts how often that lookup actually ran. It walks
+	// every other part, so running it per SetNotes is the quadratic cost the
+	// cache removes; the guard counts it rather than timing the run.
+	notesMasterResolves int
 	templatePath string // Path to template file if using one
 
 	// flavor is the main part's content type as recorded at open: one of the
@@ -1507,8 +1519,7 @@ func hasRelForTarget(rels []*opc.Relationship, relType, target string) bool {
 func nextRelationshipID(rels []*opc.Relationship) int {
 	maxID := 0
 	for _, rel := range rels {
-		var id int
-		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+		if id, ok := relIDNum(rel.ID); ok && id > maxID {
 			maxID = id
 		}
 	}
@@ -1544,8 +1555,7 @@ func (p *Presentation) nextPresentationRelID() int {
 		if rel == nil {
 			continue
 		}
-		var id int
-		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+		if id, ok := relIDNum(rel.ID); ok && id > maxID {
 			maxID = id
 		}
 	}
@@ -2395,7 +2405,6 @@ func (p *Presentation) AddSlide() *Slide {
 	p.nextSlideID++
 
 	p.slides = append(p.slides, slide)
-	p.noteSlideAppended()
 	p.markModelEdited()
 	return slide
 }
@@ -2499,35 +2508,8 @@ func (p *Presentation) deepCloneCommentParts(newSlidePart string, srcSlideID, ne
 }
 
 // nextAvailableNotesName returns a notesSlide part name not already in use.
-func (p *Presentation) nextAvailableNotesName() string {
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/notesSlides/notesSlide%d.xml", i)
-		if _, exists := p.otherParts[name]; !exists {
-			return name
-		}
-	}
-}
-
 // nextAvailableLayoutPartName returns a slideLayout part name not already used
 // by an existing layout or other part.
-func (p *Presentation) nextAvailableLayoutPartName() string {
-	used := make(map[string]bool, len(p.slideLayouts)+len(p.otherParts))
-	for _, l := range p.slideLayouts {
-		if l.partName != "" {
-			used[l.partName] = true
-		}
-	}
-	for name := range p.otherParts {
-		used[name] = true
-	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/slideLayouts/slideLayout%d.xml", i)
-		if !used[name] {
-			return name
-		}
-	}
-}
-
 func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
 	if sourcePart == "" || targetPart == "" {
 		return

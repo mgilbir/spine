@@ -738,8 +738,7 @@ func (sm *SlideMaster) AddLayout(layoutType SlideLayoutType) *SlideLayout {
 func (sm *SlideMaster) nextLayoutRelIDNum() int {
 	maxRel := 0
 	for _, l := range sm.layouts {
-		var id int
-		if _, err := fmt.Sscanf(l.relID, "rId%d", &id); err == nil && id > maxRel {
+		if id, ok := relIDNum(l.relID); ok && id > maxRel {
 			maxRel = id
 		}
 	}
