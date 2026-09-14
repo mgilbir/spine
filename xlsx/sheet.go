@@ -110,6 +110,17 @@ type Sheet struct {
 	// Filling one row must rebuild it once, not once per cell; the rebuild is
 	// the O(cols) walk, so it is what the guard counts.
 	cellCursorRebuilds int
+	// mergeBox bounds every merged range on the sheet, so the overlap check
+	// MergeCells runs does not compare against all of them. See mergeindex.go.
+	mergeBox *mergeBounds
+	// mergeScans counts the times that check fell back to comparing every
+	// existing merge. Merges laid out down a sheet must never reach it.
+	mergeScans int
+	// mergeBoxRebuilds counts full rebuilds of that box. Rebuilding re-parses
+	// every stored reference, so a rebuild per merge costs exactly what the
+	// scan did — a fix that only avoided the scan would look fixed by
+	// mergeScans alone and still be quadratic.
+	mergeBoxRebuilds int
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
@@ -551,7 +562,13 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 		return err
 	}
 
-	if s.ws() != nil && s.ws().MergeCells != nil {
+	// Compare against the existing merges only when the candidate falls inside
+	// their bounding box; outside it, no overlap is possible. The scan
+	// re-parsed every stored reference and ran once per merge, which made
+	// merging a range per row quadratic (see mergeindex.go).
+	bounds := s.mergeBoundsFor(s.ws())
+	if bounds.mayOverlap(rng) {
+		s.mergeScans++
 		for _, mc := range s.ws().MergeCells.MergeCell {
 			existing, err := parseCellRangeRef(mc.Ref)
 			if err != nil {
@@ -571,9 +588,17 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 	}
 	s.ws().EnsureChildOrder("mergeCells")
 
+	// Take the box while it still describes the sheet: fetching it after the
+	// append finds a count that no longer matches and rebuilds the whole box,
+	// which costs exactly what the scan did. Re-fetch rather than reuse the
+	// handle from the overlap check — the model may have been created since
+	// (ensureWS), in which case that handle describes a different worksheet.
+	b := s.mergeBoundsFor(s.ws())
 	s.ws().MergeCells.MergeCell = append(s.ws().MergeCells.MergeCell, oxml.CT_MergeCell{Ref: rng.ref()})
 	count := uint32(len(s.ws().MergeCells.MergeCell))
 	s.ws().MergeCells.Count = &count
+	b.box, b.any = widened(b.box, b.any, rng)
+	b.merges = len(s.ws().MergeCells.MergeCell)
 
 	return nil
 }

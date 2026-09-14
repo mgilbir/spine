@@ -77,6 +77,9 @@ var nonDurableFields = map[string]bool{
 	"maxSheetID":            true, // cached highest sheet id
 	"sheetIDCount":          true, // sheet count maxSheetID was computed from
 	"nameSetRebuilds":       true, // diagnostic counter for the name sets
+	"mergeBox":              true, // cached bounding box of merged ranges
+	"mergeScans":            true, // diagnostic counter for the overlap scan
+	"mergeBoxRebuilds":      true, // diagnostic counter for box rebuilds
 	"comments":              true, // lazily loaded comment model
 	"sparklineCache":        true, // lazily parsed sparkline groups
 	"persons":               true, // lazily loaded threaded-comment authors
