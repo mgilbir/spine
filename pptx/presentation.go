@@ -92,6 +92,13 @@ type Presentation struct {
 	presentation *oxml.Presentation
 	nextSlideID  uint32
 	nextRelID    int
+	// slideNameCache holds the slide part names already taken, so AddSlide does
+	// not rebuild that set per slide. See partnames.go.
+	slideNameCache *slideNameAlloc
+	// slideNameRebuilds counts full rebuilds of it. Rebuilding is the O(slides)
+	// walk the cache removes, so a rebuild per add is the same quadratic cost
+	// and the guard counts it rather than timing the run.
+	slideNameRebuilds int
 	templatePath string // Path to template file if using one
 
 	// flavor is the main part's content type as recorded at open: one of the
@@ -1099,6 +1106,12 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 					p.relationships[slideName] = rels
 					delete(p.relationships, oldSlideName)
 				}
+				// The old name is now free. The name cache tracks names taken,
+				// not slide count, so nothing else tells it that; drop it so a
+				// later allocation can reuse the name exactly as it used to.
+				// This branch fires only when a slide is actually renamed,
+				// which is not the common path through this loop.
+				p.invalidateSlideNames()
 			}
 		}
 		currentSlideParts[slideName] = true
@@ -2382,26 +2395,9 @@ func (p *Presentation) AddSlide() *Slide {
 	p.nextSlideID++
 
 	p.slides = append(p.slides, slide)
+	p.noteSlideAppended()
 	p.markModelEdited()
 	return slide
-}
-
-func (p *Presentation) nextAvailableSlidePartName() string {
-	used := make(map[string]bool, len(p.slides)+len(p.otherParts))
-	for _, slide := range p.slides {
-		if slide.partName != "" {
-			used[slide.partName] = true
-		}
-	}
-	for name := range p.otherParts {
-		used[name] = true
-	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/slides/slide%d.xml", i)
-		if !used[name] {
-			return name
-		}
-	}
 }
 
 // deepCloneNotesSlide gives the slide at newSlidePart its own copy of the notes
