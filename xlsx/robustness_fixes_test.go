@@ -51,7 +51,7 @@ func TestFormulaValueTyped(t *testing.T) {
 
 	// Numeric cached result -> float64.
 	nv := "2"
-	c.cell.T = "n"
+	c.cell.SetType("n")
 	c.cell.V = &nv
 	if got := c.Value(); got != float64(2) {
 		t.Errorf("numeric formula Value() = %v (%T), want float64(2)", got, got)
@@ -59,7 +59,7 @@ func TestFormulaValueTyped(t *testing.T) {
 
 	// Boolean cached result -> bool.
 	bv := "1"
-	c.cell.T = "b"
+	c.cell.SetType("b")
 	c.cell.V = &bv
 	if got := c.Value(); got != true {
 		t.Errorf("bool formula Value() = %v (%T), want true", got, got)
@@ -67,7 +67,7 @@ func TestFormulaValueTyped(t *testing.T) {
 
 	// String cached result -> string.
 	sv := "hello"
-	c.cell.T = "str"
+	c.cell.SetType("str")
 	c.cell.V = &sv
 	if got := c.Value(); got != "hello" {
 		t.Errorf("string formula Value() = %v (%T), want \"hello\"", got, got)

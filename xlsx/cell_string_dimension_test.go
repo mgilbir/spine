@@ -18,8 +18,8 @@ func TestSetStringUsesInlineString(t *testing.T) {
 	}
 	cell.SetString("hello")
 
-	if cell.cell.T != "inlineStr" {
-		t.Errorf("cell type = %q, want inlineStr", cell.cell.T)
+	if cell.cell.Type() != "inlineStr" {
+		t.Errorf("cell type = %q, want inlineStr", cell.cell.Type())
 	}
 	if cell.cell.V != nil {
 		t.Errorf("cell has <v> %q; inline strings use <is>", *cell.cell.V)

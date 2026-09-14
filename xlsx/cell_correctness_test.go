@@ -154,7 +154,7 @@ func TestRowWithoutRAttribute(t *testing.T) {
 	// Simulate a parsed row that omitted r, carrying a cell whose ref implies row 3.
 	v := "hello"
 	s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{
-		C: []*oxml.CT_Cell{cellAt("A3", func(c *oxml.CT_Cell) { c.T = "str"; c.V = &v })},
+		C: []*oxml.CT_Cell{cellAt("A3", func(c *oxml.CT_Cell) { c.SetType("str"); c.V = &v })},
 	})
 
 	if got, _ := s.GetCellValue("A3"); got != "hello" {

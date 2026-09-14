@@ -62,7 +62,7 @@ func (c *Cell) replaceText(replacements map[string]string) {
 	if c.cell.F != nil {
 		return
 	}
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "s":
 		if si := c.sharedStringItem(); si != nil && len(si.R) > 0 {
 			if runs, ok := replaceInTextRuns(reltRunsToTextRuns(si.R), replacements); ok {

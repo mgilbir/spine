@@ -122,7 +122,7 @@ func TestRowCursorMatchesSheetCell(t *testing.T) {
 		s.ensureWorksheet()
 		s.ws().SheetData.Row = []oxml.CT_Row{
 			// Duplicate reference: the first must win, as the linear scan did.
-			{R: rowNo(1), C: []*oxml.CT_Cell{cellAt("A1", func(c *oxml.CT_Cell) { c.T = "inlineStr"; c.Is = &oxml.CT_Rst{T: strPtr("first")} }), cellAt("A1", func(c *oxml.CT_Cell) { c.T = "inlineStr"; c.Is = &oxml.CT_Rst{T: strPtr("second")} })}},
+			{R: rowNo(1), C: []*oxml.CT_Cell{cellAt("A1", func(c *oxml.CT_Cell) { c.SetType("inlineStr"); c.Is = &oxml.CT_Rst{T: strPtr("first")} }), cellAt("A1", func(c *oxml.CT_Cell) { c.SetType("inlineStr"); c.Is = &oxml.CT_Rst{T: strPtr("second")} })}},
 			// A stray cell naming another row stays unaddressable through row 2.
 			{R: rowNo(2), C: []*oxml.CT_Cell{cellAt("B2"), cellAt("C9")}},
 			// No r attribute: the row number is derived from its first cell.

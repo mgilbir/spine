@@ -65,7 +65,7 @@ func (c *Cell) Value() interface{} {
 		return CellError(c.String())
 	case CellTypeFormula:
 		// Return the cached formula result typed by its cached-value type
-		// (c.cell.T), the same way a literal cell of that type reads back: a
+		// (c.cell.Type()), the same way a literal cell of that type reads back: a
 		// numeric result (t="n" or absent) yields float64, t="b" yields bool,
 		// and a string result yields string, an error result CellError. Without
 		// this a numeric formula like =1+1 would read back as the string "2".
@@ -73,7 +73,7 @@ func (c *Cell) Value() interface{} {
 		if c.cell.V == nil {
 			return c.Formula()
 		}
-		switch c.cell.T {
+		switch c.cell.Type() {
 		case "n", "":
 			return c.Float()
 		case "b":
@@ -142,7 +142,7 @@ func (c *Cell) Type() CellType {
 		return CellTypeFormula
 	}
 
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "s":
 		return CellTypeString
 	case "str":
@@ -204,7 +204,7 @@ func (c *Cell) hasDateNumberFormat() bool {
 
 // String returns the cell value as a string.
 func (c *Cell) String() string {
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "s":
 		// Shared string: V contains the index
 		if c.cell.V != nil && c.sheet != nil && c.sheet.workbook != nil {
@@ -250,7 +250,7 @@ func (c *Cell) String() string {
 // xml:space="preserve" so the spaces survive an Excel round-trip.
 func (c *Cell) SetString(value string) {
 	c.markSheetDirty()
-	c.cell.T = "inlineStr"
+	c.cell.SetType("inlineStr")
 	c.cell.V = nil
 	c.cell.Is = &oxml.CT_Rst{T: &value}
 	c.clearFormula()
@@ -274,7 +274,7 @@ func (c *Cell) Float() float64 {
 func (c *Cell) SetFloat(value float64) {
 	c.markSheetDirty()
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		c.cell.T = "e"
+		c.cell.SetType("e")
 		v := "#NUM!"
 		c.cell.V = &v
 		c.cell.Is = nil
@@ -286,7 +286,7 @@ func (c *Cell) SetFloat(value float64) {
 
 // setNumeric writes a pre-formatted numeric literal to the cell.
 func (c *Cell) setNumeric(v string) {
-	c.cell.T = "n"
+	c.cell.SetType("n")
 	c.cell.V = &v
 	c.cell.Is = nil
 	c.clearFormula()
@@ -327,7 +327,7 @@ func (c *Cell) Bool() bool {
 // SetBool sets the cell value to a bool.
 func (c *Cell) SetBool(value bool) {
 	c.markSheetDirty()
-	c.cell.T = "b"
+	c.cell.SetType("b")
 	v := "0"
 	if value {
 		v = "1"
@@ -352,7 +352,7 @@ func (c *Cell) Time() time.Time {
 	if c.cell.V == nil {
 		return time.Time{}
 	}
-	if c.cell.T == "d" {
+	if c.cell.Type() == "d" {
 		return parseISO8601Cell(*c.cell.V)
 	}
 	f, err := strconv.ParseFloat(*c.cell.V, 64)
@@ -419,7 +419,7 @@ func (c *Cell) Formula() string {
 func (c *Cell) SetFormula(formula string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -434,7 +434,7 @@ func (c *Cell) SetFormula(formula string) {
 func (c *Cell) SetArrayFormula(formula, ref string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -458,7 +458,7 @@ func (c *Cell) SetDynamicArrayFormula(formula, ref string) {
 		ref = c.cell.Ref()
 	}
 	on := true
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Aca: &on, Ca: &on, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -497,7 +497,7 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 	c.markSheetDirty()
 	c.detachSharedGroup()
 	siCopy := si
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "shared", Ref: ref, Si: &siCopy, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -517,7 +517,7 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 			}
 			follower.detachSharedGroup()
 			fsi := si
-			follower.cell.T = ""
+			follower.cell.SetType("")
 			follower.cell.F = &oxml.CT_CellFormula{T: "shared", Si: &fsi}
 			follower.cell.V = nil
 			follower.cell.Is = nil
@@ -554,7 +554,7 @@ func (c *Cell) Clear() {
 	c.markSheetDirty()
 	c.cell.V = nil
 	c.clearFormula()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.Is = nil
 }
 

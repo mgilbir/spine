@@ -178,7 +178,7 @@ func TestRowIndexSelfHealsAfterDirectAppend(t *testing.T) {
 	nine := "nine"
 	ws.SheetData.Row = append(ws.SheetData.Row, oxml.CT_Row{
 		R: &r,
-		C: []*oxml.CT_Cell{cellAt("A9", func(c *oxml.CT_Cell) { c.T = "inlineStr"; c.Is = &oxml.CT_Rst{T: &nine} })},
+		C: []*oxml.CT_Cell{cellAt("A9", func(c *oxml.CT_Cell) { c.SetType("inlineStr"); c.Is = &oxml.CT_Rst{T: &nine} })},
 	})
 
 	if got := sh.FindCell("A9"); got == nil || got.String() != "nine" {

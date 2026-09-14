@@ -412,7 +412,7 @@ func (s *Sheet) Cols() int {
 // phantom.
 func cellIsEmptyPhantom(c *oxml.CT_Cell) bool {
 	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && !c.HasStyle() &&
-		c.T == "" && c.Cm() == nil && c.Vm() == nil && c.Ph() == nil && len(c.ExtRaw()) == 0)
+		c.Type() == "" && c.Cm() == nil && c.Vm() == nil && c.Ph() == nil && len(c.ExtRaw()) == 0)
 }
 
 // rowIsEmptyPhantom reports whether a row carries no cells with content and no

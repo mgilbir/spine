@@ -30,7 +30,7 @@ func (c *Cell) SetRichText(runs []TextRun) {
 
 	if len(runs) == 0 {
 		// An empty rich text is an empty inline string.
-		c.cell.T = "inlineStr"
+		c.cell.SetType("inlineStr")
 		empty := ""
 		c.cell.Is = &oxml.CT_Rst{T: &empty}
 		return
@@ -43,7 +43,7 @@ func (c *Cell) SetRichText(runs []TextRun) {
 			T:   run.Text,
 		})
 	}
-	c.cell.T = "inlineStr"
+	c.cell.SetType("inlineStr")
 	c.cell.Is = rst
 }
 
@@ -52,7 +52,7 @@ func (c *Cell) SetRichText(runs []TextRun) {
 // shared string with runs) returns one TextRun per run. It returns nil for a
 // truly empty cell.
 func (c *Cell) RichText() []TextRun {
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "inlineStr":
 		if c.cell.Is == nil {
 			return nil

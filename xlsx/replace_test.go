@@ -81,7 +81,7 @@ func TestReplaceText_SharedString(t *testing.T) {
 
 	wb.sharedStrings = &oxml.CT_Sst{Si: []oxml.CT_Rst{{T: strptr("Hi {{who}}")}}}
 	wb.buildStringTable()
-	c.cell.T = "s"
+	c.cell.SetType("s")
 	c.cell.V = strptr("0")
 
 	wb.ReplaceText(map[string]string{"{{who}}": "Bob"})
@@ -89,8 +89,8 @@ func TestReplaceText_SharedString(t *testing.T) {
 	if got := c.String(); got != "Hi Bob" {
 		t.Errorf("cell = %q, want %q", got, "Hi Bob")
 	}
-	if c.cell.T != "inlineStr" {
-		t.Errorf("cell type = %q, want inlineStr (converted from shared)", c.cell.T)
+	if c.cell.Type() != "inlineStr" {
+		t.Errorf("cell type = %q, want inlineStr (converted from shared)", c.cell.Type())
 	}
 	// The shared entry must be unchanged (not mutated in place).
 	if got := *wb.sharedStrings.Si[0].T; got != "Hi {{who}}" {

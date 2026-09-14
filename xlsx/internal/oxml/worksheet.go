@@ -1111,7 +1111,6 @@ func cellRefColIndex(ref string) int {
 // master cell to its XLDAPR metadata record through it. Vm is the parallel
 // value-metadata index, preserved so a cell that carried one round-trips.
 type CT_Cell struct {
-	T string `xml:"t,attr,omitempty"`
 	F  *CT_CellFormula `xml:"f,omitempty"`
 	V  *string         `xml:"v,omitempty"`
 	Is *CT_Rst         `xml:"is,omitempty"`
@@ -1147,8 +1146,34 @@ type CT_Cell struct {
 	// must keep omitting it (C368), so this is not the same as col == 0.
 	row  uint32
 	col  uint16
+	// t is the cell's type attribute as a one-byte enum; see celltype.go.
+	t    cellType
 	sSet bool
 	rSet bool
+}
+
+// Type returns the cell's t attribute, or "" when it has none.
+func (c *CT_Cell) Type() string {
+	if c.t == cellTypeOther {
+		if c.rare != nil {
+			return c.rare.T
+		}
+		return ""
+	}
+	return c.t.String()
+}
+
+// SetType sets the cell's t attribute. A value outside the schema set is kept
+// verbatim so it round-trips unchanged.
+func (c *CT_Cell) SetType(v string) {
+	c.t = cellTypeFor(v)
+	if c.t == cellTypeOther {
+		c.ensureRare().T = v
+		return
+	}
+	if c.rare != nil {
+		c.rare.T = ""
+	}
 }
 
 // StyleIndex returns the cell's style index and whether one is set.
@@ -1266,6 +1291,9 @@ func (c *CT_Cell) ClearRef() {
 // *Cell handle stays valid when its row grows — so sharing this pointer cannot
 // alias two cells together.
 type cellRare struct {
+	// T holds the t attribute verbatim when it is not one of the schema's own
+	// values. No cell in the corpus needs it.
+	T string
 	// Ref holds the r attribute verbatim when it is not the canonical spelling
 	// of the cell's position — "A01" for A1, say, or text that does not parse
 	// as a reference at all. No cell in the corpus needs it (0 of 25.6M), so in
@@ -1374,7 +1402,7 @@ func (c *CT_Cell) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				c.SetStyleIndex(v)
 			}
 		case "t":
-			c.T = attr.Value
+			c.SetType(attr.Value)
 		case "cm":
 			c.SetCm(parseUintPtr(attr.Value))
 		case "vm":
@@ -1436,8 +1464,8 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	if v, ok := c.StyleIndex(); ok {
 		attrs = append(attrs, xmlb.UintAttr("s", v))
 	}
-	if c.T != "" {
-		attrs = append(attrs, xmlb.StrAttr("t", c.T))
+	if t := c.Type(); t != "" {
+		attrs = append(attrs, xmlb.StrAttr("t", t))
 	}
 	if cm := c.Cm(); cm != nil {
 		attrs = append(attrs, xmlb.UintAttr("cm", *cm))

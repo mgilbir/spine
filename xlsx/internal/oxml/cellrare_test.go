@@ -165,3 +165,31 @@ func TestColumnLettersRoundTrips(t *testing.T) {
 		t.Errorf("ColumnLetters(MaxCol) = %q, want XFD", got)
 	}
 }
+
+// TestSchemaCellTypesNeedNoRareBlock is the premise the enum rests on. Every
+// ST_CellType value must map onto the enum itself; one that fell through to
+// cellTypeOther would still round-trip — the verbatim fallback sees to that —
+// but it would allocate a rare block for a perfectly ordinary cell, which is
+// the cost the enum exists to avoid. Fidelity tests cannot see that difference.
+func TestSchemaCellTypesNeedNoRareBlock(t *testing.T) {
+	for _, ty := range []string{"", "b", "d", "e", "inlineStr", "n", "s", "str"} {
+		c := &CT_Cell{}
+		c.SetType(ty)
+		if c.rare != nil {
+			t.Errorf("t=%q allocated a rare block; it should be carried by the enum", ty)
+		}
+		if got := c.Type(); got != ty {
+			t.Errorf("t=%q read back as %q", ty, got)
+		}
+	}
+
+	// And a value outside the set must use the block, not be silently dropped.
+	c := &CT_Cell{}
+	c.SetType("bogus")
+	if c.rare == nil || c.rare.T != "bogus" {
+		t.Error("an unknown type was not kept verbatim")
+	}
+	if got := c.Type(); got != "bogus" {
+		t.Errorf("unknown type read back as %q, want \"bogus\"", got)
+	}
+}
