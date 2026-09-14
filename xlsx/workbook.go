@@ -1205,7 +1205,14 @@ func writeSheetPart(writer *opc.Writer, partName string, sheet *Sheet) error {
 	// swapped in only for the dimension pass and the marshal.
 	origRows := ws.SheetData.Row
 	ws.SheetData.Row = prunedRows(origRows)
-	defer func() { ws.SheetData.Row = origRows }()
+	defer func() {
+		ws.SheetData.Row = origRows
+		// marshalSheetData sorts SheetData.Row in place, and prunedRows returns
+		// the durable slice itself whenever there is nothing to prune, so the
+		// rows this sheet's index describes may have just been reordered under
+		// it. Drop it rather than rely on the index's own staleness check.
+		sheet.invalidateRowIndex()
+	}()
 
 	// Regenerated sheets are exactly the dirty ones (plus new sheets), so the
 	// recorded used range must reflect any cells written since open (C117).

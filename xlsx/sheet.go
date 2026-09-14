@@ -82,6 +82,16 @@ type Sheet struct {
 	// parsed — an impossible state that ws() reports by panicking rather than
 	// by silently reading the sheet as empty (C568).
 	wsParseErr error
+	// rowIdx caches row number -> position in wsModel.SheetData.Row, so a row
+	// lookup does not walk the sheet. Built on demand and self-healing; see
+	// rowindex.go for the staleness rules. nil until the first row lookup.
+	rowIdx *rowIndex
+	// rowIdxRebuilds counts full rebuilds of rowIdx. Maintaining the index on
+	// append is what keeps building a sheet linear, and a rebuild per append
+	// would silently restore the quadratic cost #314 removed with no wrong
+	// answer to notice, so the count is asserted on rather than inferred from
+	// a stopwatch. Diagnostic only; nothing serialized depends on it.
+	rowIdxRebuilds int
 	images    []sheetImage
 	charts    []sheetChart   // charts added this session via AddChart
 	newTables []*Table       // tables added this session via AddTable (to be written)
@@ -190,8 +200,8 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	if s.opaque {
 		return nil, ErrNotWorksheet
 	}
-	s.ensureWS()
-	s.ws().EnsureChildOrder("sheetData")
+	ws := s.ensureWS()
+	ws.EnsureChildOrder("sheetData")
 
 	// Parse the reference to get row and column
 	row, col, err := ParseCellRef(ref)
@@ -202,18 +212,15 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	// phantom sibling with a non-canonical r attribute.
 	ref = FormatCellRef(row, col)
 
-	// Find or create the row
+	// Find or create the row, through the index rather than a scan from the
+	// start of the sheet: this runs once per cell, and walking it here is what
+	// made building a sheet row by row quadratic (#314).
 	var targetRow *oxml.CT_Row
-	for i := range s.ws().SheetData.Row {
-		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == uint32(row) {
-			targetRow = &s.ws().SheetData.Row[i]
-			break
-		}
-	}
-	if targetRow == nil {
+	if i, ok := s.lookupRow(ws, uint32(row)); ok {
+		targetRow = &ws.SheetData.Row[i]
+	} else {
 		r := uint32(row)
-		s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{R: &r})
-		targetRow = &s.ws().SheetData.Row[len(s.ws().SheetData.Row)-1]
+		targetRow = &ws.SheetData.Row[s.appendRow(ws, oxml.CT_Row{R: &r})]
 	}
 
 	// Find or create the cell. Cells are stored as pointers so this handle
@@ -313,8 +320,26 @@ func (s *Sheet) findCell(ref string) *Cell {
 		return nil
 	}
 	ref = FormatCellRef(row, col)
-	for i := range s.ws().SheetData.Row {
-		r := &s.ws().SheetData.Row[i]
+	ws := s.ws()
+	// Unlike Cell, this looked in EVERY row carrying the wanted number, not just
+	// the first, so a sheet with duplicate row numbers could hold the reference
+	// in the second of them. That is only reachable when duplicates exist, so
+	// take the indexed single hit when they do not and keep the full scan when
+	// they do.
+	if s.rowsAreUnique(ws) {
+		i, ok := s.lookupRow(ws, uint32(row))
+		if !ok {
+			return nil
+		}
+		for _, cell := range ws.SheetData.Row[i].C {
+			if strings.EqualFold(cell.R, ref) {
+				return &Cell{sheet: s, cell: cell}
+			}
+		}
+		return nil
+	}
+	for i := range ws.SheetData.Row {
+		r := &ws.SheetData.Row[i]
 		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
 			for _, cell := range r.C {
 				if strings.EqualFold(cell.R, ref) {

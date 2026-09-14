@@ -8,13 +8,13 @@ import (
 // row and indexes its cells by column number once, so code that walks a range
 // column by column pays a single scan instead of one scan per column.
 //
-// Sheet.Cell and Sheet.findCell each re-scan SheetData.Row for the row and then
-// every <c> in it, comparing references with strings.EqualFold. That is fine for
-// a one-off lookup but turns any loop over a range into O(cells^2): a
-// full-width table header (16384 columns) cost ~134 million string comparisons
-// and ~850ms, because the loop creates cells as it goes and so the row grows
-// underneath it. Every per-cell range loop in this package goes through a
-// cursor instead.
+// Resolving the row is O(1) through the sheet's row index (see rowindex.go), but
+// Sheet.Cell and Sheet.findCell still walk every <c> in the row, comparing
+// references with strings.EqualFold. That is fine for a one-off lookup but turns
+// any loop over a range into O(cells^2): a full-width table header (16384
+// columns) cost ~134 million string comparisons and ~850ms, because the loop
+// creates cells as it goes and so the row grows underneath it. Every per-cell
+// range loop in this package goes through a cursor instead.
 //
 // The cursor holds the row's index in SheetData.Row rather than its address, so
 // it survives the slice being reallocated when another row is appended. It must
@@ -48,14 +48,9 @@ func (s *Sheet) newRowCells(row int) *rowCells {
 // locate finds the row in SheetData.Row and indexes its cells. It assumes the
 // worksheet model exists.
 func (rc *rowCells) locate() {
-	sd := &rc.sheet.ws().SheetData
-	want := uint32(rc.rowNo)
-	for i := range sd.Row {
-		if rn, ok := rowNumberOf(&sd.Row[i]); ok && rn == want {
-			rc.idx = i
-			rc.index()
-			return
-		}
+	if i, ok := rc.sheet.lookupRow(rc.sheet.ws(), uint32(rc.rowNo)); ok {
+		rc.idx = i
+		rc.index()
 	}
 }
 
@@ -161,10 +156,8 @@ func (rc *rowCells) ensureRow() error {
 	if rc.idx >= 0 {
 		return nil
 	}
-	sd := &rc.sheet.ws().SheetData
 	r := uint32(rc.rowNo)
-	sd.Row = append(sd.Row, oxml.CT_Row{R: &r})
-	rc.idx = len(sd.Row) - 1
+	rc.idx = rc.sheet.appendRow(rc.sheet.ws(), oxml.CT_Row{R: &r})
 	rc.byCol = make(map[int]*oxml.CT_Cell)
 	return nil
 }

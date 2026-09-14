@@ -64,6 +64,8 @@ var nonDurableFields = map[string]bool{
 	"wsModel":               true, // lazily parsed worksheet model
 	"wsParsed":              true, // lazy-parse memo
 	"wsParseErr":            true, // lazy-parse failure memo
+	"rowIdx":                true, // lazily built row-number -> position index
+	"rowIdxRebuilds":        true, // diagnostic counter for that index
 	"comments":              true, // lazily loaded comment model
 	"sparklineCache":        true, // lazily parsed sparkline groups
 	"persons":               true, // lazily loaded threaded-comment authors
