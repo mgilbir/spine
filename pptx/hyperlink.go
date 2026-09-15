@@ -261,6 +261,15 @@ func (s *Slide) relTargetPart(relID string) string {
 // hyperlink and each run-level hyperlink, descending into groups and table
 // cells. The walk order is stable (used for both reading and rel allocation).
 func (s *Slide) forEachHyperlink(fn func(*Hyperlink)) {
+	s.forEachHyperlinkIn(s.shapeList(), fn)
+}
+
+// forEachHyperlinkIn is forEachHyperlink over a shape list the caller already
+// holds. It exists for the one caller that runs while the slide is being
+// materialized: resolveHyperlinks is reached from inside sx(), which holds the
+// slide's lock, and asking shapeList for the shapes there would re-enter sx()
+// and deadlock on it.
+func (s *Slide) forEachHyperlinkIn(shapes []Shape, fn func(*Hyperlink)) {
 	var walk func(shapes []Shape)
 	walk = func(shapes []Shape) {
 		for _, shape := range shapes {
@@ -284,7 +293,7 @@ func (s *Slide) forEachHyperlink(fn func(*Hyperlink)) {
 			}
 		}
 	}
-	walk(s.shapeList())
+	walk(shapes)
 }
 
 // forEachRunHyperlink calls fn for every run hyperlink in a text frame.
@@ -313,7 +322,9 @@ func textFrameOf(shape Shape) *TextFrame {
 
 // resolveHyperlinks resolves every hyperlink on the slide after materialization.
 func (s *Slide) resolveHyperlinks() {
-	s.forEachHyperlink(s.resolveHyperlink)
+	// Runs inside sx(), which has already filled the shape cache and holds the
+	// slide's lock; see forEachHyperlinkIn.
+	s.forEachHyperlinkIn(s.shapeCache, s.resolveHyperlink)
 }
 
 // allocateHyperlinkRels allocates the relationships that API-created external and

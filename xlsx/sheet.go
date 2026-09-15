@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
@@ -25,6 +26,8 @@ import (
 // docx's doc() has always made this choice for the identical state (C568); the
 // three copies of this function now agree.
 func (s *Sheet) ws() *oxml.CT_Worksheet {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
 	if s.wsModel == nil && !s.wsParsed {
 		s.wsParsed = true
 		if s.workbook != nil && s.partName != "" {
@@ -82,9 +85,64 @@ type Sheet struct {
 	// parsed — an impossible state that ws() reports by panicking rather than
 	// by silently reading the sheet as empty (C568).
 	wsParseErr error
-	images    []sheetImage
-	charts    []sheetChart   // charts added this session via AddChart
-	newTables []*Table       // tables added this session via AddTable (to be written)
+	// rowIdx caches row number -> position in wsModel.SheetData.Row, so a row
+	// lookup does not walk the sheet. Built on demand and self-healing; see
+	// rowindex.go for the staleness rules. nil until the first row lookup.
+	// rowIdxMu guards rowIdx. It is the one cache in this package that a
+	// read-only accessor builds — findCell, rowEntry, RowHeight and CellValue
+	// all resolve a row through it — so without it, reading a parsed workbook
+	// from several goroutines races where the same code did not before the
+	// index existed. See rowindex.go.
+	// wsMu, commentsMu and sparklineMu guard the lazily built caches below, so
+	// that reading a workbook from several goroutines is safe. Each cache has
+	// its own lock rather than one per sheet: the accessors call each other
+	// (sparklineGroups resolves the worksheet), and a single lock would
+	// deadlock on the first such call. The order is always outer cache then
+	// worksheet; nothing takes wsMu and then another of these.
+	wsMu        sync.Mutex
+	commentsMu  sync.Mutex
+	sparklineMu sync.Mutex
+
+	rowIdxMu sync.Mutex
+	rowIdx   *rowIndex
+	// rowIdxRebuilds counts full rebuilds of rowIdx. Maintaining the index on
+	// append is what keeps building a sheet linear, and a rebuild per append
+	// would silently restore the quadratic cost #314 removed with no wrong
+	// answer to notice, so the count is asserted on rather than inferred from
+	// a stopwatch. Diagnostic only; nothing serialized depends on it.
+	rowIdxRebuilds int
+	// colCov caches which columns an existing <col> entry already spans, so
+	// laying out column widths does not rebuild every <cols> group per call.
+	// See colindex.go. nil until the first column edit.
+	colCov *colCoverage
+	// colCovRebuilds counts full rebuilds of colCov, for the same reason
+	// rowIdxRebuilds exists: the linearity is asserted, not timed.
+	colCovRebuilds int
+	// colCarves counts the times editColumn took the carve path, which
+	// rebuilds every <cols> group. Laying out fresh columns must never reach
+	// it; that rebuild is the quadratic cost, so it is what the guard counts.
+	colCarves int
+	// cellCursor is the most recently used row cursor, kept so that filling a
+	// row does not rebuild a column map per cell. See rowCursor in rowcells.go.
+	cellCursor *rowCells
+	// cellCursorRebuilds counts how often that cursor had to be rebuilt.
+	// Filling one row must rebuild it once, not once per cell; the rebuild is
+	// the O(cols) walk, so it is what the guard counts.
+	cellCursorRebuilds int
+	// mergeBox bounds every merged range on the sheet, so the overlap check
+	// MergeCells runs does not compare against all of them. See mergeindex.go.
+	mergeBox *mergeBounds
+	// mergeScans counts the times that check fell back to comparing every
+	// existing merge. Merges laid out down a sheet must never reach it.
+	mergeScans int
+	// mergeBoxRebuilds counts full rebuilds of that box. Rebuilding re-parses
+	// every stored reference, so a rebuild per merge costs exactly what the
+	// scan did — a fix that only avoided the scan would look fixed by
+	// mergeScans alone and still be quadratic.
+	mergeBoxRebuilds int
+	images           []sheetImage
+	charts           []sheetChart // charts added this session via AddChart
+	newTables        []*Table     // tables added this session via AddTable (to be written)
 	// tablePartsBaseline is the number of <tableParts> entries present before this
 	// session's AddTable calls, captured on the first save. Each save rebuilds the
 	// session-added entries from this baseline instead of appending them anew, so
@@ -93,9 +151,9 @@ type Sheet struct {
 	// model grew each pass).
 	tablePartsBaseline    int
 	tablePartsBaselineSet bool
-	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
-	oleEmbeds []pendingOLE   // OLE objects embedded this session via AddOLEObject
-	comments  *sheetComments // lazily loaded comment model (read + write)
+	newPivots             []*PivotTable  // pivot tables added this session via AddPivotTable
+	oleEmbeds             []pendingOLE   // OLE objects embedded this session via AddOLEObject
+	comments              *sheetComments // lazily loaded comment model (read + write)
 	// sparklineCache is the sheet's parsed sparkline-groups model, loaded lazily
 	// from the worksheet extension list and shared by every SparklineGroup handle
 	// so mutations write through consistently. nil until first accessed.
@@ -154,6 +212,9 @@ func (s *Sheet) SetName(name string) error {
 		}
 	}
 	s.name = name
+	// A rename changes a name without changing how many sheets there are, so
+	// the count-based staleness check cannot see it.
+	s.workbook.invalidateSheetNames()
 	// Update the workbook model if within bounds
 	if s.workbook != nil && s.index >= 0 && s.index < len(s.workbook.workbook.Sheets.Sheet) {
 		s.workbook.workbook.Sheets.Sheet[s.index].Name = name
@@ -190,43 +251,21 @@ func (s *Sheet) Cell(ref string) (*Cell, error) {
 	if s.opaque {
 		return nil, ErrNotWorksheet
 	}
-	s.ensureWS()
-	s.ws().EnsureChildOrder("sheetData")
+	ws := s.ensureWS()
+	ws.EnsureChildOrder("sheetData")
 
 	// Parse the reference to get row and column
 	row, col, err := ParseCellRef(ref)
 	if err != nil {
 		return nil, err
 	}
-	// Canonicalize: "A01" must address the same cell as "A1", not create a
-	// phantom sibling with a non-canonical r attribute.
-	ref = FormatCellRef(row, col)
-
-	// Find or create the row
-	var targetRow *oxml.CT_Row
-	for i := range s.ws().SheetData.Row {
-		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == uint32(row) {
-			targetRow = &s.ws().SheetData.Row[i]
-			break
-		}
-	}
-	if targetRow == nil {
-		r := uint32(row)
-		s.ws().SheetData.Row = append(s.ws().SheetData.Row, oxml.CT_Row{R: &r})
-		targetRow = &s.ws().SheetData.Row[len(s.ws().SheetData.Row)-1]
-	}
-
-	// Find or create the cell. Cells are stored as pointers so this handle
-	// remains valid even if later cells are appended to the same row.
-	for _, cell := range targetRow.C {
-		if strings.EqualFold(cell.R, ref) {
-			return &Cell{sheet: s, cell: cell}, nil
-		}
-	}
-
-	newCell := &oxml.CT_Cell{R: ref}
-	targetRow.C = append(targetRow.C, newCell)
-	return &Cell{sheet: s, cell: newCell}, nil
+	// Resolve the row and the cell through a cursor: it finds the row by index
+	// rather than walking sheetData (#314) and the cell by column rather than
+	// walking every <c> in the row. Both walks ran once per cell, which made
+	// filling a sheet quadratic in rows and in columns respectively. The cursor
+	// canonicalizes the reference itself ("A01" addresses the same cell as
+	// "A1"), builds the row when it is missing, and appends the new cell.
+	return s.rowCursor(row).cell(col)
 }
 
 // rowNumberOf returns the 1-based row number for a parsed row. A row may omit
@@ -237,7 +276,7 @@ func rowNumberOf(r *oxml.CT_Row) (uint32, bool) {
 		return *r.R, true
 	}
 	for _, c := range r.C {
-		if rn, _, err := ParseCellRef(c.R); err == nil {
+		if rn, _, ok := c.RowCol(); ok {
 			return uint32(rn), true
 		}
 	}
@@ -312,12 +351,33 @@ func (s *Sheet) findCell(ref string) *Cell {
 	if err != nil {
 		return nil
 	}
-	ref = FormatCellRef(row, col)
-	for i := range s.ws().SheetData.Row {
-		r := &s.ws().SheetData.Row[i]
+	// Canonicalization used to matter here because cells were matched by
+	// comparing reference strings; they are matched by position now, so parsing
+	// the caller's reference is the whole of it — "A01" and "A1" reach the same
+	// cell by construction.
+	ws := s.ws()
+	// Unlike Cell, this looked in EVERY row carrying the wanted number, not just
+	// the first, so a sheet with duplicate row numbers could hold the reference
+	// in the second of them. That is only reachable when duplicates exist, so
+	// take the indexed single hit when they do not and keep the full scan when
+	// they do.
+	if s.rowsAreUnique(ws) {
+		i, ok := s.lookupRow(ws, uint32(row))
+		if !ok {
+			return nil
+		}
+		for _, cell := range ws.SheetData.Row[i].C {
+			if cr, cc, ok := cell.RowCol(); ok && cr == row && cc == col {
+				return &Cell{sheet: s, cell: cell}
+			}
+		}
+		return nil
+	}
+	for i := range ws.SheetData.Row {
+		r := &ws.SheetData.Row[i]
 		if rn, ok := rowNumberOf(r); ok && rn == uint32(row) {
 			for _, cell := range r.C {
-				if strings.EqualFold(cell.R, ref) {
+				if cr, cc, ok := cell.RowCol(); ok && cr == row && cc == col {
 					return &Cell{sheet: s, cell: cell}
 				}
 			}
@@ -354,8 +414,8 @@ func (s *Sheet) Cols() int {
 			if cellIsEmptyPhantom(cell) {
 				continue
 			}
-			_, col, err := ParseCellRef(cell.R)
-			if err == nil && col > maxCol {
+			_, col, ok := cell.RowCol()
+			if ok && col > maxCol {
 				maxCol = col
 			}
 		}
@@ -370,8 +430,8 @@ func (s *Sheet) Cols() int {
 // (C425). A cell with a style but no value is real content and is not a
 // phantom.
 func cellIsEmptyPhantom(c *oxml.CT_Cell) bool {
-	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && c.S == nil &&
-		c.T == "" && c.Cm == nil && c.Vm == nil && c.Ph == nil && len(c.ExtRaw) == 0)
+	return c == nil || (c.F == nil && c.V == nil && c.Is == nil && !c.HasStyle() &&
+		c.Type() == "" && c.Cm() == nil && c.Vm() == nil && c.Ph() == nil && len(c.ExtRaw()) == 0)
 }
 
 // rowIsEmptyPhantom reports whether a row carries no cells with content and no
@@ -524,7 +584,13 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 		return err
 	}
 
-	if s.ws() != nil && s.ws().MergeCells != nil {
+	// Compare against the existing merges only when the candidate falls inside
+	// their bounding box; outside it, no overlap is possible. The scan
+	// re-parsed every stored reference and ran once per merge, which made
+	// merging a range per row quadratic (see mergeindex.go).
+	bounds := s.mergeBoundsFor(s.ws())
+	if bounds.mayOverlap(rng) {
+		s.mergeScans++
 		for _, mc := range s.ws().MergeCells.MergeCell {
 			existing, err := parseCellRangeRef(mc.Ref)
 			if err != nil {
@@ -544,9 +610,17 @@ func (s *Sheet) MergeCells(startRef, endRef string) error {
 	}
 	s.ws().EnsureChildOrder("mergeCells")
 
+	// Take the box while it still describes the sheet: fetching it after the
+	// append finds a count that no longer matches and rebuilds the whole box,
+	// which costs exactly what the scan did. Re-fetch rather than reuse the
+	// handle from the overlap check — the model may have been created since
+	// (ensureWS), in which case that handle describes a different worksheet.
+	b := s.mergeBoundsFor(s.ws())
 	s.ws().MergeCells.MergeCell = append(s.ws().MergeCells.MergeCell, oxml.CT_MergeCell{Ref: rng.ref()})
 	count := uint32(len(s.ws().MergeCells.MergeCell))
 	s.ws().MergeCells.Count = &count
+	b.box, b.any = widened(b.box, b.any, rng)
+	b.merges = len(s.ws().MergeCells.MergeCell)
 
 	return nil
 }
@@ -595,31 +669,12 @@ func CellRef(row, col int) (string, error) {
 
 // columnLetters converts a 1-based column number to column letters. It returns
 // "" for a non-positive column, which callers must treat as invalid.
-func columnLetters(col int) string {
-	if col < 1 {
-		return ""
-	}
-	result := ""
-	for col > 0 {
-		col--
-		result = string(rune('A'+col%26)) + result
-		col /= 26
-	}
-	return result
-}
+func columnLetters(col int) string { return oxml.ColumnLetters(col) }
 
 // FormatCellRef creates a cell reference from 1-based row and column numbers.
 // It returns "" for coordinates outside the worksheet grid rather than an
 // invalid reference such as "5" (column 0).
-func FormatCellRef(row, col int) string {
-	if row < 1 || row > MaxRow || col < 1 || col > MaxCol {
-		return ""
-	}
-	// Plain concatenation rather than fmt.Sprintf: this is on the hot path of
-	// every range walk, and the formatted form cost an interface boxing plus a
-	// reflection-driven format pass per cell.
-	return columnLetters(col) + strconv.Itoa(row)
-}
+func FormatCellRef(row, col int) string { return oxml.CellRefString(row, col) }
 
 // FreezePanes freezes rows and columns at the specified cell reference.
 // For example, "B2" freezes row 1 and column A. The reference is

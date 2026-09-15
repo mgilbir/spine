@@ -21,12 +21,26 @@
 // anything else therefore accretes rather than replaces, so rebuild the sheet
 // instead of editing in place when a feature must go away.
 //
-// A Workbook is not safe for concurrent use. A single Workbook, and the sheets
-// and cells reached through it, must be confined to one goroutine, or all access
-// must be guarded by external synchronization. In particular Save, SaveBytes,
-// and SaveTo mutate shared state while serializing, so they must not run
-// concurrently with each other or with any mutation of the same Workbook.
-// Distinct Workbook values may be used from different goroutines.
+// A Workbook may be READ from several goroutines at once. The accessors that
+// build part of the model on first use — the worksheet parse itself, comments,
+// sparkline groups, the workbook's threaded-comment authors — are synchronized,
+// so concurrent readers of one Workbook are safe even when they race to be the
+// first to touch a sheet.
+//
+// MODIFYING one is not safe, and internal locking would not make it so. A
+// mutating call hands back a handle — a *Cell, *Sheet, *Table, *SparklineGroup —
+// that outlives the call and is not covered by any lock the call took. And a
+// read-modify-write spanning two calls has nothing to hold it together: Rows
+// followed by a loop over the count, or Sheet(i) followed by use of the result,
+// are both stale the moment another goroutine adds or removes something. Only
+// the caller knows where its own operation begins and ends, so confine
+// modification to one goroutine or guard it with external synchronization at
+// that granularity.
+//
+// Save, SaveBytes and SaveTo mutate shared state while serializing, so they
+// count as modification: they must not run concurrently with each other, with a
+// mutation, or with a read of the same Workbook. Distinct Workbook values may be
+// used from different goroutines.
 package xlsx
 
 import "errors"

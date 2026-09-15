@@ -995,7 +995,7 @@ func TestCopySheetErrorRollsBack(t *testing.T) {
 	}
 	// Inject a cell whose reference lies outside the grid: dst.Cell rejects it.
 	src.ensureWS()
-	src.ws().SheetData.Row[0].C = append(src.ws().SheetData.Row[0].C, &oxml.CT_Cell{R: "ZZZZ1"})
+	src.ws().SheetData.Row[0].C = append(src.ws().SheetData.Row[0].C, cellAt("ZZZZ1"))
 
 	dstWB := Create()
 	addSheetT(dstWB, "Sheet1")

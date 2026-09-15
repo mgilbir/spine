@@ -1095,6 +1095,9 @@ func (p *Presentation) importNotesMaster(srcPres *Presentation, ctx *mergeCtx) {
 	copied.Data = bytes.Clone(part.Data)
 	p.otherParts[newName] = &copied
 	ctx.parts[srcName] = newName
+	// This is the only path that adds a notes master, and notesMasterPartName
+	// remembers the one it resolved.
+	p.invalidateNotesMaster()
 
 	// Carry the notes master's own relationships, remapping the theme to a fresh
 	// theme part and any other internal targets to carried auxiliary parts.

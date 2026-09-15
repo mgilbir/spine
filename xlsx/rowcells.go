@@ -8,13 +8,13 @@ import (
 // row and indexes its cells by column number once, so code that walks a range
 // column by column pays a single scan instead of one scan per column.
 //
-// Sheet.Cell and Sheet.findCell each re-scan SheetData.Row for the row and then
-// every <c> in it, comparing references with strings.EqualFold. That is fine for
-// a one-off lookup but turns any loop over a range into O(cells^2): a
-// full-width table header (16384 columns) cost ~134 million string comparisons
-// and ~850ms, because the loop creates cells as it goes and so the row grows
-// underneath it. Every per-cell range loop in this package goes through a
-// cursor instead.
+// Resolving the row is O(1) through the sheet's row index (see rowindex.go), but
+// Sheet.Cell and Sheet.findCell still walk every <c> in the row, comparing
+// references with strings.EqualFold. That is fine for a one-off lookup but turns
+// any loop over a range into O(cells^2): a full-width table header (16384
+// columns) cost ~134 million string comparisons and ~850ms, because the loop
+// creates cells as it goes and so the row grows underneath it. Every per-cell
+// range loop in this package goes through a cursor instead.
 //
 // The cursor holds the row's index in SheetData.Row rather than its address, so
 // it survives the slice being reallocated when another row is appended. It must
@@ -27,6 +27,11 @@ type rowCells struct {
 	// not exist yet.
 	idx   int
 	byCol map[int]*oxml.CT_Cell
+	// cells is len(row.C) at the moment byCol was built or last maintained. A
+	// cursor cached across calls (Sheet.cellCursor) uses it to notice cells
+	// another cursor appended to the same row: believing a cell absent when it
+	// exists would append a duplicate <c>, so the check guards that direction.
+	cells int
 	// prepared records that the worksheet model and its sheetData child-order
 	// entry have been ensured for this cursor. Sheet.Cell does that on every
 	// call; a cursor does it once, on the first write.
@@ -48,14 +53,9 @@ func (s *Sheet) newRowCells(row int) *rowCells {
 // locate finds the row in SheetData.Row and indexes its cells. It assumes the
 // worksheet model exists.
 func (rc *rowCells) locate() {
-	sd := &rc.sheet.ws().SheetData
-	want := uint32(rc.rowNo)
-	for i := range sd.Row {
-		if rn, ok := rowNumberOf(&sd.Row[i]); ok && rn == want {
-			rc.idx = i
-			rc.index()
-			return
-		}
+	if i, ok := rc.sheet.lookupRow(rc.sheet.ws(), uint32(rc.rowNo)); ok {
+		rc.idx = i
+		rc.index()
 	}
 }
 
@@ -67,16 +67,17 @@ func (rc *rowCells) row() *oxml.CT_Row {
 // index builds the column -> cell map for the resolved row.
 func (rc *rowCells) index() {
 	cells := rc.row().C
+	rc.cells = len(cells)
 	rc.byCol = make(map[int]*oxml.CT_Cell, len(cells))
 	for _, c := range cells {
 		if c == nil {
 			continue
 		}
-		r, col, err := ParseCellRef(c.R)
+		r, col, ok := c.RowCol()
 		// Only cells that actually name this row are reachable through it, which
 		// is what Sheet.Cell's full-reference match already implied: a malformed
 		// <c> carrying another row's reference stays unaddressable, as before.
-		if err != nil || r != rc.rowNo {
+		if !ok || r != rc.rowNo {
 			continue
 		}
 		if _, dup := rc.byCol[col]; dup {
@@ -114,8 +115,8 @@ func (rc *rowCells) cell(col int) (*Cell, error) {
 	if rc.sheet.opaque {
 		return nil, ErrNotWorksheet
 	}
-	ref, err := CellRef(rc.rowNo, col)
-	if err != nil {
+	// Validates the position; the reference itself is rebuilt from it on demand.
+	if _, err := CellRef(rc.rowNo, col); err != nil {
 		return nil, err
 	}
 	rc.prepare()
@@ -125,10 +126,12 @@ func (rc *rowCells) cell(col int) (*Cell, error) {
 	if err := rc.ensureRow(); err != nil {
 		return nil, err
 	}
-	nc := &oxml.CT_Cell{R: ref}
+	nc := &oxml.CT_Cell{}
+	nc.SetPosition(rc.rowNo, col)
 	row := rc.row()
 	row.C = append(row.C, nc)
 	rc.byCol[col] = nc
+	rc.cells = len(row.C)
 	return &Cell{sheet: rc.sheet, cell: nc}, nil
 }
 
@@ -161,11 +164,10 @@ func (rc *rowCells) ensureRow() error {
 	if rc.idx >= 0 {
 		return nil
 	}
-	sd := &rc.sheet.ws().SheetData
 	r := uint32(rc.rowNo)
-	sd.Row = append(sd.Row, oxml.CT_Row{R: &r})
-	rc.idx = len(sd.Row) - 1
+	rc.idx = rc.sheet.appendRow(rc.sheet.ws(), oxml.CT_Row{R: &r})
 	rc.byCol = make(map[int]*oxml.CT_Cell)
+	rc.cells = 0
 	return nil
 }
 
@@ -209,4 +211,53 @@ func (rcs *rowCursors) cellByRef(ref string) (*Cell, error) {
 		return nil, err
 	}
 	return rcs.cell(row, col)
+}
+
+// stillValid reports whether the cursor still describes its row in ws. It is
+// the check that lets Sheet.Cell keep one cursor across calls instead of
+// rebuilding a column map per cell.
+//
+// Every way a cursor can go stale is covered, and each in O(1): the worksheet
+// model being replaced, the row appearing or disappearing, the row moving
+// within SheetData.Row (marshalSheetData sorts it in place), and cells being
+// appended to the row by another cursor. The last is the one that matters most
+// — a cursor that had not seen an existing cell would append a second <c> for
+// the same reference.
+func (rc *rowCells) stillValid(ws *oxml.CT_Worksheet) bool {
+	if rc.sheet == nil || rc.sheet.ws() != ws {
+		return false
+	}
+	i, ok := rc.sheet.lookupRow(ws, uint32(rc.rowNo))
+	if !ok {
+		// The row does not exist; the cursor is only usable if it agrees.
+		return rc.idx == -1
+	}
+	if rc.idx != i {
+		return false
+	}
+	return rc.cells == len(ws.SheetData.Row[i].C)
+}
+
+// rowCursor returns a cursor for the given 1-based row, reusing the sheet's
+// cached one when it still describes that row.
+//
+// Sheet.Cell resolved its cell by walking every <c> in the row, comparing
+// references with strings.EqualFold. That walk ran once per cell, so filling a
+// wide row cost O(cols^2): 1 row x 2000 columns took 7ms and 8000 columns
+// 113ms, a growth exponent of 1.99. Caching one cursor is enough because cells
+// are written a row at a time; a single map, sized to the widest row touched,
+// replaces the walk without holding per-row state for the whole sheet.
+func (s *Sheet) rowCursor(row int) *rowCells {
+	if rc := s.cellCursor; rc != nil && rc.rowNo == row && rc.stillValid(s.ws()) {
+		return rc
+	}
+	s.cellCursorRebuilds++
+	rc := s.newRowCells(row)
+	s.cellCursor = rc
+	return rc
+}
+
+// invalidateCellCursor drops the cached cursor.
+func (s *Sheet) invalidateCellCursor() {
+	s.cellCursor = nil
 }

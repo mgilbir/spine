@@ -24,7 +24,10 @@ func TestValidate_SharedFormulaOrphan(t *testing.T) {
 		SheetData: oxml.CT_SheetData{
 			Row: []oxml.CT_Row{
 				{C: []*oxml.CT_Cell{
-					{R: "A1", F: &oxml.CT_CellFormula{T: "shared", Si: u32(3), Ref: ""}}, // follower, no master
+					// follower, no master
+					cellAt("A1", func(c *oxml.CT_Cell) {
+						c.F = &oxml.CT_CellFormula{T: "shared", Si: u32(3), Ref: ""}
+					}),
 				}},
 			},
 		},
@@ -36,7 +39,9 @@ func TestValidate_SharedFormulaOrphan(t *testing.T) {
 
 	// Add the master for si=3: no longer orphaned.
 	ws.SheetData.Row[0].C = append(ws.SheetData.Row[0].C,
-		&oxml.CT_Cell{R: "B1", F: &oxml.CT_CellFormula{T: "shared", Si: u32(3), Ref: "B1:B5", Value: "B1+1"}})
+		cellAt("B1", func(c *oxml.CT_Cell) {
+			c.F = &oxml.CT_CellFormula{T: "shared", Si: u32(3), Ref: "B1:B5", Value: "B1+1"}
+		}))
 	if r := w.Validate(); hasCode(r, codeSharedFormulaOrphan, validate.SeverityError) {
 		t.Fatalf("did not expect orphan after adding master, got: %v", r)
 	}

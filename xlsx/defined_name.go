@@ -80,17 +80,11 @@ func (w *Workbook) checkDefinedNameCollision(name string, sheetIndex int) error 
 	if w.workbook == nil || w.workbook.DefinedNames == nil {
 		return nil
 	}
-	for _, dn := range w.workbook.DefinedNames.DefinedName {
-		scope := -1
-		if dn.LocalSheetId != nil {
-			scope = int(*dn.LocalSheetId)
+	if w.definedNameSetFor().keys[definedNameKey(name, sheetIndex)] {
+		if sheetIndex < 0 {
+			return fmt.Errorf("xlsx: workbook-scoped defined name %q already exists", name)
 		}
-		if scope == sheetIndex && strings.EqualFold(dn.Name, name) {
-			if sheetIndex < 0 {
-				return fmt.Errorf("xlsx: workbook-scoped defined name %q already exists", name)
-			}
-			return fmt.Errorf("xlsx: defined name %q already exists on sheet %d", name, sheetIndex)
-		}
+		return fmt.Errorf("xlsx: defined name %q already exists on sheet %d", name, sheetIndex)
 	}
 	return nil
 }
@@ -134,7 +128,7 @@ func (w *Workbook) AddDefinedNameFull(dn DefinedName) error {
 	if dn.Hidden {
 		out.Hidden = oxml.NewBoolLex(true)
 	}
-	w.workbook.DefinedNames.DefinedName = append(w.workbook.DefinedNames.DefinedName, out)
+	w.appendDefinedName(out, scope)
 	// Defined names live in workbook.xml, which is always regenerated, so they
 	// persist without a regeneration flag; record the content edit so the save
 	// stamps dcterms:modified. Reached only after validation has passed.

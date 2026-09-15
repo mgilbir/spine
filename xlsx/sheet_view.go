@@ -563,22 +563,22 @@ func (s *Sheet) editRow(row int, apply func(*oxml.CT_Row)) error {
 	s.ws().EnsureChildOrder("sheetData")
 
 	r := uint32(row)
-	for i := range s.ws().SheetData.Row {
-		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == r {
-			apply(&s.ws().SheetData.Row[i])
-			return nil
-		}
+	ws := s.ws()
+	if i, ok := s.lookupRow(ws, r); ok {
+		apply(&ws.SheetData.Row[i])
+		return nil
 	}
 	newRow := oxml.CT_Row{R: &r}
 	apply(&newRow)
-	s.ws().SheetData.Row = append(s.ws().SheetData.Row, newRow)
+	s.appendRow(ws, newRow)
 	return nil
 }
 
 // editRowRange applies apply to every row in [startRow, endRow], creating the
-// rows that do not exist yet. It is editRow over a range, done in one pass:
-// calling editRow per row re-scanned SheetData.Row every time, and since the
-// loop appends rows as it goes that made grouping a tall range O(rows^2).
+// rows that do not exist yet. It is editRow over a range, and since both now
+// resolve rows through the sheet's row index it exists for the call-shape rather
+// than for the cost: it says "this whole range" once instead of asking the
+// caller to loop.
 //
 // The result is identical to the per-row loop, including the first-match-wins
 // choice among duplicate row numbers and the append-at-the-end placement of new
@@ -594,25 +594,16 @@ func (s *Sheet) editRowRange(startRow, endRow int, apply func(*oxml.CT_Row)) err
 	s.ensureWorksheet()
 	s.ws().EnsureChildOrder("sheetData")
 
-	sd := &s.ws().SheetData
-	byNumber := make(map[uint32]int, len(sd.Row))
-	for i := range sd.Row {
-		if rn, ok := rowNumberOf(&sd.Row[i]); ok {
-			if _, dup := byNumber[rn]; !dup {
-				byNumber[rn] = i
-			}
-		}
-	}
+	ws := s.ws()
 	for row := startRow; row <= endRow; row++ {
 		r := uint32(row)
-		if i, ok := byNumber[r]; ok {
-			apply(&sd.Row[i])
+		if i, ok := s.lookupRow(ws, r); ok {
+			apply(&ws.SheetData.Row[i])
 			continue
 		}
 		newRow := oxml.CT_Row{R: &r}
 		apply(&newRow)
-		sd.Row = append(sd.Row, newRow)
-		byNumber[r] = len(sd.Row) - 1
+		s.appendRow(ws, newRow)
 	}
 	return nil
 }
@@ -649,9 +640,26 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 	s.ws().EnsureChildOrder("cols")
 
 	c := uint32(col)
+	ws := s.ws()
+
+	// A column no existing entry spans needs no carve: it becomes a fresh
+	// single-column entry, exactly as the !placed branch below does. Answering
+	// that from the coverage set skips rebuilding every group, which is what
+	// made laying out widths column by column quadratic (see colindex.go).
+	cov := s.colCoverageFor(ws)
+	if !cov.covered[c] {
+		target := oxml.CT_Col{Min: c, Max: c}
+		apply(&target)
+		ws.Cols[0].Col = append(ws.Cols[0].Col, target)
+		cov.covered[c] = true
+		cov.entries++
+		return nil
+	}
+
+	s.colCarves++
 	placed := false
-	for gi := range s.ws().Cols {
-		cols := s.ws().Cols[gi].Col
+	for gi := range ws.Cols {
+		cols := ws.Cols[gi].Col
 		rebuilt := make([]oxml.CT_Col, 0, len(cols)+2)
 		for _, entry := range cols {
 			if entry.Min > c || entry.Max < c {
@@ -676,13 +684,18 @@ func (s *Sheet) editColumn(col int, apply func(*oxml.CT_Col)) error {
 				rebuilt = append(rebuilt, right)
 			}
 		}
-		s.ws().Cols[gi].Col = rebuilt
+		ws.Cols[gi].Col = rebuilt
 	}
 	if !placed {
 		target := oxml.CT_Col{Min: c, Max: c}
 		apply(&target)
-		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
+		ws.Cols[0].Col = append(ws.Cols[0].Col, target)
 	}
+	// A carve splits one entry into as many as three, so the recorded entry
+	// count no longer matches. Coverage itself is unchanged — the fragments
+	// span the same columns — so refresh the count rather than rebuild.
+	cov.entries = countColEntries(ws)
+	cov.covered[c] = true
 	return nil
 }
 
@@ -756,5 +769,8 @@ func (s *Sheet) editColumnRange(startCol, endCol int, apply func(*oxml.CT_Col)) 
 		apply(&target)
 		s.ws().Cols[0].Col = append(s.ws().Cols[0].Col, target)
 	}
+	// This rewrote whole groups; drop the coverage set rather than reason about
+	// whether its entry-count check sees every shape of that change.
+	s.invalidateColCoverage()
 	return nil
 }

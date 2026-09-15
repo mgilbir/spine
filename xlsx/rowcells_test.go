@@ -23,11 +23,11 @@ func assertNoDuplicateCells(t *testing.T, s *Sheet, what string) {
 			if c == nil {
 				continue
 			}
-			if seen[c.R] {
+			if seen[c.Ref()] {
 				rn, _ := rowNumberOf(row)
-				t.Fatalf("%s: row %d holds two cells with reference %q", what, rn, c.R)
+				t.Fatalf("%s: row %d holds two cells with reference %q", what, rn, c.Ref())
 			}
-			seen[c.R] = true
+			seen[c.Ref()] = true
 		}
 	}
 }
@@ -122,11 +122,11 @@ func TestRowCursorMatchesSheetCell(t *testing.T) {
 		s.ensureWorksheet()
 		s.ws().SheetData.Row = []oxml.CT_Row{
 			// Duplicate reference: the first must win, as the linear scan did.
-			{R: rowNo(1), C: []*oxml.CT_Cell{{R: "A1", T: "inlineStr", Is: &oxml.CT_Rst{T: strPtr("first")}}, {R: "A1", T: "inlineStr", Is: &oxml.CT_Rst{T: strPtr("second")}}}},
+			{R: rowNo(1), C: []*oxml.CT_Cell{cellAt("A1", func(c *oxml.CT_Cell) { c.SetType("inlineStr"); c.Is = &oxml.CT_Rst{T: strPtr("first")} }), cellAt("A1", func(c *oxml.CT_Cell) { c.SetType("inlineStr"); c.Is = &oxml.CT_Rst{T: strPtr("second")} })}},
 			// A stray cell naming another row stays unaddressable through row 2.
-			{R: rowNo(2), C: []*oxml.CT_Cell{{R: "B2"}, {R: "C9"}}},
+			{R: rowNo(2), C: []*oxml.CT_Cell{cellAt("B2"), cellAt("C9")}},
 			// No r attribute: the row number is derived from its first cell.
-			{C: []*oxml.CT_Cell{{R: "D5"}}},
+			{C: []*oxml.CT_Cell{cellAt("D5")}},
 		}
 		return s
 	}
@@ -152,9 +152,9 @@ func TestRowCursorMatchesSheetCell(t *testing.T) {
 			t.Fatalf("cursor cell(%d,%d): %v", p.row, p.col, err)
 		}
 
-		if gotCell.cell.R != wantCell.cell.R || gotCell.String() != wantCell.String() {
+		if gotCell.cell.Ref() != wantCell.cell.Ref() || gotCell.String() != wantCell.String() {
 			t.Errorf("cell(%d,%d): cursor gave %q=%q, Sheet.Cell gave %q=%q",
-				p.row, p.col, gotCell.cell.R, gotCell.String(), wantCell.cell.R, wantCell.String())
+				p.row, p.col, gotCell.cell.Ref(), gotCell.String(), wantCell.cell.Ref(), wantCell.String())
 		}
 		// The resulting model must match too: same rows, same cells per row.
 		gotRows, wantRows := viaCursor.ws().SheetData.Row, viaCell.ws().SheetData.Row
@@ -167,9 +167,9 @@ func TestRowCursorMatchesSheetCell(t *testing.T) {
 					p.row, p.col, i, len(gotRows[i].C), len(wantRows[i].C))
 			}
 			for j := range gotRows[i].C {
-				if gotRows[i].C[j].R != wantRows[i].C[j].R {
+				if gotRows[i].C[j].Ref() != wantRows[i].C[j].Ref() {
 					t.Fatalf("cell(%d,%d): row %d cell %d is %q via cursor, %q via Sheet.Cell",
-						p.row, p.col, i, j, gotRows[i].C[j].R, wantRows[i].C[j].R)
+						p.row, p.col, i, j, gotRows[i].C[j].Ref(), wantRows[i].C[j].Ref())
 				}
 			}
 		}

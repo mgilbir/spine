@@ -53,6 +53,8 @@ type commentEntry struct {
 // visible to the Notes() call after it, and to the save, without either going
 // near the serialized form.
 func (p *Presentation) notesModel(partName string) *oxml.NotesSlide {
+	p.partModelsMu.Lock()
+	defer p.partModelsMu.Unlock()
 	if e, ok := p.notesModels[partName]; ok {
 		return e.model
 	}
@@ -101,6 +103,8 @@ func (p *Presentation) markNotesDirty(partName string) {
 // comment part at all, and is why Comments() reports no comments rather than an
 // error.
 func (p *Presentation) commentModel(partName string) *oxml.ModernCommentPart {
+	p.partModelsMu.Lock()
+	defer p.partModelsMu.Unlock()
 	if e, ok := p.commentModels[partName]; ok {
 		return e.model
 	}

@@ -1,12 +1,24 @@
 // Package pptx provides functionality for reading and writing PowerPoint presentations.
 //
-// A Presentation is not safe for concurrent use. A single Presentation, and the
-// slides and shapes reached through it, must be confined to one goroutine, or
-// all access must be guarded by external synchronization. In particular Save,
-// SaveBytes, and SaveTo mutate shared state while serializing, so they must not
-// run concurrently with each other or with any mutation of the same
-// Presentation. Distinct Presentation values may be used from different
-// goroutines.
+// A Presentation may be READ from several goroutines at once. The accessors that
+// build part of the model on first use — the slide parse and the shape list it
+// fills, the notes and comment part models, the modern author list — are
+// synchronized, so concurrent readers of one Presentation are safe even when
+// they race to be the first to touch a slide.
+//
+// MODIFYING one is not safe, and internal locking would not make it so. A
+// mutating call hands back a handle — a *Slide, *TextBox, *Table, *Picture —
+// that outlives the call and is not covered by any lock the call took. And a
+// read-modify-write spanning two calls has nothing to hold it together:
+// Slides() followed by indexing the result is stale the moment another goroutine
+// adds or removes a slide. Only the caller knows where its own operation begins
+// and ends, so confine modification to one goroutine or guard it with external
+// synchronization at that granularity.
+//
+// Save, SaveBytes and SaveTo mutate shared state while serializing, so they
+// count as modification: they must not run concurrently with each other, with a
+// mutation, or with a read of the same Presentation. Distinct Presentation
+// values may be used from different goroutines.
 package pptx
 
 import (
@@ -19,6 +31,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -92,6 +105,38 @@ type Presentation struct {
 	presentation *oxml.Presentation
 	nextSlideID  uint32
 	nextRelID    int
+	// slideNameCache, layoutNameCache and notesNameCache hold the part names
+	// already taken for each kind, so allocating the next one does not rebuild
+	// that set per add. See partnames.go.
+	slideNameCache  *partNameAlloc
+	layoutNameCache *partNameAlloc
+	notesNameCache  *partNameAlloc
+	// partNameRebuilds counts full rebuilds across all three. Rebuilding is the
+	// O(n) walk the caches remove, so a rebuild per add is the same quadratic
+	// cost and the guard counts it rather than timing the run.
+	partNameRebuilds int
+	// notesMasterName is the resolved notes master part name, and
+	// notesMasterResolved records that the lookup has run. See
+	// notesMasterPartName.
+	notesMasterName     string
+	notesMasterResolved bool
+	// notesMasterResolves counts how often that lookup actually ran. It walks
+	// every other part, so running it per SetNotes is the quadratic cost the
+	// cache removes; the guard counts it rather than timing the run.
+	notesMasterResolves int
+	// partModelsMu and modernAuthorsMu guard the caches that read-only
+	// accessors fill, so a deck can be read from several goroutines. One lock
+	// covers both part-model maps in partmodels.go: they are filled by the same
+	// kind of call and never from inside each other. The write helpers beside
+	// them (putNotesModel, markCommentDirty, ...) are mutation paths, and
+	// mutating a presentation concurrently was never safe.
+	partModelsMu    sync.Mutex
+	modernAuthorsMu sync.Mutex
+	// relIDMax caches the highest relationship id per part scope, so allocating
+	// the next one does not rescan the scope. See relidcache.go.
+	relIDMax map[string]relIDMaxEntry
+	// relIDRescans counts how often that scan actually ran, for the guard.
+	relIDRescans int
 	templatePath string // Path to template file if using one
 
 	// flavor is the main part's content type as recorded at open: one of the
@@ -103,15 +148,15 @@ type Presentation struct {
 	flavor string
 
 	// Raw data for parts we serialize but don't fully parse
-	presPropsData   []byte                         // /ppt/presProps.xml
-	viewPropsData   []byte                         // /ppt/viewProps.xml
-	tableStylesData []byte                         // /ppt/tableStyles.xml
-	themeData       map[string][]byte              // /ppt/theme/*.xml (keyed by part name)
+	presPropsData   []byte            // /ppt/presProps.xml
+	viewPropsData   []byte            // /ppt/viewProps.xml
+	tableStylesData []byte            // /ppt/tableStyles.xml
+	themeData       map[string][]byte // /ppt/theme/*.xml (keyed by part name)
 	// themeEditors caches one dml.ThemeEditor per theme part name, created on
 	// the first Theme() call. A nil value means "this part does not parse",
 	// cached so the failure is not retried on every access. applyThemeEdits
 	// folds the modified ones back into themeData at save (C571).
-	themeEditors map[string]*dml.ThemeEditor
+	themeEditors    map[string]*dml.ThemeEditor
 	thumbnailData   []byte                         // /docProps/thumbnail.jpeg
 	appPropsData    []byte                         // /docProps/app.xml
 	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin
@@ -1099,6 +1144,12 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 					p.relationships[slideName] = rels
 					delete(p.relationships, oldSlideName)
 				}
+				// The old name is now free. The name cache tracks names taken,
+				// not slide count, so nothing else tells it that; drop it so a
+				// later allocation can reuse the name exactly as it used to.
+				// This branch fires only when a slide is actually renamed,
+				// which is not the common path through this loop.
+				p.invalidateSlideNames()
 			}
 		}
 		currentSlideParts[slideName] = true
@@ -1494,8 +1545,7 @@ func hasRelForTarget(rels []*opc.Relationship, relType, target string) bool {
 func nextRelationshipID(rels []*opc.Relationship) int {
 	maxID := 0
 	for _, rel := range rels {
-		var id int
-		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+		if id, ok := relIDNum(rel.ID); ok && id > maxID {
 			maxID = id
 		}
 	}
@@ -1510,7 +1560,7 @@ func (p *Presentation) nextRelIDNum(partName string) int {
 	if partName == presentationPartName {
 		return p.nextPresentationRelID()
 	}
-	return nextRelationshipID(p.relationships[partName])
+	return p.maxRelIDFor(partName) + 1
 }
 
 // nextPresentationRelID returns a relationship id number free for the
@@ -1531,8 +1581,7 @@ func (p *Presentation) nextPresentationRelID() int {
 		if rel == nil {
 			continue
 		}
-		var id int
-		if _, err := fmt.Sscanf(rel.ID, "rId%d", &id); err == nil && id > maxID {
+		if id, ok := relIDNum(rel.ID); ok && id > maxID {
 			maxID = id
 		}
 	}
@@ -2386,24 +2435,6 @@ func (p *Presentation) AddSlide() *Slide {
 	return slide
 }
 
-func (p *Presentation) nextAvailableSlidePartName() string {
-	used := make(map[string]bool, len(p.slides)+len(p.otherParts))
-	for _, slide := range p.slides {
-		if slide.partName != "" {
-			used[slide.partName] = true
-		}
-	}
-	for name := range p.otherParts {
-		used[name] = true
-	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/slides/slide%d.xml", i)
-		if !used[name] {
-			return name
-		}
-	}
-}
-
 // deepCloneNotesSlide gives the slide at newSlidePart its own copy of the notes
 // slide it currently references (shared verbatim from the slide it was
 // duplicated from). Without this, both slides point at one notesSlide part and
@@ -2503,35 +2534,8 @@ func (p *Presentation) deepCloneCommentParts(newSlidePart string, srcSlideID, ne
 }
 
 // nextAvailableNotesName returns a notesSlide part name not already in use.
-func (p *Presentation) nextAvailableNotesName() string {
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/notesSlides/notesSlide%d.xml", i)
-		if _, exists := p.otherParts[name]; !exists {
-			return name
-		}
-	}
-}
-
 // nextAvailableLayoutPartName returns a slideLayout part name not already used
 // by an existing layout or other part.
-func (p *Presentation) nextAvailableLayoutPartName() string {
-	used := make(map[string]bool, len(p.slideLayouts)+len(p.otherParts))
-	for _, l := range p.slideLayouts {
-		if l.partName != "" {
-			used[l.partName] = true
-		}
-	}
-	for name := range p.otherParts {
-		used[name] = true
-	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("/ppt/slideLayouts/slideLayout%d.xml", i)
-		if !used[name] {
-			return name
-		}
-	}
-}
-
 func (p *Presentation) clonePartRelationships(sourcePart, targetPart string) {
 	if sourcePart == "" || targetPart == "" {
 		return

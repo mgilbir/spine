@@ -105,18 +105,18 @@ func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, err
 		for i := range src.ws().SheetData.Row {
 			row := &src.ws().SheetData.Row[i]
 			for _, sc := range row.C {
-				if sc == nil || sc.R == "" {
+				if sc == nil || !sc.HasRef() {
 					continue
 				}
-				dc, err := cursors.cellByRef(sc.R)
+				dc, err := cursors.cellByRef(sc.Ref())
 				if err != nil {
 					return err
 				}
 				if err := copyCellValue(w, other, sc, dc); err != nil {
 					return err
 				}
-				if sc.S != nil {
-					newIdx, err := remapStyleIndex(w, other, *sc.S, styleCache)
+				if srcIdx, ok := sc.StyleIndex(); ok {
+					newIdx, err := remapStyleIndex(w, other, srcIdx, styleCache)
 					if err != nil {
 						return err
 					}
@@ -255,10 +255,10 @@ func copyCellValue(dstWB, srcWB *Workbook, sc *oxml.CT_Cell, dc *Cell) error {
 		// Formula: copy the formula element and its cached value/type verbatim.
 		f := *sc.F
 		dc.cell.F = &f
-		dc.cell.T = sc.T
+		dc.cell.SetType(sc.Type())
 		dc.cell.V = cloneStringPtr(sc.V)
 		dc.cell.Is = cloneRst(sc.Is)
-	case sc.T == "s":
+	case sc.Type() == "s":
 		// Shared string: resolve against the source table and store inline so
 		// the destination does not depend on the source's string table.
 		if sc.V != nil {
@@ -271,7 +271,7 @@ func copyCellValue(dstWB, srcWB *Workbook, sc *oxml.CT_Cell, dc *Cell) error {
 	default:
 		// Numbers, booleans, errors, inline and cached strings are
 		// self-contained; copy the type, value, and any inline string verbatim.
-		dc.cell.T = sc.T
+		dc.cell.SetType(sc.Type())
 		dc.cell.V = cloneStringPtr(sc.V)
 		dc.cell.Is = cloneRst(sc.Is)
 	}

@@ -127,11 +127,9 @@ func (s *Sheet) rowEntry(row int) *oxml.CT_Row {
 	if s.ws() == nil || row < 1 {
 		return nil
 	}
-	want := uint32(row)
-	for i := range s.ws().SheetData.Row {
-		if rn, ok := rowNumberOf(&s.ws().SheetData.Row[i]); ok && rn == want {
-			return &s.ws().SheetData.Row[i]
-		}
+	ws := s.ws()
+	if i, ok := s.lookupRow(ws, uint32(row)); ok {
+		return &ws.SheetData.Row[i]
 	}
 	return nil
 }
@@ -163,7 +161,7 @@ func (c *Cell) DataValidation() *DataValidation {
 	}
 	for i := range c.sheet.ws().DataValidations.DataValidation {
 		dv := &c.sheet.ws().DataValidations.DataValidation[i]
-		if sqrefContains(dv.Sqref, c.cell.R) {
+		if sqrefContains(dv.Sqref, c.cell.Ref()) {
 			return dataValidationFromModel(dv)
 		}
 	}

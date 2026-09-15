@@ -49,8 +49,8 @@ func TestDynamicArrayMetadataSynthesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rc.cell.Cm == nil || *rc.cell.Cm != 1 {
-		t.Errorf("reopened cm = %v, want 1", rc.cell.Cm)
+	if rc.cell.Cm() == nil || *rc.cell.Cm() != 1 {
+		t.Errorf("reopened cm = %v, want 1", rc.cell.Cm())
 	}
 }
 

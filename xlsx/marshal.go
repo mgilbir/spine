@@ -360,8 +360,8 @@ func updateSheetDimension(ws *oxml.CT_Worksheet) {
 	maxRow, maxCol := 0, 0
 	for i := range ws.SheetData.Row {
 		for _, c := range ws.SheetData.Row[i].C {
-			row, col, err := ParseCellRef(c.R)
-			if err != nil {
+			row, col, ok := c.RowCol()
+			if !ok {
 				continue
 			}
 			if minRow == 0 || row < minRow {

@@ -54,8 +54,8 @@ func (s *Sheet) Text() string {
 			maxCol := 0
 			cols := make(map[int]string, len(r.C))
 			for _, c := range r.C {
-				_, col, err := ParseCellRef(c.R)
-				if err != nil {
+				_, col, ok := c.RowCol()
+				if !ok {
 					continue
 				}
 				cols[col] = (&Cell{sheet: s, cell: c}).String()

@@ -292,6 +292,8 @@ func (s *Sheet) Sparklines() []*SparklineGroup {
 // lazily from the worksheet extension list on first use and caching it so every
 // handle mutates one shared model. It never returns nil.
 func (s *Sheet) sparklineGroups() *oxml.CT_SparklineGroups {
+	s.sparklineMu.Lock()
+	defer s.sparklineMu.Unlock()
 	if s.sparklineCache != nil {
 		return s.sparklineCache
 	}

@@ -32,7 +32,7 @@ type Cell struct {
 
 // Ref returns the cell reference (e.g., "A1").
 func (c *Cell) Ref() string {
-	return c.cell.R
+	return c.cell.Ref()
 }
 
 // CellError is the value Cell.Value returns for an error cell (t="e"). It
@@ -65,7 +65,7 @@ func (c *Cell) Value() interface{} {
 		return CellError(c.String())
 	case CellTypeFormula:
 		// Return the cached formula result typed by its cached-value type
-		// (c.cell.T), the same way a literal cell of that type reads back: a
+		// (c.cell.Type()), the same way a literal cell of that type reads back: a
 		// numeric result (t="n" or absent) yields float64, t="b" yields bool,
 		// and a string result yields string, an error result CellError. Without
 		// this a numeric formula like =1+1 would read back as the string "2".
@@ -73,7 +73,7 @@ func (c *Cell) Value() interface{} {
 		if c.cell.V == nil {
 			return c.Formula()
 		}
-		switch c.cell.T {
+		switch c.cell.Type() {
 		case "n", "":
 			return c.Float()
 		case "b":
@@ -142,7 +142,7 @@ func (c *Cell) Type() CellType {
 		return CellTypeFormula
 	}
 
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "s":
 		return CellTypeString
 	case "str":
@@ -182,14 +182,15 @@ func (c *Cell) Type() CellType {
 // built-in date/time number formats (ids 14-22 and 45-47), which is how Excel
 // distinguishes date cells from plain numbers (C132).
 func (c *Cell) hasDateNumberFormat() bool {
-	if c.cell.S == nil || c.sheet == nil || c.sheet.workbook == nil {
+	if !c.cell.HasStyle() || c.sheet == nil || c.sheet.workbook == nil {
 		return false
 	}
 	ss := c.sheet.workbook.stylesheet
 	if ss == nil || ss.CellXfs == nil {
 		return false
 	}
-	idx := int(*c.cell.S)
+	style, _ := c.cell.StyleIndex()
+	idx := int(style)
 	if idx < 0 || idx >= len(ss.CellXfs.Xf) {
 		return false
 	}
@@ -203,7 +204,7 @@ func (c *Cell) hasDateNumberFormat() bool {
 
 // String returns the cell value as a string.
 func (c *Cell) String() string {
-	switch c.cell.T {
+	switch c.cell.Type() {
 	case "s":
 		// Shared string: V contains the index
 		if c.cell.V != nil && c.sheet != nil && c.sheet.workbook != nil {
@@ -249,7 +250,7 @@ func (c *Cell) String() string {
 // xml:space="preserve" so the spaces survive an Excel round-trip.
 func (c *Cell) SetString(value string) {
 	c.markSheetDirty()
-	c.cell.T = "inlineStr"
+	c.cell.SetType("inlineStr")
 	c.cell.V = nil
 	c.cell.Is = &oxml.CT_Rst{T: &value}
 	c.clearFormula()
@@ -273,7 +274,7 @@ func (c *Cell) Float() float64 {
 func (c *Cell) SetFloat(value float64) {
 	c.markSheetDirty()
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		c.cell.T = "e"
+		c.cell.SetType("e")
 		v := "#NUM!"
 		c.cell.V = &v
 		c.cell.Is = nil
@@ -285,7 +286,7 @@ func (c *Cell) SetFloat(value float64) {
 
 // setNumeric writes a pre-formatted numeric literal to the cell.
 func (c *Cell) setNumeric(v string) {
-	c.cell.T = "n"
+	c.cell.SetType("n")
 	c.cell.V = &v
 	c.cell.Is = nil
 	c.clearFormula()
@@ -326,7 +327,7 @@ func (c *Cell) Bool() bool {
 // SetBool sets the cell value to a bool.
 func (c *Cell) SetBool(value bool) {
 	c.markSheetDirty()
-	c.cell.T = "b"
+	c.cell.SetType("b")
 	v := "0"
 	if value {
 		v = "1"
@@ -351,7 +352,7 @@ func (c *Cell) Time() time.Time {
 	if c.cell.V == nil {
 		return time.Time{}
 	}
-	if c.cell.T == "d" {
+	if c.cell.Type() == "d" {
 		return parseISO8601Cell(*c.cell.V)
 	}
 	f, err := strconv.ParseFloat(*c.cell.V, 64)
@@ -418,7 +419,7 @@ func (c *Cell) Formula() string {
 func (c *Cell) SetFormula(formula string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -433,7 +434,7 @@ func (c *Cell) SetFormula(formula string) {
 func (c *Cell) SetArrayFormula(formula, ref string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -454,10 +455,10 @@ func (c *Cell) SetDynamicArrayFormula(formula, ref string) {
 	c.markSheetDirty()
 	c.detachSharedGroup()
 	if ref == "" {
-		ref = c.cell.R
+		ref = c.cell.Ref()
 	}
 	on := true
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "array", Ref: ref, Aca: &on, Ca: &on, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -484,19 +485,19 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 	if err != nil {
 		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
 	}
-	mRow, mCol, err := ParseCellRef(c.cell.R)
+	mRow, mCol, err := ParseCellRef(c.cell.Ref())
 	if err != nil {
 		return fmt.Errorf("xlsx: SetSharedFormula: %w", err)
 	}
 	if mRow != rng.minRow || mCol != rng.minCol {
-		return fmt.Errorf("xlsx: SetSharedFormula: cell %s must be the top-left cell of range %s", c.cell.R, ref)
+		return fmt.Errorf("xlsx: SetSharedFormula: cell %s must be the top-left cell of range %s", c.cell.Ref(), ref)
 	}
 
 	si := c.sheet.nextSharedFormulaSi()
 	c.markSheetDirty()
 	c.detachSharedGroup()
 	siCopy := si
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.F = &oxml.CT_CellFormula{T: "shared", Ref: ref, Si: &siCopy, Value: formula}
 	c.cell.V = nil
 	c.cell.Is = nil
@@ -516,7 +517,7 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 			}
 			follower.detachSharedGroup()
 			fsi := si
-			follower.cell.T = ""
+			follower.cell.SetType("")
 			follower.cell.F = &oxml.CT_CellFormula{T: "shared", Si: &fsi}
 			follower.cell.V = nil
 			follower.cell.Is = nil
@@ -527,13 +528,20 @@ func (c *Cell) SetSharedFormula(formula, ref string) error {
 
 // Style returns the cell's style index, or nil if not set.
 func (c *Cell) StyleIndex() *uint32 {
-	return c.cell.S
+	// The index is held by value now, so this hands back a copy rather than a
+	// pointer into the model. Writing through the old pointer was never part of
+	// the contract — SetStyleIndex is — and the doc has always described a
+	// value.
+	if v, ok := c.cell.StyleIndex(); ok {
+		return &v
+	}
+	return nil
 }
 
 // SetStyleIndex sets the cell's style index.
 func (c *Cell) SetStyleIndex(index uint32) {
 	c.markSheetDirty()
-	c.cell.S = &index
+	c.cell.SetStyleIndex(index)
 }
 
 // IsEmpty returns true if the cell has no value.
@@ -546,7 +554,7 @@ func (c *Cell) Clear() {
 	c.markSheetDirty()
 	c.cell.V = nil
 	c.clearFormula()
-	c.cell.T = ""
+	c.cell.SetType("")
 	c.cell.Is = nil
 }
 
