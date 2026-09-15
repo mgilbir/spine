@@ -147,6 +147,8 @@ func (s *Sheet) hasComments() bool {
 // loadComments parses the sheet's existing comment parts (legacy, threaded) and
 // resolves the related part names and relationship ids. It is idempotent.
 func (s *Sheet) loadComments() {
+	s.commentsMu.Lock()
+	defer s.commentsMu.Unlock()
 	if s.comments != nil && s.comments.loaded {
 		return
 	}
@@ -190,6 +192,8 @@ func (s *Sheet) loadComments() {
 // loadPersons parses the workbook's person-list part (shared by all sheets). It
 // is idempotent.
 func (w *Workbook) loadPersons() {
+	w.personsMu.Lock()
+	defer w.personsMu.Unlock()
 	if w.personsLoaded {
 		return
 	}

@@ -175,6 +175,8 @@ func (p *Presentation) rewriteModernThread(partName string, cm *oxml.ModernComme
 // on first use. It returns nil when the deck has no authors part and none has
 // been created yet.
 func (p *Presentation) loadModernAuthors() *oxml.ModernAuthorList {
+	p.modernAuthorsMu.Lock()
+	defer p.modernAuthorsMu.Unlock()
 	if p.modernAuthorsLoaded {
 		return p.modernAuthors
 	}

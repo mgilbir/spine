@@ -19,6 +19,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -111,6 +112,14 @@ type Presentation struct {
 	// every other part, so running it per SetNotes is the quadratic cost the
 	// cache removes; the guard counts it rather than timing the run.
 	notesMasterResolves int
+	// partModelsMu and modernAuthorsMu guard the caches that read-only
+	// accessors fill, so a deck can be read from several goroutines. One lock
+	// covers both part-model maps in partmodels.go: they are filled by the same
+	// kind of call and never from inside each other. The write helpers beside
+	// them (putNotesModel, markCommentDirty, ...) are mutation paths, and
+	// mutating a presentation concurrently was never safe.
+	partModelsMu    sync.Mutex
+	modernAuthorsMu sync.Mutex
 	// relIDMax caches the highest relationship id per part scope, so allocating
 	// the next one does not rescan the scope. See relidcache.go.
 	relIDMax map[string]relIDMaxEntry
@@ -127,15 +136,15 @@ type Presentation struct {
 	flavor string
 
 	// Raw data for parts we serialize but don't fully parse
-	presPropsData   []byte                         // /ppt/presProps.xml
-	viewPropsData   []byte                         // /ppt/viewProps.xml
-	tableStylesData []byte                         // /ppt/tableStyles.xml
-	themeData       map[string][]byte              // /ppt/theme/*.xml (keyed by part name)
+	presPropsData   []byte            // /ppt/presProps.xml
+	viewPropsData   []byte            // /ppt/viewProps.xml
+	tableStylesData []byte            // /ppt/tableStyles.xml
+	themeData       map[string][]byte // /ppt/theme/*.xml (keyed by part name)
 	// themeEditors caches one dml.ThemeEditor per theme part name, created on
 	// the first Theme() call. A nil value means "this part does not parse",
 	// cached so the failure is not retried on every access. applyThemeEdits
 	// folds the modified ones back into themeData at save (C571).
-	themeEditors map[string]*dml.ThemeEditor
+	themeEditors    map[string]*dml.ThemeEditor
 	thumbnailData   []byte                         // /docProps/thumbnail.jpeg
 	appPropsData    []byte                         // /docProps/app.xml
 	printerSettings map[string][]byte              // /ppt/printerSettings/*.bin

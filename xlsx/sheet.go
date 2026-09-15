@@ -26,6 +26,8 @@ import (
 // docx's doc() has always made this choice for the identical state (C568); the
 // three copies of this function now agree.
 func (s *Sheet) ws() *oxml.CT_Worksheet {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
 	if s.wsModel == nil && !s.wsParsed {
 		s.wsParsed = true
 		if s.workbook != nil && s.partName != "" {
@@ -91,6 +93,16 @@ type Sheet struct {
 	// all resolve a row through it — so without it, reading a parsed workbook
 	// from several goroutines races where the same code did not before the
 	// index existed. See rowindex.go.
+	// wsMu, commentsMu and sparklineMu guard the lazily built caches below, so
+	// that reading a workbook from several goroutines is safe. Each cache has
+	// its own lock rather than one per sheet: the accessors call each other
+	// (sparklineGroups resolves the worksheet), and a single lock would
+	// deadlock on the first such call. The order is always outer cache then
+	// worksheet; nothing takes wsMu and then another of these.
+	wsMu        sync.Mutex
+	commentsMu  sync.Mutex
+	sparklineMu sync.Mutex
+
 	rowIdxMu sync.Mutex
 	rowIdx   *rowIndex
 	// rowIdxRebuilds counts full rebuilds of rowIdx. Maintaining the index on

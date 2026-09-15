@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -19,6 +20,8 @@ import (
 
 // Document represents a Word document.
 type Document struct {
+	// docMu guards the lazily parsed main-part model.
+	docMu sync.Mutex
 	// Properties contains the document properties.
 	Properties opc.CoreProperties
 
@@ -260,6 +263,9 @@ func (d *Document) corePropertiesPartName() string {
 // that mutation callers (AddParagraph, AddTable, DefaultSection, …) would
 // silently nil-deref.
 func (d *Document) doc() *oxml.CT_Document {
+	// Guards the lazy parse so a document can be read from several goroutines.
+	d.docMu.Lock()
+	defer d.docMu.Unlock()
 	if d.docModel == nil && !d.docParsed {
 		d.docParsed = true
 		if raw := d.rawPartData(d.mainPart()); raw != nil {

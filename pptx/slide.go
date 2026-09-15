@@ -3,6 +3,7 @@ package pptx
 import (
 	"encoding/xml"
 	"fmt"
+	"sync"
 
 	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -11,6 +12,8 @@ import (
 
 // Slide represents a slide in a presentation.
 type Slide struct {
+	// sxMu guards the lazy slide parse and the shape cache it fills.
+	sxMu         sync.Mutex
 	presentation *Presentation
 	layout       *SlideLayout
 	partName     string
@@ -96,6 +99,13 @@ type Slide struct {
 // slide: every shape gone, silently. docx's doc() has always made this choice
 // for the identical state (C568); the three copies of this function now agree.
 func (s *Slide) sx() *oxml.Slide {
+	// Guards the lazy parse and, with it, the shape cache that
+	// materializeShapes fills from inside this call. shapeList reads that cache
+	// after sx() returns, so the lock is the happens-before edge for both.
+	// materializeShapes must not take this lock itself — sx() calls it while
+	// holding it.
+	s.sxMu.Lock()
+	defer s.sxMu.Unlock()
 	if s.sxModel == nil && !s.sxParsed {
 		s.sxParsed = true
 		raw := s.rawBytes()

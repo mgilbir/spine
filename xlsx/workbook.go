@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -38,12 +39,15 @@ type Workbook struct {
 	// macro-enabled workbook (.xlsm) is not silently retyped to a regular
 	// workbook while still carrying its vbaProject part — a combination that
 	// makes Excel flag the file.
-	flavor         string
-	contentTypes   *opc.ContentTypes
-	workbook       *oxml.CT_Workbook
-	sharedStrings  *oxml.CT_Sst
-	stylesheet     *oxml.CT_Stylesheet
-	sheets         []*Sheet
+	flavor        string
+	contentTypes  *opc.ContentTypes
+	workbook      *oxml.CT_Workbook
+	sharedStrings *oxml.CT_Sst
+	stylesheet    *oxml.CT_Stylesheet
+	sheets        []*Sheet
+	// personsMu guards the lazily loaded threaded-comment author list, so a
+	// workbook can be read from several goroutines. See loadPersons.
+	personsMu      sync.Mutex
 	preservedParts map[string]*coxml.RawPart
 	// sheetNames and definedNames index the case-insensitive collision checks
 	// AddSheet/UniqueSheetName and AddDefinedName run. See nameindex.go. Both
@@ -59,14 +63,14 @@ type Workbook struct {
 	// them on add is what keeps a run of adds linear, so the guard counts
 	// rebuilds rather than timing the run.
 	nameSetRebuilds int
-	relationships  map[string][]*opc.Relationship
-	hasCoreProps   bool
-	propsSnapshot  *opc.CoreProperties   // Properties as loaded at open; detects edits at save
-	customProps    *opc.CustomProperties // user-defined properties (docProps/custom.xml), nil when none
-	customSnapshot *opc.CustomProperties // custom props as loaded at open; detects edits at save
-	hasCustomPart  bool                  // whether the opened package carried docProps/custom.xml
-	stylesDirty    bool
-	sheetsDirty    bool
+	relationships   map[string][]*opc.Relationship
+	hasCoreProps    bool
+	propsSnapshot   *opc.CoreProperties   // Properties as loaded at open; detects edits at save
+	customProps     *opc.CustomProperties // user-defined properties (docProps/custom.xml), nil when none
+	customSnapshot  *opc.CustomProperties // custom props as loaded at open; detects edits at save
+	hasCustomPart   bool                  // whether the opened package carried docProps/custom.xml
+	stylesDirty     bool
+	sheetsDirty     bool
 	// deletedParts names every part removed this session (DeleteSheet and its
 	// cascade). The save path must never emit a relationship resolving to one
 	// of them, and Validate resolves part existence against this set as well as

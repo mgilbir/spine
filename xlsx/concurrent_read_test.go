@@ -18,6 +18,10 @@ import (
 // shapes) have always raced under concurrent reads; this is not about them, and
 // it does not make the package safe for concurrent *writes*, which it never was.
 //
+// The goroutines deliberately race to be FIRST to touch each sheet: the lazy
+// parse is itself a cache built on a read, so pre-parsing here would hide the
+// very thing under test.
+//
 // The assertion is the race detector: this test only means something under
 // -race, which is a required gate (make test-race).
 func TestConcurrentReadsOfAParsedSheet(t *testing.T) {
@@ -58,9 +62,6 @@ func TestConcurrentReadsOfAParsedSheet(t *testing.T) {
 		t.Fatal(err)
 	}
 	sheets := reopened.Sheets()
-	for _, s := range sheets {
-		_ = s.Rows()
-	}
 
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
@@ -68,6 +69,14 @@ func TestConcurrentReadsOfAParsedSheet(t *testing.T) {
 		go func(g int) {
 			defer wg.Done()
 			for _, s := range sheets {
+				// Every lazily built cache the package exposes to a reader: the
+				// worksheet parse itself, comments, sparklines and the
+				// workbook's threaded-comment authors.
+				_ = s.Rows()
+				_ = s.Text()
+				_ = s.Comments()
+				_ = s.Sparklines()
+				_ = s.MergedCells()
 				for r := 1 + g%2; r <= rows; r += 2 {
 					_, _ = s.RowHeight(r)
 					_ = s.RowHidden(r)
