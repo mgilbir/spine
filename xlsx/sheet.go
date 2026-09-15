@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
@@ -85,7 +86,13 @@ type Sheet struct {
 	// rowIdx caches row number -> position in wsModel.SheetData.Row, so a row
 	// lookup does not walk the sheet. Built on demand and self-healing; see
 	// rowindex.go for the staleness rules. nil until the first row lookup.
-	rowIdx *rowIndex
+	// rowIdxMu guards rowIdx. It is the one cache in this package that a
+	// read-only accessor builds — findCell, rowEntry, RowHeight and CellValue
+	// all resolve a row through it — so without it, reading a parsed workbook
+	// from several goroutines races where the same code did not before the
+	// index existed. See rowindex.go.
+	rowIdxMu sync.Mutex
+	rowIdx   *rowIndex
 	// rowIdxRebuilds counts full rebuilds of rowIdx. Maintaining the index on
 	// append is what keeps building a sheet linear, and a rebuild per append
 	// would silently restore the quadratic cost #314 removed with no wrong
@@ -121,9 +128,9 @@ type Sheet struct {
 	// scan did — a fix that only avoided the scan would look fixed by
 	// mergeScans alone and still be quadratic.
 	mergeBoxRebuilds int
-	images    []sheetImage
-	charts    []sheetChart   // charts added this session via AddChart
-	newTables []*Table       // tables added this session via AddTable (to be written)
+	images           []sheetImage
+	charts           []sheetChart // charts added this session via AddChart
+	newTables        []*Table     // tables added this session via AddTable (to be written)
 	// tablePartsBaseline is the number of <tableParts> entries present before this
 	// session's AddTable calls, captured on the first save. Each save rebuilds the
 	// session-added entries from this baseline instead of appending them anew, so
@@ -132,9 +139,9 @@ type Sheet struct {
 	// model grew each pass).
 	tablePartsBaseline    int
 	tablePartsBaselineSet bool
-	newPivots []*PivotTable  // pivot tables added this session via AddPivotTable
-	oleEmbeds []pendingOLE   // OLE objects embedded this session via AddOLEObject
-	comments  *sheetComments // lazily loaded comment model (read + write)
+	newPivots             []*PivotTable  // pivot tables added this session via AddPivotTable
+	oleEmbeds             []pendingOLE   // OLE objects embedded this session via AddOLEObject
+	comments              *sheetComments // lazily loaded comment model (read + write)
 	// sparklineCache is the sheet's parsed sparkline-groups model, loaded lazily
 	// from the worksheet extension list and shared by every SparklineGroup handle
 	// so mutations write through consistently. nil until first accessed.

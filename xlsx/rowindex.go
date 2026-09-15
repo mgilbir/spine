@@ -40,6 +40,17 @@ import (
 // reference, which is legal (C73) — are unaddressable and stay out of the index,
 // exactly as the linear scan skipped them. Duplicate row numbers keep the first
 // occurrence, matching the scan's first-match-wins result.
+//
+// Locking: the entry points below (lookupRow, rowsAreUnique, appendRow) take
+// Sheet.rowIdxMu; rowIndexFor and rebuildRowIndex assume it is already held.
+// The index is built lazily by accessors that are otherwise reads, so without
+// the lock a workbook that is only being read from several goroutines races —
+// which it did not before this index existed. Mutating a workbook concurrently
+// was never safe and still is not; this restores the read side only.
+//
+// The lock is uncontended on the single-threaded paths that dominate, and the
+// cost does not show: building a 640,000-cell sheet measures the same with it
+// as without.
 type rowIndex struct {
 	model    *oxml.CT_Worksheet
 	rows     int
@@ -94,6 +105,9 @@ func (s *Sheet) invalidateRowIndex() {
 // the indexed replacement for the linear scan and returns the same row the scan
 // did, first match included.
 func (s *Sheet) lookupRow(ws *oxml.CT_Worksheet, n uint32) (int, bool) {
+	s.rowIdxMu.Lock()
+	defer s.rowIdxMu.Unlock()
+
 	idx := s.rowIndexFor(ws)
 	i, ok := idx.byNumber[n]
 	if !ok {
@@ -127,6 +141,8 @@ func rowIndexHolds(ws *oxml.CT_Worksheet, i int, n uint32) bool {
 // that builds a sheet row by row keeps the index warm instead of rebuilding it
 // on every append. It returns the new row's position.
 func (s *Sheet) appendRow(ws *oxml.CT_Worksheet, r oxml.CT_Row) int {
+	s.rowIdxMu.Lock()
+	defer s.rowIdxMu.Unlock()
 	// Take the index before the append so it still describes the current slice;
 	// afterwards its recorded length is updated to match.
 	idx := s.rowIndexFor(ws)
@@ -148,5 +164,7 @@ func (s *Sheet) appendRow(ws *oxml.CT_Worksheet, r oxml.CT_Row) int {
 // to examine every row with a matching number consult this before trusting a
 // single indexed hit.
 func (s *Sheet) rowsAreUnique(ws *oxml.CT_Worksheet) bool {
+	s.rowIdxMu.Lock()
+	defer s.rowIdxMu.Unlock()
 	return !s.rowIndexFor(ws).dupRows
 }
