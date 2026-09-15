@@ -269,7 +269,11 @@ Opening an ISO-Strict (ISO/IEC 29500 Strict) package — a valid but as-yet-unre
 
 ## Thread safety
 
-A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` — and everything reached through it (slides, sheets, paragraphs, shapes) — is not safe for concurrent use and must be confined to one goroutine, or all access guarded by external synchronization. In particular `Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they must not run concurrently with each other or with any mutation of the same value. Distinct values may be used from different goroutines.
+A `pptx.Presentation`, `docx.Document`, or `xlsx.Workbook` **may be read from several goroutines at once**. The accessors that build part of the model on first use — the worksheet or slide or main-part parse, comments, sparklines, notes, shape lists, author lists — are synchronized, so concurrent readers of one value are safe even when they race to be the first to touch a sheet or slide.
+
+**Modifying one is not safe**, and internal locking would not make it so. A mutating call hands back a handle — a `*Cell`, `*Slide`, `*Paragraph` — that outlives the call and is not covered by any lock the call took; and a read-modify-write spanning two calls (`Rows()` then a loop over the count, `Sheet(i)` then use of the result) has nothing to hold it together. Only the caller knows where its own operation begins and ends, so confine modification to one goroutine, or guard it with external synchronization at that granularity.
+
+`Save`/`SaveBytes`/`SaveTo` mutate shared state while serializing, so they count as modification: they must not run concurrently with each other, with a mutation, or with a read of the same value. Distinct values may be used from different goroutines.
 
 ## Resource limits
 
