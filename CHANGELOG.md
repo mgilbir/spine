@@ -1,5 +1,108 @@
 # Changelog
 
+## 0.3.0 - 2026-09-15
+
+Nothing that existed in 0.2.1 has been removed or changed shape: every exported
+symbol is still there with the same signature. What this release changes is what
+happens at scale, and it starts from a bug report. A consumer replacing excelize
+measured a 10,000-row sheet at 3.85s against excelize's 0.29s, and a
+100,000-row sheet that was still running after ten minutes at 100% CPU on 146
+MiB of memory — CPU-bound, not memory-bound.
+
+It was quadratic, and so, it turned out, were seven other things. Filling a
+sheet row by row, filling a row column by column, laying out column widths,
+adding defined names, merging ranges, adding slides, giving slides speaker
+notes, adding slide layouts: every one of them walked a list it had already
+walked, once per item. All are linear now, and the 100,000-row sheet takes
+0.72s.
+
+The second half is memory. A cell is the most numerous object in the library — a
+4.7 MiB workbook parses to 1,031,251 of them — and it was 112 bytes, 48 of which
+were fields that almost no cell sets: `extLst` was set on none of the corpus's
+25.7 million cells and cost 24 bytes in every one. A cell is 48 bytes now, and a
+workbook with every sheet parsed costs roughly 25x its file size in live heap
+rather than 43x.
+
+Neither of those removes the ceiling on how much fits in memory at once, so
+there is now a way around it. `xlsx.StreamWriter` emits each row into the
+package as it arrives: a full 1,048,576-row worksheet peaks at 13 MiB, where
+building the same million rows in memory peaks at 5.3 GB.
+
+Reading a document from several goroutines is also safe now, in all three
+formats, which it was not before.
+
+### Performance
+
+- xlsx: filling a sheet is linear in its rows. `Sheet.Cell` found its row by
+  walking `sheetData` from the start and then its cell by walking that row, both
+  once per cell, so building a sheet cost O(rows^2 x cols) — the worst case for
+  that walk being the ordinary one, since the row being written is always the
+  last or absent. Measured on ten columns written in order: 8,000 rows 1.29s ->
+  57ms, 32,000 rows 22.2s -> 198ms, 64,000 rows 105s -> 440ms, and 100,000 rows
+  from not finishing to 724ms. Filling one row across 8,000 columns went from
+  113ms to 3.9ms.
+- xlsx: laying out column widths is linear. `SetColWidth` rebuilt every `<cols>`
+  group on every call, whether or not anything in it changed, so a full-width
+  layout took seconds; 16,000 columns now take 6.5ms.
+- xlsx: `MergeCells` bounds its overlap check by a bounding box instead of
+  comparing against every existing merge and re-parsing each one: 4,000 merges
+  276ms -> 1.2ms. `AddDefinedName` and `AddSheet` index their collision checks
+  rather than scanning: 4,000 defined names 63ms -> 4.5ms.
+- pptx: `AddSlide` caches the part names already taken instead of rebuilding the
+  set and probing from the start on every call: 2,000 slides 280ms -> 2.4ms.
+  `Slide.SetNotes` resolves the notes master once rather than sorting every part
+  name on every call: 3,200 slides with speaker notes 2.14s -> 14ms.
+  `SlideMaster.AddLayout` caches relationship-id maxima and stops parsing ids
+  with `fmt.Sscanf`: 1,600 layouts 825ms -> 12ms.
+- xlsx: a cell is 112 bytes -> 48. The fields nothing sets (`cm`, `vm`, `ph`,
+  `extLst` — between them 0.01% of corpus cells) moved behind one pointer, the
+  style index is held by value rather than behind a pointer allocated per cell,
+  the `r` attribute is rebuilt from the cell's position rather than stored (all
+  25.6 million corpus references are already the canonical spelling, so the
+  bytes are identical), and the type attribute is a one-byte enum over its closed
+  schema set. On the 4.7 MiB workbook, live heap 201.7 MB -> 120.1 MB; across the
+  corpus, a parsed workbook's median cost fell from 31.6x its file size to 22.5x.
+- Reading got faster as a side effect: against 0.2.1, opening the six largest
+  corpus workbooks is 8% faster and reading every cell of them 29% faster, since
+  cells are now matched by position instead of by comparing reference strings.
+
+### Added
+
+- xlsx: `StreamWriter` writes a workbook a row at a time, emitting each row into
+  the package instead of holding the whole workbook in memory. Peak memory is
+  flat in the number of rows — 13.1 MiB at 100,000 rows, 13.6 MiB at 1,000,000,
+  13.4 MiB for a full 1,048,576-row grid — against 5.3 GB for the same million
+  rows through `Workbook`. Rows are marshalled by the same code the in-memory
+  path uses, and a test asserts a streamed worksheet is byte-identical to a built
+  one for the same values.
+
+  What it gives up is the cost of streaming rather than an oversight: it only
+  creates (a part is one zip entry, and the bytes already in it come first), rows
+  cannot be revisited, no `<dimension>` is emitted because its value is not known
+  until the last row, column widths must be set before the first row because
+  `<cols>` precedes `<sheetData>`, there is no `Validate` pass because there is
+  no model to validate, and there is no encryption because encrypting a package
+  needs all of its bytes.
+
+### Changed
+
+- All three formats: a `Workbook`, `Presentation` or `Document` may now be READ
+  from several goroutines at once. The accessors that build part of the model on
+  first use — the worksheet, slide and main-part parses, comments, sparklines,
+  notes, shape lists, author lists — are synchronized. The documented contract
+  previously said these values were not safe for concurrent use at all.
+
+  Modifying one concurrently is still unsafe, and the documentation now says why
+  rather than only that: a mutating call hands back a handle (`*Cell`, `*Slide`,
+  `*Paragraph`) that outlives the call and no lock it took covers, and a
+  read-modify-write spanning two calls has nothing to hold it together. Only the
+  caller knows where its own operation begins and ends. `Save`, `SaveBytes` and
+  `SaveTo` count as modification.
+- xlsx: `Cell.StyleIndex` keeps its `*uint32` signature but returns a copy rather
+  than a pointer into the model, because the index is no longer stored behind a
+  pointer. Writing through the returned pointer was never part of the contract —
+  `SetStyleIndex` is — and the documentation has always described a value.
+
 ## 0.2.1 - 2026-08-18
 
 No public API change. Everything here is behavioural, and what it changes is
