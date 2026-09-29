@@ -103,8 +103,11 @@ type Presentation struct {
 
 	reader       *opc.ReadCloser
 	presentation *oxml.Presentation
-	nextSlideID  uint32
-	nextRelID    int
+	// nextSlideID is greater than every slide id in use. It is wider than a
+	// slide id so a deck already holding id 4294967295 cannot wrap it back to
+	// 0 and have AddSlide reuse an id; allocSlideID handles that case.
+	nextSlideID uint64
+	nextRelID   int
 	// slideNameCache, layoutNameCache and notesNameCache hold the part names
 	// already taken for each kind, so allocating the next one does not rebuild
 	// that set per add. See partnames.go.
@@ -331,8 +334,8 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	// Determine next slide ID and relationship ID
 	if pres.SlideIDs != nil {
 		for _, sid := range pres.SlideIDs.SlideID {
-			if sid.ID >= p.nextSlideID {
-				p.nextSlideID = sid.ID + 1
+			if !sid.IDOmitted && uint64(sid.ID) >= p.nextSlideID {
+				p.nextSlideID = uint64(sid.ID) + 1
 			}
 			p.updateNextRelID(sid.RID)
 		}
@@ -531,6 +534,7 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 	}
 
 	// Load each slide
+	var needID []*Slide
 	for _, slideRef := range p.presentation.SlideIDs.SlideID {
 		rel, ok := relMap[slideRef.RID]
 		if !ok {
@@ -573,8 +577,20 @@ func (p *Presentation) loadSlides(mainPartName string) error {
 			relID:        slideRef.RID,
 			idExtLst:     slideRef.ExtLst,
 		}
+		if slideRef.IDOmitted {
+			needID = append(needID, slide)
+		}
 
 		p.slides = append(p.slides, slide)
+	}
+
+	// An entry with no usable id (missing, or not a number) used to load as id
+	// 0 and save as id="0", colliding with a real id 0 or with another such
+	// entry. The id is required and nothing can refer to one that is absent, so
+	// it gets a fresh one — allocated only once every loaded slide holds its id,
+	// so the allocator sees them all.
+	for _, slide := range needID {
+		slide.id = p.allocSlideID()
 	}
 
 	for _, slide := range p.slides {
@@ -2402,6 +2418,29 @@ func (p *Presentation) slidePartByIndex(index int) string {
 	return p.slides[index].partName
 }
 
+// allocSlideID returns a slide id no slide in the deck carries.
+//
+// Normally that is the counter, which is above every id in use. A deck that
+// already holds the largest possible id has exhausted the counter; the id is
+// then the smallest free one from 256 (the bottom of ST_SlideId), found by a
+// scan. That costs O(slides) per call, but only for such a deck.
+func (p *Presentation) allocSlideID() uint32 {
+	if p.nextSlideID <= math.MaxUint32 {
+		id := uint32(p.nextSlideID)
+		p.nextSlideID++
+		return id
+	}
+	used := make(map[uint32]bool, len(p.slides))
+	for _, s := range p.slides {
+		used[s.id] = true
+	}
+	id := uint32(256)
+	for used[id] {
+		id++
+	}
+	return id
+}
+
 // AddSlide adds a new blank slide to the presentation.
 func (p *Presentation) AddSlide() *Slide {
 	// The slide's presentation relationship is only materialized at save, so
@@ -2413,7 +2452,7 @@ func (p *Presentation) AddSlide() *Slide {
 	slide := &Slide{
 		presentation: p,
 		index:        len(p.slides),
-		id:           p.nextSlideID,
+		id:           p.allocSlideID(),
 		relID:        relID,
 		// A created slide has no bytes to parse lazily, so its model is built up
 		// front and marked parsed; it always marshals rather than passing raw
@@ -2428,7 +2467,6 @@ func (p *Presentation) AddSlide() *Slide {
 		// MoveSlide/RemoveSlide.
 		partName: p.nextAvailableSlidePartName(),
 	}
-	p.nextSlideID++
 
 	p.slides = append(p.slides, slide)
 	p.markModelEdited()
