@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.1 - 2026-09-29
+
+Three defects, all present in 0.3.0, all found by the nightly fuzzers. Nothing
+that existed in 0.3.0 has been removed or changed shape; one method is added.
+
+Two are a save producing a file that is wrong where it looks fine. A deck whose
+slide list carried an entry with no usable id saved two slides under one id,
+and a deck holding the largest possible slide id made the next `AddSlide` reuse
+an id already in the deck. PowerPoint resolves zooms and hyperlinks by those
+ids, so a collision silently redirects them. The third is an edited save that
+wrote a part nothing could read back.
+
+### Fixed
+
+- pptx: a `p:sldId` whose `id` is missing (it is required) or not a number no
+  longer saves as `id="0"`. It was read as 0, so beside a real id 0, or beside a
+  second such entry, the save wrote the same id twice. Such an entry now gets a
+  fresh id; every id the file does carry, 0 included, is kept as it was.
+- pptx: `AddSlide` on a deck that already holds slide id 4294967295 no longer
+  reuses an id. The next-id counter wrapped to 0 and counted up from there
+  through ids the deck already had. It no longer wraps, and once past the
+  largest id allocation takes the smallest id from 256 that no slide holds.
+- pptx, xlsx: an edited save no longer writes an unmodeled element whose name is
+  not a QName — `:`, `:x`, `x:` — as a name no parser accepts. pptx rebuilt the
+  start tag of such a slide child with a prefix, `<ns1::/>`; xlsx did the same
+  to a sheet child when the sheet's root bound SpreadsheetML both as the default
+  and as `x:`, `<x::/>`. The save succeeded and the part did not reopen. It now
+  follows the rule docx already kept: the file still opens, a part nobody edited
+  is written back byte for byte, and a save that has to rewrite the part fails
+  with `ErrUnwritableName`. Writing the name bare was not an option: Go's
+  decoder reads `<:/>`, but a namespace-aware parser rejects it (expat in
+  namespace mode refuses all three forms), and Office is namespace-aware.
+
+### Added
+
+- `common/xml`: `Builder.WriteRawElement`, which writes a captured element
+  verbatim after holding its own name to the rule every other name the Builder
+  writes obeys. Captured children were replayed with `WriteRaw`, which the
+  Builder never inspects, and that is how the names above escaped the check.
+
 ## 0.3.0 - 2026-09-15
 
 Nothing that existed in 0.2.1 has been removed or changed shape: every exported
