@@ -267,10 +267,10 @@ func (c *CommonSlideData) MarshalToBuilder(b *xmlb.Builder, ns, localName string
 		b.MarshalElement(ns, "spTree", c.SpTree)
 	}
 	if len(c.CustDataLst) > 0 {
-		b.WriteRaw(c.CustDataLst)
+		b.WriteRawElement(c.CustDataLst)
 	}
 	if len(c.Controls) > 0 {
-		b.WriteRaw(c.Controls)
+		b.WriteRawElement(c.Controls)
 	}
 	if c.ExtLst != nil {
 		b.MarshalElement(ns, "extLst", c.ExtLst)
@@ -711,7 +711,7 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				}
 			case ChildRawXML:
 				if ref.Index < len(st.RawXML) {
-					b.WriteRaw(st.RawXML[ref.Index])
+					b.WriteRawElement(st.RawXML[ref.Index])
 				}
 			}
 		}
@@ -736,7 +736,7 @@ func (st *ShapeTree) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
 		}
 		for _, raw := range st.RawXML {
-			b.WriteRaw(raw)
+			b.WriteRawElement(raw)
 		}
 	}
 

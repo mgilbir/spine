@@ -169,7 +169,7 @@ func marshalWorkbookChild(b *xmlb.Builder, wb *oxml.CT_Workbook, childName strin
 		marshalWorkbookExtLst(b, wb)
 	default:
 		if idx, ok := rawIndex(childName, "unknown:"); ok && idx < len(wb.UnknownChildren) {
-			b.WriteRaw(wb.UnknownChildren[idx].Data)
+			b.WriteRawElement(wb.UnknownChildren[idx].Data)
 			return true
 		}
 		return false
@@ -583,7 +583,7 @@ func marshalWorksheetChildrenOrdered(b *xmlb.Builder, ws *oxml.CT_Worksheet) {
 			var idx int
 			_, _ = fmt.Sscanf(name, "unknown:%d", &idx)
 			if idx >= 0 && idx < len(ws.UnknownChildren) {
-				b.WriteRaw(ws.UnknownChildren[idx].Data)
+				b.WriteRawElement(ws.UnknownChildren[idx].Data)
 			}
 			continue
 		}

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("<p:sld xmlns00=\"\"xmlns:p=\"00000000000000000000000000000000000000000000000000000/0000\"xmlns=\"A\"><p:cSld><p:spTree><:/></p:spTree></p:cSld></p:sld>")

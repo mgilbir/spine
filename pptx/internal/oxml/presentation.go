@@ -257,9 +257,13 @@ type SlideIDs struct {
 
 // SlideID references a slide.
 type SlideID struct {
-	ID     uint32         `xml:"id,attr"`
-	RID    string         `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
-	ExtLst *ExtensionList `xml:"extLst,omitempty"`
+	ID  uint32 `xml:"id,attr"`
+	RID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	// IDOmitted records that the source entry had no usable id: the attribute
+	// was missing (it is required) or not a number. ID is then 0, which is not
+	// the entry's id, so the loader assigns it a fresh one.
+	IDOmitted bool           `xml:"-"`
+	ExtLst    *ExtensionList `xml:"extLst,omitempty"`
 }
 
 // unmarshalIDEntryChildren consumes the children of an sldId-family entry,
@@ -316,13 +320,15 @@ func (s SlideID) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 // UnmarshalXML implements custom XML unmarshaling for SlideID.
 // Handles both namespaced (relationships:id) and prefixed (r:id) formats.
 func (s *SlideID) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	s.IDOmitted = true
 	for _, attr := range start.Attr {
 		switch {
 		case attr.Name.Local == "id" && (attr.Name.Space == "" || attr.Name.Space == NsPresentationML):
 			// Numeric ID
 			var id uint32
-			_, _ = fmt.Sscanf(attr.Value, "%d", &id)
+			n, err := fmt.Sscanf(attr.Value, "%d", &id)
 			s.ID = id
+			s.IDOmitted = n != 1 || err != nil
 		case attr.Name.Local == "id" && attr.Name.Space == NsRelationships:
 			// Relationship ID with full namespace
 			s.RID = attr.Value

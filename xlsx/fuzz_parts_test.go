@@ -812,7 +812,73 @@ func exercisePart(t *testing.T, pkg []byte, protected map[string]string) map[str
 			t.Fatalf("a corrupt part changed %s, which it cannot affect: got %q, want %q", key, got, want)
 		}
 	}
+
+	var edited error
+	partsBudget.Check(t, len(pkg), func() { edited = editThenReopen(pkg) })
+	if edited != nil {
+		t.Fatalf("%v", edited)
+	}
 	return rt.firstSnap
+}
+
+// fuzzEditRef and fuzzEditValue are the cell editThenReopen writes on every
+// sheet: the last cell of the grid, which no fixture uses, so the edit adds a
+// row rather than colliding with anything the mutated part describes.
+const (
+	fuzzEditRef   = "XFD1048576"
+	fuzzEditValue = "spine fuzz edit"
+)
+
+// editThenReopen is the oracle the untouched round trip cannot be. A save
+// that changes nothing passes each unedited sheet through byte for byte, so
+// the writer never runs over it and a part that only an edit rewrites is never
+// exercised: a sheet whose unknown child an edited save rebuilt as "<x::/>"
+// sailed through every target here (the xlsx twin of FuzzPptxSlidePart's
+// nightly find of 2026-09-29).
+//
+// So the package is opened again, a cell is set on every sheet, and the result
+// saved. Refusing that save is legitimate — the Builder declines names it
+// cannot write (ErrUnwritableName) and Save validates the model — exactly as
+// refusing the untouched save is. What is not is saving successfully and then
+// failing to reopen, or reopening without the edit.
+func editThenReopen(pkg []byte) error {
+	w, err := OpenReader(bytes.NewReader(pkg), int64(len(pkg)))
+	if err != nil {
+		return nil // the untouched round trip already judged the open
+	}
+	defer func() { _ = w.Close() }()
+	sheets := w.Sheets()
+	edited := make([]bool, len(sheets))
+	for i, s := range sheets {
+		edited[i] = s.SetCellValue(fuzzEditRef, fuzzEditValue) == nil
+	}
+	out, err := w.SaveBytes()
+	if err != nil {
+		return nil
+	}
+
+	back, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		return fmt.Errorf("an edited package this library wrote does not reopen: %w", err)
+	}
+	defer func() { _ = back.Close() }()
+	backSheets := back.Sheets()
+	if len(backSheets) != len(sheets) {
+		return fmt.Errorf("an edited save changed the sheet count from %d to %d", len(sheets), len(backSheets))
+	}
+	for i, s := range backSheets {
+		if !edited[i] {
+			continue
+		}
+		c, err := s.Cell(fuzzEditRef)
+		if err != nil {
+			return fmt.Errorf("sheet %d of an edited package does not read back: %w", i+1, err)
+		}
+		if got := c.String(); got != fuzzEditValue {
+			return fmt.Errorf("sheet %d lost its edit across a save: %s = %q, want %q", i+1, fuzzEditRef, got, fuzzEditValue)
+		}
+	}
+	return nil
 }
 
 // assertSharedStringResolution holds every t="s" cell in the fixture to the

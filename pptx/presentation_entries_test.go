@@ -91,3 +91,86 @@ func TestCustomShowRoundTrip(t *testing.T) {
 		t.Errorf("schema-invalid empty custShow emitted:\n%s", presXML)
 	}
 }
+
+// twoSlideDeckWithIDs builds a two-slide deck and rewrites the id attribute
+// of its two p:sldId entries (256 and 257) to the given attribute text, which
+// may be empty to drop the attribute altogether.
+func twoSlideDeckWithIDs(t *testing.T, first, second string) []byte {
+	t.Helper()
+	p := Create()
+	p.AddSlide()
+	p.AddSlide()
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rewriteZipPart(t, data, "ppt/presentation.xml", func(xml []byte) []byte {
+		xml = bytes.Replace(xml, []byte(`<p:sldId id="256" `), []byte(`<p:sldId `+first+` `), 1)
+		return bytes.Replace(xml, []byte(`<p:sldId id="257" `), []byte(`<p:sldId `+second+` `), 1)
+	})
+}
+
+// assertDistinctSlideIDs fails when two p:sldId entries in presXML share an id,
+// and returns the ids in order.
+func assertDistinctSlideIDs(t *testing.T, presXML []byte) []string {
+	t.Helper()
+	refs, err := scanIDRefs(presXML, "sldId")
+	if err != nil {
+		t.Fatalf("saved presentation.xml does not parse: %v", err)
+	}
+	var ids []string
+	seen := map[string]bool{}
+	for _, r := range refs {
+		if seen[r.ID] {
+			t.Errorf("slide id %q appears twice in the saved sldIdLst:\n%s", r.ID, presXML)
+		}
+		seen[r.ID] = true
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// An sldId with no usable id loaded as id 0 and saved as id="0", colliding with
+// a real id 0 or with another such entry. Found by FuzzPptxPresentationXML in
+// the nightly of 2026-09-26.
+func TestSldIdWithoutUsableIDGetsFreshID(t *testing.T) {
+	cases := []struct{ name, first, second string }{
+		{"missing beside an explicit 0", `id="0"`, ``},
+		{"missing twice", ``, ``},
+		{"not a number beside an explicit 0", `id="0"`, `id="abc"`},
+		{"out of range beside an explicit 0", `id="0"`, `id="4294967296"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			presXML := openAndResave(t, twoSlideDeckWithIDs(t, tc.first, tc.second))
+			ids := assertDistinctSlideIDs(t, []byte(presXML))
+			if len(ids) != 2 {
+				t.Fatalf("saved sldIdLst has %d entries, want 2:\n%s", len(ids), presXML)
+			}
+			if tc.first == `id="0"` && ids[0] != "0" {
+				t.Errorf("explicit id 0 was renumbered to %s", ids[0])
+			}
+		})
+	}
+}
+
+// A deck holding the largest slide id wrapped the next-id counter to 0, so the
+// next AddSlide reused whatever low id the deck already had.
+func TestAddSlideAfterMaxSlideIDDoesNotReuseAnID(t *testing.T) {
+	// The low id must lie where the wrapped counter restarts, or reusing it goes
+	// unnoticed.
+	deck := twoSlideDeckWithIDs(t, `id="0"`, `id="4294967295"`)
+	p, err := OpenReader(bytes.NewReader(deck), int64(len(deck)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AddSlide()
+	p.AddSlide()
+	saved, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := assertDistinctSlideIDs(t, zipPart(t, saved, "ppt/presentation.xml")); len(ids) != 4 {
+		t.Fatalf("saved sldIdLst has %d entries, want 4: %v", len(ids), ids)
+	}
+}
