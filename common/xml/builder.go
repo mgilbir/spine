@@ -354,6 +354,35 @@ func (b *Builder) WriteRaw(data []byte) {
 	b.trailingWS = last == ' ' || last == '\t' || last == '\n' || last == '\r'
 }
 
+// WriteRawElement writes a captured element verbatim, as WriteRaw does, but
+// first holds the element's own name to the rule every other name the Builder
+// writes obeys: one that is not a QName is refused with ErrUnwritableName.
+//
+// A captured element is not always the source's bytes. pptx and xlsx rebuild
+// an unmodeled child's start tag from its decoded name, choosing a prefix for
+// it, and a name such as ":" (a Name, not a QName, which Go's decoder reads
+// whole) came out as "<ns1::/>" — a part nothing can read back, shipped with no
+// error (FuzzPptxSlidePart, 2026-09-29). Checking the name here, where it is
+// written, catches every such replay site at once. Only the element's own name
+// is checked: its content is the source's, and a part that is preserved
+// verbatim is the source's too.
+func (b *Builder) WriteRawElement(data []byte) {
+	if b.err == nil && len(data) > 1 && data[0] == '<' {
+		end := 1
+		for end < len(data) {
+			if c := data[end]; c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '/' || c == '>' {
+				break
+			}
+			end++
+		}
+		if name := string(data[1:end]); !IsQName(name) {
+			b.err = fmt.Errorf("xml: refusing to write the element name %q, which is not a valid XML name (captured element): %w",
+				name, ErrUnwritableName)
+		}
+	}
+	b.WriteRaw(data)
+}
+
 // writeSelfClose writes the self-closing tag end ("/>" or " />"), or the
 // per-instance whitespace run a capture recorded (EmptyElementStyled).
 func (b *Builder) writeSelfClose() {

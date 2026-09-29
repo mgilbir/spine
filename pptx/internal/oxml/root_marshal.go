@@ -111,7 +111,7 @@ func rootChildEmitter(b *xmlb.Builder, acs []*AlternateContent, acAnchors []stri
 			if next < 0 {
 				return
 			}
-			b.WriteRaw(raws[next])
+			b.WriteRawElement(raws[next])
 			anchor = rawAnchorKey(next)
 		}
 	}

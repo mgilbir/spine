@@ -1039,7 +1039,7 @@ func (r *CT_Row) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	// extLst follows the cells in schema order.
 	for _, raw := range r.ExtRaw {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	b.EndElement(ns, localName)
 }
@@ -1494,7 +1494,7 @@ func (c *CT_Cell) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	}
 	// extLst is last in schema order.
 	for _, raw := range c.ExtRaw() {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	b.EndElement(ns, localName)
 }

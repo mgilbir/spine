@@ -338,7 +338,7 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 				}
 			case ChildRawXML:
 				if ref.Index < len(gs.RawXML) {
-					b.WriteRaw(gs.RawXML[ref.Index])
+					b.WriteRawElement(gs.RawXML[ref.Index])
 				}
 			case ChildCxnSp:
 				if ref.Index < len(gs.ConnectionShapes) {
@@ -366,7 +366,7 @@ func (gs *GroupShape) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 			b.MarshalElement(xmlb.NSMarkupCompatibility, "AlternateContent", ac)
 		}
 		for _, raw := range gs.RawXML {
-			b.WriteRaw(raw)
+			b.WriteRawElement(raw)
 		}
 	}
 

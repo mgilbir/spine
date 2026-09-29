@@ -184,7 +184,7 @@ func (c *ModernComment) marshal(b *xmlb.Builder) {
 		}, "status")...)
 	}
 	for _, raw := range c.PreChildren {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	// An empty <p188:replyLst/> in the source is kept: dropping it changed bytes
 	// that did not need touching (C525).
@@ -201,7 +201,7 @@ func (c *ModernComment) marshal(b *xmlb.Builder) {
 	}
 	marshalBody(b, c.TxBody, c.BodyText)
 	for _, raw := range c.PostChildren {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	endP188(b, prefix, "cm")
 }
@@ -225,11 +225,11 @@ func (r *ModernReply) marshal(b *xmlb.Builder) {
 		})...)
 	}
 	for _, raw := range r.PreChildren {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	marshalBody(b, r.TxBody, r.BodyText)
 	for _, raw := range r.PostChildren {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 	}
 	endP188(b, prefix, "reply")
 }
@@ -238,7 +238,7 @@ func (r *ModernReply) marshal(b *xmlb.Builder) {
 // otherwise a minimal DrawingML body synthesized from plain text.
 func marshalBody(b *xmlb.Builder, raw []byte, text string) {
 	if raw != nil {
-		b.WriteRaw(raw)
+		b.WriteRawElement(raw)
 		return
 	}
 	b.StartElement(nsP188, "txBody")
