@@ -38,6 +38,12 @@ func FuzzXlsxWorksheetPart(f *testing.F) {
 	// Numbers and references at their limits, where a re-parse can round.
 	f.Add([]byte(open + `<sheetData><row r="1048576"><c r="XFD1048576"><v>1e308</v></c>` +
 		`<c r="A1048576"><v>-0.30000000000000004</v></c></row></sheetData></worksheet>`))
+	// A root binding SpreadsheetML as both the default and x:, with an unknown
+	// child whose local name is ":" — a Name but not a QName. The writer used to
+	// rebuild it as "<x::/>" and ship a sheet nothing could read back; it now
+	// refuses the name (ErrUnwritableName) instead.
+	f.Add([]byte(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+		`xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/><:/></worksheet>`))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if !fuzzseed.NamesAreValid(data) {
