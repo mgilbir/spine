@@ -9,6 +9,7 @@ import (
 	"github.com/mgilbir/forme/layout"
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 	"github.com/mgilbir/spine/render"
@@ -52,7 +53,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if e != nil {
 				return nil, e
 			}
-			e = budget.CheckReader(ctx, stream, slideRenderProfile)
+			e = budget.CheckReader(ctx, stream, (&renderProfile{}).slide)
 			closeErr := stream.Close()
 			if e != nil {
 				return nil, fmt.Errorf("pptx: %s: %w", s.partName, e)
@@ -66,34 +67,45 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	if model == nil || model.CSld == nil {
 		return nil, fmt.Errorf("%w: missing slide data", render.ErrInvalid)
 	}
-	if len(model.AlternateContent) > 0 || model.Timing != nil || model.Transition != nil || model.ExtLst != nil {
-		return nil, fmt.Errorf("%w: slide animation/extension", render.ErrUnsupported)
+	if len(model.AlternateContent) > 0 || model.Timing != nil || model.Transition != nil {
+		return nil, fmt.Errorf("%w: slide animation/alternate content", render.ErrUnsupported)
+	}
+	if err = renderModelExtensions(model.ExtLst, "p:sld"); err != nil {
+		return nil, err
 	}
 	layers := []*oxml.CommonSlideData{}
 	if s.layout != nil {
 		if s.layout.master != nil && s.layout.master.masterXML != nil {
 			m := s.layout.master.masterXML
-			if len(m.AlternateContent) > 0 || m.ExtLst != nil || m.Hf != nil {
-				return nil, fmt.Errorf("%w: master extension/footer", render.ErrUnsupported)
+			// Header/footer flags only select footer placeholders, which this
+			// profile rejects on the master and the slide.
+			if len(m.AlternateContent) > 0 {
+				return nil, fmt.Errorf("%w: master alternate content", render.ErrUnsupported)
+			}
+			if err = renderModelExtensions(m.ExtLst, "p:sldMaster"); err != nil {
+				return nil, err
 			}
 			layers = append(layers, m.CSld)
 		}
 		if s.layout.layoutXML != nil {
 			m := s.layout.layoutXML
-			if len(m.AlternateContent) > 0 || m.ExtLst != nil || m.Hf != nil {
-				return nil, fmt.Errorf("%w: layout extension/footer", render.ErrUnsupported)
+			if len(m.AlternateContent) > 0 {
+				return nil, fmt.Errorf("%w: layout alternate content", render.ErrUnsupported)
+			}
+			if err = renderModelExtensions(m.ExtLst, "p:sldLayout"); err != nil {
+				return nil, err
 			}
 			layers = append(layers, m.CSld)
 		}
 	}
 	if s.layout != nil {
 		if s.layout.layoutXML != nil && len(s.layout.layoutXML.SourceXML) > 0 {
-			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, inheritedRenderProfile); err != nil {
+			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, (&renderProfile{}).inherited); err != nil {
 				return nil, fmt.Errorf("pptx: layout: %w", err)
 			}
 		}
 		if s.layout.master != nil && s.layout.master.masterXML != nil && len(s.layout.master.masterXML.SourceXML) > 0 {
-			if err = budget.CheckXML(ctx, s.layout.master.masterXML.SourceXML, inheritedRenderProfile); err != nil {
+			if err = budget.CheckXML(ctx, s.layout.master.masterXML.SourceXML, (&renderProfile{}).inherited); err != nil {
 				return nil, fmt.Errorf("pptx: master: %w", err)
 			}
 		}
@@ -246,8 +258,11 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	if c == nil || c.SpTree == nil {
 		return fmt.Errorf("%w: shape tree", render.ErrInvalid)
 	}
-	if len(c.Controls) > 0 || len(c.CustDataLst) > 0 || c.ExtLst != nil {
-		return fmt.Errorf("%w: slide controls/extensions", render.ErrUnsupported)
+	if len(c.Controls) > 0 || len(c.CustDataLst) > 0 {
+		return fmt.Errorf("%w: slide controls/customer data", render.ErrUnsupported)
+	}
+	if err := renderModelExtensions(c.ExtLst, "p:cSld"); err != nil {
+		return err
 	}
 	t := c.SpTree
 	if len(t.AltContent) > 0 || len(t.RawXML) > 0 {
@@ -383,6 +398,8 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "id name descr title"
 		case "cNvSpPr":
 			attrs = "txBox"
+		case "hf":
+			attrs = "sldNum hdr ftr dt"
 		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
@@ -390,11 +407,14 @@ func slideRenderXML(el xml.StartElement) error {
 	case nsA:
 		switch el.Name.Local {
 		case "bodyPr":
-			attrs = "wrap anchor lIns tIns rIns bIns"
+			// rtlCol orders columns; the single-column profile has one.
+			attrs = "wrap anchor lIns tIns rIns bIns rtlCol"
 		case "pPr":
 			attrs = "algn"
 		case "rPr":
-			attrs = "sz b i u strike"
+			// Language, proofing, smart-tag and bookmark attributes do not
+			// change the painting of horizontal ASCII text.
+			attrs = "sz b i u strike lang altLang dirty err noProof smtClean smtId bmk"
 		case "latin":
 			attrs = "typeface"
 		case "spcPct", "spcPts":
@@ -503,7 +523,133 @@ func renderPictureProperties(p *dml.SpPr) error {
 	return nil
 }
 
-func slideRenderProfile(node core.XMLNode) error {
+// renderProfile checks original slide, layout and master XML. It skips the
+// subtree of an extension whose URI renderExtensions lists for its owner; the
+// streaming checker reports no end tags, so a skipped subtree ends at the next
+// node that is not below it.
+type renderProfile struct {
+	skipDepth int
+}
+
+func (r *renderProfile) skipped(node core.XMLNode) bool {
+	if r.skipDepth == 0 {
+		return false
+	}
+	if len(node.Path) > r.skipDepth || (node.Text && len(node.Path) == r.skipDepth) {
+		return true
+	}
+	r.skipDepth = 0
+	return false
+}
+
+// extension checks an extension list or extension element and reports whether
+// it consumed the node.
+func (r *renderProfile) extension(node core.XMLNode) (bool, error) {
+	if node.Text || len(node.Path) < 2 || node.Name.Space != nsP && node.Name.Space != nsA {
+		return false, nil
+	}
+	parent := node.Path[len(node.Path)-2]
+	switch {
+	case node.Name.Local == "extLst":
+		owner, ok := renderExtensions[renderXMLKey(parent)]
+		if !ok || owner.list != node.Name.Space {
+			return true, fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
+		}
+		if node.Occurrence > 1 {
+			return true, fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
+		}
+		return true, renderExtensionAttrs(node.StartElement, "")
+	case node.Name.Local == "ext" && parent.Local == "extLst" && parent.Space == node.Name.Space:
+		if len(node.Path) < 3 {
+			return true, fmt.Errorf("%w: extension owner", render.ErrInvalid)
+		}
+		owner := renderExtensions[renderXMLKey(node.Path[len(node.Path)-3])]
+		var uri string
+		for _, a := range node.Attr {
+			if a.Name.Space == "" && a.Name.Local == "uri" {
+				uri = a.Value
+			}
+		}
+		if !renderExtensionAllowed(owner, uri) {
+			return true, fmt.Errorf("%w: extension %s", render.ErrUnsupported, uri)
+		}
+		if err := renderExtensionAttrs(node.StartElement, "uri"); err != nil {
+			return true, err
+		}
+		r.skipDepth = len(node.Path)
+		return true, nil
+	}
+	return false, nil
+}
+
+func renderExtensionAttrs(el xml.StartElement, allowed string) error {
+	for _, a := range el.Attr {
+		if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
+			continue
+		}
+		if a.Name.Space != "" || a.Name.Local != allowed {
+			return fmt.Errorf("%w: XML %s/@%s", render.ErrUnsupported, el.Name.Local, a.Name.Local)
+		}
+	}
+	return nil
+}
+
+// renderExtensionOwner names the namespace of an owner's extension list and the
+// extension URIs it may carry.
+type renderExtensionOwner struct {
+	list string
+	uris []string
+}
+
+// renderExtensions lists extensions that hold only identity, editor-guide,
+// accessibility or image-storage metadata. None can change painted output;
+// every other extension fails explicitly.
+var renderExtensions = map[string]renderExtensionOwner{
+	"p:cNvPr":     {list: nsA, uris: []string{xmlb.ExtURICreationId, xmlb.ExtURIDecorative}},
+	"a:blip":      {list: nsA, uris: []string{xmlb.ExtURIUseLocalDpi}},
+	"p:cSld":      {list: nsP, uris: []string{xmlb.ExtURIPMLCreationId}},
+	"p:sld":       {list: nsP, uris: []string{xmlb.ExtURISldGuideLst}},
+	"p:sldLayout": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstLayout}},
+	"p:sldMaster": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstMaster}},
+}
+
+func renderExtensionAllowed(owner renderExtensionOwner, uri string) bool {
+	for _, allowed := range owner.uris {
+		if strings.EqualFold(uri, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+// renderModelExtensions applies the source extension profile to a parsed list,
+// which also covers lists created or edited through the API.
+func renderModelExtensions(l *oxml.ExtensionList, owner string) error {
+	if l == nil {
+		return nil
+	}
+	if l.Mod != nil {
+		return fmt.Errorf("%w: extension list modification", render.ErrUnsupported)
+	}
+	for _, e := range l.Ext {
+		if !renderExtensionAllowed(renderExtensions[owner], e.URI) {
+			return fmt.Errorf("%w: extension %s", render.ErrUnsupported, e.URI)
+		}
+	}
+	return nil
+}
+
+func (r *renderProfile) slide(node core.XMLNode) error {
+	if r.skipped(node) {
+		return nil
+	}
+	if done, err := r.extension(node); done {
+		return err
+	}
+	return slideRenderNode(node)
+}
+
+func slideRenderNode(node core.XMLNode) error {
 	if node.Text {
 		if len(node.Path) > 0 && node.Path[len(node.Path)-1] == (xml.Name{Space: nsA, Local: "t"}) {
 			return nil
@@ -526,7 +672,10 @@ func slideRenderProfile(node core.XMLNode) error {
 	}
 	return slideRenderXML(node.StartElement)
 }
-func inheritedRenderProfile(node core.XMLNode) error {
+func (r *renderProfile) inherited(node core.XMLNode) error {
+	if r.skipped(node) {
+		return nil
+	}
 	if len(node.Path) == 1 {
 		if node.Name.Space != nsP || (node.Name.Local != "sldMaster" && node.Name.Local != "sldLayout") {
 			return fmt.Errorf("%w: inherited XML root", render.ErrUnsupported)
@@ -553,7 +702,7 @@ func inheritedRenderProfile(node core.XMLNode) error {
 	for _, ancestor := range node.Path {
 		if ancestor.Space == nsP && ancestor.Local == "sp" {
 			if node.Name.Space == nsP && node.Name.Local == "sp" {
-				return slideRenderProfile(node)
+				return r.slide(node)
 			}
 			// renderInheritance permits only title/body placeholders, which are
 			// definitions and are not painted independently on a blank slide.
@@ -571,7 +720,7 @@ func inheritedRenderProfile(node core.XMLNode) error {
 			return nil
 		}
 	}
-	return slideRenderProfile(node)
+	return r.slide(node)
 }
 
 func renderXMLKey(n xml.Name) string {
@@ -589,7 +738,7 @@ var renderXMLParents = map[string]string{
 	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:latin": "a:rPr",
 	"a:buNone": "a:pPr", "a:lnSpc": "a:pPr", "a:spcBef": "a:pPr", "a:spcAft": "a:pPr", "a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
-	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr",
+	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
 	"p:nvSpPr": "p:sp", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr",
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",

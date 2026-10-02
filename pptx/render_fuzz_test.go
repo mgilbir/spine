@@ -31,6 +31,8 @@ func FuzzPptxRender(f *testing.F) {
 	}
 	source := fuzzseed.ZipEntry(valid, "ppt/slides/slide1.xml")
 	f.Add(source)
+	// Seed the skipped-extension path so mutations probe where skipping ends.
+	f.Add(bytes.Replace(source, []byte(`<p:cNvPr id="2" name="Shape"/>`), []byte(`<p:cNvPr id="2" name="Shape">`+renderTestCreationID+`</p:cNvPr>`), 1))
 	f.Add([]byte("<p:sld/>"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 16<<10 {
