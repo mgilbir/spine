@@ -87,9 +87,15 @@ The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid fill, no fill, or a theme
 background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
-and ellipses may have a solid fill or none, and a solid outline or none. A shape
-has no style reference (`p:style`, which fails), so an absent fill or outline,
-or an outline without a fill, is none, as DrawingML defines. A solid outline
+and ellipses may have a solid fill or none, and a solid outline or none. A shape's
+style reference (`p:style`) supplies what it does not set itself: `fillRef`
+selects a theme fill or background fill style, which must be solid or none, in
+the reference's color; `lnRef` a theme line style beneath the shape's own
+`a:ln`; `fontRef` the theme major or minor font and a text color, beneath the
+shape's own list style; `effectRef` must select an effect style without
+effects. Without a style an absent fill or outline is none, as DrawingML
+defines. A `line` preset is drawn as a connector from corner to corner, its
+flips choosing the corners. A solid outline
 needs an explicit width and a single line; it is
 centered on the boundary or inset (`algn="in"`) and painted as the even-odd ring
 between the boundary's offsets, so rounded corners stay exact arcs. Sharp
@@ -102,8 +108,9 @@ be short. Dashes have flat caps: the schema gives no default cap and PowerPoint'
 shape styles use flat, so an absent cap is flat, and square or round caps fail,
 as do custom dashes. A dash turning a sharp corner takes the line join. Each
 dash is painted as its own path. Text lays out in the preset's text rectangle, which for rounded
-rectangles and ellipses is inset from the corners. Uncropped embedded PNG/JPEG pictures with
-rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
+rectangles and ellipses is inset from the corners. Embedded PNG/JPEG pictures with
+rectangular geometry are supported, cropped by their source rectangle
+(`a:srcRect`); a negative crop, which extends the picture, fails. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
 Fill and background colors may be RGB, system colors (their recorded `lastClr`)
@@ -115,8 +122,8 @@ unsaved theme edits, and counts toward `MaxSourceBytes`/`MaxLayoutNodes`.
 step; other transforms, alpha, and theme style entries with gradient, pattern
 or picture fills fail.
 
-Other theme style references, gradients, strokes, rotated or
-flipped shapes/pictures, image crops/SVGs, groups, connectors, charts, tables,
+Gradients, rotated or
+flipped shapes/pictures other than lines, SVGs, groups, connectors, charts, tables,
 SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
@@ -169,7 +176,7 @@ first, and the list styles chain slide, layout and master placeholder, then
 the master's title, body or other text style. Whether the presentation default
 text style follows is unspecified, so the result must agree with and without
 it. A matched layout or master placeholder must be free of unsupported content
-outside its prompt paragraphs; placeholders with style references or field
+outside its prompt paragraphs; placeholders with field
 text fail, and a placeholder with no geometry anywhere is invalid. An edited
 placeholder renders as a save writes it. A spacing percentage of zero is
 accepted as no spacing.

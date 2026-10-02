@@ -124,11 +124,21 @@ func (s *Slide) renderPlaceholderBase(sp *oxml.Shape, ph *oxml.Placeholder, layo
 		}
 	}
 	for _, src := range r.sources {
-		if src != nil && (src.Style != nil || src.ExtLst != nil) {
-			return nil, fmt.Errorf("%w: placeholder style reference", render.ErrUnsupported)
+		if src != nil && src.ExtLst != nil {
+			return nil, fmt.Errorf("%w: placeholder extension", render.ErrUnsupported)
 		}
 	}
 	return r, nil
+}
+
+// styleRef returns the nearest style reference.
+func (r *renderPlaceholder) styleRef() *dml.Style {
+	for _, src := range r.sources {
+		if src != nil && src.Style != nil {
+			return src.Style
+		}
+	}
+	return nil
 }
 
 // spPr merges shape properties, nearest first, property by property.
@@ -284,7 +294,7 @@ func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape,
 		preset = props.PrstGeom.Prst
 	}
 	box := &AutoShape{BaseShape: BaseShape{x: dml.EMU(props.Xfrm.Off.X), y: dml.EMU(props.Xfrm.Off.Y), width: dml.EMU(props.Xfrm.Ext.Cx), height: dml.EMU(props.Xfrm.Ext.Cy)}, presetGeometry: preset, textFrame: v.textFrame}
-	drawn, geometry, err := renderAutoShape(box, props, colors, limits)
+	drawn, geometry, err := renderAutoShape(box, props, ph.styleRef(), colors, limits)
 	if err != nil {
 		return nil, err
 	}

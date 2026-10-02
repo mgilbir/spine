@@ -46,7 +46,7 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil || p.BwMode != "" {
 		return nil, fmt.Errorf("%w: connector effect", render.ErrUnsupported)
 	}
-	line, placeholder, err := s.renderStyledLine(src.Style, p.Ln, colors)
+	line, placeholder, err := renderStyledLine(src.Style, p.Ln, colors)
 	if err != nil || line == nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 // renderStyledLine resolves a line from a style reference and an explicit
 // a:ln, whose set properties win. It returns nil when there is no line, and
 // the style reference color that a theme line's phClr names.
-func (s *Slide) renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln, *style.RGBA, error) {
+func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln, *style.RGBA, error) {
 	var (
 		line        dml.Ln
 		placeholder *style.RGBA

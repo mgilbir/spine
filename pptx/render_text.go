@@ -219,6 +219,19 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if ph != nil {
 		chain = ph.chain(styles)
 	}
+	var st *dml.Style
+	if ph != nil {
+		st = ph.styleRef()
+	} else if source != nil {
+		st = source.Style
+	}
+	if st != nil {
+		if ref, err := renderFontRef(st.FontRef); err != nil {
+			return nil, err
+		} else if ref != nil {
+			chain.inherited = append([]*dml.LstStyle{ref}, chain.inherited...)
+		}
+	}
 	// Text lays out in the preset's text rectangle.
 	x, y := g.box[0]+g.text[0], g.box[1]+g.text[1]
 	w, h := g.box[2]-g.text[0]-g.text[2], g.box[3]-g.text[1]-g.text[3]
@@ -655,4 +668,30 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 		color = b.color
 	}
 	return &renderBulletGlyph{seg: bullet.Segments[0], x: float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel), color: color}, nil
+}
+
+// renderFontRef turns a style's font reference into a list style below the
+// shape's own: every level takes the theme font and the reference's color.
+func renderFontRef(r *dml.FontRef) (*dml.LstStyle, error) {
+	if r == nil {
+		return nil, nil
+	}
+	var def dml.RPr
+	switch r.Idx {
+	case "major":
+		def.Latin = &dml.TextFont{Typeface: "+mj-lt"}
+	case "minor":
+		def.Latin = &dml.TextFont{Typeface: "+mn-lt"}
+	case "none":
+	default:
+		return nil, fmt.Errorf("%w: font reference %q", render.ErrInvalid, r.Idx)
+	}
+	if r.ScrgbClr != nil || r.SrgbClr != nil || r.HslClr != nil || r.SysClr != nil || r.SchemeClr != nil || r.PrstClr != nil {
+		def.SolidFill = &dml.SolidFill{ScRgbClr: r.ScrgbClr, SrgbClr: r.SrgbClr, HslClr: r.HslClr, SysClr: r.SysClr, SchemeClr: r.SchemeClr, PrstClr: r.PrstClr}
+	}
+	if def.Latin == nil && def.SolidFill == nil {
+		return nil, nil
+	}
+	level := &dml.PPr{DefRPr: &def}
+	return &dml.LstStyle{DefPPr: level, Lvl1pPr: level, Lvl2pPr: level, Lvl3pPr: level, Lvl4pPr: level, Lvl5pPr: level, Lvl6pPr: level, Lvl7pPr: level, Lvl8pPr: level, Lvl9pPr: level}, nil
 }

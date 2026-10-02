@@ -178,7 +178,7 @@ func (g renderGeometry) fill(c style.RGBA) ([]layout.Op, error) {
 // stroke paints a solid outline as the even-odd ring between the boundary's
 // outer and inner offsets. Offsetting an ellipse does not give an ellipse, so
 // only circular ellipses are outlined.
-func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors, maxSegments int) ([]layout.Op, error) {
+func (g renderGeometry) stroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if ln.W == nil || *ln.W <= 0 {
 		return nil, fmt.Errorf("%w: outline without a width", render.ErrUnsupported)
 	}
@@ -220,7 +220,7 @@ func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors, maxSegments int
 	if !g.ellipse && g.radius == 0 && join == renderJoinUnset {
 		return nil, fmt.Errorf("%w: unspecified line join on a sharp corner", render.ErrUnsupported)
 	}
-	c, err := colors.solid(ln.SolidFill, nil)
+	c, err := colors.solid(ln.SolidFill, placeholder)
 	if err != nil {
 		return nil, err
 	}
