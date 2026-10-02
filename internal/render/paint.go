@@ -14,7 +14,9 @@ import (
 // WritePNG paints onto transparent black and encodes a PNG directly, without an
 // intermediate SVG/PDF. Fractional rectangle edges use analytic area coverage;
 // colors are composited in sRGB using source-over in painter order. Sizing and
-// cumulative pixel visits are checked before allocation. Output, writer failure
+// cumulative pixel visits and scanline work are checked before pixel allocation.
+// Filled paths use even-odd scanlines and eight vertical samples per pixel.
+// Output, writer failure
 // or cancellation can leave a partial PNG in w. A blocking writer must itself
 // support cancellation; this method cannot interrupt a blocked Write call.
 func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
@@ -32,20 +34,19 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 		dpi = 96
 	}
 	scale := dpi / 96
-	var visits int64
-	for _, r := range p.rects {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		x0, y0, x1, y1 := pixelBounds(r, scale, width, height)
-		n := int64(x1-x0) * int64(y1-y0)
-		if n > p.limits.MaxPixelVisits-visits {
-			return fmt.Errorf("%w: pixel visits", ErrLimit)
-		}
-		visits += n
+	commands, err := p.paintCommands(ctx, scale, width, height)
+	if err != nil {
+		return err
 	}
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for _, r := range p.rects {
+	for _, cmd := range commands {
+		r := cmd.d.rect
+		if cmd.d.path != nil || len(cmd.clips) > 0 {
+			if err := paintPath(ctx, img, cmd, scale); err != nil {
+				return err
+			}
+			continue
+		}
 		x0, y0, x1, y1 := pixelBounds(r, scale, width, height)
 		left, top, right, bottom := r.x0*scale, r.y0*scale, r.x1*scale, r.y1*scale
 		for y := y0; y < y1; y++ {
@@ -86,7 +87,7 @@ func pixelBounds(r rectangle, scale float64, width, height int) (x0, y0, x1, y1 
 
 // WriteSVG serializes the same snapshot without rasterizing. Coordinates are
 // scaled explicitly to output pixels; root width/height use the same rounding
-// as PNG. Only generated rectangles and numeric attributes are emitted, with
+// as PNG. Only generated shapes, internal clipping references and numeric attributes are emitted, with
 // no external references or source markup. Output or cancellation errors may
 // leave a partial SVG. Cancellation cannot interrupt a blocking writer.
 func (p *Page) WriteSVG(ctx context.Context, w io.Writer, dpi float64) error {
@@ -112,20 +113,8 @@ func (p *Page) WriteSVG(ctx context.Context, w io.Writer, dpi float64) error {
 	if err := e.EncodeToken(root); err != nil {
 		return err
 	}
-	for _, r := range p.rects {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		start := xml.StartElement{Name: xml.Name{Local: "rect"}, Attr: []xml.Attr{
-			attr("x", number(r.x0*scale)), attr("y", number(r.y0*scale)), attr("width", number((r.x1-r.x0)*scale)), attr("height", number((r.y1-r.y0)*scale)),
-			attr("fill", fmt.Sprintf("rgb(%s,%s,%s)", number(r.color.R), number(r.color.G), number(r.color.B))), attr("fill-opacity", number(r.color.A)),
-		}}
-		if err := e.EncodeToken(start); err != nil {
-			return err
-		}
-		if err := e.EncodeToken(start.End()); err != nil {
-			return err
-		}
+	if err := p.svgDrawings(ctx, e, scale); err != nil {
+		return err
 	}
 	if err := e.EncodeToken(root.End()); err != nil {
 		return err

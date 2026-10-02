@@ -64,8 +64,8 @@ func TestPrepareSnapshotAndClipping(t *testing.T) {
 		t.Fatal(err)
 	}
 	ops[0] = layout.FillRect{}
-	if len(p.rects) != 1 || p.rects[0] != (rectangle{0, 5, 20, 96, r.Color}) {
-		t.Fatalf("snapshot: %+v", p.rects)
+	if len(p.draws) != 1 || p.draws[0].rect != (rectangle{0, 5, 20, 96, r.Color}) {
+		t.Fatalf("snapshot: %+v", p.draws)
 	}
 	// Even invisible unsupported operations must not bypass capability checks.
 	if _, err := Prepare(context.Background(), dml.Pixels(96), dml.Pixels(96), []layout.Op{layout.DrawText{}}, Limits{}); !errors.Is(err, ErrUnsupported) {
