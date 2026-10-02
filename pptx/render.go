@@ -286,6 +286,13 @@ func renderPictureKey(v *Picture, data []byte) renderImageKey {
 	return renderImageKey{data: &data[0], size: len(data)}
 }
 
+// renderEffects reports whether an effect list applies any effect. PowerPoint
+// writes an empty list where the schema requires effect properties, such as in
+// a background.
+func renderEffects(e *dml.EffectLst) bool {
+	return e != nil && *e != (dml.EffectLst{})
+}
+
 func renderUnit(v dml.EMU) style.Unit {
 	u, _ := style.FromPx(float64(v) / float64(dml.EMUsPerPixel))
 	return u
@@ -306,7 +313,7 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	}
 	if t.GrpSpPr != nil {
 		g := t.GrpSpPr
-		if !renderRootTransform(g.Xfrm) || g.NoFill != nil || g.SolidFill != nil || g.GradFill != nil || g.BlipFill != nil || g.PattFill != nil || g.EffectLst != nil || g.EffectDag != nil || g.Scene3d != nil || g.ExtLst != nil || g.BwMode != "" {
+		if !renderRootTransform(g.Xfrm) || g.NoFill != nil || g.SolidFill != nil || g.GradFill != nil || g.BlipFill != nil || g.PattFill != nil || renderEffects(g.EffectLst) || g.EffectDag != nil || g.Scene3d != nil || g.ExtLst != nil || g.BwMode != "" {
 			return fmt.Errorf("%w: root group properties", render.ErrUnsupported)
 		}
 	}
@@ -347,7 +354,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 		if source.Xfrm == nil || source.Xfrm.Off == nil || source.Xfrm.Ext == nil {
 			return nil, g, fmt.Errorf("%w: inherited/missing shape geometry", render.ErrUnsupported)
 		}
-		if source.EffectLst != nil || source.EffectDag != nil || source.Scene3d != nil || source.Sp3d != nil || v.spPr.EffectLst != nil || v.spPr.EffectDag != nil || v.spPr.Scene3d != nil || v.spPr.Sp3d != nil {
+		if renderEffects(source.EffectLst) || source.EffectDag != nil || source.Scene3d != nil || source.Sp3d != nil || renderEffects(v.spPr.EffectLst) || v.spPr.EffectDag != nil || v.spPr.Scene3d != nil || v.spPr.Sp3d != nil {
 			return nil, g, fmt.Errorf("%w: shape effect", render.ErrUnsupported)
 		}
 		copyProps := *source
@@ -358,7 +365,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.EffectLst != nil || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
+	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
 		return nil, g, fmt.Errorf("%w: shape fill/effect", render.ErrUnsupported)
 	}
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
@@ -477,7 +484,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "w cap cmpd algn"
 		case "overrideClrMapping":
 			attrs = "bg1 tx1 bg2 tx2 accent1 accent2 accent3 accent4 accent5 accent6 hlink folHlink"
-		case "avLst", "noFill", "solidFill", "stretch", "masterClrMapping", "highlight":
+		case "avLst", "noFill", "solidFill", "stretch", "masterClrMapping", "highlight", "effectLst":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -543,7 +550,7 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	return nil
 }
 func renderPictureProperties(p *dml.SpPr) error {
-	if p.BwMode != "" || p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.EffectLst != nil || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
+	if p.BwMode != "" || p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
 		return fmt.Errorf("%w: picture shape properties", render.ErrUnsupported)
 	}
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
@@ -805,7 +812,9 @@ var renderXMLParents = map[string]string{
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:gd": "a:avLst",
-	"a:prstDash": "a:ln", "a:round": "a:ln", "a:bevel": "a:ln", "a:miter": "a:ln", "a:headEnd": "a:ln", "a:tailEnd": "a:ln", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
+	// Effect lists are admitted empty; no effect element is.
+	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
+	"a:prstDash":  "a:ln", "a:round": "a:ln", "a:bevel": "a:ln", "a:miter": "a:ln", "a:headEnd": "a:ln", "a:tailEnd": "a:ln", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
 	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
 	"a:highlight": renderRunParents,
 	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
