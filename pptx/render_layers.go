@@ -18,11 +18,18 @@ type renderShapeKey struct {
 	occurrence int
 }
 
+// renderShapeErrs are the first unsupported nodes of a master or layout
+// shape: anywhere in it, and outside its paragraphs, which is all a
+// placeholder passes on.
+type renderShapeErrs struct {
+	any, inherited error
+}
+
 // renderInherited is a visible master or layout shape tree.
 type renderInherited struct {
 	data      *oxml.CommonSlideData
 	part      string
-	shapeErrs map[renderShapeKey]error
+	shapeErrs map[renderShapeKey]renderShapeErrs
 }
 
 // renderLayer paints a master's or layout's own shapes beneath the slide's.
@@ -76,7 +83,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			if sp.NvSpPr != nil && sp.NvSpPr.NvPr != nil && sp.NvSpPr.NvPr.Ph != nil {
 				continue
 			}
-			if err = layer.shapeErrs[renderShapeKey{name: "sp", occurrence: ref.Index + 1}]; err == nil {
+			if err = layer.shapeErrs[renderShapeKey{name: "sp", occurrence: ref.Index + 1}].any; err == nil {
 				drawn, err = draw(oxmlShapeToGoShape(sp), sp, nil, -1, picture)
 			}
 		case oxml.ChildPic:
@@ -87,7 +94,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			if pic.NvPicPr != nil && pic.NvPicPr.NvPr != nil && pic.NvPicPr.NvPr.Ph != nil {
 				continue
 			}
-			if err = layer.shapeErrs[renderShapeKey{name: "pic", occurrence: ref.Index + 1}]; err == nil {
+			if err = layer.shapeErrs[renderShapeKey{name: "pic", occurrence: ref.Index + 1}].any; err == nil {
 				drawn, err = draw(oxmlPictureToGoPicture(pic), nil, pic.SpPr, -1, picture)
 			}
 		default:

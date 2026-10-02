@@ -147,7 +147,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 	}
 	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
-	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, otherErr: masterProfile.styleErr}
+	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, masterErrs: masterProfile.styleErrs}
 	// The nearest defined background wins: slide, then layout, then master.
 	background := renderWhite
 	for i := len(layers) - 1; i >= 0; i-- {
@@ -196,6 +196,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if v == nil || index < 0 {
 				return nil, fmt.Errorf("%w: nil or inherited connector", render.ErrUnsupported)
 			}
+		case *PlaceholderShape:
+			if v == nil || index < 0 {
+				return nil, fmt.Errorf("%w: nil or inherited placeholder", render.ErrUnsupported)
+			}
 		default:
 			return nil, fmt.Errorf("%w: shape (%T)", render.ErrUnsupported, sh)
 		}
@@ -215,6 +219,12 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		if sp != nil && sp.Style != nil {
 			return nil, fmt.Errorf("%w: shape style reference", render.ErrUnsupported)
 		}
+		// A parsed or inherited picture, such as a picture placeholder, may
+		// inherit its geometry, which pictures here do not; an API picture
+		// writes its own.
+		if _, ok := sh.(*Picture); ok && (index < 0 || picProps != nil) && (picProps == nil || picProps.Xfrm == nil || picProps.Xfrm.Off == nil || picProps.Xfrm.Ext == nil) {
+			return nil, fmt.Errorf("%w: picture without its own geometry", render.ErrUnsupported)
+		}
 		var props *dml.SpPr
 		if sp != nil {
 			props = sp.SpPr
@@ -232,15 +242,17 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if err != nil || box.textFrame == nil {
 				return drawn, err
 			}
-			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles)
+			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles, nil)
 			return append(drawn, text...), err
 		case *AutoShape:
 			drawn, geometry, err := renderAutoShape(v, props, colors, resolved)
 			if err != nil || v.textFrame == nil {
 				return drawn, err
 			}
-			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles)
+			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles, nil)
 			return append(drawn, text...), err
+		case *PlaceholderShape:
+			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs)
 		case *Table:
 			return s.renderTable(ctx, index, v, colors, textLayout, fonts, styles)
 		case *Connector:
@@ -443,6 +455,9 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "id name descr title"
 		case "cNvSpPr":
 			attrs = "txBox"
+		case "ph":
+			// Identifies a placeholder; prompts are not painted.
+			attrs = "type orient sz idx hasCustomPrompt"
 		case "hf":
 			attrs = "sldNum hdr ftr dt"
 		case "bgRef":
@@ -480,6 +495,8 @@ func slideRenderXML(el xml.StartElement) error {
 		case "stCxn", "endCxn":
 			// Bindings move a connector only when its shapes move.
 			attrs = "id idx"
+		case "spLocks":
+			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType noTextEdit"
 		case "cxnSpLocks":
 			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType"
 		case "graphicFrameLocks":
@@ -618,11 +635,12 @@ type renderProfile struct {
 	skipDepth int
 	// shapeErrs holds the first unsupported node of each master or layout
 	// shape, by element and occurrence; a shape fails only when drawn.
-	shapeErrs map[renderShapeKey]error
+	shapeErrs map[renderShapeKey]renderShapeErrs
 	current   renderShapeKey
-	// styleErr is the first unsupported node in a master's other-text style,
+	// styleErrs holds the first unsupported node in each of a master's text
+	// styles, which fails only slides that resolve text through that style.
 	// which fails only slides that resolve text through it.
-	styleErr error
+	styleErrs map[string]error
 }
 
 func (r *renderProfile) skipped(node core.XMLNode) bool {
@@ -811,8 +829,15 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 		if len(node.Path) == 3 && node.Path[2].Local == "otherStyle" && node.Occurrence > 1 {
 			return fmt.Errorf("%w: repeated other-text style", render.ErrInvalid)
 		}
-		if len(node.Path) > 3 && node.Path[2] == (xml.Name{Space: nsP, Local: "otherStyle"}) && r.styleErr == nil {
-			r.styleErr = slideRenderNode(node)
+		if len(node.Path) > 3 && node.Path[2].Space == nsP {
+			if name := node.Path[2].Local; name == "titleStyle" || name == "bodyStyle" || name == "otherStyle" {
+				if r.styleErrs == nil {
+					r.styleErrs = map[string]error{}
+				}
+				if r.styleErrs[name] == nil {
+					r.styleErrs[name] = slideRenderNode(node)
+				}
+			}
 		}
 		return nil
 	}
@@ -825,11 +850,19 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 		}
 		if err := r.slide(node); err != nil {
 			if r.shapeErrs == nil {
-				r.shapeErrs = map[renderShapeKey]error{}
+				r.shapeErrs = map[renderShapeKey]renderShapeErrs{}
 			}
-			if _, seen := r.shapeErrs[r.current]; !seen {
-				r.shapeErrs[r.current] = err
+			e := r.shapeErrs[r.current]
+			if e.any == nil {
+				e.any = err
 			}
+			// A placeholder's paragraphs are its prompt; only the rest is
+			// inherited.
+			inText := len(node.Path) >= 6 && node.Path[4] == (xml.Name{Space: nsP, Local: "txBody"}) && node.Path[5] == (xml.Name{Space: nsA, Local: "p"})
+			if e.inherited == nil && !inText {
+				e.inherited = err
+			}
+			r.shapeErrs[r.current] = e
 		}
 		return nil
 	}
@@ -849,7 +882,7 @@ func renderXMLKey(n xml.Name) string {
 // Text property elements share their content models across slide text, shape
 // list styles and the inherited other-text and default text styles.
 const (
-	renderListParents      = "a:lstStyle p:otherStyle p:defaultTextStyle"
+	renderListParents      = "a:lstStyle p:titleStyle p:bodyStyle p:otherStyle p:defaultTextStyle"
 	renderParagraphParents = "a:pPr a:defPPr a:lvl1pPr a:lvl2pPr a:lvl3pPr a:lvl4pPr a:lvl5pPr a:lvl6pPr a:lvl7pPr a:lvl8pPr a:lvl9pPr"
 	renderRunParents       = "a:rPr a:defRPr a:endParaRPr"
 	renderLineParents      = "a:ln a:lnL a:lnR a:lnT a:lnB"
@@ -870,7 +903,7 @@ var renderXMLParents = map[string]string{
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
-	"p:nvSpPr": "p:sp", "p:cxnSp": "p:spTree", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
+	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
 	"p:style": "p:cxnSp", "a:lnRef": "p:style", "a:fillRef": "p:style", "a:effectRef": "p:style", "a:fontRef": "p:style", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr",
 	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
 	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
