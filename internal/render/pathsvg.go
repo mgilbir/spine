@@ -56,7 +56,7 @@ func (p *Page) svgDrawings(ctx context.Context, e *xml.Encoder, scale float64) e
 			groups = append(groups, g)
 		}
 		attrs := []xml.Attr{attr("fill", fmt.Sprintf("rgb(%s,%s,%s)", number(r.color.R), number(r.color.G), number(r.color.B))), attr("fill-opacity", number(r.color.A))}
-		if d.path == nil {
+		if d.path == nil && d.image == nil {
 			attrs = append(attrs, rectAttrs(r, scale)...)
 			if err := svgElement(e, "rect", attrs); err != nil {
 				return err
@@ -81,17 +81,30 @@ func (p *Page) svgDrawings(ctx context.Context, e *xml.Encoder, scale float64) e
 			if err := e.EncodeToken(defs.End()); err != nil {
 				return err
 			}
-			data, err := pathString(ctx, d.path, scale, p.limits.MaxOutputBytes)
-			if err != nil {
-				return err
-			}
-			rule := "evenodd"
-			if d.path.nonzero {
-				rule = "nonzero"
-			}
-			attrs = append(attrs, attr("d", data), attr("fill-rule", rule), attr("clip-path", "url(#"+id+")"))
-			if err := svgElement(e, "path", attrs); err != nil {
-				return err
+			if d.image != nil {
+				group := xml.StartElement{Name: xml.Name{Local: "g"}, Attr: []xml.Attr{attr("clip-path", "url(#"+id+")")}}
+				if err := e.EncodeToken(group); err != nil {
+					return err
+				}
+				if err := p.svgImage(e, d, scale); err != nil {
+					return err
+				}
+				if err := e.EncodeToken(group.End()); err != nil {
+					return err
+				}
+			} else {
+				data, err := pathString(ctx, d.path, scale, p.limits.MaxOutputBytes)
+				if err != nil {
+					return err
+				}
+				rule := "evenodd"
+				if d.path.nonzero {
+					rule = "nonzero"
+				}
+				attrs = append(attrs, attr("d", data), attr("fill-rule", rule), attr("clip-path", "url(#"+id+")"))
+				if err := svgElement(e, "path", attrs); err != nil {
+					return err
+				}
 			}
 		}
 		for j := len(groups) - 1; j >= 0; j-- {

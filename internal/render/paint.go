@@ -61,13 +61,14 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 					}
 				}
 				cx := math.Min(float64(x+1), right) - math.Max(float64(x), left)
-				a := math.Max(0, math.Min(1, cx*cy)) * r.color.A
+				c := cmd.d.pixelColor(x, y, scale)
+				a := math.Max(0, math.Min(1, cx*cy)) * c.A
 				i := y*img.Stride + x*4
 				// image.RGBA stores premultiplied channels. Source channels
 				// remain floating point until the composited pixel is rounded.
-				img.Pix[i] = uint8(math.Round(r.color.R*a + float64(img.Pix[i])*(1-a)))
-				img.Pix[i+1] = uint8(math.Round(r.color.G*a + float64(img.Pix[i+1])*(1-a)))
-				img.Pix[i+2] = uint8(math.Round(r.color.B*a + float64(img.Pix[i+2])*(1-a)))
+				img.Pix[i] = uint8(math.Round(c.R*a + float64(img.Pix[i])*(1-a)))
+				img.Pix[i+1] = uint8(math.Round(c.G*a + float64(img.Pix[i+1])*(1-a)))
+				img.Pix[i+2] = uint8(math.Round(c.B*a + float64(img.Pix[i+2])*(1-a)))
 				img.Pix[i+3] = uint8(math.Round(255*a + float64(img.Pix[i+3])*(1-a)))
 			}
 		}
@@ -88,7 +89,8 @@ func pixelBounds(r rectangle, scale float64, width, height int) (x0, y0, x1, y1 
 // WriteSVG serializes the same snapshot without rasterizing. Coordinates are
 // scaled explicitly to output pixels; root width/height use the same rounding
 // as PNG. Only generated shapes, internal clipping references and numeric attributes are emitted, with
-// no external references or source markup. Output or cancellation errors may
+// no external references or source markup. Raster images use generated PNG data
+// URLs; source URLs are never retained. Output or cancellation errors may
 // leave a partial SVG. Cancellation cannot interrupt a blocking writer.
 func (p *Page) WriteSVG(ctx context.Context, w io.Writer, dpi float64) error {
 	if err := ctx.Err(); err != nil {
