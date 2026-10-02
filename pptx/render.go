@@ -463,7 +463,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "w cap cmpd algn"
 		case "overrideClrMapping":
 			attrs = "bg1 tx1 bg2 tx2 accent1 accent2 accent3 accent4 accent5 accent6 hlink folHlink"
-		case "avLst", "noFill", "solidFill", "stretch", "masterClrMapping":
+		case "avLst", "noFill", "solidFill", "stretch", "masterClrMapping", "highlight":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -791,7 +791,8 @@ var renderXMLParents = map[string]string{
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
-	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef", "a:schemeClr": "a:solidFill p:bgRef", "a:sysClr": "a:solidFill p:bgRef",
+	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
+	"a:highlight": renderRunParents,
 	"a:lumMod": "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }

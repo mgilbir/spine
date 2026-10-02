@@ -47,13 +47,26 @@ type renderParaStyle struct {
 	marL, marR    dml.EMU
 }
 
-// renderRunStyle is a run's resolved appearance.
+// renderRunStyle is a run's resolved appearance: the properties that shape it,
+// and its paint.
 type renderRunStyle struct {
+	renderShaping
+	color     style.RGBA
+	highlight renderHighlight
+}
+
+// renderShaping is the part of a run style that selects and shapes glyphs.
+type renderShaping struct {
 	font         string
 	size         int32 // hundredths of a point
 	bold, italic bool
-	color        style.RGBA
 	kern         int32 // smallest kerned size in hundredths of a point; 0 is off
+}
+
+// renderHighlight is a run's text highlight; the zero value is none.
+type renderHighlight struct {
+	on    bool
+	color style.RGBA
 }
 
 // renderLayer is one inheritance level. PowerPoint may or may not consult an
@@ -391,8 +404,8 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
 	if _, err = renderInherit("text effects", layers, func(r *dml.RPr) (bool, bool, error) {
-		if r != nil && (r.EffectLst != nil || r.EffectDag != nil || r.Highlight != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
-			return false, false, fmt.Errorf("%w: text effect, highlight or outline", render.ErrUnsupported)
+		if r != nil && (r.EffectLst != nil || r.EffectDag != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
+			return false, false, fmt.Errorf("%w: text effect or outline", render.ErrUnsupported)
 		}
 		return false, false, nil
 	}, renderBuiltin(false)); err != nil {
@@ -496,6 +509,15 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}, func() (style.RGBA, error) {
 		return style.RGBA{}, fmt.Errorf("%w: text without a color", render.ErrUnsupported)
 	}); err != nil {
+		return s, err
+	}
+	if s.highlight, err = renderInherit("highlight", layers, func(r *dml.RPr) (renderHighlight, bool, error) {
+		if r == nil || r.Highlight == nil {
+			return renderHighlight{}, false, nil
+		}
+		c, err := t.colors.color(renderChoiceColor(r.Highlight), nil)
+		return renderHighlight{on: true, color: c}, err == nil, err
+	}, renderBuiltin(renderHighlight{})); err != nil {
 		return s, err
 	}
 	if s.font, err = renderInherit("font", layers, func(r *dml.RPr) (string, bool, error) {
