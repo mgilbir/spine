@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/xlsx"
@@ -165,5 +166,39 @@ func TestKeepGoingSkipsUnrenderableSlides(t *testing.T) {
 	c.out, warnings = filepath.Join(dir, "cancelled"), strings.Builder{}
 	if err = run(ctx, c); err == nil || strings.Contains(err.Error(), "skipped") {
 		t.Fatalf("cancelled: %v", err)
+	}
+}
+
+func TestDefaultShapeWorkCoversSlideText(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slide := p.AddSlideFromLayout(layout)
+	box := pptx.NewTextBox()
+	box.SetPosition(dml.Inches(0.5), dml.Inches(0.5))
+	box.SetSize(dml.Inches(8), dml.Inches(6))
+	r := box.TextFrame().AddParagraph().AddRun()
+	r.SetText(strings.Repeat("The quick brown fox jumps over the lazy dog. ", 14))
+	r.SetFont("Calibri")
+	r.SetFontSize(12)
+	r.SetColor(dml.ColorBlack)
+	if err = slide.AddShape(box); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	c := config{input: input, out: filepath.Join(dir, "default"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute, fallback: true}
+	if err = run(context.Background(), c); err != nil {
+		t.Fatalf("default budget: %v", err)
+	}
+	// The library default covers about 60 bytes of Noto Sans text.
+	c.out, c.work = filepath.Join(dir, "library"), 64<<20
+	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "resource limit") {
+		t.Fatalf("library budget: %v", err)
 	}
 }

@@ -22,6 +22,13 @@ import (
 	"github.com/mgilbir/spine/xlsx"
 )
 
+// defaultShapeWork replaces the library's 64 Mi default, which suits a single
+// paragraph: a lookup unit is not a duration, and complete fonts charge about a
+// million units per byte of text (Noto Sans) while shaping it in microseconds.
+// Within a run the document controls only the text length, the caller chooses
+// the fonts, and -timeout bounds the whole command.
+const defaultShapeWork = 16 << 30
+
 type fontFlags []string
 
 func (f *fontFlags) String() string     { return strings.Join(*f, ";") }
@@ -48,7 +55,7 @@ func main() {
 	flag.StringVar(&c.sheet, "sheet", "", "XLSX sheet name; empty selects all sheets")
 	flag.Float64Var(&c.dpi, "dpi", 144, "output DPI")
 	flag.IntVar(&c.maxPages, "max-pages", 100, "maximum total output pages/slides/sheets")
-	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per preparation; 0 uses library default")
+	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per slide, page or sheet in conservative lookup units; 0 uses 16 Gi")
 	flag.DurationVar(&c.timeout, "timeout", time.Minute, "total rendering timeout")
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE mapping")
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
@@ -159,7 +166,11 @@ func run(ctx context.Context, c config) (result error) {
 	if err != nil {
 		return err
 	}
-	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: c.work}}
+	work := c.work
+	if work == 0 {
+		work = defaultShapeWork
+	}
+	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work}}
 	if err = os.MkdirAll(c.out, 0755); err != nil {
 		return err
 	}

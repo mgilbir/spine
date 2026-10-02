@@ -263,8 +263,15 @@ Repeat `-font` for additional families or styles, e.g.
 Forme, with at most 32 mappings and 32 MiB aggregate font input. No host fonts
 are searched. `-fallback-noto` explicitly substitutes embedded Noto Sans for
 unresolved regular faces; bold/italic still require mappings. Substitution can
-change wrapping and overflow. For known fonts needing a larger conservative
-work budget, choose e.g. `-shape-work 1073741824`.
+change wrapping and overflow.
+
+`-shape-work` bounds shaping per slide, page or sheet in the conservative lookup
+units described above. The command defaults to 16 Gi units instead of the
+library's 64 Mi, which suits a single paragraph: complete fonts charge about a
+million units per byte of text (embedded Noto Sans) while shaping it in
+microseconds, so 64 Mi stops a slide after about 60 characters. The document
+controls only the amount of text, the fonts are the caller's, and `-timeout`
+bounds the whole command; lower the budget for fonts you do not trust.
 
 `-dpi` defaults to 144; `-max-pages` defaults to 100 (maximum 10000), and
 `-timeout` defaults to one minute. Interrupt cancels rendering. Library package,
