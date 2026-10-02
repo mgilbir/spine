@@ -53,6 +53,9 @@ type renderRunStyle struct {
 	renderShaping
 	color     style.RGBA
 	highlight renderHighlight
+	// eastAsian marks a run in an East Asian language, where PowerPoint may
+	// draw symbols of ambiguous width with the East Asian font.
+	eastAsian bool
 }
 
 // renderShaping is the part of a run style that selects and shapes glyphs.
@@ -401,6 +404,17 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}
 	layers := runLayers(paragraph, own)
 	var err error
+	if s.eastAsian, err = renderInherit("language", layers, func(r *dml.RPr) (bool, bool, error) {
+		if r == nil || r.Lang == "" {
+			return false, false, nil
+		}
+		return renderEastAsian(r.Lang), true, nil
+	}, renderBuiltin(false)); err != nil {
+		return s, err
+	}
+	if own != nil && renderEastAsian(own.AltLang) {
+		s.eastAsian = true
+	}
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
 	if _, err = renderInherit("text effects", layers, func(r *dml.RPr) (bool, bool, error) {
@@ -560,4 +574,15 @@ func (t *renderTextStyles) typeface(name string) (string, error) {
 		return "", fmt.Errorf("%w: font family name", render.ErrLimit)
 	}
 	return name, nil
+}
+
+// renderEastAsian reports whether a language tag names Chinese, Japanese or
+// Korean.
+func renderEastAsian(tag string) bool {
+	primary, _, _ := strings.Cut(strings.ToLower(tag), "-")
+	switch primary {
+	case "zh", "ja", "ko":
+		return true
+	}
+	return false
 }

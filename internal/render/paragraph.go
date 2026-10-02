@@ -63,8 +63,11 @@ const (
 	RepertoireASCII Repertoire = iota
 	// RepertoireEuropean adds the Latin, Greek and Cyrillic scripts, combining
 	// diacritics, Latin-1, general punctuation, currency and letterlike
-	// symbols. Each is left-to-right or neutral, none is East Asian, and
-	// controls, format characters, separators and the soft hyphen are left out.
+	// symbols, arrows, mathematical operators and geometric shapes. Each is
+	// left-to-right or neutral and none is an East Asian script; controls,
+	// format characters, separators and the soft hyphen are left out. Some of
+	// the symbols have ambiguous East Asian width, which formats may draw with
+	// an East Asian font in East Asian text; callers must exclude that case.
 	RepertoireEuropean
 )
 
@@ -83,7 +86,9 @@ func (r Repertoire) allows(c rune) bool {
 		c >= 0x2010 && c <= 0x2027, // dashes, quotes, bullets, ellipsis
 		c >= 0x2030 && c <= 0x205E, // per mille, primes, guillemets
 		c >= 0x20A0 && c <= 0x20C0, // currency
-		c >= 0x2100 && c <= 0x214F: // letterlike symbols
+		c >= 0x2100 && c <= 0x214F, // letterlike symbols
+		c >= 0x2190 && c <= 0x22FF, // arrows, mathematical operators
+		c >= 0x25A0 && c <= 0x25FF: // geometric shapes
 		return true
 	case c >= 0xFF00: // halfwidth and fullwidth forms
 		return false

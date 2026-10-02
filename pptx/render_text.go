@@ -282,6 +282,9 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 			if err != nil {
 				return nil, err
 			}
+			if rs.eastAsian && !renderASCII(r.T) {
+				return nil, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
+			}
 			if len(r.T) > fonts.opts.Limits.MaxRunBytes-text.Len() {
 				return nil, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
@@ -522,4 +525,13 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil, err
 	}
 	return append(highlights, glyphOps...), nil
+}
+
+func renderASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }

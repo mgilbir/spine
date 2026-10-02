@@ -125,4 +125,21 @@ func TestRenderEuropeanText(t *testing.T) {
 	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>`+"\u05e9\u05dc\u05d5\u05dd"+`</a:t></a:r>`)); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("right-to-left text: %v", err)
 	}
+	// PowerPoint may draw ambiguous-width symbols with the East Asian font in
+	// East Asian text.
+	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr lang="en-US" sz="800"/><a:t>2×3</a:t></a:r>`)); err != nil {
+		t.Fatalf("symbol: %v", err)
+	}
+	for name, rewrite := range map[string]map[string]func(string) string{
+		"own language":       text(`<a:r><a:rPr lang="ja-JP" sz="800"/><a:t>2×3</a:t></a:r>`),
+		"alternate language": text(`<a:r><a:rPr lang="en-US" altLang="zh-CN" sz="800"/><a:t>2×3</a:t></a:r>`),
+		"inherited language": {"ppt/slides/slide1.xml": renderBody(`<a:lstStyle><a:lvl1pPr><a:defRPr lang="ko-KR"/></a:lvl1pPr></a:lstStyle>`, `<a:p><a:r><a:rPr sz="800"/><a:t>2×3</a:t></a:r></a:p>`)},
+	} {
+		if _, err = renderRewrittenPNG(t, data, opts, rewrite); !errors.Is(err, render.ErrUnsupported) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr lang="ja-JP" sz="800"/><a:t>ASCII</a:t></a:r>`)); err != nil {
+		t.Fatalf("ASCII in an East Asian language: %v", err)
+	}
 }

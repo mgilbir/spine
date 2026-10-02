@@ -175,7 +175,11 @@ its end-of-paragraph properties; a paragraph with runs takes it from them, as
 LibreOffice's import does. Rich styles, hard breaks, fields, tabs, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
-symbols, which DrawingML draws with the Latin font; other characters, including
+symbols, arrows, mathematical operators and geometric shapes, which DrawingML
+draws with the Latin font. PowerPoint may draw symbols of ambiguous East Asian
+width with the East Asian font in Chinese, Japanese or Korean text, so a run
+whose resolved language or alternate language is one of those may hold only
+ASCII. Other characters, including
 right-to-left and East Asian text, soft hyphens, controls and format characters,
 fail.
 

@@ -159,7 +159,7 @@ func TestEuropeanParagraphRepertoire(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, _ := NewTextLayout(Limits{})
-	text := "café naïve “Ωμέγα” Привет — 5 € …"
+	text := "café naïve “Ωμέγα” Привет — 5 € … 5 − 3"
 	lines, err := l.Lines(context.Background(), f, text, unit(16), unit(90), shape.Features{}, RepertoireEuropean)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +174,14 @@ func TestEuropeanParagraphRepertoire(t *testing.T) {
 	}
 	if len(lines) < 2 || joined.String() != text {
 		t.Fatalf("%d lines joined as %q", len(lines), joined.String())
+	}
+	// Arrows, operators and geometric shapes, in a font that has them.
+	symbols, err := shape.Load(fonttest.SFNT(fonttest.SFNTOptions{UnitsPerEm: 1000, Ascent: 800, Descent: -200, Glyphs: []fonttest.Glyph{{Rune: '→', Advance: 500, HasShape: true, Ink: [4]int{0, 0, 500, 500}}, {Rune: '≤', Advance: 500, HasShape: true, Ink: [4]int{0, 0, 500, 500}}, {Rune: '■', Advance: 500, HasShape: true, Ink: [4]int{0, 0, 500, 500}}, {Rune: ' ', Advance: 250}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = l.Lines(context.Background(), symbols, "→ ≤ ■", unit(16), unit(90), shape.Features{}, RepertoireEuropean); err != nil {
+		t.Fatalf("symbols: %v", err)
 	}
 	if _, err = l.PlainLines(context.Background(), f, "café", unit(16), unit(90)); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("ASCII repertoire accepted Latin-1: %v", err)
