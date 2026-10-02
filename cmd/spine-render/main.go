@@ -29,6 +29,12 @@ import (
 // the fonts, and -timeout bounds the whole command.
 const defaultShapeWork = 16 << 30
 
+// defaultEdgeChecks replaces the library's 64 Mi path painting budget, which a
+// slide of text, circles and outlined boxes exceeds at the default 144 DPI;
+// one such slide needed up to 256 Mi and painted in about a quarter of a
+// second. -timeout bounds the command.
+const defaultEdgeChecks = 1 << 30
+
 type fontFlags []string
 
 func (f *fontFlags) String() string     { return strings.Join(*f, ";") }
@@ -38,7 +44,7 @@ type config struct {
 	input, out, format, cellRange, sheet string
 	dpi                                  float64
 	maxPages                             int
-	work                                 int64
+	work, edges                          int64
 	timeout                              time.Duration
 	fonts                                fontFlags
 	fallback                             bool
@@ -55,6 +61,7 @@ func main() {
 	flag.StringVar(&c.sheet, "sheet", "", "XLSX sheet name; empty selects all sheets")
 	flag.Float64Var(&c.dpi, "dpi", 144, "output DPI")
 	flag.IntVar(&c.maxPages, "max-pages", 100, "maximum total output pages/slides/sheets")
+	flag.Int64Var(&c.edges, "edge-checks", 0, "path painting budget per output in edge checks; 0 uses 1 Gi")
 	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per slide, page or sheet in conservative lookup units; 0 uses 16 Gi")
 	flag.DurationVar(&c.timeout, "timeout", time.Minute, "total rendering timeout")
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE mapping")
@@ -144,7 +151,7 @@ func resolver(c config) (render.FontResolver, error) {
 }
 
 func run(ctx context.Context, c config) (result error) {
-	if c.input == "" || c.out == "" || c.maxPages < 1 || c.maxPages > 10000 || c.work < 0 || c.timeout <= 0 || c.dpi <= 0 || math.IsNaN(c.dpi) || math.IsInf(c.dpi, 0) {
+	if c.input == "" || c.out == "" || c.maxPages < 1 || c.maxPages > 10000 || c.work < 0 || c.edges < 0 || c.timeout <= 0 || c.dpi <= 0 || math.IsNaN(c.dpi) || math.IsInf(c.dpi, 0) {
 		return fmt.Errorf("require -input, -out and positive bounded rendering options")
 	}
 	if c.format != "png" && c.format != "svg" && c.format != "both" {
@@ -170,7 +177,11 @@ func run(ctx context.Context, c config) (result error) {
 	if work == 0 {
 		work = defaultShapeWork
 	}
-	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work}}
+	edges := c.edges
+	if edges == 0 {
+		edges = defaultEdgeChecks
+	}
+	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work, MaxEdgeChecks: edges}}
 	if err = os.MkdirAll(c.out, 0755); err != nil {
 		return err
 	}
