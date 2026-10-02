@@ -152,3 +152,43 @@ func TestPlainParagraphBudgetsAndFailures(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestEuropeanParagraphRepertoire(t *testing.T) {
+	f, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, _ := NewTextLayout(Limits{})
+	text := "café naïve “Ωμέγα” Привет — 5 € …"
+	lines, err := l.Lines(context.Background(), f, text, unit(16), unit(90), shape.Features{}, RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var joined strings.Builder
+	for _, line := range lines {
+		want, missing := f.Clone().ShapeGlyphs(line.Text)
+		if missing != 0 || len(want) != len(line.Glyphs) {
+			t.Fatalf("shaping mismatch in %q", line.Text)
+		}
+		joined.WriteString(line.Text)
+	}
+	if len(lines) < 2 || joined.String() != text {
+		t.Fatalf("%d lines joined as %q", len(lines), joined.String())
+	}
+	if _, err = l.PlainLines(context.Background(), f, "café", unit(16), unit(90)); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("ASCII repertoire accepted Latin-1: %v", err)
+	}
+	for name, s := range map[string]string{
+		"right-to-left":    "\u05e9\u05dc\u05d5\u05dd",
+		"soft hyphen":      "co\u00adop",
+		"zero width space": "a\u200bb",
+		"line separator":   "a\u2028b",
+		"fullwidth":        "\uff21",
+		"ideograph":        "\u4e2d",
+		"control":          "a\u0085b",
+	} {
+		if _, err = l.Lines(context.Background(), f, s, unit(16), unit(90), shape.Features{}, RepertoireEuropean); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}

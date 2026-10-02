@@ -17,14 +17,15 @@ import (
 )
 
 // PrepareRender prepares this static slide, including unsaved edits, for PNG or
-// SVG output. The first supported profile is solid or theme-referenced solid
-// backgrounds, filled rectangles/ellipses with no stroke, uncropped embedded
-// PNG/JPEG pictures, and uniformly styled plain horizontal ASCII paragraphs in
-// non-placeholder rectangles with supplied fonts, with styles inherited from
-// list styles, document defaults and the theme. Fill colors may be RGB, system or theme scheme
-// colors with luminance transforms. Inherited visible master/layout objects,
-// other theme styles, transformations, effects and other content fail
-// explicitly. Hidden slides can be selected.
+// SVG output. The supported profile is solid or theme-referenced solid
+// backgrounds; rectangles, rounded rectangles and ellipses with solid fills and
+// solid outlines; uncropped embedded PNG/JPEG pictures; and plain horizontal
+// European-script paragraphs in non-placeholder shapes, drawn with supplied
+// fonts and styles inherited from list styles, document defaults and the
+// theme. Colors may be RGB, system or theme scheme colors with luminance
+// transforms. Inherited visible master/layout objects, other theme styles,
+// transformations, effects and other content fail explicitly. Hidden slides
+// can be selected.
 // Preparation does not synchronize or save source parts. Caller edits must not
 // race with preparation; returned pages can be rendered concurrently.
 // See docs/rendering.md for capability and resource contracts.

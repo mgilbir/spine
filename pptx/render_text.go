@@ -396,7 +396,8 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 	}
 	// kern is the smallest size PowerPoint kerns; absent or zero is off.
 	features := shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}
-	lines, err := breaker.PlainLinesWithFeatures(ctx, face, text, m.size, width, features)
+	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
+	lines, err := breaker.Lines(ctx, face, text, m.size, width, features, core.RepertoireEuropean)
 	if err != nil {
 		return nil, m, err
 	}

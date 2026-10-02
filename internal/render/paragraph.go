@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/mgilbir/forme/paragraph"
@@ -49,6 +50,49 @@ func (t *TextLayout) PlainLines(ctx context.Context, source *shape.Face, text st
 // PlainLinesWithFeatures uses the same feature settings for candidate widths and
 // final glyph placement. Adapters must resolve their format's feature defaults.
 func (t *TextLayout) PlainLinesWithFeatures(ctx context.Context, source *shape.Face, text string, size, width style.Unit, features shape.Features) ([]TextLine, error) {
+	return t.Lines(ctx, source, text, size, width, features, RepertoireASCII)
+}
+
+// Repertoire selects the characters a plain paragraph may contain. A format
+// whose font choice depends on the character class, as Word's ASCII and high
+// ANSI fonts do, must keep to the class its single font serves.
+type Repertoire int
+
+const (
+	// RepertoireASCII is printable ASCII.
+	RepertoireASCII Repertoire = iota
+	// RepertoireEuropean adds the Latin, Greek and Cyrillic scripts, combining
+	// diacritics, Latin-1, general punctuation, currency and letterlike
+	// symbols. Each is left-to-right or neutral, none is East Asian, and
+	// controls, format characters, separators and the soft hyphen are left out.
+	RepertoireEuropean
+)
+
+func (r Repertoire) allows(c rune) bool {
+	if c >= 32 && c <= 126 {
+		return true
+	}
+	if r != RepertoireEuropean {
+		return false
+	}
+	switch {
+	case c == 0xAD: // soft hyphen, a discretionary break
+		return false
+	case c >= 0xA0 && c <= 0xFF, // Latin-1
+		c >= 0x300 && c <= 0x36F,   // combining diacritics
+		c >= 0x2010 && c <= 0x2027, // dashes, quotes, bullets, ellipsis
+		c >= 0x2030 && c <= 0x205E, // per mille, primes, guillemets
+		c >= 0x20A0 && c <= 0x20C0, // currency
+		c >= 0x2100 && c <= 0x214F: // letterlike symbols
+		return true
+	case c >= 0xFF00: // halfwidth and fullwidth forms
+		return false
+	}
+	return unicode.In(c, unicode.Latin, unicode.Greek, unicode.Cyrillic)
+}
+
+// Lines wraps a plain paragraph drawn from a repertoire; see PlainLines.
+func (t *TextLayout) Lines(ctx context.Context, source *shape.Face, text string, size, width style.Unit, features shape.Features, repertoire Repertoire) ([]TextLine, error) {
 	if t == nil || ctx == nil || size <= 0 || width <= 0 || !utf8.ValidString(text) {
 		return nil, fmt.Errorf("%w: paragraph input", ErrInvalid)
 	}
@@ -60,7 +104,7 @@ func (t *TextLayout) PlainLinesWithFeatures(ctx context.Context, source *shape.F
 		return nil, fmt.Errorf("%w: paragraph text", ErrLimit)
 	}
 	for _, c := range text {
-		if c < 32 || c > 126 {
+		if !repertoire.allows(c) {
 			return nil, fmt.Errorf("%w: plain paragraph character", ErrUnsupported)
 		}
 	}
