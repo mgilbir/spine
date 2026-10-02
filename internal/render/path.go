@@ -7,19 +7,29 @@ import (
 	"sort"
 
 	"github.com/mgilbir/forme/layout"
+	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/forme/style"
 )
 
 type geometry struct {
-	path   layout.Path
-	bounds rectangle
+	path    layout.Path
+	curves  []curve
+	nonzero bool
+	bounds  rectangle
 }
 type drawing struct {
-	rect  rectangle
-	path  *geometry
-	clips []*geometry
+	rect   rectangle
+	path   *geometry
+	clips  []*geometry
+	text   string
+	fontID string
 }
-type prepareBudget struct{ operations, segments int }
+type prepareBudget struct {
+	operations, segments, glyphs, textBytes int
+	fontBytes                               int64
+	faces                                   map[*shape.Face]*shape.Face
+	fontIDs                                 map[*shape.Face]string
+}
 
 func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, budget *prepareBudget) error {
 	if len(clips) > p.limits.MaxClipDepth {
@@ -50,6 +60,10 @@ func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, 
 			r := rectangle{v.Rect.X.Px(), v.Rect.Y.Px(), v.Rect.X.Px() + v.Rect.W.Px(), v.Rect.Y.Px() + v.Rect.H.Px(), v.Color}
 			r = meet(r, rectangle{0, 0, p.width, p.height, style.RGBA{}})
 			p.draws = append(p.draws, drawing{rect: r, clips: clips})
+		case layout.DrawGlyphs:
+			if err := p.collectGlyphs(ctx, v, clips, budget); err != nil {
+				return err
+			}
 		case layout.FillPath:
 			if !validColor(v.Color) {
 				return fmt.Errorf("%w: path color", ErrInvalid)
@@ -138,6 +152,9 @@ type interval struct{ lo, hi float64 }
 // flatten uses an ellipse sagitta bound of 1/16 output pixel. A per-render
 // segment budget prevents enormous radii or DPI from expanding without limit.
 func flatten(ctx context.Context, g *geometry, scale float64, remaining *int) ([]edge, error) {
+	if g.curves != nil {
+		return flattenCurves(ctx, g.curves, scale, remaining)
+	}
 	var edges []edge
 	var start, current point
 	open := false
@@ -217,21 +234,45 @@ func flatten(ctx context.Context, g *geometry, scale float64, remaining *int) ([
 
 // scan returns even-odd fill intervals with a half-open vertex convention.
 // Sorted crossings are paired, so reversed contours and holes agree.
-func scan(edges []edge, y float64, crossings []float64) ([]interval, []float64) {
+type crossing struct {
+	x       float64
+	winding int
+}
+
+func scan(edges []edge, y float64, crossings []crossing, nonzero bool) ([]interval, []crossing) {
 	crossings = crossings[:0]
 	for _, e := range edges {
 		a, b := e.a, e.b
+		winding := 1
 		if a.y > b.y {
 			a, b = b, a
+			winding = -1
 		}
 		if y >= a.y && y < b.y {
-			crossings = append(crossings, a.x+(y-a.y)/(b.y-a.y)*(b.x-a.x))
+			crossings = append(crossings, crossing{a.x + (y-a.y)/(b.y-a.y)*(b.x-a.x), winding})
 		}
 	}
-	sort.Float64s(crossings)
-	intervals := make([]interval, 0, len(crossings)/2)
-	for i := 0; i+1 < len(crossings); i += 2 {
-		intervals = append(intervals, interval{crossings[i], crossings[i+1]})
+	sort.Slice(crossings, func(i, j int) bool { return crossings[i].x < crossings[j].x })
+	var intervals []interval
+	winding := 0
+	var start float64
+	for i := 0; i < len(crossings); {
+		x := crossings[i].x
+		before := winding
+		for i < len(crossings) && crossings[i].x == x {
+			if nonzero {
+				winding += crossings[i].winding
+			} else {
+				winding ^= 1
+			}
+			i++
+		}
+		if before == 0 && winding != 0 {
+			start = x
+		}
+		if before != 0 && winding == 0 && x > start {
+			intervals = append(intervals, interval{start, x})
+		}
 	}
 	return intervals, crossings
 }

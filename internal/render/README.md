@@ -1,7 +1,7 @@
 # Rendering foundation
 
 This internal package accepts Forme solid rectangles, filled paths and nested
-path clips. It provides
+path clips, and positioned horizontal glyphs (`DrawGlyphs`). It provides
 no page, slide or sheet layout API yet. Other operations fail explicitly, even
 when off-page; raw-source capability checks remain the format adapter's job.
 
@@ -39,6 +39,26 @@ before pixel allocation (64 million units by default). Filled paths use eight
 vertical samples with analytic horizontal coverage; this is documented numerical
 approximation, distinct from SVG's exact arc serialization.
 
-Next layers must implement Forme glyph painting,
+Glyphs use Forme's actual quadratic/cubic outlines with nonzero filling,
+baseline/Y-axis conversion and thousandths-of-em positioning. Each glyph is
+painted separately to preserve translucent overdraw. Preparation clones faces,
+copies resolved geometry and retains logical text once per run with a font
+fingerprint. No mutable source face or glyph slice survives in the snapshot.
+Defaults cap glyphs at 100,000, text metadata at 1 MiB, font count at 32 and
+aggregate unique font-program bytes at 32 MiB. Font programs must remain immutable
+during preparation; parsing fonts and their decoded input budgets remain the
+font provider's responsibility. Color/bitmap/SVG fonts and vertical glyph
+placement fail explicitly instead of silently drawing monochrome or blank glyphs.
+Missing outlines and Forme's font-layout truncation findings also fail.
+
+Bezier flattening checks a 1/16 output-pixel control-hull distance and caps
+recursion at 24; SVG preserves the original quadratic/cubic curves. Forme's
+outline routine is bounded internally but is not context-interruptible inside
+one glyph; context is checked when segments are delivered and between glyphs.
+`DrawText` remains unsupported: text shaping needs its own input/work/error
+contract before raw text is accepted, especially where Forme's work exhaustion
+could otherwise look like a completed layout.
+
+Next layers must implement the bounded text-shaping bridge,
 followed by Office-specific adapters. Preserve logical text and font identity
 for a possible PDF sibling backend; pdf0 and its dependencies are not included.

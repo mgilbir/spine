@@ -85,7 +85,11 @@ func (p *Page) svgDrawings(ctx context.Context, e *xml.Encoder, scale float64) e
 			if err != nil {
 				return err
 			}
-			attrs = append(attrs, attr("d", data), attr("fill-rule", "evenodd"), attr("clip-path", "url(#"+id+")"))
+			rule := "evenodd"
+			if d.path.nonzero {
+				rule = "nonzero"
+			}
+			attrs = append(attrs, attr("d", data), attr("fill-rule", rule), attr("clip-path", "url(#"+id+")"))
 			if err := svgElement(e, "path", attrs); err != nil {
 				return err
 			}
@@ -112,6 +116,9 @@ func rectAttrs(r rectangle, scale float64) []xml.Attr {
 }
 
 func pathString(ctx context.Context, g *geometry, scale float64, limit int64) (string, error) {
+	if g.curves != nil {
+		return curveString(ctx, g.curves, scale, limit)
+	}
 	var b strings.Builder
 	write := func(s string) error {
 		if int64(len(s)) > limit-int64(b.Len()) {
