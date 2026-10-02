@@ -72,13 +72,24 @@ atomic output, use a caller-owned buffer under a separate byte budget.
 
 `slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
 an independent page with PNG/SVG writers. A selected hidden slide is allowed.
-The canvas starts white; explicit opaque RGB backgrounds inherit from master to
-layout to slide. Rectangles and ellipses require explicit RGB/no-fill styling
-and an explicit absent outline (`AutoShape.SetNoLine`). Uncropped embedded
-PNG/JPEG pictures with rectangular geometry are supported. Geometry is quantized
-to Forme's fixed-point units during the EMU-to-CSS conversion.
+The canvas starts white; the nearest of the slide, layout and master
+backgrounds applies. A background is a solid fill, no fill, or a theme
+background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
+Rectangles and ellipses require solid/no-fill styling and an explicit absent
+outline (`AutoShape.SetNoLine`). Uncropped embedded PNG/JPEG pictures with
+rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
+units during the EMU-to-CSS conversion.
 
-Theme/style references, color transforms, gradients, strokes, rotated or
+Fill and background colors may be RGB, system colors (their recorded `lastClr`)
+or theme scheme colors. Scheme colors, including inherited ones, resolve through
+the slide's effective color map: the master map, replaced by any layout and
+then slide override. The master's theme is read once per preparation, with
+unsaved theme edits, and counts toward `MaxSourceBytes`/`MaxLayoutNodes`.
+`lumMod` and `lumOff` apply in HSL in document order with clamping after each
+step; other transforms, alpha, and theme style entries with gradient, pattern
+or picture fills fail.
+
+Other theme style references, gradients, strokes, rotated or
 flipped shapes/pictures, image crops/SVGs, groups, connectors, charts, tables,
 SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
 Visible inherited master/layout shapes fail. Title/body placeholder definitions
