@@ -355,13 +355,13 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
 		return nil, fmt.Errorf("%w: shape transformation", render.ErrUnsupported)
 	}
-	// Without a style reference (checked by the caller), an absent outline
-	// or fill is none.
-	if p.Ln != nil && p.Ln.NoFill == nil {
-		return nil, fmt.Errorf("%w: implicit or visible shape stroke", render.ErrUnsupported)
-	}
-	if p.Ln != nil && (p.Ln.SolidFill != nil || p.Ln.GradFill != nil || p.Ln.PattFill != nil) {
-		return nil, fmt.Errorf("%w: ambiguous shape stroke", render.ErrUnsupported)
+	// Without a style reference (checked by the caller), an absent fill, an
+	// absent outline, or an outline without a fill is none.
+	if l := p.Ln; l != nil && (l.SolidFill != nil || l.GradFill != nil || l.PattFill != nil) {
+		if l.NoFill != nil {
+			return nil, fmt.Errorf("%w: ambiguous shape stroke", render.ErrInvalid)
+		}
+		return nil, fmt.Errorf("%w: visible shape stroke", render.ErrUnsupported)
 	}
 	if p.PrstGeom != nil && p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0 {
 		return nil, fmt.Errorf("%w: shape adjustment", render.ErrUnsupported)
@@ -793,6 +793,6 @@ var renderXMLParents = map[string]string{
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
 	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
 	"a:highlight": renderRunParents,
-	"a:lumMod": "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
+	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }

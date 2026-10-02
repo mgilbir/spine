@@ -135,6 +135,7 @@ func renderCopyTxBody(src *dml.TxBody) *dml.TxBody {
 // shape, or shrinks the text, to keep the text inside it.
 type renderFrame struct {
 	margins TextMargins
+	anchor  enum.TextAnchor
 	grows   bool
 }
 
@@ -142,12 +143,19 @@ type renderFrame struct {
 // inherits nothing: absent attributes take their schema defaults (top anchor,
 // square wrap, 0.1"/0.05" insets, no autofit).
 func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
-	f := renderFrame{margins: TextMargins{Left: 91440, Top: 45720, Right: 91440, Bottom: 45720}}
+	f := renderFrame{margins: TextMargins{Left: 91440, Top: 45720, Right: 91440, Bottom: 45720}, anchor: enum.TextAnchorTop}
 	if bp == nil {
 		return f, nil
 	}
-	if (bp.Anchor != "" && bp.Anchor != "t") || (bp.Wrap != "" && bp.Wrap != "square") {
-		return f, fmt.Errorf("%w: text requires top anchoring and square wrapping", render.ErrUnsupported)
+	switch enum.TextAnchor(bp.Anchor) {
+	case "", enum.TextAnchorTop:
+	case enum.TextAnchorMiddle, enum.TextAnchorBottom:
+		f.anchor = enum.TextAnchor(bp.Anchor)
+	default:
+		return f, fmt.Errorf("%w: justified or distributed text anchoring", render.ErrUnsupported)
+	}
+	if bp.Wrap != "" && bp.Wrap != "square" {
+		return f, fmt.Errorf("%w: text requires square wrapping", render.ErrUnsupported)
 	}
 	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || bp.NumCol > 1 || (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") ||
 		renderTrue(bp.UpRight) || renderTrue(bp.AnchorCtr) || renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.PrstTxWarp != nil || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil || bp.ExtLst != nil {
@@ -219,9 +227,11 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 		return nil, fmt.Errorf("%w: text content box", render.ErrUnsupported)
 	}
 	content := w - m.Left - m.Right
-	top := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
+	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
-	var ops []layout.Op
+	// Lay every paragraph out first: anchoring needs the text height.
+	blocks := make([]renderBlock, 0, len(saved.P))
+	height := 0.0
 	for pi, p := range saved.P {
 		if err = ctx.Err(); err != nil {
 			return nil, err
@@ -294,13 +304,30 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 		if err != nil {
 			return nil, err
 		}
+		blocks = append(blocks, renderBlock{para: para, runs: runs, ends: ends, text: text.String(), lines: lines, metrics: metrics, left: left, width: width})
+		height += float64(para.before+para.after)/float64(dml.EMUsPerPixel) + float64(len(lines))*metrics.lineHeight
+	}
+	// The text block spans its paragraphs' spacing and full line heights.
+	top := contentTop
+	switch frame.anchor {
+	case enum.TextAnchorMiddle:
+		top += (bottom - contentTop - height) / 2
+	case enum.TextAnchorBottom:
+		top = bottom - height
+	}
+	if top < contentTop && !frame.grows {
+		return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
+	}
+	var ops []layout.Op
+	for _, b := range blocks {
+		para, runs, ends, lines, metrics, left, width := b.para, b.runs, b.ends, b.lines, b.metrics, b.left, b.width
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		start := 0
 		for _, line := range lines {
 			if top+metrics.ascent+metrics.descent > bottom && !frame.grows {
 				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
 			}
-			if !strings.HasPrefix(text.String()[start:], line.Text) {
+			if !strings.HasPrefix(b.text[start:], line.Text) {
 				return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 			}
 			if len(line.Glyphs) > 0 {
@@ -324,12 +351,24 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 			start += len(line.Text)
 			top += metrics.lineHeight
 		}
-		if start != text.Len() {
+		if start != len(b.text) {
 			return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 		}
 		top += float64(para.after) / float64(dml.EMUsPerPixel)
 	}
 	return ops, nil
+}
+
+// renderBlock is one laid-out paragraph awaiting vertical placement.
+type renderBlock struct {
+	para    renderParaStyle
+	runs    []renderRunStyle
+	ends    []int
+	text    string
+	lines   []core.TextLine
+	metrics renderLineMetrics
+	left    style.Unit
+	width   style.Unit
 }
 
 // renderLineMetrics are one style's line box in CSS pixels.
