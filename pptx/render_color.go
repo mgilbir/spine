@@ -390,7 +390,7 @@ func renderThemeRoot(node core.XMLNode) error {
 
 // background resolves an explicit or theme-referenced slide background.
 func (c *renderColors) background(bg *oxml.Background) (style.RGBA, error) {
-	if bg.BwMode != "" || (bg.BgPr == nil) == (bg.BgRef == nil) {
+	if (bg.BgPr == nil) == (bg.BgRef == nil) {
 		return style.RGBA{}, fmt.Errorf("%w: slide background", render.ErrUnsupported)
 	}
 	if v := bg.BgPr; v != nil {

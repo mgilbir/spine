@@ -83,3 +83,17 @@ func TestRenderPictureCrop(t *testing.T) {
 		t.Fatalf("cropped picture: %+v", px)
 	}
 }
+
+// TestRenderEditorMarkup checks that markup only editors or black-and-white
+// output read paints as without it.
+func TestRenderEditorMarkup(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	plain := renderSquare(60, 4, "FF0000")
+	marked := strings.Replace(strings.Replace(plain, `<p:spPr>`, `<p:spPr bwMode="auto">`, 1), `<p:nvPr/>`, `<p:nvPr userDrawn="1"/>`, 1)
+	slide := func(xml string) map[string]func(string) string {
+		return map[string]func(string) string{renderLayoutPart: renderAddToTree(xml)}
+	}
+	if !bytes.Equal(renderSlidePNG(t, data, opts, slide(plain)), renderSlidePNG(t, data, opts, slide(marked))) {
+		t.Fatal("editor markup changed the page")
+	}
+}

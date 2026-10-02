@@ -268,6 +268,43 @@ func (p *P) MapRunSegments(fn func(runs []*R) []*R) {
 	p.childOrder = newOrder
 }
 
+// ParagraphChild is one run, line break or text field of a paragraph; exactly
+// one field is set.
+type ParagraphChild struct {
+	R   *R
+	Br  *Br
+	Fld *Fld
+}
+
+// Children returns the paragraph's runs, line breaks and fields in document
+// order, the order they are written in.
+func (p *P) Children() []ParagraphChild {
+	out := make([]ParagraphChild, 0, len(p.R)+len(p.Br)+len(p.Fld))
+	if len(p.childOrder) == 0 {
+		for _, r := range p.R {
+			out = append(out, ParagraphChild{R: r})
+		}
+		for _, br := range p.Br {
+			out = append(out, ParagraphChild{Br: br})
+		}
+		for _, f := range p.Fld {
+			out = append(out, ParagraphChild{Fld: f})
+		}
+		return out
+	}
+	for _, ref := range p.childOrder {
+		switch {
+		case ref.kind == pChildR && ref.index < len(p.R):
+			out = append(out, ParagraphChild{R: p.R[ref.index]})
+		case ref.kind == pChildBr && ref.index < len(p.Br):
+			out = append(out, ParagraphChild{Br: p.Br[ref.index]})
+		case ref.kind == pChildFld && ref.index < len(p.Fld):
+			out = append(out, ParagraphChild{Fld: p.Fld[ref.index]})
+		}
+	}
+	return out
+}
+
 // isEmpty reports whether the paragraph has no children to marshal.
 func (p *P) isEmpty() bool {
 	return p.PPr == nil && len(p.R) == 0 && len(p.Br) == 0 && len(p.Fld) == 0 &&

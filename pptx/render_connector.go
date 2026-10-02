@@ -43,7 +43,7 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 		return nil, fmt.Errorf("%w: rotated, bent or curved connector", render.ErrUnsupported)
 	}
 	// A line has no interior, so a fill on it paints nothing.
-	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil || p.BwMode != "" {
+	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
 		return nil, fmt.Errorf("%w: connector fill", render.ErrUnsupported)
 	}
 	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
