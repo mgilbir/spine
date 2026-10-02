@@ -20,6 +20,8 @@ type TextLayout struct {
 	page   Page
 	budget prepareBudget
 	lines  int
+	// overflow lets rich lines run past their width; see AllowOverflow.
+	overflow bool
 }
 
 // TextLine contains owned glyph placements, measured in 1000 units per em.
@@ -38,6 +40,10 @@ func NewTextLayout(limits Limits) (*TextLayout, error) {
 	}
 	return &TextLayout{page: Page{limits: l}}, nil
 }
+
+// AllowOverflow lets RichLines return a line wider than its width, such as
+// an overlong word, marked as overflowing, instead of failing.
+func (t *TextLayout) AllowOverflow() { t.overflow = true }
 
 // PlainLines wraps a single horizontal ASCII paragraph using Forme's paragraph
 // breaker. Spaces are preserved. Tabs, hard breaks, discretionary characters,

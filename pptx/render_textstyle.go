@@ -456,13 +456,19 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
+	effects := false
 	if _, err = renderInherit("text effects", layers, func(r *dml.RPr) (bool, bool, error) {
 		if r != nil && (renderEffects(r.EffectLst) || r.EffectDag != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
-			return false, false, fmt.Errorf("%w: text effect or outline", render.ErrUnsupported)
+			effects = true
 		}
 		return false, false, nil
 	}, renderBuiltin(false)); err != nil {
 		return s, err
+	}
+	if effects {
+		if err = t.colors.approximate(fmt.Errorf("%w: text effects or outline left out", render.ErrUnsupported)); err != nil {
+			return s, err
+		}
 	}
 	if s.size, err = renderInherit("font size", layers, func(r *dml.RPr) (int32, bool, error) {
 		if r == nil || r.Sz == 0 {
@@ -535,7 +541,9 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 		return s, err
 	}
 	if baseline != 0 || spacing != 0 {
-		return s, fmt.Errorf("%w: baseline shift or character spacing", render.ErrUnsupported)
+		if err = t.colors.approximate(fmt.Errorf("%w: baseline shift or character spacing left out", render.ErrUnsupported)); err != nil {
+			return s, err
+		}
 	}
 	if s.kern, err = number("kerning", func(r *dml.RPr) (int32, bool) {
 		if r.Kern == nil {

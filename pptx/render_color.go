@@ -24,6 +24,19 @@ type renderColors struct {
 	theme       *dml.Theme
 	themeErr    error
 	themeLoaded bool
+	// approx, in best-effort mode, reports a detail of the shape being drawn
+	// that is drawn approximately or left out; nil in strict mode.
+	approx func(error)
+}
+
+// approximate reports err and returns nil in best-effort mode, and returns err
+// in strict mode.
+func (c *renderColors) approximate(err error) error {
+	if err == nil || c.approx == nil {
+		return err
+	}
+	c.approx(err)
+	return nil
 }
 
 var renderWhite = style.RGBA{R: 255, G: 255, B: 255, A: 1}

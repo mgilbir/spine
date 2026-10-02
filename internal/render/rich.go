@@ -40,6 +40,9 @@ type RichSegment struct {
 type RichLine struct {
 	Segments []RichSegment
 	Width    style.Unit
+	// Overflow marks a line wider than the wrapping width, which only a
+	// layout allowing overflow returns.
+	Overflow bool
 }
 
 // RichLines wraps a horizontal left-to-right paragraph whose spans may differ
@@ -252,10 +255,10 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if !ok {
 			return fmt.Errorf("%w: paragraph advance", ErrInvalid)
 		}
-		if actual > width {
+		if actual > width && !t.overflow {
 			return fmt.Errorf("%w: paragraph overflow", ErrUnsupported)
 		}
-		*result = append(*result, RichLine{Segments: segments, Width: actual})
+		*result = append(*result, RichLine{Segments: segments, Width: actual, Overflow: actual > width})
 		index, offset = next, nextByte
 	}
 	return nil

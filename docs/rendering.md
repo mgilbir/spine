@@ -77,8 +77,12 @@ group, is reported to `Warn` and left out; a shape whose text cannot be laid
 out is drawn without it; an unsupported background is drawn white; and
 problems outside any shape (unknown slide content, alternate content,
 extensions, charts and other graphic frames) are reported once. Animation and
-transitions are ignored. The page is then incomplete, and the rules below
-describe what is drawn. Cancellation, malformed parts and page-wide limits
+transitions are ignored. Some details are drawn approximately instead, and
+reported once per shape as such: shape, connector and text effects (shadows,
+glows, 3-D) are left out; baseline shifts and character spacing are ignored;
+text wider than its box, such as an overlong word, runs past it; and
+arrowheads are drawn as described for connectors. The page is then
+incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
 still fail.
 
 `slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
@@ -259,7 +263,10 @@ theme line style the connector's `lnRef` selects, its `phClr` taking the
 reference color, with any property the connector's own `a:ln` sets winning; an
 effect reference must select an empty theme effect style. Lines take flat,
 square or round caps and preset dashes with flat caps. Arrowheads fail: the
-specification names their sizes but not their geometry. Bent and curved
+specification names their sizes but not their geometry. In best-effort mode
+every head is drawn as a filled triangle whose tip is the line's end, sized
+like LibreOffice's (small, medium and large are two, three and five line
+widths, at least a pixel each), with the line stopping halfway into it. Bent and curved
 connectors fail, and like tables, connectors are drawn only from their parsed
 form without pending edits.
 
