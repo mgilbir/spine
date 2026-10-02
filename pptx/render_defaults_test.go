@@ -233,9 +233,12 @@ func TestRenderEmptyTextPaintsNothing(t *testing.T) {
 	if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": tail}); err != nil {
 		t.Fatalf("empty overflowing line: %v", err)
 	}
+	// A line break alone makes two empty lines.
+	if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, `<a:p><a:br><a:rPr sz="1200" b="0" i="0"><a:latin typeface="Fixture"/></a:rPr></a:br><a:endParaRPr sz="1200" b="0" i="0"><a:latin typeface="Fixture"/></a:endParaRPr></a:p>`)}); err != nil {
+		t.Fatalf("line break only: %v", err)
+	}
 	for name, body := range map[string]string{
 		"visible overflow": `<a:p>` + strings.Replace(run, `sz="1200"`, `sz="7200"`, 1) + `</a:p>`,
-		"line break only":  `<a:p><a:br><a:rPr sz="1200"/></a:br></a:p>`,
 	} {
 		if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, body)}); !errors.Is(err, render.ErrUnsupported) {
 			t.Fatalf("%s: %v", name, err)

@@ -137,12 +137,15 @@ type renderFrame struct {
 	margins TextMargins
 	anchor  enum.TextAnchor
 	grows   bool
+	// noWrap lays each line out at its natural width.
+	noWrap bool
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
 // inherits nothing: absent attributes take their schema defaults (top anchor,
-// square wrap, 0.1"/0.05" insets, no autofit).
-func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
+// square wrap, 0.1"/0.05" insets, no autofit). Properties this profile does
+// not draw are approximated through colors in best-effort mode.
+func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) {
 	f := renderFrame{margins: TextMargins{Left: 91440, Top: 45720, Right: 91440, Bottom: 45720}, anchor: enum.TextAnchorTop}
 	if bp == nil {
 		return f, nil
@@ -152,14 +155,44 @@ func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
 	case enum.TextAnchorMiddle, enum.TextAnchorBottom:
 		f.anchor = enum.TextAnchor(bp.Anchor)
 	default:
-		return f, fmt.Errorf("%w: justified or distributed text anchoring", render.ErrUnsupported)
+		if err := colors.approximate(fmt.Errorf("%w: justified or distributed text anchoring drawn top", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
 	}
-	if bp.Wrap != "" && bp.Wrap != "square" {
-		return f, fmt.Errorf("%w: text requires square wrapping", render.ErrUnsupported)
+	switch bp.Wrap {
+	case "", "square":
+	case "none":
+		f.noWrap = true
+	default:
+		return f, fmt.Errorf("%w: text wrapping", render.ErrInvalid)
 	}
-	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || bp.NumCol > 1 || (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") ||
-		renderTrue(bp.UpRight) || renderTrue(bp.AnchorCtr) || renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.PrstTxWarp != nil || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil || bp.ExtLst != nil {
-		return f, fmt.Errorf("%w: text body property", render.ErrUnsupported)
+	if bp.ExtLst != nil {
+		return f, fmt.Errorf("%w: text body extension", render.ErrUnsupported)
+	}
+	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || renderTrue(bp.UpRight) {
+		if err := colors.approximate(fmt.Errorf("%w: rotated or vertical text drawn horizontally", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
+	}
+	if bp.NumCol > 1 {
+		if err := colors.approximate(fmt.Errorf("%w: text columns drawn as one", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
+	}
+	if (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") {
+		if err := colors.approximate(fmt.Errorf("%w: clipped text drawn whole", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
+	}
+	if renderTrue(bp.AnchorCtr) {
+		if err := colors.approximate(fmt.Errorf("%w: horizontally centered text block drawn in place", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
+	}
+	if renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.PrstTxWarp != nil || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil {
+		if err := colors.approximate(fmt.Errorf("%w: text warp, 3-D or compatible line spacing left out", render.ErrUnsupported)); err != nil {
+			return f, err
+		}
 	}
 	for _, inset := range []struct {
 		v   *int64
@@ -208,7 +241,7 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if ph != nil {
 		bodyPr = ph.bodyPr(saved.BodyPr)
 	}
-	frame, err := renderBodyFrame(bodyPr)
+	frame, err := renderBodyFrame(bodyPr, styles.colors)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +287,7 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
-	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, breaker, fonts, styles, chain)
+	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, frame.noWrap, breaker, fonts, styles, chain)
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +296,8 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 
 // renderLayoutParagraphs wraps a text body's paragraphs in a content box of
 // the given left edge and width, returning them with their total height.
-func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, chain renderListChain) ([]renderBlock, float64, error) {
+// Without wrapping, each piece of a paragraph is one line however wide.
+func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, noWrap bool, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, chain renderListChain) ([]renderBlock, float64, error) {
 	blocks := make([]renderBlock, 0, len(saved.P))
 	height := 0.0
 	for pi, p := range saved.P {
@@ -273,13 +307,11 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if p == nil {
 			return nil, 0, fmt.Errorf("%w: nil paragraph", render.ErrInvalid)
 		}
-		if len(p.Br) > 0 || len(p.Fld) > 0 {
-			return nil, 0, fmt.Errorf("%w: hard break or field", render.ErrUnsupported)
-		}
-		if len(p.R) > fonts.nodes {
+		children := p.Children()
+		if len(children) > fonts.nodes {
 			return nil, 0, fmt.Errorf("%w: text runs", render.ErrLimit)
 		}
-		fonts.nodes -= len(p.R)
+		fonts.nodes -= len(children)
 		para, layers, err := styles.paragraph(saved, p, chain)
 		if err != nil {
 			return nil, 0, err
@@ -298,50 +330,97 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		}
 		width := renderUnit(content - para.marL - para.marR)
 		// Consecutive runs that shape alike form one span; runs differing only
-		// in paint are cut apart again by glyph cluster when painted.
+		// in paint are cut apart again by glyph cluster when painted. A field
+		// is a run showing its saved text. A line break ends a piece of the
+		// paragraph, which wraps on its own; spans never cross pieces.
 		var (
 			runs   []renderRunStyle
 			ends   []int // byte offset after each run
 			spans  []renderShaping
 			starts []int // byte offset where each span starts
 			texts  []string
+			pieces []int // span index where each piece after the first starts
 			text   strings.Builder
 		)
-		for _, r := range p.R {
-			if r == nil {
+		// mark sizes an empty piece by the properties of the break or
+		// paragraph end that closes it.
+		mark := func(rPr *dml.RPr) error {
+			first := 0
+			if n := len(pieces); n > 0 {
+				first = pieces[n-1]
+			}
+			if len(spans) > first {
+				return nil
+			}
+			end, err := styles.run(layers, rPr)
+			if err != nil {
+				return err
+			}
+			spans, starts, texts = append(spans, end.renderShaping), append(starts, text.Len()), append(texts, "")
+			return nil
+		}
+		for _, c := range children {
+			var (
+				rPr *dml.RPr
+				t   string
+			)
+			switch {
+			case c.R != nil:
+				rPr, t = c.R.RPr, c.R.T
+			case c.Fld != nil:
+				rPr, t = c.Fld.RPr, c.Fld.T
+			case c.Br != nil:
+				if err := mark(c.Br.RPr); err != nil {
+					return nil, 0, err
+				}
+				pieces = append(pieces, len(spans))
+				continue
+			default:
 				return nil, 0, fmt.Errorf("%w: nil run", render.ErrInvalid)
 			}
-			rs, err := styles.run(layers, r.RPr)
+			rs, err := styles.run(layers, rPr)
 			if err != nil {
 				return nil, 0, err
 			}
-			if rs.eastAsian && !renderASCII(r.T) {
+			if rs.eastAsian && !renderASCII(t) {
 				return nil, 0, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
 			}
-			if len(r.T) > fonts.opts.Limits.MaxRunBytes-text.Len() {
+			if len(t) > fonts.opts.Limits.MaxRunBytes-text.Len() {
 				return nil, 0, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
-			if n := len(spans); n > 0 && spans[n-1] == rs.renderShaping {
-				texts[n-1] += r.T
+			if n := len(spans); n > 0 && spans[n-1] == rs.renderShaping && (len(pieces) == 0 || pieces[len(pieces)-1] < n) {
+				texts[n-1] += t
 			} else {
-				spans, starts, texts = append(spans, rs.renderShaping), append(starts, text.Len()), append(texts, r.T)
+				spans, starts, texts = append(spans, rs.renderShaping), append(starts, text.Len()), append(texts, t)
 			}
-			text.WriteString(r.T)
+			text.WriteString(t)
 			runs = append(runs, rs)
 			ends = append(ends, text.Len())
 		}
-		// The end-of-paragraph mark sizes an empty paragraph; a paragraph with
-		// runs takes its line boxes from them, as LibreOffice's import does.
-		if len(runs) == 0 {
-			end, err := styles.run(layers, p.EndParaRPr)
+		// The end-of-paragraph mark sizes an empty paragraph or last piece; a
+		// piece with runs takes its line boxes from them, as LibreOffice's
+		// import does.
+		if err := mark(p.EndParaRPr); err != nil {
+			return nil, 0, err
+		}
+		wrap := width
+		if noWrap {
+			wrap = renderUnit(dml.EMU(1) << 30)
+		}
+		var lines []renderLine
+		bounds := append(append([]int{0}, pieces...), len(spans))
+		for k := 0; k+1 < len(bounds); k++ {
+			a, b := bounds[k], bounds[k+1]
+			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para.lineSpacing)
 			if err != nil {
 				return nil, 0, err
 			}
-			spans, starts, texts = []renderShaping{end.renderShaping}, []int{0}, []string{""}
-		}
-		lines, err := renderParagraphLines(ctx, breaker, fonts, spans, texts, width, para.lineSpacing)
-		if err != nil {
-			return nil, 0, err
+			for _, l := range piece {
+				for i := range l.Segments {
+					l.Segments[i].Span += a
+				}
+			}
+			lines = append(lines, piece...)
 		}
 		for _, l := range lines {
 			if l.Overflow {
@@ -612,11 +691,8 @@ func renderHasText(body *dml.TxBody) bool {
 		if p == nil {
 			continue
 		}
-		if len(p.Br) > 0 || len(p.Fld) > 0 {
-			return true
-		}
-		for _, r := range p.R {
-			if r != nil && r.T != "" {
+		for _, c := range p.Children() {
+			if c.Br != nil || c.Fld != nil || (c.R != nil && c.R.T != "") {
 				return true
 			}
 		}

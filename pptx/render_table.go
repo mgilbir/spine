@@ -159,7 +159,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 					return nil, fmt.Errorf("%w: text paragraphs", render.ErrLimit)
 				}
 				fonts.nodes -= len(body.P)
-				blocks, h, err := renderLayoutParagraphs(ctx, body, xs[c]+cl.margin[0], w-cl.margin[0]-cl.margin[2], breaker, fonts, styles, styles.shapeChain())
+				blocks, h, err := renderLayoutParagraphs(ctx, body, xs[c]+cl.margin[0], w-cl.margin[0]-cl.margin[2], false, breaker, fonts, styles, styles.shapeChain())
 				if err != nil {
 					return nil, err
 				}

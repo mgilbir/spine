@@ -523,7 +523,7 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) e
 	}
 	if t.GrpSpPr != nil {
 		g := t.GrpSpPr
-		if !renderRootTransform(g.Xfrm) || g.NoFill != nil || g.SolidFill != nil || g.GradFill != nil || g.BlipFill != nil || g.PattFill != nil || renderEffects(g.EffectLst) || g.EffectDag != nil || g.Scene3d != nil || g.ExtLst != nil || g.BwMode != "" {
+		if !renderRootTransform(g.Xfrm) || g.NoFill != nil || g.SolidFill != nil || g.GradFill != nil || g.BlipFill != nil || g.PattFill != nil || renderEffects(g.EffectLst) || g.EffectDag != nil || g.Scene3d != nil || g.ExtLst != nil {
 			return fmt.Errorf("%w: root group properties", render.ErrUnsupported)
 		}
 	}
@@ -560,7 +560,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
+	if p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
 		return nil, g, fmt.Errorf("%w: shape fill or geometry", render.ErrUnsupported)
 	}
 	if source == nil && (renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil) {
@@ -664,7 +664,20 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "idx"
 		case "xfrm":
 			attrs = "rot flipH flipV"
-		case "grpSp", "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody", "graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr", "cxnSp", "nvCxnSpPr", "cNvCxnSpPr", "style":
+		case "nvPr":
+			// Marks a shape the user drew on a layout; painting is the same.
+			attrs = "userDrawn"
+		case "cNvPicPr":
+			// An editor resize preference.
+			attrs = "preferRelativeResize"
+		case "spPr", "grpSpPr", "bg":
+			// Black-and-white modes apply only to black-and-white output.
+			attrs = "bwMode"
+		case "blipFill":
+			// Rotation with the shape and the stored DPI do not change an
+			// unrotated stretched picture.
+			attrs = "rotWithShape dpi"
+		case "grpSp", "cNvGrpSpPr", "nvGrpSpPr", "spTree", "nvSpPr", "nvPicPr", "pic", "sp", "bgPr", "clrMapOvr", "txBody", "graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr", "cxnSp", "nvCxnSpPr", "cNvCxnSpPr", "style":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -672,7 +685,8 @@ func slideRenderXML(el xml.StartElement) error {
 		switch el.Name.Local {
 		case "bodyPr":
 			// rtlCol orders columns; the single-column profile has one.
-			attrs = "wrap anchor lIns tIns rIns bIns rtlCol"
+			// The resolver checks the values of the rest.
+			attrs = "wrap anchor lIns tIns rIns bIns rtlCol rot spcFirstLastPara vertOverflow horzOverflow vert numCol spcCol fromWordArt anchorCtr forceAA upright compatLnSpc"
 		case "pPr", "defPPr", "lvl1pPr", "lvl2pPr", "lvl3pPr", "lvl4pPr", "lvl5pPr", "lvl6pPr", "lvl7pPr", "lvl8pPr", "lvl9pPr":
 			// East Asian breaking, hanging punctuation, font alignment within
 			// a uniformly sized line, and tab sizes for text without tabs do
@@ -688,6 +702,10 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
+		case "fld":
+			// A field is drawn with the text it was saved with.
+			attrs = "id type"
+		case "br":
 		case "buChar":
 			attrs = "char"
 		case "buFont":
@@ -753,7 +771,7 @@ func slideRenderXML(el xml.StartElement) error {
 		case "sysClr":
 			attrs = "val lastClr"
 		case "picLocks":
-			attrs = "noChangeAspect"
+			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType noCrop"
 		case "blip":
 			attrs = "cstate embed"
 		case "fillRect", "srcRect":
@@ -821,7 +839,7 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	return nil
 }
 func renderPictureProperties(p *dml.SpPr) error {
-	if p.BwMode != "" || p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
+	if p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
 		return fmt.Errorf("%w: picture shape properties", render.ErrUnsupported)
 	}
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
@@ -877,12 +895,13 @@ func (r *renderProfile) extension(node core.XMLNode) (bool, error) {
 	case node.Name.Local == "extLst":
 		owner, ok := renderExtensions[renderXMLKey(parent)]
 		if !ok || owner.list != node.Name.Space {
-			return true, fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
+			return true, fmt.Errorf("%w: XML placement %s in %s", render.ErrUnsupported, node.Name.Local, parent.Local)
 		}
 		if node.Occurrence > 1 {
 			return true, fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 		}
-		return true, renderExtensionAttrs(node.StartElement, "")
+		// mod only records that an editor changed the list.
+		return true, renderExtensionAttrs(node.StartElement, "mod")
 	case node.Name.Local == "ext" && parent.Local == "extLst" && parent.Space == node.Name.Space:
 		if len(node.Path) < 3 {
 			return true, fmt.Errorf("%w: extension owner", render.ErrInvalid)
@@ -954,9 +973,6 @@ func renderExtensionAllowed(owner renderExtensionOwner, uri string) bool {
 func renderModelExtensions(l *oxml.ExtensionList, owner string) error {
 	if l == nil {
 		return nil
-	}
-	if l.Mod != nil {
-		return fmt.Errorf("%w: extension list modification", render.ErrUnsupported)
 	}
 	for _, e := range l.Ext {
 		if !renderExtensionAllowed(renderExtensions[owner], e.URI) {
@@ -1067,11 +1083,11 @@ func slideRenderNode(node core.XMLNode) error {
 		parents := renderXMLParents[renderXMLKey(node.Name)]
 		parent := renderXMLKey(node.Path[len(node.Path)-2])
 		if !strings.Contains(" "+parents+" ", " "+parent+" ") {
-			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
+			return fmt.Errorf("%w: XML placement %s in %s", render.ErrUnsupported, node.Name.Local, node.Path[len(node.Path)-2].Local)
 		}
 	}
 	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp" || node.Name.Local == "grpSp")) ||
-		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
+		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -1091,6 +1107,11 @@ func slideRenderNode(node core.XMLNode) error {
 }
 func (r *renderProfile) inherited(node core.XMLNode) error {
 	if r.skipped(node) {
+		return nil
+	}
+	// Best effort draws a static page without animation or transitions.
+	if r.lenient && len(node.Path) == 2 && node.Name.Space == nsP && (node.Name.Local == "timing" || node.Name.Local == "transition") {
+		r.skipDepth = 2
 		return nil
 	}
 	if r.inShape(node) && r.approximated(node) {
@@ -1165,7 +1186,7 @@ const (
 
 var renderXMLParents = map[string]string{
 	"p:txBody": "p:sp", "a:bodyPr": "p:txBody a:txBody", "a:lstStyle": "p:txBody a:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
-	"a:p": "p:txBody a:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:endParaRPr": "a:p",
+	"a:p": "p:txBody a:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:br": "a:p", "a:fld": "a:p", "a:rPr": "a:r a:br a:fld", "a:t": "a:r a:fld", "a:endParaRPr": "a:p",
 	"a:defPPr": renderListParents, "a:lvl1pPr": renderListParents, "a:lvl2pPr": renderListParents, "a:lvl3pPr": renderListParents,
 	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
 	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,

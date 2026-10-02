@@ -53,6 +53,13 @@ func FuzzPptxRender(f *testing.F) {
 		if wrapped == nil {
 			t.Fatal("fixture")
 		}
+		// The lazy parse relies on Open having validated the part; best effort
+		// always reaches it, so keep to inputs Open accepts.
+		opened, e := OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))
+		if e != nil {
+			return
+		}
+		_ = opened.Close()
 		// Open-path fuzzers already cover eager PML parsing. Construct a lazy
 		// selected slide so this target exercises the renderer's preventive
 		// source gate before model projection, rather than an earlier parser.

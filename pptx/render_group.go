@@ -76,7 +76,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture 
 	}
 	local := renderIdentity
 	if p := g.GrpSpPr; p != nil {
-		if p.BwMode != "" || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.ExtLst != nil {
+		if p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.ExtLst != nil {
 			return nil, fmt.Errorf("%w: group fill or effect", render.ErrUnsupported)
 		}
 		if x := p.Xfrm; x != nil {

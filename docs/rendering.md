@@ -142,8 +142,12 @@ slide, layout and master XML is checked for unsupported content before a lossy
 model projection can hide it. Metadata that cannot change painted output is
 accepted: shape and slide creation ids, the decorative accessibility flag,
 editor guide lists, the picture local-DPI storage flag, run language, proofing,
-smart-tag and bookmark attributes, `rtlCol` on the single-column body, and
-master/layout header-footer flags (footer placeholders themselves still fail).
+smart-tag and bookmark attributes, `rtlCol` on the single-column body,
+master/layout header-footer flags (footer placeholders themselves still fail),
+editor locks and resize preferences, `userDrawn`, an extension list's `mod`
+flag, a picture fill's `rotWithShape` and `dpi`, and `bwMode`, which applies
+only to black-and-white output. Best effort also skips animation and
+transitions in layouts and masters.
 Any other extension URI, or a known URI under a different owner, fails. Empty
 effect lists, which PowerPoint writes where the schema requires effect
 properties, paint nothing; any effect in them fails. These source checks can conservatively reject a
@@ -163,8 +167,11 @@ including pending edits. A non-placeholder body inherits nothing, so absent
 attributes take their DrawingML defaults: top anchoring, square wrapping, and
 0.1"/0.05" left-right/top-bottom insets. Top, middle and bottom anchoring place
 the text block, whose height spans its paragraphs' spacing and full line
-heights; justified and distributed anchoring, other wrapping, and vertical,
-rotated or multi-column text fail. Shape autofit (`spAutoFit`) and unscaled
+heights. Without wrapping (`wrap="none"`) each line keeps its natural
+width, aligned in the box as wrapped text is. Justified and distributed
+anchoring, and vertical, rotated, clipped or multi-column text fail; best
+effort draws them top anchored, horizontal, whole and in one column, and
+ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and unscaled
 normal autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn; scaled autofit fails. A fixed frame fails
 when a line that draws glyphs measures past the bottom inset; an empty line may
@@ -226,7 +233,10 @@ touching spans of one color painted as one. Underline, strike, capitals, baselin
 effects and hyperlinks fail. Kerning applies from the resolved `kern` size,
 and is off when it is absent or zero. An empty paragraph takes its line box from
 its end-of-paragraph properties; a paragraph with runs takes it from them, as
-LibreOffice's import does. Rich styles, hard breaks, fields, tabs, bidi,
+LibreOffice's import does. A line break (`a:br`) starts a new line; an empty
+line takes its box from the break's properties, or after a trailing break
+from the end-of-paragraph properties. A field (`a:fld`) is drawn with the text
+it was saved with, which a viewer may update, such as a date. Rich styles, tabs, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML
