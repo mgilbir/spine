@@ -191,19 +191,27 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		var drawn []layout.Op
 		switch v := sh.(type) {
 		case *TextBox:
-			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: "rect"}
-			drawn, err = renderAutoShape(box, s.renderShapeProps(i), colors)
+			// A text box is written as a rectangle unless its source says
+			// otherwise.
+			props := s.renderShapeProps(i)
+			preset := "rect"
+			if props != nil && props.PrstGeom != nil {
+				preset = props.PrstGeom.Prst
+			}
+			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: preset}
+			var geometry renderGeometry
+			drawn, geometry, err = renderAutoShape(box, props, colors)
 			if err == nil && box.textFrame != nil {
 				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, box, textLayout, fonts, styles)
+				textOps, err = s.renderShapeText(ctx, i, box, geometry, textLayout, fonts, styles)
 				drawn = append(drawn, textOps...)
 			}
 		case *AutoShape:
-			base := s.renderShapeProps(i)
-			drawn, err = renderAutoShape(v, base, colors)
+			var geometry renderGeometry
+			drawn, geometry, err = renderAutoShape(v, s.renderShapeProps(i), colors)
 			if err == nil && v.textFrame != nil {
 				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, v, textLayout, fonts, styles)
+				textOps, err = s.renderShapeText(ctx, i, v, geometry, textLayout, fonts, styles)
 				drawn = append(drawn, textOps...)
 			}
 		case *Picture:
@@ -332,14 +340,15 @@ func renderInheritance(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	}
 	return nil
 }
-func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]layout.Op, error) {
+func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]layout.Op, renderGeometry, error) {
+	var g renderGeometry
 	p := &v.spPr
 	if source != nil {
 		if source.Xfrm == nil || source.Xfrm.Off == nil || source.Xfrm.Ext == nil {
-			return nil, fmt.Errorf("%w: inherited/missing shape geometry", render.ErrUnsupported)
+			return nil, g, fmt.Errorf("%w: inherited/missing shape geometry", render.ErrUnsupported)
 		}
 		if source.EffectLst != nil || source.EffectDag != nil || source.Scene3d != nil || source.Sp3d != nil || v.spPr.EffectLst != nil || v.spPr.EffectDag != nil || v.spPr.Scene3d != nil || v.spPr.Sp3d != nil {
-			return nil, fmt.Errorf("%w: shape effect", render.ErrUnsupported)
+			return nil, g, fmt.Errorf("%w: shape effect", render.ErrUnsupported)
 		}
 		copyProps := *source
 		if source.Ln != nil {
@@ -350,51 +359,46 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 		p = &copyProps
 	}
 	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.EffectLst != nil || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
-		return nil, fmt.Errorf("%w: shape fill/effect", render.ErrUnsupported)
+		return nil, g, fmt.Errorf("%w: shape fill/effect", render.ErrUnsupported)
 	}
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
-		return nil, fmt.Errorf("%w: shape transformation", render.ErrUnsupported)
-	}
-	// Without a style reference (checked by the caller), an absent fill, an
-	// absent outline, or an outline without a fill is none.
-	if l := p.Ln; l != nil && (l.SolidFill != nil || l.GradFill != nil || l.PattFill != nil) {
-		if l.NoFill != nil {
-			return nil, fmt.Errorf("%w: ambiguous shape stroke", render.ErrInvalid)
-		}
-		return nil, fmt.Errorf("%w: visible shape stroke", render.ErrUnsupported)
-	}
-	if p.PrstGeom != nil && p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0 {
-		return nil, fmt.Errorf("%w: shape adjustment", render.ErrUnsupported)
-	}
-	if v.presetGeometry != "rect" && v.presetGeometry != "ellipse" {
-		return nil, fmt.Errorf("%w: preset %s", render.ErrUnsupported, v.presetGeometry)
-	}
-	if p.NoFill != nil && p.SolidFill != nil {
-		return nil, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
-	}
-	if p.NoFill != nil || p.SolidFill == nil {
-		return nil, nil
-	}
-	c, err := colors.solid(p.SolidFill, nil)
-	if err != nil {
-		return nil, err
+		return nil, g, fmt.Errorf("%w: shape transformation", render.ErrUnsupported)
 	}
 	x, y := v.Position()
 	w, h := v.Size()
 	if w < 0 || h < 0 {
-		return nil, fmt.Errorf("%w: shape extent", render.ErrInvalid)
+		return nil, g, fmt.Errorf("%w: shape extent", render.ErrInvalid)
 	}
-	rect := layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(w), H: renderUnit(h)}
-	if v.presetGeometry == "rect" {
-		return []layout.Op{layout.FillRect{Rect: rect, Color: c}}, nil
+	g, err := renderPresetGeometry(v.presetGeometry, p.PrstGeom, x, y, w, h)
+	if err != nil {
+		return nil, g, err
 	}
-	cx, okX := style.FromPx(rect.X.Px() + rect.W.Px()/2)
-	cy, okY := style.FromPx(rect.Y.Px() + rect.H.Px()/2)
-	if !okX || !okY {
-		return nil, fmt.Errorf("%w: ellipse center", render.ErrLimit)
+	if p.NoFill != nil && p.SolidFill != nil {
+		return nil, g, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
 	}
-	path := layout.Path{{Op: layout.ArcTo, Center: layout.Point{X: cx, Y: cy}, RadiusX: rect.W / 2, RadiusY: rect.H / 2, SweepAngle: 360}, {Op: layout.ClosePath}}
-	return []layout.Op{layout.FillPath{Path: path, Color: c}}, nil
+	// Without a style reference (checked by the caller), an absent fill, an
+	// absent outline, or an outline without a fill is none.
+	var ops []layout.Op
+	if p.NoFill == nil && p.SolidFill != nil {
+		c, err := colors.solid(p.SolidFill, nil)
+		if err != nil {
+			return nil, g, err
+		}
+		if ops, err = g.fill(c); err != nil {
+			return nil, g, err
+		}
+	}
+	if l := p.Ln; l != nil && (l.SolidFill != nil || l.GradFill != nil || l.PattFill != nil) {
+		if l.NoFill != nil {
+			return nil, g, fmt.Errorf("%w: ambiguous shape stroke", render.ErrInvalid)
+		}
+		outline, err := g.stroke(l, colors)
+		if err != nil {
+			return nil, g, err
+		}
+		ops = append(ops, outline...)
+	}
+	return ops, g, nil
 }
 func slideRenderXML(el xml.StartElement) error {
 	var attrs string
@@ -437,6 +441,16 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
+		case "gd":
+			attrs = "name fmla"
+		case "prstDash":
+			attrs = "val"
+		case "miter":
+			attrs = "lim"
+		case "headEnd", "tailEnd":
+			// Line ends apply to open paths; the drawn presets are closed.
+			attrs = "type w len"
+		case "round", "bevel":
 		case "tabLst", "uLnTx", "uFillTx":
 		case "spcPct", "spcPts":
 			attrs = "val"
@@ -690,7 +704,7 @@ func slideRenderNode(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
 		}
 	}
-	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab"))
+	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab" || node.Name.Local == "gd"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -790,7 +804,8 @@ var renderXMLParents = map[string]string{
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
-	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
+	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:gd": "a:avLst",
+	"a:prstDash": "a:ln", "a:round": "a:ln", "a:bevel": "a:ln", "a:miter": "a:ln", "a:headEnd": "a:ln", "a:tailEnd": "a:ln", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
 	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
 	"a:highlight": renderRunParents,
 	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",

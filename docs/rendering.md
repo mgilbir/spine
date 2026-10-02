@@ -75,10 +75,17 @@ an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid fill, no fill, or a theme
 background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
-Rectangles and ellipses may have a solid fill or none and no outline. A shape
+Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
+and ellipses may have a solid fill or none, and a solid outline or none. A shape
 has no style reference (`p:style`, which fails), so an absent fill or outline,
-or an outline without a fill, is none, as DrawingML defines; a visible outline
-fails. Uncropped embedded PNG/JPEG pictures with
+or an outline without a fill, is none, as DrawingML defines. A solid outline
+needs an explicit width, a single line, and no dashes beyond `solid`; it is
+centered on the boundary or inset (`algn="in"`) and painted as the even-odd ring
+between the boundary's offsets, so rounded corners stay exact arcs. Sharp
+corners need an explicit miter, bevel or round join, with a miter limit below
+√2 beveling. Offsetting an ellipse does not yield an ellipse, so only circles
+are outlined. Text lays out in the preset's text rectangle, which for rounded
+rectangles and ellipses is inset from the corners. Uncropped embedded PNG/JPEG pictures with
 rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
