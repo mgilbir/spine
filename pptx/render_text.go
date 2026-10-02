@@ -330,7 +330,16 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err != nil {
 			return nil, 0, err
 		}
-		blocks = append(blocks, renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width})
+		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
+		if text.Len() > 0 && para.bullet.char != "" {
+			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width); err != nil {
+				return nil, 0, err
+			}
+		} else if text.Len() > 0 && para.indent != 0 {
+			// Without a bullet the first line would start apart from the rest.
+			return nil, 0, fmt.Errorf("%w: first-line indent", render.ErrUnsupported)
+		}
+		blocks = append(blocks, block)
 		height += float64(para.before+para.after) / float64(dml.EMUsPerPixel)
 		for _, line := range lines {
 			height += line.height
@@ -370,6 +379,19 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 			if para.align == enum.TextAlignRight {
 				xp += width.Px() - line.Width.Px()
 			}
+			if b.bullet != nil && covered == 0 {
+				bx, bxok := style.FromPx(b.bullet.x)
+				by, byok := style.FromPx(top + line.ascent)
+				if !bxok || !byok {
+					return nil, render.ErrLimit
+				}
+				if fonts.opts.Limits.MaxOperations-fonts.ops < 1 {
+					return nil, fmt.Errorf("%w: text drawing operations", render.ErrLimit)
+				}
+				fonts.ops++
+				sg := b.bullet.seg
+				ops = append(ops, layout.DrawGlyphs{At: layout.Point{X: bx, Y: by}, Text: sg.Text, Glyphs: sg.Glyphs, Face: sg.Face, Size: sg.Size, Color: b.bullet.color})
+			}
 			for _, sg := range line.Segments {
 				start := b.starts[sg.Span] + sg.Offset
 				if start != covered || !strings.HasPrefix(b.text[start:], sg.Text) {
@@ -401,6 +423,7 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 
 // renderBlock is one laid-out paragraph awaiting vertical placement.
 type renderBlock struct {
+	bullet *renderBulletGlyph
 	para   renderParaStyle
 	runs   []renderRunStyle
 	ends   []int
@@ -587,4 +610,49 @@ func renderLineDraws(line renderLine) bool {
 		}
 	}
 	return false
+}
+
+// renderBulletGlyph is a laid-out bullet, drawn on its paragraph's first
+// baseline at x pixels.
+type renderBulletGlyph struct {
+	seg   core.RichSegment
+	x     float64
+	color style.RGBA
+}
+
+// renderLayoutBullet shapes a paragraph's bullet. It hangs in the first line's
+// negative indent, which must hold it, so the text of every line starts at
+// the left margin; a bullet past it would push the first line to a tab stop,
+// whose placement this profile does not claim. The bullet may not raise its
+// line.
+func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0 dml.EMU, width style.Unit) (*renderBulletGlyph, error) {
+	b := para.bullet
+	shaping := renderShaping{font: first.font, bold: first.bold, italic: first.italic}
+	if b.font != "" {
+		shaping.font, shaping.bold, shaping.italic = b.font, false, false
+	}
+	if b.points > 0 {
+		shaping.size = b.points
+	} else {
+		shaping.size = int32(int64(first.size) * int64(b.size) / 100000)
+	}
+	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para.lineSpacing)
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) != 1 || len(lines[0].Segments) != 1 {
+		return nil, fmt.Errorf("%w: bullet layout", render.ErrUnsupported)
+	}
+	bullet := lines[0]
+	if bullet.Width.Px() > -float64(para.indent)/float64(dml.EMUsPerPixel) {
+		return nil, fmt.Errorf("%w: bullet wider than its hanging indent", render.ErrUnsupported)
+	}
+	if bullet.ascent > line.ascent || bullet.descent > line.descent {
+		return nil, fmt.Errorf("%w: bullet taller than its line", render.ErrUnsupported)
+	}
+	color := first.color
+	if b.ownColor {
+		color = b.color
+	}
+	return &renderBulletGlyph{seg: bullet.Segments[0], x: float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel), color: color}, nil
 }

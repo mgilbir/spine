@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/forme/fonts/notosans"
+	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -108,13 +110,6 @@ func TestRenderRejectsUnsupportedPlaceholders(t *testing.T) {
 		slide  string
 		extend func(map[string]func(string) string)
 	}{
-		// Body text inherits bullets from the master body style.
-		"bullet": {slide: renderPlaceholderSp(`<p:ph idx="1"/>`, `<a:xfrm><a:off x="0" y="0"/><a:ext cx="457200" cy="457200"/></a:xfrm>`, body), extend: func(r map[string]func(string) string) {
-			prev := r[renderMasterPart]
-			r[renderMasterPart] = func(s string) string {
-				return regexp.MustCompile(`<p:bodyStyle>.*?</p:bodyStyle>`).ReplaceAllLiteralString(prev(s), `<p:bodyStyle><a:lvl1pPr marL="228600" indent="-228600"><a:buFont typeface="Arial"/><a:buChar char="•"/><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl1pPr></p:bodyStyle>`)
-			}
-		}},
 		"without geometry": {slide: renderPlaceholderSp(`<p:ph type="hdr" idx="7"/>`, ``, body)},
 		"ambiguous layout match": {slide: renderPlaceholderSp(`<p:ph type="title"/>`, ``, body), extend: func(r map[string]func(string) string) {
 			prev := r[renderLayoutPart]
@@ -133,5 +128,34 @@ func TestRenderRejectsUnsupportedPlaceholders(t *testing.T) {
 		if _, err := renderRewrittenPNG(t, data, opts, rewrites); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestRenderBodyPlaceholderBullets(t *testing.T) {
+	body := renderPlaceholderSp(`<p:ph idx="1"/>`, `<a:xfrm><a:off x="38100" y="38100"/><a:ext cx="457200" cy="457200"/></a:xfrm>`, `<a:p><a:r><a:rPr lang="en-US"/><a:t>A</a:t></a:r></a:p>`)
+	body = strings.Replace(body, `<a:bodyPr/>`, `<a:bodyPr lIns="0" tIns="0" rIns="0" bIns="0"/>`, 1)
+	data, _, rewrites := renderTitleDeck(t, body)
+	prev := rewrites[renderMasterPart]
+	rewrites[renderMasterPart] = func(s string) string {
+		return regexp.MustCompile(`<p:bodyStyle>.*?</p:bodyStyle>`).ReplaceAllLiteralString(prev(s), `<p:bodyStyle><a:lvl1pPr marL="228600" indent="-228600" algn="l"><a:lnSpc><a:spcPct val="90000"/></a:lnSpc><a:spcBef><a:spcPts val="1000"/></a:spcBef><a:buFont typeface="Arial"/><a:buChar char="•"/><a:defRPr sz="1200" kern="1200"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl1pPr></p:bodyStyle>`)
+	}
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := render.Options{Fonts: func(context.Context, render.FontRequest) (*shape.Face, error) { return noto, nil }}
+	// Space before the first paragraph is undocumented; the slide sets none.
+	slide := rewrites["ppt/slides/slide1.xml"]
+	rewrites["ppt/slides/slide1.xml"] = func(s string) string {
+		return strings.Replace(slide(s), `<a:p><a:r>`, `<a:p><a:pPr><a:spcBef><a:spcPts val="0"/></a:spcBef></a:pPr><a:r>`, 1)
+	}
+	got, err := renderRewrittenPNG(t, data, opts, rewrites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dark := func(r, g, b uint8) bool { return r < 128 && g < 128 && b < 128 }
+	// The placeholder's text starts at x 4: the bullet hangs at 4-28.
+	if !renderInk(t, got, 4, 4, 16, 24, dark) || !renderInk(t, got, 28, 4, 44, 24, dark) {
+		t.Fatal("bulleted body text missing")
 	}
 }

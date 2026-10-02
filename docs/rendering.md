@@ -181,8 +181,15 @@ default text style counts toward the source budget.
 The resolved paragraph must be left, centered or right aligned with percentage
 line spacing, point-based space before and after (none before the first
 paragraph, whose treatment depends on undocumented `spcFirstLastPara`
-behavior), no bullet, no indent, left/right margins within the box, and
-left-to-right Latin word breaking. Runs may differ in font family, size (1–4000
+behavior), left/right margins within the box, and left-to-right Latin word
+breaking. A first-line indent needs a character bullet, which hangs in it: the
+bullet is drawn at the margin plus the (negative) indent on the first baseline
+and every line's text starts at the margin, so the indent must hold the
+bullet; a bullet past it would push the text to a tab stop this profile does
+not place. Bullet character, font (`buFont`, or the text's), size (`buSzPct`,
+`buSzPts`, or the text's) and color (`buClr`, or the first run's) inherit
+separately; a bullet taller than its line fails, numbered and picture bullets
+fail, and an empty paragraph shows no bullet. Runs may differ in font family, size (1–4000
 pt), bold/italic setting and kerning; consecutive runs that agree on these shape
 as one span. Break opportunities come from the whole paragraph, while shaping
 context stays within a span, so no glyph or contextual form crosses a change of

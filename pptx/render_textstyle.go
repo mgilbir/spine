@@ -45,6 +45,21 @@ type renderParaStyle struct {
 	lineSpacing   int32 // 100000 is 100%
 	before, after dml.EMU
 	marL, marR    dml.EMU
+	indent        dml.EMU // first line offset from marL; negative hangs
+	bullet        renderBullet
+}
+
+// renderBullet is a paragraph's character bullet; char is empty for none.
+type renderBullet struct {
+	char string
+	// font is the bullet font, or empty to follow the text's.
+	font string
+	// size is a percentage of the text size (100000 is 100%), or zero when
+	// points is set.
+	size, points int32
+	// color is the bullet color, unless it follows the text's.
+	color    style.RGBA
+	ownColor bool
 }
 
 // renderRunStyle is a run's resolved appearance: the properties that shape it,
@@ -380,22 +395,11 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	if err != nil {
 		return s, nil, err
 	}
-	if marL < 0 || marR < 0 || indent != 0 {
+	if marL < 0 || marR < 0 || marL+indent < 0 {
 		return s, nil, fmt.Errorf("%w: paragraph indentation", render.ErrUnsupported)
 	}
-	s.marL, s.marR = dml.EMU(marL), dml.EMU(marR)
-	bullet, err := renderInherit("bullet", layers, func(pp *dml.PPr) (bool, bool, error) {
-		switch {
-		case pp == nil:
-			return false, false, nil
-		case pp.BuNone != nil:
-			return false, true, nil
-		case pp.BuChar != nil || pp.BuAutoNum != nil || pp.BuBlip != nil:
-			return true, true, nil
-		}
-		return false, false, nil
-	}, renderBuiltin(false))
-	if err != nil {
+	s.marL, s.marR, s.indent = dml.EMU(marL), dml.EMU(marR), dml.EMU(indent)
+	if s.bullet, err = t.bullet(layers); err != nil {
 		return s, nil, err
 	}
 	flag := func(name string, pick func(*dml.PPr) *bool) (bool, error) {
@@ -415,8 +419,8 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	if err != nil {
 		return s, nil, err
 	}
-	if bullet || rtl || latinBreak {
-		return s, nil, fmt.Errorf("%w: bullet, right-to-left or Latin-break paragraph", render.ErrUnsupported)
+	if rtl || latinBreak {
+		return s, nil, fmt.Errorf("%w: right-to-left or Latin-break paragraph", render.ErrUnsupported)
 	}
 	return s, layers, nil
 }
@@ -610,4 +614,87 @@ func renderEastAsian(tag string) bool {
 		return true
 	}
 	return false
+}
+
+// bullet resolves a paragraph's bullet. Each bullet property inherits on its
+// own. Numbered and picture bullets fail.
+func (t *renderTextStyles) bullet(layers [][]renderLayer[*dml.PPr]) (renderBullet, error) {
+	var b renderBullet
+	kind, err := renderInherit("bullet", layers, func(pp *dml.PPr) (string, bool, error) {
+		switch {
+		case pp == nil:
+			return "", false, nil
+		case pp.BuNone != nil:
+			return "", true, nil
+		case pp.BuChar != nil:
+			return pp.BuChar.Char, true, nil
+		case pp.BuAutoNum != nil || pp.BuBlip != nil:
+			return "", false, fmt.Errorf("%w: numbered or picture bullet", render.ErrUnsupported)
+		}
+		return "", false, nil
+	}, renderBuiltin(""))
+	if err != nil || kind == "" {
+		return b, err
+	}
+	b.char = kind
+	if b.font, err = renderInherit("bullet font", layers, func(pp *dml.PPr) (string, bool, error) {
+		switch {
+		case pp == nil:
+			return "", false, nil
+		case pp.BuFontTx != nil:
+			return "", true, nil
+		case pp.BuFont != nil:
+			v, err := t.typeface(pp.BuFont.Typeface)
+			return v, err == nil, err
+		}
+		return "", false, nil
+	}, renderBuiltin("")); err != nil {
+		return b, err
+	}
+	type size struct{ pct, pts int32 }
+	sz, err := renderInherit("bullet size", layers, func(pp *dml.PPr) (size, bool, error) {
+		switch {
+		case pp == nil:
+			return size{}, false, nil
+		case pp.BuSzTx != nil:
+			return size{pct: 100000}, true, nil
+		case pp.BuSzPct != nil:
+			if v := pp.BuSzPct.Val.Int32(); v > 0 {
+				return size{pct: v}, true, nil
+			}
+			return size{}, false, fmt.Errorf("%w: bullet size", render.ErrInvalid)
+		case pp.BuSzPts != nil:
+			if pp.BuSzPts.Val > 0 {
+				return size{pts: pp.BuSzPts.Val}, true, nil
+			}
+			return size{}, false, fmt.Errorf("%w: bullet size", render.ErrInvalid)
+		}
+		return size{}, false, nil
+	}, renderBuiltin(size{pct: 100000}))
+	if err != nil {
+		return b, err
+	}
+	b.size, b.points = sz.pct, sz.pts
+	type paint struct {
+		own bool
+		c   style.RGBA
+	}
+	color, err := renderInherit("bullet color", layers, func(pp *dml.PPr) (paint, bool, error) {
+		switch {
+		case pp == nil:
+			return paint{}, false, nil
+		case pp.BuClrTx != nil:
+			return paint{}, true, nil
+		case pp.BuClr != nil:
+			c := pp.BuClr
+			v, err := t.colors.color(renderColorOf(c.SrgbClr, c.SchemeClr, c.SysClr, c.ScRgbClr != nil, c.HslClr != nil, c.PrstClr != nil), nil)
+			return paint{own: true, c: v}, err == nil, err
+		}
+		return paint{}, false, nil
+	}, renderBuiltin(paint{}))
+	if err != nil {
+		return b, err
+	}
+	b.ownColor, b.color = color.own, color.c
+	return b, nil
 }
