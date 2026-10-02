@@ -177,6 +177,7 @@ const (
 	ExtURIImgProps       = "{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B}"
 	ExtURISvgBlip        = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
 	ExtURIThemeFamily    = "{05A4C25C-085E-4340-85A3-A5531E510DB2}"
+	ExtURIDecorative     = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}"
 	ExtURIDataModelExt   = "http://schemas.microsoft.com/office/drawing/2008/diagram"
 
 	// PresentationML extension URIs (p14 - PowerPoint 2010)
