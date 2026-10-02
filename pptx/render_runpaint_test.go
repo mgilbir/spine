@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/forme/fonts/notosans"
+	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -84,5 +86,27 @@ func TestRenderRejectsRunsThatShapeApart(t *testing.T) {
 		if !errors.Is(err, render.ErrUnsupported) {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestRenderEuropeanText(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) { return noto, nil }
+	text := func(runs string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, `<a:p>`+runs+`</a:p>`)}
+	}
+	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>Cliënt – “Ωμέγα”</a:t></a:r>`)); err != nil {
+		t.Fatal(err)
+	}
+	// A combining mark in its own run shapes with the letter before it.
+	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>e</a:t></a:r><a:r><a:rPr sz="800"/><a:t>`+"\u0301"+`</a:t></a:r>`)); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("mark split from its letter: %v", err)
+	}
+	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>`+"\u05e9\u05dc\u05d5\u05dd"+`</a:t></a:r>`)); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("right-to-left text: %v", err)
 	}
 }

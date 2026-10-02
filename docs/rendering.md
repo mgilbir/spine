@@ -121,7 +121,7 @@ toward `MaxImages`.
 Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
 
-Plain horizontal ASCII text is supported in non-placeholder rectangles and
+Plain horizontal left-to-right text is supported in non-placeholder shapes and
 text boxes. Provide `render.Options.Fonts`; the renderer performs no ambient
 font discovery. The renderer lays out the text body a save would write,
 including pending edits. A non-placeholder body inherits nothing, so absent
@@ -164,7 +164,11 @@ effects and hyperlinks fail. Kerning applies from the resolved `kern` size,
 and is off when it is absent or zero. An empty paragraph takes its line box from
 its end-of-paragraph properties; a paragraph with runs takes it from them, as
 LibreOffice's import does. Rich styles, hard breaks, fields, tabs, bidi,
-non-ASCII characters and unresolved fonts fail.
+unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
+combining diacritics, Latin-1, general punctuation, currency and letterlike
+symbols, which DrawingML draws with the Latin font; other characters, including
+right-to-left and East Asian text, soft hyphens, controls and format characters,
+fail.
 
 Forme measures wrapping and shapes final lines under cumulative budgets. Native
 line metrics use the supplied font's hhea ascent, descent and line gap; baseline
