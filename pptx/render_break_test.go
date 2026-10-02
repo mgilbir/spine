@@ -84,3 +84,32 @@ func TestRenderBreaksAndFields(t *testing.T) {
 		t.Fatalf("vertical text warnings: %q", warnings)
 	}
 }
+
+func TestRenderTextScalingAndSpacing(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	draw := func(bodyPr, paragraphs string) []byte {
+		t.Helper()
+		rewrite := renderBody(`<a:lstStyle/>`, paragraphs)
+		return renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			s = rewrite(s)
+			if bodyPr != "" {
+				s = strings.Replace(s, `<a:noAutofit/>`, bodyPr, 1)
+			}
+			return s
+		}})
+	}
+	plain := `<a:p>` + renderPlainRun + `</a:p>`
+	_, top, _, bottom := renderInkBounds(t, draw("", plain))
+	_, sTop, _, sBottom := renderInkBounds(t, draw(`<a:normAutofit fontScale="50000"/>`, plain))
+	if full, half := bottom-top, sBottom-sTop; half*2 > full+2 || half*2 < full-2 {
+		t.Fatalf("font scale: glyph %dpx tall, scaled %dpx", full, half)
+	}
+	// An exact 40pt line, drawn approximately in best effort, is taller than
+	// the 18pt text's natural line, so its glyphs sit lower.
+	opts.Warn = func(error) {}
+	_, normal, _, _ := renderInkBounds(t, draw("", plain))
+	_, exact, _, _ := renderInkBounds(t, draw("", `<a:p><a:pPr><a:lnSpc><a:spcPts val="4000"/></a:lnSpc></a:pPr>`+renderPlainRun+`</a:p>`))
+	if exact <= normal+10 {
+		t.Fatalf("exact spacing: glyph top at %d, normally %d", exact, normal)
+	}
+}

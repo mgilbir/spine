@@ -185,11 +185,13 @@ heights. Without wrapping (`wrap="none"`) each line keeps its natural
 width, aligned in the box as wrapped text is. Justified and distributed
 anchoring, and vertical, rotated, clipped or multi-column text fail; best
 effort draws them top anchored, horizontal, whole and in one column, and
-ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and unscaled
-normal autofit render at the stored extent PowerPoint fitted, and a line that
-measures below it is still drawn; scaled autofit fails. A fixed frame fails
-when a line that draws glyphs measures past the bottom inset; an empty line may
-hang below unseen. A body without characters paints nothing and is not laid
+ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
+autofit render at the stored extent PowerPoint fitted, and a line that
+measures below it is still drawn. Normal autofit's stored `fontScale` scales
+every run's size, rounded to hundredths of a point, and its `lnSpcReduction`
+reduces percentage line spacing. A fixed frame fails when a line that draws
+glyphs measures past the bottom inset, and best effort draws the text past
+it; an empty line may hang below unseen. A body without characters paints nothing and is not laid
 out, so its fonts need not resolve.
 Slide placeholders inherit from the layout placeholder with the same `idx`
 (of the same type when several share it, or the only one of the same type when
@@ -201,8 +203,7 @@ first, and the list styles chain slide, layout and master placeholder, then
 the master's title, body or other text style. Whether the presentation default
 text style follows is unspecified, so the result must agree with and without
 it. A matched layout or master placeholder must be free of unsupported content
-outside its prompt paragraphs; placeholders with field
-text fail, and a placeholder with no geometry anywhere is invalid. An edited
+outside its prompt paragraphs; field placeholders fail, and a placeholder with no geometry anywhere is invalid. An edited
 placeholder renders as a save writes it. A spacing percentage of zero is
 accepted as no spacing.
 
@@ -224,7 +225,11 @@ default text style counts toward the source budget.
 The resolved paragraph must be left, centered or right aligned with percentage
 line spacing, point-based space before and after (none before the first
 paragraph, whose treatment depends on undocumented `spcFirstLastPara`
-behavior), left/right margins within the box, and left-to-right Latin word
+behavior). Best effort draws justified and distributed paragraphs left
+aligned; an exact line height (`spcPts`) with the line's glyphs keeping their
+ascent-to-descent proportion; space in percent of a line as that share of the
+first or last line's height; and space before the first paragraph as given.
+The paragraph also needs left/right margins within the box, and left-to-right Latin word
 breaking. A first-line indent needs a character bullet, which hangs in it: the
 bullet is drawn at the margin plus the (negative) indent on the first baseline
 and every line's text starts at the margin, so the indent must hold the
@@ -392,7 +397,9 @@ Repeat `-font` for additional families or styles, e.g.
 `-font 'Calibri:bold=fonts/Calibri-Bold.ttf'`. Files are loaded explicitly through
 Forme, with at most 32 mappings and 32 MiB aggregate font input. No host fonts
 are searched. `-fallback-noto` explicitly substitutes embedded Noto Sans for
-unresolved regular faces; bold/italic still require mappings. Substitution can
+unresolved regular faces. Strict, bold and italic faces require mappings;
+otherwise a missing bold or italic face is drawn with the family's regular
+face, or the regular fallback, with a warning. Substitution can
 change wrapping and overflow.
 
 `-shape-work` bounds shaping per slide, page or sheet in the conservative lookup

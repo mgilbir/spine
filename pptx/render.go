@@ -764,7 +764,9 @@ func slideRenderXML(el xml.StartElement) error {
 		case "tabLst", "uLnTx", "uFillTx":
 		case "spcPct", "spcPts":
 			attrs = "val"
-		case "p", "r", "t", "lstStyle", "noAutofit", "spAutoFit", "normAutofit", "buNone", "lnSpc", "spcBef", "spcAft":
+		case "normAutofit":
+			attrs = "fontScale lnSpcReduction"
+		case "p", "r", "t", "lstStyle", "noAutofit", "spAutoFit", "buNone", "lnSpc", "spcBef", "spcAft":
 		case "xfrm":
 			attrs = "rot flipH flipV"
 		case "off", "chOff":
@@ -1104,6 +1106,11 @@ func slideRenderNode(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s in %s", render.ErrUnsupported, node.Name.Local, node.Path[len(node.Path)-2].Local)
 		}
 	}
+	// A field's own paragraph properties are admitted only empty.
+	if n := len(node.Path); n >= 3 && node.Path[n-2] == (xml.Name{Space: nsA, Local: "fld"}) && node.Name == (xml.Name{Space: nsA, Local: "pPr"}) && len(node.Attr) > 0 ||
+		n >= 3 && node.Path[n-2] == (xml.Name{Space: nsA, Local: "pPr"}) && node.Path[n-3] == (xml.Name{Space: nsA, Local: "fld"}) {
+		return fmt.Errorf("%w: field paragraph properties", render.ErrUnsupported)
+	}
 	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp" || node.Name.Local == "grpSp")) ||
 		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gs" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
@@ -1214,7 +1221,7 @@ func init() {
 
 var renderXMLParents = map[string]string{
 	"p:txBody": "p:sp", "a:bodyPr": "p:txBody a:txBody", "a:lstStyle": "p:txBody a:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
-	"a:p": "p:txBody a:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:br": "a:p", "a:fld": "a:p", "a:rPr": "a:r a:br a:fld", "a:t": "a:r a:fld", "a:endParaRPr": "a:p",
+	"a:p": "p:txBody a:txBody", "a:pPr": "a:p a:fld", "a:r": "a:p", "a:br": "a:p", "a:fld": "a:p", "a:rPr": "a:r a:br a:fld", "a:t": "a:r a:fld", "a:endParaRPr": "a:p",
 	"a:defPPr": renderListParents, "a:lvl1pPr": renderListParents, "a:lvl2pPr": renderListParents, "a:lvl3pPr": renderListParents,
 	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
 	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,
@@ -1243,7 +1250,7 @@ var renderXMLParents = map[string]string{
 	"a:headEnd": renderLineParents, "a:tailEnd": renderLineParents, "a:noFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents,
 	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs,
 	"a:highlight": renderRunParents,
-	"a:ln": "p:spPr",
+	"a:ln": "p:spPr " + renderRunParents,
 	"a:gradFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
 	"a:lin": "a:gradFill", "a:path": "a:gradFill", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:srcRect": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",

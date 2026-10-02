@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"math"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -40,13 +41,23 @@ type renderTextStyles struct {
 	loaded          bool
 	err             error
 	other, defaults *dml.LstStyle
+
+	// fontScale and lnSpcReduction are the normal autofit of the body being
+	// laid out, in thousandths of a percent; zero scale is none.
+	fontScale, lnSpcReduction int32
 }
 
 // renderParaStyle is a paragraph's resolved layout.
 type renderParaStyle struct {
 	align         enum.TextAlign
 	lineSpacing   int32 // 100000 is 100%
+	// lineFixed, when positive, is an exact line height that replaces the
+	// percentage.
+	lineFixed     dml.EMU
 	before, after dml.EMU
+	// beforePct and afterPct are spacing in percent of the paragraph's first
+	// and last line heights (100000 is one line), added to before and after.
+	beforePct, afterPct int32
 	marL, marR    dml.EMU
 	indent        dml.EMU // first line offset from marL; negative hangs
 	bullet        renderBullet
@@ -331,60 +342,94 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	}, renderBuiltin(enum.TextAlignLeft)); err != nil {
 		return s, nil, err
 	}
-	if s.align != enum.TextAlignLeft && s.align != enum.TextAlignCenter && s.align != enum.TextAlignRight {
-		return s, nil, fmt.Errorf("%w: paragraph alignment", render.ErrUnsupported)
+	switch s.align {
+	case enum.TextAlignLeft, enum.TextAlignCenter, enum.TextAlignRight:
+	default:
+		if err = t.colors.approximate(fmt.Errorf("%w: justified or distributed text drawn left aligned", render.ErrUnsupported)); err != nil {
+			return s, nil, err
+		}
+		s.align = enum.TextAlignLeft
 	}
-	if s.lineSpacing, err = renderInherit("line spacing", layers, func(pp *dml.PPr) (int32, bool, error) {
+	// A line spacing is a percentage of the line or, with spcPts, a height.
+	type lineSpacing struct {
+		pct   int32
+		fixed dml.EMU
+	}
+	ls, err := renderInherit("line spacing", layers, func(pp *dml.PPr) (lineSpacing, bool, error) {
 		if pp == nil || pp.LnSpc == nil {
-			return 0, false, nil
+			return lineSpacing{}, false, nil
 		}
-		if pp.LnSpc.SpcPct == nil {
-			return 0, false, fmt.Errorf("%w: fixed line spacing", render.ErrUnsupported)
+		if pp.LnSpc.SpcPct == nil && pp.LnSpc.SpcPts != nil && pp.LnSpc.SpcPts.Val > 0 {
+			// spcPts is in hundredths of a point; a point is 12700 EMU.
+			return lineSpacing{pct: 100000, fixed: dml.EMU(pp.LnSpc.SpcPts.Val) * 127}, true, nil
 		}
-		if v := pp.LnSpc.SpcPct.Val.Int32(); v > 0 {
-			return v, true, nil
+		if pp.LnSpc.SpcPct != nil && pp.LnSpc.SpcPts == nil {
+			if v := pp.LnSpc.SpcPct.Val.Int32(); v > 0 {
+				return lineSpacing{pct: v}, true, nil
+			}
 		}
-		return 0, false, fmt.Errorf("%w: line spacing", render.ErrInvalid)
-	}, renderBuiltin(int32(100000))); err != nil {
+		return lineSpacing{}, false, fmt.Errorf("%w: line spacing", render.ErrInvalid)
+	}, renderBuiltin(lineSpacing{pct: 100000}))
+	if err != nil {
 		return s, nil, err
 	}
-	spacing := func(name string, pick func(*dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool)) (dml.EMU, error) {
-		return renderInherit(name, layers, func(pp *dml.PPr) (dml.EMU, bool, error) {
+	s.lineSpacing, s.lineFixed = ls.pct, ls.fixed
+	if s.lineFixed > 0 {
+		if err = t.colors.approximate(fmt.Errorf("%w: exact line spacing placed approximately", render.ErrUnsupported)); err != nil {
+			return s, nil, err
+		}
+	}
+	// A body scaled to fit reduces percentage line spacing.
+	if s.lineFixed == 0 && t.lnSpcReduction > 0 {
+		s.lineSpacing = max(s.lineSpacing-t.lnSpcReduction, 1000)
+	}
+	// A paragraph space is in points or, approximately, a percentage of a
+	// line.
+	type space struct {
+		pts dml.EMU
+		pct int32
+	}
+	spacing := func(name string, pick func(*dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool)) (space, error) {
+		v, err := renderInherit(name, layers, func(pp *dml.PPr) (space, bool, error) {
 			if pp == nil {
-				return 0, false, nil
+				return space{}, false, nil
 			}
 			pct, pts, set := pick(pp)
 			switch {
 			case !set:
-				return 0, false, nil
-			case pct != nil && pts == nil && pct.Val.Int32() == 0:
-				// A percentage of the line is undocumented, but none is none.
-				return 0, true, nil
-			case pct != nil || pts == nil:
-				return 0, false, fmt.Errorf("%w: percentage %s", render.ErrUnsupported, name)
-			case pts.Val < 0:
-				return 0, false, fmt.Errorf("%w: %s", render.ErrInvalid, name)
+				return space{}, false, nil
+			case pct != nil && pts == nil && pct.Val.Int32() >= 0:
+				return space{pct: pct.Val.Int32()}, true, nil
+			case pct != nil || pts == nil || pts.Val < 0:
+				return space{}, false, fmt.Errorf("%w: %s", render.ErrInvalid, name)
 			}
 			// spcPts is in hundredths of a point; a point is 12700 EMU.
-			return dml.EMU(pts.Val) * 127, true, nil
-		}, renderBuiltin(dml.EMU(0)))
+			return space{pts: dml.EMU(pts.Val) * 127}, true, nil
+		}, renderBuiltin(space{}))
+		if err == nil && v.pct != 0 {
+			err = t.colors.approximate(fmt.Errorf("%w: %s in percent of a line placed approximately", render.ErrUnsupported, name))
+		}
+		return v, err
 	}
-	if s.before, err = spacing("space before", func(pp *dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool) {
+	before, err := spacing("space before", func(pp *dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool) {
 		if pp.SpcBef == nil {
 			return nil, nil, false
 		}
 		return pp.SpcBef.SpcPct, pp.SpcBef.SpcPts, true
-	}); err != nil {
+	})
+	if err != nil {
 		return s, nil, err
 	}
-	if s.after, err = spacing("space after", func(pp *dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool) {
+	after, err := spacing("space after", func(pp *dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool) {
 		if pp.SpcAft == nil {
 			return nil, nil, false
 		}
 		return pp.SpcAft.SpcPct, pp.SpcAft.SpcPts, true
-	}); err != nil {
+	})
+	if err != nil {
 		return s, nil, err
 	}
+	s.before, s.beforePct, s.after, s.afterPct = before.pts, before.pct, after.pts, after.pct
 	margin := func(name string, pick func(*dml.PPr) *int32) (int32, error) {
 		return renderInherit(name, layers, func(pp *dml.PPr) (int32, bool, error) {
 			if pp == nil || pick(pp) == nil {
@@ -477,6 +522,9 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 		return r.Sz, true, nil
 	}, renderBuiltin(int32(1800))); err != nil {
 		return s, err
+	}
+	if t.fontScale > 0 && t.fontScale != 100000 {
+		s.size = max(1, int32(math.Round(float64(s.size)*float64(t.fontScale)/100000)))
 	}
 	flag := func(name string, pick func(*dml.RPr) *bool) (bool, error) {
 		return renderInherit(name, layers, func(r *dml.RPr) (bool, bool, error) {

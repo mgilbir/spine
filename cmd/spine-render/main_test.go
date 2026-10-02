@@ -261,3 +261,39 @@ func TestBestEffortWarnsAndDraws(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBestEffortDrawsMissingBoldWithRegular(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := pptx.NewTextBox()
+	box.SetPosition(dml.Pixels(10), dml.Pixels(10))
+	box.SetSize(dml.Pixels(200), dml.Pixels(40))
+	r := box.TextFrame().AddParagraph().AddRun()
+	r.SetText("Bold")
+	r.SetFont("Unmapped")
+	r.SetBold(true)
+	r.SetColor(dml.ColorBlack)
+	if err = p.AddSlideFromLayout(layout).AddShape(box); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	var warnings strings.Builder
+	c := config{input: input, out: filepath.Join(dir, "out"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute, fallback: true, warn: &warnings}
+	if err = run(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	if got := warnings.String(); strings.Count(got, "Unmapped bold drawn with a regular face") != 1 || strings.Contains(got, "text left out") {
+		t.Fatalf("warnings: %q", got)
+	}
+	c.out, c.strict, warnings = filepath.Join(dir, "strict"), true, strings.Builder{}
+	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "unresolved font") {
+		t.Fatalf("strict: %v", err)
+	}
+}

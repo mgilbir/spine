@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"math"
 	"context"
 	"fmt"
 	"strings"
@@ -139,6 +140,8 @@ type renderFrame struct {
 	grows   bool
 	// noWrap lays each line out at its natural width.
 	noWrap bool
+	// fontScale and lnSpcReduction are normal autofit's scaling.
+	fontScale, lnSpcReduction int32
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -211,8 +214,12 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	if autofits > 1 {
 		return f, fmt.Errorf("%w: autofit choice", render.ErrInvalid)
 	}
-	if n := bp.NormAutofit; n != nil && ((n.FontScale.Int32() != 0 && n.FontScale.Int32() != 100000) || n.LnSpcReduction.Int32() != 0) {
-		return f, fmt.Errorf("%w: scaled autofit text", render.ErrUnsupported)
+	if n := bp.NormAutofit; n != nil {
+		// PowerPoint stores the scale it fitted with; text is laid out at it.
+		f.fontScale, f.lnSpcReduction = n.FontScale.Int32(), n.LnSpcReduction.Int32()
+		if f.fontScale < 0 || f.fontScale > 100000 || f.lnSpcReduction < 0 || f.lnSpcReduction > 100000 {
+			return f, fmt.Errorf("%w: autofit scale", render.ErrInvalid)
+		}
 	}
 	// PowerPoint stores the extent and scale it fitted with. Its text fits
 	// that extent, so measurement differences below it are not overflow.
@@ -287,11 +294,13 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
+	styles.fontScale, styles.lnSpcReduction = frame.fontScale, frame.lnSpcReduction
+	defer func() { styles.fontScale, styles.lnSpcReduction = 0, 0 }()
 	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, frame.noWrap, breaker, fonts, styles, chain)
 	if err != nil {
 		return nil, err
 	}
-	return renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts)
+	return renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts, styles.colors)
 }
 
 // renderLayoutParagraphs wraps a text body's paragraphs in a content box of
@@ -317,9 +326,12 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			return nil, 0, err
 		}
 		// Whether PowerPoint adds space before a body's first paragraph
-		// depends on spcFirstLastPara semantics this profile does not claim.
-		if pi == 0 && para.before != 0 {
-			return nil, 0, fmt.Errorf("%w: space before the first paragraph", render.ErrUnsupported)
+		// depends on spcFirstLastPara semantics this profile does not claim;
+		// best effort adds it.
+		if pi == 0 && (para.before != 0 || para.beforePct != 0) {
+			if err := styles.colors.approximate(fmt.Errorf("%w: space before the first paragraph", render.ErrUnsupported)); err != nil {
+				return nil, 0, err
+			}
 		}
 		if para.marL > content || para.marR > content-para.marL || para.marL+para.marR == content {
 			return nil, 0, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
@@ -411,7 +423,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		bounds := append(append([]int{0}, pieces...), len(spans))
 		for k := 0; k+1 < len(bounds); k++ {
 			a, b := bounds[k], bounds[k+1]
-			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para.lineSpacing)
+			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -430,6 +442,10 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 				break
 			}
 		}
+		// Percentage spacing is of the first and last line heights.
+		px := float64(dml.EMUsPerPixel)
+		para.before += dml.EMU(math.Round(float64(para.beforePct) / 100000 * lines[0].height * px))
+		para.after += dml.EMU(math.Round(float64(para.afterPct) / 100000 * lines[len(lines)-1].height * px))
 		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
 		if text.Len() > 0 && para.bullet.char != "" {
 			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width); err != nil {
@@ -450,7 +466,16 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 
 // renderPlaceParagraphs anchors laid-out paragraphs between contentTop and
 // bottom and paints them. A frame that grows may hold text past its bottom.
-func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, fonts *slideRenderFonts) ([]layout.Op, error) {
+// Text past a fixed frame fails, and best effort draws it, as PowerPoint
+// shows it.
+func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, fonts *slideRenderFonts, colors *renderColors) ([]layout.Op, error) {
+	overflow := func() error {
+		if err := colors.approximate(fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)); err != nil {
+			return err
+		}
+		grows = true
+		return nil
+	}
 	// The text block spans its paragraphs' spacing and full line heights.
 	top := contentTop
 	switch anchor {
@@ -460,7 +485,9 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top = bottom - height
 	}
 	if top < contentTop && !grows {
-		return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
+		if err := overflow(); err != nil {
+			return nil, err
+		}
 	}
 	var ops []layout.Op
 	for _, b := range blocks {
@@ -470,7 +497,9 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		for _, line := range b.lines {
 			// A line that draws nothing may hang below the frame unseen.
 			if top+line.ascent+line.descent > bottom && !grows && renderLineDraws(line) {
-				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
+				if err := overflow(); err != nil {
+					return nil, err
+				}
 			}
 			xp := left.Px()
 			if para.align == enum.TextAlignCenter {
@@ -543,7 +572,7 @@ type renderLine struct {
 
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
 // empty span, whose face sizes its line.
-func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, lineSpacing int32) ([]renderLine, error) {
+func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle) ([]renderLine, error) {
 	spans := make([]core.Span, len(shapings))
 	for i, run := range shapings {
 		// ST_TextFontSize is 1 to 4000 points.
@@ -574,7 +603,14 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 			a, d, g := renderFaceMetrics(sg.Face, sg.Size)
 			line.ascent, line.descent, gap = max(line.ascent, a), max(line.descent, d), max(gap, g)
 		}
-		line.height = (line.ascent + line.descent + gap) * float64(lineSpacing) / 100000
+		line.height = (line.ascent + line.descent + gap) * float64(para.lineSpacing) / 100000
+		if para.lineFixed > 0 {
+			// An exact height keeps the glyphs' ascent-to-descent proportion,
+			// approximately as PowerPoint places them.
+			fixed := float64(para.lineFixed) / float64(dml.EMUsPerPixel)
+			share := line.ascent / (line.ascent + line.descent)
+			line.height, line.ascent, line.descent = fixed, fixed*share, fixed*(1-share)
+		}
 		if line.ascent <= 0 || line.descent < 0 || line.height <= 0 {
 			return nil, fmt.Errorf("%w: font line metrics", render.ErrUnsupported)
 		}
@@ -733,7 +769,7 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	} else {
 		shaping.size = int32(int64(first.size) * int64(b.size) / 100000)
 	}
-	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para.lineSpacing)
+	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para)
 	if err != nil {
 		return nil, err
 	}
