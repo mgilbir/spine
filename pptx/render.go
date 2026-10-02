@@ -488,6 +488,13 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
+		case "buChar":
+			attrs = "char"
+		case "buFont":
+			attrs = "typeface panose pitchFamily charset"
+		case "buSzPct", "buSzPts":
+			attrs = "val"
+		case "buFontTx", "buClr", "buClrTx", "buSzTx":
 		case "lnRef", "fillRef", "effectRef":
 			attrs = "idx"
 		case "fontRef":
@@ -895,7 +902,8 @@ var renderXMLParents = map[string]string{
 	"a:defPPr": renderListParents, "a:lvl1pPr": renderListParents, "a:lvl2pPr": renderListParents, "a:lvl3pPr": renderListParents,
 	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
 	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,
-	"a:buNone": renderParagraphParents, "a:lnSpc": renderParagraphParents, "a:spcBef": renderParagraphParents, "a:spcAft": renderParagraphParents,
+	"a:buNone": renderParagraphParents, "a:buChar": renderParagraphParents, "a:buFont": renderParagraphParents, "a:buFontTx": renderParagraphParents,
+	"a:buClr": renderParagraphParents, "a:buClrTx": renderParagraphParents, "a:buSzPct": renderParagraphParents, "a:buSzPts": renderParagraphParents, "a:buSzTx": renderParagraphParents, "a:lnSpc": renderParagraphParents, "a:spcBef": renderParagraphParents, "a:spcAft": renderParagraphParents,
 	"a:tabLst": renderParagraphParents, "a:defRPr": renderParagraphParents, "a:tab": "a:tabLst",
 	"a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"a:latin": renderRunParents, "a:ea": renderRunParents, "a:cs": renderRunParents, "a:sym": renderRunParents,
@@ -917,7 +925,7 @@ var renderXMLParents = map[string]string{
 	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
 	"a:prstDash":  renderLineParents, "a:round": renderLineParents, "a:bevel": renderLineParents, "a:miter": renderLineParents,
 	"a:headEnd": renderLineParents, "a:tailEnd": renderLineParents, "a:noFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents,
-	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight " + renderStyleRefs, "a:schemeClr": "a:solidFill p:bgRef a:highlight " + renderStyleRefs, "a:sysClr": "a:solidFill p:bgRef a:highlight " + renderStyleRefs,
+	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs,
 	"a:highlight": renderRunParents,
 	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
