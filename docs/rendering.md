@@ -287,7 +287,11 @@ library's 64 Mi, which suits a single paragraph: complete fonts charge about a
 million units per byte of text (embedded Noto Sans) while shaping it in
 microseconds, so 64 Mi stops a slide after about 60 characters. The document
 controls only the amount of text, the fonts are the caller's, and `-timeout`
-bounds the whole command; lower the budget for fonts you do not trust.
+bounds the whole command; lower the budget for fonts you do not trust. Likewise
+`-edge-checks` bounds path painting per output (scanline edge tests and
+coverage samples) and defaults to 1 Gi instead of 64 Mi: a slide of text,
+circles and outlined boxes needed up to 256 Mi at 144 DPI and painted in about
+a quarter of a second.
 
 `-dpi` defaults to 144; `-max-pages` defaults to 100 (maximum 10000), and
 `-timeout` defaults to one minute. Interrupt cancels rendering. Library package,

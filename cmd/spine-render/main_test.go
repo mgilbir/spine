@@ -202,3 +202,35 @@ func TestDefaultShapeWorkCoversSlideText(t *testing.T) {
 		t.Fatalf("library budget: %v", err)
 	}
 }
+
+func TestDefaultEdgeChecksCoverBusySlides(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slide := p.AddSlideFromLayout(layout)
+	for i := 0; i < 3; i++ {
+		e := pptx.NewAutoShape("ellipse")
+		e.SetPosition(0, 0)
+		e.SetSize(dml.Inches(10), dml.Inches(7.5))
+		e.SetFill(dml.NewSolidFill(dml.ColorBlue))
+		e.SetNoLine()
+		if err = slide.AddShape(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	c := config{input: input, out: filepath.Join(dir, "default"), format: "png", dpi: 144, maxPages: 10, timeout: time.Minute}
+	if err = run(context.Background(), c); err != nil {
+		t.Fatalf("default budget: %v", err)
+	}
+	c.out, c.edges = filepath.Join(dir, "library"), 64<<20
+	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "resource limit") {
+		t.Fatalf("library budget: %v", err)
+	}
+}
