@@ -186,6 +186,25 @@ ASCII. Other characters, including
 right-to-left and East Asian text, soft hyphens, controls and format characters,
 fail.
 
+Tables (`a:tbl` in a graphic frame) render when they have no table style,
+merged cells, diagonal borders or table-level fill, and when they are parsed
+from the file without pending edits: the save path rewrites the domain model's
+cells, which preparation must not do, so a new or edited table fails until it
+is saved and reopened. Column widths come from the grid; a row is as tall as
+its stored height or its tallest cell's text plus margins, whichever is
+larger. Cell fills, then borders, then cell text are painted. A border is a
+solid line centered on its grid line, extended half its width where another
+border meets it so corners close. Where adjacent cells set a shared edge
+differently, or differing borders meet at a grid point, rendering fails: the
+precedence is undocumented. Cell text uses the slide text profile, laid out
+with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
+
+Tables without a table style are drawn unstyled. This is provisional:
+`tableStyles.xml` names a default style, often a built-in Office style the file
+does not define, and whether PowerPoint applies it to a table without
+`a:tableStyleId` is undocumented. Explore that, and built-in style definitions,
+before supporting styled tables.
+
 Forme measures wrapping and shapes final lines under cumulative budgets. Native
 line metrics use the supplied font's hhea ascent, descent and line gap; baseline
 placement and percentage spacing use those metrics. This is a defined native

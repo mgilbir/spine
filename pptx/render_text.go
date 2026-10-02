@@ -232,37 +232,47 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
+	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, breaker, fonts, styles)
+	if err != nil {
+		return nil, err
+	}
+	return renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts)
+}
+
+// renderLayoutParagraphs wraps a text body's paragraphs in a content box of
+// the given left edge and width, returning them with their total height.
+func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]renderBlock, float64, error) {
 	blocks := make([]renderBlock, 0, len(saved.P))
 	height := 0.0
 	for pi, p := range saved.P {
-		if err = ctx.Err(); err != nil {
-			return nil, err
+		if err := ctx.Err(); err != nil {
+			return nil, 0, err
 		}
 		if p == nil {
-			return nil, fmt.Errorf("%w: nil paragraph", render.ErrInvalid)
+			return nil, 0, fmt.Errorf("%w: nil paragraph", render.ErrInvalid)
 		}
 		if len(p.Br) > 0 || len(p.Fld) > 0 {
-			return nil, fmt.Errorf("%w: hard break or field", render.ErrUnsupported)
+			return nil, 0, fmt.Errorf("%w: hard break or field", render.ErrUnsupported)
 		}
 		if len(p.R) > fonts.nodes {
-			return nil, fmt.Errorf("%w: text runs", render.ErrLimit)
+			return nil, 0, fmt.Errorf("%w: text runs", render.ErrLimit)
 		}
 		fonts.nodes -= len(p.R)
 		para, layers, err := styles.paragraph(saved, p)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		// Whether PowerPoint adds space before a body's first paragraph
 		// depends on spcFirstLastPara semantics this profile does not claim.
 		if pi == 0 && para.before != 0 {
-			return nil, fmt.Errorf("%w: space before the first paragraph", render.ErrUnsupported)
+			return nil, 0, fmt.Errorf("%w: space before the first paragraph", render.ErrUnsupported)
 		}
 		if para.marL > content || para.marR > content-para.marL || para.marL+para.marR == content {
-			return nil, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
+			return nil, 0, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
 		}
-		left, ok := style.FromPx(float64(x+m.Left+para.marL) / float64(dml.EMUsPerPixel))
+		left, ok := style.FromPx(float64(left0+para.marL) / float64(dml.EMUsPerPixel))
 		if !ok {
-			return nil, render.ErrLimit
+			return nil, 0, render.ErrLimit
 		}
 		width := renderUnit(content - para.marL - para.marR)
 		// Consecutive runs that shape alike form one span; runs differing only
@@ -277,17 +287,17 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 		)
 		for _, r := range p.R {
 			if r == nil {
-				return nil, fmt.Errorf("%w: nil run", render.ErrInvalid)
+				return nil, 0, fmt.Errorf("%w: nil run", render.ErrInvalid)
 			}
 			rs, err := styles.run(layers, r.RPr)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			if rs.eastAsian && !renderASCII(r.T) {
-				return nil, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
+				return nil, 0, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
 			}
 			if len(r.T) > fonts.opts.Limits.MaxRunBytes-text.Len() {
-				return nil, fmt.Errorf("%w: paragraph text", render.ErrLimit)
+				return nil, 0, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
 			if n := len(spans); n > 0 && spans[n-1] == rs.renderShaping {
 				texts[n-1] += r.T
@@ -303,13 +313,13 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 		if len(runs) == 0 {
 			end, err := styles.run(layers, p.EndParaRPr)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 			spans, starts, texts = []renderShaping{end.renderShaping}, []int{0}, []string{""}
 		}
 		lines, err := renderParagraphLines(ctx, breaker, fonts, spans, texts, width, para.lineSpacing)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		blocks = append(blocks, renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width})
 		height += float64(para.before+para.after) / float64(dml.EMUsPerPixel)
@@ -317,15 +327,21 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 			height += line.height
 		}
 	}
+	return blocks, height, nil
+}
+
+// renderPlaceParagraphs anchors laid-out paragraphs between contentTop and
+// bottom and paints them. A frame that grows may hold text past its bottom.
+func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, fonts *slideRenderFonts) ([]layout.Op, error) {
 	// The text block spans its paragraphs' spacing and full line heights.
 	top := contentTop
-	switch frame.anchor {
+	switch anchor {
 	case enum.TextAnchorMiddle:
 		top += (bottom - contentTop - height) / 2
 	case enum.TextAnchorBottom:
 		top = bottom - height
 	}
-	if top < contentTop && !frame.grows {
+	if top < contentTop && !grows {
 		return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
 	}
 	var ops []layout.Op
@@ -335,7 +351,7 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 		covered := 0
 		for _, line := range b.lines {
 			// A line that draws nothing may hang below the frame unseen.
-			if top+line.ascent+line.descent > bottom && !frame.grows && renderLineDraws(line) {
+			if top+line.ascent+line.descent > bottom && !grows && renderLineDraws(line) {
 				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
 			}
 			xp := left.Px()

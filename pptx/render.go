@@ -170,6 +170,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if v == nil {
 				return nil, fmt.Errorf("%w: nil picture", render.ErrInvalid)
 			}
+		case *Table:
+			if v == nil {
+				return nil, fmt.Errorf("%w: nil table", render.ErrInvalid)
+			}
 		default:
 			return nil, fmt.Errorf("%w: shape %d (%T)", render.ErrUnsupported, i, sh)
 		}
@@ -215,6 +219,8 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				textOps, err = s.renderShapeText(ctx, i, v, geometry, textLayout, fonts, styles)
 				drawn = append(drawn, textOps...)
 			}
+		case *Table:
+			drawn, err = s.renderTable(ctx, i, v, colors, textLayout, fonts, styles)
 		case *Picture:
 			if props := s.renderPictureProps(i); props != nil {
 				if e := renderPictureProperties(props); e != nil {
@@ -318,8 +324,13 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 			return fmt.Errorf("%w: root group properties", render.ErrUnsupported)
 		}
 	}
-	if len(t.GraphicFrame) > 0 || len(t.GrpSp) > 0 || len(t.CxnSp) > 0 {
-		return fmt.Errorf("%w: group/connector/graphic", render.ErrUnsupported)
+	if len(t.GrpSp) > 0 || len(t.CxnSp) > 0 {
+		return fmt.Errorf("%w: group/connector", render.ErrUnsupported)
+	}
+	for _, gf := range t.GraphicFrame {
+		if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI {
+			return fmt.Errorf("%w: chart, diagram or embedded object", render.ErrUnsupported)
+		}
 	}
 	return nil
 }
@@ -425,7 +436,9 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "sldNum hdr ftr dt"
 		case "bgRef":
 			attrs = "idx"
-		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody":
+		case "xfrm":
+			attrs = "rot flipH flipV"
+		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody", "graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -449,6 +462,24 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
+		case "graphicFrameLocks":
+			// Editor locks do not change painting.
+			attrs = "noGrp noDrilldown noSelect noChangeAspect noMove noResize"
+		case "graphicData":
+			attrs = "uri"
+		case "tblPr":
+			attrs = "rtl firstRow firstCol lastRow lastCol bandRow bandCol"
+		case "gridCol":
+			attrs = "w"
+		case "tr":
+			attrs = "h"
+		case "tc":
+			attrs = "rowSpan gridSpan hMerge vMerge id"
+		case "tcPr":
+			attrs = "marL marR marT marB vert anchor anchorCtr horzOverflow"
+		case "lnL", "lnR", "lnT", "lnB":
+			attrs = "w cap cmpd algn"
+		case "graphic", "tbl", "tblGrid", "txBody", "tableStyleId":
 		case "gd":
 			attrs = "name fmla"
 		case "prstDash":
@@ -657,6 +688,9 @@ var renderExtensions = map[string]renderExtensionOwner{
 	"p:sld":       {list: nsP, uris: []string{xmlb.ExtURISldGuideLst}},
 	"p:sldLayout": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstLayout}},
 	"p:sldMaster": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstMaster}},
+	"p:nvPr":      {list: nsP, uris: []string{xmlb.ExtURIPMLModId}},
+	"a:gridCol":   {list: nsA, uris: []string{xmlb.ExtURIColId}},
+	"a:tr":        {list: nsA, uris: []string{xmlb.ExtURIRowId}},
 }
 
 func renderExtensionAllowed(owner renderExtensionOwner, uri string) bool {
@@ -697,7 +731,8 @@ func (r *renderProfile) slide(node core.XMLNode) error {
 
 func slideRenderNode(node core.XMLNode) error {
 	if node.Text {
-		if len(node.Path) > 0 && node.Path[len(node.Path)-1] == (xml.Name{Space: nsA, Local: "t"}) {
+		// Run text, and a table style id, which the table renderer reports.
+		if n := len(node.Path); n > 0 && (node.Path[n-1] == (xml.Name{Space: nsA, Local: "t"}) || node.Path[n-1] == (xml.Name{Space: nsA, Local: "tableStyleId"})) {
 			return nil
 		}
 		return fmt.Errorf("%w: unexpected XML text", render.ErrUnsupported)
@@ -712,7 +747,8 @@ func slideRenderNode(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
 		}
 	}
-	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab" || node.Name.Local == "gd"))
+	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame")) ||
+		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -792,11 +828,12 @@ const (
 	renderListParents      = "a:lstStyle p:otherStyle p:defaultTextStyle"
 	renderParagraphParents = "a:pPr a:defPPr a:lvl1pPr a:lvl2pPr a:lvl3pPr a:lvl4pPr a:lvl5pPr a:lvl6pPr a:lvl7pPr a:lvl8pPr a:lvl9pPr"
 	renderRunParents       = "a:rPr a:defRPr a:endParaRPr"
+	renderLineParents      = "a:ln a:lnL a:lnR a:lnT a:lnB"
 )
 
 var renderXMLParents = map[string]string{
-	"p:txBody": "p:sp", "a:bodyPr": "p:txBody", "a:lstStyle": "p:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
-	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:endParaRPr": "a:p",
+	"p:txBody": "p:sp", "a:bodyPr": "p:txBody a:txBody", "a:lstStyle": "p:txBody a:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
+	"a:p": "p:txBody a:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:endParaRPr": "a:p",
 	"a:defPPr": renderListParents, "a:lvl1pPr": renderListParents, "a:lvl2pPr": renderListParents, "a:lvl3pPr": renderListParents,
 	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
 	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,
@@ -808,15 +845,20 @@ var renderXMLParents = map[string]string{
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
-	"p:nvSpPr": "p:sp", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr",
+	"p:nvSpPr": "p:sp", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr",
+	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
+	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
+	"a:gridCol": "a:tblGrid", "a:tr": "a:tbl", "a:tc": "a:tr", "a:txBody": "a:tc", "a:tcPr": "a:tc",
+	"a:lnL": "a:tcPr", "a:lnR": "a:tcPr", "a:lnT": "a:tcPr", "a:lnB": "a:tcPr",
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",
-	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
-	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
+	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
+	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm p:xfrm", "a:ext": "a:xfrm p:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:gd": "a:avLst",
 	// Effect lists are admitted empty; no effect element is.
 	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
-	"a:prstDash":  "a:ln", "a:round": "a:ln", "a:bevel": "a:ln", "a:miter": "a:ln", "a:headEnd": "a:ln", "a:tailEnd": "a:ln", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
-	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
+	"a:prstDash":  renderLineParents, "a:round": renderLineParents, "a:bevel": renderLineParents, "a:miter": renderLineParents,
+	"a:headEnd": renderLineParents, "a:tailEnd": renderLineParents, "a:noFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents,
+	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight", "a:schemeClr": "a:solidFill p:bgRef a:highlight", "a:sysClr": "a:solidFill p:bgRef a:highlight",
 	"a:highlight": renderRunParents,
 	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",

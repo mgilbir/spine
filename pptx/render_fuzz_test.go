@@ -36,6 +36,14 @@ func FuzzPptxRender(f *testing.F) {
 	themed := bytes.Replace(source, []byte(`<a:srgbClr val="FF0000"/>`), []byte(`<a:schemeClr val="accent1"><a:lumMod val="75000"/><a:lumOff val="25000"/></a:schemeClr>`), 1)
 	f.Add(bytes.Replace(themed, []byte(`<p:cSld><p:spTree>`), []byte(`<p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>`), 1))
 	f.Add([]byte("<p:sld/>"))
+	// Seed a table so mutations reach the table profile.
+	tables := CreateWithOptions(CreateOptions{Options: Options{SlideSize: SlideSizeCustom}, Width: dml.Pixels(16), Height: dml.Pixels(16)})
+	tbl := tables.AddSlide().AddTable(2, 2)
+	tbl.Cell(0, 0).SetText("A")
+	tbl.Cell(1, 1).SetBorders(&TableBorder{Width: dml.Pixels(1), Color: dml.ColorBlack, Style: BorderStyleSingle})
+	if withTable, e := tables.SaveBytes(); e == nil {
+		f.Add(fuzzseed.ZipEntry(withTable, "ppt/slides/slide1.xml"))
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 16<<10 {
 			t.Skip()
