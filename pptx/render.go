@@ -16,11 +16,13 @@ import (
 )
 
 // PrepareRender prepares this static slide, including unsaved edits, for PNG or
-// SVG output. The first supported profile is explicit RGB backgrounds, filled
-// rectangles/ellipses with no stroke, uncropped embedded PNG/JPEG pictures, and
-// explicitly styled plain horizontal ASCII text in rectangles with supplied fonts.
-// Inherited visible master/layout objects, theme fills, transformations,
-// effects and other content fail explicitly. Hidden slides can be selected.
+// SVG output. The first supported profile is solid or theme-referenced solid
+// backgrounds, filled rectangles/ellipses with no stroke, uncropped embedded
+// PNG/JPEG pictures, and explicitly styled plain horizontal ASCII text in
+// rectangles with supplied fonts. Fill colors may be RGB, system or theme scheme
+// colors with luminance transforms. Inherited visible master/layout objects,
+// other theme styles, transformations, effects and other content fail
+// explicitly. Hidden slides can be selected.
 // Preparation does not synchronize or save source parts. Caller edits must not
 // race with preparation; returned pages can be rendered concurrently.
 // See docs/rendering.md for capability and resource contracts.
@@ -125,26 +127,15 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			return nil, fmt.Errorf("%w: slide coordinate", render.ErrLimit)
 		}
 	}
-	background := style.RGBA{R: 255, G: 255, B: 255, A: 1}
-	for _, layer := range layers {
-		if layer == nil || layer.Bg == nil {
-			continue
-		}
-		bg := layer.Bg
-		if bg.BgRef != nil || bg.BgPr == nil || bg.BwMode != "" {
-			return nil, fmt.Errorf("%w: referenced slide background", render.ErrUnsupported)
-		}
-		v := bg.BgPr
-		if v.GradFill != nil || v.BlipFill != nil || v.PattFill != nil || v.EffectLst != nil || v.ExtLst != nil {
-			return nil, fmt.Errorf("%w: background fill/effect", render.ErrUnsupported)
-		}
-		if v.NoFill != nil && v.SolidFill == nil {
-			background = style.RGBA{R: 255, G: 255, B: 255, A: 1}
-			continue
-		}
-		background, err = renderSolid(v.SolidFill)
-		if err != nil {
-			return nil, err
+	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
+	// The nearest defined background wins: slide, then layout, then master.
+	background := renderWhite
+	for i := len(layers) - 1; i >= 0; i-- {
+		if layers[i] != nil && layers[i].Bg != nil {
+			if background, err = colors.background(layers[i].Bg); err != nil {
+				return nil, err
+			}
+			break
 		}
 	}
 	if err = renderTreeBase(model.CSld, budget); err != nil {
@@ -192,7 +183,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		switch v := sh.(type) {
 		case *TextBox:
 			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: "rect"}
-			drawn, err = renderAutoShape(box, s.renderShapeProps(i))
+			drawn, err = renderAutoShape(box, s.renderShapeProps(i), colors)
 			if err == nil && box.textFrame != nil {
 				var textOps []layout.Op
 				textOps, err = s.renderShapeText(ctx, i, box, textLayout, fonts)
@@ -200,7 +191,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 		case *AutoShape:
 			base := s.renderShapeProps(i)
-			drawn, err = renderAutoShape(v, base)
+			drawn, err = renderAutoShape(v, base, colors)
 			if err == nil && v.textFrame != nil {
 				var textOps []layout.Op
 				textOps, err = s.renderShapeText(ctx, i, v, textLayout, fonts)
@@ -304,7 +295,7 @@ func renderInheritance(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	}
 	return nil
 }
-func renderAutoShape(v *AutoShape, source *dml.SpPr) ([]layout.Op, error) {
+func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]layout.Op, error) {
 	p := &v.spPr
 	if source != nil {
 		if source.Xfrm == nil || source.Xfrm.Off == nil || source.Xfrm.Ext == nil {
@@ -345,7 +336,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr) ([]layout.Op, error) {
 	if p.NoFill != nil {
 		return nil, nil
 	}
-	c, err := renderSolid(p.SolidFill)
+	c, err := colors.solid(p.SolidFill, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -400,6 +391,8 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "txBox"
 		case "hf":
 			attrs = "sldNum hdr ftr dt"
+		case "bgRef":
+			attrs = "idx"
 		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
@@ -428,8 +421,10 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "cx cy"
 		case "prstGeom":
 			attrs = "prst"
-		case "srgbClr":
+		case "srgbClr", "schemeClr", "lumMod", "lumOff":
 			attrs = "val"
+		case "sysClr":
+			attrs = "val lastClr"
 		case "picLocks":
 			attrs = "noChangeAspect"
 		case "blip":
@@ -438,6 +433,8 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "l t r b"
 		case "ln":
 			attrs = "w cap cmpd algn"
+		case "overrideClrMapping":
+			attrs = "bg1 tx1 bg2 tx2 accent1 accent2 accent3 accent4 accent5 accent6 hlink folHlink"
 		case "avLst", "noFill", "solidFill", "stretch", "masterClrMapping":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
@@ -738,13 +735,14 @@ var renderXMLParents = map[string]string{
 	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:latin": "a:rPr",
 	"a:buNone": "a:pPr", "a:lnSpc": "a:pPr", "a:spcBef": "a:pPr", "a:spcAft": "a:pPr", "a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
-	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "p:hf": "p:sldMaster p:sldLayout",
+	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
 	"p:nvSpPr": "p:sp", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr",
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln",
-	"a:solidFill": "p:spPr p:bgPr a:ln a:rPr", "a:srgbClr": "a:solidFill", "a:ln": "p:spPr",
+	"a:solidFill": "p:spPr p:bgPr a:ln a:rPr", "a:srgbClr": "a:solidFill p:bgRef", "a:schemeClr": "a:solidFill p:bgRef", "a:sysClr": "a:solidFill p:bgRef",
+	"a:lumMod": "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }

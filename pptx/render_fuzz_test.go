@@ -33,6 +33,8 @@ func FuzzPptxRender(f *testing.F) {
 	f.Add(source)
 	// Seed the skipped-extension path so mutations probe where skipping ends.
 	f.Add(bytes.Replace(source, []byte(`<p:cNvPr id="2" name="Shape"/>`), []byte(`<p:cNvPr id="2" name="Shape">`+renderTestCreationID+`</p:cNvPr>`), 1))
+	themed := bytes.Replace(source, []byte(`<a:srgbClr val="FF0000"/>`), []byte(`<a:schemeClr val="accent1"><a:lumMod val="75000"/><a:lumOff val="25000"/></a:schemeClr>`), 1)
+	f.Add(bytes.Replace(themed, []byte(`<p:cSld><p:spTree>`), []byte(`<p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>`), 1))
 	f.Add([]byte("<p:sld/>"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 16<<10 {
