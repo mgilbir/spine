@@ -61,7 +61,9 @@ func (f *slideRenderFonts) resolve(ctx context.Context, r *Run) (*shape.Face, er
 	return face, nil
 }
 
-func (s *Slide) renderTextSource(index int) *oxml.Shape {
+// renderSourceShape returns the parsed p:sp behind a shape, or nil for a shape
+// added through the API, which a save writes from the domain model.
+func (s *Slide) renderSourceShape(index int) *oxml.Shape {
 	if index >= len(s.shapeRefs) {
 		return nil
 	}
@@ -72,16 +74,120 @@ func (s *Slide) renderTextSource(index int) *oxml.Shape {
 	return s.sxModel.CSld.SpTree.Sp[ref.Index]
 }
 
+// renderTextBody returns the text body a save writes for a shape, without
+// mutating the source: the parsed body for an untouched frame, the parsed body
+// with the frame's edits flushed onto a copy, or the body of a new shape.
+func renderTextBody(source *oxml.Shape, tf *TextFrame) *dml.TxBody {
+	if source == nil {
+		if tf == nil {
+			return nil
+		}
+		return textFrameToOxml(tf)
+	}
+	if !tf.isDirty() {
+		return source.TxBody
+	}
+	body := renderCopyTxBody(source.TxBody)
+	updateTxBody(&body, tf)
+	return body
+}
+
+// renderCopyTxBody copies the nodes updateTxBody may assign to: the body,
+// body properties, paragraphs, paragraph properties, runs and run properties.
+// Deeper nodes are shared; the flush replaces rather than edits them.
+func renderCopyTxBody(src *dml.TxBody) *dml.TxBody {
+	if src == nil {
+		return nil
+	}
+	body := *src
+	if src.BodyPr != nil {
+		bp := *src.BodyPr
+		body.BodyPr = &bp
+	}
+	body.P = make([]*dml.P, len(src.P))
+	for i, p := range src.P {
+		if p == nil {
+			continue
+		}
+		cp := *p
+		if p.PPr != nil {
+			pp := *p.PPr
+			cp.PPr = &pp
+		}
+		cp.R = make([]*dml.R, len(p.R))
+		for j, r := range p.R {
+			if r == nil {
+				continue
+			}
+			cr := *r
+			if r.RPr != nil {
+				rp := *r.RPr
+				cr.RPr = &rp
+			}
+			cp.R[j] = &cr
+		}
+		body.P[i] = &cp
+	}
+	return &body
+}
+
+// renderFrame is a text body's content inset and whether PowerPoint grows the
+// shape, or shrinks the text, to keep the text inside it.
+type renderFrame struct {
+	margins TextMargins
+	grows   bool
+}
+
+// renderBodyFrame applies DrawingML body defaults. A non-placeholder body
+// inherits nothing: absent attributes take their schema defaults (top anchor,
+// square wrap, 0.1"/0.05" insets, no autofit).
+func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
+	f := renderFrame{margins: TextMargins{Left: 91440, Top: 45720, Right: 91440, Bottom: 45720}}
+	if bp == nil {
+		return f, nil
+	}
+	if (bp.Anchor != "" && bp.Anchor != "t") || (bp.Wrap != "" && bp.Wrap != "square") {
+		return f, fmt.Errorf("%w: text requires top anchoring and square wrapping", render.ErrUnsupported)
+	}
+	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || bp.NumCol > 1 || (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") ||
+		renderTrue(bp.UpRight) || renderTrue(bp.AnchorCtr) || renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.PrstTxWarp != nil || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil || bp.ExtLst != nil {
+		return f, fmt.Errorf("%w: text body property", render.ErrUnsupported)
+	}
+	for _, inset := range []struct {
+		v   *int64
+		out *dml.EMU
+	}{{bp.LIns, &f.margins.Left}, {bp.TIns, &f.margins.Top}, {bp.RIns, &f.margins.Right}, {bp.BIns, &f.margins.Bottom}} {
+		if inset.v != nil {
+			*inset.out = dml.EMU(*inset.v)
+		}
+	}
+	autofits := 0
+	for _, set := range []bool{bp.NoAutofit != nil, bp.NormAutofit != nil, bp.SpAutoFit != nil} {
+		if set {
+			autofits++
+		}
+	}
+	if autofits > 1 {
+		return f, fmt.Errorf("%w: autofit choice", render.ErrInvalid)
+	}
+	if n := bp.NormAutofit; n != nil && ((n.FontScale.Int32() != 0 && n.FontScale.Int32() != 100000) || n.LnSpcReduction.Int32() != 0) {
+		return f, fmt.Errorf("%w: scaled autofit text", render.ErrUnsupported)
+	}
+	// PowerPoint stores the extent and scale it fitted with. Its text fits
+	// that extent, so measurement differences below it are not overflow.
+	f.grows = bp.SpAutoFit != nil || bp.NormAutofit != nil
+	return f, nil
+}
+
+func renderTrue(v *bool) bool { return v != nil && *v }
+
 func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, breaker *core.TextLayout, fonts *slideRenderFonts) ([]layout.Op, error) {
 	tf := v.textFrame
 	if len(tf.paragraphs) > fonts.nodes {
 		return nil, fmt.Errorf("%w: text paragraphs", render.ErrLimit)
 	}
 	fonts.nodes -= len(tf.paragraphs)
-	if v.presetGeometry != "rect" || tf.anchor != enum.TextAnchorTop || tf.wrap != enum.TextWrappingSquare || tf.autofit != AutofitNone {
-		return nil, fmt.Errorf("%w: text requires a top-anchored wrapping rectangle without autofit", render.ErrUnsupported)
-	}
-	source := s.renderTextSource(index)
+	source := s.renderSourceShape(index)
 	var body *dml.TxBody
 	if source != nil {
 		if source.NvSpPr != nil && source.NvSpPr.NvPr != nil && source.NvSpPr.NvPr.Ph != nil {
@@ -89,15 +195,20 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 		}
 		body = source.TxBody
 	}
-	if body != nil && !tf.marginsDirty {
-		bp := body.BodyPr
-		if bp == nil || bp.LIns == nil || bp.TIns == nil || bp.RIns == nil || bp.BIns == nil {
-			return nil, fmt.Errorf("%w: explicit text insets required", render.ErrUnsupported)
-		}
+	saved := renderTextBody(source, tf)
+	if saved == nil {
+		return nil, nil
+	}
+	if v.presetGeometry != "rect" {
+		return nil, fmt.Errorf("%w: text requires a rectangle", render.ErrUnsupported)
+	}
+	frame, err := renderBodyFrame(saved.BodyPr)
+	if err != nil {
+		return nil, err
 	}
 	x, y := v.Position()
 	w, h := v.Size()
-	m := tf.margins
+	m := frame.margins
 	for _, inset := range []dml.EMU{m.Left, m.Right, m.Top, m.Bottom} {
 		if inset < 0 {
 			return nil, fmt.Errorf("%w: text inset", render.ErrInvalid)
@@ -105,7 +216,9 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 	}
 	// Subtract in sequence, so hostile EMU values cannot overflow a sum.
 	if m.Left > w || m.Top > h || m.Right > w-m.Left || m.Bottom > h-m.Top {
-		return nil, fmt.Errorf("%w: text content box", render.ErrInvalid)
+		// DrawingML permits insets wider than the shape; this profile cannot
+		// lay text out in such a box.
+		return nil, fmt.Errorf("%w: text content box", render.ErrUnsupported)
 	}
 	left, ok := style.FromPx(float64(x)/float64(dml.EMUsPerPixel) + float64(m.Left)/float64(dml.EMUsPerPixel))
 	if !ok {
@@ -193,7 +306,7 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 		}
 		fonts.ops += len(lines)
 		for _, line := range lines {
-			if top+ascent+descent > bottom {
+			if top+ascent+descent > bottom && !frame.grows {
 				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
 			}
 			xp := left.Px()
