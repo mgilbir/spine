@@ -189,7 +189,7 @@ func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
 
 func renderTrue(v *bool) bool { return v != nil && *v }
 
-func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
+func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g renderGeometry, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
 	source := s.renderSourceShape(index)
 	if source != nil && source.NvSpPr != nil && source.NvSpPr.NvPr != nil && source.NvSpPr.NvPr.Ph != nil {
 		return nil, fmt.Errorf("%w: inherited placeholder text", render.ErrUnsupported)
@@ -202,9 +202,6 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 		return nil, fmt.Errorf("%w: text paragraphs", render.ErrLimit)
 	}
 	fonts.nodes -= len(saved.P)
-	if v.presetGeometry != "rect" {
-		return nil, fmt.Errorf("%w: text requires a rectangle", render.ErrUnsupported)
-	}
 	frame, err := renderBodyFrame(saved.BodyPr)
 	if err != nil {
 		return nil, err
@@ -212,8 +209,12 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 	if err = styles.load(); err != nil {
 		return nil, err
 	}
-	x, y := v.Position()
-	w, h := v.Size()
+	// Text lays out in the preset's text rectangle.
+	x, y := g.box[0]+g.text[0], g.box[1]+g.text[1]
+	w, h := g.box[2]-g.text[0]-g.text[2], g.box[3]-g.text[1]-g.text[3]
+	if w < 0 || h < 0 {
+		return nil, fmt.Errorf("%w: text rectangle", render.ErrInvalid)
+	}
 	m := frame.margins
 	for _, inset := range []dml.EMU{m.Left, m.Right, m.Top, m.Bottom} {
 		if inset < 0 {
