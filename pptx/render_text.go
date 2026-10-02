@@ -189,8 +189,7 @@ func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
 
 func renderTrue(v *bool) bool { return v != nil && *v }
 
-func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g renderGeometry, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
-	source := s.renderSourceShape(index)
+func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g renderGeometry, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
 	if source != nil && source.NvSpPr != nil && source.NvSpPr.NvPr != nil && source.NvSpPr.NvPr.Ph != nil {
 		return nil, fmt.Errorf("%w: inherited placeholder text", render.ErrUnsupported)
 	}

@@ -22,10 +22,10 @@ import (
 // solid outlines; uncropped embedded PNG/JPEG pictures; and plain horizontal
 // European-script paragraphs in non-placeholder shapes, drawn with supplied
 // fonts and styles inherited from list styles, document defaults and the
-// theme. Colors may be RGB, system or theme scheme colors with luminance
-// transforms. Inherited visible master/layout objects, other theme styles,
-// transformations, effects and other content fail explicitly. Hidden slides
-// can be selected.
+// theme; tables; straight connectors; and the master's and layout's own
+// shapes beneath the slide's. Colors may be RGB, system or theme scheme colors
+// with luminance transforms. Other theme styles, transformations, effects and
+// other content fail explicitly. Hidden slides can be selected.
 // Preparation does not synchronize or save source parts. Caller edits must not
 // race with preparation; returned pages can be rendered concurrently.
 // See docs/rendering.md for capability and resource contracts.
@@ -103,10 +103,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			layers = append(layers, m.CSld)
 		}
 	}
-	masterProfile := &renderProfile{}
+	masterProfile, layoutProfile := &renderProfile{}, &renderProfile{}
 	if s.layout != nil {
 		if s.layout.layoutXML != nil && len(s.layout.layoutXML.SourceXML) > 0 {
-			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, (&renderProfile{}).inherited); err != nil {
+			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, layoutProfile.inherited); err != nil {
 				return nil, fmt.Errorf("pptx: layout: %w", err)
 			}
 		}
@@ -116,8 +116,23 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 		}
 	}
+	// A slide hiding background graphics hides its layout's and master's
+	// shapes; a layout hiding them hides its master's.
+	var inherited []renderInherited
+	shown := map[*oxml.CommonSlideData]bool{}
+	if l := s.layout; l != nil && (model.ShowMasterSp == nil || *model.ShowMasterSp) {
+		if m := l.master; m != nil && m.masterXML != nil && (l.layoutXML == nil || l.layoutXML.ShowMasterSp == nil || *l.layoutXML.ShowMasterSp) {
+			inherited = append(inherited, renderInherited{data: m.masterXML.CSld, part: m.partName, shapeErrs: masterProfile.shapeErrs})
+			shown[m.masterXML.CSld] = true
+		}
+		if l.layoutXML != nil {
+			inherited = append(inherited, renderInherited{data: l.layoutXML.CSld, part: l.partName, shapeErrs: layoutProfile.shapeErrs})
+			shown[l.layoutXML.CSld] = true
+		}
+	}
+	// A hidden layer still supplies its background but draws no shapes.
 	for _, layer := range layers {
-		if err = renderInheritance(layer, budget); err != nil {
+		if err = renderTreeBase(layer, budget, shown[layer]); err != nil {
 			return nil, err
 		}
 	}
@@ -143,7 +158,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			break
 		}
 	}
-	if err = renderTreeBase(model.CSld, budget); err != nil {
+	if err = renderTreeBase(model.CSld, budget, true); err != nil {
 		return nil, err
 	}
 	shapes := s.shapeList()
@@ -156,7 +171,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	imagePixels, imageBytes := int64(0), int64(0)
 	// A slide often repeats one image; decode and charge it once.
 	decoded := map[renderImageKey]image.Image{}
-	for i, sh := range shapes {
+	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
+	// position among the slide's own shapes, or -1 for an inherited shape;
+	// picture resolves a picture's image bytes.
+	drawShape := func(sh Shape, sp *oxml.Shape, picProps *dml.SpPr, index int, picture func(*Picture) ([]byte, renderImageKey)) ([]layout.Op, error) {
 		switch v := sh.(type) {
 		case *AutoShape:
 			if v == nil {
@@ -171,15 +189,15 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return nil, fmt.Errorf("%w: nil picture", render.ErrInvalid)
 			}
 		case *Table:
-			if v == nil {
-				return nil, fmt.Errorf("%w: nil table", render.ErrInvalid)
+			if v == nil || index < 0 {
+				return nil, fmt.Errorf("%w: nil or inherited table", render.ErrUnsupported)
 			}
 		case *Connector:
-			if v == nil {
-				return nil, fmt.Errorf("%w: nil connector", render.ErrInvalid)
+			if v == nil || index < 0 {
+				return nil, fmt.Errorf("%w: nil or inherited connector", render.ErrUnsupported)
 			}
 		default:
-			return nil, fmt.Errorf("%w: shape %d (%T)", render.ErrUnsupported, i, sh)
+			return nil, fmt.Errorf("%w: shape (%T)", render.ErrUnsupported, sh)
 		}
 		x, y := sh.Position()
 		sw, shh := sh.Size()
@@ -191,88 +209,97 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return nil, fmt.Errorf("%w: shape coordinate", render.ErrLimit)
 			}
 		}
-		if err = ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if src := s.renderSourceShape(i); src != nil && src.Style != nil {
-			return nil, fmt.Errorf("pptx: slide %d shape %d: %w: shape style reference", s.index, i, render.ErrUnsupported)
+		if sp != nil && sp.Style != nil {
+			return nil, fmt.Errorf("%w: shape style reference", render.ErrUnsupported)
 		}
-		var drawn []layout.Op
+		var props *dml.SpPr
+		if sp != nil {
+			props = sp.SpPr
+		}
 		switch v := sh.(type) {
 		case *TextBox:
 			// A text box is written as a rectangle unless its source says
 			// otherwise.
-			props := s.renderShapeProps(i)
 			preset := "rect"
 			if props != nil && props.PrstGeom != nil {
 				preset = props.PrstGeom.Prst
 			}
 			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: preset}
-			var geometry renderGeometry
-			drawn, geometry, err = renderAutoShape(box, props, colors, resolved)
-			if err == nil && box.textFrame != nil {
-				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, box, geometry, textLayout, fonts, styles)
-				drawn = append(drawn, textOps...)
+			drawn, geometry, err := renderAutoShape(box, props, colors, resolved)
+			if err != nil || box.textFrame == nil {
+				return drawn, err
 			}
+			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles)
+			return append(drawn, text...), err
 		case *AutoShape:
-			var geometry renderGeometry
-			drawn, geometry, err = renderAutoShape(v, s.renderShapeProps(i), colors, resolved)
-			if err == nil && v.textFrame != nil {
-				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, v, geometry, textLayout, fonts, styles)
-				drawn = append(drawn, textOps...)
+			drawn, geometry, err := renderAutoShape(v, props, colors, resolved)
+			if err != nil || v.textFrame == nil {
+				return drawn, err
 			}
+			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles)
+			return append(drawn, text...), err
 		case *Table:
-			drawn, err = s.renderTable(ctx, i, v, colors, textLayout, fonts, styles)
+			return s.renderTable(ctx, index, v, colors, textLayout, fonts, styles)
 		case *Connector:
-			drawn, err = s.renderConnector(i, v, colors, resolved)
+			return s.renderConnector(index, v, colors, resolved)
 		case *Picture:
-			if props := s.renderPictureProps(i); props != nil {
-				if e := renderPictureProperties(props); e != nil {
-					err = e
-					break
+			if picProps != nil {
+				if err := renderPictureProperties(picProps); err != nil {
+					return nil, err
 				}
 			}
 			if v.isMedia || len(v.svgData) > 0 || v.svgRelID != "" || v.cropLeft != 0 || v.cropRight != 0 || v.cropTop != 0 || v.cropBottom != 0 {
-				err = fmt.Errorf("%w: media/SVG/cropped picture", render.ErrUnsupported)
-				break
+				return nil, fmt.Errorf("%w: media/SVG/cropped picture", render.ErrUnsupported)
 			}
-			var imgData = v.Data()
+			imgData, key := picture(v)
 			if len(imgData) == 0 {
-				err = fmt.Errorf("%w: missing picture data", render.ErrInvalid)
-				break
+				return nil, fmt.Errorf("%w: missing picture data", render.ErrInvalid)
 			}
 			if imageCount >= resolved.MaxImages {
-				err = fmt.Errorf("%w: slide image budget", render.ErrLimit)
-				break
+				return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
 			}
 			imageCount++
-			key := renderPictureKey(v, imgData)
 			img := decoded[key]
 			if img == nil {
 				if int64(len(imgData)) > resolved.MaxImageBytes-imageBytes || imagePixels >= resolved.MaxImagePixels {
-					err = fmt.Errorf("%w: slide image budget", render.ErrLimit)
-					break
+					return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
 				}
 				imageBytes += int64(len(imgData))
 				decodeLimits := resolved
 				decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
-				var imgErr error
-				if img, imgErr = core.DecodeImage(ctx, imgData, decodeLimits); imgErr != nil {
-					err = imgErr
-					break
+				var err error
+				if img, err = core.DecodeImage(ctx, imgData, decodeLimits); err != nil {
+					return nil, err
 				}
 				imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
 				decoded[key] = img
 			}
-
 			x, y := v.Position()
 			width, height := v.Size()
-			drawn = []layout.Op{layout.DrawImage{Rect: layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(width), H: renderUnit(height)}, Image: img}}
-		default:
-			err = fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
+			return []layout.Op{layout.DrawImage{Rect: layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(width), H: renderUnit(height)}, Image: img}}, nil
 		}
+		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
+	}
+	// Master shapes, then layout shapes, then the slide's own.
+	for _, layer := range inherited {
+		drawn, err := s.renderLayer(layer, budget, drawShape)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, drawn...)
+	}
+	slidePicture := func(v *Picture) ([]byte, renderImageKey) {
+		data := v.Data()
+		if len(data) == 0 {
+			return nil, renderImageKey{}
+		}
+		return data, renderPictureKey(v, data)
+	}
+	for i, sh := range shapes {
+		drawn, err := drawShape(sh, s.renderSourceShape(i), s.renderPictureProps(i), i, slidePicture)
 		if err != nil {
 			return nil, fmt.Errorf("pptx: slide %d shape %d: %w", s.index, i, err)
 		}
@@ -310,7 +337,7 @@ func renderUnit(v dml.EMU) style.Unit {
 	u, _ := style.FromPx(float64(v) / float64(dml.EMUsPerPixel))
 	return u
 }
-func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget) error {
+func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) error {
 	if c == nil || c.SpTree == nil {
 		return fmt.Errorf("%w: shape tree", render.ErrInvalid)
 	}
@@ -330,37 +357,15 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 			return fmt.Errorf("%w: root group properties", render.ErrUnsupported)
 		}
 	}
+	if !drawn {
+		return nil
+	}
 	if len(t.GrpSp) > 0 {
 		return fmt.Errorf("%w: group", render.ErrUnsupported)
 	}
 	for _, gf := range t.GraphicFrame {
 		if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI {
 			return fmt.Errorf("%w: chart, diagram or embedded object", render.ErrUnsupported)
-		}
-	}
-	return nil
-}
-func renderInheritance(c *oxml.CommonSlideData, b *core.SourceBudget) error {
-	if c == nil {
-		return nil
-	}
-	if err := renderTreeBase(c, b); err != nil {
-		return err
-	}
-	if len(c.SpTree.Sp) > b.Nodes {
-		return fmt.Errorf("%w: inherited shapes", render.ErrLimit)
-	}
-	b.Nodes -= len(c.SpTree.Sp)
-	if len(c.SpTree.Pic) > 0 {
-		return fmt.Errorf("%w: inherited pictures", render.ErrUnsupported)
-	}
-	for _, sp := range c.SpTree.Sp {
-		if sp == nil || sp.NvSpPr == nil || sp.NvSpPr.NvPr == nil || sp.NvSpPr.NvPr.Ph == nil {
-			return fmt.Errorf("%w: inherited visible shape", render.ErrUnsupported)
-		}
-		typ := sp.NvSpPr.NvPr.Ph.Type
-		if typ != "title" && typ != "body" && typ != "ctrTitle" && typ != "subTitle" {
-			return fmt.Errorf("%w: inherited placeholder %s", render.ErrUnsupported, typ)
 		}
 	}
 	return nil
@@ -578,13 +583,6 @@ func renderRootTransform(x *dml.GrpXfrm) bool {
 	return true
 }
 
-func (s *Slide) renderShapeProps(index int) *dml.SpPr {
-	if src := s.renderSourceShape(index); src != nil {
-		return src.SpPr
-	}
-	return nil
-}
-
 func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	if index >= len(s.shapeRefs) {
 		return nil
@@ -618,6 +616,10 @@ func renderPictureProperties(p *dml.SpPr) error {
 // node that is not below it.
 type renderProfile struct {
 	skipDepth int
+	// shapeErrs holds the first unsupported node of each master or layout
+	// shape, by element and occurrence; a shape fails only when drawn.
+	shapeErrs map[renderShapeKey]error
+	current   renderShapeKey
 	// styleErr is the first unsupported node in a master's other-text style,
 	// which fails only slides that resolve text through it.
 	styleErr error
@@ -814,26 +816,22 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 		}
 		return nil
 	}
-	for _, ancestor := range node.Path {
-		if ancestor.Space == nsP && ancestor.Local == "sp" {
-			if node.Name.Space == nsP && node.Name.Local == "sp" {
-				return r.slide(node)
-			}
-			// renderInheritance permits only title/body placeholders, which are
-			// definitions and are not painted independently on a blank slide.
-			if node.Text {
-				return nil
-			}
-			if node.Name.Local == "nvSpPr" || node.Name.Local == "nvPr" || node.Name.Local == "ph" {
-				if node.Occurrence > 1 {
-					return fmt.Errorf("%w: repeated placeholder property", render.ErrInvalid)
-				}
-				if node.Name.Space != nsP {
-					return fmt.Errorf("%w: placeholder namespace", render.ErrUnsupported)
-				}
-			}
-			return nil
+	// A master or layout shape is checked like slide content, but its first
+	// problem is recorded rather than returned: placeholders are never drawn,
+	// and a hidden layer's shapes are not drawn either.
+	if len(node.Path) >= 4 && node.Path[2] == (xml.Name{Space: nsP, Local: "spTree"}) && (len(node.Path) != 4 || !node.Text) {
+		if len(node.Path) == 4 {
+			r.current = renderShapeKey{name: node.Name.Local, occurrence: node.Occurrence}
 		}
+		if err := r.slide(node); err != nil {
+			if r.shapeErrs == nil {
+				r.shapeErrs = map[renderShapeKey]error{}
+			}
+			if _, seen := r.shapeErrs[r.current]; !seen {
+				r.shapeErrs[r.current] = err
+			}
+		}
+		return nil
 	}
 	return r.slide(node)
 }
