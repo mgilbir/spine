@@ -14,13 +14,7 @@ import (
 // first slide to PNG.
 func renderRewrittenPNG(t *testing.T, data []byte, opts render.Options, rewrites map[string]func(string) string) ([]byte, error) {
 	t.Helper()
-	for part, rewrite := range rewrites {
-		before := zipParts(t, data)["/"+part]
-		data = rewriteZipPart(t, data, part, func(b []byte) []byte { return []byte(rewrite(string(b))) })
-		if bytes.Equal(before, zipParts(t, data)["/"+part]) {
-			t.Fatalf("fixture rewrite did not apply to %s", part)
-		}
-	}
+	data = renderApply(t, data, rewrites)
 	opened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +33,19 @@ func renderRewrittenPNG(t *testing.T, data []byte, opts render.Options, rewrites
 		t.Fatal(err)
 	}
 	return out.Bytes(), nil
+}
+
+// renderApply rewrites package parts, failing when a rewrite changes nothing.
+func renderApply(t *testing.T, data []byte, rewrites map[string]func(string) string) []byte {
+	t.Helper()
+	for part, rewrite := range rewrites {
+		before := zipParts(t, data)["/"+part]
+		data = rewriteZipPart(t, data, part, func(b []byte) []byte { return []byte(rewrite(string(b))) })
+		if bytes.Equal(before, zipParts(t, data)["/"+part]) {
+			t.Fatalf("fixture rewrite did not apply to %s", part)
+		}
+	}
+	return data
 }
 
 const (

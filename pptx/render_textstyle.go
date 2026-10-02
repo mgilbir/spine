@@ -30,9 +30,9 @@ type renderTextStyles struct {
 	slide  *Slide
 	budget *core.SourceBudget
 	colors *renderColors
-	// otherErr is the first unsupported node the master source check found in
-	// the other-text style.
-	otherErr error
+	// masterErrs holds the first unsupported node the master source check
+	// found in each of its text styles, by element name.
+	masterErrs map[string]error
 
 	loaded          bool
 	err             error
@@ -89,8 +89,8 @@ func (t *renderTextStyles) load() error {
 }
 
 func (t *renderTextStyles) loadLists() error {
-	if t.otherErr != nil {
-		return fmt.Errorf("pptx: master other-text style: %w", t.otherErr)
+	if err := t.masterErrs["otherStyle"]; err != nil {
+		return fmt.Errorf("pptx: master other-text style: %w", err)
 	}
 	if l := t.slide.layout; l != nil && l.master != nil && l.master.masterXML != nil && l.master.masterXML.TxStyles != nil {
 		t.other = l.master.masterXML.TxStyles.OtherStyle
@@ -180,9 +180,22 @@ func renderDefPPr(l *dml.LstStyle) *dml.PPr {
 	return l.DefPPr
 }
 
+// renderListChain is where a text body's paragraphs inherit from beyond its
+// own list style: the list styles in between, nearest first, and the
+// candidate document defaults, every one of which must agree.
+type renderListChain struct {
+	inherited []*dml.LstStyle
+	variants  [][]*dml.LstStyle
+}
+
+// shapeChain is the chain of non-placeholder text.
+func (t *renderTextStyles) shapeChain() renderListChain {
+	return renderListChain{variants: [][]*dml.LstStyle{{t.other, t.defaults}, {t.defaults}}}
+}
+
 // paragraphLayers returns, for each candidate source of document defaults, a
 // paragraph's property layers, nearest first.
-func (t *renderTextStyles) paragraphLayers(body *dml.TxBody, p *dml.P) ([][]renderLayer[*dml.PPr], error) {
+func (t *renderTextStyles) paragraphLayers(body *dml.TxBody, p *dml.P, chain renderListChain) ([][]renderLayer[*dml.PPr], error) {
 	level := 0
 	if p.PPr != nil && p.PPr.Lvl != nil {
 		if *p.PPr.Lvl < 0 || *p.PPr.Lvl > 8 {
@@ -194,9 +207,18 @@ func (t *renderTextStyles) paragraphLayers(body *dml.TxBody, p *dml.P) ([][]rend
 		return []renderLayer[*dml.PPr]{{v: renderLevel(l, level)}, {v: renderDefPPr(l), optional: true}}
 	}
 	shape := append([]renderLayer[*dml.PPr]{{v: p.PPr}}, list(body.LstStyle)...)
-	withOther := append(append(append([]renderLayer[*dml.PPr]{}, shape...), list(t.other)...), list(t.defaults)...)
-	defaultsOnly := append(append([]renderLayer[*dml.PPr]{}, shape...), list(t.defaults)...)
-	return [][]renderLayer[*dml.PPr]{withOther, defaultsOnly}, nil
+	for _, l := range chain.inherited {
+		shape = append(shape, list(l)...)
+	}
+	variants := make([][]renderLayer[*dml.PPr], 0, len(chain.variants))
+	for _, v := range chain.variants {
+		layers := append([]renderLayer[*dml.PPr]{}, shape...)
+		for _, l := range v {
+			layers = append(layers, list(l)...)
+		}
+		variants = append(variants, layers)
+	}
+	return variants, nil
 }
 
 // runLayers maps paragraph layers to run property layers below a run's own
@@ -270,9 +292,9 @@ func renderBuiltin[T any](v T) func() (T, error) {
 
 // paragraph resolves a paragraph's layout properties and returns the layers
 // its runs inherit through.
-func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P) (renderParaStyle, [][]renderLayer[*dml.PPr], error) {
+func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderListChain) (renderParaStyle, [][]renderLayer[*dml.PPr], error) {
 	var s renderParaStyle
-	layers, err := t.paragraphLayers(body, p)
+	layers, err := t.paragraphLayers(body, p, chain)
 	if err != nil {
 		return s, nil, err
 	}
@@ -310,6 +332,9 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P) (renderParaStyl
 			switch {
 			case !set:
 				return 0, false, nil
+			case pct != nil && pts == nil && pct.Val.Int32() == 0:
+				// A percentage of the line is undocumented, but none is none.
+				return 0, true, nil
 			case pct != nil || pts == nil:
 				return 0, false, fmt.Errorf("%w: percentage %s", render.ErrUnsupported, name)
 			case pts.Val < 0:

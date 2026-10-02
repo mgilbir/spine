@@ -134,7 +134,7 @@ toward `MaxImages`.
 Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
 
-Plain horizontal left-to-right text is supported in non-placeholder shapes and
+Plain horizontal left-to-right text is supported in shapes, placeholders and
 text boxes. Provide `render.Options.Fonts`; the renderer performs no ambient
 font discovery. The renderer lays out the text body a save would write,
 including pending edits. A non-placeholder body inherits nothing, so absent
@@ -148,6 +148,21 @@ measures below it is still drawn; scaled autofit fails. A fixed frame fails
 when a line that draws glyphs measures past the bottom inset; an empty line may
 hang below unseen. A body without characters paints nothing and is not laid
 out, so its fonts need not resolve.
+Slide placeholders inherit from the layout placeholder with the same `idx`
+(of the same type when several share it, or the only one of the same type when
+none does) and that from the master placeholder of its base type (`title` for
+title and centered title, the same type for date, footer, slide number and
+header, `body` otherwise); more than one candidate fails. Geometry, fill,
+outline, effects and body attributes merge property by property, nearest
+first, and the list styles chain slide, layout and master placeholder, then
+the master's title, body or other text style. Whether the presentation default
+text style follows is unspecified, so the result must agree with and without
+it. A matched layout or master placeholder must be free of unsupported content
+outside its prompt paragraphs; placeholders with style references or field
+text fail, and a placeholder with no geometry anywhere is invalid. An edited
+placeholder renders as a save writes it. A spacing percentage of zero is
+accepted as no spacing.
+
 Paragraph and run properties are inherited: the paragraph's own properties,
 then the shape's list style at the paragraph's level, then the document
 defaults, then DrawingML defaults (left alignment, 100% line spacing, no space,

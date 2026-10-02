@@ -189,9 +189,11 @@ func renderBodyFrame(bp *dml.BodyPr) (renderFrame, error) {
 
 func renderTrue(v *bool) bool { return v != nil && *v }
 
-func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g renderGeometry, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
-	if source != nil && source.NvSpPr != nil && source.NvSpPr.NvPr != nil && source.NvSpPr.NvPr.Ph != nil {
-		return nil, fmt.Errorf("%w: inherited placeholder text", render.ErrUnsupported)
+// renderShapeText lays out and paints a shape's text. ph is the inheritance
+// of a placeholder, and nil for any other shape.
+func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g renderGeometry, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, ph *renderPlaceholder) ([]layout.Op, error) {
+	if ph == nil && source != nil && source.NvSpPr != nil && source.NvSpPr.NvPr != nil && source.NvSpPr.NvPr.Ph != nil {
+		return nil, fmt.Errorf("%w: placeholder text without its inheritance", render.ErrUnsupported)
 	}
 	saved := renderTextBody(source, v.textFrame)
 	if saved == nil || !renderHasText(saved) {
@@ -202,12 +204,20 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 		return nil, fmt.Errorf("%w: text paragraphs", render.ErrLimit)
 	}
 	fonts.nodes -= len(saved.P)
-	frame, err := renderBodyFrame(saved.BodyPr)
+	bodyPr := saved.BodyPr
+	if ph != nil {
+		bodyPr = ph.bodyPr(saved.BodyPr)
+	}
+	frame, err := renderBodyFrame(bodyPr)
 	if err != nil {
 		return nil, err
 	}
 	if err = styles.load(); err != nil {
 		return nil, err
+	}
+	chain := styles.shapeChain()
+	if ph != nil {
+		chain = ph.chain(styles)
 	}
 	// Text lays out in the preset's text rectangle.
 	x, y := g.box[0]+g.text[0], g.box[1]+g.text[1]
@@ -231,7 +241,7 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
-	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, breaker, fonts, styles)
+	blocks, height, err := renderLayoutParagraphs(ctx, saved, x+m.Left, content, breaker, fonts, styles, chain)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +250,7 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 
 // renderLayoutParagraphs wraps a text body's paragraphs in a content box of
 // the given left edge and width, returning them with their total height.
-func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]renderBlock, float64, error) {
+func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, chain renderListChain) ([]renderBlock, float64, error) {
 	blocks := make([]renderBlock, 0, len(saved.P))
 	height := 0.0
 	for pi, p := range saved.P {
@@ -257,7 +267,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			return nil, 0, fmt.Errorf("%w: text runs", render.ErrLimit)
 		}
 		fonts.nodes -= len(p.R)
-		para, layers, err := styles.paragraph(saved, p)
+		para, layers, err := styles.paragraph(saved, p, chain)
 		if err != nil {
 			return nil, 0, err
 		}
