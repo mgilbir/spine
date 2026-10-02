@@ -365,7 +365,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 			}
 			top := ys[r] + px(cl.margin[1])
 			bottom := ys[r+1] - px(cl.margin[3])
-			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, fonts)
+			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, fonts, styles.colors)
 			if err != nil {
 				return nil, err
 			}

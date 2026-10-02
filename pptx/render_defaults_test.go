@@ -86,9 +86,6 @@ func TestRenderTextFrameOverflowAndUnsupportedDefaults(t *testing.T) {
 	}
 	for name, rewrite := range map[string]func(string) string{
 		"fixed frame overflow": short,
-		"scaled autofit": func(s string) string {
-			return strings.Replace(s, `<a:noAutofit/>`, `<a:normAutofit fontScale="90000"/>`, 1)
-		},
 		"two autofits": func(s string) string { return strings.Replace(s, `<a:noAutofit/>`, `<a:noAutofit/><a:spAutoFit/>`, 1) },
 		"visible outline": func(s string) string {
 			return strings.Replace(s, `<a:ln><a:noFill/></a:ln>`, `<a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>`, 1)

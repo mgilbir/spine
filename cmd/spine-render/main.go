@@ -216,6 +216,29 @@ func run(ctx context.Context, c config) (result error) {
 		}
 		return o
 	}
+	if !c.strict {
+		// Best effort draws a bold or italic face nothing provides with the
+		// family's regular face, or the regular fallback, reporting it once.
+		exact, reported := opts.Fonts, map[render.FontRequest]bool{}
+		opts.Fonts = func(ctx context.Context, r render.FontRequest) (*shape.Face, error) {
+			face, err := exact(ctx, r)
+			if err == nil || (!r.Bold && !r.Italic) || ctx.Err() != nil {
+				return face, err
+			}
+			regular := r
+			regular.Bold, regular.Italic = false, false
+			face, rerr := exact(ctx, regular)
+			if rerr != nil {
+				return nil, err
+			}
+			if !reported[r] {
+				reported[r] = true
+				warnings++
+				_, _ = fmt.Fprintf(warn, "spine-render: warning: %s %s drawn with a regular face\n", r.Family, renderStyleName(r))
+			}
+			return face, nil
+		}
+	}
 	count := 0
 	emit := func(label string, page *render.Page) error {
 		if count >= c.maxPages {
@@ -329,4 +352,14 @@ func writePage(ctx context.Context, c config, name string, page *render.Page) er
 		}
 	}
 	return nil
+}
+
+func renderStyleName(r render.FontRequest) string {
+	switch {
+	case r.Bold && r.Italic:
+		return "bold italic"
+	case r.Bold:
+		return "bold"
+	}
+	return "italic"
 }
