@@ -2,7 +2,7 @@
 
 Implementation is in progress in stacked draft PRs. The `render` package can
 prepare a caller-supplied Forme display list and write PNG or SVG. `pptx.Slide.PrepareRender` supports a first static slide profile. Sheet and Word
-page preparation and slide text layout are still being implemented.
+page preparation are still being implemented.
 
 ```go
 page, err := render.Prepare(ctx, dml.Inches(8.5), dml.Inches(11), ops, render.Limits{})
@@ -78,7 +78,7 @@ and an explicit absent outline (`AutoShape.SetNoLine`). Uncropped embedded
 PNG/JPEG pictures with rectangular geometry are supported. Geometry is quantized
 to Forme's fixed-point units during the EMU-to-CSS conversion.
 
-Text, theme/style references, color transforms, gradients, strokes, rotated or
+Theme/style references, color transforms, gradients, strokes, rotated or
 flipped shapes/pictures, image crops/SVGs, groups, connectors, charts, tables,
 SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
 Visible inherited master/layout shapes fail. Title/body placeholder definitions
@@ -91,8 +91,22 @@ separate, and decoded pictures are bounded cumulatively before decode.
 Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
 
-The shared internal paragraph bridge now measures and shapes plain horizontal
-ASCII paragraphs with Forme under cumulative font, text, glyph and shaping-work
-budgets. It preserves spaces and rejects unsupported breaks and overlong words.
-Format text adapters are introduced in subsequent PRs; this does not expand the
-slide profile by itself.
+Plain horizontal ASCII text is supported in non-placeholder rectangles and
+explicitly styled text boxes (`TextBox.SetNoLine` suppresses their outline). Provide
+`render.Options.Fonts`; the renderer performs no ambient font discovery. The
+frame must have top anchoring, square wrapping, explicit insets and no autofit.
+Each paragraph must explicitly select no bullet, left/center/right alignment and
+positive percentage line spacing and explicit before/after spacing (including
+zero). Runs in a paragraph must share an explicit
+literal font family, size (12–4096 pt), bold/italic setting, opaque RGB color, and
+explicit no-underline/no-strike settings. Rich styles, hard breaks, tabs, bidi,
+non-ASCII characters, unresolved fonts and overflowing text fail. Empty paragraphs
+need a styled run so their height is defined.
+
+Forme measures wrapping and shapes final lines under cumulative budgets. Native
+line metrics use the supplied font's hhea ascent, descent and line gap; baseline
+placement and percentage spacing use those metrics. This is a defined native
+layout profile, not a claim of identical PowerPoint line placement. DrawingML
+[percentage line spacing](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.linespacing)
+scales with text size; fixed-point line spacing and percentage before/after
+paragraph spacing are not supported by this first adapter.

@@ -16,8 +16,9 @@ import (
 
 // PrepareRender prepares this static slide, including unsaved edits, for PNG or
 // SVG output. The first supported profile is explicit RGB backgrounds, filled
-// rectangles/ellipses with no stroke, and uncropped embedded PNG/JPEG pictures.
-// Text, inherited visible master/layout objects, theme fills, transformations,
+// rectangles/ellipses with no stroke, uncropped embedded PNG/JPEG pictures, and
+// explicitly styled plain horizontal ASCII text in rectangles with supplied fonts.
+// Inherited visible master/layout objects, theme fills, transformations,
 // effects and other content fail explicitly. Hidden slides can be selected.
 // Preparation does not synchronize or save source parts. Caller edits must not
 // race with preparation; returned pages can be rendered concurrently.
@@ -34,6 +35,11 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		return nil, err
 	}
 	opts.Limits = resolved
+	textLayout, err := core.NewTextLayout(resolved)
+	if err != nil {
+		return nil, err
+	}
+	fonts := newSlideRenderFonts(opts)
 	budget, err := core.NewSourceBudget(opts.MaxSourceBytes, opts.MaxLayoutNodes)
 	if err != nil {
 		return nil, err
@@ -146,6 +152,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if v == nil {
 				return nil, fmt.Errorf("%w: nil shape", render.ErrInvalid)
 			}
+		case *TextBox:
+			if v == nil {
+				return nil, fmt.Errorf("%w: nil text box", render.ErrInvalid)
+			}
 		case *Picture:
 			if v == nil {
 				return nil, fmt.Errorf("%w: nil picture", render.ErrInvalid)
@@ -168,9 +178,22 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		var drawn []layout.Op
 		switch v := sh.(type) {
+		case *TextBox:
+			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: "rect"}
+			drawn, err = renderAutoShape(box, s.renderShapeProps(i))
+			if err == nil && box.textFrame != nil {
+				var textOps []layout.Op
+				textOps, err = s.renderShapeText(ctx, i, box, textLayout, fonts)
+				drawn = append(drawn, textOps...)
+			}
 		case *AutoShape:
 			base := s.renderShapeProps(i)
 			drawn, err = renderAutoShape(v, base)
+			if err == nil && v.textFrame != nil {
+				var textOps []layout.Op
+				textOps, err = s.renderShapeText(ctx, i, v, textLayout, fonts)
+				drawn = append(drawn, textOps...)
+			}
 		case *Picture:
 			if props := s.renderPictureProps(i); props != nil {
 				if e := renderPictureProperties(props); e != nil {
@@ -267,9 +290,6 @@ func renderInheritance(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	return nil
 }
 func renderAutoShape(v *AutoShape, source *dml.SpPr) ([]layout.Op, error) {
-	if v.textFrame != nil {
-		return nil, fmt.Errorf("%w: shape text", render.ErrUnsupported)
-	}
 	p := &v.spPr
 	if source != nil {
 		if source.Xfrm == nil || source.Xfrm.Off == nil || source.Xfrm.Ext == nil {
@@ -363,12 +383,23 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "id name descr title"
 		case "cNvSpPr":
 			attrs = "txBox"
-		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr":
+		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
 	case nsA:
 		switch el.Name.Local {
+		case "bodyPr":
+			attrs = "wrap anchor lIns tIns rIns bIns"
+		case "pPr":
+			attrs = "algn"
+		case "rPr":
+			attrs = "sz b i u strike"
+		case "latin":
+			attrs = "typeface"
+		case "spcPct", "spcPts":
+			attrs = "val"
+		case "p", "r", "t", "lstStyle", "noAutofit", "buNone", "lnSpc", "spcBef", "spcAft":
 		case "xfrm":
 			attrs = "rot flipH flipV"
 		case "off", "chOff":
@@ -474,6 +505,9 @@ func renderPictureProperties(p *dml.SpPr) error {
 
 func slideRenderProfile(node core.XMLNode) error {
 	if node.Text {
+		if len(node.Path) > 0 && node.Path[len(node.Path)-1] == (xml.Name{Space: nsA, Local: "t"}) {
+			return nil
+		}
 		return fmt.Errorf("%w: unexpected XML text", render.ErrUnsupported)
 	}
 	if len(node.Path) == 1 && (node.Name.Space != nsP || node.Name.Local != "sld") {
@@ -486,7 +520,8 @@ func slideRenderProfile(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
 		}
 	}
-	if node.Occurrence > 1 && (node.Name.Space != nsP || (node.Name.Local != "sp" && node.Name.Local != "pic")) {
+	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r"))
+	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
 	return slideRenderXML(node.StartElement)
@@ -517,6 +552,9 @@ func inheritedRenderProfile(node core.XMLNode) error {
 	}
 	for _, ancestor := range node.Path {
 		if ancestor.Space == nsP && ancestor.Local == "sp" {
+			if node.Name.Space == nsP && node.Name.Local == "sp" {
+				return slideRenderProfile(node)
+			}
 			// renderInheritance permits only title/body placeholders, which are
 			// definitions and are not painted independently on a blank slide.
 			if node.Text {
@@ -547,6 +585,9 @@ func renderXMLKey(n xml.Name) string {
 }
 
 var renderXMLParents = map[string]string{
+	"p:txBody": "p:sp", "a:bodyPr": "p:txBody", "a:lstStyle": "p:txBody", "a:noAutofit": "a:bodyPr",
+	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:latin": "a:rPr",
+	"a:buNone": "a:pPr", "a:lnSpc": "a:pPr", "a:spcBef": "a:pPr", "a:spcAft": "a:pPr", "a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
@@ -555,6 +596,6 @@ var renderXMLParents = map[string]string{
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
 	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln",
-	"a:solidFill": "p:spPr p:bgPr a:ln", "a:srgbClr": "a:solidFill", "a:ln": "p:spPr",
+	"a:solidFill": "p:spPr p:bgPr a:ln a:rPr", "a:srgbClr": "a:solidFill", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }
