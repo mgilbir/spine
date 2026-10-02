@@ -3,7 +3,8 @@
 // inheritance, reject unsupported source content, and honor Forme refusals
 // before handing operations to this package.
 //
-// This implementation accepts solid rectangles, filled paths and path clips. Other Forme
+// This implementation accepts solid rectangles, filled paths, path clips and
+// positioned horizontal outline glyphs. Other Forme
 // operations fail explicitly, including operations outside the page. Rendering
 // APIs are internal until the format adapters establish their support contracts.
 package render

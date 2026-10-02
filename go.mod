@@ -3,7 +3,7 @@ module github.com/mgilbir/spine
 go 1.26
 
 require (
-	github.com/mgilbir/forme v0.4.2
+	github.com/mgilbir/forme v0.4.4-0.20261002125117-85b3d150c415
 	golang.org/x/tools v0.48.0
 )
 

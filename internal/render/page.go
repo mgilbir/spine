@@ -28,10 +28,14 @@ type Limits struct {
 	MaxPathSegments int
 	MaxClipDepth    int
 	MaxEdgeChecks   int64
+	MaxGlyphs       int
+	MaxTextBytes    int
+	MaxFonts        int
+	MaxFontBytes    int64
 }
 
 func (l Limits) resolved() (Limits, error) {
-	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 {
+	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 || l.MaxGlyphs < 0 || l.MaxTextBytes < 0 || l.MaxFonts < 0 || l.MaxFontBytes < 0 {
 		return Limits{}, fmt.Errorf("%w: negative limit", ErrInvalid)
 	}
 	if l.MaxDimension == 0 {
@@ -57,6 +61,18 @@ func (l Limits) resolved() (Limits, error) {
 	}
 	if l.MaxEdgeChecks == 0 {
 		l.MaxEdgeChecks = 64 << 20
+	}
+	if l.MaxGlyphs == 0 {
+		l.MaxGlyphs = 100000
+	}
+	if l.MaxTextBytes == 0 {
+		l.MaxTextBytes = 1 << 20
+	}
+	if l.MaxFonts == 0 {
+		l.MaxFonts = 32
+	}
+	if l.MaxFontBytes == 0 {
+		l.MaxFontBytes = 32 << 20
 	}
 	return l, nil
 }

@@ -85,7 +85,7 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 	r := cmd.d.rect
 	x0, y0, x1, y1 := pixelBounds(r, scale, img.Bounds().Dx(), img.Bounds().Dy())
 	coverage := make([]float64, x1-x0)
-	var scratch []float64
+	var scratch []crossing
 	for y := y0; y < y1; y++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -99,12 +99,12 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 			spans := []interval{{r.x0 * scale, r.x1 * scale}}
 			if cmd.d.path != nil {
 				var fill []interval
-				fill, scratch = scan(cmd.edges, sy, scratch)
+				fill, scratch = scan(cmd.edges, sy, scratch, cmd.d.path.nonzero)
 				spans = intersect(spans, fill)
 			}
 			for _, edges := range cmd.clips {
 				var clip []interval
-				clip, scratch = scan(edges, sy, scratch)
+				clip, scratch = scan(edges, sy, scratch, false)
 				spans = intersect(spans, clip)
 			}
 			for _, s := range spans {
