@@ -358,7 +358,7 @@ Unit tests run against small synthetic fixtures (committed) and larger real-worl
 
 ## Requirements
 
-- Go 1.25 or later
+- Go 1.26 or later
 
 Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and the encrypted open surfaces `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
 

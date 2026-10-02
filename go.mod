@@ -1,8 +1,11 @@
 module github.com/mgilbir/spine
 
-go 1.25.0
+go 1.26
 
-require golang.org/x/tools v0.48.0
+require (
+	github.com/mgilbir/forme v0.4.2
+	golang.org/x/tools v0.48.0
+)
 
 require (
 	golang.org/x/mod v0.38.0 // indirect

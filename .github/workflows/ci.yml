@@ -34,7 +34,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          # Pin to the version declared in go.mod (go 1.25.0).
+          # Pin to the version declared in go.mod (go 1.26).
           go-version-file: go.mod
           # The module gained its first requirement (golang.org/x/tools, for
           # internal/maporder) and so its first go.sum, which is what the
