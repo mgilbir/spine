@@ -84,7 +84,7 @@ func TestRenderInheritedShapes(t *testing.T) {
 		t.Fatalf("master placeholder: %v", err)
 	}
 	group := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:grpSp>`
-	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{renderLayoutPart: renderAddToTree(group)}); !errors.Is(err, render.ErrUnsupported) {
+	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{renderLayoutPart: renderAddToTree(group)}); err != nil {
 		t.Fatalf("drawn layout group: %v", err)
 	}
 	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{renderLayoutPart: renderAddToTree(group), "ppt/slides/slide1.xml": hide("p:sld")}); err != nil {
@@ -129,5 +129,35 @@ func TestRenderInheritedPicture(t *testing.T) {
 	})
 	if px := renderPixel(t, got, 64, 44); px != (color.NRGBA{G: 255, A: 255}) {
 		t.Fatalf("master picture: %+v", px)
+	}
+}
+
+func TestRenderGroups(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	red, white := color.NRGBA{R: 255, A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	// A group at (60,4) px, 20px square, whose child space is 10px square:
+	// its 10px child square at (0,0) doubles to fill the group.
+	group := func(xfrm, child string) string {
+		return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm` + xfrm + `><a:off x="571500" y="38100"/><a:ext cx="190500" cy="190500"/><a:chOff x="0" y="0"/><a:chExt cx="95250" cy="95250"/></a:xfrm></p:grpSpPr>` + child + `</p:grpSp>`
+	}
+	slide := func(xml string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			return renderAddToTree(xml)(renderAnyTxBody.ReplaceAllLiteralString(s, ""))
+		}}
+	}
+	got := renderSlidePNG(t, data, opts, slide(group("", renderSquare(0, 0, "FF0000"))))
+	for at, want := range map[[2]int]color.NRGBA{{61, 5}: red, {78, 22}: red, {58, 22}: white} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("%v: %+v, want %+v", at, px, want)
+		}
+	}
+	// Nested groups compose.
+	inner := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="96" name="Inner"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="95250" cy="95250"/><a:chOff x="0" y="0"/><a:chExt cx="95250" cy="95250"/></a:xfrm></p:grpSpPr>` + renderSquare(0, 0, "FF0000") + `</p:grpSp>`
+	nested := renderSlidePNG(t, data, opts, slide(group("", inner)))
+	if px := renderPixel(t, nested, 61, 5); px != red {
+		t.Fatalf("nested group: %+v", px)
+	}
+	if _, err := renderRewrittenPNG(t, data, opts, slide(group(` rot="5400000"`, renderSquare(0, 0, "FF0000")))); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("rotated group: %v", err)
 	}
 }

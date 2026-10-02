@@ -174,6 +174,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
 	// position among the slide's own shapes, or -1 for an inherited shape;
 	// picture resolves a picture's image bytes.
+	var drawShapeRef renderDraw
 	drawShape := func(sh Shape, sp *oxml.Shape, picProps *dml.SpPr, index int, picture func(*Picture) ([]byte, renderImageKey)) ([]layout.Op, error) {
 		switch v := sh.(type) {
 		case *AutoShape:
@@ -199,6 +200,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		case *PlaceholderShape:
 			if v == nil || index < 0 {
 				return nil, fmt.Errorf("%w: nil or inherited placeholder", render.ErrUnsupported)
+			}
+		case *GroupShape:
+			if v == nil {
+				return nil, fmt.Errorf("%w: nil group", render.ErrInvalid)
 			}
 		default:
 			return nil, fmt.Errorf("%w: shape (%T)", render.ErrUnsupported, sh)
@@ -251,6 +256,12 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles, nil)
 			return append(drawn, text...), err
+		case *GroupShape:
+			grp := s.renderSourceGroup(index)
+			if grp == nil || v.isDirty() {
+				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
+			}
+			return renderGroup(grp, renderIdentity, drawShapeRef, s.renderPartPicture(s.partName), 0)
 		case *PlaceholderShape:
 			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs)
 		case *Table:
@@ -295,6 +306,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
 	}
+	drawShapeRef = drawShape
 	// Master shapes, then layout shapes, then the slide's own.
 	for _, layer := range inherited {
 		drawn, err := s.renderLayer(layer, budget, drawShape)
@@ -371,9 +383,6 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) e
 	}
 	if !drawn {
 		return nil
-	}
-	if len(t.GrpSp) > 0 {
-		return fmt.Errorf("%w: group", render.ErrUnsupported)
 	}
 	for _, gf := range t.GraphicFrame {
 		if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI {
@@ -464,7 +473,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "idx"
 		case "xfrm":
 			attrs = "rot flipH flipV"
-		case "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody", "graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr", "cxnSp", "nvCxnSpPr", "cNvCxnSpPr", "style":
+		case "grpSp", "cNvPicPr", "cNvGrpSpPr", "nvGrpSpPr", "grpSpPr", "spTree", "nvSpPr", "nvPicPr", "nvPr", "spPr", "blipFill", "pic", "sp", "bg", "bgPr", "clrMapOvr", "txBody", "graphicFrame", "nvGraphicFramePr", "cNvGraphicFramePr", "cxnSp", "nvCxnSpPr", "cNvCxnSpPr", "style":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -502,6 +511,8 @@ func slideRenderXML(el xml.StartElement) error {
 		case "stCxn", "endCxn":
 			// Bindings move a connector only when its shapes move.
 			attrs = "id idx"
+		case "grpSpLocks":
+			attrs = "noGrp noUngrp noSelect noRot noChangeAspect noMove noResize"
 		case "spLocks":
 			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType noTextEdit"
 		case "cxnSpLocks":
@@ -789,7 +800,7 @@ func slideRenderNode(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
 		}
 	}
-	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp")) ||
+	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp" || node.Name.Local == "grpSp")) ||
 		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
@@ -910,7 +921,7 @@ var renderXMLParents = map[string]string{
 	"a:uLnTx": renderRunParents, "a:uFillTx": renderRunParents,
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
-	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
+	"p:nvGrpSpPr": "p:spTree p:grpSp", "p:grpSp": "p:spTree p:grpSp", "a:grpSpLocks": "p:cNvGrpSpPr", "p:grpSpPr": "p:spTree p:grpSp", "p:sp": "p:spTree p:grpSp", "p:pic": "p:spTree p:grpSp",
 	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
 	"p:style": "p:cxnSp", "a:lnRef": "p:style", "a:fillRef": "p:style", "a:effectRef": "p:style", "a:fontRef": "p:style", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr",
 	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
