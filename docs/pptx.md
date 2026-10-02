@@ -21,7 +21,7 @@ everything else.
 
 - Add shapes, text, tables, and images — including SVG images with a raster fallback
 - Slide placeholders, and access to each master and layout: read-only placeholders, plus theme read/write through `Presentation.Theme()` / `SlideMaster.Theme()`, which return the same `dml.ThemeEditor` the docx and xlsx theme APIs use
-- Auto shapes with solid/gradient fills, lines, and shadows
+- Auto shapes with solid/gradient fills, lines, and shadows; `AutoShape.SetNoLine()` explicitly removes the outline while preserving other source line metadata
 - Connectors (`Slide.AddConnector`/`Slide.Connectors`, and `GroupShape.AddConnector`/`GroupShape.Connectors` inside a group): straight, elbow, and curved connection shapes bound to two shapes' connection sites (ids resolved on save) or drawn between free points, with line width/color/dash; decks with existing connectors round-trip byte-for-byte
 - Shape effects on auto shapes and text boxes — glow (`SetGlow`/`Glow`), reflection (`SetReflection`), soft edge (`SetSoftEdge`), and a basic 3D bevel (`SetBevel`), each read back and written to `a:effectLst`/`a:sp3d`
 - Slide, master, and layout background fills (`SetBackgroundFill`/`BackgroundColor`/`HasBackground`/`ClearBackground`), reusing the shared `dml.Fill` (solid, gradient, or pattern), plus image (blip) backgrounds (`SetBackgroundImage(data, contentType)`) that embed a media part and stretch it behind the slide/layout/master
@@ -302,3 +302,9 @@ The following standard slide layout types are supported:
 | `LayoutVerticalTitleAndText` | Vertical title and text |
 
 The exact `Layout*` constant names are the source of truth in [`pptx/layout.go`](../pptx/layout.go).
+
+`Slide.PrepareRender` prepares the supported static geometry/image profile for
+native PNG or SVG output, including unsaved edits. See the [rendering
+guide](rendering.md) for the strict capability matrix and resource contracts.
+Text and unsupported visible content return errors; rendering does not save or
+synchronize source parts.

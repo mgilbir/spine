@@ -369,3 +369,7 @@ MIT License - see LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and fixture instructions, and please feel free to submit issues and pull requests.
+
+Native PNG/SVG rendering is being implemented in stacked PRs. See the
+[rendering guide](docs/rendering.md) for the supported static-slide profile and
+resource, font, source-preservation and output contracts.

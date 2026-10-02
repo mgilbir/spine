@@ -517,3 +517,16 @@ const (
 	PresetCallout2      = "wedgeRoundRectCallout"
 	PresetCallout3      = "wedgeEllipseCallout"
 )
+
+// SetNoLine removes the auto shape's visible outline explicitly. It preserves
+// other source line metadata while replacing the line fill with a:noFill.
+func (a *AutoShape) SetNoLine() {
+	if a.spPr.Ln == nil {
+		a.spPr.Ln = &dml.Ln{}
+	}
+	a.spPr.Ln.NoFill = &dml.NoFillXML{}
+	a.spPr.Ln.SolidFill = nil
+	a.spPr.Ln.GradFill = nil
+	a.spPr.Ln.PattFill = nil
+	a.dirty = true
+}
