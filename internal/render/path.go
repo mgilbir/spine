@@ -26,7 +26,7 @@ type drawing struct {
 }
 type prepareBudget struct {
 	operations, segments, glyphs, textBytes int
-	fontBytes                               int64
+	fontBytes, shapeWork                    int64
 	faces                                   map[*shape.Face]*shape.Face
 	fontIDs                                 map[*shape.Face]string
 }
@@ -60,6 +60,10 @@ func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, 
 			r := rectangle{v.Rect.X.Px(), v.Rect.Y.Px(), v.Rect.X.Px() + v.Rect.W.Px(), v.Rect.Y.Px() + v.Rect.H.Px(), v.Color}
 			r = meet(r, rectangle{0, 0, p.width, p.height, style.RGBA{}})
 			p.draws = append(p.draws, drawing{rect: r, clips: clips})
+		case layout.DrawText:
+			if err := p.collectText(ctx, v, clips, budget); err != nil {
+				return err
+			}
 		case layout.DrawGlyphs:
 			if err := p.collectGlyphs(ctx, v, clips, budget); err != nil {
 				return err

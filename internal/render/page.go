@@ -32,10 +32,12 @@ type Limits struct {
 	MaxTextBytes    int
 	MaxFonts        int
 	MaxFontBytes    int64
+	MaxShapeWork    int64
+	MaxRunBytes     int
 }
 
 func (l Limits) resolved() (Limits, error) {
-	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 || l.MaxGlyphs < 0 || l.MaxTextBytes < 0 || l.MaxFonts < 0 || l.MaxFontBytes < 0 {
+	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 || l.MaxGlyphs < 0 || l.MaxTextBytes < 0 || l.MaxFonts < 0 || l.MaxFontBytes < 0 || l.MaxShapeWork < 0 || l.MaxRunBytes < 0 {
 		return Limits{}, fmt.Errorf("%w: negative limit", ErrInvalid)
 	}
 	if l.MaxDimension == 0 {
@@ -74,6 +76,12 @@ func (l Limits) resolved() (Limits, error) {
 	if l.MaxFontBytes == 0 {
 		l.MaxFontBytes = 32 << 20
 	}
+	if l.MaxShapeWork == 0 {
+		l.MaxShapeWork = 64 << 20
+	}
+	if l.MaxRunBytes == 0 {
+		l.MaxRunBytes = 4096
+	}
 	return l, nil
 }
 
@@ -90,7 +98,8 @@ type rectangle struct {
 	color          style.RGBA
 }
 
-// Prepare snapshots solid rectangles, filled paths and nested path clips in painter order. Physical page
+// Prepare snapshots rectangles, paths, clipped groups and horizontal text in
+// painter order. Physical page
 // dimensions use EMU; Forme operations use CSS pixels from the top left.
 // Rectangles are clipped to the page. Negative extents and invalid colors fail;
 // zero-area rectangles are accepted and paint nothing. Overhang is layout
