@@ -76,8 +76,9 @@ The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid fill, no fill, or a theme
 background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
 Rectangles and ellipses may have a solid fill or none and no outline. A shape
-has no style reference (`p:style`, which fails), so an absent fill or outline
-is none, as DrawingML defines; a visible outline fails. Uncropped embedded PNG/JPEG pictures with
+has no style reference (`p:style`, which fails), so an absent fill or outline,
+or an outline without a fill, is none, as DrawingML defines; a visible outline
+fails. Uncropped embedded PNG/JPEG pictures with
 rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
@@ -116,7 +117,9 @@ text boxes. Provide `render.Options.Fonts`; the renderer performs no ambient
 font discovery. The renderer lays out the text body a save would write,
 including pending edits. A non-placeholder body inherits nothing, so absent
 attributes take their DrawingML defaults: top anchoring, square wrapping, and
-0.1"/0.05" left-right/top-bottom insets. Other anchors, wrapping, vertical,
+0.1"/0.05" left-right/top-bottom insets. Top, middle and bottom anchoring place
+the text block, whose height spans its paragraphs' spacing and full line
+heights; justified and distributed anchoring, other wrapping, and vertical,
 rotated or multi-column text fail. Shape autofit (`spAutoFit`) and unscaled
 normal autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn; scaled autofit fails. A fixed frame fails

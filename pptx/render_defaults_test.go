@@ -32,6 +32,10 @@ func TestRenderAppliesDrawingMLDefaults(t *testing.T) {
 		"absent outline and fill": func(s string) string {
 			return strings.Replace(s, `<a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>`, `</p:spPr>`, 1)
 		},
+		// An outline without a fill takes the style's, and there is none.
+		"outline without fill": func(s string) string {
+			return strings.Replace(s, `<a:ln><a:noFill/></a:ln>`, `<a:ln w="12700"/>`, 1)
+		},
 		// PowerPoint stores the extent it fitted the text to.
 		"shape autofit":   body(`<a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"><a:spAutoFit/></a:bodyPr>`),
 		"unscaled normal": body(`<a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"><a:normAutofit/></a:bodyPr>`),
@@ -84,12 +88,14 @@ func TestRenderTextFrameOverflowAndUnsupportedDefaults(t *testing.T) {
 		"scaled autofit": func(s string) string {
 			return strings.Replace(s, `<a:noAutofit/>`, `<a:normAutofit fontScale="90000"/>`, 1)
 		},
-		"two autofits":         func(s string) string { return strings.Replace(s, `<a:noAutofit/>`, `<a:noAutofit/><a:spAutoFit/>`, 1) },
-		"outline without fill": func(s string) string { return strings.Replace(s, `<a:ln><a:noFill/></a:ln>`, `<a:ln w="12700"/>`, 1) },
+		"two autofits": func(s string) string { return strings.Replace(s, `<a:noAutofit/>`, `<a:noAutofit/><a:spAutoFit/>`, 1) },
+		"visible outline": func(s string) string {
+			return strings.Replace(s, `<a:ln><a:noFill/></a:ln>`, `<a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>`, 1)
+		},
 		"style reference": func(s string) string {
 			return strings.Replace(s, `</p:spPr><p:txBody>`, `</p:spPr><p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style><p:txBody>`, 1)
 		},
-		"bottom anchor": func(s string) string { return strings.Replace(s, `anchor="t"`, `anchor="b"`, 1) },
+		"justified anchor": func(s string) string { return strings.Replace(s, `anchor="t"`, `anchor="just"`, 1) },
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": rewrite}); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
@@ -160,5 +166,31 @@ func TestRenderEditedTextMatchesSave(t *testing.T) {
 		if !bytes.Equal(got.Bytes(), want) {
 			t.Fatalf("%s: preview differs from saved file", name)
 		}
+	}
+}
+
+func TestRenderAnchorsTextVertically(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	// One 12pt line is 16px tall in the 48px frame at y 4: top 4-20, middle
+	// 20-36, bottom 36-52.
+	for anchor, ink := range map[string]int{"t": 12, "ctr": 28, "b": 44} {
+		rewrite := func(s string) string {
+			s = renderBody(`<a:lstStyle/>`, `<a:p><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r></a:p>`)(s)
+			return strings.Replace(s, `anchor="t"`, `anchor="`+anchor+`"`, 1)
+		}
+		got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": rewrite})
+		for _, y := range []int{12, 28, 44} {
+			if dark := renderPixel(t, got, 10, y).R < 128; dark != (y == ink) {
+				t.Fatalf("anchor %s, row %d: dark %v", anchor, y, dark)
+			}
+		}
+	}
+	// Text taller than a fixed frame fails whichever way it is anchored.
+	tall := func(s string) string {
+		s = renderBody(`<a:lstStyle/>`, `<a:p><a:r><a:rPr sz="4800"/><a:t>A</a:t></a:r></a:p>`)(s)
+		return strings.Replace(s, `anchor="t"`, `anchor="ctr"`, 1)
+	}
+	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": tall}); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("tall centered text: %v", err)
 	}
 }
