@@ -89,7 +89,8 @@ ST_PresetLineDashVal patterns in line widths, starting where the preset path
 starts and running clockwise; the pattern restarts there, so the last dash may
 be short. Dashes have flat caps: the schema gives no default cap and PowerPoint's
 shape styles use flat, so an absent cap is flat, and square or round caps fail,
-as do custom dashes. A dash turning a sharp corner takes the line join. Text lays out in the preset's text rectangle, which for rounded
+as do custom dashes. A dash turning a sharp corner takes the line join. Each
+dash is painted as its own path. Text lays out in the preset's text rectangle, which for rounded
 rectangles and ellipses is inset from the corners. Uncropped embedded PNG/JPEG pictures with
 rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
@@ -137,7 +138,9 @@ heights; justified and distributed anchoring, other wrapping, and vertical,
 rotated or multi-column text fail. Shape autofit (`spAutoFit`) and unscaled
 normal autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn; scaled autofit fails. A fixed frame fails
-when its text measures past the bottom inset.
+when a line that draws glyphs measures past the bottom inset; an empty line may
+hang below unseen. A body without characters paints nothing and is not laid
+out, so its fonts need not resolve.
 Paragraph and run properties are inherited: the paragraph's own properties,
 then the shape's list style at the paragraph's level, then the document
 defaults, then DrawingML defaults (left alignment, 100% line spacing, no space,

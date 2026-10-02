@@ -195,7 +195,8 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 		return nil, fmt.Errorf("%w: inherited placeholder text", render.ErrUnsupported)
 	}
 	saved := renderTextBody(source, v.textFrame)
-	if saved == nil {
+	if saved == nil || !renderHasText(saved) {
+		// A body without characters paints nothing.
 		return nil, nil
 	}
 	if len(saved.P) > fonts.nodes {
@@ -333,7 +334,8 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, g 
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		covered := 0
 		for _, line := range b.lines {
-			if top+line.ascent+line.descent > bottom && !frame.grows {
+			// A line that draws nothing may hang below the frame unseen.
+			if top+line.ascent+line.descent > bottom && !frame.grows && renderLineDraws(line) {
 				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
 			}
 			xp := left.Px()
@@ -534,4 +536,30 @@ func renderASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+func renderHasText(body *dml.TxBody) bool {
+	for _, p := range body.P {
+		if p == nil {
+			continue
+		}
+		if len(p.Br) > 0 || len(p.Fld) > 0 {
+			return true
+		}
+		for _, r := range p.R {
+			if r != nil && r.T != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func renderLineDraws(line renderLine) bool {
+	for _, sg := range line.Segments {
+		if len(sg.Glyphs) > 0 {
+			return true
+		}
+	}
+	return false
 }
