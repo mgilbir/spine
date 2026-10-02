@@ -1,8 +1,8 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptx.Slide.PrepareRender` supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. Word page
-preparation is still being implemented.
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptx.Slide.PrepareRender` supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docx.Document.PrepareRender` prepares a selected physical page from a bounded
+plain document flow.
 
 ```go
 page, err := render.Prepare(ctx, dml.Inches(8.5), dml.Inches(11), ops, render.Limits{})
@@ -135,3 +135,30 @@ Preparation checks original worksheet/styles/shared-string XML, bounds source
 indexing and range size, and creates no missing cells. The snapshot includes
 unsaved values. Original source checks remain conservative for pending edits.
 Native font/grid metrics do not promise Excel pixel identity.
+
+## Word physical-page profile
+
+`document.PrepareRender(ctx, 1, opts)` selects a **1-based physical page** after
+laying out the complete document under shared font/text/glyph/work budgets. The
+first profile supports one section with explicit page size and nonnegative
+margins, plain ASCII paragraphs, one explicit run style per paragraph,
+left/center/right alignment, exact line spacing and zero before/after paragraph
+spacing. Runs require explicit font family, size, bold, italic, strike-off and
+RGB color. Supplied fonts determine native hhea ascent/descent; leading is split
+equally above/below the line. Font metrics must fit the chosen line and page.
+
+The flow honours `pageBreakBefore` and [widow/orphan control](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.widowcontrol),
+including its enabled default. A paragraph that cannot satisfy those constraints
+on the given page fails. Paragraph keeps, indentation, rich styles, tables,
+headers/footers, columns, tracked changes, fields, drawings and unsupported
+source markup fail. Document settings and inherited/default style formatting
+outside the profile also fail. Unreferenced non-default named styles are ignored.
+The first profile keeps optional OpenType ligatures, contextual alternates and
+kerning disabled, matching [Word's default OpenType-feature setting](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/116847ff-9af6-45a7-a21f-0e0ff2eef41d).
+
+Page selection does not skip validation or layout of later paragraphs. Unsupported
+document content on another page still returns an error. Preparation checks the
+original main-part stream before lazy projection and never saves the document.
+Returned snapshots include unsaved changes. Physical-page numbering is unrelated
+to visible page-number fields. Native line placement and pagination are defined
+by this profile; identical Word pagination is not promised.
