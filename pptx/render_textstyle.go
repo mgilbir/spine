@@ -560,8 +560,16 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 		switch {
 		case r == nil:
 			return style.RGBA{}, false, nil
-		case r.NoFill != nil || r.GradFill != nil || r.BlipFill != nil || r.PattFill != nil || r.GrpFill != nil:
-			return style.RGBA{}, false, fmt.Errorf("%w: text fill", render.ErrUnsupported)
+		case r.NoFill != nil && (r.SolidFill != nil || r.GradFill != nil || r.PattFill != nil):
+			return style.RGBA{}, false, fmt.Errorf("%w: ambiguous text fill", render.ErrInvalid)
+		case r.NoFill != nil:
+			// Unfilled text is invisible.
+			return style.RGBA{}, true, nil
+		case r.BlipFill != nil || r.GrpFill != nil:
+			return style.RGBA{}, false, fmt.Errorf("%w: picture or group text fill", render.ErrUnsupported)
+		case r.SolidFill == nil && (r.GradFill != nil || r.PattFill != nil):
+			c, err := t.colors.representative(r.GradFill, r.PattFill, nil)
+			return c, err == nil, err
 		case r.SolidFill != nil:
 			c, err := t.colors.solid(r.SolidFill, nil)
 			return c, err == nil, err

@@ -147,10 +147,17 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 		}
 	}
 	if line.SolidFill == nil {
-		if line.GradFill != nil || line.PattFill != nil {
-			return nil, nil, fmt.Errorf("%w: patterned line", render.ErrUnsupported)
+		if line.GradFill == nil && line.PattFill == nil {
+			return nil, nil, nil
 		}
-		return nil, nil, nil
+		if line.NoFill != nil {
+			return nil, nil, fmt.Errorf("%w: ambiguous line fill", render.ErrInvalid)
+		}
+		c, err := colors.representative(line.GradFill, line.PattFill, placeholder)
+		if err != nil {
+			return nil, nil, err
+		}
+		line.SolidFill, line.GradFill, line.PattFill = renderSolidOf(c), nil, nil
 	}
 	if line.NoFill != nil {
 		return nil, nil, fmt.Errorf("%w: ambiguous line fill", render.ErrInvalid)

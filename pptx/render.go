@@ -180,14 +180,15 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
 	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, masterErrs: masterProfile.styleErrs, warn: opts.Warn}
 	// The nearest defined background wins: slide, then layout, then master.
-	background := renderWhite
+	background := renderPaint{color: renderWhite}
+	px := float64(dml.EMUsPerPixel)
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
-			if background, err = colors.background(layers[i].Bg); err != nil {
+			if background, err = colors.background(layers[i].Bg, float64(w)/px, float64(h)/px); err != nil {
 				if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
 					return nil, err
 				}
-				background = renderWhite
+				background = renderPaint{color: renderWhite}
 			}
 			break
 		}
@@ -200,7 +201,16 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		return nil, fmt.Errorf("%w: slide shapes", render.ErrLimit)
 	}
 	budget.Nodes -= len(shapes)
-	ops := []layout.Op{layout.FillRect{Rect: layout.Rect{W: renderUnit(w), H: renderUnit(h)}, Color: background}}
+	// A gradient background lies over white, which shows through its alpha.
+	ops := []layout.Op{layout.FillRect{Rect: layout.Rect{W: renderUnit(w), H: renderUnit(h)}, Color: background.color}}
+	if background.gradient != nil {
+		ops[0] = layout.FillRect{Rect: layout.Rect{W: renderUnit(w), H: renderUnit(h)}, Color: renderWhite}
+		bgOps, err := background.fillOps(0, 0, float64(w)/px, float64(h)/px, nil)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, bgOps...)
+	}
 	imageCount := 0
 	imagePixels, imageBytes := int64(0), int64(0)
 	// A slide often repeats one image; decode and charge it once.
@@ -444,19 +454,19 @@ func renderCrop(img image.Image, l, t, r, b float64) (image.Image, error) {
 	return sub.SubImage(rect), nil
 }
 
-// renderStyleFill resolves a style's fill reference to a solid fill and the
-// color its phClr names; it returns nil for none.
-func renderStyleFill(r *dml.FillRef, colors *renderColors) (*dml.SolidFill, *style.RGBA, error) {
+// renderStyleFill resolves a style's fill reference to a solid or gradient
+// fill and the color its phClr names; it returns nils for none.
+func renderStyleFill(r *dml.FillRef, colors *renderColors) (*dml.SolidFill, *dml.GradFill, *style.RGBA, error) {
 	if r == nil || r.Idx == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.ScrgbClr != nil, r.HslClr != nil, r.PrstClr != nil), nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	theme, err := colors.loadTheme()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var format *dml.FmtScheme
 	if theme.ThemeElements != nil {
@@ -475,13 +485,13 @@ func renderStyleFill(r *dml.FillRef, colors *renderColors) (*dml.SolidFill, *sty
 	}
 	switch {
 	case !found:
-		return nil, nil, fmt.Errorf("%w: fill style %d", render.ErrInvalid, r.Idx)
+		return nil, nil, nil, fmt.Errorf("%w: fill style %d", render.ErrInvalid, r.Idx)
 	case entry.NoFill != nil:
-		return nil, nil, nil
-	case entry.SolidFill == nil:
-		return nil, nil, fmt.Errorf("%w: theme gradient, pattern or picture fill", render.ErrUnsupported)
+		return nil, nil, nil, nil
+	case entry.SolidFill == nil && entry.GradFill == nil:
+		return nil, nil, nil, fmt.Errorf("%w: theme pattern or picture fill", render.ErrUnsupported)
 	}
-	return entry.SolidFill, &c, nil
+	return entry.SolidFill, entry.GradFill, &c, nil
 }
 
 // renderTextLeftOut marks a text failure whose shape is still drawn.
@@ -560,7 +570,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
+	if p.CustGeom != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
 		return nil, g, fmt.Errorf("%w: shape fill or geometry", render.ErrUnsupported)
 	}
 	if source == nil && (renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil) {
@@ -600,35 +610,32 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 	if err != nil {
 		return nil, g, err
 	}
-	if p.NoFill != nil && p.SolidFill != nil {
+	if p.NoFill != nil && (p.SolidFill != nil || p.GradFill != nil) || p.SolidFill != nil && p.GradFill != nil {
 		return nil, g, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
 	}
 	// Without a style reference (checked by the caller), an absent fill, an
 	// absent outline, or an outline without a fill is none.
 	var ops []layout.Op
-	fill := p.SolidFill
+	fill, grad := p.SolidFill, p.GradFill
 	var fillPlaceholder *style.RGBA
-	if st != nil && p.NoFill == nil && p.SolidFill == nil {
+	if st != nil && p.NoFill == nil && fill == nil && grad == nil {
 		var err error
-		if fill, fillPlaceholder, err = renderStyleFill(st.FillRef, colors); err != nil {
+		if fill, grad, fillPlaceholder, err = renderStyleFill(st.FillRef, colors); err != nil {
 			return nil, g, err
 		}
 	}
-	if p.NoFill == nil && fill != nil {
-		c, err := colors.solid(fill, fillPlaceholder)
+	if p.NoFill == nil && (fill != nil || grad != nil) {
+		paint, err := colors.fillPaint(fill, grad, fillPlaceholder, float64(w)/float64(dml.EMUsPerPixel), float64(h)/float64(dml.EMUsPerPixel))
 		if err != nil {
 			return nil, g, err
 		}
-		if ops, err = g.fill(c); err != nil {
+		if ops, err = g.fill(paint); err != nil {
 			return nil, g, err
 		}
 	}
-	line, linePlaceholder := p.Ln, (*style.RGBA)(nil)
-	if st != nil {
-		var err error
-		if line, linePlaceholder, err = renderStyledLine(st, p.Ln, colors); err != nil {
-			return nil, g, err
-		}
+	line, linePlaceholder, err := renderStyledLine(st, p.Ln, colors)
+	if err != nil {
+		return nil, g, err
 	}
 	if l := line; l != nil && (l.SolidFill != nil || l.GradFill != nil || l.PattFill != nil) {
 		if l.NoFill != nil {
@@ -766,16 +773,27 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "cx cy"
 		case "prstGeom":
 			attrs = "prst"
-		case "srgbClr", "schemeClr", "lumMod", "lumOff":
+		case "srgbClr", "schemeClr", "tint", "shade", "alpha", "alphaMod", "alphaOff", "hue", "hueMod", "hueOff", "sat", "satMod", "satOff",
+			"lum", "lumMod", "lumOff", "red", "redMod", "redOff", "green", "greenMod", "greenOff", "blue", "blueMod", "blueOff":
 			attrs = "val"
+		case "comp", "inv", "gray", "gamma", "invGamma":
 		case "sysClr":
 			attrs = "val lastClr"
 		case "picLocks":
 			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType noCrop"
 		case "blip":
 			attrs = "cstate embed"
-		case "fillRect", "srcRect":
+		case "fillRect", "srcRect", "fillToRect", "tileRect":
 			attrs = "l t r b"
+		case "gradFill":
+			attrs = "flip rotWithShape"
+		case "gs":
+			attrs = "pos"
+		case "lin":
+			attrs = "ang scaled"
+		case "path":
+			attrs = "path"
+		case "gsLst":
 		case "ln":
 			attrs = "w cap cmpd algn"
 		case "overrideClrMapping":
@@ -1087,7 +1105,7 @@ func slideRenderNode(node core.XMLNode) error {
 		}
 	}
 	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp" || node.Name.Local == "grpSp")) ||
-		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
+		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gs" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -1184,6 +1202,16 @@ const (
 	renderStyleRefs        = "a:lnRef a:fillRef a:effectRef a:fontRef"
 )
 
+// renderColorTransforms are the EG_ColorTransform elements, all evaluated.
+var renderColorTransforms = []string{"tint", "shade", "comp", "inv", "gray", "alpha", "alphaMod", "alphaOff", "hue", "hueMod", "hueOff", "sat", "satMod", "satOff",
+	"lum", "lumMod", "lumOff", "red", "redMod", "redOff", "green", "greenMod", "greenOff", "blue", "blueMod", "blueOff", "gamma", "invGamma"}
+
+func init() {
+	for _, name := range renderColorTransforms {
+		renderXMLParents["a:"+name] = "a:srgbClr a:schemeClr a:sysClr"
+	}
+}
+
 var renderXMLParents = map[string]string{
 	"p:txBody": "p:sp", "a:bodyPr": "p:txBody a:txBody", "a:lstStyle": "p:txBody a:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
 	"a:p": "p:txBody a:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:br": "a:p", "a:fld": "a:p", "a:rPr": "a:r a:br a:fld", "a:t": "a:r a:fld", "a:endParaRPr": "a:p",
@@ -1213,8 +1241,10 @@ var renderXMLParents = map[string]string{
 	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
 	"a:prstDash":  renderLineParents, "a:round": renderLineParents, "a:bevel": renderLineParents, "a:miter": renderLineParents,
 	"a:headEnd": renderLineParents, "a:tailEnd": renderLineParents, "a:noFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents,
-	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill p:bgRef a:highlight a:buClr " + renderStyleRefs,
+	"a:solidFill": "p:spPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill a:gs p:bgRef a:highlight a:buClr " + renderStyleRefs,
 	"a:highlight": renderRunParents,
-	"a:lumMod":    "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
+	"a:ln": "p:spPr",
+	"a:gradFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
+	"a:lin": "a:gradFill", "a:path": "a:gradFill", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:srcRect": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }

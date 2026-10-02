@@ -246,6 +246,9 @@ func (p *Page) collectImage(ctx context.Context, v layout.DrawImage, clips []*ge
 	return nil
 }
 func (d drawing) pixelColor(x, y int, scale float64) style.RGBA {
+	if d.gradient != nil {
+		return d.gradient.color((float64(x)+0.5)/scale, (float64(y)+0.5)/scale)
+	}
 	if d.image == nil {
 		return d.rect.color
 	}

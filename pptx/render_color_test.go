@@ -89,9 +89,6 @@ func TestRenderRejectsUnsupportedThemeColors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, rewrite := range map[string]func(string) string{
-		"other transform": func(s string) string {
-			return strings.Replace(s, `<a:srgbClr val="FF0000"/>`, `<a:srgbClr val="FF0000"><a:tint val="50000"/></a:srgbClr>`, 1)
-		},
 		"repeated transform": func(s string) string {
 			return strings.Replace(s, `<a:srgbClr val="FF0000"/>`, `<a:srgbClr val="FF0000"><a:lumMod val="50000"/><a:lumMod val="50000"/></a:srgbClr>`, 1)
 		},
@@ -103,9 +100,6 @@ func TestRenderRejectsUnsupportedThemeColors(t *testing.T) {
 		},
 		"no system value": func(s string) string {
 			return strings.Replace(s, `<a:srgbClr val="FF0000"/>`, `<a:sysClr val="windowText"/>`, 1)
-		},
-		"gradient background style": func(s string) string {
-			return strings.Replace(s, `<p:cSld><p:spTree>`, `<p:cSld><p:bg><p:bgRef idx="1003"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>`, 1)
 		},
 		"background style out of range": func(s string) string {
 			return strings.Replace(s, `<p:cSld><p:spTree>`, `<p:cSld><p:bg><p:bgRef idx="1009"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>`, 1)
@@ -157,5 +151,39 @@ func TestRenderThemeUsesUnsavedEditsAndSourceBudget(t *testing.T) {
 	sources := len(parts["/"+strings.TrimPrefix(slide.partName, "/")]) + len(slide.layout.layoutXML.SourceXML) + len(slide.layout.master.masterXML.SourceXML)
 	if _, err = slide.PrepareRender(context.Background(), render.Options{MaxSourceBytes: int64(sources)}); !errors.Is(err, render.ErrLimit) {
 		t.Fatalf("theme outside source budget: %v", err)
+	}
+}
+
+func TestRenderColorTransforms(t *testing.T) {
+	p, _, _ := renderTestSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, transforms string
+		want             color.NRGBA
+	}{
+		// Tint and shade mix with white and black in linear RGB: half of
+		// full intensity encodes as 188.
+		{"tint", `<a:tint val="50000"/>`, color.NRGBA{R: 255, G: 188, B: 188, A: 255}},
+		{"shade", `<a:shade val="50000"/>`, color.NRGBA{R: 188, A: 255}},
+		{"saturation", `<a:satMod val="0"/>`, color.NRGBA{R: 128, G: 128, B: 128, A: 255}},
+		{"complement", `<a:comp/>`, color.NRGBA{G: 255, B: 255, A: 255}},
+		{"inverse", `<a:inv/>`, color.NRGBA{G: 255, B: 255, A: 255}},
+		{"hue", `<a:hue val="7200000"/>`, color.NRGBA{G: 255, A: 255}},
+		{"green channel", `<a:greenOff val="100000"/>`, color.NRGBA{R: 255, G: 255, A: 255}},
+		// Half-opaque red over the white page.
+		{"alpha", `<a:alpha val="50000"/>`, color.NRGBA{R: 255, G: 128, B: 128, A: 255}},
+	} {
+		got, err := renderRewrittenPNG(t, data, render.Options{}, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			return strings.Replace(s, `<a:srgbClr val="FF0000"/>`, `<a:srgbClr val="FF0000">`+tc.transforms+`</a:srgbClr>`, 1)
+		}})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if px := renderPixel(t, got, 2, 2); px != tc.want {
+			t.Fatalf("%s: %+v, want %+v", tc.name, px, tc.want)
+		}
 	}
 }

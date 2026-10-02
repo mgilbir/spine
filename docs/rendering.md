@@ -88,12 +88,12 @@ still fail.
 `slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
 an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
-backgrounds applies. A background is a solid fill, no fill, or a theme
-background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
+backgrounds applies. A background is a solid or gradient fill, no fill, or a
+theme background reference (`p:bgRef`) whose theme entry is one of those.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
-and ellipses may have a solid fill or none, and a solid outline or none. A shape's
+and ellipses may have a solid or gradient fill or none, and a solid outline or none. A shape's
 style reference (`p:style`) supplies what it does not set itself: `fillRef`
-selects a theme fill or background fill style, which must be solid or none, in
+selects a theme fill or background fill style, which must be solid, gradient or none, in
 the reference's color; `lnRef` a theme line style beneath the shape's own
 `a:ln`; `fontRef` the theme major or minor font and a text color, beneath the
 shape's own list style; `effectRef` must select an effect style without
@@ -122,11 +122,25 @@ or theme scheme colors. Scheme colors, including inherited ones, resolve through
 the slide's effective color map: the master map, replaced by any layout and
 then slide override. The master's theme is read once per preparation, with
 unsaved theme edits, and counts toward `MaxSourceBytes`/`MaxLayoutNodes`.
-`lumMod` and `lumOff` apply in HSL in document order with clamping after each
-step; other transforms, alpha, and theme style entries with gradient, pattern
-or picture fills fail.
+Color transforms apply in document order, clamping after each step: hue,
+saturation and luminance transforms and `comp` in HSL; `tint`, `shade`, `gray`
+and the red, green and blue transforms in linear RGB, as LibreOffice's import
+does; `inv`, `gamma` and `invGamma` on the sRGB channels; and the alpha
+transforms on opacity. Theme style entries with pattern or picture fills fail.
 
-Gradients, rotated or
+A gradient (`a:gradFill`) fills its shape's box. A linear gradient's angle
+runs clockwise from the x axis and its stops span the box corner to corner
+along it; `scaled` applies the angle to the box stretched to a square. A path
+gradient's first stop lies at the box edge and its last at the centre of its
+fill-to rectangle: `circle` exactly, and `rect` and `shape` approximately, as
+ellipses, in best-effort mode only. Stop positions are clamped to 0–100%;
+tiling and flipping fail, as best effort leaves them out. Outlines and text
+with gradient or pattern fills fail; best effort draws them in a gradient's
+middle stop color or a pattern's foreground. Unfilled text is invisible.
+Spine's PNG and SVG writers paint single-tile linear and radial gradients with
+linear blending.
+
+Rotated or
 flipped shapes/pictures other than lines, SVGs, groups, connectors, charts, tables,
 SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
