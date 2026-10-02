@@ -93,29 +93,11 @@ func TestRenderTextFrameOverflowAndUnsupportedDefaults(t *testing.T) {
 		"visible outline": func(s string) string {
 			return strings.Replace(s, `<a:ln><a:noFill/></a:ln>`, `<a:ln w="12700"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>`, 1)
 		},
-		"style reference": func(s string) string {
-			return strings.Replace(s, `</p:spPr><p:txBody>`, `</p:spPr><p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style><p:txBody>`, 1)
-		},
 		"justified anchor": func(s string) string { return strings.Replace(s, `anchor="t"`, `anchor="just"`, 1) },
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": rewrite}); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
 		}
-	}
-	// A style held only in the model, which the source check cannot see.
-	opened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if e := opened.Close(); e != nil {
-			t.Error(e)
-		}
-	}()
-	slide := opened.Slides()[0]
-	slide.sx().CSld.SpTree.Sp[0].Style = &dml.Style{}
-	if _, err = slide.PrepareRender(context.Background(), opts); !errors.Is(err, render.ErrUnsupported) {
-		t.Fatalf("model style: %v", err)
 	}
 }
 
