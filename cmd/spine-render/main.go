@@ -48,7 +48,7 @@ type config struct {
 	timeout                              time.Duration
 	fonts                                fontFlags
 	fallback                             bool
-	keepGoing                            bool
+	keepGoing, strict                    bool
 	warn                                 io.Writer // skipped-page reports; nil is standard error
 }
 
@@ -67,6 +67,7 @@ func main() {
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE mapping")
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
 	flag.BoolVar(&c.keepGoing, "keep-going", false, "report and skip slides or sheets that cannot be rendered, then exit with an error")
+	flag.BoolVar(&c.strict, "strict", false, "fail on any content that cannot be drawn instead of warning and drawing the rest")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -203,6 +204,18 @@ func run(ctx context.Context, c config) (result error) {
 		skipped = append(skipped, label)
 		return nil
 	}
+	warnings := 0
+	// Unless -strict, slides draw what they can and report the rest.
+	withWarnings := func(label string) render.Options {
+		o := opts
+		if !c.strict {
+			o.Warn = func(err error) {
+				warnings++
+				_, _ = fmt.Fprintf(warn, "spine-render: %s: warning: %v\n", label, err)
+			}
+		}
+		return o
+	}
 	count := 0
 	emit := func(label string, page *render.Page) error {
 		if count >= c.maxPages {
@@ -225,7 +238,7 @@ func run(ctx context.Context, c config) (result error) {
 			return fmt.Errorf("slides exceed -max-pages")
 		}
 		for i, slide := range p.Slides() {
-			page, err := slide.PrepareRender(ctx, opts)
+			page, err := slide.PrepareRender(ctx, withWarnings(fmt.Sprintf("slide %d", i+1)))
 			if err != nil {
 				if err = failed(fmt.Sprintf("slide %d", i+1), err); err != nil {
 					return err
@@ -275,6 +288,9 @@ func run(ctx context.Context, c config) (result error) {
 				return err
 			}
 		}
+	}
+	if warnings > 0 {
+		fmt.Printf("%d warnings: some content was left out of the previews\n", warnings)
 	}
 	if len(skipped) > 0 {
 		fmt.Printf("Rendered %d previews to %s\n", count, c.out)

@@ -33,6 +33,9 @@ type renderTextStyles struct {
 	// masterErrs holds the first unsupported node the master source check
 	// found in each of its text styles, by element name.
 	masterErrs map[string]error
+	// warn, in best-effort mode, receives a style problem once; the styles
+	// are then used as parsed.
+	warn func(error)
 
 	loaded          bool
 	err             error
@@ -99,33 +102,40 @@ func (t *renderTextStyles) load() error {
 	if !t.loaded {
 		t.loaded = true
 		t.err = t.loadLists()
+		if t.err != nil && t.warn != nil && t.ctx.Err() == nil {
+			t.warn(t.err)
+			t.err = nil
+		}
 	}
 	return t.err
 }
 
 func (t *renderTextStyles) loadLists() error {
-	if err := t.masterErrs["otherStyle"]; err != nil {
-		return fmt.Errorf("pptx: master other-text style: %w", err)
-	}
 	if l := t.slide.layout; l != nil && l.master != nil && l.master.masterXML != nil && l.master.masterXML.TxStyles != nil {
 		t.other = l.master.masterXML.TxStyles.OtherStyle
+	}
+	// Load every list before reporting the first problem, so best effort can
+	// go on with them.
+	var first error
+	if err := t.masterErrs["otherStyle"]; err != nil {
+		first = fmt.Errorf("pptx: master other-text style: %w", err)
 	}
 	p := t.slide.presentation
 	if pres := p.presentation; pres != nil && pres.DefaultTextStyle != nil {
 		t.defaults = pres.DefaultTextStyle
-		if len(pres.SourceXML) > 0 {
+		if len(pres.SourceXML) > 0 && first == nil {
 			if err := t.budget.CheckXML(t.ctx, pres.SourceXML, renderDefaultTextStyleProfile); err != nil {
-				return fmt.Errorf("pptx: presentation default text style: %w", err)
+				first = fmt.Errorf("pptx: presentation default text style: %w", err)
 			}
 		}
 	} else if p.reader == nil {
 		// A deck built in code is saved with a synthesized default style.
 		var err error
-		if t.defaults, err = renderSynthesizedTextStyle(); err != nil {
-			return err
+		if t.defaults, err = renderSynthesizedTextStyle(); err != nil && first == nil {
+			first = err
 		}
 	}
-	return nil
+	return first
 }
 
 // renderDefaultTextStyleProfile checks the presentation's default text style

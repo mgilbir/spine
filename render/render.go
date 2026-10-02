@@ -45,6 +45,13 @@ type Options struct {
 	Fonts          FontResolver
 	MaxSourceBytes int64
 	MaxLayoutNodes int
+	// Warn, when set, makes preparation best effort: content an adapter
+	// cannot draw is reported to Warn and left out, and preparation goes on
+	// with the rest. The page is then incomplete. Errors that stop
+	// preparation as a whole (cancellation, invalid options, malformed
+	// parts, page-wide limits) are still returned. Adapters that do not
+	// support best effort ignore it.
+	Warn func(error)
 }
 
 // Page owns its prepared geometry and normalized raster data. It can be rendered

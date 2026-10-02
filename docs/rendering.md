@@ -70,6 +70,17 @@ atomic output, use a caller-owned buffer under a separate byte budget.
 
 ## Static slide profile
 
+Slide previews are strict by default: content outside the profile fails
+preparation. Setting `render.Options.Warn` makes them best effort instead.
+Each shape that cannot be drawn, on the slide, its layout or master, or in a
+group, is reported to `Warn` and left out; a shape whose text cannot be laid
+out is drawn without it; an unsupported background is drawn white; and
+problems outside any shape (unknown slide content, alternate content,
+extensions, charts and other graphic frames) are reported once. Animation and
+transitions are ignored. The page is then incomplete, and the rules below
+describe what is drawn. Cancellation, malformed parts and page-wide limits
+still fail.
+
 `slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
 an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
@@ -364,8 +375,9 @@ source, shaping, pixel and output limits still apply. DOCX currently lays out th
 whole document for each selected page, so large documents repeat layout work.
 The timeout and page cap bound this command's processing.
 
-The CLI uses the strict profiles above; it does not expand their supported
-formatting. Errors identify the failing page, slide or sheet. Existing outputs
+The CLI draws slides best effort by default: each piece of content it cannot
+draw prints a `warning:` line naming the slide, and the rest is drawn. Use
+`-strict` to fail instead. It does not expand the supported formatting. Errors identify the failing page, slide or sheet. Existing outputs
 are never overwritten. A failed output file is removed; completed files from
 earlier pages or the other format remain available after a later error.
 

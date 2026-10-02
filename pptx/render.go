@@ -50,6 +50,16 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	if err != nil {
 		return nil, err
 	}
+	// In best-effort mode soft reports a problem and lets preparation go on.
+	lenient := opts.Warn != nil
+	soft := func(err error) error {
+		if err == nil || !lenient || ctx.Err() != nil {
+			return err
+		}
+		opts.Warn(err)
+		return nil
+	}
+	slideProfile := &renderProfile{lenient: lenient}
 	// Check original bytes before lazy parsing can discard unknown markup. The
 	// check is deliberately conservative for source features subsequently removed.
 	if s.presentation.reader != nil {
@@ -58,7 +68,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if e != nil {
 				return nil, e
 			}
-			e = budget.CheckReader(ctx, stream, (&renderProfile{}).slide)
+			e = budget.CheckReader(ctx, stream, slideProfile.slide)
 			closeErr := stream.Close()
 			if e != nil {
 				return nil, fmt.Errorf("pptx: %s: %w", s.partName, e)
@@ -72,10 +82,20 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	if model == nil || model.CSld == nil {
 		return nil, fmt.Errorf("%w: missing slide data", render.ErrInvalid)
 	}
-	if len(model.AlternateContent) > 0 || model.Timing != nil || model.Transition != nil {
-		return nil, fmt.Errorf("%w: slide animation/alternate content", render.ErrUnsupported)
+	for _, note := range slideProfile.notes {
+		opts.Warn(fmt.Errorf("pptx: %s: %w", s.partName, note))
 	}
-	if err = renderModelExtensions(model.ExtLst, "p:sld"); err != nil {
+	// Animation and transitions do not change a static slide; best effort
+	// draws it without them.
+	if len(model.AlternateContent) > 0 {
+		if err = soft(fmt.Errorf("%w: slide alternate content", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+	}
+	if (model.Timing != nil || model.Transition != nil) && !lenient {
+		return nil, fmt.Errorf("%w: slide animation", render.ErrUnsupported)
+	}
+	if err = soft(renderModelExtensions(model.ExtLst, "p:sld")); err != nil {
 		return nil, err
 	}
 	layers := []*oxml.CommonSlideData{}
@@ -85,9 +105,11 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			// Header/footer flags only select footer placeholders, which this
 			// profile rejects on the master and the slide.
 			if len(m.AlternateContent) > 0 {
-				return nil, fmt.Errorf("%w: master alternate content", render.ErrUnsupported)
+				if err = soft(fmt.Errorf("%w: master alternate content", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
 			}
-			if err = renderModelExtensions(m.ExtLst, "p:sldMaster"); err != nil {
+			if err = soft(renderModelExtensions(m.ExtLst, "p:sldMaster")); err != nil {
 				return nil, err
 			}
 			layers = append(layers, m.CSld)
@@ -95,15 +117,17 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		if s.layout.layoutXML != nil {
 			m := s.layout.layoutXML
 			if len(m.AlternateContent) > 0 {
-				return nil, fmt.Errorf("%w: layout alternate content", render.ErrUnsupported)
+				if err = soft(fmt.Errorf("%w: layout alternate content", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
 			}
-			if err = renderModelExtensions(m.ExtLst, "p:sldLayout"); err != nil {
+			if err = soft(renderModelExtensions(m.ExtLst, "p:sldLayout")); err != nil {
 				return nil, err
 			}
 			layers = append(layers, m.CSld)
 		}
 	}
-	masterProfile, layoutProfile := &renderProfile{}, &renderProfile{}
+	masterProfile, layoutProfile := &renderProfile{lenient: lenient}, &renderProfile{lenient: lenient}
 	if s.layout != nil {
 		if s.layout.layoutXML != nil && len(s.layout.layoutXML.SourceXML) > 0 {
 			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, layoutProfile.inherited); err != nil {
@@ -115,6 +139,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return nil, fmt.Errorf("pptx: master: %w", err)
 			}
 		}
+	}
+	for _, note := range append(layoutProfile.notes, masterProfile.notes...) {
+		opts.Warn(fmt.Errorf("pptx: layout or master: %w", note))
 	}
 	// A slide hiding background graphics hides its layout's and master's
 	// shapes; a layout hiding them hides its master's.
@@ -132,7 +159,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	// A hidden layer still supplies its background but draws no shapes.
 	for _, layer := range layers {
-		if err = renderTreeBase(layer, budget, shown[layer]); err != nil {
+		if err = soft(renderTreeBase(layer, budget, shown[layer])); err != nil {
 			return nil, err
 		}
 	}
@@ -147,18 +174,21 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 	}
 	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
-	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, masterErrs: masterProfile.styleErrs}
+	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, masterErrs: masterProfile.styleErrs, warn: opts.Warn}
 	// The nearest defined background wins: slide, then layout, then master.
 	background := renderWhite
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
 			if background, err = colors.background(layers[i].Bg); err != nil {
-				return nil, err
+				if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
+					return nil, err
+				}
+				background = renderWhite
 			}
 			break
 		}
 	}
-	if err = renderTreeBase(model.CSld, budget, true); err != nil {
+	if err = soft(renderTreeBase(model.CSld, budget, true)); err != nil {
 		return nil, err
 	}
 	shapes := s.shapeList()
@@ -248,22 +278,28 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles, nil)
-			return append(drawn, text...), err
+			if err = soft(renderTextLeftOut(sh, err)); err != nil {
+				return nil, err
+			}
+			return append(drawn, text...), nil
 		case *AutoShape:
 			drawn, geometry, err := renderAutoShape(v, props, colors, resolved)
 			if err != nil || v.textFrame == nil {
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles, nil)
-			return append(drawn, text...), err
+			if err = soft(renderTextLeftOut(sh, err)); err != nil {
+				return nil, err
+			}
+			return append(drawn, text...), nil
 		case *GroupShape:
 			grp := s.renderSourceGroup(index)
 			if grp == nil || v.isDirty() {
 				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
 			}
-			return renderGroup(grp, renderIdentity, drawShapeRef, s.renderPartPicture(s.partName), 0)
+			return renderGroup(grp, renderIdentity, drawShapeRef, s.renderPartPicture(s.partName), 0, opts.Warn)
 		case *PlaceholderShape:
-			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs)
+			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs, soft)
 		case *Table:
 			return s.renderTable(ctx, index, v, colors, textLayout, fonts, styles)
 		case *Connector:
@@ -309,7 +345,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	drawShapeRef = drawShape
 	// Master shapes, then layout shapes, then the slide's own.
 	for _, layer := range inherited {
-		drawn, err := s.renderLayer(layer, budget, drawShape)
+		drawn, err := s.renderLayer(layer, budget, drawShape, opts.Warn)
 		if err != nil {
 			return nil, err
 		}
@@ -323,9 +359,16 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		return data, renderPictureKey(v, data)
 	}
 	for i, sh := range shapes {
-		drawn, err := drawShape(sh, s.renderSourceShape(i), s.renderPictureProps(i), i, slidePicture)
+		var drawn []layout.Op
+		if err = slideProfile.shapeErrs[renderRefKey(s, i)].any; err == nil {
+			drawn, err = drawShape(sh, s.renderSourceShape(i), s.renderPictureProps(i), i, slidePicture)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("pptx: slide %d shape %d: %w", s.index, i, err)
+			err = fmt.Errorf("pptx: slide %d shape %d (%s): %w", s.index, i, sh.Name(), err)
+			if err = soft(err); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		ops = append(ops, drawn...)
 	}
@@ -355,6 +398,25 @@ func renderPictureKey(v *Picture, data []byte) renderImageKey {
 // a background.
 func renderEffects(e *dml.EffectLst) bool {
 	return e != nil && *e != (dml.EffectLst{})
+}
+
+// renderTextLeftOut marks a text failure whose shape is still drawn.
+func renderTextLeftOut(sh Shape, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("pptx: shape %q: text left out: %w", sh.Name(), err)
+}
+
+// renderRefKey names a slide shape's spTree element for the source check's
+// per-shape records.
+func renderRefKey(s *Slide, i int) renderShapeKey {
+	if i >= len(s.shapeRefs) {
+		return renderShapeKey{}
+	}
+	ref := s.shapeRefs[i]
+	name := map[oxml.ChildKind]string{oxml.ChildSp: "sp", oxml.ChildPic: "pic", oxml.ChildGraphicFrame: "graphicFrame", oxml.ChildGrpSp: "grpSp", oxml.ChildCxnSp: "cxnSp"}[ref.Kind]
+	return renderShapeKey{name: name, occurrence: ref.Index + 1}
 }
 
 func renderUnit(v dml.EMU) style.Unit {
@@ -651,6 +713,9 @@ func renderPictureProperties(p *dml.SpPr) error {
 // node that is not below it.
 type renderProfile struct {
 	skipDepth int
+	// lenient records problems instead of failing; see slide.
+	lenient bool
+	notes   []error
 	// shapeErrs holds the first unsupported node of each master or layout
 	// shape, by element and occurrence; a shape fails only when drawn.
 	shapeErrs map[renderShapeKey]renderShapeErrs
@@ -772,7 +837,8 @@ func renderModelExtensions(l *oxml.ExtensionList, owner string) error {
 	return nil
 }
 
-func (r *renderProfile) slide(node core.XMLNode) error {
+// check applies the profile to one node.
+func (r *renderProfile) check(node core.XMLNode) error {
 	if r.skipped(node) {
 		return nil
 	}
@@ -780,6 +846,62 @@ func (r *renderProfile) slide(node core.XMLNode) error {
 		return err
 	}
 	return slideRenderNode(node)
+}
+
+// slide checks slide XML. In best-effort mode a problem inside a shape is
+// recorded against that shape, which is then left out, and a problem
+// elsewhere is noted as a warning; only a wrong root fails.
+func (r *renderProfile) slide(node core.XMLNode) error {
+	if !r.lenient || len(node.Path) == 1 {
+		return r.check(node)
+	}
+	if r.inShape(node) {
+		r.record(node, r.check(node))
+		return nil
+	}
+	r.note(r.check(node))
+	return nil
+}
+
+// inShape reports whether a node is a shape tree child or inside one.
+func (r *renderProfile) inShape(node core.XMLNode) bool {
+	return len(node.Path) >= 4 && node.Path[2] == (xml.Name{Space: nsP, Local: "spTree"}) && (len(node.Path) != 4 || !node.Text)
+}
+
+// record keeps the first problem of the shape a node belongs to.
+func (r *renderProfile) record(node core.XMLNode, err error) {
+	if len(node.Path) == 4 {
+		r.current = renderShapeKey{name: node.Name.Local, occurrence: node.Occurrence}
+	}
+	if err == nil {
+		return
+	}
+	if r.shapeErrs == nil {
+		r.shapeErrs = map[renderShapeKey]renderShapeErrs{}
+	}
+	e := r.shapeErrs[r.current]
+	if e.any == nil {
+		e.any = err
+	}
+	// A placeholder's paragraphs are its prompt; only the rest is inherited.
+	inText := len(node.Path) >= 6 && node.Path[4] == (xml.Name{Space: nsP, Local: "txBody"}) && node.Path[5] == (xml.Name{Space: nsA, Local: "p"})
+	if e.inherited == nil && !inText {
+		e.inherited = err
+	}
+	r.shapeErrs[r.current] = e
+}
+
+// note keeps a best-effort problem outside any shape, once per message.
+func (r *renderProfile) note(err error) {
+	if err == nil || len(r.notes) >= 32 {
+		return
+	}
+	for _, n := range r.notes {
+		if n.Error() == err.Error() {
+			return
+		}
+	}
+	r.notes = append(r.notes, err)
 }
 
 func slideRenderNode(node core.XMLNode) error {
@@ -862,26 +984,8 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 	// A master or layout shape is checked like slide content, but its first
 	// problem is recorded rather than returned: placeholders are never drawn,
 	// and a hidden layer's shapes are not drawn either.
-	if len(node.Path) >= 4 && node.Path[2] == (xml.Name{Space: nsP, Local: "spTree"}) && (len(node.Path) != 4 || !node.Text) {
-		if len(node.Path) == 4 {
-			r.current = renderShapeKey{name: node.Name.Local, occurrence: node.Occurrence}
-		}
-		if err := r.slide(node); err != nil {
-			if r.shapeErrs == nil {
-				r.shapeErrs = map[renderShapeKey]renderShapeErrs{}
-			}
-			e := r.shapeErrs[r.current]
-			if e.any == nil {
-				e.any = err
-			}
-			// A placeholder's paragraphs are its prompt; only the rest is
-			// inherited.
-			inText := len(node.Path) >= 6 && node.Path[4] == (xml.Name{Space: nsP, Local: "txBody"}) && node.Path[5] == (xml.Name{Space: nsA, Local: "p"})
-			if e.inherited == nil && !inText {
-				e.inherited = err
-			}
-			r.shapeErrs[r.current] = e
-		}
+	if r.inShape(node) {
+		r.record(node, r.check(node))
 		return nil
 	}
 	return r.slide(node)
