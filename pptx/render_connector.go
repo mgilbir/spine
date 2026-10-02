@@ -43,8 +43,13 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 		return nil, fmt.Errorf("%w: rotated, bent or curved connector", render.ErrUnsupported)
 	}
 	// A line has no interior, so a fill on it paints nothing.
-	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil || p.BwMode != "" {
-		return nil, fmt.Errorf("%w: connector effect", render.ErrUnsupported)
+	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil || p.BwMode != "" {
+		return nil, fmt.Errorf("%w: connector fill", render.ErrUnsupported)
+	}
+	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
+		if err := colors.approximate(fmt.Errorf("%w: connector effects left out", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
 	}
 	line, placeholder, err := renderStyledLine(src.Style, p.Ln, colors)
 	if err != nil || line == nil {
@@ -85,7 +90,9 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 			}
 			e := list.EffectStyle[r.Idx-1]
 			if renderEffects(e.EffectLst) || e.EffectDag != nil || e.Scene3d != nil || e.Sp3d != nil {
-				return nil, nil, fmt.Errorf("%w: theme effect style", render.ErrUnsupported)
+				if err := colors.approximate(fmt.Errorf("%w: theme effect style left out", render.ErrUnsupported)); err != nil {
+					return nil, nil, err
+				}
 			}
 		}
 		if r := st.LnRef; r != nil && r.Idx != 0 {
@@ -161,11 +168,6 @@ func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors,
 	if (ln.Cmpd != "" && ln.Cmpd != "sng") || (ln.Algn != "" && ln.Algn != "ctr") || ln.CustDash != nil || ln.ExtLst != nil {
 		return nil, fmt.Errorf("%w: compound, inset or custom-dashed line", render.ErrUnsupported)
 	}
-	for _, end := range []*dml.LineEnd{ln.HeadEnd, ln.TailEnd} {
-		if end != nil && end.Type != "" && end.Type != "none" {
-			return nil, fmt.Errorf("%w: arrowhead %s", render.ErrUnsupported, end.Type)
-		}
-	}
 	var pattern []float64
 	if ln.PrstDash != nil && ln.PrstDash.Val != "" && ln.PrstDash.Val != "solid" {
 		if pattern = renderDashes[ln.PrstDash.Val]; pattern == nil {
@@ -232,9 +234,47 @@ func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors,
 			{Op: layout.ClosePath},
 		}
 	}
+	// Arrowheads are filled triangles with their tips at the line's ends,
+	// which stop short inside them. DrawingML does not specify their sizes;
+	// they approximate LibreOffice's: small, medium and large are two, three
+	// and five line widths. Other head shapes are drawn as triangles too.
+	var heads []layout.Op
+	start, end := -extend*h, length+extend*h
+	for i, e := range []*dml.LineEnd{ln.HeadEnd, ln.TailEnd} {
+		if e == nil || e.Type == "" || e.Type == "none" {
+			continue
+		}
+		if err := colors.approximate(fmt.Errorf("%w: arrowhead %s sized approximately", render.ErrUnsupported, e.Type)); err != nil {
+			return nil, err
+		}
+		size := map[string]float64{"sm": 2, "med": 3, "lg": 5}
+		hw, hl := size[e.W], size[e.Len]
+		if hw == 0 {
+			hw = 3
+		}
+		if hl == 0 {
+			hl = 3
+		}
+		hw, hl = hw*max(w, 1)/2, hl*max(w, 1)
+		if 2*hl > length {
+			hl = length / 2
+		}
+		tx, ty, dx, dy := x0, y0, ux, uy
+		if i == 1 {
+			tx, ty, dx, dy = x1, y1, -ux, -uy
+			end = min(end, length-hl/2)
+		} else {
+			start = max(start, hl/2)
+		}
+		bx, by := tx+dx*hl, ty+dy*hl
+		heads = append(heads, layout.FillPath{Path: layout.Path{
+			{Op: layout.MoveTo, Point: point(tx, ty)}, {Op: layout.LineTo, Point: point(bx+nx*hw, by+ny*hw)},
+			{Op: layout.LineTo, Point: point(bx-nx*hw, by-ny*hw)}, {Op: layout.ClosePath},
+		}, Color: c})
+	}
 	var ops []layout.Op
 	if pattern == nil {
-		ops = append(ops, layout.FillPath{Path: piece(-extend*h, length+extend*h, round), Color: c})
+		ops = append(ops, layout.FillPath{Path: piece(start, end, round), Color: c})
 	} else {
 		period := 0.0
 		for _, v := range pattern {
@@ -246,12 +286,13 @@ func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors,
 		s, on := 0.0, true
 		for i := 0; s < length; i = (i + 1) % len(pattern) {
 			next := s + pattern[i]*w
-			if on {
-				ops = append(ops, layout.FillPath{Path: piece(s, min(next, length), false), Color: c})
+			if on && min(next, end) > max(s, start) {
+				ops = append(ops, layout.FillPath{Path: piece(max(s, start), min(next, end), false), Color: c})
 			}
 			s, on = next, !on
 		}
 	}
+	ops = append(ops, heads...)
 	if !ok {
 		return nil, fmt.Errorf("%w: line coordinate", render.ErrLimit)
 	}

@@ -343,6 +343,14 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err != nil {
 			return nil, 0, err
 		}
+		for _, l := range lines {
+			if l.Overflow {
+				if err = styles.colors.approximate(fmt.Errorf("%w: text wider than its box", render.ErrUnsupported)); err != nil {
+					return nil, 0, err
+				}
+				break
+			}
+		}
 		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
 		if text.Len() > 0 && para.bullet.char != "" {
 			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width); err != nil {

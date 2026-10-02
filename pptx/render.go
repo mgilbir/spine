@@ -43,6 +43,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	opts.Limits = resolved
 	textLayout, err := core.NewTextLayout(resolved)
+	if err == nil && opts.Warn != nil {
+		textLayout.AllowOverflow()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -238,6 +241,19 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 		default:
 			return nil, fmt.Errorf("%w: shape (%T)", render.ErrUnsupported, sh)
+		}
+		if lenient {
+			// Details of this shape drawn approximately are reported under
+			// its name; a group's children report under their own.
+			prev := colors.approx
+			seen := map[string]bool{}
+			colors.approx = func(err error) {
+				if ctx.Err() == nil && !seen[err.Error()] {
+					seen[err.Error()] = true
+					opts.Warn(fmt.Errorf("pptx: shape %q: drawn approximately: %w", sh.Name(), err))
+				}
+			}
+			defer func() { colors.approx = prev }()
 		}
 		x, y := sh.Position()
 		sw, shh := sh.Size()
@@ -532,7 +548,9 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 			return nil, g, fmt.Errorf("%w: inherited/missing shape geometry", render.ErrUnsupported)
 		}
 		if renderEffects(source.EffectLst) || source.EffectDag != nil || source.Scene3d != nil || source.Sp3d != nil || renderEffects(v.spPr.EffectLst) || v.spPr.EffectDag != nil || v.spPr.Scene3d != nil || v.spPr.Sp3d != nil {
-			return nil, g, fmt.Errorf("%w: shape effect", render.ErrUnsupported)
+			if err := colors.approximate(fmt.Errorf("%w: shape effects left out", render.ErrUnsupported)); err != nil {
+				return nil, g, err
+			}
 		}
 		copyProps := *source
 		if source.Ln != nil {
@@ -542,8 +560,13 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
-		return nil, g, fmt.Errorf("%w: shape fill/effect", render.ErrUnsupported)
+	if p.BwMode != "" || p.CustGeom != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
+		return nil, g, fmt.Errorf("%w: shape fill or geometry", render.ErrUnsupported)
+	}
+	if source == nil && (renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil) {
+		if err := colors.approximate(fmt.Errorf("%w: shape effects left out", render.ErrUnsupported)); err != nil {
+			return nil, g, err
+		}
 	}
 	x, y := v.Position()
 	w, h := v.Size()
@@ -962,11 +985,30 @@ func (r *renderProfile) slide(node core.XMLNode) error {
 		return r.check(node)
 	}
 	if r.inShape(node) {
+		if r.approximated(node) {
+			return nil
+		}
 		r.record(node, r.check(node))
 		return nil
 	}
 	r.note(r.check(node))
 	return nil
+}
+
+// approximated skips, in best-effort mode, a shape's effect subtree; the
+// renderers report the shape as drawn without it.
+func (r *renderProfile) approximated(node core.XMLNode) bool {
+	n := len(node.Path)
+	if !r.lenient || node.Text || n < 2 || r.skipped(node) {
+		return false
+	}
+	parent := node.Path[n-2]
+	effect := parent == (xml.Name{Space: nsA, Local: "effectLst"}) ||
+		(parent == (xml.Name{Space: nsP, Local: "spPr"}) && node.Name.Space == nsA && (node.Name.Local == "effectDag" || node.Name.Local == "scene3d" || node.Name.Local == "sp3d"))
+	if effect {
+		r.skipDepth = n
+	}
+	return effect
 }
 
 // inShape reports whether a node is a shape tree child or inside one.
@@ -1049,6 +1091,9 @@ func slideRenderNode(node core.XMLNode) error {
 }
 func (r *renderProfile) inherited(node core.XMLNode) error {
 	if r.skipped(node) {
+		return nil
+	}
+	if r.inShape(node) && r.approximated(node) {
 		return nil
 	}
 	if len(node.Path) == 1 {
