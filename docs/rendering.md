@@ -90,3 +90,9 @@ separate, and decoded pictures are bounded cumulatively before decode.
 
 Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
+
+The shared internal paragraph bridge now measures and shapes plain horizontal
+ASCII paragraphs with Forme under cumulative font, text, glyph and shaping-work
+budgets. It preserves spaces and rejects unsupported breaks and overlong words.
+Format text adapters are introduced in subsequent PRs; this does not expand the
+slide profile by itself.
