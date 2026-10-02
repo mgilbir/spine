@@ -175,3 +175,6 @@ func (p *Page) Size(dpi float64) (width, height int, err error) {
 	}
 	return width, height, nil
 }
+
+// ResolveLimits validates an adapter's limits before it constructs operations.
+func ResolveLimits(l Limits) (Limits, error) { return l.resolved() }

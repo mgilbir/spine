@@ -1273,7 +1273,7 @@ func FuzzPptxSlideMasterXML(f *testing.F) {
 	var many strings.Builder
 	many.WriteString(masterOpen + `<p:cSld><p:spTree/></p:cSld><p:sldLayoutIdLst>`)
 	for i := 0; i < 400; i++ {
-		fmt.Fprintf(&many, `<p:sldLayoutId id="%d" r:id="rId1"/>`, 2147483649+i)
+		fmt.Fprintf(&many, `<p:sldLayoutId id="%d" r:id="rId1"/>`, 2147483649+uint32(i))
 	}
 	many.WriteString(`</p:sldLayoutIdLst></p:sldMaster>`)
 	f.Add([]byte(many.String()))
