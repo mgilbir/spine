@@ -215,3 +215,19 @@ func FuzzXlsxRender(f *testing.F) {
 		}
 	})
 }
+
+func BenchmarkRenderDefaultSheetRange(b *testing.B) {
+	_, s, opts := renderTestSheet(b)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		page, err := s.PrepareRender(context.Background(), "A1:B2", opts)
+		if err != nil {
+			b.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err = page.WritePNG(context.Background(), &out, 96); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

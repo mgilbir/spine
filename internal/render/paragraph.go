@@ -43,6 +43,12 @@ func NewTextLayout(limits Limits) (*TextLayout, error) {
 // bidi text and overlong words require a richer format-specific profile.
 // Every candidate measurement and final shaping shares one remaining budget.
 func (t *TextLayout) PlainLines(ctx context.Context, source *shape.Face, text string, size, width style.Unit) ([]TextLine, error) {
+	return t.PlainLinesWithFeatures(ctx, source, text, size, width, shape.Features{})
+}
+
+// PlainLinesWithFeatures uses the same feature settings for candidate widths and
+// final glyph placement. Adapters must resolve their format's feature defaults.
+func (t *TextLayout) PlainLinesWithFeatures(ctx context.Context, source *shape.Face, text string, size, width style.Unit, features shape.Features) ([]TextLine, error) {
 	if t == nil || ctx == nil || size <= 0 || width <= 0 || !utf8.ValidString(text) {
 		return nil, fmt.Errorf("%w: paragraph input", ErrInvalid)
 	}
@@ -88,8 +94,8 @@ func (t *TextLayout) PlainLines(ctx context.Context, source *shape.Face, text st
 			if end > len(text) || text[byteOffset:end] != piece.Text {
 				return fmt.Errorf("%w: paragraph preprocessing", ErrUnsupported)
 			}
-			how := paragraph.Shaping{MergeBefore: text[:byteOffset], MergeAfter: text[end:], MergeGroup: text, ContextKerns: true}
-			items[i] = paragraph.Item{Text: piece.Text, Face: measure, Size: size, Width: br.MeasureSpacedInContext(measure, piece.Text, size, paragraph.TextSpacing{}, how), BreakBefore: piece.BreakBefore, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: text, ContextKerns: true}
+			how := paragraph.Shaping{MergeBefore: text[:byteOffset], MergeAfter: text[end:], MergeGroup: text, ContextKerns: true, Off: features}
+			items[i] = paragraph.Item{Text: piece.Text, Face: measure, Size: size, Width: br.MeasureSpacedInContext(measure, piece.Text, size, paragraph.TextSpacing{}, how), BreakBefore: piece.BreakBefore, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: text, ContextKerns: true, Off: features}
 			byteOffset = end
 		}
 		lines := br.Lines(items)
@@ -109,7 +115,7 @@ func (t *TextLayout) PlainLines(ctx context.Context, source *shape.Face, text st
 				joined.WriteString(item.Text)
 			}
 			value := joined.String()
-			glyphs, missing := measure.ShapeGlyphs(value)
+			glyphs, missing := measure.ShapeGlyphsMerged(value, "", "", "", "", false, features)
 			if missing != 0 {
 				return fmt.Errorf("%w: paragraph missing glyph", ErrUnsupported)
 			}

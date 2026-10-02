@@ -46,6 +46,32 @@ func TestPlainParagraphShapingMatchesWholeLines(t *testing.T) {
 	}
 }
 
+func TestPlainParagraphUsesFormatFeatureDefaults(t *testing.T) {
+	f, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, _ := NewTextLayout(Limits{})
+	features := shape.Features{TagsOff: "liga,clig,kern,calt"}
+	lines, err := l.PlainLinesWithFeatures(context.Background(), f, "office", unit(16), unit(100), features)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, missing := f.Clone().ShapeGlyphsMerged("office", "", "", "", "", false, features)
+	if missing != 0 || len(lines) != 1 || len(lines[0].Glyphs) != len(want) {
+		t.Fatal("feature shaping mismatch")
+	}
+	for i, g := range want {
+		if g != lines[0].Glyphs[i] {
+			t.Fatalf("glyph %d mismatch", i)
+		}
+	}
+	defaultGlyphs, _ := f.Clone().ShapeGlyphs("office")
+	if len(defaultGlyphs) >= len(want) {
+		t.Fatal("fixture did not exercise disabled ligatures")
+	}
+}
+
 func paragraphFace(t testing.TB) *shape.Face {
 	t.Helper()
 	f, err := shape.Load(fonttest.SFNT(fonttest.SFNTOptions{Glyphs: []fonttest.Glyph{
