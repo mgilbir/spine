@@ -178,12 +178,22 @@ func (g renderGeometry) fill(c style.RGBA) ([]layout.Op, error) {
 // stroke paints a solid outline as the even-odd ring between the boundary's
 // outer and inner offsets. Offsetting an ellipse does not give an ellipse, so
 // only circular ellipses are outlined.
-func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors) ([]layout.Op, error) {
+func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if ln.W == nil || *ln.W <= 0 {
 		return nil, fmt.Errorf("%w: outline without a width", render.ErrUnsupported)
 	}
-	if (ln.Cmpd != "" && ln.Cmpd != "sng") || (ln.PrstDash != nil && ln.PrstDash.Val != "" && ln.PrstDash.Val != "solid") || ln.CustDash != nil || ln.GradFill != nil || ln.PattFill != nil || ln.ExtLst != nil {
-		return nil, fmt.Errorf("%w: compound, dashed or patterned outline", render.ErrUnsupported)
+	if (ln.Cmpd != "" && ln.Cmpd != "sng") || ln.CustDash != nil || ln.GradFill != nil || ln.PattFill != nil || ln.ExtLst != nil {
+		return nil, fmt.Errorf("%w: compound, custom-dashed or patterned outline", render.ErrUnsupported)
+	}
+	var pattern []float64
+	if ln.PrstDash != nil && ln.PrstDash.Val != "" && ln.PrstDash.Val != "solid" {
+		if pattern = renderDashes[ln.PrstDash.Val]; pattern == nil {
+			return nil, fmt.Errorf("%w: dash %s", render.ErrInvalid, ln.PrstDash.Val)
+		}
+		// The schema gives no default cap; PowerPoint's shape styles use flat.
+		if ln.Cap != "" && ln.Cap != "flat" {
+			return nil, fmt.Errorf("%w: dash caps other than flat", render.ErrUnsupported)
+		}
 	}
 	join := renderJoinUnset
 	joins := 0
@@ -223,6 +233,19 @@ func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors) ([]layout.Op, e
 	default:
 		return nil, fmt.Errorf("%w: line alignment", render.ErrInvalid)
 	}
+	if pattern != nil {
+		paths, err := g.dashed(pattern, w, outer, inner, join, maxSegments)
+		if err != nil {
+			return nil, err
+		}
+		var ops []layout.Op
+		for _, path := range paths {
+			if len(path) > 0 {
+				ops = append(ops, layout.FillPath{Path: path, Color: c})
+			}
+		}
+		return ops, nil
+	}
 	path, ok, err := g.contour(outer, join)
 	if err != nil || !ok {
 		return nil, err
@@ -235,4 +258,242 @@ func (g renderGeometry) stroke(ln *dml.Ln, colors *renderColors) ([]layout.Op, e
 		path = append(path, hole...)
 	}
 	return []layout.Op{layout.FillPath{Path: path, Color: c}}, nil
+}
+
+// renderDashes are the preset dash patterns in line widths, alternating dash
+// and gap, from ST_PresetLineDashVal.
+var renderDashes = map[string][]float64{
+	"dot": {1, 3}, "dash": {4, 3}, "lgDash": {8, 3}, "dashDot": {4, 3, 1, 3}, "lgDashDot": {8, 3, 1, 3},
+	"lgDashDotDot": {8, 3, 1, 3, 1, 3}, "sysDash": {3, 1}, "sysDot": {1, 1}, "sysDashDot": {3, 1, 1, 1},
+	"sysDashDotDot": {3, 1, 1, 1, 1, 1},
+}
+
+// renderEdge is one piece of a boundary centerline in pixels: a line from a
+// to b, or an arc of radius r about c from angle a0 sweeping sweep degrees
+// clockwise.
+type renderEdge struct {
+	arc            bool
+	ax, ay, bx, by float64
+	cx, cy, r      float64
+	a0, sweep      float64
+	start, length  float64 // distance along the boundary
+}
+
+func (e renderEdge) normal() (float64, float64) {
+	// The boundary runs clockwise on the page, so the outward normal is on
+	// the left of travel.
+	dx, dy := e.bx-e.ax, e.by-e.ay
+	n := math.Hypot(dx, dy)
+	return dy / n, -dx / n
+}
+
+// edges returns the boundary as the preset path draws it: from its first
+// moveTo, clockwise.
+func (g renderGeometry) edges() []renderEdge {
+	px := func(v dml.EMU) float64 { return float64(v) / float64(dml.EMUsPerPixel) }
+	l, t := px(g.box[0]), px(g.box[1])
+	r, b := px(g.box[0]+g.box[2]), px(g.box[1]+g.box[3])
+	var out []renderEdge
+	line := func(ax, ay, bx, by float64) {
+		if ax != bx || ay != by {
+			out = append(out, renderEdge{ax: ax, ay: ay, bx: bx, by: by, length: math.Hypot(bx-ax, by-ay)})
+		}
+	}
+	arc := func(cx, cy, rad, a0, sweep float64) {
+		out = append(out, renderEdge{arc: true, cx: cx, cy: cy, r: rad, a0: a0, sweep: sweep, length: rad * math.Abs(sweep) * math.Pi / 180})
+	}
+	switch rad := px(g.radius); {
+	case g.ellipse:
+		arc((l+r)/2, (t+b)/2, (r-l)/2, 180, 360)
+	case g.radius == 0:
+		line(l, t, r, t)
+		line(r, t, r, b)
+		line(r, b, l, b)
+		line(l, b, l, t)
+	default:
+		rad = min(rad, (r-l)/2, (b-t)/2)
+		arc(l+rad, t+rad, rad, 180, 90)
+		line(l+rad, t, r-rad, t)
+		arc(r-rad, t+rad, rad, 270, 90)
+		line(r, t+rad, r, b-rad)
+		arc(r-rad, b-rad, rad, 0, 90)
+		line(r-rad, b, l+rad, b)
+		arc(l+rad, b-rad, rad, 90, 90)
+		line(l, b-rad, l, t+rad)
+	}
+	s := 0.0
+	for i := range out {
+		out[i].start = s
+		s += out[i].length
+	}
+	return out
+}
+
+// dashed paints a preset-dashed outline with flat caps. Each dash is one
+// contour: its outer side forward, then its inner side back, with the line
+// join at a sharp corner on the side offset outward and the offset sides'
+// meeting point on the other. Preset gaps are at least a line width, so
+// dashes share one even-odd path, except where the pattern restarts at the
+// boundary's start: the last dash may overlap the first there, and even-odd
+// filling would cut the overlap out, so it is returned as its own path.
+func (g renderGeometry) dashed(pattern []float64, w, outer, inner float64, join renderJoin, maxSegments int) ([]layout.Path, error) {
+	edges := g.edges()
+	total := 0.0
+	for _, e := range edges {
+		total += e.length
+	}
+	period := 0.0
+	for _, v := range pattern {
+		period += v * w
+	}
+	if total <= 0 || period <= 0 {
+		return nil, nil
+	}
+	// Each dash costs a handful of segments per edge it crosses.
+	if total/period*float64(len(pattern)/2)*float64(4+2*len(edges)) > float64(maxSegments) {
+		return nil, fmt.Errorf("%w: dash count", render.ErrLimit)
+	}
+	var (
+		path layout.Path
+		ok   = true
+	)
+	point := func(x, y float64) layout.Point {
+		ux, okX := style.FromPx(x)
+		uy, okY := style.FromPx(y)
+		ok = ok && okX && okY
+		return layout.Point{X: ux, Y: uy}
+	}
+	unit := func(v float64) style.Unit {
+		u, okU := style.FromPx(v)
+		ok = ok && okU
+		return u
+	}
+	type piece struct {
+		e      renderEdge
+		t0, t1 float64
+	}
+	// side traces the pieces offset by d, forward or back.
+	side := func(pieces []piece, d float64, forward bool) error {
+		n := len(pieces)
+		for k := 0; k < n; k++ {
+			i := k
+			if !forward {
+				i = n - 1 - k
+			}
+			p := pieces[i]
+			from, to := p.t0, p.t1
+			if !forward {
+				from, to = p.t1, p.t0
+			}
+			if p.e.arc {
+				if p.e.r+d < 0 {
+					return fmt.Errorf("%w: dashed outline wider than its corner", render.ErrUnsupported)
+				}
+				a0 := p.e.a0 + p.e.sweep*from
+				path = append(path, layout.PathSegment{Op: layout.ArcTo, Center: point(p.e.cx, p.e.cy), RadiusX: unit(p.e.r + d), RadiusY: unit(p.e.r + d), StartAngle: a0, SweepAngle: p.e.sweep * (to - from)})
+				continue
+			}
+			nx, ny := p.e.normal()
+			at := func(t float64) (float64, float64) {
+				return p.e.ax + (p.e.bx-p.e.ax)*t + d*nx, p.e.ay + (p.e.by-p.e.ay)*t + d*ny
+			}
+			// Where the dash turns a sharp corner, an inward side ends at
+			// the offset sides' meeting point.
+			x0, y0 := at(from)
+			x1, y1 := at(to)
+			prev, next := i-1, i+1
+			if !forward {
+				prev, next = i+1, i-1
+			}
+			if d < 0 && prev >= 0 && prev < n && !pieces[prev].e.arc {
+				mx, my := pieces[prev].e.normal()
+				cx, cy := p.e.ax, p.e.ay
+				if !forward {
+					cx, cy = p.e.bx, p.e.by
+				}
+				x0, y0 = cx+d*(nx+mx), cy+d*(ny+my)
+			}
+			if d < 0 && next >= 0 && next < n && !pieces[next].e.arc {
+				mx, my := pieces[next].e.normal()
+				cx, cy := p.e.bx, p.e.by
+				if !forward {
+					cx, cy = p.e.ax, p.e.ay
+				}
+				x1, y1 = cx+d*(nx+mx), cy+d*(ny+my)
+			}
+			path = append(path, layout.PathSegment{Op: layout.LineTo, Point: point(x0, y0)}, layout.PathSegment{Op: layout.LineTo, Point: point(x1, y1)})
+			// An outward side turns the corner with the line join.
+			if d > 0 && next >= 0 && next < n && !pieces[next].e.arc {
+				mx, my := pieces[next].e.normal()
+				cx, cy := p.e.bx, p.e.by
+				if !forward {
+					cx, cy = p.e.ax, p.e.ay
+				}
+				switch join {
+				case renderJoinMiter:
+					path = append(path, layout.PathSegment{Op: layout.LineTo, Point: point(cx+d*(nx+mx), cy+d*(ny+my))})
+				case renderJoinRound:
+					a := math.Atan2(ny, nx) * 180 / math.Pi
+					sweep := 90.0
+					if !forward {
+						sweep = -90
+					}
+					path = append(path, layout.PathSegment{Op: layout.ArcTo, Center: point(cx, cy), RadiusX: unit(d), RadiusY: unit(d), StartAngle: a, SweepAngle: sweep})
+				}
+			}
+		}
+		return nil
+	}
+	dash := func(s0, s1 float64) error {
+		var pieces []piece
+		for _, e := range edges {
+			a, b := max(s0, e.start), min(s1, e.start+e.length)
+			if b > a {
+				pieces = append(pieces, piece{e: e, t0: (a - e.start) / e.length, t1: (b - e.start) / e.length})
+			}
+		}
+		if len(pieces) == 0 {
+			return nil
+		}
+		start := len(path)
+		if err := side(pieces, outer, true); err != nil {
+			return err
+		}
+		if err := side(pieces, inner, false); err != nil {
+			return err
+		}
+		// The contour begins where its outer side does.
+		first := path[start]
+		if first.Op == layout.ArcTo {
+			path = append(path[:start], append(layout.Path{{Op: layout.MoveTo, Point: point(arcStart(first))}}, path[start:]...)...)
+		} else {
+			path[start].Op = layout.MoveTo
+		}
+		path = append(path, layout.PathSegment{Op: layout.ClosePath})
+		return nil
+	}
+	s, on, last := 0.0, true, 0
+	for i := 0; s < total; i = (i + 1) % len(pattern) {
+		next := s + pattern[i]*w
+		if on {
+			last = len(path)
+			if err := dash(s, min(next, total)); err != nil {
+				return nil, err
+			}
+		}
+		s, on = next, !on
+	}
+	if !ok {
+		return nil, fmt.Errorf("%w: shape coordinate", render.ErrLimit)
+	}
+	if last == 0 {
+		return []layout.Path{path}, nil
+	}
+	return []layout.Path{path[:last], path[last:]}, nil
+}
+
+// arcStart is where an arc segment begins, in pixels.
+func arcStart(s layout.PathSegment) (float64, float64) {
+	a := s.StartAngle * math.Pi / 180
+	return s.Center.X.Px() + s.RadiusX.Px()*math.Cos(a), s.Center.Y.Px() + s.RadiusY.Px()*math.Sin(a)
 }

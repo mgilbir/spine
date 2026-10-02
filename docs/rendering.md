@@ -79,12 +79,17 @@ Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
 and ellipses may have a solid fill or none, and a solid outline or none. A shape
 has no style reference (`p:style`, which fails), so an absent fill or outline,
 or an outline without a fill, is none, as DrawingML defines. A solid outline
-needs an explicit width, a single line, and no dashes beyond `solid`; it is
+needs an explicit width and a single line; it is
 centered on the boundary or inset (`algn="in"`) and painted as the even-odd ring
 between the boundary's offsets, so rounded corners stay exact arcs. Sharp
 corners need an explicit miter, bevel or round join, with a miter limit below
 √2 beveling. Offsetting an ellipse does not yield an ellipse, so only circles
-are outlined. Text lays out in the preset's text rectangle, which for rounded
+are outlined. Preset dashes (`dash`, `sysDot`, …) use the
+ST_PresetLineDashVal patterns in line widths, starting where the preset path
+starts and running clockwise; the pattern restarts there, so the last dash may
+be short. Dashes have flat caps: the schema gives no default cap and PowerPoint's
+shape styles use flat, so an absent cap is flat, and square or round caps fail,
+as do custom dashes. A dash turning a sharp corner takes the line join. Text lays out in the preset's text rectangle, which for rounded
 rectangles and ellipses is inset from the corners. Uncropped embedded PNG/JPEG pictures with
 rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
