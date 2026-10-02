@@ -139,7 +139,7 @@ func TestKeepGoingSkipsUnrenderableSlides(t *testing.T) {
 	if err = p.Save(input); err != nil {
 		t.Fatal(err)
 	}
-	c := config{input: input, out: filepath.Join(dir, "strict"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute}
+	c := config{input: input, out: filepath.Join(dir, "strict"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute, strict: true}
 	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "slide 2") {
 		t.Fatalf("strict: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestDefaultShapeWorkCoversSlideText(t *testing.T) {
 		t.Fatalf("default budget: %v", err)
 	}
 	// The library default covers about 60 bytes of Noto Sans text.
-	c.out, c.work = filepath.Join(dir, "library"), 64<<20
+	c.out, c.work, c.strict = filepath.Join(dir, "library"), 64<<20, true
 	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "resource limit") {
 		t.Fatalf("library budget: %v", err)
 	}
@@ -232,5 +232,32 @@ func TestDefaultEdgeChecksCoverBusySlides(t *testing.T) {
 	c.out, c.edges = filepath.Join(dir, "library"), 64<<20
 	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "resource limit") {
 		t.Fatalf("library budget: %v", err)
+	}
+}
+
+func TestBestEffortWarnsAndDraws(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = p.AddSlideFromLayout(layout).AddShape(pptx.NewAutoShape("triangle")); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	var warnings strings.Builder
+	c := config{input: input, out: filepath.Join(dir, "out"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute, warn: &warnings}
+	if err = run(context.Background(), c); err != nil {
+		t.Fatalf("best effort: %v", err)
+	}
+	if !strings.Contains(warnings.String(), "slide 1: warning:") || !strings.Contains(warnings.String(), "triangle") {
+		t.Fatalf("warnings: %q", warnings.String())
+	}
+	if _, err = os.Stat(filepath.Join(c.out, "slide-0001.png")); err != nil {
+		t.Fatal(err)
 	}
 }

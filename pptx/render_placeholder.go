@@ -248,7 +248,7 @@ func (r *renderPlaceholder) chain(t *renderTextStyles) renderListChain {
 
 // renderPlaceholderShape paints a slide placeholder from its own and its
 // inherited properties. The slide placeholder is taken as a save writes it.
-func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape, sp *oxml.Shape, colors *renderColors, limits render.Limits, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, layoutErrs, masterErrs map[renderShapeKey]renderShapeErrs, styleErrs map[string]error) ([]layout.Op, error) {
+func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape, sp *oxml.Shape, colors *renderColors, limits render.Limits, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, layoutErrs, masterErrs map[renderShapeKey]renderShapeErrs, styleErrs map[string]error, soft func(error) error) ([]layout.Op, error) {
 	if sp == nil {
 		// A placeholder added through the API is written from the model.
 		sp = placeholderToOxml(v, 0)
@@ -289,5 +289,8 @@ func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape,
 		return nil, err
 	}
 	text, err := renderShapeText(ctx, sp, box, geometry, breaker, fonts, styles, ph)
-	return append(drawn, text...), err
+	if err = soft(renderTextLeftOut(v, err)); err != nil {
+		return nil, err
+	}
+	return append(drawn, text...), nil
 }

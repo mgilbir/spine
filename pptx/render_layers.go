@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/mgilbir/forme/layout"
@@ -34,7 +36,8 @@ type renderInherited struct {
 // Placeholders are prompts and are not drawn. Text in these shapes resolves
 // like slide text, and colors through the slide's color map, as PowerPoint
 // shows the slide.
-func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw) ([]layout.Op, error) {
+// With warn set, a shape that cannot be drawn is reported and left out.
+func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw, warn func(error)) ([]layout.Op, error) {
 	if layer.data == nil || layer.data.SpTree == nil {
 		return nil, nil
 	}
@@ -92,13 +95,18 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
-				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, picture, 0)
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, picture, 0, warn)
 			}
 		default:
 			err = fmt.Errorf("%w: inherited table, connector or other content", render.ErrUnsupported)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("pptx: %s shape: %w", layer.part, err)
+			err = fmt.Errorf("pptx: %s shape: %w", layer.part, err)
+			if warn == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			warn(err)
+			continue
 		}
 		ops = append(ops, drawn...)
 	}

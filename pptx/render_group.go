@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -67,7 +69,8 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 // widths do not scale with a group, as PowerPoint draws them. Rotated or
 // flipped groups, group fills and effects, placeholders, tables and
 // connectors inside groups fail.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture func(*Picture) ([]byte, renderImageKey), depth int) ([]layout.Op, error) {
+// With warn set, a child that cannot be drawn is reported and left out.
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error)) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
@@ -141,12 +144,16 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, picture, depth+1)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, picture, depth+1, warn)
 		default:
 			err = fmt.Errorf("%w: table, connector or other content in a group", render.ErrUnsupported)
 		}
 		if err != nil {
-			return nil, err
+			if warn == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			warn(fmt.Errorf("pptx: grouped shape: %w", err))
+			continue
 		}
 		ops = append(ops, drawn...)
 	}

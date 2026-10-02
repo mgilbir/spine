@@ -67,6 +67,9 @@ func FuzzPptxRender(f *testing.F) {
 		deck.reader = &opc.ReadCloser{Reader: *reader}
 
 		limits := render.Limits{MaxDimension: 64, MaxPixels: 4096, MaxOperations: 128, MaxPathSegments: 256, MaxPixelVisits: 1 << 20, MaxEdgeChecks: 1 << 20, MaxOutputBytes: 16 << 10, MaxImagePixels: 4096, MaxImageBytes: 16 << 10}
+		// Best effort follows other paths through hostile input; it must not
+		// panic either.
+		_, _ = deck.Slides()[0].PrepareRender(context.Background(), render.Options{Limits: limits, MaxSourceBytes: 64 << 10, MaxLayoutNodes: 2048, Warn: func(error) {}})
 		page, e := deck.Slides()[0].PrepareRender(context.Background(), render.Options{Limits: limits, MaxSourceBytes: 64 << 10, MaxLayoutNodes: 2048})
 		if e != nil {
 			return
