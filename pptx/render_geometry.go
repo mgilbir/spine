@@ -332,10 +332,10 @@ func (g renderGeometry) edges() []renderEdge {
 // dashed paints a preset-dashed outline with flat caps. Each dash is one
 // contour: its outer side forward, then its inner side back, with the line
 // join at a sharp corner on the side offset outward and the offset sides'
-// meeting point on the other. Preset gaps are at least a line width, so
-// dashes share one even-odd path, except where the pattern restarts at the
-// boundary's start: the last dash may overlap the first there, and even-odd
-// filling would cut the overlap out, so it is returned as its own path.
+// meeting point on the other. Each dash is its own path: one shared path
+// would make every scanline of the shape test every dash's edges, and where
+// the pattern restarts at the boundary's start the last dash may overlap the
+// first, which even-odd filling of one path would cut out.
 func (g renderGeometry) dashed(pattern []float64, w, outer, inner float64, join renderJoin, maxSegments int) ([]layout.Path, error) {
 	edges := g.edges()
 	total := 0.0
@@ -472,13 +472,17 @@ func (g renderGeometry) dashed(pattern []float64, w, outer, inner float64, join 
 		path = append(path, layout.PathSegment{Op: layout.ClosePath})
 		return nil
 	}
-	s, on, last := 0.0, true, 0
+	var paths []layout.Path
+	s, on := 0.0, true
 	for i := 0; s < total; i = (i + 1) % len(pattern) {
 		next := s + pattern[i]*w
 		if on {
-			last = len(path)
+			path = nil
 			if err := dash(s, min(next, total)); err != nil {
 				return nil, err
+			}
+			if len(path) > 0 {
+				paths = append(paths, path)
 			}
 		}
 		s, on = next, !on
@@ -486,10 +490,7 @@ func (g renderGeometry) dashed(pattern []float64, w, outer, inner float64, join 
 	if !ok {
 		return nil, fmt.Errorf("%w: shape coordinate", render.ErrLimit)
 	}
-	if last == 0 {
-		return []layout.Path{path}, nil
-	}
-	return []layout.Path{path[:last], path[last:]}, nil
+	return paths, nil
 }
 
 // arcStart is where an arc segment begins, in pixels.

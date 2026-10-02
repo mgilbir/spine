@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image/color"
 	"strings"
 	"testing"
 
@@ -225,5 +226,37 @@ func TestRenderEmptyEffectListsPaintNothing(t *testing.T) {
 	}
 	if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": shadow}); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("shadow: %v", err)
+	}
+}
+
+func TestRenderEmptyTextPaintsNothing(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's resolver accepts only "Fixture", so laying out this empty
+	// paragraph would fail; a body without characters is not laid out.
+	empty := renderBody(`<a:lstStyle/>`, `<a:p><a:endParaRPr sz="9600"><a:latin typeface="Unavailable"/></a:endParaRPr></a:p>`)
+	got, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if px := renderPixel(t, got, 10, 10); px != (color.NRGBA{R: 255, G: 255, B: 255, A: 255}) {
+		t.Fatalf("empty body painted %+v", px)
+	}
+	run := `<a:r><a:rPr sz="1200" b="0" i="0"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:latin typeface="Fixture"/></a:rPr><a:t>A</a:t></a:r>`
+	// A trailing empty 72pt paragraph overflows the 48px frame unseen.
+	tail := renderBody(`<a:lstStyle/>`, `<a:p>`+run+`</a:p><a:p><a:endParaRPr sz="7200" b="0" i="0"><a:latin typeface="Fixture"/></a:endParaRPr></a:p>`)
+	if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": tail}); err != nil {
+		t.Fatalf("empty overflowing line: %v", err)
+	}
+	for name, body := range map[string]string{
+		"visible overflow": `<a:p>` + strings.Replace(run, `sz="1200"`, `sz="7200"`, 1) + `</a:p>`,
+		"line break only":  `<a:p><a:br><a:rPr sz="1200"/></a:br></a:p>`,
+	} {
+		if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, body)}); !errors.Is(err, render.ErrUnsupported) {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
