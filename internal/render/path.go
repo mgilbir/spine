@@ -3,6 +3,7 @@ package render
 import (
 	"context"
 	"fmt"
+	"image"
 	"math"
 	"sort"
 
@@ -18,17 +19,20 @@ type geometry struct {
 	bounds  rectangle
 }
 type drawing struct {
-	rect   rectangle
-	path   *geometry
-	clips  []*geometry
-	text   string
-	fontID string
+	rect     rectangle
+	path     *geometry
+	clips    []*geometry
+	text     string
+	fontID   string
+	image    *bitmap
+	imageBox rectangle
 }
 type prepareBudget struct {
-	operations, segments, glyphs, textBytes int
-	fontBytes, shapeWork                    int64
-	faces                                   map[*shape.Face]*shape.Face
-	fontIDs                                 map[*shape.Face]string
+	operations, segments, glyphs, textBytes       int
+	fontBytes, shapeWork, imagePixels, imageBytes int64
+	images                                        map[image.Image]*bitmap
+	faces                                         map[*shape.Face]*shape.Face
+	fontIDs                                       map[*shape.Face]string
 }
 
 func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, budget *prepareBudget) error {
@@ -60,6 +64,10 @@ func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, 
 			r := rectangle{v.Rect.X.Px(), v.Rect.Y.Px(), v.Rect.X.Px() + v.Rect.W.Px(), v.Rect.Y.Px() + v.Rect.H.Px(), v.Color}
 			r = meet(r, rectangle{0, 0, p.width, p.height, style.RGBA{}})
 			p.draws = append(p.draws, drawing{rect: r, clips: clips})
+		case layout.DrawImage:
+			if err := p.collectImage(ctx, v, clips, budget); err != nil {
+				return err
+			}
 		case layout.DrawText:
 			if err := p.collectText(ctx, v, clips, budget); err != nil {
 				return err

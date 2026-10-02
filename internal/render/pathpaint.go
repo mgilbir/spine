@@ -129,11 +129,12 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 					return err
 				}
 			}
-			a := math.Min(1, coverage[x-x0]) * r.color.A
+			c := cmd.d.pixelColor(x, y, scale)
+			a := math.Min(1, coverage[x-x0]) * c.A
 			i := y*img.Stride + x*4
-			img.Pix[i] = uint8(math.Round(r.color.R*a + float64(img.Pix[i])*(1-a)))
-			img.Pix[i+1] = uint8(math.Round(r.color.G*a + float64(img.Pix[i+1])*(1-a)))
-			img.Pix[i+2] = uint8(math.Round(r.color.B*a + float64(img.Pix[i+2])*(1-a)))
+			img.Pix[i] = uint8(math.Round(c.R*a + float64(img.Pix[i])*(1-a)))
+			img.Pix[i+1] = uint8(math.Round(c.G*a + float64(img.Pix[i+1])*(1-a)))
+			img.Pix[i+2] = uint8(math.Round(c.B*a + float64(img.Pix[i+2])*(1-a)))
 			img.Pix[i+3] = uint8(math.Round(255*a + float64(img.Pix[i+3])*(1-a)))
 		}
 	}

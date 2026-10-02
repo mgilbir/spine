@@ -34,10 +34,13 @@ type Limits struct {
 	MaxFontBytes    int64
 	MaxShapeWork    int64
 	MaxRunBytes     int
+	MaxImagePixels  int64
+	MaxImageBytes   int64
+	MaxImages       int
 }
 
 func (l Limits) resolved() (Limits, error) {
-	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 || l.MaxGlyphs < 0 || l.MaxTextBytes < 0 || l.MaxFonts < 0 || l.MaxFontBytes < 0 || l.MaxShapeWork < 0 || l.MaxRunBytes < 0 {
+	if l.MaxDimension < 0 || l.MaxPixels < 0 || l.MaxOperations < 0 || l.MaxPixelVisits < 0 || l.MaxOutputBytes < 0 || l.MaxPathSegments < 0 || l.MaxClipDepth < 0 || l.MaxEdgeChecks < 0 || l.MaxGlyphs < 0 || l.MaxTextBytes < 0 || l.MaxFonts < 0 || l.MaxFontBytes < 0 || l.MaxShapeWork < 0 || l.MaxRunBytes < 0 || l.MaxImagePixels < 0 || l.MaxImageBytes < 0 || l.MaxImages < 0 {
 		return Limits{}, fmt.Errorf("%w: negative limit", ErrInvalid)
 	}
 	if l.MaxDimension == 0 {
@@ -81,6 +84,15 @@ func (l Limits) resolved() (Limits, error) {
 	}
 	if l.MaxRunBytes == 0 {
 		l.MaxRunBytes = 4096
+	}
+	if l.MaxImagePixels == 0 {
+		l.MaxImagePixels = 4 << 20
+	}
+	if l.MaxImageBytes == 0 {
+		l.MaxImageBytes = 32 << 20
+	}
+	if l.MaxImages == 0 {
+		l.MaxImages = 32
 	}
 	return l, nil
 }

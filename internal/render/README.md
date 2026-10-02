@@ -1,7 +1,7 @@
 # Rendering foundation
 
 This internal package accepts Forme solid rectangles, filled paths and nested
-path clips, and positioned horizontal glyphs (`DrawGlyphs`) and horizontal `DrawText` runs. It provides
+path clips, and positioned horizontal glyphs (`DrawGlyphs`) and horizontal `DrawText` runs, plus decoded raster `DrawImage` operations. It provides
 no page, slide or sheet layout API yet. Other operations fail explicitly, even
 when off-page; raw-source capability checks remain the format adapter's job.
 
@@ -66,3 +66,16 @@ interrupted within a single phase.
 
 Next layers must implement images and Office-specific adapters. Preserve logical text and font identity
 for a possible PDF sibling backend; pdf0 and its dependencies are not included.
+
+Images are copied to an eight-bit RGBA snapshot and normalized to PNG for SVG
+embedding. Only validated standard-library image storage is accepted; source
+keys and markup are never serialized. Pixel-centre nearest-neighbour sampling
+preserves mapping through rectangular and path clips. SVG requests pixelated
+sampling, though a viewer controls its final sampling behaviour. Defaults cap
+aggregate unique source pixels at 4 million, normalized image bytes at 32 MiB
+and images at 32. Even off-page images undergo capability and budget checks.
+`DecodeImage` checks encoded bytes and dimensions before standard-library PNG
+or JPEG decoding; it loads no external resources and applies no EXIF orientation.
+Decoders are not interruptible within a single call. Image pixels and programs
+must remain immutable during preparation. Normalization intentionally reduces
+sixteen-bit sources to eight bits. Tiling remains unsupported.
