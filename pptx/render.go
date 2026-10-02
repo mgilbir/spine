@@ -201,7 +201,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 			box := &AutoShape{BaseShape: v.BaseShape, textFrame: v.textFrame, spPr: v.spPr, presetGeometry: preset}
 			var geometry renderGeometry
-			drawn, geometry, err = renderAutoShape(box, props, colors)
+			drawn, geometry, err = renderAutoShape(box, props, colors, resolved)
 			if err == nil && box.textFrame != nil {
 				var textOps []layout.Op
 				textOps, err = s.renderShapeText(ctx, i, box, geometry, textLayout, fonts, styles)
@@ -209,7 +209,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 		case *AutoShape:
 			var geometry renderGeometry
-			drawn, geometry, err = renderAutoShape(v, s.renderShapeProps(i), colors)
+			drawn, geometry, err = renderAutoShape(v, s.renderShapeProps(i), colors, resolved)
 			if err == nil && v.textFrame != nil {
 				var textOps []layout.Op
 				textOps, err = s.renderShapeText(ctx, i, v, geometry, textLayout, fonts, styles)
@@ -348,7 +348,7 @@ func renderInheritance(c *oxml.CommonSlideData, b *core.SourceBudget) error {
 	}
 	return nil
 }
-func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]layout.Op, renderGeometry, error) {
+func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors, limits render.Limits) ([]layout.Op, renderGeometry, error) {
 	var g renderGeometry
 	p := &v.spPr
 	if source != nil {
@@ -400,7 +400,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 		if l.NoFill != nil {
 			return nil, g, fmt.Errorf("%w: ambiguous shape stroke", render.ErrInvalid)
 		}
-		outline, err := g.stroke(l, colors)
+		outline, err := g.stroke(l, colors, limits.MaxPathSegments)
 		if err != nil {
 			return nil, g, err
 		}
