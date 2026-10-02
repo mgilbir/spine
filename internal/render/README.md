@@ -1,7 +1,7 @@
 # Rendering foundation
 
 This internal package accepts Forme solid rectangles, filled paths and nested
-path clips, and positioned horizontal glyphs (`DrawGlyphs`). It provides
+path clips, and positioned horizontal glyphs (`DrawGlyphs`) and horizontal `DrawText` runs. It provides
 no page, slide or sheet layout API yet. Other operations fail explicitly, even
 when off-page; raw-source capability checks remain the format adapter's job.
 
@@ -55,10 +55,14 @@ Bezier flattening checks a 1/16 output-pixel control-hull distance and caps
 recursion at 24; SVG preserves the original quadratic/cubic curves. Forme's
 outline routine is bounded internally but is not context-interruptible inside
 one glyph; context is checked when segments are delivered and between glyphs.
-`DrawText` remains unsupported: text shaping needs its own input/work/error
-contract before raw text is accepted, especially where Forme's work exhaustion
-could otherwise look like a completed layout.
+`DrawText` uses Forme's bounded contextual shaping API, retaining resolved RTL
+direction, merging neighbours, kerning and feature settings. Defaults bound
+aggregate charged shaping work at 64 million units and each run's text, context
+and feature strings at 4096 bytes. Missing characters, lookup/recursion
+exhaustion and reported font truncation fail before a page is returned. Horizontal
+width scaling is supported; vertical text and letter spacing fail explicitly.
+Font parsing and Unicode preprocessing retain Forme's own bounds and are not
+interrupted within a single phase.
 
-Next layers must implement the bounded text-shaping bridge,
-followed by Office-specific adapters. Preserve logical text and font identity
+Next layers must implement images and Office-specific adapters. Preserve logical text and font identity
 for a possible PDF sibling backend; pdf0 and its dependencies are not included.

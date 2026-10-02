@@ -1,6 +1,9 @@
 # Native rendering with Forme: PNG and SVG
 
-Status: proposal; no renderer or PR has been published.
+Status: implementation in progress. Stacked draft PRs #333–#336 implement
+bounded snapshots, PNG/SVG primitives, paths/clips and positioned glyphs. Text
+shaping, images and Office-specific integration follow; page/slide/sheet rendering
+is not available yet.
 
 Rendering must run entirely in Go. Forme is the only permitted additional
 dependency; other dependencies require an explicit decision by the maintainer.
@@ -8,8 +11,8 @@ Use Go standard-library facilities and github.com/mgilbir/forme. The local
 Forme checkout inspected is at f443b39. It provides typography, paragraph layout
 and drawing operations, but neither PNG output nor multi-page fragmentation.
 Spine must still implement Office-specific inheritance/layout and DOCX pagination.
-Forme requires Go 1.26 while Spine declares Go 1.25; adoption needs a pinned
-version and an explicit toolchain/CI decision.
+Forme requires Go 1.26; the foundation PR updates Spine's minimum toolchain
+and CI to match, using pinned Forme revisions.
 
 ## SVG feasibility and decision
 

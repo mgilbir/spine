@@ -68,7 +68,7 @@ func TestPrepareSnapshotAndClipping(t *testing.T) {
 		t.Fatalf("snapshot: %+v", p.draws)
 	}
 	// Even invisible unsupported operations must not bypass capability checks.
-	if _, err := Prepare(context.Background(), dml.Pixels(96), dml.Pixels(96), []layout.Op{layout.DrawText{}}, Limits{}); !errors.Is(err, ErrUnsupported) {
+	if _, err := Prepare(context.Background(), dml.Pixels(96), dml.Pixels(96), []layout.Op{layout.TileImage{}}, Limits{}); !errors.Is(err, ErrUnsupported) {
 		t.Fatal(err)
 	}
 }
