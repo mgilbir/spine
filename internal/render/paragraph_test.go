@@ -192,3 +192,75 @@ func TestEuropeanParagraphRepertoire(t *testing.T) {
 		}
 	}
 }
+
+func TestRichLinesMatchSingleSpanAndMixFaces(t *testing.T) {
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := "office AVATAR office AVATAR café"
+	plain, _ := NewTextLayout(Limits{})
+	want, err := plain.Lines(context.Background(), noto, text, unit(16), unit(100), shape.Features{}, RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rich, _ := NewTextLayout(Limits{})
+	got, err := rich.RichLines(context.Background(), []Span{{Face: noto, Size: unit(16), Text: text}}, unit(100), RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%d lines, want %d", len(got), len(want))
+	}
+	for i, line := range got {
+		if len(line.Segments) != 1 || line.Segments[0].Text != want[i].Text || line.Width != want[i].Width || len(line.Segments[0].Glyphs) != len(want[i].Glyphs) {
+			t.Fatalf("line %d: %+v, want %q", i, line, want[i].Text)
+		}
+		for k, g := range line.Segments[0].Glyphs {
+			if g != want[i].Glyphs[k] {
+				t.Fatalf("line %d glyph %d", i, k)
+			}
+		}
+	}
+	if rich.budget.shapeWork != plain.budget.shapeWork || rich.budget.glyphs != plain.budget.glyphs || rich.budget.textBytes != plain.budget.textBytes || rich.lines != plain.lines {
+		t.Fatal("single span charged differently from Lines")
+	}
+	// Two sizes: a word split across spans stays unbreakable, each span
+	// shapes alone, and segments sit end to end.
+	mixed, _ := NewTextLayout(Limits{})
+	lines, err := mixed.RichLines(context.Background(), []Span{{Face: noto, Size: unit(16), Text: "big wo"}, {Face: noto, Size: unit(8), Text: "rd small text"}}, unit(70), RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var joined strings.Builder
+	for _, line := range lines {
+		x := unit(0)
+		for _, sg := range line.Segments {
+			if sg.X != x {
+				t.Fatalf("segment %q at %v, want %v", sg.Text, sg.X, x)
+			}
+			x += sg.Width
+			joined.WriteString(sg.Text)
+		}
+		if line.Width > unit(70) {
+			t.Fatalf("line width %v", line.Width)
+		}
+	}
+	if joined.String() != "big word small text" || len(lines) < 2 {
+		t.Fatalf("%d lines joined as %q", len(lines), joined.String())
+	}
+	for _, line := range lines {
+		for _, sg := range line.Segments {
+			if strings.HasPrefix(sg.Text, "rd") && sg.Offset != 0 {
+				t.Fatalf("offset %d", sg.Offset)
+			}
+		}
+		if line.Segments[0].Text == "rd " || line.Segments[0].Text == "rd" {
+			t.Fatal("broke inside a word at a span boundary")
+		}
+	}
+	empty, err := mixed.RichLines(context.Background(), []Span{{Face: noto, Size: unit(10)}}, unit(70), RepertoireEuropean)
+	if err != nil || len(empty) != 1 || len(empty[0].Segments) != 1 || empty[0].Segments[0].Face == nil {
+		t.Fatalf("empty paragraph: %+v %v", empty, err)
+	}
+}

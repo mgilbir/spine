@@ -75,16 +75,32 @@ func TestRenderMergesTouchingHighlights(t *testing.T) {
 	}
 }
 
-func TestRenderRejectsRunsThatShapeApart(t *testing.T) {
+func TestRenderMixesRunSizesOnOneBaseline(t *testing.T) {
 	data, opts := renderInheritedText(t)
-	for name, paragraphs := range map[string]string{
-		"sizes":  `<a:p><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r><a:r><a:rPr sz="1400"/><a:t>A</a:t></a:r></a:p>`,
-		"fonts":  `<a:p><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r><a:r><a:rPr sz="1200"><a:latin typeface="Other"/></a:rPr><a:t>A</a:t></a:r></a:p>`,
-		"kerned": `<a:p><a:r><a:rPr sz="1200" kern="0"/><a:t>A</a:t></a:r><a:r><a:rPr sz="1200" kern="1200"/><a:t>A</a:t></a:r></a:p>`,
-	} {
-		_, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, paragraphs)})
-		if !errors.Is(err, render.ErrUnsupported) {
-			t.Fatalf("%s: %v", name, err)
+	// A 24pt "A" (32px, ascent 25.6) then a 12pt "A" (16px, ascent 12.8)
+	// share the baseline at y 29.6: the big glyph spans x 4-36 and y 4-29.6,
+	// the small one x 36-52 and y 16.8-29.6.
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`,
+		`<a:p><a:r><a:rPr sz="2400"/><a:t>A</a:t></a:r><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r></a:p>`)})
+	for _, tc := range []struct {
+		x, y int
+		dark bool
+	}{{20, 10, true}, {44, 10, false}, {44, 24, true}, {44, 32, false}, {20, 32, false}} {
+		if dark := renderPixel(t, got, tc.x, tc.y).R < 128; dark != tc.dark {
+			t.Fatalf("%d,%d: dark %v", tc.x, tc.y, dark)
+		}
+	}
+	// The next paragraph starts below the taller line box.
+	two := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`,
+		`<a:p><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r><a:r><a:rPr sz="2400"/><a:t> </a:t></a:r></a:p><a:p><a:r><a:rPr sz="1200"/><a:t>A</a:t></a:r></a:p>`)})
+	// Line one: 32px box, small glyph on baseline 29.6 (y 16.8-29.6); line
+	// two from 36: glyph y 36-48.8.
+	for _, tc := range []struct {
+		y    int
+		dark bool
+	}{{10, false}, {24, true}, {33, false}, {42, true}} {
+		if dark := renderPixel(t, two, 10, tc.y).R < 128; dark != tc.dark {
+			t.Fatalf("row %d: dark %v", tc.y, dark)
 		}
 	}
 }

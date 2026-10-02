@@ -152,14 +152,18 @@ The resolved paragraph must be left, centered or right aligned with percentage
 line spacing, point-based space before and after (none before the first
 paragraph, whose treatment depends on undocumented `spcFirstLastPara`
 behavior), no bullet, no indent, left/right margins within the box, and
-left-to-right Latin word breaking. Runs in a paragraph must resolve to one font
-family, size (1–4000 pt), bold/italic setting and kerning, and so shape alike;
-each run has its own solid color and optional highlight. A paragraph wraps as
-one string and each line is cut back into runs; a glyph standing for
-characters of two runs, such as a ligature, fails, since PowerPoint shapes runs
-apart. A highlight fills the run's advance from the line's ascent to its
-descent beneath the text, with touching spans of one color painted as one.
-Underline, strike, capitals, baseline shift, character spacing, outline,
+left-to-right Latin word breaking. Runs may differ in font family, size (1–4000
+pt), bold/italic setting and kerning; consecutive runs that agree on these shape
+as one span. Break opportunities come from the whole paragraph, while shaping
+context stays within a span, so no glyph or contextual form crosses a change of
+font or size; the paragraph's shaping budget is shared evenly between its
+faces. Each line's box takes the largest ascent, descent and line gap on that
+line, with percentage line spacing scaling the whole, and every span sits on
+the shared baseline. Each run has its own solid color and optional highlight;
+a glyph standing for characters of two runs, such as a ligature, fails, since
+PowerPoint shapes runs apart. A highlight fills the run's advance from its
+font's ascent to its descent about the baseline, beneath the text, with
+touching spans of one color painted as one. Underline, strike, capitals, baseline shift, character spacing, outline,
 effects and hyperlinks fail. Kerning applies from the resolved `kern` size,
 and is off when it is absent or zero. An empty paragraph takes its line box from
 its end-of-paragraph properties; a paragraph with runs takes it from them, as
