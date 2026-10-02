@@ -4,9 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mgilbir/forme/layout"
-	"github.com/mgilbir/spine/common/dml"
 	core "github.com/mgilbir/spine/internal/render"
-	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 	"github.com/mgilbir/spine/render"
 )
@@ -36,7 +34,7 @@ type renderInherited struct {
 // Placeholders are prompts and are not drawn. Text in these shapes resolves
 // like slide text, and colors through the slide's color map, as PowerPoint
 // shows the slide.
-func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw func(Shape, *oxml.Shape, *dml.SpPr, int, func(*Picture) ([]byte, renderImageKey)) ([]layout.Op, error)) ([]layout.Op, error) {
+func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw) ([]layout.Op, error) {
 	if layer.data == nil || layer.data.SpTree == nil {
 		return nil, nil
 	}
@@ -59,15 +57,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 		return nil, fmt.Errorf("%w: inherited shapes", render.ErrLimit)
 	}
 	budget.Nodes -= len(order)
-	picture := func(v *Picture) ([]byte, renderImageKey) {
-		for _, rel := range s.presentation.relationships[layer.part] {
-			if rel != nil && rel.ID == v.relID && rel.TargetMode != opc.TargetModeExternal {
-				name := opc.ResolvePartName(layer.part, rel.Target)
-				return s.presentation.rawPartData(name), renderImageKey{part: name}
-			}
-		}
-		return nil, renderImageKey{}
-	}
+	picture := s.renderPartPicture(layer.part)
 	var ops []layout.Op
 	for _, ref := range order {
 		var (
@@ -97,8 +87,15 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			if err = layer.shapeErrs[renderShapeKey{name: "pic", occurrence: ref.Index + 1}].any; err == nil {
 				drawn, err = draw(oxmlPictureToGoPicture(pic), nil, pic.SpPr, -1, picture)
 			}
+		case oxml.ChildGrpSp:
+			if ref.Index >= len(t.GrpSp) || t.GrpSp[ref.Index] == nil {
+				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
+			}
+			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, picture, 0)
+			}
 		default:
-			err = fmt.Errorf("%w: inherited group, table, connector or other content", render.ErrUnsupported)
+			err = fmt.Errorf("%w: inherited table, connector or other content", render.ErrUnsupported)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("pptx: %s shape: %w", layer.part, err)

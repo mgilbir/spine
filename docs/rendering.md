@@ -228,6 +228,12 @@ differently, or differing borders meet at a grid point, rendering fails: the
 precedence is undocumented. Cell text uses the slide text profile, laid out
 with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
 
+Groups draw their shapes and pictures with geometry mapped from the group's
+child space to its frame; text sizes and line widths do not scale, as
+PowerPoint draws them. Rotated or flipped groups, group fills and effects, and
+placeholders, tables and connectors inside groups fail; groups are drawn only
+from their parsed form without pending edits.
+
 Straight connectors (`straightConnector1` or `line`) draw their stored
 geometry, horizontally or vertically flipped but not rotated; bindings to other
 shapes move a connector only when those shapes move. The line comes from the
