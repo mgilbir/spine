@@ -75,8 +75,9 @@ an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid fill, no fill, or a theme
 background reference (`p:bgRef`) whose theme entry is a solid fill or no fill.
-Rectangles and ellipses require solid/no-fill styling and an explicit absent
-outline (`AutoShape.SetNoLine`). Uncropped embedded PNG/JPEG pictures with
+Rectangles and ellipses may have a solid fill or none and no outline. A shape
+has no style reference (`p:style`, which fails), so an absent fill or outline
+is none, as DrawingML defines; a visible outline fails. Uncropped embedded PNG/JPEG pictures with
 rectangular geometry are supported. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
@@ -108,9 +109,15 @@ Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
 
 Plain horizontal ASCII text is supported in non-placeholder rectangles and
-explicitly styled text boxes (`TextBox.SetNoLine` suppresses their outline). Provide
-`render.Options.Fonts`; the renderer performs no ambient font discovery. The
-frame must have top anchoring, square wrapping, explicit insets and no autofit.
+text boxes. Provide `render.Options.Fonts`; the renderer performs no ambient
+font discovery. The renderer lays out the text body a save would write,
+including pending edits. A non-placeholder body inherits nothing, so absent
+attributes take their DrawingML defaults: top anchoring, square wrapping, and
+0.1"/0.05" left-right/top-bottom insets. Other anchors, wrapping, vertical,
+rotated or multi-column text fail. Shape autofit (`spAutoFit`) and unscaled
+normal autofit render at the stored extent PowerPoint fitted, and a line that
+measures below it is still drawn; scaled autofit fails. A fixed frame fails
+when its text measures past the bottom inset.
 Each paragraph must explicitly select no bullet, left/center/right alignment and
 positive percentage line spacing and explicit before/after spacing (including
 zero). Runs in a paragraph must share an explicit

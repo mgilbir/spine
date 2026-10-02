@@ -179,6 +179,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		if err = ctx.Err(); err != nil {
 			return nil, err
 		}
+		if src := s.renderSourceShape(i); src != nil && src.Style != nil {
+			return nil, fmt.Errorf("pptx: slide %d shape %d: %w: shape style reference", s.index, i, render.ErrUnsupported)
+		}
 		var drawn []layout.Op
 		switch v := sh.(type) {
 		case *TextBox:
@@ -318,10 +321,12 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
 		return nil, fmt.Errorf("%w: shape transformation", render.ErrUnsupported)
 	}
-	if p.Ln == nil || p.Ln.NoFill == nil {
+	// Without a style reference (checked by the caller), an absent outline
+	// or fill is none.
+	if p.Ln != nil && p.Ln.NoFill == nil {
 		return nil, fmt.Errorf("%w: implicit or visible shape stroke", render.ErrUnsupported)
 	}
-	if p.Ln.SolidFill != nil || p.Ln.GradFill != nil || p.Ln.PattFill != nil {
+	if p.Ln != nil && (p.Ln.SolidFill != nil || p.Ln.GradFill != nil || p.Ln.PattFill != nil) {
 		return nil, fmt.Errorf("%w: ambiguous shape stroke", render.ErrUnsupported)
 	}
 	if p.PrstGeom != nil && p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0 {
@@ -333,7 +338,7 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 	if p.NoFill != nil && p.SolidFill != nil {
 		return nil, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
 	}
-	if p.NoFill != nil {
+	if p.NoFill != nil || p.SolidFill == nil {
 		return nil, nil
 	}
 	c, err := colors.solid(p.SolidFill, nil)
@@ -412,7 +417,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface"
 		case "spcPct", "spcPts":
 			attrs = "val"
-		case "p", "r", "t", "lstStyle", "noAutofit", "buNone", "lnSpc", "spcBef", "spcAft":
+		case "p", "r", "t", "lstStyle", "noAutofit", "spAutoFit", "normAutofit", "buNone", "lnSpc", "spcBef", "spcAft":
 		case "xfrm":
 			attrs = "rot flipH flipV"
 		case "off", "chOff":
@@ -483,16 +488,12 @@ func renderRootTransform(x *dml.GrpXfrm) bool {
 }
 
 func (s *Slide) renderShapeProps(index int) *dml.SpPr {
-	if index >= len(s.shapeRefs) {
-		return nil
-	}
-	ref := s.shapeRefs[index]
-	t := s.sxModel.CSld.SpTree
-	if ref.Kind == oxml.ChildSp && ref.Index >= 0 && ref.Index < len(t.Sp) {
-		return t.Sp[ref.Index].SpPr
+	if src := s.renderSourceShape(index); src != nil {
+		return src.SpPr
 	}
 	return nil
 }
+
 func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	if index >= len(s.shapeRefs) {
 		return nil
@@ -731,7 +732,7 @@ func renderXMLKey(n xml.Name) string {
 }
 
 var renderXMLParents = map[string]string{
-	"p:txBody": "p:sp", "a:bodyPr": "p:txBody", "a:lstStyle": "p:txBody", "a:noAutofit": "a:bodyPr",
+	"p:txBody": "p:sp", "a:bodyPr": "p:txBody", "a:lstStyle": "p:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
 	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:latin": "a:rPr",
 	"a:buNone": "a:pPr", "a:lnSpc": "a:pPr", "a:spcBef": "a:pPr", "a:spcAft": "a:pPr", "a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
