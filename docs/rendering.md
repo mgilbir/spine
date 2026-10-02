@@ -199,6 +199,17 @@ differently, or differing borders meet at a grid point, rendering fails: the
 precedence is undocumented. Cell text uses the slide text profile, laid out
 with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
 
+Straight connectors (`straightConnector1` or `line`) draw their stored
+geometry, horizontally or vertically flipped but not rotated; bindings to other
+shapes move a connector only when those shapes move. The line comes from the
+theme line style the connector's `lnRef` selects, its `phClr` taking the
+reference color, with any property the connector's own `a:ln` sets winning; an
+effect reference must select an empty theme effect style. Lines take flat,
+square or round caps and preset dashes with flat caps. Arrowheads fail: the
+specification names their sizes but not their geometry. Bent and curved
+connectors fail, and like tables, connectors are drawn only from their parsed
+form without pending edits.
+
 Tables without a table style are drawn unstyled. This is provisional:
 `tableStyles.xml` names a default style, often a built-in Office style the file
 does not define, and whether PowerPoint applies it to a table without

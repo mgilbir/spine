@@ -41,6 +41,7 @@ func FuzzPptxRender(f *testing.F) {
 	tbl := tables.AddSlide().AddTable(2, 2)
 	tbl.Cell(0, 0).SetText("A")
 	tbl.Cell(1, 1).SetBorders(&TableBorder{Width: dml.Pixels(1), Color: dml.ColorBlack, Style: BorderStyleSingle})
+	f.Add(bytes.Replace(source, []byte(`</p:spTree>`), []byte(renderConnectorXML(` flipH="1"`, renderDiagonal, renderRedLine, renderLnStyle)+`</p:spTree>`), 1))
 	if withTable, e := tables.SaveBytes(); e == nil {
 		f.Add(fuzzseed.ZipEntry(withTable, "ppt/slides/slide1.xml"))
 	}
