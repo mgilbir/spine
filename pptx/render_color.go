@@ -126,26 +126,137 @@ func renderRGB(val string) (style.RGBA, error) {
 	return style.RGBA{R: float64(rgb.R), G: float64(rgb.G), B: float64(rgb.B), A: 1}, nil
 }
 
-// renderTransform applies luminance modulation and offset in HSL space,
-// clamping after each step. Every other transform fails explicitly.
+// renderTransform applies a color's transforms in order, clamping after each.
+// HSL transforms work on hue, saturation and luminance; tint, shade, the
+// channel transforms and gray work on linear RGB, as LibreOffice's import does;
+// alpha transforms on opacity. Channels round once, at the end.
 func renderTransform(c style.RGBA, steps []dml.ColorTransformStep) (style.RGBA, error) {
 	if len(steps) == 0 {
 		return c, nil
 	}
-	h, s, l := renderHSL(c)
+	clamp := func(v float64) float64 { return math.Min(1, math.Max(0, v)) }
+	// The color is held in one space at a time: sRGB channels in 0-1, or HSL.
+	r, g, b, a := c.R/255, c.G/255, c.B/255, c.A
+	var h, sat, l float64
+	inHSL := false
+	toHSL := func() {
+		if !inHSL {
+			h, sat, l = renderHSL(style.RGBA{R: r * 255, G: g * 255, B: b * 255})
+			inHSL = true
+		}
+	}
+	toRGB := func() {
+		if inHSL {
+			v := renderFromHSLExact(h, sat, l)
+			r, g, b, inHSL = v[0], v[1], v[2], false
+		}
+	}
+	linear := func(v float64) float64 {
+		if v <= 0.04045 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	encode := func(v float64) float64 {
+		if v <= 0.0031308 {
+			return v * 12.92
+		}
+		return 1.055*math.Pow(v, 1/2.4) - 0.055
+	}
+	// inLinear applies f to each channel in linear RGB.
+	inLinear := func(f func(float64) float64) {
+		toRGB()
+		r, g, b = clamp(encode(clamp(f(linear(r))))), clamp(encode(clamp(f(linear(g))))), clamp(encode(clamp(f(linear(b)))))
+	}
+	channel := func(ch *float64, f func(float64) float64) {
+		toRGB()
+		*ch = clamp(encode(clamp(f(linear(*ch)))))
+	}
 	for _, step := range steps {
 		v := float64(step.Val.Int32()) / 100000
+		// Hue values are angles in 60000ths of a degree.
+		turn := float64(step.Val.Int32()) / 21600000
 		switch step.Name {
 		case "lumMod":
-			l *= v
+			toHSL()
+			l = clamp(l * v)
 		case "lumOff":
-			l += v
+			toHSL()
+			l = clamp(l + v)
+		case "lum":
+			toHSL()
+			l = clamp(v)
+		case "satMod":
+			toHSL()
+			sat = clamp(sat * v)
+		case "satOff":
+			toHSL()
+			sat = clamp(sat + v)
+		case "sat":
+			toHSL()
+			sat = clamp(v)
+		case "hue":
+			toHSL()
+			h = math.Mod(math.Max(0, turn), 1)
+		case "hueOff":
+			toHSL()
+			h = math.Mod(h+turn+1, 1)
+		case "hueMod":
+			toHSL()
+			h = math.Mod(h*v, 1)
+		case "comp":
+			toHSL()
+			h = math.Mod(h+0.5, 1)
+		case "inv":
+			toRGB()
+			r, g, b = 1-r, 1-g, 1-b
+		case "gray":
+			toRGB()
+			y := 0.299*r + 0.587*g + 0.114*b
+			r, g, b = y, y, y
+		case "tint":
+			// 0% is white, 100% the color.
+			inLinear(func(x float64) float64 { return 1 - (1-x)*v })
+		case "shade":
+			// 0% is black, 100% the color.
+			inLinear(func(x float64) float64 { return x * v })
+		case "red":
+			channel(&r, func(float64) float64 { return v })
+		case "redMod":
+			channel(&r, func(x float64) float64 { return x * v })
+		case "redOff":
+			channel(&r, func(x float64) float64 { return x + v })
+		case "green":
+			channel(&g, func(float64) float64 { return v })
+		case "greenMod":
+			channel(&g, func(x float64) float64 { return x * v })
+		case "greenOff":
+			channel(&g, func(x float64) float64 { return x + v })
+		case "blue":
+			channel(&b, func(float64) float64 { return v })
+		case "blueMod":
+			channel(&b, func(x float64) float64 { return x * v })
+		case "blueOff":
+			channel(&b, func(x float64) float64 { return x + v })
+		case "gamma":
+			toRGB()
+			r, g, b = encode(r), encode(g), encode(b)
+		case "invGamma":
+			toRGB()
+			r, g, b = linear(r), linear(g), linear(b)
+		case "alpha":
+			a = clamp(v)
+		case "alphaMod":
+			a = clamp(a * v)
+		case "alphaOff":
+			a = clamp(a + v)
 		default:
 			return style.RGBA{}, fmt.Errorf("%w: %s color transform", render.ErrUnsupported, step.Name)
 		}
-		l = math.Min(1, math.Max(0, l))
 	}
-	return renderFromHSL(h, s, l), nil
+	toRGB()
+	round := func(v float64) float64 { return math.Round(clamp(v) * 255) }
+	return style.RGBA{R: round(r), G: round(g), B: round(b), A: a}, nil
 }
 
 func renderHSL(c style.RGBA) (h, s, l float64) {
@@ -175,8 +286,13 @@ func renderHSL(c style.RGBA) (h, s, l float64) {
 	return h / 6, s, l
 }
 
-func renderFromHSL(h, s, l float64) style.RGBA {
-	channel := func(v float64) float64 { return math.Round(math.Min(255, math.Max(0, v*255))) }
+// renderFromHSLExact converts HSL to sRGB channels in 0-1, unrounded.
+func renderFromHSLExact(h, s, l float64) [3]float64 {
+	c := renderFromHSLWith(h, s, l, func(v float64) float64 { return math.Min(1, math.Max(0, v)) })
+	return [3]float64{c.R, c.G, c.B}
+}
+
+func renderFromHSLWith(h, s, l float64, channel func(float64) float64) style.RGBA {
 	if s == 0 {
 		return style.RGBA{R: channel(l), G: channel(l), B: channel(l), A: 1}
 	}
@@ -389,30 +505,31 @@ func renderThemeRoot(node core.XMLNode) error {
 }
 
 // background resolves an explicit or theme-referenced slide background.
-func (c *renderColors) background(bg *oxml.Background) (style.RGBA, error) {
+func (c *renderColors) background(bg *oxml.Background, w, h float64) (renderPaint, error) {
+	white := renderPaint{color: renderWhite}
 	if (bg.BgPr == nil) == (bg.BgRef == nil) {
-		return style.RGBA{}, fmt.Errorf("%w: slide background", render.ErrUnsupported)
+		return white, fmt.Errorf("%w: slide background", render.ErrUnsupported)
 	}
 	if v := bg.BgPr; v != nil {
-		if v.GradFill != nil || v.BlipFill != nil || v.PattFill != nil || renderEffects(v.EffectLst) || v.ExtLst != nil {
-			return style.RGBA{}, fmt.Errorf("%w: background fill/effect", render.ErrUnsupported)
+		if v.BlipFill != nil || v.PattFill != nil || renderEffects(v.EffectLst) || v.ExtLst != nil {
+			return white, fmt.Errorf("%w: background picture, pattern or effect", render.ErrUnsupported)
 		}
-		if v.NoFill != nil && v.SolidFill == nil {
-			return renderWhite, nil
+		if v.NoFill != nil && v.SolidFill == nil && v.GradFill == nil {
+			return white, nil
 		}
-		return c.solid(v.SolidFill, nil)
+		return c.fillPaint(v.SolidFill, v.GradFill, nil, w, h)
 	}
 	ref := bg.BgRef
 	if ref.Idx == 0 {
-		return renderWhite, nil
+		return white, nil
 	}
 	color, err := c.color(renderColorOf(ref.SrgbClr, ref.SchemeClr, ref.SysClr, ref.ScrgbClr != nil, ref.HslClr != nil, ref.PrstClr != nil), nil)
 	if err != nil {
-		return style.RGBA{}, err
+		return white, err
 	}
 	theme, err := c.loadTheme()
 	if err != nil {
-		return style.RGBA{}, err
+		return white, err
 	}
 	var format *dml.FmtScheme
 	if theme.ThemeElements != nil {
@@ -430,13 +547,13 @@ func (c *renderColors) background(bg *oxml.Background) (style.RGBA, error) {
 		entry, found = format.BgFillStyleLst.Entry(int(ref.Idx - 1001))
 	}
 	if !found {
-		return style.RGBA{}, fmt.Errorf("%w: background style %d", render.ErrInvalid, ref.Idx)
+		return white, fmt.Errorf("%w: background style %d", render.ErrInvalid, ref.Idx)
 	}
 	if entry.NoFill != nil {
-		return renderWhite, nil
+		return white, nil
 	}
-	if entry.SolidFill == nil {
-		return style.RGBA{}, fmt.Errorf("%w: theme background fill", render.ErrUnsupported)
+	if entry.SolidFill == nil && entry.GradFill == nil {
+		return white, fmt.Errorf("%w: theme background fill", render.ErrUnsupported)
 	}
-	return c.solid(entry.SolidFill, &color)
+	return c.fillPaint(entry.SolidFill, entry.GradFill, &color, w, h)
 }

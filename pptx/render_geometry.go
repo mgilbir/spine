@@ -164,15 +164,17 @@ func (g renderGeometry) contour(d float64, join renderJoin) (layout.Path, bool, 
 }
 
 // fill paints the shape's interior.
-func (g renderGeometry) fill(c style.RGBA) ([]layout.Op, error) {
+func (g renderGeometry) fill(p renderPaint) ([]layout.Op, error) {
+	px := float64(dml.EMUsPerPixel)
+	x, y, w, h := float64(g.box[0])/px, float64(g.box[1])/px, float64(g.box[2])/px, float64(g.box[3])/px
 	if !g.ellipse && g.radius == 0 {
-		return []layout.Op{layout.FillRect{Rect: layout.Rect{X: renderUnit(g.box[0]), Y: renderUnit(g.box[1]), W: renderUnit(g.box[2]), H: renderUnit(g.box[3])}, Color: c}}, nil
+		return p.fillOps(x, y, w, h, nil)
 	}
 	path, ok, err := g.contour(0, renderJoinUnset)
 	if err != nil || !ok {
 		return nil, err
 	}
-	return []layout.Op{layout.FillPath{Path: path, Color: c}}, nil
+	return p.fillOps(x, y, w, h, path)
 }
 
 // stroke paints a solid outline as the even-odd ring between the boundary's

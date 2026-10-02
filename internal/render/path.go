@@ -26,6 +26,7 @@ type drawing struct {
 	fontID   string
 	image    *bitmap
 	imageBox rectangle
+	gradient *gradientFill
 }
 type prepareBudget struct {
 	operations, segments, glyphs, textBytes       int
@@ -74,6 +75,10 @@ func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, 
 			}
 		case layout.DrawGlyphs:
 			if err := p.collectGlyphs(ctx, v, clips, budget); err != nil {
+				return err
+			}
+		case layout.FillGradient:
+			if err := p.collectGradient(v, clips, budget); err != nil {
 				return err
 			}
 		case layout.FillPath:

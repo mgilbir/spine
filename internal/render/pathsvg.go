@@ -56,6 +56,13 @@ func (p *Page) svgDrawings(ctx context.Context, e *xml.Encoder, scale float64) e
 			groups = append(groups, g)
 		}
 		attrs := []xml.Attr{attr("fill", fmt.Sprintf("rgb(%s,%s,%s)", number(r.color.R), number(r.color.G), number(r.color.B))), attr("fill-opacity", number(r.color.A))}
+		if d.gradient != nil {
+			id := fmt.Sprintf("gradient%d", i)
+			if err := d.gradient.svg(e, id, scale); err != nil {
+				return err
+			}
+			attrs = []xml.Attr{attr("fill", "url(#"+id+")")}
+		}
 		if d.path == nil && d.image == nil {
 			attrs = append(attrs, rectAttrs(r, scale)...)
 			if err := svgElement(e, "rect", attrs); err != nil {
