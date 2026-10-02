@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/render"
 )
@@ -115,6 +116,12 @@ func TestRenderTextFrameOverflowAndUnsupportedDefaults(t *testing.T) {
 // paints what saving and reopening paints.
 func TestRenderEditedTextMatchesSave(t *testing.T) {
 	p, _, _, opts := renderTextSlide(t)
+	// Replaced text inherits the theme font; serve every family the fixture.
+	face, err := opts.Fonts(context.Background(), render.FontRequest{Family: "Fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) { return face, nil }
 	data, err := p.SaveBytes()
 	if err != nil {
 		t.Fatal(err)

@@ -118,13 +118,33 @@ rotated or multi-column text fail. Shape autofit (`spAutoFit`) and unscaled
 normal autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn; scaled autofit fails. A fixed frame fails
 when its text measures past the bottom inset.
-Each paragraph must explicitly select no bullet, left/center/right alignment and
-positive percentage line spacing and explicit before/after spacing (including
-zero). Runs in a paragraph must share an explicit
-literal font family, size (12–4096 pt), bold/italic setting, opaque RGB color, and
-explicit no-underline/no-strike settings. Rich styles, hard breaks, tabs, bidi,
-non-ASCII characters, unresolved fonts and overflowing text fail. Empty paragraphs
-need a styled run so their height is defined.
+Paragraph and run properties are inherited: the paragraph's own properties,
+then the shape's list style at the paragraph's level, then the document
+defaults, then DrawingML defaults (left alignment, 100% line spacing, no space,
+no bullet, 18 pt, no bold, italic, underline or strike). Whether PowerPoint
+consults the master's other-text style before the presentation default text
+style is not specified and implementations differ, so each property is resolved
+both ways and must agree; PowerPoint writes the two alike. A list style's
+`defPPr` and a paragraph's own `defRPr`, which PowerPoint may ignore, must also
+agree with the value that applies without them. Disagreement fails. A deck
+built in code saves the library's default styles, whose level 2–9 sizes
+disagree. Theme font references (`+mn-lt`, `+mj-lt`) resolve through the
+master's theme and colors through the slide's color map. Inherited styles are
+checked for unsupported content only when a slide has text; the presentation
+default text style counts toward the source budget.
+
+The resolved paragraph must be left, centered or right aligned with percentage
+line spacing, point-based space before and after (none before the first
+paragraph, whose treatment depends on undocumented `spcFirstLastPara`
+behavior), no bullet, no indent, left/right margins within the box, and
+left-to-right Latin word breaking. Runs in a paragraph must resolve to one font
+family, size (1–4000 pt), bold/italic setting and solid color, without
+underline, strike, capitals, baseline shift, character spacing, highlight,
+outline, effects or hyperlinks. Kerning applies from the resolved `kern` size,
+and is off when it is absent or zero. An empty paragraph takes its line box from
+its end-of-paragraph properties; a paragraph with runs takes it from them, as
+LibreOffice's import does. Rich styles, hard breaks, fields, tabs, bidi,
+non-ASCII characters and unresolved fonts fail.
 
 Forme measures wrapping and shapes final lines under cumulative budgets. Native
 line metrics use the supplied font's hhea ascent, descent and line gap; baseline
@@ -132,7 +152,7 @@ placement and percentage spacing use those metrics. This is a defined native
 layout profile, not a claim of identical PowerPoint line placement. DrawingML
 [percentage line spacing](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.linespacing)
 scales with text size; fixed-point line spacing and percentage before/after
-paragraph spacing are not supported by this first adapter.
+paragraph spacing are not supported by this adapter.
 
 ## Sheet range profile
 

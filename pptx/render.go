@@ -18,8 +18,9 @@ import (
 // PrepareRender prepares this static slide, including unsaved edits, for PNG or
 // SVG output. The first supported profile is solid or theme-referenced solid
 // backgrounds, filled rectangles/ellipses with no stroke, uncropped embedded
-// PNG/JPEG pictures, and explicitly styled plain horizontal ASCII text in
-// rectangles with supplied fonts. Fill colors may be RGB, system or theme scheme
+// PNG/JPEG pictures, and uniformly styled plain horizontal ASCII paragraphs in
+// non-placeholder rectangles with supplied fonts, with styles inherited from
+// list styles, document defaults and the theme. Fill colors may be RGB, system or theme scheme
 // colors with luminance transforms. Inherited visible master/layout objects,
 // other theme styles, transformations, effects and other content fail
 // explicitly. Hidden slides can be selected.
@@ -100,6 +101,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			layers = append(layers, m.CSld)
 		}
 	}
+	masterProfile := &renderProfile{}
 	if s.layout != nil {
 		if s.layout.layoutXML != nil && len(s.layout.layoutXML.SourceXML) > 0 {
 			if err = budget.CheckXML(ctx, s.layout.layoutXML.SourceXML, (&renderProfile{}).inherited); err != nil {
@@ -107,7 +109,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 		}
 		if s.layout.master != nil && s.layout.master.masterXML != nil && len(s.layout.master.masterXML.SourceXML) > 0 {
-			if err = budget.CheckXML(ctx, s.layout.master.masterXML.SourceXML, (&renderProfile{}).inherited); err != nil {
+			if err = budget.CheckXML(ctx, s.layout.master.masterXML.SourceXML, masterProfile.inherited); err != nil {
 				return nil, fmt.Errorf("pptx: master: %w", err)
 			}
 		}
@@ -128,6 +130,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 	}
 	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
+	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, otherErr: masterProfile.styleErr}
 	// The nearest defined background wins: slide, then layout, then master.
 	background := renderWhite
 	for i := len(layers) - 1; i >= 0; i-- {
@@ -189,7 +192,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			drawn, err = renderAutoShape(box, s.renderShapeProps(i), colors)
 			if err == nil && box.textFrame != nil {
 				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, box, textLayout, fonts)
+				textOps, err = s.renderShapeText(ctx, i, box, textLayout, fonts, styles)
 				drawn = append(drawn, textOps...)
 			}
 		case *AutoShape:
@@ -197,7 +200,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			drawn, err = renderAutoShape(v, base, colors)
 			if err == nil && v.textFrame != nil {
 				var textOps []layout.Op
-				textOps, err = s.renderShapeText(ctx, i, v, textLayout, fonts)
+				textOps, err = s.renderShapeText(ctx, i, v, textLayout, fonts, styles)
 				drawn = append(drawn, textOps...)
 			}
 		case *Picture:
@@ -362,25 +365,6 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, colors *renderColors) ([]la
 	path := layout.Path{{Op: layout.ArcTo, Center: layout.Point{X: cx, Y: cy}, RadiusX: rect.W / 2, RadiusY: rect.H / 2, SweepAngle: 360}, {Op: layout.ClosePath}}
 	return []layout.Op{layout.FillPath{Path: path, Color: c}}, nil
 }
-func renderSolid(v *dml.SolidFill) (style.RGBA, error) {
-	if v == nil || v.SrgbClr == nil || v.ScRgbClr != nil || v.HslClr != nil || v.SysClr != nil || v.SchemeClr != nil || v.PrstClr != nil {
-		return style.RGBA{}, fmt.Errorf("%w: explicit RGB fill required", render.ErrUnsupported)
-	}
-	c := v.SrgbClr
-	if c.Tint != nil || c.Shade != nil || c.SatMod != nil || c.LumMod != nil || c.LumOff != nil || c.Comp != nil || c.Inv != nil || c.Gray != nil || c.AlphaOff != nil || c.AlphaMod != nil || c.Hue != nil || c.HueOff != nil || c.HueMod != nil || c.Sat != nil || c.SatOff != nil || c.Lum != nil || c.Red != nil || c.RedOff != nil || c.RedMod != nil || c.Green != nil || c.GreenOff != nil || c.GreenMod != nil || c.Blue != nil || c.BlueOff != nil || c.BlueMod != nil || c.Gamma != nil || c.InvGamma != nil {
-		return style.RGBA{}, fmt.Errorf("%w: color transform", render.ErrUnsupported)
-	}
-	rgb, err := dml.ParseRGB(c.Val)
-	if err != nil {
-		return style.RGBA{}, fmt.Errorf("%w: RGB color", render.ErrInvalid)
-	}
-	if c.Alpha != nil {
-		return style.RGBA{}, fmt.Errorf("%w: alpha color transform", render.ErrUnsupported)
-	}
-	alpha := 1.0
-	return style.RGBA{R: float64(rgb.R), G: float64(rgb.G), B: float64(rgb.B), A: alpha}, nil
-}
-
 func slideRenderXML(el xml.StartElement) error {
 	var attrs string
 	switch el.Name.Space {
@@ -407,14 +391,22 @@ func slideRenderXML(el xml.StartElement) error {
 		case "bodyPr":
 			// rtlCol orders columns; the single-column profile has one.
 			attrs = "wrap anchor lIns tIns rIns bIns rtlCol"
-		case "pPr":
-			attrs = "algn"
-		case "rPr":
-			// Language, proofing, smart-tag and bookmark attributes do not
-			// change the painting of horizontal ASCII text.
-			attrs = "sz b i u strike lang altLang dirty err noProof smtClean smtId bmk"
-		case "latin":
-			attrs = "typeface"
+		case "pPr", "defPPr", "lvl1pPr", "lvl2pPr", "lvl3pPr", "lvl4pPr", "lvl5pPr", "lvl6pPr", "lvl7pPr", "lvl8pPr", "lvl9pPr":
+			// East Asian breaking, hanging punctuation, font alignment within
+			// a uniformly sized line, and tab sizes for text without tabs do
+			// not change this profile's text; the resolver checks the rest.
+			attrs = "marL marR lvl indent algn defTabSz rtl eaLnBrk fontAlgn latinLnBrk hangingPunct"
+		case "rPr", "defRPr", "endParaRPr":
+			// Language, proofing, smart-tag, bookmark and East Asian attributes
+			// do not change the painting of horizontal ASCII text; the resolver
+			// checks the rest.
+			attrs = "kumimoji lang altLang sz b i u strike kern cap spc normalizeH baseline noProof dirty err smtClean smtId bmk"
+		case "latin", "ea", "cs", "sym":
+			// ASCII text uses the Latin font; the other slots are not consulted.
+			attrs = "typeface panose pitchFamily charset"
+		case "tab":
+			attrs = "pos algn"
+		case "tabLst", "uLnTx", "uFillTx":
 		case "spcPct", "spcPts":
 			attrs = "val"
 		case "p", "r", "t", "lstStyle", "noAutofit", "spAutoFit", "normAutofit", "buNone", "lnSpc", "spcBef", "spcAft":
@@ -527,6 +519,9 @@ func renderPictureProperties(p *dml.SpPr) error {
 // node that is not below it.
 type renderProfile struct {
 	skipDepth int
+	// styleErr is the first unsupported node in a master's other-text style,
+	// which fails only slides that resolve text through it.
+	styleErr error
 }
 
 func (r *renderProfile) skipped(node core.XMLNode) bool {
@@ -664,7 +659,7 @@ func slideRenderNode(node core.XMLNode) error {
 			return fmt.Errorf("%w: XML placement %s", render.ErrUnsupported, node.Name.Local)
 		}
 	}
-	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r"))
+	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic")) || (node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "tab"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -693,8 +688,15 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 		if len(node.Path) == 2 && node.Occurrence > 1 {
 			return fmt.Errorf("%w: repeated inherited metadata", render.ErrInvalid)
 		}
-		// These defined metadata subtrees cannot affect the explicitly styled,
-		// non-text profile; none of their relationships are dereferenced.
+		// Non-placeholder text inherits the other-text style; title and body
+		// styles serve placeholders, which this profile rejects. None of these
+		// subtrees dereference relationships.
+		if len(node.Path) == 3 && node.Path[2].Local == "otherStyle" && node.Occurrence > 1 {
+			return fmt.Errorf("%w: repeated other-text style", render.ErrInvalid)
+		}
+		if len(node.Path) > 3 && node.Path[2] == (xml.Name{Space: nsP, Local: "otherStyle"}) && r.styleErr == nil {
+			r.styleErr = slideRenderNode(node)
+		}
 		return nil
 	}
 	for _, ancestor := range node.Path {
@@ -731,10 +733,25 @@ func renderXMLKey(n xml.Name) string {
 	return "?" + n.Local
 }
 
+// Text property elements share their content models across slide text, shape
+// list styles and the inherited other-text and default text styles.
+const (
+	renderListParents      = "a:lstStyle p:otherStyle p:defaultTextStyle"
+	renderParagraphParents = "a:pPr a:defPPr a:lvl1pPr a:lvl2pPr a:lvl3pPr a:lvl4pPr a:lvl5pPr a:lvl6pPr a:lvl7pPr a:lvl8pPr a:lvl9pPr"
+	renderRunParents       = "a:rPr a:defRPr a:endParaRPr"
+)
+
 var renderXMLParents = map[string]string{
 	"p:txBody": "p:sp", "a:bodyPr": "p:txBody", "a:lstStyle": "p:txBody", "a:noAutofit": "a:bodyPr", "a:spAutoFit": "a:bodyPr", "a:normAutofit": "a:bodyPr",
-	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:latin": "a:rPr",
-	"a:buNone": "a:pPr", "a:lnSpc": "a:pPr", "a:spcBef": "a:pPr", "a:spcAft": "a:pPr", "a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
+	"a:p": "p:txBody", "a:pPr": "a:p", "a:r": "a:p", "a:rPr": "a:r", "a:t": "a:r", "a:endParaRPr": "a:p",
+	"a:defPPr": renderListParents, "a:lvl1pPr": renderListParents, "a:lvl2pPr": renderListParents, "a:lvl3pPr": renderListParents,
+	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
+	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,
+	"a:buNone": renderParagraphParents, "a:lnSpc": renderParagraphParents, "a:spcBef": renderParagraphParents, "a:spcAft": renderParagraphParents,
+	"a:tabLst": renderParagraphParents, "a:defRPr": renderParagraphParents, "a:tab": "a:tabLst",
+	"a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
+	"a:latin": renderRunParents, "a:ea": renderRunParents, "a:cs": renderRunParents, "a:sym": renderRunParents,
+	"a:uLnTx": renderRunParents, "a:uFillTx": renderRunParents,
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree", "p:grpSpPr": "p:spTree", "p:sp": "p:spTree", "p:pic": "p:spTree",
@@ -742,8 +759,8 @@ var renderXMLParents = map[string]string{
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr", "p:spPr": "p:sp p:pic", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm", "a:ext": "a:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
-	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln",
-	"a:solidFill": "p:spPr p:bgPr a:ln a:rPr", "a:srgbClr": "a:solidFill p:bgRef", "a:schemeClr": "a:solidFill p:bgRef", "a:sysClr": "a:solidFill p:bgRef",
+	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:noFill": "p:spPr p:bgPr a:ln " + renderRunParents,
+	"a:solidFill": "p:spPr p:bgPr a:ln " + renderRunParents, "a:srgbClr": "a:solidFill p:bgRef", "a:schemeClr": "a:solidFill p:bgRef", "a:sysClr": "a:solidFill p:bgRef",
 	"a:lumMod": "a:srgbClr a:schemeClr a:sysClr", "a:lumOff": "a:srgbClr a:schemeClr a:sysClr", "a:ln": "p:spPr",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }
