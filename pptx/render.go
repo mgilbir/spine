@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"image"
 	"strings"
 
 	"github.com/mgilbir/forme/layout"
@@ -152,6 +153,8 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	ops := []layout.Op{layout.FillRect{Rect: layout.Rect{W: renderUnit(w), H: renderUnit(h)}, Color: background}}
 	imageCount := 0
 	imagePixels, imageBytes := int64(0), int64(0)
+	// A slide often repeats one image; decode and charge it once.
+	decoded := map[renderImageKey]image.Image{}
 	for i, sh := range shapes {
 		switch v := sh.(type) {
 		case *AutoShape:
@@ -219,20 +222,29 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				err = fmt.Errorf("%w: missing picture data", render.ErrInvalid)
 				break
 			}
-			if imageCount >= resolved.MaxImages || int64(len(imgData)) > resolved.MaxImageBytes-imageBytes || imagePixels >= resolved.MaxImagePixels {
+			if imageCount >= resolved.MaxImages {
 				err = fmt.Errorf("%w: slide image budget", render.ErrLimit)
 				break
 			}
 			imageCount++
-			imageBytes += int64(len(imgData))
-			decodeLimits := resolved
-			decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
-			img, imgErr := core.DecodeImage(ctx, imgData, decodeLimits)
-			if imgErr != nil {
-				err = imgErr
-				break
+			key := renderPictureKey(v, imgData)
+			img := decoded[key]
+			if img == nil {
+				if int64(len(imgData)) > resolved.MaxImageBytes-imageBytes || imagePixels >= resolved.MaxImagePixels {
+					err = fmt.Errorf("%w: slide image budget", render.ErrLimit)
+					break
+				}
+				imageBytes += int64(len(imgData))
+				decodeLimits := resolved
+				decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
+				var imgErr error
+				if img, imgErr = core.DecodeImage(ctx, imgData, decodeLimits); imgErr != nil {
+					err = imgErr
+					break
+				}
+				imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
+				decoded[key] = img
 			}
-			imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
 
 			x, y := v.Position()
 			width, height := v.Size()
@@ -247,6 +259,25 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	return render.Prepare(ctx, w, h, ops, opts.Limits)
 }
+
+// renderImageKey identifies a picture's image without hashing it: the media
+// part it references, or else the identity of image bytes set through the API.
+type renderImageKey struct {
+	part string
+	data *byte
+	size int
+}
+
+// It resolves the part as Picture.Data does.
+func renderPictureKey(v *Picture, data []byte) renderImageKey {
+	if len(v.imageData) == 0 && v.slide != nil && v.relID != "" {
+		if name := v.slide.relTargetPart(v.relID); name != "" {
+			return renderImageKey{part: name}
+		}
+	}
+	return renderImageKey{data: &data[0], size: len(data)}
+}
+
 func renderUnit(v dml.EMU) style.Unit {
 	u, _ := style.FromPx(float64(v) / float64(dml.EMUsPerPixel))
 	return u

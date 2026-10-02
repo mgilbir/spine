@@ -103,7 +103,10 @@ smart-tag and bookmark attributes, `rtlCol` on the single-column body, and
 master/layout header-footer flags (footer placeholders themselves still fail).
 Any other extension URI, or a known URI under a different owner, fails. These source checks can conservatively reject a
 feature removed by a pending edit. Source inspection and drawing budgets are
-separate, and decoded pictures are bounded cumulatively before decode.
+separate, and decoded pictures are bounded cumulatively before decode. A
+slide decodes each distinct image (media part, or image bytes set through the
+API) once and charges its bytes and pixels once; every picture still counts
+toward `MaxImages`.
 
 Preparation does not call SaveBytes or synchronize shapes to source XML. Do not
 race source edits with preparation. Returned snapshots can be rendered concurrently.
