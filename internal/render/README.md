@@ -1,6 +1,7 @@
 # Rendering foundation
 
-This internal package accepts prepared Forme solid rectangles only. It provides
+This internal package accepts Forme solid rectangles, filled paths and nested
+path clips. It provides
 no page, slide or sheet layout API yet. Other operations fail explicitly, even
 when off-page; raw-source capability checks remain the format adapter's job.
 
@@ -29,6 +30,15 @@ budget. Context checks bound painting intervals and output writes, but cannot
 interrupt a caller's blocking writer. PNG compression runs between writer checks;
 the configured pixel bound limits that work. No cancellation goroutine is used.
 
-Next layers must implement bounded paths/clipping and Forme glyph painting,
+Paths use even-odd filling, with half-open vertex handling. Ellipse arcs are
+flattened per DPI with a 1/16 pixel sagitta bound; source and flattened segment
+counts are capped separately by the same limit (100,000 by default). Nested
+clips are intersected geometrically before computing coverage, with a default
+depth limit of 32. PNG scanline sorting/checking and coverage work is bounded
+before pixel allocation (64 million units by default). Filled paths use eight
+vertical samples with analytic horizontal coverage; this is documented numerical
+approximation, distinct from SVG's exact arc serialization.
+
+Next layers must implement Forme glyph painting,
 followed by Office-specific adapters. Preserve logical text and font identity
 for a possible PDF sibling backend; pdf0 and its dependencies are not included.
