@@ -253,11 +253,14 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 			return nil, render.ErrLimit
 		}
 		width := renderUnit(content - para.marL - para.marR)
+		// Runs may differ in paint but must shape alike, so the paragraph wraps
+		// as one string and each line is cut back into runs to paint them.
 		var (
-			run  renderRunStyle
+			runs []renderRunStyle
+			ends []int // byte offset after each run
 			text strings.Builder
 		)
-		for ri, r := range p.R {
+		for _, r := range p.R {
 			if r == nil {
 				return nil, fmt.Errorf("%w: nil run", render.ErrInvalid)
 			}
@@ -265,35 +268,40 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 			if err != nil {
 				return nil, err
 			}
-			if ri == 0 {
-				run = rs
-			} else if rs != run {
-				return nil, fmt.Errorf("%w: mixed paragraph styles", render.ErrUnsupported)
+			if len(runs) > 0 && rs.renderShaping != runs[0].renderShaping {
+				return nil, fmt.Errorf("%w: mixed paragraph fonts or sizes", render.ErrUnsupported)
 			}
 			if len(r.T) > fonts.opts.Limits.MaxRunBytes-text.Len() {
 				return nil, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
 			text.WriteString(r.T)
+			runs = append(runs, rs)
+			ends = append(ends, text.Len())
 		}
 		// The end-of-paragraph mark sizes an empty paragraph; a paragraph with
 		// runs takes its line box from them, as LibreOffice's import does.
-		if len(p.R) == 0 {
-			if run, err = styles.run(layers, p.EndParaRPr); err != nil {
+		var shaping renderShaping
+		if len(runs) == 0 {
+			end, err := styles.run(layers, p.EndParaRPr)
+			if err != nil {
 				return nil, err
 			}
+			shaping = end.renderShaping
+		} else {
+			shaping = runs[0].renderShaping
 		}
-		lines, metrics, err := renderParagraphLines(ctx, breaker, fonts, run, text.String(), width, para.lineSpacing)
+		lines, metrics, err := renderParagraphLines(ctx, breaker, fonts, shaping, text.String(), width, para.lineSpacing)
 		if err != nil {
 			return nil, err
 		}
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
-		if len(lines) > fonts.opts.Limits.MaxOperations-fonts.ops {
-			return nil, fmt.Errorf("%w: text drawing operations", render.ErrLimit)
-		}
-		fonts.ops += len(lines)
+		start := 0
 		for _, line := range lines {
 			if top+metrics.ascent+metrics.descent > bottom && !frame.grows {
 				return nil, fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)
+			}
+			if !strings.HasPrefix(text.String()[start:], line.Text) {
+				return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 			}
 			if len(line.Glyphs) > 0 {
 				xp := left.Px()
@@ -303,14 +311,21 @@ func (s *Slide) renderShapeText(ctx context.Context, index int, v *AutoShape, br
 				if para.align == enum.TextAlignRight {
 					xp += width.Px() - line.Width.Px()
 				}
-				xu, xok := style.FromPx(xp)
-				yu, yok := style.FromPx(top + metrics.ascent)
-				if !xok || !yok {
-					return nil, render.ErrLimit
+				drawn, err := renderLineRuns(line, start, ends, runs, xp, top, metrics)
+				if err != nil {
+					return nil, err
 				}
-				ops = append(ops, layout.DrawGlyphs{At: layout.Point{X: xu, Y: yu}, Text: line.Text, Glyphs: line.Glyphs, Face: line.Face, Size: metrics.size, Color: run.color})
+				if len(drawn) > fonts.opts.Limits.MaxOperations-fonts.ops {
+					return nil, fmt.Errorf("%w: text drawing operations", render.ErrLimit)
+				}
+				fonts.ops += len(drawn)
+				ops = append(ops, drawn...)
 			}
+			start += len(line.Text)
 			top += metrics.lineHeight
+		}
+		if start != text.Len() {
+			return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 		}
 		top += float64(para.after) / float64(dml.EMUsPerPixel)
 	}
@@ -325,7 +340,7 @@ type renderLineMetrics struct {
 
 // renderParagraphLines wraps one uniformly styled paragraph. Empty text yields
 // one empty line carrying the style's metrics.
-func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, run renderRunStyle, text string, width style.Unit, lineSpacing int32) ([]core.TextLine, renderLineMetrics, error) {
+func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, run renderShaping, text string, width style.Unit, lineSpacing int32) ([]core.TextLine, renderLineMetrics, error) {
 	var m renderLineMetrics
 	// ST_TextFontSize is 1 to 4000 points.
 	if run.size < 100 || run.size > 400000 {
@@ -357,4 +372,87 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 		return nil, m, fmt.Errorf("%w: font line metrics", render.ErrUnsupported)
 	}
 	return lines, m, nil
+}
+
+// renderLineRuns paints one wrapped line run by run: highlights first, merging
+// touching spans of one color so they show no seam, then each run's glyphs in
+// its color. start is the line's byte offset in the paragraph text and ends the
+// offset after each run. PowerPoint shapes runs apart, so a glyph standing for
+// characters of two runs, such as a ligature, fails.
+func renderLineRuns(line core.TextLine, start int, ends []int, runs []renderRunStyle, x, top float64, m renderLineMetrics) ([]layout.Op, error) {
+	runAt := func(offset int) int {
+		i := 0
+		for i < len(ends)-1 && offset >= ends[i] {
+			i++
+		}
+		return i
+	}
+	yu, yok := style.FromPx(top + m.ascent)
+	ty, tok := style.FromPx(top)
+	hu, hok := style.FromPx(m.ascent + m.descent)
+	if !yok || !tok || !hok {
+		return nil, render.ErrLimit
+	}
+	var (
+		highlights, glyphOps []layout.Op
+		span                 renderHighlight
+		spanFrom, spanTo     float64
+	)
+	flush := func() error {
+		if span.on && spanTo > spanFrom {
+			xu, xok := style.FromPx(x + spanFrom*m.size.Px()/1000)
+			wu, wok := style.FromPx((spanTo - spanFrom) * m.size.Px() / 1000)
+			if !xok || !wok {
+				return render.ErrLimit
+			}
+			highlights = append(highlights, layout.FillRect{Rect: layout.Rect{X: xu, Y: ty, W: wu, H: hu}, Color: span.color})
+		}
+		span = renderHighlight{}
+		return nil
+	}
+	pen := 0.0 // in 1000 units per em
+	for i := 0; i < len(line.Glyphs); {
+		first := line.Glyphs[i].Cluster
+		if first < 0 || first >= len(line.Text) {
+			return nil, fmt.Errorf("%w: glyph cluster", render.ErrInvalid)
+		}
+		r := runAt(start + first)
+		j := i
+		advance := 0.0
+		for j < len(line.Glyphs) && runAt(start+line.Glyphs[j].Cluster) == r {
+			advance += line.Glyphs[j].XAdvance
+			j++
+		}
+		// The segment's characters run to the next segment's first cluster.
+		segmentEnd := len(line.Text)
+		if j < len(line.Glyphs) {
+			segmentEnd = line.Glyphs[j].Cluster
+		}
+		if segmentEnd <= first || runAt(start+segmentEnd-1) != r {
+			return nil, fmt.Errorf("%w: glyph spanning runs", render.ErrUnsupported)
+		}
+		if h := runs[r].highlight; h != span {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			span, spanFrom = h, pen
+		}
+		spanTo = pen + advance
+		glyphs := make([]shape.Glyph, j-i)
+		copy(glyphs, line.Glyphs[i:j])
+		for k := range glyphs {
+			glyphs[k].Cluster -= first
+		}
+		xu, xok := style.FromPx(x + pen*m.size.Px()/1000)
+		if !xok {
+			return nil, render.ErrLimit
+		}
+		glyphOps = append(glyphOps, layout.DrawGlyphs{At: layout.Point{X: xu, Y: yu}, Text: line.Text[first:segmentEnd], Glyphs: glyphs, Face: line.Face, Size: m.size, Color: runs[r].color})
+		pen += advance
+		i = j
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	return append(highlights, glyphOps...), nil
 }
