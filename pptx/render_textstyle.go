@@ -404,7 +404,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
 	if _, err = renderInherit("text effects", layers, func(r *dml.RPr) (bool, bool, error) {
-		if r != nil && (r.EffectLst != nil || r.EffectDag != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
+		if r != nil && (renderEffects(r.EffectLst) || r.EffectDag != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
 			return false, false, fmt.Errorf("%w: text effect or outline", render.ErrUnsupported)
 		}
 		return false, false, nil

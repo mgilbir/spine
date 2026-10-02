@@ -381,7 +381,7 @@ func (c *renderColors) background(bg *oxml.Background) (style.RGBA, error) {
 		return style.RGBA{}, fmt.Errorf("%w: slide background", render.ErrUnsupported)
 	}
 	if v := bg.BgPr; v != nil {
-		if v.GradFill != nil || v.BlipFill != nil || v.PattFill != nil || v.EffectLst != nil || v.ExtLst != nil {
+		if v.GradFill != nil || v.BlipFill != nil || v.PattFill != nil || renderEffects(v.EffectLst) || v.ExtLst != nil {
 			return style.RGBA{}, fmt.Errorf("%w: background fill/effect", render.ErrUnsupported)
 		}
 		if v.NoFill != nil && v.SolidFill == nil {

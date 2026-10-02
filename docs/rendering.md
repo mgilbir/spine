@@ -109,7 +109,9 @@ accepted: shape and slide creation ids, the decorative accessibility flag,
 editor guide lists, the picture local-DPI storage flag, run language, proofing,
 smart-tag and bookmark attributes, `rtlCol` on the single-column body, and
 master/layout header-footer flags (footer placeholders themselves still fail).
-Any other extension URI, or a known URI under a different owner, fails. These source checks can conservatively reject a
+Any other extension URI, or a known URI under a different owner, fails. Empty
+effect lists, which PowerPoint writes where the schema requires effect
+properties, paint nothing; any effect in them fails. These source checks can conservatively reject a
 feature removed by a pending edit. Source inspection and drawing budgets are
 separate, and decoded pictures are bounded cumulatively before decode. A
 slide decodes each distinct image (media part, or image bytes set through the

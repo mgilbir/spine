@@ -194,3 +194,36 @@ func TestRenderAnchorsTextVertically(t *testing.T) {
 		t.Fatalf("tall centered text: %v", err)
 	}
 }
+
+func TestRenderEmptyEffectListsPaintNothing(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	background := `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:bgPr></p:bg>`
+	want, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		return strings.Replace(s, `<p:cSld><p:spTree>`, `<p:cSld>`+background+`<p:spTree>`, 1)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		// The schema requires effect properties in a background.
+		s = strings.Replace(s, `<p:cSld><p:spTree>`, `<p:cSld>`+strings.Replace(background, `</p:bgPr>`, `<a:effectLst/></p:bgPr>`, 1)+`<p:spTree>`, 1)
+		s = strings.Replace(s, `<a:ln><a:noFill/></a:ln></p:spPr>`, `<a:ln><a:noFill/></a:ln><a:effectLst/></p:spPr>`, 1)
+		return strings.Replace(s, `<a:latin typeface="Fixture"/></a:rPr>`, `<a:effectLst/><a:latin typeface="Fixture"/></a:rPr>`, 1)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("empty effect lists changed painted output")
+	}
+	shadow := func(s string) string {
+		return strings.Replace(s, `<a:ln><a:noFill/></a:ln></p:spPr>`, `<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="38100" dist="38100"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst></p:spPr>`, 1)
+	}
+	if _, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": shadow}); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("shadow: %v", err)
+	}
+}
