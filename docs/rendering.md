@@ -276,3 +276,9 @@ The CLI uses the strict profiles above; it does not expand their supported
 formatting. Errors identify the failing page, slide or sheet. Existing outputs
 are never overwritten. A failed output file is removed; completed files from
 earlier pages or the other format remain available after a later error.
+
+`-keep-going` reports each slide or sheet that cannot be prepared on standard
+error, skips it, renders the rest, and then exits with an error naming the
+skipped pages. A cancelled or timed-out run still stops, and write failures are
+never skipped. DOCX lays out one document for every page, so its failures
+repeat across pages and stop the run as before.

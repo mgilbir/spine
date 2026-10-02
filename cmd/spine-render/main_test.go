@@ -120,3 +120,50 @@ func TestRenderInputFiles(t *testing.T) {
 		t.Fatalf("range: %v", err)
 	}
 }
+
+func TestKeepGoingSkipsUnrenderableSlides(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AddSlideFromLayout(layout)
+	unsupported := p.AddSlideFromLayout(layout)
+	if err = unsupported.AddShape(pptx.NewAutoShape("triangle")); err != nil {
+		t.Fatal(err)
+	}
+	p.AddSlideFromLayout(layout)
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	c := config{input: input, out: filepath.Join(dir, "strict"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute}
+	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "slide 2") {
+		t.Fatalf("strict: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join(c.out, "slide-0003.png")); !os.IsNotExist(err) {
+		t.Fatalf("strict run continued: %v", err)
+	}
+	var warnings strings.Builder
+	c.out, c.keepGoing, c.warn = filepath.Join(dir, "lenient"), true, &warnings
+	err = run(context.Background(), c)
+	if err == nil || !strings.Contains(err.Error(), "skipped 1 of 3: slide 2") {
+		t.Fatalf("keep going: %v", err)
+	}
+	if !strings.Contains(warnings.String(), "slide 2: skipped:") || !strings.Contains(warnings.String(), "triangle") {
+		t.Fatalf("warnings: %q", warnings.String())
+	}
+	for name, want := range map[string]bool{"slide-0001.png": true, "slide-0002.png": false, "slide-0003.png": true} {
+		if _, err := os.Stat(filepath.Join(c.out, name)); (err == nil) != want {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	// A cancelled run stops rather than skipping every remaining page.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.out, warnings = filepath.Join(dir, "cancelled"), strings.Builder{}
+	if err = run(ctx, c); err == nil || strings.Contains(err.Error(), "skipped") {
+		t.Fatalf("cancelled: %v", err)
+	}
+}

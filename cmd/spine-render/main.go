@@ -35,6 +35,8 @@ type config struct {
 	timeout                              time.Duration
 	fonts                                fontFlags
 	fallback                             bool
+	keepGoing                            bool
+	warn                                 io.Writer // skipped-page reports; nil is standard error
 }
 
 func main() {
@@ -50,6 +52,7 @@ func main() {
 	flag.DurationVar(&c.timeout, "timeout", time.Minute, "total rendering timeout")
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE mapping")
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
+	flag.BoolVar(&c.keepGoing, "keep-going", false, "report and skip slides or sheets that cannot be rendered, then exit with an error")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -160,6 +163,24 @@ func run(ctx context.Context, c config) (result error) {
 	if err = os.MkdirAll(c.out, 0755); err != nil {
 		return err
 	}
+	warn := c.warn
+	if warn == nil {
+		warn = os.Stderr
+	}
+	var skipped []string
+	// failed reports a page that could not be prepared. With -keep-going it is
+	// skipped unless the run itself was cancelled or timed out.
+	failed := func(label string, err error) error {
+		if !c.keepGoing || ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		// A skip that cannot be reported is not skipped silently.
+		if _, werr := fmt.Fprintf(warn, "spine-render: %s: skipped: %v\n", label, err); werr != nil {
+			return errors.Join(fmt.Errorf("%s: %w", label, err), werr)
+		}
+		skipped = append(skipped, label)
+		return nil
+	}
 	count := 0
 	emit := func(label string, page *render.Page) error {
 		if count >= c.maxPages {
@@ -184,7 +205,10 @@ func run(ctx context.Context, c config) (result error) {
 		for i, slide := range p.Slides() {
 			page, err := slide.PrepareRender(ctx, opts)
 			if err != nil {
-				return fmt.Errorf("slide %d: %w", i+1, err)
+				if err = failed(fmt.Sprintf("slide %d", i+1), err); err != nil {
+					return err
+				}
+				continue
 			}
 			if err = emit(fmt.Sprintf("slide-%04d", i+1), page); err != nil {
 				return err
@@ -220,12 +244,19 @@ func run(ctx context.Context, c config) (result error) {
 			}
 			page, err := sheet.PrepareRender(ctx, c.cellRange, opts)
 			if err != nil {
-				return fmt.Errorf("sheet %q: %w", sheet.Name(), err)
+				if err = failed(fmt.Sprintf("sheet %q", sheet.Name()), err); err != nil {
+					return err
+				}
+				continue
 			}
 			if err = emit(fmt.Sprintf("sheet-%04d", i+1), page); err != nil {
 				return err
 			}
 		}
+	}
+	if len(skipped) > 0 {
+		fmt.Printf("Rendered %d previews to %s\n", count, c.out)
+		return fmt.Errorf("skipped %d of %d: %s", len(skipped), count+len(skipped), strings.Join(skipped, ", "))
 	}
 	if count == 0 {
 		return fmt.Errorf("no pages selected; check the sheet name or input contents")
