@@ -107,8 +107,15 @@ or picture fills fail.
 Other theme style references, gradients, strokes, rotated or
 flipped shapes/pictures, image crops/SVGs, groups, connectors, charts, tables,
 SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
-Visible inherited master/layout shapes fail. Title/body placeholder definitions
-are not independently painted; other inherited placeholder types fail. Original
+Master and layout shapes are drawn beneath the slide's, master first, in their
+document order: shapes and pictures through the same profile as slide content,
+their text and colors resolved as the slide's. Placeholders on masters and
+layouts are prompts and are never drawn. A slide with `showMasterSp="0"` hides
+its layout's and master's shapes, and a layout with it hides its master's;
+hidden layers still supply backgrounds. Their shapes are checked against the
+source profile only when drawn, so unsupported content in a placeholder or a
+hidden layer does not fail the slide. Inherited groups, tables and connectors
+fail when drawn. Original
 slide, layout and master XML is checked for unsupported content before a lossy
 model projection can hide it. Metadata that cannot change painted output is
 accepted: shape and slide creation ids, the decorative accessibility flag,
