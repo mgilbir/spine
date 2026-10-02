@@ -61,7 +61,7 @@ func TestRenderPhysicalPagesWidowControlAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page, err := d.PrepareRender(context.Background(), 3, opts); page != nil || !errors.Is(err, render.ErrInvalid) {
+	if page, err := d.PrepareRender(context.Background(), 3, opts); page != nil || (!errors.Is(err, render.ErrInvalid) || !errors.Is(err, ErrRenderPageOutOfRange)) {
 		t.Fatalf("outside: %v %v", page, err)
 	}
 	after, err := d.SaveBytes()

@@ -2,6 +2,7 @@ package docx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -17,6 +18,9 @@ import (
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/render"
 )
+
+// ErrRenderPageOutOfRange identifies a page beyond the laid-out document.
+var ErrRenderPageOutOfRange = errors.New("render page out of range")
 
 // PrepareRender prepares a 1-based physical page from a bounded plain document
 // flow. The first profile has one explicitly sized section, plain ASCII runs,
@@ -331,7 +335,7 @@ func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Opti
 		}
 	}
 	if page > current {
-		return nil, fmt.Errorf("%w: page %d beyond %d pages", render.ErrInvalid, page, current)
+		return nil, fmt.Errorf("%w: %w: page %d beyond %d pages", render.ErrInvalid, ErrRenderPageOutOfRange, page, current)
 	}
 	return render.Prepare(ctx, dml.EMU(math.Round(w*float64(dml.EMUsPerPixel))), dml.EMU(math.Round(h*float64(dml.EMUsPerPixel))), ops, limits)
 }

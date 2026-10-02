@@ -174,3 +174,38 @@ the sheet's Calibri request. It needs no host fonts or external processes.
 bytes; it is not a duration. This example explicitly raises that budget for its
 known embedded font. Untrusted input retains the default limit unless the caller
 chooses a different bounded budget.
+
+## File-rendering CLI
+
+Build `go build -o spine-render ./cmd/spine-render`, then supply an input file and
+output directory. PNG is the default; `-format both` also writes SVG.
+
+```sh
+./spine-render -input deck.pptx -out previews -font 'Calibri=fonts/Calibri.ttf'
+./spine-render -input report.docx -out previews -format both -font 'Calibri=fonts/Calibri.ttf'
+./spine-render -input workbook.xlsx -out previews -range A1:D20 -sheet Data -font 'Calibri=fonts/Calibri.ttf'
+```
+
+PPTX renders every slide. DOCX renders every physical page, with 1-based output
+names. XLSX requires an explicit range to bound its canvas; the range applies to
+all sheets unless `-sheet` selects one by exact name. Sheet filenames use their
+original 1-based workbook indices, avoiding unsafe names from source content.
+
+Repeat `-font` for additional families or styles, e.g.
+`-font 'Calibri:bold=fonts/Calibri-Bold.ttf'`. Files are loaded explicitly through
+Forme, with at most 32 mappings and 32 MiB aggregate font input. No host fonts
+are searched. `-fallback-noto` explicitly substitutes embedded Noto Sans for
+unresolved regular faces; bold/italic still require mappings. Substitution can
+change wrapping and overflow. For known fonts needing a larger conservative
+work budget, choose e.g. `-shape-work 1073741824`.
+
+`-dpi` defaults to 144; `-max-pages` defaults to 100 (maximum 10000), and
+`-timeout` defaults to one minute. Interrupt cancels rendering. Library package,
+source, shaping, pixel and output limits still apply. DOCX currently lays out the
+whole document for each selected page, so large documents repeat layout work.
+The timeout and page cap bound this command's processing.
+
+The CLI uses the strict profiles above; it does not expand their supported
+formatting. Errors identify the failing page, slide or sheet. Existing outputs
+are never overwritten. A failed output file is removed; completed files from
+earlier pages or the other format remain available after a later error.
