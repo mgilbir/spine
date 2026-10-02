@@ -162,3 +162,15 @@ original main-part stream before lazy projection and never saves the document.
 Returned snapshots include unsaved changes. Physical-page numbering is unrelated
 to visible page-number fields. Native line placement and pagination are defined
 by this profile; identical Word pagination is not promised.
+
+## Runnable previews
+
+Run `go run ./examples/render_previews -out render-previews` to write PNG and SVG
+previews of a slide, a sheet range and two physical document pages at 144 DPI.
+The example uses Forme's embedded Noto Sans and explicitly substitutes it for
+the sheet's Calibri request. It needs no host fonts or external processes.
+
+`MaxShapeWork` measures conservative lookup-work units, including lookup subtable
+bytes; it is not a duration. This example explicitly raises that budget for its
+known embedded font. Untrusted input retains the default limit unless the caller
+chooses a different bounded budget.
