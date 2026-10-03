@@ -549,8 +549,14 @@ func (c *renderColors) background(bg *oxml.Background, w, h float64) (renderPain
 		return white, fmt.Errorf("%w: slide background", render.ErrUnsupported)
 	}
 	if v := bg.BgPr; v != nil {
-		if v.BlipFill != nil || v.PattFill != nil || renderEffects(v.EffectLst) || v.ExtLst != nil {
-			return white, fmt.Errorf("%w: background picture, pattern or effect", render.ErrUnsupported)
+		if v.BlipFill != nil || renderEffects(v.EffectLst) || v.ExtLst != nil {
+			return white, fmt.Errorf("%w: background picture or effect", render.ErrUnsupported)
+		}
+		if v.PattFill != nil {
+			if v.NoFill != nil || v.SolidFill != nil || v.GradFill != nil {
+				return white, fmt.Errorf("%w: ambiguous background fill", render.ErrInvalid)
+			}
+			return c.patternPaint(v.PattFill, nil, w, h)
 		}
 		if v.NoFill != nil && v.SolidFill == nil && v.GradFill == nil {
 			return white, nil

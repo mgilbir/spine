@@ -96,6 +96,14 @@ an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a
 theme background reference (`p:bgRef`) whose theme entry is one of those.
+Pattern fills (`a:pattFill`) on shapes and backgrounds fail, since the
+standard pictures its preset patterns without giving their pixels. Best
+effort draws each from its description, 8 by 8 CSS pixels tiled from the
+box's corner in its foreground over its background (black over white when
+absent): a percentage as an ordered dither of that density, and lines,
+grids, checks and figures as their names say. Best effort reports problems
+with a background as the background's, and draws a background it cannot
+draw white.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
 and ellipses may have a solid, gradient or picture fill or none, and a solid outline or none. A shape's
 style reference (`p:style`) supplies what it does not set itself: `fillRef`
