@@ -130,6 +130,13 @@ background (`a:blipFill` in `p:bgPr`) is stretched over the slide and cropped
 by its source rectangle; best effort stretches a tiled one. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
+Other preset geometries draw from the standard's definitions
+(`presetShapeDefinitions.xml` of ECMA-376 Part 1, embedded with only their
+guides, text rectangles and paths) through the custom geometry engine below,
+the shape's adjustments replacing their defaults; eight guides the standard
+writes with a stray operand are corrected. Bent and curved connectors draw
+their definitions unfilled.
+
 Custom geometry (`a:custGeom`) evaluates its guide formulas (ECMA-376
 §20.1.10.36) over the shape's built-in guides and draws each path:
 `moveTo`, `lnTo`, `arcTo` (its angles as seen on the ellipse), and Bézier
@@ -338,7 +345,7 @@ specification names their sizes but not their geometry. In best-effort mode
 every head is drawn as a filled triangle whose tip is the line's end, sized
 like LibreOffice's (small, medium and large are two, three and five line
 widths, at least a pixel each), with the line stopping halfway into it. Bent and curved
-connectors fail, and like tables, a slide's connectors are drawn only from
+connectors draw as their preset geometry, their several segments approximate, and like tables, a slide's connectors are drawn only from
 their parsed form without pending edits. Connectors on layouts and masters
 and in groups are drawn too.
 

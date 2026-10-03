@@ -15,6 +15,7 @@ import (
 	xmlb "github.com/mgilbir/spine/common/xml"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
+	"github.com/mgilbir/spine/pptx/internal/presetgeom"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -791,6 +792,30 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 	if p.CustGeom != nil {
 		turned := g.turned
 		ops, g, err := renderCustomShape(p.CustGeom, x, y, w, h, paint, filled, line, linePlaceholder, colors, limits)
+		if err != nil {
+			return nil, g, err
+		}
+		g.turned = turned
+		ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
+		return ops, g, err
+	}
+	// Presets other than the three drawn exactly evaluate the standard's
+	// definitions, with the shape's own adjustments over their defaults.
+	if def, ok := presetgeom.Lookup(v.presetGeometry); ok && v.presetGeometry != "rect" && v.presetGeometry != "roundRect" && v.presetGeometry != "ellipse" {
+		if p.PrstGeom != nil && p.PrstGeom.Prst != v.presetGeometry {
+			return nil, g, fmt.Errorf("%w: preset geometry mismatch", render.ErrInvalid)
+		}
+		cg := *def
+		if p.PrstGeom != nil && p.PrstGeom.AvLst != nil {
+			var adjust dml.AvLst
+			if def.AvLst != nil {
+				adjust.Gd = append(adjust.Gd, def.AvLst.Gd...)
+			}
+			adjust.Gd = append(adjust.Gd, p.PrstGeom.AvLst.Gd...)
+			cg.AvLst = &adjust
+		}
+		turned := g.turned
+		ops, g, err := renderCustomShape(&cg, x, y, w, h, paint, filled, line, linePlaceholder, colors, limits)
 		if err != nil {
 			return nil, g, err
 		}

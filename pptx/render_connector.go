@@ -8,6 +8,7 @@ import (
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
+	"github.com/mgilbir/spine/pptx/internal/presetgeom"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -48,8 +49,32 @@ func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limi
 	if p == nil || p.Xfrm == nil || p.Xfrm.Off == nil || p.Xfrm.Ext == nil || src.ExtLst != nil {
 		return nil, fmt.Errorf("%w: connector geometry", render.ErrUnsupported)
 	}
-	if p.PrstGeom == nil || (p.PrstGeom.Prst != "straightConnector1" && p.PrstGeom.Prst != "line") || (p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0) || p.CustGeom != nil {
-		return nil, fmt.Errorf("%w: bent or curved connector", render.ErrUnsupported)
+	straight := p.PrstGeom != nil && (p.PrstGeom.Prst == "straightConnector1" || p.PrstGeom.Prst == "line") && (p.PrstGeom.AvLst == nil || len(p.PrstGeom.AvLst.Gd) == 0) && p.CustGeom == nil
+	var geometry *dml.CustGeom
+	if !straight {
+		// Bent and curved connectors, and other geometry, draw as the
+		// standard's definition or their own custom path, unfilled.
+		switch {
+		case p.CustGeom != nil:
+			geometry = p.CustGeom
+		case p.PrstGeom != nil:
+			def, ok := presetgeom.Lookup(p.PrstGeom.Prst)
+			if !ok {
+				return nil, fmt.Errorf("%w: connector preset %s", render.ErrUnsupported, p.PrstGeom.Prst)
+			}
+			cg := *def
+			if p.PrstGeom.AvLst != nil {
+				var adjust dml.AvLst
+				if def.AvLst != nil {
+					adjust.Gd = append(adjust.Gd, def.AvLst.Gd...)
+				}
+				adjust.Gd = append(adjust.Gd, p.PrstGeom.AvLst.Gd...)
+				cg.AvLst = &adjust
+			}
+			geometry = &cg
+		default:
+			return nil, fmt.Errorf("%w: connector geometry", render.ErrInvalid)
+		}
 	}
 	// A line has no interior, so a fill on it paints nothing.
 	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil {
@@ -67,6 +92,16 @@ func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limi
 	if err != nil || line == nil {
 		return nil, err
 	}
+	px := float64(dml.EMUsPerPixel)
+	if geometry != nil {
+		x, y, w, h := dml.EMU(p.Xfrm.Off.X), dml.EMU(p.Xfrm.Off.Y), dml.EMU(p.Xfrm.Ext.Cx), dml.EMU(p.Xfrm.Ext.Cy)
+		ops, _, err := renderCustomShape(geometry, x, y, w, h, renderPaint{}, false, line, placeholder, colors, limits)
+		if err != nil {
+			return nil, err
+		}
+		xf := renderShapeTransform{flipH: p.Xfrm.FlipH, flipV: p.Xfrm.FlipV, rot: float64(p.Xfrm.Rot) / 60000, cx: (float64(x) + float64(w)/2) / px, cy: (float64(y) + float64(h)/2) / px}
+		return xf.ops(ops, colors, limits.MaxPathSegments)
+	}
 	x0, y0 := float64(p.Xfrm.Off.X), float64(p.Xfrm.Off.Y)
 	x1, y1 := x0+float64(p.Xfrm.Ext.Cx), y0+float64(p.Xfrm.Ext.Cy)
 	if p.Xfrm.FlipH {
@@ -75,7 +110,6 @@ func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limi
 	if p.Xfrm.FlipV {
 		y0, y1 = y1, y0
 	}
-	px := float64(dml.EMUsPerPixel)
 	ops, err := renderLineStroke(line, placeholder, colors, x0/px, y0/px, x1/px, y1/px, limits.MaxPathSegments)
 	if err != nil {
 		return nil, err

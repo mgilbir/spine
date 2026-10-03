@@ -91,7 +91,7 @@ func TestRenderRejectsUnsupportedOutlines(t *testing.T) {
 		"elliptical outline":                 `<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>` + renderNoFill + renderOutline + `</a:ln>`,
 		"adjustment formula":                 `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="*/ 1 2 3"/></a:avLst></a:prstGeom>` + renderRed,
 		"unknown adjustment":                 `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj2" fmla="val 1"/></a:avLst></a:prstGeom>` + renderRed,
-		"other preset":                       `<a:prstGeom prst="triangle"><a:avLst/></a:prstGeom>` + renderRed,
+		"unknown preset":                     `<a:prstGeom prst="notAShape"><a:avLst/></a:prstGeom>` + renderRed,
 	} {
 		rewrite := renderShape(spPr, "")
 		if name == "elliptical outline" {
