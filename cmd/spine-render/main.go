@@ -215,13 +215,17 @@ func run(ctx context.Context, c config) (result error) {
 		skipped = append(skipped, label)
 		return nil
 	}
-	warnings := 0
+	warnings, approximations := 0, 0
 	// Unless -strict, slides draw what they can and report the rest.
 	withWarnings := func(label string) render.Options {
 		o := opts
 		if !c.strict {
 			o.Warn = func(err error) {
-				warnings++
+				if errors.Is(err, render.ErrApproximated) {
+					approximations++
+				} else {
+					warnings++
+				}
 				_, _ = fmt.Fprintf(warn, "spine-render: %s: warning: %v\n", label, err)
 			}
 		}
@@ -244,7 +248,7 @@ func run(ctx context.Context, c config) (result error) {
 			}
 			if !reported[r] {
 				reported[r] = true
-				warnings++
+				approximations++
 				_, _ = fmt.Fprintf(warn, "spine-render: warning: %s %s drawn with a regular face\n", r.Family, renderStyleName(r))
 			}
 			return face, nil
@@ -325,6 +329,9 @@ func run(ctx context.Context, c config) (result error) {
 	}
 	if warnings > 0 {
 		fmt.Printf("%d warnings: some content was left out of the previews\n", warnings)
+	}
+	if approximations > 0 {
+		fmt.Printf("%d warnings: some content was drawn approximately\n", approximations)
 	}
 	if len(skipped) > 0 {
 		fmt.Printf("Rendered %d previews to %s\n", count, c.out)

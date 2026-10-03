@@ -35,7 +35,12 @@ func TestRenderBestEffortApproximates(t *testing.T) {
 		}
 		var warnings []string
 		lenient := opts
-		lenient.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		lenient.Warn = func(err error) {
+			if !errors.Is(err, render.ErrApproximated) {
+				t.Errorf("%s: %v does not mark an approximation", tc.name, err)
+			}
+			warnings = append(warnings, err.Error())
+		}
 		got := renderSlidePNG(t, data, lenient, slide(tc.xml))
 		if len(warnings) != 1 || !strings.Contains(warnings[0], tc.warning) || !strings.Contains(warnings[0], "drawn approximately") {
 			t.Fatalf("%s warnings: %q", tc.name, warnings)
