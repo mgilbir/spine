@@ -86,7 +86,7 @@ with a blur approximated by nine copies spread over the blur radius whose
 opacities compound to the shadow's, and scaling and skewing left out; other
 effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
 are left out;
-text wider than its box, such as an overlong word, runs past it; and
+text wider than its box, such as a single character, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
 still fail.
@@ -288,7 +288,8 @@ only in scripts this profile does not draw. Best effort draws an exact line heig
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word
-breaking. A first-line indent needs a character bullet, which hangs in it: the
+breaking. A word too wide for its line breaks between characters, as a last
+resort, as PowerPoint breaks it. A first-line indent needs a character bullet, which hangs in it: the
 bullet is drawn at the margin plus the (negative) indent on the first baseline
 and every line's text starts at the margin, so the indent must hold the
 bullet; a bullet past it would push the text to a tab stop this profile does

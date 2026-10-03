@@ -741,7 +741,7 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 			return nil, render.ErrLimit
 		}
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
-		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter}
+		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter, BreakWord: true}
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
 	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)

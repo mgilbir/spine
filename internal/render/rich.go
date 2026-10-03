@@ -25,6 +25,9 @@ type Span struct {
 	// from the start of the line: a tab advances to the next. Without it a
 	// tab is unsupported.
 	TabStop style.Unit
+	// BreakWord lets a word too wide for a line break between characters,
+	// as a last resort, rather than overflow.
+	BreakWord bool
 	// Tabs are explicit stops, from the start of the line and ascending,
 	// which a tab in this span takes before the evenly spaced ones past
 	// them. Lines break with every tab measured to the evenly spaced stops.
@@ -237,7 +240,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				at += len(part)
 				continue
 			}
-			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
+			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, BreakWord: s.BreakWord, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
 			where = append(where, richItem{span: span, offset: from})
 			at += len(part)
 		}
@@ -258,16 +261,29 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if !paragraph.CursorAdvanced(index, offset, next, nextByte) || len(floats) != 0 || forced || hyphenated {
 			return fmt.Errorf("%w: paragraph breaking", ErrUnsupported)
 		}
-		// Without forced or hyphenated breaks a line starts and ends on item
-		// boundaries, so line items match paragraph items one for one; parts
-		// of one span shape as one segment.
-		if offset != 0 || nextByte != 0 || next != index+len(line) {
+		// Without forced or hyphenated breaks line items match paragraph
+		// items one for one, except that a word broken between characters
+		// ends one line inside its item, at nextByte, and starts the next at
+		// offset. Parts of one span shape as one segment.
+		end := next
+		if nextByte != 0 {
+			end++
+		}
+		if end-index != len(line) {
 			return fmt.Errorf("%w: paragraph line mapping", ErrUnsupported)
 		}
 		var segments []RichSegment
 		for k, item := range line {
-			w := where[index+k]
-			if item.Text != items[index+k].Text {
+			i := index + k
+			w := where[i]
+			from, to := 0, len(items[i].Text)
+			if k == 0 {
+				from = offset
+			}
+			if i == next && nextByte != 0 {
+				to = nextByte
+			}
+			if from > to || to > len(items[i].Text) || item.Text != items[i].Text[from:to] {
 				return fmt.Errorf("%w: paragraph line mapping", ErrUnsupported)
 			}
 			// A tab is a segment of its own, which draws nothing.
@@ -275,7 +291,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				segments[n-1].Text += item.Text
 				continue
 			}
-			segments = append(segments, RichSegment{Span: w.span, Offset: w.offset, Text: item.Text})
+			segments = append(segments, RichSegment{Span: w.span, Offset: w.offset + from, Text: item.Text})
 		}
 		// Text segments are shaped first: a tab aligned at its stop needs
 		// the width of the text after it.

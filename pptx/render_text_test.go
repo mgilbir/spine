@@ -312,3 +312,26 @@ func TestRenderJustifyGaps(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderBreaksOverlongWords(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	// Each A is 16px; the 48px box holds three a line, so "AA AAAAA"
+	// breaks at the space and then inside the long word: "AA ", "AAA",
+	// "AA", each line 16px high from y 4. Strict mode draws it.
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		if !strings.Contains(s, "AA AA") {
+			t.Fatalf("slide: %s", s)
+		}
+		return strings.Replace(s, "AA AA", "AA AAAAA", 1)
+	}})
+	for at, want := range map[[2]int]color.NRGBA{{30, 10}: black, {45, 10}: white, {45, 26}: black, {30, 42}: black, {45, 42}: white} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("at %v: %+v, want %+v", at, px, want)
+		}
+	}
+}

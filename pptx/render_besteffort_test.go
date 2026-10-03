@@ -59,8 +59,10 @@ func TestRenderBestEffortText(t *testing.T) {
 		return map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, paragraphs)}
 	}
 	for name, tc := range map[string][2]string{
-		"superscript":       {`<a:p><a:r><a:rPr lang="en-US" baseline="30000"/><a:t>A</a:t></a:r></a:p>`, "superscript or subscript size approximated"},
-		"overlong word":     {`<a:p><a:r><a:rPr lang="en-US"/><a:t>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</a:t></a:r></a:p>`, "text wider than its box"},
+		"superscript": {`<a:p><a:r><a:rPr lang="en-US" baseline="30000"/><a:t>A</a:t></a:r></a:p>`, "superscript or subscript size approximated"},
+		// An overlong word breaks between characters, into more lines
+		// than the frame holds.
+		"overlong word": {`<a:p><a:r><a:rPr lang="en-US"/><a:t>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</a:t></a:r></a:p>`, "text exceeds frame"},
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, body(tc[0])); !errors.Is(err, render.ErrUnsupported) {
 			t.Fatalf("%s strict: %v", name, err)
