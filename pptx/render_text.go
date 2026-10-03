@@ -146,6 +146,10 @@ type renderFrame struct {
 	fontScale, lnSpcReduction int32
 	// rot turns the text within its shape, clockwise in degrees.
 	rot float64
+	// vert is 90 or 270 for text set vertically, the clockwise turn of its
+	// lines; upright keeps text from turning with its shape.
+	vert    float64
+	upright bool
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -179,11 +183,24 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	if bp.Rot != nil {
 		f.rot = float64(*bp.Rot) / 60000
 	}
-	if (bp.Vert != "" && bp.Vert != "horz") || renderTrue(bp.UpRight) {
-		if err := colors.approximate(fmt.Errorf("%w: vertical or upright text drawn horizontally", render.ErrUnsupported)); err != nil {
+	// Vertical text lays out across its rectangle turned a quarter and
+	// turns back with it. East Asian vertical text sets Latin characters
+	// turned, as vert does; this profile draws no East Asian characters.
+	switch bp.Vert {
+	case "", "horz":
+	case "vert", "eaVert":
+		f.vert = 90
+	case "vert270":
+		f.vert = 270
+	case "mongolianVert", "wordArtVert", "wordArtVertRtl":
+		if err := colors.approximate(fmt.Errorf("%w: %s text drawn as vert", render.ErrUnsupported, bp.Vert)); err != nil {
 			return f, err
 		}
+		f.vert = 90
+	default:
+		return f, fmt.Errorf("%w: vertical text type", render.ErrInvalid)
 	}
+	f.upright = renderTrue(bp.UpRight)
 	if bp.NumCol > 1 {
 		if err := colors.approximate(fmt.Errorf("%w: text columns drawn as one", render.ErrUnsupported)); err != nil {
 			return f, err
@@ -286,6 +303,19 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 		return nil, fmt.Errorf("%w: text rectangle", render.ErrInvalid)
 	}
 	m := frame.margins
+	// Vertical text lays out in its rectangle turned back a quarter about
+	// its centre, the insets turning with their sides.
+	px := float64(dml.EMUsPerPixel)
+	vertical := renderShapeTransform{rot: frame.vert, cx: (float64(x) + float64(w)/2) / px, cy: (float64(y) + float64(h)/2) / px}
+	if frame.vert != 0 {
+		cx2, cy2 := 2*x+w, 2*y+h // twice the centre, exact in EMU
+		x, y, w, h = (cx2-h)/2, (cy2-w)/2, h, w
+		if frame.vert == 90 {
+			m = TextMargins{Left: m.Top, Top: m.Right, Right: m.Bottom, Bottom: m.Left}
+		} else {
+			m = TextMargins{Left: m.Bottom, Top: m.Left, Right: m.Top, Bottom: m.Right}
+		}
+	}
 	for _, inset := range []dml.EMU{m.Left, m.Right, m.Top, m.Bottom} {
 		if inset < 0 {
 			return nil, fmt.Errorf("%w: text inset", render.ErrInvalid)
@@ -320,10 +350,16 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if err != nil {
 		return nil, err
 	}
+	if ops, err = vertical.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments); err != nil {
+		return nil, err
+	}
 	// Text lays out in the unturned shape and turns with it about its
-	// centre.
-	px := float64(dml.EMUsPerPixel)
-	turn := renderShapeTransform{rot: g.textTurn + frame.rot, cx: (float64(g.box[0]) + float64(g.box[2])/2) / px, cy: (float64(g.box[1]) + float64(g.box[3])/2) / px}
+	// centre, unless it stays upright regardless of either turn.
+	rot := g.textTurn + frame.rot
+	if frame.upright {
+		rot = 0
+	}
+	turn := renderShapeTransform{rot: rot, cx: (float64(g.box[0]) + float64(g.box[2])/2) / px, cy: (float64(g.box[1]) + float64(g.box[3])/2) / px}
 	return turn.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments)
 }
 

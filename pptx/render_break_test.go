@@ -72,18 +72,24 @@ func TestRenderBreaksAndFields(t *testing.T) {
 	if unwrapped != short || wrapped <= short || right < 52 {
 		t.Fatalf("no wrap: one line ends at %d, wrapped at %d, unwrapped at %d, right %d", short, wrapped, unwrapped, right)
 	}
-	// Vertical text fails strictly and is drawn horizontally in best effort.
+	// Vertical text draws strictly; Mongolian vertical text fails strictly
+	// and is drawn as vert in best effort.
 	vert := renderBody(`<a:lstStyle/>`, `<a:p>`+renderPlainRun+`</a:p>`)
-	vertical := map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
-		return strings.Replace(vert(s), `wrap="square"`, `wrap="square" vert="vert"`, 1)
-	}}
-	if _, err := renderRewrittenPNG(t, data, opts, vertical); !errors.Is(err, render.ErrUnsupported) {
+	vertical := func(kind string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			return strings.Replace(vert(s), `wrap="square"`, `wrap="square" vert="`+kind+`"`, 1)
+		}}
+	}
+	if _, err := renderRewrittenPNG(t, data, opts, vertical("vert")); err != nil {
 		t.Fatalf("strict vertical text: %v", err)
+	}
+	if _, err := renderRewrittenPNG(t, data, opts, vertical("mongolianVert")); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict Mongolian vertical text: %v", err)
 	}
 	var warnings []string
 	opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
-	renderSlidePNG(t, data, opts, vertical)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "drawn horizontally") {
+	renderSlidePNG(t, data, opts, vertical("mongolianVert"))
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "mongolianVert text drawn as vert") {
 		t.Fatalf("vertical text warnings: %q", warnings)
 	}
 }

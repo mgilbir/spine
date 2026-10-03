@@ -263,9 +263,15 @@ attributes take their DrawingML defaults: top anchoring, square wrapping, and
 0.1"/0.05" left-right/top-bottom insets. Top, middle and bottom anchoring place
 the text block, whose height spans its paragraphs' spacing and full line
 heights. Without wrapping (`wrap="none"`) each line keeps its natural
-width, aligned in the box as wrapped text is. Justified and distributed
-anchoring, and vertical, clipped or multi-column text fail; best
-effort draws them top anchored, horizontal, whole and in one column, and
+width, aligned in the box as wrapped text is. Vertical text (`vert`,
+`eaVert`, whose Latin characters turn as `vert`'s do, and `vert270`) lays out
+across its text rectangle turned a quarter about its centre, the insets
+turning with their sides, and turns back with it: `vert` clockwise, its first
+line along the right side, and `vert270` anticlockwise. Best effort draws
+`mongolianVert` and the WordArt vertical types as `vert`. Upright text
+(`upright`) does not turn with its shape or body rotation. Justified and
+distributed anchoring, and clipped or multi-column text fail; best
+effort draws them top anchored, whole and in one column, and
 ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn. Normal autofit's stored `fontScale` scales
