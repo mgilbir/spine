@@ -116,8 +116,37 @@ func TestRenderRejectsUnsupportedTables(t *testing.T) {
 		s = strings.Replace(s, `<a:tc>`, `<a:tc gridSpan="2">`, 1)
 		return strings.Replace(s, `</a:tc><a:tc>`, `</a:tc><a:tc hMerge="1">`, 1)
 	}
-	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": merged}); !errors.Is(err, render.ErrUnsupported) {
+	// The first row's cells merge: its red fill spans both columns, with no
+	// border between them; the second row keeps its grid line.
+	got, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": merged})
+	if err != nil {
 		t.Fatalf("merged: %v", err)
+	}
+	red, black := color.NRGBA{R: 255, A: 255}, color.NRGBA{A: 255}
+	for at, want := range map[[2]int]color.NRGBA{{110, 30}: red, {180, 30}: red, {110, 80}: black} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("merged at %v: %+v, want %+v", at, px, want)
+		}
+	}
+	// The first column's cells merge down: its fill reaches the second row.
+	down := func(s string) string {
+		s = strings.Replace(s, `<a:tc>`, `<a:tc rowSpan="2">`, 1)
+		i := strings.Index(s, `</a:tr>`)
+		return s[:i] + strings.Replace(s[i:], `<a:tc>`, `<a:tc vMerge="1">`, 1)
+	}
+	got, err = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": down})
+	if err != nil {
+		t.Fatalf("merged down: %v", err)
+	}
+	for at, want := range map[[2]int]color.NRGBA{{50, 58}: red, {50, 80}: red, {180, 58}: black} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("merged down at %v: %+v, want %+v", at, px, want)
+		}
+	}
+	// A cell marked merged outside any merge is invalid.
+	stray := func(s string) string { return strings.Replace(s, `<a:tc>`, `<a:tc hMerge="1">`, 1) }
+	if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": stray}); !errors.Is(err, render.ErrInvalid) {
+		t.Fatalf("stray merge: %v", err)
 	}
 	// Tables are drawn from their saved form only.
 	p := CreateWithOptions(CreateOptions{Options: Options{SlideSize: SlideSizeCustom}, IncludeDefaultLayouts: true, Width: dml.Pixels(500), Height: dml.Pixels(300)})
