@@ -132,13 +132,19 @@ fixed alpha modulation (`alphaModFix`) fades a picture; best effort leaves its
 other color effects out. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture
-background (`a:blipFill` in `p:bgPr`) is stretched over the slide and cropped
-by its source rectangle; best effort stretches a tiled one. A shape's picture
+background (`a:blipFill` in `p:bgPr`) is stretched over the slide or tiled,
+and cropped by its source rectangle. A shape's picture
 fill (`a:blipFill` in `p:spPr`) is stretched over its box, inset by its fill
-rectangle (`a:fillRect`) and cropped by its source rectangle, and clipped to
-the shape; it flips and turns with the shape, and its fixed alpha modulation
-fades it. Best effort stretches a tiled picture fill, draws a negative source
-inset as none, and leaves other color effects out. Hidden shapes
+rectangle (`a:fillRect`), or tiled over it, cropped by its source rectangle
+and clipped to the shape; it flips and turns with the shape, and its fixed
+alpha modulation fades it. A tile is the picture's natural size, at the
+fill's `dpi`, the file's resolution (PNG `pHYs`, JPEG JFIF density) or 96
+DPI, scaled by `sx`/`sy`; the first tile sits at its alignment in the box,
+moved by `tx`/`ty`, and the rest repeat from it, every other one mirrored on
+each axis `flip` names. Tiles are composed into one image of the picture's
+density, up to four pixels per CSS pixel and four million pixels in all.
+Best effort stretches a picture fill with neither fill mode, draws a
+negative source inset as none, and leaves other color effects out. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
 Other preset geometries draw from the standard's definitions

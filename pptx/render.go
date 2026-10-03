@@ -194,7 +194,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
 			if bp := layers[i].Bg.BgPr; bp != nil && bp.BlipFill != nil {
-				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, resolved, colors); err != nil {
+				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, float64(w)/px, float64(h)/px, resolved, colors); err != nil {
 					if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
 						return nil, err
 					}
@@ -319,11 +319,13 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		// A shape's picture fill comes from its own part.
 		prevPicture := colors.picture
-		colors.picture = func(embed string) (image.Image, error) {
+		colors.picture = func(embed string) (image.Image, []byte, error) {
 			if picture == nil {
-				return nil, fmt.Errorf("%w: picture fill without its part", render.ErrUnsupported)
+				return nil, nil, fmt.Errorf("%w: picture fill without its part", render.ErrUnsupported)
 			}
-			return loadImage(picture(&Picture{relID: embed}))
+			data, key := picture(&Picture{relID: embed})
+			img, err := loadImage(data, key)
+			return img, data, err
 		}
 		defer func() { colors.picture = prevPicture }()
 		x, y := sh.Position()
@@ -922,21 +924,24 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 	ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
 	return ops, g, err
 }
-// pictureFill resolves a picture fill, stretched over its fill rectangle.
-// Its fixed opacity is drawn, and its other color effects left out, as
-// pictures draw them; a tiled picture is drawn stretched, approximately.
-func (c *renderColors) pictureFill(f *dml.BlipFillXML) (renderPaint, error) {
+// pictureFill resolves a picture fill over a box w by h pixels: stretched
+// over its fill rectangle, or tiled. Its fixed opacity is drawn, and its
+// other color effects left out, as pictures draw them.
+func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPaint, error) {
 	// The source check admits the blip's local-DPI and SVG extensions; an
 	// SVG picture draws its raster fallback.
 	if f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || c.picture == nil {
 		return renderPaint{}, fmt.Errorf("%w: linked picture fill", render.ErrUnsupported)
 	}
-	if f.Tile != nil || f.Stretch == nil {
-		if err := c.approximate(fmt.Errorf("%w: tiled picture fill drawn stretched", render.ErrUnsupported)); err != nil {
+	if f.Tile != nil && f.Stretch != nil {
+		return renderPaint{}, fmt.Errorf("%w: picture fill both tiled and stretched", render.ErrInvalid)
+	}
+	if f.Tile == nil && f.Stretch == nil {
+		if err := c.approximate(fmt.Errorf("%w: picture fill without a fill mode drawn stretched", render.ErrUnsupported)); err != nil {
 			return renderPaint{}, err
 		}
 	}
-	img, err := c.picture(f.Blip.Embed)
+	img, data, err := c.picture(f.Blip.Embed)
 	if err != nil {
 		return renderPaint{}, err
 	}
@@ -972,6 +977,12 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML) (renderPaint, error) {
 		}
 	}
 	paint := renderPaint{image: img}
+	if f.Tile != nil {
+		// A tiled fill ignores the fill rectangle; its tiles cover the box.
+		tw, th := renderTileSize(img, data, f.Dpi, f.Tile)
+		paint.image, err = renderTileImage(c, img, w, h, tw, th, f.Tile)
+		return paint, err
+	}
 	if f.Stretch != nil && f.Stretch.FillRect != nil {
 		r := f.Stretch.FillRect
 		paint.fill = [4]float64{float64(r.L.Int32()) / 100000, float64(r.T.Int32()) / 100000, float64(r.R.Int32()) / 100000, float64(r.B.Int32()) / 100000}
@@ -992,7 +1003,8 @@ func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml
 		return paint, false, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
 	}
 	if p.BlipFill != nil {
-		paint, err = colors.pictureFill(p.BlipFill)
+		px := float64(dml.EMUsPerPixel)
+		paint, err = colors.pictureFill(p.BlipFill, float64(w)/px, float64(h)/px)
 		return paint, err == nil, err
 	}
 	fill, grad := p.SolidFill, p.GradFill
@@ -1331,14 +1343,18 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	return props
 }
 // renderBackgroundImage decodes a picture background from its part, cropped
-// by its source rectangle. A tiled picture is drawn stretched, approximately.
-func (s *Slide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, limits render.Limits, colors *renderColors) (image.Image, int64, error) {
+// by its source rectangle, to stretch over a slide w by h pixels: stretched
+// itself, or tiled.
+func (s *Slide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, w, h float64, limits render.Limits, colors *renderColors) (image.Image, int64, error) {
 	f := bp.BlipFill
 	if bp.SolidFill != nil || bp.GradFill != nil || bp.PattFill != nil || bp.NoFill != nil || renderEffects(bp.EffectLst) || bp.ExtLst != nil || f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || len(f.Blip.Effects) > 0 {
 		return nil, 0, fmt.Errorf("%w: background picture", render.ErrUnsupported)
 	}
-	if f.Tile != nil || f.Stretch == nil {
-		if err := colors.approximate(fmt.Errorf("%w: tiled background picture drawn stretched", render.ErrUnsupported)); err != nil {
+	if f.Tile != nil && f.Stretch != nil {
+		return nil, 0, fmt.Errorf("%w: background picture both tiled and stretched", render.ErrInvalid)
+	}
+	if f.Tile == nil && f.Stretch == nil {
+		if err := colors.approximate(fmt.Errorf("%w: background picture without a fill mode drawn stretched", render.ErrUnsupported)); err != nil {
 			return nil, 0, err
 		}
 	}
@@ -1352,6 +1368,17 @@ func (s *Slide) renderBackgroundImage(ctx context.Context, part string, bp *oxml
 	}
 	if r := f.SrcRect; r != nil {
 		if img, err = renderCrop(img, float64(r.L.Int32())/100000, float64(r.T.Int32())/100000, float64(r.R.Int32())/100000, float64(r.B.Int32())/100000); err != nil {
+			return nil, 0, err
+		}
+	}
+	if f.Tile != nil {
+		var dpi *int32
+		if f.Dpi != nil {
+			v := int32(*f.Dpi)
+			dpi = &v
+		}
+		tw, th := renderTileSize(img, data, dpi, f.Tile)
+		if img, err = renderTileImage(colors, img, w, h, tw, th, f.Tile); err != nil {
 			return nil, 0, err
 		}
 	}
