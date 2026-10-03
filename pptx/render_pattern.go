@@ -98,8 +98,10 @@ func renderPatternBits(prst string) (bits [8][8]bool, ok bool) {
 			d := math.Hypot(float64(x)-3.5, float64(y)-3.5)
 			return d <= 3.6 && (x != 2 || y != 2)
 		},
-		"weave":      func(x, y int) bool { return (mod(x-y, 8) < 2 && x%8 < 4) || (mod(x+y, 8) < 2 && x%8 >= 4) },
-		"divot":      func(x, y int) bool { return (y == 1 && x >= 2 && x <= 3) || (y == 2 && x == 4) || (y == 5 && x >= 6) || (y == 6 && x == 0) },
+		"weave": func(x, y int) bool { return (mod(x-y, 8) < 2 && x%8 < 4) || (mod(x+y, 8) < 2 && x%8 >= 4) },
+		"divot": func(x, y int) bool {
+			return (y == 1 && x >= 2 && x <= 3) || (y == 2 && x == 4) || (y == 5 && x >= 6) || (y == 6 && x == 0)
+		},
 		"shingle":    func(x, y int) bool { return mod(x+y, 8) == 0 || (y == 4 && x >= 4) },
 		"wave":       func(x, y int) bool { return y == int(math.Round(1.5-1.5*math.Cos(float64(x)*math.Pi/4))) },
 		"trellis":    func(x, y int) bool { return mod(x-y, 4) < 2 || mod(x+y, 4) < 2 },
