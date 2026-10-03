@@ -98,7 +98,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
-				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, picture, 0, warn, colors, maxSegments)
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, picture, 0, warn, colors, maxSegments, renderGroupFill{})
 			}
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(t.CxnSp) || t.CxnSp[ref.Index] == nil {

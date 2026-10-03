@@ -167,3 +167,17 @@ func TestRenderGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderGroupFill(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	red := color.NRGBA{R: 255, A: 255}
+	// A blue square inside a red-filled group takes the group's fill.
+	child := strings.Replace(renderSquare(0, 0, "0000FF"), `<a:solidFill><a:srgbClr val="0000FF"/></a:solidFill>`, `<a:grpFill/>`, 1)
+	group := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="571500" y="38100"/><a:ext cx="95250" cy="95250"/><a:chOff x="0" y="0"/><a:chExt cx="95250" cy="95250"/></a:xfrm><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></p:grpSpPr>` + child + `</p:grpSp>`
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		return renderAddToTree(group)(renderAnyTxBody.ReplaceAllLiteralString(s, ""))
+	}})
+	if px := renderPixel(t, got, 65, 9); px != red {
+		t.Fatalf("group fill: %+v", px)
+	}
+}

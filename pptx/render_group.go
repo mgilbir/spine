@@ -72,15 +72,38 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 //
 // A rotated or flipped group turns its drawn children about its centre:
 // shapes exactly, and text and pictures, approximately, moved upright.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
+//
+// A group's own fill paints nothing; children whose fill is the group's
+// (a:grpFill) take it, or its group's in turn.
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int, fill renderGroupFill) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
 	local := renderIdentity
 	var turn renderShapeTransform
 	if p := g.GrpSpPr; p != nil {
-		if p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.ExtLst != nil {
-			return nil, fmt.Errorf("%w: group fill or effect", render.ErrUnsupported)
+		if p.BlipFill != nil || p.PattFill != nil || p.ExtLst != nil {
+			return nil, fmt.Errorf("%w: group picture or pattern fill", render.ErrUnsupported)
+		}
+		// A group whose own fill is its group's passes that on unchanged.
+		if p.GrpFill == nil {
+			set := 0
+			for _, f := range []bool{p.NoFill != nil, p.SolidFill != nil, p.GradFill != nil} {
+				if f {
+					set++
+				}
+			}
+			if set > 1 {
+				return nil, fmt.Errorf("%w: ambiguous group fill", render.ErrInvalid)
+			}
+			if set == 1 {
+				fill = renderGroupFill{none: p.NoFill != nil, solid: p.SolidFill, grad: p.GradFill}
+			}
+		}
+		if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil {
+			if err := colors.approximate(fmt.Errorf("%w: group effects left out", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
 		}
 		if x := p.Xfrm; x != nil {
 			if x.Off == nil || x.Ext == nil || x.ChOff == nil || x.ChExt == nil {
@@ -136,6 +159,13 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			if props.Xfrm, err = m.xfrm(props.Xfrm); err != nil {
 				return nil, err
 			}
+			if props.GrpFill != nil {
+				props.GrpFill = nil
+				if fill.none {
+					props.NoFill = &dml.NoFillXML{}
+				}
+				props.SolidFill, props.GradFill = fill.solid, fill.grad
+			}
 			sp.SpPr = &props
 			drawn, err = draw(oxmlShapeToGoShape(&sp), &sp, nil, -1, picture)
 		case oxml.ChildPic:
@@ -153,7 +183,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn, colors, maxSegments)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn, colors, maxSegments, fill)
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(g.ConnectionShapes) || g.ConnectionShapes[ref.Index] == nil || g.ConnectionShapes[ref.Index].SpPr == nil {
 				return nil, fmt.Errorf("%w: grouped connector", render.ErrInvalid)
@@ -178,6 +208,14 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 		ops = append(ops, drawn...)
 	}
 	return turn.ops(ops, colors, maxSegments)
+}
+
+// renderGroupFill is the fill a group gives children that take their
+// group's; the zero value is none set.
+type renderGroupFill struct {
+	none  bool
+	solid *dml.SolidFill
+	grad  *dml.GradFill
 }
 
 // renderHiddenChild reports whether a shape tree child is hidden.
