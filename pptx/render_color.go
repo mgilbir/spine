@@ -2,8 +2,8 @@ package pptx
 
 import (
 	"context"
-	"image"
 	"fmt"
+	"image"
 	"math"
 	"strings"
 
