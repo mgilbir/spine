@@ -129,9 +129,10 @@ func (c *renderColors) color(v renderColor, placeholder *style.RGBA) (style.RGBA
 // "light" and "medium".
 func renderPresetColor(name string) (style.RGBA, error) {
 	css := name
-	for short, long := range map[string]string{"dk": "dark", "lt": "light", "med": "medium"} {
-		if rest, ok := strings.CutPrefix(name, short); ok && rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
-			css = long + rest
+	for _, p := range [...]struct{ short, long string }{{"dk", "dark"}, {"lt", "light"}, {"med", "medium"}} {
+		if rest, ok := strings.CutPrefix(name, p.short); ok && rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
+			css = p.long + rest
+			break
 		}
 	}
 	css = strings.ToLower(css)
