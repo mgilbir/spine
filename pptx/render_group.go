@@ -114,6 +114,9 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			drawn []layout.Op
 			err   error
 		)
+		if renderHiddenChild(g.Shapes, g.Pictures, g.GroupShapes, g.ConnectionShapes, g.GraphicFrames, ref) {
+			continue
+		}
 		switch ref.Kind {
 		case oxml.ChildSp:
 			if ref.Index >= len(g.Shapes) || g.Shapes[ref.Index] == nil || g.Shapes[ref.Index].SpPr == nil {
@@ -169,6 +172,27 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 		ops = append(ops, drawn...)
 	}
 	return ops, nil
+}
+
+// renderHiddenChild reports whether a shape tree child is hidden.
+func renderHiddenChild(sp []*oxml.Shape, pic []*oxml.Picture, grp []*oxml.GroupShape, cxn []*oxml.ConnectionShape, frames []*oxml.GraphicFrame, ref oxml.ChildRef) bool {
+	i := ref.Index
+	if i < 0 {
+		return false
+	}
+	switch {
+	case ref.Kind == oxml.ChildSp && i < len(sp):
+		return renderHidden(sp[i])
+	case ref.Kind == oxml.ChildPic && i < len(pic):
+		return renderHidden(pic[i])
+	case ref.Kind == oxml.ChildGrpSp && i < len(grp):
+		return renderHidden(grp[i])
+	case ref.Kind == oxml.ChildCxnSp && i < len(cxn):
+		return renderHidden(cxn[i])
+	case ref.Kind == oxml.ChildGraphicFrame && i < len(frames):
+		return renderHidden(frames[i])
+	}
+	return false
 }
 
 // renderSourceGroup returns the parsed p:grpSp behind a shape, or nil.

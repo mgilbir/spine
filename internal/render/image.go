@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"math"
@@ -39,11 +40,14 @@ func DecodeImage(ctx context.Context, data []byte, limits Limits) (image.Image, 
 	var cfg image.Config
 	isPNG := bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n"))
 	isJPEG := bytes.HasPrefix(data, []byte{0xff, 0xd8})
+	isGIF := bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
 	switch {
 	case isPNG:
 		cfg, err = png.DecodeConfig(bytes.NewReader(data))
 	case isJPEG:
 		cfg, err = jpeg.DecodeConfig(bytes.NewReader(data))
+	case isGIF:
+		cfg, err = gif.DecodeConfig(bytes.NewReader(data))
 	default:
 		return nil, fmt.Errorf("%w: image encoding", ErrUnsupported)
 	}
@@ -57,10 +61,14 @@ func DecodeImage(ctx context.Context, data []byte, limits Limits) (image.Image, 
 		return nil, err
 	}
 	var img image.Image
-	if isPNG {
+	switch {
+	case isPNG:
 		img, err = png.Decode(bytes.NewReader(data))
-	} else {
+	case isJPEG:
 		img, err = jpeg.Decode(bytes.NewReader(data))
+	default:
+		// An animated GIF shows its first frame, as a static slide does.
+		img, err = gif.Decode(bytes.NewReader(data))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: image decode: %w", ErrInvalid, err)

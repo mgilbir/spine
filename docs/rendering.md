@@ -24,7 +24,8 @@ Supported drawing operations are solid rectangles, filled Forme paths, nested
 path clips, horizontal positioned glyphs and contextual horizontal text, and
 validated standard-library raster images. Color/bitmap/SVG fonts, vertical text,
 letter spacing, tiling, gradients, strokes, effects and other operations fail
-explicitly. PNG/JPEG decoding checks dimensions and bytes before decoding.
+explicitly. PNG, JPEG and GIF (its first frame) decoding checks dimensions
+and bytes before decoding.
 Sixteen-bit image sources are reduced to eight bits; EXIF orientation is not
 applied. Text is outlined in SVG, so it is not selectable.
 
@@ -113,13 +114,21 @@ be short. Dashes have flat caps: the schema gives no default cap and PowerPoint'
 shape styles use flat, so an absent cap is flat, and square or round caps fail,
 as do custom dashes. A dash turning a sharp corner takes the line join. Each
 dash is painted as its own path. Text lays out in the preset's text rectangle, which for rounded
-rectangles and ellipses is inset from the corners. Embedded PNG/JPEG pictures with
+rectangles and ellipses is inset from the corners. Embedded PNG, JPEG and GIF pictures with
 rectangular geometry are supported, cropped by their source rectangle
-(`a:srcRect`); a negative crop, which extends the picture, fails. A picture's
+(`a:srcRect`); a negative crop extends the picture's box past its image,
+which shows the image smaller with the rest of the box empty. A picture's
 flips mirror its pixels and quarter turns rotate them, turning its box about
 its centre; best effort draws other rotations unrotated, and leaves out
 picture effects. A picture's solid outline runs around its box. An SVG picture
-draws its PNG or JPEG fallback, as Office versions without SVG support show it.
+draws its raster fallback, as Office versions without SVG support show it. A
+fixed alpha modulation (`alphaModFix`) fades a picture; best effort leaves its
+other color effects out. A picture is downscaled, by averaging, to at most
+four pixels per CSS pixel it is drawn at. A picture placeholder without its
+own geometry takes its layout's, or master's, placeholder geometry. A picture
+background (`a:blipFill` in `p:bgPr`) is stretched over the slide and cropped
+by its source rectangle; best effort stretches a tiled one. Hidden shapes
+(`hidden` on `cNvPr`) are not drawn.
 
 Custom geometry (`a:custGeom`) evaluates its guide formulas (ECMA-376
 §20.1.10.36) over the shape's built-in guides and draws each path:
@@ -423,6 +432,10 @@ unresolved regular faces. Strict, bold and italic faces require mappings;
 otherwise a missing bold or italic face is drawn with the family's regular
 face, or the regular fallback, with a warning. Substitution can
 change wrapping and overflow.
+
+`-image-pixels` bounds decoded image pixels per slide, page or sheet; it
+defaults to 64 Mi, where the library's default of 4 Mi is less than one phone
+photo.
 
 `-shape-work` bounds shaping per slide, page or sheet in the conservative lookup
 units described above. The command defaults to 16 Gi units instead of the

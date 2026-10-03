@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"image"
+	"image/color"
 	"math"
 	"strings"
 
@@ -103,6 +104,8 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		return nil, err
 	}
 	layers := []*oxml.CommonSlideData{}
+	// parts names each layer's part, whose relationships its background uses.
+	var parts []string
 	if s.layout != nil {
 		if s.layout.master != nil && s.layout.master.masterXML != nil {
 			m := s.layout.master.masterXML
@@ -116,7 +119,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if err = soft(renderModelExtensions(m.ExtLst, "p:sldMaster")); err != nil {
 				return nil, err
 			}
-			layers = append(layers, m.CSld)
+			layers, parts = append(layers, m.CSld), append(parts, s.layout.master.partName)
 		}
 		if s.layout.layoutXML != nil {
 			m := s.layout.layoutXML
@@ -128,7 +131,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if err = soft(renderModelExtensions(m.ExtLst, "p:sldLayout")); err != nil {
 				return nil, err
 			}
-			layers = append(layers, m.CSld)
+			layers, parts = append(layers, m.CSld), append(parts, s.layout.partName)
 		}
 	}
 	masterProfile, layoutProfile := &renderProfile{lenient: lenient}, &renderProfile{lenient: lenient}
@@ -167,7 +170,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			return nil, err
 		}
 	}
-	layers = append(layers, model.CSld)
+	layers, parts = append(layers, model.CSld), append(parts, s.partName)
 	w, h := s.presentation.slideDimensions()
 	if w <= 0 || h <= 0 {
 		return nil, fmt.Errorf("%w: slide dimensions", render.ErrInvalid)
@@ -182,8 +185,20 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	// The nearest defined background wins: slide, then layout, then master.
 	background := renderPaint{color: renderWhite}
 	px := float64(dml.EMUsPerPixel)
+	var (
+		bgImage      image.Image
+		bgImageBytes int64
+	)
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
+			if bp := layers[i].Bg.BgPr; bp != nil && bp.BlipFill != nil {
+				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, resolved, colors); err != nil {
+					if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
+						return nil, err
+					}
+				}
+				break
+			}
 			if background, err = colors.background(layers[i].Bg, float64(w)/px, float64(h)/px); err != nil {
 				if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
 					return nil, err
@@ -213,6 +228,12 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	imageCount := 0
 	imagePixels, imageBytes := int64(0), int64(0)
+	if bgImage != nil {
+		// A picture background is stretched over the slide.
+		ops = append(ops, layout.DrawImage{Rect: layout.Rect{W: renderUnit(w), H: renderUnit(h)}, Image: bgImage})
+		imageCount, imageBytes = 1, bgImageBytes
+		imagePixels = int64(bgImage.Bounds().Dx()) * int64(bgImage.Bounds().Dy())
+	}
 	// A slide often repeats one image; decode and charge it once.
 	decoded := map[renderImageKey]image.Image{}
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
@@ -374,11 +395,29 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
 				decoded[key] = img
 			}
-			if img, err = renderCrop(img, v.cropLeft, v.cropTop, v.cropRight, v.cropBottom); err != nil {
-				return nil, err
+			// A negative crop extends the picture past its image, which is
+			// then laid over the extended box and clipped to the picture's.
+			extended := v.cropLeft < 0 || v.cropTop < 0 || v.cropRight < 0 || v.cropBottom < 0
+			if !extended {
+				if img, err = renderCrop(img, v.cropLeft, v.cropTop, v.cropRight, v.cropBottom); err != nil {
+					return nil, err
+				}
+			}
+			if v.blipEffects {
+				if err := colors.approximate(fmt.Errorf("%w: picture color effects left out", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+			}
+			if v.opacity != nil && *v.opacity < 1 {
+				img = renderFade(img, math.Max(0, *v.opacity))
 			}
 			x, y := v.Position()
 			width, height := v.Size()
+			if picProps != nil && picProps.Xfrm != nil && picProps.Xfrm.Off != nil && picProps.Xfrm.Ext != nil {
+				// A placeholder picture may take its geometry from its layout.
+				x, y = dml.EMU(picProps.Xfrm.Off.X), dml.EMU(picProps.Xfrm.Off.Y)
+				width, height = dml.EMU(picProps.Xfrm.Ext.Cx), dml.EMU(picProps.Xfrm.Ext.Cy)
+			}
 			rect := layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(width), H: renderUnit(height)}
 			var outline []layout.Op
 			if picProps != nil {
@@ -399,6 +438,25 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 					}
 				}
 			}
+			if extended {
+				sx, sy := 1-v.cropLeft-v.cropRight, 1-v.cropTop-v.cropBottom
+				if sx <= 0 || sy <= 0 {
+					return nil, fmt.Errorf("%w: empty picture crop", render.ErrInvalid)
+				}
+				w, h := rect.W.Px()/sx, rect.H.Px()/sy
+				ix, okX := style.FromPx(rect.X.Px() - v.cropLeft*w)
+				iy, okY := style.FromPx(rect.Y.Px() - v.cropTop*h)
+				iw, okW := style.FromPx(w)
+				ih, okH := style.FromPx(h)
+				if !okX || !okY || !okW || !okH {
+					return nil, fmt.Errorf("%w: picture crop", render.ErrLimit)
+				}
+				full := layout.Rect{X: ix, Y: iy, W: iw, H: ih}
+				img = renderDownscale(img, w*renderMaxImageScale, h*renderMaxImageScale)
+				clip := layout.ClipPath{Path: renderRectPath(rect), Ops: []layout.Op{layout.DrawImage{Rect: full, Image: img}}}
+				return append([]layout.Op{clip}, outline...), nil
+			}
+			img = renderDownscale(img, rect.W.Px()*renderMaxImageScale, rect.H.Px()*renderMaxImageScale)
 			return append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), nil
 		}
 		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
@@ -438,6 +496,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		return data, renderPictureKey(v, data)
 	}
 	for i, sh := range shapes {
+		if s.renderSourceHidden(i) {
+			continue
+		}
 		var drawn []layout.Op
 		if err = slideProfile.shapeErrs[renderRefKey(s, i)].any; err == nil {
 			drawn, err = drawShape(sh, s.renderSourceShape(i), s.renderPictureProps(i), i, slidePicture)
@@ -452,6 +513,59 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		ops = append(ops, drawn...)
 	}
 	return render.Prepare(ctx, w, h, ops, opts.Limits)
+}
+
+// renderHidden reports whether a parsed shape is hidden, which PowerPoint
+// does not show.
+func renderHidden(v any) bool {
+	var c *dml.CNvPr
+	switch s := v.(type) {
+	case *oxml.Shape:
+		if s != nil && s.NvSpPr != nil {
+			c = s.NvSpPr.CNvPr
+		}
+	case *oxml.Picture:
+		if s != nil && s.NvPicPr != nil {
+			c = s.NvPicPr.CNvPr
+		}
+	case *oxml.GroupShape:
+		if s != nil && s.NvGrpSpPr != nil {
+			c = s.NvGrpSpPr.CNvPr
+		}
+	case *oxml.ConnectionShape:
+		if s != nil && s.NvCxnSpPr != nil {
+			c = s.NvCxnSpPr.CNvPr
+		}
+	case *oxml.GraphicFrame:
+		if s != nil && s.NvGraphicFramePr != nil {
+			c = s.NvGraphicFramePr.CNvPr
+		}
+	}
+	return c != nil && c.Hidden
+}
+
+// renderSourceHidden reports whether a slide shape's parsed source is hidden.
+func (s *Slide) renderSourceHidden(index int) bool {
+	if s.sxModel == nil || s.sxModel.CSld == nil || s.sxModel.CSld.SpTree == nil || index >= len(s.shapeRefs) {
+		return false
+	}
+	t, ref := s.sxModel.CSld.SpTree, s.shapeRefs[index]
+	if ref.Index < 0 {
+		return false
+	}
+	switch {
+	case ref.Kind == oxml.ChildSp && ref.Index < len(t.Sp):
+		return renderHidden(t.Sp[ref.Index])
+	case ref.Kind == oxml.ChildPic && ref.Index < len(t.Pic):
+		return renderHidden(t.Pic[ref.Index])
+	case ref.Kind == oxml.ChildGrpSp && ref.Index < len(t.GrpSp):
+		return renderHidden(t.GrpSp[ref.Index])
+	case ref.Kind == oxml.ChildCxnSp && ref.Index < len(t.CxnSp):
+		return renderHidden(t.CxnSp[ref.Index])
+	case ref.Kind == oxml.ChildGraphicFrame && ref.Index < len(t.GraphicFrame):
+		return renderHidden(t.GraphicFrame[ref.Index])
+	}
+	return false
 }
 
 // renderImageKey identifies a picture's image without hashing it: the media
@@ -791,7 +905,8 @@ func slideRenderXML(el xml.StartElement) error {
 		case "cSld":
 			attrs = "name"
 		case "cNvPr":
-			attrs = "id name descr title"
+			// Hidden shapes are not drawn.
+			attrs = "id name descr title hidden"
 		case "cNvSpPr":
 			attrs = "txBox"
 		case "ph":
@@ -917,6 +1032,12 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "noGrp noSelect noRot noChangeAspect noMove noResize noEditPoints noAdjustHandles noChangeArrowheads noChangeShapeType noCrop"
 		case "blip":
 			attrs = "cstate embed"
+		case "alphaModFix":
+			attrs = "amt"
+		case "blipFill":
+			attrs = "rotWithShape dpi"
+		case "tile":
+			attrs = "tx ty sx sy flip algn"
 		case "fillRect", "srcRect", "fillToRect", "tileRect":
 			attrs = "l t r b"
 		case "gradFill":
@@ -1001,11 +1122,119 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	}
 	ref := s.shapeRefs[index]
 	t := s.sxModel.CSld.SpTree
-	if ref.Kind == oxml.ChildPic && ref.Index >= 0 && ref.Index < len(t.Pic) {
-		return t.Pic[ref.Index].SpPr
+	if ref.Kind != oxml.ChildPic || ref.Index < 0 || ref.Index >= len(t.Pic) {
+		return nil
 	}
-	return nil
+	pic := t.Pic[ref.Index]
+	props := pic.SpPr
+	if props != nil && props.Xfrm != nil && props.Xfrm.Off != nil && props.Xfrm.Ext != nil {
+		return props
+	}
+	// A picture placeholder without geometry takes its layout's, or else its
+	// master's, placeholder geometry.
+	if pic.NvPicPr == nil || pic.NvPicPr.NvPr == nil || pic.NvPicPr.NvPr.Ph == nil {
+		return props
+	}
+	ph := pic.NvPicPr.NvPr.Ph
+	var trees []*oxml.ShapeTree
+	if l := s.layout; l != nil {
+		if l.layoutXML != nil && l.layoutXML.CSld != nil {
+			trees = append(trees, l.layoutXML.CSld.SpTree)
+		}
+		if l.master != nil && l.master.masterXML != nil && l.master.masterXML.CSld != nil {
+			trees = append(trees, l.master.masterXML.CSld.SpTree)
+		}
+	}
+	for k, tree := range trees {
+		i, err := renderMatch(tree, ph, k == 0)
+		if err != nil || i < 0 {
+			continue
+		}
+		if src := tree.Sp[i].SpPr; src != nil && src.Xfrm != nil && src.Xfrm.Off != nil && src.Xfrm.Ext != nil {
+			out := dml.SpPr{}
+			if props != nil {
+				out = *props
+			}
+			out.Xfrm = src.Xfrm
+			return &out
+		}
+	}
+	return props
 }
+// renderBackgroundImage decodes a picture background from its part, cropped
+// by its source rectangle. A tiled picture is drawn stretched, approximately.
+func (s *Slide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, limits render.Limits, colors *renderColors) (image.Image, int64, error) {
+	f := bp.BlipFill
+	if bp.SolidFill != nil || bp.GradFill != nil || bp.PattFill != nil || bp.NoFill != nil || renderEffects(bp.EffectLst) || bp.ExtLst != nil || f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || len(f.Blip.Effects) > 0 {
+		return nil, 0, fmt.Errorf("%w: background picture", render.ErrUnsupported)
+	}
+	if f.Tile != nil || f.Stretch == nil {
+		if err := colors.approximate(fmt.Errorf("%w: tiled background picture drawn stretched", render.ErrUnsupported)); err != nil {
+			return nil, 0, err
+		}
+	}
+	data, _ := s.renderPartPicture(part)(&Picture{relID: f.Blip.Embed})
+	if len(data) == 0 {
+		return nil, 0, fmt.Errorf("%w: missing background picture", render.ErrInvalid)
+	}
+	img, err := core.DecodeImage(ctx, data, limits)
+	if err != nil {
+		return nil, 0, err
+	}
+	if r := f.SrcRect; r != nil {
+		if img, err = renderCrop(img, float64(r.L.Int32())/100000, float64(r.T.Int32())/100000, float64(r.R.Int32())/100000, float64(r.B.Int32())/100000); err != nil {
+			return nil, 0, err
+		}
+	}
+	return img, int64(len(data)), nil
+}
+
+// renderMaxImageScale is how many image pixels per drawn CSS pixel a picture
+// keeps: enough for 384 DPI output.
+const renderMaxImageScale = 4
+
+// renderDownscale averages an image down to at most w by h pixels; a
+// picture drawn smaller than its pixels needs no more.
+func renderDownscale(img image.Image, w, h float64) image.Image {
+	b := img.Bounds()
+	tw, th := int(math.Ceil(w)), int(math.Ceil(h))
+	if tw < 1 || th < 1 || (b.Dx() <= tw && b.Dy() <= th) {
+		return img
+	}
+	tw, th = min(tw, b.Dx()), min(th, b.Dy())
+	out := image.NewNRGBA(image.Rect(0, 0, tw, th))
+	for y := 0; y < th; y++ {
+		y0, y1 := y*b.Dy()/th, max((y+1)*b.Dy()/th, y*b.Dy()/th+1)
+		for x := 0; x < tw; x++ {
+			x0, x1 := x*b.Dx()/tw, max((x+1)*b.Dx()/tw, x*b.Dx()/tw+1)
+			// Average premultiplied channels, as compositing would.
+			var r, g, bl, a, n uint64
+			for sy := y0; sy < y1; sy++ {
+				for sx := x0; sx < x1; sx++ {
+					cr, cg, cb, ca := img.At(b.Min.X+sx, b.Min.Y+sy).RGBA()
+					r, g, bl, a, n = r+uint64(cr), g+uint64(cg), bl+uint64(cb), a+uint64(ca), n+1
+				}
+			}
+			out.Set(x, y, color.RGBA64{R: uint16(r / n), G: uint16(g / n), B: uint16(bl / n), A: uint16(a / n)})
+		}
+	}
+	return out
+}
+
+// renderFade multiplies an image's opacity.
+func renderFade(img image.Image, alpha float64) image.Image {
+	b := img.Bounds()
+	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			c := color.NRGBAModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
+			c.A = uint8(math.Round(float64(c.A) * alpha))
+			out.SetNRGBA(x, y, c)
+		}
+	}
+	return out
+}
+
 // renderOrientImage applies a picture's flips and rotation to its pixels:
 // quarter turns exactly, turning the drawn box about its centre, and other
 // angles, approximately, not at all.
@@ -1263,6 +1492,7 @@ func (r *renderProfile) approximated(node core.XMLNode) bool {
 	}
 	parent := node.Path[n-2]
 	effect := parent == (xml.Name{Space: nsA, Local: "effectLst"}) ||
+		(parent == (xml.Name{Space: nsA, Local: "blip"}) && node.Name.Space == nsA && node.Name.Local != "extLst" && node.Name.Local != "alphaModFix") ||
 		(parent == (xml.Name{Space: nsP, Local: "spPr"}) && node.Name.Space == nsA && (node.Name.Local == "effectDag" || node.Name.Local == "scene3d" || node.Name.Local == "sp3d"))
 	if effect {
 		r.skipDepth = n
@@ -1482,5 +1712,6 @@ var renderXMLParents = map[string]string{
 	"a:ln": "p:spPr " + renderRunParents,
 	"a:gradFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
 	"a:lin": "a:gradFill", "a:path": "a:gradFill a:pathLst", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
-	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:srcRect": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
+	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill a:blipFill", "a:alphaModFix": "a:blip", "a:srcRect": "p:blipFill a:blipFill",
+	"a:blipFill": "p:bgPr", "a:tile": "a:blipFill p:blipFill", "a:stretch": "p:blipFill a:blipFill", "a:fillRect": "a:stretch",
 }

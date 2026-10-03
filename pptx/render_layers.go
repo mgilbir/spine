@@ -67,6 +67,9 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			drawn []layout.Op
 			err   error
 		)
+		if renderHiddenChild(t.Sp, t.Pic, t.GrpSp, t.CxnSp, t.GraphicFrame, ref) {
+			continue
+		}
 		switch ref.Kind {
 		case oxml.ChildSp:
 			if ref.Index >= len(t.Sp) || t.Sp[ref.Index] == nil {

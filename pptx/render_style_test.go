@@ -82,6 +82,14 @@ func TestRenderPictureCrop(t *testing.T) {
 	if px := renderPixel(t, got, 68, 45); px != green {
 		t.Fatalf("cropped picture: %+v", px)
 	}
+	// A negative crop shrinks the image within its box: with a third of the
+	// box blank at the left, the image spans x 63.3-70.
+	got = renderSlidePNG(t, data, opts, crop(`<a:srcRect l="-50000"/>`))
+	for at, want := range map[[2]int]color.NRGBA{{61, 45}: {R: 255, G: 255, B: 255, A: 255}, {65, 45}: green, {68, 45}: {B: 255, A: 255}} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("extended crop at %v: %+v, want %+v", at, px, want)
+		}
+	}
 }
 
 // TestRenderEditorMarkup checks that markup only editors or black-and-white
