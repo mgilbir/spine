@@ -46,6 +46,9 @@ func TestRenderConnectors(t *testing.T) {
 			map[[2]int]color.NRGBA{{40, 20}: red, {20, 20}: white}},
 		{"dashed", renderConnectorXML("", renderAcross, strings.Replace(renderRedLine, `</a:ln>`, `<a:prstDash val="dash"/></a:ln>`, 1), ""),
 			map[[2]int]color.NRGBA{{18, 10}: red, {32, 10}: white}},
+		// Turned a quarter about its middle (30,10), it runs down x 30.
+		{"rotated", renderConnectorXML(` rot="5400000"`, renderAcross, renderRedLine, ""),
+			map[[2]int]color.NRGBA{{30, 25}: red, {45, 10}: white}},
 		{"flat cap", renderConnectorXML("", renderAcross, renderRedLine, ""),
 			map[[2]int]color.NRGBA{{8, 9}: white}},
 	} {
@@ -63,7 +66,6 @@ func TestRenderConnectors(t *testing.T) {
 	for name, xml := range map[string]string{
 		"arrowhead":      renderConnectorXML("", renderAcross, strings.Replace(renderRedLine, `</a:ln>`, `<a:tailEnd type="triangle"/></a:ln>`, 1), ""),
 		"bent":           strings.Replace(renderConnectorXML("", renderAcross, renderRedLine, ""), "straightConnector1", "bentConnector3", 1),
-		"rotated":        renderConnectorXML(` rot="5400000"`, renderAcross, renderRedLine, ""),
 		"shadow style":   renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:effectRef idx="0">`, `<a:effectRef idx="3">`, 1)),
 		"missing style":  renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:lnRef idx="3">`, `<a:lnRef idx="9">`, 1)),
 		"dash round cap": renderConnectorXML("", renderAcross, strings.Replace(strings.Replace(renderRedLine, `<a:ln `, `<a:ln cap="rnd" `, 1), `</a:ln>`, `<a:prstDash val="dash"/></a:ln>`, 1), ""),
@@ -77,5 +79,27 @@ func TestRenderConnectors(t *testing.T) {
 	s.AddConnector(ConnectorStraight)
 	if _, err := s.PrepareRender(context.Background(), opts); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("unsaved connector: %v", err)
+	}
+}
+
+func TestRenderInheritedAndGroupedConnectors(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	red := color.NRGBA{R: 255, A: 255}
+	line := renderConnectorXML("", renderAcross, renderRedLine, "")
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{
+		"ppt/slides/slide1.xml": func(s string) string { return renderAnyTxBody.ReplaceAllLiteralString(s, "") },
+		renderLayoutPart:        renderAddToTree(line),
+	})
+	if px := renderPixel(t, got, 30, 10); px != red {
+		t.Fatalf("layout connector: %+v", px)
+	}
+	// A group doubling its child space draws the connector from (20,20) to
+	// (100,20), clipped by the 80px page.
+	group := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="190500" y="190500"/><a:ext cx="762000" cy="0"/><a:chOff x="95250" y="95250"/><a:chExt cx="381000" cy="0"/></a:xfrm></p:grpSpPr>` + line + `</p:grpSp>`
+	got = renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		return renderAddToTree(group)(renderAnyTxBody.ReplaceAllLiteralString(s, ""))
+	}})
+	if px := renderPixel(t, got, 70, 20); px != red {
+		t.Fatalf("grouped connector: %+v", px)
 	}
 }

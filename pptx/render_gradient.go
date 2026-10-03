@@ -66,7 +66,7 @@ func (c *renderColors) gradient(gf *dml.GradFill, placeholder *style.RGBA, w, h 
 		if s == nil {
 			return g, fmt.Errorf("%w: gradient stop", render.ErrInvalid)
 		}
-		col, err := c.color(renderColorOf(s.SrgbClr, s.SchemeClr, s.SysClr, s.ScRgbClr != nil, s.HslClr != nil, s.PrstClr != nil), placeholder)
+		col, err := c.color(renderColorOf(s.SrgbClr, s.SchemeClr, s.SysClr, s.PrstClr, s.ScRgbClr != nil, s.HslClr != nil), placeholder)
 		if err != nil {
 			return g, err
 		}

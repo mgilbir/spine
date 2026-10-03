@@ -42,6 +42,9 @@ func FuzzPptxRender(f *testing.F) {
 	tbl.Cell(0, 0).SetText("A")
 	tbl.Cell(1, 1).SetBorders(&TableBorder{Width: dml.Pixels(1), Color: dml.ColorBlack, Style: BorderStyleSingle})
 	f.Add(bytes.Replace(source, []byte(`</p:spTree>`), []byte(renderConnectorXML(` flipH="1"`, renderDiagonal, renderRedLine, renderLnStyle)+`</p:spTree>`), 1))
+	// A rotated custom geometry with guides, an arc and a curve, filled with
+	// a gradient.
+	f.Add(bytes.Replace(source, []byte(`<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>`), []byte(`<a:custGeom><a:avLst/><a:gdLst><a:gd name="a" fmla="*/ w 1 2"/><a:gd name="b" fmla="sat2 a h w"/></a:gdLst><a:rect l="l" t="t" r="r" b="b"/><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="50"/></a:moveTo><a:arcTo wR="50" hR="25" stAng="10800000" swAng="-5400000"/><a:cubicBezTo><a:pt x="0" y="0"/><a:pt x="100" y="0"/><a:pt x="100" y="100"/></a:cubicBezTo><a:close/></a:path></a:pathLst></a:custGeom><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs><a:gs pos="100000"><a:prstClr val="ltBlue"/></a:gs></a:gsLst><a:lin ang="2700000" scaled="1"/></a:gradFill>`), 1))
 	if withTable, e := tables.SaveBytes(); e == nil {
 		f.Add(fuzzseed.ZipEntry(withTable, "ppt/slides/slide1.xml"))
 	}

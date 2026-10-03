@@ -62,6 +62,15 @@ func (s *SchemeClrTransform) Transforms() (steps []ColorTransformStep, ok bool) 
 	return steps, true
 }
 
+// Transforms returns the color's transforms in application order; see
+// SrgbClr.Transforms.
+func (c *PrstClr) Transforms() (steps []ColorTransformStep, ok bool) {
+	if c == nil {
+		return nil, true
+	}
+	return slotTransforms(c.prstSlots(), c.xfOrder, c.xfRaws)
+}
+
 // slotTransforms mirrors marshalClrColor's write order.
 func slotTransforms(slots []clrXfSlot, order []clrTransformKind, raws [][]byte) ([]ColorTransformStep, bool) {
 	var steps []ColorTransformStep

@@ -218,7 +218,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
 	// position among the slide's own shapes, or -1 for an inherited shape;
 	// picture resolves a picture's image bytes.
-	var drawShapeRef renderDraw
+	var (
+		drawShapeRef renderDraw
+		connect      renderConnect
+	)
 	drawShape := func(sh Shape, sp *oxml.Shape, picProps *dml.SpPr, index int, picture func(*Picture) ([]byte, renderImageKey)) ([]layout.Op, error) {
 		switch v := sh.(type) {
 		case *AutoShape:
@@ -305,6 +308,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles, nil)
+			if err == nil && geometry.turned && len(text) > 0 {
+				err = colors.approximate(fmt.Errorf("%w: text of a rotated or flipped shape drawn upright", render.ErrUnsupported))
+			}
 			if err = soft(renderTextLeftOut(sh, err)); err != nil {
 				return nil, err
 			}
@@ -315,6 +321,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles, nil)
+			if err == nil && geometry.turned && len(text) > 0 {
+				err = colors.approximate(fmt.Errorf("%w: text of a rotated or flipped shape drawn upright", render.ErrUnsupported))
+			}
 			if err = soft(renderTextLeftOut(sh, err)); err != nil {
 				return nil, err
 			}
@@ -324,7 +333,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if grp == nil || v.isDirty() {
 				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
 			}
-			return renderGroup(grp, renderIdentity, drawShapeRef, s.renderPartPicture(s.partName), 0, opts.Warn)
+			return renderGroup(grp, renderIdentity, drawShapeRef, connect, s.renderPartPicture(s.partName), 0, opts.Warn)
 		case *PlaceholderShape:
 			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs, soft)
 		case *Table:
@@ -333,12 +342,14 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			return s.renderConnector(index, v, colors, resolved)
 		case *Picture:
 			if picProps != nil {
-				if err := renderPictureProperties(picProps); err != nil {
+				if err := renderPictureProperties(picProps, colors); err != nil {
 					return nil, err
 				}
 			}
-			if v.isMedia || len(v.svgData) > 0 || v.svgRelID != "" {
-				return nil, fmt.Errorf("%w: media or SVG picture", render.ErrUnsupported)
+			// An SVG picture draws its raster fallback, as Office versions
+			// without SVG support show it.
+			if v.isMedia {
+				return nil, fmt.Errorf("%w: media picture", render.ErrUnsupported)
 			}
 			imgData, key := picture(v)
 			if len(imgData) == 0 {
@@ -368,14 +379,52 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 			x, y := v.Position()
 			width, height := v.Size()
-			return []layout.Op{layout.DrawImage{Rect: layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(width), H: renderUnit(height)}, Image: img}}, nil
+			rect := layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(width), H: renderUnit(height)}
+			var outline []layout.Op
+			if picProps != nil {
+				if xf := picProps.Xfrm; xf != nil && (xf.FlipH || xf.FlipV || xf.Rot != 0) {
+					if img, rect, err = renderOrientImage(img, rect, xf.FlipH, xf.FlipV, xf.Rot, colors); err != nil {
+						return nil, err
+					}
+				}
+				// A picture's outline runs around its box.
+				line, placeholder, err := renderStyledLine(nil, picProps.Ln, colors)
+				if err != nil {
+					return nil, err
+				}
+				if line != nil {
+					g := renderGeometry{box: [4]dml.EMU{x, y, width, height}}
+					if outline, err = g.stroke(line, placeholder, colors, resolved.MaxPathSegments); err != nil {
+						return nil, err
+					}
+				}
+			}
+			return append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), nil
 		}
 		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
 	}
 	drawShapeRef = drawShape
+	// Connectors on layouts and masters, and in groups, are drawn from their
+	// parsed form.
+	connect = func(c *oxml.ConnectionShape) ([]layout.Op, error) {
+		if lenient {
+			name := ""
+			if c.NvCxnSpPr != nil && c.NvCxnSpPr.CNvPr != nil {
+				name = c.NvCxnSpPr.CNvPr.Name
+			}
+			prev := colors.approx
+			colors.approx = func(err error) {
+				if ctx.Err() == nil {
+					opts.Warn(fmt.Errorf("pptx: connector %q: drawn approximately: %w", name, err))
+				}
+			}
+			defer func() { colors.approx = prev }()
+		}
+		return renderConnectorSource(c, colors, resolved)
+	}
 	// Master shapes, then layout shapes, then the slide's own.
 	for _, layer := range inherited {
-		drawn, err := s.renderLayer(layer, budget, drawShape, opts.Warn)
+		drawn, err := s.renderLayer(layer, budget, drawShape, connect, opts.Warn)
 		if err != nil {
 			return nil, err
 		}
@@ -460,7 +509,7 @@ func renderStyleFill(r *dml.FillRef, colors *renderColors) (*dml.SolidFill, *dml
 	if r == nil || r.Idx == 0 {
 		return nil, nil, nil, nil
 	}
-	c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.ScrgbClr != nil, r.HslClr != nil, r.PrstClr != nil), nil)
+	c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.PrstClr, r.ScrgbClr != nil, r.HslClr != nil), nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -570,8 +619,11 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.CustGeom != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
-		return nil, g, fmt.Errorf("%w: shape fill or geometry", render.ErrUnsupported)
+	if p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil {
+		return nil, g, fmt.Errorf("%w: shape picture, pattern or group fill", render.ErrUnsupported)
+	}
+	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
+		return nil, g, err
 	}
 	if source == nil && (renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil) {
 		if err := colors.approximate(fmt.Errorf("%w: shape effects left out", render.ErrUnsupported)); err != nil {
@@ -583,11 +635,15 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 	if w < 0 || h < 0 {
 		return nil, g, fmt.Errorf("%w: shape extent", render.ErrInvalid)
 	}
+	px := float64(dml.EMUsPerPixel)
+	xf := renderShapeTransform{cx: (float64(x) + float64(w)/2) / px, cy: (float64(y) + float64(h)/2) / px}
+	if p.Xfrm != nil {
+		xf.flipH, xf.flipV, xf.rot = p.Xfrm.FlipH, p.Xfrm.FlipV, float64(p.Xfrm.Rot)/60000
+	}
+	// PowerPoint turns text with the shape's rotation and a vertical flip.
+	g.turned = math.Mod(xf.rot, 360) != 0 || xf.flipV
 	if v.presetGeometry == "line" {
 		// A line runs corner to corner, its flips choosing the corners.
-		if p.Xfrm != nil && p.Xfrm.Rot != 0 {
-			return nil, g, fmt.Errorf("%w: rotated line", render.ErrUnsupported)
-		}
 		line, placeholder, err := renderStyledLine(st, p.Ln, colors)
 		if err != nil || line == nil {
 			return nil, g, err
@@ -599,43 +655,46 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		if p.Xfrm != nil && p.Xfrm.FlipV {
 			y0, y1 = y1, y0
 		}
-		px := float64(dml.EMUsPerPixel)
 		ops, err := renderLineStroke(line, placeholder, colors, x0/px, y0/px, x1/px, y1/px, limits.MaxPathSegments)
-		return ops, g, err
-	}
-	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
-		return nil, g, fmt.Errorf("%w: shape transformation", render.ErrUnsupported)
-	}
-	g, err := renderPresetGeometry(v.presetGeometry, p.PrstGeom, x, y, w, h)
-	if err != nil {
-		return nil, g, err
-	}
-	if p.NoFill != nil && (p.SolidFill != nil || p.GradFill != nil) || p.SolidFill != nil && p.GradFill != nil {
-		return nil, g, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
-	}
-	// Without a style reference (checked by the caller), an absent fill, an
-	// absent outline, or an outline without a fill is none.
-	var ops []layout.Op
-	fill, grad := p.SolidFill, p.GradFill
-	var fillPlaceholder *style.RGBA
-	if st != nil && p.NoFill == nil && fill == nil && grad == nil {
-		var err error
-		if fill, grad, fillPlaceholder, err = renderStyleFill(st.FillRef, colors); err != nil {
-			return nil, g, err
-		}
-	}
-	if p.NoFill == nil && (fill != nil || grad != nil) {
-		paint, err := colors.fillPaint(fill, grad, fillPlaceholder, float64(w)/float64(dml.EMUsPerPixel), float64(h)/float64(dml.EMUsPerPixel))
 		if err != nil {
 			return nil, g, err
 		}
-		if ops, err = g.fill(paint); err != nil {
-			return nil, g, err
-		}
+		turn := xf
+		turn.flipH, turn.flipV = false, false
+		ops, err = turn.ops(ops, colors, limits.MaxPathSegments)
+		return ops, g, err
+	}
+	// Without a style reference, an absent fill, an absent outline, or an
+	// outline without a fill is none.
+	paint, filled, err := renderShapePaint(p, st, colors, w, h)
+	if err != nil {
+		return nil, g, err
 	}
 	line, linePlaceholder, err := renderStyledLine(st, p.Ln, colors)
 	if err != nil {
 		return nil, g, err
+	}
+	if p.CustGeom != nil {
+		turned := g.turned
+		ops, g, err := renderCustomShape(p.CustGeom, x, y, w, h, paint, filled, line, linePlaceholder, colors, limits)
+		if err != nil {
+			return nil, g, err
+		}
+		g.turned = turned
+		ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
+		return ops, g, err
+	}
+	turned := g.turned
+	g, err = renderPresetGeometry(v.presetGeometry, p.PrstGeom, x, y, w, h)
+	if err != nil {
+		return nil, g, err
+	}
+	g.turned = turned
+	var ops []layout.Op
+	if filled {
+		if ops, err = g.fill(paint); err != nil {
+			return nil, g, err
+		}
 	}
 	if l := line; l != nil && (l.SolidFill != nil || l.GradFill != nil || l.PattFill != nil) {
 		if l.NoFill != nil {
@@ -647,8 +706,81 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 		}
 		ops = append(ops, outline...)
 	}
+	ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
+	return ops, g, err
+}
+// renderShapePaint resolves a shape's fill, its own or its style's; filled is
+// false for none.
+func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml.EMU) (paint renderPaint, filled bool, err error) {
+	if p.NoFill != nil && (p.SolidFill != nil || p.GradFill != nil) || p.SolidFill != nil && p.GradFill != nil {
+		return paint, false, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
+	}
+	fill, grad := p.SolidFill, p.GradFill
+	var placeholder *style.RGBA
+	if st != nil && p.NoFill == nil && fill == nil && grad == nil {
+		if fill, grad, placeholder, err = renderStyleFill(st.FillRef, colors); err != nil {
+			return paint, false, err
+		}
+	}
+	if p.NoFill != nil || (fill == nil && grad == nil) {
+		return paint, false, nil
+	}
+	px := float64(dml.EMUsPerPixel)
+	paint, err = colors.fillPaint(fill, grad, placeholder, float64(w)/px, float64(h)/px)
+	return paint, err == nil, err
+}
+
+// renderCustomShape draws a custom geometry: each path filled unless its fill
+// is none, then outlined unless its stroke is off. An outline of more than
+// one segment is drawn approximately, with round joins.
+func renderCustomShape(cg *dml.CustGeom, x, y, w, h dml.EMU, paint renderPaint, filled bool, line *dml.Ln, placeholder *style.RGBA, colors *renderColors, limits render.Limits) ([]layout.Op, renderGeometry, error) {
+	paths, insets, err := renderCustomGeometry(cg, x, y, w, h, limits.MaxPathSegments)
+	g := renderGeometry{box: [4]dml.EMU{x, y, w, h}, text: insets}
+	if err != nil {
+		return nil, g, err
+	}
+	px := float64(dml.EMUsPerPixel)
+	box := [4]float64{float64(x) / px, float64(y) / px, float64(w) / px, float64(h) / px}
+	var ops []layout.Op
+	for _, cp := range paths {
+		if !filled || !cp.fill {
+			continue
+		}
+		if cp.shade {
+			if err := colors.approximate(fmt.Errorf("%w: lightened or darkened path fill drawn plain", render.ErrUnsupported)); err != nil {
+				return nil, g, err
+			}
+		}
+		drawn, err := renderCustomFill(cp, paint, box)
+		if err != nil {
+			return nil, g, err
+		}
+		ops = append(ops, drawn...)
+	}
+	if line == nil {
+		return ops, g, nil
+	}
+	for _, cp := range paths {
+		if !cp.stroke {
+			continue
+		}
+		for _, sub := range cp.subpaths {
+			if len(sub.pts) > 2 || sub.closed {
+				if err := colors.approximate(fmt.Errorf("%w: custom outline drawn with round joins", render.ErrUnsupported)); err != nil {
+					return nil, g, err
+				}
+				break
+			}
+		}
+		drawn, err := renderCustomStroke(cp, line, placeholder, colors, limits.MaxPathSegments)
+		if err != nil {
+			return nil, g, err
+		}
+		ops = append(ops, drawn...)
+	}
 	return ops, g, nil
 }
+
 func slideRenderXML(el xml.StartElement) error {
 	var attrs string
 	switch el.Name.Space {
@@ -775,7 +907,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "cx cy"
 		case "prstGeom":
 			attrs = "prst"
-		case "srgbClr", "schemeClr", "tint", "shade", "alpha", "alphaMod", "alphaOff", "hue", "hueMod", "hueOff", "sat", "satMod", "satOff",
+		case "srgbClr", "schemeClr", "prstClr", "tint", "shade", "alpha", "alphaMod", "alphaOff", "hue", "hueMod", "hueOff", "sat", "satMod", "satOff",
 			"lum", "lumMod", "lumOff", "red", "redMod", "redOff", "green", "greenMod", "greenOff", "blue", "blueMod", "blueOff":
 			attrs = "val"
 		case "comp", "inv", "gray", "gamma", "invGamma":
@@ -794,7 +926,23 @@ func slideRenderXML(el xml.StartElement) error {
 		case "lin":
 			attrs = "ang scaled"
 		case "path":
-			attrs = "path"
+			// A gradient's path shade, or a geometry path.
+			attrs = "path w h fill stroke extrusionOk"
+		case "pt", "pos":
+			attrs = "x y"
+		case "arcTo":
+			attrs = "wR hR stAng swAng"
+		case "rect":
+			attrs = "l t r b"
+		case "ahXY":
+			attrs = "gdRefX minX maxX gdRefY minY maxY"
+		case "ahPolar":
+			attrs = "gdRefR minR maxR gdRefAng minAng maxAng"
+		case "cxn":
+			attrs = "ang"
+		case "prstTxWarp":
+			attrs = "prst"
+		case "custGeom", "gdLst", "ahLst", "cxnLst", "pathLst", "moveTo", "lnTo", "quadBezTo", "cubicBezTo", "close":
 		case "gsLst":
 		case "ln":
 			attrs = "w cap cmpd algn"
@@ -858,15 +1006,64 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 	}
 	return nil
 }
-func renderPictureProperties(p *dml.SpPr) error {
-	if p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil || p.ExtLst != nil {
+// renderOrientImage applies a picture's flips and rotation to its pixels:
+// quarter turns exactly, turning the drawn box about its centre, and other
+// angles, approximately, not at all.
+func renderOrientImage(img image.Image, rect layout.Rect, flipH, flipV bool, rot int32, colors *renderColors) (image.Image, layout.Rect, error) {
+	turns := 0
+	switch r := ((rot % 21600000) + 21600000) % 21600000; r {
+	case 0, 5400000, 10800000, 16200000:
+		turns = int(r / 5400000)
+	default:
+		if err := colors.approximate(fmt.Errorf("%w: picture drawn unrotated", render.ErrUnsupported)); err != nil {
+			return nil, rect, err
+		}
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	ow, oh := w, h
+	if turns%2 == 1 {
+		ow, oh = h, w
+		cx, cy := rect.X+rect.W/2, rect.Y+rect.H/2
+		rect = layout.Rect{X: cx - rect.H/2, Y: cy - rect.W/2, W: rect.H, H: rect.W}
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, ow, oh))
+	for sy := 0; sy < h; sy++ {
+		for sx := 0; sx < w; sx++ {
+			// Flip in the picture's own frame, then turn clockwise.
+			fx, fy := sx, sy
+			if flipH {
+				fx = w - 1 - sx
+			}
+			if flipV {
+				fy = h - 1 - sy
+			}
+			dx, dy := fx, fy
+			switch turns {
+			case 1:
+				dx, dy = h-1-fy, fx
+			case 2:
+				dx, dy = w-1-fx, h-1-fy
+			case 3:
+				dx, dy = fy, w-1-fx
+			}
+			out.Set(dx, dy, img.At(b.Min.X+sx, b.Min.Y+sy))
+		}
+	}
+	return out, rect, nil
+}
+
+func renderPictureProperties(p *dml.SpPr, colors *renderColors) error {
+	if p.CustGeom != nil || p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil {
 		return fmt.Errorf("%w: picture shape properties", render.ErrUnsupported)
 	}
-	if p.Xfrm != nil && (p.Xfrm.Rot != 0 || p.Xfrm.FlipH || p.Xfrm.FlipV) {
-		return fmt.Errorf("%w: picture transformation", render.ErrUnsupported)
+	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
+		return err
 	}
-	if p.Ln != nil && (p.Ln.NoFill == nil || p.Ln.SolidFill != nil || p.Ln.GradFill != nil || p.Ln.PattFill != nil) {
-		return fmt.Errorf("%w: picture outline", render.ErrUnsupported)
+	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
+		if err := colors.approximate(fmt.Errorf("%w: picture effects left out", render.ErrUnsupported)); err != nil {
+			return err
+		}
 	}
 	if p.PrstGeom != nil && (p.PrstGeom.Prst != "rect" || (p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0)) {
 		return fmt.Errorf("%w: picture geometry", render.ErrUnsupported)
@@ -969,14 +1166,40 @@ type renderExtensionOwner struct {
 // every other extension fails explicitly.
 var renderExtensions = map[string]renderExtensionOwner{
 	"p:cNvPr":     {list: nsA, uris: []string{xmlb.ExtURICreationId, xmlb.ExtURIDecorative}},
-	"a:blip":      {list: nsA, uris: []string{xmlb.ExtURIUseLocalDpi}},
+	// A picture with an SVG keeps a raster fallback, which is drawn.
+	"a:blip": {list: nsA, uris: []string{xmlb.ExtURIUseLocalDpi, xmlb.ExtURISvgBlip}},
+	// Hidden fills, lines and effects are kept for older editors and never
+	// shown; the text box flag and shadow obscuring paint nothing here.
+	"p:spPr": {list: nsA, uris: []string{xmlb.ExtURIHiddenFill, xmlb.ExtURIHiddenLine, xmlb.ExtURIHiddenEffects, xmlb.ExtURIShadowObscured, renderExtURIWrappingTextBox}},
 	"p:cSld":      {list: nsP, uris: []string{xmlb.ExtURIPMLCreationId}},
 	"p:sld":       {list: nsP, uris: []string{xmlb.ExtURISldGuideLst}},
 	"p:sldLayout": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstLayout}},
 	"p:sldMaster": {list: nsP, uris: []string{xmlb.ExtURISldGuideLstMaster}},
-	"p:nvPr":      {list: nsP, uris: []string{xmlb.ExtURIPMLModId}},
+	"p:nvPr":      {list: nsP, uris: []string{xmlb.ExtURIPMLModId, renderExtURIDesignElement}},
 	"a:gridCol":   {list: nsA, uris: []string{xmlb.ExtURIColId}},
 	"a:tr":        {list: nsA, uris: []string{xmlb.ExtURIRowId}},
+}
+
+const (
+	// renderExtURIWrappingTextBox flags a shape Office for Mac made as a
+	// text box.
+	renderExtURIWrappingTextBox = "{C572A759-6A51-4108-AA02-DFA0A04FC94B}"
+	// renderExtURIDesignElement marks a shape PowerPoint Designer added.
+	renderExtURIDesignElement = "{386F3935-93C4-4BCD-93E2-E3B085C9AB24}"
+)
+
+// renderDMLExtensions applies the extension profile to a parsed DrawingML
+// list.
+func renderDMLExtensions(l *dml.ExtLst, owner string) error {
+	if l == nil {
+		return nil
+	}
+	for _, e := range l.Ext {
+		if e == nil || !renderExtensionAllowed(renderExtensions[owner], e.URI) {
+			return fmt.Errorf("%w: shape property extension", render.ErrUnsupported)
+		}
+	}
+	return nil
 }
 
 func renderExtensionAllowed(owner renderExtensionOwner, uri string) bool {
@@ -1112,17 +1335,19 @@ func slideRenderNode(node core.XMLNode) error {
 		return fmt.Errorf("%w: field paragraph properties", render.ErrUnsupported)
 	}
 	repeated := (node.Name.Space == nsP && (node.Name.Local == "sp" || node.Name.Local == "pic" || node.Name.Local == "graphicFrame" || node.Name.Local == "cxnSp" || node.Name.Local == "grpSp")) ||
-		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gs" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
+		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gs" || node.Name.Local == "path" || node.Name.Local == "moveTo" || node.Name.Local == "lnTo" ||
+			node.Name.Local == "arcTo" || node.Name.Local == "quadBezTo" || node.Name.Local == "cubicBezTo" || node.Name.Local == "close" || node.Name.Local == "pt" || node.Name.Local == "cxn" ||
+			node.Name.Local == "ahXY" || node.Name.Local == "ahPolar" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
 	el := node.StartElement
-	// A connector's or line's direction is its flips; the shape renderers
-	// read them and reject flipped shapes they cannot draw.
-	if n := len(node.Path); n >= 3 && el.Name == (xml.Name{Space: nsA, Local: "xfrm"}) && (node.Path[n-3] == (xml.Name{Space: nsP, Local: "cxnSp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "sp"})) {
+	// Shape, connector and picture renderers read rotation and flips and
+	// reject what they cannot draw.
+	if n := len(node.Path); n >= 3 && el.Name == (xml.Name{Space: nsA, Local: "xfrm"}) && (node.Path[n-3] == (xml.Name{Space: nsP, Local: "cxnSp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "sp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "pic"})) {
 		var attrs []xml.Attr
 		for _, a := range el.Attr {
-			if a.Name.Space != "" || (a.Name.Local != "flipH" && a.Name.Local != "flipV") {
+			if a.Name.Space != "" || (a.Name.Local != "flipH" && a.Name.Local != "flipV" && a.Name.Local != "rot") {
 				attrs = append(attrs, a)
 			}
 		}
@@ -1215,8 +1440,9 @@ var renderColorTransforms = []string{"tint", "shade", "comp", "inv", "gray", "al
 
 func init() {
 	for _, name := range renderColorTransforms {
-		renderXMLParents["a:"+name] = "a:srgbClr a:schemeClr a:sysClr"
+		renderXMLParents["a:"+name] = "a:srgbClr a:schemeClr a:sysClr a:prstClr"
 	}
+	renderXMLParents["a:prstClr"] = renderXMLParents["a:srgbClr"]
 }
 
 var renderXMLParents = map[string]string{
@@ -1234,7 +1460,7 @@ var renderXMLParents = map[string]string{
 	"p:cSld": "p:sld p:sldMaster p:sldLayout", "p:spTree": "p:cSld", "p:bg": "p:cSld", "p:bgPr": "p:bg",
 	"p:clrMapOvr": "p:sld p:sldLayout", "a:masterClrMapping": "p:clrMapOvr", "a:overrideClrMapping": "p:clrMapOvr", "p:bgRef": "p:bg", "p:hf": "p:sldMaster p:sldLayout",
 	"p:nvGrpSpPr": "p:spTree p:grpSp", "p:grpSp": "p:spTree p:grpSp", "a:grpSpLocks": "p:cNvGrpSpPr", "p:grpSpPr": "p:spTree p:grpSp", "p:sp": "p:spTree p:grpSp", "p:pic": "p:spTree p:grpSp",
-	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
+	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree p:grpSp", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
 	"p:style": "p:cxnSp p:sp", "a:lnRef": "p:style", "a:fillRef": "p:style", "a:effectRef": "p:style", "a:fontRef": "p:style", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr",
 	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
 	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
@@ -1243,7 +1469,10 @@ var renderXMLParents = map[string]string{
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",
 	"p:nvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr", "p:spPr": "p:sp p:pic p:cxnSp", "p:blipFill": "p:pic",
 	"a:xfrm": "p:spPr p:grpSpPr", "a:off": "a:xfrm p:xfrm", "a:ext": "a:xfrm p:xfrm", "a:chOff": "a:xfrm", "a:chExt": "a:xfrm",
-	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom", "a:gd": "a:avLst",
+	"a:prstGeom": "p:spPr", "a:avLst": "a:prstGeom a:custGeom a:prstTxWarp", "a:gd": "a:avLst a:gdLst", "a:prstTxWarp": "a:bodyPr",
+	"a:custGeom": "p:spPr", "a:gdLst": "a:custGeom", "a:ahLst": "a:custGeom", "a:ahXY": "a:ahLst", "a:ahPolar": "a:ahLst", "a:cxnLst": "a:custGeom", "a:cxn": "a:cxnLst",
+	"a:pos": "a:ahXY a:ahPolar a:cxn", "a:rect": "a:custGeom", "a:pathLst": "a:custGeom", "a:moveTo": "a:path", "a:lnTo": "a:path", "a:arcTo": "a:path",
+	"a:quadBezTo": "a:path", "a:cubicBezTo": "a:path", "a:close": "a:path", "a:pt": "a:moveTo a:lnTo a:quadBezTo a:cubicBezTo",
 	// Effect lists are admitted empty; no effect element is.
 	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
 	"a:prstDash":  renderLineParents, "a:round": renderLineParents, "a:bevel": renderLineParents, "a:miter": renderLineParents,
@@ -1252,6 +1481,6 @@ var renderXMLParents = map[string]string{
 	"a:highlight": renderRunParents,
 	"a:ln": "p:spPr " + renderRunParents,
 	"a:gradFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
-	"a:lin": "a:gradFill", "a:path": "a:gradFill", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
+	"a:lin": "a:gradFill", "a:path": "a:gradFill a:pathLst", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill", "a:srcRect": "p:blipFill", "a:stretch": "p:blipFill", "a:fillRect": "a:stretch",
 }

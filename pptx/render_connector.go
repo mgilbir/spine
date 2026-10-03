@@ -35,16 +35,28 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 	if src == nil || c.dirty {
 		return nil, fmt.Errorf("%w: new or edited connector; save and reopen to preview it", render.ErrUnsupported)
 	}
+	return renderConnectorSource(src, colors, limits)
+}
+
+// renderConnect paints a parsed connector on a layout, master or in a group,
+// whose geometry is mapped to the page.
+type renderConnect func(*oxml.ConnectionShape) ([]layout.Op, error)
+
+// renderConnectorSource paints a parsed connector.
+func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limits render.Limits) ([]layout.Op, error) {
 	p := src.SpPr
 	if p == nil || p.Xfrm == nil || p.Xfrm.Off == nil || p.Xfrm.Ext == nil || src.ExtLst != nil {
 		return nil, fmt.Errorf("%w: connector geometry", render.ErrUnsupported)
 	}
-	if p.Xfrm.Rot != 0 || p.PrstGeom == nil || (p.PrstGeom.Prst != "straightConnector1" && p.PrstGeom.Prst != "line") || (p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0) || p.CustGeom != nil {
-		return nil, fmt.Errorf("%w: rotated, bent or curved connector", render.ErrUnsupported)
+	if p.PrstGeom == nil || (p.PrstGeom.Prst != "straightConnector1" && p.PrstGeom.Prst != "line") || (p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0) || p.CustGeom != nil {
+		return nil, fmt.Errorf("%w: bent or curved connector", render.ErrUnsupported)
 	}
 	// A line has no interior, so a fill on it paints nothing.
-	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || p.ExtLst != nil {
+	if p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil {
 		return nil, fmt.Errorf("%w: connector fill", render.ErrUnsupported)
+	}
+	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
+		return nil, err
 	}
 	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
 		if err := colors.approximate(fmt.Errorf("%w: connector effects left out", render.ErrUnsupported)); err != nil {
@@ -64,7 +76,14 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 		y0, y1 = y1, y0
 	}
 	px := float64(dml.EMUsPerPixel)
-	return renderLineStroke(line, placeholder, colors, x0/px, y0/px, x1/px, y1/px, limits.MaxPathSegments)
+	ops, err := renderLineStroke(line, placeholder, colors, x0/px, y0/px, x1/px, y1/px, limits.MaxPathSegments)
+	if err != nil {
+		return nil, err
+	}
+	// The flips chose the ends; the rotation turns the line about its
+	// middle.
+	turn := renderShapeTransform{rot: float64(p.Xfrm.Rot) / 60000, cx: (x0 + x1) / 2 / px, cy: (y0 + y1) / 2 / px}
+	return turn.ops(ops, colors, limits.MaxPathSegments)
 }
 
 // renderStyledLine resolves a line from a style reference and an explicit
@@ -96,7 +115,7 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 			}
 		}
 		if r := st.LnRef; r != nil && r.Idx != 0 {
-			c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.ScrgbClr != nil, r.HslClr != nil, r.PrstClr != nil), nil)
+			c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.PrstClr, r.ScrgbClr != nil, r.HslClr != nil), nil)
 			if err != nil {
 				return nil, nil, err
 			}

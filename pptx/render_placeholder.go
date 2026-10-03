@@ -299,6 +299,9 @@ func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape,
 		return nil, err
 	}
 	text, err := renderShapeText(ctx, sp, box, geometry, breaker, fonts, styles, ph)
+	if err == nil && geometry.turned && len(text) > 0 {
+		err = colors.approximate(fmt.Errorf("%w: text of a rotated or flipped shape drawn upright", render.ErrUnsupported))
+	}
 	if err = soft(renderTextLeftOut(v, err)); err != nil {
 		return nil, err
 	}

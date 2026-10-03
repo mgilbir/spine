@@ -761,7 +761,7 @@ func (t *renderTextStyles) bullet(layers [][]renderLayer[*dml.PPr]) (renderBulle
 			return paint{}, true, nil
 		case pp.BuClr != nil:
 			c := pp.BuClr
-			v, err := t.colors.color(renderColorOf(c.SrgbClr, c.SchemeClr, c.SysClr, c.ScRgbClr != nil, c.HslClr != nil, c.PrstClr != nil), nil)
+			v, err := t.colors.color(renderColorOf(c.SrgbClr, c.SchemeClr, c.SysClr, c.PrstClr, c.ScRgbClr != nil, c.HslClr != nil), nil)
 			return paint{own: true, c: v}, err == nil, err
 		}
 		return paint{}, false, nil

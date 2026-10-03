@@ -21,6 +21,9 @@ type renderGeometry struct {
 	// text holds the preset's text rectangle insets from the box: left, top,
 	// right, bottom.
 	text [4]dml.EMU
+	// turned is set when the shape's rotation or vertical flip would turn
+	// its text, which is drawn upright.
+	turned bool
 }
 
 // renderPresetGeometry evaluates the preset geometries this profile draws,
@@ -217,10 +220,17 @@ func (g renderGeometry) stroke(ln *dml.Ln, placeholder *style.RGBA, colors *rend
 		return nil, fmt.Errorf("%w: line join choice", render.ErrInvalid)
 	}
 	if g.ellipse && g.box[2] != g.box[3] {
-		return nil, fmt.Errorf("%w: elliptical outline", render.ErrUnsupported)
+		// The offsets of an ellipse are not ellipses; best effort draws the
+		// ring between the ellipses with offset radii.
+		if err := colors.approximate(fmt.Errorf("%w: elliptical outline", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
 	}
 	if !g.ellipse && g.radius == 0 && join == renderJoinUnset {
-		return nil, fmt.Errorf("%w: unspecified line join on a sharp corner", render.ErrUnsupported)
+		if err := colors.approximate(fmt.Errorf("%w: unspecified line join drawn mitered", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+		join = renderJoinMiter
 	}
 	c, err := colors.solid(ln.SolidFill, placeholder)
 	if err != nil {
