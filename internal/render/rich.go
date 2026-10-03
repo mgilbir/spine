@@ -19,6 +19,10 @@ type Span struct {
 	Size     style.Unit
 	Text     string
 	Features shape.Features
+	// TabStop, when positive, is the distance between tab stops, measured
+	// from the start of the line: a tab advances to the next. Without it a
+	// tab is unsupported.
+	TabStop style.Unit
 }
 
 // RichSegment is the part of one span on one line, shaped on its own.
@@ -70,7 +74,7 @@ func (t *TextLayout) RichLines(ctx context.Context, spans []Span, width style.Un
 		}
 		total += len(s.Text)
 		for _, c := range s.Text {
-			if !repertoire.allows(c) {
+			if !repertoire.allows(c) && (c != '\t' || s.TabStop <= 0) {
 				return nil, fmt.Errorf("%w: plain paragraph character", ErrUnsupported)
 			}
 		}
@@ -168,7 +172,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if piece.ZeroWidth || piece.Tab || piece.Segment {
+		if piece.ZeroWidth || piece.Segment {
 			return fmt.Errorf("%w: paragraph break", ErrUnsupported)
 		}
 		end := byteOffset + len(piece.Text)
@@ -187,6 +191,16 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			part := s.Text[from:to]
 			measure := measures[faceOf[span]]
 			how := paragraph.Shaping{MergeBefore: s.Text[:from], MergeAfter: s.Text[to:], MergeGroup: s.Text, ContextKerns: true, Off: s.Features}
+			if piece.Tab {
+				// A tab's advance is resolved where it falls on a line.
+				if part != "\t" || s.TabStop <= 0 {
+					return fmt.Errorf("%w: paragraph tab", ErrUnsupported)
+				}
+				items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Tab: true, TabStop: s.TabStop, BreakBefore: piece.BreakBefore && at == byteOffset})
+				where = append(where, richItem{span: span, offset: from})
+				at += len(part)
+				continue
+			}
 			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
 			where = append(where, richItem{span: span, offset: from})
 			at += len(part)
@@ -220,7 +234,8 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			if item.Text != items[index+k].Text {
 				return fmt.Errorf("%w: paragraph line mapping", ErrUnsupported)
 			}
-			if n := len(segments); n > 0 && segments[n-1].Span == w.span {
+			// A tab is a segment of its own, which draws nothing.
+			if n := len(segments); n > 0 && segments[n-1].Span == w.span && !item.Tab && segments[n-1].Text != "\t" {
 				segments[n-1].Text += item.Text
 				continue
 			}
@@ -230,6 +245,16 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		for k := range segments {
 			sg := &segments[k]
 			s := spans[sg.Span]
+			if sg.Text == "\t" {
+				at, ok := style.FromPx(pen)
+				if !ok {
+					return fmt.Errorf("%w: paragraph advance", ErrInvalid)
+				}
+				w := paragraph.TabAdvance(at, s.TabStop, 0)
+				sg.Face, sg.Size, sg.X, sg.Width = faces[faceOf[sg.Span]], s.Size, at, w
+				pen += w.Px()
+				continue
+			}
 			glyphs, missing := measures[faceOf[sg.Span]].ShapeGlyphsMerged(sg.Text, "", "", "", "", false, s.Features)
 			if missing != 0 {
 				return fmt.Errorf("%w: paragraph missing glyph", ErrUnsupported)

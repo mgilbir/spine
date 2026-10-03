@@ -305,7 +305,10 @@ its end-of-paragraph properties; a paragraph with runs takes it from them, as
 LibreOffice's import does. A line break (`a:br`) starts a new line; an empty
 line takes its box from the break's properties, or after a trailing break
 from the end-of-paragraph properties. A field (`a:fld`) is drawn with the text
-it was saved with, which a viewer may update, such as a date. Rich styles, tabs, bidi,
+it was saved with, which a viewer may update, such as a date. A tab advances
+to the next default tab stop (`defTabSz`, inherited, 1" by default), measured
+from the start of the line; explicit stops (`a:tabLst`) fail, and best effort
+places tabs at the default spacing. Rich styles, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML

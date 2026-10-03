@@ -272,3 +272,26 @@ func TestRichLinesMatchSingleSpanAndMixFaces(t *testing.T) {
 		t.Fatalf("empty paragraph: %+v %v", empty, err)
 	}
 }
+
+func TestRichLinesTabs(t *testing.T) {
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, _ := NewTextLayout(Limits{})
+	if _, err = layout.RichLines(context.Background(), []Span{{Face: noto, Size: unit(16), Text: "A\tB"}}, unit(400), RepertoireEuropean); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("tab without stops: %v", err)
+	}
+	lines, err := layout.RichLines(context.Background(), []Span{{Face: noto, Size: unit(16), Text: "A\tB\tC", TabStop: unit(100)}}, unit(400), RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A, a tab to 100, B, a tab to 200, C.
+	if len(lines) != 1 || len(lines[0].Segments) != 5 {
+		t.Fatalf("lines: %+v", lines)
+	}
+	sg := lines[0].Segments
+	if sg[1].Text != "\t" || len(sg[1].Glyphs) != 0 || sg[2].X != unit(100) || sg[4].X != unit(200) {
+		t.Fatalf("tab stops: %v %v %v", sg[1].Text, sg[2].X, sg[4].X)
+	}
+}
