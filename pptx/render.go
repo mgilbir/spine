@@ -1296,13 +1296,14 @@ func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderSh
 		return nil, nil
 	}
 	// The fallback's prefixes are declared on the slide root; declare the
-	// presentation, drawing and relationship ones around it.
+	// presentation, drawing and relationship ones around it. The checked
+	// parse rejects any other prefix the fallback leaves unbound.
 	var src bytes.Buffer
 	src.WriteString(`<p:spTree xmlns:p="` + nsP + `" xmlns:a="` + nsA + `" xmlns:r="` + nsR + `">`)
 	src.Write(ac.Fallback)
 	src.WriteString(`</p:spTree>`)
 	var tree oxml.ShapeTree
-	if err := xml.Unmarshal(src.Bytes(), &tree); err != nil {
+	if err := xmlb.Unmarshal(src.Bytes(), &tree); err != nil {
 		return nil, fmt.Errorf("%w: alternate content fallback: %w", render.ErrInvalid, err)
 	}
 	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: s.partName}, budget, draw, connect, warn, colors, maxSegments)
