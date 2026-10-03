@@ -1311,10 +1311,10 @@ func paragraphToOxml(p *Paragraph) *dml.P {
 			ap.PPr.LnSpc = &dml.LnSpc{SpcPct: &dml.SpcPct{Val: dml.NewPercentage(p.lineSpacing)}}
 		}
 		if p.spaceBefore != 0 || p.isSet(paraPropSpaceBefore) {
-			ap.PPr.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
+			ap.PPr.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: spacingPoints(p.spaceBefore)}}
 		}
 		if p.spaceAfter != 0 || p.isSet(paraPropSpaceAfter) {
-			ap.PPr.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: int32(p.spaceAfter)}}
+			ap.PPr.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: spacingPoints(p.spaceAfter)}}
 		}
 	}
 

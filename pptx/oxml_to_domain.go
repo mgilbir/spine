@@ -795,10 +795,10 @@ func oxmlToParagraph(p *dml.P) *Paragraph {
 
 		// Space before/after
 		if p.PPr.SpcBef != nil && p.PPr.SpcBef.SpcPts != nil {
-			para.spaceBefore = dml.EMU(p.PPr.SpcBef.SpcPts.Val)
+			para.spaceBefore = spacingEMU(p.PPr.SpcBef.SpcPts.Val)
 		}
 		if p.PPr.SpcAft != nil && p.PPr.SpcAft.SpcPts != nil {
-			para.spaceAfter = dml.EMU(p.PPr.SpcAft.SpcPts.Val)
+			para.spaceAfter = spacingEMU(p.PPr.SpcAft.SpcPts.Val)
 		}
 	}
 

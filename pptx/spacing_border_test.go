@@ -1,6 +1,8 @@
 package pptx
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -11,8 +13,8 @@ import (
 func TestParagraphToOxml_Spacing(t *testing.T) {
 	p := &Paragraph{}
 	p.SetLineSpacing(150000) // 150%
-	p.SetSpaceBefore(1200)
-	p.SetSpaceAfter(600)
+	p.SetSpaceBefore(dml.Points(12)) // 1200 hundredths of a point
+	p.SetSpaceAfter(dml.Points(6))
 
 	ap := paragraphToOxml(p)
 	if ap.PPr == nil {
@@ -68,5 +70,66 @@ func TestTableDataToOxml_CellBorders(t *testing.T) {
 	tc = tableDataToOxml(tbl).Tr[0].Tc[0]
 	if tc.TcPr.LnT == nil || tc.TcPr.LnT.NoFill == nil {
 		t.Errorf("none border not serialized as no-fill line: %+v", tc.TcPr.LnT)
+	}
+}
+
+// Issue #356: space before and after are EMU in the API and hundredths of
+// a point in a:spcPts.
+func TestParagraphSpacingUnits(t *testing.T) {
+	for _, tc := range []struct {
+		emu  dml.EMU
+		want int32
+	}{
+		{dml.Points(6), 600},
+		{0, 0},
+		{190, 1},  // 1.496 hundredths rounds down
+		{191, 2},  // 1.504 rounds up
+		{-127, 0}, // the schema has no negative spacing
+		{dml.Points(2000), 158400},
+	} {
+		if got := spacingPoints(tc.emu); got != tc.want {
+			t.Errorf("spacingPoints(%d) = %d, want %d", tc.emu, got, tc.want)
+		}
+	}
+	if spacingEMU(600) != dml.Points(6) {
+		t.Errorf("spacingEMU(600) = %d", spacingEMU(600))
+	}
+
+	// The issue's reproduction: 6pt is written as 600, and reads back.
+	p := Create()
+	s := p.AddSlide()
+	para := s.AddTextBox().TextFrame().AddParagraph()
+	para.SetSpaceBefore(dml.Points(6))
+	para.SetSpaceAfter(dml.Points(3))
+	para.AddRun().SetText("x")
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slideXML := string(zipPart(t, data, "ppt/slides/slide1.xml"))
+	if !strings.Contains(slideXML, `<a:spcBef><a:spcPts val="600"/></a:spcBef>`) || !strings.Contains(slideXML, `<a:spcAft><a:spcPts val="300"/></a:spcAft>`) {
+		t.Fatalf("spacing written as:\n%s", slideXML)
+	}
+	reopened, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *Paragraph
+	for _, shape := range reopened.Slides()[0].Shapes() {
+		if tb, ok := shape.(*TextBox); ok {
+			got = tb.TextFrame().Paragraphs()[0]
+		}
+	}
+	if got == nil || got.SpaceBefore() != dml.Points(6) || got.SpaceAfter() != dml.Points(3) {
+		t.Fatalf("read back: %+v", got)
+	}
+	// Edited in place on the reopened deck, the new spacing is converted too.
+	got.SetSpaceBefore(dml.Points(9))
+	data, err = reopened.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slideXML = string(zipPart(t, data, "ppt/slides/slide1.xml")); !strings.Contains(slideXML, `<a:spcPts val="900"/>`) {
+		t.Fatalf("edited spacing written as:\n%s", slideXML)
 	}
 }

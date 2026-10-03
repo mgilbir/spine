@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- pptx: `Paragraph.SetSpaceBefore`/`SetSpaceAfter` and `SpaceBefore`/
+  `SpaceAfter` now convert between their EMU and `a:spcPts`'s hundredths of a
+  point (#356). They wrote and read the EMU number unconverted, 127 times too
+  large: `SetSpaceBefore(dml.Points(6))` saved 762 points, and a file's 6
+  points read back as 600 EMU. Saved values are rounded to the nearest
+  hundredth of a point and kept within the schema's 0 to 1584 points, so a
+  value read back is a multiple of 127 EMU. Callers who passed hundredths of a
+  point to work around this now get 127 times less space, and should pass EMU,
+  such as `dml.Points(6)`.
+
 ## 0.3.1 - 2026-09-29
 
 Three defects, all present in 0.3.0, all found by the nightly fuzzers. Nothing
