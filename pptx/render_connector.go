@@ -43,8 +43,18 @@ func (s *Slide) renderConnector(index int, c *Connector, colors *renderColors, l
 // whose geometry is mapped to the page.
 type renderConnect func(*oxml.ConnectionShape) ([]layout.Op, error)
 
-// renderConnectorSource paints a parsed connector.
+// renderConnectorSource paints a parsed connector with its effects.
 func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limits render.Limits) ([]layout.Op, error) {
+	ops, err := renderConnectorOps(src, colors, limits)
+	if err != nil || len(ops) == 0 {
+		return ops, err
+	}
+	p := src.SpPr
+	return renderShapeEffects(ops, p.EffectLst, p.EffectDag != nil, p.Scene3d != nil || p.Sp3d != nil, src.Style, colors, limits.MaxOperations)
+}
+
+// renderConnectorOps paints a parsed connector without its effects.
+func renderConnectorOps(src *oxml.ConnectionShape, colors *renderColors, limits render.Limits) ([]layout.Op, error) {
 	p := src.SpPr
 	if p == nil || p.Xfrm == nil || p.Xfrm.Off == nil || p.Xfrm.Ext == nil || src.ExtLst != nil {
 		return nil, fmt.Errorf("%w: connector geometry", render.ErrUnsupported)
@@ -82,11 +92,6 @@ func renderConnectorSource(src *oxml.ConnectionShape, colors *renderColors, limi
 	}
 	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
 		return nil, err
-	}
-	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
-		if err := colors.approximate(fmt.Errorf("%w: connector effects left out", render.ErrUnsupported)); err != nil {
-			return nil, err
-		}
 	}
 	line, placeholder, err := renderStyledLine(src.Style, p.Ln, colors)
 	if err != nil || line == nil {
@@ -129,25 +134,6 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 		placeholder *style.RGBA
 	)
 	if st != nil {
-		if r := st.EffectRef; r != nil && r.Idx != 0 {
-			theme, err := colors.loadTheme()
-			if err != nil {
-				return nil, nil, err
-			}
-			var list *dml.EffectStyleLst
-			if theme.ThemeElements != nil && theme.ThemeElements.FmtScheme != nil {
-				list = theme.ThemeElements.FmtScheme.EffectStyleLst
-			}
-			if list == nil || int(r.Idx) > len(list.EffectStyle) || list.EffectStyle[r.Idx-1] == nil {
-				return nil, nil, fmt.Errorf("%w: effect style %d", render.ErrInvalid, r.Idx)
-			}
-			e := list.EffectStyle[r.Idx-1]
-			if renderEffects(e.EffectLst) || e.EffectDag != nil || e.Scene3d != nil || e.Sp3d != nil {
-				if err := colors.approximate(fmt.Errorf("%w: theme effect style left out", render.ErrUnsupported)); err != nil {
-					return nil, nil, err
-				}
-			}
-		}
 		if r := st.LnRef; r != nil && r.Idx != 0 {
 			c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.PrstClr, r.ScrgbClr != nil, r.HslClr != nil), nil)
 			if err != nil {
