@@ -6,13 +6,17 @@ import (
 	"errors"
 	"image/color"
 	"image/png"
+	"math"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/forme/fonttest"
 	"github.com/mgilbir/forme/shape"
+	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/enum"
+	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -222,5 +226,89 @@ func TestRenderExplicitTextBoxAndSave(t *testing.T) {
 	}()
 	if _, err = opened.Slides()[0].PrepareRender(context.Background(), opts); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenderJustifiedText(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	// "A A AA" in the 48px box breaks after "A A "; each A is 16px, a space
+	// 8px and a line 16px high, starting at (4,4).
+	for _, tc := range []struct {
+		align string
+		want  map[[2]int]color.NRGBA
+	}{
+		// The first line's one space widens to put its second A flush
+		// right; the last line stays left.
+		{"just", map[[2]int]color.NRGBA{{28, 10}: white, {45, 10}: black, {45, 26}: white, {10, 26}: black}},
+		{"justLow", map[[2]int]color.NRGBA{{28, 10}: white, {45, 10}: black}},
+		// Distributed text spreads every line's character gaps: the first
+		// line's two 4px wider, the last line's one 16px wider.
+		{"dist", map[[2]int]color.NRGBA{{22, 10}: white, {30, 10}: white, {40, 10}: black, {28, 26}: white, {45, 26}: black}},
+	} {
+		var warnings []string
+		opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			if !strings.Contains(s, `algn="l"`) || !strings.Contains(s, "AA AA") {
+				t.Fatalf("slide: %s", s)
+			}
+			return strings.Replace(strings.Replace(s, `algn="l"`, `algn="`+tc.align+`"`, 1), "AA AA", "A A AA", 1)
+		}})
+		if len(warnings) != 0 {
+			t.Fatalf("%s: %q", tc.align, warnings)
+		}
+		for at, want := range tc.want {
+			if px := renderPixel(t, got, at[0], at[1]); px != want {
+				t.Fatalf("%s at %v: %+v, want %+v", tc.align, at, px, want)
+			}
+		}
+	}
+}
+
+func TestRenderJustifyGaps(t *testing.T) {
+	px := func(v float64) style.Unit { u, _ := style.FromPx(v); return u }
+	// Glyphs of 10px at size 10px, one per byte.
+	seg := func(text string, x float64) core.RichSegment {
+		var glyphs []shape.Glyph
+		if text != "\t" {
+			for i := range text {
+				glyphs = append(glyphs, shape.Glyph{GID: 1, Cluster: i, XAdvance: 1000})
+			}
+		}
+		return core.RichSegment{Text: text, Glyphs: glyphs, Size: px(10), X: px(x), Width: px(10 * float64(len(glyphs)))}
+	}
+	starts := func(segments []core.RichSegment) []float64 {
+		var out []float64
+		for _, sg := range segments {
+			pen := sg.X.Px()
+			for _, g := range sg.Glyphs {
+				out = append(out, math.Round(pen))
+				pen += g.XAdvance * sg.Size.Px() / 1000
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name       string
+		segments   []core.RichSegment
+		distribute bool
+		want       []float64
+	}{
+		// Two spaces share 30px; the trailing space hangs.
+		{"spaces", []core.RichSegment{seg("a b", 0), seg(" c ", 30)}, false, []float64{0, 10, 35, 45, 70, 80}},
+		// Only spaces after the last tab widen.
+		{"tab", []core.RichSegment{seg("a b", 0), seg("\t", 30), seg("c d", 40)}, false, []float64{0, 10, 20, 40, 50, 70}},
+		{"ends in a tab", []core.RichSegment{seg("a b", 0), seg("\t", 30)}, false, []float64{0, 10, 20}},
+		{"one word", []core.RichSegment{seg("abc", 0)}, false, []float64{0, 10, 20}},
+		{"distributed", []core.RichSegment{seg("abc", 0)}, true, []float64{0, 35, 70}},
+	} {
+		got := starts(renderJustify(tc.segments, 80, tc.distribute))
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

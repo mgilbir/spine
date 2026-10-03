@@ -275,11 +275,16 @@ master's theme and colors through the slide's color map. Inherited styles are
 checked for unsupported content only when a slide has text; the presentation
 default text style counts toward the source budget.
 
-The resolved paragraph must be left, centered or right aligned with percentage
-line spacing, point-based space before and after (none before the first
-paragraph, whose treatment depends on undocumented `spcFirstLastPara`
-behavior). Best effort draws justified and distributed paragraphs left
-aligned; an exact line height (`spcPts`) with the line's glyphs keeping their
+The resolved paragraph must be left, centered, right, justified or
+distributed with percentage line spacing, point-based space before and after
+(none before the first paragraph, whose treatment depends on undocumented
+`spcFirstLastPara` behavior). Justified lines widen their spaces to fill the
+line, except a paragraph's last line and lines ended by a break, as
+LibreOffice draws them; distributed lines, the last included, widen every
+gap between characters. Spaces ending a line hang and are not widened, and a
+tab stop holds what comes before it, so only spaces after a line's last tab
+widen. The kashida and Thai variants draw as these, from which they differ
+only in scripts this profile does not draw. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word

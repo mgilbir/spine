@@ -508,6 +508,9 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 					l.Segments[i].Span += a
 				}
 			}
+			if n := len(piece); n > 0 {
+				piece[n-1].last = true
+			}
 			lines = append(lines, piece...)
 		}
 		for _, l := range lines {
@@ -580,6 +583,9 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 					return nil, err
 				}
 			}
+			if para.align == enum.TextAlignDistribute || (para.align == enum.TextAlignJustify && !line.last) {
+				line.Segments = renderJustify(line.Segments, width.Px(), para.align == enum.TextAlignDistribute)
+			}
 			xp := left.Px()
 			if para.align == enum.TextAlignCenter {
 				xp += (width.Px() - line.Width.Px()) / 2
@@ -647,6 +653,9 @@ type renderBlock struct {
 type renderLine struct {
 	core.RichLine
 	ascent, descent, height float64
+	// last marks a paragraph's last line, or a line ended by a break, which
+	// justified text leaves unstretched.
+	last bool
 }
 
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
@@ -823,6 +832,93 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil, err
 	}
 	return append(highlights, glyphOps...), nil
+}
+
+// renderJustify stretches a line to a width: justified text widens the
+// spaces between its words and distributed text the gaps between its
+// characters. Spaces ending the line hang past the width and are not
+// widened, nor is anything before the line's last tab, whose stop holds it.
+// A line without a gap to widen, or already as wide, is returned as it is.
+func renderJustify(segments []core.RichSegment, width float64, distribute bool) []core.RichSegment {
+	// visible is the byte offset in each segment where trailing spaces
+	// begin; first is the first segment after the last tab.
+	visible := make([]int, len(segments))
+	first, trailing := 0, true
+	for k := len(segments) - 1; k >= 0; k-- {
+		sg := segments[k]
+		if sg.Text == "\t" {
+			first = k + 1
+			if trailing {
+				// A line ending in a tab ends at its stop.
+				return segments
+			}
+			break
+		}
+		visible[k] = len(sg.Text)
+		if trailing {
+			visible[k] = len(strings.TrimRight(sg.Text, " "))
+			trailing = visible[k] == 0
+		}
+	}
+	// Each gap is the last glyph of a cluster, which takes the extra space.
+	type gap struct{ segment, glyph int }
+	var (
+		gaps []gap
+		end  float64
+	)
+	for k := first; k < len(segments); k++ {
+		sg := segments[k]
+		em := sg.Size.Px() / 1000
+		pen := sg.X.Px()
+		for i, g := range sg.Glyphs {
+			if g.Cluster < 0 || g.Cluster >= len(sg.Text) {
+				return segments
+			}
+			if g.Cluster >= visible[k] {
+				break
+			}
+			pen += g.XAdvance * em
+			end = pen
+			if i+1 < len(sg.Glyphs) && sg.Glyphs[i+1].Cluster == g.Cluster {
+				continue
+			}
+			if distribute || sg.Text[g.Cluster] == ' ' {
+				gaps = append(gaps, gap{k, i})
+			}
+		}
+	}
+	// Distributed text has no gap after its last visible character.
+	if distribute && len(gaps) > 0 {
+		gaps = gaps[:len(gaps)-1]
+	}
+	extra := width - end
+	if len(gaps) == 0 || !(extra > 0) || math.IsInf(extra, 0) {
+		return segments
+	}
+	each := extra / float64(len(gaps))
+	out := append([]core.RichSegment(nil), segments...)
+	copied := make([]bool, len(out))
+	added := make([]float64, len(out))
+	for _, g := range gaps {
+		sg := &out[g.segment]
+		if !copied[g.segment] {
+			sg.Glyphs = append([]shape.Glyph(nil), sg.Glyphs...)
+			copied[g.segment] = true
+		}
+		sg.Glyphs[g.glyph].XAdvance += each * 1000 / sg.Size.Px()
+		added[g.segment] += each
+	}
+	shift := 0.0
+	for k := range out {
+		x, okX := style.FromPx(out[k].X.Px() + shift)
+		w, okW := style.FromPx(out[k].Width.Px() + added[k])
+		if !okX || !okW {
+			return segments
+		}
+		out[k].X, out[k].Width = x, w
+		shift += added[k]
+	}
+	return out
 }
 
 func renderASCII(s string) bool {

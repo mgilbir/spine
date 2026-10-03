@@ -373,9 +373,16 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 		return s, nil, err
 	}
 	switch s.align {
-	case enum.TextAlignLeft, enum.TextAlignCenter, enum.TextAlignRight:
+	case enum.TextAlignLeft, enum.TextAlignCenter, enum.TextAlignRight, enum.TextAlignJustify, enum.TextAlignDistribute:
+	case enum.TextAlignJustifyLow:
+		// Low kashida justification differs only in Arabic, which this
+		// profile does not draw.
+		s.align = enum.TextAlignJustify
+	case enum.TextAlignThaiDistribute:
+		// Thai distribution differs only in Thai, likewise.
+		s.align = enum.TextAlignDistribute
 	default:
-		if err = t.colors.approximate(fmt.Errorf("%w: justified or distributed text drawn left aligned", render.ErrUnsupported)); err != nil {
+		if err = t.colors.approximate(fmt.Errorf("%w: unknown text alignment drawn left aligned", render.ErrUnsupported)); err != nil {
 			return s, nil, err
 		}
 		s.align = enum.TextAlignLeft
