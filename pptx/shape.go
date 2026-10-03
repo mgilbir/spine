@@ -467,6 +467,18 @@ func (t *TextBox) SetLine(line dml.Line) {
 	t.dirty = true
 }
 
+// SetNoLine explicitly suppresses the text box outline, including inherited lines.
+func (t *TextBox) SetNoLine() {
+	if t.spPr.Ln == nil {
+		t.spPr.Ln = &dml.Ln{}
+	}
+	t.spPr.Ln.NoFill = &dml.NoFillXML{}
+	t.spPr.Ln.SolidFill = nil
+	t.spPr.Ln.GradFill = nil
+	t.spPr.Ln.PattFill = nil
+	t.dirty = true
+}
+
 // SetShadow sets the shadow effect on the text box.
 func (t *TextBox) SetShadow(shadow dml.Shadow) {
 	shadow.ApplyToSpPr(&t.spPr)
@@ -517,3 +529,16 @@ const (
 	PresetCallout2      = "wedgeRoundRectCallout"
 	PresetCallout3      = "wedgeEllipseCallout"
 )
+
+// SetNoLine removes the auto shape's visible outline explicitly. It preserves
+// other source line metadata while replacing the line fill with a:noFill.
+func (a *AutoShape) SetNoLine() {
+	if a.spPr.Ln == nil {
+		a.spPr.Ln = &dml.Ln{}
+	}
+	a.spPr.Ln.NoFill = &dml.NoFillXML{}
+	a.spPr.Ln.SolidFill = nil
+	a.spPr.Ln.GradFill = nil
+	a.spPr.Ln.PattFill = nil
+	a.dirty = true
+}

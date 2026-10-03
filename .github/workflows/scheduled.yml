@@ -77,6 +77,8 @@ jobs:
             fuzztime: 120s
           - pkg: common/crypto
             fuzztime: 120s
+          - pkg: internal/render
+            fuzztime: 120s
     steps:
       - uses: actions/checkout@v7
 

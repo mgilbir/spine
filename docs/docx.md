@@ -213,3 +213,11 @@ the relationship, and the content-type override) on first use. A
 zero-modification open→save of a document using any of these features is
 byte-identical, and the parts are regenerated only when that feature is
 modified.
+
+## PNG and SVG physical pages
+
+`Document.PrepareRender(ctx, 1, render.Options{Fonts: resolver})` prepares a
+1-based physical page from the supported bounded paragraph-flow profile,
+including unsaved edits. See the [rendering guide](rendering.md) for text, page,
+font and resource requirements. Unsupported content returns an error; preparation
+does not save or synchronize the document.

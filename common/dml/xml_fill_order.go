@@ -296,3 +296,54 @@ func (v *BgFillStyleLst) MarshalToBuilder(b *xmlb.Builder, ns, localName string)
 func (v *BgFillStyleLst) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	return encodeFillList(e, start, v.slots(), v.fillOrder)
 }
+
+// StyleFill is one entry of a theme fill style list; exactly one field is set.
+type StyleFill struct {
+	NoFill    *NoFillXML
+	SolidFill *SolidFill
+	GradFill  *GradFill
+	BlipFill  *BlipFillXML
+	PattFill  *PattFill
+	GrpFill   *GrpFill
+}
+
+// Entry returns the i-th fill (0-based) in the order a save writes the list,
+// which is the position a style reference selects: fillRef idx n is entry n-1.
+// ok is false when i is out of range.
+func (v *FillStyleLst) Entry(i int) (StyleFill, bool) {
+	if v == nil {
+		return StyleFill{}, false
+	}
+	return fillListEntry(v.slots(), v.fillOrder, i)
+}
+
+// Entry returns the i-th background fill (0-based) in write order: bgRef idx
+// 1001+n selects entry n. ok is false when i is out of range.
+func (v *BgFillStyleLst) Entry(i int) (StyleFill, bool) {
+	if v == nil {
+		return StyleFill{}, false
+	}
+	return fillListEntry(v.slots(), v.fillOrder, i)
+}
+
+func fillListEntry(s fillListSlots, order []fillChoiceRef, i int) (StyleFill, bool) {
+	refs := orderedFillRefs(s, order)
+	if i < 0 || i >= len(refs) {
+		return StyleFill{}, false
+	}
+	switch v := s.at(refs[i]).(type) {
+	case *NoFillXML:
+		return StyleFill{NoFill: v}, true
+	case *SolidFill:
+		return StyleFill{SolidFill: v}, true
+	case *GradFill:
+		return StyleFill{GradFill: v}, true
+	case *BlipFillXML:
+		return StyleFill{BlipFill: v}, true
+	case *PattFill:
+		return StyleFill{PattFill: v}, true
+	case *GrpFill:
+		return StyleFill{GrpFill: v}, true
+	}
+	return StyleFill{}, false
+}

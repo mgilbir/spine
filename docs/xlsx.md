@@ -213,3 +213,11 @@ Sheet protection is a UI guard, not encryption: `Protect` uses Excel's documente
 legacy 16-bit password hash, which is trivially removed. Every write persists on
 both the `Create` and `Open` save paths, and a zero-modification open→save of a
 feature-bearing workbook stays byte-identical.
+
+## PNG and SVG range previews
+
+`Sheet.PrepareRender(ctx, "A1:D10", render.Options{Fonts: resolver})` prepares
+the supported range profile including unsaved values. See the
+[rendering guide](rendering.md) for supported values, fonts, sizing and resource
+limits. Unsupported formatting returns an error; preparation creates no missing
+cells and does not save the workbook.
