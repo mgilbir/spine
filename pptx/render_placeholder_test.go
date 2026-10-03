@@ -159,3 +159,42 @@ func TestRenderBodyPlaceholderBullets(t *testing.T) {
 		t.Fatal("bulleted body text missing")
 	}
 }
+
+func TestRenderGroupedPlaceholders(t *testing.T) {
+	group := func(children string) string {
+		// Moved 10px right, at scale 1.
+		return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="95250" y="0"/><a:ext cx="952500" cy="952500"/><a:chOff x="0" y="0"/><a:chExt cx="952500" cy="952500"/></a:xfrm></p:grpSpPr>` + children + `</p:grpSp>`
+	}
+	title := renderPlaceholderSp(`<p:ph type="title"/>`, `<a:xfrm><a:off x="285750" y="285750"/><a:ext cx="381000" cy="285750"/></a:xfrm>`, `<a:p><a:r><a:rPr lang="en-US"/><a:t>A</a:t></a:r></a:p>`)
+	title = strings.Replace(title, `<a:bodyPr/>`, `<a:bodyPr lIns="0" tIns="0"/>`, 1)
+	red := color.NRGBA{R: 255, A: 255}
+	// A slide's grouped placeholder takes its layout's inheritance and draws
+	// at its own geometry, moved with the group.
+	data, opts, rewrites := renderTitleDeck(t, group(title))
+	got, err := renderRewrittenPNG(t, data, opts, rewrites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if px := renderPixel(t, got, 42, 35); px != red {
+		t.Fatalf("grouped title: %+v", px)
+	}
+	if px := renderPixel(t, got, 32, 35); px == red {
+		t.Fatal("grouped title drawn unmoved")
+	}
+	// Without its own geometry it is left out.
+	bare := renderPlaceholderSp(`<p:ph type="title"/>`, ``, `<a:p><a:r><a:rPr lang="en-US"/><a:t>A</a:t></a:r></a:p>`)
+	data, opts, rewrites = renderTitleDeck(t, group(bare))
+	if _, err := renderRewrittenPNG(t, data, opts, rewrites); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("bare grouped placeholder: %v", err)
+	}
+	// On a layout, a grouped placeholder is a prompt, not drawn.
+	data, opts, rewrites = renderTitleDeck(t, "")
+	rewrites[renderLayoutPart] = renderAddToTree(group(title))
+	got, err = renderRewrittenPNG(t, data, opts, rewrites)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if px := renderPixel(t, got, 42, 35); px == red {
+		t.Fatal("layout prompt drawn")
+	}
+}

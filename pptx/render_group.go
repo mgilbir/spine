@@ -84,6 +84,7 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 // widths do not scale with a group, as PowerPoint draws them. Rotated or
 // group fills and effects, placeholders and tables inside groups fail.
 // With warn set, a child that cannot be drawn is reported and left out.
+// With prompts set, as on layouts and masters, placeholders are not drawn.
 //
 // A rotated or flipped group turns its drawn children about its centre:
 // shapes exactly, text exactly unless the group is flipped, pictures exactly
@@ -92,7 +93,7 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 //
 // A group's own fill paints nothing; children whose fill is the group's
 // (a:grpFill) take it, or its group's in turn.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, frame renderFrameDraw, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int, fill renderGroupFill) ([]layout.Op, error) {
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, frame renderFrameDraw, picture func(*Picture) ([]byte, renderImageKey), prompts bool, depth int, warn func(error), colors *renderColors, maxSegments int, fill renderGroupFill) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
@@ -170,7 +171,15 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			}
 			sp := *g.Shapes[ref.Index]
 			if sp.NvSpPr != nil && sp.NvSpPr.NvPr != nil && sp.NvSpPr.NvPr.Ph != nil {
-				return nil, fmt.Errorf("%w: grouped placeholder", render.ErrUnsupported)
+				// Placeholders on layouts and masters are prompts. On a slide
+				// a grouped one draws at its own geometry, in the group's
+				// child space; inherited geometry is the slide's.
+				if prompts {
+					continue
+				}
+				if sp.SpPr.Xfrm == nil {
+					return nil, fmt.Errorf("%w: grouped placeholder without its own geometry", render.ErrUnsupported)
+				}
 			}
 			props := *sp.SpPr
 			if props.Xfrm, err = m.xfrm(props.Xfrm); err != nil {
@@ -200,7 +209,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, frame, picture, depth+1, warn, colors, maxSegments, fill)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, frame, picture, prompts, depth+1, warn, colors, maxSegments, fill)
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(g.ConnectionShapes) || g.ConnectionShapes[ref.Index] == nil || g.ConnectionShapes[ref.Index].SpPr == nil {
 				return nil, fmt.Errorf("%w: grouped connector", render.ErrInvalid)

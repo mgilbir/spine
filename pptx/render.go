@@ -395,7 +395,8 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return nil, fmt.Errorf("%w: nil or inherited connector", render.ErrUnsupported)
 			}
 		case *PlaceholderShape:
-			if v == nil || index < 0 {
+			// A grouped placeholder comes with its parsed, mapped source.
+			if v == nil || (index < 0 && sp == nil) {
 				return nil, fmt.Errorf("%w: nil or inherited placeholder", render.ErrUnsupported)
 			}
 		case *GroupShape:
@@ -496,7 +497,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if grp == nil || v.isDirty() {
 				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
 			}
-			return renderGroup(grp, renderIdentity, drawShapeRef, connect, framesFor(s.partName), s.renderPartPicture(s.partName), 0, opts.Warn, colors, resolved.MaxPathSegments, renderGroupFill{})
+			return renderGroup(grp, renderIdentity, drawShapeRef, connect, framesFor(s.partName), s.renderPartPicture(s.partName), false, 0, opts.Warn, colors, resolved.MaxPathSegments, renderGroupFill{})
 		case *PlaceholderShape:
 			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs, soft)
 		case *Table:
@@ -1556,7 +1557,12 @@ func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderSh
 	if err := shapeErrs[renderShapeKey{name: "AlternateContent", occurrence: index + 1}].any; err != nil {
 		return nil, err
 	}
-	ac := s.sxModel.CSld.SpTree.AltContent[index]
+	return s.renderAlternateIn(s.sxModel.CSld.SpTree.AltContent[index], s.partName, budget, draw, connect, frames, warn, colors, maxSegments)
+}
+
+// renderAlternateIn draws an alternate content's fallback in a part: a
+// slide's, or a layout's or master's, whose placeholders are prompts.
+func (s *Slide) renderAlternateIn(ac *oxml.AlternateContent, part string, budget *core.SourceBudget, draw renderDraw, connect renderConnect, frames func(string) renderFrameDraw, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if ac == nil || !ac.HasFallback || len(ac.Fallback) == 0 {
 		return nil, nil
 	}
@@ -1571,7 +1577,7 @@ func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderSh
 	if err := xmlb.Unmarshal(src.Bytes(), &tree); err != nil {
 		return nil, fmt.Errorf("%w: alternate content fallback: %w", render.ErrInvalid, err)
 	}
-	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: s.partName}, budget, draw, connect, frames, warn, colors, maxSegments)
+	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: part}, budget, draw, connect, frames, warn, colors, maxSegments)
 }
 
 // alternate checks a shape tree's markup-compatibility alternate content:
@@ -1580,13 +1586,20 @@ func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderSh
 // if it stood in the shape tree. A problem is recorded against the
 // alternate content, or in strict mode fails.
 func (r *renderProfile) alternate(node core.XMLNode) (bool, error) {
+	return r.alternateIn(node, false)
+}
+
+// alternateIn is alternate; with recorded set, as for a layout's or
+// master's content, which fails only when drawn, a problem is always
+// recorded against the alternate content.
+func (r *renderProfile) alternateIn(node core.XMLNode, recorded bool) (bool, error) {
 	n := len(node.Path)
 	mc := func(local string) xml.Name { return xml.Name{Space: xmlb.NSMarkupCompatibility, Local: local} }
 	if n < 4 || node.Path[2] != (xml.Name{Space: nsP, Local: "spTree"}) || node.Path[3] != mc("AlternateContent") {
 		return false, nil
 	}
 	fail := func(err error) error {
-		if err == nil || !r.lenient {
+		if err == nil || (!r.lenient && !recorded) {
 			return err
 		}
 		if r.shapeErrs == nil {
@@ -2071,7 +2084,11 @@ func (r *renderProfile) inherited(node core.XMLNode) error {
 	}
 	// A master or layout shape is checked like slide content, but its first
 	// problem is recorded rather than returned: placeholders are never drawn,
-	// and a hidden layer's shapes are not drawn either.
+	// and a hidden layer's shapes are not drawn either. Alternate content
+	// is checked as the slide's, its problems recorded likewise.
+	if handled, err := r.alternateIn(node, true); handled {
+		return err
+	}
 	if r.inShape(node) {
 		r.record(node, r.check(node))
 		return nil

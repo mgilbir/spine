@@ -99,7 +99,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
-				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, frame, picture, 0, warn, colors, maxSegments, renderGroupFill{})
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, frame, picture, true, 0, warn, colors, maxSegments, renderGroupFill{})
 			}
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(t.CxnSp) || t.CxnSp[ref.Index] == nil {
@@ -114,6 +114,15 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "graphicFrame", occurrence: ref.Index + 1}].any; err == nil {
 				drawn, err = frame(t.GraphicFrame[ref.Index])
+			}
+		case oxml.ChildAltContent:
+			// Alternate content draws its fallback, checked as if it stood
+			// in the tree.
+			if ref.Index >= len(t.AltContent) {
+				return nil, fmt.Errorf("%w: inherited alternate content", render.ErrInvalid)
+			}
+			if err = layer.shapeErrs[renderShapeKey{name: "AlternateContent", occurrence: ref.Index + 1}].any; err == nil {
+				drawn, err = s.renderAlternateIn(t.AltContent[ref.Index], layer.part, budget, draw, connect, frames, warn, colors, maxSegments)
 			}
 		default:
 			err = fmt.Errorf("%w: inherited content", render.ErrUnsupported)

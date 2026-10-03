@@ -210,7 +210,8 @@ Alternate content (`mc:AlternateContent`) in a slide's shape tree draws its
 fallback where it stands among the shapes, as a reader without the choices'
 extensions shows it; the source check skips the choices and checks the
 fallback as if its shapes stood in the shape tree. Alternate content on
-layouts and masters, and at the slide root, is not drawn. Charts, SmartArt,
+layouts and masters draws its fallback the same way, its placeholders
+prompts; at the slide root it is not drawn. Charts, SmartArt,
 effects, animation and raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
@@ -396,7 +397,10 @@ whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
 effort leaves group effects out. Tables and charts inside groups are drawn
 with their frames mapped; a chart scales with its group, and a table keeps its
 own column widths and row heights, which best effort reports when the group
-scales. Placeholders inside groups fail; groups are drawn only
+scales. A slide's placeholder inside a group draws with its layout's
+inheritance at its own geometry, mapped into the group; one without its own
+geometry fails. Grouped placeholders on layouts and masters are prompts and
+are not drawn. Groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored
