@@ -348,8 +348,9 @@ Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
 PowerPoint draws them. A rotated or flipped group turns and mirrors its
 shapes about its centre; best effort moves its text and pictures with it,
-upright and unturned. Group fills and effects, and placeholders and tables
-inside groups fail; groups are drawn only
+upright and unturned. A group's fill paints nothing itself; shapes inside
+whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
+effort leaves group effects out. Placeholders and tables inside groups fail; groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored
