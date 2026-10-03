@@ -182,8 +182,12 @@ middle stop color or a pattern's foreground. Unfilled text is invisible.
 Spine's PNG and SVG writers paint single-tile linear and radial gradients with
 linear blending.
 
-Charts, SmartArt, effects, animation and alternate/raw drawing content fail
-explicitly.
+Alternate content (`mc:AlternateContent`) in a slide's shape tree draws its
+fallback where it stands among the shapes, as a reader without the choices'
+extensions shows it; the source check skips the choices and checks the
+fallback as if its shapes stood in the shape tree. Alternate content on
+layouts and masters, and at the slide root, is not drawn. Charts, SmartArt,
+effects, animation and raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
 their text and colors resolved as the slide's. Placeholders on masters and
