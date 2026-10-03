@@ -157,7 +157,13 @@ func TestRenderGroups(t *testing.T) {
 	if px := renderPixel(t, nested, 61, 5); px != red {
 		t.Fatalf("nested group: %+v", px)
 	}
-	if _, err := renderRewrittenPNG(t, data, opts, slide(group(` rot="5400000"`, renderSquare(0, 0, "FF0000")))); !errors.Is(err, render.ErrUnsupported) {
-		t.Fatalf("rotated group: %v", err)
+	// A 20 by 10px group at (60,4) whose 10px square fills its left half;
+	// turned a quarter about (70,9), the square covers x 65-75, y -1-9.
+	turned := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm rot="5400000"><a:off x="571500" y="38100"/><a:ext cx="190500" cy="95250"/><a:chOff x="0" y="0"/><a:chExt cx="190500" cy="95250"/></a:xfrm></p:grpSpPr>` + renderSquare(0, 0, "FF0000") + `</p:grpSp>`
+	got = renderSlidePNG(t, data, opts, slide(turned))
+	for at, want := range map[[2]int]color.NRGBA{{70, 5}: red, {62, 9}: white} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("turned group at %v: %+v, want %+v", at, px, want)
+		}
 	}
 }

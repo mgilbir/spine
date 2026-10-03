@@ -218,12 +218,32 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 	return &line, placeholder, nil
 }
 
+// renderLineWidth gives a line without a width, which DrawingML draws as
+// thin as the device allows, one pixel's width in best effort.
+func renderLineWidth(ln *dml.Ln, colors *renderColors) (*dml.Ln, error) {
+	if ln.W != nil && *ln.W > 0 {
+		return ln, nil
+	}
+	if ln.W != nil && *ln.W < 0 {
+		return nil, fmt.Errorf("%w: line width", render.ErrInvalid)
+	}
+	if err := colors.approximate(fmt.Errorf("%w: hairline drawn one pixel wide", render.ErrUnsupported)); err != nil {
+		return nil, err
+	}
+	thin := *ln
+	w := int64(dml.EMUsPerPixel)
+	thin.W = &w
+	return &thin, nil
+}
+
 // renderLineStroke paints an open straight line from (x0,y0) to (x1,y1) in
-// pixels, with its caps and preset dashes. Dashes take flat caps; the schema
-// gives no default cap and PowerPoint's styles use flat.
+// pixels, with its caps and preset dashes, each dash taking the caps. An
+// absent cap is flat: the schema gives no default and PowerPoint's styles
+// use flat.
 func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors, x0, y0, x1, y1 float64, maxSegments int) ([]layout.Op, error) {
-	if ln.W == nil || *ln.W <= 0 {
-		return nil, fmt.Errorf("%w: line without a width", render.ErrUnsupported)
+	ln, err := renderLineWidth(ln, colors)
+	if err != nil {
+		return nil, err
 	}
 	if (ln.Cmpd != "" && ln.Cmpd != "sng") || (ln.Algn != "" && ln.Algn != "ctr") || ln.CustDash != nil || ln.ExtLst != nil {
 		return nil, fmt.Errorf("%w: compound, inset or custom-dashed line", render.ErrUnsupported)
@@ -238,14 +258,8 @@ func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors,
 	switch ln.Cap {
 	case "", "flat":
 	case "sq":
-		if pattern != nil {
-			return nil, fmt.Errorf("%w: dash caps other than flat", render.ErrUnsupported)
-		}
 		extend = 1
 	case "rnd":
-		if pattern != nil {
-			return nil, fmt.Errorf("%w: dash caps other than flat", render.ErrUnsupported)
-		}
 		round = true
 	default:
 		return nil, fmt.Errorf("%w: line cap", render.ErrInvalid)
@@ -343,11 +357,13 @@ func renderLineStroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors,
 		if length/period*float64(len(pattern)/2)*5 > float64(maxSegments) {
 			return nil, fmt.Errorf("%w: dash count", render.ErrLimit)
 		}
+		// Each dash takes the line's caps, beyond the stretch it covers.
+		lo, hi := max(start, 0), min(end, length)
 		s, on := 0.0, true
 		for i := 0; s < length; i = (i + 1) % len(pattern) {
 			next := s + pattern[i]*w
-			if on && min(next, end) > max(s, start) {
-				ops = append(ops, layout.FillPath{Path: piece(max(s, start), min(next, end), false), Color: c})
+			if a, b := max(s, lo), min(next, hi); on && b > a {
+				ops = append(ops, layout.FillPath{Path: piece(a-extend*h, b+extend*h, round), Color: c})
 			}
 			s, on = next, !on
 		}

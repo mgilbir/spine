@@ -49,6 +49,9 @@ func TestRenderConnectors(t *testing.T) {
 		// Turned a quarter about its middle (30,10), it runs down x 30.
 		{"rotated", renderConnectorXML(` rot="5400000"`, renderAcross, renderRedLine, ""),
 			map[[2]int]color.NRGBA{{30, 25}: red, {45, 10}: white}},
+		// A 4px line's first dash spans x 10-26; its round cap reaches x 28.
+		{"dash round cap", renderConnectorXML("", renderAcross, strings.Replace(strings.Replace(renderRedLine, `<a:ln `, `<a:ln cap="rnd" `, 1), `</a:ln>`, `<a:prstDash val="dash"/></a:ln>`, 1), ""),
+			map[[2]int]color.NRGBA{{26, 10}: red, {33, 10}: white}},
 		{"flat cap", renderConnectorXML("", renderAcross, renderRedLine, ""),
 			map[[2]int]color.NRGBA{{8, 9}: white}},
 	} {
@@ -64,11 +67,10 @@ func TestRenderConnectors(t *testing.T) {
 		t.Fatal("round cap missing")
 	}
 	for name, xml := range map[string]string{
-		"arrowhead":      renderConnectorXML("", renderAcross, strings.Replace(renderRedLine, `</a:ln>`, `<a:tailEnd type="triangle"/></a:ln>`, 1), ""),
-		"bent":           strings.Replace(renderConnectorXML("", renderAcross, renderRedLine, ""), "straightConnector1", "bentConnector3", 1),
-		"shadow style":   renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:effectRef idx="0">`, `<a:effectRef idx="3">`, 1)),
-		"missing style":  renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:lnRef idx="3">`, `<a:lnRef idx="9">`, 1)),
-		"dash round cap": renderConnectorXML("", renderAcross, strings.Replace(strings.Replace(renderRedLine, `<a:ln `, `<a:ln cap="rnd" `, 1), `</a:ln>`, `<a:prstDash val="dash"/></a:ln>`, 1), ""),
+		"arrowhead":     renderConnectorXML("", renderAcross, strings.Replace(renderRedLine, `</a:ln>`, `<a:tailEnd type="triangle"/></a:ln>`, 1), ""),
+		"bent":          strings.Replace(renderConnectorXML("", renderAcross, renderRedLine, ""), "straightConnector1", "bentConnector3", 1),
+		"shadow style":  renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:effectRef idx="0">`, `<a:effectRef idx="3">`, 1)),
+		"missing style": renderConnectorXML("", renderAcross, `<a:ln/>`, strings.Replace(renderLnStyle, `<a:lnRef idx="3">`, `<a:lnRef idx="9">`, 1)),
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, connector(xml)); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)
@@ -101,5 +103,21 @@ func TestRenderInheritedAndGroupedConnectors(t *testing.T) {
 	}})
 	if px := renderPixel(t, got, 70, 20); px != red {
 		t.Fatalf("grouped connector: %+v", px)
+	}
+}
+
+func TestRenderHairline(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	slide := map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		s = renderAnyTxBody.ReplaceAllLiteralString(s, "")
+		return strings.Replace(s, `</p:spTree>`, renderConnectorXML("", renderAcross, `<a:ln><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln>`, "")+`</p:spTree>`, 1)
+	}}
+	if _, err := renderRewrittenPNG(t, data, opts, slide); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict hairline: %v", err)
+	}
+	opts.Warn = func(error) {}
+	got := renderSlidePNG(t, data, opts, slide)
+	if px := renderPixel(t, got, 30, 9); px.R != 255 || px.G == 255 {
+		t.Fatalf("hairline: %+v", px)
 	}
 }

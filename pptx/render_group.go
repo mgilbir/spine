@@ -67,22 +67,28 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 // renderGroup paints a group's children in document order, their geometry
 // mapped from the group's child space to its frame. Text sizes and line
 // widths do not scale with a group, as PowerPoint draws them. Rotated or
-// flipped groups, group fills and effects, placeholders and tables inside
-// groups fail.
+// group fills and effects, placeholders and tables inside groups fail.
 // With warn set, a child that cannot be drawn is reported and left out.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error)) ([]layout.Op, error) {
+//
+// A rotated or flipped group turns its drawn children about its centre:
+// shapes exactly, and text and pictures, approximately, moved upright.
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
 	local := renderIdentity
+	var turn renderShapeTransform
 	if p := g.GrpSpPr; p != nil {
 		if p.SolidFill != nil || p.GradFill != nil || p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil || renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.ExtLst != nil {
 			return nil, fmt.Errorf("%w: group fill or effect", render.ErrUnsupported)
 		}
 		if x := p.Xfrm; x != nil {
-			if x.Rot != 0 || x.FlipH || x.FlipV || x.Off == nil || x.Ext == nil || x.ChOff == nil || x.ChExt == nil {
-				return nil, fmt.Errorf("%w: rotated, flipped or partial group transform", render.ErrUnsupported)
+			if x.Off == nil || x.Ext == nil || x.ChOff == nil || x.ChExt == nil {
+				return nil, fmt.Errorf("%w: partial group transform", render.ErrUnsupported)
 			}
+			cx, cy := parent.point(float64(x.Off.X)+float64(x.Ext.Cx)/2, float64(x.Off.Y)+float64(x.Ext.Cy)/2)
+			px := float64(dml.EMUsPerPixel)
+			turn = renderShapeTransform{flipH: x.FlipH, flipV: x.FlipV, rot: float64(x.Rot) / 60000, cx: cx / px, cy: cy / px}
 			scale := func(ext, ch int64) (float64, error) {
 				switch {
 				case ch > 0:
@@ -147,7 +153,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn, colors, maxSegments)
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(g.ConnectionShapes) || g.ConnectionShapes[ref.Index] == nil || g.ConnectionShapes[ref.Index].SpPr == nil {
 				return nil, fmt.Errorf("%w: grouped connector", render.ErrInvalid)
@@ -171,7 +177,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 		}
 		ops = append(ops, drawn...)
 	}
-	return ops, nil
+	return turn.ops(ops, colors, maxSegments)
 }
 
 // renderHiddenChild reports whether a shape tree child is hidden.
