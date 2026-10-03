@@ -77,6 +77,9 @@ const (
 	RepertoireEuropean
 )
 
+// Allows reports whether the repertoire includes a character.
+func (r Repertoire) Allows(c rune) bool { return r.allows(c) }
+
 func (r Repertoire) allows(c rune) bool {
 	if c >= 32 && c <= 126 {
 		return true

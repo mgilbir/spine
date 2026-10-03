@@ -67,14 +67,38 @@ func TestRenderBullets(t *testing.T) {
 	if renderInk(t, empty, 4, 24, 16, 44, dark) {
 		t.Fatal("bullet on an empty paragraph")
 	}
+	// Numbered paragraphs each hang their number.
+	numbered := renderSlidePNG(t, data, opts, slide(renderBulletList(`<a:buAutoNum type="arabicPeriod"/>`), run+run))
+	if !renderInk(t, numbered, 4, 4, 16, 24, dark) || !renderInk(t, numbered, 4, 24, 16, 44, dark) {
+		t.Fatal("numbers missing")
+	}
 	for name, tc := range map[string][2]string{
 		"wider than the indent": {`<a:lstStyle><a:lvl1pPr marL="19050" indent="-19050"><a:buChar char="•"/></a:lvl1pPr></a:lstStyle>`, run},
 		"taller than the line":  {renderBulletList(`<a:buSzPct val="300000"/><a:buChar char="•"/>`), run},
-		"numbered":              {renderBulletList(`<a:buAutoNum type="arabicPeriod"/>`), run},
 		"indent without bullet": {renderBulletList(`<a:buNone/>`), run},
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, slide(tc[0], tc[1])); !errors.Is(err, render.ErrUnsupported) {
 			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestRenderAutoNumber(t *testing.T) {
+	for _, tc := range []struct {
+		scheme string
+		n      int32
+		want   string
+	}{
+		{"arabicPeriod", 3, "3."}, {"arabicParenR", 12, "12)"}, {"arabicParenBoth", 1, "(1)"}, {"arabicPlain", 7, "7"},
+		{"alphaLcPeriod", 1, "a."}, {"alphaUcParenR", 28, "BB)"}, {"romanLcPeriod", 4, "iv."}, {"romanUcParenBoth", 1994, "(MCMXCIV)"},
+	} {
+		if got, ok := renderAutoNumber(tc.scheme, tc.n); !ok || got != tc.want {
+			t.Fatalf("%s %d: %q %v", tc.scheme, tc.n, got, ok)
+		}
+	}
+	for _, scheme := range []string{"circleNumDbPlain", "arabicDbPeriod", "romanLc"} {
+		if _, ok := renderAutoNumber(scheme, 1); ok {
+			t.Fatalf("%s accepted", scheme)
 		}
 	}
 }

@@ -966,6 +966,9 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "typeface panose pitchFamily charset"
 		case "buSzPct", "buSzPts":
 			attrs = "val"
+		case "buAutoNum":
+			attrs = "type startAt"
+		case "buBlip":
 		case "buFontTx", "buClr", "buClrTx", "buSzTx":
 		case "lnRef", "fillRef", "effectRef":
 			attrs = "idx"
@@ -1146,7 +1149,7 @@ func (s *Slide) renderPictureProps(index int) *dml.SpPr {
 		}
 	}
 	for k, tree := range trees {
-		i, err := renderMatch(tree, ph, k == 0)
+		i, err := renderMatch(tree, ph, k == 0, func(err error) error { return err })
 		if err != nil || i < 0 {
 			continue
 		}
@@ -1493,6 +1496,8 @@ func (r *renderProfile) approximated(node core.XMLNode) bool {
 	parent := node.Path[n-2]
 	effect := parent == (xml.Name{Space: nsA, Local: "effectLst"}) ||
 		(parent == (xml.Name{Space: nsA, Local: "blip"}) && node.Name.Space == nsA && node.Name.Local != "extLst" && node.Name.Local != "alphaModFix") ||
+		node.Name == (xml.Name{Space: nsA, Local: "buBlip"}) ||
+		(parent.Local == "rPr" || parent.Local == "endParaRPr" || parent.Local == "defRPr") && (node.Name.Local == "hlinkClick" || node.Name.Local == "hlinkMouseOver") ||
 		(parent == (xml.Name{Space: nsP, Local: "spPr"}) && node.Name.Space == nsA && (node.Name.Local == "effectDag" || node.Name.Local == "scene3d" || node.Name.Local == "sp3d"))
 	if effect {
 		r.skipDepth = n
@@ -1682,7 +1687,7 @@ var renderXMLParents = map[string]string{
 	"a:lvl4pPr": renderListParents, "a:lvl5pPr": renderListParents, "a:lvl6pPr": renderListParents, "a:lvl7pPr": renderListParents,
 	"a:lvl8pPr": renderListParents, "a:lvl9pPr": renderListParents,
 	"a:buNone": renderParagraphParents, "a:buChar": renderParagraphParents, "a:buFont": renderParagraphParents, "a:buFontTx": renderParagraphParents,
-	"a:buClr": renderParagraphParents, "a:buClrTx": renderParagraphParents, "a:buSzPct": renderParagraphParents, "a:buSzPts": renderParagraphParents, "a:buSzTx": renderParagraphParents, "a:lnSpc": renderParagraphParents, "a:spcBef": renderParagraphParents, "a:spcAft": renderParagraphParents,
+	"a:buClr": renderParagraphParents, "a:buClrTx": renderParagraphParents, "a:buSzPct": renderParagraphParents, "a:buSzPts": renderParagraphParents, "a:buSzTx": renderParagraphParents, "a:buAutoNum": renderParagraphParents, "a:buBlip": renderParagraphParents, "a:lnSpc": renderParagraphParents, "a:spcBef": renderParagraphParents, "a:spcAft": renderParagraphParents,
 	"a:tabLst": renderParagraphParents, "a:defRPr": renderParagraphParents, "a:tab": "a:tabLst",
 	"a:spcPct": "a:lnSpc a:spcBef a:spcAft", "a:spcPts": "a:lnSpc a:spcBef a:spcAft",
 	"a:latin": renderRunParents, "a:ea": renderRunParents, "a:cs": renderRunParents, "a:sym": renderRunParents,

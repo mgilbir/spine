@@ -66,6 +66,10 @@ type renderParaStyle struct {
 // renderBullet is a paragraph's character bullet; char is empty for none.
 type renderBullet struct {
 	char string
+	// autoNum is the numbering scheme of a numbered bullet, whose char the
+	// layout sets; startAt is its first number.
+	autoNum string
+	startAt int32
 	// font is the bullet font, or empty to follow the text's.
 	font string
 	// size is a percentage of the text size (100000 is 100%), or zero when
@@ -85,6 +89,11 @@ type renderRunStyle struct {
 	// eastAsian marks a run in an East Asian language, where PowerPoint may
 	// draw symbols of ambiguous width with the East Asian font.
 	eastAsian bool
+	// underline and strike are lines drawn, approximately, under and
+	// through the run: 0 none, 1 single, 2 double.
+	underline, strike int
+	// caps draws the run's letters capitalized.
+	caps bool
 }
 
 // renderShaping is the part of a run style that selects and shapes glyphs.
@@ -279,16 +288,29 @@ func runLayers(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr) [][]renderLaye
 // renderInherit resolves one property: the nearest required layer that sets
 // it, or fallback. Every optional layer consulted on the way and every variant
 // must agree with the result.
-func renderInherit[L any, T comparable](name string, variants [][]renderLayer[L], get func(L) (T, bool, error), fallback func() (T, error)) (T, error) {
+//
+// approx is the best-effort hook: where readings disagree and it accepts the
+// problem, the first reading, of the nearest variant, is used.
+func renderInherit[L any, T comparable](approx func(error) error, name string, variants [][]renderLayer[L], get func(L) (T, bool, error), fallback func() (T, error)) (T, error) {
 	var (
 		zero, out T
 		have      bool
+		disagree  bool
 	)
 	agree := func(v T) error {
 		if have && v != out {
-			return fmt.Errorf("%w: ambiguous inherited %s", render.ErrUnsupported, name)
+			if disagree {
+				return nil
+			}
+			if err := approx(fmt.Errorf("%w: ambiguous inherited %s", render.ErrUnsupported, name)); err != nil {
+				return err
+			}
+			disagree = true
+			return nil
 		}
-		out, have = v, true
+		if !have {
+			out, have = v, true
+		}
 		return nil
 	}
 	for _, layers := range variants {
@@ -334,7 +356,7 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	if err != nil {
 		return s, nil, err
 	}
-	if s.align, err = renderInherit("alignment", layers, func(pp *dml.PPr) (enum.TextAlign, bool, error) {
+	if s.align, err = renderInherit(t.colors.approximate, "alignment", layers, func(pp *dml.PPr) (enum.TextAlign, bool, error) {
 		if pp == nil || pp.Algn == "" {
 			return "", false, nil
 		}
@@ -355,7 +377,7 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 		pct   int32
 		fixed dml.EMU
 	}
-	ls, err := renderInherit("line spacing", layers, func(pp *dml.PPr) (lineSpacing, bool, error) {
+	ls, err := renderInherit(t.colors.approximate, "line spacing", layers, func(pp *dml.PPr) (lineSpacing, bool, error) {
 		if pp == nil || pp.LnSpc == nil {
 			return lineSpacing{}, false, nil
 		}
@@ -390,7 +412,7 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 		pct int32
 	}
 	spacing := func(name string, pick func(*dml.PPr) (*dml.SpcPct, *dml.SpcPts, bool)) (space, error) {
-		v, err := renderInherit(name, layers, func(pp *dml.PPr) (space, bool, error) {
+		v, err := renderInherit(t.colors.approximate, name, layers, func(pp *dml.PPr) (space, bool, error) {
 			if pp == nil {
 				return space{}, false, nil
 			}
@@ -431,7 +453,7 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	}
 	s.before, s.beforePct, s.after, s.afterPct = before.pts, before.pct, after.pts, after.pct
 	margin := func(name string, pick func(*dml.PPr) *int32) (int32, error) {
-		return renderInherit(name, layers, func(pp *dml.PPr) (int32, bool, error) {
+		return renderInherit(t.colors.approximate, name, layers, func(pp *dml.PPr) (int32, bool, error) {
 			if pp == nil || pick(pp) == nil {
 				return 0, false, nil
 			}
@@ -458,7 +480,7 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 		return s, nil, err
 	}
 	flag := func(name string, pick func(*dml.PPr) *bool) (bool, error) {
-		return renderInherit(name, layers, func(pp *dml.PPr) (bool, bool, error) {
+		return renderInherit(t.colors.approximate, name, layers, func(pp *dml.PPr) (bool, bool, error) {
 			if pp == nil || pick(pp) == nil {
 				return false, false, nil
 			}
@@ -483,12 +505,17 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 // run resolves a run's appearance through the paragraph's layers.
 func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr) (renderRunStyle, error) {
 	var s renderRunStyle
-	if own != nil && (own.HlinkClick != nil || own.HlinkMouseOver != nil || own.Rtl != nil || own.ExtLst != nil) {
-		return s, fmt.Errorf("%w: hyperlink, right-to-left or extended run", render.ErrUnsupported)
+	if own != nil && (own.Rtl != nil || own.ExtLst != nil) {
+		return s, fmt.Errorf("%w: right-to-left or extended run", render.ErrUnsupported)
+	}
+	if own != nil && (own.HlinkClick != nil || own.HlinkMouseOver != nil) {
+		if err := t.colors.approximate(fmt.Errorf("%w: hyperlink drawn as plain text", render.ErrUnsupported)); err != nil {
+			return s, err
+		}
 	}
 	layers := runLayers(paragraph, own)
 	var err error
-	if s.eastAsian, err = renderInherit("language", layers, func(r *dml.RPr) (bool, bool, error) {
+	if s.eastAsian, err = renderInherit(t.colors.approximate, "language", layers, func(r *dml.RPr) (bool, bool, error) {
 		if r == nil || r.Lang == "" {
 			return false, false, nil
 		}
@@ -502,7 +529,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
 	effects := false
-	if _, err = renderInherit("text effects", layers, func(r *dml.RPr) (bool, bool, error) {
+	if _, err = renderInherit(t.colors.approximate, "text effects", layers, func(r *dml.RPr) (bool, bool, error) {
 		if r != nil && (renderEffects(r.EffectLst) || r.EffectDag != nil || (r.Ln != nil && (r.Ln.NoFill == nil || r.Ln.SolidFill != nil || r.Ln.GradFill != nil || r.Ln.PattFill != nil))) {
 			effects = true
 		}
@@ -515,7 +542,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 			return s, err
 		}
 	}
-	if s.size, err = renderInherit("font size", layers, func(r *dml.RPr) (int32, bool, error) {
+	if s.size, err = renderInherit(t.colors.approximate, "font size", layers, func(r *dml.RPr) (int32, bool, error) {
 		if r == nil || r.Sz == 0 {
 			return 0, false, nil
 		}
@@ -527,7 +554,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 		s.size = max(1, int32(math.Round(float64(s.size)*float64(t.fontScale)/100000)))
 	}
 	flag := func(name string, pick func(*dml.RPr) *bool) (bool, error) {
-		return renderInherit(name, layers, func(r *dml.RPr) (bool, bool, error) {
+		return renderInherit(t.colors.approximate, name, layers, func(r *dml.RPr) (bool, bool, error) {
 			if r == nil || pick(r) == nil {
 				return false, false, nil
 			}
@@ -540,29 +567,63 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	if s.italic, err = flag("italic", func(r *dml.RPr) *bool { return r.I }); err != nil {
 		return s, err
 	}
-	word := func(name, plain string, pick func(*dml.RPr) string) error {
-		v, err := renderInherit(name, layers, func(r *dml.RPr) (string, bool, error) {
+	word := func(name, plain string, pick func(*dml.RPr) string) (string, error) {
+		return renderInherit(t.colors.approximate, name, layers, func(r *dml.RPr) (string, bool, error) {
 			if r == nil || pick(r) == "" {
 				return "", false, nil
 			}
 			return pick(r), true, nil
 		}, renderBuiltin(plain))
-		if err == nil && v != plain {
-			err = fmt.Errorf("%w: %s", render.ErrUnsupported, name)
+	}
+	u, err := word("underline", "none", func(r *dml.RPr) string { return r.U })
+	if err != nil {
+		return s, err
+	}
+	strike, err := word("strikethrough", "noStrike", func(r *dml.RPr) string { return r.Strike })
+	if err != nil {
+		return s, err
+	}
+	capital, err := word("capitalization", "none", func(r *dml.RPr) string { return r.Cap })
+	if err != nil {
+		return s, err
+	}
+	// Lines are placed from the font size, not the font's own metrics;
+	// styled underlines (dotted, wavy, …) draw solid.
+	switch u {
+	case "none":
+	case "dbl", "wavyDbl":
+		s.underline = 2
+	default:
+		s.underline = 1
+	}
+	switch strike {
+	case "noStrike":
+	case "dblStrike":
+		s.strike = 2
+	case "sngStrike":
+		s.strike = 1
+	default:
+		return s, fmt.Errorf("%w: strikethrough", render.ErrInvalid)
+	}
+	if s.underline > 0 || s.strike > 0 {
+		if err = t.colors.approximate(fmt.Errorf("%w: underline or strikethrough placed approximately", render.ErrUnsupported)); err != nil {
+			return s, err
 		}
-		return err
 	}
-	if err = word("underline", "none", func(r *dml.RPr) string { return r.U }); err != nil {
-		return s, err
-	}
-	if err = word("strikethrough", "noStrike", func(r *dml.RPr) string { return r.Strike }); err != nil {
-		return s, err
-	}
-	if err = word("capitalization", "none", func(r *dml.RPr) string { return r.Cap }); err != nil {
-		return s, err
+	switch capital {
+	case "none":
+	case "all":
+		s.caps = true
+	case "small":
+		if err = t.colors.approximate(fmt.Errorf("%w: small capitals drawn as capitals", render.ErrUnsupported)); err != nil {
+			return s, err
+		}
+		s.caps = true
+	default:
+		return s, fmt.Errorf("%w: capitalization", render.ErrInvalid)
 	}
 	number := func(name string, pick func(*dml.RPr) (int32, bool)) (int32, error) {
-		return renderInherit(name, layers, func(r *dml.RPr) (int32, bool, error) {
+		return renderInherit(t.colors.approximate, name, layers, func(r *dml.RPr) (int32, bool, error) {
 			if r == nil {
 				return 0, false, nil
 			}
@@ -604,7 +665,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	if s.kern < 0 {
 		return s, fmt.Errorf("%w: kerning size", render.ErrInvalid)
 	}
-	if s.color, err = renderInherit("text color", layers, func(r *dml.RPr) (style.RGBA, bool, error) {
+	if s.color, err = renderInherit(t.colors.approximate, "text color", layers, func(r *dml.RPr) (style.RGBA, bool, error) {
 		switch {
 		case r == nil:
 			return style.RGBA{}, false, nil
@@ -628,7 +689,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}); err != nil {
 		return s, err
 	}
-	if s.highlight, err = renderInherit("highlight", layers, func(r *dml.RPr) (renderHighlight, bool, error) {
+	if s.highlight, err = renderInherit(t.colors.approximate, "highlight", layers, func(r *dml.RPr) (renderHighlight, bool, error) {
 		if r == nil || r.Highlight == nil {
 			return renderHighlight{}, false, nil
 		}
@@ -637,7 +698,7 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}, renderBuiltin(renderHighlight{})); err != nil {
 		return s, err
 	}
-	if s.font, err = renderInherit("font", layers, func(r *dml.RPr) (string, bool, error) {
+	if s.font, err = renderInherit(t.colors.approximate, "font", layers, func(r *dml.RPr) (string, bool, error) {
 		if r == nil || r.Latin == nil {
 			return "", false, nil
 		}
@@ -691,27 +752,43 @@ func renderEastAsian(tag string) bool {
 }
 
 // bullet resolves a paragraph's bullet. Each bullet property inherits on its
-// own. Numbered and picture bullets fail.
+// own. Picture bullets fail, and best effort draws them as "•".
 func (t *renderTextStyles) bullet(layers [][]renderLayer[*dml.PPr]) (renderBullet, error) {
 	var b renderBullet
-	kind, err := renderInherit("bullet", layers, func(pp *dml.PPr) (string, bool, error) {
+	type kind struct {
+		char, autoNum string
+		startAt       int32
+	}
+	k, err := renderInherit(t.colors.approximate, "bullet", layers, func(pp *dml.PPr) (kind, bool, error) {
 		switch {
 		case pp == nil:
-			return "", false, nil
+			return kind{}, false, nil
 		case pp.BuNone != nil:
-			return "", true, nil
+			return kind{}, true, nil
 		case pp.BuChar != nil:
-			return pp.BuChar.Char, true, nil
-		case pp.BuAutoNum != nil || pp.BuBlip != nil:
-			return "", false, fmt.Errorf("%w: numbered or picture bullet", render.ErrUnsupported)
+			return kind{char: pp.BuChar.Char}, true, nil
+		case pp.BuAutoNum != nil:
+			start := pp.BuAutoNum.StartAt
+			if start == 0 {
+				start = 1
+			}
+			if start < 1 || start > 32767 {
+				return kind{}, false, fmt.Errorf("%w: numbering start", render.ErrInvalid)
+			}
+			return kind{autoNum: pp.BuAutoNum.Type, startAt: start}, true, nil
+		case pp.BuBlip != nil:
+			if err := t.colors.approximate(fmt.Errorf("%w: picture bullet drawn as a dot", render.ErrUnsupported)); err != nil {
+				return kind{}, false, err
+			}
+			return kind{char: "•"}, true, nil
 		}
-		return "", false, nil
-	}, renderBuiltin(""))
-	if err != nil || kind == "" {
+		return kind{}, false, nil
+	}, renderBuiltin(kind{}))
+	if err != nil || (k.char == "" && k.autoNum == "") {
 		return b, err
 	}
-	b.char = kind
-	if b.font, err = renderInherit("bullet font", layers, func(pp *dml.PPr) (string, bool, error) {
+	b.char, b.autoNum, b.startAt = k.char, k.autoNum, k.startAt
+	if b.font, err = renderInherit(t.colors.approximate, "bullet font", layers, func(pp *dml.PPr) (string, bool, error) {
 		switch {
 		case pp == nil:
 			return "", false, nil
@@ -726,7 +803,7 @@ func (t *renderTextStyles) bullet(layers [][]renderLayer[*dml.PPr]) (renderBulle
 		return b, err
 	}
 	type size struct{ pct, pts int32 }
-	sz, err := renderInherit("bullet size", layers, func(pp *dml.PPr) (size, bool, error) {
+	sz, err := renderInherit(t.colors.approximate, "bullet size", layers, func(pp *dml.PPr) (size, bool, error) {
 		switch {
 		case pp == nil:
 			return size{}, false, nil
@@ -753,7 +830,7 @@ func (t *renderTextStyles) bullet(layers [][]renderLayer[*dml.PPr]) (renderBulle
 		own bool
 		c   style.RGBA
 	}
-	color, err := renderInherit("bullet color", layers, func(pp *dml.PPr) (paint, bool, error) {
+	color, err := renderInherit(t.colors.approximate, "bullet color", layers, func(pp *dml.PPr) (paint, bool, error) {
 		switch {
 		case pp == nil:
 			return paint{}, false, nil

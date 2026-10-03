@@ -4,6 +4,7 @@ import (
 	"math"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/mgilbir/forme/layout"
@@ -287,8 +288,17 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	// Subtract in sequence, so hostile EMU values cannot overflow a sum.
 	if m.Left > w || m.Top > h || m.Right > w-m.Left || m.Bottom > h-m.Top {
 		// DrawingML permits insets wider than the shape; this profile cannot
-		// lay text out in such a box.
-		return nil, fmt.Errorf("%w: text content box", render.ErrUnsupported)
+		// lay text out in such a box, and best effort drops the insets on the
+		// axis they overfill.
+		if err = styles.colors.approximate(fmt.Errorf("%w: text insets larger than the shape left out", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+		if m.Left > w || m.Right > w-m.Left {
+			m.Left, m.Right = 0, 0
+		}
+		if m.Top > h || m.Bottom > h-m.Top {
+			m.Top, m.Bottom = 0, 0
+		}
 	}
 	content := w - m.Left - m.Right
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
@@ -309,6 +319,12 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, content dml.EMU, noWrap bool, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles, chain renderListChain) ([]renderBlock, float64, error) {
 	blocks := make([]renderBlock, 0, len(saved.P))
 	height := 0.0
+	// numbers counts numbered paragraphs per level: a paragraph resets the
+	// counts of deeper levels, and one without numbering its own level's.
+	var numbers [9]struct {
+		scheme string
+		next   int32
+	}
 	for pi, p := range saved.P {
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
@@ -332,6 +348,29 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			if err := styles.colors.approximate(fmt.Errorf("%w: space before the first paragraph", render.ErrUnsupported)); err != nil {
 				return nil, 0, err
 			}
+		}
+		level := 0
+		if p.PPr != nil && p.PPr.Lvl != nil {
+			level = int(min(max(*p.PPr.Lvl, 0), 8))
+		}
+		for l := level + 1; l < len(numbers); l++ {
+			numbers[l].scheme = ""
+		}
+		if b := &para.bullet; b.autoNum != "" && renderHasParagraphText(p) {
+			n := &numbers[level]
+			if n.scheme != b.autoNum {
+				n.scheme, n.next = b.autoNum, b.startAt
+			}
+			var ok bool
+			if b.char, ok = renderAutoNumber(b.autoNum, n.next); !ok {
+				if err := styles.colors.approximate(fmt.Errorf("%w: numbering %s drawn as arabic numerals", render.ErrUnsupported, b.autoNum)); err != nil {
+					return nil, 0, err
+				}
+				b.char, _ = renderAutoNumber("arabicPeriod", n.next)
+			}
+			n.next++
+		} else if renderHasParagraphText(p) {
+			numbers[level].scheme = ""
 		}
 		if para.marL > content || para.marR > content-para.marL || para.marL+para.marR == content {
 			return nil, 0, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
@@ -394,6 +433,25 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			if err != nil {
 				return nil, 0, err
 			}
+			if rs.caps {
+				t = strings.ToUpper(t)
+			}
+			// Best effort leaves out characters this profile or the run's font
+			// cannot draw.
+			if styles.colors.approx != nil && t != "" {
+				if face, err := fonts.resolve(ctx, rs.font, rs.bold, rs.italic); err == nil {
+					kept := strings.Map(func(c rune) rune {
+						if _, ok := face.GlyphID(c); ok && core.RepertoireEuropean.Allows(c) {
+							return c
+						}
+						return -1
+					}, t)
+					if kept != t {
+						styles.colors.approx(fmt.Errorf("%w: characters the font or profile lacks left out", render.ErrUnsupported))
+						t = kept
+					}
+				}
+			}
 			if rs.eastAsian && !renderASCII(t) {
 				return nil, 0, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
 			}
@@ -448,12 +506,15 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		para.after += dml.EMU(math.Round(float64(para.afterPct) / 100000 * lines[len(lines)-1].height * px))
 		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
 		if text.Len() > 0 && para.bullet.char != "" {
-			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width); err != nil {
+			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width, styles.colors.approximate); err != nil {
 				return nil, 0, err
 			}
 		} else if text.Len() > 0 && para.indent != 0 {
-			// Without a bullet the first line would start apart from the rest.
-			return nil, 0, fmt.Errorf("%w: first-line indent", render.ErrUnsupported)
+			// Without a bullet the first line would start apart from the rest;
+			// best effort starts it with the rest.
+			if err := styles.colors.approximate(fmt.Errorf("%w: first-line indent left out", render.ErrUnsupported)); err != nil {
+				return nil, 0, err
+			}
 		}
 		blocks = append(blocks, block)
 		height += float64(para.before+para.after) / float64(dml.EMUsPerPixel)
@@ -704,6 +765,25 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 			return nil, render.ErrLimit
 		}
 		glyphOps = append(glyphOps, layout.DrawGlyphs{At: layout.Point{X: xu, Y: yu}, Text: sg.Text[first:pieceEnd], Glyphs: glyphs, Face: sg.Face, Size: sg.Size, Color: runs[r].color})
+		// Underlines sit a tenth of an em below the baseline and strikes
+		// three tenths above it, a twentieth of an em thick.
+		em := sg.Size.Px()
+		thick := math.Max(em/20, 1)
+		for _, line := range []struct {
+			n int
+			y float64
+		}{{runs[r].underline, baseline + em/10}, {runs[r].strike, baseline - em*3/10}} {
+			for k := 0; k < line.n; k++ {
+				lx, okX := style.FromPx(x + pen*em/1000)
+				ly, okY := style.FromPx(line.y + float64(k)*thick*2 - thick/2)
+				lw, okW := style.FromPx(advance * em / 1000)
+				lh, okH := style.FromPx(thick)
+				if !okX || !okY || !okW || !okH {
+					return nil, render.ErrLimit
+				}
+				glyphOps = append(glyphOps, layout.FillRect{Rect: layout.Rect{X: lx, Y: ly, W: lw, H: lh}, Color: runs[r].color})
+			}
+		}
 		pen += advance
 		i = j
 	}
@@ -757,8 +837,9 @@ type renderBulletGlyph struct {
 // negative indent, which must hold it, so the text of every line starts at
 // the left margin; a bullet past it would push the first line to a tab stop,
 // whose placement this profile does not claim. The bullet may not raise its
-// line.
-func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0 dml.EMU, width style.Unit) (*renderBulletGlyph, error) {
+// line. Best effort, through approx, draws such bullets where they would
+// hang, over the text or past the line.
+func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0 dml.EMU, width style.Unit, approx func(error) error) (*renderBulletGlyph, error) {
 	b := para.bullet
 	shaping := renderShaping{font: first.font, bold: first.bold, italic: first.italic}
 	if b.font != "" {
@@ -778,10 +859,14 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	}
 	bullet := lines[0]
 	if bullet.Width.Px() > -float64(para.indent)/float64(dml.EMUsPerPixel) {
-		return nil, fmt.Errorf("%w: bullet wider than its hanging indent", render.ErrUnsupported)
+		if err := approx(fmt.Errorf("%w: bullet wider than its hanging indent", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
 	}
 	if bullet.ascent > line.ascent || bullet.descent > line.descent {
-		return nil, fmt.Errorf("%w: bullet taller than its line", render.ErrUnsupported)
+		if err := approx(fmt.Errorf("%w: bullet taller than its line", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
 	}
 	color := first.color
 	if b.ownColor {
@@ -814,4 +899,66 @@ func renderFontRef(r *dml.FontRef) (*dml.LstStyle, error) {
 	}
 	level := &dml.PPr{DefRPr: &def}
 	return &dml.LstStyle{DefPPr: level, Lvl1pPr: level, Lvl2pPr: level, Lvl3pPr: level, Lvl4pPr: level, Lvl5pPr: level, Lvl6pPr: level, Lvl7pPr: level, Lvl8pPr: level, Lvl9pPr: level}, nil
+}
+
+// renderHasParagraphText reports whether a paragraph shows any characters.
+func renderHasParagraphText(p *dml.P) bool {
+	return renderHasText(&dml.TxBody{P: []*dml.P{p}})
+}
+
+// renderAutoNumber formats a paragraph number in an ST_TextAutonumberScheme
+// of Latin letters, Roman or Arabic numerals.
+func renderAutoNumber(scheme string, n int32) (string, bool) {
+	if n < 1 {
+		return "", false
+	}
+	var digits, rest string
+	switch {
+	case strings.HasPrefix(scheme, "arabic"):
+		digits, rest = strconv.Itoa(int(n)), strings.TrimPrefix(scheme, "arabic")
+	case strings.HasPrefix(scheme, "alphaLc"), strings.HasPrefix(scheme, "alphaUc"):
+		// a … z, aa … zz, aaa …: the letter repeats.
+		letter := string(rune('a' + (n-1)%26))
+		digits = strings.Repeat(letter, int((n-1)/26+1))
+		if strings.HasPrefix(scheme, "alphaUc") {
+			digits = strings.ToUpper(digits)
+		}
+		rest = scheme[len("alphaLc"):]
+	case strings.HasPrefix(scheme, "romanLc"), strings.HasPrefix(scheme, "romanUc"):
+		if n > 3999 {
+			return "", false
+		}
+		digits = renderRoman(int(n))
+		if strings.HasPrefix(scheme, "romanLc") {
+			digits = strings.ToLower(digits)
+		}
+		rest = scheme[len("romanLc"):]
+	default:
+		return "", false
+	}
+	switch rest {
+	case "Period":
+		return digits + ".", true
+	case "ParenR":
+		return digits + ")", true
+	case "ParenBoth":
+		return "(" + digits + ")", true
+	case "Plain":
+		return digits, true
+	}
+	return "", false
+}
+
+func renderRoman(n int) string {
+	var b strings.Builder
+	for _, d := range []struct {
+		v int
+		s string
+	}{{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"}, {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}} {
+		for n >= d.v {
+			b.WriteString(d.s)
+			n -= d.v
+		}
+	}
+	return b.String()
 }
