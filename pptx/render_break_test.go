@@ -2,11 +2,14 @@ package pptx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image/png"
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/forme/fonts/notosans"
+	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -111,5 +114,28 @@ func TestRenderTextScalingAndSpacing(t *testing.T) {
 	_, exact, _, _ := renderInkBounds(t, draw("", `<a:p><a:pPr><a:lnSpc><a:spcPts val="4000"/></a:lnSpc></a:pPr>`+renderPlainRun+`</a:p>`))
 	if exact <= normal+10 {
 		t.Fatalf("exact spacing: glyph top at %d, normally %d", exact, normal)
+	}
+}
+
+func TestRenderTabs(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) { return noto, nil }
+	body := func(pPr string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, `<a:p>`+pPr+`<a:r><a:rPr lang="en-US" sz="1200"/><a:t>A	A</a:t></a:r></a:p>`)}
+	}
+	dark := func(r, g, b uint8) bool { return r < 128 && g < 128 && b < 128 }
+	// The text starts at x 4; a 0.25" (24px) stop puts the second A at 28.
+	got := renderSlidePNG(t, data, opts, body(`<a:pPr defTabSz="228600"/>`))
+	if !renderInk(t, got, 28, 4, 38, 24, dark) || renderInk(t, got, 16, 4, 27, 24, dark) {
+		t.Fatal("tab stop")
+	}
+	// Explicit stops are placed at the default spacing, in best effort.
+	explicit := body(`<a:pPr defTabSz="228600"><a:tabLst><a:tab pos="457200" algn="l"/></a:tabLst></a:pPr>`)
+	if _, err := renderRewrittenPNG(t, data, opts, explicit); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict explicit stops: %v", err)
 	}
 }

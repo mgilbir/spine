@@ -441,7 +441,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			if styles.colors.approx != nil && t != "" {
 				if face, err := fonts.resolve(ctx, rs.font, rs.bold, rs.italic); err == nil {
 					kept := strings.Map(func(c rune) rune {
-						if _, ok := face.GlyphID(c); ok && core.RepertoireEuropean.Allows(c) {
+						if _, ok := face.GlyphID(c); (ok && core.RepertoireEuropean.Allows(c)) || c == '\t' {
 							return c
 						}
 						return -1
@@ -472,6 +472,11 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		// import does.
 		if err := mark(p.EndParaRPr); err != nil {
 			return nil, 0, err
+		}
+		if para.customTabs && strings.Contains(text.String(), "\t") {
+			if err := styles.colors.approximate(fmt.Errorf("%w: explicit tab stops placed at the default spacing", render.ErrUnsupported)); err != nil {
+				return nil, 0, err
+			}
 		}
 		wrap := width
 		if noWrap {
@@ -649,7 +654,7 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 			return nil, render.ErrLimit
 		}
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
-		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}}
+		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize)}
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
 	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)
