@@ -236,8 +236,34 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		imageCount, imageBytes = 1, bgImageBytes
 		imagePixels = int64(bgImage.Bounds().Dx()) * int64(bgImage.Bounds().Dy())
 	}
-	// A slide often repeats one image; decode and charge it once.
+	// A slide often repeats one image; decode and charge it once. Every
+	// drawing of it counts toward the image budget.
 	decoded := map[renderImageKey]image.Image{}
+	loadImage := func(data []byte, key renderImageKey) (image.Image, error) {
+		if len(data) == 0 {
+			return nil, fmt.Errorf("%w: missing picture data", render.ErrInvalid)
+		}
+		if imageCount >= resolved.MaxImages {
+			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
+		}
+		imageCount++
+		if img := decoded[key]; img != nil {
+			return img, nil
+		}
+		if int64(len(data)) > resolved.MaxImageBytes-imageBytes || imagePixels >= resolved.MaxImagePixels {
+			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
+		}
+		imageBytes += int64(len(data))
+		decodeLimits := resolved
+		decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
+		img, err := core.DecodeImage(ctx, data, decodeLimits)
+		if err != nil {
+			return nil, err
+		}
+		imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
+		decoded[key] = img
+		return img, nil
+	}
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
 	// position among the slide's own shapes, or -1 for an inherited shape;
 	// picture resolves a picture's image bytes.
@@ -291,6 +317,15 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			}
 			defer func() { colors.approx = prev }()
 		}
+		// A shape's picture fill comes from its own part.
+		prevPicture := colors.picture
+		colors.picture = func(embed string) (image.Image, error) {
+			if picture == nil {
+				return nil, fmt.Errorf("%w: picture fill without its part", render.ErrUnsupported)
+			}
+			return loadImage(picture(&Picture{relID: embed}))
+		}
+		defer func() { colors.picture = prevPicture }()
 		x, y := sh.Position()
 		sw, shh := sh.Size()
 		if sw < 0 || shh < 0 {
@@ -368,28 +403,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if v.isMedia {
 				return nil, fmt.Errorf("%w: media picture", render.ErrUnsupported)
 			}
-			imgData, key := picture(v)
-			if len(imgData) == 0 {
-				return nil, fmt.Errorf("%w: missing picture data", render.ErrInvalid)
-			}
-			if imageCount >= resolved.MaxImages {
-				return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
-			}
-			imageCount++
-			img := decoded[key]
-			if img == nil {
-				if int64(len(imgData)) > resolved.MaxImageBytes-imageBytes || imagePixels >= resolved.MaxImagePixels {
-					return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
-				}
-				imageBytes += int64(len(imgData))
-				decodeLimits := resolved
-				decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
-				var err error
-				if img, err = core.DecodeImage(ctx, imgData, decodeLimits); err != nil {
-					return nil, err
-				}
-				imagePixels += int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
-				decoded[key] = img
+			img, err := loadImage(picture(v))
+			if err != nil {
+				return nil, err
 			}
 			// A negative crop extends the picture past its image, which is
 			// then laid over the extended box and clipped to the picture's.
@@ -484,10 +500,12 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		ops = append(ops, drawn...)
 	}
+	// A picture holds its image; a picture fill names it by relationship.
+	partPicture := s.renderPartPicture(s.partName)
 	slidePicture := func(v *Picture) ([]byte, renderImageKey) {
 		data := v.Data()
 		if len(data) == 0 {
-			return nil, renderImageKey{}
+			return partPicture(v)
 		}
 		return data, renderPictureKey(v, data)
 	}
@@ -793,8 +811,8 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 		applyShapeStyle(&copyProps, &v.spPr)
 		p = &copyProps
 	}
-	if p.BlipFill != nil || p.PattFill != nil || p.GrpFill != nil {
-		return nil, g, fmt.Errorf("%w: shape picture, pattern or group fill", render.ErrUnsupported)
+	if p.PattFill != nil || p.GrpFill != nil {
+		return nil, g, fmt.Errorf("%w: shape pattern or group fill", render.ErrUnsupported)
 	}
 	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
 		return nil, g, err
@@ -904,11 +922,78 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 	ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
 	return ops, g, err
 }
+// pictureFill resolves a picture fill, stretched over its fill rectangle.
+// Its fixed opacity is drawn, and its other color effects left out, as
+// pictures draw them; a tiled picture is drawn stretched, approximately.
+func (c *renderColors) pictureFill(f *dml.BlipFillXML) (renderPaint, error) {
+	// The source check admits the blip's local-DPI and SVG extensions; an
+	// SVG picture draws its raster fallback.
+	if f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || c.picture == nil {
+		return renderPaint{}, fmt.Errorf("%w: linked picture fill", render.ErrUnsupported)
+	}
+	if f.Tile != nil || f.Stretch == nil {
+		if err := c.approximate(fmt.Errorf("%w: tiled picture fill drawn stretched", render.ErrUnsupported)); err != nil {
+			return renderPaint{}, err
+		}
+	}
+	img, err := c.picture(f.Blip.Embed)
+	if err != nil {
+		return renderPaint{}, err
+	}
+	if r := f.SrcRect; r != nil {
+		l, t, rr, b := float64(r.L.Int32())/100000, float64(r.T.Int32())/100000, float64(r.R.Int32())/100000, float64(r.B.Int32())/100000
+		if l < 0 || t < 0 || rr < 0 || b < 0 {
+			// A negative source inset extends the picture with transparency.
+			if err := c.approximate(fmt.Errorf("%w: picture fill extended past its image drawn unextended", render.ErrUnsupported)); err != nil {
+				return renderPaint{}, err
+			}
+			l, t, rr, b = math.Max(l, 0), math.Max(t, 0), math.Max(rr, 0), math.Max(b, 0)
+		}
+		if img, err = renderCrop(img, l, t, rr, b); err != nil {
+			return renderPaint{}, err
+		}
+	}
+	for _, e := range f.Blip.Effects {
+		if e == nil {
+			continue
+		}
+		if e.AlphaModFix != nil {
+			a := 1.0
+			if e.AlphaModFix.Amt != nil {
+				a = float64(e.AlphaModFix.Amt.Int32()) / 100000
+			}
+			if a < 1 {
+				img = renderFade(img, math.Max(0, a))
+			}
+			continue
+		}
+		if err := c.approximate(fmt.Errorf("%w: picture color effects left out", render.ErrUnsupported)); err != nil {
+			return renderPaint{}, err
+		}
+	}
+	paint := renderPaint{image: img}
+	if f.Stretch != nil && f.Stretch.FillRect != nil {
+		r := f.Stretch.FillRect
+		paint.fill = [4]float64{float64(r.L.Int32()) / 100000, float64(r.T.Int32()) / 100000, float64(r.R.Int32()) / 100000, float64(r.B.Int32()) / 100000}
+	}
+	return paint, nil
+}
+
 // renderShapePaint resolves a shape's fill, its own or its style's; filled is
 // false for none.
 func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml.EMU) (paint renderPaint, filled bool, err error) {
-	if p.NoFill != nil && (p.SolidFill != nil || p.GradFill != nil) || p.SolidFill != nil && p.GradFill != nil {
+	set := 0
+	for _, f := range []bool{p.NoFill != nil, p.SolidFill != nil, p.GradFill != nil, p.BlipFill != nil} {
+		if f {
+			set++
+		}
+	}
+	if set > 1 {
 		return paint, false, fmt.Errorf("%w: ambiguous shape fill", render.ErrInvalid)
+	}
+	if p.BlipFill != nil {
+		paint, err = colors.pictureFill(p.BlipFill)
+		return paint, err == nil, err
 	}
 	fill, grad := p.SolidFill, p.GradFill
 	var placeholder *style.RGBA
@@ -1740,6 +1825,15 @@ func slideRenderNode(node core.XMLNode) error {
 		}
 		el.Attr = attrs
 	}
+	// A shape's picture fill draws its fill rectangle.
+	if n := len(node.Path); n >= 4 && el.Name == (xml.Name{Space: nsA, Local: "fillRect"}) && node.Path[n-4] == (xml.Name{Space: nsP, Local: "spPr"}) {
+		for _, a := range el.Attr {
+			if a.Name.Space != "" || !strings.Contains(" l t r b ", " "+a.Name.Local+" ") {
+				return fmt.Errorf("%w: XML fillRect/@%s", render.ErrUnsupported, a.Name.Local)
+			}
+		}
+		el.Attr = nil
+	}
 	return slideRenderXML(el)
 }
 func (r *renderProfile) inherited(node core.XMLNode) error {
@@ -1870,5 +1964,5 @@ var renderXMLParents = map[string]string{
 	"a:gradFill": "p:spPr p:grpSpPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
 	"a:lin": "a:gradFill", "a:path": "a:gradFill a:pathLst", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
 	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill a:blipFill", "a:alphaModFix": "a:blip", "a:srcRect": "p:blipFill a:blipFill",
-	"a:blipFill": "p:bgPr", "a:tile": "a:blipFill p:blipFill", "a:stretch": "p:blipFill a:blipFill", "a:fillRect": "a:stretch",
+	"a:blipFill": "p:bgPr p:spPr", "a:tile": "a:blipFill p:blipFill", "a:stretch": "p:blipFill a:blipFill", "a:fillRect": "a:stretch",
 }

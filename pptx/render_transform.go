@@ -240,18 +240,28 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			v.At = layout.Point{X: px, Y: py}
 			out = append(out, v)
 		case layout.DrawImage:
-			// A picture moves its centre with the shape, unturned; a quarter
-			// turn swaps its box's sides.
-			if err := colors.approximate(fmt.Errorf("%w: picture of a turned group drawn unturned", render.ErrUnsupported)); err != nil {
-				return nil, err
-			}
 			if v.Clip.Active {
 				return nil, fmt.Errorf("%w: clipped picture in a turned group", render.ErrUnsupported)
 			}
+			// A picture turns about its own centre, which moves with the
+			// shape: flips and quarter turns exactly, by its pixels. Other
+			// angles move it unturned, approximately; a turn nearer a quarter
+			// swaps its box's sides.
 			cx, cy := t.point(v.Rect.X.Px()+v.Rect.W.Px()/2, v.Rect.Y.Px()+v.Rect.H.Px()/2)
 			w, h := v.Rect.W.Px(), v.Rect.H.Px()
-			if q := math.Mod(math.Abs(t.rot), 180); q > 45 && q < 135 {
-				w, h = h, w
+			if quarter := math.Mod(t.rot, 90) == 0; quarter {
+				img, rect, err := renderOrientImage(v.Image, v.Rect, t.flipH, t.flipV, int32(math.Mod(t.rot, 360))*60000, colors)
+				if err != nil {
+					return nil, err
+				}
+				v.Image, w, h = img, rect.W.Px(), rect.H.Px()
+			} else {
+				if err := colors.approximate(fmt.Errorf("%w: picture turned other than by quarters drawn unturned", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+				if q := math.Mod(math.Abs(t.rot), 180); q > 45 && q < 135 {
+					w, h = h, w
+				}
 			}
 			x, okX := style.FromPx(cx - w/2)
 			y, okY := style.FromPx(cy - h/2)

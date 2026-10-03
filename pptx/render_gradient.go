@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"sort"
 
@@ -16,6 +17,10 @@ import (
 type renderPaint struct {
 	color    style.RGBA
 	gradient *layout.Gradient
+	// image, when set, is stretched over the box inset by fill, the
+	// left, top, right and bottom insets as fractions of its extent.
+	image image.Image
+	fill  [4]float64
 }
 
 // renderMaxGradientStops bounds a gradient's stop list.
@@ -162,6 +167,9 @@ func (p renderPaint) fillOps(x, y, w, h float64, path layout.Path) ([]layout.Op,
 		return nil, fmt.Errorf("%w: fill box", render.ErrLimit)
 	}
 	rect := layout.Rect{X: rx, Y: ry, W: rw, H: rh}
+	if p.image != nil {
+		return p.imageOps(x, y, w, h, rect, path)
+	}
 	if p.gradient == nil {
 		if path != nil {
 			return []layout.Op{layout.FillPath{Path: path, Color: p.color}}, nil
@@ -176,6 +184,28 @@ func (p renderPaint) fillOps(x, y, w, h float64, path layout.Path) ([]layout.Op,
 		op = layout.ClipPath{Path: path, Ops: []layout.Op{op}}
 	}
 	return []layout.Op{op}, nil
+}
+
+// imageOps stretches a picture fill over its box, inset by its fill
+// rectangle and clipped to the shape: to path, or else to the box.
+func (p renderPaint) imageOps(x, y, w, h float64, box layout.Rect, path layout.Path) ([]layout.Op, error) {
+	l, t, r, b := p.fill[0], p.fill[1], p.fill[2], p.fill[3]
+	fw, fh := w*(1-l-r), h*(1-t-b)
+	if !(fw > 0) || !(fh > 0) || w <= 0 || h <= 0 {
+		return nil, nil
+	}
+	fx, okX := style.FromPx(x + l*w)
+	fy, okY := style.FromPx(y + t*h)
+	uw, okW := style.FromPx(fw)
+	uh, okH := style.FromPx(fh)
+	if !okX || !okY || !okW || !okH {
+		return nil, fmt.Errorf("%w: picture fill box", render.ErrLimit)
+	}
+	img := renderDownscale(p.image, fw*renderMaxImageScale, fh*renderMaxImageScale)
+	if path == nil {
+		path = renderRectPath(box)
+	}
+	return []layout.Op{layout.ClipPath{Path: path, Ops: []layout.Op{layout.DrawImage{Rect: layout.Rect{X: fx, Y: fy, W: uw, H: uh}, Image: img}}}}, nil
 }
 
 // representative resolves a gradient or pattern fill to the one color that

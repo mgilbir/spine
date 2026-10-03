@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"context"
+	"image"
 	"fmt"
 	"math"
 	"strings"
@@ -29,6 +30,9 @@ type renderColors struct {
 	// approx, in best-effort mode, reports a detail of the shape being drawn
 	// that is drawn approximately or left out; nil in strict mode.
 	approx func(error)
+	// picture decodes an image the part of the shape being drawn embeds,
+	// under the slide's image budget; nil where none can be drawn.
+	picture func(embed string) (image.Image, error)
 }
 
 // approximate reports err and returns nil in best-effort mode, and returns err

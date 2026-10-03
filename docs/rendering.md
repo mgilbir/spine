@@ -97,7 +97,7 @@ The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a
 theme background reference (`p:bgRef`) whose theme entry is one of those.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
-and ellipses may have a solid or gradient fill or none, and a solid outline or none. A shape's
+and ellipses may have a solid, gradient or picture fill or none, and a solid outline or none. A shape's
 style reference (`p:style`) supplies what it does not set itself: `fillRef`
 selects a theme fill or background fill style, which must be solid, gradient or none, in
 the reference's color; `lnRef` a theme line style beneath the shape's own
@@ -133,7 +133,12 @@ other color effects out. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture
 background (`a:blipFill` in `p:bgPr`) is stretched over the slide and cropped
-by its source rectangle; best effort stretches a tiled one. Hidden shapes
+by its source rectangle; best effort stretches a tiled one. A shape's picture
+fill (`a:blipFill` in `p:spPr`) is stretched over its box, inset by its fill
+rectangle (`a:fillRect`) and cropped by its source rectangle, and clipped to
+the shape; it flips and turns with the shape, and its fixed alpha modulation
+fades it. Best effort stretches a tiled picture fill, draws a negative source
+inset as none, and leaves other color effects out. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
 Other preset geometries draw from the standard's definitions
@@ -368,8 +373,10 @@ row to hold its text.
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
 PowerPoint draws them. A rotated or flipped group turns and mirrors its
-shapes about its centre, and turns their text with it. Best effort moves
-pictures, and the text of a flipped group, with it, upright and unturned. A group's fill paints nothing itself; shapes inside
+shapes about its centre, and turns their text with it. Pictures flip and
+turn by quarters about their own centres, by their pixels. Best effort moves
+pictures turned by other angles, and the text of a flipped group, with it,
+upright and unturned. A group's fill paints nothing itself; shapes inside
 whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
 effort leaves group effects out. Placeholders and tables inside groups fail; groups are drawn only
 from their parsed form without pending edits.
