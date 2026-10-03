@@ -527,12 +527,12 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 					return nil, err
 				}
 			}
-			if v.blipEffects {
-				if err := colors.approximate(fmt.Errorf("%w: picture color effects left out", render.ErrUnsupported)); err != nil {
+			if len(v.effects) > 0 {
+				if img, err = colors.blipEffects(img, v.effects); err != nil {
 					return nil, err
 				}
-			}
-			if v.opacity != nil && *v.opacity < 1 {
+			} else if v.opacity != nil && *v.opacity < 1 {
+				// A picture given an opacity through the API.
 				img = renderFade(img, math.Max(0, *v.opacity))
 			}
 			x, y := v.Position()
@@ -1094,23 +1094,8 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 			return renderPaint{}, err
 		}
 	}
-	for _, e := range f.Blip.Effects {
-		if e == nil {
-			continue
-		}
-		if e.AlphaModFix != nil {
-			a := 1.0
-			if e.AlphaModFix.Amt != nil {
-				a = float64(e.AlphaModFix.Amt.Int32()) / 100000
-			}
-			if a < 1 {
-				img = renderFade(img, math.Max(0, a))
-			}
-			continue
-		}
-		if err := c.approximate(fmt.Errorf("%w: picture color effects left out", render.ErrUnsupported)); err != nil {
-			return renderPaint{}, err
-		}
+	if img, err = c.blipEffects(img, f.Blip.Effects); err != nil {
+		return renderPaint{}, err
 	}
 	paint := renderPaint{image: img}
 	if f.Tile != nil {
@@ -1394,7 +1379,7 @@ func slideRenderXML(el xml.StartElement) error {
 			attrs = "w cap cmpd algn"
 		case "overrideClrMapping":
 			attrs = "bg1 tx1 bg2 tx2 accent1 accent2 accent3 accent4 accent5 accent6 hlink folHlink"
-		case "avLst", "noFill", "solidFill", "grpFill", "stretch", "masterClrMapping", "highlight", "effectLst":
+		case "avLst", "noFill", "solidFill", "grpFill", "stretch", "masterClrMapping", "highlight", "effectLst", "clrFrom", "clrTo":
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
@@ -2007,6 +1992,10 @@ func slideRenderNode(node core.XMLNode) error {
 		(node.Name.Space == nsA && (node.Name.Local == "p" || node.Name.Local == "r" || node.Name.Local == "br" || node.Name.Local == "fld" || node.Name.Local == "tab" || node.Name.Local == "gd" || node.Name.Local == "gs" || node.Name.Local == "path" || node.Name.Local == "moveTo" || node.Name.Local == "lnTo" ||
 			node.Name.Local == "arcTo" || node.Name.Local == "quadBezTo" || node.Name.Local == "cubicBezTo" || node.Name.Local == "close" || node.Name.Local == "pt" || node.Name.Local == "cxn" ||
 			node.Name.Local == "ahXY" || node.Name.Local == "ahPolar" || node.Name.Local == "gridCol" || node.Name.Local == "tr" || node.Name.Local == "tc"))
+	// A duotone's two colors may be of one kind.
+	if n := len(node.Path); n >= 2 && node.Path[n-2] == (xml.Name{Space: nsA, Local: "duotone"}) && node.Occurrence == 2 {
+		repeated = true
+	}
 	if node.Occurrence > 1 && !repeated {
 		return fmt.Errorf("%w: repeated XML %s", render.ErrInvalid, node.Name.Local)
 	}
@@ -2021,6 +2010,28 @@ func slideRenderNode(node core.XMLNode) error {
 			}
 		}
 		el.Attr = attrs
+	}
+	// A picture effect's attributes are its own, apart from those of color
+	// transforms that share its name.
+	if n := len(node.Path); n >= 2 && node.Path[n-2] == (xml.Name{Space: nsA, Local: "blip"}) && el.Name.Space == nsA {
+		attrs := map[string]string{"alphaModFix": "amt", "alphaBiLevel": "thresh", "biLevel": "thresh", "alphaRepl": "a", "lum": "bright contrast", "tint": "hue amt",
+			"hsl": "hue sat lum", "clrChange": "useA", "fillOverlay": "blend", "blur": "rad grow", "alphaCeiling": "", "alphaFloor": "", "alphaInv": "", "clrRepl": "",
+			"duotone": "", "grayscl": "", "extLst": ""}
+		allowed, ok := attrs[el.Name.Local]
+		if !ok {
+			return fmt.Errorf("%w: picture effect %s", render.ErrUnsupported, el.Name.Local)
+		}
+		for _, a := range el.Attr {
+			if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
+				continue
+			}
+			if a.Name.Space != "" || !strings.Contains(" "+allowed+" ", " "+a.Name.Local+" ") {
+				return fmt.Errorf("%w: XML %s/@%s", render.ErrUnsupported, el.Name.Local, a.Name.Local)
+			}
+		}
+		if el.Name.Local != "extLst" {
+			return nil
+		}
 	}
 	// A shape's picture fill draws its fill rectangle.
 	if n := len(node.Path); n >= 4 && el.Name == (xml.Name{Space: nsA, Local: "fillRect"}) && node.Path[n-4] == (xml.Name{Space: nsP, Local: "spPr"}) {
@@ -2127,6 +2138,9 @@ func init() {
 	for _, name := range renderColorTransforms {
 		renderXMLParents["a:"+name] = "a:srgbClr a:schemeClr a:sysClr a:prstClr"
 	}
+	// Brightness and tint are also picture effects.
+	renderXMLParents["a:lum"] += " a:blip"
+	renderXMLParents["a:tint"] += " a:blip"
 	renderXMLParents["a:prstClr"] = renderXMLParents["a:srgbClr"]
 }
 
@@ -2162,11 +2176,13 @@ var renderXMLParents = map[string]string{
 	"a:effectLst": "p:spPr p:bgPr " + renderRunParents,
 	"a:prstDash":  renderLineParents, "a:round": renderLineParents, "a:bevel": renderLineParents, "a:miter": renderLineParents,
 	"a:headEnd": renderLineParents, "a:tailEnd": renderLineParents, "a:noFill": "p:spPr p:grpSpPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents,
-	"a:solidFill": "p:spPr p:grpSpPr p:bgPr a:tcPr " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill a:gs a:fgClr a:bgClr p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill a:gs a:fgClr a:bgClr p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill a:gs a:fgClr a:bgClr p:bgRef a:highlight a:buClr " + renderStyleRefs,
+	"a:solidFill": "p:spPr p:grpSpPr p:bgPr a:tcPr a:fillOverlay " + renderLineParents + " " + renderRunParents, "a:srgbClr": "a:solidFill a:gs a:fgClr a:bgClr a:duotone a:clrRepl a:alphaInv a:clrFrom a:clrTo p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:schemeClr": "a:solidFill a:gs a:fgClr a:bgClr a:duotone a:clrRepl a:alphaInv a:clrFrom a:clrTo p:bgRef a:highlight a:buClr " + renderStyleRefs, "a:sysClr": "a:solidFill a:gs a:fgClr a:bgClr a:duotone a:clrRepl a:alphaInv a:clrFrom a:clrTo p:bgRef a:highlight a:buClr " + renderStyleRefs,
 	"a:highlight": renderRunParents,
 	"a:ln": "p:spPr " + renderRunParents, "a:grpFill": "p:spPr p:grpSpPr",
-	"a:gradFill": "p:spPr p:grpSpPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:pattFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:fgClr": "a:pattFill", "a:bgClr": "a:pattFill", "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
+	"a:gradFill": "p:spPr p:grpSpPr p:bgPr a:fillOverlay " + renderLineParents + " " + renderRunParents, "a:pattFill": "p:spPr p:bgPr " + renderLineParents + " " + renderRunParents, "a:fgClr": "a:pattFill", "a:bgClr": "a:pattFill", "a:gsLst": "a:gradFill", "a:gs": "a:gsLst",
 	"a:lin": "a:gradFill", "a:path": "a:gradFill a:pathLst", "a:fillToRect": "a:path", "a:tileRect": "a:gradFill",
-	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill a:blipFill", "a:alphaModFix": "a:blip", "a:srcRect": "p:blipFill a:blipFill",
+	"a:picLocks": "p:cNvPicPr", "a:blip": "p:blipFill a:blipFill", "a:alphaModFix": "a:blip", "a:alphaBiLevel": "a:blip", "a:alphaCeiling": "a:blip", "a:alphaFloor": "a:blip", "a:alphaInv": "a:blip", "a:alphaRepl": "a:blip",
+	"a:biLevel": "a:blip", "a:blur": "a:blip", "a:clrChange": "a:blip", "a:clrFrom": "a:clrChange", "a:clrTo": "a:clrChange", "a:clrRepl": "a:blip", "a:duotone": "a:blip",
+	"a:fillOverlay": "a:blip", "a:grayscl": "a:blip", "a:hsl": "a:blip", "a:srcRect": "p:blipFill a:blipFill",
 	"a:blipFill": "p:bgPr p:spPr", "a:tile": "a:blipFill p:blipFill", "a:stretch": "p:blipFill a:blipFill", "a:fillRect": "a:stretch",
 }

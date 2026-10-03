@@ -615,6 +615,33 @@ func (v *Duotone) orderedRefs() []clrChoiceRef {
 	return v.groupedRefs()
 }
 
+// Colors returns the duotone's colors in document order, each as a color
+// choice holding one color.
+func (v *Duotone) Colors() []ColorChoice {
+	var out []ColorChoice
+	for _, ref := range v.orderedRefs() {
+		var c ColorChoice
+		switch x := v.colorForRef(ref).(type) {
+		case *ScRgbClr:
+			c.ScrgbClr = x
+		case *SrgbClr:
+			c.SrgbClr = x
+		case *HslClr:
+			c.HslClr = x
+		case *SystemClr:
+			c.SysClr = x
+		case *SchemeClrTransform:
+			c.SchemeClr = x
+		case *PrstClr:
+			c.PrstClr = x
+		default:
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // MarshalToBuilder implements xmlb.BuilderMarshaler, emitting the two colors
 // in their original document order.
 func (v *Duotone) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {

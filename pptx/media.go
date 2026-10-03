@@ -57,6 +57,9 @@ type Picture struct {
 	// Previews read them.
 	opacity     *float64
 	blipEffects bool
+	// effects are the parsed blip's effects in document order, for
+	// rendering.
+	effects []*dml.BlipEffect
 	// The picture's stable node identity (used e.g. by replacePictureImage to
 	// locate the exact node when two pictures share an image reference) lives
 	// in BaseShape.sourceID.

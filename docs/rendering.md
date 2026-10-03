@@ -136,8 +136,16 @@ flips mirror its pixels and quarter turns rotate them, turning its box about
 its centre; best effort draws other rotations unrotated, and leaves out
 picture effects. A picture's solid outline runs around its box. An SVG picture
 draws its raster fallback, as Office versions without SVG support show it. A
-fixed alpha modulation (`alphaModFix`) fades a picture; best effort leaves its
-other color effects out. A picture is downscaled, by averaging, to at most
+picture's color effects, and a picture fill's, apply in document order to
+its pixels: grayscale (`grayscl`) and bi-level by Rec. 601 luminance;
+`duotone` between its two colors by that luminance; color replacement
+(`clrRepl`) and change (`clrChange`, exact matches, with `useA`); `hsl`
+shifts; the alpha effects (`alphaModFix`, `alphaRepl`, `alphaBiLevel`,
+`alphaCeiling`, `alphaFloor`, `alphaInv`); and solid fill overlays in their
+blend mode. Brightness and contrast (`lum`), which the standard does not
+define, follow LibreOffice; tint and gradient overlays are approximated; blur
+and alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
+effort reports them. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture
 background (`a:blipFill` in `p:bgPr`) is stretched over the slide or tiled,
@@ -145,14 +153,14 @@ and cropped by its source rectangle. A shape's picture
 fill (`a:blipFill` in `p:spPr`) is stretched over its box, inset by its fill
 rectangle (`a:fillRect`), or tiled over it, cropped by its source rectangle
 and clipped to the shape; it flips and turns with the shape, and its fixed
-alpha modulation fades it. A tile is the picture's natural size, at the
+color effects apply as a picture's. A tile is the picture's natural size, at the
 fill's `dpi`, the file's resolution (PNG `pHYs`, JPEG JFIF density) or 96
 DPI, scaled by `sx`/`sy`; the first tile sits at its alignment in the box,
 moved by `tx`/`ty`, and the rest repeat from it, every other one mirrored on
 each axis `flip` names. Tiles are composed into one image of the picture's
 density, up to four pixels per CSS pixel and four million pixels in all.
 Best effort stretches a picture fill with neither fill mode, draws a
-negative source inset as none, and leaves other color effects out. Hidden shapes
+negative source inset as none. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
 Other preset geometries draw from the standard's definitions
