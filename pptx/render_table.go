@@ -98,8 +98,60 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 		height float64 // text height in pixels
 		margin [4]dml.EMU
 		anchor enum.TextAnchor
+		// origin is the row and column of the cell a merge covers this one
+		// with, itself for a cell no merge covers; rs and cs are an origin
+		// cell's row and column spans.
+		origin [2]int
+		rs, cs int
 	}
 	cells := make([][]cell, rows)
+	// A merge's first cell spans rows and columns; the cells it covers are
+	// marked merged and drawn as part of it.
+	origin := make([][][2]int, rows)
+	for r := range origin {
+		origin[r] = make([][2]int, cols)
+		for c := range origin[r] {
+			origin[r][c] = [2]int{-1, -1}
+		}
+	}
+	for r, tr := range tbl.Tr {
+		if tr == nil || len(tr.Tc) != cols {
+			return nil, fmt.Errorf("%w: table row", render.ErrInvalid)
+		}
+		for c, tc := range tr.Tc {
+			if tc == nil {
+				return nil, fmt.Errorf("%w: table cell", render.ErrInvalid)
+			}
+			if origin[r][c][0] >= 0 {
+				if !tc.HMerge && !tc.VMerge {
+					return nil, fmt.Errorf("%w: merged cell not marked merged", render.ErrInvalid)
+				}
+				continue
+			}
+			if tc.HMerge || tc.VMerge {
+				return nil, fmt.Errorf("%w: merged cell outside a merge", render.ErrInvalid)
+			}
+			rs, cs := max(int(tc.RowSpan), 1), max(int(tc.GridSpan), 1)
+			if r+rs > rows || c+cs > cols {
+				return nil, fmt.Errorf("%w: cell span", render.ErrInvalid)
+			}
+			for dr := range rs {
+				for dc := range cs {
+					if origin[r+dr][c+dc][0] >= 0 {
+						return nil, fmt.Errorf("%w: overlapping cell spans", render.ErrInvalid)
+					}
+					origin[r+dr][c+dc] = [2]int{r, c}
+				}
+			}
+		}
+	}
+	// Text of cells spanning rows lays out with its own row; rows then grow
+	// so each spanning cell's last row holds what its others do not.
+	type tall struct {
+		r, rs  int
+		height float64
+	}
+	var talls []tall
 	ys := make([]float64, rows+1) // in pixels; rows grow to fit their text
 	ys[0] = float64(gf.Xfrm.Off.Y) / float64(dml.EMUsPerPixel)
 	if err := styles.load(); err != nil {
@@ -127,10 +179,16 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 			if tc == nil {
 				return nil, fmt.Errorf("%w: table cell", render.ErrInvalid)
 			}
-			if tc.RowSpan > 1 || tc.GridSpan > 1 || tc.HMerge || tc.VMerge || tc.ExtLst != nil {
-				return nil, fmt.Errorf("%w: merged or extended table cell", render.ErrUnsupported)
+			if tc.ExtLst != nil {
+				return nil, fmt.Errorf("%w: extended table cell", render.ErrUnsupported)
 			}
-			cl := cell{tc: tc, margin: [4]dml.EMU{91440, 45720, 91440, 45720}, anchor: enum.TextAnchorTop}
+			cl := cell{tc: tc, margin: [4]dml.EMU{91440, 45720, 91440, 45720}, anchor: enum.TextAnchorTop, origin: origin[r][c]}
+			if cl.origin != [2]int{r, c} {
+				// Drawn as part of its merge.
+				cells[r][c] = cl
+				continue
+			}
+			cl.rs, cl.cs = max(int(tc.RowSpan), 1), max(int(tc.GridSpan), 1)
 			if pr := tc.TcPr; pr != nil {
 				if (pr.Vert != "" && pr.Vert != "horz") || renderTrue(pr.AnchorCtr) || pr.HorzOverflow != "" || pr.LnTlToBr != nil || pr.LnBlToTr != nil || pr.Cell3D != nil || pr.GradFill != nil || pr.BlipFill != nil || pr.PattFill != nil || pr.GrpFill != nil || pr.ExtLst != nil {
 					return nil, fmt.Errorf("%w: table cell properties", render.ErrUnsupported)
@@ -151,7 +209,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 					return nil, fmt.Errorf("%w: cell anchor", render.ErrUnsupported)
 				}
 			}
-			w := xs[c+1] - xs[c]
+			w := xs[c+cl.cs] - xs[c]
 			if cl.margin[0] > w || cl.margin[2] >= w-cl.margin[0] {
 				return nil, fmt.Errorf("%w: cell margins", render.ErrUnsupported)
 			}
@@ -169,10 +227,21 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 				}
 				cl.blocks, cl.height = blocks, h
 			}
-			height = max(height, cl.height+float64(cl.margin[1]+cl.margin[3])/float64(dml.EMUsPerPixel))
+			need := cl.height + float64(cl.margin[1]+cl.margin[3])/float64(dml.EMUsPerPixel)
+			if cl.rs > 1 {
+				talls = append(talls, tall{r: r, rs: cl.rs, height: need})
+			} else {
+				height = max(height, need)
+			}
 			cells[r][c] = cl
 		}
 		ys[r+1] = ys[r] + height
+		// A spanning cell ending on this row grows it to fit.
+		for _, t := range talls {
+			if t.r+t.rs-1 == r && ys[r+1]-ys[t.r] < t.height {
+				ys[r+1] = ys[t.r] + t.height
+			}
+		}
 	}
 	px := func(v dml.EMU) float64 { return float64(v) / float64(dml.EMUsPerPixel) }
 	unit := func(v float64) (style.Unit, error) {
@@ -187,7 +256,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 	for r := range cells {
 		for c, cl := range cells[r] {
 			pr := cl.tc.TcPr
-			if pr == nil || pr.SolidFill == nil {
+			if pr == nil || pr.SolidFill == nil || cl.origin != [2]int{r, c} {
 				continue
 			}
 			if pr.NoFill != nil {
@@ -199,8 +268,8 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 			}
 			x, err1 := unit(px(xs[c]))
 			y, err2 := unit(ys[r])
-			w, err3 := unit(px(xs[c+1]) - px(xs[c]))
-			h, err4 := unit(ys[r+1] - ys[r])
+			w, err3 := unit(px(xs[c+cl.cs]) - px(xs[c]))
+			h, err4 := unit(ys[r+cl.rs] - ys[r])
 			if err := firstErr(err1, err2, err3, err4); err != nil {
 				return nil, err
 			}
@@ -264,6 +333,9 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 	for r := 0; r <= rows; r++ {
 		horizontal[r] = make([]renderBorder, cols)
 		for c := 0; c < cols; c++ {
+			if r > 0 && r < rows && origin[r-1][c] == origin[r][c] {
+				continue // inside a merge
+			}
 			b, err := pick(lnOf(r-1, c, 3), lnOf(r, c, 1))
 			if err != nil {
 				return nil, err
@@ -274,6 +346,9 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 	for r := 0; r < rows; r++ {
 		vertical[r] = make([]renderBorder, cols+1)
 		for c := 0; c <= cols; c++ {
+			if c > 0 && c < cols && origin[r][c-1] == origin[r][c] {
+				continue // inside a merge
+			}
 			b, err := pick(lnOf(r, c-1, 2), lnOf(r, c, 0))
 			if err != nil {
 				return nil, err
@@ -368,7 +443,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 				continue
 			}
 			top := ys[r] + px(cl.margin[1])
-			bottom := ys[r+1] - px(cl.margin[3])
+			bottom := ys[r+cl.rs] - px(cl.margin[3])
 			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, fonts, styles.colors)
 			if err != nil {
 				return nil, err

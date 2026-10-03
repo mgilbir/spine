@@ -329,7 +329,7 @@ right-to-left and East Asian text, soft hyphens, controls and format characters,
 fail.
 
 Tables (`a:tbl` in a graphic frame) render when they have no table style,
-merged cells, diagonal borders or table-level fill, and when they are parsed
+diagonal borders or table-level fill, and when they are parsed
 from the file without pending edits: the save path rewrites the domain model's
 cells, which preparation must not do, so a new or edited table fails until it
 is saved and reopened. Column widths come from the grid; a row is as tall as
@@ -339,7 +339,10 @@ solid line centered on its grid line, extended half its width where another
 border meets it so corners close. Where adjacent cells set a shared edge
 differently, or differing borders meet at a grid point, rendering fails: the
 precedence is undocumented. Cell text uses the slide text profile, laid out
-with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
+with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them. A merged cell (`gridSpan`, `rowSpan`) draws its fill and text over the
+grid cells it spans, which are marked `hMerge` or `vMerge` and draw nothing;
+edges inside a merge have no border, and a cell spanning rows grows its last
+row to hold its text.
 
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
