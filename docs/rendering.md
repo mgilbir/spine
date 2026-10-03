@@ -101,7 +101,8 @@ shape's own list style; `effectRef` must select an effect style without
 effects. Without a style an absent fill or outline is none, as DrawingML
 defines. A `line` preset is drawn as a connector from corner to corner, its
 flips choosing the corners. A solid outline
-needs an explicit width and a single line; it is
+needs an explicit width and a single line (best effort draws a line without
+one, which DrawingML draws as thin as the device allows, a pixel wide); it is
 centered on the boundary or inset (`algn="in"`) and painted as the even-odd ring
 between the boundary's offsets, so rounded corners stay exact arcs. Sharp
 corners need an explicit miter, bevel or round join, with a miter limit below
@@ -111,8 +112,8 @@ between ellipses with offset radii. Preset dashes (`dash`, `sysDot`, …) use th
 ST_PresetLineDashVal patterns in line widths, starting where the preset path
 starts and running clockwise; the pattern restarts there, so the last dash may
 be short. Dashes have flat caps: the schema gives no default cap and PowerPoint's
-shape styles use flat, so an absent cap is flat, and square or round caps fail,
-as do custom dashes. A dash turning a sharp corner takes the line join. Each
+shape styles use flat, so an absent cap is flat; square or round dash caps
+on shape outlines fail, and best effort draws them flat. Custom dashes fail. A dash turning a sharp corner takes the line join. Each
 dash is painted as its own path. Text lays out in the preset's text rectangle, which for rounded
 rectangles and ellipses is inset from the corners. Embedded PNG, JPEG and GIF pictures with
 rectangular geometry are supported, cropped by their source rectangle
@@ -330,8 +331,10 @@ with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
 
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
-PowerPoint draws them. Rotated or flipped groups, group fills and effects, and
-placeholders and tables inside groups fail; groups are drawn only
+PowerPoint draws them. A rotated or flipped group turns and mirrors its
+shapes about its centre; best effort moves its text and pictures with it,
+upright and unturned. Group fills and effects, and placeholders and tables
+inside groups fail; groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored
@@ -340,7 +343,7 @@ shapes move a connector only when those shapes move. The line comes from the
 theme line style the connector's `lnRef` selects, its `phClr` taking the
 reference color, with any property the connector's own `a:ln` sets winning; an
 effect reference must select an empty theme effect style. Lines take flat,
-square or round caps and preset dashes with flat caps. Arrowheads fail: the
+square or round caps and preset dashes, each dash taking the caps. Arrowheads fail: the
 specification names their sizes but not their geometry. In best-effort mode
 every head is drawn as a filled triangle whose tip is the line's end, sized
 like LibreOffice's (small, medium and large are two, three and five line

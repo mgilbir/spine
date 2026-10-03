@@ -86,6 +86,15 @@ func (t renderShapeTransform) path(p layout.Path, maxSegments int, segments *int
 	return out, bounds, nil
 }
 
+// renderOnlyGradient returns a clip's sole operation when it is a gradient.
+func renderOnlyGradient(ops []layout.Op) (layout.FillGradient, bool) {
+	if len(ops) != 1 {
+		return layout.FillGradient{}, false
+	}
+	f, ok := ops[0].(layout.FillGradient)
+	return f, ok
+}
+
 // renderRectPath is a rectangle as a closed path.
 func renderRectPath(r layout.Rect) layout.Path {
 	x0, y0, x1, y1 := r.X, r.Y, r.X+r.W, r.Y+r.H
@@ -164,18 +173,59 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			}
 			out = append(out, g)
 		case layout.ClipPath:
-			if len(v.Ops) != 1 {
-				return nil, fmt.Errorf("%w: clipped drawing", render.ErrUnsupported)
+			if f, ok := renderOnlyGradient(v.Ops); ok {
+				g, err := gradient(f, v.Path)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, g)
+				continue
 			}
-			f, ok := v.Ops[0].(layout.FillGradient)
-			if !ok {
-				return nil, fmt.Errorf("%w: clipped drawing", render.ErrUnsupported)
-			}
-			g, err := gradient(f, v.Path)
+			path, _, err := t.path(v.Path, maxSegments, &segments)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, g)
+			inner, err := t.ops(v.Ops, colors, maxSegments-segments)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, layout.ClipPath{Path: path, Ops: inner})
+		case layout.DrawGlyphs:
+			// Text moves with the shape but stays upright and unmirrored.
+			if err := colors.approximate(fmt.Errorf("%w: text of a turned group drawn upright", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+			x, y := t.point(v.At.X.Px(), v.At.Y.Px())
+			px, okX := style.FromPx(x)
+			py, okY := style.FromPx(y)
+			if !okX || !okY {
+				return nil, fmt.Errorf("%w: transformed coordinate", render.ErrLimit)
+			}
+			v.At = layout.Point{X: px, Y: py}
+			out = append(out, v)
+		case layout.DrawImage:
+			// A picture moves its centre with the shape, unturned; a quarter
+			// turn swaps its box's sides.
+			if err := colors.approximate(fmt.Errorf("%w: picture of a turned group drawn unturned", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+			if v.Clip.Active {
+				return nil, fmt.Errorf("%w: clipped picture in a turned group", render.ErrUnsupported)
+			}
+			cx, cy := t.point(v.Rect.X.Px()+v.Rect.W.Px()/2, v.Rect.Y.Px()+v.Rect.H.Px()/2)
+			w, h := v.Rect.W.Px(), v.Rect.H.Px()
+			if q := math.Mod(math.Abs(t.rot), 180); q > 45 && q < 135 {
+				w, h = h, w
+			}
+			x, okX := style.FromPx(cx - w/2)
+			y, okY := style.FromPx(cy - h/2)
+			uw, okW := style.FromPx(w)
+			uh, okH := style.FromPx(h)
+			if !okX || !okY || !okW || !okH {
+				return nil, fmt.Errorf("%w: transformed coordinate", render.ErrLimit)
+			}
+			v.Rect = layout.Rect{X: x, Y: y, W: uw, H: uh}
+			out = append(out, v)
 		default:
 			return nil, fmt.Errorf("%w: transformed %T", render.ErrUnsupported, op)
 		}

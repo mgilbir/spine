@@ -37,7 +37,7 @@ type renderInherited struct {
 // like slide text, and colors through the slide's color map, as PowerPoint
 // shows the slide.
 // With warn set, a shape that cannot be drawn is reported and left out.
-func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw, connect renderConnect, warn func(error)) ([]layout.Op, error) {
+func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw, connect renderConnect, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if layer.data == nil || layer.data.SpTree == nil {
 		return nil, nil
 	}
@@ -98,7 +98,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
-				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, picture, 0, warn)
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, picture, 0, warn, colors, maxSegments)
 			}
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(t.CxnSp) || t.CxnSp[ref.Index] == nil {

@@ -355,7 +355,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if grp == nil || v.isDirty() {
 				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
 			}
-			return renderGroup(grp, renderIdentity, drawShapeRef, connect, s.renderPartPicture(s.partName), 0, opts.Warn)
+			return renderGroup(grp, renderIdentity, drawShapeRef, connect, s.renderPartPicture(s.partName), 0, opts.Warn, colors, resolved.MaxPathSegments)
 		case *PlaceholderShape:
 			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs, soft)
 		case *Table:
@@ -454,8 +454,8 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				}
 				full := layout.Rect{X: ix, Y: iy, W: iw, H: ih}
 				img = renderDownscale(img, w*renderMaxImageScale, h*renderMaxImageScale)
-				clip := layout.ClipPath{Path: renderRectPath(rect), Ops: []layout.Op{layout.DrawImage{Rect: full, Image: img}}}
-				return append([]layout.Op{clip}, outline...), nil
+				clipped := layout.DrawImage{Rect: full, Image: img, Clip: layout.Clip{Active: true, Rect: rect}}
+				return append([]layout.Op{clipped}, outline...), nil
 			}
 			img = renderDownscale(img, rect.W.Px()*renderMaxImageScale, rect.H.Px()*renderMaxImageScale)
 			return append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), nil
@@ -483,7 +483,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	// Master shapes, then layout shapes, then the slide's own.
 	for _, layer := range inherited {
-		drawn, err := s.renderLayer(layer, budget, drawShape, connect, opts.Warn)
+		drawn, err := s.renderLayer(layer, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments)
 		if err != nil {
 			return nil, err
 		}
@@ -1604,7 +1604,7 @@ func slideRenderNode(node core.XMLNode) error {
 	el := node.StartElement
 	// Shape, connector and picture renderers read rotation and flips and
 	// reject what they cannot draw.
-	if n := len(node.Path); n >= 3 && el.Name == (xml.Name{Space: nsA, Local: "xfrm"}) && (node.Path[n-3] == (xml.Name{Space: nsP, Local: "cxnSp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "sp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "pic"})) {
+	if n := len(node.Path); n >= 3 && el.Name == (xml.Name{Space: nsA, Local: "xfrm"}) && (node.Path[n-3] == (xml.Name{Space: nsP, Local: "cxnSp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "sp"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "pic"}) || node.Path[n-3] == (xml.Name{Space: nsP, Local: "grpSp"})) {
 		var attrs []xml.Attr
 		for _, a := range el.Attr {
 			if a.Name.Space != "" || (a.Name.Local != "flipH" && a.Name.Local != "flipV" && a.Name.Local != "rot") {

@@ -184,8 +184,9 @@ func (g renderGeometry) fill(p renderPaint) ([]layout.Op, error) {
 // outer and inner offsets. Offsetting an ellipse does not give an ellipse, so
 // only circular ellipses are outlined.
 func (g renderGeometry) stroke(ln *dml.Ln, placeholder *style.RGBA, colors *renderColors, maxSegments int) ([]layout.Op, error) {
-	if ln.W == nil || *ln.W <= 0 {
-		return nil, fmt.Errorf("%w: outline without a width", render.ErrUnsupported)
+	ln, err := renderLineWidth(ln, colors)
+	if err != nil {
+		return nil, err
 	}
 	if (ln.Cmpd != "" && ln.Cmpd != "sng") || ln.CustDash != nil || ln.GradFill != nil || ln.PattFill != nil || ln.ExtLst != nil {
 		return nil, fmt.Errorf("%w: compound, custom-dashed or patterned outline", render.ErrUnsupported)
@@ -197,7 +198,9 @@ func (g renderGeometry) stroke(ln *dml.Ln, placeholder *style.RGBA, colors *rend
 		}
 		// The schema gives no default cap; PowerPoint's shape styles use flat.
 		if ln.Cap != "" && ln.Cap != "flat" {
-			return nil, fmt.Errorf("%w: dash caps other than flat", render.ErrUnsupported)
+			if err := colors.approximate(fmt.Errorf("%w: outline dash caps drawn flat", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	join := renderJoinUnset
