@@ -649,12 +649,17 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 		if err != nil {
 			return nil, err
 		}
-		size, ok := style.FromPx(float64(run.size) / 100 * 4 / 3)
-		if !ok {
+		pts := float64(run.size) / 100
+		if run.baseline != 0 {
+			pts *= renderEscapedSize
+		}
+		size, ok := style.FromPx(pts * 4 / 3)
+		letter, okL := style.FromPx(float64(run.spacing) / 100 * 4 / 3)
+		if !ok || !okL {
 			return nil, render.ErrLimit
 		}
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
-		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize)}
+		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Letter: letter}
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
 	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)
@@ -769,7 +774,16 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		if !xok {
 			return nil, render.ErrLimit
 		}
-		glyphOps = append(glyphOps, layout.DrawGlyphs{At: layout.Point{X: xu, Y: yu}, Text: sg.Text[first:pieceEnd], Glyphs: glyphs, Face: sg.Face, Size: sg.Size, Color: runs[r].color})
+		at := yu
+		if shift := runs[r].baseline; shift != 0 {
+			// The shift is a share of the run's own, unreduced size.
+			y, ok := style.FromPx(baseline - float64(shift)/100000*float64(runs[r].size)/100*4/3)
+			if !ok {
+				return nil, render.ErrLimit
+			}
+			at = y
+		}
+		glyphOps = append(glyphOps, layout.DrawGlyphs{At: layout.Point{X: xu, Y: at}, Text: sg.Text[first:pieceEnd], Glyphs: glyphs, Face: sg.Face, Size: sg.Size, Color: runs[r].color})
 		// Underlines sit a tenth of an em below the baseline and strikes
 		// three tenths above it, a twentieth of an em thick.
 		em := sg.Size.Px()
@@ -905,6 +919,10 @@ func renderFontRef(r *dml.FontRef) (*dml.LstStyle, error) {
 	level := &dml.PPr{DefRPr: &def}
 	return &dml.LstStyle{DefPPr: level, Lvl1pPr: level, Lvl2pPr: level, Lvl3pPr: level, Lvl4pPr: level, Lvl5pPr: level, Lvl6pPr: level, Lvl7pPr: level, Lvl8pPr: level, Lvl9pPr: level}, nil
 }
+
+// renderEscapedSize scales raised and lowered text, as LibreOffice's import
+// does.
+const renderEscapedSize = 0.58
 
 // renderHasParagraphText reports whether a paragraph shows any characters.
 func renderHasParagraphText(p *dml.P) bool {

@@ -106,6 +106,10 @@ type renderShaping struct {
 	size         int32 // hundredths of a point
 	bold, italic bool
 	kern         int32 // smallest kerned size in hundredths of a point; 0 is off
+	// spacing is added after each character, in hundredths of a point;
+	// baseline raises (or, negative, lowers) the run by thousandths of a
+	// percent of its size, drawing it smaller.
+	spacing, baseline int32
 }
 
 // renderHighlight is a run's text highlight; the zero value is none.
@@ -674,8 +678,14 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	if err != nil {
 		return s, err
 	}
-	if baseline != 0 || spacing != 0 {
-		if err = t.colors.approximate(fmt.Errorf("%w: baseline shift or character spacing left out", render.ErrUnsupported)); err != nil {
+	if spacing < -400000 || spacing > 400000 || baseline < -1000000 || baseline > 1000000 {
+		return s, fmt.Errorf("%w: character spacing or baseline", render.ErrInvalid)
+	}
+	s.spacing, s.baseline = spacing, baseline
+	if baseline != 0 {
+		// PowerPoint's size for raised and lowered text is undocumented;
+		// best effort uses LibreOffice's 58%.
+		if err = t.colors.approximate(fmt.Errorf("%w: superscript or subscript size approximated", render.ErrUnsupported)); err != nil {
 			return s, err
 		}
 	}

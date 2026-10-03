@@ -85,7 +85,7 @@ drawing in the shadow color, offset by the shadow's distance and direction,
 with a blur approximated by nine copies spread over the blur radius whose
 opacities compound to the shadow's, and scaling and skewing left out; other
 effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
-are left out; baseline shifts and character spacing are ignored;
+are left out;
 text wider than its box, such as an overlong word, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
@@ -303,8 +303,11 @@ a glyph standing for characters of two runs, such as a ligature, fails, since
 PowerPoint shapes runs apart. A highlight fills the run's advance from its
 font's ascent to its descent about the baseline, beneath the text, with
 touching spans of one color painted as one. Capitals (`cap="all"`) draw
-the uppercase text. Underline, strike, small capitals, baseline shift,
-character spacing, outline, effects and hyperlinks fail. Best effort draws
+the uppercase text. Character spacing (`spc`) follows each character, in
+measuring and drawing. Underline, strike, small capitals, baseline shift,
+outline, effects and hyperlinks fail. Best effort draws raised and lowered
+text (`baseline`) shifted by its share of the run's size and drawn at 58% of
+it, as LibreOffice's import does, and draws
 underlines a tenth of an em below the baseline and strikes three tenths above
 it, a twentieth of an em thick (doubled lines twice, styled ones solid),
 small capitals as capitals, hyperlinks as plain text, and leaves out

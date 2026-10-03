@@ -19,6 +19,8 @@ type Span struct {
 	Size     style.Unit
 	Text     string
 	Features shape.Features
+	// Letter is added after every character, and may be negative.
+	Letter style.Unit
 	// TabStop, when positive, is the distance between tab stops, measured
 	// from the start of the line: a tab advances to the next. Without it a
 	// tab is unsupported.
@@ -201,7 +203,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				at += len(part)
 				continue
 			}
-			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
+			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
 			where = append(where, richItem{span: span, offset: from})
 			at += len(part)
 		}
@@ -263,6 +265,17 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				return fmt.Errorf("%w: paragraph glyphs", ErrLimit)
 			}
 			*glyphCount += len(glyphs)
+			if s.Letter != 0 && s.Size > 0 {
+				// Letter spacing follows each character: the last glyph of
+				// each cluster carries it, in the glyphs' 1000 units per em.
+				extra := s.Letter.Px() * 1000 / s.Size.Px()
+				glyphs = append([]shape.Glyph(nil), glyphs...)
+				for i := range glyphs {
+					if i+1 == len(glyphs) || glyphs[i+1].Cluster != glyphs[i].Cluster {
+						glyphs[i].XAdvance += extra
+					}
+				}
+			}
 			advance := 0.0
 			for _, glyph := range glyphs {
 				advance += glyph.XAdvance
