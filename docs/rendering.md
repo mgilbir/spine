@@ -219,8 +219,9 @@ layouts are prompts and are never drawn. A slide with `showMasterSp="0"` hides
 its layout's and master's shapes, and a layout with it hides its master's;
 hidden layers still supply backgrounds. Their shapes are checked against the
 source profile only when drawn, so unsupported content in a placeholder or a
-hidden layer does not fail the slide. Inherited groups, tables and connectors
-fail when drawn. Original
+hidden layer does not fail the slide. Inherited groups, connectors, tables
+and charts are drawn as the slide's are; an inherited chart names its part
+through its layout's or master's relationships. Original
 slide, layout and master XML is checked for unsupported content before a lossy
 model projection can hide it. Metadata that cannot change painted output is
 accepted: shape and slide creation ids, the decorative accessibility flag,
@@ -392,7 +393,10 @@ turn by quarters about their own centres, by their pixels. Best effort moves
 pictures turned by other angles, and the text of a flipped group, with it,
 upright and unturned. A group's fill paints nothing itself; shapes inside
 whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
-effort leaves group effects out. Placeholders and tables inside groups fail; groups are drawn only
+effort leaves group effects out. Tables and charts inside groups are drawn
+with their frames mapped; a chart scales with its group, and a table keeps its
+own column widths and row heights, which best effort reports when the group
+scales. Placeholders inside groups fail; groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored

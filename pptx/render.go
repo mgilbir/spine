@@ -337,6 +337,34 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		return drawChartPart(renderFrameName(gf), part, dml.EMU(gf.Xfrm.Off.X), dml.EMU(gf.Xfrm.Off.Y), dml.EMU(gf.Xfrm.Ext.Cx), dml.EMU(gf.Xfrm.Ext.Cy))
 	}
+	// framesFor paints the graphic frames of one part: its tables, and its
+	// charts, whose parts its relationships name.
+	framesFor := func(part string) renderFrameDraw {
+		return func(gf *oxml.GraphicFrame) ([]layout.Op, error) {
+			if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil {
+				return nil, fmt.Errorf("%w: graphic frame", render.ErrInvalid)
+			}
+			if id := chartRelIDOf(gf); id != "" {
+				return drawChart(gf, s.renderPartTarget(part, id))
+			}
+			if gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI {
+				return nil, fmt.Errorf("%w: diagram or embedded object", render.ErrUnsupported)
+			}
+			if lenient {
+				prev := colors.approx
+				seen := map[string]bool{}
+				name := renderFrameName(gf)
+				colors.approx = func(err error) {
+					if ctx.Err() == nil && !seen[err.Error()] {
+						seen[err.Error()] = true
+						opts.Warn(fmt.Errorf("pptx: table %q: %w: %w", name, render.ErrApproximated, err))
+					}
+				}
+				defer func() { colors.approx = prev }()
+			}
+			return renderTableFrame(ctx, gf, colors, textLayout, fonts, styles)
+		}
+	}
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
 	// position among the slide's own shapes, or -1 for an inherited shape;
 	// picture resolves a picture's image bytes.
@@ -468,7 +496,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if grp == nil || v.isDirty() {
 				return nil, fmt.Errorf("%w: new or edited group; save and reopen to preview it", render.ErrUnsupported)
 			}
-			return renderGroup(grp, renderIdentity, drawShapeRef, connect, s.renderPartPicture(s.partName), 0, opts.Warn, colors, resolved.MaxPathSegments, renderGroupFill{})
+			return renderGroup(grp, renderIdentity, drawShapeRef, connect, framesFor(s.partName), s.renderPartPicture(s.partName), 0, opts.Warn, colors, resolved.MaxPathSegments, renderGroupFill{})
 		case *PlaceholderShape:
 			return s.renderPlaceholderShape(ctx, v, sp, colors, resolved, textLayout, fonts, styles, layoutProfile.shapeErrs, masterProfile.shapeErrs, masterProfile.styleErrs, soft)
 		case *Table:
@@ -577,7 +605,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	// Master shapes, then layout shapes, then the slide's own.
 	for _, layer := range inherited {
-		drawn, err := s.renderLayer(layer, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments)
+		drawn, err := s.renderLayer(layer, budget, drawShape, connect, framesFor, opts.Warn, colors, resolved.MaxPathSegments)
 		if err != nil {
 			return nil, err
 		}
@@ -641,7 +669,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				if err != nil {
 					err = fmt.Errorf("pptx: slide %d chart %q: %w", s.index, renderFrameName(gf), err)
 				}
-			} else if drawn, err = s.renderAlternate(e.alt, slideProfile.shapeErrs, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments); err != nil {
+			} else if drawn, err = s.renderAlternate(e.alt, slideProfile.shapeErrs, budget, drawShape, connect, framesFor, opts.Warn, colors, resolved.MaxPathSegments); err != nil {
 				err = fmt.Errorf("pptx: slide %d alternate content %d: %w", s.index, e.alt, err)
 			}
 			if err != nil {
@@ -1524,7 +1552,7 @@ func renderPictureEffects(ops []layout.Op, p *dml.SpPr, colors *renderColors, li
 
 // renderAlternate draws an alternate content's fallback shapes, which the
 // source check verified as if they stood in the shape tree.
-func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderShapeErrs, budget *core.SourceBudget, draw renderDraw, connect renderConnect, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
+func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderShapeErrs, budget *core.SourceBudget, draw renderDraw, connect renderConnect, frames func(string) renderFrameDraw, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if err := shapeErrs[renderShapeKey{name: "AlternateContent", occurrence: index + 1}].any; err != nil {
 		return nil, err
 	}
@@ -1543,7 +1571,7 @@ func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderSh
 	if err := xmlb.Unmarshal(src.Bytes(), &tree); err != nil {
 		return nil, fmt.Errorf("%w: alternate content fallback: %w", render.ErrInvalid, err)
 	}
-	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: s.partName}, budget, draw, connect, warn, colors, maxSegments)
+	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: s.partName}, budget, draw, connect, frames, warn, colors, maxSegments)
 }
 
 // alternate checks a shape tree's markup-compatibility alternate content:
@@ -2102,7 +2130,7 @@ var renderXMLParents = map[string]string{
 	"p:nvGrpSpPr": "p:spTree p:grpSp", "p:grpSp": "p:spTree p:grpSp", "a:grpSpLocks": "p:cNvGrpSpPr", "p:grpSpPr": "p:spTree p:grpSp", "p:sp": "p:spTree p:grpSp", "p:pic": "p:spTree p:grpSp",
 	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree p:grpSp", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
 	"p:style": "p:cxnSp p:sp", "a:lnRef": "p:style", "a:fillRef": "p:style", "a:effectRef": "p:style", "a:fontRef": "p:style", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr",
-	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
+	"p:graphicFrame": "p:spTree p:grpSp", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
 	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "c:chart": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
 	"a:gridCol": "a:tblGrid", "a:tr": "a:tbl", "a:tc": "a:tr", "a:txBody": "a:tc", "a:tcPr": "a:tc",
 	"a:lnL": "a:tcPr", "a:lnR": "a:tcPr", "a:lnT": "a:tcPr", "a:lnB": "a:tcPr",

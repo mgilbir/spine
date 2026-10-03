@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -274,4 +275,33 @@ func FuzzRenderChartPart(f *testing.F) {
 		// every specification is valid JSON with a positive size.
 		_, _ = renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/charts/chart1.xml": func(string) string { return chartXML }})
 	})
+}
+
+func TestRenderGroupedChart(t *testing.T) {
+	c := chart.NewColumn()
+	c.SetCategories([]string{"A"})
+	c.AddSeries("S", []float64{1})
+	data, opts := renderChartDeck(t, c)
+	var specs []map[string]any
+	opts.Charts = renderFakeCharts(&specs)
+	frame := regexp.MustCompile(`(?s)<p:graphicFrame>.*</p:graphicFrame>`)
+	// A group moved 10px right and half the size of its child space draws
+	// the chart's (20,10) 40 by 30px frame at (20,5), 20 by 15px.
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		gf := frame.FindString(s)
+		if gf == "" {
+			t.Fatalf("no chart in %s", s)
+		}
+		s = renderAnyTxBody.ReplaceAllLiteralString(frame.ReplaceAllLiteralString(s, ""), "")
+		return renderAddToTree(`<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="95250" y="0"/><a:ext cx="381000" cy="285750"/><a:chOff x="0" y="0"/><a:chExt cx="762000" cy="571500"/></a:xfrm></p:grpSpPr>` + gf + `</p:grpSp>`)(s)
+	}})
+	red, white := color.NRGBA{R: 255, A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	for at, want := range map[[2]int]color.NRGBA{{21, 6}: red, {39, 19}: red, {41, 19}: white, {21, 21}: white} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("at %v: %+v, want %+v", at, px, want)
+		}
+	}
+	if len(specs) != 1 || specs[0]["width"].(float64) != 20 {
+		t.Fatalf("specs: %v", specs)
+	}
 }

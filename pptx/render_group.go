@@ -16,6 +16,10 @@ import (
 // renderDraw paints one shape; see drawShape in PrepareRender.
 type renderDraw func(Shape, *oxml.Shape, *dml.SpPr, int, func(*Picture) ([]byte, renderImageKey)) ([]layout.Op, error)
 
+// renderFrameDraw paints a graphic frame, a table or a chart, of one part,
+// whose relationships name a chart's part.
+type renderFrameDraw func(*oxml.GraphicFrame) ([]layout.Op, error)
+
 // renderPartPicture resolves a picture's image through a part's relationships.
 func (s *Slide) renderPartPicture(part string) func(*Picture) ([]byte, renderImageKey) {
 	return func(v *Picture) ([]byte, renderImageKey) {
@@ -27,6 +31,17 @@ func (s *Slide) renderPartPicture(part string) func(*Picture) ([]byte, renderIma
 		}
 		return nil, renderImageKey{}
 	}
+}
+
+// renderPartTarget resolves an internal relationship of a part to the part
+// it names, or "" for none.
+func (s *Slide) renderPartTarget(part, relID string) string {
+	for _, rel := range s.presentation.relationships[part] {
+		if rel != nil && rel.ID == relID && rel.TargetMode != opc.TargetModeExternal {
+			return opc.ResolvePartName(part, rel.Target)
+		}
+	}
+	return ""
 }
 
 // renderMap places child coordinates: x maps to ox + (x - cx) * sx, in EMU.
@@ -77,7 +92,7 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 //
 // A group's own fill paints nothing; children whose fill is the group's
 // (a:grpFill) take it, or its group's in turn.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int, fill renderGroupFill) ([]layout.Op, error) {
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, frame renderFrameDraw, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error), colors *renderColors, maxSegments int, fill renderGroupFill) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
@@ -185,7 +200,7 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn, colors, maxSegments, fill)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, frame, picture, depth+1, warn, colors, maxSegments, fill)
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(g.ConnectionShapes) || g.ConnectionShapes[ref.Index] == nil || g.ConnectionShapes[ref.Index].SpPr == nil {
 				return nil, fmt.Errorf("%w: grouped connector", render.ErrInvalid)
@@ -197,8 +212,23 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			}
 			cxn.SpPr = &props
 			drawn, err = connect(&cxn)
+		case oxml.ChildGraphicFrame:
+			if ref.Index >= len(g.GraphicFrames) || g.GraphicFrames[ref.Index] == nil {
+				return nil, fmt.Errorf("%w: grouped graphic frame", render.ErrInvalid)
+			}
+			gf := *g.GraphicFrames[ref.Index]
+			if gf.Xfrm, err = m.xfrm(gf.Xfrm); err != nil {
+				return nil, err
+			}
+			// A table keeps its columns' and rows' own extents.
+			if chartRelIDOf(&gf) == "" && (m.sx != 1 || m.sy != 1) {
+				if err = colors.approximate(fmt.Errorf("%w: table in a scaled group drawn at its own size", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+			}
+			drawn, err = frame(&gf)
 		default:
-			err = fmt.Errorf("%w: table or other content in a group", render.ErrUnsupported)
+			err = fmt.Errorf("%w: other content in a group", render.ErrUnsupported)
 		}
 		if err != nil {
 			if warn == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

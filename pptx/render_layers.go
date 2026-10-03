@@ -37,7 +37,7 @@ type renderInherited struct {
 // like slide text, and colors through the slide's color map, as PowerPoint
 // shows the slide.
 // With warn set, a shape that cannot be drawn is reported and left out.
-func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw, connect renderConnect, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
+func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, draw renderDraw, connect renderConnect, frames func(part string) renderFrameDraw, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
 	if layer.data == nil || layer.data.SpTree == nil {
 		return nil, nil
 	}
@@ -61,6 +61,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 	}
 	budget.Nodes -= len(order)
 	picture := s.renderPartPicture(layer.part)
+	frame := frames(layer.part)
 	var ops []layout.Op
 	for _, ref := range order {
 		var (
@@ -98,7 +99,7 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 				return nil, fmt.Errorf("%w: inherited group", render.ErrInvalid)
 			}
 			if err = layer.shapeErrs[renderShapeKey{name: "grpSp", occurrence: ref.Index + 1}].any; err == nil {
-				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, picture, 0, warn, colors, maxSegments, renderGroupFill{})
+				drawn, err = renderGroup(t.GrpSp[ref.Index], renderIdentity, draw, connect, frame, picture, 0, warn, colors, maxSegments, renderGroupFill{})
 			}
 		case oxml.ChildCxnSp:
 			if ref.Index >= len(t.CxnSp) || t.CxnSp[ref.Index] == nil {
@@ -107,8 +108,15 @@ func (s *Slide) renderLayer(layer renderInherited, budget *core.SourceBudget, dr
 			if err = layer.shapeErrs[renderShapeKey{name: "cxnSp", occurrence: ref.Index + 1}].any; err == nil {
 				drawn, err = connect(t.CxnSp[ref.Index])
 			}
+		case oxml.ChildGraphicFrame:
+			if ref.Index >= len(t.GraphicFrame) || t.GraphicFrame[ref.Index] == nil {
+				return nil, fmt.Errorf("%w: inherited graphic frame", render.ErrInvalid)
+			}
+			if err = layer.shapeErrs[renderShapeKey{name: "graphicFrame", occurrence: ref.Index + 1}].any; err == nil {
+				drawn, err = frame(t.GraphicFrame[ref.Index])
+			}
 		default:
-			err = fmt.Errorf("%w: inherited table or other content", render.ErrUnsupported)
+			err = fmt.Errorf("%w: inherited content", render.ErrUnsupported)
 		}
 		if err != nil {
 			err = fmt.Errorf("pptx: %s shape: %w", layer.part, err)
