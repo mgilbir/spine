@@ -20,7 +20,7 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-func renderTextSlide(t *testing.T) (*Presentation, *Slide, *Run, render.Options) {
+func renderTextSlide(t testing.TB) (*Presentation, *Slide, *Run, render.Options) {
 	t.Helper()
 	p := CreateWithOptions(CreateOptions{Options: Options{SlideSize: SlideSizeCustom}, IncludeDefaultLayouts: true, Width: dml.Pixels(80), Height: dml.Pixels(60)})
 	s := p.AddSlideWithLayout(p.GetLayoutByType(LayoutBlank))

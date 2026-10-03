@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/mgilbir/forme/layout"
@@ -274,6 +275,68 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		decoded[key] = img
 		return img, nil
 	}
+	// drawChartPart draws a chart part over a frame: its Vega specification
+	// drawn by the caller's chart renderer, as a picture under the slide's
+	// image budget.
+	drawChartPart := func(name, part string, x, y, cw, ch dml.EMU) ([]layout.Op, error) {
+		if opts.Charts == nil {
+			return nil, fmt.Errorf("%w: chart without a chart renderer", render.ErrUnsupported)
+		}
+		if cw <= 0 || ch <= 0 {
+			return nil, fmt.Errorf("%w: chart extent", render.ErrInvalid)
+		}
+		src := s.presentation.otherParts[part]
+		if src == nil || len(src.Data) == 0 {
+			return nil, fmt.Errorf("%w: missing chart part", render.ErrInvalid)
+		}
+		if err := budget.CheckXML(ctx, src.Data, func(core.XMLNode) error { return nil }); err != nil {
+			return nil, err
+		}
+		if lenient {
+			prev := colors.approx
+			seen := map[string]bool{}
+			colors.approx = func(err error) {
+				if ctx.Err() == nil && !seen[err.Error()] {
+					seen[err.Error()] = true
+					opts.Warn(fmt.Errorf("pptx: chart %q: %w: %w", name, render.ErrApproximated, err))
+				}
+			}
+			defer func() { colors.approx = prev }()
+		}
+		plan, err := renderChartPart(src.Data, colors)
+		if err != nil {
+			return nil, err
+		}
+		pw, ph := float64(cw)/px, float64(ch)/px
+		spec, err := plan.spec(pw, ph)
+		if err != nil {
+			return nil, err
+		}
+		img, err := opts.Charts(ctx, spec, renderChartScale)
+		if err != nil {
+			return nil, fmt.Errorf("%w: chart renderer: %w", render.ErrUnsupported, err)
+		}
+		if img == nil || img.Bounds().Empty() {
+			return nil, fmt.Errorf("%w: chart renderer returned no image", render.ErrInvalid)
+		}
+		pixels := int64(img.Bounds().Dx()) * int64(img.Bounds().Dy())
+		if imageCount >= resolved.MaxImages || pixels > resolved.MaxImagePixels-imagePixels {
+			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
+		}
+		imageCount++
+		imagePixels += pixels
+		img = renderDownscale(img, pw*renderMaxImageScale, ph*renderMaxImageScale)
+		return []layout.Op{layout.DrawImage{Rect: layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(cw), H: renderUnit(ch)}, Image: img}}, nil
+	}
+	drawChart := func(gf *oxml.GraphicFrame, part string) ([]layout.Op, error) {
+		if gf.Xfrm == nil || gf.Xfrm.Off == nil || gf.Xfrm.Ext == nil {
+			return nil, fmt.Errorf("%w: chart frame geometry", render.ErrUnsupported)
+		}
+		if gf.Xfrm.Rot != 0 || gf.Xfrm.FlipH || gf.Xfrm.FlipV {
+			return nil, fmt.Errorf("%w: turned chart frame", render.ErrUnsupported)
+		}
+		return drawChartPart(renderFrameName(gf), part, dml.EMU(gf.Xfrm.Off.X), dml.EMU(gf.Xfrm.Off.Y), dml.EMU(gf.Xfrm.Ext.Cx), dml.EMU(gf.Xfrm.Ext.Cy))
+	}
 	// drawShape paints one shape. sp is its parsed p:sp, if any; index is its
 	// position among the slide's own shapes, or -1 for an inherited shape;
 	// picture resolves a picture's image bytes.
@@ -311,6 +374,14 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			if v == nil {
 				return nil, fmt.Errorf("%w: nil group", render.ErrInvalid)
 			}
+		case *ChartFrame:
+			// A chart added since the slide was read.
+			if v == nil || index < 0 {
+				return nil, fmt.Errorf("%w: nil or inherited chart", render.ErrUnsupported)
+			}
+			x, y := v.Position()
+			cw, ch := v.Size()
+			return drawChartPart(v.Name(), v.partName, x, y, cw, ch)
 		default:
 			return nil, fmt.Errorf("%w: shape (%T)", render.ErrUnsupported, sh)
 		}
@@ -521,19 +592,21 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		return data, renderPictureKey(v, data)
 	}
-	// Alternate content draws its fallback where it stands among the shapes:
-	// after the last shape before it.
-	altAfter := map[int][]int{}
-	if t := model.CSld.SpTree; t != nil && len(t.AltContent) > 0 {
+	// Alternate content draws its fallback, and a chart frame its chart,
+	// where it stands among the shapes: after the last shape before it.
+	type renderExtra struct{ pos, alt, frame int }
+	extrasAfter := map[int][]renderExtra{}
+	if t := model.CSld.SpTree; t != nil && (len(t.AltContent) > 0 || len(t.GraphicFrame) > 0) {
 		pos := map[oxml.ChildRef]int{}
 		for i, ref := range t.ChildOrder() {
 			pos[ref] = i
 		}
-		for ai := range t.AltContent {
-			at, ok := pos[oxml.ChildRef{Kind: oxml.ChildAltContent, Index: ai}]
+		place := func(ref oxml.ChildRef, e renderExtra) {
+			at, ok := pos[ref]
 			if !ok {
 				at = len(pos)
 			}
+			e.pos = at
 			after := -1
 			for i := range shapes {
 				if i < len(s.shapeRefs) {
@@ -542,14 +615,37 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 					}
 				}
 			}
-			altAfter[after] = append(altAfter[after], ai)
+			extrasAfter[after] = append(extrasAfter[after], e)
+		}
+		for ai := range t.AltContent {
+			place(oxml.ChildRef{Kind: oxml.ChildAltContent, Index: ai}, renderExtra{alt: ai, frame: -1})
+		}
+		for fi, gf := range t.GraphicFrame {
+			if chartRelIDOf(gf) != "" && !renderHiddenChild(nil, nil, nil, nil, t.GraphicFrame, oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: fi}) {
+				place(oxml.ChildRef{Kind: oxml.ChildGraphicFrame, Index: fi}, renderExtra{alt: -1, frame: fi})
+			}
+		}
+		for _, list := range extrasAfter {
+			sort.SliceStable(list, func(i, j int) bool { return list[i].pos < list[j].pos })
 		}
 	}
 	drawAlternates := func(after int) error {
-		for _, ai := range altAfter[after] {
-			drawn, err := s.renderAlternate(ai, slideProfile.shapeErrs, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments)
+		for _, e := range extrasAfter[after] {
+			var (
+				drawn []layout.Op
+				err   error
+			)
+			if e.frame >= 0 {
+				gf := model.CSld.SpTree.GraphicFrame[e.frame]
+				drawn, err = drawChart(gf, s.relTargetPart(chartRelIDOf(gf)))
+				if err != nil {
+					err = fmt.Errorf("pptx: slide %d chart %q: %w", s.index, renderFrameName(gf), err)
+				}
+			} else if drawn, err = s.renderAlternate(e.alt, slideProfile.shapeErrs, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments); err != nil {
+				err = fmt.Errorf("pptx: slide %d alternate content %d: %w", s.index, e.alt, err)
+			}
 			if err != nil {
-				if err = soft(fmt.Errorf("pptx: slide %d alternate content %d: %w", s.index, ai, err)); err != nil {
+				if err = soft(err); err != nil {
 					return err
 				}
 				continue
@@ -779,9 +875,10 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) e
 	if !drawn {
 		return nil
 	}
+	// Tables and charts are drawn, or reported, frame by frame.
 	for _, gf := range t.GraphicFrame {
-		if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI {
-			return fmt.Errorf("%w: chart, diagram or embedded object", render.ErrUnsupported)
+		if gf == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || (gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI && chartRelIDOf(gf) == "") {
+			return fmt.Errorf("%w: diagram or embedded object", render.ErrUnsupported)
 		}
 	}
 	return nil
@@ -1272,6 +1369,20 @@ func slideRenderXML(el xml.StartElement) error {
 		default:
 			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
 		}
+	case oxml.ChartGraphicDataURI:
+		// A chart frame names its chart part, which the chart renderer reads.
+		if el.Name.Local != "chart" {
+			return fmt.Errorf("%w: XML %s", render.ErrUnsupported, el.Name.Local)
+		}
+		for _, a := range el.Attr {
+			if a.Name.Space == "xmlns" || (a.Name.Space == "" && a.Name.Local == "xmlns") {
+				continue
+			}
+			if a.Name.Space != nsR || a.Name.Local != "id" {
+				return fmt.Errorf("%w: XML chart/@%s", render.ErrUnsupported, a.Name.Local)
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("%w: XML namespace %s", render.ErrUnsupported, el.Name.Space)
 	}
@@ -1947,6 +2058,9 @@ func renderXMLKey(n xml.Name) string {
 	if n.Space == nsA {
 		return "a:" + n.Local
 	}
+	if n.Space == oxml.ChartGraphicDataURI {
+		return "c:" + n.Local
+	}
 	return "?" + n.Local
 }
 
@@ -1989,7 +2103,7 @@ var renderXMLParents = map[string]string{
 	"p:nvSpPr": "p:sp", "p:ph": "p:nvPr", "a:spLocks": "p:cNvSpPr", "p:cxnSp": "p:spTree p:grpSp", "p:nvCxnSpPr": "p:cxnSp", "p:cNvCxnSpPr": "p:nvCxnSpPr", "a:stCxn": "p:cNvCxnSpPr", "a:endCxn": "p:cNvCxnSpPr", "a:cxnSpLocks": "p:cNvCxnSpPr",
 	"p:style": "p:cxnSp p:sp", "a:lnRef": "p:style", "a:fillRef": "p:style", "a:effectRef": "p:style", "a:fontRef": "p:style", "p:nvPicPr": "p:pic", "p:cNvPr": "p:nvSpPr p:nvPicPr p:nvGrpSpPr p:nvGraphicFramePr p:nvCxnSpPr",
 	"p:graphicFrame": "p:spTree", "p:nvGraphicFramePr": "p:graphicFrame", "p:cNvGraphicFramePr": "p:nvGraphicFramePr", "a:graphicFrameLocks": "p:cNvGraphicFramePr",
-	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
+	"p:xfrm": "p:graphicFrame", "a:graphic": "p:graphicFrame", "a:graphicData": "a:graphic", "a:tbl": "a:graphicData", "c:chart": "a:graphicData", "a:tblPr": "a:tbl", "a:tableStyleId": "a:tblPr", "a:tblGrid": "a:tbl",
 	"a:gridCol": "a:tblGrid", "a:tr": "a:tbl", "a:tc": "a:tr", "a:txBody": "a:tc", "a:tcPr": "a:tc",
 	"a:lnL": "a:tcPr", "a:lnR": "a:tcPr", "a:lnT": "a:tcPr", "a:lnB": "a:tcPr",
 	"p:cNvSpPr": "p:nvSpPr", "p:cNvPicPr": "p:nvPicPr", "p:cNvGrpSpPr": "p:nvGrpSpPr",

@@ -424,6 +424,35 @@ layout profile, not a claim of identical PowerPoint line placement. DrawingML
 scales with text size; fixed-point line spacing and percentage before/after
 paragraph spacing are not supported by this adapter.
 
+### Charts
+
+A chart frame (`c:chart` in a graphic frame) is drawn when
+`render.Options.Charts` supplies a chart renderer, and otherwise fails, or is
+left out with a warning. The chart part is read from its cached values and
+written as a [Vega](https://vega.github.io/vega/) specification the size of
+the frame in CSS pixels; the renderer returns an image of it at two pixels
+per CSS pixel, which is stretched over the frame under the slide's image
+budget. The specification carries the chart's values, labels and colors as
+data, and no expressions from the document.
+
+Column and bar charts (clustered, stacked and percent stacked, with their gap
+width and overlap), line charts (with or without markers), area charts
+(standard and stacked), pie and doughnut charts (first slice angle, hole size,
+varied colors) and scatter charts are drawn. Series and point colors resolve
+through the slide's theme like shapes': a series' own fill or line, or else
+the theme's accents in turn, then darker and lighter rounds of them. Axes
+follow `delete`, `tickLblPos`, `majorGridlines`, `scaling` minimum, maximum and
+orientation, `crossBetween` and common number formats (`General`, `0`,
+`0.0`, `0.00`, `#,##0` and their decimals, and percentages); titles,
+automatic titles, legends and their positions, and shown values are drawn,
+with the chart space's text size and color. Value axes step about every 60
+pixels. Best effort draws 3-D charts flat, a combination chart as one of its
+types, a secondary or date axis as the primary one, other number formats as
+General, smoothed lines straight and dashed lines solid, and leaves out
+trendlines, error bars and legend entry formatting. Bubble, radar, stock,
+surface and pie-of-pie charts, and turned chart frames, fail. Charts allow at
+most 256 series of 4096 points.
+
 ## Sheet range profile
 
 `sheet.PrepareRender(ctx, "A1:D10", opts)` snapshots that logical range at 96 CSS
