@@ -269,9 +269,14 @@ across its text rectangle turned a quarter about its centre, the insets
 turning with their sides, and turns back with it: `vert` clockwise, its first
 line along the right side, and `vert270` anticlockwise. Best effort draws
 `mongolianVert` and the WordArt vertical types as `vert`. Upright text
-(`upright`) does not turn with its shape or body rotation. Justified and
-distributed anchoring, and clipped or multi-column text fail; best
-effort draws them top anchored, whole and in one column, and
+(`upright`) does not turn with its shape or body rotation. Text in columns
+(`numCol`, at most 16) lays out at the column width, the content width less
+the spaces between (`spcCol`) shared evenly, and fills each column down to
+the bottom before the next, left to right or, with `rtlCol`, right to left;
+text that fits one column keeps its anchoring, and text over several is
+anchored at the top, which best effort reports. Columns wider than their
+box fail, and best effort draws one. Justified and distributed anchoring,
+and clipped text fail; best effort draws them top anchored and whole, and
 ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn. Normal autofit's stored `fontScale` scales

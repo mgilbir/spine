@@ -150,6 +150,11 @@ type renderFrame struct {
 	// lines; upright keeps text from turning with its shape.
 	vert    float64
 	upright bool
+	// numCol columns, spcCol apart, run left to right, or right to left
+	// with rtlCol.
+	numCol int
+	spcCol dml.EMU
+	rtlCol bool
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -201,10 +206,12 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 		return f, fmt.Errorf("%w: vertical text type", render.ErrInvalid)
 	}
 	f.upright = renderTrue(bp.UpRight)
-	if bp.NumCol > 1 {
-		if err := colors.approximate(fmt.Errorf("%w: text columns drawn as one", render.ErrUnsupported)); err != nil {
-			return f, err
-		}
+	if bp.NumCol < 0 || bp.NumCol > 16 || (bp.SpcCol != nil && *bp.SpcCol < 0) {
+		return f, fmt.Errorf("%w: text columns", render.ErrInvalid)
+	}
+	f.numCol, f.rtlCol = int(bp.NumCol), renderTrue(bp.RtlCol)
+	if bp.SpcCol != nil {
+		f.spcCol = dml.EMU(*bp.SpcCol)
 	}
 	if (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") {
 		if err := colors.approximate(fmt.Errorf("%w: clipped text drawn whole", render.ErrUnsupported)); err != nil {
@@ -337,6 +344,24 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 		}
 	}
 	content := w - m.Left - m.Right
+	// Columns share the content width less the space between them.
+	var cols renderColumns
+	if n := dml.EMU(frame.numCol); n > 1 {
+		if frame.spcCol > content/(n-1) || (content-frame.spcCol*(n-1))/n <= 0 {
+			if err = styles.colors.approximate(fmt.Errorf("%w: text columns wider than their box drawn as one", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+		} else {
+			width := (content - frame.spcCol*(n-1)) / n
+			cols = renderColumns{n: int(n), step: float64(width+frame.spcCol) / float64(dml.EMUsPerPixel)}
+			content = width
+			if frame.rtlCol {
+				// The first column is the rightmost.
+				m.Left += (width + frame.spcCol) * (n - 1)
+				cols.step = -cols.step
+			}
+		}
+	}
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
@@ -346,7 +371,7 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if err != nil {
 		return nil, err
 	}
-	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts, styles.colors)
+	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, cols, fonts, styles.colors)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +617,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 // bottom and paints them. A frame that grows may hold text past its bottom.
 // Text past a fixed frame fails, and best effort draws it, as PowerPoint
 // shows it.
-func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, fonts *slideRenderFonts, colors *renderColors) ([]layout.Op, error) {
+func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, cols renderColumns, fonts *slideRenderFonts, colors *renderColors) ([]layout.Op, error) {
 	overflow := func() error {
 		if err := colors.approximate(fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)); err != nil {
 			return err
@@ -600,6 +625,16 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		grows = true
 		return nil
 	}
+	// Text running into further columns starts at the top of each.
+	if cols.n > 1 && height > bottom-contentTop {
+		if anchor != enum.TextAnchorTop {
+			if err := colors.approximate(fmt.Errorf("%w: anchoring of text over several columns drawn top", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+		}
+		anchor = enum.TextAnchorTop
+	}
+	col := 0
 	// The text block spans its paragraphs' spacing and full line heights.
 	top := contentTop
 	switch anchor {
@@ -619,6 +654,12 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		covered := 0
 		for _, line := range b.lines {
+			// A line past the bottom of a column, other than its first,
+			// starts the next column.
+			if col < cols.n-1 && top+line.ascent+line.descent > bottom && top > contentTop {
+				col++
+				top = contentTop
+			}
 			// A line that draws nothing may hang below the frame unseen.
 			if top+line.ascent+line.descent > bottom && !grows && renderLineDraws(line) {
 				if err := overflow(); err != nil {
@@ -628,7 +669,8 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 			if para.align == enum.TextAlignDistribute || (para.align == enum.TextAlignJustify && !line.last) {
 				line.Segments = renderJustify(line.Segments, width.Px(), para.align == enum.TextAlignDistribute)
 			}
-			xp := left.Px()
+			shift := float64(col) * cols.step
+			xp := left.Px() + shift
 			if para.align == enum.TextAlignCenter {
 				xp += (width.Px() - line.Width.Px()) / 2
 			}
@@ -636,7 +678,7 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				xp += width.Px() - line.Width.Px()
 			}
 			if b.bullet != nil && covered == 0 {
-				bx, bxok := style.FromPx(b.bullet.x)
+				bx, bxok := style.FromPx(b.bullet.x + shift)
 				by, byok := style.FromPx(top + line.ascent)
 				if !bxok || !byok {
 					return nil, render.ErrLimit
@@ -675,6 +717,14 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top += float64(para.after) / float64(dml.EMUsPerPixel)
 	}
 	return ops, nil
+}
+
+// renderColumns is a text body's columns: how many, and how far apart in
+// pixels each starts from the one before, negative running right to left.
+// Fewer than two is one column.
+type renderColumns struct {
+	n    int
+	step float64
 }
 
 // renderBlock is one laid-out paragraph awaiting vertical placement.

@@ -450,7 +450,7 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			}
 			top := ys[r] + px(cl.margin[1])
 			bottom := ys[r+cl.rs] - px(cl.margin[3])
-			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, fonts, styles.colors)
+			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, renderColumns{}, fonts, styles.colors)
 			if err != nil {
 				return nil, err
 			}

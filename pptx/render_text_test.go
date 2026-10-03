@@ -335,3 +335,59 @@ func TestRenderBreaksOverlongWords(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTextColumns(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	// The 48px square box at (4,4) holds three 16px lines a column. "A A A
+	// A A" in two 24px columns sets one A a line: three down the first
+	// column and two down the second, which starts at x 28.
+	columns := func(attrs string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			s = strings.Replace(s, "AA AA", "A A A A A", 1)
+			return strings.Replace(s, `<a:bodyPr`, `<a:bodyPr numCol="2"`+attrs, 1)
+		}}
+	}
+	for _, tc := range []struct {
+		name, attrs string
+		want        map[[2]int]color.NRGBA
+	}{
+		{"left to right", "", map[[2]int]color.NRGBA{{10, 10}: black, {10, 42}: black, {34, 10}: black, {34, 26}: black, {34, 42}: white}},
+		{"right to left", ` rtlCol="1"`, map[[2]int]color.NRGBA{{34, 10}: black, {34, 42}: black, {10, 10}: black, {10, 26}: black, {10, 42}: white}},
+	} {
+		var warnings []string
+		o := opts
+		o.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		got := renderSlidePNG(t, data, o, columns(tc.attrs))
+		if len(warnings) != 0 {
+			t.Fatalf("%s: %q", tc.name, warnings)
+		}
+		for at, want := range tc.want {
+			if px := renderPixel(t, got, at[0], at[1]); px != want {
+				t.Fatalf("%s at %v: %+v, want %+v", tc.name, at, px, want)
+			}
+		}
+	}
+	// Space between columns wider than the box draws one column, in best
+	// effort.
+	if _, err := renderRewrittenPNG(t, data, opts, columns(` spcCol="914400"`)); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict wide spacing: %v", err)
+	}
+	// Text over several columns is anchored at the top.
+	centred := columns("")
+	inner := centred["ppt/slides/slide1.xml"]
+	centred["ppt/slides/slide1.xml"] = func(s string) string {
+		s = inner(s)
+		if !strings.Contains(s, `anchor="t"`) {
+			t.Fatalf("no anchor in %s", s)
+		}
+		return strings.Replace(s, `anchor="t"`, `anchor="ctr"`, 1)
+	}
+	if _, err := renderRewrittenPNG(t, data, opts, centred); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict anchored columns: %v", err)
+	}
+}
