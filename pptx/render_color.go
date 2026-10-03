@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
+	csstok "github.com/mgilbir/forme/css"
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -46,19 +48,20 @@ type renderColor struct {
 	srgb   *dml.SrgbClr
 	scheme *dml.SchemeClrTransform
 	sys    *dml.SystemClr
+	prst   *dml.PrstClr
 	others int
 }
 
 func renderSolidColor(f *dml.SolidFill) renderColor {
-	return renderColorOf(f.SrgbClr, f.SchemeClr, f.SysClr, f.ScRgbClr != nil, f.HslClr != nil, f.PrstClr != nil)
+	return renderColorOf(f.SrgbClr, f.SchemeClr, f.SysClr, f.PrstClr, f.ScRgbClr != nil, f.HslClr != nil)
 }
 
 func renderChoiceColor(c *dml.ColorChoice) renderColor {
-	return renderColorOf(c.SrgbClr, c.SchemeClr, c.SysClr, c.ScrgbClr != nil, c.HslClr != nil, c.PrstClr != nil)
+	return renderColorOf(c.SrgbClr, c.SchemeClr, c.SysClr, c.PrstClr, c.ScrgbClr != nil, c.HslClr != nil)
 }
 
-func renderColorOf(srgb *dml.SrgbClr, scheme *dml.SchemeClrTransform, sys *dml.SystemClr, others ...bool) renderColor {
-	c := renderColor{srgb: srgb, scheme: scheme, sys: sys}
+func renderColorOf(srgb *dml.SrgbClr, scheme *dml.SchemeClrTransform, sys *dml.SystemClr, prst *dml.PrstClr, others ...bool) renderColor {
+	c := renderColor{srgb: srgb, scheme: scheme, sys: sys, prst: prst}
 	for _, set := range others {
 		if set {
 			c.others++
@@ -78,7 +81,7 @@ func (c *renderColors) solid(f *dml.SolidFill, placeholder *style.RGBA) (style.R
 
 func (c *renderColors) color(v renderColor, placeholder *style.RGBA) (style.RGBA, error) {
 	set := v.others
-	for _, present := range []bool{v.srgb != nil, v.scheme != nil, v.sys != nil} {
+	for _, present := range []bool{v.srgb != nil, v.scheme != nil, v.sys != nil, v.prst != nil} {
 		if present {
 			set++
 		}
@@ -106,6 +109,9 @@ func (c *renderColors) color(v renderColor, placeholder *style.RGBA) (style.RGBA
 	case v.scheme != nil:
 		base, err = c.scheme(v.scheme.Val, placeholder)
 		steps, ok = v.scheme.Transforms()
+	case v.prst != nil:
+		base, err = renderPresetColor(v.prst.Val)
+		steps, ok = v.prst.Transforms()
 	default:
 		return style.RGBA{}, fmt.Errorf("%w: color kind", render.ErrUnsupported)
 	}
@@ -116,6 +122,30 @@ func (c *renderColors) color(v renderColor, placeholder *style.RGBA) (style.RGBA
 		return style.RGBA{}, fmt.Errorf("%w: unrecognized color transform", render.ErrUnsupported)
 	}
 	return renderTransform(base, steps)
+}
+
+// renderPresetColor resolves an ST_PresetColorVal name, which is a CSS color
+// name in camel case, its "dk", "lt" and "med" prefixes abbreviating "dark",
+// "light" and "medium".
+func renderPresetColor(name string) (style.RGBA, error) {
+	css := name
+	for short, long := range map[string]string{"dk": "dark", "lt": "light", "med": "medium"} {
+		if rest, ok := strings.CutPrefix(name, short); ok && rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
+			css = long + rest
+		}
+	}
+	css = strings.ToLower(css)
+	for _, r := range css {
+		if r < 'a' || r > 'z' {
+			return style.RGBA{}, fmt.Errorf("%w: preset color %q", render.ErrInvalid, name)
+		}
+	}
+	vals, errs := csstok.ParseComponentValues(css)
+	c, ok := style.ParseColor(vals)
+	if len(errs) > 0 || !ok || css == "transparent" || css == "currentcolor" {
+		return style.RGBA{}, fmt.Errorf("%w: preset color %q", render.ErrInvalid, name)
+	}
+	return c, nil
 }
 
 func renderRGB(val string) (style.RGBA, error) {
@@ -523,7 +553,7 @@ func (c *renderColors) background(bg *oxml.Background, w, h float64) (renderPain
 	if ref.Idx == 0 {
 		return white, nil
 	}
-	color, err := c.color(renderColorOf(ref.SrgbClr, ref.SchemeClr, ref.SysClr, ref.ScrgbClr != nil, ref.HslClr != nil, ref.PrstClr != nil), nil)
+	color, err := c.color(renderColorOf(ref.SrgbClr, ref.SchemeClr, ref.SysClr, ref.PrstClr, ref.ScrgbClr != nil, ref.HslClr != nil), nil)
 	if err != nil {
 		return white, err
 	}

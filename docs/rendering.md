@@ -104,8 +104,9 @@ needs an explicit width and a single line; it is
 centered on the boundary or inset (`algn="in"`) and painted as the even-odd ring
 between the boundary's offsets, so rounded corners stay exact arcs. Sharp
 corners need an explicit miter, bevel or round join, with a miter limit below
-√2 beveling. Offsetting an ellipse does not yield an ellipse, so only circles
-are outlined. Preset dashes (`dash`, `sysDot`, …) use the
+√2 beveling; best effort miters them. Offsetting an ellipse does not yield an
+ellipse, so only circles are outlined; best effort draws other ellipses' rings
+between ellipses with offset radii. Preset dashes (`dash`, `sysDot`, …) use the
 ST_PresetLineDashVal patterns in line widths, starting where the preset path
 starts and running clockwise; the pattern restarts there, so the last dash may
 be short. Dashes have flat caps: the schema gives no default cap and PowerPoint's
@@ -114,11 +115,30 @@ as do custom dashes. A dash turning a sharp corner takes the line join. Each
 dash is painted as its own path. Text lays out in the preset's text rectangle, which for rounded
 rectangles and ellipses is inset from the corners. Embedded PNG/JPEG pictures with
 rectangular geometry are supported, cropped by their source rectangle
-(`a:srcRect`); a negative crop, which extends the picture, fails. Geometry is quantized to Forme's fixed-point
+(`a:srcRect`); a negative crop, which extends the picture, fails. A picture's
+flips mirror its pixels and quarter turns rotate them, turning its box about
+its centre; best effort draws other rotations unrotated, and leaves out
+picture effects. A picture's solid outline runs around its box. An SVG picture
+draws its PNG or JPEG fallback, as Office versions without SVG support show it.
+
+Custom geometry (`a:custGeom`) evaluates its guide formulas (ECMA-376
+§20.1.10.36) over the shape's built-in guides and draws each path:
+`moveTo`, `lnTo`, `arcTo` (its angles as seen on the ellipse), and Bézier
+curves flattened into 16 segments. Paths fill with the even-odd rule unless
+their fill is `none`; lightened and darkened path fills draw plain in best
+effort. An outline of a single segment is exact; longer ones fail, and best
+effort draws them segment by segment with round joins, dashes restarting at
+each segment. The `a:rect` guides give the text rectangle.
+
+Rotation and flips turn and mirror a shape about its box's centre; arcs are
+then flattened in 5° steps. A gradient keeps its direction under rotation,
+which best effort reports. Text of a rotated or vertically flipped shape
+fails, and best effort draws it upright. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
-Fill and background colors may be RGB, system colors (their recorded `lastClr`)
-or theme scheme colors. Scheme colors, including inherited ones, resolve through
+Fill and background colors may be RGB, system colors (their recorded `lastClr`),
+preset colors (CSS color names, `dk`, `lt` and `med` abbreviating `dark`,
+`light` and `medium`) or theme scheme colors. Scheme colors, including inherited ones, resolve through
 the slide's effective color map: the master map, replaced by any layout and
 then slide override. The master's theme is read once per preparation, with
 unsaved theme edits, and counts toward `MaxSourceBytes`/`MaxLayoutNodes`.
@@ -140,9 +160,8 @@ middle stop color or a pattern's foreground. Unfilled text is invisible.
 Spine's PNG and SVG writers paint single-tile linear and radial gradients with
 linear blending.
 
-Rotated or
-flipped shapes/pictures other than lines, SVGs, groups, connectors, charts, tables,
-SmartArt, effects, animation and alternate/raw drawing content fail explicitly.
+Charts, SmartArt, effects, animation and alternate/raw drawing content fail
+explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
 their text and colors resolved as the slide's. Placeholders on masters and
@@ -160,7 +179,9 @@ smart-tag and bookmark attributes, `rtlCol` on the single-column body,
 master/layout header-footer flags (footer placeholders themselves still fail),
 editor locks and resize preferences, `userDrawn`, an extension list's `mod`
 flag, a picture fill's `rotWithShape` and `dpi`, and `bwMode`, which applies
-only to black-and-white output. Best effort also skips animation and
+only to black-and-white output, hidden fills, lines and effects kept for
+older editors, the shadow-obscured and Mac text-box flags, and the Designer
+element flag. Best effort also skips animation and
 transitions in layouts and masters.
 Any other extension URI, or a known URI under a different owner, fails. Empty
 effect lists, which PowerPoint writes where the schema requires effect
@@ -282,11 +303,11 @@ with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them.
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
 PowerPoint draws them. Rotated or flipped groups, group fills and effects, and
-placeholders, tables and connectors inside groups fail; groups are drawn only
+placeholders and tables inside groups fail; groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored
-geometry, horizontally or vertically flipped but not rotated; bindings to other
+geometry, flipped and rotated about their middle; bindings to other
 shapes move a connector only when those shapes move. The line comes from the
 theme line style the connector's `lnRef` selects, its `phClr` taking the
 reference color, with any property the connector's own `a:ln` sets winning; an
@@ -296,8 +317,9 @@ specification names their sizes but not their geometry. In best-effort mode
 every head is drawn as a filled triangle whose tip is the line's end, sized
 like LibreOffice's (small, medium and large are two, three and five line
 widths, at least a pixel each), with the line stopping halfway into it. Bent and curved
-connectors fail, and like tables, connectors are drawn only from their parsed
-form without pending edits.
+connectors fail, and like tables, a slide's connectors are drawn only from
+their parsed form without pending edits. Connectors on layouts and masters
+and in groups are drawn too.
 
 Tables without a table style are drawn unstyled. This is provisional:
 `tableStyles.xml` names a default style, often a built-in Office style the file

@@ -320,6 +320,50 @@ func (p *PathXML2D) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// PathCommand is one command of a path; exactly one field is set.
+type PathCommand struct {
+	MoveTo     *MoveToXML
+	LnTo       *LnToXML
+	ArcTo      *ArcToXML
+	QuadBezTo  *QuadBezToXML
+	CubicBezTo *CubicBezToXML
+	Close      *CloseXML
+}
+
+// Commands returns the path's commands in the order a save writes them,
+// which is the order they draw.
+func (p *PathXML2D) Commands() []PathCommand {
+	var out []PathCommand
+	add := func(kind pathCmdKind, i int) {
+		switch {
+		case kind == pathCmdMoveTo && i < len(p.MoveTo):
+			out = append(out, PathCommand{MoveTo: p.MoveTo[i]})
+		case kind == pathCmdLnTo && i < len(p.LnTo):
+			out = append(out, PathCommand{LnTo: p.LnTo[i]})
+		case kind == pathCmdArcTo && i < len(p.ArcTo):
+			out = append(out, PathCommand{ArcTo: p.ArcTo[i]})
+		case kind == pathCmdQuadBezTo && i < len(p.QuadBezTo):
+			out = append(out, PathCommand{QuadBezTo: p.QuadBezTo[i]})
+		case kind == pathCmdCubicBezTo && i < len(p.CubicBezTo):
+			out = append(out, PathCommand{CubicBezTo: p.CubicBezTo[i]})
+		case kind == pathCmdClose && i < len(p.Close):
+			out = append(out, PathCommand{Close: p.Close[i]})
+		}
+	}
+	if len(p.cmdOrder) > 0 {
+		for _, ref := range p.cmdOrder {
+			add(ref.kind, ref.index)
+		}
+		return out
+	}
+	for kind, n := range []int{len(p.MoveTo), len(p.LnTo), len(p.ArcTo), len(p.QuadBezTo), len(p.CubicBezTo), len(p.Close)} {
+		for i := 0; i < n; i++ {
+			add(pathCmdKind(kind), i)
+		}
+	}
+	return out
+}
+
 // MarshalXML implements xml.Marshaler for PathXML2D, ensuring path commands
 // are serialized even though they use xml:"-" struct tags.
 func (p *PathXML2D) MarshalXML(e *xml.Encoder, start xml.StartElement) error {

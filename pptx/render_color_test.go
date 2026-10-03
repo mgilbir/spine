@@ -186,4 +186,14 @@ func TestRenderColorTransforms(t *testing.T) {
 			t.Fatalf("%s: %+v, want %+v", tc.name, px, tc.want)
 		}
 	}
+	// Preset colors name CSS colors, with abbreviated prefixes.
+	got, err := renderRewrittenPNG(t, data, render.Options{}, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		return strings.Replace(s, `<a:srgbClr val="FF0000"/>`, `<a:prstClr val="dkGreen"><a:lumMod val="100000"/></a:prstClr>`, 1)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if px := renderPixel(t, got, 2, 2); px != (color.NRGBA{G: 100, A: 255}) {
+		t.Fatalf("preset: %+v", px)
+	}
 }

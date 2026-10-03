@@ -67,10 +67,10 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 // renderGroup paints a group's children in document order, their geometry
 // mapped from the group's child space to its frame. Text sizes and line
 // widths do not scale with a group, as PowerPoint draws them. Rotated or
-// flipped groups, group fills and effects, placeholders, tables and
-// connectors inside groups fail.
+// flipped groups, group fills and effects, placeholders and tables inside
+// groups fail.
 // With warn set, a child that cannot be drawn is reported and left out.
-func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error)) ([]layout.Op, error) {
+func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect renderConnect, picture func(*Picture) ([]byte, renderImageKey), depth int, warn func(error)) ([]layout.Op, error) {
 	if depth > 32 {
 		return nil, fmt.Errorf("%w: group depth", render.ErrLimit)
 	}
@@ -144,9 +144,20 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, picture 
 			if ref.Index >= len(g.GroupShapes) || g.GroupShapes[ref.Index] == nil {
 				return nil, fmt.Errorf("%w: nested group", render.ErrInvalid)
 			}
-			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, picture, depth+1, warn)
+			drawn, err = renderGroup(g.GroupShapes[ref.Index], m, draw, connect, picture, depth+1, warn)
+		case oxml.ChildCxnSp:
+			if ref.Index >= len(g.ConnectionShapes) || g.ConnectionShapes[ref.Index] == nil || g.ConnectionShapes[ref.Index].SpPr == nil {
+				return nil, fmt.Errorf("%w: grouped connector", render.ErrInvalid)
+			}
+			cxn := *g.ConnectionShapes[ref.Index]
+			props := *cxn.SpPr
+			if props.Xfrm, err = m.xfrm(props.Xfrm); err != nil {
+				return nil, err
+			}
+			cxn.SpPr = &props
+			drawn, err = connect(&cxn)
 		default:
-			err = fmt.Errorf("%w: table, connector or other content in a group", render.ErrUnsupported)
+			err = fmt.Errorf("%w: table or other content in a group", render.ErrUnsupported)
 		}
 		if err != nil {
 			if warn == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
