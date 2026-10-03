@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	"sort"
 	"strings"
@@ -1627,19 +1626,35 @@ func renderDownscale(img image.Image, w, h float64) image.Image {
 	}
 	tw, th = min(tw, b.Dx()), min(th, b.Dy())
 	out := image.NewNRGBA(image.Rect(0, 0, tw, th))
+	// Each source row is read once and summed into the target columns it
+	// spans; channels are averaged premultiplied, as compositing would.
+	read := renderRowReader(img)
+	row := make([]uint32, 4*b.Dx())
+	acc := make([]uint64, 4*tw)
+	spans := make([][2]int, tw)
+	for x := range spans {
+		spans[x] = [2]int{x * b.Dx() / tw, max((x+1)*b.Dx()/tw, x*b.Dx()/tw+1)}
+	}
 	for y := 0; y < th; y++ {
 		y0, y1 := y*b.Dy()/th, max((y+1)*b.Dy()/th, y*b.Dy()/th+1)
-		for x := 0; x < tw; x++ {
-			x0, x1 := x*b.Dx()/tw, max((x+1)*b.Dx()/tw, x*b.Dx()/tw+1)
-			// Average premultiplied channels, as compositing would.
-			var r, g, bl, a, n uint64
-			for sy := y0; sy < y1; sy++ {
-				for sx := x0; sx < x1; sx++ {
-					cr, cg, cb, ca := img.At(b.Min.X+sx, b.Min.Y+sy).RGBA()
-					r, g, bl, a, n = r+uint64(cr), g+uint64(cg), bl+uint64(cb), a+uint64(ca), n+1
+		clear(acc)
+		for sy := y0; sy < y1; sy++ {
+			read(sy, row)
+			for x, sp := range spans {
+				a := acc[4*x : 4*x+4]
+				for sx := sp[0]; sx < sp[1]; sx++ {
+					a[0] += uint64(row[4*sx])
+					a[1] += uint64(row[4*sx+1])
+					a[2] += uint64(row[4*sx+2])
+					a[3] += uint64(row[4*sx+3])
 				}
 			}
-			out.Set(x, y, color.RGBA64{R: uint16(r / n), G: uint16(g / n), B: uint16(bl / n), A: uint16(a / n)})
+		}
+		p := out.Pix[y*out.Stride:]
+		for x, sp := range spans {
+			n := uint64((sp[1] - sp[0]) * (y1 - y0))
+			a := acc[4*x : 4*x+4]
+			renderUnpremultiply(p[4*x:4*x+4], uint32(a[0]/n), uint32(a[1]/n), uint32(a[2]/n), uint32(a[3]/n))
 		}
 	}
 	return out
@@ -1647,14 +1662,9 @@ func renderDownscale(img image.Image, w, h float64) image.Image {
 
 // renderFade multiplies an image's opacity.
 func renderFade(img image.Image, alpha float64) image.Image {
-	b := img.Bounds()
-	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	for y := 0; y < b.Dy(); y++ {
-		for x := 0; x < b.Dx(); x++ {
-			c := color.NRGBAModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
-			c.A = uint8(math.Round(float64(c.A) * alpha))
-			out.SetNRGBA(x, y, c)
-		}
+	out := renderNRGBA(img)
+	for i := 3; i < len(out.Pix); i += 4 {
+		out.Pix[i] = uint8(math.Round(float64(out.Pix[i]) * alpha))
 	}
 	return out
 }
@@ -1681,6 +1691,7 @@ func renderOrientImage(img image.Image, rect layout.Rect, flipH, flipV bool, rot
 		rect = layout.Rect{X: cx - rect.H/2, Y: cy - rect.W/2, W: rect.H, H: rect.W}
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, ow, oh))
+	src := renderNRGBA(img)
 	for sy := 0; sy < h; sy++ {
 		for sx := 0; sx < w; sx++ {
 			// Flip in the picture's own frame, then turn clockwise.
@@ -1700,7 +1711,7 @@ func renderOrientImage(img image.Image, rect layout.Rect, flipH, flipV bool, rot
 			case 3:
 				dx, dy = fy, w-1-fx
 			}
-			out.Set(dx, dy, img.At(b.Min.X+sx, b.Min.Y+sy))
+			copy(out.Pix[out.PixOffset(dx, dy):out.PixOffset(dx, dy)+4], src.Pix[src.PixOffset(sx, sy):])
 		}
 	}
 	return out, rect, nil

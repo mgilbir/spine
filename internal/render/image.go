@@ -214,9 +214,16 @@ func (p *Page) collectImage(ctx context.Context, v layout.DrawImage, clips []*ge
 		}
 		budget.imagePixels += pixels
 		dst := image.NewNRGBA(image.Rect(0, 0, sourceBounds.Dx(), sourceBounds.Dy()))
+		// Non-premultiplied 8-bit pixels, validated above, copy row by row;
+		// other storage converts pixel by pixel.
+		nrgba, direct := v.Image.(*image.NRGBA)
 		for y := 0; y < dst.Rect.Dy(); y++ {
 			if err = ctx.Err(); err != nil {
 				return err
+			}
+			if direct {
+				copy(dst.Pix[y*dst.Stride:y*dst.Stride+4*dst.Rect.Dx()], nrgba.Pix[nrgba.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y+y):])
+				continue
 			}
 			for x := 0; x < dst.Rect.Dx(); x++ {
 				if palette, ok := v.Image.(*image.Paletted); ok && int(palette.Pix[y*palette.Stride+x]) >= len(palette.Palette) {

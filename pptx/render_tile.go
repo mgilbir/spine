@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/draw"
 	"math"
 
 	"github.com/mgilbir/spine/common/dml"
@@ -104,8 +103,7 @@ func renderTileImage(colors *renderColors, img image.Image, w, h, tw, th float64
 	}
 	src, ok := img.(*image.NRGBA)
 	if !ok || src.Rect.Min != (image.Point{}) {
-		src = image.NewNRGBA(image.Rect(0, 0, sw, sh))
-		draw.Draw(src, src.Rect, img, b.Min, draw.Src)
+		src = renderNRGBA(img)
 	}
 	// along maps a box coordinate to a picture pixel on one axis.
 	along := func(u, origin, size float64, n int, flip bool) int {

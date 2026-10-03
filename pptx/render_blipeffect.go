@@ -3,7 +3,6 @@ package pptx
 import (
 	"fmt"
 	"image"
-	"image/draw"
 	"math"
 
 	"github.com/mgilbir/forme/style"
@@ -22,9 +21,7 @@ func (c *renderColors) blipEffects(img image.Image, effects []*dml.BlipEffect) (
 	if len(effects) == 0 {
 		return img, nil
 	}
-	b := img.Bounds()
-	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	draw.Draw(out, out.Rect, img, b.Min, draw.Src)
+	out := renderNRGBA(img)
 	color := func(choice dml.ColorChoice) (style.RGBA, error) {
 		return c.color(renderChoiceColor(&choice), nil)
 	}
