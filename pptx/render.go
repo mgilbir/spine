@@ -286,7 +286,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			colors.approx = func(err error) {
 				if ctx.Err() == nil && !seen[err.Error()] {
 					seen[err.Error()] = true
-					opts.Warn(fmt.Errorf("pptx: shape %q: drawn approximately: %w", sh.Name(), err))
+					opts.Warn(fmt.Errorf("pptx: shape %q: %w: %w", sh.Name(), render.ErrApproximated, err))
 				}
 			}
 			defer func() { colors.approx = prev }()
@@ -475,7 +475,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			prev := colors.approx
 			colors.approx = func(err error) {
 				if ctx.Err() == nil {
-					opts.Warn(fmt.Errorf("pptx: connector %q: drawn approximately: %w", name, err))
+					opts.Warn(fmt.Errorf("pptx: connector %q: %w: %w", name, render.ErrApproximated, err))
 				}
 			}
 			defer func() { colors.approx = prev }()

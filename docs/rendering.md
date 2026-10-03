@@ -497,7 +497,9 @@ whole document for each selected page, so large documents repeat layout work.
 The timeout and page cap bound this command's processing.
 
 The CLI draws slides best effort by default: each piece of content it cannot
-draw prints a `warning:` line naming the slide, and the rest is drawn. Use
+draw prints a `warning:` line naming the slide, and the rest is drawn. A
+summary counts content left out and content drawn approximately, which
+warnings wrap with `render.ErrApproximated`. Use
 `-strict` to fail instead. It does not expand the supported formatting. Errors identify the failing page, slide or sheet. Existing outputs
 are never overwritten. A failed output file is removed; completed files from
 earlier pages or the other format remain available after a later error.

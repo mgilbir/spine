@@ -4,6 +4,7 @@
 package render
 
 import (
+	"errors"
 	"context"
 	"io"
 
@@ -21,6 +22,9 @@ var (
 	ErrInvalid     = core.ErrInvalid
 	ErrLimit       = core.ErrLimit
 	ErrUnsupported = core.ErrUnsupported
+	// ErrApproximated marks a best-effort warning about content that was
+	// drawn, approximately, rather than left out.
+	ErrApproximated = errors.New("render: drawn approximately")
 )
 
 // FontRequest identifies the Office typeface and emphasis the adapter resolved.
@@ -46,8 +50,9 @@ type Options struct {
 	MaxSourceBytes int64
 	MaxLayoutNodes int
 	// Warn, when set, makes preparation best effort: content an adapter
-	// cannot draw is reported to Warn and left out, and preparation goes on
-	// with the rest. The page is then incomplete. Errors that stop
+	// cannot draw is reported to Warn and left out, or drawn approximately
+	// and reported wrapping ErrApproximated, and preparation goes on with
+	// the rest. The page is then incomplete or inexact. Errors that stop
 	// preparation as a whole (cancellation, invalid options, malformed
 	// parts, page-wide limits) are still returned. Adapters that do not
 	// support best effort ignore it.
