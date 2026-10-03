@@ -1,9 +1,10 @@
 package pptx
 
 import (
-	"math"
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -486,11 +487,6 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err := mark(p.EndParaRPr); err != nil {
 			return nil, 0, err
 		}
-		if para.customTabs && strings.Contains(text.String(), "\t") {
-			if err := styles.colors.approximate(fmt.Errorf("%w: explicit tab stops placed at the default spacing", render.ErrUnsupported)); err != nil {
-				return nil, 0, err
-			}
-		}
 		wrap := width
 		if noWrap {
 			wrap = renderUnit(dml.EMU(1) << 30)
@@ -510,6 +506,16 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			}
 			if n := len(piece); n > 0 {
 				piece[n-1].last = true
+			}
+			// Lines break with tabs at the default stops; a piece that wraps
+			// may break elsewhere once its tabs sit at their own.
+			for _, l := range piece {
+				if l.TabsMoved && len(piece) > 1 {
+					if err := styles.colors.approximate(fmt.Errorf("%w: line breaks of text with tab stops measured at the default spacing", render.ErrUnsupported)); err != nil {
+						return nil, 0, err
+					}
+					break
+				}
 			}
 			lines = append(lines, piece...)
 		}
@@ -658,9 +664,63 @@ type renderLine struct {
 	last bool
 }
 
+// renderTabStops resolves a paragraph's explicit tab stops from the start of
+// its lines. A stop's position is from the text box's left inset, as
+// PowerPoint's ruler shows it, and stops at or before the paragraph's left
+// margin, where its lines start, are passed over. A position given twice
+// keeps its first alignment.
+func renderTabStops(para renderParaStyle) ([]core.TabStop, error) {
+	if para.tabs == nil || len(para.tabs.Tab) == 0 {
+		return nil, nil
+	}
+	if len(para.tabs.Tab) > 32 {
+		// ST_TextTabStopList holds at most 32 stops.
+		return nil, fmt.Errorf("%w: tab stops", render.ErrInvalid)
+	}
+	stops := make([]core.TabStop, 0, len(para.tabs.Tab))
+	for _, tab := range para.tabs.Tab {
+		if tab == nil {
+			return nil, fmt.Errorf("%w: tab stop", render.ErrInvalid)
+		}
+		stop := core.TabStop{}
+		switch tab.Algn {
+		case "", "l":
+		case "r":
+			stop.Align = core.TabRight
+		case "ctr":
+			stop.Align = core.TabCenter
+		case "dec":
+			stop.Align = core.TabDecimal
+		default:
+			return nil, fmt.Errorf("%w: tab stop alignment", render.ErrInvalid)
+		}
+		pos := dml.EMU(0)
+		if tab.Pos != nil {
+			pos = dml.EMU(*tab.Pos)
+		}
+		if pos <= para.marL {
+			continue
+		}
+		stop.At = renderUnit(pos - para.marL)
+		stops = append(stops, stop)
+	}
+	sort.SliceStable(stops, func(i, j int) bool { return stops[i].At < stops[j].At })
+	out := stops[:0]
+	for _, stop := range stops {
+		if len(out) == 0 || out[len(out)-1].At != stop.At {
+			out = append(out, stop)
+		}
+	}
+	return out, nil
+}
+
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
 // empty span, whose face sizes its line.
 func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle) ([]renderLine, error) {
+	tabs, err := renderTabStops(para)
+	if err != nil {
+		return nil, err
+	}
 	spans := make([]core.Span, len(shapings))
 	for i, run := range shapings {
 		// ST_TextFontSize is 1 to 4000 points.
@@ -681,7 +741,7 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 			return nil, render.ErrLimit
 		}
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
-		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Letter: letter}
+		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter}
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
 	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)

@@ -59,10 +59,9 @@ type renderParaStyle struct {
 	// and last line heights (100000 is one line), added to before and after.
 	beforePct, afterPct int32
 	marL, marR    dml.EMU
-	// tabSize is the default tab stop spacing; customTabs marks explicit
-	// stops, which are not placed.
-	tabSize    dml.EMU
-	customTabs bool
+	// tabSize is the default tab stop spacing; tabs are the explicit stops.
+	tabSize dml.EMU
+	tabs    *dml.TabLst
 	indent        dml.EMU // first line offset from marL; negative hangs
 	bullet        renderBullet
 }
@@ -480,12 +479,12 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 		return s, nil, err
 	}
 	s.tabSize = dml.EMU(tab)
-	if s.customTabs, err = renderInherit(t.colors.approximate, "tab stops", layers, func(pp *dml.PPr) (bool, bool, error) {
+	if s.tabs, err = renderInherit(t.colors.approximate, "tab stops", layers, func(pp *dml.PPr) (*dml.TabLst, bool, error) {
 		if pp == nil || pp.TabLst == nil {
-			return false, false, nil
+			return nil, false, nil
 		}
-		return len(pp.TabLst.Tab) > 0, true, nil
-	}, renderBuiltin(false)); err != nil {
+		return pp.TabLst, true, nil
+	}, renderBuiltin[*dml.TabLst](nil)); err != nil {
 		return s, nil, err
 	}
 	margin := func(name string, pick func(*dml.PPr) *int32) (int32, error) {

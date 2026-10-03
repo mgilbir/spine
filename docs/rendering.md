@@ -328,9 +328,16 @@ LibreOffice's import does. A line break (`a:br`) starts a new line; an empty
 line takes its box from the break's properties, or after a trailing break
 from the end-of-paragraph properties. A field (`a:fld`) is drawn with the text
 it was saved with, which a viewer may update, such as a date. A tab advances
-to the next default tab stop (`defTabSz`, inherited, 1" by default), measured
-from the start of the line; explicit stops (`a:tabLst`) fail, and best effort
-places tabs at the default spacing. Rich styles, bidi,
+to the next explicit stop (`a:tabLst`, inherited as a whole) past it, and
+past those to the next default tab stop (`defTabSz`, inherited, 1" by
+default), measured from the start of the line. Explicit stops are positioned
+from the text box's inset edge, so stops at or before the paragraph's left
+margin are passed over; the text after a tab, up to the next tab or the
+line's end, starts, ends or centres at its stop, or puts its first full stop
+there (decimal, which without one ends the text there). Text that would
+start before its tab leaves the tab no advance. Lines break with every tab
+measured to the default stops: a paragraph that wraps after explicit stops
+moved a tab fails, and best effort keeps those breaks. Rich styles, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML
