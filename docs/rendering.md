@@ -79,8 +79,13 @@ out is drawn without it; an unsupported background is drawn white; and
 problems outside any shape (unknown slide content, alternate content,
 extensions, charts and other graphic frames) are reported once. Animation and
 transitions are ignored. Some details are drawn approximately instead, and
-reported once per shape as such: shape, connector and text effects (shadows,
-glows, 3-D) are left out; baseline shifts and character spacing are ignored;
+reported once per shape as such: an outer shadow of a shape, connector or
+picture, its own or its style's theme effect, is drawn beneath it as its
+drawing in the shadow color, offset by the shadow's distance and direction,
+with a blur approximated by nine copies spread over the blur radius whose
+opacities compound to the shadow's, and scaling and skewing left out; other
+effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
+are left out; baseline shifts and character spacing are ignored;
 text wider than its box, such as an overlong word, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits

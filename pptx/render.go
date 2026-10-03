@@ -455,10 +455,10 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				full := layout.Rect{X: ix, Y: iy, W: iw, H: ih}
 				img = renderDownscale(img, w*renderMaxImageScale, h*renderMaxImageScale)
 				clipped := layout.DrawImage{Rect: full, Image: img, Clip: layout.Clip{Active: true, Rect: rect}}
-				return append([]layout.Op{clipped}, outline...), nil
+				return renderPictureEffects(append([]layout.Op{clipped}, outline...), picProps, colors, resolved)
 			}
 			img = renderDownscale(img, rect.W.Px()*renderMaxImageScale, rect.H.Px()*renderMaxImageScale)
-			return append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), nil
+			return renderPictureEffects(append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), picProps, colors, resolved)
 		}
 		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
 	}
@@ -715,16 +715,30 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) e
 // st is the shape's style reference, if any: its fill applies when the shape
 // sets none, and its line beneath the shape's own.
 func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *renderColors, limits render.Limits) ([]layout.Op, renderGeometry, error) {
+	ops, g, err := renderAutoShapeOps(v, source, st, colors, limits)
+	if err != nil {
+		return nil, g, err
+	}
+	// The shape's own effects win over inherited ones, and both over its
+	// style's.
+	own, dag, threeD := v.spPr.EffectLst, v.spPr.EffectDag != nil, v.spPr.Scene3d != nil || v.spPr.Sp3d != nil
+	if source != nil {
+		if !renderEffects(own) {
+			own = source.EffectLst
+		}
+		dag, threeD = dag || source.EffectDag != nil, threeD || source.Scene3d != nil || source.Sp3d != nil
+	}
+	ops, err = renderShapeEffects(ops, own, dag, threeD, st, colors, limits.MaxOperations)
+	return ops, g, err
+}
+
+// renderAutoShapeOps draws a shape without its effects.
+func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *renderColors, limits render.Limits) ([]layout.Op, renderGeometry, error) {
 	var g renderGeometry
 	p := &v.spPr
 	if source != nil {
 		if source.Xfrm == nil || source.Xfrm.Off == nil || source.Xfrm.Ext == nil {
 			return nil, g, fmt.Errorf("%w: inherited/missing shape geometry", render.ErrUnsupported)
-		}
-		if renderEffects(source.EffectLst) || source.EffectDag != nil || source.Scene3d != nil || source.Sp3d != nil || renderEffects(v.spPr.EffectLst) || v.spPr.EffectDag != nil || v.spPr.Scene3d != nil || v.spPr.Sp3d != nil {
-			if err := colors.approximate(fmt.Errorf("%w: shape effects left out", render.ErrUnsupported)); err != nil {
-				return nil, g, err
-			}
 		}
 		copyProps := *source
 		if source.Ln != nil {
@@ -739,11 +753,6 @@ func renderAutoShape(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *rend
 	}
 	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
 		return nil, g, err
-	}
-	if source == nil && (renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil) {
-		if err := colors.approximate(fmt.Errorf("%w: shape effects left out", render.ErrUnsupported)); err != nil {
-			return nil, g, err
-		}
 	}
 	x, y := v.Position()
 	w, h := v.Size()
@@ -1217,6 +1226,14 @@ func (s *Slide) renderBackgroundImage(ctx context.Context, part string, bp *oxml
 	return img, int64(len(data)), nil
 }
 
+// renderPictureEffects draws a picture's own effects with it.
+func renderPictureEffects(ops []layout.Op, p *dml.SpPr, colors *renderColors, limits render.Limits) ([]layout.Op, error) {
+	if p == nil {
+		return ops, nil
+	}
+	return renderShapeEffects(ops, p.EffectLst, p.EffectDag != nil, p.Scene3d != nil || p.Sp3d != nil, nil, colors, limits.MaxOperations)
+}
+
 // renderMaxImageScale is how many image pixels per drawn CSS pixel a picture
 // keeps: enough for 384 DPI output.
 const renderMaxImageScale = 4
@@ -1316,11 +1333,6 @@ func renderPictureProperties(p *dml.SpPr, colors *renderColors) error {
 	}
 	if err := renderDMLExtensions(p.ExtLst, "p:spPr"); err != nil {
 		return err
-	}
-	if renderEffects(p.EffectLst) || p.EffectDag != nil || p.Scene3d != nil || p.Sp3d != nil {
-		if err := colors.approximate(fmt.Errorf("%w: picture effects left out", render.ErrUnsupported)); err != nil {
-			return err
-		}
 	}
 	if p.PrstGeom != nil && (p.PrstGeom.Prst != "rect" || (p.PrstGeom.AvLst != nil && len(p.PrstGeom.AvLst.Gd) > 0)) {
 		return fmt.Errorf("%w: picture geometry", render.ErrUnsupported)

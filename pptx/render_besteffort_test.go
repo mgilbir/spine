@@ -17,14 +17,15 @@ func TestRenderBestEffortApproximates(t *testing.T) {
 			return renderAddToTree(xml)(renderAnyTxBody.ReplaceAllLiteralString(s, ""))
 		}}
 	}
-	shadow := strings.Replace(renderSquare(60, 4, "FF0000"), `</p:spPr>`, `<a:effectLst><a:outerShdw blurRad="1"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst></p:spPr>`, 1)
+	// A blurred shadow 4px to the right of the 10px square at (60,4).
+	shadow := strings.Replace(renderSquare(60, 4, "FF0000"), `</p:spPr>`, `<a:effectLst><a:outerShdw blurRad="9525" dist="38100" dir="0"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst></p:spPr>`, 1)
 	// A line with a triangle at its end, from (10,10) to (50,10).
 	arrow := renderConnectorXML("", renderAcross, strings.Replace(renderRedLine, `</a:ln>`, `<a:tailEnd type="triangle" w="lg" len="lg"/></a:ln>`, 1), "")
 	for _, tc := range []struct {
 		name, xml, warning string
 		probes             map[[2]int]color.NRGBA
 	}{
-		{"shadow", shadow, "shape effects left out", map[[2]int]color.NRGBA{{65, 9}: red}},
+		{"shadow", shadow, "shadow drawn approximately", map[[2]int]color.NRGBA{{65, 9}: red, {72, 9}: {A: 255}, {60, 20}: white}},
 		// A large head is five 4px line widths long and wide, so it spans
 		// y 0-20 at its base, 20px before the tip.
 		{"arrowhead", arrow, "arrowhead triangle", map[[2]int]color.NRGBA{{45, 10}: red, {31, 3}: red, {31, 17}: red, {20, 3}: white}},
