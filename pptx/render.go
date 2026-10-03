@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -496,7 +497,52 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		return data, renderPictureKey(v, data)
 	}
+	// Alternate content draws its fallback where it stands among the shapes:
+	// after the last shape before it.
+	altAfter := map[int][]int{}
+	if t := model.CSld.SpTree; t != nil && len(t.AltContent) > 0 {
+		pos := map[oxml.ChildRef]int{}
+		for i, ref := range t.ChildOrder() {
+			pos[ref] = i
+		}
+		for ai := range t.AltContent {
+			at, ok := pos[oxml.ChildRef{Kind: oxml.ChildAltContent, Index: ai}]
+			if !ok {
+				at = len(pos)
+			}
+			after := -1
+			for i := range shapes {
+				if i < len(s.shapeRefs) {
+					if p, ok := pos[s.shapeRefs[i]]; ok && p < at {
+						after = i
+					}
+				}
+			}
+			altAfter[after] = append(altAfter[after], ai)
+		}
+	}
+	drawAlternates := func(after int) error {
+		for _, ai := range altAfter[after] {
+			drawn, err := s.renderAlternate(ai, slideProfile.shapeErrs, budget, drawShape, connect, opts.Warn, colors, resolved.MaxPathSegments)
+			if err != nil {
+				if err = soft(fmt.Errorf("pptx: slide %d alternate content %d: %w", s.index, ai, err)); err != nil {
+					return err
+				}
+				continue
+			}
+			ops = append(ops, drawn...)
+		}
+		return nil
+	}
+	if err = drawAlternates(-1); err != nil {
+		return nil, err
+	}
 	for i, sh := range shapes {
+		if i > 0 {
+			if err = drawAlternates(i - 1); err != nil {
+				return nil, err
+			}
+		}
 		if s.renderSourceHidden(i) {
 			continue
 		}
@@ -512,6 +558,11 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			continue
 		}
 		ops = append(ops, drawn...)
+	}
+	if len(shapes) > 0 {
+		if err = drawAlternates(len(shapes) - 1); err != nil {
+			return nil, err
+		}
 	}
 	return render.Prepare(ctx, w, h, ops, opts.Limits)
 }
@@ -692,8 +743,8 @@ func renderTreeBase(c *oxml.CommonSlideData, b *core.SourceBudget, drawn bool) e
 		return err
 	}
 	t := c.SpTree
-	if len(t.AltContent) > 0 || len(t.RawXML) > 0 {
-		return fmt.Errorf("%w: raw/alternate drawing content", render.ErrUnsupported)
+	if len(t.RawXML) > 0 {
+		return fmt.Errorf("%w: raw drawing content", render.ErrUnsupported)
 	}
 	if t.GrpSpPr != nil {
 		g := t.GrpSpPr
@@ -1234,6 +1285,70 @@ func renderPictureEffects(ops []layout.Op, p *dml.SpPr, colors *renderColors, li
 	return renderShapeEffects(ops, p.EffectLst, p.EffectDag != nil, p.Scene3d != nil || p.Sp3d != nil, nil, colors, limits.MaxOperations)
 }
 
+// renderAlternate draws an alternate content's fallback shapes, which the
+// source check verified as if they stood in the shape tree.
+func (s *Slide) renderAlternate(index int, shapeErrs map[renderShapeKey]renderShapeErrs, budget *core.SourceBudget, draw renderDraw, connect renderConnect, warn func(error), colors *renderColors, maxSegments int) ([]layout.Op, error) {
+	if err := shapeErrs[renderShapeKey{name: "AlternateContent", occurrence: index + 1}].any; err != nil {
+		return nil, err
+	}
+	ac := s.sxModel.CSld.SpTree.AltContent[index]
+	if ac == nil || !ac.HasFallback || len(ac.Fallback) == 0 {
+		return nil, nil
+	}
+	// The fallback's prefixes are declared on the slide root; declare the
+	// presentation, drawing and relationship ones around it.
+	var src bytes.Buffer
+	src.WriteString(`<p:spTree xmlns:p="` + nsP + `" xmlns:a="` + nsA + `" xmlns:r="` + nsR + `">`)
+	src.Write(ac.Fallback)
+	src.WriteString(`</p:spTree>`)
+	var tree oxml.ShapeTree
+	if err := xml.Unmarshal(src.Bytes(), &tree); err != nil {
+		return nil, fmt.Errorf("%w: alternate content fallback: %w", render.ErrInvalid, err)
+	}
+	return s.renderLayer(renderInherited{data: &oxml.CommonSlideData{SpTree: &tree}, part: s.partName}, budget, draw, connect, warn, colors, maxSegments)
+}
+
+// alternate checks a shape tree's markup-compatibility alternate content:
+// only its fallback is drawn, as a reader without the choices' extensions
+// shows it, so choices are not checked and fallback content is checked as
+// if it stood in the shape tree. A problem is recorded against the
+// alternate content, or in strict mode fails.
+func (r *renderProfile) alternate(node core.XMLNode) (bool, error) {
+	n := len(node.Path)
+	mc := func(local string) xml.Name { return xml.Name{Space: xmlb.NSMarkupCompatibility, Local: local} }
+	if n < 4 || node.Path[2] != (xml.Name{Space: nsP, Local: "spTree"}) || node.Path[3] != mc("AlternateContent") {
+		return false, nil
+	}
+	fail := func(err error) error {
+		if err == nil || !r.lenient {
+			return err
+		}
+		if r.shapeErrs == nil {
+			r.shapeErrs = map[renderShapeKey]renderShapeErrs{}
+		}
+		if e := r.shapeErrs[r.current]; e.any == nil {
+			r.shapeErrs[r.current] = renderShapeErrs{any: err, inherited: err}
+		}
+		return nil
+	}
+	switch {
+	case n == 4:
+		if !node.Text {
+			r.current = renderShapeKey{name: "AlternateContent", occurrence: node.Occurrence}
+		}
+		return true, nil
+	case node.Path[4] == mc("Choice"):
+		return true, nil
+	case node.Path[4] != mc("Fallback"):
+		return true, fail(fmt.Errorf("%w: XML %s in alternate content", render.ErrUnsupported, node.Path[4].Local))
+	case n == 5:
+		return true, nil
+	}
+	v := node
+	v.Path = append(append([]xml.Name{}, node.Path[:3]...), node.Path[5:]...)
+	return true, fail(r.check(v))
+}
+
 // renderMaxImageScale is how many image pixels per drawn CSS pixel a picture
 // keeps: enough for 384 DPI output.
 const renderMaxImageScale = 4
@@ -1509,6 +1624,9 @@ func (r *renderProfile) check(node core.XMLNode) error {
 // recorded against that shape, which is then left out, and a problem
 // elsewhere is noted as a warning; only a wrong root fails.
 func (r *renderProfile) slide(node core.XMLNode) error {
+	if handled, err := r.alternate(node); handled {
+		return err
+	}
 	if !r.lenient || len(node.Path) == 1 {
 		return r.check(node)
 	}
