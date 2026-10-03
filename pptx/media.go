@@ -52,6 +52,11 @@ type Picture struct {
 	// isMedia marks a p:pic that backs an embedded video/audio (its blip is a
 	// poster, not a standalone image). Such pics are excluded from Slide.Pictures.
 	isMedia bool
+	// opacity is the parsed blip's fixed alpha modulation (alphaModFix) as
+	// a fraction, or nil; blipEffects records any other parsed blip effect.
+	// Previews read them.
+	opacity     *float64
+	blipEffects bool
 	// The picture's stable node identity (used e.g. by replacePictureImage to
 	// locate the exact node when two pictures share an image reference) lives
 	// in BaseShape.sourceID.

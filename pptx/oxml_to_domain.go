@@ -437,6 +437,18 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 				}
 			}
 		}
+		if b := pic.BlipFill.Blip; b != nil {
+			if b.AlphaModFix != nil {
+				a := 1.0
+				if b.AlphaModFix.Amt != nil {
+					a = float64(b.AlphaModFix.Amt.Int32()) / 100000
+				}
+				p.opacity = &a
+			}
+			p.blipEffects = b.AlphaBiLevel != nil || b.AlphaCeiling != nil || b.AlphaFloor != nil || b.AlphaInv != nil || b.AlphaMod != nil || b.AlphaRepl != nil ||
+				b.BiLevel != nil || b.Blur != nil || b.ClrChange != nil || b.ClrRepl != nil || b.Duotone != nil || b.FillOverlay != nil || b.Grayscl != nil ||
+				b.Hsl != nil || b.Lum != nil || b.Tint != nil
+		}
 		if pic.BlipFill.SrcRect != nil {
 			p.cropLeft = float64(pic.BlipFill.SrcRect.L.Int32()) / 100000.0
 			p.cropTop = float64(pic.BlipFill.SrcRect.T.Int32()) / 100000.0
