@@ -331,9 +331,6 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, box, geometry, textLayout, fonts, styles, nil)
-			if err == nil && geometry.turned && len(text) > 0 {
-				err = colors.approximate(fmt.Errorf("%w: text of a rotated or flipped shape drawn upright", render.ErrUnsupported))
-			}
 			if err = soft(renderTextLeftOut(sh, err)); err != nil {
 				return nil, err
 			}
@@ -344,9 +341,6 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				return drawn, err
 			}
 			text, err := renderShapeText(ctx, sp, v, geometry, textLayout, fonts, styles, nil)
-			if err == nil && geometry.turned && len(text) > 0 {
-				err = colors.approximate(fmt.Errorf("%w: text of a rotated or flipped shape drawn upright", render.ErrUnsupported))
-			}
 			if err = soft(renderTextLeftOut(sh, err)); err != nil {
 				return nil, err
 			}
@@ -815,8 +809,10 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 	if p.Xfrm != nil {
 		xf.flipH, xf.flipV, xf.rot = p.Xfrm.FlipH, p.Xfrm.FlipV, float64(p.Xfrm.Rot)/60000
 	}
-	// PowerPoint turns text with the shape's rotation and a vertical flip.
-	g.turned = math.Mod(xf.rot, 360) != 0 || xf.flipV
+	g.textTurn = xf.rot
+	if xf.flipV {
+		g.textTurn += 180
+	}
 	if v.presetGeometry == "line" {
 		// A line runs corner to corner, its flips choosing the corners.
 		line, placeholder, err := renderStyledLine(st, p.Ln, colors)
@@ -850,12 +846,12 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 		return nil, g, err
 	}
 	if p.CustGeom != nil {
-		turned := g.turned
+		turn := g.textTurn
 		ops, g, err := renderCustomShape(p.CustGeom, x, y, w, h, paint, filled, line, linePlaceholder, colors, limits)
 		if err != nil {
 			return nil, g, err
 		}
-		g.turned = turned
+		g.textTurn = turn
 		ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
 		return ops, g, err
 	}
@@ -874,21 +870,21 @@ func renderAutoShapeOps(v *AutoShape, source *dml.SpPr, st *dml.Style, colors *r
 			adjust.Gd = append(adjust.Gd, p.PrstGeom.AvLst.Gd...)
 			cg.AvLst = &adjust
 		}
-		turned := g.turned
+		turn := g.textTurn
 		ops, g, err := renderCustomShape(&cg, x, y, w, h, paint, filled, line, linePlaceholder, colors, limits)
 		if err != nil {
 			return nil, g, err
 		}
-		g.turned = turned
+		g.textTurn = turn
 		ops, err = xf.ops(ops, colors, limits.MaxPathSegments)
 		return ops, g, err
 	}
-	turned := g.turned
+	turn := g.textTurn
 	g, err = renderPresetGeometry(v.presetGeometry, p.PrstGeom, x, y, w, h)
 	if err != nil {
 		return nil, g, err
 	}
-	g.turned = turned
+	g.textTurn = turn
 	var ops []layout.Op
 	if filled {
 		if ops, err = g.fill(paint); err != nil {

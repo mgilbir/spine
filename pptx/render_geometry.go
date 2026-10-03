@@ -21,9 +21,10 @@ type renderGeometry struct {
 	// text holds the preset's text rectangle insets from the box: left, top,
 	// right, bottom.
 	text [4]dml.EMU
-	// turned is set when the shape's rotation or vertical flip would turn
-	// its text, which is drawn upright.
-	turned bool
+	// textTurn is how far the shape's text turns clockwise, in degrees:
+	// PowerPoint turns text with its shape's rotation, and over with a
+	// vertical flip, but never mirrors it.
+	textTurn float64
 }
 
 // renderPresetGeometry evaluates the preset geometries this profile draws,

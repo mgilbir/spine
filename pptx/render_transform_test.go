@@ -71,3 +71,49 @@ func TestRenderFlippedPicture(t *testing.T) {
 		t.Fatalf("flipped picture left: %+v", px)
 	}
 }
+
+func TestRenderTurnedText(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	turn := func(old, new string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			i := strings.Index(s, "<p:sp>")
+			if i < 0 || !strings.Contains(s[i:], old) {
+				t.Fatalf("no %s in %s", old, s)
+			}
+			return s[:i] + strings.Replace(s[i:], old, new, 1)
+		}}
+	}
+	// The shape spans (4,4) to (52,52). Its first line, "AA ", inks x 4 to
+	// 36 and y 4 to 16.8; turned a quarter about (28,28), x 39.2 to 52 and
+	// y 4 to 36.
+	quarter := map[[2]int]color.NRGBA{{10, 10}: white, {45, 10}: black, {45, 30}: black, {30, 45}: white}
+	// Turned a half, by a rotation or by a vertical flip, the line inks
+	// x 20 to 52 and y 39.2 to 52, upside down.
+	half := map[[2]int]color.NRGBA{{10, 10}: white, {30, 45}: black, {48, 48}: black, {10, 45}: white}
+	for _, tc := range []struct {
+		name, old, new string
+		want           map[[2]int]color.NRGBA
+	}{
+		{"rotated shape", `<a:xfrm>`, `<a:xfrm rot="5400000">`, quarter},
+		{"flipped shape", `<a:xfrm>`, `<a:xfrm flipV="1">`, half},
+		{"rotated body", `<a:bodyPr`, `<a:bodyPr rot="10800000"`, half},
+		{"turned back", `<a:xfrm>`, `<a:xfrm rot="10800000" flipV="1">`, map[[2]int]color.NRGBA{{10, 10}: black, {45, 45}: white}},
+	} {
+		var warnings []string
+		opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		got := renderSlidePNG(t, data, opts, turn(tc.old, tc.new))
+		if len(warnings) != 0 {
+			t.Fatalf("%s: %q", tc.name, warnings)
+		}
+		for at, want := range tc.want {
+			if px := renderPixel(t, got, at[0], at[1]); px != want {
+				t.Fatalf("%s at %v: %+v, want %+v", tc.name, at, px, want)
+			}
+		}
+	}
+}

@@ -1,11 +1,13 @@
 package pptx
 
 import (
+	"context"
 	"fmt"
 	"math"
 
 	"github.com/mgilbir/forme/layout"
 	"github.com/mgilbir/forme/style"
+	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -84,6 +86,30 @@ func (t renderShapeTransform) path(p layout.Path, maxSegments int, segments *int
 		out[0].Op = layout.MoveTo
 	}
 	return out, bounds, nil
+}
+
+// glyphs turns a glyph run as its outlines, one path per glyph. Outlines
+// whose contours the even-odd rule fills differently from the font's nonzero
+// rule are drawn approximately.
+func (t renderShapeTransform) glyphs(v layout.DrawGlyphs, colors *renderColors, maxSegments int, segments *int) ([]layout.Op, error) {
+	ctx := colors.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	paths, exact, err := core.GlyphPaths(ctx, v, t.point, maxSegments, segments)
+	if err != nil {
+		return nil, err
+	}
+	if !exact {
+		if err := colors.approximate(fmt.Errorf("%w: turned glyphs with overlapping contours filled even-odd", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]layout.Op, len(paths))
+	for i, p := range paths {
+		out[i] = layout.FillPath{Path: p, Color: v.Color}
+	}
+	return out, nil
 }
 
 // renderOnlyGradient returns a clip's sole operation when it is a gradient.
@@ -191,7 +217,17 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			}
 			out = append(out, layout.ClipPath{Path: path, Ops: inner})
 		case layout.DrawGlyphs:
-			// Text moves with the shape but stays upright and unmirrored.
+			if !t.flipH && !t.flipV {
+				// A turn without flips draws the glyphs' outlines turned.
+				turned, err := t.glyphs(v, colors, maxSegments, &segments)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, turned...)
+				continue
+			}
+			// Text moves with a flipped group but stays upright and
+			// unmirrored.
 			if err := colors.approximate(fmt.Errorf("%w: text of a turned group drawn upright", render.ErrUnsupported)); err != nil {
 				return nil, err
 			}

@@ -154,8 +154,13 @@ each segment. The `a:rect` guides give the text rectangle.
 
 Rotation and flips turn and mirror a shape about its box's centre; arcs are
 then flattened in 5° steps. A gradient keeps its direction under rotation,
-which best effort reports. Text of a rotated or vertically flipped shape
-fails, and best effort draws it upright. Geometry is quantized to Forme's fixed-point
+which best effort reports. Text lays out in the unturned shape and turns
+with its rotation, and over with a vertical flip, but is never mirrored; a
+body's own `rot` turns it further. Turned glyphs are drawn as their outlines,
+flattened to a sixteenth of a pixel at 384 DPI, so each costs path segments
+(around 60 at body sizes) against `MaxPathSegments`. Outlines are filled
+even-odd; a glyph whose contours overlap, which the font fills nonzero, is
+reported and drawn even-odd. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
 Fill and background colors may be RGB, system colors (their recorded `lastClr`),
@@ -230,7 +235,7 @@ attributes take their DrawingML defaults: top anchoring, square wrapping, and
 the text block, whose height spans its paragraphs' spacing and full line
 heights. Without wrapping (`wrap="none"`) each line keeps its natural
 width, aligned in the box as wrapped text is. Justified and distributed
-anchoring, and vertical, rotated, clipped or multi-column text fail; best
+anchoring, and vertical, clipped or multi-column text fail; best
 effort draws them top anchored, horizontal, whole and in one column, and
 ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
@@ -350,8 +355,8 @@ row to hold its text.
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
 PowerPoint draws them. A rotated or flipped group turns and mirrors its
-shapes about its centre; best effort moves its text and pictures with it,
-upright and unturned. A group's fill paints nothing itself; shapes inside
+shapes about its centre, and turns their text with it. Best effort moves
+pictures, and the text of a flipped group, with it, upright and unturned. A group's fill paints nothing itself; shapes inside
 whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
 effort leaves group effects out. Placeholders and tables inside groups fail; groups are drawn only
 from their parsed form without pending edits.

@@ -143,6 +143,8 @@ type renderFrame struct {
 	noWrap bool
 	// fontScale and lnSpcReduction are normal autofit's scaling.
 	fontScale, lnSpcReduction int32
+	// rot turns the text within its shape, clockwise in degrees.
+	rot float64
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -173,8 +175,11 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	if bp.ExtLst != nil {
 		return f, fmt.Errorf("%w: text body extension", render.ErrUnsupported)
 	}
-	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || renderTrue(bp.UpRight) {
-		if err := colors.approximate(fmt.Errorf("%w: rotated or vertical text drawn horizontally", render.ErrUnsupported)); err != nil {
+	if bp.Rot != nil {
+		f.rot = float64(*bp.Rot) / 60000
+	}
+	if (bp.Vert != "" && bp.Vert != "horz") || renderTrue(bp.UpRight) {
+		if err := colors.approximate(fmt.Errorf("%w: vertical or upright text drawn horizontally", render.ErrUnsupported)); err != nil {
 			return f, err
 		}
 	}
@@ -310,7 +315,15 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if err != nil {
 		return nil, err
 	}
-	return renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts, styles.colors)
+	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts, styles.colors)
+	if err != nil {
+		return nil, err
+	}
+	// Text lays out in the unturned shape and turns with it about its
+	// centre.
+	px := float64(dml.EMUsPerPixel)
+	turn := renderShapeTransform{rot: g.textTurn + frame.rot, cx: (float64(g.box[0]) + float64(g.box[2])/2) / px, cy: (float64(g.box[1]) + float64(g.box[3])/2) / px}
+	return turn.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments)
 }
 
 // renderLayoutParagraphs wraps a text body's paragraphs in a content box of

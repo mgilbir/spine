@@ -71,7 +71,8 @@ func (m renderMap) xfrm(x *dml.Xfrm) (*dml.Xfrm, error) {
 // With warn set, a child that cannot be drawn is reported and left out.
 //
 // A rotated or flipped group turns its drawn children about its centre:
-// shapes exactly, and text and pictures, approximately, moved upright.
+// shapes exactly, text exactly unless the group is flipped, and pictures,
+// and the text of flipped groups, approximately, moved upright.
 //
 // A group's own fill paints nothing; children whose fill is the group's
 // (a:grpFill) take it, or its group's in turn.
