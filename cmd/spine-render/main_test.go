@@ -131,7 +131,7 @@ func TestKeepGoingSkipsUnrenderableSlides(t *testing.T) {
 	}
 	p.AddSlideFromLayout(layout)
 	unsupported := p.AddSlideFromLayout(layout)
-	if err = unsupported.AddShape(pptx.NewAutoShape("triangle")); err != nil {
+	if err = unsupported.AddShape(pptx.NewAutoShape("notAShape")); err != nil {
 		t.Fatal(err)
 	}
 	p.AddSlideFromLayout(layout)
@@ -152,7 +152,7 @@ func TestKeepGoingSkipsUnrenderableSlides(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "skipped 1 of 3: slide 2") {
 		t.Fatalf("keep going: %v", err)
 	}
-	if !strings.Contains(warnings.String(), "slide 2: skipped:") || !strings.Contains(warnings.String(), "triangle") {
+	if !strings.Contains(warnings.String(), "slide 2: skipped:") || !strings.Contains(warnings.String(), "notAShape") {
 		t.Fatalf("warnings: %q", warnings.String())
 	}
 	for name, want := range map[string]bool{"slide-0001.png": true, "slide-0002.png": false, "slide-0003.png": true} {
@@ -242,7 +242,7 @@ func TestBestEffortWarnsAndDraws(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = p.AddSlideFromLayout(layout).AddShape(pptx.NewAutoShape("triangle")); err != nil {
+	if err = p.AddSlideFromLayout(layout).AddShape(pptx.NewAutoShape("notAShape")); err != nil {
 		t.Fatal(err)
 	}
 	input := filepath.Join(dir, "in.pptx")
@@ -254,7 +254,7 @@ func TestBestEffortWarnsAndDraws(t *testing.T) {
 	if err = run(context.Background(), c); err != nil {
 		t.Fatalf("best effort: %v", err)
 	}
-	if !strings.Contains(warnings.String(), "slide 1: warning:") || !strings.Contains(warnings.String(), "triangle") {
+	if !strings.Contains(warnings.String(), "slide 1: warning:") || !strings.Contains(warnings.String(), "notAShape") {
 		t.Fatalf("warnings: %q", warnings.String())
 	}
 	if _, err = os.Stat(filepath.Join(c.out, "slide-0001.png")); err != nil {
