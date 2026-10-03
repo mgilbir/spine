@@ -23,7 +23,7 @@ func ImageDPI(data []byte) (x, y float64, ok bool) {
 				if n != 9 || data[at+16] != 1 {
 					return 0, 0, false
 				}
-				return pixelsPerInch(binary.BigEndian.Uint32(data[at+8:]), 0.0254), pixelsPerInch(binary.BigEndian.Uint32(data[at+12:]), 0.0254), validDPI(data[at+8:at+16])
+				return pixelsPerInch(binary.BigEndian.Uint32(data[at+8:]), 0.0254), pixelsPerInch(binary.BigEndian.Uint32(data[at+12:]), 0.0254), validDPI(data[at+8 : at+16])
 			}
 			at += n + 12
 		}
