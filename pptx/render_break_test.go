@@ -139,3 +139,16 @@ func TestRenderTabs(t *testing.T) {
 		t.Fatalf("strict explicit stops: %v", err)
 	}
 }
+
+func TestRenderCharacterSpacing(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	draw := func(spc string) []byte {
+		return renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, `<a:p><a:r><a:rPr lang="en-US" sz="1200"`+spc+`/><a:t>AA</a:t></a:r></a:p>`)})
+	}
+	_, _, plain, _ := renderInkBounds(t, draw(""))
+	// 6pt (8px) after each character moves the second A 8px right.
+	_, _, spaced, _ := renderInkBounds(t, draw(` spc="600"`))
+	if spaced-plain < 7 || spaced-plain > 9 {
+		t.Fatalf("spacing: right edge %d, plain %d", spaced, plain)
+	}
+}

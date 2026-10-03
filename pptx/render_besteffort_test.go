@@ -54,7 +54,7 @@ func TestRenderBestEffortText(t *testing.T) {
 		return map[string]func(string) string{"ppt/slides/slide1.xml": renderBody(`<a:lstStyle/>`, paragraphs)}
 	}
 	for name, tc := range map[string][2]string{
-		"character spacing": {`<a:p><a:r><a:rPr lang="en-US" spc="100"/><a:t>A</a:t></a:r></a:p>`, "character spacing left out"},
+		"superscript":       {`<a:p><a:r><a:rPr lang="en-US" baseline="30000"/><a:t>A</a:t></a:r></a:p>`, "superscript or subscript size approximated"},
 		"overlong word":     {`<a:p><a:r><a:rPr lang="en-US"/><a:t>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</a:t></a:r></a:p>`, "text wider than its box"},
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, body(tc[0])); !errors.Is(err, render.ErrUnsupported) {
