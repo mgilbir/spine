@@ -232,7 +232,8 @@ outline, effects and body attributes merge property by property, nearest
 first, and the list styles chain slide, layout and master placeholder, then
 the master's title, body or other text style. Whether the presentation default
 text style follows is unspecified, so the result must agree with and without
-it. A matched layout or master placeholder must be free of unsupported content
+it; best effort uses the reading without it, and the first of several
+matching layout or master placeholders. A matched layout or master placeholder must be free of unsupported content
 outside its prompt paragraphs; field placeholders fail, and a placeholder with no geometry anywhere is invalid. An edited
 placeholder renders as a save writes it. A spacing percentage of zero is
 accepted as no spacing.
@@ -266,8 +267,14 @@ and every line's text starts at the margin, so the indent must hold the
 bullet; a bullet past it would push the text to a tab stop this profile does
 not place. Bullet character, font (`buFont`, or the text's), size (`buSzPct`,
 `buSzPts`, or the text's) and color (`buClr`, or the first run's) inherit
-separately; a bullet taller than its line fails, numbered and picture bullets
-fail, and an empty paragraph shows no bullet. Runs may differ in font family, size (1–4000
+separately; a bullet taller than its line or wider than its indent fails, as
+does a first-line indent without a bullet, and best effort draws them as
+they would hang, and the text at the margin. Numbered bullets (`buAutoNum`)
+show Arabic or Roman numerals or Latin letters with a period, parentheses or
+nothing, counting from `startAt` over consecutive numbered paragraphs of a
+level: a paragraph resets the counts of deeper levels, and an unnumbered one
+its own; best effort draws other schemes as Arabic numerals and picture
+bullets as "•". An empty paragraph shows no bullet. Runs may differ in font family, size (1–4000
 pt), bold/italic setting and kerning; consecutive runs that agree on these shape
 as one span. Break opportunities come from the whole paragraph, while shaping
 context stays within a span, so no glyph or contextual form crosses a change of
@@ -278,8 +285,13 @@ the shared baseline. Each run has its own solid color and optional highlight;
 a glyph standing for characters of two runs, such as a ligature, fails, since
 PowerPoint shapes runs apart. A highlight fills the run's advance from its
 font's ascent to its descent about the baseline, beneath the text, with
-touching spans of one color painted as one. Underline, strike, capitals, baseline shift, character spacing, outline,
-effects and hyperlinks fail. Kerning applies from the resolved `kern` size,
+touching spans of one color painted as one. Capitals (`cap="all"`) draw
+the uppercase text. Underline, strike, small capitals, baseline shift,
+character spacing, outline, effects and hyperlinks fail. Best effort draws
+underlines a tenth of an em below the baseline and strikes three tenths above
+it, a twentieth of an em thick (doubled lines twice, styled ones solid),
+small capitals as capitals, hyperlinks as plain text, and leaves out
+characters the profile or the run's font cannot draw. Kerning applies from the resolved `kern` size,
 and is off when it is absent or zero. An empty paragraph takes its line box from
 its end-of-paragraph properties; a paragraph with runs takes it from them, as
 LibreOffice's import does. A line break (`a:br`) starts a new line; an empty
@@ -334,7 +346,7 @@ Tables without a table style are drawn unstyled. This is provisional:
 `tableStyles.xml` names a default style, often a built-in Office style the file
 does not define, and whether PowerPoint applies it to a table without
 `a:tableStyleId` is undocumented. Explore that, and built-in style definitions,
-before supporting styled tables.
+before supporting styled tables. Best effort draws styled tables unstyled.
 
 Forme measures wrapping and shapes final lines under cumulative budgets. Native
 line metrics use the supplied font's hhea ascent, descent and line gap; baseline

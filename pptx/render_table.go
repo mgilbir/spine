@@ -54,7 +54,11 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 	tbl := gf.Graphic.GraphicData.Table
 	if pr := tbl.TblPr; pr != nil {
 		if pr.TableStyle != nil || pr.TableStyleId != "" {
-			return nil, fmt.Errorf("%w: table style", render.ErrUnsupported)
+			// Best effort draws a styled table unstyled: with only its cells'
+			// own fills, borders and text.
+			if err := colors.approximate(fmt.Errorf("%w: table style left out", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
 		}
 		if pr.Rtl || pr.NoFill != nil || pr.SolidFill != nil || pr.GradFill != nil || pr.BlipFill != nil || pr.PattFill != nil || pr.GrpFill != nil || renderEffects(pr.EffectLst) || pr.EffectDag != nil || pr.ExtLst != nil {
 			return nil, fmt.Errorf("%w: table properties", render.ErrUnsupported)

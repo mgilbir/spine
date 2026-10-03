@@ -40,8 +40,9 @@ func renderBaseType(typ string) string {
 }
 
 // renderMatch finds the one placeholder in a tree that ph inherits from: by
-// index on a layout, by type on a master. More than one candidate fails.
-func renderMatch(t *oxml.ShapeTree, ph *oxml.Placeholder, byIndex bool) (int, error) {
+// index on a layout, by type on a master. More than one candidate fails, or
+// with approx accepting it, the first is used.
+func renderMatch(t *oxml.ShapeTree, ph *oxml.Placeholder, byIndex bool, approx func(error) error) (int, error) {
 	if t == nil {
 		return -1, nil
 	}
@@ -62,7 +63,10 @@ func renderMatch(t *oxml.ShapeTree, ph *oxml.Placeholder, byIndex bool) (int, er
 		case 1:
 			return found[0], nil
 		}
-		return -1, fmt.Errorf("%w: ambiguous inherited placeholder", render.ErrUnsupported)
+		if err := approx(fmt.Errorf("%w: ambiguous inherited placeholder", render.ErrUnsupported)); err != nil {
+			return -1, err
+		}
+		return found[0], nil
 	}
 	if byIndex {
 		same := find(func(o *oxml.Placeholder) bool { return o.Idx == ph.Idx })
@@ -81,11 +85,11 @@ func renderMatch(t *oxml.ShapeTree, ph *oxml.Placeholder, byIndex bool) (int, er
 // renderPlaceholderBase resolves a slide placeholder's inheritance. The
 // layout and master placeholders it uses must be free of unsupported content
 // outside their prompt paragraphs.
-func (s *Slide) renderPlaceholderBase(sp *oxml.Shape, ph *oxml.Placeholder, layoutErrs, masterErrs map[renderShapeKey]renderShapeErrs, styleErrs map[string]error) (*renderPlaceholder, error) {
+func (s *Slide) renderPlaceholderBase(sp *oxml.Shape, ph *oxml.Placeholder, layoutErrs, masterErrs map[renderShapeKey]renderShapeErrs, styleErrs map[string]error, approx func(error) error) (*renderPlaceholder, error) {
 	r := &renderPlaceholder{sources: [3]*oxml.Shape{sp}}
 	inheritFrom := ph
 	if l := s.layout; l != nil && l.layoutXML != nil && l.layoutXML.CSld != nil {
-		i, err := renderMatch(l.layoutXML.CSld.SpTree, ph, true)
+		i, err := renderMatch(l.layoutXML.CSld.SpTree, ph, true, approx)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +103,7 @@ func (s *Slide) renderPlaceholderBase(sp *oxml.Shape, ph *oxml.Placeholder, layo
 	}
 	if l := s.layout; l != nil && l.master != nil && l.master.masterXML != nil && l.master.masterXML.CSld != nil {
 		m := l.master.masterXML
-		i, err := renderMatch(m.CSld.SpTree, inheritFrom, false)
+		i, err := renderMatch(m.CSld.SpTree, inheritFrom, false, approx)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +285,7 @@ func (s *Slide) renderPlaceholderShape(ctx context.Context, v *PlaceholderShape,
 	if v.fieldType != "" {
 		return nil, fmt.Errorf("%w: field placeholder", render.ErrUnsupported)
 	}
-	ph, err := s.renderPlaceholderBase(sp, sp.NvSpPr.NvPr.Ph, layoutErrs, masterErrs, styleErrs)
+	ph, err := s.renderPlaceholderBase(sp, sp.NvSpPr.NvPr.Ph, layoutErrs, masterErrs, styleErrs, colors.approximate)
 	if err != nil {
 		return nil, err
 	}

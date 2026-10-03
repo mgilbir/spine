@@ -141,7 +141,7 @@ func TestRenderRejectsAmbiguousOrUnsupportedInheritedText(t *testing.T) {
 		"space before first paragraph": {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:pPr><a:spcBef><a:spcPts val="600"/></a:spcBef></a:pPr>`+renderPlainRun+`</a:p>`)},
 		"indent":                       {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:pPr indent="-228600"/>`+renderPlainRun+`</a:p>`)},
 		"inherited bullet":             {"ppt/slides/slide1.xml": slide(`<a:lstStyle><a:lvl1pPr><a:buChar char="x"/></a:lvl1pPr></a:lstStyle>`, `<a:p>`+renderPlainRun+`</a:p>`)},
-		"capitals":                     {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:r><a:rPr cap="all"/><a:t>A</a:t></a:r></a:p>`)},
+		"small capitals":               {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:r><a:rPr cap="small"/><a:t>A</a:t></a:r></a:p>`)},
 		"invalid level":                {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:pPr lvl="9"/>`+renderPlainRun+`</a:p>`)},
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, rewrites); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
