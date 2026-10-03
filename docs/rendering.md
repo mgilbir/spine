@@ -548,3 +548,23 @@ error, skips it, renders the rest, and then exits with an error naming the
 skipped pages. A cancelled or timed-out run still stops, and write failures are
 never skipped. DOCX lays out one document for every page, so its failures
 repeat across pages and stop the run as before.
+
+## Measuring fidelity
+
+`tools/fidelity` compares spine's slide renders with a reference render of the
+same deck, such as PowerPoint's PNG export (File > Export, as PNG, every
+slide) or LibreOffice's. Render at the reference's size, or let the tool
+resample, then compare:
+
+```sh
+./spine-render -input deck.pptx -out ours -font 'Calibri=fonts/Calibri.ttf'
+go run ./tools/fidelity -ours ours -ref reference -out report
+```
+
+Files pair by the last number in their names (`slide-0001.png` with
+`Slide1.png`). Each slide gets its structural similarity (SSIM of luma over
+8 by 8 windows; 1 is identical), mean absolute channel difference, the share
+of pixels differing by more than `-threshold` (32 by default), and a diff
+image of the faded reference with those pixels red. `report.md` and
+`report.json` collect them. Fonts matter most: map the deck's fonts to the
+files the reference used, or differences in text dominate.
