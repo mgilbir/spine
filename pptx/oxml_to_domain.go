@@ -438,6 +438,7 @@ func oxmlPictureToGoPicture(pic *oxml.Picture) *Picture {
 			}
 		}
 		if b := pic.BlipFill.Blip; b != nil {
+			p.effects = b.OrderedEffects()
 			if b.AlphaModFix != nil {
 				a := 1.0
 				if b.AlphaModFix.Amt != nil {

@@ -4,6 +4,7 @@ package dml
 
 import (
 	"encoding/xml"
+	"reflect"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -36,6 +37,107 @@ type Blip struct {
 	// form a repeated xs:choice whose order is significant (effects compose),
 	// and grouped singleton fields alone would reorder them on save.
 	CapturedChildren *xmlb.ChildCapture `xml:"-"`
+}
+
+// OrderedEffects returns the blip's effects in document order, as the
+// ordered representation BlipXML keeps; effects set without a captured
+// order follow in schema order.
+func (bl *Blip) OrderedEffects() (effects []*BlipEffect) {
+	if bl == nil {
+		return nil
+	}
+	of := func(field int) *BlipEffect {
+		switch v := reflect.ValueOf(bl).Elem().Field(field).Interface().(type) {
+		case *AlphaBiLevel:
+			if v != nil {
+				return &BlipEffect{AlphaBiLevel: v}
+			}
+		case *AlphaCeiling:
+			if v != nil {
+				return &BlipEffect{AlphaCeiling: v}
+			}
+		case *AlphaFloor:
+			if v != nil {
+				return &BlipEffect{AlphaFloor: v}
+			}
+		case *AlphaInv:
+			if v != nil {
+				return &BlipEffect{AlphaInv: v}
+			}
+		case *AlphaMod:
+			if v != nil {
+				return &BlipEffect{AlphaMod: v}
+			}
+		case *AlphaModFix:
+			if v != nil {
+				return &BlipEffect{AlphaModFix: v}
+			}
+		case *AlphaRepl:
+			if v != nil {
+				return &BlipEffect{AlphaRepl: v}
+			}
+		case *BiLevelXML:
+			if v != nil {
+				return &BlipEffect{BiLevel: v}
+			}
+		case *BlurXML:
+			if v != nil {
+				return &BlipEffect{Blur: v}
+			}
+		case *ClrChange:
+			if v != nil {
+				return &BlipEffect{ClrChange: v}
+			}
+		case *ClrRepl:
+			if v != nil {
+				return &BlipEffect{ClrRepl: v}
+			}
+		case *Duotone:
+			if v != nil {
+				return &BlipEffect{Duotone: v}
+			}
+		case *FillOverlayXML:
+			if v != nil {
+				return &BlipEffect{FillOverlay: v}
+			}
+		case *GrayscaleXML:
+			if v != nil {
+				return &BlipEffect{Grayscl: v}
+			}
+		case *HslXML:
+			if v != nil {
+				return &BlipEffect{Hsl: v}
+			}
+		case *LumXML:
+			if v != nil {
+				return &BlipEffect{Lum: v}
+			}
+		case *TintEffectXML:
+			if v != nil {
+				return &BlipEffect{Tint: v}
+			}
+		}
+		return nil
+	}
+	n := reflect.TypeOf(*bl).NumField()
+	seen := make([]bool, n)
+	if c := bl.CapturedChildren; c != nil {
+		for _, ref := range c.Order {
+			if ref.Field < 0 || ref.Field >= n {
+				continue
+			}
+			if e := of(ref.Field); e != nil && !seen[ref.Field] {
+				effects = append(effects, e)
+				seen[ref.Field] = true
+			}
+		}
+	}
+	for i := 0; i < n; i++ {
+		if e := of(i); e != nil && !seen[i] {
+			effects = append(effects, e)
+		}
+	}
+	return effects
 }
 
 // UnmarshalXML captures the element's verbatim attribute list (source

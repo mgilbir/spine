@@ -45,6 +45,12 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 	if gf == nil || t.isDirty() {
 		return nil, fmt.Errorf("%w: new or edited table; save and reopen to preview it", render.ErrUnsupported)
 	}
+	return renderTableFrame(ctx, gf, colors, breaker, fonts, styles)
+}
+
+// renderTableFrame paints a parsed table's frame, on a slide, layout or
+// master, or in a group with its geometry mapped; see renderTable.
+func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *renderColors, breaker *core.TextLayout, fonts *slideRenderFonts, styles *renderTextStyles) ([]layout.Op, error) {
 	if gf.ExtLst != nil || gf.Xfrm == nil || gf.Xfrm.Off == nil || gf.Graphic == nil || gf.Graphic.GraphicData == nil || gf.Graphic.GraphicData.URI != oxml.TableGraphicDataURI || gf.Graphic.GraphicData.Table == nil {
 		return nil, fmt.Errorf("%w: graphic frame", render.ErrUnsupported)
 	}
@@ -444,7 +450,7 @@ func (s *Slide) renderTable(ctx context.Context, index int, t *Table, colors *re
 			}
 			top := ys[r] + px(cl.margin[1])
 			bottom := ys[r+cl.rs] - px(cl.margin[3])
-			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, fonts, styles.colors)
+			text, err := renderPlaceParagraphs(cl.blocks, cl.height, top, bottom, cl.anchor, true, renderColumns{}, fonts, styles.colors)
 			if err != nil {
 				return nil, err
 			}

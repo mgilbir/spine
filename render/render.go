@@ -4,8 +4,9 @@
 package render
 
 import (
-	"errors"
 	"context"
+	"errors"
+	"image"
 	"io"
 
 	"github.com/mgilbir/forme/layout"
@@ -57,7 +58,18 @@ type Options struct {
 	// parts, page-wide limits) are still returned. Adapters that do not
 	// support best effort ignore it.
 	Warn func(error)
+	// Charts, when set, draws charts. A chart is given as a Vega
+	// specification (https://vega.github.io/vega/) whose width and height
+	// are its frame's in CSS pixels; the renderer returns an image of it at
+	// scale image pixels per CSS pixel, which is stretched over the frame.
+	// The specification holds the chart's data and fixed encodings, and no
+	// expressions from the document. Without a renderer, charts are left
+	// out. The renderer must honour ctx.
+	Charts ChartRenderer
 }
+
+// ChartRenderer draws a Vega specification; see Options.Charts.
+type ChartRenderer func(ctx context.Context, spec []byte, scale float64) (image.Image, error)
 
 // Page owns its prepared geometry and normalized raster data. It can be rendered
 // concurrently and remains independent of subsequent source edits. Its zero

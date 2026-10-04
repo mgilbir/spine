@@ -1,9 +1,10 @@
 package pptx
 
 import (
-	"math"
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -143,6 +144,17 @@ type renderFrame struct {
 	noWrap bool
 	// fontScale and lnSpcReduction are normal autofit's scaling.
 	fontScale, lnSpcReduction int32
+	// rot turns the text within its shape, clockwise in degrees.
+	rot float64
+	// vert is 90 or 270 for text set vertically, the clockwise turn of its
+	// lines; upright keeps text from turning with its shape.
+	vert    float64
+	upright bool
+	// numCol columns, spcCol apart, run left to right, or right to left
+	// with rtlCol.
+	numCol int
+	spcCol dml.EMU
+	rtlCol bool
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -173,15 +185,33 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	if bp.ExtLst != nil {
 		return f, fmt.Errorf("%w: text body extension", render.ErrUnsupported)
 	}
-	if (bp.Rot != nil && *bp.Rot != 0) || (bp.Vert != "" && bp.Vert != "horz") || renderTrue(bp.UpRight) {
-		if err := colors.approximate(fmt.Errorf("%w: rotated or vertical text drawn horizontally", render.ErrUnsupported)); err != nil {
-			return f, err
-		}
+	if bp.Rot != nil {
+		f.rot = float64(*bp.Rot) / 60000
 	}
-	if bp.NumCol > 1 {
-		if err := colors.approximate(fmt.Errorf("%w: text columns drawn as one", render.ErrUnsupported)); err != nil {
+	// Vertical text lays out across its rectangle turned a quarter and
+	// turns back with it. East Asian vertical text sets Latin characters
+	// turned, as vert does; this profile draws no East Asian characters.
+	switch bp.Vert {
+	case "", "horz":
+	case "vert", "eaVert":
+		f.vert = 90
+	case "vert270":
+		f.vert = 270
+	case "mongolianVert", "wordArtVert", "wordArtVertRtl":
+		if err := colors.approximate(fmt.Errorf("%w: %s text drawn as vert", render.ErrUnsupported, bp.Vert)); err != nil {
 			return f, err
 		}
+		f.vert = 90
+	default:
+		return f, fmt.Errorf("%w: vertical text type", render.ErrInvalid)
+	}
+	f.upright = renderTrue(bp.UpRight)
+	if bp.NumCol < 0 || bp.NumCol > 16 || (bp.SpcCol != nil && *bp.SpcCol < 0) {
+		return f, fmt.Errorf("%w: text columns", render.ErrInvalid)
+	}
+	f.numCol, f.rtlCol = int(bp.NumCol), renderTrue(bp.RtlCol)
+	if bp.SpcCol != nil {
+		f.spcCol = dml.EMU(*bp.SpcCol)
 	}
 	if (bp.VertOverflow != "" && bp.VertOverflow != "overflow") || (bp.HorzOverflow != "" && bp.HorzOverflow != "overflow") {
 		if err := colors.approximate(fmt.Errorf("%w: clipped text drawn whole", render.ErrUnsupported)); err != nil {
@@ -280,6 +310,19 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 		return nil, fmt.Errorf("%w: text rectangle", render.ErrInvalid)
 	}
 	m := frame.margins
+	// Vertical text lays out in its rectangle turned back a quarter about
+	// its centre, the insets turning with their sides.
+	px := float64(dml.EMUsPerPixel)
+	vertical := renderShapeTransform{rot: frame.vert, cx: (float64(x) + float64(w)/2) / px, cy: (float64(y) + float64(h)/2) / px}
+	if frame.vert != 0 {
+		cx2, cy2 := 2*x+w, 2*y+h // twice the centre, exact in EMU
+		x, y, w, h = (cx2-h)/2, (cy2-w)/2, h, w
+		if frame.vert == 90 {
+			m = TextMargins{Left: m.Top, Top: m.Right, Right: m.Bottom, Bottom: m.Left}
+		} else {
+			m = TextMargins{Left: m.Bottom, Top: m.Left, Right: m.Top, Bottom: m.Right}
+		}
+	}
 	for _, inset := range []dml.EMU{m.Left, m.Right, m.Top, m.Bottom} {
 		if inset < 0 {
 			return nil, fmt.Errorf("%w: text inset", render.ErrInvalid)
@@ -301,6 +344,24 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 		}
 	}
 	content := w - m.Left - m.Right
+	// Columns share the content width less the space between them.
+	var cols renderColumns
+	if n := dml.EMU(frame.numCol); n > 1 {
+		if frame.spcCol > content/(n-1) || (content-frame.spcCol*(n-1))/n <= 0 {
+			if err = styles.colors.approximate(fmt.Errorf("%w: text columns wider than their box drawn as one", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+		} else {
+			width := (content - frame.spcCol*(n-1)) / n
+			cols = renderColumns{n: int(n), step: float64(width+frame.spcCol) / float64(dml.EMUsPerPixel)}
+			content = width
+			if frame.rtlCol {
+				// The first column is the rightmost.
+				m.Left += (width + frame.spcCol) * (n - 1)
+				cols.step = -cols.step
+			}
+		}
+	}
 	contentTop := float64(y)/float64(dml.EMUsPerPixel) + float64(m.Top)/float64(dml.EMUsPerPixel)
 	bottom := float64(y)/float64(dml.EMUsPerPixel) + float64(h-m.Bottom)/float64(dml.EMUsPerPixel)
 	// Lay every paragraph out first: anchoring needs the text height.
@@ -310,7 +371,21 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	if err != nil {
 		return nil, err
 	}
-	return renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, fonts, styles.colors)
+	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, cols, fonts, styles.colors)
+	if err != nil {
+		return nil, err
+	}
+	if ops, err = vertical.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments); err != nil {
+		return nil, err
+	}
+	// Text lays out in the unturned shape and turns with it about its
+	// centre, unless it stays upright regardless of either turn.
+	rot := g.textTurn + frame.rot
+	if frame.upright {
+		rot = 0
+	}
+	turn := renderShapeTransform{rot: rot, cx: (float64(g.box[0]) + float64(g.box[2])/2) / px, cy: (float64(g.box[1]) + float64(g.box[3])/2) / px}
+	return turn.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments)
 }
 
 // renderLayoutParagraphs wraps a text body's paragraphs in a content box of
@@ -473,11 +548,6 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err := mark(p.EndParaRPr); err != nil {
 			return nil, 0, err
 		}
-		if para.customTabs && strings.Contains(text.String(), "\t") {
-			if err := styles.colors.approximate(fmt.Errorf("%w: explicit tab stops placed at the default spacing", render.ErrUnsupported)); err != nil {
-				return nil, 0, err
-			}
-		}
 		wrap := width
 		if noWrap {
 			wrap = renderUnit(dml.EMU(1) << 30)
@@ -493,6 +563,19 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			for _, l := range piece {
 				for i := range l.Segments {
 					l.Segments[i].Span += a
+				}
+			}
+			if n := len(piece); n > 0 {
+				piece[n-1].last = true
+			}
+			// Lines break with tabs at the default stops; a piece that wraps
+			// may break elsewhere once its tabs sit at their own.
+			for _, l := range piece {
+				if l.TabsMoved && len(piece) > 1 {
+					if err := styles.colors.approximate(fmt.Errorf("%w: line breaks of text with tab stops measured at the default spacing", render.ErrUnsupported)); err != nil {
+						return nil, 0, err
+					}
+					break
 				}
 			}
 			lines = append(lines, piece...)
@@ -534,7 +617,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 // bottom and paints them. A frame that grows may hold text past its bottom.
 // Text past a fixed frame fails, and best effort draws it, as PowerPoint
 // shows it.
-func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, fonts *slideRenderFonts, colors *renderColors) ([]layout.Op, error) {
+func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom float64, anchor enum.TextAnchor, grows bool, cols renderColumns, fonts *slideRenderFonts, colors *renderColors) ([]layout.Op, error) {
 	overflow := func() error {
 		if err := colors.approximate(fmt.Errorf("%w: text exceeds frame", render.ErrUnsupported)); err != nil {
 			return err
@@ -542,6 +625,16 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		grows = true
 		return nil
 	}
+	// Text running into further columns starts at the top of each.
+	if cols.n > 1 && height > bottom-contentTop {
+		if anchor != enum.TextAnchorTop {
+			if err := colors.approximate(fmt.Errorf("%w: anchoring of text over several columns drawn top", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+		}
+		anchor = enum.TextAnchorTop
+	}
+	col := 0
 	// The text block spans its paragraphs' spacing and full line heights.
 	top := contentTop
 	switch anchor {
@@ -561,13 +654,23 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		covered := 0
 		for _, line := range b.lines {
+			// A line past the bottom of a column, other than its first,
+			// starts the next column.
+			if col < cols.n-1 && top+line.ascent+line.descent > bottom && top > contentTop {
+				col++
+				top = contentTop
+			}
 			// A line that draws nothing may hang below the frame unseen.
 			if top+line.ascent+line.descent > bottom && !grows && renderLineDraws(line) {
 				if err := overflow(); err != nil {
 					return nil, err
 				}
 			}
-			xp := left.Px()
+			if para.align == enum.TextAlignDistribute || (para.align == enum.TextAlignJustify && !line.last) {
+				line.Segments = renderJustify(line.Segments, width.Px(), para.align == enum.TextAlignDistribute)
+			}
+			shift := float64(col) * cols.step
+			xp := left.Px() + shift
 			if para.align == enum.TextAlignCenter {
 				xp += (width.Px() - line.Width.Px()) / 2
 			}
@@ -575,7 +678,7 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				xp += width.Px() - line.Width.Px()
 			}
 			if b.bullet != nil && covered == 0 {
-				bx, bxok := style.FromPx(b.bullet.x)
+				bx, bxok := style.FromPx(b.bullet.x + shift)
 				by, byok := style.FromPx(top + line.ascent)
 				if !bxok || !byok {
 					return nil, render.ErrLimit
@@ -616,6 +719,14 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 	return ops, nil
 }
 
+// renderColumns is a text body's columns: how many, and how far apart in
+// pixels each starts from the one before, negative running right to left.
+// Fewer than two is one column.
+type renderColumns struct {
+	n    int
+	step float64
+}
+
 // renderBlock is one laid-out paragraph awaiting vertical placement.
 type renderBlock struct {
 	bullet *renderBulletGlyph
@@ -634,11 +745,68 @@ type renderBlock struct {
 type renderLine struct {
 	core.RichLine
 	ascent, descent, height float64
+	// last marks a paragraph's last line, or a line ended by a break, which
+	// justified text leaves unstretched.
+	last bool
+}
+
+// renderTabStops resolves a paragraph's explicit tab stops from the start of
+// its lines. A stop's position is from the text box's left inset, as
+// PowerPoint's ruler shows it, and stops at or before the paragraph's left
+// margin, where its lines start, are passed over. A position given twice
+// keeps its first alignment.
+func renderTabStops(para renderParaStyle) ([]core.TabStop, error) {
+	if para.tabs == nil || len(para.tabs.Tab) == 0 {
+		return nil, nil
+	}
+	if len(para.tabs.Tab) > 32 {
+		// ST_TextTabStopList holds at most 32 stops.
+		return nil, fmt.Errorf("%w: tab stops", render.ErrInvalid)
+	}
+	stops := make([]core.TabStop, 0, len(para.tabs.Tab))
+	for _, tab := range para.tabs.Tab {
+		if tab == nil {
+			return nil, fmt.Errorf("%w: tab stop", render.ErrInvalid)
+		}
+		stop := core.TabStop{}
+		switch tab.Algn {
+		case "", "l":
+		case "r":
+			stop.Align = core.TabRight
+		case "ctr":
+			stop.Align = core.TabCenter
+		case "dec":
+			stop.Align = core.TabDecimal
+		default:
+			return nil, fmt.Errorf("%w: tab stop alignment", render.ErrInvalid)
+		}
+		pos := dml.EMU(0)
+		if tab.Pos != nil {
+			pos = dml.EMU(*tab.Pos)
+		}
+		if pos <= para.marL {
+			continue
+		}
+		stop.At = renderUnit(pos - para.marL)
+		stops = append(stops, stop)
+	}
+	sort.SliceStable(stops, func(i, j int) bool { return stops[i].At < stops[j].At })
+	out := stops[:0]
+	for _, stop := range stops {
+		if len(out) == 0 || out[len(out)-1].At != stop.At {
+			out = append(out, stop)
+		}
+	}
+	return out, nil
 }
 
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
 // empty span, whose face sizes its line.
 func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle) ([]renderLine, error) {
+	tabs, err := renderTabStops(para)
+	if err != nil {
+		return nil, err
+	}
 	spans := make([]core.Span, len(shapings))
 	for i, run := range shapings {
 		// ST_TextFontSize is 1 to 4000 points.
@@ -659,7 +827,7 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 			return nil, render.ErrLimit
 		}
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
-		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Letter: letter}
+		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter, BreakWord: true}
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
 	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)
@@ -810,6 +978,93 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil, err
 	}
 	return append(highlights, glyphOps...), nil
+}
+
+// renderJustify stretches a line to a width: justified text widens the
+// spaces between its words and distributed text the gaps between its
+// characters. Spaces ending the line hang past the width and are not
+// widened, nor is anything before the line's last tab, whose stop holds it.
+// A line without a gap to widen, or already as wide, is returned as it is.
+func renderJustify(segments []core.RichSegment, width float64, distribute bool) []core.RichSegment {
+	// visible is the byte offset in each segment where trailing spaces
+	// begin; first is the first segment after the last tab.
+	visible := make([]int, len(segments))
+	first, trailing := 0, true
+	for k := len(segments) - 1; k >= 0; k-- {
+		sg := segments[k]
+		if sg.Text == "\t" {
+			first = k + 1
+			if trailing {
+				// A line ending in a tab ends at its stop.
+				return segments
+			}
+			break
+		}
+		visible[k] = len(sg.Text)
+		if trailing {
+			visible[k] = len(strings.TrimRight(sg.Text, " "))
+			trailing = visible[k] == 0
+		}
+	}
+	// Each gap is the last glyph of a cluster, which takes the extra space.
+	type gap struct{ segment, glyph int }
+	var (
+		gaps []gap
+		end  float64
+	)
+	for k := first; k < len(segments); k++ {
+		sg := segments[k]
+		em := sg.Size.Px() / 1000
+		pen := sg.X.Px()
+		for i, g := range sg.Glyphs {
+			if g.Cluster < 0 || g.Cluster >= len(sg.Text) {
+				return segments
+			}
+			if g.Cluster >= visible[k] {
+				break
+			}
+			pen += g.XAdvance * em
+			end = pen
+			if i+1 < len(sg.Glyphs) && sg.Glyphs[i+1].Cluster == g.Cluster {
+				continue
+			}
+			if distribute || sg.Text[g.Cluster] == ' ' {
+				gaps = append(gaps, gap{k, i})
+			}
+		}
+	}
+	// Distributed text has no gap after its last visible character.
+	if distribute && len(gaps) > 0 {
+		gaps = gaps[:len(gaps)-1]
+	}
+	extra := width - end
+	if len(gaps) == 0 || !(extra > 0) || math.IsInf(extra, 0) {
+		return segments
+	}
+	each := extra / float64(len(gaps))
+	out := append([]core.RichSegment(nil), segments...)
+	copied := make([]bool, len(out))
+	added := make([]float64, len(out))
+	for _, g := range gaps {
+		sg := &out[g.segment]
+		if !copied[g.segment] {
+			sg.Glyphs = append([]shape.Glyph(nil), sg.Glyphs...)
+			copied[g.segment] = true
+		}
+		sg.Glyphs[g.glyph].XAdvance += each * 1000 / sg.Size.Px()
+		added[g.segment] += each
+	}
+	shift := 0.0
+	for k := range out {
+		x, okX := style.FromPx(out[k].X.Px() + shift)
+		w, okW := style.FromPx(out[k].Width.Px() + added[k])
+		if !okX || !okW {
+			return segments
+		}
+		out[k].X, out[k].Width = x, w
+		shift += added[k]
+	}
+	return out
 }
 
 func renderASCII(s string) bool {

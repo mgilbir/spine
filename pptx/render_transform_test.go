@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -69,5 +70,91 @@ func TestRenderFlippedPicture(t *testing.T) {
 	got := renderSlidePNG(t, data, opts, flip)
 	if px := renderPixel(t, got, 62, 45); px != (color.NRGBA{B: 255, A: 255}) {
 		t.Fatalf("flipped picture left: %+v", px)
+	}
+}
+
+func TestRenderTurnedText(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	turn := func(old, new string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			i := strings.Index(s, "<p:sp>")
+			if i < 0 || !strings.Contains(s[i:], old) {
+				t.Fatalf("no %s in %s", old, s)
+			}
+			return s[:i] + strings.Replace(s[i:], old, new, 1)
+		}}
+	}
+	// The shape spans (4,4) to (52,52). Its first line, "AA ", inks x 4 to
+	// 36 and y 4 to 16.8; turned a quarter about (28,28), x 39.2 to 52 and
+	// y 4 to 36.
+	quarter := map[[2]int]color.NRGBA{{10, 10}: white, {45, 10}: black, {45, 30}: black, {30, 45}: white}
+	// Turned a half, by a rotation or by a vertical flip, the line inks
+	// x 20 to 52 and y 39.2 to 52, upside down.
+	half := map[[2]int]color.NRGBA{{10, 10}: white, {30, 45}: black, {48, 48}: black, {10, 45}: white}
+	for _, tc := range []struct {
+		name, old, new string
+		want           map[[2]int]color.NRGBA
+	}{
+		{"rotated shape", `<a:xfrm>`, `<a:xfrm rot="5400000">`, quarter},
+		{"flipped shape", `<a:xfrm>`, `<a:xfrm flipV="1">`, half},
+		{"rotated body", `<a:bodyPr`, `<a:bodyPr rot="10800000"`, half},
+		{"turned back", `<a:xfrm>`, `<a:xfrm rot="10800000" flipV="1">`, map[[2]int]color.NRGBA{{10, 10}: black, {45, 45}: white}},
+		// Vertical text turns its lines a quarter in the square shape.
+		{"vertical", `<a:bodyPr`, `<a:bodyPr vert="vert"`, quarter},
+		{"East Asian vertical", `<a:bodyPr`, `<a:bodyPr vert="eaVert"`, quarter},
+		// Turned the other way, the first line runs up the left side.
+		{"vertical 270", `<a:bodyPr`, `<a:bodyPr vert="vert270"`, map[[2]int]color.NRGBA{{10, 45}: black, {10, 25}: black, {45, 10}: white, {10, 10}: white}},
+		// Upright text ignores its shape's turn.
+		{"upright", `<a:xfrm>`, `<a:xfrm rot="5400000">`, nil},
+	} {
+		var warnings []string
+		opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		rewrite := turn(tc.old, tc.new)
+		if tc.name == "upright" {
+			body := turn(`<a:bodyPr`, `<a:bodyPr upright="1"`)["ppt/slides/slide1.xml"]
+			xfrm := rewrite["ppt/slides/slide1.xml"]
+			rewrite = map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string { return body(xfrm(s)) }}
+			tc.want = map[[2]int]color.NRGBA{{10, 10}: black, {45, 10}: white}
+		}
+		got := renderSlidePNG(t, data, opts, rewrite)
+		if len(warnings) != 0 {
+			t.Fatalf("%s: %q", tc.name, warnings)
+		}
+		for at, want := range tc.want {
+			if px := renderPixel(t, got, at[0], at[1]); px != want {
+				t.Fatalf("%s at %v: %+v, want %+v", tc.name, at, px, want)
+			}
+		}
+	}
+}
+
+func TestRenderVerticalTextSwapsItsBox(t *testing.T) {
+	p, _, _, opts := renderTextSlide(t)
+	data, err := p.SaveBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The shape is 48 by 24px at (4,4), holding "A". Set vertically, the
+	// line runs down a 24px wide, 48px tall box about the shape's centre
+	// (28,16), whose top edge is the shape's right side: the A, 16px wide
+	// and 12.8px tall, inks x 39.2 to 52 and y 4 to 20.
+	got := renderSlidePNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+		i := strings.Index(s, "<p:sp>")
+		rest := s[i:]
+		rest = regexp.MustCompile(`<a:ext cx="\d+" cy="\d+"/>`).ReplaceAllLiteralString(rest, `<a:ext cx="457200" cy="228600"/>`)
+		rest = strings.Replace(rest, "AA AA", "A", 1)
+		rest = strings.Replace(rest, `<a:bodyPr`, `<a:bodyPr vert="vert"`, 1)
+		return s[:i] + rest
+	}})
+	black, white := color.NRGBA{A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	for at, want := range map[[2]int]color.NRGBA{{45, 10}: black, {45, 18}: black, {10, 10}: white, {45, 24}: white} {
+		if px := renderPixel(t, got, at[0], at[1]); px != want {
+			t.Fatalf("at %v: %+v, want %+v", at, px, want)
+		}
 	}
 }

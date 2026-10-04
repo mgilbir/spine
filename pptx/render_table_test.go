@@ -183,3 +183,62 @@ func TestRenderBoundsHostileTableGeometry(t *testing.T) {
 		t.Fatalf("overflowing width: %v", err)
 	}
 }
+
+func TestRenderInheritedAndGroupedTables(t *testing.T) {
+	data, opts := renderTableDeck(t, nil)
+	frame := regexp.MustCompile(`(?s)<p:graphicFrame>.*</p:graphicFrame>`)
+	var table string
+	slide := func(f func(rest string) string) func(string) string {
+		return func(s string) string {
+			table = frame.FindString(s)
+			if table == "" {
+				t.Fatalf("no table in %s", s)
+			}
+			return f(frame.ReplaceAllLiteralString(s, ""))
+		}
+	}
+	red, white := color.NRGBA{R: 255, A: 255}, color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	// group wraps the table in a group moved 40px right, whose child space
+	// is scale times its extent.
+	group := func(scale int) string {
+		ext := `<a:ext cx="3000000" cy="2000000"/>`
+		ch := `<a:chExt cx="` + []string{"", "3000000", "6000000"}[scale] + `" cy="` + []string{"", "2000000", "4000000"}[scale] + `"/>`
+		return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="381000" y="0"/>` + ext + `<a:chOff x="0" y="0"/>` + ch + `</a:xfrm></p:grpSpPr>` + table + `</p:grpSp>`
+	}
+	for _, tc := range []struct {
+		name     string
+		rewrites map[string]func(string) string
+		at       [2]int
+		warning  string
+	}{
+		{"master", map[string]func(string) string{
+			"ppt/slides/slide1.xml": slide(func(s string) string { return s }),
+			renderMasterPart:        func(s string) string { return renderAddToTree(table)(s) },
+		}, [2]int{50, 30}, ""},
+		{"group", map[string]func(string) string{
+			"ppt/slides/slide1.xml": slide(func(s string) string { return renderAddToTree(group(1))(s) }),
+		}, [2]int{90, 30}, ""},
+		{"scaled group", map[string]func(string) string{
+			"ppt/slides/slide1.xml": slide(func(s string) string { return renderAddToTree(group(2))(s) }),
+		}, [2]int{50, 20}, "table in a scaled group drawn at its own size"},
+	} {
+		var warnings []string
+		o := opts
+		o.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+		// The slide is rewritten first, so the master sees the table.
+		data := renderApply(t, data, map[string]func(string) string{"ppt/slides/slide1.xml": tc.rewrites["ppt/slides/slide1.xml"]})
+		delete(tc.rewrites, "ppt/slides/slide1.xml")
+		got := renderSlidePNG(t, data, o, tc.rewrites)
+		if (tc.warning == "" && len(warnings) != 0) || (tc.warning != "" && (len(warnings) != 1 || !strings.Contains(warnings[0], tc.warning))) {
+			t.Fatalf("%s warnings: %q", tc.name, warnings)
+		}
+		if px := renderPixel(t, got, tc.at[0], tc.at[1]); px != red {
+			t.Fatalf("%s at %v: %+v", tc.name, tc.at, px)
+		}
+		if tc.name != "master" {
+			if px := renderPixel(t, got, 15, 30); px != white {
+				t.Fatalf("%s left of the group: %+v", tc.name, px)
+			}
+		}
+	}
+}

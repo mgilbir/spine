@@ -148,3 +148,25 @@ func FuzzRasterImage(f *testing.F) {
 		}
 	})
 }
+
+func TestImageSnapshotCopiesNRGBARows(t *testing.T) {
+	// A sub-image's rows copy from its own origin, translucent pixels as
+	// they are.
+	src := image.NewNRGBA(image.Rect(0, 0, 4, 3))
+	for i := range src.Pix {
+		src.Pix[i] = uint8(i * 5)
+	}
+	sub := src.SubImage(image.Rect(1, 1, 3, 3)).(*image.NRGBA)
+	p, err := Prepare(context.Background(), dml.Pixels(2), dml.Pixels(2), []layout.Op{layout.DrawImage{Rect: layout.Rect{W: unit(2), H: unit(2)}, Image: sub}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.draws[0].image.pixels
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			if got.NRGBAAt(x, y) != sub.NRGBAAt(x+1, y+1) {
+				t.Fatalf("%d,%d: %+v, want %+v", x, y, got.NRGBAAt(x, y), sub.NRGBAAt(x+1, y+1))
+			}
+		}
+	}
+}

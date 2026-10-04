@@ -86,7 +86,7 @@ with a blur approximated by nine copies spread over the blur radius whose
 opacities compound to the shadow's, and scaling and skewing left out; other
 effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
 are left out;
-text wider than its box, such as an overlong word, runs past it; and
+text wider than its box, such as a single character, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
 still fail.
@@ -96,8 +96,16 @@ an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a
 theme background reference (`p:bgRef`) whose theme entry is one of those.
+Pattern fills (`a:pattFill`) on shapes and backgrounds fail, since the
+standard pictures its preset patterns without giving their pixels. Best
+effort draws each from its description, 8 by 8 CSS pixels tiled from the
+box's corner in its foreground over its background (black over white when
+absent): a percentage as an ordered dither of that density, and lines,
+grids, checks and figures as their names say. Best effort reports problems
+with a background as the background's, and draws a background it cannot
+draw white.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
-and ellipses may have a solid or gradient fill or none, and a solid outline or none. A shape's
+and ellipses may have a solid, gradient or picture fill or none, and a solid outline or none. A shape's
 style reference (`p:style`) supplies what it does not set itself: `fillRef`
 selects a theme fill or background fill style, which must be solid, gradient or none, in
 the reference's color; `lnRef` a theme line style beneath the shape's own
@@ -128,12 +136,31 @@ flips mirror its pixels and quarter turns rotate them, turning its box about
 its centre; best effort draws other rotations unrotated, and leaves out
 picture effects. A picture's solid outline runs around its box. An SVG picture
 draws its raster fallback, as Office versions without SVG support show it. A
-fixed alpha modulation (`alphaModFix`) fades a picture; best effort leaves its
-other color effects out. A picture is downscaled, by averaging, to at most
+picture's color effects, and a picture fill's, apply in document order to
+its pixels: grayscale (`grayscl`) and bi-level by Rec. 601 luminance;
+`duotone` between its two colors by that luminance; color replacement
+(`clrRepl`) and change (`clrChange`, exact matches, with `useA`); `hsl`
+shifts; the alpha effects (`alphaModFix`, `alphaRepl`, `alphaBiLevel`,
+`alphaCeiling`, `alphaFloor`, `alphaInv`); and solid fill overlays in their
+blend mode. Brightness and contrast (`lum`), which the standard does not
+define, follow LibreOffice; tint and gradient overlays are approximated; blur
+and alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
+effort reports them. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture
-background (`a:blipFill` in `p:bgPr`) is stretched over the slide and cropped
-by its source rectangle; best effort stretches a tiled one. Hidden shapes
+background (`a:blipFill` in `p:bgPr`) is stretched over the slide or tiled,
+and cropped by its source rectangle. A shape's picture
+fill (`a:blipFill` in `p:spPr`) is stretched over its box, inset by its fill
+rectangle (`a:fillRect`), or tiled over it, cropped by its source rectangle
+and clipped to the shape; it flips and turns with the shape, and its fixed
+color effects apply as a picture's. A tile is the picture's natural size, at the
+fill's `dpi`, the file's resolution (PNG `pHYs`, JPEG JFIF density) or 96
+DPI, scaled by `sx`/`sy`; the first tile sits at its alignment in the box,
+moved by `tx`/`ty`, and the rest repeat from it, every other one mirrored on
+each axis `flip` names. Tiles are composed into one image of the picture's
+density, up to four pixels per CSS pixel and four million pixels in all.
+Best effort stretches a picture fill with neither fill mode, draws a
+negative source inset as none. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
 Other preset geometries draw from the standard's definitions
@@ -154,8 +181,13 @@ each segment. The `a:rect` guides give the text rectangle.
 
 Rotation and flips turn and mirror a shape about its box's centre; arcs are
 then flattened in 5° steps. A gradient keeps its direction under rotation,
-which best effort reports. Text of a rotated or vertically flipped shape
-fails, and best effort draws it upright. Geometry is quantized to Forme's fixed-point
+which best effort reports. Text lays out in the unturned shape and turns
+with its rotation, and over with a vertical flip, but is never mirrored; a
+body's own `rot` turns it further. Turned glyphs are drawn as their outlines,
+flattened to a sixteenth of a pixel at 384 DPI, so each costs path segments
+(around 60 at body sizes) against `MaxPathSegments`. Outlines are filled
+even-odd; a glyph whose contours overlap, which the font fills nonzero, is
+reported and drawn even-odd. Geometry is quantized to Forme's fixed-point
 units during the EMU-to-CSS conversion.
 
 Fill and background colors may be RGB, system colors (their recorded `lastClr`),
@@ -186,7 +218,8 @@ Alternate content (`mc:AlternateContent`) in a slide's shape tree draws its
 fallback where it stands among the shapes, as a reader without the choices'
 extensions shows it; the source check skips the choices and checks the
 fallback as if its shapes stood in the shape tree. Alternate content on
-layouts and masters, and at the slide root, is not drawn. Charts, SmartArt,
+layouts and masters draws its fallback the same way, its placeholders
+prompts; at the slide root it is not drawn. Charts, SmartArt,
 effects, animation and raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
@@ -195,8 +228,9 @@ layouts are prompts and are never drawn. A slide with `showMasterSp="0"` hides
 its layout's and master's shapes, and a layout with it hides its master's;
 hidden layers still supply backgrounds. Their shapes are checked against the
 source profile only when drawn, so unsupported content in a placeholder or a
-hidden layer does not fail the slide. Inherited groups, tables and connectors
-fail when drawn. Original
+hidden layer does not fail the slide. Inherited groups, connectors, tables
+and charts are drawn as the slide's are; an inherited chart names its part
+through its layout's or master's relationships. Original
 slide, layout and master XML is checked for unsupported content before a lossy
 model projection can hide it. Metadata that cannot change painted output is
 accepted: shape and slide creation ids, the decorative accessibility flag,
@@ -229,9 +263,20 @@ attributes take their DrawingML defaults: top anchoring, square wrapping, and
 0.1"/0.05" left-right/top-bottom insets. Top, middle and bottom anchoring place
 the text block, whose height spans its paragraphs' spacing and full line
 heights. Without wrapping (`wrap="none"`) each line keeps its natural
-width, aligned in the box as wrapped text is. Justified and distributed
-anchoring, and vertical, rotated, clipped or multi-column text fail; best
-effort draws them top anchored, horizontal, whole and in one column, and
+width, aligned in the box as wrapped text is. Vertical text (`vert`,
+`eaVert`, whose Latin characters turn as `vert`'s do, and `vert270`) lays out
+across its text rectangle turned a quarter about its centre, the insets
+turning with their sides, and turns back with it: `vert` clockwise, its first
+line along the right side, and `vert270` anticlockwise. Best effort draws
+`mongolianVert` and the WordArt vertical types as `vert`. Upright text
+(`upright`) does not turn with its shape or body rotation. Text in columns
+(`numCol`, at most 16) lays out at the column width, the content width less
+the spaces between (`spcCol`) shared evenly, and fills each column down to
+the bottom before the next, left to right or, with `rtlCol`, right to left;
+text that fits one column keeps its anchoring, and text over several is
+anchored at the top, which best effort reports. Columns wider than their
+box fail, and best effort draws one. Justified and distributed anchoring,
+and clipped text fail; best effort draws them top anchored and whole, and
 ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn. Normal autofit's stored `fontScale` scales
@@ -270,15 +315,21 @@ master's theme and colors through the slide's color map. Inherited styles are
 checked for unsupported content only when a slide has text; the presentation
 default text style counts toward the source budget.
 
-The resolved paragraph must be left, centered or right aligned with percentage
-line spacing, point-based space before and after (none before the first
-paragraph, whose treatment depends on undocumented `spcFirstLastPara`
-behavior). Best effort draws justified and distributed paragraphs left
-aligned; an exact line height (`spcPts`) with the line's glyphs keeping their
+The resolved paragraph must be left, centered, right, justified or
+distributed with percentage line spacing, point-based space before and after
+(none before the first paragraph, whose treatment depends on undocumented
+`spcFirstLastPara` behavior). Justified lines widen their spaces to fill the
+line, except a paragraph's last line and lines ended by a break, as
+LibreOffice draws them; distributed lines, the last included, widen every
+gap between characters. Spaces ending a line hang and are not widened, and a
+tab stop holds what comes before it, so only spaces after a line's last tab
+widen. The kashida and Thai variants draw as these, from which they differ
+only in scripts this profile does not draw. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word
-breaking. A first-line indent needs a character bullet, which hangs in it: the
+breaking. A word too wide for its line breaks between characters, as a last
+resort, as PowerPoint breaks it. A first-line indent needs a character bullet, which hangs in it: the
 bullet is drawn at the margin plus the (negative) indent on the first baseline
 and every line's text starts at the margin, so the indent must hold the
 bullet; a bullet past it would push the text to a tab stop this profile does
@@ -318,9 +369,16 @@ LibreOffice's import does. A line break (`a:br`) starts a new line; an empty
 line takes its box from the break's properties, or after a trailing break
 from the end-of-paragraph properties. A field (`a:fld`) is drawn with the text
 it was saved with, which a viewer may update, such as a date. A tab advances
-to the next default tab stop (`defTabSz`, inherited, 1" by default), measured
-from the start of the line; explicit stops (`a:tabLst`) fail, and best effort
-places tabs at the default spacing. Rich styles, bidi,
+to the next explicit stop (`a:tabLst`, inherited as a whole) past it, and
+past those to the next default tab stop (`defTabSz`, inherited, 1" by
+default), measured from the start of the line. Explicit stops are positioned
+from the text box's inset edge, so stops at or before the paragraph's left
+margin are passed over; the text after a tab, up to the next tab or the
+line's end, starts, ends or centres at its stop, or puts its first full stop
+there (decimal, which without one ends the text there). Text that would
+start before its tab leaves the tab no advance. Lines break with every tab
+measured to the default stops: a paragraph that wraps after explicit stops
+moved a tab fails, and best effort keeps those breaks. Rich styles, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML
@@ -350,10 +408,18 @@ row to hold its text.
 Groups draw their shapes and pictures with geometry mapped from the group's
 child space to its frame; text sizes and line widths do not scale, as
 PowerPoint draws them. A rotated or flipped group turns and mirrors its
-shapes about its centre; best effort moves its text and pictures with it,
+shapes about its centre, and turns their text with it. Pictures flip and
+turn by quarters about their own centres, by their pixels. Best effort moves
+pictures turned by other angles, and the text of a flipped group, with it,
 upright and unturned. A group's fill paints nothing itself; shapes inside
 whose fill is their group's (`a:grpFill`) take the nearest group fill. Best
-effort leaves group effects out. Placeholders and tables inside groups fail; groups are drawn only
+effort leaves group effects out. Tables and charts inside groups are drawn
+with their frames mapped; a chart scales with its group, and a table keeps its
+own column widths and row heights, which best effort reports when the group
+scales. A slide's placeholder inside a group draws with its layout's
+inheritance at its own geometry, mapped into the group; one without its own
+geometry fails. Grouped placeholders on layouts and masters are prompts and
+are not drawn. Groups are drawn only
 from their parsed form without pending edits.
 
 Straight connectors (`straightConnector1` or `line`) draw their stored
@@ -384,6 +450,35 @@ layout profile, not a claim of identical PowerPoint line placement. DrawingML
 [percentage line spacing](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.linespacing)
 scales with text size; fixed-point line spacing and percentage before/after
 paragraph spacing are not supported by this adapter.
+
+### Charts
+
+A chart frame (`c:chart` in a graphic frame) is drawn when
+`render.Options.Charts` supplies a chart renderer, and otherwise fails, or is
+left out with a warning. The chart part is read from its cached values and
+written as a [Vega](https://vega.github.io/vega/) specification the size of
+the frame in CSS pixels; the renderer returns an image of it at two pixels
+per CSS pixel, which is stretched over the frame under the slide's image
+budget. The specification carries the chart's values, labels and colors as
+data, and no expressions from the document.
+
+Column and bar charts (clustered, stacked and percent stacked, with their gap
+width and overlap), line charts (with or without markers), area charts
+(standard and stacked), pie and doughnut charts (first slice angle, hole size,
+varied colors) and scatter charts are drawn. Series and point colors resolve
+through the slide's theme like shapes': a series' own fill or line, or else
+the theme's accents in turn, then darker and lighter rounds of them. Axes
+follow `delete`, `tickLblPos`, `majorGridlines`, `scaling` minimum, maximum and
+orientation, `crossBetween` and common number formats (`General`, `0`,
+`0.0`, `0.00`, `#,##0` and their decimals, and percentages); titles,
+automatic titles, legends and their positions, and shown values are drawn,
+with the chart space's text size and color. Value axes step about every 60
+pixels. Best effort draws 3-D charts flat, a combination chart as one of its
+types, a secondary or date axis as the primary one, other number formats as
+General, smoothed lines straight and dashed lines solid, and leaves out
+trendlines, error bars and legend entry formatting. Bubble, radar, stock,
+surface and pie-of-pie charts, and turned chart frames, fail. Charts allow at
+most 256 series of 4096 points.
 
 ## Sheet range profile
 
@@ -509,3 +604,23 @@ error, skips it, renders the rest, and then exits with an error naming the
 skipped pages. A cancelled or timed-out run still stops, and write failures are
 never skipped. DOCX lays out one document for every page, so its failures
 repeat across pages and stop the run as before.
+
+## Measuring fidelity
+
+`tools/fidelity` compares spine's slide renders with a reference render of the
+same deck, such as PowerPoint's PNG export (File > Export, as PNG, every
+slide) or LibreOffice's. Render at the reference's size, or let the tool
+resample, then compare:
+
+```sh
+./spine-render -input deck.pptx -out ours -font 'Calibri=fonts/Calibri.ttf'
+go run ./tools/fidelity -ours ours -ref reference -out report
+```
+
+Files pair by the last number in their names (`slide-0001.png` with
+`Slide1.png`). Each slide gets its structural similarity (SSIM of luma over
+8 by 8 windows; 1 is identical), mean absolute channel difference, the share
+of pixels differing by more than `-threshold` (32 by default), and a diff
+image of the faded reference with those pixels red. `report.md` and
+`report.json` collect them. Fonts matter most: map the deck's fonts to the
+files the reference used, or differences in text dominate.

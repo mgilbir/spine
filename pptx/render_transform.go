@@ -1,11 +1,13 @@
 package pptx
 
 import (
+	"context"
 	"fmt"
 	"math"
 
 	"github.com/mgilbir/forme/layout"
 	"github.com/mgilbir/forme/style"
+	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -84,6 +86,30 @@ func (t renderShapeTransform) path(p layout.Path, maxSegments int, segments *int
 		out[0].Op = layout.MoveTo
 	}
 	return out, bounds, nil
+}
+
+// glyphs turns a glyph run as its outlines, one path per glyph. Outlines
+// whose contours the even-odd rule fills differently from the font's nonzero
+// rule are drawn approximately.
+func (t renderShapeTransform) glyphs(v layout.DrawGlyphs, colors *renderColors, maxSegments int, segments *int) ([]layout.Op, error) {
+	ctx := colors.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	paths, exact, err := core.GlyphPaths(ctx, v, t.point, maxSegments, segments)
+	if err != nil {
+		return nil, err
+	}
+	if !exact {
+		if err := colors.approximate(fmt.Errorf("%w: turned glyphs with overlapping contours filled even-odd", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]layout.Op, len(paths))
+	for i, p := range paths {
+		out[i] = layout.FillPath{Path: p, Color: v.Color}
+	}
+	return out, nil
 }
 
 // renderOnlyGradient returns a clip's sole operation when it is a gradient.
@@ -191,7 +217,17 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			}
 			out = append(out, layout.ClipPath{Path: path, Ops: inner})
 		case layout.DrawGlyphs:
-			// Text moves with the shape but stays upright and unmirrored.
+			if !t.flipH && !t.flipV {
+				// A turn without flips draws the glyphs' outlines turned.
+				turned, err := t.glyphs(v, colors, maxSegments, &segments)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, turned...)
+				continue
+			}
+			// Text moves with a flipped group but stays upright and
+			// unmirrored.
 			if err := colors.approximate(fmt.Errorf("%w: text of a turned group drawn upright", render.ErrUnsupported)); err != nil {
 				return nil, err
 			}
@@ -204,18 +240,28 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			v.At = layout.Point{X: px, Y: py}
 			out = append(out, v)
 		case layout.DrawImage:
-			// A picture moves its centre with the shape, unturned; a quarter
-			// turn swaps its box's sides.
-			if err := colors.approximate(fmt.Errorf("%w: picture of a turned group drawn unturned", render.ErrUnsupported)); err != nil {
-				return nil, err
-			}
 			if v.Clip.Active {
 				return nil, fmt.Errorf("%w: clipped picture in a turned group", render.ErrUnsupported)
 			}
+			// A picture turns about its own centre, which moves with the
+			// shape: flips and quarter turns exactly, by its pixels. Other
+			// angles move it unturned, approximately; a turn nearer a quarter
+			// swaps its box's sides.
 			cx, cy := t.point(v.Rect.X.Px()+v.Rect.W.Px()/2, v.Rect.Y.Px()+v.Rect.H.Px()/2)
 			w, h := v.Rect.W.Px(), v.Rect.H.Px()
-			if q := math.Mod(math.Abs(t.rot), 180); q > 45 && q < 135 {
-				w, h = h, w
+			if quarter := math.Mod(t.rot, 90) == 0; quarter {
+				img, rect, err := renderOrientImage(v.Image, v.Rect, t.flipH, t.flipV, int32(math.Mod(t.rot, 360))*60000, colors)
+				if err != nil {
+					return nil, err
+				}
+				v.Image, w, h = img, rect.W.Px(), rect.H.Px()
+			} else {
+				if err := colors.approximate(fmt.Errorf("%w: picture turned other than by quarters drawn unturned", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+				if q := math.Mod(math.Abs(t.rot), 180); q > 45 && q < 135 {
+					w, h = h, w
+				}
 			}
 			x, okX := style.FromPx(cx - w/2)
 			y, okY := style.FromPx(cy - h/2)

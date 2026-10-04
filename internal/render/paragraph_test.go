@@ -295,3 +295,38 @@ func TestRichLinesTabs(t *testing.T) {
 		t.Fatalf("tab stops: %v %v %v", sg[1].Text, sg[2].X, sg[4].X)
 	}
 }
+
+func TestRichLinesBreakWords(t *testing.T) {
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A word across two spans, too long for any line, breaks between
+	// characters; each segment knows where its text starts in its span.
+	spans := []Span{{Face: noto, Size: unit(16), Text: "xx abcd", BreakWord: true}, {Face: noto, Size: unit(16), Text: "efghijklmn", BreakWord: true}}
+	layout, _ := NewTextLayout(Limits{})
+	lines, err := layout.RichLines(context.Background(), spans, unit(40), RepertoireEuropean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var joined string
+	for i, line := range lines {
+		if line.Overflow || line.Width > unit(40) {
+			t.Fatalf("line %d overflows: %+v", i, line)
+		}
+		for _, sg := range line.Segments {
+			if spans[sg.Span].Text[sg.Offset:sg.Offset+len(sg.Text)] != sg.Text || len(sg.Glyphs) == 0 {
+				t.Fatalf("line %d segment %+v", i, sg)
+			}
+			joined += sg.Text
+		}
+	}
+	if len(lines) < 4 || joined != "xx abcdefghijklmn" || lines[0].Segments[0].Text != "xx " {
+		t.Fatalf("%d lines, text %q", len(lines), joined)
+	}
+	// Without it the word overflows, which only overflowing layouts allow.
+	spans[0].BreakWord, spans[1].BreakWord = false, false
+	if _, err := layout.RichLines(context.Background(), spans, unit(40), RepertoireEuropean); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unbroken word: %v", err)
+	}
+}

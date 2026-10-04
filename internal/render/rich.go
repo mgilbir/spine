@@ -25,7 +25,36 @@ type Span struct {
 	// from the start of the line: a tab advances to the next. Without it a
 	// tab is unsupported.
 	TabStop style.Unit
+	// BreakWord lets a word too wide for a line break between characters,
+	// as a last resort, rather than overflow.
+	BreakWord bool
+	// Tabs are explicit stops, from the start of the line and ascending,
+	// which a tab in this span takes before the evenly spaced ones past
+	// them. Lines break with every tab measured to the evenly spaced stops.
+	Tabs []TabStop
 }
+
+// TabStop is an explicit tab stop.
+type TabStop struct {
+	At    style.Unit
+	Align TabAlign
+}
+
+// TabAlign is how the text after a tab, up to the next tab or the line's
+// end, sits at its stop.
+type TabAlign int
+
+const (
+	// TabLeft starts the text at the stop.
+	TabLeft TabAlign = iota
+	// TabRight ends the text at the stop.
+	TabRight
+	// TabCenter centres the text on the stop.
+	TabCenter
+	// TabDecimal puts the text's first full stop at the stop, or ends the
+	// text there when it has none.
+	TabDecimal
+)
 
 // RichSegment is the part of one span on one line, shaped on its own.
 type RichSegment struct {
@@ -49,6 +78,9 @@ type RichLine struct {
 	// Overflow marks a line wider than the wrapping width, which only a
 	// layout allowing overflow returns.
 	Overflow bool
+	// TabsMoved marks a line where an explicit stop moved a tab from where
+	// line breaking measured it.
+	TabsMoved bool
 }
 
 // RichLines wraps a horizontal left-to-right paragraph whose spans may differ
@@ -70,6 +102,11 @@ func (t *TextLayout) RichLines(ctx context.Context, spans []Span, width style.Un
 	for _, s := range spans {
 		if s.Size <= 0 || !utf8.ValidString(s.Text) {
 			return nil, fmt.Errorf("%w: paragraph input", ErrInvalid)
+		}
+		for i, stop := range s.Tabs {
+			if stop.Align < TabLeft || stop.Align > TabDecimal || (i > 0 && stop.At <= s.Tabs[i-1].At) {
+				return nil, fmt.Errorf("%w: tab stops", ErrInvalid)
+			}
 		}
 		if len(s.Text) > l.MaxRunBytes-total {
 			return nil, fmt.Errorf("%w: paragraph text", ErrLimit)
@@ -203,7 +240,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				at += len(part)
 				continue
 			}
-			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
+			items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, part, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset, Space: piece.Space, BreakWord: s.BreakWord, MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
 			where = append(where, richItem{span: span, offset: from})
 			at += len(part)
 		}
@@ -224,16 +261,29 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if !paragraph.CursorAdvanced(index, offset, next, nextByte) || len(floats) != 0 || forced || hyphenated {
 			return fmt.Errorf("%w: paragraph breaking", ErrUnsupported)
 		}
-		// Without forced or hyphenated breaks a line starts and ends on item
-		// boundaries, so line items match paragraph items one for one; parts
-		// of one span shape as one segment.
-		if offset != 0 || nextByte != 0 || next != index+len(line) {
+		// Without forced or hyphenated breaks line items match paragraph
+		// items one for one, except that a word broken between characters
+		// ends one line inside its item, at nextByte, and starts the next at
+		// offset. Parts of one span shape as one segment.
+		end := next
+		if nextByte != 0 {
+			end++
+		}
+		if end-index != len(line) {
 			return fmt.Errorf("%w: paragraph line mapping", ErrUnsupported)
 		}
 		var segments []RichSegment
 		for k, item := range line {
-			w := where[index+k]
-			if item.Text != items[index+k].Text {
+			i := index + k
+			w := where[i]
+			from, to := 0, len(items[i].Text)
+			if k == 0 {
+				from = offset
+			}
+			if i == next && nextByte != 0 {
+				to = nextByte
+			}
+			if from > to || to > len(items[i].Text) || item.Text != items[i].Text[from:to] {
 				return fmt.Errorf("%w: paragraph line mapping", ErrUnsupported)
 			}
 			// A tab is a segment of its own, which draws nothing.
@@ -241,20 +291,15 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				segments[n-1].Text += item.Text
 				continue
 			}
-			segments = append(segments, RichSegment{Span: w.span, Offset: w.offset, Text: item.Text})
+			segments = append(segments, RichSegment{Span: w.span, Offset: w.offset + from, Text: item.Text})
 		}
-		pen := 0.0
+		// Text segments are shaped first: a tab aligned at its stop needs
+		// the width of the text after it.
 		for k := range segments {
 			sg := &segments[k]
 			s := spans[sg.Span]
+			sg.Face, sg.Size = faces[faceOf[sg.Span]], s.Size
 			if sg.Text == "\t" {
-				at, ok := style.FromPx(pen)
-				if !ok {
-					return fmt.Errorf("%w: paragraph advance", ErrInvalid)
-				}
-				w := paragraph.TabAdvance(at, s.TabStop, 0)
-				sg.Face, sg.Size, sg.X, sg.Width = faces[faceOf[sg.Span]], s.Size, at, w
-				pen += w.Px()
 				continue
 			}
 			glyphs, missing := measures[faceOf[sg.Span]].ShapeGlyphsMerged(sg.Text, "", "", "", "", false, s.Features)
@@ -281,13 +326,30 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				advance += glyph.XAdvance
 			}
 			pixels := advance * s.Size.Px() / 1000
-			x, okX := style.FromPx(pen)
 			w, okW := style.FromPx(pixels)
-			if !okX || !okW || math.IsNaN(pixels) || math.IsInf(pixels, 0) || pixels < 0 {
+			if !okW || math.IsNaN(pixels) || math.IsInf(pixels, 0) || pixels < 0 {
 				return fmt.Errorf("%w: paragraph advance", ErrInvalid)
 			}
-			sg.Glyphs, sg.Face, sg.Size, sg.X, sg.Width = glyphs, faces[faceOf[sg.Span]], s.Size, x, w
-			pen += pixels
+			sg.Glyphs, sg.Width = glyphs, w
+		}
+		pen, moved := 0.0, false
+		for k := range segments {
+			sg := &segments[k]
+			at, ok := style.FromPx(pen)
+			if !ok {
+				return fmt.Errorf("%w: paragraph advance", ErrInvalid)
+			}
+			sg.X = at
+			if sg.Text == "\t" {
+				s := spans[sg.Span]
+				even := paragraph.TabAdvance(at, s.TabStop, 0)
+				w := tabAdvance(segments[k+1:], s.Tabs, pen, even.Px())
+				if sg.Width, ok = style.FromPx(w); !ok {
+					return fmt.Errorf("%w: paragraph advance", ErrInvalid)
+				}
+				moved = moved || sg.Width != even
+			}
+			pen += sg.Width.Px()
 		}
 		actual, ok := style.FromPx(pen)
 		if !ok {
@@ -296,8 +358,54 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if actual > width && !t.overflow {
 			return fmt.Errorf("%w: paragraph overflow", ErrUnsupported)
 		}
-		*result = append(*result, RichLine{Segments: segments, Width: actual, Overflow: actual > width})
+		*result = append(*result, RichLine{Segments: segments, Width: actual, Overflow: actual > width, TabsMoved: moved})
 		index, offset = next, nextByte
 	}
 	return nil
+}
+
+// tabAdvance is how far a tab at pen advances, in pixels: to the first
+// explicit stop past pen, with the text after the tab aligned there, or
+// else even, the distance to the next evenly spaced stop. Aligned text that
+// would start before the tab leaves it no advance.
+func tabAdvance(after []RichSegment, stops []TabStop, pen, even float64) float64 {
+	var stop *TabStop
+	for i := range stops {
+		if stops[i].At.Px() > pen {
+			stop = &stops[i]
+			break
+		}
+	}
+	if stop == nil {
+		return even
+	}
+	// lead is how much of the text after the tab comes before the point
+	// aligned at the stop.
+	lead, whole := 0.0, 0.0
+	point := false
+	for _, sg := range after {
+		if sg.Text == "\t" {
+			break
+		}
+		em := sg.Size.Px() / 1000
+		for _, g := range sg.Glyphs {
+			if !point && g.Cluster >= 0 && g.Cluster < len(sg.Text) && sg.Text[g.Cluster] == '.' {
+				lead, point = whole, true
+			}
+			whole += g.XAdvance * em
+		}
+	}
+	switch stop.Align {
+	case TabRight:
+		lead = whole
+	case TabCenter:
+		lead = whole / 2
+	case TabDecimal:
+		if !point {
+			lead = whole
+		}
+	default:
+		lead = 0
+	}
+	return math.Max(0, stop.At.Px()-lead-pen)
 }
