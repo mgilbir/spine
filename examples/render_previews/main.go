@@ -14,6 +14,7 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/docx"
+	"github.com/mgilbir/spine/docx/docxrender"
 	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
@@ -148,7 +149,7 @@ func run(ctx context.Context, dir string) error {
 		r.SetColor("23364A")
 	}
 	for number := 1; number <= 2; number++ {
-		page, err = d.PrepareRender(ctx, number, opts)
+		page, err = docxrender.PreparePage(ctx, d, number, opts)
 		if err != nil {
 			return fmt.Errorf("document page %d: %w", number, err)
 		}

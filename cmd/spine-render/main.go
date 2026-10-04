@@ -17,6 +17,7 @@ import (
 	"github.com/mgilbir/forme/fonts/notosans"
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/docx"
+	"github.com/mgilbir/spine/docx/docxrender"
 	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
@@ -310,8 +311,8 @@ func run(ctx context.Context, c config) (result error) {
 		}
 		defer func() { result = errors.Join(result, d.Close()) }()
 		for i := 1; i <= c.maxPages+1; i++ {
-			page, err := d.PrepareRender(ctx, i, opts)
-			if errors.Is(err, docx.ErrRenderPageOutOfRange) {
+			page, err := docxrender.PreparePage(ctx, d, i, opts)
+			if errors.Is(err, docxrender.ErrPageOutOfRange) {
 				break
 			}
 			if err != nil {

@@ -1,13 +1,16 @@
-package docx
+package docxrender
 
 import (
 	"encoding/xml"
 	"fmt"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
+
+const nsW = xmlb.NSWordprocessingML
 
 func wordRenderXML(n core.XMLNode) error {
 	if len(n.Path) == 1 && (n.Name.Space != nsW || n.Name.Local != "document") {

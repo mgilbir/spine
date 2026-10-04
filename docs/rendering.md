@@ -1,7 +1,7 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docx.Document.PrepareRender` prepares a selected physical page from a bounded
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docxrender.PreparePage` (package `docx/docxrender`) prepares a selected physical page from a bounded
 plain document flow.
 
 ```go
@@ -549,7 +549,7 @@ Native font/grid metrics do not promise Excel pixel identity.
 
 ## Word physical-page profile
 
-`document.PrepareRender(ctx, 1, opts)` selects a **1-based physical page** after
+`docxrender.PreparePage(ctx, document, 1, opts)` selects a **1-based physical page** after
 laying out the complete document under shared font/text/glyph/work budgets. The
 first profile supports one section with explicit page size and nonnegative
 margins, plain ASCII paragraphs, one explicit run style per paragraph,

@@ -1,4 +1,4 @@
-package docx
+package docxrender
 
 import (
 	"context"
@@ -13,25 +13,28 @@ import (
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
+	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/docx/internal/oxml"
+	"github.com/mgilbir/spine/docx/internal/view"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/render"
 )
 
-// ErrRenderPageOutOfRange identifies a page beyond the laid-out document.
-var ErrRenderPageOutOfRange = errors.New("render page out of range")
+// ErrPageOutOfRange identifies a page beyond the laid-out document.
+var ErrPageOutOfRange = errors.New("render page out of range")
 
-// PrepareRender prepares a 1-based physical page from a bounded plain document
+// PreparePage prepares a 1-based physical page from a bounded plain document
 // flow. The first profile has one explicitly sized section, plain ASCII runs,
 // one style per paragraph, exact line spacing and zero before/after spacing.
 // It paginates the complete flow, respecting widow control and pageBreakBefore.
 // Unsupported content returns no page, including on unselected pages. Native
 // hhea line metrics do not promise identical Word pagination. See rendering.md.
-func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Options) (*render.Page, error) {
-	if ctx == nil || d == nil || page < 1 {
+func PreparePage(ctx context.Context, document *docx.Document, page int, opts render.Options) (*render.Page, error) {
+	if ctx == nil || document == nil || page < 1 {
 		return nil, fmt.Errorf("%w: document/page", render.ErrInvalid)
 	}
+	d := view.DocumentOf(document)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -46,10 +49,10 @@ func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Opti
 	if err != nil {
 		return nil, err
 	}
-	if d.settings != nil {
+	if d.Settings != nil {
 		return nil, fmt.Errorf("%w: document settings", render.ErrUnsupported)
 	}
-	rels := d.relationships[d.mainPart()]
+	rels := d.Relationships
 	if len(rels) > b.Nodes {
 		return nil, render.ErrLimit
 	}
@@ -63,14 +66,14 @@ func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Opti
 			return nil, fmt.Errorf("%w: document settings relationship", render.ErrUnsupported)
 		}
 		if rel.Type == opc.RelTypeStyles {
-			if styleRel || rel.TargetMode == opc.TargetModeExternal || opc.ResolvePartName(d.mainPart(), rel.Target) != d.stylesPartName() {
+			if styleRel || rel.TargetMode == opc.TargetModeExternal || opc.ResolvePartName(d.MainPart, rel.Target) != d.StylesPart {
 				return nil, fmt.Errorf("%w: styles relationship", render.ErrUnsupported)
 			}
 			styleRel = true
 		}
 	}
-	if d.reader != nil {
-		file := d.reader.GetFile(d.mainPart())
+	if d.Reader != nil {
+		file := d.Reader.GetFile(d.MainPart)
 		if file == nil {
 			return nil, fmt.Errorf("%w: missing main part", render.ErrInvalid)
 		}
@@ -87,18 +90,18 @@ func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Opti
 			return nil, closeErr
 		}
 	}
-	if part := d.preservedParts[d.stylesPartName()]; part != nil {
+	if part := d.PreservedParts[d.StylesPart]; part != nil {
 		profile := wordRenderStyleProfile()
 		if err = b.CheckXML(ctx, part.Data, profile); err != nil {
 			return nil, fmt.Errorf("docx: styles: %w", err)
 		}
-	} else if styleRel && d.styles == nil {
+	} else if styleRel && d.Styles == nil {
 		return nil, fmt.Errorf("%w: missing styles", render.ErrInvalid)
 	}
-	if err = wordRenderStyles(d.styles, b); err != nil {
+	if err = wordRenderStyles(d.Styles, b); err != nil {
 		return nil, err
 	}
-	model := d.doc()
+	model := d.Load()
 	if model == nil || model.Body == nil {
 		return nil, render.ErrInvalid
 	}
@@ -335,7 +338,7 @@ func (d *Document) PrepareRender(ctx context.Context, page int, opts render.Opti
 		}
 	}
 	if page > current {
-		return nil, fmt.Errorf("%w: %w: page %d beyond %d pages", render.ErrInvalid, ErrRenderPageOutOfRange, page, current)
+		return nil, fmt.Errorf("%w: %w: page %d beyond %d pages", render.ErrInvalid, ErrPageOutOfRange, page, current)
 	}
 	return render.Prepare(ctx, dml.EMU(math.Round(w*float64(dml.EMUsPerPixel))), dml.EMU(math.Round(h*float64(dml.EMUsPerPixel))), ops, limits)
 }
