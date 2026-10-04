@@ -12,14 +12,18 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// PrepareSlide prepares an immutable render snapshot of a slide; see
-// docs/rendering.md for what it draws. The slide and its presentation must
-// not change while it runs; the page it returns does not depend on them.
+// PrepareSlide prepares a slide, including unsaved edits, for PNG or SVG
+// output. Hidden slides can be selected. Strict mode fails on content it
+// cannot draw exactly; with opts.Warn set it draws what it can and reports
+// the rest. Preparation does not synchronize or save source parts. The slide
+// and its presentation must not change while it runs; the page it returns
+// does not depend on them and can be rendered concurrently. See
+// docs/rendering.md for capability and resource contracts.
 func PrepareSlide(ctx context.Context, slide *pptx.Slide, opts render.Options) (*render.Page, error) {
 	if slide == nil {
 		return nil, render.ErrInvalid
 	}
-	return newRenderSlide(slide).PrepareRender(ctx, opts)
+	return newRenderSlide(slide).prepare(ctx, opts)
 }
 
 // renderSlide is a slide as the renderer reads it, snapshotted from the

@@ -15,7 +15,7 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// renderDraw paints one shape; see drawShape in PrepareRender.
+// renderDraw paints one shape; see drawShape in prepare.
 type renderDraw func(pptx.Shape, *oxml.Shape, *dml.SpPr, int, renderPictureSource) ([]layout.Op, error)
 
 // renderFrameDraw paints a graphic frame, a table or a chart, of one part,

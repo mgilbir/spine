@@ -23,20 +23,8 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// PrepareRender prepares this static slide, including unsaved edits, for PNG or
-// SVG output. The supported profile is solid or theme-referenced solid
-// backgrounds; rectangles, rounded rectangles and ellipses with solid fills and
-// solid outlines; uncropped embedded PNG/JPEG pictures; and plain horizontal
-// European-script paragraphs in non-placeholder shapes, drawn with supplied
-// fonts and styles inherited from list styles, document defaults and the
-// theme; tables; straight connectors; and the master's and layout's own
-// shapes beneath the slide's. Colors may be RGB, system or theme scheme colors
-// with luminance transforms. Other theme styles, transformations, effects and
-// other content fail explicitly. Hidden slides can be selected.
-// Preparation does not synchronize or save source parts. Caller edits must not
-// race with preparation; returned pages can be rendered concurrently.
-// See docs/rendering.md for capability and resource contracts.
-func (s *renderSlide) PrepareRender(ctx context.Context, opts render.Options) (*render.Page, error) {
+// prepare implements PrepareSlide.
+func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render.Page, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
