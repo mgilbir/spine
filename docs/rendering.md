@@ -30,8 +30,11 @@ Sixteen-bit image sources are reduced to eight bits; EXIF orientation is not
 applied. Text is outlined in SVG, so it is not selectable.
 
 Both writers use CSS-pixel geometry (96 per inch) and upwards-rounded output
-sizes; zero DPI means 96. PNG uses sRGB source-over with pixel-centre nearest-
-neighbour bitmap sampling. Rectangle edges use analytic area coverage. Paths
+sizes; zero DPI means 96. PNG uses sRGB source-over. A bitmap is filtered over
+each output pixel's square: averaged by area along an axis where the pixel
+spans more than one bitmap pixel, and interpolated linearly between the two
+nearest bitmap pixels where it spans less, in premultiplied alpha, its edges
+extending outwards. Rectangle edges use analytic area coverage. Paths
 use eight vertical samples and analytic horizontal intervals, with curves
 flattened to a 1/16 output-pixel tolerance. Independent primitive antialiasing
 can differ from a vector viewer or Office at touching/overlapping edges. SVG

@@ -267,14 +267,182 @@ func (d drawing) pixelColor(x, y int, scale float64) style.RGBA {
 	if d.image == nil {
 		return d.rect.color
 	}
-	// Nearest-neighbour sample at the destination pixel centre. Clip rectangles
-	// restrict coverage without changing the source-to-destination mapping.
+	// Images are painted through an imageSampler; see paintCommand.color.
+	return d.rect.color
+
+}
+
+// imageSampler filters an image drawing for the destination pixels of one
+// paint, a row at a time. Each destination pixel's square, in source
+// pixels, is filtered: an axis it spans more than one source pixel of
+// averages them, weighted by area, and an axis it spans less of
+// interpolates linearly between the two nearest at its centre. Channels
+// are weighted premultiplied, and edges extend outwards. The filter is
+// separable: each source row is filtered across once, into the paint's
+// columns, and kept while later destination rows still need it. Clip
+// rectangles restrict coverage without changing the source-to-destination
+// mapping.
+type imageSampler struct {
+	src *image.NRGBA
+	x0  int
+	// Column i weights source columns lo[i] onwards by weights[off[i]:
+	// off[i+1]], normalized to sum to one.
+	lo, off    []int
+	weights    []float64
+	fy, startY float64
+	h          int
+	// across holds source rows first onwards, filtered across,
+	// premultiplied RGBA per column, nil until filtered; spare keeps
+	// dropped rows' buffers. row is the current destination row,
+	// unpremultiplied, and acc its sums.
+	across [][]float32
+	first  int
+	spare  [][]float32
+	acc    []float64
+	row    []style.RGBA
+}
+
+func newImageSampler(d drawing, scale float64, x0, x1 int) *imageSampler {
 	box := d.imageBox
 	src := d.image.pixels
-	sx := int(math.Floor(((float64(x)+0.5)/scale - box.x0) / (box.x1 - box.x0) * float64(src.Rect.Dx())))
-	sy := int(math.Floor(((float64(y)+0.5)/scale - box.y0) / (box.y1 - box.y0) * float64(src.Rect.Dy())))
-	c := src.NRGBAAt(max(0, min(src.Rect.Dx()-1, sx)), max(0, min(src.Rect.Dy()-1, sy)))
-	return style.RGBA{R: float64(c.R), G: float64(c.G), B: float64(c.B), A: float64(c.A) / 255}
+	w, h := src.Rect.Dx(), src.Rect.Dy()
+	fx := float64(w) / ((box.x1 - box.x0) * scale)
+	s := &imageSampler{src: src, x0: x0, h: h, fy: float64(h) / ((box.y1 - box.y0) * scale), startY: box.y0 * scale, row: make([]style.RGBA, x1-x0), acc: make([]float64, 4*(x1-x0))}
+	s.lo, s.off = make([]int, x1-x0), make([]int, x1-x0+1)
+	for i := range s.lo {
+		a := imageAxis((float64(x0+i)-box.x0*scale)*fx, fx, w)
+		s.lo[i] = a.lo
+		sum := 0.0
+		for sx := a.lo; sx <= a.hi; sx++ {
+			sum += a.weight(sx)
+		}
+		for sx := a.lo; sx <= a.hi; sx++ {
+			wt := 0.0
+			if sum > 0 {
+				wt = a.weight(sx) / sum
+			}
+			s.weights = append(s.weights, wt)
+		}
+		s.off[i+1] = len(s.weights)
+	}
+	return s
+}
+
+// filterAcross filters a source row into the paint's columns.
+func (s *imageSampler) filterAcross(sy int) []float32 {
+	for sy >= s.first+len(s.across) {
+		s.across = append(s.across, nil)
+	}
+	if r := s.across[sy-s.first]; r != nil {
+		return r
+	}
+	var out []float32
+	if n := len(s.spare); n > 0 {
+		out, s.spare = s.spare[n-1], s.spare[:n-1]
+	} else {
+		out = make([]float32, 4*len(s.lo))
+	}
+	src := s.src.Pix[s.src.PixOffset(s.src.Rect.Min.X, s.src.Rect.Min.Y+sy):]
+	for i, lo := range s.lo {
+		var r, g, b, al float64
+		p := src[4*lo:]
+		for _, wt := range s.weights[s.off[i]:s.off[i+1]] {
+			alpha := float64(p[3]) * wt
+			r, g, b, al = r+float64(p[0])*alpha, g+float64(p[1])*alpha, b+float64(p[2])*alpha, al+alpha
+			p = p[4:]
+		}
+		out[4*i], out[4*i+1], out[4*i+2], out[4*i+3] = float32(r/255), float32(g/255), float32(b/255), float32(al/255)
+	}
+	s.across[sy-s.first] = out
+	return out
+}
+
+// beginRow filters destination row y, dropping source rows above it.
+func (s *imageSampler) beginRow(y int) {
+	a := imageAxis((float64(y)-s.startY)*s.fy, s.fy, s.h)
+	// Destination rows run downwards, so source rows above this one's are
+	// not needed again.
+	for len(s.across) > 0 && s.first < a.lo {
+		if r := s.across[0]; r != nil {
+			s.spare = append(s.spare, r)
+		}
+		s.across, s.first = s.across[1:], s.first+1
+	}
+	if len(s.across) == 0 {
+		s.first = a.lo
+	}
+	clear(s.acc)
+	total := 0.0
+	for sy := a.lo; sy <= a.hi; sy++ {
+		wy := a.weight(sy)
+		if wy == 0 {
+			continue
+		}
+		total += wy
+		r := s.filterAcross(sy)
+		for i, v := range r {
+			s.acc[i] += wy * float64(v)
+		}
+	}
+	for i := range s.row {
+		al := s.acc[4*i+3] / total
+		if total <= 0 || al <= 0 {
+			s.row[i] = style.RGBA{}
+			continue
+		}
+		s.row[i] = style.RGBA{R: s.acc[4*i] / total / al, G: s.acc[4*i+1] / total / al, B: s.acc[4*i+2] / total / al, A: al}
+	}
+}
+
+// imageFilterAxis is one axis of a destination pixel's footprint in a
+// source image n pixels long: the source pixels lo to hi it weights.
+type imageFilterAxis struct {
+	lo, hi int
+	// box is set for an area average over [a, b); otherwise the pixels lo
+	// and hi interpolate with weights 1-t and t.
+	box  bool
+	a, b float64
+	t    float64
+	n    int
+}
+
+// imageAxis is the axis filter for a footprint starting at start and size
+// source pixels long.
+func imageAxis(start, size float64, n int) imageFilterAxis {
+	clamp := func(i int) int { return max(0, min(n-1, i)) }
+	if size > 1 {
+		a, b := math.Max(0, start), math.Min(float64(n), start+size)
+		if b <= a {
+			// The footprint lies past an edge: the edge pixel.
+			i := clamp(int(math.Floor(start)))
+			return imageFilterAxis{lo: i, hi: i, t: 0, n: n}
+		}
+		return imageFilterAxis{lo: clamp(int(math.Floor(a))), hi: clamp(int(math.Ceil(b)) - 1), box: true, a: a, b: b, n: n}
+	}
+	c := start + size/2 - 0.5
+	i := int(math.Floor(c))
+	t := c - float64(i)
+	lo, hi := clamp(i), clamp(i+1)
+	if lo == hi {
+		t = 0
+	}
+	return imageFilterAxis{lo: lo, hi: hi, t: t, n: n}
+}
+
+func (f imageFilterAxis) weight(i int) float64 {
+	if f.box {
+		return math.Max(0, math.Min(f.b, float64(i+1))-math.Max(f.a, float64(i)))
+	}
+	switch {
+	case f.lo == f.hi:
+		return 1
+	case i == f.lo:
+		return 1 - f.t
+	case i == f.hi:
+		return f.t
+	}
+	return 0
+
 }
 func (p *Page) svgImage(e *xml.Encoder, d drawing, scale float64) error {
 	// Bound the base64 allocation before it happens; the final output writer

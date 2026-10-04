@@ -6,6 +6,8 @@ import (
 	"image"
 	"math"
 	"math/bits"
+
+	"github.com/mgilbir/forme/style"
 )
 
 const pathSamples = 8
@@ -14,6 +16,30 @@ type paintCommand struct {
 	d     drawing
 	edges []edge
 	clips [][]edge
+	// sampler filters an image drawing while it paints.
+	sampler *imageSampler
+}
+
+// begin prepares a command to paint the pixels x0 to x1 of its rows.
+func (c *paintCommand) begin(scale float64, x0, x1 int) {
+	if c.d.image != nil {
+		c.sampler = newImageSampler(c.d, scale, x0, x1)
+	}
+}
+
+// beginRow prepares row y.
+func (c *paintCommand) beginRow(y int) {
+	if c.sampler != nil {
+		c.sampler.beginRow(y)
+	}
+}
+
+// color is the command's paint at a pixel of the current row.
+func (c *paintCommand) color(x, y int, scale float64) style.RGBA {
+	if c.sampler != nil {
+		return c.sampler.row[x-c.sampler.x0]
+	}
+	return c.d.pixelColor(x, y, scale)
 }
 
 func (p *Page) paintCommands(ctx context.Context, scale float64, width, height int) ([]paintCommand, error) {
@@ -86,10 +112,12 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 	x0, y0, x1, y1 := pixelBounds(r, scale, img.Bounds().Dx(), img.Bounds().Dy())
 	coverage := make([]float64, x1-x0)
 	var scratch []crossing
+	cmd.begin(scale, x0, x1)
 	for y := y0; y < y1; y++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		cmd.beginRow(y)
 		clear(coverage)
 		for sample := 0; sample < pathSamples; sample++ {
 			sy := float64(y) + (float64(sample)+0.5)/pathSamples
@@ -129,7 +157,7 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 					return err
 				}
 			}
-			c := cmd.d.pixelColor(x, y, scale)
+			c := cmd.color(x, y, scale)
 			a := math.Min(1, coverage[x-x0]) * c.A
 			i := y*img.Stride + x*4
 			img.Pix[i] = uint8(math.Round(c.R*a + float64(img.Pix[i])*(1-a)))

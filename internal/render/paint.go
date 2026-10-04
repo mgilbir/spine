@@ -49,10 +49,12 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 		}
 		x0, y0, x1, y1 := pixelBounds(r, scale, width, height)
 		left, top, right, bottom := r.x0*scale, r.y0*scale, r.x1*scale, r.y1*scale
+		cmd.begin(scale, x0, x1)
 		for y := y0; y < y1; y++ {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			cmd.beginRow(y)
 			cy := math.Min(float64(y+1), bottom) - math.Max(float64(y), top)
 			for x := x0; x < x1; x++ {
 				if (x-x0)%1024 == 0 {
@@ -61,7 +63,7 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 					}
 				}
 				cx := math.Min(float64(x+1), right) - math.Max(float64(x), left)
-				c := cmd.d.pixelColor(x, y, scale)
+				c := cmd.color(x, y, scale)
 				a := math.Max(0, math.Min(1, cx*cy)) * c.A
 				i := y*img.Stride + x*4
 				// image.RGBA stores premultiplied channels. Source channels
