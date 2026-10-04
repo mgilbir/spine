@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"image"
+	"io"
 	"math"
 	"sort"
 	"strings"
@@ -94,12 +95,11 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 	}
 	// Animation and transitions do not change a static slide; best effort
 	// draws it without them.
-	if len(model.AlternateContent) > 0 {
-		if err = soft(fmt.Errorf("%w: slide alternate content", render.ErrUnsupported)); err != nil {
-			return nil, err
-		}
+	rootAnimated, err := renderRootAlternates(model.AlternateContent)
+	if err = soft(err); err != nil {
+		return nil, err
 	}
-	if (model.Timing != nil || model.Transition != nil) && !lenient {
+	if (model.Timing != nil || model.Transition != nil || rootAnimated) && !lenient {
 		return nil, fmt.Errorf("%w: slide animation", render.ErrUnsupported)
 	}
 	if err = soft(renderModelExtensions(model.ExtLst, "p:sld")); err != nil {
@@ -113,8 +113,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			m := s.layout.master.masterXML
 			// Header/footer flags only select footer placeholders, which this
 			// profile rejects on the master and the slide.
-			if len(m.AlternateContent) > 0 {
-				if err = soft(fmt.Errorf("%w: master alternate content", render.ErrUnsupported)); err != nil {
+			// Root alternate content holds transitions; they are not drawn.
+			if _, err = renderRootAlternates(m.AlternateContent); err != nil {
+				if err = soft(err); err != nil {
 					return nil, err
 				}
 			}
@@ -125,8 +126,9 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 		}
 		if s.layout.layoutXML != nil {
 			m := s.layout.layoutXML
-			if len(m.AlternateContent) > 0 {
-				if err = soft(fmt.Errorf("%w: layout alternate content", render.ErrUnsupported)); err != nil {
+			// Root alternate content holds transitions; they are not drawn.
+			if _, err = renderRootAlternates(m.AlternateContent); err != nil {
+				if err = soft(err); err != nil {
 					return nil, err
 				}
 			}
@@ -1899,6 +1901,9 @@ func (r *renderProfile) check(node core.XMLNode) error {
 // recorded against that shape, which is then left out, and a problem
 // elsewhere is noted as a warning; only a wrong root fails.
 func (r *renderProfile) slide(node core.XMLNode) error {
+	if r.rootAlternate(node) {
+		return nil
+	}
 	if handled, err := r.alternate(node); handled {
 		return err
 	}
@@ -1914,6 +1919,61 @@ func (r *renderProfile) slide(node core.XMLNode) error {
 	}
 	r.note(r.check(node))
 	return nil
+}
+
+// rootAlternate skips alternate content at a part's root, whose fallback
+// renderRootAlternates checks: it holds transitions and animation, which a
+// static page does not show.
+func (r *renderProfile) rootAlternate(node core.XMLNode) bool {
+	if r.skipped(node) {
+		return true
+	}
+	if len(node.Path) == 2 && !node.Text && node.Name == (xml.Name{Space: xmlb.NSMarkupCompatibility, Local: "AlternateContent"}) {
+		r.skipDepth = 2
+		return true
+	}
+	return false
+}
+
+// renderRootAlternates checks a part's root alternate content: a reader
+// without the choices' extensions reads the fallbacks, and fallbacks of
+// transitions and animation only, or none, change nothing on a static page.
+// animated reports such content; other fallback content is unsupported.
+func renderRootAlternates(acs []*oxml.AlternateContent) (animated bool, err error) {
+	for _, ac := range acs {
+		if ac == nil {
+			continue
+		}
+		animated = true
+		if !ac.HasFallback || len(ac.Fallback) == 0 {
+			continue
+		}
+		var src bytes.Buffer
+		src.WriteString(`<f xmlns:p="` + nsP + `" xmlns:a="` + nsA + `" xmlns:r="` + nsR + `">`)
+		src.Write(ac.Fallback)
+		src.WriteString(`</f>`)
+		d := xml.NewDecoder(&src)
+		depth := 0
+		for {
+			tok, e := d.Token()
+			if e == io.EOF {
+				break
+			}
+			if e != nil {
+				return animated, fmt.Errorf("%w: root alternate content fallback: %w", render.ErrInvalid, e)
+			}
+			switch t := tok.(type) {
+			case xml.StartElement:
+				depth++
+				if depth == 2 && (t.Name.Space != nsP || (t.Name.Local != "transition" && t.Name.Local != "timing")) {
+					return animated, fmt.Errorf("%w: root alternate content holding %s", render.ErrUnsupported, t.Name.Local)
+				}
+			case xml.EndElement:
+				depth--
+			}
+		}
+	}
+	return animated, nil
 }
 
 // approximated skips, in best-effort mode, a shape's effect subtree; the
@@ -2056,7 +2116,7 @@ func slideRenderNode(node core.XMLNode) error {
 	return slideRenderXML(el)
 }
 func (r *renderProfile) inherited(node core.XMLNode) error {
-	if r.skipped(node) {
+	if r.rootAlternate(node) {
 		return nil
 	}
 	// Best effort draws a static page without animation or transitions.

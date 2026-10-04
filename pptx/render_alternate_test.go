@@ -80,3 +80,35 @@ func TestRenderInheritedAlternateContent(t *testing.T) {
 		t.Fatalf("lenient bad fallback: %+v %q", px, warnings)
 	}
 }
+
+func TestRenderSlideRootAlternateContent(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	// PowerPoint wraps a 2010 transition in alternate content at the slide
+	// root, after the color map override, with a plain transition as its
+	// fallback.
+	root := func(fallback string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			ac := `<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:Choice xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p14"><p:transition spd="slow" p14:dur="1250"><p14:vortex dir="r"/></p:transition></mc:Choice><mc:Fallback>` + fallback + `</mc:Fallback></mc:AlternateContent>`
+			if !strings.Contains(s, `</p:clrMapOvr>`) {
+				t.Fatalf("no color map override in %s", s)
+			}
+			return strings.Replace(s, `</p:clrMapOvr>`, `</p:clrMapOvr>`+ac, 1)
+		}}
+	}
+	// Strict mode refuses it, as it does a plain transition.
+	if _, err := renderRewrittenPNG(t, data, opts, root(`<p:transition spd="slow"><p:fade/></p:transition>`)); !errors.Is(err, render.ErrUnsupported) {
+		t.Fatalf("strict transition: %v", err)
+	}
+	var warnings []string
+	opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+	renderSlidePNG(t, data, opts, root(`<p:transition spd="slow"><p:fade/></p:transition>`))
+	if len(warnings) != 0 {
+		t.Fatalf("transition: %q", warnings)
+	}
+	// Anything else in the fallback is reported.
+	warnings = nil
+	renderSlidePNG(t, data, opts, root(`<p:extLst/>`))
+	if len(warnings) == 0 {
+		t.Fatal("unknown root fallback not reported")
+	}
+}

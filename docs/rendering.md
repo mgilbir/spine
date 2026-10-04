@@ -222,7 +222,11 @@ fallback where it stands among the shapes, as a reader without the choices'
 extensions shows it; the source check skips the choices and checks the
 fallback as if its shapes stood in the shape tree. Alternate content on
 layouts and masters draws its fallback the same way, its placeholders
-prompts; at the slide root it is not drawn. Charts, SmartArt,
+prompts. At the root of a slide, layout or master, alternate content wraps
+newer transitions and animation: a fallback of `p:transition` or `p:timing`
+only, or none, changes nothing on a static page, and is treated as a
+transition, which strict mode refuses and best effort leaves out; other root
+fallback content is reported. Charts, SmartArt,
 effects, animation and raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
