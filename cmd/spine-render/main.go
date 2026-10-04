@@ -22,6 +22,7 @@ import (
 	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
+	"github.com/mgilbir/spine/xlsx/xlsxrender"
 )
 
 // defaultShapeWork replaces the library's 64 Mi default, which suits a single
@@ -332,7 +333,7 @@ func run(ctx context.Context, c config) (result error) {
 			if c.sheet != "" && sheet.Name() != c.sheet {
 				continue
 			}
-			page, err := sheet.PrepareRender(ctx, c.cellRange, opts)
+			page, err := xlsxrender.PrepareRange(ctx, sheet, c.cellRange, opts)
 			if err != nil {
 				if err = failed(fmt.Sprintf("sheet %q", sheet.Name()), err); err != nil {
 					return err

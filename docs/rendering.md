@@ -1,7 +1,7 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docxrender.PreparePage` (package `docx/docxrender`) prepares a selected physical page from a bounded
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsxrender.PrepareRange` (package `xlsx/xlsxrender`) supports bounded range previews. `docxrender.PreparePage` (package `docx/docxrender`) prepares a selected physical page from a bounded
 plain document flow.
 
 ```go
@@ -524,7 +524,7 @@ most 256 series of 4096 points.
 
 ## Sheet range profile
 
-`sheet.PrepareRender(ctx, "A1:D10", opts)` snapshots that logical range at 96 CSS
+`xlsxrender.PrepareRange(ctx, sheet, "A1:D10", opts)` snapshots that logical range at 96 CSS
 pixels per inch, without UI headers or print pagination. The first profile
 requires the library's default stylesheet and explicit widths on every selected
 column. Supply the Normal font through `opts.Fonts` (Calibri, 11 pt); substitution

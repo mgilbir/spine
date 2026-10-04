@@ -1,4 +1,4 @@
-package xlsx
+package xlsxrender
 
 import (
 	"bytes"
@@ -14,11 +14,12 @@ import (
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/internal/fuzzseed"
 	"github.com/mgilbir/spine/render"
+	"github.com/mgilbir/spine/xlsx"
 )
 
-func renderTestSheet(t testing.TB) (*Workbook, *Sheet, render.Options) {
+func renderTestSheet(t testing.TB) (*xlsx.Workbook, *xlsx.Sheet, render.Options) {
 	t.Helper()
-	w := Create()
+	w := xlsx.Create()
 	s, err := w.AddSheet("Preview")
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +58,7 @@ func TestRenderSheetRangePixelsSourceAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := s.PrepareRender(context.Background(), "A1:B2", opts)
+	page, err := PrepareRange(context.Background(), s, "A1:B2", opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestRenderSheetRangePixelsSourceAndSnapshot(t *testing.T) {
 			t.Fatalf("pixel %d,%d: %+v != %+v", tc.x, tc.y, got, tc.want)
 		}
 	}
-	opened, err := OpenReader(bytes.NewReader(before), int64(len(before)))
+	opened, err := xlsx.OpenReader(bytes.NewReader(before), int64(len(before)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestRenderSheetRangePixelsSourceAndSnapshot(t *testing.T) {
 			t.Error(e)
 		}
 	}()
-	if _, err = opened.Sheets()[0].PrepareRender(context.Background(), "A1:B2", opts); err != nil {
+	if _, err = PrepareRange(context.Background(), opened.Sheets()[0], "A1:B2", opts); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -116,20 +117,20 @@ func TestRenderSheetRejectsHugeRangeAndUnsupportedValues(t *testing.T) {
 		t.Fatal("resolved font before range check")
 		return nil, nil
 	}
-	if page, err := s.PrepareRender(context.Background(), "A1:XFD1048576", noCallback); page != nil || !errors.Is(err, render.ErrLimit) {
+	if page, err := PrepareRange(context.Background(), s, "A1:XFD1048576", noCallback); page != nil || !errors.Is(err, render.ErrLimit) {
 		t.Fatalf("range: %v %v", page, err)
 	}
 	if err := s.SetCellValue("A1", 1.5); err != nil {
 		t.Fatal(err)
 	}
-	if page, err := s.PrepareRender(context.Background(), "A1:B2", opts); page != nil || !errors.Is(err, render.ErrUnsupported) {
+	if page, err := PrepareRange(context.Background(), s, "A1:B2", opts); page != nil || !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("decimal: %v %v", page, err)
 	}
 	if err := s.SetCellValue("A1", "AA"); err != nil {
 		t.Fatal(err)
 	}
 	opts.Limits.MaxShapeWork = 1
-	if page, err := s.PrepareRender(context.Background(), "A1:B2", opts); page != nil || !errors.Is(err, render.ErrLimit) {
+	if page, err := PrepareRange(context.Background(), s, "A1:B2", opts); page != nil || !errors.Is(err, render.ErrLimit) {
 		t.Fatalf("work: %v %v", page, err)
 	}
 }
@@ -146,7 +147,7 @@ func TestRenderSheetOriginalUnknownContentRejectedBeforeFonts(t *testing.T) {
 		t.Fatal("fixture unchanged")
 	}
 	modified := replaceZipEntry(t, data, "xl/worksheets/sheet1.xml", rewritten)
-	opened, err := OpenReader(bytes.NewReader(modified), int64(len(modified)))
+	opened, err := xlsx.OpenReader(bytes.NewReader(modified), int64(len(modified)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestRenderSheetOriginalUnknownContentRejectedBeforeFonts(t *testing.T) {
 		t.Fatal("font callback before source check")
 		return nil, nil
 	}
-	if page, err := opened.Sheets()[0].PrepareRender(context.Background(), "A1:B2", opts); page != nil || !errors.Is(err, render.ErrUnsupported) {
+	if page, err := PrepareRange(context.Background(), opened.Sheets()[0], "A1:B2", opts); page != nil || !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("unknown source: %v %v", page, err)
 	}
 }
@@ -186,7 +187,7 @@ func FuzzXlsxRender(f *testing.F) {
 		if wrapped == nil {
 			t.Fatal("seed")
 		}
-		w, err := OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))
+		w, err := xlsx.OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))
 		if err != nil {
 			return
 		}
@@ -202,7 +203,7 @@ func FuzzXlsxRender(f *testing.F) {
 		opts.MaxSourceBytes = 65536
 		opts.MaxLayoutNodes = 256
 		opts.Limits = render.Limits{MaxDimension: 256, MaxPixels: 65536, MaxOperations: 128, MaxGlyphs: 256, MaxShapeWork: 65536, MaxOutputBytes: 65536, MaxTextBytes: 1024, MaxRunBytes: 1024}
-		page, err := w.Sheets()[0].PrepareRender(context.Background(), "A1:B2", opts)
+		page, err := PrepareRange(context.Background(), w.Sheets()[0], "A1:B2", opts)
 		if err != nil {
 			if page != nil {
 				t.Fatal("partial page")
@@ -221,7 +222,7 @@ func BenchmarkRenderDefaultSheetRange(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		page, err := s.PrepareRender(context.Background(), "A1:B2", opts)
+		page, err := PrepareRange(context.Background(), s, "A1:B2", opts)
 		if err != nil {
 			b.Fatal(err)
 		}

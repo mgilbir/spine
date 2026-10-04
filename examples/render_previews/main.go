@@ -19,6 +19,7 @@ import (
 	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
+	"github.com/mgilbir/spine/xlsx/xlsxrender"
 )
 
 func main() {
@@ -119,7 +120,7 @@ func run(ctx context.Context, dir string) error {
 			}
 		}
 	}
-	page, err = sheet.PrepareRender(ctx, "A1:C5", opts)
+	page, err = xlsxrender.PrepareRange(ctx, sheet, "A1:C5", opts)
 	if err != nil {
 		return fmt.Errorf("sheet: %w", err)
 	}

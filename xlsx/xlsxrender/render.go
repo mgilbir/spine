@@ -1,4 +1,4 @@
-package xlsx
+package xlsxrender
 
 import (
 	"context"
@@ -12,20 +12,29 @@ import (
 	"github.com/mgilbir/forme/layout"
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/render"
+	"github.com/mgilbir/spine/xlsx"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
+	"github.com/mgilbir/spine/xlsx/internal/view"
 )
 
-// PrepareRender prepares an explicit cell range as a native PNG/SVG snapshot.
+const nsSML = xmlb.NSSpreadsheetML
+
+// PrepareRange prepares an explicit cell range as a native PNG/SVG snapshot.
 // The initial profile uses the default stylesheet, explicit column widths, plain
 // ASCII strings, booleans and General integers of at most nine decimal digits.
 // Formula cells require a supported cached value; no formula is evaluated.
 // Rich styling, merged cells, drawings and unsupported sheet features fail.
 // Missing cells remain absent. This is a range preview, not print pagination.
-func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Options) (*render.Page, error) {
-	if ctx == nil || s == nil || s.workbook == nil || s.opaque {
+func PrepareRange(ctx context.Context, sheet *xlsx.Sheet, ref string, opts render.Options) (*render.Page, error) {
+	if ctx == nil || sheet == nil {
+		return nil, fmt.Errorf("%w: worksheet", render.ErrInvalid)
+	}
+	s := view.SheetOf(sheet)
+	if s == nil || s.Opaque {
 		return nil, fmt.Errorf("%w: worksheet", render.ErrInvalid)
 	}
 	if err := ctx.Err(); err != nil {
@@ -34,7 +43,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 	if len(ref) > 32 {
 		return nil, fmt.Errorf("%w: range reference", render.ErrInvalid)
 	}
-	rng, err := parseCellRangeRef(ref)
+	minRow, minCol, maxRow, maxCol, err := view.ParseRange(ref)
 	if err != nil {
 		return nil, fmt.Errorf("%w: range", render.ErrInvalid)
 	}
@@ -46,11 +55,11 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 	if err != nil {
 		return nil, err
 	}
-	nr, nc := rng.maxRow-rng.minRow+1, rng.maxCol-rng.minCol+1
+	nr, nc := maxRow-minRow+1, maxCol-minCol+1
 	if nr > b.Nodes || nc > b.Nodes/nr || nr+nc+3 > limits.MaxOperations {
 		return nil, fmt.Errorf("%w: range cells", render.ErrLimit)
 	}
-	rels := s.workbook.relationships[s.workbook.mainPartName]
+	rels := s.Relationships
 	if len(rels) > b.Nodes {
 		return nil, render.ErrLimit
 	}
@@ -68,35 +77,35 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 			expected = "/xl/sharedStrings.xml"
 		}
 		if expected != "" {
-			if seen[rel.Type] || rel.TargetMode == opc.TargetModeExternal || opc.ResolvePartName(s.workbook.mainPartName, rel.Target) != expected {
+			if seen[rel.Type] || rel.TargetMode == opc.TargetModeExternal || opc.ResolvePartName(s.WorkbookPart, rel.Target) != expected {
 				return nil, fmt.Errorf("%w: style/string relationship", render.ErrUnsupported)
 			}
 			seen[rel.Type] = true
 		}
 	}
-	for _, part := range []struct{ name, root string }{{s.partName, "worksheet"}, {"/xl/styles.xml", "styleSheet"}, {"/xl/sharedStrings.xml", "sst"}} {
-		if p := s.workbook.preservedParts[part.name]; p != nil {
+	for _, part := range []struct{ name, root string }{{s.PartName, "worksheet"}, {"/xl/styles.xml", "styleSheet"}, {"/xl/sharedStrings.xml", "sst"}} {
+		if p := s.PreservedParts[part.name]; p != nil {
 			if err = b.CheckXML(ctx, p.Data, func(n core.XMLNode) error { return sheetRenderXML(n, part.root) }); err != nil {
 				return nil, fmt.Errorf("xlsx: %s: %w", part.name, err)
 			}
 		}
 	}
-	ws := s.ws()
+	ws := s.Load()
 	if ws == nil {
 		return nil, fmt.Errorf("%w: missing worksheet", render.ErrInvalid)
 	}
 	if err = renderWorksheetProfile(ws); err != nil {
 		return nil, err
 	}
-	ss := s.workbook.stylesheet
+	ss := s.Stylesheet
 	if ss == nil {
-		ss = defaultStylesheet()
+		ss = view.DefaultStylesheet()
 	}
 	copyStyles := *ss
 	copyStyles.XMLName = xml.Name{}
 	copyStyles.OriginalNSDecls = nil
 	copyStyles.OriginalRootAttrs = nil
-	if !reflect.DeepEqual(&copyStyles, defaultStylesheet()) {
+	if !reflect.DeepEqual(&copyStyles, view.DefaultStylesheet()) {
 		return nil, fmt.Errorf("%w: default stylesheet required", render.ErrUnsupported)
 	}
 	if opts.Fonts == nil {
@@ -137,7 +146,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 			return nil, err
 		}
 		r := &ws.SheetData.Row[i]
-		if r.R == nil || *r.R == 0 || *r.R > MaxRow || rows[int(*r.R)] != nil {
+		if r.R == nil || *r.R == 0 || *r.R > xlsx.MaxRow || rows[int(*r.R)] != nil {
 			return nil, fmt.Errorf("%w: row reference", render.ErrInvalid)
 		}
 		if len(r.C) > b.Nodes {
@@ -157,14 +166,14 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 		}
 		b.Nodes -= len(group.Col)
 		for _, col := range group.Col {
-			if col.Min == 0 || col.Max < col.Min || col.Max > MaxCol {
+			if col.Min == 0 || col.Max < col.Min || col.Max > xlsx.MaxCol {
 				return nil, fmt.Errorf("%w: column range", render.ErrInvalid)
 			}
 			if col.Style != nil || col.BestFit != nil || col.Phonetic != nil || col.OutlineLevel != nil || col.Collapsed != nil {
 				return nil, fmt.Errorf("%w: column style", render.ErrUnsupported)
 			}
-			for c := max(int(col.Min), rng.minCol); c <= min(int(col.Max), rng.maxCol); c++ {
-				ci := c - rng.minCol
+			for c := max(int(col.Min), minCol); c <= min(int(col.Max), maxCol); c++ {
+				ci := c - minCol
 				if configured[ci] {
 					return nil, fmt.Errorf("%w: overlapping columns", render.ErrInvalid)
 				}
@@ -203,7 +212,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 	}
 	for i := 0; i < nr; i++ {
 		height := defaultHeight
-		if row := rows[rng.minRow+i]; row != nil {
+		if row := rows[minRow+i]; row != nil {
 			if row.Ht != nil {
 				height = *row.Ht
 			}
@@ -252,7 +261,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 		if err = ctx.Err(); err != nil {
 			return nil, err
 		}
-		row := rows[rng.minRow+ri]
+		row := rows[minRow+ri]
 		if row == nil || ys[ri+1] == ys[ri] {
 			continue
 		}
@@ -262,16 +271,16 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 				return nil, render.ErrInvalid
 			}
 			r, c, ok := cell.RowCol()
-			if !ok || r != rng.minRow+ri {
+			if !ok || r != minRow+ri {
 				return nil, fmt.Errorf("%w: cell reference", render.ErrInvalid)
 			}
-			if c < rng.minCol || c > rng.maxCol {
+			if c < minCol || c > maxCol {
 				continue
 			}
-			if cells[c-rng.minCol] != nil {
+			if cells[c-minCol] != nil {
 				return nil, fmt.Errorf("%w: duplicate cell", render.ErrInvalid)
 			}
-			cells[c-rng.minCol] = cell
+			cells[c-minCol] = cell
 		}
 		end := xs[nc]
 		for ci := nc - 1; ci >= 0; ci-- {
@@ -288,7 +297,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 			if cell.Cm() != nil || cell.Vm() != nil || cell.Ph() != nil || len(cell.ExtRaw()) > 0 {
 				return nil, fmt.Errorf("%w: cell metadata", render.ErrUnsupported)
 			}
-			text, align, e := s.renderCellText(cell)
+			text, align, e := renderCellText(s, cell)
 			if e != nil {
 				return nil, e
 			}
@@ -340,7 +349,7 @@ func (s *Sheet) PrepareRender(ctx context.Context, ref string, opts render.Optio
 
 func sheetRenderUnit(px float64) style.Unit { u, _ := style.FromPx(px); return u }
 
-func (s *Sheet) renderCellText(c *oxml.CT_Cell) (string, string, error) {
+func renderCellText(s *view.Sheet, c *oxml.CT_Cell) (string, string, error) {
 	if c.F != nil && c.V == nil {
 		return "", "", fmt.Errorf("%w: uncached formula", render.ErrUnsupported)
 	}
@@ -365,10 +374,10 @@ func (s *Sheet) renderCellText(c *oxml.CT_Cell) (string, string, error) {
 			return "", "", render.ErrInvalid
 		}
 		idx, e := strconv.ParseUint(*c.V, 10, 32)
-		if e != nil || s.workbook.sharedStrings == nil || idx >= uint64(len(s.workbook.sharedStrings.Si)) {
+		if e != nil || s.SharedStrings == nil || idx >= uint64(len(s.SharedStrings.Si)) {
 			return "", "", fmt.Errorf("%w: shared string index", render.ErrInvalid)
 		}
-		text, e := plain(&s.workbook.sharedStrings.Si[idx])
+		text, e := plain(&s.SharedStrings.Si[idx])
 		return text, "l", e
 	case "str":
 		if c.V == nil {
