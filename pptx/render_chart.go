@@ -36,7 +36,8 @@ func renderFrameName(gf *oxml.GraphicFrame) string {
 type renderChartSeries struct {
 	name   string
 	values []*float64 // nil where a point is blank
-	xs     []*float64 // scatter X values
+	xs     []*float64 // scatter and bubble X values
+	sizes  []*float64 // bubble sizes
 	color  string
 	// pointColors are the colors of points whose own fill differs, by index.
 	pointColors map[int]string
@@ -48,7 +49,7 @@ type renderChartSeries struct {
 
 // renderChartPlan is a chart reduced to what its Vega specification draws.
 type renderChartPlan struct {
-	kind       string // bar, line, area, pie, scatter
+	kind       string // bar, line, area, pie, scatter, bubble, radar, surface
 	horizontal bool
 	grouping   string // clustered, stacked, percentStacked, standard
 	categories []string
@@ -72,7 +73,21 @@ type renderChartPlan struct {
 	valMin, valMax       *float64
 	background           string
 	// midCat puts points on category boundaries rather than in between.
-	midCat                 bool
+	midCat bool
+	// bubbleScale is the largest bubble's share of a quarter of the plot's
+	// smaller side, and bubbleWidth sizes bubbles by width, not area.
+	bubbleScale float64
+	bubbleWidth bool
+	// radarFill fills each radar series' polygon.
+	radarFill bool
+	// hiLow is the color of a stock chart's high-low lines, "" for none;
+	// upDown its up-down bars.
+	hiLow  string
+	upDown *renderUpDown
+	// ofPie splits points into a second pie or bar.
+	ofPie *renderOfPie
+	// bandColors color a surface chart's value bands.
+	bandColors             []string
 	reverseCats, valLabels bool
 }
 
@@ -337,7 +352,8 @@ type renderChartSer struct {
 	cat    *dmlchart.AxDataSource
 	val    *dmlchart.NumDataSource
 	marker *dmlchart.Marker
-	extras bool // trendlines or error bars
+	size   *dmlchart.NumDataSource // bubble sizes
+	extras bool                    // trendlines or error bars
 }
 
 func renderSerIdx(i *dmlchart.UnsignedInt, fallback int) int {
@@ -575,9 +591,11 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			}
 		}
 	}
-	if len(pa.BubbleChart)+len(pa.RadarChart)+len(pa.StockChart)+len(pa.SurfaceChart)+len(pa.Surface3DChart)+len(pa.OfPieChart) > 0 {
-		return nil, fmt.Errorf("%w: bubble, radar, stock, surface or pie-of-pie chart", render.ErrUnsupported)
+	more, err := b.morePlans(p, pa, &sers)
+	if err != nil {
+		return nil, err
 	}
+	groups = append(groups, more...)
 	if len(groups) == 0 {
 		return nil, fmt.Errorf("%w: chart without a drawn chart type", render.ErrUnsupported)
 	}
@@ -586,8 +604,8 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 		if err := b.approx("combination chart drawn as one chart type"); err != nil {
 			return nil, err
 		}
-		if p.kind == "pie" || p.kind == "scatter" {
-			return nil, fmt.Errorf("%w: combination with a pie or scatter chart", render.ErrUnsupported)
+		if p.kind != "bar" && p.kind != "line" && p.kind != "area" {
+			return nil, fmt.Errorf("%w: combination with a %s chart", render.ErrUnsupported, p.kind)
 		}
 	}
 	if len(sers) == 0 {
@@ -596,7 +614,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 	if len(sers) > renderMaxChartSeries {
 		return nil, fmt.Errorf("%w: chart series", render.ErrLimit)
 	}
-	if (len(pa.ValAx) > 1 && p.kind != "scatter") || len(pa.CatAx) > 1 || len(pa.DateAx) > 0 {
+	if (len(pa.ValAx) > 1 && p.kind != "scatter" && p.kind != "bubble") || len(pa.CatAx) > 1 || len(pa.DateAx) > 0 {
 		if err := b.approx("secondary or date axis drawn as the primary category axis"); err != nil {
 			return nil, err
 		}
@@ -672,7 +690,12 @@ func (b *renderChartBuilder) series(p *renderChartPlan, s renderChartSer, total 
 		return rs, nil, err
 	}
 	var cats []string
-	if p.kind == "scatter" {
+	if p.kind == "bubble" {
+		if rs.sizes, err = renderChartNumbers(s.size); err != nil {
+			return rs, nil, err
+		}
+	}
+	if p.kind == "scatter" || p.kind == "bubble" {
 		var xs []string
 		if xs, err = renderChartStrings(s.cat); err != nil {
 			return rs, nil, err
@@ -705,7 +728,7 @@ func (b *renderChartBuilder) series(p *renderChartPlan, s renderChartSer, total 
 		return rs, nil, err
 	}
 	switch p.kind {
-	case "line", "scatter":
+	case "line", "scatter", "radar":
 		rs.color, rs.line = auto, auto
 		if line != "" {
 			rs.color, rs.line = line, line
@@ -773,6 +796,11 @@ func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) err
 		p.catAxis, p.valAxis = false, false
 		return nil
 	}
+	if p.kind == "radar" {
+		// A radar's value axis runs up its first spoke; its category
+		// labels ring it.
+		p.catAxis = true
+	}
 	var err error
 	if len(pa.CatAx) > 0 && pa.CatAx[0] != nil {
 		a := pa.CatAx[0]
@@ -792,7 +820,7 @@ func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) err
 	}
 	// A scatter chart's X axis is its first value axis, its Y the second.
 	vals := pa.ValAx
-	if p.kind == "scatter" && len(vals) == 2 {
+	if (p.kind == "scatter" || p.kind == "bubble") && len(vals) == 2 {
 		if vals[0] != nil && vals[0].AxPos != nil && (vals[0].AxPos.Val == "b" || vals[0].AxPos.Val == "t") {
 			p.catAxis = vals[0].Delete == nil || !vals[0].Delete.Val
 			vals = vals[1:]
@@ -962,11 +990,14 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 				v = *ser.values[i]
 			}
 			row := obj{"c": i, "s": s, "v": v}
-			if p.kind == "scatter" {
+			if p.kind == "scatter" || p.kind == "bubble" {
 				if i >= len(ser.xs) || ser.values[i] == nil {
 					continue
 				}
 				row["x"] = *ser.xs[i]
+				if p.kind == "bubble" && i < len(ser.sizes) && ser.sizes[i] != nil {
+					row["z"] = *ser.sizes[i]
+				}
 			}
 			if c, ok := ser.pointColors[i]; ok {
 				row["fill"] = c
@@ -1023,17 +1054,17 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		orient := p.legend
 		lg := obj{"orient": orient, "labelFont": p.font, "labelFontSize": round2(p.textSize), "labelColor": p.textColor, "symbolType": "square",
 			"encode": obj{"labels": obj{"update": obj{"text": obj{"signal": "names[datum.value]"}}}}}
-		if p.kind == "line" || p.kind == "scatter" {
+		switch {
+		case p.kind == "line" || (p.kind == "radar" && !p.radarFill):
 			lg["symbolType"] = "stroke"
-			if p.kind == "scatter" {
-				lg["symbolType"] = "circle"
-			}
+		case p.kind == "scatter" || p.kind == "bubble":
+			lg["symbolType"] = "circle"
 		}
-		switch p.kind {
-		case "pie":
+		switch {
+		case p.kind == "pie":
 			lg["fill"] = "pieColor"
 			lg["encode"] = obj{"labels": obj{"update": obj{"text": obj{"signal": "cats[datum.value]"}}}}
-		case "line":
+		case p.kind == "line" || (p.kind == "radar" && !p.radarFill):
 			lg["stroke"] = "color"
 		default:
 			lg["fill"] = "color"
@@ -1041,7 +1072,10 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		if orient == "bottom" || orient == "top" {
 			lg["direction"] = "horizontal"
 		}
-		legends = append(legends, lg)
+		// A surface's legend would name its bands; it is left out.
+		if p.kind != "surface" {
+			legends = append(legends, lg)
+		}
 	}
 	valueField := "v"
 	switch p.kind {
@@ -1060,6 +1094,11 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 			}
 		}
 		scales = append(scales, obj{"name": "pieColor", "type": "ordinal", "domain": obj{"signal": "sequence(length(cats))"}, "range": pieFills})
+		if p.ofPie != nil && len(p.series) > 0 {
+			d, m := p.ofPieSpec(pieFills)
+			data, marks = append(data, d...), append(marks, m...)
+			break
+		}
 		radius := obj{"signal": "min(width, height) / 2"}
 		arc := obj{"type": "arc", "from": obj{"data": "slices"}, "encode": obj{"enter": obj{
 			"x": obj{"signal": "width / 2"}, "y": obj{"signal": "height / 2"},
@@ -1078,12 +1117,23 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 				"text": obj{"signal": "format(datum.v, '~f')"},
 			}}})
 		}
-	case "scatter":
+	case "radar":
+		d, sc, m := p.radarSpec(rows)
+		data, scales, marks = append(data, d...), append(scales, sc...), append(marks, m...)
+	case "surface":
+		d, sc, m, lg := p.surfaceSpec(p.bandColors)
+		data, scales, marks, legends = append(data, d...), append(scales, sc...), append(marks, m...), append(legends, lg...)
+	case "scatter", "bubble":
 		scales = append(scales,
 			obj{"name": "x", "type": "linear", "domain": obj{"data": "table", "field": "x"}, "range": "width", "nice": obj{"signal": "max(2, round(width / 80))"}, "zero": true},
 			obj{"name": "y", "type": "linear", "domain": obj{"data": "table", "field": "v"}, "range": "height", "nice": p.ticks(), "zero": true},
 		)
-		marks = append(marks, p.seriesMarks("x", "y", "v", false)...)
+		if p.kind == "bubble" {
+			d, sc, m := p.bubbleSpec(rows)
+			data, scales, marks = append(data, d...), append(scales, sc...), append(marks, m...)
+		} else {
+			marks = append(marks, p.seriesMarks("x", "y", "v", false)...)
+		}
 	default:
 		stacked := p.grouping == "stacked" || p.grouping == "percentStacked"
 		if stacked {
@@ -1165,9 +1215,13 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 			}
 			axes = append(axes, ax)
 		}
+		if p.hiLow != "" || p.upDown != nil {
+			d, m := p.stockSpec()
+			data, marks = append(data, d...), append(marks, m...)
+		}
 		marks = append(marks, p.categoryMarks(stacked)...)
 	}
-	if p.kind == "scatter" {
+	if p.kind == "scatter" || p.kind == "bubble" {
 		if p.catAxis {
 			axes = append(axes, label(obj{"orient": "bottom", "scale": "x", "domainColor": p.axisColor, "ticks": false, "grid": false, "labelPadding": 4, "tickCount": obj{"signal": "max(2, round(width / 80))"}}))
 		}
@@ -1180,7 +1234,7 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		}
 	}
 	scales = append(scales, color)
-	if p.anyLabels() && p.kind != "pie" {
+	if p.anyLabels() && p.kind != "pie" && p.kind != "radar" && p.kind != "surface" {
 		data = append(data, obj{"name": "labelled", "source": "table", "transform": []obj{{"type": "filter", "expr": "labelled[datum.s] && datum.v != null"}}})
 	}
 	spec["data"] = data

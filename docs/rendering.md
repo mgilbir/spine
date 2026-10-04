@@ -483,8 +483,25 @@ with the chart space's text size and color. Value axes step about every 60
 pixels. Best effort draws 3-D charts flat, a combination chart as one of its
 types, a secondary or date axis as the primary one, other number formats as
 General, smoothed lines straight and dashed lines solid, and leaves out
-trendlines, error bars and legend entry formatting. Bubble, radar, stock,
-surface and pie-of-pie charts, and turned chart frames, fail. Charts allow at
+trendlines, error bars and legend entry formatting. Turned chart frames fail.
+
+Bubble charts draw each point as a circle on value axes, its area (or with
+`sizeRepresents="w"` its width) its size's share of the largest, which spans
+a quarter of the plot's smaller side times `bubbleScale`; bubbles of no or
+negative size are left out, and best effort draws 3-D bubbles flat. Radar
+charts draw a spoke per category clockwise from 12 o'clock, rings at the
+value axis' nice steps and each series a closed line, with markers for the
+`marker` style and filled for `filled`. Stock charts draw their prices as a
+line chart, with high-low lines from each category's lowest to highest value
+and up-down bars from the first series' value to the last's, in the up or
+down bar's fill. Pie-of-pie and bar-of-pie charts move the points their split
+selects (`pos`, `val`, `percent` or `cust`) to a second pie or stacked bar
+`secondPieSize` of the first, joined by series lines to a grey slice facing
+it; best effort moves the last third of the points for the `auto` split,
+which Office does not document. Surface charts fail, and best effort draws
+them from above as a banded contour: values interpolated across each cell,
+in bands of the value axis' steps colored by the theme's accents, with a
+legend of the bands. Charts allow at
 most 256 series of 4096 points.
 
 ## Sheet range profile

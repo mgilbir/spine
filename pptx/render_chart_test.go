@@ -243,9 +243,99 @@ func TestRenderChartPlans(t *testing.T) {
 			t.Fatalf("%v %q", err, warnings)
 		}
 	})
-	t.Run("unsupported", func(t *testing.T) {
-		_, warnings, err := spec(t, `<c:radarChart><c:radarStyle val="marker"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+`<c:axId val="1"/><c:axId val="2"/></c:radarChart>`+axes, "")
-		if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "radar") {
+	t.Run("radar", func(t *testing.T) {
+		s, warnings, err := spec(t, `<c:radarChart><c:radarStyle val="filled"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+`<c:axId val="1"/><c:axId val="2"/></c:radarChart>`+axes, "")
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		// Each series closes on its first point; rings follow the value
+		// axis' nice steps from 0 to 3.
+		var outline, rings []any
+		for _, d := range s["data"].([]any) {
+			m := d.(map[string]any)
+			switch m["name"] {
+			case "outline":
+				outline = m["values"].([]any)
+			case "rings":
+				rings = m["values"].([]any)
+			}
+		}
+		if len(outline) != 4 || outline[3].(map[string]any)["c"] != float64(3) || outline[3].(map[string]any)["v"] != float64(1) {
+			t.Fatalf("outline: %v", outline)
+		}
+		if len(rings) == 0 || len(find(s["marks"], "fill")) == 0 {
+			t.Fatalf("rings %d, fill %v", len(rings), find(s["marks"], "fill"))
+		}
+	})
+	t.Run("bubble", func(t *testing.T) {
+		ser := strings.Replace(renderChartSerXML(0, "One", "", "1", "2", "3"), `<c:cat>`, `<c:xVal>`, 1)
+		ser = strings.Replace(ser, `</c:cat>`, `</c:xVal>`, 1)
+		ser = strings.Replace(ser, `<c:val>`, `<c:yVal>`, 1)
+		ser = strings.Replace(ser, `</c:val>`, `</c:yVal><c:bubbleSize><c:numLit><c:ptCount val="3"/><c:pt idx="0"><c:v>4</c:v></c:pt><c:pt idx="1"><c:v>0</c:v></c:pt><c:pt idx="2"><c:v>9</c:v></c:pt></c:numLit></c:bubbleSize>`, 1)
+		s, warnings, err := spec(t, `<c:bubbleChart>`+ser+`<c:bubbleScale val="50"/><c:sizeRepresents val="w"/><c:axId val="1"/><c:axId val="2"/></c:bubbleChart><c:valAx><c:axId val="1"/><c:axPos val="b"/></c:valAx><c:valAx><c:axId val="2"/><c:axPos val="l"/></c:valAx>`, "")
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		var size map[string]any
+		for _, sc := range s["scales"].([]any) {
+			if m := sc.(map[string]any); m["name"] == "size" {
+				size = m
+			}
+		}
+		if size == nil || size["type"] != "pow" || size["domain"].([]any)[1] != float64(9) {
+			t.Fatalf("size scale: %v", size)
+		}
+		// Largest first, so smaller bubbles draw over it.
+		rows := s["data"].([]any)[0].(map[string]any)["values"].([]any)
+		if rows[0].(map[string]any)["z"] != float64(9) {
+			t.Fatalf("bubble order: %v", rows)
+		}
+	})
+	t.Run("stock", func(t *testing.T) {
+		hidden := `<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>`
+		s, warnings, err := spec(t, `<c:stockChart>`+renderChartSerXML(0, "Open", hidden, "5", "6", "4")+renderChartSerXML(1, "High", hidden, "7", "8", "6")+renderChartSerXML(2, "Low", hidden, "3", "5", "2")+renderChartSerXML(3, "Close", hidden, "6", "5", "3")+
+			`<c:hiLowLines><c:spPr><a:ln><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln></c:spPr></c:hiLowLines><c:upDownBars><c:gapWidth val="100"/><c:upBars/><c:downBars/></c:upDownBars><c:axId val="1"/><c:axId val="2"/></c:stockChart>`+axes, "")
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		var updown []any
+		for _, d := range s["data"].([]any) {
+			if m := d.(map[string]any); m["name"] == "updown" {
+				updown = m["values"].([]any)
+			}
+		}
+		// Up where the close is above the open: white, else black.
+		if len(updown) != 3 || updown[0].(map[string]any)["fill"] != "#ffffff" || updown[1].(map[string]any)["fill"] != "#000000" {
+			t.Fatalf("up-down bars: %v", updown)
+		}
+		if strokes := find(s["marks"], "stroke"); len(strokes) == 0 || strokes[0].(map[string]any)["value"] != "#ff0000" {
+			t.Fatalf("high-low lines: %v", strokes)
+		}
+	})
+	t.Run("pie of pie", func(t *testing.T) {
+		s, warnings, err := spec(t, `<c:ofPieChart><c:ofPieType val="bar"/><c:varyColors val="1"/>`+renderChartSerXML(0, "Share", "", "5", "3", "2")+`<c:splitType val="pos"/><c:splitPos val="2"/><c:secondPieSize val="50"/><c:serLines/></c:ofPieChart>`, "")
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		values := map[string][]any{}
+		for _, d := range s["data"].([]any) {
+			m := d.(map[string]any)
+			if v, ok := m["values"].([]any); ok {
+				values[m["name"].(string)] = v
+			}
+		}
+		// The last two points move; the first pie holds the first and their
+		// sum.
+		if len(values["first"]) != 2 || values["first"][1].(map[string]any)["v"] != float64(5) || len(values["second"]) != 2 {
+			t.Fatalf("split: %v", values)
+		}
+		if len(find(s["marks"], "x2")) != 2 {
+			t.Fatal("series lines")
+		}
+	})
+	t.Run("surface", func(t *testing.T) {
+		_, warnings, err := spec(t, `<c:surfaceChart>`+renderChartSerXML(0, "a", "", "1", "2", "3")+renderChartSerXML(1, "b", "", "3", "4", "5")+`<c:axId val="1"/><c:axId val="2"/></c:surfaceChart>`+axes, "")
+		if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "banded contour") {
 			t.Fatalf("%v %q", err, warnings)
 		}
 	})
@@ -266,6 +356,14 @@ func FuzzRenderChartPart(f *testing.F) {
 	c.SetCategories([]string{"A"})
 	c.AddSeries("S", []float64{1})
 	data, base := renderChartDeck(f, c)
+	for _, plot := range []string{
+		`<c:radarChart><c:radarStyle val="filled"/>` + renderChartSerXML(0, "One", "", "1", "-2", "3") + `</c:radarChart>`,
+		`<c:stockChart>` + renderChartSerXML(0, "H", "", "5", "6") + renderChartSerXML(1, "L", "", "1", "2") + `<c:hiLowLines/><c:upDownBars><c:upBars/><c:downBars/></c:upDownBars></c:stockChart>`,
+		`<c:ofPieChart><c:ofPieType val="pie"/>` + renderChartSerXML(0, "One", "", "5", "3", "2") + `<c:splitType val="percent"/><c:splitPos val="30"/></c:ofPieChart>`,
+		`<c:surfaceChart>` + renderChartSerXML(0, "a", "", "1", "2") + renderChartSerXML(1, "b", "", "3", "4") + `</c:surfaceChart>`,
+	} {
+		f.Add(renderChartXML(plot, ""))
+	}
 	f.Fuzz(func(t *testing.T, chartXML string) {
 		opts := base
 		var specs []map[string]any
