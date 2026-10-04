@@ -1,7 +1,7 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptx.Slide.PrepareRender` supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docx.Document.PrepareRender` prepares a selected physical page from a bounded
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docx.Document.PrepareRender` prepares a selected physical page from a bounded
 plain document flow.
 
 ```go
@@ -102,7 +102,7 @@ arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
 still fail.
 
-`slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
+`pptxrender.PrepareSlide(ctx, slide, render.Options{})` includes unsaved edits and returns
 an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a

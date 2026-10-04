@@ -15,6 +15,7 @@ import (
 	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
+	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
 )
@@ -88,7 +89,7 @@ func run(ctx context.Context, dir string) error {
 	if err = slide.AddShape(box); err != nil {
 		return err
 	}
-	page, err := slide.PrepareRender(ctx, opts)
+	page, err := pptxrender.PrepareSlide(ctx, slide, opts)
 	if err != nil {
 		return fmt.Errorf("slide: %w", err)
 	}

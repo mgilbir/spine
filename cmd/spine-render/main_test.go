@@ -15,6 +15,7 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
+	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
 )
@@ -382,7 +383,7 @@ func TestDefaultDPIBudgetsAreNeeded(t *testing.T) {
 	if err = p.Save(input); err != nil {
 		t.Fatal(err)
 	}
-	page, err := p.Slides()[0].PrepareRender(context.Background(), render.Options{})
+	page, err := pptxrender.PrepareSlide(context.Background(), p.Slides()[0], render.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

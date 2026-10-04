@@ -18,6 +18,7 @@ import (
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
+	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
 )
@@ -291,7 +292,7 @@ func run(ctx context.Context, c config) (result error) {
 			return fmt.Errorf("slides exceed -max-pages")
 		}
 		for i, slide := range p.Slides() {
-			page, err := slide.PrepareRender(ctx, withWarnings(fmt.Sprintf("slide %d", i+1)))
+			page, err := pptxrender.PrepareSlide(ctx, slide, withWarnings(fmt.Sprintf("slide %d", i+1)))
 			if err != nil {
 				if err = failed(fmt.Sprintf("slide %d", i+1), err); err != nil {
 					return err
