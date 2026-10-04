@@ -20,15 +20,25 @@ import (
 // or cancellation can leave a partial PNG in w. A blocking writer must itself
 // support cancellation; this method cannot interrupt a blocked Write call.
 func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if w == nil {
 		return fmt.Errorf("%w: nil writer", ErrInvalid)
 	}
-	width, height, err := p.Size(dpi)
+	img, err := p.Raster(ctx, dpi)
 	if err != nil {
 		return err
+	}
+	return png.Encode(&outputWriter{ctx: ctx, w: w, remaining: p.limits.MaxOutputBytes}, img)
+}
+
+// Raster paints the page as WritePNG does, returning its premultiplied
+// pixels instead of encoding them.
+func (p *Page) Raster(ctx context.Context, dpi float64) (*image.RGBA, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	width, height, err := p.Size(dpi)
+	if err != nil {
+		return nil, err
 	}
 	if dpi == 0 {
 		dpi = 96
@@ -36,14 +46,14 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 	scale := dpi / 96
 	commands, err := p.paintCommands(ctx, scale, width, height)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	for _, cmd := range commands {
 		r := cmd.d.rect
 		if cmd.d.path != nil || len(cmd.clips) > 0 {
 			if err := paintPath(ctx, img, cmd, scale); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
@@ -52,14 +62,14 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 		cmd.begin(scale, x0, x1)
 		for y := y0; y < y1; y++ {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
 			cmd.beginRow(y)
 			cy := math.Min(float64(y+1), bottom) - math.Max(float64(y), top)
 			for x := x0; x < x1; x++ {
 				if (x-x0)%1024 == 0 {
 					if err := ctx.Err(); err != nil {
-						return err
+						return nil, err
 					}
 				}
 				cx := math.Min(float64(x+1), right) - math.Max(float64(x), left)
@@ -75,7 +85,7 @@ func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {
 			}
 		}
 	}
-	return png.Encode(&outputWriter{ctx: ctx, w: w, remaining: p.limits.MaxOutputBytes}, img)
+	return img, nil
 }
 
 func pixelBounds(r rectangle, scale float64, width, height int) (x0, y0, x1, y1 int) {

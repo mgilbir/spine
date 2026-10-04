@@ -36,8 +36,8 @@ func renderStyleEffects(st *dml.Style, colors *renderColors) (*dml.EffectStyle, 
 }
 
 // renderShapeEffects draws a shape's effects with its drawing: its own
-// effect list, or else its style's theme effects. An outer shadow is drawn
-// beneath the shape; best effort leaves out other effects and 3-D.
+// effect list, or else its style's theme effects; see blurredEffects. Best
+// effort leaves out fill overlays, preset shadows, effect graphs and 3-D.
 func renderShapeEffects(ops []layout.Op, own *dml.EffectLst, dag, threeD bool, st *dml.Style, colors *renderColors, maxOps int) ([]layout.Op, error) {
 	effects := own
 	var placeholder *style.RGBA
@@ -60,19 +60,20 @@ func renderShapeEffects(ops []layout.Op, own *dml.EffectLst, dag, threeD bool, s
 		return ops, nil
 	}
 	e := *effects
-	if e.Blur != nil || e.FillOverlay != nil || e.Glow != nil || e.InnerShdw != nil || e.PrstShdw != nil || e.Reflection != nil || e.SoftEdge != nil {
-		if err := colors.approximate(fmt.Errorf("%w: shape effects other than an outer shadow left out", render.ErrUnsupported)); err != nil {
+	if e.FillOverlay != nil || e.PrstShdw != nil {
+		if err := colors.approximate(fmt.Errorf("%w: fill overlay and preset shadow effects left out", render.ErrUnsupported)); err != nil {
 			return nil, err
 		}
 	}
-	if e.OuterShdw == nil {
-		return ops, nil
-	}
-	shadow, err := renderShadow(ops, e.OuterShdw, placeholder, colors, maxOps)
+	below, shape, above, err := colors.blurredEffects(ops, &e, placeholder)
 	if err != nil {
 		return nil, err
 	}
-	return append(shadow, ops...), nil
+	out := append(append(append([]layout.Op{}, below...), shape...), above...)
+	if len(out) > maxOps {
+		return nil, fmt.Errorf("%w: effect operations", render.ErrLimit)
+	}
+	return out, nil
 }
 
 // renderShadowCopies is how many offset copies stand for a shadow's blur.

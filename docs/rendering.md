@@ -82,13 +82,21 @@ out is drawn without it; an unsupported background is drawn white; and
 problems outside any shape (unknown slide content, alternate content,
 extensions, charts and other graphic frames) are reported once. Animation and
 transitions are ignored. Some details are drawn approximately instead, and
-reported once per shape as such: an outer shadow of a shape, connector or
-picture, its own or its style's theme effect, is drawn beneath it as its
-drawing in the shadow color, offset by the shadow's distance and direction,
-with a blur approximated by nine copies spread over the blur radius whose
-opacities compound to the shadow's, and scaling and skewing left out; other
-effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
-are left out;
+reported once per shape as such: the effects of a shape, connector or
+picture, its own or its style's theme effects. A sharp outer shadow is drawn
+exactly, beneath the shape as its drawing in the shadow color, offset by the
+shadow's distance and direction. Effects that blur are drawn from a raster of
+the shape at up to three pixels per CSS pixel (one million pixels an effect,
+eight million a slide), blurred with an approximate Gaussian of half each
+radius: a blurred outer shadow, the shape's coverage offset and blurred, with
+scaling and skewing left out; a reflection, the shape flipped below its box,
+faded from its start to its end opacity and blurred; a glow, the coverage
+blurred and doubled in the glow color beneath the shape; soft edges, the
+shape's own pixels faded over the radius inside its edge; an inner shadow,
+the uncovered area offset, blurred and kept inside the shape; and a blur
+effect, the shape itself blurred, past its box unless `grow` is off. Office
+does not document how it draws them. Fill overlays, preset shadows, effect
+graphs, 3-D and text effects are left out;
 text wider than its box, such as a single character, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
@@ -146,8 +154,9 @@ its pixels: grayscale (`grayscl`) and bi-level by Rec. 601 luminance;
 shifts; the alpha effects (`alphaModFix`, `alphaRepl`, `alphaBiLevel`,
 `alphaCeiling`, `alphaFloor`, `alphaInv`); and solid fill overlays in their
 blend mode. Brightness and contrast (`lum`), which the standard does not
-define, follow LibreOffice; tint and gradient overlays are approximated; blur
-and alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
+define, follow LibreOffice; tint and gradient overlays are approximated, as
+is blur, an approximate Gaussian of half its radius kept within the picture's
+box; alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
 effort reports them. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture

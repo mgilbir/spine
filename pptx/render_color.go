@@ -34,8 +34,11 @@ type renderColors struct {
 	// under the slide's image budget, with the file's bytes; nil where none
 	// can be drawn.
 	picture func(embed string) (image.Image, []byte, error)
-	// tilePixels counts the pixels tiled fills have composed.
-	tilePixels int64
+	// tilePixels counts the pixels tiled fills have composed, and
+	// effectPixels those effects have rasterized under limits.
+	tilePixels   int64
+	effectPixels int64
+	limits       render.Limits
 }
 
 // approximate reports err and returns nil in best-effort mode, and returns err

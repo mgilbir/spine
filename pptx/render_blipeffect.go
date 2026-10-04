@@ -1,6 +1,7 @@
 package pptx
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"math"
@@ -15,9 +16,13 @@ import (
 // change, HSL shifts, the alpha effects and solid fill overlays as the
 // standard defines them. Luminance is Rec. 601's. Brightness and contrast,
 // which the standard does not define, follow LibreOffice, and tint and
-// gradient overlays are drawn approximately; blur, alpha masks and unknown
-// effects are left out. Each is reported, so strict mode refuses them.
-func (c *renderColors) blipEffects(img image.Image, effects []*dml.BlipEffect) (image.Image, error) {
+// gradient overlays are drawn approximately, as is blur, whose spread past
+// the picture's box is left out; alpha masks and unknown effects are left
+// out. Each is reported, so strict mode refuses them.
+//
+// A blur spreads each pixel over its radius, emuPerPixel the EMU a picture
+// pixel is drawn across; it stays within the picture's box.
+func (c *renderColors) blipEffects(img image.Image, effects []*dml.BlipEffect, emuPerPixel float64) (image.Image, error) {
 	if len(effects) == 0 {
 		return img, nil
 	}
@@ -209,8 +214,18 @@ func (c *renderColors) blipEffects(img image.Image, effects []*dml.BlipEffect) (
 					p[k] = renderByte(s + (blend(s, fc[k])-s)*fill.A)
 				}
 			}
-		case e.Blur != nil || e.AlphaMod != nil:
-			if err := c.approximate(fmt.Errorf("%w: picture blur or alpha mask left out", render.ErrUnsupported)); err != nil {
+		case e.Blur != nil:
+			if err := c.approximate(fmt.Errorf("%w: picture blur drawn approximately", render.ErrUnsupported)); err != nil {
+				return nil, err
+			}
+			if e.Blur.Rad > 0 && emuPerPixel > 0 {
+				if err := renderBlurNRGBA(c.ctx, out, float64(e.Blur.Rad)/emuPerPixel/2); err != nil {
+					return nil, err
+				}
+			}
+			continue
+		case e.AlphaMod != nil:
+			if err := c.approximate(fmt.Errorf("%w: picture alpha mask left out", render.ErrUnsupported)); err != nil {
 				return nil, err
 			}
 			continue
@@ -262,4 +277,37 @@ func renderToHSL(p []uint8) (h, s, l float64) {
 func renderFromHSL(p []uint8, h, s, l float64) {
 	c := renderFromHSLExact(h, s, l)
 	p[0], p[1], p[2] = renderByte(c[0]*255), renderByte(c[1]*255), renderByte(c[2]*255)
+}
+
+// renderBlurNRGBA blurs an image in place with an approximate Gaussian of
+// deviation sigma pixels, in premultiplied alpha.
+func renderBlurNRGBA(ctx context.Context, img *image.NRGBA, sigma float64) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	planes := make([][]float32, 4)
+	for k := range planes {
+		planes[k] = make([]float32, w*h)
+	}
+	for i := 0; i < w*h; i++ {
+		p := img.Pix[4*i : 4*i+4]
+		a := float32(p[3]) / 255
+		planes[0][i], planes[1][i], planes[2][i], planes[3][i] = float32(p[0])*a, float32(p[1])*a, float32(p[2])*a, a
+	}
+	for _, plane := range planes {
+		if err := renderBlur(ctx, plane, w, h, sigma); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < w*h; i++ {
+		p := img.Pix[4*i : 4*i+4]
+		a := planes[3][i]
+		if a <= 0 {
+			p[0], p[1], p[2], p[3] = 0, 0, 0, 0
+			continue
+		}
+		p[0], p[1], p[2], p[3] = renderByte(float64(planes[0][i]/a)), renderByte(float64(planes[1][i]/a)), renderByte(float64(planes[2][i]/a)), renderByte(float64(a)*255)
+	}
+	return nil
 }

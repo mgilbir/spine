@@ -19,7 +19,7 @@ func renderEffectPixel(t *testing.T, c color.NRGBA, colors *renderColors, effect
 	t.Helper()
 	img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 	img.SetNRGBA(0, 0, c)
-	out, err := colors.blipEffects(img, effects)
+	out, err := colors.blipEffects(img, effects, 9525)
 	if err != nil {
 		return color.NRGBA{}, err
 	}
@@ -164,5 +164,31 @@ func TestRenderPictureColorEffects(t *testing.T) {
 	opts.Warn = func(error) {}
 	if px := renderPixel(t, renderSlidePNG(t, data, opts, lum), 65, 45); px != (color.NRGBA{0, 0, 0, 255}) {
 		t.Fatalf("darkened: %+v", px)
+	}
+}
+
+func TestRenderPictureBlur(t *testing.T) {
+	// Black then white, each half of a 20 pixel row drawn at a pixel each:
+	// a 2px blur greys the pixels either side of the step, not the ends.
+	img := image.NewNRGBA(image.Rect(0, 0, 20, 1))
+	for x := 0; x < 20; x++ {
+		v := uint8(0)
+		if x >= 10 {
+			v = 255
+		}
+		img.SetNRGBA(x, 0, color.NRGBA{v, v, v, 255})
+	}
+	var warnings []string
+	colors := &renderColors{ctx: context.Background(), approx: func(err error) { warnings = append(warnings, err.Error()) }}
+	out, err := colors.blipEffects(img, []*dml.BlipEffect{{Blur: &dml.BlurXML{Rad: 2 * 9525}}}, 9525)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(x int) uint8 { return color.NRGBAModel.Convert(out.At(x, 0)).(color.NRGBA).R }
+	if at(9) == 0 || at(10) == 255 || at(0) != 0 || at(19) != 255 || at(9) >= at(10) {
+		t.Fatalf("blurred row: %d %d %d %d", at(0), at(9), at(10), at(19))
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "picture blur drawn approximately") {
+		t.Fatalf("warnings: %q", warnings)
 	}
 }

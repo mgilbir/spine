@@ -184,7 +184,7 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 			return nil, fmt.Errorf("%w: slide coordinate", render.ErrLimit)
 		}
 	}
-	colors := &renderColors{ctx: ctx, slide: s, budget: budget}
+	colors := &renderColors{ctx: ctx, slide: s, budget: budget, limits: resolved}
 	styles := &renderTextStyles{ctx: ctx, slide: s, budget: budget, colors: colors, masterErrs: masterProfile.styleErrs, warn: opts.Warn}
 	// The nearest defined background wins: slide, then layout, then master.
 	background := renderPaint{color: renderWhite}
@@ -529,7 +529,11 @@ func (s *Slide) PrepareRender(ctx context.Context, opts render.Options) (*render
 				}
 			}
 			if len(v.effects) > 0 {
-				if img, err = colors.blipEffects(img, v.effects); err != nil {
+				drawnWidth, _ := v.Size()
+				if picProps != nil && picProps.Xfrm != nil && picProps.Xfrm.Ext != nil {
+					drawnWidth = dml.EMU(picProps.Xfrm.Ext.Cx)
+				}
+				if img, err = colors.blipEffects(img, v.effects, float64(drawnWidth)/float64(max(1, img.Bounds().Dx()))); err != nil {
 					return nil, err
 				}
 			} else if v.opacity != nil && *v.opacity < 1 {
@@ -1095,7 +1099,7 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 			return renderPaint{}, err
 		}
 	}
-	if img, err = c.blipEffects(img, f.Blip.Effects); err != nil {
+	if img, err = c.blipEffects(img, f.Blip.Effects, w*float64(dml.EMUsPerPixel)/float64(max(1, img.Bounds().Dx()))); err != nil {
 		return renderPaint{}, err
 	}
 	paint := renderPaint{image: img}
