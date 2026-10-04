@@ -2,7 +2,8 @@
 // Part 1, 5th edition (2016), from presetShapeDefinitions.xml in the
 // standard's OfficeOpenXML-DrawingMLGeometries.zip. The embedded copy keeps
 // only each shape's adjust values, guides, text rectangle and paths; handles
-// and connection sites are dropped.
+// and connection sites are dropped. The preset text warps come from
+// presetTextWarpDefinitions.xml in the same archive, embedded as published.
 package presetgeom
 
 import (
@@ -21,23 +22,35 @@ import (
 //go:embed presetShapeDefinitions.xml
 var definitions []byte
 
+//go:embed presetTextWarpDefinitions.xml
+var warpDefinitions []byte
+
 var (
 	once    sync.Once
 	shapes  map[string]*dml.CustGeom
+	warps   map[string]*dml.CustGeom
 	loadErr error
 )
 
 func load() {
-	shapes = map[string]*dml.CustGeom{}
+	if shapes, loadErr = parse(definitions); loadErr != nil {
+		return
+	}
+	warps, loadErr = parse(warpDefinitions)
+}
+
+// parse reads a definitions document: one geometry per root child.
+func parse(definitions []byte) (map[string]*dml.CustGeom, error) {
+	shapes := map[string]*dml.CustGeom{}
 	d := xml.NewDecoder(bytes.NewReader(definitions))
 	depth := 0
 	for {
 		tok, err := d.Token()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				loadErr = err
+				return nil, err
 			}
-			return
+			return shapes, nil
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -47,8 +60,7 @@ func load() {
 			}
 			var g dml.CustGeom
 			if err := d.DecodeElement(&g, &t); err != nil {
-				loadErr = fmt.Errorf("presetgeom: %s: %w", t.Name.Local, err)
-				return
+				return nil, fmt.Errorf("presetgeom: %s: %w", t.Name.Local, err)
 			}
 			depth--
 			// The standard defines upDownArrow twice, alike; keep the first.
@@ -69,6 +81,19 @@ func Lookup(name string) (*dml.CustGeom, bool) {
 		return nil, false
 	}
 	g, ok := shapes[name]
+	return g, ok
+}
+
+// LookupTextWarp returns a preset text warp's geometry, which the caller
+// must not modify, and whether the warp exists. Its paths outline where
+// text is drawn: in pairs, the top and bottom of a band of lines, or each
+// alone, a line the text follows.
+func LookupTextWarp(name string) (*dml.CustGeom, bool) {
+	once.Do(load)
+	if loadErr != nil {
+		return nil, false
+	}
+	g, ok := warps[name]
 	return g, ok
 }
 

@@ -155,6 +155,8 @@ type renderFrame struct {
 	numCol int
 	spcCol dml.EMU
 	rtlCol bool
+	// warp shapes the text to a preset text warp.
+	warp *dml.PrstTxWarp
 }
 
 // renderBodyFrame applies DrawingML body defaults. A non-placeholder body
@@ -223,11 +225,12 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 			return f, err
 		}
 	}
-	if renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.PrstTxWarp != nil || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil {
-		if err := colors.approximate(fmt.Errorf("%w: text warp, 3-D or compatible line spacing left out", render.ErrUnsupported)); err != nil {
+	if renderTrue(bp.FromWordArt) || renderTrue(bp.CompatLnSpc) || bp.Scene3d != nil || bp.Sp3d != nil || bp.FlatTx != nil {
+		if err := colors.approximate(fmt.Errorf("%w: WordArt conversion, 3-D or compatible line spacing left out", render.ErrUnsupported)); err != nil {
 			return f, err
 		}
 	}
+	f.warp = bp.PrstTxWarp
 	for _, inset := range []struct {
 		v   *int64
 		out *dml.EMU
@@ -374,6 +377,12 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *AutoShape, g re
 	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, cols, fonts, styles.colors)
 	if err != nil {
 		return nil, err
+	}
+	if frame.warp != nil {
+		// The warp spans the content box.
+		if ops, err = renderWarpText(ctx, ops, frame.warp, x+m.Left, y+m.Top, w-m.Left-m.Right, h-m.Top-m.Bottom, styles.colors, fonts.opts.Limits.MaxPathSegments); err != nil {
+			return nil, err
+		}
 	}
 	if ops, err = vertical.ops(ops, styles.colors, fonts.opts.Limits.MaxPathSegments); err != nil {
 		return nil, err

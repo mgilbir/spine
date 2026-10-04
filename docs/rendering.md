@@ -293,7 +293,16 @@ text that fits one column keeps its anchoring, and text over several is
 anchored at the top, which best effort reports. Columns wider than their
 box fail, and best effort draws one. Justified and distributed anchoring,
 and clipped text fail; best effort draws them top anchored and whole, and
-ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
+ignores `anchorCtr` and 3-D text. A WordArt warp (`prstTxWarp`) shapes the
+text to the paths of its preset, from the standard's
+`presetTextWarpDefinitions.xml`, evaluated for the content box with the
+warp's adjustments: paths in pairs bound a band of lines each, top and
+bottom, and single paths each carry a band of lines, hanging inwards from
+the path towards the box's middle; lines go to the band holding their
+middle, and each band's text is stretched along its paths. Glyphs are drawn
+as outlines, their edges divided to bend with the warp. Office does not
+document how it fits text to a warp, so it fails, and best effort reports it.
+Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn. Normal autofit's stored `fontScale` scales
 every run's size, rounded to hundredths of a point, and its `lnSpcReduction`
