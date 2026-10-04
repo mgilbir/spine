@@ -81,6 +81,8 @@ jobs:
             fuzztime: 120s
           - pkg: docx/docxrender
             fuzztime: 120s
+          - pkg: xlsx/xlsxrender
+            fuzztime: 120s
           - pkg: pptx/pptxrender
             fuzztime: 120s
     steps:
