@@ -79,6 +79,8 @@ jobs:
             fuzztime: 120s
           - pkg: internal/render
             fuzztime: 120s
+          - pkg: pptx/pptxrender
+            fuzztime: 120s
     steps:
       - uses: actions/checkout@v7
 
