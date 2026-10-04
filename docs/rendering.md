@@ -584,11 +584,16 @@ microseconds, so 64 Mi stops a slide after about 60 characters. The document
 controls only the amount of text, the fonts are the caller's, and `-timeout`
 bounds the whole command; lower the budget for fonts you do not trust. Likewise
 `-edge-checks` bounds path painting per output (scanline edge tests and
-coverage samples) and defaults to 1 Gi instead of 64 Mi: a slide of text,
+coverage samples) and defaults to 4 Gi instead of 64 Mi: a slide of text,
 circles and outlined boxes needed up to 256 Mi at 144 DPI and painted in about
-a quarter of a second.
+a quarter of a second, and the work grows with the square of the DPI.
 
-`-dpi` defaults to 144; `-max-pages` defaults to 100 (maximum 10000), and
+`-dpi` defaults to 288, sharp on a display of twice the standard density,
+where a widescreen slide is 3840 by 2160 pixels; `-dpi 144` or `-dpi 96`
+writes smaller files faster, and SVG output stays sharp at any zoom. For it
+the command allows 64 Mi pixels and 16384 pixels a side per page, 1 Gi pixel
+visits and 256 MiB of output, where the library defaults suit about 144 DPI.
+`-max-pages` defaults to 100 (maximum 10000), and
 `-timeout` defaults to one minute. Interrupt cancels rendering. Library package,
 source, shaping, pixel and output limits still apply. DOCX currently lays out the
 whole document for each selected page, so large documents repeat layout work.

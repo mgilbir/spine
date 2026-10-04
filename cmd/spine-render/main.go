@@ -29,11 +29,25 @@ import (
 // the fonts, and -timeout bounds the whole command.
 const defaultShapeWork = 16 << 30
 
+// defaultDPI renders sharp on a display of twice the standard density.
+const defaultDPI = 288
+
 // defaultEdgeChecks replaces the library's 64 Mi path painting budget, which a
-// slide of text, circles and outlined boxes exceeds at the default 144 DPI;
-// one such slide needed up to 256 Mi and painted in about a quarter of a
-// second. -timeout bounds the command.
-const defaultEdgeChecks = 1 << 30
+// slide of text, circles and outlined boxes exceeds; one such slide needed up
+// to 256 Mi at 144 DPI, and the work grows with the square of the DPI, so the
+// default allows four times that at 288 DPI. -timeout bounds the command.
+const defaultEdgeChecks = 4 << 30
+
+// Painting budgets scaled for 288 DPI, where a widescreen slide is 3840 by
+// 2160 pixels: the library's 16 Mi pixels a page, 8192 pixels a side, 64 Mi
+// pixel visits and 32 MiB of output suit about 144 DPI. A page's pixels are
+// four bytes each in memory.
+const (
+	defaultMaxPixels      = 64 << 20
+	defaultMaxDimension   = 16384
+	defaultPixelVisits    = 1 << 30
+	defaultMaxOutputBytes = 256 << 20
+)
 
 // defaultImagePixels replaces the library's 4 Mi decoded image pixels per
 // page, which one phone photo exceeds. Previews downscale pictures after
@@ -64,7 +78,7 @@ func main() {
 	flag.StringVar(&c.format, "format", "png", "png, svg or both")
 	flag.StringVar(&c.cellRange, "range", "", "XLSX cell range, e.g. A1:D20 (required for XLSX)")
 	flag.StringVar(&c.sheet, "sheet", "", "XLSX sheet name; empty selects all sheets")
-	flag.Float64Var(&c.dpi, "dpi", 144, "output DPI")
+	flag.Float64Var(&c.dpi, "dpi", defaultDPI, "output DPI")
 	flag.IntVar(&c.maxPages, "max-pages", 100, "maximum total output pages/slides/sheets")
 	flag.Int64Var(&c.edges, "edge-checks", 0, "path painting budget per output in edge checks; 0 uses 1 Gi")
 	flag.Int64Var(&c.imagePixels, "image-pixels", 0, "decoded image pixels per slide, page or sheet; 0 uses 64 Mi")
@@ -193,7 +207,8 @@ func run(ctx context.Context, c config) (result error) {
 		imagePixels = defaultImagePixels
 	}
 	// Image bytes and counts scale with the pixel budget.
-	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work, MaxEdgeChecks: edges, MaxImagePixels: imagePixels, MaxImageBytes: 256 << 20, MaxImages: 256}}
+	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work, MaxEdgeChecks: edges, MaxImagePixels: imagePixels, MaxImageBytes: 256 << 20, MaxImages: 256,
+		MaxPixels: defaultMaxPixels, MaxDimension: defaultMaxDimension, MaxPixelVisits: defaultPixelVisits, MaxOutputBytes: defaultMaxOutputBytes}}
 	if err = os.MkdirAll(c.out, 0755); err != nil {
 		return err
 	}
