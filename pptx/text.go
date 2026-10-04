@@ -419,23 +419,50 @@ func (p *Paragraph) SetLineSpacing(spacing int32) {
 	p.markSet(paraPropLineSpacing)
 }
 
-// SpaceBefore returns the space before the paragraph.
+// emuPerSpacingPoint is the EMU in one hundredth of a point, the unit of
+// a:spcPts: a point is 12700 EMU.
+const emuPerSpacingPoint = 127
+
+// maxSpacingPoints is ST_TextSpacingPoint's largest value, 1584 points.
+const maxSpacingPoints = 158400
+
+// spacingPoints converts a spacing to a:spcPts hundredths of a point,
+// rounded to the nearest, half away from zero, and clamped to the schema's
+// 0 to 158400.
+func spacingPoints(space dml.EMU) int32 {
+	if space <= 0 {
+		return 0
+	}
+	if space >= maxSpacingPoints*emuPerSpacingPoint {
+		return maxSpacingPoints
+	}
+	return int32((space + emuPerSpacingPoint/2) / emuPerSpacingPoint)
+}
+
+// spacingEMU converts a:spcPts hundredths of a point to EMU.
+func spacingEMU(points int32) dml.EMU {
+	return dml.EMU(points) * emuPerSpacingPoint
+}
+
+// SpaceBefore returns the space before the paragraph. Files store it in
+// hundredths of a point, so a value read is a multiple of 127 EMU.
 func (p *Paragraph) SpaceBefore() dml.EMU {
 	return p.spaceBefore
 }
 
-// SetSpaceBefore sets the space before the paragraph.
+// SetSpaceBefore sets the space before the paragraph. It is saved in
+// hundredths of a point, rounded to the nearest, between 0 and 1584 points.
 func (p *Paragraph) SetSpaceBefore(space dml.EMU) {
 	p.spaceBefore = space
 	p.markSet(paraPropSpaceBefore)
 }
 
-// SpaceAfter returns the space after the paragraph.
+// SpaceAfter returns the space after the paragraph; see SpaceBefore.
 func (p *Paragraph) SpaceAfter() dml.EMU {
 	return p.spaceAfter
 }
 
-// SetSpaceAfter sets the space after the paragraph.
+// SetSpaceAfter sets the space after the paragraph; see SetSpaceBefore.
 func (p *Paragraph) SetSpaceAfter(space dml.EMU) {
 	p.spaceAfter = space
 	p.markSet(paraPropSpaceAfter)

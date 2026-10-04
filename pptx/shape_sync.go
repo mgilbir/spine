@@ -485,10 +485,10 @@ func patchParagraphPropsInPlace(node *dml.P, p *Paragraph) {
 		}
 	}
 	if p.isSet(paraPropSpaceBefore) {
-		pp.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: int32(p.spaceBefore)}}
+		pp.SpcBef = &dml.SpcBef{SpcPts: &dml.SpcPts{Val: spacingPoints(p.spaceBefore)}}
 	}
 	if p.isSet(paraPropSpaceAfter) {
-		pp.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: int32(p.spaceAfter)}}
+		pp.SpcAft = &dml.SpcAft{SpcPts: &dml.SpcPts{Val: spacingPoints(p.spaceAfter)}}
 	}
 }
 

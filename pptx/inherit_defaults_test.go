@@ -48,8 +48,8 @@ func TestExplicitSpacingAndRunStyleRoundTrip(t *testing.T) {
 	s := p.AddSlide()
 	para := s.AddTextBox().TextFrame().AddParagraph()
 	para.SetLineSpacing(100000) // explicit 100% is distinct from unset
-	para.SetSpaceBefore(dml.EMU(600))
-	para.SetSpaceAfter(dml.EMU(1200))
+	para.SetSpaceBefore(dml.Points(6))
+	para.SetSpaceAfter(dml.Points(12))
 	run := para.AddRun()
 	run.SetText("styled")
 	run.SetUnderline(enum.UnderlineNone)
@@ -84,11 +84,11 @@ func TestExplicitSpacingAndRunStyleRoundTrip(t *testing.T) {
 	if got.LineSpacing() != 100000 {
 		t.Errorf("LineSpacing() after reopen = %d, want 100000", got.LineSpacing())
 	}
-	if got.SpaceBefore() != dml.EMU(600) {
-		t.Errorf("SpaceBefore() after reopen = %d, want 600", got.SpaceBefore())
+	if got.SpaceBefore() != dml.Points(6) {
+		t.Errorf("SpaceBefore() after reopen = %d, want %d", got.SpaceBefore(), dml.Points(6))
 	}
-	if got.SpaceAfter() != dml.EMU(1200) {
-		t.Errorf("SpaceAfter() after reopen = %d, want 1200", got.SpaceAfter())
+	if got.SpaceAfter() != dml.Points(12) {
+		t.Errorf("SpaceAfter() after reopen = %d, want %d", got.SpaceAfter(), dml.Points(12))
 	}
 	gotRun := got.Runs()[0]
 	if gotRun.Underline() != enum.UnderlineNone {
