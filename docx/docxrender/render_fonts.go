@@ -2,6 +2,7 @@ package docxrender
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/mgilbir/forme/paragraph"
@@ -14,11 +15,17 @@ import (
 type wordFace struct {
 	css  string
 	face *shape.Face
-	// natural is the face's own line height as a multiple of the font size,
-	// computed as forme computes "line-height: normal": ascent, descent and
-	// the line gap, also kept as multiples of the size.
-	natural              float64
-	ascent, descent, gap float64
+	// natural is the face's single line height as a multiple of the font size,
+	// as Word sets it: usWinAscent + usWinDescent where the face states them,
+	// and otherwise as forme computes "line-height: normal" (ascent, descent
+	// and line gap). ascent is where Word puts the baseline below the top of
+	// a single line (usWinAscent, or the line gap and the ascent), also as a
+	// multiple of the size. topPlaced and bottomPlaced say that layout,
+	// setting a line's highest text at its top or its lowest at its bottom,
+	// puts the baseline where Word does: the face's line metrics have Word's
+	// ascent or descent.
+	natural, ascent         float64
+	topPlaced, bottomPlaced bool
 }
 
 // wordFonts resolves the document's font requests through render.Options.Fonts
@@ -64,13 +71,19 @@ func (f *wordFonts) get(family string, bold, italic bool) (*wordFace, error) {
 	}
 	w := &wordFace{css: "f" + strconv.Itoa(len(f.faces)), face: face, natural: 1.2}
 	if top, bottom, upem, ok := paragraph.LineMetrics(face); ok {
+		d := face.Descriptor()
 		gap := 0.0
-		if d := face.Descriptor(); d.Has(shape.MetricLineGap) {
+		if d.Has(shape.MetricLineGap) {
 			gap = float64(d.LineGap)
 		}
 		if h := (top - bottom + gap) / upem; h > 0 {
-			w.natural = h
-			w.ascent, w.descent, w.gap = top/upem, -bottom/upem, gap/upem
+			w.natural, w.ascent = h, (top+gap)/upem
+			w.topPlaced, w.bottomPlaced = gap == 0, gap == 0
+		}
+		if win := float64(d.WinAscent + d.WinDescent); d.Has(shape.MetricWinMetrics) && win > 0 {
+			w.natural, w.ascent = win/upem, float64(d.WinAscent)/upem
+			w.topPlaced = math.Abs(top-float64(d.WinAscent)) < 0.5
+			w.bottomPlaced = math.Abs(-bottom-float64(d.WinDescent)) < 0.5
 		}
 	}
 	f.faces[req] = w

@@ -3,6 +3,7 @@ package docxrender
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/render"
@@ -39,11 +40,14 @@ type wordPara struct {
 	// when it has none; hasText says the block has text.
 	brAt    int
 	hasText bool
-	// shift, shiftMin and shiftMax place the block's lines where Word puts
-	// them in their line boxes: the shift for the tallest run, and the range
-	// of every run's own. seenRun says a run has been sized.
-	shift, shiftMin, shiftMax, tallest float64
-	seenRun                            bool
+	// place is the line placement of the block's lines, from its tallest run
+	// (tallest is that run's line height); misplaced says a run would need
+	// another placement, or one layout cannot give.
+	place     string
+	tallest   float64
+	misplaced bool
+	// inlinePics says the block has an inline picture.
+	inlinePics bool
 	// tabMode says the paragraph sets its own tabs (render_tabs.go): tabs and
 	// manual breaks become tokens, collected in tabItems for the current block.
 	tabMode  bool
@@ -639,30 +643,16 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		}
 	}
 	css := p.blockCSS()
-	shiftCSS := ""
-	if p.seenRun {
-		if p.shiftMax-p.shiftMin > 1 {
-			if err := p.r.approximate("line placement with mixed font sizes"); err != nil {
-				return err
-			}
-		}
-		if math.Abs(p.shift) > 0.001 {
-			shiftCSS = "position:relative;top:" + wordPx(p.shift)
-		}
-		p.seenRun = false
+	if p.inlinePics && p.place != "" && p.place != "top" && p.place != "bottom" && p.place != "0.8" {
+		p.misplaced = true
 	}
-	var inner string
-	switch {
-	case shiftCSS != "" && p.lead.Len() > 0:
-		// The floats stay put; the lines move inside a nested element, which
-		// inherits the paragraph's indents and alignment.
-		inner = `<div style="` + css + `">` + p.lead.String() + `<div style="` + shiftCSS + `">` + p.sb.String() + `</div></div>`
-	case shiftCSS != "":
-		css += ";" + shiftCSS
-		fallthrough
-	default:
-		inner = `<div style="` + css + `">` + p.lead.String() + p.sb.String() + `</div>`
+	if p.misplaced {
+		if err := p.r.approximate("line placement of mixed fonts, of a font whose line metrics differ from its Windows metrics beside an inline picture or at an at-least line height"); err != nil {
+			return err
+		}
 	}
+	p.place, p.tallest, p.misplaced, p.inlinePics = "", 0, false, false
+	inner := `<div style="` + css + `">` + p.lead.String() + p.sb.String() + `</div>`
 	if err := p.r.charge(1); err != nil {
 		return err
 	}
@@ -776,6 +766,9 @@ func (p *wordPara) blockCSSAt(first float64) string {
 	}
 	c.add("font-size", "1px")
 	c.add("line-height", "0")
+	if p.place != "" {
+		c.add("-forme-line-placement", p.place)
+	}
 	c.add("white-space", "pre-wrap")
 	if p.f.cell != nil && p.f.cell.autofit {
 		c.add("overflow-wrap", "normal")
@@ -1026,14 +1019,47 @@ func wordFamily(rp *wordRPr, slot int) string {
 	return "Times New Roman"
 }
 
+// placement is where Word puts a face's text in its lines, as layout's line
+// placement, or "" when layout cannot put it there. Word's PDF output shows a
+// multiple's extra space below the text (the baseline at the face's Word
+// ascent: a fixed fraction of the line, whatever the size), an at-least
+// height's above it (the lowest text at the bottom) and an exact height's
+// baseline four fifths of the way down. Layout places each line by its own
+// tallest text, so sizes of one face are placed line by line.
+func (p *wordPara) placement(face *wordFace) string {
+	mult := 1.0
+	if ln := p.ppr.line; ln.set {
+		switch ln.v.rule {
+		case "exact":
+			return "0.8"
+		case "atLeast":
+			if !face.bottomPlaced {
+				return ""
+			}
+			return "bottom"
+		}
+		mult = ln.v.val
+	}
+	if face.topPlaced {
+		// The highest text's ascent at the top: right for pictures on the
+		// line too.
+		return "top"
+	}
+	if face.natural <= 0 || mult <= 0 {
+		return ""
+	}
+	// The baseline a fixed fraction down: right for the face's text, not
+	// for a picture on the line (finishBlock reports that).
+	return strconv.FormatFloat(math.Min(1, face.ascent/(face.natural*mult)), 'f', 6, 64)
+}
+
 // lineHeight is the line height in pixels a span of a face and size
 // contributes under the paragraph's line spacing.
 func (p *wordPara) lineHeight(face *wordFace, size float64) float64 {
 	natural := face.natural * size
-	h, rule := natural, "auto"
+	h := natural
 	if ln := p.ppr.line; ln.set {
-		rule = ln.v.rule
-		switch rule {
+		switch ln.v.rule {
 		case "exact":
 			h = ln.v.val
 		case "atLeast":
@@ -1042,37 +1068,17 @@ func (p *wordPara) lineHeight(face *wordFace, size float64) float64 {
 			h = natural * ln.v.val
 		}
 	}
-	p.place(face, size, h, rule)
+	place := p.placement(face)
+	switch {
+	case place == "":
+		p.misplaced = true
+	case p.place == "" || h > p.tallest:
+		if p.place != "" && p.place != place {
+			p.misplaced = true
+		}
+		p.place, p.tallest = place, h
+	case place != p.place:
+		p.misplaced = true
+	}
 	return h
-}
-
-// place notes how far a span's text must move down for its baseline to sit
-// where Word puts it in a line h pixels high. Layout centres the extra space
-// of a line box around the text (half-leading); Word, as measured against its
-// PDF output, draws the line gap above the ascent and then puts the extra
-// space of a multiple below the text, the extra space of an at-least height
-// above it, and the baseline of an exact height at four fifths of the line.
-func (p *wordPara) place(face *wordFace, size, h float64, rule string) {
-	asc, content, gap := face.ascent*size, (face.ascent+face.descent)*size, face.gap*size
-	if content <= 0 {
-		return
-	}
-	css := (h-content)/2 + asc
-	var word float64
-	switch rule {
-	case "exact":
-		word = 0.8 * h
-	case "atLeast":
-		word = h - face.natural*size + gap + asc
-	default:
-		word = gap + asc
-	}
-	d := word - css
-	if !p.seenRun {
-		p.seenRun, p.shiftMin, p.shiftMax, p.tallest = true, d, d, -1
-	}
-	p.shiftMin, p.shiftMax = math.Min(p.shiftMin, d), math.Max(p.shiftMax, d)
-	if h > p.tallest {
-		p.tallest, p.shift = h, d
-	}
 }

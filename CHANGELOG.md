@@ -153,6 +153,13 @@
 
 ### Changed
 
+- docx: lines are set by the font's Windows metrics (`usWinAscent` +
+  `usWinDescent`), as Word sets them, and placed line by line with forme's
+  line placement, so a paragraph of mixed sizes is drawn exactly where it was
+  approximated. Fonts whose line metrics differ from their Windows metrics,
+  such as Noto Sans, now get Word's line height (about 11% taller for Noto
+  Sans).
+
 - pptx: pattern fills (`a:pattFill`) are drawn exactly, in strict mode too,
   from bitmaps measured from PowerPoint's rendering of all 54 presets. A
   pattern pixel is one point (4/3 CSS pixels, not one), and the tiling is

@@ -866,11 +866,15 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   paragraph keeps the paragraph mark with it, so no empty line opens the next
   page; with `contextualSpacing` and HTML automatic spacing
   (14 pt); line spacing `auto` (a multiple of the font's line height, 240ths of a
-  line), `exact` and `atLeast`, with the text placed in its line as Word places
-  it (the line gap above the ascent, a multiple's extra space below the text,
-  an at-least height's above it, an exact height's baseline at four fifths of
-  the line; measured against Word's PDF output), approximated in a paragraph
-  whose runs' sizes would place them differently; `pageBreakBefore`, `keepNext` (a chain taller
+  line), `exact` and `atLeast`. A font's line height is its Windows ascent and
+  descent (`usWinAscent` + `usWinDescent`), as Word sets lines, or its ascent,
+  descent and line gap when it states none. Text is placed in its line as Word
+  places it, line by line by the line's tallest text (measured against Word's
+  PDF output): a multiple's extra space below the text (the baseline at the
+  Windows ascent), an at-least height's above it, an exact height's baseline
+  at four fifths of the line. Approximated: fonts of different proportions on
+  one line, and a font whose own ascent or descent is not its Windows one
+  beside an inline picture or at an at-least height; `pageBreakBefore`, `keepNext` (a chain taller
   than a page is ignored), `keepLines`, `widowControl` (on by default; the first
   two lines stay together and two lines move to the next page); manual page and
   column breaks (the text after a break is the paragraph's continuation on the
