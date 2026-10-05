@@ -321,22 +321,33 @@ func TestPagesAreSafeForConcurrentUse(t *testing.T) {
 }
 
 func FuzzDocxRender(f *testing.F) {
-	seed := wordTestDoc(f, wordTestPara("", wordTestRun("", "AA"))+wordTestPage, wordTestParts{styles: wordTestStyles})
+	hdr := wordTestHeader(wordTestPara("", wordTestRun("", "H"), hfField("PAGE", "1"), hfField("NUMPAGES", "1")))
+	ftr := wordTestFooter(wordTestPara("", wordTestRun("", "F"), `<w:r><w:pgNum/></w:r>`))
+	seed := wordTestDoc(f, wordTestPara("", wordTestRun("", "AA"))+hfSect(hfRef("header", "default", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1), 0, 0),
+		wordTestParts{styles: wordTestStyles, extra: map[string]wordTestExtra{"word/header1.xml": hdr, "word/footer1.xml": ftr}})
 	valid, err := seed.SaveBytes()
 	if err != nil {
 		f.Fatal(err)
 	}
 	face := wordTestFace(f)
-	const part, stylesPart = "word/document.xml", "word/styles.xml"
+	const part, stylesPart, hdrPart = "word/document.xml", "word/styles.xml", "word/header1.xml"
 	styles := fuzzseed.ZipEntry(valid, stylesPart)
-	f.Add(fuzzseed.ZipEntry(valid, part), styles)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>AA</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:sectPr><w:pgSz w:w="2147483647" w:h="2147483647"/></w:sectPr></w:body></w:document>`), styles)
+	header := fuzzseed.ZipEntry(valid, hdrPart)
+	f.Add(fuzzseed.ZipEntry(valid, part), styles, header)
+	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>AA</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header)
+	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:sectPr><w:pgSz w:w="2147483647" w:h="2147483647"/></w:sectPr></w:body></w:document>`), styles, header)
 	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="A"/><w:keepNext/><w:ind w:left="9999999" w:hanging="1"/><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:pPr><w:r><w:rPr><w:u w:val="double"/><w:vertAlign w:val="superscript"/></w:rPr><w:t>A</w:t><w:br w:type="page"/><w:tab/><w:t>B</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`),
-		[]byte(`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="A"><w:basedOn w:val="A"/></w:style></w:styles>`))
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="3000"/><w:tab w:val="center" w:pos="1500"/><w:tab w:val="clear" w:pos="1500"/></w:tabs><w:ind w:left="361" w:hanging="200"/></w:pPr><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:tab/><w:t>C</w:t><w:tab/></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles)
-	f.Fuzz(func(t *testing.T, data, stylesData []byte) {
-		if len(data) > 65536 || len(stylesData) > 65536 {
+		[]byte(`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="A"><w:basedOn w:val="A"/></w:style></w:styles>`), header)
+	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="3000"/><w:tab w:val="center" w:pos="1500"/><w:tab w:val="clear" w:pos="1500"/></w:tabs><w:ind w:left="361" w:hanging="200"/></w:pPr><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:tab/><w:t>C</w:t><w:tab/></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header)
+	// Headers, footers and page numbering.
+	hdrDoc := func(extra string) []byte {
+		return []byte(`<w:document ` + wordTestNS + `><w:body><w:p><w:r><w:t>A</w:t></w:r></w:p><w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:t>B</w:t></w:r></w:p>` + hfSect(extra, 6, 6) + `</w:body></w:document>`)
+	}
+	f.Add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+hfRef("header", "first", hfRIDHeader1)+hfRef("header", "even", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1)+`<w:titlePg/><w:pgNumType w:start="-3" w:fmt="upperRoman"/>`), styles, header)
+	f.Add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+`<w:pgNumType w:fmt="lowerLetter" w:start="2147483647"/>`), styles, []byte(`<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:fldSimple w:instr="PAGE \* ROMAN \# 0"><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>NUMPAGES</w:instrText><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>`))
+	f.Add(hdrDoc(hfRef("header", "default", "rId999")+hfRef("footer", "default", hfRIDHeader1)), styles, header)
+	f.Fuzz(func(t *testing.T, data, stylesData, hdrData []byte) {
+		if len(data) > 65536 || len(stylesData) > 65536 || len(hdrData) > 65536 {
 			t.Skip()
 		}
 		wrapped := fuzzseed.ReplaceZipEntry(valid, part, data)
@@ -345,6 +356,9 @@ func FuzzDocxRender(f *testing.F) {
 		}
 		wrapped = fuzzseed.ReplaceZipEntry(wrapped, stylesPart, stylesData)
 		if wrapped == nil {
+			t.Fatal("seed")
+		}
+		if wrapped = fuzzseed.ReplaceZipEntry(wrapped, hdrPart, hdrData); wrapped == nil {
 			t.Fatal("seed")
 		}
 		doc, err := docx.OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))

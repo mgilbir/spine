@@ -184,13 +184,13 @@ func TestNonASCIIAndEastAsianSlot(t *testing.T) {
 func TestFieldsDrawCachedResults(t *testing.T) {
 	body := wordTestBody(
 		wordTestPara("",
-			wordTestRun("", "page "),
+			wordTestRun("", "date "),
 			`<w:r><w:fldChar w:fldCharType="begin"/></w:r>`,
-			`<w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>`,
+			`<w:r><w:instrText xml:space="preserve"> DATE </w:instrText></w:r>`,
 			`<w:r><w:fldChar w:fldCharType="separate"/></w:r>`,
 			wordTestRun("", "7"),
 			`<w:r><w:fldChar w:fldCharType="end"/></w:r>`,
-			`<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>9</w:t></w:r></w:fldSimple>`,
+			`<w:fldSimple w:instr=" AUTHOR "><w:r><w:t>9</w:t></w:r></w:fldSimple>`,
 			`<w:hyperlink r:id="rId9"><w:r><w:t>link</w:t></w:r></w:hyperlink>`,
 		),
 	)
@@ -199,7 +199,7 @@ func TestFieldsDrawCachedResults(t *testing.T) {
 	for _, tx := range p.texts(1) {
 		got += tx.text
 	}
-	if got != "page 79link" || strings.Contains(got, "PAGE") {
+	if got != "date 79link" || strings.Contains(got, "DATE") {
 		t.Errorf("text %q", got)
 	}
 }

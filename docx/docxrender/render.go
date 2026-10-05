@@ -89,6 +89,10 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 	}
 	r.fonts = newWordFonts(r)
 	d := view.DocumentOf(document)
+	r.hf = &wordHF{parts: map[string]*wordHFPart{}}
+	if d != nil {
+		r.hf.source = d.HdrFtrXML
+	}
 	if d == nil || d.MainXML == nil {
 		return nil, fmt.Errorf("%w: document", render.ErrInvalid)
 	}
@@ -122,6 +126,7 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 	if err != nil {
 		return nil, err
 	}
+	wordInheritHF(secs)
 	laid := make([]*wordLaidSection, 0, len(secs))
 	for i, s := range secs {
 		if i > 0 {
@@ -133,7 +138,7 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 		}
 		laid = append(laid, l)
 	}
-	pages, err := r.paginate(laid)
+	pages, err := r.paginateStable(laid)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +151,47 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 		}
 	}
 	return &Pages{pages: pages, limits: limits}, nil
+}
+
+// paginateStable paginates the sections, repeating while the headers and
+// footers the pagination assumed (their heights depend on the page count when
+// they show NUMPAGES or SECTIONPAGES) are not those of the result. The
+// repetition is bounded; where it does not settle the last pagination is kept
+// and reported as approximated.
+func (r *wordRenderer) paginateStable(laid []*wordLaidSection) ([]*wordPage, error) {
+	env := &wordEnv{total: 1, sec: make([]int, len(laid))}
+	for i := range env.sec {
+		env.sec[i] = 1
+	}
+	for round := 0; ; round++ {
+		pages, err := r.paginate(laid, env)
+		if err != nil {
+			return nil, err
+		}
+		if !r.hf.totals {
+			return pages, nil
+		}
+		next := measureEnv(laid, pages)
+		if next.equal(env) {
+			return pages, nil
+		}
+		// Other values may leave every height as it was: then the pagination
+		// stands and only the numbers drawn change.
+		same, err := r.refurnish(pages, next)
+		if err != nil {
+			return nil, err
+		}
+		if same {
+			return pages, nil
+		}
+		if round+1 >= wordHFRounds {
+			if err = r.approximate("page count that changes the size of headers or footers"); err != nil {
+				return nil, err
+			}
+			return pages, nil
+		}
+		env = next
+	}
 }
 
 // loadParts reads the theme, settings and styles parts.

@@ -190,9 +190,10 @@ func wordRegisterInline(key string, fn wordInlineFunc) {
 
 func init() {
 	wordRegisterInline("r", (*wordPara).run)
-	for _, k := range []string{"hyperlink", "smartTag", "fldSimple", "customXml"} {
+	for _, k := range []string{"hyperlink", "smartTag", "customXml"} {
 		wordRegisterInline(k, func(p *wordPara, n *wordNode) error { return p.children(n) })
 	}
+	wordRegisterInline("fldSimple", (*wordPara).simpleField)
 	wordRegisterInline("sdt", func(p *wordPara, n *wordNode) error {
 		if c := n.child("sdtContent"); c != nil {
 			return p.children(c)
@@ -215,6 +216,45 @@ func init() {
 	for _, k := range []string{"bookmarkStart", "bookmarkEnd", "proofErr", "permStart", "permEnd", "moveFromRangeStart", "moveFromRangeEnd", "moveToRangeStart", "moveToRangeEnd"} {
 		wordRegisterInline(k, func(*wordPara, *wordNode) error { return nil })
 	}
+}
+
+// simpleField translates a w:fldSimple: its content is the result.
+func (p *wordPara) simpleField(n *wordNode) error {
+	f := p.f
+	if len(f.fields) >= 64 {
+		return fmt.Errorf("%w: nested fields", render.ErrLimit)
+	}
+	instr, _ := n.attr("instr")
+	if len(instr) > wordMaxInstr {
+		instr = instr[:wordMaxInstr]
+	}
+	s := wordFieldState{instr: instr}
+	if err := f.startFieldResult(&s); err != nil {
+		return err
+	}
+	s.result = true
+	f.fields = append(f.fields, s)
+	err := p.children(n)
+	s = f.fields[len(f.fields)-1]
+	f.fields = f.fields[:len(f.fields)-1]
+	if err != nil {
+		return err
+	}
+	if s.subst && !s.done && f.visible() {
+		// No result runs: draw the value in the paragraph's formatting.
+		eff, err := p.r.styles.runProps(p.paraRPr, wordRPr{})
+		if err != nil {
+			return err
+		}
+		if !eff.vanish.v {
+			rn := &wordRun{p: p, rp: eff, cur: -1}
+			if err = rn.emitString(s.text); err != nil {
+				return err
+			}
+			return rn.closeSpan()
+		}
+	}
+	return nil
 }
 
 // run translates a w:r.
@@ -330,9 +370,19 @@ func init() {
 		return rn.put(rn.slotForPiece(), "\u00AD", false)
 	})
 	wordRegisterRun("fldChar", (*wordRun).fieldChar)
-	for _, k := range []string{"instrText", "delText", "lastRenderedPageBreak", "fldData"} {
+	for _, k := range []string{"delText", "lastRenderedPageBreak", "fldData"} {
 		wordRegisterRun(k, func(*wordRun, *wordNode) error { return nil })
 	}
+	wordRegisterRun("instrText", func(rn *wordRun, n *wordNode) error {
+		f := rn.p.f
+		if len(f.fields) == 0 {
+			return nil
+		}
+		if s := &f.fields[len(f.fields)-1]; !s.result && len(s.instr) < wordMaxInstr {
+			s.instr += n.text
+		}
+		return nil
+	})
 }
 
 // slotForPiece is the font slot for a character that has no script, such as a
@@ -349,6 +399,15 @@ func (rn *wordRun) text(n *wordNode) error {
 	if rn.hidden() {
 		return nil
 	}
+	if s := rn.p.f.substField(); s != nil {
+		// The result of a page-dependent field is replaced by its value, drawn
+		// once.
+		if s.done {
+			return nil
+		}
+		s.done = true
+		return rn.emitString(s.text)
+	}
 	s := n.text
 	preserve := false
 	for _, a := range n.attrs {
@@ -359,7 +418,11 @@ func (rn *wordRun) text(n *wordNode) error {
 	if !preserve {
 		s = strings.Trim(s, " \t\r\n")
 	}
-	s = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+	return rn.emitString(strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s))
+}
+
+// emitString draws text in the run's formatting, by font slot.
+func (rn *wordRun) emitString(s string) error {
 	if s == "" {
 		return nil
 	}
@@ -419,11 +482,28 @@ func (rn *wordRun) fieldChar(n *wordNode) error {
 		f.fields = append(f.fields, wordFieldState{})
 	case "separate":
 		if len(f.fields) > 0 {
-			f.fields[len(f.fields)-1].result = true
+			s := &f.fields[len(f.fields)-1]
+			if !s.result {
+				s.result = true
+				if err := f.startFieldResult(s); err != nil {
+					return err
+				}
+			}
 		}
 	case "end":
 		if len(f.fields) > 0 {
+			s := f.fields[len(f.fields)-1]
 			f.fields = f.fields[:len(f.fields)-1]
+			if !s.result {
+				// A field without a result: a page-dependent one still
+				// draws its value, in the formatting of the closing run.
+				if err := f.startFieldResult(&s); err != nil {
+					return err
+				}
+			}
+			if s.subst && !s.done && !rn.hidden() {
+				return rn.emitString(s.text)
+			}
 		}
 	default:
 		return fmt.Errorf("%w: w:fldChar", render.ErrInvalid)

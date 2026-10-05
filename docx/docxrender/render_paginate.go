@@ -46,24 +46,40 @@ type wordPage struct {
 	sec    *wordLaidSection
 	chunks []*wordChunk
 	ops    []layout.Op
+	// num is the page number the page shows, in the section's number format;
+	// first marks the first page a section opened (the page titlePg selects
+	// the first-page header and footer for).
+	num   int
+	first bool
+	// hdr and ftr are the page's header and footer, nil when it has none.
+	hdr, ftr *wordHFLaid
+	// bodyTop and bodyBottom are the text area's edges from the top of the
+	// page: the margins, moved in by a header or footer that reaches past them.
+	bodyTop, bodyBottom float64
 }
+
+// bodyH is the height of the page's text area.
+func (p *wordPage) bodyH() float64 { return p.bodyBottom - p.bodyTop }
 
 // wordPaginator places blocks on pages.
 type wordPaginator struct {
 	r        *wordRenderer
 	pages    []*wordPage
 	chunk    *wordChunk
-	height   float64 // content height of the current page
-	has      bool    // content has been placed on the current page
+	has      bool // content has been placed on the current page
 	maxPages int
+	env      *wordEnv
 }
 
 const wordEps = 1.0 / 128
 
 // wordPaginate cuts laid out sections into pages.
-func (r *wordRenderer) paginate(secs []*wordLaidSection) ([]*wordPage, error) {
-	pg := &wordPaginator{r: r, maxPages: r.limits.MaxOperations}
+func (r *wordRenderer) paginate(secs []*wordLaidSection, env *wordEnv) ([]*wordPage, error) {
+	pg := &wordPaginator{r: r, maxPages: r.limits.MaxOperations, env: env}
 	var prev *wordLaidSection
+	for _, sec := range secs {
+		sec.chunks = nil
+	}
 	for _, sec := range secs {
 		if err := r.ctx.Err(); err != nil {
 			return nil, err
@@ -88,13 +104,40 @@ func (r *wordRenderer) paginate(secs []*wordLaidSection) ([]*wordPage, error) {
 	return pg.pages, nil
 }
 
-// openPage starts a new page whose first chunk draws section layout from y0.
-func (pg *wordPaginator) openPage(sec *wordLaidSection, y0 float64) error {
+// newPage appends a page of the section's geometry, numbered and furnished
+// with its header and footer. first marks the first page of a section.
+func (pg *wordPaginator) newPage(sec *wordLaidSection, first bool) (*wordPage, error) {
 	if len(pg.pages) >= pg.maxPages {
-		return render.ErrLimit
+		return nil, render.ErrLimit
 	}
-	page := &wordPage{w: sec.props.w, h: sec.props.h, sec: sec}
+	page := &wordPage{w: sec.props.w, h: sec.props.h, sec: sec, first: first}
+	page.num = pg.nextNumber(sec, first)
+	if err := pg.r.furnish(page, pg.env); err != nil {
+		return nil, err
+	}
 	pg.pages = append(pg.pages, page)
+	return page, nil
+}
+
+// nextNumber is the number of the page about to be added: a section that
+// restarts numbering starts at its value, and other pages follow the page
+// before (the first page of a document is 1).
+func (pg *wordPaginator) nextNumber(sec *wordLaidSection, first bool) int {
+	switch {
+	case first && sec.props.hasStart:
+		return sec.props.pgStart
+	case len(pg.pages) == 0:
+		return 1
+	}
+	return pg.pages[len(pg.pages)-1].num + 1
+}
+
+// openPage starts a new page whose first chunk draws section layout from y0.
+func (pg *wordPaginator) openPage(sec *wordLaidSection, y0 float64, first bool) error {
+	page, err := pg.newPage(sec, first)
+	if err != nil {
+		return err
+	}
 	pg.addChunk(sec, page, y0, 0)
 	pg.has = false
 	return nil
@@ -105,23 +148,22 @@ func (pg *wordPaginator) addChunk(sec *wordLaidSection, page *wordPage, y0, dest
 	page.chunks = append(page.chunks, c)
 	sec.chunks = append(sec.chunks, c)
 	pg.chunk = c
-	pg.height = sec.props.contentH()
 }
+
+// avail is the height of the current page's text area.
+func (pg *wordPaginator) avail() float64 { return pg.chunk.page.bodyH() }
 
 // blankPage appends a page with nothing on it.
 func (pg *wordPaginator) blankPage(sec *wordLaidSection) error {
-	if len(pg.pages) >= pg.maxPages {
-		return render.ErrLimit
-	}
-	pg.pages = append(pg.pages, &wordPage{w: sec.props.w, h: sec.props.h, sec: sec})
-	return nil
+	_, err := pg.newPage(sec, false)
+	return err
 }
 
 // startSection begins a section according to its break type.
 func (pg *wordPaginator) startSection(sec, prev *wordLaidSection) error {
 	typ := sec.props.typ
 	if prev == nil {
-		return pg.openPage(sec, 0)
+		return pg.openPage(sec, 0, true)
 	}
 	if typ == "continuous" {
 		p, c := prev.props, sec.props
@@ -130,25 +172,25 @@ func (pg *wordPaginator) startSection(sec, prev *wordLaidSection) error {
 			if err := pg.r.approximate("continuous section break between different page geometries"); err != nil {
 				return err
 			}
-		} else if used := pg.chunk.dest + pg.chunk.end - pg.chunk.y0; used < pg.height-wordEps {
+		} else if used := pg.chunk.dest + pg.chunk.end - pg.chunk.y0; used < pg.avail()-wordEps {
 			pg.addChunk(sec, pg.chunk.page, 0, used)
 			return nil
 		}
 		typ = "nextPage"
 	}
-	// The next page's physical number decides whether an even or odd page
+	// The number the next page shows decides whether an even or odd page
 	// break needs a blank page first.
-	next := len(pg.pages) + 1
+	next := pg.nextNumber(sec, true)
 	if (typ == "oddPage" && next%2 == 0) || (typ == "evenPage" && next%2 == 1) {
 		if err := pg.blankPage(sec); err != nil {
 			return err
 		}
 	}
-	return pg.openPage(sec, 0)
+	return pg.openPage(sec, 0, true)
 }
 
 // dest maps a section y to the page y of the current chunk.
-func (pg *wordPaginator) limitY() float64 { return pg.chunk.y0 + (pg.height - pg.chunk.dest) }
+func (pg *wordPaginator) limitY() float64 { return pg.chunk.y0 + (pg.avail() - pg.chunk.dest) }
 
 func (pg *wordPaginator) place(upTo float64) {
 	if upTo > pg.chunk.end {
@@ -217,7 +259,7 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 	if b.pageBreakBefore && pg.has {
 		// A manual break drops the space before at the top of the new page,
 		// as Word's PDF output shows.
-		if err := pg.openPage(sec, b.units[0].top); err != nil {
+		if err := pg.openPage(sec, b.units[0].top, false); err != nil {
 			return err
 		}
 	}
@@ -231,8 +273,8 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 		}
 		remaining := n - start
 		if fit == remaining {
-			if start == 0 && b.keepNext && chain.need[i] > limit+wordEps && pg.has && chain.need[i]-chain.head[i] <= sec.props.contentH() {
-				if err := pg.openPage(sec, b.units[0].top); err != nil {
+			if start == 0 && b.keepNext && chain.need[i] > limit+wordEps && pg.has && chain.need[i]-chain.head[i] <= pg.avail() {
+				if err := pg.openPage(sec, b.units[0].top, false); err != nil {
 					return err
 				}
 				continue
@@ -241,7 +283,7 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 			return nil
 		}
 		if start == 0 && b.keepLines && pg.has {
-			if err := pg.openPage(sec, b.units[0].top); err != nil {
+			if err := pg.openPage(sec, b.units[0].top, false); err != nil {
 				return err
 			}
 			continue
@@ -257,7 +299,7 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 		}
 		if take == 0 {
 			if pg.has {
-				if err := pg.openPage(sec, b.units[start].top); err != nil {
+				if err := pg.openPage(sec, b.units[start].top, false); err != nil {
 					return err
 				}
 				continue
@@ -269,7 +311,7 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 		pg.place(b.units[start+take-1].bottom)
 		start += take
 		if start < n {
-			if err := pg.openPage(sec, b.units[start].top); err != nil {
+			if err := pg.openPage(sec, b.units[start].top, false); err != nil {
 				return err
 			}
 		}
@@ -358,7 +400,7 @@ type wordShift struct{ x, y style.Unit }
 // coordinates.
 func (c *wordChunk) shift() (wordShift, error) {
 	x, ok := style.FromPx(c.sec.props.left)
-	y, ok2 := style.FromPx(c.sec.props.top + c.dest - c.y0)
+	y, ok2 := style.FromPx(c.page.bodyTop + c.dest - c.y0)
 	if !ok || !ok2 {
 		return wordShift{}, render.ErrLimit
 	}

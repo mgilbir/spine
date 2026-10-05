@@ -59,7 +59,6 @@ var wordLeftOutRuns = []struct{ key, what string }{
 	{"annotationRef", "comments"},
 	{"sym", "symbol characters"},
 	{"ptab", "absolute position tabs"},
-	{"pgNum", "page number placeholders"},
 	{"dayShort", "date placeholders"},
 	{"dayLong", "date placeholders"},
 	{"monthShort", "date placeholders"},

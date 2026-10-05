@@ -1,8 +1,12 @@
 package docx
 
 import (
+	"path"
+	"strings"
+
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/docx/internal/view"
+	"github.com/mgilbir/spine/opc"
 )
 
 // The page renderer, docx/docxrender, reads the model through
@@ -29,6 +33,19 @@ func (d *Document) view() *view.Document {
 			}
 			return marshalSettingsXML(d.settings)
 		},
+		FootnotesXML: func() ([]byte, error) {
+			if d.footnotes == nil {
+				return nil, nil
+			}
+			return marshalFootnotesXML(d.footnotes)
+		},
+		EndnotesXML: func() ([]byte, error) {
+			if d.endnotes == nil {
+				return nil, nil
+			}
+			return marshalEndnotesXML(d.endnotes)
+		},
+		HdrFtrXML: d.hdrFtrXML,
 		ThemeXML: func() ([]byte, error) {
 			if _, data := d.regeneratedThemePart(); data != nil {
 				return data, nil
@@ -36,4 +53,30 @@ func (d *Document) view() *view.Document {
 			_, data := d.themePart()
 			return data, nil
 		}}
+}
+
+// hdrFtrXML serializes the header or footer part the main part references with
+// relationship id rid.
+func (d *Document) hdrFtrXML(rid string) ([]byte, error) {
+	var target string
+	for _, rel := range d.relationships[d.mainPart()] {
+		if rel.ID == rid && (rel.Type == opc.RelTypeHeader || rel.Type == opc.RelTypeFooter) && rel.TargetMode != opc.TargetModeExternal {
+			target = rel.Target
+			break
+		}
+	}
+	if target == "" {
+		return nil, nil
+	}
+	name := target
+	if !strings.HasPrefix(name, "/") {
+		name = path.Join(path.Dir(d.mainPart()), name)
+	}
+	if hp, ok := d.headers[name]; ok && hp.hdr != nil {
+		return marshalHdrFtrXML(hp.hdr, "hdr")
+	}
+	if fp, ok := d.footers[name]; ok && fp.ftr != nil {
+		return marshalHdrFtrXML(fp.ftr, "ftr")
+	}
+	return nil, nil
 }

@@ -78,8 +78,18 @@
   orphan control and page breaks; and runs with several fonts and slopes,
   sizes, colours, underline, strikethrough, caps, highlight, shading,
   superscript and subscript, line breaks, non-ASCII text, and field results and
-  hyperlinks. Tables, numbering, images, headers and footers and the rest are
+  hyperlinks. Tables, numbering, images and the rest are
   refused in strict mode and left out, with a warning, in best effort.
+- docxrender: headers and footers. `default`, `first` and `even` types with
+  `titlePg` and `evenAndOddHeaders`, inherited from the previous section, drawn
+  at the `pgMar` header and footer distances; a header or footer taller than the
+  margin reduces the text area, and pagination uses the reduced height.
+  `PAGE`, `NUMPAGES`, `SECTIONPAGES`, `SECTION` and `pgNum` show real values
+  with `pgNumType` restarts and formats (decimal, Roman, letters, ...); even and
+  odd section breaks follow the displayed page number. Pagination repeats
+  (bounded) when the page count changes a header's height. The strict and
+  best-effort rules apply as elsewhere: formats and switches that are not drawn
+  exactly are reported as approximated.
 - docxrender: custom tab stops (left, center and right, with dot, hyphen and
   underscore leaders, inherited and cleared through styles), and default stops
   measured from the page margin in indented paragraphs, as Word does. forme has

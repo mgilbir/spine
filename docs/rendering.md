@@ -811,8 +811,8 @@ returns `render.ErrInvalid` wrapping `docxrender.ErrPageOutOfRange`). `Pages`
 is immutable and safe for concurrent use. `docxrender.PreparePage(ctx, document, n,
 opts)` is `Prepare` followed by `Page` and repeats the layout on every call;
 `spine-render` uses `Prepare`. The document is never saved or changed, and
-unsaved edits are drawn. Physical-page numbering is unrelated to visible
-page-number fields.
+unsaved edits are drawn. `Count` and `Page` are physical pages; the number a page
+shows (`PAGE`) follows the sections' `w:pgNumType`.
 
 ### How a document is drawn
 
@@ -844,8 +844,9 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 - **Sections.** Page size and margins (and a gutter, added to the left margin)
   per section; section breaks `nextPage`, `continuous` (when page size and
   top/bottom margins match; a different geometry starts a page and is reported as
-  approximated), `evenPage` and `oddPage` (physical page numbers, with a blank
-  page where needed). A section without an explicit page size or margins fails;
+  approximated), `evenPage` and `oddPage` (by the page number the next page
+  shows, with a blank page where needed; a blank page is numbered and has a
+  header and footer). A section without an explicit page size or margins fails;
   best effort draws it on Letter with one-inch margins, the page Word's US Normal
   template sets, and reports it.
 - **Styles.** Document defaults; paragraph and character styles with `basedOn`
@@ -895,9 +896,33 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   kerning are disabled unless asked for, matching Word's default.
   Text is drawn in the scripts forme shapes; characters the supplied fonts lack
   fail (`render.ErrUnsupported`).
+- **Headers and footers.** `w:headerReference` and `w:footerReference` of the
+  types `default`, `first` (with `w:titlePg`, on the first page a section opens)
+  and `even` (with `w:evenAndOddHeaders`, by the displayed page number); a type
+  a section does not reference is inherited from the previous section, and one
+  nobody defines is blank. The content is translated by the body's code
+  (paragraphs and every other block kind the profile draws), laid out at the
+  section's text width, and drawn from the `w:pgMar` header and footer
+  distances. A header that reaches past the top margin moves the text area down,
+  and a footer past the bottom margin moves it up, and pagination uses the
+  reduced height. Blank pages inserted for even and odd section breaks have
+  them too.
+- **Page numbers.** `w:pgNumType` `start` (restart at the section's first page)
+  and `fmt` (`decimal`, `decimalZero`, `upperRoman`, `lowerRoman`,
+  `upperLetter`, `lowerLetter`, `chicago`). In headers and footers `PAGE`,
+  `NUMPAGES`, `SECTIONPAGES` and `SECTION` fields and the `w:pgNum` placeholder
+  show the real values, in the section's format for `PAGE` and with the
+  `\* Arabic`, `roman`, `ROMAN`, `alphabetic` and `ALPHABETIC` switches
+  (`MERGEFORMAT` is accepted). `NUMPAGES` and `SECTIONPAGES` are only known
+  after pagination, and the page count can change a header's height (a wider
+  number wraps): pagination is repeated, at most four times, while the heights
+  it assumed differ from the result; where it does not settle the last
+  pagination is kept and reported as approximated. Other fields in headers
+  and footers show their cached result.
 - **Fields and links.** The cached result of simple and complex fields, across
   paragraphs, is drawn and the instruction is not; hyperlink text is drawn with
-  its run formatting.
+  its run formatting. In the body the cached result of `PAGE` and the other
+  page-number fields is drawn, as Word saved it.
 - Content controls, smart tags and custom XML wrappers draw their content.
 
 ### Drawn approximately
@@ -919,13 +944,16 @@ applied); tracked changes (insertions shown, deletions dropped, as the final
 text); settings that change layout and are not modelled (mirrored margins,
 automatic hyphenation, book fold, ...); multiple text columns and the document
 grid (laid out as one column); a continuous section break across different page
-geometries.
+geometries; a page number format other than those listed (decimal is drawn),
+chapter numbers in page numbers, other field switches on page number fields, a
+page break inside a header or footer, and a header and footer that leave no room
+for text on the page (the text area keeps the margins).
 
 ### Left out
 
 Reported as unsupported in best effort and refused in strict mode: tables,
 numbering and list markers, images, drawings, text boxes and other alternate
-content, headers and footers, footnotes and endnotes, comments, equations,
+content, footnotes and endnotes, comments, equations,
 embedded objects, symbols, form fields, paragraph and run borders, paragraph
 shading, frames, page borders, line numbering, vertical page alignment, text
 direction other than left to right, page background, text effects, and every
@@ -942,7 +970,7 @@ follows the rules above on those metrics.
 
 ### Budgets
 
-The main, styles, settings and theme parts are bounded by `MaxSourceBytes` and
+The main, styles, settings, theme, header and footer parts are bounded by `MaxSourceBytes` and
 `MaxLayoutNodes` (elements, attributes and every generated block and span);
 emitted text by eight times `Limits.MaxTextBytes`; pages by
 `Limits.MaxOperations`; the whole document's display list by sixty-four times

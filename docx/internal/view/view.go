@@ -27,6 +27,13 @@ type Document struct {
 	// bytes when the document has no such part. None of them mutates the
 	// document.
 	MainXML, StylesXML, SettingsXML, ThemeXML func() ([]byte, error)
+	// FootnotesXML and EndnotesXML serialize the footnotes and endnotes parts
+	// the same way, returning nil bytes when the document has none.
+	FootnotesXML, EndnotesXML func() ([]byte, error)
+	// HdrFtrXML serializes the header or footer part the main part references
+	// with relationship id rid, as it would be saved. It returns nil bytes when
+	// rid names no header or footer part of the document.
+	HdrFtrXML func(rid string) ([]byte, error)
 }
 
 // DocumentOf snapshots d, a *docx.Document.

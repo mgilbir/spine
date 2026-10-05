@@ -39,7 +39,7 @@ func policyCases() []policyCase {
 		{name: "footnote reference", body: wordTestPara("", wordTestRun("", "note"), `<w:r><w:footnoteReference w:id="2"/></w:r>`), warn: "footnotes", text: "note"},
 		{name: "comment", body: wordTestPara("", `<w:commentRangeStart w:id="0"/>`, wordTestRun("", "commented"), `<w:commentRangeEnd w:id="0"/>`, `<w:r><w:commentReference w:id="0"/></w:r>`), warn: "comments", text: "commented"},
 		{name: "equation", body: wordTestPara("", `<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>`, wordTestRun("", "tail")), warn: "equations", text: "tail"},
-		{name: "headers", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:headerReference w:type="default" r:id="rId9"/>`), warn: "headers and footers"},
+		{name: "header part that is missing", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:headerReference w:type="default" r:id="rId9"/>`), warn: "header or footer part"},
 		{name: "page borders", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:pgBorders/>`), warn: "page borders"},
 		{name: "columns", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:cols w:num="2"/>`), warn: "multiple text columns", approx: true},
 		{name: "decimal tab stops", body: wordTestPara(`<w:tabs><w:tab w:val="decimal" w:pos="3000"/></w:tabs>`, `<w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r>`), warn: "decimal tab stops", approx: true, text: "b"},

@@ -37,6 +37,11 @@ type wordRenderer struct {
 	// defaultTab is the default tab stop in pixels.
 	defaultTab float64
 	fonts      *wordFonts
+	// evenOdd is w:evenAndOddHeaders: even pages have their own header and
+	// footer.
+	evenOdd bool
+	// hf holds the header and footer parts (render_headers.go).
+	hf *wordHF
 }
 
 // wordIssueKind says how a feature the profile does not draw exactly is

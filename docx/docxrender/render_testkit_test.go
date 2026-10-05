@@ -37,6 +37,38 @@ type wordTestParts struct {
 	styles   string
 	settings string
 	theme    string
+	// extra are further parts, keyed by part name ("word/header1.xml"), with
+	// their markup in full. The document refers to one by wordTestRID.
+	extra map[string]wordTestExtra
+}
+
+// wordTestExtra is an extra part's markup, content type and relationship type.
+type wordTestExtra struct{ xml, contentType, relType string }
+
+// wordTestRID is the relationship id the test kit gives an added part.
+func wordTestRID(part string) string {
+	return "rIdT" + strings.NewReplacer("/", "_", ".", "_").Replace(strings.TrimPrefix(part, "word/"))
+}
+
+const (
+	wordTestRelHeader    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"
+	wordTestRelFooter    = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer"
+	wordTestRelFootnotes = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+	wordTestRelEndnotes  = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
+	wordTestCTHeader     = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+	wordTestCTFooter     = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
+	wordTestCTFootnotes  = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+	wordTestCTEndnotes   = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
+)
+
+// wordTestHeader and wordTestFooter are header and footer parts with the given
+// paragraphs; they are added with wordTestParts.extra.
+func wordTestHeader(paras ...string) wordTestExtra {
+	return wordTestExtra{`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ` + wordTestNS + `>` + strings.Join(paras, "") + `</w:hdr>`, wordTestCTHeader, wordTestRelHeader}
+}
+
+func wordTestFooter(paras ...string) wordTestExtra {
+	return wordTestExtra{`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ` + wordTestNS + `>` + strings.Join(paras, "") + `</w:ftr>`, wordTestCTFooter, wordTestRelFooter}
 }
 
 // wordTestDoc builds a document whose body is the given WordprocessingML.
@@ -65,6 +97,9 @@ func wordTestDoc(t testing.TB, body string, parts ...wordTestParts) *docx.Docume
 	}
 	if p.theme != "" {
 		add["word/theme/theme1.xml"] = [3]string{p.theme, "application/vnd.openxmlformats-officedocument.theme+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"}
+	}
+	for name, e := range p.extra {
+		add[name] = [3]string{e.xml, e.contentType, e.relType}
 	}
 	out := wordTestRewrite(t, data, replace, add)
 	doc, err := docx.OpenReader(bytes.NewReader(out), int64(len(out)))
@@ -112,9 +147,9 @@ func wordTestRewrite(t testing.TB, data []byte, replace map[string]string, add m
 			b = []byte(s)
 		case "word/_rels/document.xml.rels":
 			s := string(b)
-			for i, n := range names {
+			for _, n := range names {
 				target := strings.TrimPrefix(n, "word/")
-				s = strings.Replace(s, "</Relationships>", fmt.Sprintf(`<Relationship Id="rIdT%d" Type="%s" Target="%s"/></Relationships>`, i, add[n][2], target), 1)
+				s = strings.Replace(s, "</Relationships>", fmt.Sprintf(`<Relationship Id="%s" Type="%s" Target="%s"/></Relationships>`, wordTestRID(n), add[n][2], target), 1)
 			}
 			b = []byte(s)
 		}

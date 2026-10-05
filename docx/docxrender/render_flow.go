@@ -92,11 +92,9 @@ type wordFlow struct {
 	// keeps the paragraph mark on the page with the break, so the next block
 	// starts the new page.
 	breakPending bool
+	// hf is set while a header or footer part is translated.
+	hf *wordHFCtx
 }
-
-// wordFieldState is one open complex field: it is in its instruction until
-// its separator, and in its (cached) result afterwards.
-type wordFieldState struct{ result bool }
 
 // visible reports whether content is part of drawn text, which it is outside
 // fields and inside field results.
@@ -190,6 +188,7 @@ func (f *wordFlow) closeSection(sectPr *wordNode) error {
 	if err != nil {
 		return err
 	}
+	props.idx = len(f.secs)
 	f.secs = append(f.secs, &wordSection{props: props, blocks: f.cur})
 	f.cur = nil
 	return nil
@@ -243,15 +242,31 @@ type wordSectProps struct {
 	// evenPage, oddPage.
 	typ  string
 	node *wordNode
+	// idx is the section's position in the document.
+	idx int
+	// hdrDist and ftrDist are the distances of the header and footer from the
+	// page edges (w:pgMar header and footer).
+	hdrDist, ftrDist float64
+	// header and footer are the part relationship ids the section references,
+	// by type (wordHFDefault, wordHFFirst, wordHFEven). They are as written:
+	// wordInheritHF fills the gaps from the previous section.
+	header, footer [wordHFTypes]string
+	// titlePg selects the first-page header and footer for the section's first
+	// page.
+	titlePg bool
+	// pgStart restarts page numbering at the section's first page when
+	// hasStart; pgFmt is the number format (w:pgNumType fmt), "" for decimal.
+	hasStart bool
+	pgStart  int
+	pgFmt    string
 }
 
-// contentW and contentH are the text area of a page of the section.
+// contentW is the width of the text area of a page of the section.
 func (s wordSectProps) contentW() float64 { return s.w - s.left - s.right }
-func (s wordSectProps) contentH() float64 { return s.h - s.top - s.bottom }
 
 // parseSectPr reads a section's properties.
 func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
-	s := wordSectProps{typ: "nextPage", node: n}
+	s := wordSectProps{typ: "nextPage", node: n, hdrDist: 720.0 / 15, ftrDist: 720.0 / 15}
 	var hasSize, hasMar bool
 	var gutter float64
 	for _, c := range n.children {
@@ -283,6 +298,14 @@ func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
 					gutter, err = wordLength(g, "w:pgMar gutter")
 				}
 			}
+			for _, m := range []struct {
+				name string
+				dst  *float64
+			}{{"header", &s.hdrDist}, {"footer", &s.ftrDist}} {
+				if v, ok := c.attr(m.name); ok && err == nil {
+					*m.dst, err = wordLength(v, "w:pgMar "+m.name)
+				}
+			}
 		case "type":
 			switch v := c.val(); v {
 			case "nextPage", "continuous", "evenPage", "oddPage":
@@ -303,7 +326,11 @@ func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
 				err = r.approximate("document grid")
 			}
 		case "headerReference", "footerReference":
-			err = r.leaveOut("headers and footers")
+			err = s.addHFRef(c)
+		case "titlePg":
+			s.titlePg, err = wordOnOff(c, "w:titlePg")
+		case "pgNumType":
+			err = r.parsePgNumType(&s, c)
 		case "pgBorders":
 			err = r.leaveOut("page borders")
 		case "lnNumType":
@@ -322,7 +349,7 @@ func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
 			}
 		case "sectPrChange":
 			err = r.approximate("tracked section change")
-		case "titlePg", "pgNumType", "rtlGutter", "formProt", "noEndnote", "paperSrc", "printerSettings", "footnotePr", "endnotePr":
+		case "rtlGutter", "formProt", "noEndnote", "paperSrc", "printerSettings", "footnotePr", "endnotePr":
 			// No effect on the body flow of the profile's pages.
 		default:
 			err = r.leaveOut("section property w:" + c.name)
@@ -345,7 +372,7 @@ func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
 			s.top, s.right, s.bottom, s.left = 96, 96, 96, 96
 		}
 	}
-	if s.top < 0 || s.bottom < 0 || s.left < 0 || s.right < 0 || gutter < 0 {
+	if s.top < 0 || s.bottom < 0 || s.left < 0 || s.right < 0 || gutter < 0 || s.hdrDist < 0 || s.ftrDist < 0 {
 		return s, fmt.Errorf("%w: negative page margins", render.ErrUnsupported)
 	}
 	// The gutter widens the left margin; a top gutter is the gutterAtTop

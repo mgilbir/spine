@@ -58,6 +58,12 @@ func (r *wordRenderer) loadSettings(root *wordNode) error {
 				return fmt.Errorf("%w: w:defaultTabStop", render.ErrInvalid)
 			}
 			r.defaultTab = v
+		case "evenAndOddHeaders":
+			on, valid := c.on()
+			if !valid {
+				return fmt.Errorf("%w: w:evenAndOddHeaders", render.ErrInvalid)
+			}
+			r.evenOdd = on
 		case "clrSchemeMapping":
 			m := map[string]string{}
 			for _, name := range wordClrNames {
