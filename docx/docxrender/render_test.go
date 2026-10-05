@@ -327,7 +327,7 @@ func FuzzDocxRender(f *testing.F) {
 	notes := fnPart("footnote", fnNote("footnote", "1", "note"), fnNote("footnote", "2", "a", "b"))
 	ends := fnPart("endnote", fnNote("endnote", "1", "end"))
 	seed := wordTestDoc(f, wordTestPara("", wordTestRun("", "AA"), fnRef("1"), enRef("1"))+numPara("1", 0, "AA")+numPara("1", 1, "AA")+hfSect(hfRef("header", "default", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1), 0, 0),
-		wordTestParts{styles: wordTestStyles, numbering: seedNumbering, extra: map[string]wordTestExtra{"word/header1.xml": hdr, "word/footer1.xml": ftr, "word/footnotes.xml": notes, "word/endnotes.xml": ends}})
+		wordTestParts{styles: wordTestStyles, numbering: seedNumbering, media: wordTestMedia(wordTestHalves(8, 4)).media, extra: map[string]wordTestExtra{"word/header1.xml": hdr, "word/footer1.xml": ftr, "word/footnotes.xml": notes, "word/endnotes.xml": ends}})
 	valid, err := seed.SaveBytes()
 	if err != nil {
 		f.Fatal(err)
@@ -378,6 +378,10 @@ func FuzzDocxRender(f *testing.F) {
 	f.Add(tableDoc(`<w:tbl><w:tblPr><w:tblStyle w:val="T"/><w:tblW w:w="3000" w:type="dxa"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:sz="8"/><w:insideH w:val="dashed" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders><w:tblLook w:val="04A0"/></w:tblPr><w:tblGrid><w:gridCol w:w="1000"/><w:gridCol w:w="1000"/><w:gridCol w:w="1000"/></w:tblGrid><w:tr><w:trPr><w:tblHeader/><w:cantSplit/></w:trPr><w:tc><w:tcPr><w:gridSpan w:val="2"/><w:shd w:val="clear" w:fill="FF0000"/></w:tcPr><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc></w:tr><w:tr><w:trPr><w:trHeight w:val="600" w:hRule="exact"/></w:trPr><w:tc><w:tcPr><w:vMerge w:val="restart"/><w:vAlign w:val="center"/></w:tcPr><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>C</w:t><w:tab/><w:t>D</w:t></w:r></w:p></w:tc><w:tc><w:p/></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc><w:tc><w:p/></w:tc><w:tc><w:p/></w:tc></w:tr></w:tbl>`), tableStyles, header, noteData, numbering)
 	f.Add(tableDoc(`<w:tbl><w:tblPr><w:tblLayout w:type="fixed"/><w:tblCellSpacing w:w="20"/><w:tblpPr w:tblpX="10"/></w:tblPr><w:tblGrid><w:gridCol w:w="800"/></w:tblGrid><w:tr><w:trPr><w:gridBefore w:val="1"/><w:gridAfter w:val="2"/></w:trPr><w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:tcBorders><w:tl2br w:val="single"/><w:left w:val="wave" w:sz="96"/></w:tcBorders><w:tcMar><w:left w:w="99999"/></w:tcMar></w:tcPr><w:tbl><w:tr><w:tc><w:p><w:r><w:t>N</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/></w:tc><w:tc><w:tcPr><w:hMerge w:val="continue"/></w:tcPr><w:p><w:r><w:t>H</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:tcPr><w:vMerge/><w:gridSpan w:val="9999"/></w:tcPr><w:p><w:pPr><w:sectPr/></w:pPr></w:p></w:tc></w:tr></w:tbl><w:p/>`), tableStyles, header, noteData, numbering)
 	f.Add(tableDoc(`<w:tbl><w:tblGrid/><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>`), []byte(`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="table" w:styleId="A"><w:basedOn w:val="A"/></w:style></w:styles>`), header, noteData, numbering)
+	// Pictures: inline, anchored and wrapped drawings over the seed's image.
+	for _, body := range wordFuzzDrawings() {
+		add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>`+body+wordTestPage+`</w:body></w:document>`), styles, header, noteData)
+	}
 	f.Fuzz(func(t *testing.T, data, stylesData, hdrData, notesData, numberingData []byte) {
 		if len(data) > 65536 || len(stylesData) > 65536 || len(hdrData) > 65536 || len(notesData) > 65536 || len(numberingData) > 65536 {
 			t.Skip()

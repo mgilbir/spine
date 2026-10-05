@@ -42,6 +42,15 @@ import (
 // wordParagraphStarts, and page furniture (headers, footers) with
 // wordPageDecorators.
 
+// Pictures (render_drawing.go, render_picture.go, render_float.go) are run
+// children translated through wordRegisterRun. They resolve their image through
+// the relationships of wordRenderer.part, the part being translated: a
+// translator of another part (a header or footer) sets part to that part's name
+// and relationships before translating its paragraphs. An anchored picture is
+// recorded on the block holding its anchor (wordBlock.pics) and drawn after
+// pagination, on the page of its anchor line; blocks that hold floated pictures
+// need nothing else.
+
 // wordBlock is one pagination unit of a section's flow.
 type wordBlock struct {
 	kind string
@@ -65,6 +74,8 @@ type wordBlock struct {
 	// number of lines its text should fill, checked after layout.
 	tab         *wordTabBlock
 	expectLines int
+	// pics are the anchored pictures whose markers are in the block.
+	pics []*wordPicture
 	// units returns the places the block may be split, from its laid out
 	// wrapper fragment. Nil selects the lines of the paragraph inside.
 	units wordUnitsFunc

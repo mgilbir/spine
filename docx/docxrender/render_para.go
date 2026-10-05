@@ -26,8 +26,12 @@ type wordPara struct {
 	// styleID names the paragraph style in effect.
 	styleID string
 
-	blocks     []*wordBlock
-	sb         strings.Builder
+	blocks []*wordBlock
+	sb     strings.Builder
+	// lead is markup that opens the paragraph's block (floated pictures),
+	// and pics the anchored pictures of the block being built.
+	lead       strings.Builder
+	pics       []*wordPicture
 	hasContent bool
 	cont       bool
 	sawLineBr  bool
@@ -542,23 +546,46 @@ func (p *wordPara) pageBreak(rn *wordRun) error {
 	return nil
 }
 
+// openSpan makes the span of a font slot the open one.
+func (rn *wordRun) openSpan(slot int) error {
+	if rn.cur == slot {
+		return nil
+	}
+	if err := rn.closeSpan(); err != nil {
+		return err
+	}
+	open, closing, err := rn.span(slot)
+	if err != nil {
+		return err
+	}
+	if err = rn.p.r.charge(rn.spans[slot].nodes); err != nil {
+		return err
+	}
+	rn.p.sb.WriteString(open)
+	rn.closing = closing
+	rn.cur = slot
+	return nil
+}
+
+// putMarkup appends generated markup of nodes elements (an inline picture) in
+// the run's span, so the line takes the run's font metrics.
+func (rn *wordRun) putMarkup(html string, nodes int) error {
+	if err := rn.openSpan(rn.slotForPiece()); err != nil {
+		return err
+	}
+	if err := rn.p.r.charge(nodes); err != nil {
+		return err
+	}
+	rn.p.sb.WriteString(html)
+	rn.p.hasContent = true
+	return nil
+}
+
 // put appends text (or a line break) in a font slot, opening a span for the
 // slot when it is not the open one.
 func (rn *wordRun) put(slot int, text string, br bool) error {
-	if rn.cur != slot {
-		if err := rn.closeSpan(); err != nil {
-			return err
-		}
-		open, closing, err := rn.span(slot)
-		if err != nil {
-			return err
-		}
-		if err = rn.p.r.charge(rn.spans[slot].nodes); err != nil {
-			return err
-		}
-		rn.p.sb.WriteString(open)
-		rn.closing = closing
-		rn.cur = slot
+	if err := rn.openSpan(slot); err != nil {
+		return err
 	}
 	if br {
 		rn.p.sb.WriteString("<br>")
@@ -612,6 +639,7 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		}
 	}
 	css := p.blockCSS()
+	shiftCSS := ""
 	if p.seenRun {
 		if p.shiftMax-p.shiftMin > 1 {
 			if err := p.r.approximate("line placement with mixed font sizes"); err != nil {
@@ -619,11 +647,22 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 			}
 		}
 		if math.Abs(p.shift) > 0.001 {
-			css += ";position:relative;top:" + wordPx(p.shift)
+			shiftCSS = "position:relative;top:" + wordPx(p.shift)
 		}
 		p.seenRun = false
 	}
-	inner := `<div style="` + css + `">` + p.sb.String() + `</div>`
+	var inner string
+	switch {
+	case shiftCSS != "" && p.lead.Len() > 0:
+		// The floats stay put; the lines move inside a nested element, which
+		// inherits the paragraph's indents and alignment.
+		inner = `<div style="` + css + `">` + p.lead.String() + `<div style="` + shiftCSS + `">` + p.sb.String() + `</div></div>`
+	case shiftCSS != "":
+		css += ";" + shiftCSS
+		fallthrough
+	default:
+		inner = `<div style="` + css + `">` + p.lead.String() + p.sb.String() + `</div>`
+	}
 	if err := p.r.charge(1); err != nil {
 		return err
 	}
@@ -633,7 +672,7 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		if p.cont {
 			first = 0
 		}
-		tab = &wordTabBlock{open: `<div style="` + css + `">`, content: p.sb.String(), items: p.tabItems,
+		tab = &wordTabBlock{open: `<div style="` + css + `">`, lead: p.lead.String(), content: p.sb.String(), items: p.tabItems,
 			left: p.ppr.indLeft.v, first: first, firstLine: !p.cont, stops: p.stops, defaultTab: p.r.defaultTab}
 		if p.marker != nil {
 			tab.markerHTML, tab.markerAlign = p.marker.html, p.marker.align
@@ -651,8 +690,11 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		widow:           !p.ppr.widow.set || p.ppr.widow.v,
 		pageBreakBefore: p.ppr.pageBreakBefore.v || p.cont,
 		continuation:    p.cont,
+		pics:            p.pics,
 	}
 	p.blocks = append(p.blocks, b)
+	p.pics = nil
+	p.lead.Reset()
 	p.sb.Reset()
 	p.brAt, p.hasText = -1, false
 	p.hasContent = false

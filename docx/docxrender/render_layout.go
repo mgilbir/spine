@@ -32,6 +32,8 @@ type wordLaidSection struct {
 	// repeats are ranges of the layout drawn again on later pages (the header
 	// rows of tables), in layout order.
 	repeats []wordRepeatGroup
+	// places locates the section's anchored pictures, by picture number.
+	places map[int]*wordPlacement
 }
 
 // wordLaidBlock is a block with its geometry in section pixels.
@@ -103,6 +105,10 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 			}
 		}
 	}
+	// Tables are finished first: the floats of their cells are in their markup.
+	if err := r.expandFloats(sec); err != nil {
+		return nil, err
+	}
 	// The body's own font is irrelevant to the lines (it is one pixel with no
 	// line height) but layout wants a family it can resolve.
 	strut := r.fonts.first
@@ -132,7 +138,7 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 		return nil, err
 	}
 	p := sec.props
-	built := layout.BuildFor(layout.Input{HTML: sb.String(), Fonts: r.fonts}, layout.PageSizePt(p.w*0.75, p.h*0.75))
+	built := layout.BuildFor(layout.Input{HTML: sb.String(), Fonts: r.fonts, Resources: r.images}, layout.PageSizePt(p.w*0.75, p.h*0.75))
 	if err := r.findings(built.Findings, built.Failed); err != nil {
 		return nil, err
 	}
@@ -210,6 +216,7 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 	if sec.hasEndnotes && sec.endnotesFrom < len(laid.blocks) {
 		laid.hasEnd, laid.endTop = true, laid.blocks[sec.endnotesFrom].top
 	}
+	wordLocatePictures(laid, frag)
 	return laid, nil
 }
 

@@ -123,6 +123,21 @@
   rows on each page. Floating tables, cell spacing, widths that disagree with the
   grid and other features are approximated and reported (refused in strict
   mode); diagonal borders are left out.
+- docxrender: pictures. Inline pictures sit on the line and grow it; anchored
+  pictures are drawn on the page of their anchor line, in front of or behind the
+  text, positioned from the page, margins, column, paragraph, line or character
+  with offsets or alignment, and with square, tight, through or top-and-bottom
+  wrapping around a picture placed from its paragraph. Crops (including negative
+  ones), fill rectangles, flips, rotation, effect extents, picture colour effects
+  and solid outlines are drawn; images are read only from the package and decoded
+  once, under the image limits. Linked, missing, corrupt and oversized images,
+  charts, SmartArt, shapes and legacy VML pictures are left out with a warning
+  (an inline drawing keeps its space), and what Word draws differently (tight
+  wrapping, wrapped pictures placed from the page, effects) is reported as
+  approximated. Strict mode refuses all of these.
+- internal/render: the picture helpers of the PowerPoint renderer (downscaling,
+  cropping, fading, blur, HSL conversion and the blip colour effects) move to
+  the shared package so the Word renderer draws pictures with the same code.
 - spine-render: DOCX is laid out once per document rather than once per page,
   and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer

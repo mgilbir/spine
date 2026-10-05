@@ -61,6 +61,8 @@ type wordPage struct {
 	bodyTop, bodyBottom float64
 	// notes is the footnote area at the bottom of the text area.
 	notes wordPageNotes
+	// behind and front are the pictures drawn behind and over the page's text.
+	behind, front []wordOverlay
 }
 
 // bodyH is the height of the page's text area.
@@ -456,6 +458,10 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 				if err := r.distributeRect(sec, chunkAt, v); err != nil {
 					return err
 				}
+			case layout.DrawImage:
+				if err := r.distributeImage(sec, chunkAt, v); err != nil {
+					return err
+				}
 			case layout.FillPath:
 				y := wordPathCenter(v.Path)
 				c := chunkAt(y)
@@ -479,12 +485,45 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 				return fmt.Errorf("%w: display list operation %T", render.ErrUnsupported, op)
 			}
 		}
+		if err := r.overlays(sec, chunkAt); err != nil {
+			return err
+		}
+	}
+	for _, p := range pages {
+		p.layerPictures()
 	}
 	return nil
 }
 
 // holds reports whether y is within the range of the section a chunk draws.
 func (c *wordChunk) holds(y float64) bool { return y >= c.y0-wordEps && y <= c.end+wordEps }
+
+// layerPictures puts the pictures behind the text just above the page's
+// background, and those over the text last, each in stacking order.
+func (p *wordPage) layerPictures() {
+	if len(p.behind) == 0 && len(p.front) == 0 {
+		return
+	}
+	order := func(list []wordOverlay) []layout.Op {
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].z != list[j].z {
+				return list[i].z < list[j].z
+			}
+			return list[i].seq < list[j].seq
+		})
+		var ops []layout.Op
+		for _, o := range list {
+			ops = append(ops, o.ops...)
+		}
+		return ops
+	}
+	ops := make([]layout.Op, 0, len(p.ops)+len(p.behind)+len(p.front))
+	ops = append(ops, p.ops[0])
+	ops = append(ops, order(p.behind)...)
+	ops = append(ops, p.ops[1:]...)
+	ops = append(ops, order(p.front)...)
+	p.ops, p.behind, p.front = ops, nil, nil
+}
 
 // wordShift is a translation in layout units.
 type wordShift struct{ x, y style.Unit }

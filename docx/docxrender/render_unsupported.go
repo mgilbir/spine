@@ -44,8 +44,7 @@ var wordLeftOutInlines = []struct{ key, what string }{
 
 // wordLeftOutRuns are w:r children.
 var wordLeftOutRuns = []struct{ key, what string }{
-	{"drawing", "drawings and images"},
-	{"pict", "drawings and images"},
+	{"pict", "legacy VML drawings and images"},
 	{"object", "embedded objects"},
 	{"{" + nsMC + "}AlternateContent", "alternate content (drawings and text boxes)"},
 	{"commentReference", "comments"},

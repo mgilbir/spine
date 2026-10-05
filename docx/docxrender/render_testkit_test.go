@@ -38,6 +38,9 @@ type wordTestParts struct {
 	settings  string
 	theme     string
 	numbering string
+	// media are image parts by part name (word/media/...), related from the
+	// main part under wordTestRID of their name.
+	media map[string][]byte
 	// extra are further parts, keyed by part name ("word/header1.xml"), with
 	// their markup in full. The document refers to one by wordTestRID.
 	extra map[string]wordTestExtra
@@ -105,6 +108,13 @@ func wordTestDoc(t testing.TB, body string, parts ...wordTestParts) *docx.Docume
 	}
 	for name, e := range p.extra {
 		add[name] = [3]string{e.xml, e.contentType, e.relType}
+	}
+	for name, b := range p.media {
+		ct := "image/png"
+		if strings.HasSuffix(name, ".jpg") {
+			ct = "image/jpeg"
+		}
+		add[name] = [3]string{string(b), ct, wordRelImage}
 	}
 	out := wordTestRewrite(t, data, replace, add)
 	doc, err := docx.OpenReader(bytes.NewReader(out), int64(len(out)))

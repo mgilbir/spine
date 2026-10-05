@@ -55,7 +55,10 @@ type wordTabBlock struct {
 	// open is the paragraph element's opening tag; content its markup, with
 	// the tokens in place.
 	open, content string
-	items         []wordTabItem
+	// lead is markup between the opening tag and the content that takes no
+	// part in measuring: floated pictures.
+	lead  string
+	items []wordTabItem
 	// left is the paragraph's left indent and first the first line's offset
 	// from it, in pixels; the stops are measured from the text column's left
 	// edge, which is the wrapper's.
@@ -178,10 +181,15 @@ func (r *wordRenderer) measure(fragments []string) ([]float64, error) {
 	for i, f := range fragments {
 		sb.WriteString(`<div id="m` + strconv.Itoa(i) + `" style="margin:0;white-space:pre;font-size:1px;line-height:0">`)
 		sb.WriteString(f)
+		if strings.Contains(f, "<img ") {
+			// A picture is no text: its extent is read from where the line
+			// ends.
+			sb.WriteString(`<span id="e` + strconv.Itoa(i) + `" style="display:inline-block;width:0;height:0"></span>`)
+		}
 		sb.WriteString("</div>")
 	}
 	sb.WriteString("</body></html>")
-	built := layout.Build(layout.Input{HTML: sb.String(), Fonts: r.fonts})
+	built := layout.Build(layout.Input{HTML: sb.String(), Fonts: r.fonts, Resources: r.images})
 	if err := r.findings(built.Findings, built.Failed); err != nil {
 		return nil, err
 	}
@@ -203,12 +211,16 @@ func (r *wordRenderer) measure(fragments []string) ([]float64, error) {
 	}
 	frags := make([]*layout.Fragment, len(fragments))
 	wordFindBlocks(frag, "m", frags)
+	ends := wordFindElements(frag, "e")
 	out := make([]float64, len(fragments))
 	for i, f := range frags {
 		if f == nil {
 			return nil, fmt.Errorf("%w: layout dropped a measurement", render.ErrUnsupported)
 		}
 		out[i] = wordMeasured(f)
+		if e := ends["e"+strconv.Itoa(i)]; e != nil {
+			out[i] = math.Max(out[i], e.BorderRect.X.Px())
+		}
 	}
 	return out, nil
 }
@@ -411,6 +423,7 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 		} else {
 			sb.WriteString(tb.open)
 		}
+		sb.WriteString(tb.lead)
 		lines := 1
 		checked := false
 		for i, p := range rs.parts {

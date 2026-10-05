@@ -970,6 +970,39 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 - **Endnotes.** `w:endnoteReference` marks (lower-case Roman by default) and the
   notes, which follow the body text of the document, or of each section for
   `w:pos` `sectEnd`, after the endnote separator, as ordinary flow.
+- **Pictures.** A `w:drawing` that holds a picture (`pic:pic`) is drawn from
+  the image its `r:embed` relationship names in the part being translated: PNG,
+  JPEG and GIF (the first frame). The image is read from the package, never from
+  a path or URL the document writes; linked pictures (`r:link`, external
+  relationships) are not loaded. Each image part is decoded once, under
+  `Limits.MaxImageBytes` and `MaxImagePixels`, and a picture is cut, filled,
+  flipped, rotated and given its colour effects into one raster, sized to what is
+  drawn (at most four image pixels per drawn pixel) and shared by equal pictures.
+  Supported: the frame (`wp:extent`), `a:srcRect` crops (negative values extend
+  the picture with transparent pixels), `a:fillRect` insets, `flipH`, `flipV` and
+  any rotation (resampled, with antialiased edges), `wp:effectExtent` (the room
+  around the frame, so rotated pictures take their bounding box), picture colour
+  effects (grayscale, bi-level, duotone, colour change and replacement, HSL
+  shifts, alpha effects and fill overlays, the pixel code `pptxrender` uses) with
+  sRGB, theme and system colours, a solid picture outline (`a:ln`, drawn centred
+  on the frame's edge for unrotated pictures), SVG pictures through their PNG
+  fallback, hidden drawings (`wp:docPr hidden`, not drawn).
+  - **Inline** pictures (`wp:inline`) sit on the text line like a large glyph,
+    their bottom on the baseline: the line grows to hold them, they move with
+    their line across pages, and a picture taller than the page is clipped by it.
+  - **Anchored** pictures (`wp:anchor`) belong to the page of their anchor line.
+    Without wrapping (`wrapNone`, in front of or `behindDoc` behind the text) the
+    picture is drawn at its position: `relativeFrom` page, margin, column, left,
+    right, inside and outside margins, paragraph, line, character and
+    top and bottom margins, with `posOffset` or `align`, or `simplePos`; text is
+    unaffected, as in Word, and `relativeHeight` orders overlapping pictures.
+    Square, tight, through and top-and-bottom wrapping around a picture positioned
+    from its paragraph or line (offset zero or aligned to the top) is a float in
+    the layout: text wraps around it on the side `wrapText` names (`left`,
+    `right`, `largest`, and `bothSides` where the picture touches an edge of the
+    text) at the wrap distances, and it moves with its paragraph. The wrapped
+    text around a float is laid out where the float is, so a float and the
+    paragraph's lines stay together on one page.
 - Content controls, smart tags and custom XML wrappers draw their content.
 - **Tables.** The table grid and the columns it gives (fixed and autofit
   layouts: an autofit table is drawn by the grid Word stored, which is what Word
@@ -1048,14 +1081,31 @@ clipped), page breaks in a cell (`pageBreakBefore` and manual breaks are not
 applied), borders in other styles than the four above (drawn solid), border
 shadows, shading patterns, row alignment, vertical text in cells, `tcFitText`,
 justified vertical alignment, tracked changes to rows and cells, and borders
-shared by cells of different sizes whose lines differ (forme's rule decides).
+shared by cells of different sizes whose lines differ (forme's rule decides); pictures: tight and through wrapping (drawn around the picture's
+box, not its outline), `bothSides` wrapping of a picture with text room on both
+sides (the larger side), a wrapped picture offset below the top of its paragraph
+(text beside the space above it is displaced), a wrapped picture positioned from
+the page or margin (drawn there, without text wrapping around it), wrapping that
+crosses a page boundary, inside and outside positions (drawn as left and right),
+a picture placed from its character with wrapping (from the column), a picture
+in a line of exact height (Word clips it; the line grows), tab stops beside a
+floating picture, picture shapes other than a rectangle, a tiled picture fill,
+shadow, glow and 3-D picture effects (not drawn), picture artistic effects, a
+dashed picture outline (solid) and a rotated picture's outline (not drawn),
+brightness and contrast (drawn as LibreOffice does), tint, blur and gradient
+overlays, picture colour effects with colour transforms (the effects are skipped)
+and effects colours other than sRGB, theme and system colours.
 
 ### Left out
 
 Reported as unsupported in best effort and refused in strict mode: diagonal cell
 borders, table, row and cell properties and elements this profile does not know,
-content of merged cells that a merge hides, images, drawings, text boxes and other alternate
-content, notes the document does not have, notes in headers, footers and notes, comments, equations,
+content of merged cells that a merge hides, pictures that cannot be drawn
+(linked, missing, corrupt, in another format such as EMF and WMF, or too large
+to decode: an inline one keeps its space), legacy VML pictures (`w:pict`),
+charts, SmartArt, shapes, text boxes, groups and other non-picture drawings (an
+inline one keeps its space), alternate content, notes the document does not
+have, notes in headers, footers and notes, comments, equations,
 embedded objects, symbols, form fields, paragraph and run borders, paragraph
 shading, frames, page borders, line numbering, vertical page alignment, text
 direction other than left to right, page background, text effects, and every
@@ -1091,8 +1141,15 @@ list counters by Word's own limit of 32767 (`render.ErrLimit`) and level text by
 256 characters; emitted text by eight times `Limits.MaxTextBytes`; pages by
 `Limits.MaxOperations`; the whole document's display list by sixty-four times
 `Limits.MaxOperations`; fonts by `Limits.MaxFonts`; page dimensions and pixels by
-`MaxDimension` and `MaxPixels`. A page's own operations, glyphs and shaping work
-are checked when `Page` prepares it, under the shared `render.Limits`. The layout
+`MaxDimension` and `MaxPixels`. Pictures: at most 16384 drawings per
+document; images decoded once each, within four times `Limits.MaxImageBytes` and
+`MaxImagePixels` in all (a single image over the limits is refused in strict mode
+and left out in best effort), and the pixels made from them within four times
+`MaxImagePixels`; extents and offsets beyond a million pixels are limits or are
+clamped. A page's own operations, glyphs and shaping work are checked when
+`Page` prepares it, under the shared `render.Limits`, which include the page's
+pictures: `MaxImages` distinct rasters (32 by default) and `MaxImagePixels` on
+a page. The layout
 engine is not interruptible inside one call; cancellation is checked between
 parts, sections, blocks and pages.
 

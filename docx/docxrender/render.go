@@ -89,6 +89,8 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 		maxTextBytes: limits.MaxTextBytes * 8,
 	}
 	r.fonts = newWordFonts(r)
+	r.sources, r.rasters = map[string]*wordSource{}, map[wordRasterKey]*wordRaster{}
+	r.images = &wordImages{r: r, cache: map[int][]byte{}}
 	d := view.DocumentOf(document)
 	r.hf = &wordHF{parts: map[string]*wordHFPart{}}
 	r.notes = newWordNotes()
@@ -99,6 +101,8 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 	if d == nil || d.MainXML == nil {
 		return nil, fmt.Errorf("%w: document", render.ErrInvalid)
 	}
+	r.doc = d
+	r.part = wordPart{name: d.MainPart, rels: d.Relationships}
 	if err = r.loadParts(d); err != nil {
 		return nil, err
 	}

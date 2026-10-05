@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/mgilbir/spine/docx/internal/view"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
@@ -29,6 +30,19 @@ type wordRenderer struct {
 	textBytes int
 	// maxTextBytes caps textBytes.
 	maxTextBytes int
+
+	// doc is the document's package, for the parts pictures embed; part is the
+	// part being translated, whose relationships resolve them.
+	doc  *view.Document
+	part wordPart
+	// pictures are the drawings of the document, numbered in order; sources
+	// the images decoded (by part name) and rasters the pixels made from them.
+	// imgBytes and imgPixels count what was decoded, rasterPixels what was made.
+	pictures                          []*wordPicture
+	sources                           map[string]*wordSource
+	rasters                           map[wordRasterKey]*wordRaster
+	imgBytes, imgPixels, rasterPixels int64
+	images                            *wordImages
 
 	theme  *wordTheme
 	styles *wordStyles
