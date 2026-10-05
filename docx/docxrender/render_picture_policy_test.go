@@ -45,7 +45,8 @@ func TestUnreadablePicturesAreRefusedOrLeftOutKeepingTheirSpace(t *testing.T) {
 		{"not an image relationship", wordTestPic{w: 40, h: 30, embed: wordTestRID("word/theme/theme1.xml")}, wordTestParts{styles: wordTestStyles, theme: `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>`}, render.ErrUnsupported, "do not embed an image"},
 		{"no image at all", wordTestPic{w: 40, h: 30, embed: "NONE"}, wordTestMedia(wordTestSolid(2, 2, wordTestRed)), render.ErrUnsupported, "image is missing"},
 		{"corrupt png", pic, wordTestMedia(append([]byte("\x89PNG\r\n\x1a\n"), 1, 2, 3, 4)), render.ErrInvalid, "corrupt image"},
-		{"unsupported format", pic, wordTestMedia([]byte("\xd7\xcd\xc6\x9a wmf-ish bytes")), render.ErrUnsupported, "not PNG, JPEG or GIF"},
+		{"unsupported format", pic, wordTestMedia([]byte("BM bitmap-ish bytes")), render.ErrUnsupported, "not PNG, JPEG, GIF, EMF or WMF"},
+		{"corrupt metafile", pic, wordTestMedia([]byte("\xd7\xcd\xc6\x9a wmf-ish bytes")), render.ErrInvalid, "corrupt image"},
 		{"declared far too large", pic, wordTestMedia(wordTestBombPNG(100000, 100000)), render.ErrLimit, "too large"},
 	}
 	for _, tc := range cases {

@@ -68,6 +68,9 @@
   the render limits. Strict mode fails on anything not drawn exactly; best
   effort reports approximations and leaves out the rest. See
   `docs/rendering.md`.
+- docxrender: EMF and WMF pictures are drawn, with the metafile playback
+  PowerPoint previews use (gowemf); strict mode fails on anything not drawn
+  exactly, best effort reports approximations and leaves out the rest.
 - docxrender: the Word page renderer is rebuilt on the forme layout engine and
   draws real documents. `Prepare` lays a document out and paginates it once and
   returns `Pages` (`Count`, `Page`); `PreparePage` is unchanged. Sections with

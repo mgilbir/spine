@@ -101,7 +101,9 @@ func (r *wordRenderer) rel(id string) *opc.Relationship {
 
 // source loads the image a blip embeds. It returns nil, with the reason
 // reported, when the picture cannot be drawn.
-func (r *wordRenderer) source(embed, link string) (*wordSource, string, error) {
+// A metafile is drawn at the size w by h CSS pixels of its frame, which sizes
+// its raster; the first picture to use one sets it.
+func (r *wordRenderer) source(embed, link string, w, h float64) (*wordSource, string, error) {
 	if embed == "" {
 		if link != "" {
 			return nil, "", r.leaveOut("linked pictures")
@@ -144,7 +146,7 @@ func (r *wordRenderer) source(embed, link string) (*wordSource, string, error) {
 	if budgetBound {
 		lim.MaxImagePixels = pixelsLeft
 	}
-	img, err := core.DecodeImage(r.ctx, data, lim)
+	img, err := r.decode(data, lim, w, h)
 	if err != nil {
 		if cerr := r.ctx.Err(); cerr != nil {
 			return nil, part, cerr
@@ -156,7 +158,7 @@ func (r *wordRenderer) source(embed, link string) (*wordSource, string, error) {
 		what := "pictures with a corrupt image"
 		switch {
 		case errors.Is(err, render.ErrUnsupported):
-			what = "pictures in an image format that is not PNG, JPEG or GIF"
+			what = "pictures in an image format that is not PNG, JPEG, GIF, EMF or WMF"
 		case errors.Is(err, render.ErrLimit):
 			what = "pictures too large to decode"
 		}
@@ -189,7 +191,7 @@ func (r *wordRenderer) buildPicture(d *wordDrawing) (*wordPicture, error) {
 
 // drawPicture fills pic.img from the spec.
 func (r *wordRenderer) drawPicture(pic *wordPicture, spec *wordPicSpec) error {
-	src, part, err := r.source(spec.embed, spec.link)
+	src, part, err := r.source(spec.embed, spec.link, pic.w, pic.h)
 	if err != nil || src == nil {
 		return err
 	}

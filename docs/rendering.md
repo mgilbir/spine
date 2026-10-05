@@ -972,7 +972,29 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   `w:pos` `sectEnd`, after the endnote separator, as ordinary flow.
 - **Pictures.** A `w:drawing` that holds a picture (`pic:pic`) is drawn from
   the image its `r:embed` relationship names in the part being translated: PNG,
-  JPEG and GIF (the first frame). The image is read from the package, never from
+  JPEG and GIF (the first frame), and EMF and WMF, which are played onto a
+  raster of about twice the frame's pixels (never below half, within the image
+  budget) with the metafile playback `internal/metafile` shares with PowerPoint
+  (gowemf parses the file; the records are played by the page painter's
+  scan conversion, not its display list). Drawn exactly: mapping modes, window
+  and viewport, world transforms and saved contexts; solid, null and stock pens
+  and brushes with round, square and flat caps, round, bevel and miter joins and
+  user-style dashes; polygons and polylines under either fill mode, Béziers,
+  rectangles, rounded rectangles, ellipses, arcs, chords and pies; paths, filled,
+  stroked and as clips; rectangle, region and path clips; bitmaps copied,
+  alpha-blended or color-keyed; gradient fills; and text in the fonts the
+  caller's resolver supplies, from Unicode or Windows-1252 text with its
+  advances at the baseline. Anything else fails in strict mode with
+  `render.ErrUnsupported`. Best effort reports, once each, what it approximates
+  (preset pen dashes, pens under non-uniform transforms, text sized or aligned
+  from the font's metrics or spaced without advances, an EMF+ file drawn from
+  its GDI records) or leaves out (hatch, pattern and DIB brushes, raster
+  operations beyond copy, masked and palette bitmap transfers, flood fills,
+  text without a font, undecodable records), and draws the rest; EMF+ only and
+  malformed files fail. Playback is charged to the render limits (operations,
+  segments, edge checks, pixel visits, clip masks, bitmap pixels, glyphs) and
+  checks cancellation between records and rows. A metafile is drawn once, at the
+  size of the first picture to use it. The image is read from the package, never from
   a path or URL the document writes; linked pictures (`r:link`, external
   relationships) are not loaded. Each image part is decoded once, under
   `Limits.MaxImageBytes` and `MaxImagePixels`, and a picture is cut, filled,
