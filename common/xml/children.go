@@ -134,8 +134,8 @@ type childSlot struct {
 //     child as a slice rather than rely on either behaviour.
 //   - Character data between children is captured verbatim (whitespace and,
 //     with a source registered, non-whitespace text), so an element with mixed
-//     content keeps its text. Without a registered source non-whitespace text
-//     only whitespace-only text between children is dropped. Structs with a
+//     content keeps its text. Without a registered source only
+//     whitespace-only text between children is dropped. Structs with a
 //     `,chardata` field must not use this decoder: it never populates one.
 func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 	val := reflect.ValueOf(v).Elem()
