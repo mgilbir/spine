@@ -653,7 +653,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		para.after += dml.EMU(math.Round(float64(para.afterPct) / 100000 * lines[len(lines)-1].height * px))
 		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
 		if text.Len() > 0 && para.bullet.char != "" {
-			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, content, width, styles.colors.approximate); err != nil {
+			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width, styles.colors.approximate); err != nil {
 				return nil, 0, err
 			}
 		} else if text.Len() > 0 && para.indent != 0 {
@@ -745,21 +745,13 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 			}
 			shift := float64(col) * cols.step
 			xp := left.Px() + shift
-			// Left and right are the line's start and end in a right-to-left
-			// paragraph, where a justified line that is not stretched starts
-			// at the right.
+			// Alignment is physical, in a right-to-left paragraph too, as
+			// PowerPoint draws it: left is the left edge. Only a justified
+			// line that is not stretched, which sits at the line's start,
+			// goes to the right.
 			align := para.align
-			if para.rtl {
-				switch align {
-				case enum.TextAlignLeft:
-					align = enum.TextAlignRight
-				case enum.TextAlignRight:
-					align = enum.TextAlignLeft
-				case enum.TextAlignJustify, enum.TextAlignDistribute:
-					if !stretched {
-						align = enum.TextAlignRight
-					}
-				}
+			if para.rtl && !stretched && (align == enum.TextAlignJustify || align == enum.TextAlignDistribute) {
+				align = enum.TextAlignRight
 			}
 			if align == enum.TextAlignCenter {
 				xp += (width.Px() - line.Width.Px()) / 2
@@ -768,7 +760,17 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				xp += width.Px() - line.Width.Px()
 			}
 			if b.bullet != nil && covered == 0 {
-				bx, bxok := style.FromPx(b.bullet.x + shift)
+				x := b.bullet.x
+				if para.rtl {
+					// The bullet hangs from the line's start, the right end
+					// of its text, so it goes where the text does.
+					edge := 0.0
+					for _, sg := range line.Segments {
+						edge = max(edge, sg.X.Px()+sg.Width.Px())
+					}
+					x += xp + edge
+				}
+				bx, bxok := style.FromPx(x + shift)
 				by, byok := style.FromPx(top + line.ascent)
 				if !bxok || !byok {
 					return nil, render.ErrLimit
@@ -1234,7 +1236,8 @@ func renderLineDraws(line renderLine) bool {
 }
 
 // renderBulletGlyph is a laid-out bullet, drawn on its paragraph's first
-// baseline at x pixels.
+// baseline at x pixels; in a right-to-left paragraph, x is from the right end
+// of the first line's text.
 type renderBulletGlyph struct {
 	seg   core.RichSegment
 	x     float64
@@ -1247,7 +1250,7 @@ type renderBulletGlyph struct {
 // whose placement this profile does not claim. The bullet may not raise its
 // line. Best effort, through approx, draws such bullets where they would
 // hang, over the text or past the line.
-func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0, content dml.EMU, width style.Unit, approx func(error) error) (*renderBulletGlyph, error) {
+func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0 dml.EMU, width style.Unit, approx func(error) error) (*renderBulletGlyph, error) {
 	b := para.bullet
 	shaping := renderShaping{font: first.font, bold: first.bold, italic: first.italic}
 	if b.font != "" {
@@ -1285,9 +1288,10 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	}
 	x := float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel)
 	if para.rtl {
-		// The bullet hangs from the right, ending at the margin plus the
-		// indent from the box's right edge.
-		x = float64(left0+content-para.marL-para.indent)/float64(dml.EMUsPerPixel) - bullet.Width.Px()
+		// The bullet hangs from the start of the line, the right end of its
+		// text: its right edge is the hanging indent right of the text's. The
+		// caller adds the text's right edge.
+		x = -float64(para.indent)/float64(dml.EMUsPerPixel) - bullet.Width.Px()
 	}
 	return &renderBulletGlyph{seg: bullet.Segments[0], x: x, color: color}, nil
 }

@@ -69,7 +69,8 @@ type renderParaStyle struct {
 	// the end of a line.
 	eaBreak, hangPunct bool
 	// rtl is a right-to-left paragraph: it starts at the right, its margins
-	// and indent are from there, and left and right alignment swap sides.
+	// and indent are from there, and alignment stays physical: left is the
+	// left edge, as in PowerPoint.
 	rtl bool
 	// kashida is low kashida justification, which stretches Arabic by
 	// elongating letters.

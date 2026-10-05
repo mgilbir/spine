@@ -360,15 +360,18 @@ Hebrew and other lines draw as justified. Best effort draws an exact line height
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word
-breaking. A right-to-left paragraph (`rtl`) has its lines start at the right,
-and its alignment, margins and indent are from the start: `l` aligns the
-lines at the start and `r` at the end, which are the right and the left,
-`marL` is the margin at the right and `marR` at the left, and a hanging
-bullet hangs from the right, ending at the margin plus the indent from the
-box's right edge. Centred, justified and distributed text keep their
-meaning, a justified line that cannot be stretched, such as the last, starts
-at the right, and a stretched one starts at the right edge with the spaces
-that end it hanging past the left. The text of a paragraph of either
+breaking. A right-to-left paragraph (`rtl`) has its lines start at the right.
+Its alignment is physical, as PowerPoint draws it (measured from its own
+export, not LibreOffice's, which swaps them): with `rtl` an absent `algn` and
+`l` put the text against the left edge, `r` against the right, and `ctr`
+centres it. Its margins and indent are logical: `marL` is the margin at the
+right, the start, and `marR` at the left, so the line box spans from the left
+inset to the right inset less `marL`. A hanging bullet sits at the start of its
+own line, the right end of its text, the indent (the hanging gap) right of the
+text's start edge, so with left alignment the bullet travels with the text and
+is right of it. A justified line is stretched edge to edge, with the spaces that
+end it hanging past the left, and a line that cannot be stretched, such as the
+last, sits at the right; distributed lines are all stretched. The text of a paragraph of either
 direction is ordered by the Unicode bidirectional algorithm (UAX #9), with
 the paragraph's direction as base: lines break in logical order, and each is cut
 by embedding level, white space ending it taking the paragraph's level, and
