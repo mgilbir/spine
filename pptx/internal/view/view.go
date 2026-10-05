@@ -62,6 +62,7 @@ type Package struct {
 	ThemeData     map[string][]byte
 	ThemeEditors  map[string]*dml.ThemeEditor
 	PartData      func(name string) []byte
+	TableStyles   []byte // /ppt/tableStyles.xml
 	Width, Height dml.EMU
 }
 

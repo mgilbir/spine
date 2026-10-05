@@ -76,7 +76,7 @@ func (s *Slide) view() *view.Slide {
 	if p := s.presentation; p != nil {
 		w, h := p.slideDimensions()
 		out.Package = &view.Package{Reader: p.reader, Presentation: p.presentation, Relationships: p.relationships, OtherParts: p.otherParts,
-			ThemeData: p.themeData, ThemeEditors: p.themeEditors, PartData: p.rawPartData, Width: w, Height: h}
+			ThemeData: p.themeData, ThemeEditors: p.themeEditors, PartData: p.rawPartData, TableStyles: p.tableStylesData, Width: w, Height: h}
 	}
 	if l := s.layout; l != nil {
 		out.Layout = &view.Layout{XML: l.layoutXML, PartName: l.partName}

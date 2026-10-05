@@ -51,6 +51,17 @@
   faces. A file mapped for several faces is read and counted once toward the
   32 MiB font budget; charts are given each face copied out as a font of its
   own, bounded by a further 32 MiB.
+- pptx: tables in PowerPoint's 74 built-in table styles are drawn with the
+  style's fills, borders (including double lines), text colors and bold, and
+  for the themed styles the theme's gradient background. PowerPoint does not
+  write the definitions of these styles into `ppt/tableStyles.xml`, so they are
+  built in, each as the `a:tblStyle` it stands for, and checked against
+  PowerPoint's own rendering: 68 of the 74 match in every cell and border. The
+  six Themed Style 2 styles with an accent differ only in the soft shadow
+  around the table. A strict render fails for those, and for banded columns,
+  which were not compared; best effort draws them and reports the
+  approximation. Styles a deck defines itself are still left out, as are
+  unknown ids, with a warning in best effort.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and

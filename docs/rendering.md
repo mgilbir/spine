@@ -562,8 +562,9 @@ complex-script font fails, and best effort draws it with the Latin font. Other
 scripts, such as Thai or Devanagari, soft hyphens, controls, the explicit
 embedding, override and isolate controls, and other format characters, fail.
 
-Tables (`a:tbl` in a graphic frame) render when they have no table style,
-diagonal borders or table-level fill, and when they are parsed
+Tables (`a:tbl` in a graphic frame) render when they have no diagonal borders
+or table-level fill, when their table style is absent or one of PowerPoint's
+built-in styles (below), and when they are parsed
 from the file without pending edits: the save path rewrites the domain model's
 cells, which preparation must not do, so a new or edited table fails until it
 is saved and reopened. Column widths come from the grid; a row is as tall as
@@ -611,10 +612,45 @@ their parsed form without pending edits. Connectors on layouts and masters
 and in groups are drawn too.
 
 Tables without a table style are drawn unstyled. This is provisional:
-`tableStyles.xml` names a default style, often a built-in Office style the file
-does not define, and whether PowerPoint applies it to a table without
-`a:tableStyleId` is undocumented. Explore that, and built-in style definitions,
-before supporting styled tables. Best effort draws styled tables unstyled.
+`tableStyles.xml` names a default style, and whether PowerPoint applies it to a
+table without `a:tableStyleId` is undocumented. A style the renderer cannot
+resolve is left out, and best effort draws the table unstyled and says so:
+a style the deck defines in `ppt/tableStyles.xml` (those definitions are not
+read yet), an inline `a:tableStyle`, and an id that no built-in style has.
+
+PowerPoint's 74 built-in table styles (Themed Style 1 and 2, Light Style 1
+to 3, Medium Style 1 to 4 and Dark Style 1 and 2, plain and with their
+accents) are drawn when the file names one by its GUID and does not define it.
+PowerPoint does not write their definitions into `tableStyles.xml`, so the
+renderer carries them, each as the `a:tblStyle` it stands for: parts
+(`wholeTbl`, `band1H`, `firstRow`, ...) with theme colors, tint, shade and alpha,
+borders and bold. They go through the same resolution as any table style. A
+cell takes its fill, text color and weight from the part that ranks highest
+among those that apply to it, in the schema's order from `wholeTbl` up to the
+corner cells, and its borders likewise, side by side: a part's `left`, `top`,
+`right` and `bottom` apply at the edge of its region, and its `insideH` and
+`insideV` between cells of it. Where two cells give a shared edge different
+borders, the one from the higher part wins, and where borders cross the higher
+is painted over the lower. A cell's own fill, text properties and borders
+outrank the style's. The header and total rows are not counted in banding. A
+compound line (`dbl`) is two strokes a third of its width each, a third apart.
+A style's background takes its fill from the theme's fill styles (Themed Styles
+paint the theme's gradients behind the table, over its whole height) and its
+shadow from the theme's effect styles.
+
+The definitions were measured against PowerPoint's own export of a table in each
+style, 3 columns by 4 rows with header, total, first and last column and banded
+rows on, drawn with the default theme: of the 74 styles, 68 match it in the fill
+of every cell, the color and width of every border (within a pixel) and the
+color and weight of every cell's text, with colors within 8 of 255 per channel
+and no more than a few hundred of some 230,000 pixels outside the text off, at
+the antialiased corners. The other six, Themed Style 2 with an accent, differ
+in the soft shadow around the table, which is drawn as the approximation any
+blurred shadow is. A strict render fails for these six, as it does for any
+blurred shadow, and for banded columns, which were not compared; best effort
+draws them and reports the approximation. Where a cell's own border meets a
+style's at a corner, which of the two shows is undocumented: strict rendering
+fails and best effort draws it.
 
 Forme measures wrapping and shapes final lines under cumulative budgets. Native
 line metrics use the supplied font's hhea ascent, descent and line gap; baseline

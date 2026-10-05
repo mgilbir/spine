@@ -43,6 +43,10 @@ type renderColors struct {
 	// a transform that turns its shape to compose it again over the turned
 	// shape.
 	patterns map[image.Image]renderPatternSpec
+	// tableStyleIDs are the ids the deck's table styles part defines.
+	tableStyleIDs     map[string]bool
+	tableStylesErr    error
+	tableStylesLoaded bool
 }
 
 // approximate reports err and returns nil in best-effort mode, and returns err

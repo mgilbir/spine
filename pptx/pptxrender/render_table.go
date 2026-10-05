@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/mgilbir/spine/pptx"
 
@@ -32,13 +33,22 @@ func (s *renderSlide) renderSourceFrame(index int) *oxml.GraphicFrame {
 type renderBorder struct {
 	width dml.EMU
 	color style.RGBA
+	// double is a compound line of two strokes with a gap, each a third of
+	// the width.
+	double bool
+	// rank orders where borders cross: a cell's own border outranks every
+	// style's, and a style's parts rank by precedence.
+	rank int
 }
 
-// renderTable paints an unstyled table: cell fills, then borders, then cell
-// text. A table with a style fails: the style may be a built-in Office style
-// the file does not define, and whether PowerPoint applies the presentation's
-// default table style to a table without a style id is undocumented, so such
-// a table is drawn without one. Explore both before supporting styles.
+// renderExplicitBorder is the rank of a border a cell sets itself.
+const renderExplicitBorder = 1000
+
+// renderTable paints a table: its style's background, cell fills, then
+// borders, then cell text. The style is one of PowerPoint's built-in table
+// styles, which a file does not define; a table with another style is drawn
+// without one, as is a table without a style id, since whether PowerPoint
+// applies the presentation's default table style to it is undocumented.
 //
 // Only a parsed table without pending edits is drawn: the save path rewrites
 // the domain model's cells, which preparation must not do.
@@ -60,11 +70,22 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 		return nil, fmt.Errorf("%w: table transformation", render.ErrUnsupported)
 	}
 	tbl := gf.Graphic.GraphicData.Table
+	var builtin *dml.TableStyle
 	if pr := tbl.TblPr; pr != nil {
-		if pr.TableStyle != nil || pr.TableStyleId != "" {
+		look, err := colors.resolveTableStyle(pr)
+		if err != nil {
+			return nil, err
+		}
+		if look.leftOut != nil {
 			// Best effort draws a styled table unstyled: with only its cells'
 			// own fills, borders and text.
-			if err := colors.approximate(fmt.Errorf("%w: table style left out", render.ErrUnsupported)); err != nil {
+			if err := colors.approximate(look.leftOut); err != nil {
+				return nil, err
+			}
+		}
+		if builtin = look.style; builtin != nil && pr.BandCol {
+			// Only banded rows were compared with PowerPoint.
+			if err := colors.approximate(fmt.Errorf("%w: banded columns of a built-in table style", render.ErrUnsupported)); err != nil {
 				return nil, err
 			}
 		}
@@ -83,6 +104,10 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 		return nil, fmt.Errorf("%w: table cells", render.ErrLimit)
 	}
 	fonts.nodes -= rows * cols
+	var styler *tableStyler
+	if builtin != nil {
+		styler = newTableStyler(builtin, tbl.TblPr, rows, cols)
+	}
 	// Grid lines in EMU: xs[c] is the left of column c, ys[r] the top of row r.
 	xs := make([]dml.EMU, cols+1)
 	xs[0] = dml.EMU(gf.Xfrm.Off.X)
@@ -229,7 +254,13 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 					return nil, fmt.Errorf("%w: text paragraphs", render.ErrLimit)
 				}
 				fonts.nodes -= len(body.P)
-				blocks, h, err := renderLayoutParagraphs(ctx, body, xs[c]+cl.margin[0], w-cl.margin[0]-cl.margin[2], false, breaker, fonts, styles, styles.shapeChain())
+				chain := styles.shapeChain()
+				if styler != nil {
+					if ts := styler.text(r, c); ts.bold != nil || ts.color != nil {
+						chain.inherited = []*dml.LstStyle{renderTableTextList(ts)}
+					}
+				}
+				blocks, h, err := renderLayoutParagraphs(ctx, body, xs[c]+cl.margin[0], w-cl.margin[0]-cl.margin[2], false, breaker, fonts, styles, chain)
 				if err != nil {
 					return nil, err
 				}
@@ -260,28 +291,74 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 		return u, nil
 	}
 	var ops []layout.Op
-	// Fills.
+	// The style's background lies under the cells.
+	if builtin != nil && builtin.TblBg != nil {
+		x, w := px(xs[0]), px(xs[cols])-px(xs[0])
+		bg, err := renderTableBackground(builtin.TblBg, x, ys[0], w, ys[rows]-ys[0], colors)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, bg...)
+	}
+	// Fills. Opaque fills run under the next cell's by half a pixel, so that
+	// anti-aliasing does not leave a seam where cells meet at a fraction of a
+	// pixel.
+	fills := make([][]*style.RGBA, rows)
 	for r := range cells {
+		fills[r] = make([]*style.RGBA, cols)
 		for c, cl := range cells[r] {
 			pr := cl.tc.TcPr
-			if pr == nil || pr.SolidFill == nil || cl.origin != [2]int{r, c} {
+			if cl.origin != [2]int{r, c} {
 				continue
 			}
-			if pr.NoFill != nil {
+			if pr != nil && pr.SolidFill != nil && pr.NoFill != nil {
 				return nil, fmt.Errorf("%w: ambiguous cell fill", render.ErrInvalid)
 			}
-			color, err := colors.solid(pr.SolidFill, nil)
+			var fill *dml.SolidFill
+			switch {
+			case pr != nil && pr.SolidFill != nil:
+				fill = pr.SolidFill
+			case pr != nil && pr.NoFill != nil:
+			case styler != nil:
+				fill, _ = styler.fill(r, c)
+			}
+			if fill == nil {
+				continue
+			}
+			color, err := colors.solid(fill, nil)
 			if err != nil {
 				return nil, err
 			}
+			fills[r][c] = &color
+		}
+	}
+	opaque := func(r, c int) bool {
+		return r < rows && c < cols && fills[r][c] != nil && fills[r][c].A >= 1
+	}
+	const seam = 0.5
+	for r := range cells {
+		for c, cl := range cells[r] {
+			color := fills[r][c]
+			if color == nil {
+				continue
+			}
+			right, bottom := 0.0, 0.0
+			if color.A >= 1 {
+				if opaque(r, c+cl.cs) {
+					right = seam
+				}
+				if opaque(r+cl.rs, c) {
+					bottom = seam
+				}
+			}
 			x, err1 := unit(px(xs[c]))
 			y, err2 := unit(ys[r])
-			w, err3 := unit(px(xs[c+cl.cs]) - px(xs[c]))
-			h, err4 := unit(ys[r+cl.rs] - ys[r])
+			w, err3 := unit(px(xs[c+cl.cs]) - px(xs[c]) + right)
+			h, err4 := unit(ys[r+cl.rs] - ys[r] + bottom)
 			if err := firstErr(err1, err2, err3, err4); err != nil {
 				return nil, err
 			}
-			ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: color})
+			ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: *color})
 		}
 	}
 	// Borders: every grid edge segment takes the border its cells give it.
@@ -293,6 +370,13 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			if ln.GradFill != nil || ln.PattFill != nil {
 				return renderBorder{}, false, fmt.Errorf("%w: patterned cell border", render.ErrUnsupported)
 			}
+			if ln.NoFill == nil && styler != nil {
+				// A line with no fill of its own may take the style's; best
+				// effort draws no border.
+				if err := colors.approximate(fmt.Errorf("%w: cell border without a fill in a styled table", render.ErrUnsupported)); err != nil {
+					return renderBorder{}, false, err
+				}
+			}
 			// No fill, or none specified without a style: no border.
 			return renderBorder{}, true, nil
 		}
@@ -303,17 +387,15 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			return renderBorder{}, false, fmt.Errorf("%w: cell border width, compound, alignment or dash", render.ErrUnsupported)
 		}
 		c, err := colors.solid(ln.SolidFill, nil)
-		return renderBorder{width: dml.EMU(*ln.W), color: c}, true, err
+		return renderBorder{width: dml.EMU(*ln.W), color: c, rank: renderExplicitBorder}, true, err
 	}
-	pick := func(lns ...*dml.Ln) (renderBorder, error) {
-		var (
-			out  renderBorder
-			have bool
-		)
+	// pick resolves the borders two cells set on their shared edge; have is
+	// false where neither sets one.
+	pick := func(lns ...*dml.Ln) (out renderBorder, have bool, err error) {
 		for _, ln := range lns {
 			b, set, err := edge(ln)
 			if err != nil {
-				return renderBorder{}, err
+				return renderBorder{}, false, err
 			}
 			if !set {
 				continue
@@ -321,11 +403,54 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			// Which of two disagreeing cells wins a shared edge is
 			// undocumented.
 			if have && b != out {
-				return renderBorder{}, fmt.Errorf("%w: conflicting cell borders", render.ErrUnsupported)
+				return renderBorder{}, false, fmt.Errorf("%w: conflicting cell borders", render.ErrUnsupported)
 			}
 			out, have = b, true
 		}
-		return out, nil
+		return out, have, nil
+	}
+	// styled resolves the style's border on a grid cell's side.
+	styled := func(r, c, side int) (renderBorder, bool, error) {
+		if styler == nil || r < 0 || r >= rows || c < 0 || c >= cols {
+			return renderBorder{}, false, nil
+		}
+		ln, rank := styler.edge(r, c, side)
+		if ln == nil {
+			return renderBorder{}, false, nil
+		}
+		if ln.SolidFill == nil {
+			// An absent border, which hides the border of a part below.
+			return renderBorder{rank: rank}, true, nil
+		}
+		if ln.W == nil || *ln.W <= 0 {
+			return renderBorder{}, false, fmt.Errorf("%w: table style border width", render.ErrInvalid)
+		}
+		c0, err := colors.solid(ln.SolidFill, nil)
+		return renderBorder{width: dml.EMU(*ln.W), color: c0, double: ln.Cmpd == "dbl", rank: rank}, true, err
+	}
+	// shared resolves a grid edge: a border a cell sets itself, else the
+	// style's border of the cell whose part ranks higher, the first cell's
+	// where they rank alike.
+	shared := func(r0, c0, side0, r1, c1, side1 int, lns ...*dml.Ln) (renderBorder, error) {
+		b, have, err := pick(lns...)
+		if err != nil || have {
+			return b, err
+		}
+		first, set0, err := styled(r0, c0, side0)
+		if err != nil {
+			return renderBorder{}, err
+		}
+		second, set1, err := styled(r1, c1, side1)
+		if err != nil {
+			return renderBorder{}, err
+		}
+		switch {
+		case set0 && set1 && second.rank > first.rank:
+			return second, nil
+		case set0:
+			return first, nil
+		}
+		return second, nil
 	}
 	lnOf := func(r, c int, side int) *dml.Ln {
 		if r < 0 || r >= rows || c < 0 || c >= cols || cells[r][c].tc.TcPr == nil {
@@ -344,7 +469,7 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			if r > 0 && r < rows && origin[r-1][c] == origin[r][c] {
 				continue // inside a merge
 			}
-			b, err := pick(lnOf(r-1, c, 3), lnOf(r, c, 1))
+			b, err := shared(r-1, c, sideBottom, r, c, sideTop, lnOf(r-1, c, 3), lnOf(r, c, 1))
 			if err != nil {
 				return nil, err
 			}
@@ -357,55 +482,61 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			if c > 0 && c < cols && origin[r][c-1] == origin[r][c] {
 				continue // inside a merge
 			}
-			b, err := pick(lnOf(r, c-1, 2), lnOf(r, c, 0))
+			b, err := shared(r, c-1, sideRight, r, c, sideLeft, lnOf(r, c-1, 2), lnOf(r, c, 0))
 			if err != nil {
 				return nil, err
 			}
 			vertical[r][c] = b
 		}
 	}
-	// Paint order decides which border shows where two cross; require the
-	// borders meeting at a grid point to agree, and close their corners by
-	// extending a segment half its width where another border meets it.
-	at := func(r, c int) ([]renderBorder, error) {
-		var met []renderBorder
-		for _, b := range []renderBorder{
-			cellBorder(horizontal, r, c-1), cellBorder(horizontal, r, c),
-			cellBorder(vertical, r-1, c), cellBorder(vertical, r, c),
-		} {
-			if b.width > 0 {
-				met = append(met, b)
-			}
-		}
-		for _, b := range met {
-			if b != met[0] {
-				return nil, fmt.Errorf("%w: differing borders meet", render.ErrUnsupported)
-			}
-		}
-		return met, nil
-	}
+	// Borders meeting at a grid point must agree where a cell sets one of
+	// them: which of two differing borders shows is undocumented. A style's
+	// borders may differ, and are painted from the lowest precedence up so the
+	// highest shows where they cross. A segment is extended half its width
+	// where another border meets it, to close the corner.
+	mixed := false
+	meets := make([][]int, rows+1)
 	for r := 0; r <= rows; r++ {
+		meets[r] = make([]int, cols+1)
 		for c := 0; c <= cols; c++ {
-			if _, err := at(r, c); err != nil {
-				return nil, err
+			var met []renderBorder
+			for _, b := range []renderBorder{
+				cellBorder(horizontal, r, c-1), cellBorder(horizontal, r, c),
+				cellBorder(vertical, r-1, c), cellBorder(vertical, r, c),
+			} {
+				if b.width > 0 {
+					met = append(met, b)
+				}
+			}
+			meets[r][c] = len(met)
+			explicit := 0
+			for _, b := range met {
+				if b.rank >= renderExplicitBorder {
+					explicit++
+				}
+			}
+			for _, b := range met {
+				if b.sameLine(met[0]) {
+					continue
+				}
+				if explicit == len(met) {
+					return nil, fmt.Errorf("%w: differing borders meet", render.ErrUnsupported)
+				}
+				mixed = mixed || explicit > 0
 			}
 		}
 	}
-	joined := func(r, c int) bool {
-		met, _ := at(r, c)
-		return len(met) > 1
-	}
-	segment := func(b renderBorder, x0, y0, x1, y1 float64) error {
-		x, err1 := unit(x0)
-		y, err2 := unit(y0)
-		w, err3 := unit(x1 - x0)
-		h, err4 := unit(y1 - y0)
-		if err := firstErr(err1, err2, err3, err4); err != nil {
-			return err
+	if mixed {
+		if err := colors.approximate(fmt.Errorf("%w: a cell's own border meets a table style's", render.ErrUnsupported)); err != nil {
+			return nil, err
 		}
-		ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: b.color})
-		return nil
 	}
+	joined := func(r, c int) bool { return meets[r][c] > 1 }
+	type stroke struct {
+		b              renderBorder
+		x0, y0, x1, y1 float64
+	}
+	var strokes []stroke
 	for r := 0; r <= rows; r++ {
 		for c := 0; c < cols; c++ {
 			b := horizontal[r][c]
@@ -420,9 +551,7 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			if joined(r, c+1) {
 				x1 += half
 			}
-			if err := segment(b, x0, ys[r]-half, x1, ys[r]+half); err != nil {
-				return nil, err
-			}
+			strokes = append(strokes, stroke{b, x0, ys[r] - half, x1, ys[r] + half})
 		}
 	}
 	for r := 0; r < rows; r++ {
@@ -439,9 +568,41 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			if joined(r+1, c) {
 				y1 += half
 			}
-			if err := segment(b, px(xs[c])-half, y0, px(xs[c])+half, y1); err != nil {
+			strokes = append(strokes, stroke{b, px(xs[c]) - half, y0, px(xs[c]) + half, y1})
+		}
+	}
+	sort.SliceStable(strokes, func(i, j int) bool { return strokes[i].b.rank < strokes[j].b.rank })
+	rect := func(b renderBorder, x0, y0, x1, y1 float64) error {
+		x, err1 := unit(x0)
+		y, err2 := unit(y0)
+		w, err3 := unit(x1 - x0)
+		h, err4 := unit(y1 - y0)
+		if err := firstErr(err1, err2, err3, err4); err != nil {
+			return err
+		}
+		ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: b.color})
+		return nil
+	}
+	for _, s := range strokes {
+		if !s.b.double {
+			if err := rect(s.b, s.x0, s.y0, s.x1, s.y1); err != nil {
 				return nil, err
 			}
+			continue
+		}
+		// A compound line is two strokes of a third of its width, a third
+		// apart.
+		if s.x1-s.x0 > s.y1-s.y0 {
+			t := (s.y1 - s.y0) / 3
+			err := firstErr(rect(s.b, s.x0, s.y0, s.x1, s.y0+t), rect(s.b, s.x0, s.y1-t, s.x1, s.y1))
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		t := (s.x1 - s.x0) / 3
+		if err := firstErr(rect(s.b, s.x0, s.y0, s.x0+t, s.y1), rect(s.b, s.x1-t, s.y0, s.x1, s.y1)); err != nil {
+			return nil, err
 		}
 	}
 	// Text, anchored in each cell; rows were sized to hold it.
@@ -510,4 +671,45 @@ func renderMetadataExt(l *dml.ExtLst, owner string) bool {
 		}
 	}
 	return true
+}
+
+// sameLine reports whether two borders look alike: rank only orders them.
+func (b renderBorder) sameLine(o renderBorder) bool {
+	return b.width == o.width && b.color == o.color && b.double == o.double
+}
+
+// renderTableTextList is a list style whose every level carries a table
+// style's text properties, to sit below a cell's own text properties.
+func renderTableTextList(ts textStyle) *dml.LstStyle {
+	lvl := func() *dml.PPr {
+		return &dml.PPr{DefRPr: &dml.RPr{B: ts.bold, SolidFill: ts.color}}
+	}
+	return &dml.LstStyle{
+		Lvl1pPr: lvl(), Lvl2pPr: lvl(), Lvl3pPr: lvl(), Lvl4pPr: lvl(), Lvl5pPr: lvl(),
+		Lvl6pPr: lvl(), Lvl7pPr: lvl(), Lvl8pPr: lvl(), Lvl9pPr: lvl(),
+	}
+}
+
+// renderTableBackground draws a table style's background over the box the
+// table fills, in pixels: its fill from the theme, and the effects the theme
+// gives it, such as a shadow.
+func renderTableBackground(bg *dml.TableBgStyle, x, y, w, h float64, colors *renderColors) ([]layout.Op, error) {
+	var ops []layout.Op
+	fill, grad, placeholder, err := renderStyleFill(bg.FillRef, colors)
+	if err != nil {
+		return nil, err
+	}
+	if fill != nil || grad != nil {
+		paint, err := colors.fillPaint(fill, grad, placeholder, w, h)
+		if err != nil {
+			return nil, err
+		}
+		if ops, err = paint.fillOps(x, y, w, h, nil); err != nil {
+			return nil, err
+		}
+	}
+	if bg.EffectRef == nil || len(ops) == 0 {
+		return ops, nil
+	}
+	return renderShapeEffects(ops, nil, false, false, &dml.Style{EffectRef: bg.EffectRef}, colors, colors.limits.MaxOperations)
 }
