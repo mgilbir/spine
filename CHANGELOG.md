@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- render: text in a font with an AAT tracking table (`trak` with `STAT`), such
+  as Apple's newer system fonts, is now tracked at each run's size. Since
+  forme v0.7.0 applies such tables, it was tracked at CoreText's default of 12
+  points whatever its size. Office's own fonts have no tracking table and
+  draw as before.
 - pptx: `Paragraph.SetSpaceBefore`/`SetSpaceAfter` and `SpaceBefore`/
   `SpaceAfter` now convert between their EMU and `a:spcPts`'s hundredths of a
   point (#356). They wrote and read the EMU number unconverted, 127 times too

@@ -35,7 +35,7 @@ func (p *Page) collectText(ctx context.Context, v layout.DrawText, clips []*geom
 		return fmt.Errorf("%w: shaping budget", ErrLimit)
 	}
 	result, err := face.ShapeGlyphsContext(ctx, shape.RunInput{
-		Text: layout.ShapedText(v), Before: v.PreContext, After: v.PostContext, MergeBefore: v.MergePre, MergeAfter: v.MergePost, Kerns: v.ContextKerns, Features: v.Features,
+		Text: layout.ShapedText(v), Before: v.PreContext, After: v.PostContext, MergeBefore: v.MergePre, MergeAfter: v.MergePost, Kerns: v.ContextKerns, Features: face.FeaturesAt(v.Features, v.Size.Px()),
 	}, shape.RunLimits{MaxInputBytes: p.limits.MaxRunBytes, MaxGlyphs: remainingGlyphs, MaxWork: remaining})
 	if err != nil {
 		if errors.Is(err, shape.ErrRunLimit) {

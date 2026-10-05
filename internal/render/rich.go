@@ -121,6 +121,12 @@ func (t *TextLayout) RichLines(ctx context.Context, spans []Span, width style.Un
 	if total > l.MaxTextBytes-t.budget.textBytes {
 		return nil, fmt.Errorf("%w: paragraph text", ErrLimit)
 	}
+	// A face that tracks its text by size is measured and shaped at each
+	// span's, the same both times.
+	spans = append([]Span(nil), spans...)
+	for i := range spans {
+		spans[i].Features = spans[i].Face.FeaturesAt(spans[i].Features, spans[i].Size.Px())
+	}
 	// Private faces, one per distinct source.
 	var sources []*shape.Face
 	faceOf := make([]int, len(spans))
