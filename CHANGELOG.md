@@ -84,6 +84,13 @@
 - dml: `(*Blip).OrderedEffects` lists a repeated or unknown effect, in place,
   as a `BlipEffect` with `RawName` set, so the renderer reports it as an
   unknown picture effect (strict mode refuses it) instead of skipping it.
+- pptx: charts without explicit formatting are drawn as PowerPoint draws them
+  automatically: black text, gridlines and axis lines, tick marks pointing
+  out, a legend centred at the right (last series first beside horizontal
+  bars) and pie slices without a white outline. Explicit formatting still
+  wins. Value axes use Office's automatic major unit, a 1, 2 or 5 times a
+  power of ten chosen from the data and the plot's length, and honor
+  `majorUnit`.
 - render: text in a font with an AAT tracking table (`trak` with `STAT`), such
   as Apple's newer system fonts, is now tracked at each run's size. Since
   forme v0.7.0 applies such tables, it was tracked at CoreText's default of 12

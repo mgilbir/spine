@@ -58,7 +58,7 @@ func (b *renderChartBuilder) morePlans(p *renderChartPlan, pa *dmlchart.PlotArea
 			}
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	for _, g := range pa.RadarChart {
@@ -86,7 +86,7 @@ func (b *renderChartBuilder) morePlans(p *renderChartPlan, pa *dmlchart.PlotArea
 			*sers = append(*sers, renderChartSer{idx: renderSerIdx(s.Idx, i), tx: s.Tx, spPr: s.SpPr, dPt: s.DPt, dLbls: s.DLbls, cat: s.Cat, val: s.Val, marker: m})
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	for _, g := range pa.StockChart {
@@ -147,7 +147,7 @@ func (b *renderChartBuilder) morePlans(p *renderChartPlan, pa *dmlchart.PlotArea
 			p.upDown = ud
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	for _, g := range pa.OfPieChart {
@@ -216,7 +216,7 @@ func (b *renderChartBuilder) morePlans(p *renderChartPlan, pa *dmlchart.PlotArea
 			}
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	surfaces := func(wire *dmlchart.Boolean, ser []*dmlchart.SurfaceSer) error {
@@ -486,6 +486,7 @@ func (p *renderChartPlan) stockSpec() (data, marks []map[string]any) {
 func (p *renderChartPlan) ofPieSpec(pieFills []string) (data, marks []map[string]any) {
 	type obj = map[string]any
 	op := p.ofPie
+	sc, sw := p.sliceStroke()
 	values := p.series[0].values
 	total := 0.0
 	for _, v := range values {
@@ -526,7 +527,7 @@ func (p *renderChartPlan) ofPieSpec(pieFills []string) (data, marks []map[string
 	)
 	marks = append(marks, obj{"type": "arc", "from": obj{"data": "first"}, "encode": obj{"enter": obj{
 		"x": obj{"signal": cx1}, "y": obj{"signal": "height / 2"}, "startAngle": obj{"field": "startAngle"}, "endAngle": obj{"field": "endAngle"},
-		"outerRadius": obj{"signal": r}, "fill": obj{"field": "fill"}, "stroke": obj{"value": "#ffffff"}, "strokeWidth": obj{"value": 1},
+		"outerRadius": obj{"signal": r}, "fill": obj{"field": "fill"}, "stroke": obj{"value": sc}, "strokeWidth": obj{"value": sw},
 	}}})
 	r2 := "(" + r + ") * " + renderSpecNumber(scale)
 	if op.bar {
@@ -536,12 +537,12 @@ func (p *renderChartPlan) ofPieSpec(pieFills []string) (data, marks []map[string
 			"x": obj{"signal": cx2 + " - " + r2 + " / 2"}, "width": obj{"signal": r2},
 			"y":    obj{"signal": "height / 2 + " + r2 + " - 2 * " + r2 + " * datum.y0 / " + renderSpecNumber(math.Max(other, 1e-9))},
 			"y2":   obj{"signal": "height / 2 + " + r2 + " - 2 * " + r2 + " * datum.y1 / " + renderSpecNumber(math.Max(other, 1e-9))},
-			"fill": obj{"field": "fill"}, "stroke": obj{"value": "#ffffff"}, "strokeWidth": obj{"value": 1},
+			"fill": obj{"field": "fill"}, "stroke": obj{"value": sc}, "strokeWidth": obj{"value": sw},
 		}}})
 	} else {
 		marks = append(marks, obj{"type": "arc", "from": obj{"data": "second"}, "encode": obj{"enter": obj{
 			"x": obj{"signal": cx2}, "y": obj{"signal": "height / 2"}, "startAngle": obj{"field": "startAngle"}, "endAngle": obj{"field": "endAngle"},
-			"outerRadius": obj{"signal": r2}, "fill": obj{"field": "fill"}, "stroke": obj{"value": "#ffffff"}, "strokeWidth": obj{"value": 1},
+			"outerRadius": obj{"signal": r2}, "fill": obj{"field": "fill"}, "stroke": obj{"value": sc}, "strokeWidth": obj{"value": sw},
 		}}})
 	}
 	if op.line != "" && other > 0 && total > 0 {

@@ -645,11 +645,34 @@ follow `delete`, `tickLblPos`, `majorGridlines`, `scaling` minimum, maximum and
 orientation, `crossBetween` and common number formats (`General`, `0`,
 `0.0`, `0.00`, `#,##0` and their decimals, and percentages); titles,
 automatic titles, legends and their positions, and shown values are drawn,
-with the chart space's text size and color. Value axes step about every 60
-pixels. Best effort draws 3-D charts flat, a combination chart as one of its
+with the chart space's text size and color. Best effort draws 3-D charts flat, a combination chart as one of its
 types, a secondary or date axis as the primary one, other number formats as
 General, smoothed lines straight and dashed lines solid, and leaves out
 trendlines, error bars and legend entry formatting. Turned chart frames fail.
+
+Formatting a chart leaves out is Office's automatic look, which differs from
+the modern look of charts PowerPoint writes with explicit formatting on every
+element: text, gridlines and axis lines are black, the axes' tick marks point
+out (those of a category axis fall between categories), the legend sits at the
+right, centred along its side, and a pie's slices have no outline. Explicit
+`spPr`, `txPr`, `majorTickMark` and `legendPos` win, including their absence of
+a line (`a:ln` with `a:noFill`) or of tick marks (`none`); an axis' own text
+formatting styles only that axis, the legend's its entries and a data label's
+its values. A tick mark that crosses the axis is drawn pointing out, with a
+warning in best effort. A legend beside a horizontal bar chart lists its
+series last first, as the bars stack.
+
+A value axis follows Office's automatic scale unless `c:min`, `c:max` or
+`c:majorUnit` set it. It starts at zero when the data's range exceeds a sixth
+of its largest magnitude, and else half a range below the data; it ends above
+the data by a twentieth of its range; a percent stacked axis is 0 to 100%.
+The major unit is the least 1, 2 or 5 times a power of ten that keeps the steps
+apart by at least 1.2 times the axis' text size on a vertical axis, and 6
+times on a horizontal one, estimating the plot's length from the frame; both
+ends round out to a multiple of it. Data up to 4.5 over a plot 3 inches tall
+runs 0 to 5 in steps of 0.5, and over one 6 inches wide, in steps of 1, as
+PowerPoint draws them. Radar and surface charts step by their own nice
+rule.
 
 Bubble charts draw each point as a circle on value axes, its area (or with
 `sizeRepresents="w"` its width) its size's share of the largest, which spans
