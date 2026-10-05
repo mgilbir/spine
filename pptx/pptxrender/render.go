@@ -1010,7 +1010,7 @@ func renderAutoShapeOps(v *renderBox, source *dml.SpPr, st *dml.Style, colors *r
 	}
 	// Without a style reference, an absent fill, an absent outline, or an
 	// outline without a fill is none.
-	paint, filled, err := renderShapePaint(p, st, colors, w, h)
+	paint, filled, err := renderShapePaint(p, st, colors, x, y, w, h, !xf.identity() || colors.turned > 0)
 	if err != nil {
 		return nil, g, err
 	}
@@ -1131,7 +1131,7 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 
 // renderShapePaint resolves a shape's fill, its own or its style's; filled is
 // false for none.
-func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml.EMU) (paint renderPaint, filled bool, err error) {
+func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, x, y, w, h dml.EMU, turned bool) (paint renderPaint, filled bool, err error) {
 	set := 0
 	for _, f := range []bool{p.NoFill != nil, p.SolidFill != nil, p.GradFill != nil, p.BlipFill != nil, p.PattFill != nil} {
 		if f {
@@ -1143,7 +1143,7 @@ func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml
 	}
 	if p.PattFill != nil {
 		px := float64(dml.EMUsPerPixel)
-		paint, err = colors.patternPaint(p.PattFill, nil, float64(w)/px, float64(h)/px)
+		paint, err = colors.patternPaint(p.PattFill, nil, float64(x)/px, float64(y)/px, float64(w)/px, float64(h)/px, turned)
 		return paint, err == nil, err
 	}
 	if p.BlipFill != nil {

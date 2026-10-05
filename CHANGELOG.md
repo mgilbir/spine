@@ -59,6 +59,15 @@
   image budget holds, down to half its size, and refused below that, before
   the renderer allocates it.
 
+### Changed
+
+- pptx: pattern fills (`a:pattFill`) are drawn exactly, in strict mode too,
+  from bitmaps measured from PowerPoint's rendering of all 54 presets. A
+  pattern pixel is one point (4/3 CSS pixels, not one), and the tiling is
+  anchored to the slide's origin rather than the shape's. Patterns in rotated
+  or flipped shapes or groups remain approximate. Lines and text with pattern
+  fills are still drawn in the foreground color.
+
 ### Fixed
 
 - dml, pptx, docx, xlsx: children a model keeps in source order (a picture's

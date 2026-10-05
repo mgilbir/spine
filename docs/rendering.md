@@ -169,14 +169,23 @@ an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a
 theme background reference (`p:bgRef`) whose theme entry is one of those.
-Pattern fills (`a:pattFill`) on shapes and backgrounds fail, since the
-standard pictures its preset patterns without giving their pixels. Best
-effort draws each from its description, 8 by 8 CSS pixels tiled from the
-box's corner in its foreground over its background (black over white when
-absent): a percentage as an ordered dither of that density, and lines,
-grids, checks and figures as their names say. Best effort reports problems
-with a background as the background's, and draws a background it cannot
-draw white.
+Pattern fills (`a:pattFill`) on shapes and backgrounds are drawn exactly, in
+strict mode too: the 8 by 8 bitmaps of all 54 presets are measured from
+PowerPoint's own rendering of them, in the foreground color over the
+background color (black over white when absent). A pattern pixel is one
+point, 4/3 CSS pixels, and the tiling is anchored to the slide's origin, not
+the shape's, so shapes at different places show one pattern; a shape's
+position includes its group's mapping as drawn. The fill is composed at 3
+image pixels per CSS pixel (4 per pattern pixel), or 1.5 or 1 when the box is
+too large for that within the tiled-fill pixel budget, as a slide-sized
+background is. At 3 and 1.5, output at 144 and 288 DPI lands pattern edges on
+whole pixels; at 96 DPI a pattern pixel is 1.33 pixels, so edges blur
+whatever the scale. The drawing is placed to 1/64 CSS pixel. Rotated or
+flipped shapes, and shapes in rotated or flipped groups, are the exception:
+how PowerPoint tiles those has not been measured, so strict mode fails and
+best effort draws the pattern as for an upright shape, with a warning. Best
+effort reports problems with a background as the background's, and draws a
+background it cannot draw white.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
 and ellipses may have a solid, gradient or picture fill or none, and a solid outline or none. A shape's
 style reference (`p:style`) supplies what it does not set itself: `fillRef`

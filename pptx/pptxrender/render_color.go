@@ -39,6 +39,8 @@ type renderColors struct {
 	tilePixels   int64
 	effectPixels int64
 	limits       render.Limits
+	// turned counts the rotated or flipped groups being drawn.
+	turned int
 }
 
 // approximate reports err and returns nil in best-effort mode, and returns err
@@ -559,7 +561,7 @@ func (c *renderColors) background(bg *oxml.Background, w, h float64) (renderPain
 			if v.NoFill != nil || v.SolidFill != nil || v.GradFill != nil {
 				return white, fmt.Errorf("%w: ambiguous background fill", render.ErrInvalid)
 			}
-			return c.patternPaint(v.PattFill, nil, w, h)
+			return c.patternPaint(v.PattFill, nil, 0, 0, w, h, false)
 		}
 		if v.NoFill != nil && v.SolidFill == nil && v.GradFill == nil {
 			return white, nil

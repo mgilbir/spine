@@ -1,6 +1,7 @@
 package pptxrender
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -11,125 +12,115 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// renderPatternCell is how many image pixels a pattern pixel spans, so that
-// the composed fill keeps its pattern's edges sharp when drawn larger.
-const renderPatternCell = 4
-
-// renderBayer is the 8 by 8 ordered-dither matrix, ranking each cell 0 to 63.
-var renderBayer = func() (m [8][8]int) {
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
-			v, xc, yc := 0, x^y, y
-			for bit := 0; bit < 3; bit++ {
-				// The lowest coordinate bits rank highest, which spreads
-				// each threshold's cells evenly.
-				v = v<<2 | (xc>>bit&1)<<1 | (yc >> bit & 1)
-			}
-			m[y][x] = v
-		}
-	}
-	return m
-}()
-
-// renderPatternBits draws a preset pattern as 8 by 8 pixels, set where the
-// foreground shows. The standard names the patterns and pictures them
-// without giving their pixels, so each is drawn from its description:
-// percentages as ordered dithers of that density, and lines, grids, checks
-// and figures as their names say, light ones thin, dark ones thick, narrow
-// ones close and wide ones far apart.
-func renderPatternBits(prst string) (bits [8][8]bool, ok bool) {
-	set := func(f func(x, y int) bool) [8][8]bool {
-		var b [8][8]bool
-		for y := 0; y < 8; y++ {
-			for x := 0; x < 8; x++ {
-				b[y][x] = f(x, y)
-			}
-		}
-		return b
-	}
-	mod := func(v, m int) int { return ((v % m) + m) % m }
-	percents := map[string]int{"pct5": 5, "pct10": 10, "pct20": 20, "pct25": 25, "pct30": 30, "pct40": 40, "pct50": 50, "pct60": 60, "pct70": 70, "pct75": 75, "pct80": 80, "pct90": 90}
-	if p, found := percents[prst]; found {
-		n := int(math.Round(float64(p) * 64 / 100))
-		return set(func(x, y int) bool { return renderBayer[y][x] < n }), true
-	}
-	// Diagonals: down runs from top left to bottom right.
-	down := func(period, width int) func(x, y int) bool {
-		return func(x, y int) bool { return mod(x-y, period) < width }
-	}
-	up := func(period, width int) func(x, y int) bool {
-		return func(x, y int) bool { return mod(x+y, period) < width }
-	}
-	f := map[string]func(x, y int) bool{
-		"horz":       func(_, y int) bool { return y == 0 },
-		"ltHorz":     func(_, y int) bool { return y%4 == 0 },
-		"narHorz":    func(_, y int) bool { return y%2 == 0 },
-		"dkHorz":     func(_, y int) bool { return y%4 < 2 },
-		"dashHorz":   func(x, y int) bool { return (y == 0 && x < 4) || (y == 4 && x >= 4) },
-		"vert":       func(x, _ int) bool { return x == 0 },
-		"ltVert":     func(x, _ int) bool { return x%4 == 0 },
-		"narVert":    func(x, _ int) bool { return x%2 == 0 },
-		"dkVert":     func(x, _ int) bool { return x%4 < 2 },
-		"dashVert":   func(x, y int) bool { return (x == 0 && y < 4) || (x == 4 && y >= 4) },
-		"cross":      func(x, y int) bool { return x == 0 || y == 0 },
-		"lgGrid":     func(x, y int) bool { return x == 0 || y == 0 },
-		"smGrid":     func(x, y int) bool { return x%4 == 0 || y%4 == 0 },
-		"dotGrid":    func(x, y int) bool { return (y == 0 && x%2 == 0) || (x == 0 && y%2 == 0) },
-		"dnDiag":     down(8, 1),
-		"ltDnDiag":   down(4, 1),
-		"dkDnDiag":   down(4, 2),
-		"wdDnDiag":   down(8, 3),
-		"dashDnDiag": func(x, y int) bool { return mod(x-y, 4) == 0 && y%4 < 2 },
-		"upDiag":     up(8, 1),
-		"ltUpDiag":   up(4, 1),
-		"dkUpDiag":   up(4, 2),
-		"wdUpDiag":   up(8, 3),
-		"dashUpDiag": func(x, y int) bool { return mod(x+y, 4) == 0 && y%4 < 2 },
-		"diagCross":  func(x, y int) bool { return mod(x-y, 8) == 0 || mod(x+y, 8) == 0 },
-		"smCheck":    func(x, y int) bool { return (x/2+y/2)%2 == 0 },
-		"lgCheck":    func(x, y int) bool { return (x/4+y/4)%2 == 0 },
-		"horzBrick":  func(x, y int) bool { return y == 0 || y == 4 || (y < 4 && x == 0) || (y > 4 && x == 4) },
-		"diagBrick":  func(x, y int) bool { return mod(x+y, 8) == 0 || (mod(x-y, 8) == 4 && y < 4) },
-		"solidDmnd":  func(x, y int) bool { return math.Abs(float64(x)-3.5)+math.Abs(float64(y)-3.5) <= 3.5 },
-		"openDmnd":   func(x, y int) bool { return mod(x+y, 8) == 4 || mod(x-y, 8) == 0 },
-		"dotDmnd":    func(x, y int) bool { return (x == 0 && y == 0) || (x == 4 && y == 4) },
-		"plaid":      func(x, y int) bool { return (y < 2 && x%2 == 0) || (x < 2 && y%2 == 0) || (x < 2 && y < 2) },
-		"sphere": func(x, y int) bool {
-			d := math.Hypot(float64(x)-3.5, float64(y)-3.5)
-			return d <= 3.6 && (x != 2 || y != 2)
-		},
-		"weave": func(x, y int) bool { return (mod(x-y, 8) < 2 && x%8 < 4) || (mod(x+y, 8) < 2 && x%8 >= 4) },
-		"divot": func(x, y int) bool {
-			return (y == 1 && x >= 2 && x <= 3) || (y == 2 && x == 4) || (y == 5 && x >= 6) || (y == 6 && x == 0)
-		},
-		"shingle":    func(x, y int) bool { return mod(x+y, 8) == 0 || (y == 4 && x >= 4) },
-		"wave":       func(x, y int) bool { return y == int(math.Round(1.5-1.5*math.Cos(float64(x)*math.Pi/4))) },
-		"trellis":    func(x, y int) bool { return mod(x-y, 4) < 2 || mod(x+y, 4) < 2 },
-		"zigZag":     func(x, y int) bool { d := x % 4; return y%4 == min(d, 4-d) },
-		"smConfetti": func(x, y int) bool { return renderBayer[mod(3*y+1, 8)][mod(5*x+2, 8)] < 8 },
-		"lgConfetti": func(x, y int) bool { return renderBayer[mod(3*y+1, 8)][mod(5*x+2, 8)] < 16 },
-	}[prst]
-	if f == nil {
-		return bits, false
-	}
-	return set(f), true
+// renderPatterns holds the 8 by 8 bitmaps of the preset patterns
+// (ST_PresetPatternVal), measured from PowerPoint's own rendering of each
+// preset: one byte per row, the top row first, the 0x80 bit the leftmost
+// pixel, set where the foreground color shows. The standard names the
+// patterns without giving their pixels.
+var renderPatterns = map[string][8]uint8{
+	"pct5":       {0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00},
+	"pct10":      {0x80, 0x00, 0x08, 0x00, 0x80, 0x00, 0x08, 0x00},
+	"pct20":      {0x88, 0x00, 0x22, 0x00, 0x88, 0x00, 0x22, 0x00},
+	"pct25":      {0x88, 0x22, 0x88, 0x22, 0x88, 0x22, 0x88, 0x22},
+	"pct30":      {0xAA, 0x44, 0xAA, 0x11, 0xAA, 0x44, 0xAA, 0x11},
+	"pct40":      {0xAA, 0x55, 0xAA, 0x51, 0xAA, 0x55, 0xAA, 0x15},
+	"pct50":      {0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55},
+	"pct60":      {0xEE, 0x55, 0xBB, 0x55, 0xEE, 0x55, 0xBB, 0x55},
+	"pct70":      {0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD, 0x77, 0xDD},
+	"pct75":      {0x77, 0xFF, 0xDD, 0xFF, 0x77, 0xFF, 0xDD, 0xFF},
+	"pct80":      {0xEF, 0xFF, 0xFE, 0xFF, 0xEF, 0xFF, 0xFE, 0xFF},
+	"pct90":      {0xFF, 0xFF, 0xFF, 0xF7, 0xFF, 0xFF, 0xFF, 0x7F},
+	"horz":       {0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+	"vert":       {0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80},
+	"ltHorz":     {0xFF, 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00},
+	"ltVert":     {0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88, 0x88},
+	"dkHorz":     {0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00},
+	"dkVert":     {0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC},
+	"narHorz":    {0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00},
+	"narVert":    {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55},
+	"dashHorz":   {0xF0, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00},
+	"dashVert":   {0x80, 0x80, 0x80, 0x80, 0x08, 0x08, 0x08, 0x08},
+	"cross":      {0xFF, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80},
+	"dnDiag":     {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01},
+	"upDiag":     {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80},
+	"ltDnDiag":   {0x88, 0x44, 0x22, 0x11, 0x88, 0x44, 0x22, 0x11},
+	"ltUpDiag":   {0x11, 0x22, 0x44, 0x88, 0x11, 0x22, 0x44, 0x88},
+	"dkDnDiag":   {0xCC, 0x66, 0x33, 0x99, 0xCC, 0x66, 0x33, 0x99},
+	"dkUpDiag":   {0x33, 0x66, 0xCC, 0x99, 0x33, 0x66, 0xCC, 0x99},
+	"wdDnDiag":   {0xC1, 0xE0, 0x70, 0x38, 0x1C, 0x0E, 0x07, 0x83},
+	"wdUpDiag":   {0x83, 0x07, 0x0E, 0x1C, 0x38, 0x70, 0xE0, 0xC1},
+	"dashDnDiag": {0x00, 0x00, 0x88, 0x44, 0x22, 0x11, 0x00, 0x00},
+	"dashUpDiag": {0x00, 0x00, 0x11, 0x22, 0x44, 0x88, 0x00, 0x00},
+	"diagCross":  {0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81},
+	"smCheck":    {0x99, 0x66, 0x66, 0x99, 0x99, 0x66, 0x66, 0x99},
+	"lgCheck":    {0xF0, 0xF0, 0xF0, 0xF0, 0x0F, 0x0F, 0x0F, 0x0F},
+	"smGrid":     {0xFF, 0x88, 0x88, 0x88, 0xFF, 0x88, 0x88, 0x88},
+	"lgGrid":     {0xFF, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80},
+	"dotGrid":    {0xAA, 0x00, 0x80, 0x00, 0x80, 0x00, 0x80, 0x00},
+	"smConfetti": {0x80, 0x08, 0x40, 0x02, 0x10, 0x01, 0x20, 0x04},
+	"lgConfetti": {0xB1, 0x30, 0x03, 0x1B, 0xD8, 0xC0, 0x0C, 0x8D},
+	"horzBrick":  {0xFF, 0x80, 0x80, 0x80, 0xFF, 0x08, 0x08, 0x08},
+	"diagBrick":  {0x01, 0x02, 0x04, 0x08, 0x18, 0x24, 0x42, 0x81},
+	"solidDmnd":  {0x10, 0x38, 0x7C, 0xFE, 0x7C, 0x38, 0x10, 0x00},
+	"openDmnd":   {0x82, 0x44, 0x28, 0x10, 0x28, 0x44, 0x82, 0x01},
+	"dotDmnd":    {0x80, 0x00, 0x22, 0x00, 0x08, 0x00, 0x22, 0x00},
+	"plaid":      {0xAA, 0x55, 0xAA, 0x55, 0xF0, 0xF0, 0xF0, 0xF0},
+	"sphere":     {0x77, 0x89, 0x8F, 0x8F, 0x77, 0x98, 0xF8, 0xF8},
+	"weave":      {0x88, 0x54, 0x22, 0x45, 0x88, 0x14, 0x22, 0x51},
+	"divot":      {0x00, 0x10, 0x08, 0x10, 0x00, 0x80, 0x01, 0x80},
+	"shingle":    {0x03, 0x84, 0x48, 0x30, 0x0C, 0x02, 0x01, 0x01},
+	"wave":       {0x00, 0x18, 0x25, 0xC0, 0x00, 0x18, 0x25, 0xC0},
+	"trellis":    {0xFF, 0x66, 0xFF, 0x99, 0xFF, 0x66, 0xFF, 0x99},
+	"zigZag":     {0x81, 0x42, 0x24, 0x18, 0x81, 0x42, 0x24, 0x18},
 }
 
-// patternPaint resolves a pattern fill to a tiled image of its foreground
-// and background, drawn approximately: see renderPatternBits. A pattern
-// pixel is a CSS pixel, as PowerPoint draws them at 100% zoom; absent
-// colors are black on white.
-func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, w, h float64) (renderPaint, error) {
+// renderPatternPoint is how many CSS pixels a pattern pixel spans: PowerPoint
+// draws one per point, a 72nd of an inch.
+const renderPatternPoint = 96.0 / 72
+
+// renderPatternScales are the image pixels per CSS pixel a pattern fill is
+// composed at, densest first. A pattern pixel is 4/3 CSS pixels, so at 3
+// image pixels per CSS pixel it is 4 whole image pixels, and at 1.5 it is 2.
+// Output at 288 DPI (3 device pixels per CSS pixel) shows the 3 one to one
+// and the 1.5 doubled, and at 144 DPI (1.5) the 1.5 one to one and the 3
+// halved, so pattern edges land on output pixels there. At 96 DPI a pattern
+// pixel is 1.33 device pixels, so its edges cannot all be crisp whatever the
+// scale. The densest scale that holds the fill's pixel budget is used,
+// falling to 1 for a fill as large as a slide, whose pattern pixels are then
+// sampled once per CSS pixel.
+var renderPatternScales = [...]float64{3, 1.5, 1}
+
+// patternPaint resolves a pattern fill for a box w by h CSS pixels at (x, y)
+// on the slide to a composed image of its foreground and background.
+// PowerPoint anchors the tiling to the slide's origin, so the box shows the
+// part of the pattern under it; absent colors are black on white. turned is
+// set for a box that is rotated or flipped, by itself or by a group: how
+// PowerPoint tiles those is not known, so the pattern is composed from the
+// unturned box's phase, as for an upright shape, and left to the shape's
+// turn, approximately.
+func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x, y, w, h float64, turned bool) (renderPaint, error) {
 	prst := p.Prst
 	if prst == "" {
 		return renderPaint{}, fmt.Errorf("%w: pattern without a preset", render.ErrUnsupported)
 	}
-	bits, ok := renderPatternBits(prst)
+	bits, ok := renderPatterns[prst]
 	if !ok {
 		return renderPaint{}, fmt.Errorf("%w: pattern %q", render.ErrInvalid, p.Prst)
 	}
-	if err := c.approximate(fmt.Errorf("%w: pattern %s drawn from its description", render.ErrUnsupported, prst)); err != nil {
-		return renderPaint{}, err
+	for _, v := range []float64{w, h} {
+		if !(v > 0) || math.IsInf(v, 0) || v > 1<<24 {
+			return renderPaint{}, fmt.Errorf("%w: pattern extent", render.ErrInvalid)
+		}
+	}
+	for _, v := range []float64{x, y} {
+		if math.IsNaN(v) || math.Abs(v) > 1<<30 {
+			return renderPaint{}, fmt.Errorf("%w: pattern position", render.ErrInvalid)
+		}
+	}
+	if turned {
+		if err := c.approximate(fmt.Errorf("%w: pattern %s in a rotated or flipped shape drawn as if upright", render.ErrUnsupported, prst)); err != nil {
+			return renderPaint{}, err
+		}
 	}
 	fg, bg := style.RGBA{A: 1}, renderWhite
 	var err error
@@ -147,16 +138,57 @@ func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, w,
 		return color.NRGBA{R: uint8(math.Round(c.R)), G: uint8(math.Round(c.G)), B: uint8(math.Round(c.B)), A: uint8(math.Round(c.A * 255))}
 	}
 	on, off := nrgba(fg), nrgba(bg)
-	cell := image.NewNRGBA(image.Rect(0, 0, 8*renderPatternCell, 8*renderPatternCell))
-	for y := 0; y < 8*renderPatternCell; y++ {
-		for x := 0; x < 8*renderPatternCell; x++ {
-			if bits[y/renderPatternCell][x/renderPatternCell] {
-				cell.SetNRGBA(x, y, on)
-			} else {
-				cell.SetNRGBA(x, y, off)
-			}
+	scale := renderPatternScales[len(renderPatternScales)-1]
+	for _, s := range renderPatternScales {
+		if math.Ceil(w*s)*math.Ceil(h*s) <= renderMaxTilePixels {
+			scale = s
+			break
 		}
 	}
-	img, err := renderTileImage(c, cell, w, h, 8, 8, &dml.TileXML{})
-	return renderPaint{image: img}, err
+	// The image starts at the point grid line at or before the box, so that
+	// its pixels, and the pattern's, sit on output pixels wherever the box
+	// itself does not, and runs to cover the box.
+	x0, y0 := math.Floor(x/renderPatternPoint)*renderPatternPoint, math.Floor(y/renderPatternPoint)*renderPatternPoint
+	ow, oh := max(1, int(math.Ceil((x+w-x0)*scale))), max(1, int(math.Ceil((y+h-y0)*scale)))
+	n := int64(ow) * int64(oh)
+	if n > renderMaxTilePixels*2 || n > 4*renderMaxTilePixels-c.tilePixels {
+		return renderPaint{}, fmt.Errorf("%w: tiled fill pixels", render.ErrLimit)
+	}
+	c.tilePixels += n
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// along gives the pattern pixel, 0 to 7, under each image pixel's
+	// centre on one axis, the image starting at origin: the point it lies
+	// at from the slide's origin, floored.
+	along := func(origin float64, count int) []int {
+		out := make([]int, count)
+		for i := range out {
+			pt := math.Floor((origin + (float64(i)+0.5)/scale) / renderPatternPoint)
+			out[i] = int(math.Mod(math.Mod(pt, 8)+8, 8))
+		}
+		return out
+	}
+	columns, rows := along(x0, ow), along(y0, oh)
+	img := image.NewNRGBA(image.Rect(0, 0, ow, oh))
+	for j, r := range rows {
+		if j%64 == 0 {
+			if err := ctx.Err(); err != nil {
+				return renderPaint{}, err
+			}
+		}
+		dst := img.Pix[j*img.Stride:]
+		for i, col := range columns {
+			px := off
+			if bits[r]&(0x80>>col) != 0 {
+				px = on
+			}
+			dst[4*i], dst[4*i+1], dst[4*i+2], dst[4*i+3] = px.R, px.G, px.B, px.A
+		}
+	}
+	// The image runs past the box on each side, clipped to it.
+	ew, eh := float64(ow)/scale, float64(oh)/scale
+	l, t := (x0-x)/w, (y0-y)/h
+	return renderPaint{image: img, fill: [4]float64{l, t, 1 - l - ew/w, 1 - t - eh/h}}, nil
 }

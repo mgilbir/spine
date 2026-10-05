@@ -156,6 +156,10 @@ func renderGroup(g *oxml.GroupShape, parent renderMap, draw renderDraw, connect 
 			local = renderMap{ox: float64(x.Off.X), oy: float64(x.Off.Y), cx: float64(x.ChOff.X), cy: float64(x.ChOff.Y), sx: sx, sy: sy}
 		}
 	}
+	if !turn.identity() {
+		colors.turned++
+		defer func() { colors.turned-- }()
+	}
 	m := parent.then(local)
 	order := g.ChildOrder()
 	if len(order) == 0 && len(g.Shapes)+len(g.Pictures)+len(g.GroupShapes)+len(g.GraphicFrames)+len(g.ConnectionShapes)+len(g.AltContent)+len(g.RawXML) > 0 {
