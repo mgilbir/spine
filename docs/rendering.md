@@ -845,8 +845,9 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   per section; section breaks `nextPage`, `continuous` (when page size and
   top/bottom margins match; a different geometry starts a page and is reported as
   approximated), `evenPage` and `oddPage` (physical page numbers, with a blank
-  page where needed). A document without explicit page size and margins is refused
-  in both modes.
+  page where needed). A section without an explicit page size or margins fails;
+  best effort draws it on Letter with one-inch margins, the page Word's US Normal
+  template sets, and reports it.
 - **Styles.** Document defaults; paragraph and character styles with `basedOn`
   chains (a cycle in a style the document uses is invalid) and the default
   paragraph style; toggle properties combine across style levels by exclusive or

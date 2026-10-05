@@ -212,7 +212,8 @@ func (r *wordRenderer) translateBody(body *wordNode) ([]*wordSection, error) {
 		f.fields = nil
 	}
 	if final == nil {
-		return nil, fmt.Errorf("%w: explicit page geometry required", render.ErrUnsupported)
+		// A body without section properties takes the default page.
+		final = &wordNode{space: nsW, name: "sectPr"}
 	}
 	if len(f.cur) > 0 || len(f.secs) == 0 {
 		if err := f.closeSection(final); err != nil {
@@ -319,7 +320,18 @@ func (r *wordRenderer) parseSectPr(n *wordNode) (wordSectProps, error) {
 		}
 	}
 	if !hasSize || !hasMar {
-		return s, fmt.Errorf("%w: explicit page geometry required", render.ErrUnsupported)
+		// The page Word's US Normal template sets: Letter with one-inch
+		// margins. Where it comes from is the application's, so best effort
+		// reports it.
+		if err := r.approximate("page size or margins not set, drawn on Letter with one-inch margins"); err != nil {
+			return s, err
+		}
+		if !hasSize {
+			s.w, s.h = 8.5*96, 11*96
+		}
+		if !hasMar {
+			s.top, s.right, s.bottom, s.left = 96, 96, 96, 96
+		}
 	}
 	if s.top < 0 || s.bottom < 0 || s.left < 0 || s.right < 0 || gutter < 0 {
 		return s, fmt.Errorf("%w: negative page margins", render.ErrUnsupported)

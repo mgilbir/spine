@@ -162,16 +162,33 @@ func TestInstructionTextAndUnusedFeaturesAreNotReported(t *testing.T) {
 	}
 }
 
-func TestMissingPageGeometryIsRefusedInBothModes(t *testing.T) {
-	for _, lenient := range []bool{false, true} {
-		o := newWordTestOpts(t, lenient)
-		doc := wordTestDoc(t, wordTestPara("", wordTestRun("", "x")), wordTestParts{styles: wordTestStyles})
-		if _, err := Prepare(context.Background(), doc, o.Options); !errors.Is(err, render.ErrUnsupported) {
-			t.Errorf("lenient=%v: %v", lenient, err)
+func TestMissingPageGeometryTakesTheDefaultPage(t *testing.T) {
+	for _, tc := range []struct {
+		name, sect string
+		w, h       int
+	}{
+		// No section properties at all: Letter, 816 by 1056 pixels at 96 DPI.
+		{"no section", "", 816, 1056},
+		// A size but no margins keeps the size.
+		{"no margins", `<w:sectPr><w:pgSz w:w="4500" w:h="3000"/></w:sectPr>`, 300, 200},
+	} {
+		doc := wordTestDoc(t, wordTestPara("", wordTestRun("", "x"))+tc.sect, wordTestParts{styles: wordTestStyles})
+		// Strict mode refuses a page the document does not set.
+		if _, err := Prepare(context.Background(), doc, newWordTestOpts(t, false).Options); !errors.Is(err, render.ErrUnsupported) {
+			t.Errorf("%s strict: %v", tc.name, err)
 		}
-		doc = wordTestDoc(t, wordTestPara("", wordTestRun("", "x"))+`<w:sectPr><w:pgSz w:w="4500" w:h="3000"/></w:sectPr>`, wordTestParts{styles: wordTestStyles})
-		if _, err := Prepare(context.Background(), doc, o.Options); !errors.Is(err, render.ErrUnsupported) {
-			t.Errorf("lenient=%v without margins: %v", lenient, err)
+		// Best effort draws it on Letter with one-inch margins, and says so.
+		o := newWordTestOpts(t, true)
+		pages := wordTestPages(t, doc, o)
+		page, err := pages.Page(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if w, h, err := page.Size(96); err != nil || w != tc.w || h != tc.h {
+			t.Errorf("%s: %dx%d, %v; want %dx%d", tc.name, w, h, err, tc.w, tc.h)
+		}
+		if len(o.warnings) != 1 || !errors.Is(o.warnings[0], render.ErrApproximated) || !strings.Contains(o.warnings[0].Error(), "Letter with one-inch margins") {
+			t.Errorf("%s warnings: %v", tc.name, o.warnings)
 		}
 	}
 }
