@@ -33,12 +33,20 @@ type renderColors struct {
 	// picture decodes an image the part of the shape being drawn embeds,
 	// under the slide's image budget, with the file's bytes; nil where none
 	// can be drawn.
-	picture func(embed string) (image.Image, []byte, error)
+	picture func(embed string, w, h float64) (image.Image, []byte, error)
 	// tilePixels counts the pixels tiled fills have composed, and
 	// effectPixels those effects have rasterized under limits.
 	tilePixels   int64
 	effectPixels int64
 	limits       render.Limits
+	// patterns records the pattern each composed pattern image shows, for
+	// a transform that turns its shape to compose it again over the turned
+	// shape.
+	patterns map[image.Image]renderPatternSpec
+	// tableStyleIDs are the ids the deck's table styles part defines.
+	tableStyleIDs     map[string]bool
+	tableStylesErr    error
+	tableStylesLoaded bool
 }
 
 // approximate reports err and returns nil in best-effort mode, and returns err
@@ -182,13 +190,13 @@ func renderTransform(c style.RGBA, steps []dml.ColorTransformStep) (style.RGBA, 
 	inHSL := false
 	toHSL := func() {
 		if !inHSL {
-			h, sat, l = renderHSL(style.RGBA{R: r * 255, G: g * 255, B: b * 255})
+			h, sat, l = core.HSL(style.RGBA{R: r * 255, G: g * 255, B: b * 255})
 			inHSL = true
 		}
 	}
 	toRGB := func() {
 		if inHSL {
-			v := renderFromHSLExact(h, sat, l)
+			v := core.FromHSL(h, sat, l)
 			r, g, b, inHSL = v[0], v[1], v[2], false
 		}
 	}
@@ -298,68 +306,6 @@ func renderTransform(c style.RGBA, steps []dml.ColorTransformStep) (style.RGBA, 
 	toRGB()
 	round := func(v float64) float64 { return math.Round(clamp(v) * 255) }
 	return style.RGBA{R: round(r), G: round(g), B: round(b), A: a}, nil
-}
-
-func renderHSL(c style.RGBA) (h, s, l float64) {
-	r, g, b := c.R/255, c.G/255, c.B/255
-	hi, lo := math.Max(r, math.Max(g, b)), math.Min(r, math.Min(g, b))
-	l = (hi + lo) / 2
-	d := hi - lo
-	if d == 0 {
-		return 0, 0, l
-	}
-	if l > 0.5 {
-		s = d / (2 - hi - lo)
-	} else {
-		s = d / (hi + lo)
-	}
-	switch hi {
-	case r:
-		h = (g - b) / d
-		if g < b {
-			h += 6
-		}
-	case g:
-		h = (b-r)/d + 2
-	default:
-		h = (r-g)/d + 4
-	}
-	return h / 6, s, l
-}
-
-// renderFromHSLExact converts HSL to sRGB channels in 0-1, unrounded.
-func renderFromHSLExact(h, s, l float64) [3]float64 {
-	c := renderFromHSLWith(h, s, l, func(v float64) float64 { return math.Min(1, math.Max(0, v)) })
-	return [3]float64{c.R, c.G, c.B}
-}
-
-func renderFromHSLWith(h, s, l float64, channel func(float64) float64) style.RGBA {
-	if s == 0 {
-		return style.RGBA{R: channel(l), G: channel(l), B: channel(l), A: 1}
-	}
-	q := l * (1 + s)
-	if l >= 0.5 {
-		q = l + s - l*s
-	}
-	p := 2*l - q
-	hue := func(t float64) float64 {
-		switch {
-		case t < 0:
-			t++
-		case t > 1:
-			t--
-		}
-		switch {
-		case t < 1.0/6:
-			return p + (q-p)*6*t
-		case t < 0.5:
-			return q
-		case t < 2.0/3:
-			return p + (q-p)*(2.0/3-t)*6
-		}
-		return p
-	}
-	return style.RGBA{R: channel(hue(h + 1.0/3)), G: channel(hue(h)), B: channel(hue(h - 1.0/3)), A: 1}
 }
 
 // scheme resolves a scheme color name through the slide's color map and the
@@ -559,7 +505,7 @@ func (c *renderColors) background(bg *oxml.Background, w, h float64) (renderPain
 			if v.NoFill != nil || v.SolidFill != nil || v.GradFill != nil {
 				return white, fmt.Errorf("%w: ambiguous background fill", render.ErrInvalid)
 			}
-			return c.patternPaint(v.PattFill, nil, w, h)
+			return c.patternPaint(v.PattFill, nil, 0, 0, w, h)
 		}
 		if v.NoFill != nil && v.SolidFill == nil && v.GradFill == nil {
 			return white, nil

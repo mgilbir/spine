@@ -277,21 +277,53 @@ func TestOrderedChildren_RawOnlyElementStaysExpanded(t *testing.T) {
 	}
 }
 
-func TestOrderedChildren_NoSourceRegisteredDropsUnknown(t *testing.T) {
-	// Plain xml.Unmarshal has no registered source: unknown children are
-	// skipped (the pre-capture behavior), typed children still decode and
-	// keep their order.
-	src := `<w:root xmlns:w="http://example.com/w" xmlns:x="http://example.com/x">` +
-		`<w:props><w:sz w:val="28"/><x:unknown/><w:b/></w:props>` +
-		`</w:root>`
-	var doc orderedDoc
-	if err := xml.Unmarshal([]byte(src), &doc); err != nil {
-		t.Fatal(err)
-	}
-	got := marshalOrderedDoc(t, &doc)
-	want := `<w:props><w:sz w:val="28"/><w:b/></w:props>`
-	if got != want {
-		t.Errorf("no-source mismatch:\n got %s\nwant %s", got, want)
+func TestOrderedChildren_NoSourceRegisteredRebuildsUnknown(t *testing.T) {
+	// Plain xml.Unmarshal has no registered source. Unknown children and
+	// duplicated singletons are rebuilt from the decoded tokens (same name,
+	// attributes and content; the namespace is declared inline because the
+	// producer's prefix is not recoverable) rather than silently dropped.
+	for _, tc := range []struct{ name, props, want string }{
+		{
+			"unknown namespace",
+			`<w:sz w:val="28"/><x:unknown x:a="1&amp;2"><x:in>t&lt;</x:in></x:unknown><w:b/>`,
+			`<w:sz w:val="28"/><ns1:unknown xmlns:ns1="http://example.com/x" ns1:a="1&amp;2"><x:in>t&lt;</x:in></ns1:unknown><w:b/>`,
+		},
+		{
+			"duplicated singleton keeps position",
+			`<w:b/><w:i/><w:b w:val="0"/><w:sz w:val="24"/>`,
+			`<w:b/><w:i/><ns1:b xmlns:ns1="http://example.com/w" ns1:val="0"/><w:sz w:val="24"/>`,
+		},
+		{
+			"no namespace stays out of the default namespace",
+			`<w:b/><plain/>`,
+			`<w:b/><plain xmlns=""/>`,
+		},
+		{
+			"well-known prefix, comment and text",
+			`<w:b/><!-- c --><a:thing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>stray`,
+			`<w:b/><!-- c --><a:thing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>stray`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<w:root xmlns:w="http://example.com/w" xmlns:x="http://example.com/x">` +
+				`<w:props>` + tc.props + `</w:props></w:root>`
+			var doc orderedDoc
+			if err := xml.Unmarshal([]byte(src), &doc); err != nil {
+				t.Fatal(err)
+			}
+			got := marshalOrderedDoc(t, &doc)
+			want := `<w:props>` + tc.want + `</w:props>`
+			if got != want {
+				t.Errorf("no-source mismatch:\n got %s\nwant %s", got, want)
+			}
+			// The rebuilt bytes must themselves parse back once the
+			// ancestors' declarations are restored.
+			rt := `<w:root xmlns:w="http://example.com/w" xmlns:x="http://example.com/x">` + got + `</w:root>`
+			var again orderedDoc
+			if err := xml.Unmarshal([]byte(rt), &again); err != nil {
+				t.Fatalf("rebuilt output does not parse: %v\n%s", err, got)
+			}
+		})
 	}
 }
 

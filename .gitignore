@@ -54,3 +54,6 @@ testdata/corpus/
 # known_failures.tsv, which has always been committed. See testdata/cc/HARVEST.md.
 # The ledger and attempts sidecar stay ignored — they live under
 # testdata/corpus/ and are pure machine-local progress state.
+
+# Built binaries
+/spine-render

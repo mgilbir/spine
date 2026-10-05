@@ -4,6 +4,145 @@
 
 ### Added
 
+- pptx: the preview renderer draws right-to-left text (Hebrew, Arabic, Syriac,
+  Thaana, N'Ko): paragraphs with `rtl="1"` start at the right, with margins,
+  indent and bullets from the start (`marL` at the right, the bullet right of
+  its line's text) and alignment physical as PowerPoint draws it (an absent
+  `algn` and `l` at the left edge, `r` at the right), text of either direction
+  is ordered by the Unicode bidirectional algorithm, and Arabic letters join as
+  the font shapes them. Complex-script characters use the run's `a:cs` font, a
+  `+mn-cs`/`+mj-cs` theme reference, or the theme font list's entry for the
+  run's language or script. Justified lines stretch edge to edge and the last
+  line sits at the right. Low kashida
+  justification of Arabic draws as justified in best effort and fails in strict
+  mode. Tabs in a right-to-left paragraph are measured from the line's start
+  at its right end, with left and right stops aligning the text after the tab
+  physically (verified against PowerPoint's export) and the line placed by the
+  paragraph's alignment; other stops fail in strict mode and draw
+  approximately in best effort. In runs of a complex-script language
+  (`he-IL`, `ar-*` and others) ASCII spaces, digits, punctuation and symbols
+  use the `a:cs` font, as PowerPoint draws them. A run's
+  own direction still fails.
+- pptx: the preview renderer draws East Asian text (ideographs, kana, hangul,
+  CJK punctuation, fullwidth forms): each run is cut into spans by the font
+  class of its characters, East Asian ones using the run's `a:ea` font, a
+  `+mn-ea`/`+mj-ea` theme reference, or the theme font list's entry for its
+  language. Lines break between East Asian characters with kinsoku, East Asian
+  stops and commas hang past a line's end with `hangingPunct`, and justified
+  lines spread between East Asian characters. Strict mode fails for
+  `eaLnBrk="0"`, `eaVert` with East Asian characters, justified East Asian text
+  and symbols of ambiguous width in East Asian language runs; best effort draws
+  them approximately and warns.
+- render: color fonts are drawn. Glyphs of COLRv0 and COLRv1 (solid fills, linear
+  and radial gradients, transforms, clips and source-over groups) and of CBDT
+  and sbix fonts (PNG strikes) are drawn in their own colors in PNG and SVG
+  output, where fonts with such tables were refused. A sweep gradient, a
+  radial gradient between circles of different centers, a composite mode other
+  than source-over, an SVG glyph and an unreadable bitmap are refused in
+  strict mode, and drawn approximately and reported in best effort (the
+  gradient as its nearest paint, the glyph as its outline in the text color).
+  Paint graphs and strikes are bounded by the render limits and Forme's paint
+  limits. `render.PrepareBestEffort` is `render.Prepare` that approximates;
+  PPTX slides use it when `Warn` is set. `bdat` and `bloc` fonts are still
+  refused.
+- spine-render: `-font FAMILY[:style]=FILE#INDEX` loads face INDEX (from zero) of
+  a TrueType or OpenType collection (`.ttc`, `.otc`, WOFF 2 collections too).
+  A collection of several faces mapped without an index fails, listing its
+  faces. A file mapped for several faces is read and counted once toward the
+  32 MiB font budget; charts are given each face copied out as a font of its
+  own, bounded by a further 32 MiB.
+- pptx: tables in PowerPoint's 74 built-in table styles are drawn with the
+  style's fills, borders (including double lines), text colors and bold, and
+  for the themed styles the theme's gradient background. PowerPoint does not
+  write the definitions of these styles into `ppt/tableStyles.xml`, so they are
+  built in, each as the `a:tblStyle` it stands for, and checked against
+  PowerPoint's own rendering: 68 of the 74 match in every cell and border. The
+  six Themed Style 2 styles with an accent differ only in the soft shadow
+  around the table. A strict render fails for those, and for banded columns,
+  which were not compared; best effort draws them and reports the
+  approximation. Styles a deck defines itself are still left out, as are
+  unknown ids, with a warning in best effort.
+- render: PowerPoint previews draw EMF and WMF pictures (picture shapes, picture
+  fills and backgrounds) with [gowemf](https://github.com/mgilbir/gowemf): the
+  records are played onto a raster of the size the picture is drawn at, under
+  the render limits. Strict mode fails on anything not drawn exactly; best
+  effort reports approximations and leaves out the rest. See
+  `docs/rendering.md`.
+- docxrender: EMF and WMF pictures are drawn, with the metafile playback
+  PowerPoint previews use (gowemf); strict mode fails on anything not drawn
+  exactly, best effort reports approximations and leaves out the rest.
+- docxrender: the Word page renderer is rebuilt on the forme layout engine and
+  draws real documents. `Prepare` lays a document out and paginates it once and
+  returns `Pages` (`Count`, `Page`); `PreparePage` is unchanged. Sections with
+  their own page size and margins and the section break types; styles
+  (document defaults, paragraph and character styles with `basedOn`, toggle
+  properties, theme fonts and colours); paragraph alignment, indents, spacing
+  (including contextual spacing), line spacing, tabs, keep rules, widow and
+  orphan control and page breaks; and runs with several fonts and slopes,
+  sizes, colours, underline, strikethrough, caps, highlight, shading,
+  superscript and subscript, line breaks, non-ASCII text, and field results and
+  hyperlinks. Tables, numbering, images and the rest are
+  hyperlinks. Numbering, images, headers and footers and the rest are
+  refused in strict mode and left out, with a warning, in best effort.
+- docxrender: headers and footers. `default`, `first` and `even` types with
+  `titlePg` and `evenAndOddHeaders`, inherited from the previous section, drawn
+  at the `pgMar` header and footer distances; a header or footer taller than the
+  margin reduces the text area, and pagination uses the reduced height.
+  `PAGE`, `NUMPAGES`, `SECTIONPAGES`, `SECTION` and `pgNum` show real values
+  with `pgNumType` restarts and formats (decimal, Roman, letters, ...); even and
+  odd section breaks follow the displayed page number. Pagination repeats
+  (bounded) when the page count changes a header's height. The strict and
+  best-effort rules apply as elsewhere: formats and switches that are not drawn
+  exactly are reported as approximated.
+- docxrender: footnotes and endnotes. References draw their marks with the
+  `footnotePr` and `endnotePr` formats, starts and restarts (continuous, each
+  section, each page); footnote text is placed at the bottom of the page whose
+  line holds the reference, under the separator, reducing the text area for
+  pagination, and continues on the next page under the continuation separator
+  when it does not fit; endnotes follow the text of the document or section. Body
+  `PAGE`, `NUMPAGES` and `SECTIONPAGES` fields keep their saved result, which is
+  now checked against the page and reported when it differs. Approximations
+  (footnotes beneath the text, a continuation notice, long continued notes) are
+  reported.
+- docxrender: custom tab stops (left, center and right, with dot, hyphen and
+  underscore leaders, inherited and cleared through styles), and default stops
+  measured from the page margin in indented paragraphs, as Word does. forme has
+  one tab size, so the renderer measures the text between tabs and sets each
+  tab's width; a paragraph that wraps is reported as approximated.
+- docxrender: numbering and lists. Paragraphs numbered directly or through their
+  styles draw their markers: decimal, roman, letter and other formats, multilevel
+  text (`%1.%2`), legal numbering, bullets (symbol-font bullets from the font
+  when the host has it), suffixes and marker alignment, the level's indents and
+  tab stops, start and level overrides, restarts and Word's counter rules, and
+  numbering styles. Formats and symbol fonts the renderer cannot draw as Word
+  does are reported as approximated; picture bullets draw a bullet character.
+  `docx/internal/view` gained `NumberingXML`.
+- docxrender: tables. Grid and column widths (fixed and autofit), table width,
+  alignment and indent, cell margins, borders with Word's conflict rule, shading,
+  `gridSpan`, `vMerge`, row heights, nested tables, and table styles with their
+  conditional layers (header row, banded rows and columns, first and last
+  column, corner cells) and `w:tblLook`. Pagination cuts between rows and
+  between the lines of a row, keeps `cantSplit` rows whole, and repeats header
+  rows on each page. Floating tables, cell spacing, widths that disagree with the
+  grid and other features are approximated and reported (refused in strict
+  mode); diagonal borders are left out.
+- docxrender: pictures. Inline pictures sit on the line and grow it; anchored
+  pictures are drawn on the page of their anchor line, in front of or behind the
+  text, positioned from the page, margins, column, paragraph, line or character
+  with offsets or alignment, and with square, tight, through or top-and-bottom
+  wrapping around a picture placed from its paragraph. Crops (including negative
+  ones), fill rectangles, flips, rotation, effect extents, picture colour effects
+  and solid outlines are drawn; images are read only from the package and decoded
+  once, under the image limits. Linked, missing, corrupt and oversized images,
+  charts, SmartArt, shapes and legacy VML pictures are left out with a warning
+  (an inline drawing keeps its space), and what Word draws differently (tight
+  wrapping, wrapped pictures placed from the page, effects) is reported as
+  approximated. Strict mode refuses all of these.
+- internal/render: the picture helpers of the PowerPoint renderer (downscaling,
+  cropping, fading, blur, HSL conversion and the blip colour effects) move to
+  the shared package so the Word renderer draws pictures with the same code.
+- spine-render: DOCX is laid out once per document rather than once per page,
+  and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and
@@ -12,8 +151,44 @@
   image budget holds, down to half its size, and refused below that, before
   the renderer allocates it.
 
+### Changed
+
+- pptx: pattern fills (`a:pattFill`) are drawn exactly, in strict mode too,
+  from bitmaps measured from PowerPoint's rendering of all 54 presets. A
+  pattern pixel is one point (4/3 CSS pixels, not one), and the tiling is
+  anchored to the slide's origin rather than the shape's. Patterns in rotated
+  or flipped shapes and groups are drawn exactly too: PowerPoint never turns
+  or mirrors a pattern, so the turned shape shows the slide's upright pattern
+  under it. Lines and text with pattern
+  fills are still drawn in the foreground color.
+- docxrender: documents the first profile refused (inherited styles, several
+  runs per paragraph, indents, spacing, sections) are drawn, and the font
+  resolver is asked for every family a document's runs and paragraph marks
+  use, including Word's default (Times New Roman) where the document names
+  none. Plain documents the first profile drew are drawn by the new layout, so
+  line placement can differ.
+
 ### Fixed
 
+- dml, pptx, docx, xlsx: children a model keeps in source order (a picture's
+  `a:blip` effects, run and paragraph properties, table properties, and the
+  like) that it does not type, or that repeat a single-valued child, were
+  dropped on save whenever the part was decoded without its source bytes (a
+  slide duplicated or imported, a part in a transcoded charset). They are now
+  rebuilt from the decoded markup, in place, with an inline namespace
+  declaration where the producer's prefix is unknown. Comments and non-blank
+  text between children are kept the same way. `dml.BlipXML` also no longer
+  reads an effect-named element of another namespace as the DrawingML effect.
+- dml: `(*Blip).OrderedEffects` lists a repeated or unknown effect, in place,
+  as a `BlipEffect` with `RawName` set, so the renderer reports it as an
+  unknown picture effect (strict mode refuses it) instead of skipping it.
+- pptx: charts without explicit formatting are drawn as PowerPoint draws them
+  automatically: black text, gridlines and axis lines, tick marks pointing
+  out, a legend centred at the right (last series first beside horizontal
+  bars) and pie slices without a white outline. Explicit formatting still
+  wins. Value axes use Office's automatic major unit, a 1, 2 or 5 times a
+  power of ten chosen from the data and the plot's length, and honor
+  `majorUnit`.
 - render: text in a font with an AAT tracking table (`trak` with `STAT`), such
   as Apple's newer system fonts, is now tracked at each run's size. Since
   forme v0.7.0 applies such tables, it was tracked at CoreText's default of 12

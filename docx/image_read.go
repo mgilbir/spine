@@ -79,7 +79,12 @@ func (img *InlineImage) resolveBytes() (string, []byte) {
 	if name == "" {
 		return "", nil
 	}
-	d := img.run.paragraph.document
+	return img.run.paragraph.document.partBytes(name)
+}
+
+// partBytes returns the content type and bytes of a package part held by the
+// mutation-API image parts, the preserved package parts or the reader.
+func (d *Document) partBytes(name string) (string, []byte) {
 	for _, ip := range d.imageParts {
 		if ip.partName == name {
 			return ip.contentType, ip.data

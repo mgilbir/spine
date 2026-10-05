@@ -119,9 +119,6 @@ func TestRenderRejectsVisualOrMisplacedExtensions(t *testing.T) {
 		"slide footer flags": func(s string) string {
 			return strings.Replace(s, `<p:clrMapOvr>`, `<p:hf sldNum="0"/><p:clrMapOvr>`, 1)
 		},
-		"rtl paragraph": func(s string) string {
-			return strings.Replace(s, `<a:pPr algn="l">`, `<a:pPr algn="l" rtl="1">`, 1)
-		},
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, map[string]func(string) string{"ppt/slides/slide1.xml": rewrite}); !errors.Is(err, render.ErrUnsupported) && !errors.Is(err, render.ErrInvalid) {
 			t.Fatalf("%s: %v", name, err)

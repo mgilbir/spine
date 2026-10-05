@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mgilbir/spine/pptx"
 
@@ -152,6 +154,8 @@ type renderFrame struct {
 	// lines; upright keeps text from turning with its shape.
 	vert    float64
 	upright bool
+	// eaVert sets East Asian characters upright, stacked down the line.
+	eaVert bool
 	// numCol columns, spcCol apart, run left to right, or right to left
 	// with rtlCol.
 	numCol int
@@ -194,11 +198,14 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	}
 	// Vertical text lays out across its rectangle turned a quarter and
 	// turns back with it. East Asian vertical text sets Latin characters
-	// turned, as vert does; this profile draws no East Asian characters.
+	// turned, as vert does, and East Asian characters upright, which this
+	// profile does not draw: see eaVert.
 	switch bp.Vert {
 	case "", "horz":
-	case "vert", "eaVert":
+	case "vert":
 		f.vert = 90
+	case "eaVert":
+		f.vert, f.eaVert = 90, true
 	case "vert270":
 		f.vert = 270
 	case "mongolianVert", "wordArtVert", "wordArtVertRtl":
@@ -376,6 +383,16 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *renderBox, g re
 	if err != nil {
 		return nil, err
 	}
+	if frame.eaVert {
+		for _, b := range blocks {
+			if strings.IndexFunc(b.text, core.IsEastAsian) >= 0 {
+				if err = styles.colors.approximate(fmt.Errorf("%w: East Asian characters turned with their vertical text, not upright", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
 	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, cols, fonts, styles.colors)
 	if err != nil {
 		return nil, err
@@ -461,7 +478,13 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if para.marL > content || para.marR > content-para.marL || para.marL+para.marR == content {
 			return nil, 0, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
 		}
-		left, ok := style.FromPx(float64(left0+para.marL) / float64(dml.EMUsPerPixel))
+		// The margins are from the start of a line, which is the right in a
+		// right-to-left paragraph.
+		edge := left0 + para.marL
+		if para.rtl {
+			edge = left0 + para.marR
+		}
+		left, ok := style.FromPx(float64(edge) / float64(dml.EMUsPerPixel))
 		if !ok {
 			return nil, 0, render.ErrLimit
 		}
@@ -476,15 +499,17 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			spans  []renderShaping
 			starts []int // byte offset where each span starts
 			texts  []string
-			pieces []int // span index where each piece after the first starts
+			breaks []int // span index where each piece after the first starts
 			text   strings.Builder
+			// eastAsian is whether any character is East Asian.
+			eastAsian bool
 		)
 		// mark sizes an empty piece by the properties of the break or
 		// paragraph end that closes it.
 		mark := func(rPr *dml.RPr) error {
 			first := 0
-			if n := len(pieces); n > 0 {
-				first = pieces[n-1]
+			if n := len(breaks); n > 0 {
+				first = breaks[n-1]
 			}
 			if len(spans) > first {
 				return nil
@@ -510,7 +535,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 				if err := mark(c.Br.RPr); err != nil {
 					return nil, 0, err
 				}
-				pieces = append(pieces, len(spans))
+				breaks = append(breaks, len(spans))
 				continue
 			default:
 				return nil, 0, fmt.Errorf("%w: nil run", render.ErrInvalid)
@@ -522,34 +547,50 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			if rs.caps {
 				t = strings.ToUpper(t)
 			}
-			// Best effort leaves out characters this profile or the run's font
-			// cannot draw.
-			if styles.colors.approx != nil && t != "" {
-				if face, err := fonts.resolve(ctx, rs.font, rs.bold, rs.italic); err == nil {
-					kept := strings.Map(func(c rune) rune {
-						if _, ok := face.GlyphID(c); (ok && core.RepertoireEuropean.Allows(c)) || c == '\t' {
-							return c
-						}
-						return -1
-					}, t)
-					if kept != t {
-						styles.colors.approx(fmt.Errorf("%w: characters the font or profile lacks left out", render.ErrUnsupported))
-						t = kept
-					}
-				}
-			}
-			if rs.eastAsian && !renderASCII(t) {
-				return nil, 0, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
-			}
 			if len(t) > fonts.opts.Limits.MaxRunBytes-text.Len() {
 				return nil, 0, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
-			if n := len(spans); n > 0 && spans[n-1] == rs.renderShaping && (len(pieces) == 0 || pieces[len(pieces)-1] < n) {
-				texts[n-1] += t
-			} else {
-				spans, starts, texts = append(spans, rs.renderShaping), append(starts, text.Len()), append(texts, t)
+			pieces, err := renderPieces(rs, t, styles.colors)
+			if err != nil {
+				return nil, 0, err
 			}
-			text.WriteString(t)
+			// Best effort leaves out characters this profile or the font that
+			// draws them cannot draw.
+			if styles.colors.approx != nil && t != "" {
+				left := false
+				for k := range pieces {
+					face, err := fonts.resolve(ctx, pieces[k].font, rs.bold, rs.italic)
+					if err != nil {
+						continue
+					}
+					kept := strings.Map(func(c rune) rune {
+						if _, ok := face.GlyphID(c); (ok && core.RepertoireBidi.Allows(c)) || c == '\t' {
+							return c
+						}
+						return -1
+					}, pieces[k].text)
+					left = left || kept != pieces[k].text
+					pieces[k].text = kept
+				}
+				if left {
+					styles.colors.approx(fmt.Errorf("%w: characters the font or profile lacks left out", render.ErrUnsupported))
+					pieces = slices.DeleteFunc(pieces, func(p renderPiece) bool { return p.text == "" })
+					if len(pieces) == 0 {
+						pieces = []renderPiece{{font: rs.font}}
+					}
+				}
+			}
+			for _, piece := range pieces {
+				shaping := rs.renderShaping
+				shaping.font = piece.font
+				if n := len(spans); n > 0 && spans[n-1] == shaping && (len(breaks) == 0 || breaks[len(breaks)-1] < n) {
+					texts[n-1] += piece.text
+				} else {
+					spans, starts, texts = append(spans, shaping), append(starts, text.Len()), append(texts, piece.text)
+				}
+				text.WriteString(piece.text)
+				eastAsian = eastAsian || piece.class == classEastAsian
+			}
 			runs = append(runs, rs)
 			ends = append(ends, text.Len())
 		}
@@ -559,15 +600,22 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err := mark(p.EndParaRPr); err != nil {
 			return nil, 0, err
 		}
+		if eastAsian && !para.eaBreak {
+			// Without East Asian line breaking PowerPoint wraps such text
+			// by its own rules, which are not documented.
+			if err := styles.colors.approximate(fmt.Errorf("%w: East Asian text without East Asian line breaking wrapped by its rules", render.ErrUnsupported)); err != nil {
+				return nil, 0, err
+			}
+		}
 		wrap := width
 		if noWrap {
 			wrap = renderUnit(dml.EMU(1) << 30)
 		}
 		var lines []renderLine
-		bounds := append(append([]int{0}, pieces...), len(spans))
+		bounds := append(append([]int{0}, breaks...), len(spans))
 		for k := 0; k+1 < len(bounds); k++ {
 			a, b := bounds[k], bounds[k+1]
-			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para)
+			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para, core.RepertoireBidi)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -584,6 +632,16 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			for _, l := range piece {
 				if l.TabsMoved && len(piece) > 1 {
 					if err := styles.colors.approximate(fmt.Errorf("%w: line breaks of text with tab stops measured at the default spacing", render.ErrUnsupported)); err != nil {
+						return nil, 0, err
+					}
+					break
+				}
+			}
+			// Right-to-left tabs at left and right stops are placed as
+			// PowerPoint does; others are only a best reading.
+			for _, l := range piece {
+				if l.TabsApprox {
+					if err := styles.colors.approximate(fmt.Errorf("%w: right-to-left tab at a centred or decimal stop, or past the explicit stops", render.ErrUnsupported)); err != nil {
 						return nil, 0, err
 					}
 					break
@@ -665,6 +723,7 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		covered := 0
 		for _, line := range b.lines {
+			stretched := false
 			// A line past the bottom of a column, other than its first,
 			// starts the next column.
 			if col < cols.n-1 && top+line.ascent+line.descent > bottom && top > contentTop {
@@ -678,18 +737,63 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				}
 			}
 			if para.align == enum.TextAlignDistribute || (para.align == enum.TextAlignJustify && !line.last) {
-				line.Segments = renderJustify(line.Segments, width.Px(), para.align == enum.TextAlignDistribute)
+				if renderLineHasEastAsian(line) {
+					// PowerPoint's spacing of justified East Asian text is
+					// not documented; the characters are spread evenly.
+					if err := colors.approximate(fmt.Errorf("%w: justified East Asian text spread between characters", render.ErrUnsupported)); err != nil {
+						return nil, err
+					}
+				}
+				if para.kashida && renderLineHasArabic(line) {
+					// Low kashida elongates Arabic letters; the line is
+					// stretched at its spaces instead.
+					if err := colors.approximate(fmt.Errorf("%w: low kashida justification drawn by widening spaces", render.ErrUnsupported)); err != nil {
+						return nil, err
+					}
+				}
+				line.Segments, stretched = renderJustify(line.Segments, width.Px(), line.Hang.Px(), para.align == enum.TextAlignDistribute)
 			}
 			shift := float64(col) * cols.step
 			xp := left.Px() + shift
-			if para.align == enum.TextAlignCenter {
-				xp += (width.Px() - line.Width.Px()) / 2
+			// Alignment is physical, in a right-to-left paragraph too, as
+			// PowerPoint draws it: left is the left edge. Only a justified
+			// line that is not stretched, which sits at the line's start,
+			// goes to the right.
+			align := para.align
+			if para.rtl && !stretched && (align == enum.TextAlignJustify || align == enum.TextAlignDistribute) {
+				align = enum.TextAlignRight
 			}
-			if para.align == enum.TextAlignRight {
-				xp += width.Px() - line.Width.Px()
+			// The spaces ending a line hang past its end, as PowerPoint draws
+			// them, and do not count toward its width for alignment. The end is
+			// on the right, and on the left in a right-to-left line, where the
+			// spaces are drawn first and the text starts after them.
+			visible, lead := line.Width.Px(), 0.0
+			if !stretched {
+				trail := renderTrailingSpace(line.Segments)
+				visible -= trail
+				if para.rtl {
+					lead = trail
+				}
 			}
+			if align == enum.TextAlignCenter {
+				xp += (width.Px() - visible) / 2
+			}
+			if align == enum.TextAlignRight {
+				xp += width.Px() - visible
+			}
+			xp -= lead
 			if b.bullet != nil && covered == 0 {
-				bx, bxok := style.FromPx(b.bullet.x + shift)
+				x := b.bullet.x
+				if para.rtl {
+					// The bullet hangs from the line's start, the right end
+					// of its text, so it goes where the text does.
+					edge := 0.0
+					for _, sg := range line.Segments {
+						edge = max(edge, sg.X.Px()+sg.Width.Px())
+					}
+					x += xp + edge
+				}
+				bx, bxok := style.FromPx(x + shift)
 				by, byok := style.FromPx(top + line.ascent)
 				if !bxok || !byok {
 					return nil, render.ErrLimit
@@ -701,12 +805,27 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				sg := b.bullet.seg
 				ops = append(ops, layout.DrawGlyphs{At: layout.Point{X: bx, Y: by}, Text: sg.Text, Glyphs: sg.Glyphs, Face: sg.Face, Size: sg.Size, Color: b.bullet.color})
 			}
+			// A line's segments are in the order they are drawn, which is
+			// not the order of their text where it runs right to left. The
+			// line's text must still be the text that follows the lines
+			// before it.
+			spans := make([][2]int, 0, len(line.Segments))
 			for _, sg := range line.Segments {
 				start := b.starts[sg.Span] + sg.Offset
-				if start != covered || !strings.HasPrefix(b.text[start:], sg.Text) {
+				if !strings.HasPrefix(b.text[start:], sg.Text) {
 					return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 				}
-				covered += len(sg.Text)
+				spans = append(spans, [2]int{start, len(sg.Text)})
+			}
+			slices.SortFunc(spans, func(a, b [2]int) int { return a[0] - b[0] })
+			for _, sp := range spans {
+				if sp[0] != covered {
+					return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
+				}
+				covered += sp[1]
+			}
+			for _, sg := range line.Segments {
+				start := b.starts[sg.Span] + sg.Offset
 				if len(sg.Glyphs) == 0 {
 					continue
 				}
@@ -813,7 +932,7 @@ func renderTabStops(para renderParaStyle) ([]core.TabStop, error) {
 
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
 // empty span, whose face sizes its line.
-func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle) ([]renderLine, error) {
+func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle, repertoire core.Repertoire) ([]renderLine, error) {
 	tabs, err := renderTabStops(para)
 	if err != nil {
 		return nil, err
@@ -840,8 +959,9 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
 		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter, BreakWord: true}
 	}
-	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
-	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)
+	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike, and
+	// its East Asian font East Asian text; the caller cuts spans by font.
+	wrapped, err := breaker.RichLinesWith(ctx, spans, width, repertoire, core.RichOptions{HangPunct: para.hangPunct, RTL: para.rtl})
 	if err != nil {
 		return nil, err
 	}
@@ -917,23 +1037,35 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil
 	}
 	pen := 0.0 // in 1000 units per em
+	prevLowest := 0
 	for i := 0; i < len(sg.Glyphs); {
-		first := sg.Glyphs[i].Cluster
-		if first < 0 || first >= len(sg.Text) {
+		if c := sg.Glyphs[i].Cluster; c < 0 || c >= len(sg.Text) {
 			return nil, fmt.Errorf("%w: glyph cluster", render.ErrInvalid)
 		}
-		r := runAt(start + first)
+		r := runAt(start + sg.Glyphs[i].Cluster)
 		j := i
 		advance := 0.0
+		lowest := sg.Glyphs[i].Cluster
 		for j < len(sg.Glyphs) && runAt(start+sg.Glyphs[j].Cluster) == r {
 			advance += sg.Glyphs[j].XAdvance
+			lowest = min(lowest, sg.Glyphs[j].Cluster)
 			j++
 		}
-		// The piece's characters run to the next piece's first cluster.
-		pieceEnd := len(sg.Text)
-		if j < len(sg.Glyphs) {
+		// The piece's characters run from its first cluster to the next
+		// piece's first, where the glyphs go with the text; where they go
+		// against it, in right-to-left text, from its lowest cluster to the
+		// lowest of the piece drawn before it, or to the text's end.
+		first, pieceEnd := sg.Glyphs[i].Cluster, len(sg.Text)
+		switch {
+		case sg.RTL():
+			first = lowest
+			if i > 0 {
+				pieceEnd = prevLowest
+			}
+		case j < len(sg.Glyphs):
 			pieceEnd = sg.Glyphs[j].Cluster
 		}
+		prevLowest = lowest
 		if pieceEnd <= first || runAt(start+pieceEnd-1) != r {
 			return nil, fmt.Errorf("%w: glyph spanning runs", render.ErrUnsupported)
 		}
@@ -991,23 +1123,66 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 	return append(highlights, glyphOps...), nil
 }
 
+// renderTrailingSpace is the width in pixels of the spaces that end a line's
+// text, which hang past the line's end.
+func renderTrailingSpace(segments []core.RichSegment) float64 {
+	order := make([]int, len(segments))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := segments[order[i]], segments[order[j]]
+		return a.Span < b.Span || (a.Span == b.Span && a.Offset < b.Offset)
+	})
+	width := 0.0
+	for i := len(order) - 1; i >= 0; i-- {
+		sg := segments[order[i]]
+		visible := len(strings.TrimRight(sg.Text, " "))
+		for _, g := range sg.Glyphs {
+			if g.Cluster >= visible {
+				width += g.XAdvance * sg.Size.Px() / 1000
+			}
+		}
+		if visible > 0 {
+			break
+		}
+	}
+	return width
+}
+
 // renderJustify stretches a line to a width: justified text widens the
-// spaces between its words and distributed text the gaps between its
-// characters. Spaces ending the line hang past the width and are not
-// widened, nor is anything before the line's last tab, whose stop holds it.
-// A line without a gap to widen, or already as wide, is returned as it is.
-func renderJustify(segments []core.RichSegment, width float64, distribute bool) []core.RichSegment {
+// spaces between its words and between its East Asian characters, and
+// distributed text the gaps between all its characters. Spaces ending the
+// line, which hang past the width, are not widened, nor is anything before the
+// line's last tab, whose stop holds it. A stop or comma hanging past the
+// line (hang, in pixels) is not part of what is stretched. The segments are in
+// the order they are drawn, and the line's end is the end of its text: the
+// left of a right-to-left line, where the spaces that hang are drawn first
+// and the stretched text then starts at the line's start. A line without a
+// gap to widen, or already as wide, is returned as it is, and the result says
+// whether it was stretched.
+func renderJustify(segments []core.RichSegment, width, hang float64, distribute bool) ([]core.RichSegment, bool) {
+	// order lists the segments in the order of their text.
+	order := make([]int, len(segments))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := segments[order[i]], segments[order[j]]
+		return a.Span < b.Span || (a.Span == b.Span && a.Offset < b.Offset)
+	})
 	// visible is the byte offset in each segment where trailing spaces
 	// begin; first is the first segment after the last tab.
 	visible := make([]int, len(segments))
 	first, trailing := 0, true
-	for k := len(segments) - 1; k >= 0; k-- {
+	for i := len(order) - 1; i >= 0; i-- {
+		k := order[i]
 		sg := segments[k]
 		if sg.Text == "\t" {
 			first = k + 1
 			if trailing {
 				// A line ending in a tab ends at its stop.
-				return segments
+				return segments, false
 			}
 			break
 		}
@@ -1022,6 +1197,10 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 	var (
 		gaps []gap
 		end  float64
+		last gap // the last visible cluster's last glyph
+		// lead is the width of the spaces drawn before the text.
+		lead float64
+		seen bool
 	)
 	for k := first; k < len(segments); k++ {
 		sg := segments[k]
@@ -1029,28 +1208,33 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 		pen := sg.X.Px()
 		for i, g := range sg.Glyphs {
 			if g.Cluster < 0 || g.Cluster >= len(sg.Text) {
-				return segments
-			}
-			if g.Cluster >= visible[k] {
-				break
+				return segments, false
 			}
 			pen += g.XAdvance * em
+			if g.Cluster >= visible[k] {
+				if !seen {
+					lead = pen
+				}
+				continue
+			}
+			seen = true
 			end = pen
 			if i+1 < len(sg.Glyphs) && sg.Glyphs[i+1].Cluster == g.Cluster {
 				continue
 			}
-			if distribute || sg.Text[g.Cluster] == ' ' {
+			last = gap{k, i}
+			if r, _ := utf8.DecodeRuneInString(sg.Text[g.Cluster:]); distribute || r == ' ' || core.IsEastAsian(r) {
 				gaps = append(gaps, gap{k, i})
 			}
 		}
 	}
-	// Distributed text has no gap after its last visible character.
-	if distribute && len(gaps) > 0 {
-		gaps = gaps[:len(gaps)-1]
+	// There is no gap after the last visible character.
+	if n := len(gaps); n > 0 && gaps[n-1] == last {
+		gaps = gaps[:n-1]
 	}
-	extra := width - end
+	extra := width - (end - lead - hang)
 	if len(gaps) == 0 || !(extra > 0) || math.IsInf(extra, 0) {
-		return segments
+		return segments, false
 	}
 	each := extra / float64(len(gaps))
 	out := append([]core.RichSegment(nil), segments...)
@@ -1065,26 +1249,17 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 		sg.Glyphs[g.glyph].XAdvance += each * 1000 / sg.Size.Px()
 		added[g.segment] += each
 	}
-	shift := 0.0
+	shift := -lead
 	for k := range out {
 		x, okX := style.FromPx(out[k].X.Px() + shift)
 		w, okW := style.FromPx(out[k].Width.Px() + added[k])
 		if !okX || !okW {
-			return segments
+			return segments, false
 		}
 		out[k].X, out[k].Width = x, w
 		shift += added[k]
 	}
-	return out
-}
-
-func renderASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
+	return out, true
 }
 
 func renderHasText(body *dml.TxBody) bool {
@@ -1111,7 +1286,8 @@ func renderLineDraws(line renderLine) bool {
 }
 
 // renderBulletGlyph is a laid-out bullet, drawn on its paragraph's first
-// baseline at x pixels.
+// baseline at x pixels; in a right-to-left paragraph, x is from the right end
+// of the first line's text.
 type renderBulletGlyph struct {
 	seg   core.RichSegment
 	x     float64
@@ -1135,7 +1311,10 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	} else {
 		shaping.size = int32(int64(first.size) * int64(b.size) / 100000)
 	}
-	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para)
+	// A bullet is a character of its own, set left to right.
+	flat := para
+	flat.rtl = false
+	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, flat, core.RepertoireEuropean)
 	if err != nil {
 		return nil, err
 	}
@@ -1157,7 +1336,14 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	if b.ownColor {
 		color = b.color
 	}
-	return &renderBulletGlyph{seg: bullet.Segments[0], x: float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel), color: color}, nil
+	x := float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel)
+	if para.rtl {
+		// The bullet hangs from the start of the line, the right end of its
+		// text: its right edge is the hanging indent right of the text's. The
+		// caller adds the text's right edge.
+		x = -float64(para.indent)/float64(dml.EMUsPerPixel) - bullet.Width.Px()
+	}
+	return &renderBulletGlyph{seg: bullet.Segments[0], x: x, color: color}, nil
 }
 
 // renderFontRef turns a style's font reference into a list style below the

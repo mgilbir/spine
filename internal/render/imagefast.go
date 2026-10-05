@@ -1,14 +1,14 @@
-package pptxrender
+package render
 
 import (
 	"image"
 	"image/color"
 )
 
-// renderRowReader reads an image's rows as premultiplied 16-bit RGBA, four
+// RowReader reads an image's rows as premultiplied 16-bit RGBA, four
 // values a pixel, exactly as image.Image's At(...).RGBA() returns them. The
 // image types decoders produce are read directly; others through At.
-func renderRowReader(img image.Image) func(y int, dst []uint32) {
+func RowReader(img image.Image) func(y int, dst []uint32) {
 	b := img.Bounds()
 	w := b.Dx()
 	switch src := img.(type) {
@@ -83,9 +83,9 @@ func renderRowReader(img image.Image) func(y int, dst []uint32) {
 	}
 }
 
-// renderUnpremultiply stores a premultiplied 16-bit pixel as NRGBA, as
+// Unpremultiply stores a premultiplied 16-bit pixel as NRGBA, as
 // color.NRGBAModel converts it.
-func renderUnpremultiply(p []uint8, r, g, b, a uint32) {
+func Unpremultiply(p []uint8, r, g, b, a uint32) {
 	switch a {
 	case 0xffff:
 		p[0], p[1], p[2], p[3] = uint8(r>>8), uint8(g>>8), uint8(b>>8), 0xff
@@ -97,8 +97,8 @@ func renderUnpremultiply(p []uint8, r, g, b, a uint32) {
 	}
 }
 
-// renderNRGBA copies an image into a new NRGBA image at the origin.
-func renderNRGBA(img image.Image) *image.NRGBA {
+// NRGBA copies an image into a new NRGBA image at the origin.
+func NRGBA(img image.Image) *image.NRGBA {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	out := image.NewNRGBA(image.Rect(0, 0, w, h))
@@ -109,13 +109,13 @@ func renderNRGBA(img image.Image) *image.NRGBA {
 		}
 		return out
 	}
-	read := renderRowReader(img)
+	read := RowReader(img)
 	row := make([]uint32, 4*w)
 	for y := 0; y < h; y++ {
 		read(y, row)
 		p := out.Pix[y*out.Stride:]
 		for x := 0; x < w; x++ {
-			renderUnpremultiply(p[4*x:4*x+4], row[4*x], row[4*x+1], row[4*x+2], row[4*x+3])
+			Unpremultiply(p[4*x:4*x+4], row[4*x], row[4*x+1], row[4*x+2], row[4*x+3])
 		}
 	}
 	return out

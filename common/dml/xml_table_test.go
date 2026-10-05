@@ -299,6 +299,32 @@ func TestDML_CT_TableStyle(t *testing.T) {
 	}
 }
 
+// TestDML_CT_TableBackgroundStyleRefs tests the theme references of a table
+// style's background (a:tblBg), which the themed built-in styles use.
+func TestDML_CT_TableBackgroundStyleRefs(t *testing.T) {
+	var v TableStyle
+	input := `<a:tblStyle xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+		styleId="{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}" styleName="Themed Style 2 - Accent 1">
+		<a:tblBg>
+			<a:fillRef idx="3"><a:schemeClr val="accent1"/></a:fillRef>
+			<a:effectRef idx="3"><a:schemeClr val="accent1"/></a:effectRef>
+		</a:tblBg>
+	</a:tblStyle>`
+	if err := xml.Unmarshal([]byte(input), &v); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	bg := v.TblBg
+	if bg == nil || bg.FillRef == nil || bg.EffectRef == nil {
+		t.Fatalf("TblBg = %+v", bg)
+	}
+	if bg.FillRef.Idx != 3 || bg.FillRef.SchemeClr == nil || bg.FillRef.SchemeClr.Val != "accent1" {
+		t.Errorf("FillRef = %+v", bg.FillRef)
+	}
+	if bg.EffectRef.Idx != 3 || bg.EffectRef.SchemeClr == nil || bg.EffectRef.SchemeClr.Val != "accent1" {
+		t.Errorf("EffectRef = %+v", bg.EffectRef)
+	}
+}
+
 // TestDML_CT_TablePartStyle tests CT_TablePartStyle type (a:wholeTbl, a:band1H, etc.)
 func TestDML_CT_TablePartStyle(t *testing.T) {
 	var v TablePartStyle

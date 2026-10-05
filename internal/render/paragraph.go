@@ -75,6 +75,15 @@ const (
 	// the symbols have ambiguous East Asian width, which formats may draw with
 	// an East Asian font in East Asian text; callers must exclude that case.
 	RepertoireEuropean
+	// RepertoireEastAsian adds the East Asian scripts to RepertoireEuropean:
+	// ideographs, kana, hangul and bopomofo, the punctuation and symbols
+	// set with them, and the halfwidth and fullwidth forms. See IsEastAsian.
+	RepertoireEastAsian
+	// RepertoireBidi adds the right-to-left scripts to RepertoireEastAsian:
+	// Hebrew, Arabic, Syriac, Thaana and N'Ko with their presentation forms,
+	// and the joiners and direction marks set among them. See IsComplex and
+	// IsFormat.
+	RepertoireBidi
 )
 
 // Allows reports whether the repertoire includes a character.
@@ -84,8 +93,14 @@ func (r Repertoire) allows(c rune) bool {
 	if c >= 32 && c <= 126 {
 		return true
 	}
-	if r != RepertoireEuropean {
+	if r != RepertoireEuropean && r != RepertoireEastAsian && r != RepertoireBidi {
 		return false
+	}
+	if r != RepertoireEuropean && IsEastAsian(c) && unicode.IsGraphic(c) {
+		return true
+	}
+	if r == RepertoireBidi && ((IsComplex(c) && unicode.IsGraphic(c)) || IsFormat(c)) {
+		return true
 	}
 	switch {
 	case c == 0xAD: // soft hyphen, a discretionary break

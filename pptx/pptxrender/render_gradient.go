@@ -9,6 +9,7 @@ import (
 	"github.com/mgilbir/forme/layout"
 	"github.com/mgilbir/forme/style"
 	"github.com/mgilbir/spine/common/dml"
+	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
 
@@ -201,7 +202,7 @@ func (p renderPaint) imageOps(x, y, w, h float64, box layout.Rect, path layout.P
 	if !okX || !okY || !okW || !okH {
 		return nil, fmt.Errorf("%w: picture fill box", render.ErrLimit)
 	}
-	img := renderDownscale(p.image, fw*renderMaxImageScale, fh*renderMaxImageScale)
+	img := core.Downscale(p.image, fw*core.MaxImageScale, fh*core.MaxImageScale)
 	if path == nil {
 		path = renderRectPath(box)
 	}

@@ -230,11 +230,45 @@ func TestRenderChartPlans(t *testing.T) {
 		if m := signal(s, "markers").([]any); m[0] != false || m[1] != true {
 			t.Fatalf("markers %v", m)
 		}
-		if c, w := signal(s, "lineColors").([]any), signal(s, "lineWidths").([]any); c[1] != "#0000ff" || w[1] != float64(1.33) || w[0] != float64(3) {
+		// The automatic width is the theme's first line style, 1pt, times
+		// 3 for the default chart style: 3pt.
+		if c, w := signal(s, "lineColors").([]any), signal(s, "lineWidths").([]any); c[1] != "#0000ff" || w[1] != float64(1.33) || w[0] != float64(4) {
 			t.Fatalf("lines %v %v", c, w)
 		}
 		if s["legends"] != nil {
 			t.Fatal("legend without c:legend")
+		}
+	})
+	t.Run("chart style and title defaults", func(t *testing.T) {
+		plot := `<c:lineChart><c:grouping val="standard"/>` + renderChartSerXML(0, "One", "", "1", "2", "3") + `<c:axId val="1"/><c:axId val="2"/></c:lineChart>` + axes
+		for _, tt := range []struct {
+			style, txPr  string
+			width, title float64
+		}{
+			{"", "", 4, 24},
+			{`<c:style val="27"/>`, "", 9.33, 24},
+			{`<c:style val="12"/>`, `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400"/></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`, 6.67, 22.4},
+		} {
+			var specs []map[string]any
+			o := opts
+			o.Charts = renderFakeCharts(&specs)
+			_, err := renderRewrittenPNG(t, data, o, map[string]func(string) string{
+				"ppt/charts/chart1.xml": func(string) string {
+					x := renderChartXML(plot, `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>T</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>`)
+					x = strings.Replace(x, "<c:chart>", tt.style+"<c:chart>", 1)
+					return strings.Replace(x, "</c:chart>", "</c:chart>"+tt.txPr, 1)
+				},
+				"ppt/slides/slide1.xml": func(s string) string { return renderAnyTxBody.ReplaceAllLiteralString(s, "") },
+			})
+			if err != nil || len(specs) != 1 {
+				t.Fatalf("%q: %v, %d specs", tt.style, err, len(specs))
+			}
+			if w := signal(specs[0], "lineWidths").([]any); w[0] != tt.width {
+				t.Errorf("%q: line width %v, want %v", tt.style, w[0], tt.width)
+			}
+			if size := specs[0]["title"].(map[string]any)["fontSize"]; size != tt.title {
+				t.Errorf("%q: title size %v, want %v", tt.style, size, tt.title)
+			}
 		}
 	})
 	t.Run("approximations", func(t *testing.T) {
@@ -339,6 +373,110 @@ func TestRenderChartPlans(t *testing.T) {
 			t.Fatalf("%v %q", err, warnings)
 		}
 	})
+	t.Run("automatic formatting", func(t *testing.T) {
+		// Formatting left out is Office's automatic look: black lines and
+		// text, tick marks pointing out, a legend centred at the right.
+		s, warnings, err := spec(t, `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+renderChartSerXML(1, "Two", "", "3", "2", "1")+`<c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/><c:axPos val="b"/></c:catAx><c:valAx><c:axId val="2"/><c:axPos val="l"/><c:majorGridlines/></c:valAx>`, `<c:legend/>`)
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		for _, ax := range s["axes"].([]any) {
+			a := ax.(map[string]any)
+			if a["domainColor"] != "#000000" || a["tickColor"] != "#000000" || a["labelColor"] != "#000000" || a["domain"] != true || a["ticks"] != true || a["tickSize"] != float64(5) {
+				t.Fatalf("axis %v", a)
+			}
+			if a["scale"] == "val" && a["gridColor"] != "#000000" {
+				t.Fatalf("gridlines %v", a["gridColor"])
+			}
+			if a["scale"] == "catAxis" && a["tickBand"] != "extent" {
+				t.Fatalf("category ticks %v", a)
+			}
+		}
+		lg := s["legends"].([]any)[0].(map[string]any)
+		anchor := s["config"].(map[string]any)["legend"].(map[string]any)["layout"].(map[string]any)["right"].(map[string]any)["anchor"]
+		if lg["orient"] != "right" || lg["labelColor"] != "#000000" || anchor != "middle" || lg["values"] != nil {
+			t.Fatalf("legend %v anchor %v", lg, anchor)
+		}
+		if s["config"].(map[string]any)["text"].(map[string]any)["fill"] != "#000000" {
+			t.Fatal("text color")
+		}
+	})
+	t.Run("explicit formatting wins", func(t *testing.T) {
+		text := func(color string) string {
+			return `<c:txPr><a:bodyPr/><a:p><a:pPr><a:defRPr sz="900"><a:solidFill><a:srgbClr val="` + color + `"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`
+		}
+		line := func(c string) string {
+			return `<c:spPr><a:ln><a:solidFill><a:srgbClr val="` + c + `"/></a:solidFill></a:ln></c:spPr>`
+		}
+		s, warnings, err := spec(t, `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+`<c:dLbls>`+text("00AA00")+`<c:showVal val="1"/></c:dLbls><c:axId val="1"/><c:axId val="2"/></c:barChart>`+
+			`<c:catAx><c:axId val="1"/><c:axPos val="b"/><c:majorTickMark val="none"/>`+line("FF0000")+text("0000FF")+`</c:catAx>`+
+			`<c:valAx><c:axId val="2"/><c:scaling><c:min val="0"/><c:max val="8"/></c:scaling><c:axPos val="l"/><c:majorGridlines>`+line("D9D9D9")+`</c:majorGridlines><c:majorTickMark val="in"/><c:spPr><a:ln><a:noFill/></a:ln></c:spPr>`+text("0000FF")+`<c:majorUnit val="2"/></c:valAx>`,
+			`<c:legend><c:legendPos val="b"/>`+text("FF00FF")+`</c:legend>`)
+		if err != nil || len(warnings) != 0 {
+			t.Fatalf("%v %q", err, warnings)
+		}
+		var cat, val map[string]any
+		for _, ax := range s["axes"].([]any) {
+			a := ax.(map[string]any)
+			if a["scale"] == "val" {
+				val = a
+			} else {
+				cat = a
+			}
+		}
+		if cat["domainColor"] != "#ff0000" || cat["ticks"] != false || cat["labelColor"] != "#0000ff" || cat["labelFontSize"] != float64(12) {
+			t.Fatalf("category axis %v", cat)
+		}
+		if val["domain"] != false || val["ticks"] != true || val["tickSize"] != float64(-5) || val["gridColor"] != "#d9d9d9" || val["labelColor"] != "#0000ff" {
+			t.Fatalf("value axis %v", val)
+		}
+		if v := val["values"].([]any); len(v) != 5 || v[1] != float64(2) || v[4] != float64(8) {
+			t.Fatalf("explicit major unit: %v", v)
+		}
+		lg := s["legends"].([]any)[0].(map[string]any)
+		if lg["labelColor"] != "#ff00ff" || lg["orient"] != "bottom" {
+			t.Fatalf("legend %v", lg)
+		}
+		found := false
+		for _, c := range find(s["marks"], "fill") {
+			if m, ok := c.(map[string]any); ok && m["value"] == "#00aa00" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("data label color")
+		}
+	})
+	t.Run("horizontal bars list series last first", func(t *testing.T) {
+		s, _, err := spec(t, `<c:barChart><c:barDir val="bar"/><c:grouping val="clustered"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+renderChartSerXML(1, "Two", "", "3", "2", "1")+`<c:axId val="1"/><c:axId val="2"/></c:barChart>`+axes, `<c:legend/>`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v := s["legends"].([]any)[0].(map[string]any)["values"].([]any); len(v) != 2 || v[0] != float64(1) || v[1] != float64(0) {
+			t.Fatalf("legend order %v", v)
+		}
+		// A column chart's legend keeps the document's order.
+		s, _, err = spec(t, `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>`+renderChartSerXML(0, "One", "", "1", "2", "3")+renderChartSerXML(1, "Two", "", "3", "2", "1")+`<c:axId val="1"/><c:axId val="2"/></c:barChart>`+axes, `<c:legend/>`)
+		if err != nil || s["legends"].([]any)[0].(map[string]any)["values"] != nil {
+			t.Fatalf("column legend: %v", err)
+		}
+	})
+	t.Run("pie slice outlines", func(t *testing.T) {
+		stroke := func(plot string) (any, any) {
+			s, _, err := spec(t, plot, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			enter := find(s["marks"], "enter")[0].(map[string]any)
+			return enter["stroke"].(map[string]any)["value"], enter["strokeWidth"].(map[string]any)["value"]
+		}
+		if c, w := stroke(`<c:pieChart><c:varyColors val="1"/>` + renderChartSerXML(0, "S", "", "1", "2", "3") + `</c:pieChart>`); c != "transparent" || w != float64(0) {
+			t.Fatalf("automatic outline %v %v", c, w)
+		}
+		if c, w := stroke(`<c:pieChart><c:varyColors val="1"/>` + renderChartSerXML(0, "S", `<c:spPr><a:ln w="19050"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln></c:spPr>`, "1", "2", "3") + `</c:pieChart>`); c != "#ffffff" || w != float64(2) {
+			t.Fatalf("explicit outline %v %v", c, w)
+		}
+	})
 	t.Run("point limit", func(t *testing.T) {
 		big := strings.Replace(renderChartSerXML(0, "One", "", "1"), `<c:formatCode>General</c:formatCode><c:ptCount val="1"/>`, `<c:formatCode>General</c:formatCode><c:ptCount val="1"/><c:pt idx="99999"><c:v>1</c:v></c:pt>`, 1)
 		_, warnings, err := spec(t, `<c:barChart><c:barDir val="col"/>`+big+`</c:barChart>`+axes, "")
@@ -346,6 +484,92 @@ func TestRenderChartPlans(t *testing.T) {
 			t.Fatalf("%v %q", err, warnings)
 		}
 	})
+}
+
+// renderAxisValues is the major steps of a plan's value axis in a w by h
+// chart.
+func renderAxisValues(t *testing.T, p *renderChartPlan, w, h float64) []float64 {
+	t.Helper()
+	data, err := p.spec(w, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, ax := range s["axes"].([]any) {
+		if a := ax.(map[string]any); a["scale"] == "val" {
+			var out []float64
+			for _, v := range a["values"].([]any) {
+				out = append(out, v.(float64))
+			}
+			return out
+		}
+	}
+	t.Fatal("no value axis")
+	return nil
+}
+
+func TestRenderAutomaticMajorUnit(t *testing.T) {
+	plan := func(horizontal bool, vals ...float64) *renderChartPlan {
+		st := renderAxisStyle{shown: true, color: renderAutoColor, tick: "out", size: 10 * 4.0 / 3, textColor: renderAutoColor}
+		p := &renderChartPlan{kind: "bar", horizontal: horizontal, grouping: "clustered", categories: []string{"A", "B", "C"}, font: "Calibri", textSize: st.size, textColor: renderAutoColor,
+			cat: st, val: st, catAxis: true, valAxis: true, legendSize: st.size}
+		s := renderChartSeries{name: "S", color: "#156082"}
+		for i := range vals {
+			s.values = append(s.values, &vals[i])
+		}
+		p.series = []renderChartSeries{s}
+		return p
+	}
+	// Data up to 4.5 over a plot about 3 inches (288 pixels) tall: 0 to 5 in
+	// steps of 0.5.
+	got := renderAxisValues(t, plan(false, 1, 2, 4.5), 500, 324)
+	if len(got) != 11 || got[0] != 0 || got[1] != 0.5 || got[10] != 5 {
+		t.Fatalf("vertical axis: %v", got)
+	}
+	// The same data on a value axis about 6 inches (576 pixels) wide: 0 to 5
+	// in steps of 1.
+	got = renderAxisValues(t, plan(true, 1, 2, 4.5), 607, 300)
+	if len(got) != 6 || got[0] != 0 || got[1] != 1 || got[5] != 5 {
+		t.Fatalf("horizontal axis: %v", got)
+	}
+	// A taller plot does not get finer steps: Office keeps to ten intervals,
+	// so data up to 5 on a plot about 5 inches tall is 0 to 6 in steps of 1,
+	// as PowerPoint draws its default chart. Data of a narrow range does not
+	// start at zero.
+	if got = renderAxisValues(t, plan(false, 1, 2, 5), 900, 500); len(got) != 7 || got[1] != 1 || got[6] != 6 {
+		t.Fatalf("tall axis: %v", got)
+	}
+	if got = renderAxisValues(t, plan(false, 1, 2, 4.5), 500, 500); len(got) != 11 || got[1] != 0.5 {
+		t.Fatalf("tall axis, data to 4.5: %v", got)
+	}
+	if got = renderAxisValues(t, plan(false, 100, 102, 104), 500, 324); got[0] <= 90 || got[len(got)-1] < 104 {
+		t.Fatalf("narrow range: %v", got)
+	}
+	// Negative values extend the axis below zero, with padding.
+	if got = renderAxisValues(t, plan(false, -3, 2, 4.5), 500, 324); got[0] > -3 || got[len(got)-1] < 4.5 {
+		t.Fatalf("negative range: %v", got)
+	}
+	// Percent stacked axes run 0 to 1 whatever the totals.
+	p := plan(false, 3, 1, 2)
+	p.grouping = "percentStacked"
+	if got = renderAxisValues(t, p, 500, 324); got[0] != 0 || got[len(got)-1] != 1 {
+		t.Fatalf("percent axis: %v", got)
+	}
+	// Explicit minimum, maximum and major unit win.
+	lo, hi, unit := 1.0, 9.0, 4.0
+	p = plan(false, 1, 2, 4.5)
+	p.valMin, p.valMax, p.valMajor = &lo, &hi, &unit
+	if got = renderAxisValues(t, p, 500, 324); len(got) != 3 || got[0] != 1 || got[1] != 5 || got[2] != 9 {
+		t.Fatalf("explicit axis: %v", got)
+	}
+	// An absurd major unit gives way to the automatic one.
+	unit = 1e-9
+	if got = renderAxisValues(t, p, 500, 324); len(got) > 20 {
+		t.Fatalf("tiny major unit: %d steps", len(got))
+	}
 }
 
 func FuzzRenderChartPart(f *testing.F) {

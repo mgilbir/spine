@@ -194,7 +194,7 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
 			if bp := layers[i].Bg.BgPr; bp != nil && bp.BlipFill != nil {
-				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, float64(w)/px, float64(h)/px, resolved, colors); err != nil {
+				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, float64(w)/px, float64(h)/px, resolved, colors, fonts); err != nil {
 					if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
 						return nil, err
 					}
@@ -241,7 +241,10 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 	// A slide often repeats one image; decode and charge it once. Every
 	// drawing of it counts toward the image budget.
 	decoded := map[renderImageKey]image.Image{}
-	loadImage := func(data []byte, key renderImageKey) (image.Image, error) {
+	// loadImageAt decodes a picture drawn over a box of about w by h CSS
+	// pixels, which sizes the raster of a metafile; zero asks for its natural
+	// size.
+	loadImageAt := func(data []byte, key renderImageKey, w, h float64) (image.Image, error) {
 		if len(data) == 0 {
 			return nil, fmt.Errorf("%w: missing picture data", render.ErrInvalid)
 		}
@@ -249,6 +252,16 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
 		}
 		imageCount++
+		isMetafile := renderIsMetafile(data)
+		var plan renderMetafilePlan
+		if isMetafile {
+			var err error
+			plan, err = renderPlanMetafile(data, w, h, resolved.MaxImagePixels-imagePixels, resolved.MaxDimension)
+			if err != nil {
+				return nil, err
+			}
+			key.w, key.h = plan.w, plan.h
+		}
 		if img := decoded[key]; img != nil {
 			return img, nil
 		}
@@ -258,7 +271,13 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		imageBytes += int64(len(data))
 		decodeLimits := resolved
 		decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
-		img, err := core.DecodeImage(ctx, data, decodeLimits)
+		var img image.Image
+		var err error
+		if isMetafile {
+			img, err = renderDrawMetafile(ctx, data, plan, decodeLimits, colors, fonts)
+		} else {
+			img, err = core.DecodeImage(ctx, data, decodeLimits)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +347,7 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		}
 		imageCount++
 		imagePixels += pixels
-		img = renderDownscale(img, pw*renderMaxImageScale, ph*renderMaxImageScale)
+		img = core.Downscale(img, pw*core.MaxImageScale, ph*core.MaxImageScale)
 		return []layout.Op{layout.DrawImage{Rect: layout.Rect{X: renderUnit(x), Y: renderUnit(y), W: renderUnit(cw), H: renderUnit(ch)}, Image: img}}, nil
 	}
 	drawChart := func(gf *oxml.GraphicFrame, part string) ([]layout.Op, error) {
@@ -432,12 +451,12 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		}
 		// A shape's picture fill comes from its own part.
 		prevPicture := colors.picture
-		colors.picture = func(embed string) (image.Image, []byte, error) {
+		colors.picture = func(embed string, w, h float64) (image.Image, []byte, error) {
 			if picture == nil {
 				return nil, nil, fmt.Errorf("%w: picture fill without its part", render.ErrUnsupported)
 			}
 			data, key := picture(embed, nil)
-			img, err := loadImage(data, key)
+			img, err := loadImageAt(data, key, w, h)
 			return img, data, err
 		}
 		defer func() { colors.picture = prevPicture }()
@@ -520,7 +539,15 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			if pst.Media {
 				return nil, fmt.Errorf("%w: media picture", render.ErrUnsupported)
 			}
-			img, err := loadImage(picture(pst.RelID, v))
+			// A metafile is drawn at the size its box has, before any crop.
+			boxW, boxH := v.Size()
+			if picProps != nil && picProps.Xfrm != nil && picProps.Xfrm.Ext != nil {
+				boxW, boxH = dml.EMU(picProps.Xfrm.Ext.Cx), dml.EMU(picProps.Xfrm.Ext.Cy)
+			}
+			fullW := float64(boxW) / float64(dml.EMUsPerPixel) / math.Max(1-pst.Crop[0]-pst.Crop[2], 0.01)
+			fullH := float64(boxH) / float64(dml.EMUsPerPixel) / math.Max(1-pst.Crop[1]-pst.Crop[3], 0.01)
+			picData, picKey := picture(pst.RelID, v)
+			img, err := loadImageAt(picData, picKey, fullW, fullH)
 			if err != nil {
 				return nil, err
 			}
@@ -528,7 +555,7 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			// then laid over the extended box and clipped to the picture's.
 			extended := pst.Crop[0] < 0 || pst.Crop[1] < 0 || pst.Crop[2] < 0 || pst.Crop[3] < 0
 			if !extended {
-				if img, err = renderCrop(img, pst.Crop[0], pst.Crop[1], pst.Crop[2], pst.Crop[3]); err != nil {
+				if img, err = core.Crop(img, pst.Crop[0], pst.Crop[1], pst.Crop[2], pst.Crop[3]); err != nil {
 					return nil, err
 				}
 			}
@@ -542,7 +569,7 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 				}
 			} else if pst.Opacity != nil && *pst.Opacity < 1 {
 				// A picture given an opacity through the API.
-				img = renderFade(img, math.Max(0, *pst.Opacity))
+				img = core.Fade(img, math.Max(0, *pst.Opacity))
 			}
 			x, y := v.Position()
 			width, height := v.Size()
@@ -585,11 +612,11 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 					return nil, fmt.Errorf("%w: picture crop", render.ErrLimit)
 				}
 				full := layout.Rect{X: ix, Y: iy, W: iw, H: ih}
-				img = renderDownscale(img, w*renderMaxImageScale, h*renderMaxImageScale)
+				img = core.Downscale(img, w*core.MaxImageScale, h*core.MaxImageScale)
 				clipped := layout.DrawImage{Rect: full, Image: img, Clip: layout.Clip{Active: true, Rect: rect}}
 				return renderPictureEffects(append([]layout.Op{clipped}, outline...), picProps, colors, resolved)
 			}
-			img = renderDownscale(img, rect.W.Px()*renderMaxImageScale, rect.H.Px()*renderMaxImageScale)
+			img = core.Downscale(img, rect.W.Px()*core.MaxImageScale, rect.H.Px()*core.MaxImageScale)
 			return renderPictureEffects(append([]layout.Op{layout.DrawImage{Rect: rect, Image: img}}, outline...), picProps, colors, resolved)
 		}
 		return nil, fmt.Errorf("%w: shape %T", render.ErrUnsupported, sh)
@@ -723,7 +750,16 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			return nil, err
 		}
 	}
-	return render.Prepare(ctx, w, h, ops, opts.Limits)
+	// Best effort reports a color glyph drawn approximately.
+	var warn func(error)
+	if lenient {
+		warn = func(err error) {
+			if ctx.Err() == nil {
+				opts.Warn(fmt.Errorf("pptx: %w", err))
+			}
+		}
+	}
+	return render.PrepareBestEffort(ctx, w, h, ops, opts.Limits, warn)
 }
 
 // renderHidden reports whether a parsed shape is hidden, which PowerPoint
@@ -785,6 +821,9 @@ type renderImageKey struct {
 	part string
 	data *byte
 	size int
+	// w and h are the pixels a metafile is drawn at, which differ with where
+	// it is drawn; zero for raster pictures.
+	w, h int
 }
 
 // It resolves the part as Picture.Data does.
@@ -800,30 +839,6 @@ func renderPictureKey(v *pptx.Picture, data []byte) renderImageKey {
 // a background.
 func renderEffects(e *dml.EffectLst) bool {
 	return e != nil && *e != (dml.EffectLst{})
-}
-
-// renderCrop keeps the part of an image a picture's source rectangle
-// selects; crop fractions are of the image's width and height.
-func renderCrop(img image.Image, l, t, r, b float64) (image.Image, error) {
-	if l == 0 && t == 0 && r == 0 && b == 0 {
-		return img, nil
-	}
-	if l < 0 || t < 0 || r < 0 || b < 0 || l+r >= 1 || t+b >= 1 {
-		return nil, fmt.Errorf("%w: extended or empty picture crop", render.ErrUnsupported)
-	}
-	sub, ok := img.(interface {
-		SubImage(image.Rectangle) image.Image
-	})
-	if !ok {
-		return nil, fmt.Errorf("%w: picture crop", render.ErrUnsupported)
-	}
-	bounds := img.Bounds()
-	w, h := float64(bounds.Dx()), float64(bounds.Dy())
-	rect := image.Rect(bounds.Min.X+int(math.Round(l*w)), bounds.Min.Y+int(math.Round(t*h)), bounds.Max.X-int(math.Round(r*w)), bounds.Max.Y-int(math.Round(b*h)))
-	if rect.Empty() {
-		return nil, fmt.Errorf("%w: empty picture crop", render.ErrUnsupported)
-	}
-	return sub.SubImage(rect), nil
 }
 
 // renderStyleFill resolves a style's fill reference to a solid or gradient
@@ -1001,7 +1016,7 @@ func renderAutoShapeOps(v *renderBox, source *dml.SpPr, st *dml.Style, colors *r
 	}
 	// Without a style reference, an absent fill, an absent outline, or an
 	// outline without a fill is none.
-	paint, filled, err := renderShapePaint(p, st, colors, w, h)
+	paint, filled, err := renderShapePaint(p, st, colors, x, y, w, h)
 	if err != nil {
 		return nil, g, err
 	}
@@ -1086,7 +1101,13 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 			return renderPaint{}, err
 		}
 	}
-	img, data, err := c.picture(f.Blip.Embed)
+	// A stretched metafile is drawn at the size of the box; a tiled one at
+	// its natural size.
+	hintW, hintH := w, h
+	if f.Tile != nil {
+		hintW, hintH = 0, 0
+	}
+	img, data, err := c.picture(f.Blip.Embed, hintW, hintH)
 	if err != nil {
 		return renderPaint{}, err
 	}
@@ -1099,7 +1120,7 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 			}
 			l, t, rr, b = math.Max(l, 0), math.Max(t, 0), math.Max(rr, 0), math.Max(b, 0)
 		}
-		if img, err = renderCrop(img, l, t, rr, b); err != nil {
+		if img, err = core.Crop(img, l, t, rr, b); err != nil {
 			return renderPaint{}, err
 		}
 	}
@@ -1122,7 +1143,7 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 
 // renderShapePaint resolves a shape's fill, its own or its style's; filled is
 // false for none.
-func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml.EMU) (paint renderPaint, filled bool, err error) {
+func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, x, y, w, h dml.EMU) (paint renderPaint, filled bool, err error) {
 	set := 0
 	for _, f := range []bool{p.NoFill != nil, p.SolidFill != nil, p.GradFill != nil, p.BlipFill != nil, p.PattFill != nil} {
 		if f {
@@ -1134,7 +1155,7 @@ func renderShapePaint(p *dml.SpPr, st *dml.Style, colors *renderColors, w, h dml
 	}
 	if p.PattFill != nil {
 		px := float64(dml.EMUsPerPixel)
-		paint, err = colors.patternPaint(p.PattFill, nil, float64(w)/px, float64(h)/px)
+		paint, err = colors.patternPaint(p.PattFill, nil, float64(x)/px, float64(y)/px, float64(w)/px, float64(h)/px)
 		return paint, err == nil, err
 	}
 	if p.BlipFill != nil {
@@ -1255,17 +1276,21 @@ func slideRenderXML(el xml.StartElement) error {
 			// The resolver checks the values of the rest.
 			attrs = "wrap anchor lIns tIns rIns bIns rtlCol rot spcFirstLastPara vertOverflow horzOverflow vert numCol spcCol fromWordArt anchorCtr forceAA upright compatLnSpc"
 		case "pPr", "defPPr", "lvl1pPr", "lvl2pPr", "lvl3pPr", "lvl4pPr", "lvl5pPr", "lvl6pPr", "lvl7pPr", "lvl8pPr", "lvl9pPr":
-			// East Asian breaking, hanging punctuation, font alignment within
-			// a uniformly sized line, and tab sizes for text without tabs do
-			// not change this profile's text; the resolver checks the rest.
+			// Font alignment within a uniformly sized line, and tab sizes for
+			// text without tabs, do not change this profile's text; the
+			// resolver reads East Asian breaking and hanging punctuation and
+			// checks the rest.
 			attrs = "marL marR lvl indent algn defTabSz rtl eaLnBrk fontAlgn latinLnBrk hangingPunct"
 		case "rPr", "defRPr", "endParaRPr":
-			// Language, proofing, smart-tag, bookmark and East Asian attributes
-			// do not change the painting of horizontal ASCII text; the resolver
-			// checks the rest.
+			// Proofing, smart-tag, bookmark and East Asian vertical attributes
+			// do not change the painting of horizontal text; the resolver
+			// reads the language, which picks an East Asian font, and checks
+			// the rest.
 			attrs = "kumimoji lang altLang sz b i u strike kern cap spc normalizeH baseline noProof dirty err smtClean smtId bmk"
 		case "latin", "ea", "cs", "sym":
-			// ASCII text uses the Latin font; the other slots are not consulted.
+			// European text uses the Latin font, East Asian text the East
+			// Asian font and right-to-left text the complex-script font; the
+			// symbol slot is not consulted.
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
@@ -1498,7 +1523,7 @@ func (s *renderSlide) renderPictureProps(index int) *dml.SpPr {
 // renderBackgroundImage decodes a picture background from its part, cropped
 // by its source rectangle, to stretch over a slide w by h pixels: stretched
 // itself, or tiled.
-func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, w, h float64, limits render.Limits, colors *renderColors) (image.Image, int64, error) {
+func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, w, h float64, limits render.Limits, colors *renderColors, fonts *slideRenderFonts) (image.Image, int64, error) {
 	f := bp.BlipFill
 	if bp.SolidFill != nil || bp.GradFill != nil || bp.PattFill != nil || bp.NoFill != nil || renderEffects(bp.EffectLst) || bp.ExtLst != nil || f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || len(f.Blip.Effects) > 0 {
 		return nil, 0, fmt.Errorf("%w: background picture", render.ErrUnsupported)
@@ -1515,12 +1540,16 @@ func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp
 	if len(data) == 0 {
 		return nil, 0, fmt.Errorf("%w: missing background picture", render.ErrInvalid)
 	}
-	img, err := core.DecodeImage(ctx, data, limits)
+	hintW, hintH := w, h
+	if f.Tile != nil {
+		hintW, hintH = 0, 0
+	}
+	img, err := renderDecodePicture(ctx, data, limits, hintW, hintH, colors, fonts)
 	if err != nil {
 		return nil, 0, err
 	}
 	if r := f.SrcRect; r != nil {
-		if img, err = renderCrop(img, float64(r.L.Int32())/100000, float64(r.T.Int32())/100000, float64(r.R.Int32())/100000, float64(r.B.Int32())/100000); err != nil {
+		if img, err = core.Crop(img, float64(r.L.Int32())/100000, float64(r.T.Int32())/100000, float64(r.R.Int32())/100000, float64(r.B.Int32())/100000); err != nil {
 			return nil, 0, err
 		}
 	}
@@ -1623,63 +1652,6 @@ func (r *renderProfile) alternateIn(node core.XMLNode, recorded bool) (bool, err
 	return true, fail(r.check(v))
 }
 
-// renderMaxImageScale is how many image pixels per drawn CSS pixel a picture
-// keeps: enough for 384 DPI output.
-const renderMaxImageScale = 4
-
-// renderDownscale averages an image down to at most w by h pixels; a
-// picture drawn smaller than its pixels needs no more.
-func renderDownscale(img image.Image, w, h float64) image.Image {
-	b := img.Bounds()
-	tw, th := int(math.Ceil(w)), int(math.Ceil(h))
-	if tw < 1 || th < 1 || (b.Dx() <= tw && b.Dy() <= th) {
-		return img
-	}
-	tw, th = min(tw, b.Dx()), min(th, b.Dy())
-	out := image.NewNRGBA(image.Rect(0, 0, tw, th))
-	// Each source row is read once and summed into the target columns it
-	// spans; channels are averaged premultiplied, as compositing would.
-	read := renderRowReader(img)
-	row := make([]uint32, 4*b.Dx())
-	acc := make([]uint64, 4*tw)
-	spans := make([][2]int, tw)
-	for x := range spans {
-		spans[x] = [2]int{x * b.Dx() / tw, max((x+1)*b.Dx()/tw, x*b.Dx()/tw+1)}
-	}
-	for y := 0; y < th; y++ {
-		y0, y1 := y*b.Dy()/th, max((y+1)*b.Dy()/th, y*b.Dy()/th+1)
-		clear(acc)
-		for sy := y0; sy < y1; sy++ {
-			read(sy, row)
-			for x, sp := range spans {
-				a := acc[4*x : 4*x+4]
-				for sx := sp[0]; sx < sp[1]; sx++ {
-					a[0] += uint64(row[4*sx])
-					a[1] += uint64(row[4*sx+1])
-					a[2] += uint64(row[4*sx+2])
-					a[3] += uint64(row[4*sx+3])
-				}
-			}
-		}
-		p := out.Pix[y*out.Stride:]
-		for x, sp := range spans {
-			n := uint64((sp[1] - sp[0]) * (y1 - y0))
-			a := acc[4*x : 4*x+4]
-			renderUnpremultiply(p[4*x:4*x+4], uint32(a[0]/n), uint32(a[1]/n), uint32(a[2]/n), uint32(a[3]/n))
-		}
-	}
-	return out
-}
-
-// renderFade multiplies an image's opacity.
-func renderFade(img image.Image, alpha float64) image.Image {
-	out := renderNRGBA(img)
-	for i := 3; i < len(out.Pix); i += 4 {
-		out.Pix[i] = uint8(math.Round(float64(out.Pix[i]) * alpha))
-	}
-	return out
-}
-
 // renderOrientImage applies a picture's flips and rotation to its pixels:
 // quarter turns exactly, turning the drawn box about its centre, and other
 // angles, approximately, not at all.
@@ -1702,7 +1674,7 @@ func renderOrientImage(img image.Image, rect layout.Rect, flipH, flipV bool, rot
 		rect = layout.Rect{X: cx - rect.H/2, Y: cy - rect.W/2, W: rect.H, H: rect.W}
 	}
 	out := image.NewNRGBA(image.Rect(0, 0, ow, oh))
-	src := renderNRGBA(img)
+	src := core.NRGBA(img)
 	for sy := 0; sy < h; sy++ {
 		for sx := 0; sx < w; sx++ {
 			// Flip in the picture's own frame, then turn clockwise.

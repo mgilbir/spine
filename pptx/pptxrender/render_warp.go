@@ -125,6 +125,11 @@ func renderWarpText(ctx context.Context, ops []layout.Op, warp *dml.PrstTxWarp, 
 			if err != nil {
 				return nil, err
 			}
+			if core.HasColorGlyphs(v) {
+				if err := colors.approximate(fmt.Errorf("%w: warped color glyphs drawn as outlines in the text color", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+			}
 			pieces = append(pieces, renderWarpPiece{paths: outlines, color: v.Color})
 		case layout.FillRect:
 			pieces = append(pieces, renderWarpPiece{paths: []layout.Path{renderRectPath(v.Rect)}, color: v.Color})

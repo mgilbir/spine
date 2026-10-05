@@ -123,6 +123,7 @@ func TestRenderEuropeanText(t *testing.T) {
 	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>e</a:t></a:r><a:r><a:rPr sz="800"/><a:t>`+"\u0301"+`</a:t></a:r>`)); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("mark split from its letter: %v", err)
 	}
+	// Right-to-left letters the run's font lacks.
 	if _, err = renderRewrittenPNG(t, data, opts, text(`<a:r><a:rPr sz="800"/><a:t>`+"\u05e9\u05dc\u05d5\u05dd"+`</a:t></a:r>`)); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("right-to-left text: %v", err)
 	}

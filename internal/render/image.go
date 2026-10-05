@@ -196,57 +196,9 @@ func (p *Page) collectImage(ctx context.Context, v layout.DrawImage, clips []*ge
 	if v.Rect.W <= 0 || v.Rect.H <= 0 {
 		return fmt.Errorf("%w: image destination", ErrInvalid)
 	}
-	sourceBounds, err := imageBounds(v.Image)
+	b, err := p.bitmapOf(ctx, v.Image, true, budget)
 	if err != nil {
 		return err
-	}
-	if err = checkImageSize(sourceBounds.Dx(), sourceBounds.Dy(), p.limits); err != nil {
-		return err
-	}
-	b := budget.images[v.Image]
-	if b == nil {
-		if len(budget.images) >= p.limits.MaxImages {
-			return fmt.Errorf("%w: image count", ErrLimit)
-		}
-		pixels := int64(sourceBounds.Dx()) * int64(sourceBounds.Dy())
-		if pixels > p.limits.MaxImagePixels-budget.imagePixels {
-			return fmt.Errorf("%w: image pixels", ErrLimit)
-		}
-		budget.imagePixels += pixels
-		dst := image.NewNRGBA(image.Rect(0, 0, sourceBounds.Dx(), sourceBounds.Dy()))
-		// Non-premultiplied 8-bit pixels, validated above, copy row by row;
-		// other storage converts pixel by pixel.
-		nrgba, direct := v.Image.(*image.NRGBA)
-		for y := 0; y < dst.Rect.Dy(); y++ {
-			if err = ctx.Err(); err != nil {
-				return err
-			}
-			if direct {
-				copy(dst.Pix[y*dst.Stride:y*dst.Stride+4*dst.Rect.Dx()], nrgba.Pix[nrgba.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y+y):])
-				continue
-			}
-			for x := 0; x < dst.Rect.Dx(); x++ {
-				if palette, ok := v.Image.(*image.Paletted); ok && int(palette.Pix[y*palette.Stride+x]) >= len(palette.Palette) {
-					return fmt.Errorf("%w: palette index", ErrInvalid)
-				}
-				c := v.Image.At(x+sourceBounds.Min.X, y+sourceBounds.Min.Y)
-				r, g, b, a := c.RGBA()
-				if r > a || g > a || b > a {
-					return fmt.Errorf("%w: premultiplied image color", ErrInvalid)
-				}
-				dst.SetNRGBA(x, y, color.NRGBAModel.Convert(c).(color.NRGBA))
-			}
-		}
-		var encoded bytes.Buffer
-		if err = png.Encode(&outputWriter{ctx: ctx, w: &encoded, remaining: p.limits.MaxImageBytes - budget.imageBytes}, dst); err != nil {
-			return err
-		}
-		budget.imageBytes += int64(encoded.Len())
-		b = &bitmap{pixels: dst, png: encoded.Bytes()}
-		if budget.images == nil {
-			budget.images = map[image.Image]*bitmap{}
-		}
-		budget.images[v.Image] = b
 	}
 	box := rectangle{v.Rect.X.Px(), v.Rect.Y.Px(), v.Rect.X.Px() + v.Rect.W.Px(), v.Rect.Y.Px() + v.Rect.H.Px(), style.RGBA{A: 1}}
 	r := meet(box, rectangle{0, 0, p.width, p.height, style.RGBA{}})
@@ -259,6 +211,70 @@ func (p *Page) collectImage(ctx context.Context, v layout.DrawImage, clips []*ge
 	}
 	p.draws = append(p.draws, drawing{rect: r, clips: clips, image: b, imageBox: box})
 	return nil
+}
+
+// bitmapOf is a copy of an image the page owns, made once per source image and
+// counted against the image pixel and byte budgets. An image drawn as a picture
+// also counts against the image budget's count; one a glyph is drawn from does
+// not, as there can be as many of them as distinct glyphs, and the pixels and
+// bytes bound them.
+func (p *Page) bitmapOf(ctx context.Context, source image.Image, counted bool, budget *prepareBudget) (*bitmap, error) {
+	sourceBounds, err := imageBounds(source)
+	if err != nil {
+		return nil, err
+	}
+	if err = checkImageSize(sourceBounds.Dx(), sourceBounds.Dy(), p.limits); err != nil {
+		return nil, err
+	}
+	b := budget.images[source]
+	if b == nil {
+		if counted && budget.pictures >= p.limits.MaxImages {
+			return nil, fmt.Errorf("%w: image count", ErrLimit)
+		}
+		pixels := int64(sourceBounds.Dx()) * int64(sourceBounds.Dy())
+		if pixels > p.limits.MaxImagePixels-budget.imagePixels {
+			return nil, fmt.Errorf("%w: image pixels", ErrLimit)
+		}
+		budget.imagePixels += pixels
+		dst := image.NewNRGBA(image.Rect(0, 0, sourceBounds.Dx(), sourceBounds.Dy()))
+		// Non-premultiplied 8-bit pixels, validated above, copy row by row;
+		// other storage converts pixel by pixel.
+		nrgba, direct := source.(*image.NRGBA)
+		for y := 0; y < dst.Rect.Dy(); y++ {
+			if err = ctx.Err(); err != nil {
+				return nil, err
+			}
+			if direct {
+				copy(dst.Pix[y*dst.Stride:y*dst.Stride+4*dst.Rect.Dx()], nrgba.Pix[nrgba.PixOffset(sourceBounds.Min.X, sourceBounds.Min.Y+y):])
+				continue
+			}
+			for x := 0; x < dst.Rect.Dx(); x++ {
+				if palette, ok := source.(*image.Paletted); ok && int(palette.Pix[y*palette.Stride+x]) >= len(palette.Palette) {
+					return nil, fmt.Errorf("%w: palette index", ErrInvalid)
+				}
+				c := source.At(x+sourceBounds.Min.X, y+sourceBounds.Min.Y)
+				r, g, b, a := c.RGBA()
+				if r > a || g > a || b > a {
+					return nil, fmt.Errorf("%w: premultiplied image color", ErrInvalid)
+				}
+				dst.SetNRGBA(x, y, color.NRGBAModel.Convert(c).(color.NRGBA))
+			}
+		}
+		var encoded bytes.Buffer
+		if err = png.Encode(&outputWriter{ctx: ctx, w: &encoded, remaining: p.limits.MaxImageBytes - budget.imageBytes}, dst); err != nil {
+			return nil, err
+		}
+		budget.imageBytes += int64(encoded.Len())
+		b = &bitmap{pixels: dst, png: encoded.Bytes()}
+		if budget.images == nil {
+			budget.images = map[image.Image]*bitmap{}
+		}
+		budget.images[source] = b
+		if counted {
+			budget.pictures++
+		}
+	}
+	return b, nil
 }
 func (d drawing) pixelColor(x, y int, scale float64) style.RGBA {
 	if d.gradient != nil {
@@ -451,6 +467,9 @@ func (p *Page) svgImage(e *xml.Encoder, d drawing, scale float64) error {
 		return fmt.Errorf("%w: SVG image bytes", ErrLimit)
 	}
 	attrs := rectAttrs(d.imageBox, scale)
-	attrs = append(attrs, attr("href", "data:image/png;base64,"+base64.StdEncoding.EncodeToString(d.image.png)), attr("preserveAspectRatio", "none"), attr("image-rendering", "pixelated"))
+	attrs = append(attrs, attr("href", "data:image/png;base64,"+base64.StdEncoding.EncodeToString(d.image.png)), attr("preserveAspectRatio", "none"))
+	if !d.smooth {
+		attrs = append(attrs, attr("image-rendering", "pixelated"))
+	}
 	return svgElement(e, "image", attrs)
 }

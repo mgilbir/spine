@@ -96,26 +96,3 @@ func TestRenderPictureFeatures(t *testing.T) {
 		t.Fatalf("GIF picture: %+v", px)
 	}
 }
-
-func TestRenderDownscale(t *testing.T) {
-	src := image.NewNRGBA(image.Rect(0, 0, 40, 20))
-	for x := 0; x < 40; x++ {
-		for y := 0; y < 20; y++ {
-			if x%2 == 0 {
-				src.SetNRGBA(x, y, color.NRGBA{R: 255, A: 255})
-			} else {
-				src.SetNRGBA(x, y, color.NRGBA{B: 255, A: 255})
-			}
-		}
-	}
-	out := renderDownscale(src, 10, 10)
-	if b := out.Bounds(); b.Dx() != 10 || b.Dy() != 10 {
-		t.Fatalf("size %v", b)
-	}
-	if r, _, bl, _ := out.At(3, 3).RGBA(); r>>8 != 127 || bl>>8 != 127 {
-		t.Fatalf("average: %d %d", r>>8, bl>>8)
-	}
-	if renderDownscale(src, 80, 40) != image.Image(src) {
-		t.Fatal("upscaled")
-	}
-}

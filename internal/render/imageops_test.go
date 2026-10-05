@@ -1,15 +1,17 @@
-package pptxrender
+package render
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"math"
 	"testing"
 )
 
-// renderPhoto is a decoded 4000 by 3000 JPEG, as cameras produce.
-func renderPhoto(b testing.TB) image.Image {
+// testPhoto is a decoded 4000 by 3000 JPEG, as cameras produce.
+func testPhoto(b testing.TB) image.Image {
 	b.Helper()
 	src := image.NewNRGBA(image.Rect(0, 0, 4000, 3000))
 	for y := 0; y < 3000; y++ {
@@ -28,24 +30,24 @@ func renderPhoto(b testing.TB) image.Image {
 	return img
 }
 
-func BenchmarkRenderDownscalePhoto(b *testing.B) {
-	img := renderPhoto(b)
+func BenchmarkDownscalePhoto(b *testing.B) {
+	img := testPhoto(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderDownscale(img, 400, 300)
+		Downscale(img, 400, 300)
 	}
 }
 
-func BenchmarkRenderFadePhoto(b *testing.B) {
-	img := renderPhoto(b)
+func BenchmarkFadePhoto(b *testing.B) {
+	img := testPhoto(b)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		renderFade(img, 0.5)
+		Fade(img, 0.5)
 	}
 }
 
-// renderDownscaleReference is the generic downscale the fast paths match.
-func renderDownscaleReference(img image.Image, tw, th int) *image.NRGBA {
+// downscaleReference is the generic downscale the fast paths match.
+func downscaleReference(img image.Image, tw, th int) *image.NRGBA {
 	b := img.Bounds()
 	out := image.NewNRGBA(image.Rect(0, 0, tw, th))
 	for y := 0; y < th; y++ {
@@ -65,7 +67,7 @@ func renderDownscaleReference(img image.Image, tw, th int) *image.NRGBA {
 	return out
 }
 
-func TestRenderImageFastPathsMatchGeneric(t *testing.T) {
+func TestImageFastPathsMatchGeneric(t *testing.T) {
 	const w, h = 37, 23
 	pixel := func(x, y int) color.NRGBA {
 		return color.NRGBA{R: uint8(x * 7), G: uint8(y * 11), B: uint8(x*y + 3), A: uint8(255 - (x+y)%4*60)}
@@ -107,14 +109,61 @@ func TestRenderImageFastPathsMatchGeneric(t *testing.T) {
 				ref.Set(x, y, img.At(b.Min.X+x, b.Min.Y+y))
 			}
 		}
-		if got := renderNRGBA(img); !bytes.Equal(got.Pix, ref.Pix) {
+		if got := NRGBA(img); !bytes.Equal(got.Pix, ref.Pix) {
 			t.Errorf("%s: conversion differs", name)
 		}
 		for _, size := range [][2]int{{10, 7}, {b.Dx() - 1, b.Dy() / 2}, {1, 1}} {
-			got := renderDownscale(img, float64(size[0]), float64(size[1])).(*image.NRGBA)
-			if want := renderDownscaleReference(img, size[0], size[1]); !bytes.Equal(got.Pix, want.Pix) {
+			got := Downscale(img, float64(size[0]), float64(size[1])).(*image.NRGBA)
+			if want := downscaleReference(img, size[0], size[1]); !bytes.Equal(got.Pix, want.Pix) {
 				t.Errorf("%s at %v: downscale differs", name, size)
 			}
 		}
+	}
+}
+
+func TestDownscale(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 40, 20))
+	for x := 0; x < 40; x++ {
+		for y := 0; y < 20; y++ {
+			if x%2 == 0 {
+				src.SetNRGBA(x, y, color.NRGBA{R: 255, A: 255})
+			} else {
+				src.SetNRGBA(x, y, color.NRGBA{B: 255, A: 255})
+			}
+		}
+	}
+	out := Downscale(src, 10, 10)
+	if b := out.Bounds(); b.Dx() != 10 || b.Dy() != 10 {
+		t.Fatalf("size %v", b)
+	}
+	if r, _, bl, _ := out.At(3, 3).RGBA(); r>>8 != 127 || bl>>8 != 127 {
+		t.Fatalf("average: %d %d", r>>8, bl>>8)
+	}
+	if Downscale(src, 80, 40) != image.Image(src) {
+		t.Fatal("upscaled")
+	}
+}
+
+func TestBlur(t *testing.T) {
+	// A point spreads with the deviation asked for, keeping its total.
+	const n = 101
+	plane := make([]float32, n*n)
+	plane[50*n+50] = 1
+	if err := Blur(context.Background(), plane, n, n, 6); err != nil {
+		t.Fatal(err)
+	}
+	var sum, varX float64
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			v := float64(plane[y*n+x])
+			sum += v
+			varX += v * float64((x-50)*(x-50))
+		}
+	}
+	if math.Abs(sum-1) > 1e-3 || math.Abs(math.Sqrt(varX/sum)-6) > 0.6 {
+		t.Fatalf("sum %v, deviation %v", sum, math.Sqrt(varX/sum))
+	}
+	if b := boxes(6); b[0]%2 == 0 || b[2]%2 == 0 {
+		t.Fatalf("boxes %v", b)
 	}
 }

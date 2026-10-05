@@ -50,6 +50,21 @@ func FuzzPptxRender(f *testing.F) {
 	if withTable, e := tables.SaveBytes(); e == nil {
 		f.Add(fuzzseed.ZipEntry(withTable, "ppt/slides/slide1.xml"))
 	}
+	// Tables in built-in styles: one with a theme gradient and shadow, one
+	// with double lines, so mutations reach the style resolution.
+	for _, id := range []string{"{D113A9D2-9D6B-4929-AA2D-F23B5EE8CBE7}", "{793D81CF-94F2-401A-BA57-92F5A7B2D0C5}"} {
+		styled := pptx.CreateWithOptions(pptx.CreateOptions{Options: pptx.Options{SlideSize: pptx.SlideSizeCustom}, Width: dml.Pixels(16), Height: dml.Pixels(16)})
+		table := styled.AddSlide().AddTable(3, 2)
+		table.SetStyleID(id)
+		table.SetFirstRow(true)
+		table.SetLastRow(true)
+		table.SetFirstCol(true)
+		table.SetBandedRows(true)
+		table.Cell(0, 0).SetText("A")
+		if withStyle, e := styled.SaveBytes(); e == nil {
+			f.Add(fuzzseed.ZipEntry(withStyle, "ppt/slides/slide1.xml"))
+		}
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 16<<10 {
 			t.Skip()

@@ -111,12 +111,23 @@ type rectangle struct {
 }
 
 // Prepare snapshots rectangles, paths, clipped groups and horizontal text in
-// painter order. Physical page
-// dimensions use EMU; Forme operations use CSS pixels from the top left.
+// painter order. Color glyphs are drawn from their paints and images where
+// those can be drawn exactly, and are refused with ErrUnsupported where not.
+// Physical page dimensions use EMU; Forme operations use CSS pixels from the
+// top left.
 // Rectangles are clipped to the page. Negative extents and invalid colors fail;
 // zero-area rectangles are accepted and paint nothing. Overhang is layout
 // metadata and does not alter painting.
 func Prepare(ctx context.Context, width, height dml.EMU, ops []layout.Op, limits Limits) (*Page, error) {
+	return PrepareBestEffort(ctx, width, height, ops, limits, nil)
+}
+
+// PrepareBestEffort is Prepare, except that a color glyph that cannot be drawn
+// exactly is drawn approximately instead of failing with ErrUnsupported: with
+// the paint nearest to its own, or as its outline in the text color. Each kind
+// of approximation is reported once to approximate, as an error wrapping
+// ErrUnsupported that says what was done. A nil approximate is Prepare.
+func PrepareBestEffort(ctx context.Context, width, height dml.EMU, ops []layout.Op, limits Limits, approximate func(error)) (*Page, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -131,7 +142,7 @@ func Prepare(ctx context.Context, width, height dml.EMU, ops []layout.Op, limits
 		return nil, fmt.Errorf("%w: operation count", ErrLimit)
 	}
 	p := &Page{width: float64(width) / float64(dml.EMUsPerPixel), height: float64(height) / float64(dml.EMUsPerPixel), limits: l}
-	if err := p.collect(ctx, ops, nil, &prepareBudget{}); err != nil {
+	if err := p.collect(ctx, ops, nil, &prepareBudget{report: approximate}); err != nil {
 		return nil, err
 	}
 	return p, nil

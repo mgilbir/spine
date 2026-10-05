@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/mgilbir/spine/common/dml"
+	"github.com/mgilbir/spine/internal/metafile"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
 )
@@ -18,6 +19,22 @@ const renderMaxTilePixels = 4 << 20
 // renderTileSize is a picture's tile extent in pixels at 96 DPI: its natural
 // size at the fill's DPI, the file's, or 96, scaled by the tile's scale.
 func renderTileSize(img image.Image, data []byte, dpi *int32, tile *dml.TileXML) (w, h float64) {
+	if info, err := metafile.Inspect(data); err == nil && renderIsMetafile(data) {
+		// A metafile's natural size is its recorded physical size, drawn at
+		// whatever density suits; absent one, 96 pixels across.
+		nw, nh := info.Width, info.Height
+		if nw <= 0 || nh <= 0 {
+			nw, nh = 96, 96/info.Aspect
+		}
+		sx, sy := float64(tile.Sx.Int32())/100000, float64(tile.Sy.Int32())/100000
+		if sx == 0 {
+			sx = 1
+		}
+		if sy == 0 {
+			sy = 1
+		}
+		return nw * sx, nh * sy
+	}
 	dx, dy := 96.0, 96.0
 	if dpi != nil && *dpi > 0 {
 		dx, dy = float64(*dpi), float64(*dpi)
@@ -89,7 +106,7 @@ func renderTileImage(colors *renderColors, img image.Image, w, h, tw, th float64
 	if sw <= 0 || sh <= 0 {
 		return nil, fmt.Errorf("%w: empty tile picture", render.ErrInvalid)
 	}
-	scale := math.Min(renderMaxImageScale, math.Max(1, math.Max(float64(sw)/tw, float64(sh)/th)))
+	scale := math.Min(core.MaxImageScale, math.Max(1, math.Max(float64(sw)/tw, float64(sh)/th)))
 	scale = math.Min(scale, math.Sqrt(renderMaxTilePixels/(w*h)))
 	ow, oh := max(1, int(math.Ceil(w*scale))), max(1, int(math.Ceil(h*scale)))
 	n := int64(ow) * int64(oh)
@@ -103,7 +120,7 @@ func renderTileImage(colors *renderColors, img image.Image, w, h, tw, th float64
 	}
 	src, ok := img.(*image.NRGBA)
 	if !ok || src.Rect.Min != (image.Point{}) {
-		src = renderNRGBA(img)
+		src = core.NRGBA(img)
 	}
 	// along maps a box coordinate to a picture pixel on one axis.
 	along := func(u, origin, size float64, n int, flip bool) int {

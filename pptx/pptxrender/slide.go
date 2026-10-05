@@ -61,6 +61,7 @@ type renderPackage struct {
 	themeData     map[string][]byte
 	themeEditors  map[string]*dml.ThemeEditor
 	partData      func(string) []byte
+	tableStyles   []byte
 	width, height dml.EMU
 }
 
@@ -69,7 +70,7 @@ func newRenderSlide(s *pptx.Slide) *renderSlide {
 	out := &renderSlide{slide: s, load: v.Load, partName: v.PartName, index: v.Index}
 	if p := v.Package; p != nil {
 		out.presentation = &renderPackage{reader: p.Reader, presentation: p.Presentation, relationships: p.Relationships, otherParts: p.OtherParts,
-			themeData: p.ThemeData, themeEditors: p.ThemeEditors, partData: p.PartData, width: p.Width, height: p.Height}
+			themeData: p.ThemeData, themeEditors: p.ThemeEditors, partData: p.PartData, tableStyles: p.TableStyles, width: p.Width, height: p.Height}
 	} else {
 		out.presentation = &renderPackage{}
 	}

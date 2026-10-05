@@ -95,7 +95,8 @@ func TestRenderUnstyledTable(t *testing.T) {
 
 func TestRenderRejectsUnsupportedTables(t *testing.T) {
 	for name, edit := range map[string]func(*pptx.Table){
-		"style": func(tbl *pptx.Table) { tbl.SetStyleID("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}") },
+		// A style that is neither built in nor read from the file.
+		"style": func(tbl *pptx.Table) { tbl.SetStyleID("{00000000-0000-0000-0000-000000000000}") },
 		"conflicting": func(tbl *pptx.Table) {
 			tbl.Cell(0, 0).SetBorderRight(&pptx.TableBorder{Width: dml.Pixels(4), Color: dml.ColorRed, Style: pptx.BorderStyleSingle})
 		},

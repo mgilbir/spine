@@ -166,16 +166,20 @@ type TableStyle struct {
 	ExtLst    *ExtLst         `xml:"http://schemas.openxmlformats.org/drawingml/2006/main extLst,omitempty"`
 }
 
-// TableBgStyle represents CT_TableBackgroundStyle (a:tblBg)
+// TableBgStyle represents CT_TableBackgroundStyle (a:tblBg). FillRef and
+// EffectRef pick the background's fill and effects from the theme's format
+// scheme, the way a shape's style does.
 type TableBgStyle struct {
-	NoFill    *NoFillXML   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
-	SolidFill *SolidFill   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
-	GradFill  *GradFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
-	BlipFill  *BlipFillXML `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
-	PattFill  *PattFill    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
-	GrpFill   *GrpFill     `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
-	EffectLst *EffectLst   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
-	EffectDag *EffectDag   `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	NoFill    *NoFillXML      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main noFill,omitempty"`
+	SolidFill *SolidFill      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main solidFill,omitempty"`
+	GradFill  *GradFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main gradFill,omitempty"`
+	BlipFill  *BlipFillXML    `xml:"http://schemas.openxmlformats.org/drawingml/2006/main blipFill,omitempty"`
+	PattFill  *PattFill       `xml:"http://schemas.openxmlformats.org/drawingml/2006/main pattFill,omitempty"`
+	GrpFill   *GrpFill        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main grpFill,omitempty"`
+	FillRef   *FillRef        `xml:"http://schemas.openxmlformats.org/drawingml/2006/main fillRef,omitempty"`
+	EffectLst *EffectLst      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectLst,omitempty"`
+	EffectDag *EffectDag      `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectDag,omitempty"`
+	EffectRef *StyleEffectRef `xml:"http://schemas.openxmlformats.org/drawingml/2006/main effectRef,omitempty"`
 }
 
 // TablePartStyle represents CT_TablePartStyle (a:wholeTbl, a:band1H, etc.)

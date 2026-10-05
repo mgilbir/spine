@@ -64,17 +64,29 @@ type renderChartPlan struct {
 	firstAngle float64 // degrees clockwise from 12 o'clock
 	varyColors bool
 
-	title                string
-	titleSize, textSize  float64 // pixels
-	textColor, font      string
-	titleColor           string
-	legend               string // Vega legend orient, "" for none
-	catAxis, valAxis     bool
+	title               string
+	titleSize, textSize float64 // pixels
+	// textSized says the chart space sets its text size.
+	textSized bool
+	// seriesLine is the automatic width of a line series, in pixels.
+	seriesLine      float64
+	textColor, font string
+	titleColor      string
+	// legend is the Vega legend orient, "" for none; legendSize and
+	// legendColor style its entries, labelColor the shown values.
+	legend               string
+	legendSize           float64
+	legendColor          string
+	labelColor           string
+	catAxis, valAxis     bool // the axis' labels are drawn
+	cat, val             renderAxisStyle
 	catTitle, valTitle   string
 	grid                 bool
 	gridColor, axisColor string
 	valFormat            string
 	valMin, valMax       *float64
+	valMajor             *float64
+	xMin, xMax, xMajor   *float64 // a scatter or bubble chart's X axis
 	background           string
 	// midCat puts points on category boundaries rather than in between.
 	midCat bool
@@ -94,6 +106,22 @@ type renderChartPlan struct {
 	bandColors             []string
 	reverseCats, valLabels bool
 }
+
+// renderAxisStyle is how an axis draws itself: its line, tick marks and
+// labels. Formatting an axis leaves out is Office's automatic: a black line
+// with tick marks pointing out.
+type renderAxisStyle struct {
+	shown     bool   // the axis is not deleted
+	color     string // line and tick color
+	noLine    bool
+	tick      string // major tick marks: out, in or none
+	size      float64
+	textColor string
+}
+
+// renderAutoColor is the automatic color of lines and text: what Office
+// draws for a chart that carries no formatting, as the charts spine writes.
+const renderAutoColor = "#000000"
 
 // renderChartColor formats a color for Vega.
 func renderChartColor(c style.RGBA) string {
@@ -192,6 +220,34 @@ func (b *renderChartBuilder) line(p *dml.SpPr) (color string, none bool, width f
 		}
 	}
 	return "", false, width, nil
+}
+
+// seriesLine is the automatic width of a line series: the theme's first line
+// style (0.75pt, the standard Office theme's, when the theme sets none) times
+// 3, 5 or 7 by the chart's c:style (2 when absent), as Office draws it.
+func (b *renderChartBuilder) seriesLine(cs *dmlchart.ChartSpace) (float64, error) {
+	style := uint32(2)
+	if cs.Style != nil {
+		style = cs.Style.Val
+	}
+	rel := 3.0
+	switch {
+	case style >= 9 && style <= 24, style >= 33:
+		rel = 5
+	case style >= 25 && style <= 32:
+		rel = 7
+	}
+	base := 9525.0
+	th, err := b.colors.loadTheme()
+	if err != nil {
+		return 0, err
+	}
+	if th != nil && th.ThemeElements != nil && th.ThemeElements.FmtScheme != nil {
+		if l := th.ThemeElements.FmtScheme.LnStyleLst; l != nil && len(l.Ln) > 0 && l.Ln[0] != nil && l.Ln[0].W != nil && *l.Ln[0].W > 0 {
+			base = float64(*l.Ln[0].W)
+		}
+	}
+	return base * rel / float64(dml.EMUsPerPixel), nil
 }
 
 // text resolves a text body's default run size, in pixels, and color.
@@ -370,12 +426,19 @@ func renderSerIdx(i *dmlchart.UnsignedInt, fallback int) int {
 func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, error) {
 	c := cs.Chart
 	pa := c.PlotArea
-	p := &renderChartPlan{gapWidth: 150, varyColors: false, textColor: "#595959", gridColor: "#d9d9d9", axisColor: "#d9d9d9", catAxis: true, valAxis: true}
+	p := &renderChartPlan{gapWidth: 150, varyColors: false, textColor: renderAutoColor, gridColor: renderAutoColor, axisColor: renderAutoColor, catAxis: true, valAxis: true}
 	var err error
 	// Text: the chart space's defaults, 10pt by the standard's default.
 	if p.textSize, p.textColor, err = b.text(cs.TxPr, 10*4.0/3, p.textColor); err != nil {
 		return nil, err
 	}
+	p.textSized = p.textSize != 10*4.0/3
+	if p.seriesLine, err = b.seriesLine(cs); err != nil {
+		return nil, err
+	}
+	p.cat = renderAxisStyle{shown: true, color: renderAutoColor, tick: "out", size: p.textSize, textColor: p.textColor}
+	p.val = p.cat
+	p.legendSize, p.legendColor, p.labelColor = p.textSize, p.textColor, p.textColor
 	p.font = "Calibri"
 	if theme, err := b.colors.loadTheme(); err == nil && theme.ThemeElements != nil && theme.ThemeElements.FontScheme != nil {
 		if f := theme.ThemeElements.FontScheme.MinorFont; f != nil && f.Latin != nil && f.Latin.Typeface != "" {
@@ -414,7 +477,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			}
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	for _, g := range pa.LineChart {
@@ -447,7 +510,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			sers = append(sers, renderChartSer{idx: renderSerIdx(s.Idx, i), tx: s.Tx, spPr: s.SpPr, dPt: s.DPt, dLbls: s.DLbls, cat: s.Cat, val: s.Val, marker: m, extras: len(s.Trendline) > 0 || s.ErrBars != nil})
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	for _, g := range pa.AreaChart {
@@ -466,7 +529,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			}
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	pie := func(vary *dmlchart.Boolean, ser []*dmlchart.PieSer, dl *dmlchart.DataLabels, first *dmlchart.UnsignedInt) {
@@ -482,7 +545,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			}
 		}
 		if dl != nil {
-			p.valLabels = renderShowVal(dl)
+			p.valLabels = b.showVal(p, dl)
 		}
 	}
 	for _, g := range pa.PieChart {
@@ -535,7 +598,7 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 			sers = append(sers, ser)
 		}
 		if g.DLbls != nil {
-			p.valLabels = renderShowVal(g.DLbls)
+			p.valLabels = b.showVal(p, g.DLbls)
 		}
 	}
 	if len(pa.Bar3DChart)+len(pa.Line3DChart)+len(pa.Pie3DChart)+len(pa.Area3DChart) > 0 {
@@ -659,6 +722,17 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 	return p, nil
 }
 
+// showVal reports whether d shows values, taking their text color from its
+// formatting; labels without any are in the chart's automatic text color.
+func (b *renderChartBuilder) showVal(p *renderChartPlan, d *dmlchart.DataLabels) bool {
+	if d != nil && d.TxPr != nil {
+		if _, color, err := b.text(d.TxPr, p.textSize, p.labelColor); err == nil {
+			p.labelColor = color
+		}
+	}
+	return renderShowVal(d)
+}
+
 func renderShowVal(d *dmlchart.DataLabels) bool {
 	if d == nil || (d.Delete != nil && d.Delete.Val) {
 		return false
@@ -740,7 +814,7 @@ func (b *renderChartBuilder) series(p *renderChartPlan, s renderChartSer, total 
 		if noLine {
 			rs.line = ""
 		}
-		rs.lineWidth = 28575.0 / float64(dml.EMUsPerPixel)
+		rs.lineWidth = p.seriesLine
 		if width > 0 {
 			rs.lineWidth = width
 		}
@@ -790,14 +864,44 @@ func (b *renderChartBuilder) series(p *renderChartPlan, s renderChartSer, total 
 	}
 	rs.labels = p.valLabels
 	if s.dLbls != nil {
-		rs.labels = renderShowVal(s.dLbls)
+		rs.labels = b.showVal(p, s.dLbls)
 	}
 	return rs, cats, nil
+}
+
+// axisStyle resolves an axis' line, tick marks and text. Absent formatting is
+// Office's automatic look: a black line, tick marks pointing out and text in
+// the chart's color.
+func (b *renderChartBuilder) axisStyle(p *renderChartPlan, deleted *dmlchart.Boolean, ln *dml.SpPr, tick *dmlchart.TickMark, tx *dml.TxBody) (renderAxisStyle, error) {
+	st := renderAxisStyle{shown: deleted == nil || !deleted.Val, color: renderAutoColor, tick: "out", size: p.textSize, textColor: p.textColor}
+	color, none, _, err := b.line(ln)
+	if err != nil {
+		return st, err
+	}
+	if none {
+		st.noLine = true
+	} else if color != "" {
+		st.color = color
+	}
+	if tick != nil {
+		switch tick.Val {
+		case "none", "out", "in":
+			st.tick = tick.Val
+		default:
+			// A tick mark crossing the axis is drawn pointing out.
+			if err := b.approx("chart axis tick marks that cross drawn pointing out"); err != nil {
+				return st, err
+			}
+		}
+	}
+	st.size, st.textColor, err = b.text(tx, st.size, st.textColor)
+	return st, err
 }
 
 func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) error {
 	if p.kind == "pie" {
 		p.catAxis, p.valAxis = false, false
+		p.cat.shown, p.val.shown = false, false
 		return nil
 	}
 	if p.kind == "radar" {
@@ -806,36 +910,45 @@ func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) err
 		p.catAxis = true
 	}
 	var err error
+	labelled := func(deleted *dmlchart.Boolean, pos *dmlchart.TickLblPos) bool {
+		return (deleted == nil || !deleted.Val) && (pos == nil || pos.Val != "none")
+	}
 	if len(pa.CatAx) > 0 && pa.CatAx[0] != nil {
 		a := pa.CatAx[0]
-		p.catAxis = (a.Delete == nil || !a.Delete.Val) && (a.TickLblPos == nil || a.TickLblPos.Val != "none")
+		p.catAxis = labelled(a.Delete, a.TickLblPos)
 		p.reverseCats = a.Scaling != nil && a.Scaling.Orientation != nil && a.Scaling.Orientation.Val == "maxMin"
 		if a.Title != nil {
 			p.catTitle = renderTitleText(a.Title)
 		}
-		if color, _, _, err := b.line(a.SpPr); err != nil {
-			return err
-		} else if color != "" {
-			p.axisColor = color
-		}
-		if p.textSize, p.textColor, err = b.text(a.TxPr, p.textSize, p.textColor); err != nil {
+		if p.cat, err = b.axisStyle(p, a.Delete, a.SpPr, a.MajorTickMark, a.TxPr); err != nil {
 			return err
 		}
 	}
 	// A scatter chart's X axis is its first value axis, its Y the second.
 	vals := pa.ValAx
 	if (p.kind == "scatter" || p.kind == "bubble") && len(vals) == 2 {
-		if vals[0] != nil && vals[0].AxPos != nil && (vals[0].AxPos.Val == "b" || vals[0].AxPos.Val == "t") {
-			p.catAxis = vals[0].Delete == nil || !vals[0].Delete.Val
+		x := vals[0]
+		if x != nil && x.AxPos != nil && (x.AxPos.Val == "b" || x.AxPos.Val == "t") {
 			vals = vals[1:]
 		} else {
-			p.catAxis = vals[1] == nil || vals[1].Delete == nil || !vals[1].Delete.Val
+			x = vals[1]
 			vals = vals[:1]
+		}
+		p.catAxis = x == nil || labelled(x.Delete, nil)
+		if x != nil {
+			p.catAxis = labelled(x.Delete, x.TickLblPos)
+			if x.Title != nil {
+				p.catTitle = renderTitleText(x.Title)
+			}
+			if p.cat, err = b.axisStyle(p, x.Delete, x.SpPr, x.MajorTickMark, x.TxPr); err != nil {
+				return err
+			}
+			p.xMin, p.xMax, p.xMajor = renderScaling(x)
 		}
 	}
 	if len(vals) > 0 && vals[0] != nil {
 		a := vals[0]
-		p.valAxis = (a.Delete == nil || !a.Delete.Val) && (a.TickLblPos == nil || a.TickLblPos.Val != "none")
+		p.valAxis = labelled(a.Delete, a.TickLblPos)
 		p.midCat = a.CrossBetween != nil && a.CrossBetween.Val == "midCat" && (p.kind == "line" || p.kind == "area")
 		p.grid = a.MajorGridlines != nil
 		if a.MajorGridlines != nil {
@@ -850,19 +963,10 @@ func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) err
 		if a.Title != nil {
 			p.valTitle = renderTitleText(a.Title)
 		}
-		if a.Scaling != nil {
-			if a.Scaling.Min != nil {
-				v := a.Scaling.Min.Val
-				p.valMin = &v
-			}
-			if a.Scaling.Max != nil {
-				v := a.Scaling.Max.Val
-				p.valMax = &v
-			}
-			if a.Scaling.LogBase != nil {
-				if err := b.approx("logarithmic chart axis drawn linear"); err != nil {
-					return err
-				}
+		p.valMin, p.valMax, p.valMajor = renderScaling(a)
+		if a.Scaling != nil && a.Scaling.LogBase != nil {
+			if err := b.approx("logarithmic chart axis drawn linear"); err != nil {
+				return err
 			}
 		}
 		if a.NumFmt != nil && (a.NumFmt.SourceLinked == nil || !*a.NumFmt.SourceLinked) {
@@ -870,14 +974,38 @@ func (b *renderChartBuilder) axes(p *renderChartPlan, pa *dmlchart.PlotArea) err
 				return err
 			}
 		}
-		if p.textSize, p.textColor, err = b.text(a.TxPr, p.textSize, p.textColor); err != nil {
+		if p.val, err = b.axisStyle(p, a.Delete, a.SpPr, a.MajorTickMark, a.TxPr); err != nil {
 			return err
 		}
 	}
 	if p.grouping == "percentStacked" && p.valFormat == "" {
 		p.valFormat = ".0%"
 	}
+	p.axisColor = p.cat.color
+	if p.kind == "radar" {
+		// A radar's labels all draw in the specification's text style.
+		p.textSize, p.textColor = p.cat.size, p.cat.textColor
+	}
 	return nil
+}
+
+// renderScaling is a value axis' explicit minimum, maximum and major unit.
+func renderScaling(a *dmlchart.ValAx) (lo, hi, major *float64) {
+	if a.Scaling != nil {
+		if a.Scaling.Min != nil {
+			v := a.Scaling.Min.Val
+			lo = &v
+		}
+		if a.Scaling.Max != nil {
+			v := a.Scaling.Max.Val
+			hi = &v
+		}
+	}
+	if a.MajorUnit != nil && a.MajorUnit.Val > 0 {
+		v := a.MajorUnit.Val
+		major = &v
+	}
+	return lo, hi, major
 }
 
 // format maps a number format code to a d3 format: the common forms
@@ -930,6 +1058,10 @@ func (b *renderChartBuilder) legend(p *renderChartPlan, c *dmlchart.Chart) error
 		return nil
 	}
 	p.legend = "right"
+	var err error
+	if p.legendSize, p.legendColor, err = b.text(c.Legend.TxPr, p.legendSize, p.legendColor); err != nil {
+		return err
+	}
 	if c.Legend.LegendPos != nil {
 		switch c.Legend.LegendPos.Val {
 		case "b":
@@ -967,10 +1099,13 @@ func (b *renderChartBuilder) title(p *renderChartPlan, c *dmlchart.Chart, sers [
 			}
 		}
 	}
-	// A title is 14pt by default, 1.2 times the chart's default text when
-	// the chart space sets one.
+	// A title is 18pt by default, 1.2 times the chart's default text when
+	// the chart space sets one, as Office draws it.
 	var err error
-	p.titleSize, p.titleColor = math.Max(14*4.0/3, p.textSize*1.2), p.textColor
+	p.titleSize, p.titleColor = 18*4.0/3, p.textColor
+	if p.textSized {
+		p.titleSize = p.textSize * 1.2
+	}
 	if p.titleSize, p.titleColor, err = b.text(c.Title.TxPr, p.titleSize, p.titleColor); err != nil {
 		return err
 	}
@@ -1028,8 +1163,15 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		}
 	}
 	text := obj{"font": p.font, "fontSize": round2(p.textSize), "fill": p.textColor}
-	label := func(extra obj) obj {
-		o := obj{"labelFont": p.font, "labelFontSize": round2(p.textSize), "labelColor": p.textColor, "titleFont": p.font, "titleFontSize": round2(p.textSize * 1.1), "titleColor": p.textColor, "titleFontWeight": "normal"}
+	// label is an axis in the style st: its line and tick marks (Office's
+	// ticks point out) and its text.
+	label := func(st renderAxisStyle, extra obj) obj {
+		tick := 5
+		if st.tick == "in" {
+			tick = -5
+		}
+		o := obj{"labelFont": p.font, "labelFontSize": round2(st.size), "labelColor": st.textColor, "titleFont": p.font, "titleFontSize": round2(st.size * 1.1), "titleColor": st.textColor, "titleFontWeight": "normal",
+			"domain": st.shown && !st.noLine, "domainColor": st.color, "ticks": st.shown && st.tick != "none", "tickColor": st.color, "tickSize": tick}
 		for k, v := range extra {
 			o[k] = v
 		}
@@ -1041,7 +1183,9 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		"height":   round2(h),
 		"padding":  8,
 		"autosize": obj{"type": "fit", "contains": "padding"},
-		"config":   obj{"text": text, "title": obj{"font": p.font, "fontWeight": "normal", "color": p.textColor}},
+		"config": obj{"text": text, "title": obj{"font": p.font, "fontWeight": "normal", "color": p.textColor},
+			// Office centres a legend along the side it sits on.
+			"legend": obj{"layout": obj{"left": obj{"anchor": "middle"}, "right": obj{"anchor": "middle"}, "top": obj{"anchor": "middle"}, "bottom": obj{"anchor": "middle"}}}},
 		"signals": []obj{{"name": "cats", "value": p.categories}, {"name": "names", "value": names}, {"name": "lineColors", "value": lineColors},
 			{"name": "lineWidths", "value": lineWidths}, {"name": "markers", "value": markers}, {"name": "labelled", "value": labelled}},
 	}
@@ -1053,10 +1197,11 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 	}
 	data := []obj{{"name": "table", "values": rows}}
 	var scales, axes, marks, legends []obj
+	var xSteps, ySteps []float64
 	color := obj{"name": "color", "type": "ordinal", "domain": obj{"signal": "sequence(length(names))"}, "range": fills}
 	if p.legend != "" {
 		orient := p.legend
-		lg := obj{"orient": orient, "labelFont": p.font, "labelFontSize": round2(p.textSize), "labelColor": p.textColor, "symbolType": "square",
+		lg := obj{"orient": orient, "labelFont": p.font, "labelFontSize": round2(p.legendSize), "labelColor": p.legendColor, "symbolType": "square",
 			"encode": obj{"labels": obj{"update": obj{"text": obj{"signal": "names[datum.value]"}}}}}
 		switch {
 		case p.kind == "line" || (p.kind == "radar" && !p.radarFill):
@@ -1075,6 +1220,15 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		}
 		if orient == "bottom" || orient == "top" {
 			lg["direction"] = "horizontal"
+		}
+		if p.kind == "bar" && p.horizontal && (orient == "right" || orient == "left") {
+			// A bar chart's first series sits lowest, and a legend beside it
+			// lists the series in the order they stack: the last on top.
+			values := make([]int, len(p.series))
+			for i := range values {
+				values[i] = len(values) - 1 - i
+			}
+			lg["values"] = values
 		}
 		// A surface's legend would name its bands; it is left out.
 		if p.kind != "surface" {
@@ -1104,10 +1258,11 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 			break
 		}
 		radius := obj{"signal": "min(width, height) / 2"}
+		sc, sw := p.sliceStroke()
 		arc := obj{"type": "arc", "from": obj{"data": "slices"}, "encode": obj{"enter": obj{
 			"x": obj{"signal": "width / 2"}, "y": obj{"signal": "height / 2"},
 			"startAngle": obj{"field": "startAngle"}, "endAngle": obj{"field": "endAngle"},
-			"outerRadius": radius, "fill": obj{"field": "fill"}, "stroke": obj{"value": "#ffffff"}, "strokeWidth": obj{"value": 1},
+			"outerRadius": radius, "fill": obj{"field": "fill"}, "stroke": obj{"value": sc}, "strokeWidth": obj{"value": sw},
 		}}}
 		if p.hole > 0 {
 			arc["encode"].(obj)["enter"].(obj)["innerRadius"] = obj{"signal": fmt.Sprintf("min(width, height) / 2 * %s", strconv.FormatFloat(p.hole/100, 'f', 4, 64))}
@@ -1118,7 +1273,7 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 				"x": obj{"signal": "width / 2"}, "y": obj{"signal": "height / 2"},
 				"radius": obj{"signal": fmt.Sprintf("min(width, height) / 2 * %s", strconv.FormatFloat(0.5+p.hole/200, 'f', 4, 64))},
 				"theta":  obj{"signal": "(datum.startAngle + datum.endAngle) / 2"}, "align": obj{"value": "center"}, "baseline": obj{"value": "middle"},
-				"text": obj{"signal": "format(datum.v, '~f')"},
+				"text": obj{"signal": "format(datum.v, '~f')"}, "fill": obj{"value": p.labelColor},
 			}}})
 		}
 	case "radar":
@@ -1128,10 +1283,19 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		d, sc, m, lg := p.surfaceSpec(p.bandColors)
 		data, scales, marks, legends = append(data, d...), append(scales, sc...), append(marks, m...), append(legends, lg...)
 	case "scatter", "bubble":
-		scales = append(scales,
-			obj{"name": "x", "type": "linear", "domain": obj{"data": "table", "field": "x"}, "range": "width", "nice": obj{"signal": "max(2, round(width / 80))"}, "zero": true},
-			obj{"name": "y", "type": "linear", "domain": obj{"data": "table", "field": "v"}, "range": "height", "nice": p.ticks(), "zero": true},
-		)
+		xs := obj{"name": "x", "type": "linear", "domain": obj{"data": "table", "field": "x"}, "range": "width", "nice": obj{"signal": "max(2, round(width / 80))"}, "zero": true}
+		ys := obj{"name": "y", "type": "linear", "domain": obj{"data": "table", "field": "v"}, "range": "height", "nice": p.ticks(), "zero": true}
+		if lo, hi, ok := p.scatterRange(false); ok {
+			as := renderAutoScale(lo, hi, renderAxisHints{p.xMin, p.xMax, p.xMajor}, p.plotLength(w, h, false), p.cat.size*renderHorizGap, false)
+			xs["domainMin"], xs["domainMax"], xs["nice"], xs["zero"] = as.min, as.max, false, false
+			xSteps = as.ticks
+		}
+		if lo, hi, ok := p.scatterRange(true); ok {
+			as := renderAutoScale(lo, hi, renderAxisHints{p.valMin, p.valMax, p.valMajor}, p.plotLength(w, h, true), p.val.size*renderVertGap, false)
+			ys["domainMin"], ys["domainMax"], ys["nice"], ys["zero"] = as.min, as.max, false, false
+			ySteps = as.ticks
+		}
+		scales = append(scales, xs, ys)
 		if p.kind == "bubble" {
 			d, sc, m := p.bubbleSpec(rows)
 			data, scales, marks = append(data, d...), append(scales, sc...), append(marks, m...)
@@ -1186,34 +1350,54 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		if stacked {
 			valScale["domain"] = obj{"fields": []obj{{"data": "table", "field": "y0"}, {"data": "table", "field": "y1"}}}
 		}
-		if p.valMin != nil {
-			valScale["domainMin"], valScale["nice"] = *p.valMin, false
+		valLen, gap := p.plotLength(w, h, !p.horizontal), p.val.size*renderVertGap
+		if p.horizontal {
+			gap = p.val.size * renderHorizGap
 		}
-		if p.valMax != nil {
-			valScale["domainMax"], valScale["nice"] = *p.valMax, false
+		var valSteps []float64
+		if lo, hi, ok := p.valueRange(); ok {
+			as := renderAutoScale(lo, hi, renderAxisHints{p.valMin, p.valMax, p.valMajor}, valLen, gap, p.grouping == "percentStacked")
+			valScale["domainMin"], valScale["domainMax"], valScale["nice"], valScale["zero"] = as.min, as.max, false, false
+			valSteps = as.ticks
+		} else {
+			if p.valMin != nil {
+				valScale["domainMin"], valScale["nice"] = *p.valMin, false
+			}
+			if p.valMax != nil {
+				valScale["domainMax"], valScale["nice"] = *p.valMax, false
+			}
 		}
 		scales = append(scales, catScale, valScale)
-		if p.catAxis {
+		axisScale := "cat"
+		if p.kind == "bar" {
+			// The axis' tick marks fall between categories, evenly: on the
+			// bands the bars' gaps would leave out of step.
+			axisScale = "catAxis"
+			scales = append(scales, obj{"name": axisScale, "type": "band", "domain": catScale["domain"], "range": bandRange, "padding": 0})
+		}
+		if p.cat.shown {
 			orient := "bottom"
 			if p.horizontal {
 				orient = "left"
 			}
-			ax := label(obj{"orient": orient, "scale": "cat", "domainColor": p.axisColor, "ticks": false, "labelPadding": 4, "labelOverlap": false,
+			ax := label(p.cat, obj{"orient": orient, "scale": axisScale, "labelPadding": 4, "labelOverlap": false, "labels": p.catAxis,
 				"encode": obj{"labels": obj{"update": obj{"text": obj{"signal": "cats[datum.value]"}}}}})
+			if catScale["type"] == "band" {
+				// Tick marks lie between categories.
+				ax["tickBand"] = "extent"
+			}
 			if p.catTitle != "" {
 				ax["title"] = p.catTitle
 			}
 			axes = append(axes, ax)
 		}
-		if p.valAxis || p.grid {
+		if p.val.shown || p.grid {
 			orient := "left"
 			if p.horizontal {
 				orient = "bottom"
 			}
-			ax := label(obj{"orient": orient, "scale": "val", "domain": false, "ticks": false, "grid": p.grid, "gridColor": p.gridColor, "labelPadding": 6, "tickCount": p.ticks(), "labels": p.valAxis})
-			if p.valFormat != "" {
-				ax["format"] = p.valFormat
-			}
+			ax := label(p.val, obj{"orient": orient, "scale": "val", "grid": p.grid, "gridColor": p.gridColor, "labelPadding": 6, "labels": p.valAxis && p.val.shown})
+			p.valueTicks(ax, valSteps)
 			if p.valTitle != "" && p.valAxis {
 				ax["title"] = p.valTitle
 			}
@@ -1226,14 +1410,17 @@ func (p *renderChartPlan) spec(w, h float64) ([]byte, error) {
 		marks = append(marks, p.categoryMarks(stacked)...)
 	}
 	if p.kind == "scatter" || p.kind == "bubble" {
-		if p.catAxis {
-			axes = append(axes, label(obj{"orient": "bottom", "scale": "x", "domainColor": p.axisColor, "ticks": false, "grid": false, "labelPadding": 4, "tickCount": obj{"signal": "max(2, round(width / 80))"}}))
-		}
-		if p.valAxis || p.grid {
-			ax := label(obj{"orient": "left", "scale": "y", "domain": false, "ticks": false, "grid": p.grid, "gridColor": p.gridColor, "labels": p.valAxis, "tickCount": p.ticks()})
-			if p.valFormat != "" {
-				ax["format"] = p.valFormat
+		if p.cat.shown {
+			ax := label(p.cat, obj{"orient": "bottom", "scale": "x", "grid": false, "labelPadding": 4, "labels": p.catAxis})
+			if p.catTitle != "" {
+				ax["title"] = p.catTitle
 			}
+			p.valueTicks(ax, xSteps)
+			axes = append(axes, ax)
+		}
+		if p.val.shown || p.grid {
+			ax := label(p.val, obj{"orient": "left", "scale": "y", "grid": p.grid, "gridColor": p.gridColor, "labels": p.valAxis && p.val.shown})
+			p.valueTicks(ax, ySteps)
 			axes = append(axes, ax)
 		}
 	}
@@ -1304,7 +1491,7 @@ func (p *renderChartPlan) categoryMarks(stacked bool) []map[string]any {
 			field = "y1"
 		}
 		at := obj{"scale": "cat", "field": "c", "band": 0.5}
-		enter := obj{"text": obj{"signal": "datum.v == null ? '' : format(datum.v, '" + p.labelFormat() + "')"}, "align": obj{"value": "center"}, "baseline": obj{"value": "bottom"}, "dy": obj{"value": -2}}
+		enter := obj{"text": obj{"signal": "datum.v == null ? '' : format(datum.v, '" + p.labelFormat() + "')"}, "align": obj{"value": "center"}, "baseline": obj{"value": "bottom"}, "dy": obj{"value": -2}, "fill": obj{"value": p.labelColor}}
 		if p.horizontal {
 			enter["align"], enter["baseline"], enter["dx"] = obj{"value": "left"}, obj{"value": "middle"}, obj{"value": 3}
 			delete(enter, "dy")
@@ -1369,6 +1556,127 @@ func (p *renderChartPlan) seriesMarks(xs, ys, field string, stacked bool) []map[
 		"from":  obj{"facet": obj{"name": "series", "data": "table", "groupby": "s"}},
 		"marks": inner,
 	}}
+}
+
+// sliceStroke is the outline of a pie's slices: the series' own, and else
+// none, as Office draws slices of a series without one.
+func (p *renderChartPlan) sliceStroke() (string, float64) {
+	if len(p.series) > 0 && p.series[0].line != "" {
+		return p.series[0].line, round2(p.series[0].lineWidth)
+	}
+	return "transparent", 0
+}
+
+// valueRange is the range of the values a category chart's value axis must
+// span: a stacked chart's totals, with zero, or else its values.
+func (p *renderChartPlan) valueRange() (lo, hi float64, ok bool) {
+	if p.grouping == "stacked" || p.grouping == "percentStacked" {
+		lo, hi = 0, 0
+		for c := range p.categories {
+			pos, neg := 0.0, 0.0
+			for _, s := range p.series {
+				if c < len(s.values) && s.values[c] != nil {
+					if v := *s.values[c]; v >= 0 {
+						pos += v
+					} else {
+						neg += v
+					}
+				}
+			}
+			lo, hi = math.Min(lo, neg), math.Max(hi, pos)
+		}
+		return lo, hi, true
+	}
+	return p.scatterRange(true)
+}
+
+// scatterRange is the range of the Y values, or the X values of a scatter or
+// bubble chart.
+func (p *renderChartPlan) scatterRange(y bool) (lo, hi float64, ok bool) {
+	for _, s := range p.series {
+		vals := s.values
+		if !y {
+			vals = s.xs
+		}
+		for i, v := range vals {
+			if v == nil || (!y && (i >= len(s.values) || s.values[i] == nil)) {
+				continue
+			}
+			if !ok {
+				lo, hi, ok = *v, *v, true
+			}
+			lo, hi = math.Min(lo, *v), math.Max(hi, *v)
+		}
+	}
+	return lo, hi, ok
+}
+
+// plotLength estimates the pixels a value axis runs along in a w by h chart:
+// the frame less its padding, title, legend and the other axis' labels. The
+// vertical axis is the one that runs up.
+func (p *renderChartPlan) plotLength(w, h float64, vertical bool) float64 {
+	const padding = 16
+	longest := func(names []string) float64 {
+		n := 0
+		for _, s := range names {
+			n = max(n, len([]rune(s)))
+		}
+		return float64(n)
+	}
+	if vertical {
+		l := h - padding
+		if p.title != "" {
+			l -= p.titleSize*1.2 + 6
+		}
+		if p.legend == "top" || p.legend == "bottom" {
+			l -= p.legendSize*1.2 + 18
+		}
+		if p.cat.shown && p.catAxis {
+			l -= p.cat.size*1.2 + 4
+		}
+		if p.catTitle != "" {
+			l -= p.cat.size*1.3 + 6
+		}
+		return math.Max(l, 40)
+	}
+	l := w - padding
+	if p.legend == "left" || p.legend == "right" {
+		names := make([]string, len(p.series))
+		for i, s := range p.series {
+			names[i] = s.name
+		}
+		if p.kind == "pie" {
+			names = p.categories
+		}
+		l -= math.Min(longest(names), 22)*0.55*p.legendSize + 20 + 18
+	}
+	// The labels of the axis the value axis meets.
+	if p.horizontal {
+		l -= math.Min(longest(p.categories), 22)*0.55*p.cat.size + 8
+	} else {
+		l -= 3*0.55*p.val.size + 10
+	}
+	if p.valTitle != "" || (p.horizontal && p.catTitle != "") {
+		l -= p.val.size*1.3 + 6
+	}
+	return math.Max(l, 40)
+}
+
+// valueTicks sets the steps of a value axis: at the given values, or else
+// about one per 60 pixels.
+func (p *renderChartPlan) valueTicks(ax map[string]any, steps []float64) {
+	if steps == nil {
+		ax["tickCount"] = p.ticks()
+		if p.valFormat != "" {
+			ax["format"] = p.valFormat
+		}
+		return
+	}
+	ax["values"] = steps
+	ax["format"] = "~f"
+	if p.valFormat != "" && ax["scale"] != "x" {
+		ax["format"] = p.valFormat
+	}
 }
 
 // ticks is how many value-axis steps the plot's length suits, about one

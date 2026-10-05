@@ -6,6 +6,7 @@ package render
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 
@@ -81,7 +82,20 @@ type Page struct{ page *core.Page }
 // missing glyphs and resource exhaustion return no page. Caller-owned fonts and
 // image buffers must remain immutable during this call.
 func Prepare(ctx context.Context, width, height dml.EMU, ops []layout.Op, limits Limits) (*Page, error) {
-	p, err := core.Prepare(ctx, width, height, ops, limits)
+	return PrepareBestEffort(ctx, width, height, ops, limits, nil)
+}
+
+// PrepareBestEffort is Prepare, except that a color glyph that cannot be drawn
+// exactly is drawn approximately instead of being refused with ErrUnsupported:
+// with the paint nearest to its own, or as its outline in the text color. Each
+// kind of approximation is reported once to warn, wrapping ErrApproximated and
+// ErrUnsupported. A nil warn is Prepare.
+func PrepareBestEffort(ctx context.Context, width, height dml.EMU, ops []layout.Op, limits Limits, warn func(error)) (*Page, error) {
+	var approximate func(error)
+	if warn != nil {
+		approximate = func(err error) { warn(fmt.Errorf("%w: %w", ErrApproximated, err)) }
+	}
+	p, err := core.PrepareBestEffort(ctx, width, height, ops, limits, approximate)
 	if err != nil {
 		return nil, err
 	}
