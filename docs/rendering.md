@@ -617,6 +617,14 @@ tracked at each run's size in CSS pixels, the size a browser hands HarfBuzz,
 rather than at CoreText's default of 12 points. Office's own fonts have no
 tracking table.
 
+PPTX charts are drawn with [aster](https://github.com/mgilbir/aster), an
+embedded Vega renderer: the library writes each chart as a Vega
+specification and aster draws it, loading nothing outside the specification,
+with the `-font` mappings and otherwise its embedded Liberation Sans. Each
+chart is bounded to 256 MiB of renderer memory and to `-timeout`, which cannot
+interrupt a chart once started. `-charts=false` leaves charts out, with a
+warning.
+
 `-image-pixels` bounds decoded image pixels per slide, page or sheet; it
 defaults to 64 Mi, where the library's default of 4 Mi is less than one phone
 photo.

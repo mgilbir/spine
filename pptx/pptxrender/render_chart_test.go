@@ -403,3 +403,39 @@ func TestRenderGroupedChart(t *testing.T) {
 		t.Fatalf("specs: %v", specs)
 	}
 }
+
+func TestRenderChartScaleFitsImageBudget(t *testing.T) {
+	c := chart.NewColumn()
+	c.SetCategories([]string{"A"})
+	c.AddSeries("S", []float64{1})
+	data, opts := renderChartDeck(t, c)
+	var scales []float64
+	opts.Charts = func(_ context.Context, spec []byte, scale float64) (image.Image, error) {
+		scales = append(scales, scale)
+		var v map[string]any
+		if err := json.Unmarshal(spec, &v); err != nil {
+			return nil, err
+		}
+		w, h := int(v["width"].(float64)*scale), int(v["height"].(float64)*scale)
+		return image.NewNRGBA(image.Rect(0, 0, w, h)), nil
+	}
+	noText := map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string { return renderAnyTxBody.ReplaceAllLiteralString(s, "") }}
+	// The 40 by 30px frame is drawn at twice its size when the budget holds
+	// it, at the scale that fits when it does not, and refused below half.
+	for _, tc := range []struct {
+		pixels int64
+		scale  float64
+		ok     bool
+	}{{1 << 20, 2, true}, {1200, 1, true}, {200, 0, false}} {
+		scales = nil
+		o := opts
+		o.Limits.MaxImagePixels = tc.pixels
+		_, err := renderRewrittenPNG(t, data, o, noText)
+		if tc.ok != (err == nil) || (tc.ok && (len(scales) != 1 || math.Abs(scales[0]-tc.scale) > 1e-9)) {
+			t.Fatalf("%d pixels: scales %v, err %v", tc.pixels, scales, err)
+		}
+		if !tc.ok && (len(scales) != 0 || !errors.Is(err, render.ErrLimit)) {
+			t.Fatalf("%d pixels: renderer called %v, err %v", tc.pixels, scales, err)
+		}
+	}
+}

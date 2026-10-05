@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- spine-render: PPTX charts are drawn with the embedded Vega renderer
+  [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
+  loads nothing from outside a chart, and each chart is bounded in memory and
+  time. `-charts=false` leaves them out, with a warning.
+- pptx: a chart is requested from the chart renderer at a scale the slide's
+  image budget holds, down to half its size, and refused below that, before
+  the renderer allocates it.
+
 ### Fixed
 
 - render: text in a font with an AAT tracking table (`trak` with `STAT`), such

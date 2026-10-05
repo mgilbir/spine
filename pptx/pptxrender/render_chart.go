@@ -22,7 +22,11 @@ const (
 )
 
 // renderChartScale is the image pixels per CSS pixel a chart is drawn at.
-const renderChartScale = 2
+const renderChartScale = 2.0
+
+// renderMinChartScale is the least scale a chart is drawn at where the image
+// budget cannot hold renderChartScale.
+const renderMinChartScale = 0.5
 
 // renderFrameName is a graphic frame's name, for reports.
 func renderFrameName(gf *oxml.GraphicFrame) string {
