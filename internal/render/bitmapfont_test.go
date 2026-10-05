@@ -306,16 +306,21 @@ func TestBitmapOnlyFontMissingGlyphs(t *testing.T) {
 }
 
 func TestBitmapOnlyFontTurnedText(t *testing.T) {
-	// A bitmap font has no outline to turn, so text drawn as outlines, as
-	// turned text is, is refused.
+	// A bitmap font has no outline to turn: GlyphPaths leaves its glyphs out,
+	// and callers report that with HasBitmapFontGlyphs.
 	face := strikeFont(t, false, false, strike{ppem: 10, depth: 1, glyphs: []strikeGlyph{block(8, 8, 1, 1)}})
 	v := layout.DrawGlyphs{Face: face, Size: unit(10), Color: black, Glyphs: []shape.Glyph{{GID: 1, XAdvance: 1000}}}
 	segments := 0
-	if _, _, err := GlyphPaths(context.Background(), v, func(x, y float64) (float64, float64) { return x, y }, 1000, &segments); !errors.Is(err, ErrUnsupported) {
-		t.Fatal(err)
+	paths, _, err := GlyphPaths(context.Background(), v, func(x, y float64) (float64, float64) { return x, y }, 1000, &segments)
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("%v, %d paths", err, len(paths))
 	}
-	if !HasColorGlyphs(v) {
+	if !HasBitmapFontGlyphs(v) || HasColorGlyphs(v) {
 		t.Fatal("bitmap glyph is not reported as one painted from an image")
+	}
+	outlines := layout.DrawGlyphs{Face: testFace(t, nil), Size: unit(10), Glyphs: []shape.Glyph{{GID: 1}}}
+	if HasBitmapFontGlyphs(outlines) {
+		t.Fatal("outline glyph reported as bitmap font glyph")
 	}
 }
 

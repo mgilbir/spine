@@ -32,7 +32,24 @@ func glyphPPEM(size style.Unit) int {
 	return int(math.Max(1, math.Min(math.Ceil(size.Px()), 1<<16)))
 }
 
-// HasColorGlyphs reports whether a glyph run has glyphs painted in color, which
+// HasBitmapFontGlyphs reports whether a glyph run has glyphs of a font with no
+// outlines, painted from monochrome or greyscale strikes, which GlyphPaths
+// leaves out: there is nothing to outline.
+func HasBitmapFontGlyphs(v layout.DrawGlyphs) bool {
+	if v.Face == nil {
+		return false
+	}
+	ppem := glyphPPEM(v.Size)
+	for _, g := range v.Glyphs {
+		if v.Face.GlyphColour(g.GID, ppem) == shape.ColourMask {
+			return true
+		}
+	}
+	return false
+}
+
+// HasColorGlyphs reports whether a glyph run has glyphs painted in color (not
+// bitmap fonts' masks), which
 // GlyphPaths outlines in the one color of the run.
 func HasColorGlyphs(v layout.DrawGlyphs) bool {
 	if v.Face == nil {
@@ -40,7 +57,8 @@ func HasColorGlyphs(v layout.DrawGlyphs) bool {
 	}
 	ppem := glyphPPEM(v.Size)
 	for _, g := range v.Glyphs {
-		if v.Face.GlyphColour(g.GID, ppem) != shape.ColourNone {
+		// A mask of a bitmap font is HasBitmapFontGlyphs'.
+		if c := v.Face.GlyphColour(g.GID, ppem); c != shape.ColourNone && c != shape.ColourMask {
 			return true
 		}
 	}
@@ -670,7 +688,7 @@ func (c *colorGlyph) maskBitmap(img shape.Image) (*bitmap, error) {
 	return c.p.bitmapOf(c.ctx, out, false, c.budget)
 }
 
-// scaledFromStrike reports whether a bitmap glyph drawn in box is resampled:
+// scaledFromStrike reports whether a mask glyph drawn in box is resampled:
 // the strike is not the size asked for, or the glyph is drawn at another size
 // or stretched, or a transform of the glyph's own scales it. Placing a glyph
 // between pixels is not scaling it. Only a glyph that is not scaled is exact,
@@ -745,12 +763,11 @@ func (c *colorGlyph) Image(img shape.Image) {
 	if !ok {
 		return
 	}
-	if c.scaledFromStrike(img, box) {
-		if mask {
-			c.approximate("bitmap font glyph scaled from its strike")
-		} else {
-			c.approximate("color bitmap glyph scaled from its strike")
-		}
+	// A monochrome or greyscale strike is a pixel design for one size, so
+	// scaling it is approximate. A color strike, as of an emoji font, is
+	// made to be scaled, and is drawn smoothed as ever.
+	if mask && c.scaledFromStrike(img, box) {
+		c.approximate("bitmap font glyph scaled from its strike")
 		if c.dead() {
 			return
 		}

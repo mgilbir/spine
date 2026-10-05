@@ -2,11 +2,9 @@ package render
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	"image/color"
-	"strings"
 	"testing"
 
 	"github.com/mgilbir/forme/layout"
@@ -29,8 +27,9 @@ func TestColorGlyphBitmap(t *testing.T) {
 }
 
 func TestColorGlyphBitmapScaledFromItsStrike(t *testing.T) {
-	// The strike is 100 pixels to the em: drawn at any other size its pixels
-	// are resampled, which strict preparation refuses and best effort reports.
+	// The strike is 100 pixels to the em. Color strikes are made to be scaled,
+	// as an emoji font's one large strike is, so drawn at any other size they
+	// are exact: strict preparation draws them and nothing is reported.
 	for _, sbix := range []bool{true, false} {
 		face := colorFont(t, colorFace{sbix: sbix, bitmaps: []*image.NRGBA{quadrants(50)}})
 		for _, size := range []float64{50, 100.5, 200} {
@@ -38,16 +37,14 @@ func TestColorGlyphBitmapScaledFromItsStrike(t *testing.T) {
 			run := ops[0].(layout.DrawGlyphs)
 			run.Size = unit(size)
 			ops[0] = run
-			prepare := func(approximate func(error)) error {
-				_, err := PrepareBestEffort(context.Background(), dml.Pixels(colorPage), dml.Pixels(colorPage), ops, Limits{}, approximate)
-				return err
-			}
-			if err := prepare(nil); !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("sbix %v size %v, strict: %v", sbix, size, err)
-			}
 			var reports []string
-			if err := prepare(collect(&reports)); err != nil || len(reports) != 1 || !strings.Contains(reports[0], "color bitmap glyph scaled from its strike") {
-				t.Fatalf("sbix %v size %v: %v, reports %q", sbix, size, err, reports)
+			for _, approximate := range []func(error){nil, collect(&reports)} {
+				if _, err := PrepareBestEffort(context.Background(), dml.Pixels(colorPage), dml.Pixels(colorPage), ops, Limits{}, approximate); err != nil {
+					t.Fatalf("sbix %v size %v: %v", sbix, size, err)
+				}
+			}
+			if len(reports) != 0 {
+				t.Fatalf("sbix %v size %v: reports %q", sbix, size, reports)
 			}
 		}
 	}

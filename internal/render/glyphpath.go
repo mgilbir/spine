@@ -21,7 +21,8 @@ const glyphPathTolerance = 1.0 / 64
 // even-odd rule; exact is false when some glyph's contours cross, or nest
 // with a winding that the two rules fill apart, so the paths are not the
 // glyphs' exact shape. segments counts the path segments made against
-// maxSegments.
+// maxSegments. A glyph of a font with no outlines (HasBitmapFontGlyphs) has
+// no path, and is left out; the caller reports that.
 func GlyphPaths(ctx context.Context, v layout.DrawGlyphs, at func(x, y float64) (float64, float64), maxSegments int, segments *int) (paths []layout.Path, exact bool, err error) {
 	if v.Face == nil || v.Face.UnitsPerEm() <= 0 || v.Size <= 0 || !validColor(v.Color) || at == nil || segments == nil {
 		return nil, false, fmt.Errorf("%w: glyph run", ErrInvalid)
@@ -42,9 +43,13 @@ func GlyphPaths(ctx context.Context, v layout.DrawGlyphs, at func(x, y float64) 
 		if !finite(glyph.XAdvance) || !finite(glyph.XOffset) || !finite(glyph.YOffset) || glyph.YAdvance != 0 || glyph.VOriginX != 0 || glyph.VOriginY != 0 {
 			return nil, false, fmt.Errorf("%w: glyph placement", ErrInvalid)
 		}
-		if v.Face.GlyphColour(glyph.GID, glyphPPEM(v.Size)) == shape.ColourMask {
-			// A bitmap font has no outline to turn.
-			return nil, false, fmt.Errorf("%w: outline of a bitmap font glyph %d", ErrUnsupported, glyph.GID)
+		if v.Face.BitmapOnly() {
+			// No outlines at all: nothing to turn, which the caller reports.
+			pen += glyph.XAdvance
+			if !finite(pen) {
+				return nil, false, fmt.Errorf("%w: glyph advance", ErrLimit)
+			}
+			continue
 		}
 		ox := v.At.X.Px() + (pen+glyph.XOffset)*size/1000
 		oy := v.At.Y.Px() - glyph.YOffset*size/1000

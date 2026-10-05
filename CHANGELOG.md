@@ -8,12 +8,13 @@
   or greyscale bitmap strikes (`EBDT`/`EBLC`, Apple's `bdat`/`bloc`) in the
   PowerPoint, Word and Excel previews, as forme v0.8.0 paints them: each
   glyph's coverage is painted in the text's color and alpha. They were refused.
-  A font with outlines is still drawn from them. A bitmap glyph drawn from a
-  strike of the size asked for, unstretched, is exact; one that has to be scaled
-  fails in strict mode and is drawn scaled and reported in best effort. This
-  holds for `CBDT` and `sbix` glyphs too, which were drawn scaled without a
-  report. Turned or warped text in a bitmap-only font is refused, as it has no
-  outlines.
+  A font with outlines is still drawn from them. A bitmap font's glyph drawn
+  from a strike of the size asked for, unstretched, is exact; one that has to be
+  scaled fails in strict mode and is drawn scaled and reported in best effort.
+  `CBDT` and `sbix` color strikes are made to be scaled, and stay drawn smoothed
+  without a report. Turned or warped text in a bitmap-only font, which has no
+  outlines, fails in strict mode; best effort leaves those glyphs out and
+  reports it.
 
 - pptx: the preview renderer draws right-to-left text (Hebrew, Arabic, Syriac,
   Thaana, N'Ko): paragraphs with `rtl="1"` start at the right, with margins,

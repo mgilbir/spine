@@ -121,6 +121,11 @@ func renderWarpText(ctx context.Context, ops []layout.Op, warp *dml.PrstTxWarp, 
 	for _, op := range ops {
 		switch v := op.(type) {
 		case layout.DrawGlyphs:
+			if core.HasBitmapFontGlyphs(v) {
+				if err := colors.approximate(fmt.Errorf("%w: warped glyphs of a bitmap font left out, which has no outlines", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+			}
 			outlines, _, err := core.GlyphPaths(ctx, v, same, maxSegments, &segments)
 			if err != nil {
 				return nil, err
