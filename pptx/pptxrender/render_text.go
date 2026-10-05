@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mgilbir/spine/pptx"
 
@@ -152,6 +154,8 @@ type renderFrame struct {
 	// lines; upright keeps text from turning with its shape.
 	vert    float64
 	upright bool
+	// eaVert sets East Asian characters upright, stacked down the line.
+	eaVert bool
 	// numCol columns, spcCol apart, run left to right, or right to left
 	// with rtlCol.
 	numCol int
@@ -194,11 +198,14 @@ func renderBodyFrame(bp *dml.BodyPr, colors *renderColors) (renderFrame, error) 
 	}
 	// Vertical text lays out across its rectangle turned a quarter and
 	// turns back with it. East Asian vertical text sets Latin characters
-	// turned, as vert does; this profile draws no East Asian characters.
+	// turned, as vert does, and East Asian characters upright, which this
+	// profile does not draw: see eaVert.
 	switch bp.Vert {
 	case "", "horz":
-	case "vert", "eaVert":
+	case "vert":
 		f.vert = 90
+	case "eaVert":
+		f.vert, f.eaVert = 90, true
 	case "vert270":
 		f.vert = 270
 	case "mongolianVert", "wordArtVert", "wordArtVertRtl":
@@ -376,6 +383,16 @@ func renderShapeText(ctx context.Context, source *oxml.Shape, v *renderBox, g re
 	if err != nil {
 		return nil, err
 	}
+	if frame.eaVert {
+		for _, b := range blocks {
+			if strings.IndexFunc(b.text, core.IsEastAsian) >= 0 {
+				if err = styles.colors.approximate(fmt.Errorf("%w: East Asian characters turned with their vertical text, not upright", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
 	ops, err := renderPlaceParagraphs(blocks, height, contentTop, bottom, frame.anchor, frame.grows, cols, fonts, styles.colors)
 	if err != nil {
 		return nil, err
@@ -476,15 +493,17 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			spans  []renderShaping
 			starts []int // byte offset where each span starts
 			texts  []string
-			pieces []int // span index where each piece after the first starts
+			breaks []int // span index where each piece after the first starts
 			text   strings.Builder
+			// eastAsian is whether any character is East Asian.
+			eastAsian bool
 		)
 		// mark sizes an empty piece by the properties of the break or
 		// paragraph end that closes it.
 		mark := func(rPr *dml.RPr) error {
 			first := 0
-			if n := len(pieces); n > 0 {
-				first = pieces[n-1]
+			if n := len(breaks); n > 0 {
+				first = breaks[n-1]
 			}
 			if len(spans) > first {
 				return nil
@@ -510,7 +529,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 				if err := mark(c.Br.RPr); err != nil {
 					return nil, 0, err
 				}
-				pieces = append(pieces, len(spans))
+				breaks = append(breaks, len(spans))
 				continue
 			default:
 				return nil, 0, fmt.Errorf("%w: nil run", render.ErrInvalid)
@@ -522,34 +541,50 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 			if rs.caps {
 				t = strings.ToUpper(t)
 			}
-			// Best effort leaves out characters this profile or the run's font
-			// cannot draw.
-			if styles.colors.approx != nil && t != "" {
-				if face, err := fonts.resolve(ctx, rs.font, rs.bold, rs.italic); err == nil {
-					kept := strings.Map(func(c rune) rune {
-						if _, ok := face.GlyphID(c); (ok && core.RepertoireEuropean.Allows(c)) || c == '\t' {
-							return c
-						}
-						return -1
-					}, t)
-					if kept != t {
-						styles.colors.approx(fmt.Errorf("%w: characters the font or profile lacks left out", render.ErrUnsupported))
-						t = kept
-					}
-				}
-			}
-			if rs.eastAsian && !renderASCII(t) {
-				return nil, 0, fmt.Errorf("%w: non-ASCII text in an East Asian language", render.ErrUnsupported)
-			}
 			if len(t) > fonts.opts.Limits.MaxRunBytes-text.Len() {
 				return nil, 0, fmt.Errorf("%w: paragraph text", render.ErrLimit)
 			}
-			if n := len(spans); n > 0 && spans[n-1] == rs.renderShaping && (len(pieces) == 0 || pieces[len(pieces)-1] < n) {
-				texts[n-1] += t
-			} else {
-				spans, starts, texts = append(spans, rs.renderShaping), append(starts, text.Len()), append(texts, t)
+			pieces, err := renderPieces(rs, t, styles.colors)
+			if err != nil {
+				return nil, 0, err
 			}
-			text.WriteString(t)
+			// Best effort leaves out characters this profile or the font that
+			// draws them cannot draw.
+			if styles.colors.approx != nil && t != "" {
+				left := false
+				for k := range pieces {
+					face, err := fonts.resolve(ctx, pieces[k].font, rs.bold, rs.italic)
+					if err != nil {
+						continue
+					}
+					kept := strings.Map(func(c rune) rune {
+						if _, ok := face.GlyphID(c); (ok && core.RepertoireEastAsian.Allows(c)) || c == '\t' {
+							return c
+						}
+						return -1
+					}, pieces[k].text)
+					left = left || kept != pieces[k].text
+					pieces[k].text = kept
+				}
+				if left {
+					styles.colors.approx(fmt.Errorf("%w: characters the font or profile lacks left out", render.ErrUnsupported))
+					pieces = slices.DeleteFunc(pieces, func(p renderPiece) bool { return p.text == "" })
+					if len(pieces) == 0 {
+						pieces = []renderPiece{{font: rs.font}}
+					}
+				}
+			}
+			for _, piece := range pieces {
+				shaping := rs.renderShaping
+				shaping.font = piece.font
+				if n := len(spans); n > 0 && spans[n-1] == shaping && (len(breaks) == 0 || breaks[len(breaks)-1] < n) {
+					texts[n-1] += piece.text
+				} else {
+					spans, starts, texts = append(spans, shaping), append(starts, text.Len()), append(texts, piece.text)
+				}
+				text.WriteString(piece.text)
+				eastAsian = eastAsian || piece.class == classEastAsian
+			}
 			runs = append(runs, rs)
 			ends = append(ends, text.Len())
 		}
@@ -559,15 +594,22 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if err := mark(p.EndParaRPr); err != nil {
 			return nil, 0, err
 		}
+		if eastAsian && !para.eaBreak {
+			// Without East Asian line breaking PowerPoint wraps such text
+			// by its own rules, which are not documented.
+			if err := styles.colors.approximate(fmt.Errorf("%w: East Asian text without East Asian line breaking wrapped by its rules", render.ErrUnsupported)); err != nil {
+				return nil, 0, err
+			}
+		}
 		wrap := width
 		if noWrap {
 			wrap = renderUnit(dml.EMU(1) << 30)
 		}
 		var lines []renderLine
-		bounds := append(append([]int{0}, pieces...), len(spans))
+		bounds := append(append([]int{0}, breaks...), len(spans))
 		for k := 0; k+1 < len(bounds); k++ {
 			a, b := bounds[k], bounds[k+1]
-			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para)
+			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para, core.RepertoireEastAsian)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -678,7 +720,14 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				}
 			}
 			if para.align == enum.TextAlignDistribute || (para.align == enum.TextAlignJustify && !line.last) {
-				line.Segments = renderJustify(line.Segments, width.Px(), para.align == enum.TextAlignDistribute)
+				if renderLineHasEastAsian(line) {
+					// PowerPoint's spacing of justified East Asian text is
+					// not documented; the characters are spread evenly.
+					if err := colors.approximate(fmt.Errorf("%w: justified East Asian text spread between characters", render.ErrUnsupported)); err != nil {
+						return nil, err
+					}
+				}
+				line.Segments = renderJustify(line.Segments, width.Px(), line.Hang.Px(), para.align == enum.TextAlignDistribute)
 			}
 			shift := float64(col) * cols.step
 			xp := left.Px() + shift
@@ -813,7 +862,7 @@ func renderTabStops(para renderParaStyle) ([]core.TabStop, error) {
 
 // renderParagraphLines wraps a paragraph's spans. An empty paragraph has one
 // empty span, whose face sizes its line.
-func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle) ([]renderLine, error) {
+func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, shapings []renderShaping, texts []string, width style.Unit, para renderParaStyle, repertoire core.Repertoire) ([]renderLine, error) {
 	tabs, err := renderTabStops(para)
 	if err != nil {
 		return nil, err
@@ -840,8 +889,9 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 		// kern is the smallest size PowerPoint kerns; absent or zero is off.
 		spans[i] = core.Span{Face: face, Size: size, Text: texts[i], Features: shape.Features{NoKerning: run.kern == 0 || run.size < run.kern}, TabStop: renderUnit(para.tabSize), Tabs: tabs, Letter: letter, BreakWord: true}
 	}
-	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike.
-	wrapped, err := breaker.RichLines(ctx, spans, width, core.RepertoireEuropean)
+	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike, and
+	// its East Asian font East Asian text; the caller cuts spans by font.
+	wrapped, err := breaker.RichLinesWith(ctx, spans, width, repertoire, core.RichOptions{HangPunct: para.hangPunct})
 	if err != nil {
 		return nil, err
 	}
@@ -992,11 +1042,13 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 }
 
 // renderJustify stretches a line to a width: justified text widens the
-// spaces between its words and distributed text the gaps between its
-// characters. Spaces ending the line hang past the width and are not
-// widened, nor is anything before the line's last tab, whose stop holds it.
-// A line without a gap to widen, or already as wide, is returned as it is.
-func renderJustify(segments []core.RichSegment, width float64, distribute bool) []core.RichSegment {
+// spaces between its words and between its East Asian characters, and
+// distributed text the gaps between all its characters. Spaces ending the
+// line hang past the width and are not widened, nor is anything before the
+// line's last tab, whose stop holds it. A stop or comma hanging past the
+// line (hang, in pixels) is not part of what is stretched. A line without a
+// gap to widen, or already as wide, is returned as it is.
+func renderJustify(segments []core.RichSegment, width, hang float64, distribute bool) []core.RichSegment {
 	// visible is the byte offset in each segment where trailing spaces
 	// begin; first is the first segment after the last tab.
 	visible := make([]int, len(segments))
@@ -1022,6 +1074,7 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 	var (
 		gaps []gap
 		end  float64
+		last gap // the last visible cluster's last glyph
 	)
 	for k := first; k < len(segments); k++ {
 		sg := segments[k]
@@ -1039,16 +1092,17 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 			if i+1 < len(sg.Glyphs) && sg.Glyphs[i+1].Cluster == g.Cluster {
 				continue
 			}
-			if distribute || sg.Text[g.Cluster] == ' ' {
+			last = gap{k, i}
+			if r, _ := utf8.DecodeRuneInString(sg.Text[g.Cluster:]); distribute || r == ' ' || core.IsEastAsian(r) {
 				gaps = append(gaps, gap{k, i})
 			}
 		}
 	}
-	// Distributed text has no gap after its last visible character.
-	if distribute && len(gaps) > 0 {
-		gaps = gaps[:len(gaps)-1]
+	// There is no gap after the last visible character.
+	if n := len(gaps); n > 0 && gaps[n-1] == last {
+		gaps = gaps[:n-1]
 	}
-	extra := width - end
+	extra := width - (end - hang)
 	if len(gaps) == 0 || !(extra > 0) || math.IsInf(extra, 0) {
 		return segments
 	}
@@ -1076,15 +1130,6 @@ func renderJustify(segments []core.RichSegment, width float64, distribute bool) 
 		shift += added[k]
 	}
 	return out
-}
-
-func renderASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-	return true
 }
 
 func renderHasText(body *dml.TxBody) bool {
@@ -1135,7 +1180,7 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	} else {
 		shaping.size = int32(int64(first.size) * int64(b.size) / 100000)
 	}
-	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para)
+	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para, core.RepertoireEuropean)
 	if err != nil {
 		return nil, err
 	}

@@ -1255,17 +1255,20 @@ func slideRenderXML(el xml.StartElement) error {
 			// The resolver checks the values of the rest.
 			attrs = "wrap anchor lIns tIns rIns bIns rtlCol rot spcFirstLastPara vertOverflow horzOverflow vert numCol spcCol fromWordArt anchorCtr forceAA upright compatLnSpc"
 		case "pPr", "defPPr", "lvl1pPr", "lvl2pPr", "lvl3pPr", "lvl4pPr", "lvl5pPr", "lvl6pPr", "lvl7pPr", "lvl8pPr", "lvl9pPr":
-			// East Asian breaking, hanging punctuation, font alignment within
-			// a uniformly sized line, and tab sizes for text without tabs do
-			// not change this profile's text; the resolver checks the rest.
+			// Font alignment within a uniformly sized line, and tab sizes for
+			// text without tabs, do not change this profile's text; the
+			// resolver reads East Asian breaking and hanging punctuation and
+			// checks the rest.
 			attrs = "marL marR lvl indent algn defTabSz rtl eaLnBrk fontAlgn latinLnBrk hangingPunct"
 		case "rPr", "defRPr", "endParaRPr":
-			// Language, proofing, smart-tag, bookmark and East Asian attributes
-			// do not change the painting of horizontal ASCII text; the resolver
-			// checks the rest.
+			// Proofing, smart-tag, bookmark and East Asian vertical attributes
+			// do not change the painting of horizontal text; the resolver
+			// reads the language, which picks an East Asian font, and checks
+			// the rest.
 			attrs = "kumimoji lang altLang sz b i u strike kern cap spc normalizeH baseline noProof dirty err smtClean smtId bmk"
 		case "latin", "ea", "cs", "sym":
-			// ASCII text uses the Latin font; the other slots are not consulted.
+			// ASCII and European text use the Latin font and East Asian text
+			// the East Asian font; the other slots are not consulted.
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"

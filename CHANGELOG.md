@@ -4,6 +4,16 @@
 
 ### Added
 
+- pptx: the preview renderer draws East Asian text (ideographs, kana, hangul,
+  CJK punctuation, fullwidth forms): each run is cut into spans by the font
+  class of its characters, East Asian ones using the run's `a:ea` font, a
+  `+mn-ea`/`+mj-ea` theme reference, or the theme font list's entry for its
+  language. Lines break between East Asian characters with kinsoku, East Asian
+  stops and commas hang past a line's end with `hangingPunct`, and justified
+  lines spread between East Asian characters. Strict mode fails for
+  `eaLnBrk="0"`, `eaVert` with East Asian characters, justified East Asian text
+  and symbols of ambiguous width in East Asian language runs; best effort draws
+  them approximately and warns.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and

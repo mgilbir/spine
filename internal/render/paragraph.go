@@ -75,6 +75,10 @@ const (
 	// the symbols have ambiguous East Asian width, which formats may draw with
 	// an East Asian font in East Asian text; callers must exclude that case.
 	RepertoireEuropean
+	// RepertoireEastAsian adds the East Asian scripts to RepertoireEuropean:
+	// ideographs, kana, hangul and bopomofo, the punctuation and symbols
+	// set with them, and the halfwidth and fullwidth forms. See IsEastAsian.
+	RepertoireEastAsian
 )
 
 // Allows reports whether the repertoire includes a character.
@@ -84,8 +88,11 @@ func (r Repertoire) allows(c rune) bool {
 	if c >= 32 && c <= 126 {
 		return true
 	}
-	if r != RepertoireEuropean {
+	if r != RepertoireEuropean && r != RepertoireEastAsian {
 		return false
+	}
+	if r == RepertoireEastAsian && IsEastAsian(c) {
+		return true
 	}
 	switch {
 	case c == 0xAD: // soft hyphen, a discretionary break

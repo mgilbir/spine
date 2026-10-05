@@ -250,7 +250,7 @@ through its layout's or master's relationships. Original
 slide, layout and master XML is checked for unsupported content before a lossy
 model projection can hide it. Metadata that cannot change painted output is
 accepted: shape and slide creation ids, the decorative accessibility flag,
-editor guide lists, the picture local-DPI storage flag, run language, proofing,
+editor guide lists, the picture local-DPI storage flag, proofing,
 smart-tag and bookmark attributes, `rtlCol` on the single-column body,
 master/layout header-footer flags (footer placeholders themselves still fail),
 editor locks and resize preferences, `userDrawn`, an extension list's `mod`
@@ -283,8 +283,10 @@ width, aligned in the box as wrapped text is. Vertical text (`vert`,
 `eaVert`, whose Latin characters turn as `vert`'s do, and `vert270`) lays out
 across its text rectangle turned a quarter about its centre, the insets
 turning with their sides, and turns back with it: `vert` clockwise, its first
-line along the right side, and `vert270` anticlockwise. Best effort draws
-`mongolianVert` and the WordArt vertical types as `vert`. Upright text
+line along the right side, and `vert270` anticlockwise. `eaVert` sets East
+Asian characters upright, which is not drawn: text of it holding any fails,
+and best effort turns those characters with their line, as `vert` does.
+Best effort draws `mongolianVert` and the WordArt vertical types as `vert`. Upright text
 (`upright`) does not turn with its shape or body rotation. Text in columns
 (`numCol`, at most 16) lays out at the column width, the content width less
 the spaces between (`spcCol`) shared evenly, and fills each column down to
@@ -348,12 +350,24 @@ line, except a paragraph's last line and lines ended by a break, as
 LibreOffice draws them; distributed lines, the last included, widen every
 gap between characters. Spaces ending a line hang and are not widened, and a
 tab stop holds what comes before it, so only spaces after a line's last tab
-widen. The kashida and Thai variants draw as these, from which they differ
-only in scripts this profile does not draw. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
+widen. Justified lines also widen the gaps after East Asian characters, which
+PowerPoint may do otherwise: such a line fails, and best effort spreads the
+characters evenly. The kashida and Thai variants draw as these, from which
+they differ only in scripts this profile does not draw. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word
-breaking. A word too wide for its line breaks between characters, as a last
+breaking. East Asian text wraps by the Unicode line breaking rules (UAX #14):
+a line may break between ideographs, kana and hangul syllables, a closing
+mark, stop or comma may not begin a line and an opening mark may not end one.
+PowerPoint's kinsoku lists are not documented, so this is the profile's
+reading of them. A paragraph with East Asian text needs East Asian line
+breaking (`eaLnBrk`, which absent is on, as PowerPoint writes it), whose
+absence wraps by rules PowerPoint does not document: it fails, and best
+effort wraps as above. With hanging punctuation (`hangingPunct`, absent on)
+an ideographic or fullwidth stop or comma that would not fit hangs past the end
+of its line, which is aligned and justified without it; off, it takes the
+character before it to the next line. A word too wide for its line breaks between characters, as a last
 resort, as PowerPoint breaks it. A first-line indent needs a character bullet, which hangs in it: the
 bullet is drawn at the margin plus the (negative) indent on the first baseline
 and every line's text starts at the margin, so the indent must hold the
@@ -407,12 +421,26 @@ moved a tab fails, and best effort keeps those breaks. Rich styles, bidi,
 unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML
-draws with the Latin font. PowerPoint may draw symbols of ambiguous East Asian
-width with the East Asian font in Chinese, Japanese or Korean text, so a run
-whose resolved language or alternate language is one of those may hold only
-ASCII. Other characters, including
-right-to-left and East Asian text, soft hyphens, controls and format characters,
-fail.
+draws with the Latin font (`a:latin`), and East Asian text: ideographs, kana,
+hangul and bopomofo, CJK symbols and punctuation, enclosed and compatibility
+forms, and halfwidth and fullwidth forms, which it draws with the East Asian
+font (`a:ea`). A run is cut into spans by the font class of each character,
+which depends on the character alone; ASCII, including digits and spaces,
+uses the Latin font even inside East Asian text, and each span is drawn with
+its own face, so nothing shapes across a change of class. The East Asian font
+may be a family or a theme reference (`+mn-ea`, `+mj-ea`); a theme font left
+empty, as PowerPoint writes it, takes the theme font list's entry
+(`a:font script`) for the run's language (`ja` Jpan, `ko` Hang, `zh` Hans, or
+Hant for Taiwan, Hong Kong, Macau and the Hant script), as the alternate
+language of a run with no language does. Text with no East Asian font fails,
+and best effort draws it with the Latin font, which the resolver may leave
+without the characters. A problem with the East Asian slot matters only to a
+run with East Asian characters. PowerPoint may draw symbols of ambiguous East
+Asian width with the East Asian font in Chinese, Japanese or Korean text, so
+a run whose resolved language or alternate language is one of those may hold
+only ASCII and East Asian characters among them: other symbols fail, and best
+effort draws them with the Latin font. Other characters, including
+right-to-left text, soft hyphens, controls and format characters, fail.
 
 Tables (`a:tbl` in a graphic frame) render when they have no table style,
 diagonal borders or table-level fill, and when they are parsed
