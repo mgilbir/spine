@@ -934,8 +934,8 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   (144 pt from the start of the line, from the separator note) in the order of the
   references. The area reduces the text area for pagination: a line is placed
   only if it and its notes fit. A note that does not fit whole is cut at a line
-  and continues on the next page under the continuation separator (the full
-  width), before that page's own notes. Footnote text that restarts numbering on
+  and continues on the next page under the continuation separator (also 144 pt
+  long, as Word draws it), before that page's own notes. Footnote text that restarts numbering on
   every page is translated again with the numbers pagination gives (at most
   three times). `w:customMarkFollows` references use the text that follows as the
   mark.

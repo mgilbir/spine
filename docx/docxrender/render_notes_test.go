@@ -209,8 +209,8 @@ func TestLongFootnoteContinuesOnTheNextPage(t *testing.T) {
 	if len(r1) != 1 || !near(r1[0][2], 192) {
 		t.Errorf("page 1 rules %v", r1)
 	}
-	if len(r2) != 1 || !near(r2[0][2], 260) {
-		t.Errorf("page 2 rules %v (the continuation separator spans the text)", r2)
+	if len(r2) != 1 || !near(r2[0][2], 192) {
+		t.Errorf("page 2 rules %v (the continuation separator is 144 pt long, as Word draws it)", r2)
 	}
 	// The continued text ends at the bottom of the text area.
 	if l := p.lines(2); !near(l[len(l)-1].y, 180-12+9.6) {

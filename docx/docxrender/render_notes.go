@@ -585,7 +585,6 @@ func init() {
 		})
 	}
 	for _, k := range []string{"separator", "continuationSeparator"} {
-		cont := k == "continuationSeparator"
 		wordRegisterRun(k, func(rn *wordRun, _ *wordNode) error {
 			f := rn.p.f
 			if rn.hidden() {
@@ -594,15 +593,15 @@ func init() {
 			if f.note == nil || !f.note.sep {
 				return rn.p.r.leaveOut("footnotes")
 			}
-			return rn.rule(cont)
+			return rn.rule()
 		})
 	}
 }
 
-// rule draws a note separator: a rule 144 pt long from the start of the line,
-// as Word draws it, or the whole width for a continuation separator. Both
-// are 0.75 pt thick.
-func (rn *wordRun) rule(full bool) error {
+// rule draws a note separator or continuation separator: a rule 144 pt long
+// from the start of the line and 0.75 pt thick, as Word's PDF output draws
+// both, stopping at a narrower text area.
+func (rn *wordRun) rule() error {
 	if err := rn.closeSpan(); err != nil {
 		return err
 	}
@@ -612,12 +611,8 @@ func (rn *wordRun) rule(full bool) error {
 	}
 	var c wordCSS
 	c.add("display", "inline-block")
-	if full {
-		c.add("width", "100%")
-	} else {
-		c.px("width", 192)
-		c.add("max-width", "100%")
-	}
+	c.px("width", 192)
+	c.add("max-width", "100%")
 	c.px("height", 1)
 	c.add("background-color", "rgb(0,0,0)")
 	c.px("vertical-align", size*0.3)
