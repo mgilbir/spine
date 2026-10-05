@@ -873,11 +873,12 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   than a page is ignored), `keepLines`, `widowControl` (on by default; the first
   two lines stay together and two lines move to the next page); manual page and
   column breaks (the text after a break is the paragraph's continuation on the
-  next page and takes no first-line indent); line breaks; default tab stops
-  (`w:defaultTabStop`; forme measures them from the paragraph's left edge and
-  Word from the page margin, so they are exact where the left indent is a
-  multiple of the stop, including the left indent as the stop of a hanging
-  indent's first line). The paragraph mark's formatting sizes the last line
+  next page and takes no first-line indent); line breaks; tab stops: default stops
+  (`w:defaultTabStop`, from the page margin, with the left indent as the stop of
+  a hanging indent's first line), and custom left, center and right stops with
+  `dot`, `hyphen` and `underscore` leaders, cleared and inherited through
+  styles, which are set by measuring the text between tabs, so they are exact
+  while each line between manual breaks is one line of text. The paragraph mark's formatting sizes the last line
   only when it has no text (an empty paragraph, the line after a line break
   that ends the paragraph, or a line of pictures); a line with text is sized by
   its runs, whatever the mark's size, as Word's PDF output shows.
@@ -902,9 +903,10 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 ### Drawn approximately
 
 Reported with `render.ErrApproximated` in best effort and refused in strict
-mode: custom tab stops and tab leaders, and default tab stops in a paragraph
-whose left indent is not a multiple of the stop (stops are measured from the
-paragraph's left edge); justified
+mode: tab stops in a paragraph whose lines wrap (the tab widths assume the text
+between manual breaks fits on one line), decimal stops (set as right stops), bar
+stops (not drawn), the heavy and middle-dot leaders (drawn with an underscore and
+a dot); justified
 `distribute` and kashida alignment (justified); a justified line before a manual
 line break (Word stretches it, this does not); character spacing (`w:spacing`, not
 applied: the shared rasterizer draws no letter spacing); small caps (synthesized

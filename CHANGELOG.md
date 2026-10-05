@@ -80,6 +80,11 @@
   superscript and subscript, line breaks, non-ASCII text, and field results and
   hyperlinks. Tables, numbering, images, headers and footers and the rest are
   refused in strict mode and left out, with a warning, in best effort.
+- docxrender: custom tab stops (left, center and right, with dot, hyphen and
+  underscore leaders, inherited and cleared through styles), and default stops
+  measured from the page margin in indented paragraphs, as Word does. forme has
+  one tab size, so the renderer measures the text between tabs and sets each
+  tab's width; a paragraph that wraps is reported as approximated.
 - spine-render: DOCX is laid out once per document rather than once per page,
   and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer

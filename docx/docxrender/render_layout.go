@@ -79,6 +79,9 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 		return nil, err
 	}
 	wordResolveSpacing(sec.blocks)
+	if err := r.resolveTabs(sec); err != nil {
+		return nil, err
+	}
 	// The body's own font is irrelevant to the lines (it is one pixel with no
 	// line height) but layout wants a family it can resolve.
 	strut := r.fonts.first
@@ -139,7 +142,7 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 	}
 	laid := &wordLaidSection{props: p, ops: ops}
 	frags := make([]*layout.Fragment, len(sec.blocks))
-	wordFindBlocks(frag, frags)
+	wordFindBlocks(frag, "b", frags)
 	for i, b := range sec.blocks {
 		f := frags[i]
 		if f == nil {
@@ -157,6 +160,12 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 		if lb.bottom >= style.MaxUnit.Px()/2 {
 			return nil, render.ErrLimit
 		}
+		if b.expectLines > 0 && len(lb.units) != b.expectLines {
+			// The tab widths assumed one line between manual breaks.
+			if err := r.approximate("tab stops in a paragraph that wraps"); err != nil {
+				return nil, err
+			}
+		}
 		laid.blocks = append(laid.blocks, lb)
 	}
 	return laid, nil
@@ -164,14 +173,14 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 
 // wordFindBlocks locates the wrapper fragments of a section's blocks by the
 // generated id attribute.
-func wordFindBlocks(root *layout.Fragment, out []*layout.Fragment) {
+func wordFindBlocks(root *layout.Fragment, prefix string, out []*layout.Fragment) {
 	stack := []*layout.Fragment{root}
 	for len(stack) > 0 {
 		f := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		if f.Box != nil && f.Box.Element != nil {
-			if id, ok := f.Box.Element.Attr("id"); ok && strings.HasPrefix(id, "b") {
-				if k, err := strconv.Atoi(id[1:]); err == nil && k >= 0 && k < len(out) && out[k] == nil {
+			if id, ok := f.Box.Element.Attr("id"); ok && strings.HasPrefix(id, prefix) {
+				if k, err := strconv.Atoi(id[len(prefix):]); err == nil && k >= 0 && k < len(out) && out[k] == nil {
 					out[k] = f
 					continue
 				}

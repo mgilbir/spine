@@ -60,6 +60,11 @@ type wordBlock struct {
 	// continuation is a block that continues a paragraph after a manual page
 	// break: it has no space before and never suppresses at a page top.
 	continuation bool
+	// tab is a paragraph whose tabs are set by resolveTabs (render_tabs.go)
+	// before layout; its inner markup is built there. expectLines is the
+	// number of lines its text should fill, checked after layout.
+	tab         *wordTabBlock
+	expectLines int
 	// units returns the places the block may be split, from its laid out
 	// wrapper fragment. Nil selects the lines of the paragraph inside.
 	units wordUnitsFunc

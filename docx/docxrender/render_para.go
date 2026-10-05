@@ -30,7 +30,6 @@ type wordPara struct {
 	sb         strings.Builder
 	hasContent bool
 	cont       bool
-	sawTab     bool
 	sawLineBr  bool
 	// brAt is where the markup stood after the block's last line break, -1
 	// when it has none; hasText says the block has text.
@@ -41,6 +40,11 @@ type wordPara struct {
 	// of every run's own. seenRun says a run has been sized.
 	shift, shiftMin, shiftMax, tallest float64
 	seenRun                            bool
+	// tabMode says the paragraph sets its own tabs (render_tabs.go): tabs and
+	// manual breaks become tokens, collected in tabItems for the current block.
+	tabMode  bool
+	tabItems []wordTabItem
+	stops    []wordTab
 }
 
 // wordParagraphStarts are run before a paragraph's content is translated, in
@@ -77,6 +81,16 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	if err = r.issues(p.ppr.issues); err != nil {
 		return err
 	}
+	p.stops = wordEffectiveTabs(p.ppr.tabs.v)
+	p.tabMode = wordNeedsTabLayout(p.stops, p.ppr.indLeft.v, r.defaultTab)
+	for _, s := range p.stops {
+		if s.val == "bar" {
+			if err = r.approximate("bar tab stops"); err != nil {
+				return err
+			}
+			break
+		}
+	}
 	for _, hook := range wordParagraphStarts {
 		if err = hook(p); err != nil {
 			return err
@@ -84,26 +98,6 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	}
 	if err = p.children(n); err != nil {
 		return err
-	}
-	if p.sawTab {
-		custom := false
-		if tabs := p.ppr.tabs; tabs.set {
-			for _, t := range tabs.v {
-				custom = custom || t.val != "clear"
-			}
-		}
-		// forme's tab stops are multiples of the tab size from the paragraph's
-		// left edge; Word's are from the page margin. They agree only where the
-		// left indent is a multiple of the default tab stop.
-		if rem := math.Mod(p.ppr.indLeft.v, r.defaultTab); custom || (math.Abs(rem) > 0.01 && math.Abs(rem)-r.defaultTab < -0.01) {
-			what := "custom tab stops"
-			if !custom {
-				what = "default tab stops in an indented paragraph"
-			}
-			if err = r.approximate(what); err != nil {
-				return err
-			}
-		}
 	}
 	if p.sawLineBr && (p.ppr.jc.v == "both" || p.ppr.jc.v == "distribute") {
 		// Word stretches the line before a manual line break; the layout
@@ -316,7 +310,9 @@ func init() {
 		if rn.hidden() {
 			return nil
 		}
-		rn.p.sawTab = true
+		if rn.p.tabMode {
+			return rn.tabToken('T')
+		}
 		return rn.put(rn.slotForPiece(), "\t", false)
 	})
 	wordRegisterRun("br", (*wordRun).lineBreak)
@@ -400,6 +396,9 @@ func (rn *wordRun) softBreak() error {
 		return nil
 	}
 	rn.p.sawLineBr = true
+	if rn.p.tabMode {
+		return rn.tabToken('B')
+	}
 	return rn.put(rn.slotForPiece(), "", true)
 }
 
@@ -522,8 +521,19 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 	if err := p.r.charge(1); err != nil {
 		return err
 	}
+	var tab *wordTabBlock
+	if len(p.tabItems) > 0 {
+		first := p.ppr.indFirst.v
+		if p.cont {
+			first = 0
+		}
+		tab = &wordTabBlock{open: `<div style="` + css + `">`, content: p.sb.String(), items: p.tabItems,
+			left: p.ppr.indLeft.v, first: first, firstLine: !p.cont, stops: p.stops, defaultTab: p.r.defaultTab}
+		p.tabItems = nil
+		inner = ""
+	}
 	b := &wordBlock{
-		kind: "p", inner: inner,
+		kind: "p", inner: inner, tab: tab,
 		styleID:         p.styleID,
 		contextual:      p.ppr.contextual.v,
 		keepNext:        p.ppr.keepNext.v && final,
