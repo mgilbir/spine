@@ -535,10 +535,15 @@ func TestRenderAutomaticMajorUnit(t *testing.T) {
 	if len(got) != 6 || got[0] != 0 || got[1] != 1 || got[5] != 5 {
 		t.Fatalf("horizontal axis: %v", got)
 	}
-	// A taller plot affords finer steps; data of a narrow range does not start
-	// at zero.
-	if got = renderAxisValues(t, plan(false, 1, 2, 4.5), 500, 500); got[1] != 0.2 {
+	// A taller plot does not get finer steps: Office keeps to ten intervals,
+	// so data up to 5 on a plot about 5 inches tall is 0 to 6 in steps of 1,
+	// as PowerPoint draws its default chart. Data of a narrow range does not
+	// start at zero.
+	if got = renderAxisValues(t, plan(false, 1, 2, 5), 900, 500); len(got) != 7 || got[1] != 1 || got[6] != 6 {
 		t.Fatalf("tall axis: %v", got)
+	}
+	if got = renderAxisValues(t, plan(false, 1, 2, 4.5), 500, 500); len(got) != 11 || got[1] != 0.5 {
+		t.Fatalf("tall axis, data to 4.5: %v", got)
 	}
 	if got = renderAxisValues(t, plan(false, 100, 102, 104), 500, 324); got[0] <= 90 || got[len(got)-1] < 104 {
 		t.Fatalf("narrow range: %v", got)

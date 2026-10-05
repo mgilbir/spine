@@ -23,6 +23,11 @@ const (
 	renderHorizGap = 6.0
 )
 
+// renderMaxAutoIntervals is the most intervals an automatic major unit
+// divides an axis into, as Office's automatic scaling does: data up to 4.5
+// gets 0 to 5 by 0.5, data up to 5 gets 0 to 6 by 1.
+const renderMaxAutoIntervals = 10
+
 // renderMaxAxisTicks bounds the steps of an axis, which an explicit tiny
 // major unit could otherwise make enormous.
 const renderMaxAxisTicks = 200
@@ -52,8 +57,9 @@ func renderMajorUnit(span, length, gap float64) float64 {
 //     largest magnitude, and otherwise half a range below the data;
 //   - ends above the data by a twentieth of its range;
 //   - steps by renderMajorUnit of the span, over an axis length pixels long
-//     whose steps keep gap pixels apart, and rounds both ends out to a
-//     multiple of the step.
+//     whose steps keep gap pixels apart and that has at most
+//     renderMaxAutoIntervals steps, and rounds both ends out to a multiple
+//     of the step.
 //
 // A percent-stacked axis is 0 to 1 with no padding. Explicit minimum,
 // maximum and major unit win.
@@ -119,7 +125,8 @@ func renderAutoScale(lo, hi float64, h renderAxisHints, length, gap float64, per
 			if h.max == nil {
 				hi2 = math.Ceil(amax/step-1e-9) * step
 			}
-			if length <= 0 || length*step/(hi2-lo2) >= gap {
+			spaced := length <= 0 || length*step/(hi2-lo2) >= gap
+			if spaced && (hi2-lo2)/step <= renderMaxAutoIntervals+1e-9 {
 				break
 			}
 			step = renderNextUnit(step)

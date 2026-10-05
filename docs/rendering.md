@@ -672,8 +672,9 @@ of its largest magnitude, and else half a range below the data; it ends above
 the data by a twentieth of its range; a percent stacked axis is 0 to 100%.
 The major unit is the least 1, 2 or 5 times a power of ten that keeps the steps
 apart by at least 1.2 times the axis' text size on a vertical axis, and 6
-times on a horizontal one, estimating the plot's length from the frame; both
-ends round out to a multiple of it. Data up to 4.5 over a plot 3 inches tall
+times on a horizontal one, estimating the plot's length from the frame, and
+divides the axis into at most ten steps; both ends round out to a multiple of
+it. Data up to 5 runs 0 to 6 in steps of 1 however tall the plot. Data up to 4.5 over a plot 3 inches tall
 runs 0 to 5 in steps of 0.5, and over one 6 inches wide, in steps of 1, as
 PowerPoint draws them. Radar and surface charts step by their own nice
 rule.
