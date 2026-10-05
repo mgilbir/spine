@@ -30,18 +30,8 @@ func (p *Page) fontFace(source *shape.Face, budget *prepareBudget) (*shape.Face,
 	if len(program) < 12 {
 		return nil, fmt.Errorf("%w: font has no outline program", ErrUnsupported)
 	}
-	count := int(binary.BigEndian.Uint16(program[4:6]))
-	if count > (len(program)-12)/16 {
-		return nil, fmt.Errorf("%w: font directory", ErrInvalid)
-	}
-	for i := 0; i < count; i++ {
-		tag := string(program[12+16*i : 16+16*i])
-		switch tag {
-		case "bdat", "bloc":
-			// Apple's bitmap strikes are not painted. The glyphs of COLR, SVG,
-			// CBDT and sbix fonts are, one at a time, by paintColorGlyph.
-			return nil, fmt.Errorf("%w: bitmap font table %s", ErrUnsupported, tag)
-		}
+	if err := checkFontTables(program); err != nil {
+		return nil, err
 	}
 	f := source.Clone()
 	if len(f.LayoutLimits()) > 0 {
@@ -211,5 +201,30 @@ func (p *Page) addGlyphs(ctx context.Context, at layout.Point, size style.Unit, 
 		return fmt.Errorf("%w: font layout was truncated", ErrLimit)
 	}
 
+	return nil
+}
+
+// checkFontTables refuses a font program whose glyphs cannot be drawn.
+// Apple's bitmap strikes (bdat, bloc) are not painted; a font that also has
+// outlines, as system fonts carrying strikes for small screen sizes do, draws
+// from those, as it does beside EBDT strikes. The glyphs of COLR, SVG, CBDT
+// and sbix fonts are painted one at a time by paintColorGlyph.
+func checkFontTables(program []byte) error {
+	count := int(binary.BigEndian.Uint16(program[4:6]))
+	if count > (len(program)-12)/16 {
+		return fmt.Errorf("%w: font directory", ErrInvalid)
+	}
+	bitmap, outlines := "", false
+	for i := 0; i < count; i++ {
+		switch tag := string(program[12+16*i : 16+16*i]); tag {
+		case "bdat", "bloc":
+			bitmap = tag
+		case "glyf", "CFF ", "CFF2":
+			outlines = true
+		}
+	}
+	if bitmap != "" && !outlines {
+		return fmt.Errorf("%w: bitmap font table %s", ErrUnsupported, bitmap)
+	}
 	return nil
 }

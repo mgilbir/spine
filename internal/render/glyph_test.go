@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"image/color"
 	"image/png"
@@ -108,11 +109,11 @@ func TestGlyphLimitsAndUnsupportedFonts(t *testing.T) {
 			t.Fatalf("accepted %+v", g)
 		}
 	}
-	// Apple's bitmap strikes are not drawn, so a font with them is refused; the
-	// color tables of COLR, SVG, CBDT and sbix are drawn glyph by glyph.
+	// Apple's bitmap strikes beside outlines, as in the system's Courier New,
+	// are passed over: the outlines are drawn.
 	bitmapFont := op
-	bitmapFont.Face = testFace(t, map[string][]byte{"bdat": make([]byte, 8)})
-	if _, err := Prepare(context.Background(), 1, 1, []layout.Op{bitmapFont}, Limits{}); !errors.Is(err, ErrUnsupported) {
+	bitmapFont.Face = testFace(t, map[string][]byte{"bdat": make([]byte, 8), "bloc": make([]byte, 8)})
+	if _, err := Prepare(context.Background(), 1, 1, []layout.Op{bitmapFont}, Limits{}); err != nil {
 		t.Fatal(err)
 	}
 	missing := op
@@ -171,4 +172,26 @@ func TestConcurrentGlyphPreparation(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestFontTablesRefuseBitmapOnlyFonts(t *testing.T) {
+	dir := func(tags ...string) []byte {
+		b := make([]byte, 12+16*len(tags))
+		binary.BigEndian.PutUint16(b[4:6], uint16(len(tags)))
+		for i, tag := range tags {
+			copy(b[12+16*i:], tag)
+		}
+		return b
+	}
+	if err := checkFontTables(dir("bdat", "bloc", "cmap", "head")); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("bitmap only: %v", err)
+	}
+	for _, outline := range []string{"glyf", "CFF ", "CFF2"} {
+		if err := checkFontTables(dir("bdat", "bloc", outline)); err != nil {
+			t.Errorf("bdat beside %s: %v", outline, err)
+		}
+	}
+	if err := checkFontTables(append(dir("glyf")[:4], 0, 9)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("short directory: %v", err)
+	}
 }
