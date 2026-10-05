@@ -134,3 +134,20 @@ func TestPageDecoratorsSeam(t *testing.T) {
 		t.Errorf("decorated %d pages", called)
 	}
 }
+
+func TestHiddenRunsAndInstructionsDrawNoTabsOrHyphens(t *testing.T) {
+	body := wordTestBody(wordTestPara("",
+		`<w:r><w:rPr><w:vanish/></w:rPr><w:tab/><w:softHyphen/><w:noBreakHyphen/><w:t>hidden</w:t></w:r>`,
+		`<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:tab/><w:noBreakHyphen/></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`,
+		wordTestRun("", "shown"),
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r>`,
+	))
+	p, _ := wordTestRender(t, body)
+	got := ""
+	for _, tx := range p.texts(1) {
+		got += tx.text
+	}
+	if got != "shown" {
+		t.Errorf("drawn %q", got)
+	}
+}

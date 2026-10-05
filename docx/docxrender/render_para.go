@@ -297,15 +297,24 @@ func wordRegisterRun(key string, fn wordRunFunc) {
 func init() {
 	wordRegisterRun("t", (*wordRun).text)
 	wordRegisterRun("tab", func(rn *wordRun, _ *wordNode) error {
+		if rn.hidden() {
+			return nil
+		}
 		rn.p.sawTab = true
 		return rn.put(rn.slotForPiece(), "\t", false)
 	})
 	wordRegisterRun("br", (*wordRun).lineBreak)
 	wordRegisterRun("cr", func(rn *wordRun, _ *wordNode) error { return rn.softBreak() })
 	wordRegisterRun("noBreakHyphen", func(rn *wordRun, _ *wordNode) error {
-		return rn.put(rn.slotForPiece(), "‑", false)
+		if rn.hidden() {
+			return nil
+		}
+		return rn.put(rn.slotForPiece(), "\u2011", false)
 	})
 	wordRegisterRun("softHyphen", func(rn *wordRun, _ *wordNode) error {
+		if rn.hidden() {
+			return nil
+		}
 		return rn.put(rn.slotForPiece(), "\u00AD", false)
 	})
 	wordRegisterRun("fldChar", (*wordRun).fieldChar)
