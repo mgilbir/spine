@@ -3,6 +3,8 @@ package docxrender
 import (
 	"strconv"
 	"strings"
+
+	"github.com/mgilbir/spine/render"
 )
 
 // Fields.
@@ -26,6 +28,28 @@ type wordFieldState struct {
 	subst bool
 	done  bool
 	text  string
+	// check is set for a page number field in the body, whose saved result is
+	// checked against the page it lands on; mark is its tag in the layout.
+	check *wordFieldCheck
+	mark  int
+}
+
+// wordFieldCheck is a page-dependent field in the body: its instruction and
+// the result Word saved, which is drawn as it is. Once pages are known the
+// result is compared with what the field shows there.
+type wordFieldCheck struct {
+	info   wordFieldInfo
+	cached string
+}
+
+// checkField is the innermost open field with a result to check.
+func (f *wordFlow) checkField() *wordFieldState {
+	for i := len(f.fields) - 1; i >= 0; i-- {
+		if f.fields[i].check != nil {
+			return &f.fields[i]
+		}
+	}
+	return nil
 }
 
 // wordMaxInstr bounds the instruction text kept: field names and switches are
@@ -194,6 +218,16 @@ func (f *wordFlow) startFieldResult(s *wordFieldState) error {
 		return nil
 	}
 	if f.hf == nil {
+		if f.note != nil || !f.visible() {
+			return nil
+		}
+		notes := f.r.notes
+		if len(notes.marks) >= f.r.limits.MaxOperations {
+			return render.ErrLimit
+		}
+		check := &wordFieldCheck{info: info}
+		notes.marks = append(notes.marks, &wordMark{ref: &wordNoteRef{page: -1, field: check}})
+		s.check, s.mark = check, len(notes.marks)
 		return nil
 	}
 	text, exact := f.hf.fieldValue(info)

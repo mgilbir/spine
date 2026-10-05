@@ -922,7 +922,26 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 - **Fields and links.** The cached result of simple and complex fields, across
   paragraphs, is drawn and the instruction is not; hyperlink text is drawn with
   its run formatting. In the body the cached result of `PAGE` and the other
-  page-number fields is drawn, as Word saved it.
+  page-number fields is drawn, as Word saved it, and checked against the
+  value the field has on the page it lands on: a result that differs is
+  reported as approximated.
+- **Footnotes.** `w:footnoteReference` draws the note's mark (its number in the
+  `w:footnotePr` `numFmt`, from `numStart`, restarting by `numRestart`:
+  `continuous`, `eachSect` or `eachPage`; properties from the settings part and
+  the section) in the run's own formatting, and the note's text (translated by
+  the body's code, with its `w:footnoteRef` mark) goes to the bottom of the text
+  area of the page that holds the reference's line, under the separator
+  (a third of the text width, from the separator note) in the order of the
+  references. The area reduces the text area for pagination: a line is placed
+  only if it and its notes fit. A note that does not fit whole is cut at a line
+  and continues on the next page under the continuation separator (the full
+  width), before that page's own notes. Footnote text that restarts numbering on
+  every page is translated again with the numbers pagination gives (at most
+  three times). `w:customMarkFollows` references use the text that follows as the
+  mark.
+- **Endnotes.** `w:endnoteReference` marks (lower-case Roman by default) and the
+  notes, which follow the body text of the document, or of each section for
+  `w:pos` `sectEnd`, after the endnote separator, as ordinary flow.
 - Content controls, smart tags and custom XML wrappers draw their content.
 
 ### Drawn approximately
@@ -944,7 +963,15 @@ applied); tracked changes (insertions shown, deletions dropped, as the final
 text); settings that change layout and are not modelled (mirrored margins,
 automatic hyphenation, book fold, ...); multiple text columns and the document
 grid (laid out as one column); a continuous section break across different page
-geometries; a page number format other than those listed (decimal is drawn),
+geometries; footnote text that continues for more than half a page (a page
+takes at most half its text area of continued note text and the rest goes to the
+next page); a footnote continuation notice that has text (not drawn), footnotes
+beneath the text or at the end of a section or document (drawn at the page
+bottom), and endnotes that continue on another page (the continuation separator
+is not drawn); footnote numbers that restart on every page and do not settle; a
+body page number field whose saved result differs from the page it is on (or
+has none to compare); a
+page number format other than those listed (decimal is drawn),
 chapter numbers in page numbers, other field switches on page number fields, a
 page break inside a header or footer, and a header and footer that leave no room
 for text on the page (the text area keeps the margins).
@@ -953,7 +980,7 @@ for text on the page (the text area keeps the margins).
 
 Reported as unsupported in best effort and refused in strict mode: tables,
 numbering and list markers, images, drawings, text boxes and other alternate
-content, footnotes and endnotes, comments, equations,
+content, notes the document does not have, notes in headers, footers and notes, comments, equations,
 embedded objects, symbols, form fields, paragraph and run borders, paragraph
 shading, frames, page borders, line numbering, vertical page alignment, text
 direction other than left to right, page background, text effects, and every
@@ -970,7 +997,8 @@ follows the rules above on those metrics.
 
 ### Budgets
 
-The main, styles, settings, theme, header and footer parts are bounded by `MaxSourceBytes` and
+The main, styles, settings, theme, header, footer, footnote and endnote parts
+are bounded by `MaxSourceBytes` and
 `MaxLayoutNodes` (elements, attributes and every generated block and span);
 emitted text by eight times `Limits.MaxTextBytes`; pages by
 `Limits.MaxOperations`; the whole document's display list by sixty-four times

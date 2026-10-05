@@ -317,6 +317,9 @@ type wordRun struct {
 	p   *wordPara
 	rp  wordRPr
 	cur int // font slot of the open span, or -1
+	// mark, when positive, tags the next text drawn so the layout can find
+	// its line (a note reference's mark): see wordMarkStyle.
+	mark int
 	// closing is the markup that ends the open span.
 	closing string
 	spans   [wordSlots]wordSpanStyle
@@ -418,7 +421,17 @@ func (rn *wordRun) text(n *wordNode) error {
 	if !preserve {
 		s = strings.Trim(s, " \t\r\n")
 	}
-	return rn.emitString(strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s))
+	s = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+	if cf := rn.p.f.checkField(); cf != nil && s != "" {
+		// The saved result of a page number field in the body: tag its first
+		// text and keep the result.
+		if cf.check.cached == "" && rn.mark == 0 {
+			rn.mark = cf.mark
+			defer func() { rn.mark = 0 }()
+		}
+		cf.check.cached += s
+	}
+	return rn.emitString(s)
 }
 
 // emitString draws text in the run's formatting, by font slot.
@@ -551,7 +564,17 @@ func (rn *wordRun) put(slot int, text string, br bool) error {
 		if err := rn.p.r.chargeText(len(text)); err != nil {
 			return err
 		}
-		wordEscape(&rn.p.sb, text)
+		if rn.mark > 0 {
+			if err := rn.p.r.charge(1); err != nil {
+				return err
+			}
+			rn.p.sb.WriteString(`<span style="` + wordMarkStyle(rn.mark) + `">`)
+			wordEscape(&rn.p.sb, text)
+			rn.p.sb.WriteString("</span>")
+			rn.mark = 0
+		} else {
+			wordEscape(&rn.p.sb, text)
+		}
 		rn.p.hasText = rn.p.hasText || text != ""
 	}
 	rn.p.hasContent = true

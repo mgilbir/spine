@@ -36,7 +36,7 @@ func policyCases() []policyCase {
 		{name: "numbering", body: wordTestPara(`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`, wordTestRun("", "item")), warn: "numbering", text: "item"},
 		{name: "drawing", body: wordTestPara("", `<w:r><w:drawing/></w:r>`, wordTestRun("", "next")), warn: "drawings and images", text: "next"},
 		{name: "alternate content", body: wordTestPara("", `<mc:AlternateContent><mc:Choice Requires="wps"/></mc:AlternateContent>`, wordTestRun("", "next")), warn: "alternate content", text: "next"},
-		{name: "footnote reference", body: wordTestPara("", wordTestRun("", "note"), `<w:r><w:footnoteReference w:id="2"/></w:r>`), warn: "footnotes", text: "note"},
+		{name: "footnote reference", body: wordTestPara("", wordTestRun("", "note"), `<w:r><w:footnoteReference w:id="2"/></w:r>`), warn: "footnote that the document does not have", text: "note"},
 		{name: "comment", body: wordTestPara("", `<w:commentRangeStart w:id="0"/>`, wordTestRun("", "commented"), `<w:commentRangeEnd w:id="0"/>`, `<w:r><w:commentReference w:id="0"/></w:r>`), warn: "comments", text: "commented"},
 		{name: "equation", body: wordTestPara("", `<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>`, wordTestRun("", "tail")), warn: "equations", text: "tail"},
 		{name: "header part that is missing", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:headerReference w:type="default" r:id="rId9"/>`), warn: "header or footer part"},

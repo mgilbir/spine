@@ -90,6 +90,16 @@
   (bounded) when the page count changes a header's height. The strict and
   best-effort rules apply as elsewhere: formats and switches that are not drawn
   exactly are reported as approximated.
+- docxrender: footnotes and endnotes. References draw their marks with the
+  `footnotePr` and `endnotePr` formats, starts and restarts (continuous, each
+  section, each page); footnote text is placed at the bottom of the page whose
+  line holds the reference, under the separator, reducing the text area for
+  pagination, and continues on the next page under the continuation separator
+  when it does not fit; endnotes follow the text of the document or section. Body
+  `PAGE`, `NUMPAGES` and `SECTIONPAGES` fields keep their saved result, which is
+  now checked against the page and reported when it differs. Approximations
+  (footnotes beneath the text, a continuation notice, long continued notes) are
+  reported.
 - docxrender: custom tab stops (left, center and right, with dot, hyphen and
   underscore leaders, inherited and cleared through styles), and default stops
   measured from the page margin in indented paragraphs, as Word does. forme has

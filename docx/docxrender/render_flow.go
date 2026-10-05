@@ -80,6 +80,14 @@ type wordUnitsFunc func(wrapper *layout.Fragment) []wordUnit
 type wordSection struct {
 	props  wordSectProps
 	blocks []*wordBlock
+	// marks are the footnote references of the section's text, in order, and
+	// pool the blocks of their notes (render_notes.go).
+	marks []*wordMark
+	pool  []*wordBlock
+	// hasEndnotes says the section's blocks end with endnotes, from block
+	// endnotesFrom.
+	hasEndnotes  bool
+	endnotesFrom int
 }
 
 // wordFlow is the state of the body walk.
@@ -92,8 +100,10 @@ type wordFlow struct {
 	// keeps the paragraph mark on the page with the break, so the next block
 	// starts the new page.
 	breakPending bool
-	// hf is set while a header or footer part is translated.
-	hf *wordHFCtx
+	// hf is set while a header or footer part is translated, and note while
+	// the text of a note is.
+	hf   *wordHFCtx
+	note *wordNoteCtx
 }
 
 // visible reports whether content is part of drawn text, which it is outside
@@ -189,13 +199,23 @@ func (f *wordFlow) closeSection(sectPr *wordNode) error {
 		return err
 	}
 	props.idx = len(f.secs)
-	f.secs = append(f.secs, &wordSection{props: props, blocks: f.cur})
+	ws := &wordSection{props: props, blocks: f.cur}
+	if f.hf == nil && f.note == nil {
+		if err = f.r.closeNotes(ws); err != nil {
+			return err
+		}
+	}
+	f.secs = append(f.secs, ws)
 	f.cur = nil
 	return nil
 }
 
 // translateBody walks w:body into sections.
 func (r *wordRenderer) translateBody(body *wordNode) ([]*wordSection, error) {
+	r.notes.reset()
+	if err := r.scanNotes(body); err != nil {
+		return nil, err
+	}
 	f := &wordFlow{r: r}
 	var final *wordNode
 	for _, c := range body.children {
@@ -230,6 +250,9 @@ func (r *wordRenderer) translateBody(body *wordNode) ([]*wordSection, error) {
 		if err := f.closeSection(final); err != nil {
 			return nil, err
 		}
+	}
+	if err := r.placeEndnotes(f.secs); err != nil {
+		return nil, err
 	}
 	return f.secs, nil
 }

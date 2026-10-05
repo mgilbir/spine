@@ -58,6 +58,16 @@ func (r *wordRenderer) loadSettings(root *wordNode) error {
 				return fmt.Errorf("%w: w:defaultTabStop", render.ErrInvalid)
 			}
 			r.defaultTab = v
+		case "footnotePr", "endnotePr":
+			var err error
+			if c.name == "endnotePr" {
+				r.notes.end, err = parseNotePr(c, r.notes.end, true)
+			} else {
+				r.notes.foot, err = parseNotePr(c, r.notes.foot, false)
+			}
+			if err != nil {
+				return err
+			}
 		case "evenAndOddHeaders":
 			on, valid := c.on()
 			if !valid {

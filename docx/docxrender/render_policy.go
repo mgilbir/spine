@@ -42,6 +42,8 @@ type wordRenderer struct {
 	evenOdd bool
 	// hf holds the header and footer parts (render_headers.go).
 	hf *wordHF
+	// notes is the footnote and endnote state (render_notes.go).
+	notes *wordNotes
 }
 
 // wordIssueKind says how a feature the profile does not draw exactly is

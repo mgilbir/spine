@@ -20,6 +20,15 @@ type wordLaidSection struct {
 	ops []layout.Op
 	// chunks are the pieces of the section placed on pages, in layout order.
 	chunks []*wordChunk
+	// marks are the section's footnote references and notes the laid out
+	// notes (render_notes_layout.go). pool marks a section that holds notes:
+	// only what pagination places is drawn.
+	marks []*wordMark
+	notes *wordLaidNotes
+	pool  bool
+	// hasEnd says the section ends with endnotes, which start at endTop.
+	hasEnd bool
+	endTop float64
 }
 
 // wordLaidBlock is a block with its geometry in section pixels.
@@ -27,6 +36,8 @@ type wordLaidBlock struct {
 	*wordBlock
 	top, bottom float64
 	units       []wordUnit
+	// unitNotes are the notes whose references are in each unit, or nil.
+	unitNotes [][]*wordNoteRef
 }
 
 // wordResolveSpacing applies contextual spacing, automatic-spacing collapse and
@@ -140,7 +151,7 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 	if len(ops) > 64*r.limits.MaxOperations {
 		return nil, render.ErrLimit
 	}
-	laid := &wordLaidSection{props: p, ops: ops}
+	laid := &wordLaidSection{props: p, ops: ops, marks: sec.marks}
 	frags := make([]*layout.Fragment, len(sec.blocks))
 	wordFindBlocks(frag, "b", frags)
 	for i, b := range sec.blocks {
@@ -166,7 +177,13 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 				return nil, err
 			}
 		}
+		if len(sec.marks) > 0 {
+			wordLocateMarks(f, i, lb, sec.marks)
+		}
 		laid.blocks = append(laid.blocks, lb)
+	}
+	if sec.hasEndnotes && sec.endnotesFrom < len(laid.blocks) {
+		laid.hasEnd, laid.endTop = true, laid.blocks[sec.endnotesFrom].top
 	}
 	return laid, nil
 }

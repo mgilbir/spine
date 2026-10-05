@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/docx"
@@ -90,8 +91,10 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 	r.fonts = newWordFonts(r)
 	d := view.DocumentOf(document)
 	r.hf = &wordHF{parts: map[string]*wordHFPart{}}
+	r.notes = newWordNotes()
 	if d != nil {
 		r.hf.source = d.HdrFtrXML
+		r.notes.source = [2]func() ([]byte, error){d.FootnotesXML, d.EndnotesXML}
 	}
 	if d == nil || d.MainXML == nil {
 		return nil, fmt.Errorf("%w: document", render.ErrInvalid)
@@ -122,27 +125,58 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 			}
 		}
 	}
-	secs, err := r.translateBody(body)
-	if err != nil {
+	var laid []*wordLaidSection
+	var pages []*wordPage
+	for round := 0; ; round++ {
+		secs, err := r.translateBody(body)
+		if err != nil {
+			return nil, err
+		}
+		wordInheritHF(secs)
+		laid = make([]*wordLaidSection, 0, len(secs))
+		for i, s := range secs {
+			if i > 0 {
+				wordCollapseAcrossSections(secs[i-1].blocks, s.blocks)
+			}
+			l, e := r.layoutSection(s)
+			if e != nil {
+				return nil, e
+			}
+			if e = r.layoutNotes(l, s); e != nil {
+				return nil, e
+			}
+			laid = append(laid, l)
+		}
+		if pages, err = r.paginateStable(laid); err != nil {
+			return nil, err
+		}
+		if !r.notes.eachPage {
+			break
+		}
+		// Footnote numbers that restart on every page were assumed while the
+		// text was translated; translate again with those pagination gives.
+		want := r.pageNoteNumbers(laid)
+		if slices.Equal(want, r.notes.nums) {
+			break
+		}
+		if round+1 >= wordNoteRounds {
+			if err = r.approximate("footnote numbers that restart on every page and do not settle"); err != nil {
+				return nil, err
+			}
+			break
+		}
+		r.notes.assume = want
+	}
+	if err = r.verifyFields(laid, pages); err != nil {
 		return nil, err
 	}
-	wordInheritHF(secs)
-	laid := make([]*wordLaidSection, 0, len(secs))
-	for i, s := range secs {
-		if i > 0 {
-			wordCollapseAcrossSections(secs[i-1].blocks, s.blocks)
+	drawn := append([]*wordLaidSection(nil), laid...)
+	for _, l := range laid {
+		if l.notes != nil && l.notes.pool != nil {
+			drawn = append(drawn, l.notes.pool)
 		}
-		l, e := r.layoutSection(s)
-		if e != nil {
-			return nil, e
-		}
-		laid = append(laid, l)
 	}
-	pages, err := r.paginateStable(laid)
-	if err != nil {
-		return nil, err
-	}
-	if err = r.distribute(laid, pages); err != nil {
+	if err = r.distribute(drawn, pages); err != nil {
 		return nil, err
 	}
 	for _, decorate := range wordPageDecorators {

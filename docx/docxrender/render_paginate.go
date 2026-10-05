@@ -56,6 +56,8 @@ type wordPage struct {
 	// bodyTop and bodyBottom are the text area's edges from the top of the
 	// page: the margins, moved in by a header or footer that reaches past them.
 	bodyTop, bodyBottom float64
+	// notes is the footnote area at the bottom of the text area.
+	notes wordPageNotes
 }
 
 // bodyH is the height of the page's text area.
@@ -69,6 +71,10 @@ type wordPaginator struct {
 	has      bool // content has been placed on the current page
 	maxPages int
 	env      *wordEnv
+	// carry is the text of footnotes that continues on the next page.
+	carry []wordNotePart
+	// carryCapped and endSplit record approximations to report.
+	carryCapped, endSplit, carried bool
 }
 
 const wordEps = 1.0 / 128
@@ -79,6 +85,7 @@ func (r *wordRenderer) paginate(secs []*wordLaidSection, env *wordEnv) ([]*wordP
 	var prev *wordLaidSection
 	for _, sec := range secs {
 		sec.chunks = nil
+		sec.resetNotes()
 	}
 	for _, sec := range secs {
 		if err := r.ctx.Err(); err != nil {
@@ -101,6 +108,30 @@ func (r *wordRenderer) paginate(secs []*wordLaidSection, env *wordEnv) ([]*wordP
 	if len(pg.pages) == 0 {
 		return nil, fmt.Errorf("%w: no pages", render.ErrInvalid)
 	}
+	for len(pg.carry) > 0 {
+		// Footnote text still to place after the last page of the text.
+		if _, err := pg.newPage(pg.pages[len(pg.pages)-1].sec, false); err != nil {
+			return nil, err
+		}
+	}
+	if err := pg.finishNotes(); err != nil {
+		return nil, err
+	}
+	if pg.carried && r.notes.parts[0] != nil && r.notes.parts[0].notice {
+		if err := r.approximate("footnote continuation notice"); err != nil {
+			return nil, err
+		}
+	}
+	if pg.carryCapped {
+		if err := r.approximate("footnote text that takes more than half a page"); err != nil {
+			return nil, err
+		}
+	}
+	if pg.endSplit {
+		if err := r.approximate("endnotes that continue on another page (no continuation separator)"); err != nil {
+			return nil, err
+		}
+	}
 	return pg.pages, nil
 }
 
@@ -116,6 +147,7 @@ func (pg *wordPaginator) newPage(sec *wordLaidSection, first bool) (*wordPage, e
 		return nil, err
 	}
 	pg.pages = append(pg.pages, page)
+	pg.startNotes(page)
 	return page, nil
 }
 
@@ -134,6 +166,9 @@ func (pg *wordPaginator) nextNumber(sec *wordLaidSection, first bool) int {
 
 // openPage starts a new page whose first chunk draws section layout from y0.
 func (pg *wordPaginator) openPage(sec *wordLaidSection, y0 float64, first bool) error {
+	if !first && sec.hasEnd && y0 > sec.endTop+wordEps {
+		pg.endSplit = true
+	}
 	page, err := pg.newPage(sec, first)
 	if err != nil {
 		return err
@@ -151,7 +186,7 @@ func (pg *wordPaginator) addChunk(sec *wordLaidSection, page *wordPage, y0, dest
 }
 
 // avail is the height of the current page's text area.
-func (pg *wordPaginator) avail() float64 { return pg.chunk.page.bodyH() }
+func (pg *wordPaginator) avail() float64 { return pg.chunk.page.bodyH() - pg.chunk.page.notes.h }
 
 // blankPage appends a page with nothing on it.
 func (pg *wordPaginator) blankPage(sec *wordLaidSection) error {
@@ -266,19 +301,43 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 	n := len(b.units)
 	start := 0
 	for start < n {
-		limit := pg.limitY()
+		page := pg.chunk.page
+		// fit counts the units that fit with their notes: st is the page's
+		// note area as it would be after them.
+		st := page.notes
 		fit := 0
-		for j := start; j < n && b.units[j].bottom <= limit+wordEps; j++ {
+		for j := start; j < n; j++ {
+			pb := pg.chunk.dest + b.units[j].bottom - pg.chunk.y0
+			var refs []*wordNoteRef
+			if b.unitNotes != nil {
+				refs = b.unitNotes[j]
+			}
+			if len(refs) == 0 {
+				if pb+st.h > page.bodyH()+wordEps {
+					break
+				}
+				fit++
+				continue
+			}
+			ok, partial := pg.fitNotes(&st, sec, refs, pb, false, false)
+			if !ok {
+				break
+			}
 			fit++
+			if partial {
+				break
+			}
 		}
 		remaining := n - start
 		if fit == remaining {
+			limit := pg.limitY() - (st.h - page.notes.h)
 			if start == 0 && b.keepNext && chain.need[i] > limit+wordEps && pg.has && chain.need[i]-chain.head[i] <= pg.avail() {
 				if err := pg.openPage(sec, b.units[0].top, false); err != nil {
 					return err
 				}
 				continue
 			}
+			pg.commitNotes(sec, b, start, remaining, false)
 			pg.place(b.bottom)
 			return nil
 		}
@@ -297,6 +356,7 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 				take = 0
 			}
 		}
+		forced := false
 		if take == 0 {
 			if pg.has {
 				if err := pg.openPage(sec, b.units[start].top, false); err != nil {
@@ -307,7 +367,9 @@ func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) err
 			// Nothing fits on a fresh page: place at least one unit so
 			// pagination always advances.
 			take = max(fit, 1)
+			forced = fit == 0
 		}
+		pg.commitNotes(sec, b, start, take, forced)
 		pg.place(b.units[start+take-1].bottom)
 		start += take
 		if start < n {
@@ -364,6 +426,9 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 				// A link area draws nothing.
 			case layout.DrawText:
 				c := chunkAt(v.At.Y.Px())
+				if sec.pool && !c.holds(v.At.Y.Px()) {
+					continue
+				}
 				t, err := c.shift()
 				if err != nil {
 					return err
@@ -379,6 +444,9 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 				}
 			case layout.FillPath:
 				c := chunkAt(wordPathCenter(v.Path))
+				if sec.pool && !c.holds(wordPathCenter(v.Path)) {
+					continue
+				}
 				t, err := c.shift()
 				if err != nil {
 					return err
@@ -392,6 +460,9 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 	}
 	return nil
 }
+
+// holds reports whether y is within the range of the section a chunk draws.
+func (c *wordChunk) holds(y float64) bool { return y >= c.y0-wordEps && y <= c.end+wordEps }
 
 // wordShift is a translation in layout units.
 type wordShift struct{ x, y style.Unit }
@@ -413,6 +484,9 @@ func (c *wordChunk) shift() (wordShift, error) {
 func (r *wordRenderer) distributeRect(sec *wordLaidSection, chunkAt func(float64) *wordChunk, v layout.FillRect) error {
 	if v.Overhang {
 		c := chunkAt(v.Rect.Y.Px() + v.Rect.H.Px()/2)
+		if sec.pool && !c.holds(v.Rect.Y.Px()+v.Rect.H.Px()/2) {
+			return nil
+		}
 		t, err := c.shift()
 		if err != nil {
 			return err
@@ -424,7 +498,9 @@ func (r *wordRenderer) distributeRect(sec *wordLaidSection, chunkAt func(float64
 	top, bottom := v.Rect.Y.Px(), v.Rect.Y.Px()+v.Rect.H.Px()
 	for k, c := range sec.chunks {
 		upper := math.Inf(1)
-		if k+1 < len(sec.chunks) {
+		if sec.pool {
+			upper = c.end
+		} else if k+1 < len(sec.chunks) {
 			upper = sec.chunks[k+1].y0
 		}
 		lo, hi := math.Max(top, c.y0), math.Min(bottom, upper)
