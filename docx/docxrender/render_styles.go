@@ -33,10 +33,23 @@ type wordStyles struct {
 	byID     map[string]*wordStyle
 	defPara  string
 	defChar  string
+	defTable string
 	docPPr   wordPPr
 	docRPr   wordRPr
-	paraMemo map[string]*wordParaLevel
+	paraMemo map[wordParaKey]*wordParaLevel
 	charMemo map[string]*wordRPr
+	// tables holds the table styles resolved so far (render_table_style.go), and
+	// bases the paragraph levels they give cells.
+	tables map[string]*wordTableStyle
+	bases  map[wordBaseKey]*wordParaLevel
+}
+
+// wordParaKey identifies a resolved paragraph level: the paragraph style and
+// the level it is resolved over (nil for the document defaults; a table cell
+// supplies the table style's formatting).
+type wordParaKey struct {
+	id   string
+	base *wordParaLevel
 }
 
 // wordMaxStyleDepth bounds a basedOn chain.
@@ -44,7 +57,7 @@ const wordMaxStyleDepth = 64
 
 // wordRenderStyles reads a styles part. A nil root is a document without styles.
 func (r *wordRenderer) loadStyles(root *wordNode) error {
-	s := &wordStyles{r: r, byID: map[string]*wordStyle{}, paraMemo: map[string]*wordParaLevel{}, charMemo: map[string]*wordRPr{}}
+	s := &wordStyles{r: r, byID: map[string]*wordStyle{}, paraMemo: map[wordParaKey]*wordParaLevel{}, charMemo: map[string]*wordRPr{}, tables: map[string]*wordTableStyle{}}
 	r.styles = s
 	if root == nil {
 		return nil
@@ -99,6 +112,10 @@ func (r *wordRenderer) loadStyles(root *wordNode) error {
 					if s.defChar == "" {
 						s.defChar = id
 					}
+				case "table":
+					if s.defTable == "" {
+						s.defTable = id
+					}
 				}
 			}
 		}
@@ -148,13 +165,24 @@ func (s *wordStyles) chain(id string) ([]*wordStyle, error) {
 // paragraph resolves a paragraph style (or the default paragraph style when id
 // is empty or unknown) over the document defaults.
 func (s *wordStyles) paragraph(id string) (*wordParaLevel, error) {
+	return s.paragraphIn(id, nil)
+}
+
+// paragraphIn resolves a paragraph style over base, a level that already holds
+// the document defaults and what lies between them and paragraph styles (a
+// table style). A nil base is the document defaults.
+func (s *wordStyles) paragraphIn(id string, base *wordParaLevel) (*wordParaLevel, error) {
 	if s.byID[id] == nil || s.byID[id].typ != "paragraph" {
 		id = s.defPara
 	}
-	if lv := s.paraMemo[id]; lv != nil {
+	key := wordParaKey{id, base}
+	if lv := s.paraMemo[key]; lv != nil {
 		return lv, nil
 	}
 	lv := &wordParaLevel{ppr: s.docPPr, rpr: s.docRPr}
+	if base != nil {
+		lv.ppr, lv.rpr = base.ppr, base.rpr
+	}
 	chain, err := s.chain(id)
 	if err != nil {
 		return nil, err
@@ -167,7 +195,7 @@ func (s *wordStyles) paragraph(id string) (*wordParaLevel, error) {
 		lv.own = st.ppr.over(lv.own)
 		lv.rpr = st.rpr.over(lv.rpr)
 	}
-	s.paraMemo[id] = lv
+	s.paraMemo[key] = lv
 	return lv, nil
 }
 

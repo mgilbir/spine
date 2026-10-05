@@ -32,7 +32,7 @@ type policyCase struct {
 
 func policyCases() []policyCase {
 	return []policyCase{
-		{name: "table", body: `<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="1000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`, warn: "tables"},
+		{name: "unknown table property", body: `<w:tbl><w:tblPr><w:futureTableProp/></w:tblPr><w:tblGrid><w:gridCol w:w="1000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`, warn: "futureTableProp", text: "cell"},
 		{name: "number format outside the profile", body: numPara("1", 0, "item"), parts: &wordTestParts{styles: wordTestStyles, numbering: numAbstract("0", "", numLvl(0, `<w:numFmt w:val="japaneseCounting"/><w:start w:val="1"/><w:lvlText w:val="%1."/>`)) + numInstance("1", "0")}, warn: "number format japaneseCounting", approx: true, text: "item"},
 		{name: "numbering level property", body: numPara("1", 0, "item"), parts: &wordTestParts{styles: wordTestStyles, numbering: numAbstract("0", "", numLvl(0, `<w:start w:val="1"/><w:lvlText w:val="%1."/><w:futureLevelProp/>`)) + numInstance("1", "0")}, warn: "futureLevelProp", text: "item"},
 		{name: "drawing", body: wordTestPara("", `<w:r><w:drawing/></w:r>`, wordTestRun("", "next")), warn: "drawings and images", text: "next"},

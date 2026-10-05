@@ -66,7 +66,7 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	if err != nil {
 		return err
 	}
-	lv, err := r.styles.paragraph(direct.style)
+	lv, err := r.styles.paragraphIn(direct.style, f.cellBase())
 	if err != nil {
 		return err
 	}
@@ -110,8 +110,8 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	}
 	// A page break that ends the paragraph keeps the mark with it, as Word's
 	// PDF output shows: no empty line opens the next page, whose first block
-	// is the next one.
-	breakEnds := p.cont && !p.hasContent
+	// is the next one. A cell's flow has no pages of its own.
+	breakEnds := p.cont && !p.hasContent && f.cell == nil
 	if !breakEnds {
 		if err = p.finishBlock(true, nil); err != nil {
 			return err
@@ -130,7 +130,8 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 		}
 	}
 	f.breakPending = f.breakPending || breakEnds
-	if pPr != nil {
+	if pPr != nil && f.cell == nil {
+		// Section properties in a paragraph of a table cell end nothing.
 		if sp := pPr.child("sectPr"); sp != nil {
 			return f.closeSection(sp)
 		}
@@ -734,7 +735,11 @@ func (p *wordPara) blockCSSAt(first float64) string {
 	c.add("font-size", "1px")
 	c.add("line-height", "0")
 	c.add("white-space", "pre-wrap")
-	c.add("overflow-wrap", "anywhere")
+	if p.f.cell != nil && p.f.cell.autofit {
+		c.add("overflow-wrap", "normal")
+	} else {
+		c.add("overflow-wrap", "anywhere")
+	}
 	c.px("tab-size", p.r.defaultTab)
 	return c.String()
 }

@@ -79,6 +79,7 @@
   sizes, colours, underline, strikethrough, caps, highlight, shading,
   superscript and subscript, line breaks, non-ASCII text, and field results and
   hyperlinks. Tables, numbering, images and the rest are
+  hyperlinks. Numbering, images, headers and footers and the rest are
   refused in strict mode and left out, with a warning, in best effort.
 - docxrender: headers and footers. `default`, `first` and `even` types with
   `titlePg` and `evenAndOddHeaders`, inherited from the previous section, drawn
@@ -113,6 +114,15 @@
   numbering styles. Formats and symbol fonts the renderer cannot draw as Word
   does are reported as approximated; picture bullets draw a bullet character.
   `docx/internal/view` gained `NumberingXML`.
+- docxrender: tables. Grid and column widths (fixed and autofit), table width,
+  alignment and indent, cell margins, borders with Word's conflict rule, shading,
+  `gridSpan`, `vMerge`, row heights, nested tables, and table styles with their
+  conditional layers (header row, banded rows and columns, first and last
+  column, corner cells) and `w:tblLook`. Pagination cuts between rows and
+  between the lines of a row, keeps `cantSplit` rows whole, and repeats header
+  rows on each page. Floating tables, cell spacing, widths that disagree with the
+  grid and other features are approximated and reported (refused in strict
+  mode); diagonal borders are left out.
 - spine-render: DOCX is laid out once per document rather than once per page,
   and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer

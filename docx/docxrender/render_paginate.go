@@ -36,6 +36,9 @@ type wordChunk struct {
 	y0, end float64
 	// dest is where y0 is drawn, in pixels from the page's top margin.
 	dest float64
+	// repeat marks a range drawn again on a page it does not belong to (the
+	// header rows of a table); only the operations inside [y0, end) go to it.
+	repeat bool
 }
 
 // wordPage is one physical page.
@@ -291,6 +294,9 @@ func wordMinBottom(b *wordLaidBlock) float64 {
 // block places block i of a section.
 func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) error {
 	b := sec.blocks[i]
+	if b.plan != nil && len(b.plan.groups) > 0 {
+		return pg.tableBlock(sec, b)
+	}
 	if b.pageBreakBefore && pg.has {
 		// A manual break drops the space before at the top of the new page,
 		// as Word's PDF output shows.
@@ -425,34 +431,50 @@ func (r *wordRenderer) distribute(secs []*wordLaidSection, pages []*wordPage) er
 			case layout.Link:
 				// A link area draws nothing.
 			case layout.DrawText:
-				c := chunkAt(v.At.Y.Px())
-				if sec.pool && !c.holds(v.At.Y.Px()) {
-					continue
-				}
-				t, err := c.shift()
-				if err != nil {
-					return err
-				}
-				v.At = layout.Point{X: v.At.X.Add(t.x), Y: v.At.Y.Add(t.y)}
 				if v.Clip.Active {
 					return fmt.Errorf("%w: clipped text", render.ErrUnsupported)
 				}
-				c.page.ops = append(c.page.ops, v)
+				y := v.At.Y.Px()
+				c := chunkAt(y)
+				if sec.pool && !c.holds(y) {
+					continue
+				}
+				put := func(c *wordChunk) error {
+					t, err := c.shift()
+					if err != nil {
+						return err
+					}
+					out := v
+					out.At = layout.Point{X: v.At.X.Add(t.x), Y: v.At.Y.Add(t.y)}
+					c.page.ops = append(c.page.ops, out)
+					return nil
+				}
+				if err := wordPutAt(sec, c, y, put); err != nil {
+					return err
+				}
 			case layout.FillRect:
 				if err := r.distributeRect(sec, chunkAt, v); err != nil {
 					return err
 				}
 			case layout.FillPath:
-				c := chunkAt(wordPathCenter(v.Path))
-				if sec.pool && !c.holds(wordPathCenter(v.Path)) {
+				y := wordPathCenter(v.Path)
+				c := chunkAt(y)
+				if sec.pool && !c.holds(y) {
 					continue
 				}
-				t, err := c.shift()
-				if err != nil {
+				put := func(c *wordChunk) error {
+					t, err := c.shift()
+					if err != nil {
+						return err
+					}
+					out := v
+					out.Path = wordTranslatePath(v.Path, t)
+					c.page.ops = append(c.page.ops, out)
+					return nil
+				}
+				if err := wordPutAt(sec, c, y, put); err != nil {
 					return err
 				}
-				v.Path = wordTranslatePath(v.Path, t)
-				c.page.ops = append(c.page.ops, v)
 			default:
 				return fmt.Errorf("%w: display list operation %T", render.ErrUnsupported, op)
 			}
@@ -483,19 +505,50 @@ func (c *wordChunk) shift() (wordShift, error) {
 // block fills may span a cut and are clipped to each chunk they reach.
 func (r *wordRenderer) distributeRect(sec *wordLaidSection, chunkAt func(float64) *wordChunk, v layout.FillRect) error {
 	if v.Overhang {
-		c := chunkAt(v.Rect.Y.Px() + v.Rect.H.Px()/2)
-		if sec.pool && !c.holds(v.Rect.Y.Px()+v.Rect.H.Px()/2) {
+		y := v.Rect.Y.Px() + v.Rect.H.Px()/2
+		c := chunkAt(y)
+		if sec.pool && !c.holds(y) {
+			return nil
+		}
+		return wordPutAt(sec, c, y, func(c *wordChunk) error {
+			t, err := c.shift()
+			if err != nil {
+				return err
+			}
+			out := v
+			out.Rect.X, out.Rect.Y = v.Rect.X.Add(t.x), v.Rect.Y.Add(t.y)
+			c.page.ops = append(c.page.ops, out)
+			return nil
+		})
+	}
+	top, bottom := v.Rect.Y.Px(), v.Rect.Y.Px()+v.Rect.H.Px()
+	// A thin horizontal rule (a table border) that a cut passes through is
+	// drawn whole on both pages, as Word draws the borders of each part of a
+	// table; any other fill is clipped to the chunk.
+	rule := v.Rect.H.Px() <= wordRuleMax && v.Rect.W >= v.Rect.H
+	put := func(c *wordChunk, lo, hi float64) error {
+		if hi <= lo {
 			return nil
 		}
 		t, err := c.shift()
 		if err != nil {
 			return err
 		}
-		v.Rect.X, v.Rect.Y = v.Rect.X.Add(t.x), v.Rect.Y.Add(t.y)
-		c.page.ops = append(c.page.ops, v)
+		out := v
+		out.Rect.X = v.Rect.X.Add(t.x)
+		if rule {
+			out.Rect.Y = v.Rect.Y.Add(t.y)
+		} else {
+			clipTop, ok := style.FromPx(lo)
+			clipBottom, ok2 := style.FromPx(hi)
+			if !ok || !ok2 {
+				return render.ErrLimit
+			}
+			out.Rect.Y, out.Rect.H = clipTop.Add(t.y), clipBottom.Sub(clipTop)
+		}
+		c.page.ops = append(c.page.ops, out)
 		return nil
 	}
-	top, bottom := v.Rect.Y.Px(), v.Rect.Y.Px()+v.Rect.H.Px()
 	for k, c := range sec.chunks {
 		upper := math.Inf(1)
 		if sec.pool {
@@ -503,26 +556,38 @@ func (r *wordRenderer) distributeRect(sec *wordLaidSection, chunkAt func(float64
 		} else if k+1 < len(sec.chunks) {
 			upper = sec.chunks[k+1].y0
 		}
-		lo, hi := math.Max(top, c.y0), math.Min(bottom, upper)
-		if hi <= lo {
-			continue
-		}
-		t, err := c.shift()
-		if err != nil {
+		if err := put(c, math.Max(top, c.y0), math.Min(bottom, upper)); err != nil {
 			return err
 		}
-		clipTop, ok := style.FromPx(lo)
-		clipBottom, ok2 := style.FromPx(hi)
-		if !ok || !ok2 {
-			return render.ErrLimit
+	}
+	i := sort.Search(len(sec.repeats), func(i int) bool { return sec.repeats[i].end > top })
+	for ; i < len(sec.repeats) && sec.repeats[i].y0 < bottom; i++ {
+		g := sec.repeats[i]
+		for _, c := range g.chunks {
+			if err := put(c, math.Max(top, g.y0), math.Min(bottom, g.end)); err != nil {
+				return err
+			}
 		}
-		out := v
-		out.Rect.Y, out.Rect.H = clipTop.Add(t.y), clipBottom.Sub(clipTop)
-		out.Rect.X = v.Rect.X.Add(t.x)
-		c.page.ops = append(c.page.ops, out)
 	}
 	return nil
 }
+
+// wordPutAt runs put for the chunk holding a mark and for the chunks that draw
+// the layout at its position again.
+func wordPutAt(sec *wordLaidSection, c *wordChunk, y float64, put func(*wordChunk) error) error {
+	if err := put(c); err != nil {
+		return err
+	}
+	for _, rc := range sec.repeatsAt(y) {
+		if err := put(rc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wordRuleMax is the greatest height of a fill that is a horizontal rule.
+const wordRuleMax = 8
 
 // wordPathCenter is the vertical centre of a path's control points.
 func wordPathCenter(p layout.Path) float64 {

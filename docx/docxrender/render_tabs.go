@@ -284,7 +284,12 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 	}
 	var all []*resolved
 	var fragments []string
+	var every []*wordBlock
 	for _, b := range sec.blocks {
+		every = append(every, b)
+		every = append(every, b.nested...)
+	}
+	for _, b := range every {
 		if b.tab == nil {
 			continue
 		}

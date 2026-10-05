@@ -29,6 +29,9 @@ type wordLaidSection struct {
 	// hasEnd says the section ends with endnotes, which start at endTop.
 	hasEnd bool
 	endTop float64
+	// repeats are ranges of the layout drawn again on later pages (the header
+	// rows of tables), in layout order.
+	repeats []wordRepeatGroup
 }
 
 // wordLaidBlock is a block with its geometry in section pixels.
@@ -92,6 +95,13 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 	wordResolveSpacing(sec.blocks)
 	if err := r.resolveTabs(sec); err != nil {
 		return nil, err
+	}
+	for _, b := range sec.blocks {
+		if b.finish != nil {
+			if err := b.finish(sec.props.contentW()); err != nil {
+				return nil, err
+			}
+		}
 	}
 	// The body's own font is irrelevant to the lines (it is one pixel with no
 	// line height) but layout wants a family it can resolve.
@@ -158,6 +168,21 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 		f := frags[i]
 		if f == nil {
 			return nil, fmt.Errorf("%w: layout dropped a block", render.ErrUnsupported)
+		}
+		if b.inspect != nil || len(b.nested) > 0 {
+			ix := wordIndexFragments(f)
+			if b.inspect != nil {
+				if err := b.inspect(f, ix); err != nil {
+					return nil, err
+				}
+			}
+			for _, nb := range b.nested {
+				if nb.inspect != nil {
+					if err := nb.inspect(nil, ix); err != nil {
+						return nil, err
+					}
+				}
+			}
 		}
 		lb := &wordLaidBlock{wordBlock: b, top: f.BorderRect.Y.Px(), bottom: f.BorderRect.Bottom().Px()}
 		if b.units != nil {

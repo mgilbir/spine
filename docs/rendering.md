@@ -971,6 +971,34 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   notes, which follow the body text of the document, or of each section for
   `w:pos` `sectEnd`, after the endnote separator, as ordinary flow.
 - Content controls, smart tags and custom XML wrappers draw their content.
+- **Tables.** The table grid and the columns it gives (fixed and autofit
+  layouts: an autofit table is drawn by the grid Word stored, which is what Word
+  computed), `w:tblW` as points or a percentage of the text width (of the cell,
+  in a nested table), alignment and indent (the table's edge sits at the indent
+  in compatibility mode 15, and the first cell's text at it in older modes, as in
+  Word), cell margins from the cell, the row exception (`w:tblPrEx`), the table
+  and its style, measured from the grid line, and vertical alignment. Borders:
+  the table's outer and inside borders, table style layers and cell borders, as
+  single, double, dotted and dashed lines with their width and colour, where
+  neighbouring cells of the same size share an edge by Word's rule (the heavier
+  line, then the darker colour, then the first cell). Shading from the cell,
+  the table and the style (clear and solid fills, theme colours). `gridSpan`,
+  `vMerge`, the legacy `hMerge`, `gridBefore` and `gridAfter`, row heights
+  (`atLeast`, and `exact` while the text fits), hidden rows, and nested tables.
+  Table styles: `basedOn` chains, the default table style, the whole-table layer
+  and every conditional layer (first and last row and column, banded rows and
+  columns with their band sizes, corner cells) selected by `w:tblLook`, with the
+  style's paragraph and run formatting beneath paragraph styles and direct
+  formatting. Cells hold paragraphs (with tab stops) and nested tables.
+  Pagination cuts a table between rows; a row without `w:cantSplit` is also cut
+  between the lines of its cells, where no line is crossed; a `cantSplit` row
+  moves to the next page whole unless it is taller than a page; header rows
+  (`w:tblHeader`, from the first row) are drawn again on each page the table
+  continues on and are not left alone at the foot of a page; rows whose
+  paragraphs all keep with next stay with the next row, and a keep-with-next
+  paragraph before a table stays with its first row; the borders at a cut are
+  drawn whole on both pages. Rows a vertical merge joins are cut only between
+  the lines of the merged cell.
 
 ### Drawn approximately
 
@@ -1009,12 +1037,24 @@ bullets (a bullet character), number formats other than those listed above
 cannot express (roman numerals above 3999 or below 1, letters below 1,
 enclosed circles above 20), which draw in decimal, the English text formats
 (`ordinal`, `cardinalText`, `ordinalText`), which Word writes in the document's
-language, and marker text that refers to a deeper level.
+language, and marker text that refers to a deeper level; floating tables
+(`w:tblpPr`, drawn in the text flow), cell spacing
+(drawn without), right-to-left tables, a table width or cell widths (`w:tcW`)
+that differ from the grid (drawn by the grid, or, for an autofit table, scaled
+to the table width), a grid without column widths, an autofit column too narrow
+for an unbreakable word (the word overflows; Word widens the column), `noWrap`
+cells in autofit tables, text taller than an `exact` row height (drawn, not
+clipped), page breaks in a cell (`pageBreakBefore` and manual breaks are not
+applied), borders in other styles than the four above (drawn solid), border
+shadows, shading patterns, row alignment, vertical text in cells, `tcFitText`,
+justified vertical alignment, tracked changes to rows and cells, and borders
+shared by cells of different sizes whose lines differ (forme's rule decides).
 
 ### Left out
 
-Reported as unsupported in best effort and refused in strict mode: tables,
-images, drawings, text boxes and other alternate
+Reported as unsupported in best effort and refused in strict mode: diagonal cell
+borders, table, row and cell properties and elements this profile does not know,
+content of merged cells that a merge hides, images, drawings, text boxes and other alternate
 content, notes the document does not have, notes in headers, footers and notes, comments, equations,
 embedded objects, symbols, form fields, paragraph and run borders, paragraph
 shading, frames, page borders, line numbering, vertical page alignment, text
@@ -1030,11 +1070,23 @@ underline's spacing, automatic hyphenation (none), and the shaping engine decide
 the exact placement; identical Word pagination is not promised. Pagination
 follows the rules above on those metrics.
 
+Tables are laid out by forme as CSS tables with collapsing borders and fixed
+columns; the renderer computes what Word decides (columns, margins as padding,
+every cell's borders, shading, heights) and hands them over as numbers. Where
+that differs from Word the profile decides: the text inset of a cell is its
+margin from the grid line (the half of a border wider than the margin is the
+inset instead), a row that only holds the continuation of a vertical merge takes
+its height from the other rows, a row aligned other than to the top is kept whole
+rather than re-aligned in each part when it is cut, and only table placement
+differs between compatibility modes.
+
 ### Budgets
 
 The main, styles, numbering, settings, theme, header, footer, footnote and
 endnote parts are bounded by `MaxSourceBytes` and
-`MaxLayoutNodes` (elements, attributes and every generated block and span);
+`MaxLayoutNodes` (elements, attributes and every generated block, span, row and
+cell; a table is bounded to 256 columns, 16 nested levels and a million grid
+slots);
 list counters by Word's own limit of 32767 (`render.ErrLimit`) and level text by
 256 characters; emitted text by eight times `Limits.MaxTextBytes`; pages by
 `Limits.MaxOperations`; the whole document's display list by sixty-four times

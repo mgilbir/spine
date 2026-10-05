@@ -46,6 +46,11 @@ type wordRenderer struct {
 	hf *wordHF
 	// notes is the footnote and endnote state (render_notes.go).
 	notes *wordNotes
+	// compat is the compatibility mode of the document (w:compat), 15 for Word
+	// 2013 and later; a document that does not say is Word 2007's, 12.
+	compat int
+	// nextID numbers the generated elements layout must find again.
+	nextID int
 }
 
 // wordIssueKind says how a feature the profile does not draw exactly is

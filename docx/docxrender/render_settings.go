@@ -41,6 +41,7 @@ var wordSettingsLayout = map[string]string{
 // loadSettings reads the settings part. A nil root is a document without one.
 func (r *wordRenderer) loadSettings(root *wordNode) error {
 	r.defaultTab = 720.0 / 15
+	r.compat = 12
 	if root == nil {
 		return nil
 	}
@@ -74,6 +75,16 @@ func (r *wordRenderer) loadSettings(root *wordNode) error {
 				return fmt.Errorf("%w: w:evenAndOddHeaders", render.ErrInvalid)
 			}
 			r.evenOdd = on
+		case "compat":
+			for _, s := range c.children {
+				if s.is("compatSetting") && s.attrOr("name") == "compatibilityMode" {
+					v, ok := wordRenderInt(s.attrOr("val"))
+					if !ok || v < 0 || v > 100 {
+						return fmt.Errorf("%w: w:compatibilityMode", render.ErrInvalid)
+					}
+					r.compat = v
+				}
+			}
 		case "clrSchemeMapping":
 			m := map[string]string{}
 			for _, name := range wordClrNames {

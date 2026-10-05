@@ -68,6 +68,21 @@ type wordBlock struct {
 	// units returns the places the block may be split, from its laid out
 	// wrapper fragment. Nil selects the lines of the paragraph inside.
 	units wordUnitsFunc
+	// nested are the blocks inside this block's cells (a table), all the way
+	// down: tabs are resolved for them with the section's own.
+	nested []*wordBlock
+	// finish writes inner once tabs are resolved, given the width in pixels the
+	// block is laid out in (a table's width depends on it). The section calls
+	// it for its blocks; a table calls it for the blocks in its cells.
+	finish func(avail float64) error
+	// inspect checks the block against its layout, given its wrapper fragment
+	// and an index of the generated elements under it by id.
+	inspect func(wrapper *layout.Fragment, ix wordFragIndex) error
+	// plan locates a table's rows once it is laid out, for pagination.
+	plan *wordTablePlan
+	// id numbers the wrapper of a block that is inside a cell and needs to be
+	// found after layout.
+	id int
 }
 
 // wordUnit is an indivisible vertical extent of a block, in section layout
@@ -104,6 +119,10 @@ type wordFlow struct {
 	// the text of a note is.
 	hf   *wordHFCtx
 	note *wordNoteCtx
+	// cell is set in the flow of a table cell's content, which has no sections
+	// and no page breaks of its own; depth is how many tables enclose it.
+	cell  *wordCellCtx
+	depth int
 }
 
 // visible reports whether content is part of drawn text, which it is outside

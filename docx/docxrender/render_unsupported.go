@@ -17,7 +17,6 @@ const (
 
 // wordLeftOutBlocks are body-level elements.
 var wordLeftOutBlocks = []struct{ key, what string }{
-	{"tbl", "tables"},
 	{"commentRangeStart", "comments"},
 	{"commentRangeEnd", "comments"},
 	{"altChunk", "embedded content"},
