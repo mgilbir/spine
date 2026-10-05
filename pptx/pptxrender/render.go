@@ -194,7 +194,7 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 	for i := len(layers) - 1; i >= 0; i-- {
 		if layers[i] != nil && layers[i].Bg != nil {
 			if bp := layers[i].Bg.BgPr; bp != nil && bp.BlipFill != nil {
-				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, float64(w)/px, float64(h)/px, resolved, colors); err != nil {
+				if bgImage, bgImageBytes, err = s.renderBackgroundImage(ctx, parts[i], bp, float64(w)/px, float64(h)/px, resolved, colors, fonts); err != nil {
 					if err = soft(fmt.Errorf("pptx: background drawn white: %w", err)); err != nil {
 						return nil, err
 					}
@@ -241,7 +241,10 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 	// A slide often repeats one image; decode and charge it once. Every
 	// drawing of it counts toward the image budget.
 	decoded := map[renderImageKey]image.Image{}
-	loadImage := func(data []byte, key renderImageKey) (image.Image, error) {
+	// loadImageAt decodes a picture drawn over a box of about w by h CSS
+	// pixels, which sizes the raster of a metafile; zero asks for its natural
+	// size.
+	loadImageAt := func(data []byte, key renderImageKey, w, h float64) (image.Image, error) {
 		if len(data) == 0 {
 			return nil, fmt.Errorf("%w: missing picture data", render.ErrInvalid)
 		}
@@ -249,6 +252,16 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
 		}
 		imageCount++
+		isMetafile := renderIsMetafile(data)
+		var plan renderMetafilePlan
+		if isMetafile {
+			var err error
+			plan, err = renderPlanMetafile(data, w, h, resolved.MaxImagePixels-imagePixels, resolved.MaxDimension)
+			if err != nil {
+				return nil, err
+			}
+			key.w, key.h = plan.w, plan.h
+		}
 		if img := decoded[key]; img != nil {
 			return img, nil
 		}
@@ -258,7 +271,13 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		imageBytes += int64(len(data))
 		decodeLimits := resolved
 		decodeLimits.MaxImagePixels = resolved.MaxImagePixels - imagePixels
-		img, err := core.DecodeImage(ctx, data, decodeLimits)
+		var img image.Image
+		var err error
+		if isMetafile {
+			img, err = renderDrawMetafile(ctx, data, plan, decodeLimits, colors, fonts)
+		} else {
+			img, err = core.DecodeImage(ctx, data, decodeLimits)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -432,12 +451,12 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		}
 		// A shape's picture fill comes from its own part.
 		prevPicture := colors.picture
-		colors.picture = func(embed string) (image.Image, []byte, error) {
+		colors.picture = func(embed string, w, h float64) (image.Image, []byte, error) {
 			if picture == nil {
 				return nil, nil, fmt.Errorf("%w: picture fill without its part", render.ErrUnsupported)
 			}
 			data, key := picture(embed, nil)
-			img, err := loadImage(data, key)
+			img, err := loadImageAt(data, key, w, h)
 			return img, data, err
 		}
 		defer func() { colors.picture = prevPicture }()
@@ -520,7 +539,15 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			if pst.Media {
 				return nil, fmt.Errorf("%w: media picture", render.ErrUnsupported)
 			}
-			img, err := loadImage(picture(pst.RelID, v))
+			// A metafile is drawn at the size its box has, before any crop.
+			boxW, boxH := v.Size()
+			if picProps != nil && picProps.Xfrm != nil && picProps.Xfrm.Ext != nil {
+				boxW, boxH = dml.EMU(picProps.Xfrm.Ext.Cx), dml.EMU(picProps.Xfrm.Ext.Cy)
+			}
+			fullW := float64(boxW) / float64(dml.EMUsPerPixel) / math.Max(1-pst.Crop[0]-pst.Crop[2], 0.01)
+			fullH := float64(boxH) / float64(dml.EMUsPerPixel) / math.Max(1-pst.Crop[1]-pst.Crop[3], 0.01)
+			picData, picKey := picture(pst.RelID, v)
+			img, err := loadImageAt(picData, picKey, fullW, fullH)
 			if err != nil {
 				return nil, err
 			}
@@ -794,6 +821,9 @@ type renderImageKey struct {
 	part string
 	data *byte
 	size int
+	// w and h are the pixels a metafile is drawn at, which differ with where
+	// it is drawn; zero for raster pictures.
+	w, h int
 }
 
 // It resolves the part as Picture.Data does.
@@ -1095,7 +1125,13 @@ func (c *renderColors) pictureFill(f *dml.BlipFillXML, w, h float64) (renderPain
 			return renderPaint{}, err
 		}
 	}
-	img, data, err := c.picture(f.Blip.Embed)
+	// A stretched metafile is drawn at the size of the box; a tiled one at
+	// its natural size.
+	hintW, hintH := w, h
+	if f.Tile != nil {
+		hintW, hintH = 0, 0
+	}
+	img, data, err := c.picture(f.Blip.Embed, hintW, hintH)
 	if err != nil {
 		return renderPaint{}, err
 	}
@@ -1511,7 +1547,7 @@ func (s *renderSlide) renderPictureProps(index int) *dml.SpPr {
 // renderBackgroundImage decodes a picture background from its part, cropped
 // by its source rectangle, to stretch over a slide w by h pixels: stretched
 // itself, or tiled.
-func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, w, h float64, limits render.Limits, colors *renderColors) (image.Image, int64, error) {
+func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp *oxml.BackgroundProps, w, h float64, limits render.Limits, colors *renderColors, fonts *slideRenderFonts) (image.Image, int64, error) {
 	f := bp.BlipFill
 	if bp.SolidFill != nil || bp.GradFill != nil || bp.PattFill != nil || bp.NoFill != nil || renderEffects(bp.EffectLst) || bp.ExtLst != nil || f.Blip == nil || f.Blip.Embed == "" || f.Blip.Link != "" || len(f.Blip.Effects) > 0 {
 		return nil, 0, fmt.Errorf("%w: background picture", render.ErrUnsupported)
@@ -1528,7 +1564,11 @@ func (s *renderSlide) renderBackgroundImage(ctx context.Context, part string, bp
 	if len(data) == 0 {
 		return nil, 0, fmt.Errorf("%w: missing background picture", render.ErrInvalid)
 	}
-	img, err := core.DecodeImage(ctx, data, limits)
+	hintW, hintH := w, h
+	if f.Tile != nil {
+		hintW, hintH = 0, 0
+	}
+	img, err := renderDecodePicture(ctx, data, limits, hintW, hintH, colors, fonts)
 	if err != nil {
 		return nil, 0, err
 	}

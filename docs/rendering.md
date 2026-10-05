@@ -246,6 +246,49 @@ Best effort stretches a picture fill with neither fill mode, draws a
 negative source inset as none. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
+EMF and WMF pictures, as picture shapes, picture fills and picture
+backgrounds, are drawn by playing the metafile's records (parsed and checked by
+[gowemf](https://github.com/mgilbir/gowemf), which leaves playback to its
+consumer) onto a transparent raster of the size the picture is drawn at, up to
+two pixels per CSS pixel and never below half; the raster then goes through
+the picture machinery above (crop, flips, effects, tiling). Playback is in
+`internal/metafile`: it scan-converts with the page painter's method (eight
+vertical samples, exact horizontal coverage) rather than through the display
+list, which fills only by the even-odd rule and has no strokes or arbitrary
+clip regions. A metafile fills its picture area (an EMF's frame, a placeable
+WMF's bounds, else a WMF's window) over the picture's box. Drawn exactly, in the
+sense of this page (geometry at its coordinates; GDI's pixel-centre rules and
+aliasing are not reproduced): the mapping modes, window and viewport, world
+transforms, save and restore; solid, null and stock pens and brushes, round,
+square and flat caps, round, bevel and miter joins, user-style dashes; polygons
+and polylines under either fill mode, Béziers, `PolyDraw`, rectangles, rounded
+rectangles, ellipses, arcs, chords, pies; paths, filled, stroked, and as
+clips; rectangle, region and path clips; 24-, 32- and other `gowemf`-decoded
+bitmaps copied (`SRCCOPY`, `NOTSRCCOPY`), alpha-blended or color-keyed, and
+`PatBlt` fills; rectangle and triangle gradient fills; and text in the fonts
+the caller's `Fonts` resolver supplies, from Unicode or Windows-1252 text with
+its character advances, aligned to its baseline. A metafile's own size is its
+recorded physical size; a standard WMF has none. Strict mode fails with
+`render.ErrUnsupported` for anything else; best effort draws the rest and
+reports each detail once, as approximated or left out: hatched, pattern and
+DIB brushes (their fills are left out), preset pen dashes (drawn at Windows'
+usual lengths), pens under non-uniform transforms (at the mean scale),
+inside-frame pens on turned shapes, text without advances, aligned to its top
+or bottom, sized by cell height, underlined or with extra spacing (from the
+font's metrics), text with no font resolver or in other character sets
+(left out), raster operations and binary raster operations beyond copy
+(left out), masked, parallelogram, palette and partial bitmap transfers,
+flood fills, region frames and inverts, meta regions, widened paths and
+clip offsets (left out), and an EMF+ file with GDI fallback records (drawn
+from them, which Office may draw differently). EMF+ only files, malformed
+files and files with records `gowemf` cannot decode fail in strict mode; best
+effort stops at an undecodable record and leaves out the rest. All budgets
+apply: the raster's pixels count against the unique-image pixel budget, drawing
+operations, flattened and stroked segments, scan work, pixel visits, clip
+masks (sixteen rasters), bitmap pixels (`MaxImagePixels` across the metafile),
+glyphs and fonts are charged to the render limits, and cancellation is checked
+between records and rows.
+
 Other preset geometries draw from the standard's definitions
 (`presetShapeDefinitions.xml` of ECMA-376 Part 1, embedded with only their
 guides, text rectangles and paths) through the custom geometry engine below,

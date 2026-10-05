@@ -62,6 +62,12 @@
   which were not compared; best effort draws them and reports the
   approximation. Styles a deck defines itself are still left out, as are
   unknown ids, with a warning in best effort.
+- render: PowerPoint previews draw EMF and WMF pictures (picture shapes, picture
+  fills and backgrounds) with [gowemf](https://github.com/mgilbir/gowemf): the
+  records are played onto a raster of the size the picture is drawn at, under
+  the render limits. Strict mode fails on anything not drawn exactly; best
+  effort reports approximations and leaves out the rest. See
+  `docs/rendering.md`.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and

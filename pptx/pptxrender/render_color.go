@@ -33,7 +33,7 @@ type renderColors struct {
 	// picture decodes an image the part of the shape being drawn embeds,
 	// under the slide's image budget, with the file's bytes; nil where none
 	// can be drawn.
-	picture func(embed string) (image.Image, []byte, error)
+	picture func(embed string, w, h float64) (image.Image, []byte, error)
 	// tilePixels counts the pixels tiled fills have composed, and
 	// effectPixels those effects have rasterized under limits.
 	tilePixels   int64
