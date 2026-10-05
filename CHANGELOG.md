@@ -20,8 +20,8 @@
   physically (verified against PowerPoint's export) and the line placed by the
   paragraph's alignment; other stops fail in strict mode and draw
   approximately in best effort. In runs of a complex-script language
-  (`he-IL`, `ar-*` and others) ASCII digits and spaces use the `a:cs` font, as
-  PowerPoint draws them; ASCII punctuation there fails in strict mode. A run's
+  (`he-IL`, `ar-*` and others) ASCII spaces, digits, punctuation and symbols
+  use the `a:cs` font, as PowerPoint draws them. A run's
   own direction still fails.
 - pptx: the preview renderer draws East Asian text (ideographs, kana, hangul,
   CJK punctuation, fullwidth forms): each run is cut into spans by the font

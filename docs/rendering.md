@@ -481,12 +481,11 @@ Arabic letter marks set among them, is drawn with the complex-script font
 list's entry for the run's language (`ar`, `fa`, `ur` and others Arab, `he`
 and `yi` Hebr, `dv` Thaa, `syr` Syrc, `nqo` Nkoo) or, where the language names
 none, for the script of the text. The joiners and marks take the font of the
-text they are among. Digits and spaces of ASCII use the Latin font, except in a run
-whose language is written in a complex script (the languages above): there, as
-PowerPoint's export showed for `he-IL` with `a:latin` Courier New and `a:cs` Arial,
-ASCII digits and spaces use the complex-script font, where with `en-US` they use
-the Latin one. How ASCII punctuation and symbols are drawn in such a run was not
-measured: it fails, and best effort uses the Latin font. Other punctuation of
+text they are among. ASCII other than Latin letters (spaces, digits, punctuation
+and symbols) uses the Latin font, except in a run whose language is written in a
+complex script (the languages above): there, as PowerPoint's export showed for
+`he-IL` and `ar-SA` with `a:latin` Courier New and `a:cs` Arial, it uses the
+complex-script font, where with `en-US` it uses the Latin one. Other punctuation of
 the European repertoire uses the Latin font even inside right-to-left text. Text with no
 complex-script font fails, and best effort draws it with the Latin font. Other
 scripts, such as Thai or Devanagari, soft hyphens, controls, the explicit

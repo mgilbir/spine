@@ -115,17 +115,23 @@ func TestRenderComplexScriptDigitsFont(t *testing.T) {
 			t.Errorf("%s: digits and space: %v", lang, err)
 		}
 	}
-	// How other ASCII punctuation is drawn there was not measured.
-	if _, err := renderRewrittenPNG(t, data, opts, run("he-IL", "1.")); !errors.Is(err, render.ErrUnsupported) {
-		t.Fatalf("punctuation: %v", err)
-	}
-	if _, err := renderRewrittenPNG(t, data, opts, run("en-US", "1.")); err != nil {
-		t.Fatalf("punctuation in English: %v", err)
-	}
-	var warnings []string
-	best := opts
-	best.Warn = func(err error) { warnings = append(warnings, err.Error()) }
-	if _, err := renderRewrittenPNG(t, data, best, run("he-IL", "1.")); err != nil || !strings.Contains(strings.Join(warnings, "\n"), "ASCII punctuation") {
-		t.Fatalf("best effort: %v %q", err, warnings)
+	// ASCII punctuation and symbols follow the digits: every mark of
+	// ". , : ; ! ? ( ) [ ] { } - _ / \\ | ~ \" ' ` @ # $ % ^ & * + = < >" is drawn
+	// in the complex-script font in he-IL and ar-SA runs and in the Latin
+	// font in en-US, in PowerPoint's own export.
+	for lang, upper := range map[string]bool{"he-IL": false, "en-US": true} {
+		got, err := renderRewrittenPNG(t, data, opts, run(lang, "1."))
+		if err != nil {
+			t.Fatalf("%s punctuation: %v", lang, err)
+		}
+		if !renderInk(t, got, 5, 12, 17, 15, black) || renderInk(t, got, 5, 5, 17, 8, black) == !upper {
+			t.Errorf("%s: digit beside punctuation in the wrong font", lang)
+		}
+		if got, err = renderRewrittenPNG(t, data, opts, run(lang, ".")); err != nil {
+			t.Fatalf("%s: %v", lang, err)
+		}
+		if !renderInk(t, got, 5, 12, 17, 15, black) || renderInk(t, got, 5, 5, 17, 8, black) == !upper {
+			t.Errorf("%s: punctuation in the wrong font", lang)
+		}
 	}
 }
