@@ -27,6 +27,12 @@ func (d *Document) view() *view.Document {
 			}
 			return marshalStylesXML(d.styles)
 		},
+		NumberingXML: func() ([]byte, error) {
+			if d.numbering == nil {
+				return nil, nil
+			}
+			return marshalNumberingXML(d.numbering)
+		},
 		SettingsXML: func() ([]byte, error) {
 			if d.settings == nil {
 				return nil, nil

@@ -152,7 +152,8 @@ type wordPPr struct {
 	beforeAuto, afterAuto                       wordOpt[bool]
 	line                                        wordOpt[wordLine]
 	tabs                                        wordOpt[[]wordTab]
-	numbered                                    wordOpt[bool]
+	numID                                       wordOpt[string]
+	ilvl                                        wordOpt[int]
 	bidi                                        wordOpt[bool]
 
 	// mark is the paragraph mark's run formatting (w:pPr/w:rPr).
@@ -174,7 +175,7 @@ func (p wordPPr) over(base wordPPr) wordPPr {
 	out.before, out.after = p.before.or(base.before), p.after.or(base.after)
 	out.beforeAuto, out.afterAuto = p.beforeAuto.or(base.beforeAuto), p.afterAuto.or(base.afterAuto)
 	out.line = p.line.or(base.line)
-	out.numbered = p.numbered.or(base.numbered)
+	out.numID, out.ilvl = p.numID.or(base.numID), p.ilvl.or(base.ilvl)
 	out.bidi = p.bidi.or(base.bidi)
 	if p.tabs.set && base.tabs.set {
 		out.tabs = wordSome(append(append([]wordTab(nil), base.tabs.v...), p.tabs.v...))
@@ -536,15 +537,25 @@ func (r *wordRenderer) parsePPr(n *wordNode) (wordPPr, error) {
 			}
 			p.tabs = wordSome(tabs)
 		case "numPr":
-			id := c.child("numId")
-			if id == nil {
-				// Only an inherited numbering property level (ilvl) is set.
-				break
-			}
-			if id.val() == "0" {
-				p.numbered = wordSome(false)
-			} else {
-				p.numbered = wordSome(true)
+			for _, k := range c.children {
+				switch {
+				case k.is("numId"):
+					id := strings.TrimSpace(k.val())
+					if id == "" || len(id) > 32 {
+						return p, fmt.Errorf("%w: w:numId", render.ErrInvalid)
+					}
+					p.numID = wordSome(id)
+				case k.is("ilvl"):
+					v, ok := wordRenderInt(k.val())
+					if !ok || v < 0 || v >= wordListLevels {
+						return p, fmt.Errorf("%w: w:ilvl", render.ErrInvalid)
+					}
+					p.ilvl = wordSome(v)
+				case k.is("ins"), k.is("numberingChange"):
+					approx("tracked numbering change")
+				default:
+					omit("w:numPr child")
+				}
 			}
 		case "rPr":
 			p.mark, err = r.parseRPr(c)

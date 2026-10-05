@@ -299,7 +299,8 @@ func TestHeaderSettings(t *testing.T) {
 		if len(o.warnings) != 1 || !errors.Is(o.warnings[0], render.ErrApproximated) {
 			t.Errorf("warnings %v", o.warnings)
 		}
-		hfLine(t, p, 1, "1")
+		// Best effort draws the English words, as the list formats do.
+		hfLine(t, p, 1, "One")
 	})
 	t.Run("a header taller than the page", func(t *testing.T) {
 		var paras []string

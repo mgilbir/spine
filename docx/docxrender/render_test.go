@@ -321,45 +321,58 @@ func TestPagesAreSafeForConcurrentUse(t *testing.T) {
 }
 
 func FuzzDocxRender(f *testing.F) {
+	seedNumbering := numAbstract("0", "", numDecimal(0, "%1.", ""), numLvl(1, `<w:start w:val="1"/><w:numFmt w:val="lowerRoman"/><w:lvlText w:val="%1.%2"/>`)) + numInstance("1", "0")
 	hdr := wordTestHeader(wordTestPara("", wordTestRun("", "H"), hfField("PAGE", "1"), hfField("NUMPAGES", "1")))
 	ftr := wordTestFooter(wordTestPara("", wordTestRun("", "F"), `<w:r><w:pgNum/></w:r>`))
 	notes := fnPart("footnote", fnNote("footnote", "1", "note"), fnNote("footnote", "2", "a", "b"))
 	ends := fnPart("endnote", fnNote("endnote", "1", "end"))
-	seed := wordTestDoc(f, wordTestPara("", wordTestRun("", "AA"), fnRef("1"), enRef("1"))+hfSect(hfRef("header", "default", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1), 0, 0),
-		wordTestParts{styles: wordTestStyles, extra: map[string]wordTestExtra{"word/header1.xml": hdr, "word/footer1.xml": ftr, "word/footnotes.xml": notes, "word/endnotes.xml": ends}})
+	seed := wordTestDoc(f, wordTestPara("", wordTestRun("", "AA"), fnRef("1"), enRef("1"))+numPara("1", 0, "AA")+numPara("1", 1, "AA")+hfSect(hfRef("header", "default", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1), 0, 0),
+		wordTestParts{styles: wordTestStyles, numbering: seedNumbering, extra: map[string]wordTestExtra{"word/header1.xml": hdr, "word/footer1.xml": ftr, "word/footnotes.xml": notes, "word/endnotes.xml": ends}})
 	valid, err := seed.SaveBytes()
 	if err != nil {
 		f.Fatal(err)
 	}
 	face := wordTestFace(f)
-	const part, stylesPart, hdrPart, notesPart = "word/document.xml", "word/styles.xml", "word/header1.xml", "word/footnotes.xml"
+	const part, stylesPart, hdrPart, notesPart, numberingPart = "word/document.xml", "word/styles.xml", "word/header1.xml", "word/footnotes.xml", "word/numbering.xml"
 	styles := fuzzseed.ZipEntry(valid, stylesPart)
 	header := fuzzseed.ZipEntry(valid, hdrPart)
 	noteData := fuzzseed.ZipEntry(valid, notesPart)
-	f.Add(fuzzseed.ZipEntry(valid, part), styles, header, noteData)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>AA</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:sectPr><w:pgSz w:w="2147483647" w:h="2147483647"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="A"/><w:keepNext/><w:ind w:left="9999999" w:hanging="1"/><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:pPr><w:r><w:rPr><w:u w:val="double"/><w:vertAlign w:val="superscript"/></w:rPr><w:t>A</w:t><w:br w:type="page"/><w:tab/><w:t>B</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`),
+	numbering := fuzzseed.ZipEntry(valid, numberingPart)
+	// Every seed below carries the seed document's numbering part.
+	add := func(data, styles, hdr, notes []byte) { f.Add(data, styles, hdr, notes, numbering) }
+	add(fuzzseed.ZipEntry(valid, part), styles, header, noteData)
+	add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>AA</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
+	add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:sectPr><w:pgSz w:w="2147483647" w:h="2147483647"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
+	add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="A"/><w:keepNext/><w:ind w:left="9999999" w:hanging="1"/><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:pPr><w:r><w:rPr><w:u w:val="double"/><w:vertAlign w:val="superscript"/></w:rPr><w:t>A</w:t><w:br w:type="page"/><w:tab/><w:t>B</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`),
 		[]byte(`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="A"><w:basedOn w:val="A"/></w:style></w:styles>`), header, noteData)
-	f.Add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="3000"/><w:tab w:val="center" w:pos="1500"/><w:tab w:val="clear" w:pos="1500"/></w:tabs><w:ind w:left="361" w:hanging="200"/></w:pPr><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:tab/><w:t>C</w:t><w:tab/></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
+	add([]byte(`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="3000"/><w:tab w:val="center" w:pos="1500"/><w:tab w:val="clear" w:pos="1500"/></w:tabs><w:ind w:left="361" w:hanging="200"/></w:pPr><w:r><w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:tab/><w:t>C</w:t><w:tab/></w:r></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`), styles, header, noteData)
 	// Headers, footers and page numbering.
 	hdrDoc := func(extra string) []byte {
 		return []byte(`<w:document ` + wordTestNS + `><w:body><w:p><w:r><w:t>A</w:t></w:r></w:p><w:p><w:pPr><w:pageBreakBefore/></w:pPr><w:r><w:t>B</w:t></w:r></w:p>` + hfSect(extra, 6, 6) + `</w:body></w:document>`)
 	}
-	f.Add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+hfRef("header", "first", hfRIDHeader1)+hfRef("header", "even", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1)+`<w:titlePg/><w:pgNumType w:start="-3" w:fmt="upperRoman"/>`), styles, header, noteData)
-	f.Add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+`<w:pgNumType w:fmt="lowerLetter" w:start="2147483647"/>`), styles, []byte(`<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:fldSimple w:instr="PAGE \* ROMAN \# 0"><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>NUMPAGES</w:instrText><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>`), noteData)
-	f.Add(hdrDoc(hfRef("header", "default", "rId999")+hfRef("footer", "default", hfRIDHeader1)), styles, header, noteData)
+	add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+hfRef("header", "first", hfRIDHeader1)+hfRef("header", "even", hfRIDHeader1)+hfRef("footer", "default", hfRIDFooter1)+`<w:titlePg/><w:pgNumType w:start="-3" w:fmt="upperRoman"/>`), styles, header, noteData)
+	add(hdrDoc(hfRef("header", "default", hfRIDHeader1)+`<w:pgNumType w:fmt="lowerLetter" w:start="2147483647"/>`), styles, []byte(`<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:fldSimple w:instr="PAGE \* ROMAN \# 0"><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:fldChar w:fldCharType="begin"/><w:instrText>NUMPAGES</w:instrText><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>`), noteData)
+	add(hdrDoc(hfRef("header", "default", "rId999")+hfRef("footer", "default", hfRIDHeader1)), styles, header, noteData)
 	// Footnotes and endnotes: references, numbering restarts and formats, a
 	// note that continues over pages.
 	noteDoc := func(sect, body string) []byte {
 		return []byte(`<w:document ` + wordTestNS + `><w:body>` + body + hfSect(sect, 0, 0) + `</w:body></w:document>`)
 	}
-	f.Add(noteDoc(`<w:footnotePr><w:numRestart w:val="eachPage"/><w:numFmt w:val="chicago"/><w:numStart w:val="-2"/></w:footnotePr><w:endnotePr><w:pos w:val="sectEnd"/></w:endnotePr>`,
+	add(noteDoc(`<w:footnotePr><w:numRestart w:val="eachPage"/><w:numFmt w:val="chicago"/><w:numStart w:val="-2"/></w:footnotePr><w:endnotePr><w:pos w:val="sectEnd"/></w:endnotePr>`,
 		fnPara(14, fnRef("1"), fnRef("2"), enRef("1"))+fnPara(3, fnRef("2"), `<w:r><w:footnoteReference w:id="9" w:customMarkFollows="1"/><w:t>*</w:t></w:r>`)), styles, header, noteData)
-	f.Add(noteDoc(`<w:footnotePr><w:numRestart w:val="eachSect"/></w:footnotePr>`, fnPara(40, fnRef("2"), fnRef("1"), fnRef("1"))), styles, header,
+	add(noteDoc(`<w:footnotePr><w:numRestart w:val="eachSect"/></w:footnotePr>`, fnPara(40, fnRef("2"), fnRef("1"), fnRef("1"))), styles, header,
 		[]byte(`<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:id="1"><w:p><w:r><w:footnoteRef/><w:footnoteReference w:id="1"/></w:r></w:p></w:footnote></w:footnotes>`))
-	f.Fuzz(func(t *testing.T, data, stylesData, hdrData, notesData []byte) {
-		if len(data) > 65536 || len(stylesData) > 65536 || len(hdrData) > 65536 || len(notesData) > 65536 {
+	// Numbering: a list through paragraph styles and a numbering style that
+	// links to itself, levels with every suffix, alignment and format, and
+	// overrides.
+	const nsDecl = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`
+	listBody := `<w:document ` + nsDecl + `><w:body><w:p><w:pPr><w:pStyle w:val="L"/></w:pPr><w:r><w:t>A</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="2"/></w:numPr><w:ind w:left="40"/></w:pPr><w:r><w:t>B</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val="8"/><w:numId w:val="1"/></w:numPr></w:pPr></w:p><w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300"/></w:sectPr></w:body></w:document>`
+	listStyles := `<w:styles ` + nsDecl + `><w:style w:type="paragraph" w:styleId="L"><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style><w:style w:type="numbering" w:styleId="N"><w:pPr><w:numPr><w:numId w:val="3"/></w:numPr></w:pPr></w:style></w:styles>`
+	listNumbering := `<w:numbering ` + nsDecl + `><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="2"/><w:numFmt w:val="upperRoman"/><w:suff w:val="space"/><w:lvlText w:val="%1)"/><w:lvlJc w:val="right"/><w:pStyle w:val="L"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl><w:lvl w:ilvl="1"><w:numFmt w:val="cardinalText"/><w:isLgl/><w:lvlRestart w:val="0"/><w:lvlText w:val="%1.%2.%9"/><w:lvlJc w:val="center"/></w:lvl><w:lvl w:ilvl="2"><w:numFmt w:val="bullet"/><w:lvlText w:val="&#xF0B7;"/><w:rPr><w:rFonts w:ascii="Symbol"/></w:rPr></w:lvl></w:abstractNum><w:abstractNum w:abstractNumId="1"><w:numStyleLink w:val="N"/></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="1"><w:startOverride w:val="7"/></w:lvlOverride></w:num><w:num w:numId="3"><w:abstractNumId w:val="1"/></w:num></w:numbering>`
+	f.Add([]byte(listBody), []byte(listStyles), header, noteData, []byte(listNumbering))
+	f.Add([]byte(listBody), []byte(listStyles), header, noteData, []byte(`<w:numbering `+nsDecl+`><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="32767"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%1%1%1"/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`))
+	f.Fuzz(func(t *testing.T, data, stylesData, hdrData, notesData, numberingData []byte) {
+		if len(data) > 65536 || len(stylesData) > 65536 || len(hdrData) > 65536 || len(notesData) > 65536 || len(numberingData) > 65536 {
 			t.Skip()
 		}
 		wrapped := fuzzseed.ReplaceZipEntry(valid, part, data)
@@ -374,6 +387,9 @@ func FuzzDocxRender(f *testing.F) {
 			t.Fatal("seed")
 		}
 		if wrapped = fuzzseed.ReplaceZipEntry(wrapped, notesPart, notesData); wrapped == nil {
+			t.Fatal("seed")
+		}
+		if wrapped = fuzzseed.ReplaceZipEntry(wrapped, numberingPart, numberingData); wrapped == nil {
 			t.Fatal("seed")
 		}
 		doc, err := docx.OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))

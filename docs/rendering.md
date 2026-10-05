@@ -883,6 +883,33 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   only when it has no text (an empty paragraph, the line after a line break
   that ends the paragraph, or a line of pictures); a line with text is sized by
   its runs, whatever the mark's size, as Word's PDF output shows.
+- **Numbering and lists.** `w:numPr` set on a paragraph or through its
+  paragraph style (and the styles it is based on) names a `w:num` of
+  `numbering.xml`; the level is `w:ilvl`, or the level whose `w:pStyle` names the
+  paragraph's style. Counting follows Word: counters belong to the abstract
+  numbering (several `w:num` of one `w:abstractNum` continue each other's count),
+  a `w:startOverride` restarts its level at the first paragraph of that `w:num`
+  there, a `w:lvlOverride` with a `w:lvl` replaces the level, a level restarts
+  after a paragraph of a higher level (or after the level `w:lvlRestart` names,
+  or never when it is 0), and paragraphs without numbering, other content and
+  section breaks do not affect the count. Levels: `w:start`, `w:numFmt`
+  (decimal, decimalZero, upper and lower roman and letter, chicago, the enclosed
+  and full-width decimals, bullet, none), `w:lvlText` with `%1` to `%9` (each in
+  its own level's format, in decimal under `w:isLgl`), `w:suff` (tab, space,
+  nothing), `w:lvlJc` (the marker begins at, is centred on, or ends at the
+  position where the first line starts), the level's indents and tab stops, and
+  its run formatting over the paragraph mark's (font, size, colour, bold...). The
+  tab after the marker reaches the hanging indent, a custom stop or the next
+  default stop through the tab machinery above, so a paragraph that wraps is
+  still exact. With the numbering set directly on the paragraph the level's
+  indents replace its style's; with it set by the style the style's indents
+  win; direct indents always win. `w:numStyleLink` and `w:styleLink` resolve
+  through the numbering style (at most 64 links deep). A paragraph whose list
+  is not defined (no numbering part, `w:num`, abstract numbering or level)
+  draws without a marker, as Word draws it; `w:numId` 0 removes inherited
+  numbering. Bullets in the symbol fonts (Symbol, Wingdings, Wingdings 2 and 3,
+  Webdings) are drawn from the private-use code point in that font when the
+  host's font resolver provides a face that has it.
 - **Runs.** Multiple runs per paragraph; font family per script slot (ASCII,
   high ANSI, East Asian and complex script characters pick the matching
   `rFonts` slot), size, bold, italic (complex-script text uses `bCs`, `iCs` and
@@ -974,12 +1001,19 @@ has none to compare); a
 page number format other than those listed (decimal is drawn),
 chapter numbers in page numbers, other field switches on page number fields, a
 page break inside a header or footer, and a header and footer that leave no room
-for text on the page (the text area keeps the margins).
+for text on the page (the text area keeps the margins); list markers in a symbol font the host does not provide (a
+Unicode bullet of similar look is drawn in the paragraph's font), picture
+bullets (a bullet character), number formats other than those listed above
+(Hebrew, Arabic, Thai, Japanese and Chinese counting, ...) and values a format
+cannot express (roman numerals above 3999 or below 1, letters below 1,
+enclosed circles above 20), which draw in decimal, the English text formats
+(`ordinal`, `cardinalText`, `ordinalText`), which Word writes in the document's
+language, and marker text that refers to a deeper level.
 
 ### Left out
 
 Reported as unsupported in best effort and refused in strict mode: tables,
-numbering and list markers, images, drawings, text boxes and other alternate
+images, drawings, text boxes and other alternate
 content, notes the document does not have, notes in headers, footers and notes, comments, equations,
 embedded objects, symbols, form fields, paragraph and run borders, paragraph
 shading, frames, page borders, line numbering, vertical page alignment, text
@@ -997,10 +1031,11 @@ follows the rules above on those metrics.
 
 ### Budgets
 
-The main, styles, settings, theme, header, footer, footnote and endnote parts
-are bounded by `MaxSourceBytes` and
+The main, styles, numbering, settings, theme, header, footer, footnote and
+endnote parts are bounded by `MaxSourceBytes` and
 `MaxLayoutNodes` (elements, attributes and every generated block and span);
-emitted text by eight times `Limits.MaxTextBytes`; pages by
+list counters by Word's own limit of 32767 (`render.ErrLimit`) and level text by
+256 characters; emitted text by eight times `Limits.MaxTextBytes`; pages by
 `Limits.MaxOperations`; the whole document's display list by sixty-four times
 `Limits.MaxOperations`; fonts by `Limits.MaxFonts`; page dimensions and pixels by
 `MaxDimension` and `MaxPixels`. A page's own operations, glyphs and shaping work

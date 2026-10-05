@@ -32,6 +32,8 @@ type wordRenderer struct {
 
 	theme  *wordTheme
 	styles *wordStyles
+	// lists is the numbering part and the list counters.
+	lists *wordLists
 	// colorMap is the settings part's colour mapping; nil selects the default.
 	colorMap map[string]string
 	// defaultTab is the default tab stop in pixels.

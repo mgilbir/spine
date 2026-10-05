@@ -105,6 +105,14 @@
   measured from the page margin in indented paragraphs, as Word does. forme has
   one tab size, so the renderer measures the text between tabs and sets each
   tab's width; a paragraph that wraps is reported as approximated.
+- docxrender: numbering and lists. Paragraphs numbered directly or through their
+  styles draw their markers: decimal, roman, letter and other formats, multilevel
+  text (`%1.%2`), legal numbering, bullets (symbol-font bullets from the font
+  when the host has it), suffixes and marker alignment, the level's indents and
+  tab stops, start and level overrides, restarts and Word's counter rules, and
+  numbering styles. Formats and symbol fonts the renderer cannot draw as Word
+  does are reported as approximated; picture bullets draw a bullet character.
+  `docx/internal/view` gained `NumberingXML`.
 - spine-render: DOCX is laid out once per document rather than once per page,
   and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer

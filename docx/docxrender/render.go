@@ -228,7 +228,7 @@ func (r *wordRenderer) paginateStable(laid []*wordLaidSection) ([]*wordPage, err
 	}
 }
 
-// loadParts reads the theme, settings and styles parts.
+// loadParts reads the theme, settings, styles and numbering parts.
 func (r *wordRenderer) loadParts(d *view.Document) error {
 	read := func(get func() ([]byte, error), space, name string) (*wordNode, error) {
 		if get == nil {
@@ -260,5 +260,12 @@ func (r *wordRenderer) loadParts(d *view.Document) error {
 	if err != nil {
 		return err
 	}
-	return r.loadStyles(styles)
+	if err = r.loadStyles(styles); err != nil {
+		return err
+	}
+	numbering, err := read(d.NumberingXML, nsW, "numbering")
+	if err != nil {
+		return err
+	}
+	return r.loadNumbering(numbering)
 }

@@ -44,6 +44,10 @@ type wordTabItem struct {
 	nodes         int
 	// html is the break's markup.
 	html string
+	// marker is the tab after a list marker (render_numbering.go): it only
+	// sets where the first line's text starts, so a paragraph that wraps does
+	// not make it approximate.
+	marker bool
 }
 
 // wordTabBlock is a paragraph block whose tabs are not yet resolved.
@@ -60,6 +64,11 @@ type wordTabBlock struct {
 	firstLine  bool
 	stops      []wordTab
 	defaultTab float64
+	// markerHTML is the markup of a list marker that begins the content and is
+	// aligned on the first line's start by its width (markerAlign right or
+	// center); openAt returns the opening tag for a given first-line offset.
+	markerHTML, markerAlign string
+	openAt                  func(first float64) string
 }
 
 // wordEffectiveTabs resolves a cascaded list of tab stops: later entries
@@ -270,6 +279,8 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 		parts []wordTabPart
 		// index of the measurement of each markup part, or -1.
 		meas []int
+		// markerMeas is the measurement of the aligned list marker, or -1.
+		markerMeas int
 	}
 	var all []*resolved
 	var fragments []string
@@ -281,7 +292,11 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 		if err != nil {
 			return err
 		}
-		rs := &resolved{b: b, parts: parts, meas: make([]int, len(parts))}
+		rs := &resolved{b: b, parts: parts, meas: make([]int, len(parts)), markerMeas: -1}
+		if b.tab.markerHTML != "" {
+			rs.markerMeas = len(fragments)
+			fragments = append(fragments, b.tab.markerHTML)
+		}
 		for i, p := range parts {
 			rs.meas[i] = -1
 			if p.item < 0 {
@@ -312,10 +327,20 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 	}
 	var probes []*leaderProbe
 	spacers := make([]map[int]spacer, len(all))
+	// shifts is how far an aligned list marker starts before the position the
+	// first line starts at.
+	shifts := make([]float64, len(all))
 	for k, rs := range all {
 		tb := rs.b.tab
 		spacers[k] = map[int]spacer{}
 		pen := tb.left + tb.first
+		if rs.markerMeas >= 0 {
+			shifts[k] = widths[rs.markerMeas]
+			if tb.markerAlign == "center" {
+				shifts[k] /= 2
+			}
+			pen -= shifts[k]
+		}
 		firstLine := tb.firstLine
 		for i, p := range rs.parts {
 			switch {
@@ -376,8 +401,13 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 	for k, rs := range all {
 		tb := rs.b.tab
 		var sb strings.Builder
-		sb.WriteString(tb.open)
+		if shifts[k] != 0 && tb.openAt != nil {
+			sb.WriteString(tb.openAt(tb.first - shifts[k]))
+		} else {
+			sb.WriteString(tb.open)
+		}
 		lines := 1
+		checked := false
 		for i, p := range rs.parts {
 			switch {
 			case p.item < 0:
@@ -385,7 +415,9 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 			case tb.items[p.item].kind == 'B':
 				sb.WriteString(tb.items[p.item].html)
 				lines++
+				checked = true
 			default:
+				checked = checked || !tb.items[p.item].marker
 				sp := spacers[k][i]
 				var c wordCSS
 				c.add("display", "inline-block")
@@ -413,7 +445,9 @@ func (r *wordRenderer) resolveTabs(sec *wordSection) error {
 		}
 		sb.WriteString("</div>")
 		rs.b.inner = sb.String()
-		rs.b.expectLines = lines
+		if checked {
+			rs.b.expectLines = lines
+		}
 	}
 	return nil
 }

@@ -45,19 +45,17 @@ type wordPara struct {
 	tabMode  bool
 	tabItems []wordTabItem
 	stops    []wordTab
+	// list is the paragraph's numbering, drawn by startList
+	// (render_numbering.go); marker is set when the marker is positioned by
+	// its width.
+	list   *wordListMark
+	marker *wordMarker
 }
 
 // wordParagraphStarts are run before a paragraph's content is translated, in
-// order. The foundation has one hook, which reports numbering as unsupported;
-// the numbering translator replaces it and may write a marker into p.
-var wordParagraphStarts = []func(p *wordPara) error{
-	func(p *wordPara) error {
-		if p.ppr.numbered.v {
-			return p.r.leaveOut("numbering")
-		}
-		return nil
-	},
-}
+// order. The numbering translator registers the one that writes the list
+// marker into p.
+var wordParagraphStarts []func(p *wordPara) error
 
 // paragraph translates a w:p block.
 func (f *wordFlow) paragraph(n *wordNode) error {
@@ -72,11 +70,15 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	if err != nil {
 		return err
 	}
-	p := &wordPara{f: f, r: r, ppr: direct.over(lv.ppr), paraRPr: lv.rpr, brAt: -1}
-	p.styleID = direct.style
-	if p.styleID == "" || r.styles.byID[p.styleID] == nil {
-		p.styleID = r.styles.defPara
+	styleID := direct.style
+	if styleID == "" || r.styles.byID[styleID] == nil {
+		styleID = r.styles.defPara
 	}
+	ppr, list, err := r.listProps(direct, lv, styleID)
+	if err != nil {
+		return err
+	}
+	p := &wordPara{f: f, r: r, ppr: ppr, paraRPr: lv.rpr, list: list, styleID: styleID, brAt: -1}
 	p.mark = p.ppr.mark.over(lv.rpr)
 	if err = r.issues(p.ppr.issues); err != nil {
 		return err
@@ -625,14 +627,18 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		return err
 	}
 	var tab *wordTabBlock
-	if len(p.tabItems) > 0 {
+	if len(p.tabItems) > 0 || p.marker != nil {
 		first := p.ppr.indFirst.v
 		if p.cont {
 			first = 0
 		}
 		tab = &wordTabBlock{open: `<div style="` + css + `">`, content: p.sb.String(), items: p.tabItems,
 			left: p.ppr.indLeft.v, first: first, firstLine: !p.cont, stops: p.stops, defaultTab: p.r.defaultTab}
-		p.tabItems = nil
+		if p.marker != nil {
+			tab.markerHTML, tab.markerAlign = p.marker.html, p.marker.align
+			tab.openAt = func(first float64) string { return `<div style="` + p.blockCSSAt(first) + `">` }
+		}
+		p.tabItems, p.marker = nil, nil
 		inner = ""
 	}
 	b := &wordBlock{
@@ -695,11 +701,18 @@ func (rn *wordRun) strut() (open, closing string, err error) {
 // font and line height are zero-sized so lines are sized only by their runs
 // and the paragraph mark, as Word sizes them.
 func (p *wordPara) blockCSS() string {
-	var c wordCSS
-	left, right, first := p.ppr.indLeft.v, p.ppr.indRight.v, p.ppr.indFirst.v
+	first := p.ppr.indFirst.v
 	if p.cont {
 		first = 0
 	}
+	return p.blockCSSAt(first)
+}
+
+// blockCSSAt is blockCSS with the first line's offset from the left indent
+// given.
+func (p *wordPara) blockCSSAt(first float64) string {
+	var c wordCSS
+	left, right := p.ppr.indLeft.v, p.ppr.indRight.v
 	c.add("margin", "0 "+wordPx(right)+" 0 "+wordPx(left))
 	c.px("text-indent", first)
 	switch p.ppr.jc.v {

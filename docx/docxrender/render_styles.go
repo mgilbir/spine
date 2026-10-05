@@ -21,6 +21,9 @@ type wordStyle struct {
 type wordParaLevel struct {
 	ppr wordPPr
 	rpr wordRPr
+	// own is the style chain's paragraph formatting without the document
+	// defaults, which numbering levels slot in under (see listProps).
+	own wordPPr
 }
 
 // wordStyles is the document's style sheet. Tables styles keep their nodes for
@@ -161,6 +164,7 @@ func (s *wordStyles) paragraph(id string) (*wordParaLevel, error) {
 			return nil, err
 		}
 		lv.ppr = st.ppr.over(lv.ppr)
+		lv.own = st.ppr.over(lv.own)
 		lv.rpr = st.rpr.over(lv.rpr)
 	}
 	s.paraMemo[id] = lv

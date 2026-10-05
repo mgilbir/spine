@@ -21,12 +21,12 @@ type Document struct {
 	Styles         *oxml.CT_Styles
 	Settings       *oxml.CT_Settings
 	Load           func() *oxml.CT_Document
-	// MainXML, StylesXML, SettingsXML and ThemeXML serialize the document's
-	// current in-memory state, including unsaved edits, to the XML the part
-	// would be saved as. The styles, settings and theme functions return nil
-	// bytes when the document has no such part. None of them mutates the
-	// document.
-	MainXML, StylesXML, SettingsXML, ThemeXML func() ([]byte, error)
+	// MainXML, StylesXML, NumberingXML, SettingsXML and ThemeXML serialize the
+	// document's current in-memory state, including unsaved edits, to the XML
+	// the part would be saved as. The styles, numbering, settings and theme
+	// functions return nil bytes when the document has no such part. None of
+	// them mutates the document.
+	MainXML, StylesXML, NumberingXML, SettingsXML, ThemeXML func() ([]byte, error)
 	// FootnotesXML and EndnotesXML serialize the footnotes and endnotes parts
 	// the same way, returning nil bytes when the document has none.
 	FootnotesXML, EndnotesXML func() ([]byte, error)

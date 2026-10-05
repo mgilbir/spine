@@ -33,7 +33,8 @@ type policyCase struct {
 func policyCases() []policyCase {
 	return []policyCase{
 		{name: "table", body: `<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="1000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`, warn: "tables"},
-		{name: "numbering", body: wordTestPara(`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>`, wordTestRun("", "item")), warn: "numbering", text: "item"},
+		{name: "number format outside the profile", body: numPara("1", 0, "item"), parts: &wordTestParts{styles: wordTestStyles, numbering: numAbstract("0", "", numLvl(0, `<w:numFmt w:val="japaneseCounting"/><w:start w:val="1"/><w:lvlText w:val="%1."/>`)) + numInstance("1", "0")}, warn: "number format japaneseCounting", approx: true, text: "item"},
+		{name: "numbering level property", body: numPara("1", 0, "item"), parts: &wordTestParts{styles: wordTestStyles, numbering: numAbstract("0", "", numLvl(0, `<w:start w:val="1"/><w:lvlText w:val="%1."/><w:futureLevelProp/>`)) + numInstance("1", "0")}, warn: "futureLevelProp", text: "item"},
 		{name: "drawing", body: wordTestPara("", `<w:r><w:drawing/></w:r>`, wordTestRun("", "next")), warn: "drawings and images", text: "next"},
 		{name: "alternate content", body: wordTestPara("", `<mc:AlternateContent><mc:Choice Requires="wps"/></mc:AlternateContent>`, wordTestRun("", "next")), warn: "alternate content", text: "next"},
 		{name: "footnote reference", body: wordTestPara("", wordTestRun("", "note"), `<w:r><w:footnoteReference w:id="2"/></w:r>`), warn: "footnote that the document does not have", text: "note"},

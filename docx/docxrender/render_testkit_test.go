@@ -34,9 +34,10 @@ func wordTestSect(w, h, top, right, bottom, left int, extra string) string {
 var wordTestPage = wordTestSect(4500, 3000, 300, 300, 300, 300, "")
 
 type wordTestParts struct {
-	styles   string
-	settings string
-	theme    string
+	styles    string
+	settings  string
+	theme     string
+	numbering string
 	// extra are further parts, keyed by part name ("word/header1.xml"), with
 	// their markup in full. The document refers to one by wordTestRID.
 	extra map[string]wordTestExtra
@@ -94,6 +95,10 @@ func wordTestDoc(t testing.TB, body string, parts ...wordTestParts) *docx.Docume
 	if p.settings != "" {
 		add["word/settings.xml"] = [3]string{`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings ` + wordTestNS + `>` + p.settings + `</w:settings>`,
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"}
+	}
+	if p.numbering != "" {
+		add["word/numbering.xml"] = [3]string{`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering ` + wordTestNS + `>` + p.numbering + `</w:numbering>`,
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"}
 	}
 	if p.theme != "" {
 		add["word/theme/theme1.xml"] = [3]string{p.theme, "application/vnd.openxmlformats-officedocument.theme+xml", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"}
