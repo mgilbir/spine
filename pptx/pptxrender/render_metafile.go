@@ -2,23 +2,13 @@ package pptxrender
 
 import (
 	"context"
-	"fmt"
 	"image"
-	"math"
 
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/internal/imagesniff"
 	"github.com/mgilbir/spine/internal/metafile"
 	core "github.com/mgilbir/spine/internal/render"
 	"github.com/mgilbir/spine/render"
-)
-
-// renderMetafileScale is how many pixels a metafile is drawn at for each CSS
-// pixel it covers, as far as the image budget allows; it is never drawn below
-// half that of the page.
-const (
-	renderMetafileScale    = 2.0
-	renderMetafileMinScale = 0.5
 )
 
 // renderIsMetafile reports whether picture bytes are an EMF or a WMF.
@@ -33,31 +23,8 @@ type renderMetafilePlan struct{ w, h int }
 // CSS pixels (zero for its natural size) within the pixels left in the image
 // budget.
 func renderPlanMetafile(data []byte, w, h float64, remaining int64, maxDim int) (renderMetafilePlan, error) {
-	info, err := metafile.Inspect(data)
-	if err != nil {
-		return renderMetafilePlan{}, err
-	}
-	if !(w > 0) || !(h > 0) || math.IsInf(w, 0) || math.IsInf(h, 0) {
-		w, h = info.Width, info.Height
-		if !(w > 0) || !(h > 0) {
-			w, h = 96, 96/info.Aspect
-		}
-	}
-	scale := renderMetafileScale
-	if area := w * h; area*scale*scale > float64(remaining) {
-		scale = math.Sqrt(float64(remaining) / area)
-	}
-	if side := math.Max(w, h); side*scale > float64(maxDim) {
-		scale = float64(maxDim) / side
-	}
-	if !(scale >= renderMetafileMinScale) {
-		return renderMetafilePlan{}, fmt.Errorf("%w: slide image budget for a metafile", render.ErrLimit)
-	}
-	pw, ph := max(1, int(math.Round(w*scale))), max(1, int(math.Round(h*scale)))
-	if int64(pw)*int64(ph) > remaining || pw > maxDim || ph > maxDim {
-		return renderMetafilePlan{}, fmt.Errorf("%w: slide image budget for a metafile", render.ErrLimit)
-	}
-	return renderMetafilePlan{pw, ph}, nil
+	pw, ph, err := metafile.Plan(data, w, h, remaining, maxDim)
+	return renderMetafilePlan{pw, ph}, err
 }
 
 // renderDrawMetafile draws a metafile into the planned raster. Strict mode

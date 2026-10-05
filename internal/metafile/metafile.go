@@ -252,3 +252,40 @@ func (r *raster) toNRGBA() *image.NRGBA {
 	}
 	return out
 }
+
+// Scales a picture is drawn at, in pixels for each CSS pixel it covers.
+const (
+	drawScale    = 2.0
+	minDrawScale = 0.5
+)
+
+// Plan sizes the raster for a metafile drawn over a box of w by h CSS pixels
+// (zero for its natural size): twice the box's pixels, reduced to fit the
+// remaining image pixels and the largest dimension, and refused below half.
+func Plan(data []byte, w, h float64, remaining int64, maxDim int) (pw, ph int, err error) {
+	info, err := Inspect(data)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !(w > 0) || !(h > 0) || math.IsInf(w, 0) || math.IsInf(h, 0) {
+		w, h = info.Width, info.Height
+		if !(w > 0) || !(h > 0) {
+			w, h = 96, 96/info.Aspect
+		}
+	}
+	scale := drawScale
+	if area := w * h; area*scale*scale > float64(remaining) {
+		scale = math.Sqrt(float64(remaining) / area)
+	}
+	if side := math.Max(w, h); side*scale > float64(maxDim) {
+		scale = float64(maxDim) / side
+	}
+	if !(scale >= minDrawScale) {
+		return 0, 0, fmt.Errorf("%w: image budget for a metafile", render.ErrLimit)
+	}
+	pw, ph = max(1, int(math.Round(w*scale))), max(1, int(math.Round(h*scale)))
+	if int64(pw)*int64(ph) > remaining || pw > maxDim || ph > maxDim {
+		return 0, 0, fmt.Errorf("%w: image budget for a metafile", render.ErrLimit)
+	}
+	return pw, ph, nil
+}
