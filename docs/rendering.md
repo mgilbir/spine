@@ -367,7 +367,10 @@ absence wraps by rules PowerPoint does not document: it fails, and best
 effort wraps as above. With hanging punctuation (`hangingPunct`, absent on)
 an ideographic or fullwidth stop or comma that would not fit hangs past the end
 of its line, which is aligned and justified without it; off, it takes the
-character before it to the next line. A word too wide for its line breaks between characters, as a last
+character before it to the next line. Both match PowerPoint's own export of one
+Japanese sentence at 14 pt in boxes 1.3 to 1.3875 in wide, 0.9 pt apart, on and
+off (tested at the line-breaking level; a font with East Asian kerning, such as
+Hiragino Sans, can fit one more character than PowerPoint does). A word too wide for its line breaks between characters, as a last
 resort, as PowerPoint breaks it. A first-line indent needs a character bullet, which hangs in it: the
 bullet is drawn at the margin plus the (negative) indent on the first baseline
 and every line's text starts at the margin, so the indent must hold the
