@@ -183,11 +183,13 @@ func TestFontTablesRefuseBitmapOnlyFonts(t *testing.T) {
 		}
 		return b
 	}
-	if err := checkFontTables(dir("bdat", "bloc", "cmap", "head")); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("bitmap only: %v", err)
+	for _, strikes := range [][]string{{"bdat", "bloc"}, {"EBDT", "EBLC"}} {
+		if err := checkFontTables(dir(append(strikes, "cmap", "head")...)); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("%v only: %v", strikes, err)
+		}
 	}
 	for _, outline := range []string{"glyf", "CFF ", "CFF2"} {
-		if err := checkFontTables(dir("bdat", "bloc", outline)); err != nil {
+		if err := checkFontTables(dir("bdat", "bloc", "EBDT", "EBLC", outline)); err != nil {
 			t.Errorf("bdat beside %s: %v", outline, err)
 		}
 	}

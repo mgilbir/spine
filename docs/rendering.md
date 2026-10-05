@@ -118,8 +118,8 @@ A glyph is drawn whole in one of these ways, never part by part. Text turned
 or warped in a slide is drawn as outlines, so its color glyphs are outlines in
 the text color, and reported as such; a slide's shadows and other effects take
 a color glyph's coverage. DOCX and XLSX previews have no best effort and
-refuse what cannot be drawn exactly. Apple bitmap fonts (`bdat`, `bloc`) are
-refused unless they also have outlines (`glyf`, `CFF `, `CFF2`), as system fonts
+refuse what cannot be drawn exactly. Bitmap fonts (`EBDT`, `EBLC`, and Apple's
+`bdat`, `bloc`) are refused unless they also have outlines (`glyf`, `CFF `, `CFF2`), as system fonts
 such as Courier New that carry strikes for small screen sizes do; those are
 drawn from their outlines.
 

@@ -205,9 +205,9 @@ func (p *Page) addGlyphs(ctx context.Context, at layout.Point, size style.Unit, 
 }
 
 // checkFontTables refuses a font program whose glyphs cannot be drawn.
-// Apple's bitmap strikes (bdat, bloc) are not painted; a font that also has
-// outlines, as system fonts carrying strikes for small screen sizes do, draws
-// from those, as it does beside EBDT strikes. The glyphs of COLR, SVG, CBDT
+// Monochrome and greyscale bitmap strikes (EBDT, EBLC and Apple's bdat, bloc)
+// are not painted (mgilbir/forme#909); a font that also has outlines, as
+// system fonts carrying strikes for small screen sizes do, draws from those. The glyphs of COLR, SVG, CBDT
 // and sbix fonts are painted one at a time by paintColorGlyph.
 func checkFontTables(program []byte) error {
 	count := int(binary.BigEndian.Uint16(program[4:6]))
@@ -217,7 +217,7 @@ func checkFontTables(program []byte) error {
 	bitmap, outlines := "", false
 	for i := 0; i < count; i++ {
 		switch tag := string(program[12+16*i : 16+16*i]); tag {
-		case "bdat", "bloc":
+		case "bdat", "bloc", "EBDT", "EBLC":
 			bitmap = tag
 		case "glyf", "CFF ", "CFF2":
 			outlines = true
