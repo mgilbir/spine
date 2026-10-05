@@ -931,7 +931,7 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   the section) in the run's own formatting, and the note's text (translated by
   the body's code, with its `w:footnoteRef` mark) goes to the bottom of the text
   area of the page that holds the reference's line, under the separator
-  (a third of the text width, from the separator note) in the order of the
+  (144 pt from the start of the line, from the separator note) in the order of the
   references. The area reduces the text area for pagination: a line is placed
   only if it and its notes fit. A note that does not fit whole is cut at a line
   and continues on the next page under the continuation separator (the full

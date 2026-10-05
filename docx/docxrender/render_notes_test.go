@@ -96,13 +96,13 @@ func TestFootnoteIsDrawnAtTheBottomOfThePage(t *testing.T) {
 		t.Fatalf("warnings %v", o.warnings)
 	}
 	// The note is the last line of the text area, its mark first; the
-	// separator is the line above it, a third of the text width.
+	// separator is the line above it, 144 pt long.
 	note := hfLine(t, p, 1, "1the note")
 	if !near(note.x, 20) || !near(note.y, 180-12+9.6) {
 		t.Errorf("note at %v,%v", note.x, note.y)
 	}
 	rules := fnRules(p, 1)
-	if len(rules) != 1 || !near(rules[0][0], 20) || !near(rules[0][2], 260.0/3) || rules[0][1] < 180-24 || rules[0][1] > 180-12 {
+	if len(rules) != 1 || !near(rules[0][0], 20) || !near(rules[0][2], 192) || rules[0][1] < 180-24 || rules[0][1] > 180-12 {
 		t.Errorf("rules %v", rules)
 	}
 	// The mark is drawn in the text with the run's formatting.
@@ -206,7 +206,7 @@ func TestLongFootnoteContinuesOnTheNextPage(t *testing.T) {
 		t.Errorf("%d lines of the note drawn", len(first)+len(second))
 	}
 	r1, r2 := fnRules(p, 1), fnRules(p, 2)
-	if len(r1) != 1 || !near(r1[0][2], 260.0/3) {
+	if len(r1) != 1 || !near(r1[0][2], 192) {
 		t.Errorf("page 1 rules %v", r1)
 	}
 	if len(r2) != 1 || !near(r2[0][2], 260) {
@@ -360,5 +360,14 @@ func TestNotesSitOnTopOfTheFooter(t *testing.T) {
 	}
 	if f := hfLine(t, p, 1, "f2"); !near(f.y, 200-12+9.6) {
 		t.Errorf("footer at %v", f.y)
+	}
+}
+
+func TestFootnoteSeparatorStopsAtANarrowTextArea(t *testing.T) {
+	// 120 pt of text width is less than the separator's 144 pt.
+	body := wordTestPara("", wordTestRun("", "text"), fnRef("1")) + wordTestSect(3000, 3000, 300, 300, 300, 300, "")
+	p, _ := fnRender(t, body, "", fnPart("footnote", fnNote("footnote", "1", "the note")))
+	if rules := fnRules(p, 1); len(rules) != 1 || !near(rules[0][2], 160) {
+		t.Errorf("rules %v", rules)
 	}
 }

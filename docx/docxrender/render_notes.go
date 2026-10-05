@@ -599,8 +599,9 @@ func init() {
 	}
 }
 
-// rule draws a note separator: a rule a third of the text width, or the whole
-// width for a continuation separator, on the line.
+// rule draws a note separator: a rule 144 pt long from the start of the line,
+// as Word draws it, or the whole width for a continuation separator. Both
+// are 0.75 pt thick.
 func (rn *wordRun) rule(full bool) error {
 	if err := rn.closeSpan(); err != nil {
 		return err
@@ -609,13 +610,14 @@ func (rn *wordRun) rule(full bool) error {
 	if rn.rp.size.set {
 		size = float64(rn.rp.size.v) * 2 / 3
 	}
-	width := "33.333%"
-	if full {
-		width = "100%"
-	}
 	var c wordCSS
 	c.add("display", "inline-block")
-	c.add("width", width)
+	if full {
+		c.add("width", "100%")
+	} else {
+		c.px("width", 192)
+		c.add("max-width", "100%")
+	}
 	c.px("height", 1)
 	c.add("background-color", "rgb(0,0,0)")
 	c.px("vertical-align", size*0.3)
