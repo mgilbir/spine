@@ -105,6 +105,21 @@ func TestNumberingMultiLevelCounters(t *testing.T) {
 	equalLines(t, numLines(p, 1), []string{"1.A", "a)B", "b)C", "1.b.iD", "1.b.iiE", "2.F", "a)G", "2.a.iH"})
 }
 
+func TestNumberingSkippedLevelsCountAsUsed(t *testing.T) {
+	// Word's PDF of the same list: after "2.F", a level 2 paragraph straight
+	// under level 0 uses level 1 at its start, so the next level 1 paragraph
+	// is "b)".
+	numbering := numAbstract("0", "",
+		numDecimal(0, "%1.", ""),
+		numLvl(1, `<w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2)"/>`),
+		numLvl(2, `<w:start w:val="1"/><w:numFmt w:val="lowerRoman"/><w:lvlText w:val="%1.%2.%3"/>`),
+	) + numInstance("1", "0")
+	body := numPara("1", 0, "A") + numPara("1", 1, "B") + numPara("1", 2, "C") + numPara("1", 0, "D") + numPara("1", 2, "E") + numPara("1", 1, "F") +
+		numPara("1", 2, "G")
+	p, _ := numRender(t, body, numbering, false)
+	equalLines(t, numLines(p, 1), []string{"1.A", "a)B", "1.a.iC", "2.D", "2.a.iE", "b)F", "2.b.iG"})
+}
+
 func TestNumberingStartAndFormats(t *testing.T) {
 	numbering := numAbstract("0", "",
 		numLvl(0, `<w:start w:val="3"/><w:numFmt w:val="upperRoman"/><w:lvlText w:val="%1"/>`),

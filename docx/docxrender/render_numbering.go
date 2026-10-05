@@ -22,7 +22,9 @@ import (
 // the start of a level: then the first paragraph of that w:num at the level
 // restarts there. A level restarts, at its start value, after a paragraph of a
 // higher level (or after the levels w:lvlRestart names, or never when it is
-// zero). Paragraphs without numbering, and sections, do not affect counts. The
+// zero). A paragraph that skips levels counts the skipped ones as used: they
+// take their start value, so the next paragraph of such a level counts on
+// from it. Paragraphs without numbering, and sections, do not affect counts. The
 // counters advance in the order the paragraphs are translated, which is
 // document order.
 //
@@ -491,6 +493,12 @@ func (l *wordLists) count(n *wordNum, a *wordAbstractNum, ilvl int) error {
 		c.val++
 		if c.val > wordMaxListValue {
 			return fmt.Errorf("%w: list counter", render.ErrLimit)
+		}
+	}
+	for k := 0; k < ilvl; k++ {
+		if s := &st.lv[k]; !s.started {
+			s.val, s.started = n.start(a, k), true
+			l.started[wordOverrideKey{n, k}] = true
 		}
 	}
 	for k := ilvl + 1; k < wordListLevels; k++ {

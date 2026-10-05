@@ -891,8 +891,9 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   a `w:startOverride` restarts its level at the first paragraph of that `w:num`
   there, a `w:lvlOverride` with a `w:lvl` replaces the level, a level restarts
   after a paragraph of a higher level (or after the level `w:lvlRestart` names,
-  or never when it is 0), and paragraphs without numbering, other content and
-  section breaks do not affect the count. Levels: `w:start`, `w:numFmt`
+  or never when it is 0), a paragraph that skips levels counts the skipped ones
+  as used at their start value, and paragraphs without numbering, other content
+  and section breaks do not affect the count. Levels: `w:start`, `w:numFmt`
   (decimal, decimalZero, upper and lower roman and letter, chicago, the enclosed
   and full-width decimals, bullet, none), `w:lvlText` with `%1` to `%9` (each in
   its own level's format, in decimal under `w:isLgl`), `w:suff` (tab, space,
