@@ -216,8 +216,10 @@ modified.
 
 ## PNG and SVG physical pages
 
-`Document.PrepareRender(ctx, 1, render.Options{Fonts: resolver})` prepares a
-1-based physical page from the supported bounded paragraph-flow profile,
-including unsaved edits. See the [rendering guide](rendering.md) for text, page,
+`docxrender.PreparePage(ctx, document, 1, render.Options{Fonts: resolver})`
+prepares a 1-based physical page from the supported bounded paragraph-flow
+profile, including unsaved edits. Rendering lives in the separate
+`docx/docxrender` package, so importing `docx` alone does not compile the
+renderer or its dependencies. See the [rendering guide](rendering.md) for text, page,
 font and resource requirements. Unsupported content returns an error; preparation
 does not save or synchronize the document.

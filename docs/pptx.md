@@ -303,8 +303,10 @@ The following standard slide layout types are supported:
 
 The exact `Layout*` constant names are the source of truth in [`pptx/layout.go`](../pptx/layout.go).
 
-`Slide.PrepareRender` prepares the supported static geometry/image/plain-text profile for
-native PNG or SVG output, including unsaved edits. See the [rendering
+`pptxrender.PrepareSlide(ctx, slide, opts)` prepares the supported static
+geometry/image/plain-text profile for native PNG or SVG output, including
+unsaved edits. Rendering lives in the separate `pptx/pptxrender` package, so
+importing `pptx` alone does not compile the renderer or its dependencies. See the [rendering
 guide](rendering.md) for the strict capability matrix and resource contracts.
 Unsupported text styles and visible content return errors; rendering does not save or
 synchronize source parts.

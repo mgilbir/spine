@@ -38,14 +38,23 @@ func TestImageOwnershipSamplingAndSVG(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, tt := range []struct {
-		x    int
-		want color.NRGBA
-	}{{0, color.NRGBA{}}, {1, color.NRGBA{R: 255, A: 255}}, {2, color.NRGBA{B: 255, A: 192}}, {3, color.NRGBA{B: 255, A: 192}}} {
-		got := color.NRGBAModel.Convert(img.At(tt.x, 0)).(color.NRGBA)
-		if got != tt.want {
-			t.Fatalf("pixel %d: %+v want %+v", tt.x, got, tt.want)
-		}
+	// Each source pixel spans two output pixels: their centres sit a
+	// quarter of a source pixel either side of its own, so the pixels
+	// between interpolate, three parts to one, and the outermost hold the
+	// edge colour. The clip leaves x 0 empty.
+	at := func(x int) color.NRGBA { return color.NRGBAModel.Convert(img.At(x, 0)).(color.NRGBA) }
+	if got := at(0); got != (color.NRGBA{}) {
+		t.Fatalf("clipped pixel: %+v", got)
+	}
+	if got := at(3); got != (color.NRGBA{B: 255, A: 192}) {
+		t.Fatalf("edge pixel: %+v", got)
+	}
+	// Premultiplied, three parts opaque red to one half-opaque blue.
+	if got := at(1); got.R < 200 || got.B == 0 || got.R <= got.B {
+		t.Fatalf("pixel 1: %+v", got)
+	}
+	if got := at(2); got.B <= got.R || got.R == 0 {
+		t.Fatalf("pixel 2: %+v", got)
 	}
 	out.Reset()
 	if e = p.WriteSVG(context.Background(), &out, 96); e != nil {
@@ -168,5 +177,84 @@ func TestImageSnapshotCopiesNRGBARows(t *testing.T) {
 				t.Fatalf("%d,%d: %+v, want %+v", x, y, got.NRGBAAt(x, y), sub.NRGBAAt(x+1, y+1))
 			}
 		}
+	}
+}
+
+// renderImagePNG paints one image drawn over a w by h pixel page.
+func renderImagePNG(t *testing.T, src image.Image, w, h float64) *image.NRGBA {
+	t.Helper()
+	p, err := Prepare(context.Background(), dml.Pixels(int(w)), dml.Pixels(int(h)), []layout.Op{layout.DrawImage{Rect: layout.Rect{W: unit(w), H: unit(h)}, Image: src}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := p.WritePNG(context.Background(), &out, 96); err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := image.NewNRGBA(img.Bounds())
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			n.Set(x, y, img.At(x, y))
+		}
+	}
+	return n
+}
+
+func TestImageFiltering(t *testing.T) {
+	// One-pixel black and white stripes drawn at half their size average
+	// to grey everywhere, where sampling one pixel in two would pick out
+	// one colour.
+	stripes := image.NewNRGBA(image.Rect(0, 0, 40, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 40; x++ {
+			v := uint8(255 * (x % 2))
+			stripes.SetNRGBA(x, y, color.NRGBA{v, v, v, 255})
+		}
+	}
+	got := renderImagePNG(t, stripes, 20, 2)
+	for x := 0; x < 20; x++ {
+		if c := got.NRGBAAt(x, 0); c.R < 120 || c.R > 135 {
+			t.Fatalf("stripes at %d: %+v", x, c)
+		}
+	}
+	// Two pixels drawn ten times larger blend smoothly between their
+	// centres, at x 5 and 15, and hold their colours outside them.
+	pair := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	pair.SetNRGBA(0, 0, color.NRGBA{0, 0, 0, 255})
+	pair.SetNRGBA(1, 0, color.NRGBA{200, 200, 200, 255})
+	got = renderImagePNG(t, pair, 20, 1)
+	prev := -1
+	for x := 0; x < 20; x++ {
+		v := int(got.NRGBAAt(x, 0).R)
+		if v < prev {
+			t.Fatalf("not monotonic at %d: %d after %d", x, v, prev)
+		}
+		prev = v
+	}
+	if a, b, mid := got.NRGBAAt(2, 0).R, got.NRGBAAt(17, 0).R, got.NRGBAAt(10, 0).R; a != 0 || b != 200 || mid < 90 || mid > 110 {
+		t.Fatalf("ends %d and %d, middle %d", a, b, mid)
+	}
+	// Transparent pixels add no colour: opaque red beside transparent blue
+	// averages to half-transparent red.
+	edge := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		edge.SetNRGBA(0, y, color.NRGBA{255, 0, 0, 255})
+		edge.SetNRGBA(1, y, color.NRGBA{0, 0, 255, 0})
+	}
+	p, err := Prepare(context.Background(), dml.Pixels(1), dml.Pixels(1), []layout.Op{layout.DrawImage{Rect: layout.Rect{W: unit(1), H: unit(1)}, Image: edge}}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := p.WritePNG(context.Background(), &out, 96); err != nil {
+		t.Fatal(err)
+	}
+	img, _ := png.Decode(&out)
+	if c := color.NRGBAModel.Convert(img.At(0, 0)).(color.NRGBA); c.B != 0 || c.R != 255 || c.A < 125 || c.A > 130 {
+		t.Fatalf("translucent edge: %+v", c)
 	}
 }

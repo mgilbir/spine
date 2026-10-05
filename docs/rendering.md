@@ -1,7 +1,7 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptx.Slide.PrepareRender` supports a first static slide profile. `xlsx.Sheet.PrepareRender` supports bounded range previews. `docx.Document.PrepareRender` prepares a selected physical page from a bounded
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsxrender.PrepareRange` (package `xlsx/xlsxrender`) supports bounded range previews. `docxrender.PreparePage` (package `docx/docxrender`) prepares a selected physical page from a bounded
 plain document flow.
 
 ```go
@@ -30,8 +30,11 @@ Sixteen-bit image sources are reduced to eight bits; EXIF orientation is not
 applied. Text is outlined in SVG, so it is not selectable.
 
 Both writers use CSS-pixel geometry (96 per inch) and upwards-rounded output
-sizes; zero DPI means 96. PNG uses sRGB source-over with pixel-centre nearest-
-neighbour bitmap sampling. Rectangle edges use analytic area coverage. Paths
+sizes; zero DPI means 96. PNG uses sRGB source-over. A bitmap is filtered over
+each output pixel's square: averaged by area along an axis where the pixel
+spans more than one bitmap pixel, and interpolated linearly between the two
+nearest bitmap pixels where it spans less, in premultiplied alpha, its edges
+extending outwards. Rectangle edges use analytic area coverage. Paths
 use eight vertical samples and analytic horizontal intervals, with curves
 flattened to a 1/16 output-pixel tolerance. Independent primitive antialiasing
 can differ from a vector viewer or Office at touching/overlapping edges. SVG
@@ -79,19 +82,27 @@ out is drawn without it; an unsupported background is drawn white; and
 problems outside any shape (unknown slide content, alternate content,
 extensions, charts and other graphic frames) are reported once. Animation and
 transitions are ignored. Some details are drawn approximately instead, and
-reported once per shape as such: an outer shadow of a shape, connector or
-picture, its own or its style's theme effect, is drawn beneath it as its
-drawing in the shadow color, offset by the shadow's distance and direction,
-with a blur approximated by nine copies spread over the blur radius whose
-opacities compound to the shadow's, and scaling and skewing left out; other
-effects (glows, soft edges, reflections, inner shadows, 3-D) and text effects
-are left out;
+reported once per shape as such: the effects of a shape, connector or
+picture, its own or its style's theme effects. A sharp outer shadow is drawn
+exactly, beneath the shape as its drawing in the shadow color, offset by the
+shadow's distance and direction. Effects that blur are drawn from a raster of
+the shape at up to three pixels per CSS pixel (one million pixels an effect,
+eight million a slide), blurred with an approximate Gaussian of half each
+radius: a blurred outer shadow, the shape's coverage offset and blurred, with
+scaling and skewing left out; a reflection, the shape flipped below its box,
+faded from its start to its end opacity and blurred; a glow, the coverage
+blurred and doubled in the glow color beneath the shape; soft edges, the
+shape's own pixels faded over the radius inside its edge; an inner shadow,
+the uncovered area offset, blurred and kept inside the shape; and a blur
+effect, the shape itself blurred, past its box unless `grow` is off. Office
+does not document how it draws them. Fill overlays, preset shadows, effect
+graphs, 3-D and text effects are left out;
 text wider than its box, such as a single character, runs past it; and
 arrowheads are drawn as described for connectors. The page is then
 incomplete, and the rules below describe what is drawn. Cancellation, malformed parts and page-wide limits
 still fail.
 
-`slide.PrepareRender(ctx, render.Options{})` includes unsaved edits and returns
+`pptxrender.PrepareSlide(ctx, slide, render.Options{})` includes unsaved edits and returns
 an independent page with PNG/SVG writers. A selected hidden slide is allowed.
 The canvas starts white; the nearest of the slide, layout and master
 backgrounds applies. A background is a solid or gradient fill, no fill, or a
@@ -143,8 +154,9 @@ its pixels: grayscale (`grayscl`) and bi-level by Rec. 601 luminance;
 shifts; the alpha effects (`alphaModFix`, `alphaRepl`, `alphaBiLevel`,
 `alphaCeiling`, `alphaFloor`, `alphaInv`); and solid fill overlays in their
 blend mode. Brightness and contrast (`lum`), which the standard does not
-define, follow LibreOffice; tint and gradient overlays are approximated; blur
-and alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
+define, follow LibreOffice; tint and gradient overlays are approximated, as
+is blur, an approximate Gaussian of half its radius kept within the picture's
+box; alpha masks (`alphaMod`) are left out. Strict mode refuses those, and best
 effort reports them. A picture is downscaled, by averaging, to at most
 four pixels per CSS pixel it is drawn at. A picture placeholder without its
 own geometry takes its layout's, or master's, placeholder geometry. A picture
@@ -219,7 +231,11 @@ fallback where it stands among the shapes, as a reader without the choices'
 extensions shows it; the source check skips the choices and checks the
 fallback as if its shapes stood in the shape tree. Alternate content on
 layouts and masters draws its fallback the same way, its placeholders
-prompts; at the slide root it is not drawn. Charts, SmartArt,
+prompts. At the root of a slide, layout or master, alternate content wraps
+newer transitions and animation: a fallback of `p:transition` or `p:timing`
+only, or none, changes nothing on a static page, and is treated as a
+transition, which strict mode refuses and best effort leaves out; other root
+fallback content is reported. Charts, SmartArt,
 effects, animation and raw drawing content fail explicitly.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
@@ -277,7 +293,16 @@ text that fits one column keeps its anchoring, and text over several is
 anchored at the top, which best effort reports. Columns wider than their
 box fail, and best effort draws one. Justified and distributed anchoring,
 and clipped text fail; best effort draws them top anchored and whole, and
-ignores `anchorCtr`, WordArt warps and 3-D text. Shape autofit (`spAutoFit`) and normal
+ignores `anchorCtr` and 3-D text. A WordArt warp (`prstTxWarp`) shapes the
+text to the paths of its preset, from the standard's
+`presetTextWarpDefinitions.xml`, evaluated for the content box with the
+warp's adjustments: paths in pairs bound a band of lines each, top and
+bottom, and single paths each carry a band of lines, hanging inwards from
+the path towards the box's middle; lines go to the band holding their
+middle, and each band's text is stretched along its paths. Glyphs are drawn
+as outlines, their edges divided to bend with the warp. Office does not
+document how it fits text to a warp, so it fails, and best effort reports it.
+Shape autofit (`spAutoFit`) and normal
 autofit render at the stored extent PowerPoint fitted, and a line that
 measures below it is still drawn. Normal autofit's stored `fontScale` scales
 every run's size, rounded to hundredths of a point, and its `lnSpcReduction`
@@ -476,13 +501,30 @@ with the chart space's text size and color. Value axes step about every 60
 pixels. Best effort draws 3-D charts flat, a combination chart as one of its
 types, a secondary or date axis as the primary one, other number formats as
 General, smoothed lines straight and dashed lines solid, and leaves out
-trendlines, error bars and legend entry formatting. Bubble, radar, stock,
-surface and pie-of-pie charts, and turned chart frames, fail. Charts allow at
+trendlines, error bars and legend entry formatting. Turned chart frames fail.
+
+Bubble charts draw each point as a circle on value axes, its area (or with
+`sizeRepresents="w"` its width) its size's share of the largest, which spans
+a quarter of the plot's smaller side times `bubbleScale`; bubbles of no or
+negative size are left out, and best effort draws 3-D bubbles flat. Radar
+charts draw a spoke per category clockwise from 12 o'clock, rings at the
+value axis' nice steps and each series a closed line, with markers for the
+`marker` style and filled for `filled`. Stock charts draw their prices as a
+line chart, with high-low lines from each category's lowest to highest value
+and up-down bars from the first series' value to the last's, in the up or
+down bar's fill. Pie-of-pie and bar-of-pie charts move the points their split
+selects (`pos`, `val`, `percent` or `cust`) to a second pie or stacked bar
+`secondPieSize` of the first, joined by series lines to a grey slice facing
+it; best effort moves the last third of the points for the `auto` split,
+which Office does not document. Surface charts fail, and best effort draws
+them from above as a banded contour: values interpolated across each cell,
+in bands of the value axis' steps colored by the theme's accents, with a
+legend of the bands. Charts allow at
 most 256 series of 4096 points.
 
 ## Sheet range profile
 
-`sheet.PrepareRender(ctx, "A1:D10", opts)` snapshots that logical range at 96 CSS
+`xlsxrender.PrepareRange(ctx, sheet, "A1:D10", opts)` snapshots that logical range at 96 CSS
 pixels per inch, without UI headers or print pagination. The first profile
 requires the library's default stylesheet and explicit widths on every selected
 column. Supply the Normal font through `opts.Fonts` (Calibri, 11 pt); substitution
@@ -507,7 +549,7 @@ Native font/grid metrics do not promise Excel pixel identity.
 
 ## Word physical-page profile
 
-`document.PrepareRender(ctx, 1, opts)` selects a **1-based physical page** after
+`docxrender.PreparePage(ctx, document, 1, opts)` selects a **1-based physical page** after
 laying out the complete document under shared font/text/glyph/work budgets. The
 first profile supports one section with explicit page size and nonnegative
 margins, plain ASCII paragraphs, one explicit run style per paragraph,
@@ -581,11 +623,16 @@ microseconds, so 64 Mi stops a slide after about 60 characters. The document
 controls only the amount of text, the fonts are the caller's, and `-timeout`
 bounds the whole command; lower the budget for fonts you do not trust. Likewise
 `-edge-checks` bounds path painting per output (scanline edge tests and
-coverage samples) and defaults to 1 Gi instead of 64 Mi: a slide of text,
+coverage samples) and defaults to 4 Gi instead of 64 Mi: a slide of text,
 circles and outlined boxes needed up to 256 Mi at 144 DPI and painted in about
-a quarter of a second.
+a quarter of a second, and the work grows with the square of the DPI.
 
-`-dpi` defaults to 144; `-max-pages` defaults to 100 (maximum 10000), and
+`-dpi` defaults to 288, sharp on a display of twice the standard density,
+where a widescreen slide is 3840 by 2160 pixels; `-dpi 144` or `-dpi 96`
+writes smaller files faster, and SVG output stays sharp at any zoom. For it
+the command allows 64 Mi pixels and 16384 pixels a side per page, 1 Gi pixel
+visits and 256 MiB of output, where the library defaults suit about 144 DPI.
+`-max-pages` defaults to 100 (maximum 10000), and
 `-timeout` defaults to one minute. Interrupt cancels rendering. Library package,
 source, shaping, pixel and output limits still apply. DOCX currently lays out the
 whole document for each selected page, so large documents repeat layout work.

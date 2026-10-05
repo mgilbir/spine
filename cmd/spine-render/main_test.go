@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"io"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -12,6 +15,8 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
+	"github.com/mgilbir/spine/pptx/pptxrender"
+	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
 )
 
@@ -295,5 +300,94 @@ func TestBestEffortDrawsMissingBoldWithRegular(t *testing.T) {
 	c.out, c.strict, warnings = filepath.Join(dir, "strict"), true, strings.Builder{}
 	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "unresolved font") {
 		t.Fatalf("strict: %v", err)
+	}
+}
+
+// A widescreen slide of overlapping full-slide shapes and a photo renders
+// at the default DPI within the command's default budgets, which the
+// library's own would refuse.
+func TestDefaultBudgetsCoverWidescreenAtDefaultDPI(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.CreateWidescreen()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slide := p.AddSlideFromLayout(layout)
+	for i := 0; i < 6; i++ {
+		e := pptx.NewAutoShape("roundRect")
+		e.SetPosition(0, 0)
+		e.SetSize(dml.Inches(13.333), dml.Inches(7.5))
+		e.SetFill(dml.NewSolidFill(dml.ColorBlue))
+		e.SetNoLine()
+		if err = slide.AddShape(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	photo := image.NewNRGBA(image.Rect(0, 0, 2000, 1500))
+	for i := range photo.Pix {
+		photo.Pix[i] = uint8(i * 7)
+	}
+	var encoded bytes.Buffer
+	if err = png.Encode(&encoded, photo); err != nil {
+		t.Fatal(err)
+	}
+	pic := pptx.NewPicture()
+	pic.SetImageData(encoded.Bytes(), "image/png")
+	pic.SetPosition(0, 0)
+	pic.SetSize(dml.Inches(13.333), dml.Inches(7.5))
+	if err = slide.AddShape(pic); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	c := config{input: input, out: filepath.Join(dir, "default"), format: "png", dpi: defaultDPI, maxPages: 10, timeout: time.Minute}
+	if err = run(context.Background(), c); err != nil {
+		t.Fatalf("default budgets: %v", err)
+	}
+	f, err := os.Open(filepath.Join(c.out, "slide-0001.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := png.DecodeConfig(f)
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil || cfg.Width != 3840 || cfg.Height != 2160 {
+		t.Fatalf("size %dx%d, %v", cfg.Width, cfg.Height, err)
+	}
+}
+
+func TestDefaultDPIBudgetsAreNeeded(t *testing.T) {
+	// The library's own limits refuse a widescreen slide at the default
+	// DPI once a dozen full-slide shapes overlap.
+	dir := t.TempDir()
+	p := pptx.CreateWidescreen()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slide := p.AddSlideFromLayout(layout)
+	for i := 0; i < 12; i++ {
+		e := pptx.NewAutoShape("rect")
+		e.SetSize(dml.Inches(13.333), dml.Inches(7.5))
+		e.SetFill(dml.NewSolidFill(dml.ColorBlue))
+		e.SetNoLine()
+		if err = slide.AddShape(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	page, err := pptxrender.PrepareSlide(context.Background(), p.Slides()[0], render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = page.WritePNG(context.Background(), io.Discard, defaultDPI); err == nil || !strings.Contains(err.Error(), "resource limit") {
+		t.Fatalf("library limits at %v DPI: %v", float64(defaultDPI), err)
 	}
 }

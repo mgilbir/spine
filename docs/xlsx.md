@@ -216,8 +216,10 @@ feature-bearing workbook stays byte-identical.
 
 ## PNG and SVG range previews
 
-`Sheet.PrepareRender(ctx, "A1:D10", render.Options{Fonts: resolver})` prepares
-the supported range profile including unsaved values. See the
+`xlsxrender.PrepareRange(ctx, sheet, "A1:D10", render.Options{Fonts: resolver})`
+prepares the supported range profile including unsaved values. Rendering lives
+in the separate `xlsx/xlsxrender` package, so importing `xlsx` alone does not
+compile the renderer or its dependencies. See the
 [rendering guide](rendering.md) for supported values, fonts, sizing and resource
 limits. Unsupported formatting returns an error; preparation creates no missing
 cells and does not save the workbook.

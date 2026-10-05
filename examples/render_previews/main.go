@@ -14,9 +14,12 @@ import (
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/common/enum"
 	"github.com/mgilbir/spine/docx"
+	"github.com/mgilbir/spine/docx/docxrender"
 	"github.com/mgilbir/spine/pptx"
+	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
 	"github.com/mgilbir/spine/xlsx"
+	"github.com/mgilbir/spine/xlsx/xlsxrender"
 )
 
 func main() {
@@ -88,7 +91,7 @@ func run(ctx context.Context, dir string) error {
 	if err = slide.AddShape(box); err != nil {
 		return err
 	}
-	page, err := slide.PrepareRender(ctx, opts)
+	page, err := pptxrender.PrepareSlide(ctx, slide, opts)
 	if err != nil {
 		return fmt.Errorf("slide: %w", err)
 	}
@@ -117,7 +120,7 @@ func run(ctx context.Context, dir string) error {
 			}
 		}
 	}
-	page, err = sheet.PrepareRender(ctx, "A1:C5", opts)
+	page, err = xlsxrender.PrepareRange(ctx, sheet, "A1:C5", opts)
 	if err != nil {
 		return fmt.Errorf("sheet: %w", err)
 	}
@@ -147,7 +150,7 @@ func run(ctx context.Context, dir string) error {
 		r.SetColor("23364A")
 	}
 	for number := 1; number <= 2; number++ {
-		page, err = d.PrepareRender(ctx, number, opts)
+		page, err = docxrender.PreparePage(ctx, d, number, opts)
 		if err != nil {
 			return fmt.Errorf("document page %d: %w", number, err)
 		}
