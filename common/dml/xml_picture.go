@@ -5,6 +5,7 @@ package dml
 import (
 	"encoding/xml"
 	"reflect"
+	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 )
@@ -42,6 +43,14 @@ type Blip struct {
 // OrderedEffects returns the blip's effects in document order, as the
 // ordered representation BlipXML keeps; effects set without a captured
 // order follow in schema order.
+//
+// Children the typed fields cannot hold — an element the model does not know,
+// or a repeat of an effect already held — sit in CapturedChildren.Raw. They
+// take their place in the list as a BlipEffect with only RawName.Local set
+// (the element's name without its prefix: the verbatim bytes stay in the
+// capture, and Raw here is not filled), so a consumer that applies effects
+// sees that something it cannot interpret sits between its neighbours.
+// Captured comments and whitespace produce no entry.
 func (bl *Blip) OrderedEffects() (effects []*BlipEffect) {
 	if bl == nil {
 		return nil
@@ -123,7 +132,15 @@ func (bl *Blip) OrderedEffects() (effects []*BlipEffect) {
 	seen := make([]bool, n)
 	if c := bl.CapturedChildren; c != nil {
 		for _, ref := range c.Order {
-			if ref.Field < 0 || ref.Field >= n {
+			if ref.Field < 0 {
+				if ref.Index >= 0 && ref.Index < len(c.Raw) {
+					if local := rawElementLocalName(c.Raw[ref.Index]); local != "" {
+						effects = append(effects, &BlipEffect{RawName: xml.Name{Local: local}})
+					}
+				}
+				continue
+			}
+			if ref.Field >= n {
 				continue
 			}
 			if e := of(ref.Field); e != nil && !seen[ref.Field] {
@@ -187,4 +204,25 @@ type CropRect struct {
 	T Percentage `xml:"t,attr,omitempty"` // top offset
 	R Percentage `xml:"r,attr,omitempty"` // right offset
 	B Percentage `xml:"b,attr,omitempty"` // bottom offset
+}
+
+// rawElementLocalName returns the local name of the element a captured raw
+// child starts with, or "" when the child is not an element (whitespace or
+// text, a comment, a processing instruction).
+func rawElementLocalName(raw []byte) string {
+	if len(raw) < 2 || raw[0] != '<' || raw[1] == '!' || raw[1] == '?' || raw[1] == '/' {
+		return ""
+	}
+	end := 1
+	for end < len(raw) {
+		if c := raw[end]; c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '/' || c == '>' {
+			break
+		}
+		end++
+	}
+	name := string(raw[1:end])
+	if i := strings.LastIndexByte(name, ':'); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
 }

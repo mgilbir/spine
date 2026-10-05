@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"reflect"
+	"strconv"
 )
 
 // This file provides per-instance child-order capture for reflection-marshaled
@@ -117,10 +118,14 @@ type childSlot struct {
 // separately with CaptureAttrs before calling this).
 //
 // Children the struct does not model — and second occurrences of singleton
-// fields — are preserved as verbatim raw bytes when the decoder has a
-// registered source (UnmarshalWithSource); without one they are dropped, and
-// nothing records that they were there. Two consequences are worth stating
-// because they are *not* what encoding/xml would do:
+// fields — are preserved as raw bytes: verbatim source slices when the decoder
+// has a registered source (UnmarshalWithSource), otherwise (plain
+// xml.Unmarshal, a transcoded charset) an equivalent element rebuilt from the
+// decoded tokens by rebuildChild — same name, attributes and content, but the
+// producer's prefix choice, empty-tag form and inter-child whitespace are not
+// recoverable, so the rebuilt element carries an inline declaration for its
+// own namespace. Two consequences are worth stating because they are *not*
+// what encoding/xml would do:
 //
 //   - A duplicated singleton is first-wins here (the first occurrence decodes
 //     into the field, later ones are kept as raw children so the source
@@ -129,8 +134,8 @@ type childSlot struct {
 //     child as a slice rather than rely on either behaviour.
 //   - Character data between children is captured verbatim (whitespace and,
 //     with a source registered, non-whitespace text), so an element with mixed
-//     content keeps its text. Without a registered source that text is lost —
-//     the same inert-capture failure mode as unknown children. Structs with a
+//     content keeps its text. Without a registered source non-whitespace text
+//     only whitespace-only text between children is dropped. Structs with a
 //     `,chardata` field must not use this decoder: it never populates one.
 func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 	val := reflect.ValueOf(v).Elem()
@@ -196,17 +201,27 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 				continue
 			}
 			// Unknown child or duplicated singleton: keep the source bytes.
+			if src == nil {
+				// No registered source (plain xml.Unmarshal, a deep copy through
+				// the standard decoder, a transcoded charset): rebuild the
+				// element from its tokens rather than dropping it.
+				raw, err := rebuildChild(d, t)
+				if err != nil {
+					return err
+				}
+				cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+				cap.Raw = append(cap.Raw, raw)
+				continue
+			}
 			if err := d.Skip(); err != nil {
 				return err
 			}
-			if src != nil {
-				post := d.InputOffset()
-				if pre >= 0 && post <= int64(len(src)) && pre < post {
-					cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
-					// Clone: retaining a sub-slice of src would pin the whole
-					// part in memory for the model's lifetime (see C282).
-					cap.Raw = append(cap.Raw, bytes.Clone(src[pre:post]))
-				}
+			post := d.InputOffset()
+			if pre >= 0 && post <= int64(len(src)) && pre < post {
+				cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+				// Clone: retaining a sub-slice of src would pin the whole
+				// part in memory for the model's lifetime (see C282).
+				cap.Raw = append(cap.Raw, bytes.Clone(src[pre:post]))
 			}
 		case xml.Comment, xml.ProcInst:
 			// Comments and processing instructions between children are part of
@@ -214,6 +229,10 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			// fall through and are silently dropped even on a zero-mod save.
 			// Keep them as verbatim raw children in document order.
 			if src == nil {
+				if raw := rebuildMisc(tok); raw != nil {
+					cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+					cap.Raw = append(cap.Raw, raw)
+				}
 				continue
 			}
 			post := d.InputOffset()
@@ -231,6 +250,11 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			// moment a struct that opted into ordered capture gained a
 			// text-bearing child, with no guard and no error.
 			if src == nil {
+				// Whitespace between children carries no content; text does.
+				if len(bytes.TrimSpace(t)) > 0 {
+					cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
+					cap.Raw = append(cap.Raw, []byte(EscapeText(string(t))))
+				}
 				continue
 			}
 			post := d.InputOffset()
@@ -408,3 +432,147 @@ func hasCapturedRawChildren(val reflect.Value) bool {
 	}
 	return false
 }
+
+// rebuildChild reconstructs the XML of the child element the decoder is
+// positioned in (start consumed) for a decoder with no registered source, and
+// consumes the element. Inner content comes from the decoder's innerxml
+// capture, so nested elements keep their producer prefixes; the start tag is
+// rebuilt from the decoded name, with a prefix from the well-known table (or a
+// synthetic nsN) and an inline declaration for every namespace the tag uses
+// that it does not itself declare. Ancestor-declared prefixes used by the
+// inner content are the same assumption verbatim source slicing makes.
+func rebuildChild(d *xml.Decoder, start xml.StartElement) ([]byte, error) {
+	var inner struct {
+		Content []byte `xml:",innerxml"`
+	}
+	if err := d.DecodeElement(&inner, &start); err != nil {
+		return nil, err
+	}
+	inline := make(map[string]string) // URI -> prefix declared on the tag
+	hasDefault := false
+	for _, a := range start.Attr {
+		switch {
+		case a.Name.Space == "xmlns":
+			inline[a.Value] = a.Name.Local
+		case a.Name.Space == "" && a.Name.Local == "xmlns":
+			inline[a.Value] = ""
+			hasDefault = true
+		}
+	}
+	var injected []xml.Attr // declarations added by this function
+	taken := func(p string) bool {
+		for _, q := range inline {
+			if q == p {
+				return true
+			}
+		}
+		return false
+	}
+	prefixFor := func(uri string) string {
+		if uri == NSXML {
+			return "xml"
+		}
+		if p, ok := inline[uri]; ok && p != "" {
+			return p
+		}
+		p := wellKnownPrefix(uri)
+		for i := 1; p == "" || taken(p); i++ {
+			p = "ns" + strconv.Itoa(i)
+		}
+		inline[uri] = p
+		injected = append(injected, xml.Attr{Name: xml.Name{Space: "xmlns", Local: p}, Value: uri})
+		return p
+	}
+	qualify := func(n xml.Name) string {
+		if n.Space == "" {
+			return n.Local
+		}
+		return prefixFor(n.Space) + ":" + n.Local
+	}
+
+	name := qualify(start.Name)
+	attrs := make([]string, 0, len(start.Attr))
+	for _, a := range start.Attr {
+		switch {
+		case a.Name.Space == "xmlns":
+			attrs = append(attrs, "xmlns:"+a.Name.Local)
+		case a.Name.Space == "" && a.Name.Local == "xmlns":
+			attrs = append(attrs, "xmlns")
+		default:
+			attrs = append(attrs, qualify(a.Name))
+		}
+	}
+	var buf []byte
+	buf = append(buf, '<')
+	buf = append(buf, name...)
+	for _, a := range injected {
+		buf = append(buf, " xmlns:"...)
+		buf = append(buf, a.Name.Local...)
+		buf = append(buf, `="`...)
+		buf = append(buf, EscapeAttrValue(a.Value)...)
+		buf = append(buf, '"')
+	}
+	if start.Name.Space == "" && !hasDefault {
+		// Keep a no-namespace element out of any default namespace the
+		// ancestors declare.
+		buf = append(buf, ` xmlns=""`...)
+	}
+	for i, a := range start.Attr {
+		buf = append(buf, ' ')
+		buf = append(buf, attrs[i]...)
+		buf = append(buf, `="`...)
+		buf = append(buf, EscapeAttrValue(a.Value)...)
+		buf = append(buf, '"')
+	}
+	if len(inner.Content) == 0 {
+		return append(buf, "/>"...), nil
+	}
+	buf = append(buf, '>')
+	buf = append(buf, inner.Content...)
+	buf = append(buf, "</"...)
+	buf = append(buf, name...)
+	return append(buf, '>'), nil
+}
+
+// rebuildMisc renders a comment or processing instruction token for a decoder
+// with no registered source, or nil when the token has no representation.
+func rebuildMisc(tok xml.Token) []byte {
+	switch t := tok.(type) {
+	case xml.Comment:
+		out := append([]byte("<!--"), t...)
+		return append(out, "-->"...)
+	case xml.ProcInst:
+		out := append([]byte("<?"), t.Target...)
+		if len(t.Inst) > 0 {
+			out = append(out, ' ')
+			out = append(out, t.Inst...)
+		}
+		return append(out, "?>"...)
+	}
+	return nil
+}
+
+// wellKnownPrefix returns the conventional prefix for a namespace URI, or "".
+func wellKnownPrefix(uri string) string {
+	if p, ok := wellKnownPrefixes[uri]; ok {
+		return p
+	}
+	return ""
+}
+
+// wellKnownPrefixes is the inverse of ExtensionPrefixToNS plus the core Office
+// namespaces; built once. Several prefixes may name one URI, so the shortest
+// (then smallest) wins, which keeps the table independent of map order.
+var wellKnownPrefixes = func() map[string]string {
+	m := make(map[string]string, len(ExtensionPrefixToNS)+4)
+	for prefix, uri := range ExtensionPrefixToNS {
+		if old, dup := m[uri]; !dup || len(prefix) < len(old) || (len(prefix) == len(old) && prefix < old) {
+			m[uri] = prefix
+		}
+	}
+	m[NSDrawingML] = PrefixDrawingML
+	m[NSPresentationML] = PrefixPresentationML
+	m[NSOfficeDocumentRels] = PrefixRelationships
+	m[NSMarkupCompatibility] = PrefixMarkupCompatibility
+	return m
+}()

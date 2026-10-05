@@ -25,8 +25,9 @@ func TestUnmarshalWithSource_TranscodedCharsetSkipsCapture(t *testing.T) {
 	}
 	got := marshalOrderedDoc(t, &doc)
 	// Source not registered: the unknown child degrades to the no-source path
-	// (dropped) and the typed w:sz decodes normally — no garbage span.
-	want := `<w:props><w:sz w:val="ééé"/></w:props>`
+	// (rebuilt from tokens, so kept) and the typed w:sz decodes normally — no
+	// garbage span.
+	want := `<w:props><w:sz w:val="ééé"/><ns1:unknown xmlns:ns1="http://example.com/x"/></w:props>`
 	if got != want {
 		t.Errorf("transcoded capture produced garbage:\n got %q\nwant %q", got, want)
 	}

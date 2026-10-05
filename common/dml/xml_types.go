@@ -680,7 +680,14 @@ func (v *BlipXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case xml.StartElement:
 			eff := &BlipEffect{}
 			var target interface{}
-			switch t.Name.Local {
+			// An element named like an effect but in another namespace is not
+			// that effect: dispatching on the local name alone would re-emit
+			// it as a DrawingML element.
+			kind := t.Name.Local
+			if t.Name.Space != "" && t.Name.Space != NsDrawingML {
+				kind = ""
+			}
+			switch kind {
 			case "alphaBiLevel":
 				eff.AlphaBiLevel = &AlphaBiLevel{}
 				target = eff.AlphaBiLevel

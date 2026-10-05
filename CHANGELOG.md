@@ -14,6 +14,18 @@
 
 ### Fixed
 
+- dml, pptx, docx, xlsx: children a model keeps in source order (a picture's
+  `a:blip` effects, run and paragraph properties, table properties, and the
+  like) that it does not type, or that repeat a single-valued child, were
+  dropped on save whenever the part was decoded without its source bytes (a
+  slide duplicated or imported, a part in a transcoded charset). They are now
+  rebuilt from the decoded markup, in place, with an inline namespace
+  declaration where the producer's prefix is unknown. Comments and non-blank
+  text between children are kept the same way. `dml.BlipXML` also no longer
+  reads an effect-named element of another namespace as the DrawingML effect.
+- dml: `(*Blip).OrderedEffects` lists a repeated or unknown effect, in place,
+  as a `BlipEffect` with `RawName` set, so the renderer reports it as an
+  unknown picture effect (strict mode refuses it) instead of skipping it.
 - render: text in a font with an AAT tracking table (`trak` with `STAT`), such
   as Apple's newer system fonts, is now tracked at each run's size. Since
   forme v0.7.0 applies such tables, it was tracked at CoreText's default of 12
