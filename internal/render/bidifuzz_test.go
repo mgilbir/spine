@@ -12,7 +12,7 @@ import (
 // and Latin text cover their text exactly once, in segments that sit end to
 // end, whatever the width and direction.
 func FuzzRichLinesBidirectional(f *testing.F) {
-	for _, seed := range []string{"A אב B", "אבג 12 (א) ב", "بب Aب", "日本語、。A", "אב\u200f\u200cג", "(((א)))", "1.2 א", ""} {
+	for _, seed := range []string{"A אב B", "אבג 12 (א) ב", "بب Aب", "日本語、。A", "אב\u200f\u200cג", "(((א)))", "1.2 א", "", "א\tב\tג", "A\tאב\t1"} {
 		f.Add(seed, uint8(3), true)
 		f.Add(seed, uint8(40), false)
 	}
@@ -33,7 +33,7 @@ func FuzzRichLinesBidirectional(f *testing.F) {
 			t.Fatal(err)
 		}
 		layout.AllowOverflow()
-		spans := []Span{{Face: face, Size: unit(10), Text: text, BreakWord: true}}
+		spans := []Span{{Face: face, Size: unit(10), Text: text, BreakWord: true, TabStop: unit(20), Tabs: []TabStop{{At: unit(30)}, {At: unit(70), Align: TabRight}, {At: unit(90), Align: TabCenter}}}}
 		lines, err := layout.RichLinesWith(context.Background(), spans, unit(float64(width)), RepertoireBidi, RichOptions{RTL: rtl, HangPunct: true})
 		if err != nil {
 			return

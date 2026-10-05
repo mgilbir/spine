@@ -210,13 +210,14 @@ func TestRenderRightToLeftFontsAndFailures(t *testing.T) {
 		t.Fatalf("syriac: %v", err)
 	}
 
-	// Tabs, a first-line indent without a bullet and Latin breaking are not
-	// drawn in right-to-left paragraphs either.
+	// Default-spaced tabs of a right-to-left paragraph, tabs beside Hebrew in a
+	// left-to-right one, a run direction and Latin breaking are not
+	// drawn exactly.
 	for name, rewrite := range map[string]map[string]func(string) string{
-		"tab in a right-to-left paragraph": renderScriptSlide(renderRTLRun("A\tB"), `<a:pPr rtl="1"/>`),
-		"tab beside Hebrew":                renderScriptSlide(renderRTLRun("א\tB"), ""),
-		"run direction":                    renderScriptSlide(`<a:r><a:rPr sz="1100"><a:latin typeface="Latin"/><a:rtl/></a:rPr><a:t>A</a:t></a:r>`, ""),
-		"Latin line breaking":              renderScriptSlide(renderRTLRun("A"), `<a:pPr latinLnBrk="1"/>`),
+		"default tab in a right-to-left paragraph": renderScriptSlide(renderRTLRun("A\tB"), `<a:pPr rtl="1"/>`),
+		"tab beside Hebrew":                        renderScriptSlide(renderRTLRun("א\tB"), ""),
+		"run direction":                            renderScriptSlide(`<a:r><a:rPr sz="1100"><a:latin typeface="Latin"/><a:rtl/></a:rPr><a:t>A</a:t></a:r>`, ""),
+		"Latin line breaking":                      renderScriptSlide(renderRTLRun("A"), `<a:pPr latinLnBrk="1"/>`),
 	} {
 		if _, err := renderRewrittenPNG(t, data, opts, rewrite); !errors.Is(err, render.ErrUnsupported) {
 			t.Errorf("%s: %v", name, err)

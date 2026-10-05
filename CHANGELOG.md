@@ -15,7 +15,14 @@
   run's language or script. Justified lines stretch edge to edge and the last
   line sits at the right. Low kashida
   justification of Arabic draws as justified in best effort and fails in strict
-  mode; tabs in right-to-left text, and a run's own direction, still fail.
+  mode. Tabs in a right-to-left paragraph are measured from the line's start
+  at its right end, with left and right stops aligning the text after the tab
+  physically (verified against PowerPoint's export) and the line placed by the
+  paragraph's alignment; other stops fail in strict mode and draw
+  approximately in best effort. In runs of a complex-script language
+  (`he-IL`, `ar-*` and others) ASCII digits and spaces use the `a:cs` font, as
+  PowerPoint draws them; ASCII punctuation there fails in strict mode. A run's
+  own direction still fails.
 - pptx: the preview renderer draws East Asian text (ideographs, kana, hangul,
   CJK punctuation, fullwidth forms): each run is cut into spans by the font
   class of its characters, East Asian ones using the run's `a:ea` font, a

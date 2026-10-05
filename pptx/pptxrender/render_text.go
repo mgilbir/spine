@@ -637,6 +637,16 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 					break
 				}
 			}
+			// Right-to-left tabs at left and right stops are placed as
+			// PowerPoint does; others are only a best reading.
+			for _, l := range piece {
+				if l.TabsApprox {
+					if err := styles.colors.approximate(fmt.Errorf("%w: right-to-left tab at a centred or decimal stop, or past the explicit stops", render.ErrUnsupported)); err != nil {
+						return nil, 0, err
+					}
+					break
+				}
+			}
 			lines = append(lines, piece...)
 		}
 		for _, l := range lines {

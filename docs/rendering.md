@@ -378,8 +378,16 @@ by embedding level, white space ending it taking the paragraph's level, and
 drawn in visual order, brackets facing the right way. Arabic letters take
 their joined forms within a span, as the font's shaping gives them, and a
 span is one font and size, so a change of color in a word does not break the
-joining while a change of font does. Tabs fail in a paragraph that is right-to-left or
-holds right-to-left text, and a run's own direction (`a:rtl`) fails. East Asian text wraps by the Unicode line breaking rules (UAX #14):
+joining while a change of font does. Tabs in a right-to-left paragraph are measured from the line's start, at its right
+end, and a stop aligns the text after the tab physically, as PowerPoint's export
+showed: a left stop (`l`) puts the left edge of that text at the stop and a right
+stop (`r`) its right edge; the whole line is then placed by the paragraph's
+alignment, so with an absent `algn` it hugs the left inset. A centred or decimal
+stop, a tab past the explicit stops, and where the line is placed otherwise
+were not measured: they fail, and best effort draws them by the same reading
+(a centred stop symmetric about the stop, a decimal one as a right stop). Tabs
+fail in a left-to-right paragraph that holds right-to-left text, and a run's
+own direction (`a:rtl`) fails. East Asian text wraps by the Unicode line breaking rules (UAX #14):
 a line may break between ideographs, kana and hangul syllables, a closing
 mark, stop or comma may not begin a line and an opening mark may not end one.
 PowerPoint's kinsoku lists are not documented, so this is the profile's
@@ -473,8 +481,13 @@ Arabic letter marks set among them, is drawn with the complex-script font
 list's entry for the run's language (`ar`, `fa`, `ur` and others Arab, `he`
 and `yi` Hebr, `dv` Thaa, `syr` Syrc, `nqo` Nkoo) or, where the language names
 none, for the script of the text. The joiners and marks take the font of the
-text they are among. Digits, spaces and punctuation of ASCII and the European
-repertoire use the Latin font even inside right-to-left text. Text with no
+text they are among. Digits and spaces of ASCII use the Latin font, except in a run
+whose language is written in a complex script (the languages above): there, as
+PowerPoint's export showed for `he-IL` with `a:latin` Courier New and `a:cs` Arial,
+ASCII digits and spaces use the complex-script font, where with `en-US` they use
+the Latin one. How ASCII punctuation and symbols are drawn in such a run was not
+measured: it fails, and best effort uses the Latin font. Other punctuation of
+the European repertoire uses the Latin font even inside right-to-left text. Text with no
 complex-script font fails, and best effort draws it with the Latin font. Other
 scripts, such as Thai or Devanagari, soft hyphens, controls, the explicit
 embedding, override and isolate controls, and other format characters, fail.

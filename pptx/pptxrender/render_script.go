@@ -64,8 +64,29 @@ func renderPieces(rs renderRunStyle, text string, colors *renderColors) ([]rende
 			}
 		}
 	}
+	// In a language of a complex script, ASCII digits and spaces take the
+	// complex-script font, as measured in PowerPoint's own export; elsewhere
+	// they take the Latin one. How other ASCII punctuation and symbols are
+	// drawn there was not measured, so such text fails, and best effort
+	// draws it with the Latin font.
+	if rs.complexLang {
+		for _, c := range text {
+			if c > ' ' && c < 0x7F && (c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+				if err := colors.approximate(fmt.Errorf("%w: ASCII punctuation in a complex-script language", render.ErrUnsupported)); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
+	classOf := func(c rune) renderClass {
+		if rs.complexLang && (c == ' ' || c >= '0' && c <= '9') {
+			return classComplex
+		}
+		return renderClassOf(c)
+	}
 	var pieces []renderPiece
-	start, class := 0, renderClassOf(firstClassed(text))
+	start, class := 0, classOf(firstClassed(text))
 	flush := func(end int) error {
 		if end == start {
 			return nil
@@ -81,7 +102,7 @@ func renderPieces(rs renderRunStyle, text string, colors *renderColors) ([]rende
 		if core.IsFormat(c) {
 			continue
 		}
-		if k := renderClassOf(c); k != class {
+		if k := classOf(c); k != class {
 			if err := flush(i); err != nil {
 				return nil, err
 			}

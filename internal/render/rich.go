@@ -94,6 +94,10 @@ type RichLine struct {
 	// TabsMoved marks a line where an explicit stop moved a tab from where
 	// line breaking measured it.
 	TabsMoved bool
+	// TabsApprox marks a right-to-left line with a tab placed by a rule not
+	// confirmed against PowerPoint: one at a centred or decimal stop, or past
+	// the explicit stops. Left and right stops are exact.
+	TabsApprox bool
 }
 
 // RichLines wraps a horizontal left-to-right paragraph whose spans may differ
@@ -118,8 +122,11 @@ type RichOptions struct {
 	// at the right, and text of either direction is ordered by the Unicode
 	// bidirectional algorithm: breaks are found in logical order, and each
 	// line's segments are cut by embedding level and drawn in visual order.
-	// Joining forms of Arabic follow the neighbours within a span. Tabs are
-	// unsupported where text runs right to left.
+	// Joining forms of Arabic follow the neighbours within a span. Tabs of a
+	// right-to-left paragraph are measured from the line's start, its right
+	// end, and a stop aligns the text after it physically: a left stop puts
+	// the text's left edge at the stop and a right stop its right edge. Tabs
+	// are unsupported in a left-to-right paragraph with right-to-left text.
 	RTL bool
 }
 
@@ -278,7 +285,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			measure := measures[faceOf[span]]
 			if piece.Tab {
 				// A tab's advance is resolved where it falls on a line.
-				if part != "\t" || s.TabStop <= 0 || bd != nil {
+				if part != "\t" || s.TabStop <= 0 || (bd != nil && !opts.RTL) {
 					return fmt.Errorf("%w: paragraph tab", ErrUnsupported)
 				}
 				items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Tab: true, TabStop: s.TabStop, BreakBefore: piece.BreakBefore && at == byteOffset})
@@ -413,7 +420,13 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			}
 			sg.Glyphs, sg.Width = glyphs, w
 		}
-		pen, moved := 0.0, false
+		pen, moved, approx := 0.0, false, false
+		if bd != nil {
+			var err error
+			if moved, approx, err = rtlTabWidths(segments, spans); err != nil {
+				return err
+			}
+		}
 		for k := range segments {
 			sg := &segments[k]
 			at, ok := style.FromPx(pen)
@@ -421,7 +434,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				return fmt.Errorf("%w: paragraph advance", ErrInvalid)
 			}
 			sg.X = at
-			if sg.Text == "\t" {
+			if sg.Text == "\t" && bd == nil {
 				s := spans[sg.Span]
 				even := paragraph.TabAdvance(at, s.TabStop, 0)
 				w := tabAdvance(segments[k+1:], s.Tabs, pen, even.Px())
@@ -453,7 +466,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		if actual > width && !t.overflow {
 			return fmt.Errorf("%w: paragraph overflow", ErrUnsupported)
 		}
-		*result = append(*result, RichLine{Segments: segments, Width: actual, Hang: hung, Overflow: actual > width, TabsMoved: moved})
+		*result = append(*result, RichLine{Segments: segments, Width: actual, Hang: hung, Overflow: actual > width, TabsMoved: moved, TabsApprox: approx})
 		index, offset = next, nextByte
 	}
 	return nil
@@ -503,4 +516,64 @@ func tabAdvance(after []RichSegment, stops []TabStop, pen, even float64) float64
 		lead = 0
 	}
 	return math.Max(0, stop.At.Px()-lead-pen)
+}
+
+// rtlTabWidths resolves the tabs of a right-to-left line, whose segments are
+// in the order they are drawn. Positions are measured from the line's start,
+// at its right end, going left, and the text after a tab, which lies to its
+// left up to the next tab, sits at the stop by its physical alignment: its
+// left edge at a left stop, its right edge at a right one. The line is placed
+// afterwards, by the paragraph's alignment. approx marks a tab that no
+// confirmed rule places.
+func rtlTabWidths(segments []RichSegment, spans []Span) (moved, approx bool, err error) {
+	pen := 0.0
+	for k := len(segments) - 1; k >= 0; k-- {
+		sg := &segments[k]
+		if sg.Text == "\t" {
+			s := spans[sg.Span]
+			at, ok := style.FromPx(pen)
+			if !ok {
+				return false, false, fmt.Errorf("%w: paragraph advance", ErrInvalid)
+			}
+			even := paragraph.TabAdvance(at, s.TabStop, 0)
+			w, exact := rtlTabAdvance(segments[:k], s.Tabs, pen, even.Px())
+			if sg.Width, ok = style.FromPx(w); !ok {
+				return false, false, fmt.Errorf("%w: paragraph advance", ErrInvalid)
+			}
+			moved = moved || sg.Width != even
+			approx = approx || !exact
+		}
+		pen += sg.Width.Px()
+	}
+	return moved, approx, nil
+}
+
+// rtlTabAdvance is how far a tab at pen, measured from the line's start,
+// advances. before are the segments to the tab's left, whose text follows it
+// in reading order. exact is false when no confirmed rule gave the answer.
+func rtlTabAdvance(before []RichSegment, stops []TabStop, pen, even float64) (advance float64, exact bool) {
+	var stop *TabStop
+	for i := range stops {
+		if stops[i].At.Px() > pen {
+			stop = &stops[i]
+			break
+		}
+	}
+	if stop == nil {
+		return even, false
+	}
+	whole := 0.0
+	for k := len(before) - 1; k >= 0 && before[k].Text != "\t"; k-- {
+		whole += before[k].Width.Px()
+	}
+	at := stop.At.Px()
+	switch stop.Align {
+	case TabLeft:
+		return math.Max(0, at-whole-pen), true
+	case TabRight:
+		return math.Max(0, at-pen), true
+	case TabCenter:
+		return math.Max(0, at-whole/2-pen), false
+	}
+	return math.Max(0, at-pen), false
 }

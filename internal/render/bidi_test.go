@@ -170,9 +170,6 @@ func TestRichLinesBidirectional(t *testing.T) {
 		t.Fatalf("tab in right-to-left text: %v", err)
 	}
 	spans[0].Text = "A\tB"
-	if _, err := layout.RichLinesWith(context.Background(), spans, unit(100), RepertoireBidi, RichOptions{RTL: true}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("tab in a right-to-left paragraph: %v", err)
-	}
 	if _, err := layout.RichLinesWith(context.Background(), spans, unit(100), RepertoireBidi, RichOptions{}); err != nil {
 		t.Fatalf("tab in left-to-right text: %v", err)
 	}

@@ -103,6 +103,10 @@ type renderRunStyle struct {
 	// eastAsian marks a run in an East Asian language, where PowerPoint may
 	// draw symbols of ambiguous width with the East Asian font.
 	eastAsian bool
+	// complexLang marks a run in a language written in a complex script,
+	// where PowerPoint draws ASCII digits with the complex-script font, not
+	// the Latin one.
+	complexLang bool
 	// ea is the run's East Asian font, which draws its East Asian
 	// characters; empty where its styles and the theme name none. eaFault
 	// is why it cannot be resolved, which a run with no East Asian
@@ -616,6 +620,10 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 	}
 	if script == "" && own != nil {
 		script = renderLangScript(own.AltLang)
+	}
+	switch script {
+	case "Arab", "Hebr", "Thaa", "Syrc", "Nkoo":
+		s.complexLang = true
 	}
 	// Painting properties this profile does not draw fail wherever a resolved
 	// layer sets them.
