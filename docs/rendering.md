@@ -569,6 +569,12 @@ otherwise a missing bold or italic face is drawn with the family's regular
 face, or the regular fallback, with a warning. Substitution can
 change wrapping and overflow.
 
+Text is shaped at its size: a font with an AAT tracking table (`trak`, with a
+`STAT` table, as HarfBuzz requires), such as Apple's newer system fonts, is
+tracked at each run's size in CSS pixels, the size a browser hands HarfBuzz,
+rather than at CoreText's default of 12 points. Office's own fonts have no
+tracking table.
+
 `-image-pixels` bounds decoded image pixels per slide, page or sheet; it
 defaults to 64 Mi, where the library's default of 4 Mi is less than one phone
 photo.

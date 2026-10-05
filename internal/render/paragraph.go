@@ -126,6 +126,8 @@ func (t *TextLayout) Lines(ctx context.Context, source *shape.Face, text string,
 	if err != nil {
 		return nil, err
 	}
+	// A face that tracks its text by size is shaped at this one.
+	features = face.FeaturesAt(features, size.Px())
 	if text == "" {
 		return []TextLine{{Face: face}}, nil
 	}
