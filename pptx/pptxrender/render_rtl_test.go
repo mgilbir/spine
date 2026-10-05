@@ -325,3 +325,21 @@ func TestRenderRightToLeftBulletsMarginsAndJustify(t *testing.T) {
 		t.Fatalf("justLow without Arabic: %v", err)
 	}
 }
+
+// A space ending a wrapped line hangs past the line's end, the right, or the
+// left in a right-to-left line, and does not count toward its alignment. At
+// 7pt the first line, "אב אב ", is 42px of text and a 4.67px space; the second
+// is shorter.
+func TestRenderTrailingSpaceHangs(t *testing.T) {
+	data, _ := renderInheritedText(t)
+	opts, _ := renderRTLFonts(t)
+	run := `<a:r><a:rPr sz="700"><a:latin typeface="Latin"/><a:cs typeface="Hebrew"/></a:rPr><a:t>אב אב אב</a:t></a:r>`
+	for _, rtl := range []string{"1", "0"} {
+		for algn, want := range map[string][2]int{"": {4, 45}, `algn="l"`: {4, 45}, `algn="ctr"`: {7, 48}, `algn="r"`: {10, 51}} {
+			img := renderSlidePNG(t, data, opts, renderScriptSlide(run, `<a:pPr `+algn+` rtl="`+rtl+`"/>`))
+			if l, _, r, _ := renderInkBounds(t, img); l != want[0] || r != want[1] {
+				t.Errorf("rtl=%s %q: ink spans x %d to %d, want %d to %d", rtl, algn, l, r, want[0], want[1])
+			}
+		}
+	}
+}

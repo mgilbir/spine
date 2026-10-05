@@ -753,12 +753,25 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 			if para.rtl && !stretched && (align == enum.TextAlignJustify || align == enum.TextAlignDistribute) {
 				align = enum.TextAlignRight
 			}
+			// The spaces ending a line hang past its end, as PowerPoint draws
+			// them, and do not count toward its width for alignment. The end is
+			// on the right, and on the left in a right-to-left line, where the
+			// spaces are drawn first and the text starts after them.
+			visible, lead := line.Width.Px(), 0.0
+			if !stretched {
+				trail := renderTrailingSpace(line.Segments)
+				visible -= trail
+				if para.rtl {
+					lead = trail
+				}
+			}
 			if align == enum.TextAlignCenter {
-				xp += (width.Px() - line.Width.Px()) / 2
+				xp += (width.Px() - visible) / 2
 			}
 			if align == enum.TextAlignRight {
-				xp += width.Px() - line.Width.Px()
+				xp += width.Px() - visible
 			}
+			xp -= lead
 			if b.bullet != nil && covered == 0 {
 				x := b.bullet.x
 				if para.rtl {
@@ -1098,6 +1111,33 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil, err
 	}
 	return append(highlights, glyphOps...), nil
+}
+
+// renderTrailingSpace is the width in pixels of the spaces that end a line's
+// text, which hang past the line's end.
+func renderTrailingSpace(segments []core.RichSegment) float64 {
+	order := make([]int, len(segments))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := segments[order[i]], segments[order[j]]
+		return a.Span < b.Span || (a.Span == b.Span && a.Offset < b.Offset)
+	})
+	width := 0.0
+	for i := len(order) - 1; i >= 0; i-- {
+		sg := segments[order[i]]
+		visible := len(strings.TrimRight(sg.Text, " "))
+		for _, g := range sg.Glyphs {
+			if g.Cluster >= visible {
+				width += g.XAdvance * sg.Size.Px() / 1000
+			}
+		}
+		if visible > 0 {
+			break
+		}
+	}
+	return width
 }
 
 // renderJustify stretches a line to a width: justified text widens the
