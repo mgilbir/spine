@@ -180,11 +180,11 @@ image pixels per CSS pixel (4 per pattern pixel), or 1.5 or 1 when the box is
 too large for that within the tiled-fill pixel budget, as a slide-sized
 background is. At 3 and 1.5, output at 144 and 288 DPI lands pattern edges on
 whole pixels; at 96 DPI a pattern pixel is 1.33 pixels, so edges blur
-whatever the scale. The drawing is placed to 1/64 CSS pixel. Rotated or
-flipped shapes, and shapes in rotated or flipped groups, are the exception:
-how PowerPoint tiles those has not been measured, so strict mode fails and
-best effort draws the pattern as for an upright shape, with a warning. Best
-effort reports problems with a background as the background's, and draws a
+whatever the scale. The drawing is placed to 1/64 CSS pixel. A pattern is
+never turned or mirrored: a rotated or flipped shape, or one in a rotated or
+flipped group, shows the slide's upright pattern under it, as PowerPoint
+draws it, so the fill is composed again over the turned shape's bounds and
+clipped to its outline. Best effort reports problems with a background as the background's, and draws a
 background it cannot draw white.
 Rectangles, rounded rectangles (`roundRect` with a literal `adj` adjustment)
 and ellipses may have a solid, gradient or picture fill or none, and a solid outline or none. A shape's

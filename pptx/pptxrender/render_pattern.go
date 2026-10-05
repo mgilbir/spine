@@ -90,15 +90,21 @@ const renderPatternPoint = 96.0 / 72
 // sampled once per CSS pixel.
 var renderPatternScales = [...]float64{3, 1.5, 1}
 
+// renderPatternSpec is a resolved pattern: its bitmap and its two colors.
+type renderPatternSpec struct {
+	bits    [8]uint8
+	on, off color.NRGBA
+}
+
 // patternPaint resolves a pattern fill for a box w by h CSS pixels at (x, y)
 // on the slide to a composed image of its foreground and background.
 // PowerPoint anchors the tiling to the slide's origin, so the box shows the
-// part of the pattern under it; absent colors are black on white. turned is
-// set for a box that is rotated or flipped, by itself or by a group: how
-// PowerPoint tiles those is not known, so the pattern is composed from the
-// unturned box's phase, as for an upright shape, and left to the shape's
-// turn, approximately.
-func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x, y, w, h float64, turned bool) (renderPaint, error) {
+// part of the pattern under it; absent colors are black on white. The
+// pattern is never turned or mirrored: a shape's rotation and flips, and its
+// groups', move the shape over the pattern but not the pattern, so the
+// image of a turned shape is composed again over the turned shape's bounds
+// (see patternAt).
+func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x, y, w, h float64) (renderPaint, error) {
 	prst := p.Prst
 	if prst == "" {
 		return renderPaint{}, fmt.Errorf("%w: pattern without a preset", render.ErrUnsupported)
@@ -106,21 +112,6 @@ func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x,
 	bits, ok := renderPatterns[prst]
 	if !ok {
 		return renderPaint{}, fmt.Errorf("%w: pattern %q", render.ErrInvalid, p.Prst)
-	}
-	for _, v := range []float64{w, h} {
-		if !(v > 0) || math.IsInf(v, 0) || v > 1<<24 {
-			return renderPaint{}, fmt.Errorf("%w: pattern extent", render.ErrInvalid)
-		}
-	}
-	for _, v := range []float64{x, y} {
-		if math.IsNaN(v) || math.Abs(v) > 1<<30 {
-			return renderPaint{}, fmt.Errorf("%w: pattern position", render.ErrInvalid)
-		}
-	}
-	if turned {
-		if err := c.approximate(fmt.Errorf("%w: pattern %s in a rotated or flipped shape drawn as if upright", render.ErrUnsupported, prst)); err != nil {
-			return renderPaint{}, err
-		}
 	}
 	fg, bg := style.RGBA{A: 1}, renderWhite
 	var err error
@@ -137,7 +128,24 @@ func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x,
 	nrgba := func(c style.RGBA) color.NRGBA {
 		return color.NRGBA{R: uint8(math.Round(c.R)), G: uint8(math.Round(c.G)), B: uint8(math.Round(c.B)), A: uint8(math.Round(c.A * 255))}
 	}
-	on, off := nrgba(fg), nrgba(bg)
+	return c.patternAt(renderPatternSpec{bits: bits, on: nrgba(fg), off: nrgba(bg)}, x, y, w, h)
+}
+
+// patternAt composes a pattern over a box w by h CSS pixels at (x, y) on the
+// slide, and records the image's pattern so that a transform that turns the
+// shape can compose it again.
+func (c *renderColors) patternAt(spec renderPatternSpec, x, y, w, h float64) (renderPaint, error) {
+	for _, v := range []float64{w, h} {
+		if !(v > 0) || math.IsInf(v, 0) || v > 1<<24 {
+			return renderPaint{}, fmt.Errorf("%w: pattern extent", render.ErrInvalid)
+		}
+	}
+	for _, v := range []float64{x, y} {
+		if math.IsNaN(v) || math.Abs(v) > 1<<30 {
+			return renderPaint{}, fmt.Errorf("%w: pattern position", render.ErrInvalid)
+		}
+	}
+	bits, on, off := spec.bits, spec.on, spec.off
 	scale := renderPatternScales[len(renderPatternScales)-1]
 	for _, s := range renderPatternScales {
 		if math.Ceil(w*s)*math.Ceil(h*s) <= renderMaxTilePixels {
@@ -190,5 +198,9 @@ func (c *renderColors) patternPaint(p *dml.PattFill, placeholder *style.RGBA, x,
 	// The image runs past the box on each side, clipped to it.
 	ew, eh := float64(ow)/scale, float64(oh)/scale
 	l, t := (x0-x)/w, (y0-y)/h
+	if c.patterns == nil {
+		c.patterns = map[image.Image]renderPatternSpec{}
+	}
+	c.patterns[img] = spec
 	return renderPaint{image: img, fill: [4]float64{l, t, 1 - l - ew/w, 1 - t - eh/h}}, nil
 }

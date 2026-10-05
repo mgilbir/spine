@@ -3,7 +3,6 @@ package pptxrender
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -191,25 +190,69 @@ func TestRenderPatternFills(t *testing.T) {
 			t.Fatalf("background at %v: %+v, want %+v", pt, got, want)
 		}
 	}
-	// A rotated pattern shape is still approximate: strict mode refuses it,
-	// best effort draws it as if upright and says so.
-	turned := slide(strings.Replace(shape(90, 571500, 381000, 152400, patt("ltVert")), `<a:xfrm>`, `<a:xfrm rot="1800000">`, 1))
-	opts.Warn = nil
-	if _, err := renderRewrittenPNG(t, data, opts, turned); !errors.Is(err, render.ErrUnsupported) {
-		t.Fatalf("strict rotated pattern: %v", err)
+	// PowerPoint never turns or mirrors a pattern: a rotated or flipped
+	// shape, or one in a rotated group, shows the slide's upright pattern
+	// under it, with no warning and in strict mode too. disk compares a disk
+	// well inside the shape, around its centre.
+	disk := func(t *testing.T, img image.Image, prst string, cx, cy, radius int) {
+		t.Helper()
+		rows := renderPatterns[prst]
+		dev := func(emu int) float64 { return float64(emu) / 9525 * 3 }
+		r := dev(radius) - 4
+		n := 0
+		for Y := int(dev(cy) - r); Y <= int(dev(cy)+r); Y++ {
+			for X := int(dev(cx) - r); X <= int(dev(cx)+r); X++ {
+				if math.Hypot(float64(X)+.5-dev(cx), float64(Y)+.5-dev(cy)) > r {
+					continue
+				}
+				n++
+				want := blue
+				if rows[(Y/4)%8]&(0x80>>((X/4)%8)) != 0 {
+					want = red
+				}
+				if got := at(img, X, Y); !near(got, want) {
+					t.Fatalf("%s turned at %d,%d: %+v, want %+v", prst, X, Y, got, want)
+				}
+			}
+		}
+		if n < 1000 {
+			t.Fatalf("%s: only %d pixels compared", prst, n)
+		}
+	}
+	const size = 152400
+	for _, xfrm := range []string{` rot="1800000"`, ` rot="5400000"`, ` flipH="1"`, ` flipV="1"`, ` rot="2700000" flipH="1"`} {
+		for _, prst := range []string{"dnDiag", "lgConfetti", "dashHorz"} {
+			turned := slide(strings.Replace(shape(90, 571500, 381000, size, patt(prst)), `<a:xfrm>`, `<a:xfrm`+xfrm+`>`, 1))
+			img := renderPatternPNG(t, data, opts, turned, 288)
+			disk(t, img, prst, 571500+size/2, 381000+size/2, size/2)
+		}
 	}
 	warnings = nil
 	opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
-	renderSlidePNG(t, data, opts, turned)
-	if len(warnings) == 0 || !strings.Contains(warnings[0], "pattern ltVert in a rotated or flipped shape drawn as if upright") {
+	rotated := slide(strings.Replace(shape(90, 571500, 381000, size, patt("ltVert")), `<a:xfrm>`, `<a:xfrm rot="1800000">`, 1))
+	renderSlidePNG(t, data, opts, rotated)
+	if len(warnings) != 0 {
 		t.Fatalf("rotated warnings: %q", warnings)
 	}
-	// So is one in a rotated group.
-	inner := shape(90, 571500, 381000, 152400, patt("ltVert"))
-	group := `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Turned"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm rot="5400000"><a:off x="500000" y="300000"/><a:ext cx="300000" cy="300000"/><a:chOff x="500000" y="300000"/><a:chExt cx="300000" cy="300000"/></a:xfrm></p:grpSpPr>` + inner + `</p:grpSp>`
-	warnings = nil
-	renderSlidePNG(t, data, opts, slide(group))
-	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "pattern ltVert in a rotated or flipped shape") {
+	opts.Warn = nil
+	// A rotated group moves its shapes, not their patterns, and a shape
+	// turned inside a turned group is placed by both.
+	inner := shape(90, 571500, 381000, size, patt("dnDiag"))
+	group := func(rot string, child string) string {
+		return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="95" name="Turned"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm rot="` + rot + `"><a:off x="500000" y="300000"/><a:ext cx="300000" cy="300000"/><a:chOff x="500000" y="300000"/><a:chExt cx="300000" cy="300000"/></a:xfrm></p:grpSpPr>` + child + `</p:grpSp>`
+	}
+	// The group turns about (650000, 450000), so the child's centre
+	// (647700, 457200) lands at (642800, 447700) after a quarter turn.
+	img = renderPatternPNG(t, data, opts, slide(group("5400000", inner)), 288)
+	disk(t, img, "dnDiag", 642800, 447700, size/2)
+	// A turn of 30 degrees takes the centre's offset (-2300, 7200) to
+	// (-2300 cos - 7200 sin, -2300 sin + 7200 cos).
+	c, s := math.Cos(math.Pi/6), math.Sin(math.Pi/6)
+	img = renderPatternPNG(t, data, opts, slide(group("1800000", strings.Replace(inner, `<a:xfrm>`, `<a:xfrm rot="2700000" flipV="1">`, 1))), 288)
+	disk(t, img, "dnDiag", 650000+int(math.Round(-2300*c-7200*s)), 450000+int(math.Round(-2300*s+7200*c)), size/2)
+	opts.Warn = func(err error) { warnings = append(warnings, err.Error()) }
+	renderSlidePNG(t, data, opts, slide(group("1800000", inner)))
+	if len(warnings) != 0 {
 		t.Fatalf("rotated group warnings: %q", warnings)
 	}
 }

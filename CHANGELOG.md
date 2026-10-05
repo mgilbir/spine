@@ -65,7 +65,9 @@
   from bitmaps measured from PowerPoint's rendering of all 54 presets. A
   pattern pixel is one point (4/3 CSS pixels, not one), and the tiling is
   anchored to the slide's origin rather than the shape's. Patterns in rotated
-  or flipped shapes or groups remain approximate. Lines and text with pattern
+  or flipped shapes and groups are drawn exactly too: PowerPoint never turns
+  or mirrors a pattern, so the turned shape shows the slide's upright pattern
+  under it. Lines and text with pattern
   fills are still drawn in the foreground color.
 
 ### Fixed

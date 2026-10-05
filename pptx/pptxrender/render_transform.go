@@ -127,6 +127,20 @@ func renderOnlyGradient(ops []layout.Op) (layout.FillGradient, bool) {
 	return f, ok
 }
 
+// patternOf returns the pattern a clip's sole operation draws, when it is a
+// composed pattern image.
+func (c *renderColors) patternOf(ops []layout.Op) (renderPatternSpec, bool) {
+	if len(ops) != 1 {
+		return renderPatternSpec{}, false
+	}
+	d, ok := ops[0].(layout.DrawImage)
+	if !ok {
+		return renderPatternSpec{}, false
+	}
+	spec, ok := c.patterns[d.Image]
+	return spec, ok
+}
+
 // renderRectPath is a rectangle as a closed path.
 func renderRectPath(r layout.Rect) layout.Path {
 	x0, y0, x1, y1 := r.X, r.Y, r.X+r.W, r.Y+r.H
@@ -205,6 +219,34 @@ func (t renderShapeTransform) ops(ops []layout.Op, colors *renderColors, maxSegm
 			}
 			out = append(out, g)
 		case layout.ClipPath:
+			if spec, ok := colors.patternOf(v.Ops); ok {
+				// A pattern is not turned with its shape: the turned shape
+				// shows the part of the slide's pattern under it.
+				path, b, err := t.path(v.Path, maxSegments, &segments)
+				if err != nil {
+					return nil, err
+				}
+				if !(b[2] > b[0]) || !(b[3] > b[1]) {
+					continue
+				}
+				paint, err := colors.patternAt(spec, b[0], b[1], b[2]-b[0], b[3]-b[1])
+				if err != nil {
+					return nil, err
+				}
+				x, okX := style.FromPx(b[0])
+				y, okY := style.FromPx(b[1])
+				w, okW := style.FromPx(b[2] - b[0])
+				h, okH := style.FromPx(b[3] - b[1])
+				if !okX || !okY || !okW || !okH {
+					return nil, fmt.Errorf("%w: transformed pattern", render.ErrLimit)
+				}
+				drawn, err := paint.imageOps(b[0], b[1], b[2]-b[0], b[3]-b[1], layout.Rect{X: x, Y: y, W: w, H: h}, path)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, drawn...)
+				continue
+			}
 			if f, ok := renderOnlyGradient(v.Ops); ok {
 				g, err := gradient(f, v.Path)
 				if err != nil {
