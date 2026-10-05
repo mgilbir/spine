@@ -58,6 +58,21 @@ func wordResolveSpacing(blocks []*wordBlock) {
 	}
 }
 
+// wordCollapseAcrossSections applies the larger-of rule between the last
+// paragraph of a section and the first of the next: Word keeps it across a
+// section break, even onto a new page, so the first paragraph keeps only the
+// part of its space before that exceeds the previous one's space after.
+func wordCollapseAcrossSections(prev, next []*wordBlock) {
+	if len(prev) == 0 || len(next) == 0 {
+		return
+	}
+	a, b := prev[len(prev)-1], next[0]
+	if a.kind != "p" || b.kind != "p" || b.continuation || b.pageBreakBefore {
+		return
+	}
+	b.before = math.Max(0, b.before-a.after)
+}
+
 // layoutSection builds, lays out and paints one section.
 func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error) {
 	if err := r.ctx.Err(); err != nil {

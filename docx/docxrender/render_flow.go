@@ -83,6 +83,10 @@ type wordFlow struct {
 	secs   []*wordSection
 	cur    []*wordBlock
 	fields []wordFieldState
+	// breakPending is a manual page break that ended its paragraph: Word
+	// keeps the paragraph mark on the page with the break, so the next block
+	// starts the new page.
+	breakPending bool
 }
 
 // wordFieldState is one open complex field: it is in its instruction until
@@ -104,6 +108,9 @@ func (f *wordFlow) visible() bool {
 func (f *wordFlow) add(b *wordBlock) error {
 	if err := f.r.charge(2); err != nil {
 		return err
+	}
+	if f.breakPending {
+		b.pageBreakBefore, f.breakPending = true, false
 	}
 	f.cur = append(f.cur, b)
 	return nil

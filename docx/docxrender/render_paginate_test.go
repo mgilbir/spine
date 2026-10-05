@@ -168,6 +168,48 @@ func TestContinuationAfterBreakTakesNoFirstLineIndent(t *testing.T) {
 	}
 }
 
+func TestManualBreaksSuppressSpaceBeforeAtPageTop(t *testing.T) {
+	// Word's PDF output: a paragraph with space before that a manual break
+	// puts at the top of a page starts at the margin.
+	sp := `<w:spacing w:before="300"/>`
+	for name, tc := range map[string]struct {
+		body  string
+		first int
+	}{
+		// The empty line holding the break stays on page 1.
+		"break alone in a paragraph": {wordTestBody(wordTestPara("", wordTestRun("", "one")), wordTestPara("", `<w:r><w:br w:type="page"/></w:r>`), wordTestPara(sp, wordTestRun("", "next"))), 2},
+		"break ending a paragraph":   {wordTestBody(wordTestPara("", wordTestRun("", "one"), `<w:r><w:br w:type="page"/></w:r>`), wordTestPara(sp, wordTestRun("", "next"))), 1},
+		"pageBreakBefore":            {wordTestBody(wordTestPara("", wordTestRun("", "one")), wordTestPara(sp+`<w:pageBreakBefore/>`, wordTestRun("", "next"))), 1},
+	} {
+		p, _ := wordTestRender(t, tc.body)
+		if got := lineCounts(p); !equalInts(got, []int{tc.first, 1}) {
+			t.Errorf("%s: lines per page %v", name, got)
+			continue
+		}
+		if l := p.lines(2)[0]; l.text != "next" || !near(l.y, wordTestTop+wordTestAscent12) {
+			t.Errorf("%s: page 2 starts %+v", name, l)
+		}
+	}
+}
+
+func TestSectionBreakKeepsTheLargerSpacing(t *testing.T) {
+	// After a section break the first paragraph keeps the part of its space
+	// before beyond the previous paragraph's space after (Word's larger-of
+	// rule, across the page): 30 px before less 10 px after leaves 20.
+	sect := `<w:sectPr><w:pgSz w:w="4500" w:h="3000"/><w:pgMar w:top="300" w:right="300" w:bottom="300" w:left="300" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>`
+	body := wordTestBody(
+		wordTestPara(`<w:spacing w:after="150"/>`+sect, wordTestRun("", "one")),
+		wordTestPara(`<w:spacing w:before="450"/>`, wordTestRun("", "next")),
+	)
+	p, _ := wordTestRender(t, body)
+	if got := lineCounts(p); !equalInts(got, []int{1, 1}) {
+		t.Fatalf("lines per page %v", got)
+	}
+	if y := p.lines(2)[0].y; !near(y, wordTestTop+20+wordTestAscent12) {
+		t.Errorf("first baseline %v", y)
+	}
+}
+
 func TestSoftBreakSuppressesSpaceBeforeAtPageTop(t *testing.T) {
 	body := wordTestBody(
 		wordTestPara("", wordTestRun("", wordTestLinesWith("a", 13))),

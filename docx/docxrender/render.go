@@ -123,7 +123,10 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 		return nil, err
 	}
 	laid := make([]*wordLaidSection, 0, len(secs))
-	for _, s := range secs {
+	for i, s := range secs {
+		if i > 0 {
+			wordCollapseAcrossSections(secs[i-1].blocks, s.blocks)
+		}
 		l, e := r.layoutSection(s)
 		if e != nil {
 			return nil, e

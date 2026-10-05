@@ -112,8 +112,14 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 			return err
 		}
 	}
-	if err = p.finishBlock(true, nil); err != nil {
-		return err
+	// A page break that ends the paragraph keeps the mark with it, as Word's
+	// PDF output shows: no empty line opens the next page, whose first block
+	// is the next one.
+	breakEnds := p.cont && !p.hasContent
+	if !breakEnds {
+		if err = p.finishBlock(true, nil); err != nil {
+			return err
+		}
 	}
 	last := len(p.blocks) - 1
 	for i, b := range p.blocks {
@@ -127,6 +133,7 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 			return err
 		}
 	}
+	f.breakPending = f.breakPending || breakEnds
 	if pPr != nil {
 		if sp := pPr.child("sectPr"); sp != nil {
 			return f.closeSection(sp)

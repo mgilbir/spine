@@ -88,13 +88,12 @@ func TestPageBreakInAnEmptyParagraph(t *testing.T) {
 		wordTestPara("", `<w:r><w:br w:type="page"/></w:r>`),
 		wordTestPara("", wordTestRun("", "second")),
 	))
-	// The line holding the break stays on page 1; the paragraph's mark is an
-	// empty line on page 2, above the next paragraph.
-	if got := lineCounts(p); !equalInts(got, []int{1, 2}) {
+	// The line holding the break stays on page 1 with the paragraph's mark, as
+	// Word's PDF output shows; page 2 starts with the next paragraph.
+	if got := lineCounts(p); !equalInts(got, []int{1, 1}) {
 		t.Fatalf("lines per page %v", got)
 	}
-	l := p.lines(2)
-	if !near(l[1].y-l[0].y, 12) || !strings.HasPrefix(l[1].text, "second") {
+	if l := p.lines(2); !near(l[0].y, wordTestTop+wordTestAscent12) || !strings.HasPrefix(l[0].text, "second") {
 		t.Errorf("page 2 %+v", l)
 	}
 }

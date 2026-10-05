@@ -857,10 +857,13 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   colour mapping. Unreferenced styles are never read.
 - **Paragraphs.** Alignment (`left`, `start`, `center`, `right`, `end`, `both`);
   left, right, first-line and hanging indents (`start` and `end` as left and
-  right); space before and after (kept at the top of a page after a hard break
-  and on the first page, and dropped after a soft break, as Word does), the
+  right); space before and after (kept on the first page, dropped at the top
+  of a page that a soft break, a manual page break or `pageBreakBefore`
+  started, and kept after a section break, as Word's PDF output shows), the
   larger of one paragraph's space after and the next one's space before
-  separating them, with `contextualSpacing` and HTML automatic spacing
+  separating them, also across a section break; a page break that ends its
+  paragraph keeps the paragraph mark with it, so no empty line opens the next
+  page; with `contextualSpacing` and HTML automatic spacing
   (14 pt); line spacing `auto` (a multiple of the font's line height, 240ths of a
   line), `exact` and `atLeast`, with the text placed in its line as Word places
   it (the line gap above the ascent, a multiple's extra space below the text,

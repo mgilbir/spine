@@ -19,8 +19,8 @@ import (
 // section's layout, [y0, end), drawn at a vertical offset dest from the top
 // margin. Cutting at a line box gives each text line to exactly one page, and
 // leaving out the layout between two chunks is what removes the space around a
-// soft page break (Word does not draw space before at the top of a page that a
-// soft break started).
+// page break (Word does not draw space before at the top of a page that a soft
+// or a manual break started; after a section break it does).
 //
 // The display list of the whole section is then distributed to the pages: text
 // and other marks go to the chunk holding their baseline or centre, and block
@@ -215,7 +215,9 @@ func wordMinBottom(b *wordLaidBlock) float64 {
 func (pg *wordPaginator) block(sec *wordLaidSection, i int, chain wordChain) error {
 	b := sec.blocks[i]
 	if b.pageBreakBefore && pg.has {
-		if err := pg.openPage(sec, b.top); err != nil {
+		// A manual break drops the space before at the top of the new page,
+		// as Word's PDF output shows.
+		if err := pg.openPage(sec, b.units[0].top); err != nil {
 			return err
 		}
 	}
