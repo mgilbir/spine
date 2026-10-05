@@ -570,8 +570,9 @@ cells, which preparation must not do, so a new or edited table fails until it
 is saved and reopened. Column widths come from the grid; a row is as tall as
 its stored height or its tallest cell's text plus margins, whichever is
 larger. Cell fills, then borders, then cell text are painted. A border is a
-solid line centered on its grid line, extended half its width where another
-border meets it so corners close. Where adjacent cells set a shared edge
+solid line centered on its grid line, drawn as one line along cells that give
+it alike, and extended half the width of a border that ends at its end, so
+corners close; where a border runs through, the line stops at its centre. Where adjacent cells set a shared edge
 differently, or differing borders meet at a grid point, rendering fails: the
 precedence is undocumented. Cell text uses the slide text profile, laid out
 with the cell's margins and anchor; a cell `a:bodyPr` may only repeat them. A merged cell (`gridSpan`, `rowSpan`) draws its fill and text over the

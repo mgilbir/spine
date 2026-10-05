@@ -623,6 +623,19 @@ func TestBuiltinTableStyleDoubleLine(t *testing.T) {
 			t.Errorf("y=%d: %+v, want %+v", y, px, want)
 		}
 	}
+	// The stroke is one line across the table: no seam at the column lines
+	// (x = 101.2 and 192.4), and it stops at the outer borders (x = 10 and
+	// 283.6) instead of sticking out past them.
+	for x := 12; x < 282; x++ {
+		if px := renderPixel(t, got, x, 152); !closeTo(px, black, 20) {
+			t.Fatalf("x=%d: %+v, the line is broken", x, px)
+		}
+	}
+	for _, x := range []int{7, 8, 285, 286} {
+		if px := renderPixel(t, got, x, 152); !closeTo(px, white, 20) {
+			t.Errorf("x=%d: %+v, the line sticks out of the table", x, px)
+		}
+	}
 }
 
 // A header line is drawn over the lines that meet it.

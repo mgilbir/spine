@@ -300,7 +300,7 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 		}
 		ops = append(ops, bg...)
 	}
-	// Fills. Opaque fills run under the next cell's by half a pixel, so that
+	// Fills. Opaque fills run under the next one by half a pixel, so that
 	// anti-aliasing does not leave a seam where cells meet at a fraction of a
 	// pixel.
 	fills := make([][]*style.RGBA, rows)
@@ -332,34 +332,86 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			fills[r][c] = &color
 		}
 	}
-	opaque := func(r, c int) bool {
-		return r < rows && c < cols && fills[r][c] != nil && fills[r][c].A >= 1
-	}
 	const seam = 0.5
+	// Cells of one color that touch draw as one rectangle: first along each
+	// row, then those of the same columns in consecutive rows.
+	type fillRect struct {
+		r0, r1, c0, c1 int
+		color          style.RGBA
+	}
+	var rects []fillRect
 	for r := range cells {
+		first := len(rects)
 		for c, cl := range cells[r] {
 			color := fills[r][c]
 			if color == nil {
 				continue
 			}
-			right, bottom := 0.0, 0.0
-			if color.A >= 1 {
-				if opaque(r, c+cl.cs) {
-					right = seam
-				}
-				if opaque(r+cl.rs, c) {
-					bottom = seam
-				}
+			if n := len(rects); n > first && cl.rs == 1 && rects[n-1].r1 == r+1 && rects[n-1].c1 == c && rects[n-1].color == *color {
+				rects[n-1].c1 = c + cl.cs
+				continue
 			}
-			x, err1 := unit(px(xs[c]))
-			y, err2 := unit(ys[r])
-			w, err3 := unit(px(xs[c+cl.cs]) - px(xs[c]) + right)
-			h, err4 := unit(ys[r+cl.rs] - ys[r] + bottom)
-			if err := firstErr(err1, err2, err3, err4); err != nil {
-				return nil, err
-			}
-			ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: *color})
+			rects = append(rects, fillRect{r, r + cl.rs, c, c + cl.cs, *color})
 		}
+	}
+	type fillKey struct {
+		c0, c1 int
+		color  style.RGBA
+	}
+	open := map[fillKey]int{} // the rectangle ending at the current row
+	merged := rects[:0]
+	for _, f := range rects {
+		key := fillKey{f.c0, f.c1, f.color}
+		if i, ok := open[key]; ok && merged[i].r1 == f.r0 {
+			merged[i].r1 = f.r1
+			continue
+		}
+		open[key] = len(merged)
+		merged = append(merged, f)
+	}
+	rects = merged
+	// owner is the rectangle that paints each cell; a rectangle runs under the
+	// opaque ones painted after it.
+	owner := make([][]int, rows)
+	for r := range owner {
+		owner[r] = make([]int, cols)
+		for c := range owner[r] {
+			owner[r][c] = -1
+		}
+	}
+	for i, f := range rects {
+		for r := f.r0; r < f.r1; r++ {
+			for c := f.c0; c < f.c1; c++ {
+				owner[r][c] = i
+			}
+		}
+	}
+	opaque := func(r, c, after int) bool {
+		return r < rows && c < cols && owner[r][c] > after && rects[owner[r][c]].color.A >= 1
+	}
+	for i, f := range rects {
+		right, bottom := 0.0, 0.0
+		if f.color.A >= 1 {
+			right, bottom = seam, seam
+			for r := f.r0; r < f.r1; r++ {
+				if !opaque(r, f.c1, i) {
+					right = 0
+				}
+			}
+			for c := f.c0; c < f.c1; c++ {
+				if !opaque(f.r1, c, i) {
+					bottom = 0
+				}
+			}
+		}
+		x, err1 := unit(px(xs[f.c0]))
+		y, err2 := unit(ys[f.r0])
+		w, err3 := unit(px(xs[f.c1]) - px(xs[f.c0]) + right)
+		h, err4 := unit(ys[f.r1] - ys[f.r0] + bottom)
+		if err := firstErr(err1, err2, err3, err4); err != nil {
+			return nil, err
+		}
+		ops = append(ops, layout.FillRect{Rect: layout.Rect{X: x, Y: y, W: w, H: h}, Color: f.color})
 	}
 	// Borders: every grid edge segment takes the border its cells give it.
 	edge := func(ln *dml.Ln) (renderBorder, bool, error) {
@@ -492,12 +544,10 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 	// Borders meeting at a grid point must agree where a cell sets one of
 	// them: which of two differing borders shows is undocumented. A style's
 	// borders may differ, and are painted from the lowest precedence up so the
-	// highest shows where they cross. A segment is extended half its width
-	// where another border meets it, to close the corner.
+	// highest shows where they cross. A line is extended half the width of a
+	// border that ends at its end, to close the corner.
 	mixed := false
-	meets := make([][]int, rows+1)
 	for r := 0; r <= rows; r++ {
-		meets[r] = make([]int, cols+1)
 		for c := 0; c <= cols; c++ {
 			var met []renderBorder
 			for _, b := range []renderBorder{
@@ -508,7 +558,6 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 					met = append(met, b)
 				}
 			}
-			meets[r][c] = len(met)
 			explicit := 0
 			for _, b := range met {
 				if b.rank >= renderExplicitBorder {
@@ -531,44 +580,52 @@ func renderTableFrame(ctx context.Context, gf *oxml.GraphicFrame, colors *render
 			return nil, err
 		}
 	}
-	joined := func(r, c int) bool { return meets[r][c] > 1 }
+	// Borders that meet end to end draw as one line, so no anti-aliasing seam
+	// shows where the cells meet. A line's end reaches half the width of a
+	// border that ends there, which closes a corner, and stops at the centre
+	// of one that runs through, so it does not stick out past an outer border.
 	type stroke struct {
 		b              renderBorder
 		x0, y0, x1, y1 float64
 	}
 	var strokes []stroke
+	crossing := func(a, b renderBorder) float64 {
+		if a.width > 0 && b.width > 0 {
+			// A border running through the point already covers the end.
+			return 0
+		}
+		return px(max(a.width, b.width)) / 2
+	}
 	for r := 0; r <= rows; r++ {
-		for c := 0; c < cols; c++ {
+		for c := 0; c < cols; {
 			b := horizontal[r][c]
-			if b.width == 0 {
-				continue
+			end := c + 1
+			for b.width > 0 && end < cols && horizontal[r][end] == b {
+				end++
 			}
-			half := px(b.width) / 2
-			x0, x1 := px(xs[c]), px(xs[c+1])
-			if joined(r, c) {
-				x0 -= half
+			if b.width > 0 {
+				half := px(b.width) / 2
+				x0 := px(xs[c]) - crossing(cellBorder(vertical, r-1, c), cellBorder(vertical, r, c))
+				x1 := px(xs[end]) + crossing(cellBorder(vertical, r-1, end), cellBorder(vertical, r, end))
+				strokes = append(strokes, stroke{b, x0, ys[r] - half, x1, ys[r] + half})
 			}
-			if joined(r, c+1) {
-				x1 += half
-			}
-			strokes = append(strokes, stroke{b, x0, ys[r] - half, x1, ys[r] + half})
+			c = end
 		}
 	}
-	for r := 0; r < rows; r++ {
-		for c := 0; c <= cols; c++ {
+	for c := 0; c <= cols; c++ {
+		for r := 0; r < rows; {
 			b := vertical[r][c]
-			if b.width == 0 {
-				continue
+			end := r + 1
+			for b.width > 0 && end < rows && vertical[end][c] == b {
+				end++
 			}
-			half := px(b.width) / 2
-			y0, y1 := ys[r], ys[r+1]
-			if joined(r, c) {
-				y0 -= half
+			if b.width > 0 {
+				half := px(b.width) / 2
+				y0 := ys[r] - crossing(cellBorder(horizontal, r, c-1), cellBorder(horizontal, r, c))
+				y1 := ys[end] + crossing(cellBorder(horizontal, end, c-1), cellBorder(horizontal, end, c))
+				strokes = append(strokes, stroke{b, px(xs[c]) - half, y0, px(xs[c]) + half, y1})
 			}
-			if joined(r+1, c) {
-				y1 += half
-			}
-			strokes = append(strokes, stroke{b, px(xs[c]) - half, y0, px(xs[c]) + half, y1})
+			r = end
 		}
 	}
 	sort.SliceStable(strokes, func(i, j int) bool { return strokes[i].b.rank < strokes[j].b.rank })
