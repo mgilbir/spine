@@ -43,6 +43,7 @@ func policyCases() []policyCase {
 		{name: "page borders", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:pgBorders/>`), warn: "page borders"},
 		{name: "columns", sect: wordTestSect(4500, 3000, 300, 300, 300, 300, `<w:cols w:num="2"/>`), warn: "multiple text columns", approx: true},
 		{name: "custom tab stops", body: wordTestPara(`<w:tabs><w:tab w:val="right" w:pos="3000"/></w:tabs>`, `<w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r>`), warn: "custom tab stops", approx: true, text: "b"},
+		{name: "default tabs in an indented paragraph", body: wordTestPara(`<w:ind w:left="360"/>`, `<w:r><w:t>a</w:t><w:tab/><w:t>b</w:t></w:r>`), warn: "indented paragraph", approx: true, text: "b"},
 		{name: "small caps", body: wordTestPara("", wordTestRun(`<w:smallCaps/>`, "small")), warn: "smallCaps", approx: true},
 		{name: "character spacing", body: wordTestPara("", wordTestRun(`<w:spacing w:val="20"/>`, "spaced")), warn: "character spacing", approx: true, text: "spaced"},
 		{name: "dotted underline", body: wordTestPara("", wordTestRun(`<w:u w:val="dotted"/>`, "dots")), warn: "underline style dotted", approx: true, text: "dots"},

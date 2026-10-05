@@ -865,8 +865,10 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   two lines stay together and two lines move to the next page); manual page and
   column breaks (the text after a break is the paragraph's continuation on the
   next page and takes no first-line indent); line breaks; default tab stops
-  (`w:defaultTabStop`, from the left text edge, which is the left indent for a
-  hanging indent's first line). The paragraph mark's formatting sizes empty
+  (`w:defaultTabStop`; forme measures them from the paragraph's left edge and
+  Word from the page margin, so they are exact where the left indent is a
+  multiple of the stop, including the left indent as the stop of a hanging
+  indent's first line). The paragraph mark's formatting sizes empty
   paragraphs and the last line, as in Word; other lines are sized by their runs.
 - **Runs.** Multiple runs per paragraph; font family per script slot (ASCII,
   high ANSI, East Asian and complex script characters pick the matching
@@ -889,7 +891,9 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 ### Drawn approximately
 
 Reported with `render.ErrApproximated` in best effort and refused in strict
-mode: custom tab stops (default stops are used) and tab leaders; justified
+mode: custom tab stops and tab leaders, and default tab stops in a paragraph
+whose left indent is not a multiple of the stop (stops are measured from the
+paragraph's left edge); justified
 `distribute` and kashida alignment (justified); a justified line before a manual
 line break (Word stretches it, this does not); character spacing (`w:spacing`, not
 applied: the shared rasterizer draws no letter spacing); small caps (synthesized

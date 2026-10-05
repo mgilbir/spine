@@ -77,14 +77,22 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 		return err
 	}
 	if p.sawTab {
+		custom := false
 		if tabs := p.ppr.tabs; tabs.set {
 			for _, t := range tabs.v {
-				if t.val != "clear" {
-					if err = r.approximate("custom tab stops"); err != nil {
-						return err
-					}
-					break
-				}
+				custom = custom || t.val != "clear"
+			}
+		}
+		// forme's tab stops are multiples of the tab size from the paragraph's
+		// left edge; Word's are from the page margin. They agree only where the
+		// left indent is a multiple of the default tab stop.
+		if rem := math.Mod(p.ppr.indLeft.v, r.defaultTab); custom || (math.Abs(rem) > 0.01 && math.Abs(rem)-r.defaultTab < -0.01) {
+			what := "custom tab stops"
+			if !custom {
+				what = "default tab stops in an indented paragraph"
+			}
+			if err = r.approximate(what); err != nil {
+				return err
 			}
 		}
 	}
