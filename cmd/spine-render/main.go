@@ -2,10 +2,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"math"
 	"os"
@@ -14,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mgilbir/aster"
 	"github.com/mgilbir/forme/fonts/notosans"
 	"github.com/mgilbir/forme/shape"
 	"github.com/mgilbir/spine/docx"
@@ -71,6 +75,7 @@ type config struct {
 	fonts                                fontFlags
 	fallback                             bool
 	keepGoing, strict                    bool
+	charts                               bool
 	warn                                 io.Writer // skipped-page reports; nil is standard error
 }
 
@@ -91,6 +96,7 @@ func main() {
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
 	flag.BoolVar(&c.keepGoing, "keep-going", false, "report and skip slides or sheets that cannot be rendered, then exit with an error")
 	flag.BoolVar(&c.strict, "strict", false, "fail on any content that cannot be drawn instead of warning and drawing the rest")
+	flag.BoolVar(&c.charts, "charts", true, "draw PPTX charts with the embedded Vega renderer; false leaves them out")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -100,16 +106,24 @@ func main() {
 	}
 }
 
-func resolver(c config) (render.FontResolver, error) {
+// fontFile is a mapped font's family and file, which charts are drawn with
+// too.
+type fontFile struct {
+	family string
+	data   []byte
+}
+
+func resolver(c config) (render.FontResolver, []fontFile, error) {
 	if len(c.fonts) > 32 {
-		return nil, fmt.Errorf("at most 32 font mappings are allowed")
+		return nil, nil, fmt.Errorf("at most 32 font mappings are allowed")
 	}
+	var files []fontFile
 	faces := make(map[render.FontRequest]*shape.Face)
 	var total int64
 	for _, spec := range c.fonts {
 		key, path, ok := strings.Cut(spec, "=")
 		if !ok || key == "" || path == "" {
-			return nil, fmt.Errorf("invalid font mapping %q", spec)
+			return nil, nil, fmt.Errorf("invalid font mapping %q", spec)
 		}
 		r := render.FontRequest{Family: key}
 		if family, style, found := strings.Cut(key, ":"); found {
@@ -124,40 +138,41 @@ func resolver(c config) (render.FontResolver, error) {
 				r.Bold = true
 				r.Italic = true
 			default:
-				return nil, fmt.Errorf("invalid font style %q", style)
+				return nil, nil, fmt.Errorf("invalid font style %q", style)
 			}
 		}
 		if r.Family == "" || faces[r] != nil {
-			return nil, fmt.Errorf("empty or duplicate font family %q", key)
+			return nil, nil, fmt.Errorf("empty or duplicate font family %q", key)
 		}
 		f, err := os.Open(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		data, err := io.ReadAll(io.LimitReader(f, (32<<20)+1))
 		closeErr := f.Close()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if closeErr != nil {
-			return nil, closeErr
+			return nil, nil, closeErr
 		}
 		total += int64(len(data))
 		if total > 32<<20 {
-			return nil, fmt.Errorf("font files exceed 32 MiB budget")
+			return nil, nil, fmt.Errorf("font files exceed 32 MiB budget")
 		}
 		face, err := shape.Load(data)
 		if err != nil {
-			return nil, fmt.Errorf("font %q: %w", key, err)
+			return nil, nil, fmt.Errorf("font %q: %w", key, err)
 		}
 		faces[r] = face
+		files = append(files, fontFile{family: r.Family, data: data})
 	}
 	var fallback *shape.Face
 	if c.fallback {
 		var err error
 		fallback, err = notosans.Face()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	return func(ctx context.Context, r render.FontRequest) (*shape.Face, error) {
@@ -171,7 +186,37 @@ func resolver(c config) (render.FontResolver, error) {
 			return fallback, nil
 		}
 		return nil, fmt.Errorf("unresolved font %+v; provide -font or explicitly choose -fallback-noto for regular fonts", r)
-	}, nil
+	}, files, nil
+}
+
+// chartMemory bounds what one chart's Vega specification may make the
+// renderer hold.
+const chartMemory = 256 << 20
+
+// chartRenderer draws charts with aster, which loads nothing from outside
+// the specification, and uses the mapped fonts, falling back to its embedded
+// Liberation Sans. Each chart is bounded by chartMemory and by timeout; the
+// renderer cannot be interrupted sooner. close releases it.
+func chartRenderer(fonts []fontFile, timeout time.Duration) (render.ChartRenderer, func() error, error) {
+	opts := []aster.Option{aster.WithLoader(aster.DenyLoader{}), aster.WithMemoryLimit(chartMemory), aster.WithTimeout(timeout)}
+	for _, f := range fonts {
+		opts = append(opts, aster.WithFont(f.family, f.data))
+	}
+	conv, err := aster.New(opts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("chart renderer: %w", err)
+	}
+	draw := func(ctx context.Context, spec []byte, scale float64) (image.Image, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		data, err := conv.VegaToPNG(spec, aster.WithScale(scale))
+		if err != nil {
+			return nil, err
+		}
+		return png.Decode(bytes.NewReader(data))
+	}
+	return draw, conv.Close, nil
 }
 
 func run(ctx context.Context, c config) (result error) {
@@ -193,7 +238,7 @@ func run(ctx context.Context, c config) (result error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	fonts, err := resolver(c)
+	fonts, fontFiles, err := resolver(c)
 	if err != nil {
 		return err
 	}
@@ -212,6 +257,14 @@ func run(ctx context.Context, c config) (result error) {
 	// Image bytes and counts scale with the pixel budget.
 	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work, MaxEdgeChecks: edges, MaxImagePixels: imagePixels, MaxImageBytes: 256 << 20, MaxImages: 256,
 		MaxPixels: defaultMaxPixels, MaxDimension: defaultMaxDimension, MaxPixelVisits: defaultPixelVisits, MaxOutputBytes: defaultMaxOutputBytes}}
+	if c.charts && ext == ".pptx" {
+		charts, closeCharts, err := chartRenderer(fontFiles, c.timeout)
+		if err != nil {
+			return err
+		}
+		defer func() { result = errors.Join(result, closeCharts()) }()
+		opts.Charts = charts
+	}
 	if err = os.MkdirAll(c.out, 0755); err != nil {
 		return err
 	}

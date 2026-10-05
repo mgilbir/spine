@@ -303,7 +303,19 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 		if err != nil {
 			return nil, err
 		}
-		img, err := opts.Charts(ctx, spec, renderChartScale)
+		// The chart is asked for at a scale the slide's image budget holds,
+		// before the renderer allocates it: a frame may be any size.
+		if imageCount >= resolved.MaxImages {
+			return nil, fmt.Errorf("%w: slide image budget", render.ErrLimit)
+		}
+		scale := renderChartScale
+		if area, room := pw*ph, float64(resolved.MaxImagePixels-imagePixels); area*scale*scale > room {
+			scale = math.Sqrt(room / area)
+			if !(scale >= renderMinChartScale) {
+				return nil, fmt.Errorf("%w: chart frame too large for the slide image budget", render.ErrLimit)
+			}
+		}
+		img, err := opts.Charts(ctx, spec, scale)
 		if err != nil {
 			return nil, fmt.Errorf("%w: chart renderer: %w", render.ErrUnsupported, err)
 		}

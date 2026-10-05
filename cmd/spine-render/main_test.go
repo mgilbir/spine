@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mgilbir/spine/chart"
 	"github.com/mgilbir/spine/common/dml"
 	"github.com/mgilbir/spine/docx"
 	"github.com/mgilbir/spine/pptx"
@@ -389,5 +390,62 @@ func TestDefaultDPIBudgetsAreNeeded(t *testing.T) {
 	}
 	if err = page.WritePNG(context.Background(), io.Discard, defaultDPI); err == nil || !strings.Contains(err.Error(), "resource limit") {
 		t.Fatalf("library limits at %v DPI: %v", float64(defaultDPI), err)
+	}
+}
+
+func TestChartsDrawnWithEmbeddedRenderer(t *testing.T) {
+	dir := t.TempDir()
+	p := pptx.Create()
+	layout, err := p.LayoutByType(pptx.LayoutBlank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := chart.NewColumn()
+	c.SetCategories([]string{"A", "B"})
+	c.AddSeries("S", []float64{3, 5}).SetColor("FF0000")
+	if err = p.AddSlideFromLayout(layout).AddChart(c, int64(dml.Pixels(100)), int64(dml.Pixels(100)), int64(dml.Pixels(400)), int64(dml.Pixels(300))); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(dir, "in.pptx")
+	if err = p.Save(input); err != nil {
+		t.Fatal(err)
+	}
+	// red counts the chart's red bar pixels.
+	red := func(out string) int {
+		data, err := os.ReadFile(filepath.Join(out, "slide-0001.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for y := 100; y < 400; y++ {
+			for x := 100; x < 500; x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				if r>>8 > 200 && g>>8 < 60 && b>>8 < 60 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	var warnings strings.Builder
+	cfg := config{input: input, out: filepath.Join(dir, "charts"), format: "png", dpi: 96, maxPages: 10, timeout: time.Minute, warn: &warnings, charts: true}
+	if err = run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := red(cfg.out); n < 1000 || warnings.Len() != 0 {
+		t.Fatalf("charts: %d red pixels, warnings %q", n, warnings.String())
+	}
+	// Without the renderer the chart is left out and reported.
+	warnings.Reset()
+	cfg.out, cfg.charts = filepath.Join(dir, "none"), false
+	if err = run(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if n := red(cfg.out); n != 0 || !strings.Contains(warnings.String(), "chart without a chart renderer") {
+		t.Fatalf("no charts: %d red pixels, warnings %q", n, warnings.String())
 	}
 }
