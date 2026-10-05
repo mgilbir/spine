@@ -197,19 +197,27 @@ func TestEmptyParagraphHasTheHeightOfItsMark(t *testing.T) {
 	}
 }
 
-func TestParagraphMarkSizesTheLastLineOnly(t *testing.T) {
-	// A 24 px mark makes the last (only) line 24 px tall; a run line above is 12.
+func TestParagraphMarkSizesOnlyALineItIsAloneOn(t *testing.T) {
+	// Word's PDF output: a 36 pt mark beside 11 pt text leaves the line at
+	// the text's height, and an 8 pt mark does not shrink 24 pt text. Here a
+	// 24 px mark beside a 12 px run leaves a 12 px line.
 	p, _ := wordTestRender(t, wordTestBody(
 		wordTestPara("", wordTestRun("", strings.Repeat("word ", 30))),
 		wordTestPara(`<w:rPr><w:sz w:val="36"/></w:rPr>`, wordTestRun("", "x")),
 		wordTestPara("", wordTestRun("", "y")),
 	))
 	l := p.lines(1)
-	// 4 lines of 12, then a 24 px line with a 12 px run: the run's baseline sits
-	// in the taller line, then "y" starts after it.
-	last := l[len(l)-1]
-	if !near(last.y, wordTestTop+4*12+24+wordTestAscent12) {
+	if last := l[len(l)-1]; !near(last.y, wordTestTop+4*12+12+wordTestAscent12) {
 		t.Errorf("last baseline %v, lines %+v", last.y, l)
+	}
+	// After a line break that ends the paragraph the mark is alone on its
+	// line, which it sizes: 12, then 24, then "y".
+	p, _ = wordTestRender(t, wordTestBody(
+		wordTestPara(`<w:rPr><w:sz w:val="36"/></w:rPr>`, wordTestRun("", "x")+`<w:r><w:br/></w:r>`),
+		wordTestPara("", wordTestRun("", "y")),
+	))
+	if l = p.lines(1); !near(l[len(l)-1].y, wordTestTop+12+24+wordTestAscent12) {
+		t.Errorf("after a trailing break: lines %+v", l)
 	}
 }
 

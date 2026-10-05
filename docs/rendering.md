@@ -874,8 +874,10 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   (`w:defaultTabStop`; forme measures them from the paragraph's left edge and
   Word from the page margin, so they are exact where the left indent is a
   multiple of the stop, including the left indent as the stop of a hanging
-  indent's first line). The paragraph mark's formatting sizes empty
-  paragraphs and the last line, as in Word; other lines are sized by their runs.
+  indent's first line). The paragraph mark's formatting sizes the last line
+  only when it has no text (an empty paragraph, the line after a line break
+  that ends the paragraph, or a line of pictures); a line with text is sized by
+  its runs, whatever the mark's size, as Word's PDF output shows.
 - **Runs.** Multiple runs per paragraph; font family per script slot (ASCII,
   high ANSI, East Asian and complex script characters pick the matching
   `rFonts` slot), size, bold, italic (complex-script text uses `bCs`, `iCs` and

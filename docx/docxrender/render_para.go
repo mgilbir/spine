@@ -32,6 +32,10 @@ type wordPara struct {
 	cont       bool
 	sawTab     bool
 	sawLineBr  bool
+	// brAt is where the markup stood after the block's last line break, -1
+	// when it has none; hasText says the block has text.
+	brAt    int
+	hasText bool
 	// shift, shiftMin and shiftMax place the block's lines where Word puts
 	// them in their line boxes: the shift for the tallest run, and the range
 	// of every run's own. seenRun says a run has been sized.
@@ -64,7 +68,7 @@ func (f *wordFlow) paragraph(n *wordNode) error {
 	if err != nil {
 		return err
 	}
-	p := &wordPara{f: f, r: r, ppr: direct.over(lv.ppr), paraRPr: lv.rpr}
+	p := &wordPara{f: f, r: r, ppr: direct.over(lv.ppr), paraRPr: lv.rpr, brAt: -1}
 	p.styleID = direct.style
 	if p.styleID == "" || r.styles.byID[p.styleID] == nil {
 		p.styleID = r.styles.defPara
@@ -456,11 +460,13 @@ func (rn *wordRun) put(slot int, text string, br bool) error {
 	}
 	if br {
 		rn.p.sb.WriteString("<br>")
+		rn.p.brAt = rn.p.sb.Len()
 	} else {
 		if err := rn.p.r.chargeText(len(text)); err != nil {
 			return err
 		}
 		wordEscape(&rn.p.sb, text)
+		rn.p.hasText = rn.p.hasText || text != ""
 	}
 	rn.p.hasContent = true
 	return nil
@@ -483,8 +489,13 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 	if !final && breaker != nil {
 		sized = &wordRun{p: p, rp: breaker.rp, cur: -1}
 	}
-	if final || !p.hasContent {
-		if err := p.mark1(sized, !p.hasContent); err != nil {
+	// The mark sizes the last line only when it has no text: an empty
+	// paragraph, the line after a manual line break that ends it, or a line
+	// of pictures. A larger or smaller mark does not change a line with
+	// text, as Word's PDF output shows.
+	trailingBr := p.brAt >= 0 && strings.ReplaceAll(p.sb.String()[p.brAt:], "</span>", "") == ""
+	if !p.hasContent || final && (!p.hasText || trailingBr) {
+		if err := p.mark1(sized, !p.hasContent || trailingBr); err != nil {
 			return err
 		}
 	}
@@ -516,6 +527,7 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 	}
 	p.blocks = append(p.blocks, b)
 	p.sb.Reset()
+	p.brAt, p.hasText = -1, false
 	p.hasContent = false
 	return nil
 }

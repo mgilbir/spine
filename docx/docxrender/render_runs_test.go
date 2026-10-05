@@ -46,7 +46,9 @@ func TestRunFontsSizeAndSlope(t *testing.T) {
 			t.Errorf("unexpected request %+v", r)
 		}
 	}
-	if len(o.requests) != 4 {
+	// The paragraph mark is not drawn and, beside text, sizes nothing, so its
+	// own font is not asked for.
+	if len(o.requests) != 3 {
 		t.Errorf("requests %+v", o.requests)
 	}
 	big, ok := p.textOf(1, "big")
