@@ -744,7 +744,25 @@ original 1-based workbook indices, avoiding unsafe names from source content.
 Repeat `-font` for additional families or styles, e.g.
 `-font 'Calibri:bold=fonts/Calibri-Bold.ttf'`. Files are loaded explicitly through
 Forme, with at most 32 mappings and 32 MiB aggregate font input. No host fonts
-are searched. `-fallback-noto` explicitly substitutes embedded Noto Sans for
+are searched.
+
+A TrueType or OpenType collection (`.ttc`, `.otc`, or one wrapped as WOFF 2)
+holds several fonts in one file, and a mapping picks one of its faces by its
+index from zero after a `#`: `-font 'Cambria=fonts/cambria.ttc#0'`,
+`-font 'Cambria Math=fonts/cambria.ttc#1'`. The index is the digits after the
+last `#` of the file name; a file whose own name ends in `#` and digits takes
+an index of its own as well (`a#12` is `a#12#0`), and other `#`s are part of
+the name. A mapping to a collection of several faces without an index fails,
+naming the first eight faces with their indices, family and style, and
+PostScript names, so that the face is never a guess; a single font, or a
+collection of one face, loads without one, and an index past its faces fails.
+Several faces mapped from one file read and count it once toward the 32 MiB
+(it is found by its cleaned path; two paths to one file count twice). Faces
+load at their default instance, and share the file's bytes. Charts take one
+font per file, so for a chart each mapped face of a collection is copied out
+into a font of its own, which together may hold up to a further 32 MiB (the
+tables the faces share are copied for each); past that, and only when charts
+are drawn, the command fails and `-charts=false` leaves them out. `-fallback-noto` explicitly substitutes embedded Noto Sans for
 unresolved regular faces. Strict, bold and italic faces require mappings;
 otherwise a missing bold or italic face is drawn with the family's regular
 face, or the regular fallback, with a warning. Substitution can

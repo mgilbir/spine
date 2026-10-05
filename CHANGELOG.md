@@ -45,6 +45,12 @@
   limits. `render.PrepareBestEffort` is `render.Prepare` that approximates;
   PPTX slides use it when `Warn` is set. `bdat` and `bloc` fonts are still
   refused.
+- spine-render: `-font FAMILY[:style]=FILE#INDEX` loads face INDEX (from zero) of
+  a TrueType or OpenType collection (`.ttc`, `.otc`, WOFF 2 collections too).
+  A collection of several faces mapped without an index fails, listing its
+  faces. A file mapped for several faces is read and counted once toward the
+  32 MiB font budget; charts are given each face copied out as a font of its
+  own, bounded by a further 32 MiB.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and
