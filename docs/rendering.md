@@ -1,8 +1,7 @@
 # Native rendering
 
 Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsxrender.PrepareRange` (package `xlsx/xlsxrender`) supports bounded range previews. `docxrender.PreparePage` (package `docx/docxrender`) prepares a selected physical page from a bounded
-plain document flow.
+prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsxrender.PrepareRange` (package `xlsx/xlsxrender`) supports bounded range previews. `docxrender.Prepare` and `docxrender.PreparePage` (package `docx/docxrender`) lay out a Word document and prepare its physical pages.
 
 ```go
 page, err := render.Prepare(ctx, dml.Inches(8.5), dml.Inches(11), ops, render.Limits{})
@@ -805,30 +804,136 @@ Native font/grid metrics do not promise Excel pixel identity.
 
 ## Word physical-page profile
 
-`docxrender.PreparePage(ctx, document, 1, opts)` selects a **1-based physical page** after
-laying out the complete document under shared font/text/glyph/work budgets. The
-first profile supports one section with explicit page size and nonnegative
-margins, plain ASCII paragraphs, one explicit run style per paragraph,
-left/center/right alignment, exact line spacing and zero before/after paragraph
-spacing. Runs require explicit font family, size, bold, italic, strike-off and
-RGB color. Supplied fonts determine native hhea ascent/descent; leading is split
-equally above/below the line. Font metrics must fit the chosen line and page.
+`docxrender.Prepare(ctx, document, opts)` lays out and paginates the complete
+document once and returns `*Pages`: `Count()` is the number of **physical
+pages** and `Page(ctx, n)` prepares a **1-based** page (a page beyond `Count`
+returns `render.ErrInvalid` wrapping `docxrender.ErrPageOutOfRange`). `Pages`
+is immutable and safe for concurrent use. `docxrender.PreparePage(ctx, document, n,
+opts)` is `Prepare` followed by `Page` and repeats the layout on every call;
+`spine-render` uses `Prepare`. The document is never saved or changed, and
+unsaved edits are drawn. Physical-page numbering is unrelated to visible
+page-number fields.
 
-The flow honours `pageBreakBefore` and [widow/orphan control](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.widowcontrol),
-including its enabled default. A paragraph that cannot satisfy those constraints
-on the given page fails. Paragraph keeps, indentation, rich styles, tables,
-headers/footers, columns, tracked changes, fields, drawings and unsupported
-source markup fail. Document settings and inherited/default style formatting
-outside the profile also fail. Unreferenced non-default named styles are ignored.
-The first profile keeps optional OpenType ligatures, contextual alternates and
-kerning disabled, matching [Word's default OpenType-feature setting](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-docx/116847ff-9af6-45a7-a21f-0e0ff2eef41d).
+### How a document is drawn
 
-Page selection does not skip validation or layout of later paragraphs. Unsupported
-document content on another page still returns an error. Preparation checks the
-original main-part stream before lazy projection and never saves the document.
-Returned snapshots include unsaved changes. Physical-page numbering is unrelated
-to visible page-number fields. Native line placement and pagination are defined
-by this profile; identical Word pagination is not promised.
+The renderer reads the parts as the document would save them, so nothing the
+model preserved is invisible to the checks. Each section's body is translated
+into generated HTML and CSS for [forme](https://github.com/mgilbir/forme), the
+layout engine under the other renderers, and laid out once at the section's text
+width with unbounded height. forme sets a document on one sheet and does not
+break flow across pages, so spine paginates: it cuts that layout at block and
+line-box boundaries, applying Word's rules, and gives each page the display-list
+operations of the lines it holds (text by its baseline; fills and rules by the
+line they decorate, with block-level fills clipped at the cut). Everything is
+validated or escaped: the only strings from the document that reach forme are
+text nodes, escaped as text. Font families are replaced by synthetic names in the
+generated CSS and asked of `render.Options.Fonts` as `render.FontRequest`s
+(bold and italic included, one request per distinct family, weight and slope
+and per document, bounded by `Limits.MaxFonts`); colours and lengths are
+formatted from numbers; nothing is loaded from the document.
+
+With `render.Options.Warn` unset (strict mode) anything that is not drawn
+exactly fails the call with `render.ErrUnsupported`, wherever in the document
+it is. With `Warn` set (best effort) content that is not supported is left out
+and reported once per kind, as an error wrapping `render.ErrUnsupported`, and
+content that is drawn approximately is reported once per kind as an error
+wrapping `render.ErrApproximated`; the rest of the page still draws.
+
+### Drawn exactly
+
+- **Sections.** Page size and margins (and a gutter, added to the left margin)
+  per section; section breaks `nextPage`, `continuous` (when page size and
+  top/bottom margins match; a different geometry starts a page and is reported as
+  approximated), `evenPage` and `oddPage` (physical page numbers, with a blank
+  page where needed). A document without explicit page size and margins is refused
+  in both modes.
+- **Styles.** Document defaults; paragraph and character styles with `basedOn`
+  chains (a cycle in a style the document uses is invalid) and the default
+  paragraph style; toggle properties combine across style levels by exclusive or
+  (a bold character style on bold text is not bold) and direct formatting
+  overrides; theme fonts (`asciiTheme` and the other slots), theme colours with
+  `themeTint` and `themeShade` (scaling HSL luminance) through the settings
+  colour mapping. Unreferenced styles are never read.
+- **Paragraphs.** Alignment (`left`, `start`, `center`, `right`, `end`, `both`);
+  left, right, first-line and hanging indents (`start` and `end` as left and
+  right); space before and after (kept at the top of a page after a hard break
+  and on the first page, and dropped after a soft break, as Word does), added
+  rather than collapsed, with `contextualSpacing` and HTML automatic spacing
+  (14 pt); line spacing `auto` (a multiple of the font's line height, 240ths of a
+  line), `exact` and `atLeast`; `pageBreakBefore`, `keepNext` (a chain taller
+  than a page is ignored), `keepLines`, `widowControl` (on by default; the first
+  two lines stay together and two lines move to the next page); manual page and
+  column breaks (the text after a break is the paragraph's continuation on the
+  next page and takes no first-line indent); line breaks; default tab stops
+  (`w:defaultTabStop`, from the left text edge, which is the left indent for a
+  hanging indent's first line). The paragraph mark's formatting sizes empty
+  paragraphs and the last line, as in Word; other lines are sized by their runs.
+- **Runs.** Multiple runs per paragraph; font family per script slot (ASCII,
+  high ANSI, East Asian and complex script characters pick the matching
+  `rFonts` slot), size, bold, italic (complex-script text uses `bCs`, `iCs` and
+  `szCs`); underline `single`, `double` and `thick` (in the underline's colour),
+  strikethrough; caps; text colour and `auto`; highlight; solid or clear
+  shading; `vertAlign` superscript and subscript (65 % size, raised by a third
+  and lowered by an eighth of the run's size) and `position`; hidden text
+  (`vanish`, not drawn); soft and non-breaking hyphens; kerning from the `w:kern`
+  size (off otherwise); text beyond the margin that has no break opportunity
+  wraps at the margin. Optional OpenType ligatures, contextual alternates and
+  kerning are disabled unless asked for, matching Word's default.
+  Text is drawn in the scripts forme shapes; characters the supplied fonts lack
+  fail (`render.ErrUnsupported`).
+- **Fields and links.** The cached result of simple and complex fields, across
+  paragraphs, is drawn and the instruction is not; hyperlink text is drawn with
+  its run formatting.
+- Content controls, smart tags and custom XML wrappers draw their content.
+
+### Drawn approximately
+
+Reported with `render.ErrApproximated` in best effort and refused in strict
+mode: custom tab stops (default stops are used) and tab leaders; justified
+`distribute` and kashida alignment (justified); a justified line before a manual
+line break (Word stretches it, this does not); character spacing (`w:spacing`, not
+applied: the shared rasterizer draws no letter spacing); small caps (synthesized
+by forme); underline styles other than single, double and thick (drawn as a
+single line, as forme draws only solid lines) and double strikethrough
+(single); shading patterns (not drawn); right-to-left paragraphs and runs (laid
+out with the bidirectional algorithm, but alignment of `left` and `right` is not
+mirrored as Word does); character-unit and line-unit indents and spacing (not
+applied); tracked changes (insertions shown, deletions dropped, as the final
+text); settings that change layout and are not modelled (mirrored margins,
+automatic hyphenation, book fold, ...); multiple text columns and the document
+grid (laid out as one column); a continuous section break across different page
+geometries.
+
+### Left out
+
+Reported as unsupported in best effort and refused in strict mode: tables,
+numbering and list markers, images, drawings, text boxes and other alternate
+content, headers and footers, footnotes and endnotes, comments, equations,
+embedded objects, symbols, form fields, paragraph and run borders, paragraph
+shading, frames, page borders, line numbering, vertical page alignment, text
+direction other than left to right, page background, text effects, and every
+element or property this profile does not know.
+
+### Defined by the profile
+
+Native line metrics (the font's own ascent, descent and line gap, with leading
+split equally above and below a line; Word distributes extra leading
+differently), the superscript and subscript scale and offset, the double
+underline's spacing, automatic hyphenation (none), and the shaping engine decide
+the exact placement; identical Word pagination is not promised. Pagination
+follows the rules above on those metrics.
+
+### Budgets
+
+The main, styles, settings and theme parts are bounded by `MaxSourceBytes` and
+`MaxLayoutNodes` (elements, attributes and every generated block and span);
+emitted text by eight times `Limits.MaxTextBytes`; pages by
+`Limits.MaxOperations`; the whole document's display list by sixty-four times
+`Limits.MaxOperations`; fonts by `Limits.MaxFonts`; page dimensions and pixels by
+`MaxDimension` and `MaxPixels`. A page's own operations, glyphs and shaping work
+are checked when `Page` prepares it, under the shared `render.Limits`. The layout
+engine is not interruptible inside one call; cancellation is checked between
+parts, sections, blocks and pages.
 
 ## Runnable previews
 
@@ -922,15 +1027,20 @@ the command allows 64 Mi pixels and 16384 pixels a side per page, 1 Gi pixel
 visits and 256 MiB of output, where the library defaults suit about 144 DPI.
 `-max-pages` defaults to 100 (maximum 10000), and
 `-timeout` defaults to one minute. Interrupt cancels rendering. Library package,
-source, shaping, pixel and output limits still apply. DOCX currently lays out the
-whole document for each selected page, so large documents repeat layout work.
-The timeout and page cap bound this command's processing.
+source, shaping, pixel and output limits still apply. DOCX is laid out once, and
+its pages are prepared from that layout; the layout cannot be interrupted, so
+`-timeout` takes effect between sections and pages. The command raises the path
+segment budget to 8 Mi per page, since a page of body text in a complete font
+exceeds the library's 100,000, and the document node budget to 8 Mi, since a
+document of about fifteen pages exceeds the library's 100,000. The timeout and
+page cap bound this command's processing.
 
-The CLI draws slides best effort by default: each piece of content it cannot
-draw prints a `warning:` line naming the slide, and the rest is drawn. A
+The CLI draws slides and documents best effort by default: each piece of content
+it cannot draw prints a `warning:` line naming the slide (or the document), and
+the rest is drawn. A
 summary counts content left out and content drawn approximately, which
 warnings wrap with `render.ErrApproximated`. Use
-`-strict` to fail instead. It does not expand the supported formatting. Errors identify the failing page, slide or sheet. Existing outputs
+`-strict` to fail instead. It does not expand the supported formatting. Errors identify the failing page, slide, sheet or document. Existing outputs
 are never overwritten. A failed output file is removed; completed files from
 earlier pages or the other format remain available after a later error.
 

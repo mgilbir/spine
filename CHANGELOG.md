@@ -68,6 +68,20 @@
   the render limits. Strict mode fails on anything not drawn exactly; best
   effort reports approximations and leaves out the rest. See
   `docs/rendering.md`.
+- docxrender: the Word page renderer is rebuilt on the forme layout engine and
+  draws real documents. `Prepare` lays a document out and paginates it once and
+  returns `Pages` (`Count`, `Page`); `PreparePage` is unchanged. Sections with
+  their own page size and margins and the section break types; styles
+  (document defaults, paragraph and character styles with `basedOn`, toggle
+  properties, theme fonts and colours); paragraph alignment, indents, spacing
+  (including contextual spacing), line spacing, tabs, keep rules, widow and
+  orphan control and page breaks; and runs with several fonts and slopes,
+  sizes, colours, underline, strikethrough, caps, highlight, shading,
+  superscript and subscript, line breaks, non-ASCII text, and field results and
+  hyperlinks. Tables, numbering, images, headers and footers and the rest are
+  refused in strict mode and left out, with a warning, in best effort.
+- spine-render: DOCX is laid out once per document rather than once per page,
+  and warns about what it leaves out or approximates, as slides do.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and
@@ -86,6 +100,12 @@
   or mirrors a pattern, so the turned shape shows the slide's upright pattern
   under it. Lines and text with pattern
   fills are still drawn in the foreground color.
+- docxrender: documents the first profile refused (inherited styles, several
+  runs per paragraph, indents, spacing, sections) are drawn, and the font
+  resolver is asked for every family a document's runs and paragraph marks
+  use, including Word's default (Times New Roman) where the document names
+  none. Plain documents the first profile drew are drawn by the new layout, so
+  line placement can differ.
 
 ### Fixed
 

@@ -55,6 +55,13 @@ const (
 	defaultMaxDimension   = 16384
 	defaultPixelVisits    = 1 << 30
 	defaultMaxOutputBytes = 256 << 20
+	// defaultPathSegments replaces the library's 100,000 glyph and path
+	// segments a page, which a full page of body text in a complete font
+	// exceeds (about 30 segments a glyph).
+	defaultPathSegments = 8 << 20
+	// defaultDocumentNodes replaces the library's 100,000 source and layout
+	// nodes for a document, which a document of about fifteen pages exceeds.
+	defaultDocumentNodes = 8 << 20
 )
 
 // defaultImagePixels replaces the library's 4 Mi decoded image pixels per
@@ -349,7 +356,7 @@ func run(ctx context.Context, c config) (result error) {
 	}
 	// Image bytes and counts scale with the pixel budget.
 	opts := render.Options{Fonts: fonts, Limits: render.Limits{MaxShapeWork: work, MaxEdgeChecks: edges, MaxImagePixels: imagePixels, MaxImageBytes: 256 << 20, MaxImages: 256,
-		MaxPixels: defaultMaxPixels, MaxDimension: defaultMaxDimension, MaxPixelVisits: defaultPixelVisits, MaxOutputBytes: defaultMaxOutputBytes}}
+		MaxPixels: defaultMaxPixels, MaxDimension: defaultMaxDimension, MaxPixelVisits: defaultPixelVisits, MaxOutputBytes: defaultMaxOutputBytes, MaxPathSegments: defaultPathSegments}}
 	if c.charts && ext == ".pptx" {
 		charts, closeCharts, err := chartRenderer(fontFiles, c.timeout)
 		if err != nil {
@@ -457,13 +464,29 @@ func run(ctx context.Context, c config) (result error) {
 			return err
 		}
 		defer func() { result = errors.Join(result, d.Close()) }()
-		for i := 1; i <= c.maxPages+1; i++ {
-			page, err := docxrender.PreparePage(ctx, d, i, opts)
-			if errors.Is(err, docxrender.ErrPageOutOfRange) {
-				break
+		// The document is laid out and paginated once; pages are then prepared
+		// from that layout.
+		docOpts := withWarnings("document")
+		if docOpts.MaxLayoutNodes == 0 {
+			docOpts.MaxLayoutNodes = defaultDocumentNodes
+		}
+		pages, err := docxrender.Prepare(ctx, d, docOpts)
+		if err != nil {
+			if err = failed("document", err); err != nil {
+				return err
 			}
+			break
+		}
+		if pages.Count() > c.maxPages {
+			return fmt.Errorf("pages exceed -max-pages")
+		}
+		for i := 1; i <= pages.Count(); i++ {
+			page, err := pages.Page(ctx, i)
 			if err != nil {
-				return fmt.Errorf("page %d: %w", i, err)
+				if err = failed(fmt.Sprintf("page %d", i), err); err != nil {
+					return err
+				}
+				continue
 			}
 			if err = emit(fmt.Sprintf("page-%04d", i), page); err != nil {
 				return err

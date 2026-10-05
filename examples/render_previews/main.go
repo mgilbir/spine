@@ -37,7 +37,8 @@ func run(ctx context.Context, dir string) error {
 		return err
 	}
 	// Explicitly substitute Forme's embedded Noto Sans for the sheet's Calibri
-	// request. A production resolver should return the requested typeface or
+	// request and for Times New Roman, which is the family Word uses for text,
+	// and for a paragraph mark, that names none. A production resolver should return the requested typeface or
 	// deliberately choose its own substitution; no system fonts are discovered.
 	// Conservative lookup work counts subtable bytes as well as inspected
 	// glyphs. This known embedded font needs a larger cap than the default.
@@ -45,7 +46,7 @@ func run(ctx context.Context, dir string) error {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if r.Bold || r.Italic || (r.Family != "Noto Sans" && r.Family != "Calibri") {
+		if r.Bold || r.Italic || (r.Family != "Noto Sans" && r.Family != "Calibri" && r.Family != "Times New Roman") {
 			return nil, fmt.Errorf("unsupported example font: %+v", r)
 		}
 		return font, nil
