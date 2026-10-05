@@ -47,8 +47,9 @@ fingerprint. No mutable source face or glyph slice survives in the snapshot.
 Defaults cap glyphs at 100,000, text metadata at 1 MiB, font count at 32 and
 aggregate unique font-program bytes at 32 MiB. Font programs must remain immutable
 during preparation; parsing fonts and their decoded input budgets remain the
-font provider's responsibility. Color/bitmap/SVG fonts and vertical glyph
-placement fail explicitly instead of silently drawing monochrome or blank glyphs.
+font provider's responsibility. Color glyphs are drawn from their COLR, CBDT and
+sbix data (see docs/rendering.md); vertical glyph placement and Apple bitmap
+fonts fail explicitly instead of silently drawing blank glyphs.
 Missing outlines and Forme's font-layout truncation findings also fail.
 
 Bezier flattening checks a 1/16 output-pixel control-hull distance and caps

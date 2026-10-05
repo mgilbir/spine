@@ -22,10 +22,10 @@ execution. Unsupported operations fail even if their bounds fall off the page.
 
 Supported drawing operations are solid rectangles, filled Forme paths, nested
 path clips, horizontal positioned glyphs and contextual horizontal text, and
-validated standard-library raster images. Color/bitmap/SVG fonts, vertical text,
-letter spacing, tiling, gradients, strokes, effects and other operations fail
-explicitly. PNG, JPEG and GIF (its first frame) decoding checks dimensions
-and bytes before decoding.
+validated standard-library raster images. Vertical text,
+letter spacing, tiling, strokes, effects and other operations fail
+explicitly; color fonts are drawn as described under Color fonts. PNG, JPEG and
+GIF (its first frame) decoding checks dimensions and bytes before decoding.
 Sixteen-bit image sources are reduced to eight bits; EXIF orientation is not
 applied. Text is outlined in SVG, so it is not selectable.
 
@@ -38,7 +38,7 @@ extending outwards. Rectangle edges use analytic area coverage. Paths
 use eight vertical samples and analytic horizontal intervals, with curves
 flattened to a 1/16 output-pixel tolerance. Independent primitive antialiasing
 can differ from a vector viewer or Office at touching/overlapping edges. SVG
-keeps curves and requests pixelated image sampling; the viewer controls its
+keeps curves and requests pixelated image sampling (not for a glyph's bitmap); the viewer controls its
 final antialiasing. No Office pixel identity is claimed.
 
 Zero limit fields select these defaults; negative limits fail:
@@ -71,6 +71,66 @@ interruptible inside their routines; input/dimension/work bounds limit them.
 A caller's blocking font resolver or writer must honour cancellation itself.
 Output errors, byte limits or cancellation may leave a partial PNG/SVG. For
 atomic output, use a caller-owned buffer under a separate byte budget.
+
+## Color fonts
+
+A glyph with colors of its own is drawn in them, from the tables Forme paints:
+COLRv0 layers and COLRv1 paint graphs, with CPAL's first palette and the
+text's color for what the font fills in the foreground (its alpha is the
+text's times the font's, and the text's alpha touches nothing else); and CBDT
+and sbix PNG strikes, from the smallest strike at least as large as the font
+size in CSS pixels, or the largest, scaled to the glyph's box and smoothed.
+Other glyphs of the same font, and glyphs of fonts with no such table, are
+outlines in the text color as before. Each fill of a color glyph is a drawing
+of the page inside the glyph's clips, which are outlines or boxes carried
+through the paint graph's transforms, so PNG and SVG output draw it as they
+draw any clipped fill; outlines clip by the nonzero rule, as fonts fill them.
+
+These are drawn exactly: solid fills, with the font's alpha; linear gradients
+under any transform, with padded, repeated and reflected color lines, stops
+in any order and past either end; radial gradients between circles about one
+center (any radii, in either direction, in any extend mode) under a transform
+that keeps their circles circles or axis-aligned ellipses (a uniform scale, a
+turn, a stretch along the axes, and their products); and groups composited
+source-over, or whose backdrop alone shows. A repeating color line is laid out
+as the stops its area reaches, up to 4,096 of them. Gradients blend
+premultiplied in PNG output, as the font specification has it; SVG viewers
+blend as SVG does.
+
+What cannot be drawn exactly is refused with `render.ErrUnsupported` in strict
+preparation. In best effort (`render.PrepareBestEffort`, and `render.Options.Warn`
+for slides), each of these is drawn approximately and reported once, wrapping
+`render.ErrApproximated`:
+
+- a sweep gradient, a color line with no extent that repeats or reflects, a
+  degenerate gradient (circles of one radius, a line along its own side) and a
+  color line repeating more than 4,096 stops over its area, as the average of
+  its stops' colors, premultiplied and weighted by their stretch;
+- a radial gradient between circles of different centers, about the end
+  circle's center, and one turned or skewed into a tilted ellipse, with
+  axis-aligned radii of the same extents;
+- a glyph composited in any other mode (multiply, screen, source-in and so on),
+  a glyph of an SVG table, and a bitmap glyph whose image is not a readable PNG
+  or that is turned or skewed, as its outline in the text color (nothing at all,
+  for a font with no outlines).
+
+A glyph is drawn whole in one of these ways, never part by part. Text turned
+or warped in a slide is drawn as outlines, so its color glyphs are outlines in
+the text color, and reported as such; a slide's shadows and other effects take
+a color glyph's coverage. DOCX and XLSX previews have no best effort and
+refuse what cannot be drawn exactly. Apple bitmap fonts (`bdat`, `bloc`) are
+refused.
+
+Color glyphs are bounded as every drawing is. Forme refuses a paint graph
+deeper than 64 paints, with more than 16,384 paint edges or past its work
+budget before drawing any of it, and that is `render.ErrLimit`. The drawings a
+glyph makes count as operations, its clips and gradient stops as path segments,
+and its clips against the clip depth; its clips and gradients cost edge checks
+and pixel visits when painted. A glyph's PNG strike is decoded under the image
+limits (dimensions, pixels and bytes) once per page, glyph and size, and counts
+toward unique image pixels and bytes but not toward the count of pictures, so a
+slide of many emoji is bounded by its pixels. A strike is chosen for the size at
+preparation, not for the DPI a page is painted at.
 
 ## Static slide profile
 

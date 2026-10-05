@@ -33,6 +33,18 @@
   `eaLnBrk="0"`, `eaVert` with East Asian characters, justified East Asian text
   and symbols of ambiguous width in East Asian language runs; best effort draws
   them approximately and warns.
+- render: color fonts are drawn. Glyphs of COLRv0 and COLRv1 (solid fills, linear
+  and radial gradients, transforms, clips and source-over groups) and of CBDT
+  and sbix fonts (PNG strikes) are drawn in their own colors in PNG and SVG
+  output, where fonts with such tables were refused. A sweep gradient, a
+  radial gradient between circles of different centers, a composite mode other
+  than source-over, an SVG glyph and an unreadable bitmap are refused in
+  strict mode, and drawn approximately and reported in best effort (the
+  gradient as its nearest paint, the glyph as its outline in the text color).
+  Paint graphs and strikes are bounded by the render limits and Forme's paint
+  limits. `render.PrepareBestEffort` is `render.Prepare` that approximates;
+  PPTX slides use it when `Warn` is set. `bdat` and `bloc` fonts are still
+  refused.
 - spine-render: PPTX charts are drawn with the embedded Vega renderer
   [aster](https://github.com/mgilbir/aster), with the `-font` mappings; aster
   loads nothing from outside a chart, and each chart is bounded in memory and

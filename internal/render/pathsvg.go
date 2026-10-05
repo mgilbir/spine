@@ -31,7 +31,11 @@ func (p *Page) svgDrawings(ctx context.Context, e *xml.Encoder, scale float64) e
 			if err := e.EncodeToken(clip); err != nil {
 				return err
 			}
-			if err := svgElement(e, "path", []xml.Attr{attr("d", data), attr("clip-rule", "evenodd")}); err != nil {
+			rule := "evenodd"
+			if g.nonzero {
+				rule = "nonzero"
+			}
+			if err := svgElement(e, "path", []xml.Attr{attr("d", data), attr("clip-rule", rule)}); err != nil {
 				return err
 			}
 			if err := e.EncodeToken(clip.End()); err != nil {

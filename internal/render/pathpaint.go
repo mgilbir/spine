@@ -16,6 +16,9 @@ type paintCommand struct {
 	d     drawing
 	edges []edge
 	clips [][]edge
+	// nonzero says, for each clip, whether it is filled by the nonzero rule
+	// rather than the even-odd one.
+	nonzero []bool
 	// sampler filters an image drawing while it paints.
 	sampler *imageSampler
 }
@@ -78,6 +81,7 @@ func (p *Page) paintCommands(ctx context.Context, scale float64, width, height i
 				return nil, err
 			}
 			cmd.clips = append(cmd.clips, edges)
+			cmd.nonzero = append(cmd.nonzero, g.nonzero)
 		}
 		x0, y0, x1, y1 := pixelBounds(d.rect, scale, width, height)
 		n := int64(x1-x0) * int64(y1-y0)
@@ -130,9 +134,9 @@ func paintPath(ctx context.Context, img *image.RGBA, cmd paintCommand, scale flo
 				fill, scratch = scan(cmd.edges, sy, scratch, cmd.d.path.nonzero)
 				spans = intersect(spans, fill)
 			}
-			for _, edges := range cmd.clips {
+			for i, edges := range cmd.clips {
 				var clip []interval
-				clip, scratch = scan(edges, sy, scratch, false)
+				clip, scratch = scan(edges, sy, scratch, cmd.nonzero[i])
 				spans = intersect(spans, clip)
 			}
 			for _, s := range spans {

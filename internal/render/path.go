@@ -27,6 +27,9 @@ type drawing struct {
 	image    *bitmap
 	imageBox rectangle
 	gradient *gradientFill
+	// smooth says an image is a glyph's, scaled to the glyph's size, rather
+	// than a picture whose pixels are shown as they are.
+	smooth bool
 }
 type prepareBudget struct {
 	operations, segments, glyphs, textBytes       int
@@ -34,6 +37,15 @@ type prepareBudget struct {
 	images                                        map[image.Image]*bitmap
 	faces                                         map[*shape.Face]*shape.Face
 	fontIDs                                       map[*shape.Face]string
+	// pictures counts the images drawn as pictures; glyphImages are the images
+	// color glyphs are drawn from, decoded once each.
+	pictures    int
+	glyphImages map[glyphImageKey]*bitmap
+	// report, in best-effort mode, is told of each detail drawn
+	// approximately, once; noted records what it has been told. See
+	// approximate.
+	report func(error)
+	noted  map[string]bool
 }
 
 func (p *Page) collect(ctx context.Context, ops []layout.Op, clips []*geometry, budget *prepareBudget) error {

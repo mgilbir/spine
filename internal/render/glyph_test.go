@@ -108,9 +108,11 @@ func TestGlyphLimitsAndUnsupportedFonts(t *testing.T) {
 			t.Fatalf("accepted %+v", g)
 		}
 	}
-	colorFont := op
-	colorFont.Face = testFace(t, map[string][]byte{"COLR": make([]byte, 14)})
-	if _, err := Prepare(context.Background(), 1, 1, []layout.Op{colorFont}, Limits{}); !errors.Is(err, ErrUnsupported) {
+	// Apple's bitmap strikes are not drawn, so a font with them is refused; the
+	// color tables of COLR, SVG, CBDT and sbix are drawn glyph by glyph.
+	bitmapFont := op
+	bitmapFont.Face = testFace(t, map[string][]byte{"bdat": make([]byte, 8)})
+	if _, err := Prepare(context.Background(), 1, 1, []layout.Op{bitmapFont}, Limits{}); !errors.Is(err, ErrUnsupported) {
 		t.Fatal(err)
 	}
 	missing := op

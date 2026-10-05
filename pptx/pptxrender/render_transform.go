@@ -90,7 +90,8 @@ func (t renderShapeTransform) path(p layout.Path, maxSegments int, segments *int
 
 // glyphs turns a glyph run as its outlines, one path per glyph. Outlines
 // whose contours the even-odd rule fills differently from the font's nonzero
-// rule are drawn approximately.
+// rule are drawn approximately, and so are color glyphs, which become their
+// outlines in the run's color.
 func (t renderShapeTransform) glyphs(v layout.DrawGlyphs, colors *renderColors, maxSegments int, segments *int) ([]layout.Op, error) {
 	ctx := colors.ctx
 	if ctx == nil {
@@ -99,6 +100,11 @@ func (t renderShapeTransform) glyphs(v layout.DrawGlyphs, colors *renderColors, 
 	paths, exact, err := core.GlyphPaths(ctx, v, t.point, maxSegments, segments)
 	if err != nil {
 		return nil, err
+	}
+	if core.HasColorGlyphs(v) {
+		if err := colors.approximate(fmt.Errorf("%w: turned color glyphs drawn as outlines in the text color", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
 	}
 	if !exact {
 		if err := colors.approximate(fmt.Errorf("%w: turned glyphs with overlapping contours filled even-odd", render.ErrUnsupported)); err != nil {

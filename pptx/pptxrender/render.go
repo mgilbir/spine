@@ -723,7 +723,16 @@ func (s *renderSlide) prepare(ctx context.Context, opts render.Options) (*render
 			return nil, err
 		}
 	}
-	return render.Prepare(ctx, w, h, ops, opts.Limits)
+	// Best effort reports a color glyph drawn approximately.
+	var warn func(error)
+	if lenient {
+		warn = func(err error) {
+			if ctx.Err() == nil {
+				opts.Warn(fmt.Errorf("pptx: %w", err))
+			}
+		}
+	}
+	return render.PrepareBestEffort(ctx, w, h, ops, opts.Limits, warn)
 }
 
 // renderHidden reports whether a parsed shape is hidden, which PowerPoint

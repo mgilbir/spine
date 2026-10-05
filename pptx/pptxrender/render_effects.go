@@ -148,7 +148,10 @@ func (c *renderColors) rasterize(ops []layout.Op, pad float64) (*renderRaster, e
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	page, err := core.Prepare(ctx, dml.EMU(math.Ceil(w*float64(dml.EMUsPerPixel))), dml.EMU(math.Ceil(h*float64(dml.EMUsPerPixel))), moved, c.limits)
+	// Only the shape's alpha matters here, and the shape itself is drawn, and
+	// its approximations reported, on its own: a color glyph drawn approximately
+	// is as good as one drawn exactly for the effect.
+	page, err := core.PrepareBestEffort(ctx, dml.EMU(math.Ceil(w*float64(dml.EMUsPerPixel))), dml.EMU(math.Ceil(h*float64(dml.EMUsPerPixel))), moved, c.limits, func(error) {})
 	if err != nil {
 		return nil, err
 	}
