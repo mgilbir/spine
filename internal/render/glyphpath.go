@@ -42,6 +42,10 @@ func GlyphPaths(ctx context.Context, v layout.DrawGlyphs, at func(x, y float64) 
 		if !finite(glyph.XAdvance) || !finite(glyph.XOffset) || !finite(glyph.YOffset) || glyph.YAdvance != 0 || glyph.VOriginX != 0 || glyph.VOriginY != 0 {
 			return nil, false, fmt.Errorf("%w: glyph placement", ErrInvalid)
 		}
+		if v.Face.GlyphColour(glyph.GID, glyphPPEM(v.Size)) == shape.ColourMask {
+			// A bitmap font has no outline to turn.
+			return nil, false, fmt.Errorf("%w: outline of a bitmap font glyph %d", ErrUnsupported, glyph.GID)
+		}
 		ox := v.At.X.Px() + (pen+glyph.XOffset)*size/1000
 		oy := v.At.Y.Px() - glyph.YOffset*size/1000
 		var (

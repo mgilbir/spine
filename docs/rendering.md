@@ -111,16 +111,36 @@ for slides), each of these is drawn approximately and reported once, wrapping
 - a glyph composited in any other mode (multiply, screen, source-in and so on),
   a glyph of an SVG table, and a bitmap glyph whose image is not a readable PNG
   or that is turned or skewed, as its outline in the text color (nothing at all,
-  for a font with no outlines).
+  for a font with no outlines);
+- a bitmap glyph scaled from the strike it is drawn from, drawn scaled.
 
 A glyph is drawn whole in one of these ways, never part by part. Text turned
 or warped in a slide is drawn as outlines, so its color glyphs are outlines in
 the text color, and reported as such; a slide's shadows and other effects take
 a color glyph's coverage. DOCX and XLSX previews have no best effort and
-refuse what cannot be drawn exactly. Bitmap fonts (`EBDT`, `EBLC`, and Apple's
-`bdat`, `bloc`) are refused unless they also have outlines (`glyf`, `CFF `, `CFF2`), as system fonts
-such as Courier New that carry strikes for small screen sizes do; those are
-drawn from their outlines.
+refuse what cannot be drawn exactly. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
+and outlines (`glyf`, `CFF `, `CFF2`), as system fonts such as Courier New that
+carry strikes for small screen sizes are, is drawn from its outlines. A font
+with strikes and no outlines (forme's `BitmapOnly`) is drawn from them: each
+glyph's monochrome or greyscale bitmap is a coverage mask painted in the text's
+color, with the text's alpha times the coverage, through the path color bitmaps
+take. Strikes of 1, 2, 4 and 8 bits are read as forme reads them, and a glyph
+with no ink (a space) draws nothing. Turned or warped text is outlines, which
+such a font has none of, so it is refused with `render.ErrUnsupported`.
+
+A bitmap glyph (a mask, or a CBDT or sbix image) is drawn exactly only when
+it is not resampled: its strike is the size asked for (`shape.Image.Exact`:
+the font size in CSS pixels, rounded up, must be a strike's pixels per em, so a
+size with a fraction is never exact), the text is not stretched, and it is
+drawn at one device pixel to the CSS pixel (96 DPI output; PNG at another DPI
+and SVG at any size resample the pixels, as they do for any image). A glyph
+that has to be scaled, because the nearest strike is not the size, is refused
+with `render.ErrUnsupported` in strict preparation and drawn scaled and
+smoothed, reported once wrapping `render.ErrApproximated`, in best effort.
+Before this, a CBDT or sbix glyph scaled from its strike was drawn without a
+report. Reading a strike is bounded by forme's work budget for each glyph, and
+its image counts against the image pixel and byte limits, once for each
+glyph, size and text color.
 
 Color glyphs are bounded as every drawing is. Forme refuses a paint graph
 deeper than 64 paints, with more than 16,384 paint edges or past its work

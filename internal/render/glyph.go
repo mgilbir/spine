@@ -30,7 +30,7 @@ func (p *Page) fontFace(source *shape.Face, budget *prepareBudget) (*shape.Face,
 	if len(program) < 12 {
 		return nil, fmt.Errorf("%w: font has no outline program", ErrUnsupported)
 	}
-	if err := checkFontTables(program); err != nil {
+	if err := checkFontDirectory(program); err != nil {
 		return nil, err
 	}
 	f := source.Clone()
@@ -181,13 +181,21 @@ func (p *Page) addGlyphs(ctx context.Context, at layout.Point, size style.Unit, 
 			}
 		}
 		ox, oy := at.X.Px(), at.Y.Px()
-		g, err := p.outlineGeometry(ctx, face, glyph.GID, func(pt shape.Point) (float64, float64) {
-			x := ox + ((pen+glyph.XOffset)*size.Px()/1000+pt.X*size.Px()/float64(face.UnitsPerEm()))*widthScale
-			y := oy - glyph.YOffset*size.Px()/1000 - pt.Y*size.Px()/float64(face.UnitsPerEm())
-			return x, y
-		}, budget)
-		if err != nil {
-			return err
+		var g *geometry
+		if _, _, w, h, ok := face.GlyphExtents(glyph.GID); face.BitmapOnly() && (!ok || w == 0 || h == 0) {
+			// A glyph of a bitmap font that has no ink, a space, draws nothing
+			// and, having no outline either, is not drawn as one.
+			g = &geometry{nonzero: true, curves: make([]curve, 0)}
+		} else {
+			var err error
+			g, err = p.outlineGeometry(ctx, face, glyph.GID, func(pt shape.Point) (float64, float64) {
+				x := ox + ((pen+glyph.XOffset)*size.Px()/1000+pt.X*size.Px()/float64(face.UnitsPerEm()))*widthScale
+				y := oy - glyph.YOffset*size.Px()/1000 - pt.Y*size.Px()/float64(face.UnitsPerEm())
+				return x, y
+			}, budget)
+			if err != nil {
+				return err
+			}
 		}
 		r := meet(g.bounds, region)
 		r.color = color
@@ -204,27 +212,14 @@ func (p *Page) addGlyphs(ctx context.Context, at layout.Point, size style.Unit, 
 	return nil
 }
 
-// checkFontTables refuses a font program whose glyphs cannot be drawn.
-// Monochrome and greyscale bitmap strikes (EBDT, EBLC and Apple's bdat, bloc)
-// are not painted (mgilbir/forme#909); a font that also has outlines, as
-// system fonts carrying strikes for small screen sizes do, draws from those. The glyphs of COLR, SVG, CBDT
-// and sbix fonts are painted one at a time by paintColorGlyph.
-func checkFontTables(program []byte) error {
-	count := int(binary.BigEndian.Uint16(program[4:6]))
-	if count > (len(program)-12)/16 {
+// checkFontDirectory refuses a font program whose table directory does not fit
+// it. Glyphs are drawn as the face has them: outlines, or, for COLR, SVG, CBDT,
+// sbix, EBDT and bdat glyphs, one at a time by paintColorGlyph. A font with
+// outlines draws from them whatever bitmap strikes it carries; one without
+// draws its glyphs from its strikes.
+func checkFontDirectory(program []byte) error {
+	if int(binary.BigEndian.Uint16(program[4:6])) > (len(program)-12)/16 {
 		return fmt.Errorf("%w: font directory", ErrInvalid)
-	}
-	bitmap, outlines := "", false
-	for i := 0; i < count; i++ {
-		switch tag := string(program[12+16*i : 16+16*i]); tag {
-		case "bdat", "bloc", "EBDT", "EBLC":
-			bitmap = tag
-		case "glyf", "CFF ", "CFF2":
-			outlines = true
-		}
-	}
-	if bitmap != "" && !outlines {
-		return fmt.Errorf("%w: bitmap font table %s", ErrUnsupported, bitmap)
 	}
 	return nil
 }
