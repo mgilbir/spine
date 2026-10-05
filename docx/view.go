@@ -19,7 +19,9 @@ func init() {
 func (d *Document) view() *view.Document {
 	main := d.mainPart()
 	return &view.Document{Reader: d.reader, MainPart: main, StylesPart: d.stylesPartName(), Relationships: d.relationships[main],
-		PreservedParts: d.preservedParts, Styles: d.styles, Settings: d.settings, Load: func() *oxml.CT_Document { return d.doc() },
+		PreservedParts: d.preservedParts,
+		PartData:       func(name string) []byte { _, data := d.partBytes(name); return data },
+		Styles:         d.styles, Settings: d.settings, Load: func() *oxml.CT_Document { return d.doc() },
 		MainXML: func() ([]byte, error) { return marshalDocumentXML(d.doc()) },
 		StylesXML: func() ([]byte, error) {
 			if d.styles == nil {

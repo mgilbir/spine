@@ -168,60 +168,6 @@ func (c *renderColors) rasterize(ops []layout.Op, pad float64) (*renderRaster, e
 	return r, nil
 }
 
-// renderBoxes are the widths of three box blurs that approximate a
-// Gaussian of deviation sigma.
-func renderBoxes(sigma float64) [3]int {
-	ideal := math.Sqrt(12*sigma*sigma/3 + 1)
-	lo := int(math.Floor(ideal))
-	if lo%2 == 0 {
-		lo--
-	}
-	hi := lo + 2
-	m := int(math.Round((12*sigma*sigma - 3*float64(lo*lo) - 12*float64(lo) - 9) / (-4*float64(lo) - 4)))
-	var out [3]int
-	for i := range out {
-		if i < m {
-			out[i] = lo
-		} else {
-			out[i] = hi
-		}
-	}
-	return out
-}
-
-// renderBlur blurs a w by h plane in place with an approximate Gaussian of
-// deviation sigma pixels, edges extending outwards.
-func renderBlur(ctx context.Context, plane []float32, w, h int, sigma float64) error {
-	if sigma <= 0.3 || w == 0 || h == 0 {
-		return nil
-	}
-	tmp := make([]float32, len(plane))
-	pass := func(src, dst []float32, n, stride, count, lineStride, r int) {
-		for line := 0; line < count; line++ {
-			base := line * lineStride
-			at := func(i int) float32 { return src[base+max(0, min(n-1, i))*stride] }
-			var sum float32
-			for i := -r; i <= r; i++ {
-				sum += at(i)
-			}
-			inv := 1 / float32(2*r+1)
-			for i := 0; i < n; i++ {
-				dst[base+i*stride] = sum * inv
-				sum += at(i+r+1) - at(i-r)
-			}
-		}
-	}
-	for _, box := range renderBoxes(sigma) {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		r := (box - 1) / 2
-		pass(plane, tmp, w, 1, h, w, r)
-		pass(tmp, plane, h, w, w, 1, r)
-	}
-	return nil
-}
-
 // layer draws an alpha plane in one color as an image over the raster's
 // box.
 func (r *renderRaster) layer(alpha []float32, c style.RGBA, dx, dy float64) (layout.Op, error) {
@@ -316,7 +262,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 				return nil, nil, nil, err
 			}
 			alpha := append([]float32(nil), r.alpha...)
-			if err := renderBlur(c.ctx, alpha, r.w, r.h, blur/2*r.scale); err != nil {
+			if err := core.Blur(c.ctx, alpha, r.w, r.h, blur/2*r.scale); err != nil {
 				return nil, nil, nil, err
 			}
 			op, err := r.layer(alpha, col, dx, dy)
@@ -352,7 +298,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 			return nil, nil, nil, err
 		}
 		alpha := append([]float32(nil), r.alpha...)
-		if err := renderBlur(c.ctx, alpha, r.w, r.h, rad/2*r.scale); err != nil {
+		if err := core.Blur(c.ctx, alpha, r.w, r.h, rad/2*r.scale); err != nil {
 			return nil, nil, nil, err
 		}
 		for i, a := range alpha {
@@ -385,7 +331,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 			for i := range planes[k] {
 				planes[k][i] = float32(r.img.Pix[4*i+k])
 			}
-			if err := renderBlur(c.ctx, planes[k], r.w, r.h, rad/2*r.scale); err != nil {
+			if err := core.Blur(c.ctx, planes[k], r.w, r.h, rad/2*r.scale); err != nil {
 				return nil, nil, nil, err
 			}
 		}
@@ -393,7 +339,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 		for i := 0; i < r.w*r.h; i++ {
 			if a := planes[3][i]; a > 0 {
 				q := img.Pix[4*i : 4*i+4]
-				q[0], q[1], q[2], q[3] = renderByte(float64(planes[0][i]/a*255)), renderByte(float64(planes[1][i]/a*255)), renderByte(float64(planes[2][i]/a*255)), renderByte(float64(a))
+				q[0], q[1], q[2], q[3] = core.Byte(float64(planes[0][i]/a*255)), core.Byte(float64(planes[1][i]/a*255)), core.Byte(float64(planes[2][i]/a*255)), core.Byte(float64(a))
 			}
 		}
 		op, err := r.image(img, 0, 0)
@@ -413,7 +359,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 			return nil, nil, nil, err
 		}
 		fade := append([]float32(nil), r.alpha...)
-		if err := renderBlur(c.ctx, fade, r.w, r.h, rad/2*r.scale); err != nil {
+		if err := core.Blur(c.ctx, fade, r.w, r.h, rad/2*r.scale); err != nil {
 			return nil, nil, nil, err
 		}
 		img := image.NewNRGBA(image.Rect(0, 0, r.w, r.h))
@@ -450,7 +396,7 @@ func (c *renderColors) blurredEffects(ops []layout.Op, e *dml.EffectLst, placeho
 		for i, a := range inverse {
 			inverse[i] = 1 - a
 		}
-		if err := renderBlur(c.ctx, inverse, r.w, r.h, blur/2*r.scale); err != nil {
+		if err := core.Blur(c.ctx, inverse, r.w, r.h, blur/2*r.scale); err != nil {
 			return nil, nil, nil, err
 		}
 		for i := range inverse {
@@ -520,7 +466,7 @@ func (c *renderColors) reflection(ops []layout.Op, rf *dml.ReflectionXML) (layou
 			alpha[y*r.w+x] = float32(float64(p[3]) / 255 * math.Max(0, math.Min(1, f)))
 		}
 	}
-	if err := renderBlur(c.ctx, alpha, r.w, r.h, blur/2*r.scale); err != nil {
+	if err := core.Blur(c.ctx, alpha, r.w, r.h, blur/2*r.scale); err != nil {
 		return nil, err
 	}
 	for i, a := range alpha {

@@ -18,9 +18,13 @@ type Document struct {
 	StylesPart     string
 	Relationships  []*opc.Relationship
 	PreservedParts map[string]*coxml.RawPart
-	Styles         *oxml.CT_Styles
-	Settings       *oxml.CT_Settings
-	Load           func() *oxml.CT_Document
+	// PartData returns the bytes of a package part by part name (such as an
+	// image the main part relates to), or nil when there is none. Reading is
+	// bounded by the package's decompression limits.
+	PartData func(name string) []byte
+	Styles   *oxml.CT_Styles
+	Settings *oxml.CT_Settings
+	Load     func() *oxml.CT_Document
 	// MainXML, StylesXML, NumberingXML, SettingsXML and ThemeXML serialize the
 	// document's current in-memory state, including unsaved edits, to the XML
 	// the part would be saved as. The styles, numbering, settings and theme

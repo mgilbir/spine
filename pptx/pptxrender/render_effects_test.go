@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"image/color"
-	"math"
 	"strings"
 	"testing"
 
@@ -14,30 +13,6 @@ import (
 	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/render"
 )
-
-func TestRenderBlur(t *testing.T) {
-	// A point spreads with the deviation asked for, keeping its total.
-	const n = 101
-	plane := make([]float32, n*n)
-	plane[50*n+50] = 1
-	if err := renderBlur(context.Background(), plane, n, n, 6); err != nil {
-		t.Fatal(err)
-	}
-	var sum, varX float64
-	for y := 0; y < n; y++ {
-		for x := 0; x < n; x++ {
-			v := float64(plane[y*n+x])
-			sum += v
-			varX += v * float64((x-50)*(x-50))
-		}
-	}
-	if math.Abs(sum-1) > 1e-3 || math.Abs(math.Sqrt(varX/sum)-6) > 0.6 {
-		t.Fatalf("sum %v, deviation %v", sum, math.Sqrt(varX/sum))
-	}
-	if b := renderBoxes(6); b[0]%2 == 0 || b[2]%2 == 0 {
-		t.Fatalf("boxes %v", b)
-	}
-}
 
 func TestRenderShapeEffects(t *testing.T) {
 	p := pptx.CreateWithOptions(pptx.CreateOptions{Options: pptx.Options{SlideSize: pptx.SlideSizeCustom}, IncludeDefaultLayouts: true, Width: dml.Pixels(200), Height: dml.Pixels(160)})
