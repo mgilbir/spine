@@ -69,7 +69,16 @@ type RichSegment struct {
 	Size style.Unit
 	// X is the segment's pen offset from the start of the line.
 	X, Width style.Unit
+	// Level is the segment's embedding level: odd levels run right to left.
+	// Glyphs of such a segment are in the order they are drawn, left to right,
+	// so their clusters fall as they go; Text is in logical order. Segments of
+	// a line are in the order they are drawn. Level is zero in a paragraph
+	// that runs left to right throughout.
+	Level int
 }
+
+// RTL reports whether the segment's text runs right to left.
+func (s RichSegment) RTL() bool { return s.Level&1 == 1 }
 
 // RichLine is one wrapped line of a rich paragraph.
 type RichLine struct {
@@ -102,8 +111,16 @@ func (t *TextLayout) RichLines(ctx context.Context, spans []Span, width style.Un
 type RichOptions struct {
 	// HangPunct lets an East Asian stop or comma, such as the ideographic
 	// full stop, that would not otherwise fit at the end of a line hang past
-	// its width, as PowerPoint's hanging punctuation does.
+	// its width, as PowerPoint's hanging punctuation does. It does not apply
+	// to a paragraph that runs right to left or holds right-to-left text.
 	HangPunct bool
+	// RTL sets the paragraph's base direction right to left. Its lines start
+	// at the right, and text of either direction is ordered by the Unicode
+	// bidirectional algorithm: breaks are found in logical order, and each
+	// line's segments are cut by embedding level and drawn in visual order.
+	// Joining forms of Arabic follow the neighbours within a span. Tabs are
+	// unsupported where text runs right to left.
+	RTL bool
 }
 
 // RichLinesWith is RichLines with options.
@@ -212,7 +229,7 @@ func (t *TextLayout) RichLinesWith(ctx context.Context, spans []Span, width styl
 // hangsAlone reports whether a piece is one East Asian stop or comma.
 func hangsAlone(piece string) bool {
 	r, n := utf8.DecodeRuneInString(piece)
-	return n == len(piece) && r > 0x7F && paragraph.HangsAsStopOrComma(r)
+	return n == len(piece) && IsEastAsian(r) && paragraph.HangsAsStopOrComma(r)
 }
 
 // richItem locates a breaker item in the paragraph's spans.
@@ -235,6 +252,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 		items []paragraph.Item
 		where []richItem
 	)
+	bd := newBidiLayout(text, opts.RTL)
 	span, byteOffset := 0, 0
 	for _, piece := range pieces {
 		if err := ctx.Err(); err != nil {
@@ -260,7 +278,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			measure := measures[faceOf[span]]
 			if piece.Tab {
 				// A tab's advance is resolved where it falls on a line.
-				if part != "\t" || s.TabStop <= 0 {
+				if part != "\t" || s.TabStop <= 0 || bd != nil {
 					return fmt.Errorf("%w: paragraph tab", ErrUnsupported)
 				}
 				items = append(items, paragraph.Item{Text: part, Face: measure, Size: s.Size, Tab: true, TabStop: s.TabStop, BreakBefore: piece.BreakBefore && at == byteOffset})
@@ -271,8 +289,9 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			// An East Asian stop or comma ending the piece may hang, so it
 			// is an item of its own, not to begin a line.
 			cut := len(part)
-			if opts.HangPunct && !piece.Space {
-				if r, n := utf8.DecodeLastRuneInString(part); n < len(part) && r > 0x7F && paragraph.HangsAsStopOrComma(r) {
+			hangs := opts.HangPunct && bd == nil && !piece.Space
+			if hangs {
+				if r, n := utf8.DecodeLastRuneInString(part); n < len(part) && IsEastAsian(r) && paragraph.HangsAsStopOrComma(r) {
 					cut -= n
 				}
 			}
@@ -286,7 +305,7 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 				}
 				how := paragraph.Shaping{MergeBefore: s.Text[:from+a], MergeAfter: s.Text[from+b:], MergeGroup: s.Text, ContextKerns: true, Off: s.Features}
 				word := part[a:b]
-				items = append(items, paragraph.Item{Text: word, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, word, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset && k == 0, Space: piece.Space, BreakWord: s.BreakWord, MayHangEnd: k == 1 || (cut == len(part) && opts.HangPunct && hangsAlone(word)), MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
+				items = append(items, paragraph.Item{Text: word, Face: measure, Size: s.Size, Width: br.MeasureSpacedInContext(measure, word, s.Size, paragraph.TextSpacing{Letter: s.Letter}, how), BreakBefore: piece.BreakBefore && at == byteOffset && k == 0, Space: piece.Space, BreakWord: s.BreakWord, MayHangEnd: hangs && (k == 1 || (cut == len(part) && hangsAlone(word))), MergePre: how.MergeBefore, MergePost: how.MergeAfter, MergeGroup: s.Text, ContextKerns: true, Off: s.Features})
 				where = append(where, richItem{span: span, offset: from + a})
 			}
 			at += len(part)
@@ -340,6 +359,9 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			}
 			segments = append(segments, RichSegment{Span: w.span, Offset: w.offset + from, Text: item.Text})
 		}
+		if bd != nil && len(segments) > 0 {
+			segments = bd.arrange(segments, starts)
+		}
 		// Text segments are shaped first: a tab aligned at its stop needs
 		// the width of the text after it.
 		for k := range segments {
@@ -349,9 +371,21 @@ func (t *TextLayout) richBreak(ctx context.Context, spans []Span, faceOf []int, 
 			if sg.Text == "\t" {
 				continue
 			}
-			glyphs, missing := measures[faceOf[sg.Span]].ShapeGlyphsMerged(sg.Text, "", "", "", "", false, s.Features)
+			// A right-to-left segment is stated so, and its glyphs come back
+			// in drawing order; its override owns no glyph, so clusters are
+			// put back to the segment's own text.
+			shaped, prefix := sg.Text, 0
+			if sg.RTL() {
+				shaped, prefix = rtlPrefix+sg.Text, len(rtlPrefix)
+			}
+			glyphs, missing := measures[faceOf[sg.Span]].ShapeGlyphsMerged(shaped, "", "", "", "", false, s.Features)
 			if missing != 0 {
 				return fmt.Errorf("%w: paragraph missing glyph", ErrUnsupported)
+			}
+			if prefix > 0 {
+				for i := range glyphs {
+					glyphs[i].Cluster = max(glyphs[i].Cluster-prefix, 0)
+				}
 			}
 			if len(glyphs) > remainingGlyphs-*glyphCount {
 				return fmt.Errorf("%w: paragraph glyphs", ErrLimit)

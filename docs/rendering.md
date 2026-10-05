@@ -352,12 +352,31 @@ gap between characters. Spaces ending a line hang and are not widened, and a
 tab stop holds what comes before it, so only spaces after a line's last tab
 widen. Justified lines also widen the gaps after East Asian characters, which
 PowerPoint may do otherwise: such a line fails, and best effort spreads the
-characters evenly. The kashida and Thai variants draw as these, from which
-they differ only in scripts this profile does not draw. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
+characters evenly. Thai distribution draws as distributed, from which it
+differs only in Thai, which this profile does not draw. Low kashida
+justification elongates Arabic letters, which is not drawn: a line of it with
+Arabic fails, and best effort widens its spaces as justified lines do, and
+Hebrew and other lines draw as justified. Best effort draws an exact line height (`spcPts`) with the line's glyphs keeping their
 ascent-to-descent proportion; space in percent of a line as that share of the
 first or last line's height; and space before the first paragraph as given.
 The paragraph also needs left/right margins within the box, and left-to-right Latin word
-breaking. East Asian text wraps by the Unicode line breaking rules (UAX #14):
+breaking. A right-to-left paragraph (`rtl`) has its lines start at the right,
+and its alignment, margins and indent are from the start: `l` aligns the
+lines at the start and `r` at the end, which are the right and the left,
+`marL` is the margin at the right and `marR` at the left, and a hanging
+bullet hangs from the right, ending at the margin plus the indent from the
+box's right edge. Centred, justified and distributed text keep their
+meaning, a justified line that cannot be stretched, such as the last, starts
+at the right, and a stretched one starts at the right edge with the spaces
+that end it hanging past the left. The text of a paragraph of either
+direction is ordered by the Unicode bidirectional algorithm (UAX #9), with
+the paragraph's direction as base: lines break in logical order, and each is cut
+by embedding level, white space ending it taking the paragraph's level, and
+drawn in visual order, brackets facing the right way. Arabic letters take
+their joined forms within a span, as the font's shaping gives them, and a
+span is one font and size, so a change of color in a word does not break the
+joining while a change of font does. Tabs fail in a paragraph that is right-to-left or
+holds right-to-left text, and a run's own direction (`a:rtl`) fails. East Asian text wraps by the Unicode line breaking rules (UAX #14):
 a line may break between ideographs, kana and hangul syllables, a closing
 mark, stop or comma may not begin a line and an opening mark may not end one.
 PowerPoint's kinsoku lists are not documented, so this is the profile's
@@ -367,7 +386,8 @@ absence wraps by rules PowerPoint does not document: it fails, and best
 effort wraps as above. With hanging punctuation (`hangingPunct`, absent on)
 an ideographic or fullwidth stop or comma that would not fit hangs past the end
 of its line, which is aligned and justified without it; off, it takes the
-character before it to the next line. Both match PowerPoint's own export of one
+character before it to the next line, and a paragraph that runs right to left
+or holds right-to-left text does not hang it. Hanging matches PowerPoint's own export of one
 Japanese sentence at 14 pt in boxes 1.3 to 1.3875 in wide, 0.9 pt apart, on and
 off (tested at the line-breaking level; a font with East Asian kerning, such as
 Hiragino Sans, can fit one more character than PowerPoint does). A word too wide for its line breaks between characters, as a last
@@ -420,8 +440,7 @@ line's end, starts, ends or centres at its stop, or puts its first full stop
 there (decimal, which without one ends the text there). Text that would
 start before its tab leaves the tab no advance. Lines break with every tab
 measured to the default stops: a paragraph that wraps after explicit stops
-moved a tab fails, and best effort keeps those breaks. Rich styles, bidi,
-unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
+moved a tab fails, and best effort keeps those breaks. Unresolved fonts fail. Text may use Latin, Greek and Cyrillic letters,
 combining diacritics, Latin-1, general punctuation, currency and letterlike
 symbols, arrows, mathematical operators and geometric shapes, which DrawingML
 draws with the Latin font (`a:latin`), and East Asian text: ideographs, kana,
@@ -442,8 +461,20 @@ run with East Asian characters. PowerPoint may draw symbols of ambiguous East
 Asian width with the East Asian font in Chinese, Japanese or Korean text, so
 a run whose resolved language or alternate language is one of those may hold
 only ASCII and East Asian characters among them: other symbols fail, and best
-effort draws them with the Latin font. Other characters, including
-right-to-left text, soft hyphens, controls and format characters, fail.
+effort draws them with the Latin font. Right-to-left text: Hebrew, Arabic,
+Syriac, Thaana and N'Ko with their presentation forms, the Arabic comma,
+tatweel and digits, and the joiners and left-to-right, right-to-left and
+Arabic letter marks set among them, is drawn with the complex-script font
+(`a:cs`), chosen as the East Asian font is: a family, a `+mn-cs` or
+`+mj-cs` theme reference, or a theme font left empty taking the theme font
+list's entry for the run's language (`ar`, `fa`, `ur` and others Arab, `he`
+and `yi` Hebr, `dv` Thaa, `syr` Syrc, `nqo` Nkoo) or, where the language names
+none, for the script of the text. The joiners and marks take the font of the
+text they are among. Digits, spaces and punctuation of ASCII and the European
+repertoire use the Latin font even inside right-to-left text. Text with no
+complex-script font fails, and best effort draws it with the Latin font. Other
+scripts, such as Thai or Devanagari, soft hyphens, controls, the explicit
+embedding, override and isolate controls, and other format characters, fail.
 
 Tables (`a:tbl` in a graphic frame) render when they have no table style,
 diagonal borders or table-level fill, and when they are parsed

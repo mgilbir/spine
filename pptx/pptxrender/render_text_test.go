@@ -307,7 +307,8 @@ func TestRenderJustifyGaps(t *testing.T) {
 		{"one word", []core.RichSegment{seg("abc", 0)}, false, []float64{0, 10, 20}},
 		{"distributed", []core.RichSegment{seg("abc", 0)}, true, []float64{0, 35, 70}},
 	} {
-		got := starts(renderJustify(tc.segments, 80, 0, tc.distribute))
+		justified, _ := renderJustify(tc.segments, 80, 0, tc.distribute)
+		got := starts(justified)
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}

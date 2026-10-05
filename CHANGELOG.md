@@ -4,6 +4,15 @@
 
 ### Added
 
+- pptx: the preview renderer draws right-to-left text (Hebrew, Arabic, Syriac,
+  Thaana, N'Ko): paragraphs with `rtl="1"` start at the right, with alignment,
+  margins, indent and bullets from the start, text of either direction is
+  ordered by the Unicode bidirectional algorithm, and Arabic letters join as
+  the font shapes them. Complex-script characters use the run's `a:cs` font, a
+  `+mn-cs`/`+mj-cs` theme reference, or the theme font list's entry for the
+  run's language or script. Justified lines stretch from the start. Low kashida
+  justification of Arabic draws as justified in best effort and fails in strict
+  mode; tabs in right-to-left text, and a run's own direction, still fail.
 - pptx: the preview renderer draws East Asian text (ideographs, kana, hangul,
   CJK punctuation, fullwidth forms): each run is cut into spans by the font
   class of its characters, East Asian ones using the run's `a:ea` font, a

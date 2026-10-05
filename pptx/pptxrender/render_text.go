@@ -478,7 +478,13 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		if para.marL > content || para.marR > content-para.marL || para.marL+para.marR == content {
 			return nil, 0, fmt.Errorf("%w: paragraph margins", render.ErrUnsupported)
 		}
-		left, ok := style.FromPx(float64(left0+para.marL) / float64(dml.EMUsPerPixel))
+		// The margins are from the start of a line, which is the right in a
+		// right-to-left paragraph.
+		edge := left0 + para.marL
+		if para.rtl {
+			edge = left0 + para.marR
+		}
+		left, ok := style.FromPx(float64(edge) / float64(dml.EMUsPerPixel))
 		if !ok {
 			return nil, 0, render.ErrLimit
 		}
@@ -558,7 +564,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 						continue
 					}
 					kept := strings.Map(func(c rune) rune {
-						if _, ok := face.GlyphID(c); (ok && core.RepertoireEastAsian.Allows(c)) || c == '\t' {
+						if _, ok := face.GlyphID(c); (ok && core.RepertoireBidi.Allows(c)) || c == '\t' {
 							return c
 						}
 						return -1
@@ -609,7 +615,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		bounds := append(append([]int{0}, breaks...), len(spans))
 		for k := 0; k+1 < len(bounds); k++ {
 			a, b := bounds[k], bounds[k+1]
-			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para, core.RepertoireEastAsian)
+			piece, err := renderParagraphLines(ctx, breaker, fonts, spans[a:b], texts[a:b], wrap, para, core.RepertoireBidi)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -647,7 +653,7 @@ func renderLayoutParagraphs(ctx context.Context, saved *dml.TxBody, left0, conte
 		para.after += dml.EMU(math.Round(float64(para.afterPct) / 100000 * lines[len(lines)-1].height * px))
 		block := renderBlock{para: para, runs: runs, ends: ends, starts: starts, text: text.String(), lines: lines, left: left, width: width}
 		if text.Len() > 0 && para.bullet.char != "" {
-			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, width, styles.colors.approximate); err != nil {
+			if block.bullet, err = renderLayoutBullet(ctx, breaker, fonts, para, runs[0], lines[0], left0, content, width, styles.colors.approximate); err != nil {
 				return nil, 0, err
 			}
 		} else if text.Len() > 0 && para.indent != 0 {
@@ -707,6 +713,7 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 		top += float64(para.before) / float64(dml.EMUsPerPixel)
 		covered := 0
 		for _, line := range b.lines {
+			stretched := false
 			// A line past the bottom of a column, other than its first,
 			// starts the next column.
 			if col < cols.n-1 && top+line.ascent+line.descent > bottom && top > contentTop {
@@ -727,14 +734,37 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 						return nil, err
 					}
 				}
-				line.Segments = renderJustify(line.Segments, width.Px(), line.Hang.Px(), para.align == enum.TextAlignDistribute)
+				if para.kashida && renderLineHasArabic(line) {
+					// Low kashida elongates Arabic letters; the line is
+					// stretched at its spaces instead.
+					if err := colors.approximate(fmt.Errorf("%w: low kashida justification drawn by widening spaces", render.ErrUnsupported)); err != nil {
+						return nil, err
+					}
+				}
+				line.Segments, stretched = renderJustify(line.Segments, width.Px(), line.Hang.Px(), para.align == enum.TextAlignDistribute)
 			}
 			shift := float64(col) * cols.step
 			xp := left.Px() + shift
-			if para.align == enum.TextAlignCenter {
+			// Left and right are the line's start and end in a right-to-left
+			// paragraph, where a justified line that is not stretched starts
+			// at the right.
+			align := para.align
+			if para.rtl {
+				switch align {
+				case enum.TextAlignLeft:
+					align = enum.TextAlignRight
+				case enum.TextAlignRight:
+					align = enum.TextAlignLeft
+				case enum.TextAlignJustify, enum.TextAlignDistribute:
+					if !stretched {
+						align = enum.TextAlignRight
+					}
+				}
+			}
+			if align == enum.TextAlignCenter {
 				xp += (width.Px() - line.Width.Px()) / 2
 			}
-			if para.align == enum.TextAlignRight {
+			if align == enum.TextAlignRight {
 				xp += width.Px() - line.Width.Px()
 			}
 			if b.bullet != nil && covered == 0 {
@@ -750,12 +780,27 @@ func renderPlaceParagraphs(blocks []renderBlock, height, contentTop, bottom floa
 				sg := b.bullet.seg
 				ops = append(ops, layout.DrawGlyphs{At: layout.Point{X: bx, Y: by}, Text: sg.Text, Glyphs: sg.Glyphs, Face: sg.Face, Size: sg.Size, Color: b.bullet.color})
 			}
+			// A line's segments are in the order they are drawn, which is
+			// not the order of their text where it runs right to left. The
+			// line's text must still be the text that follows the lines
+			// before it.
+			spans := make([][2]int, 0, len(line.Segments))
 			for _, sg := range line.Segments {
 				start := b.starts[sg.Span] + sg.Offset
-				if start != covered || !strings.HasPrefix(b.text[start:], sg.Text) {
+				if !strings.HasPrefix(b.text[start:], sg.Text) {
 					return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
 				}
-				covered += len(sg.Text)
+				spans = append(spans, [2]int{start, len(sg.Text)})
+			}
+			slices.SortFunc(spans, func(a, b [2]int) int { return a[0] - b[0] })
+			for _, sp := range spans {
+				if sp[0] != covered {
+					return nil, fmt.Errorf("%w: paragraph line text", render.ErrUnsupported)
+				}
+				covered += sp[1]
+			}
+			for _, sg := range line.Segments {
+				start := b.starts[sg.Span] + sg.Offset
 				if len(sg.Glyphs) == 0 {
 					continue
 				}
@@ -891,7 +936,7 @@ func renderParagraphLines(ctx context.Context, breaker *core.TextLayout, fonts *
 	}
 	// DrawingML's Latin font serves Latin, Greek and Cyrillic text alike, and
 	// its East Asian font East Asian text; the caller cuts spans by font.
-	wrapped, err := breaker.RichLinesWith(ctx, spans, width, repertoire, core.RichOptions{HangPunct: para.hangPunct})
+	wrapped, err := breaker.RichLinesWith(ctx, spans, width, repertoire, core.RichOptions{HangPunct: para.hangPunct, RTL: para.rtl})
 	if err != nil {
 		return nil, err
 	}
@@ -967,23 +1012,35 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 		return nil
 	}
 	pen := 0.0 // in 1000 units per em
+	prevLowest := 0
 	for i := 0; i < len(sg.Glyphs); {
-		first := sg.Glyphs[i].Cluster
-		if first < 0 || first >= len(sg.Text) {
+		if c := sg.Glyphs[i].Cluster; c < 0 || c >= len(sg.Text) {
 			return nil, fmt.Errorf("%w: glyph cluster", render.ErrInvalid)
 		}
-		r := runAt(start + first)
+		r := runAt(start + sg.Glyphs[i].Cluster)
 		j := i
 		advance := 0.0
+		lowest := sg.Glyphs[i].Cluster
 		for j < len(sg.Glyphs) && runAt(start+sg.Glyphs[j].Cluster) == r {
 			advance += sg.Glyphs[j].XAdvance
+			lowest = min(lowest, sg.Glyphs[j].Cluster)
 			j++
 		}
-		// The piece's characters run to the next piece's first cluster.
-		pieceEnd := len(sg.Text)
-		if j < len(sg.Glyphs) {
+		// The piece's characters run from its first cluster to the next
+		// piece's first, where the glyphs go with the text; where they go
+		// against it, in right-to-left text, from its lowest cluster to the
+		// lowest of the piece drawn before it, or to the text's end.
+		first, pieceEnd := sg.Glyphs[i].Cluster, len(sg.Text)
+		switch {
+		case sg.RTL():
+			first = lowest
+			if i > 0 {
+				pieceEnd = prevLowest
+			}
+		case j < len(sg.Glyphs):
 			pieceEnd = sg.Glyphs[j].Cluster
 		}
+		prevLowest = lowest
 		if pieceEnd <= first || runAt(start+pieceEnd-1) != r {
 			return nil, fmt.Errorf("%w: glyph spanning runs", render.ErrUnsupported)
 		}
@@ -1044,22 +1101,36 @@ func renderSegmentRuns(sg core.RichSegment, start int, ends []int, runs []render
 // renderJustify stretches a line to a width: justified text widens the
 // spaces between its words and between its East Asian characters, and
 // distributed text the gaps between all its characters. Spaces ending the
-// line hang past the width and are not widened, nor is anything before the
+// line, which hang past the width, are not widened, nor is anything before the
 // line's last tab, whose stop holds it. A stop or comma hanging past the
-// line (hang, in pixels) is not part of what is stretched. A line without a
-// gap to widen, or already as wide, is returned as it is.
-func renderJustify(segments []core.RichSegment, width, hang float64, distribute bool) []core.RichSegment {
+// line (hang, in pixels) is not part of what is stretched. The segments are in
+// the order they are drawn, and the line's end is the end of its text: the
+// left of a right-to-left line, where the spaces that hang are drawn first
+// and the stretched text then starts at the line's start. A line without a
+// gap to widen, or already as wide, is returned as it is, and the result says
+// whether it was stretched.
+func renderJustify(segments []core.RichSegment, width, hang float64, distribute bool) ([]core.RichSegment, bool) {
+	// order lists the segments in the order of their text.
+	order := make([]int, len(segments))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := segments[order[i]], segments[order[j]]
+		return a.Span < b.Span || (a.Span == b.Span && a.Offset < b.Offset)
+	})
 	// visible is the byte offset in each segment where trailing spaces
 	// begin; first is the first segment after the last tab.
 	visible := make([]int, len(segments))
 	first, trailing := 0, true
-	for k := len(segments) - 1; k >= 0; k-- {
+	for i := len(order) - 1; i >= 0; i-- {
+		k := order[i]
 		sg := segments[k]
 		if sg.Text == "\t" {
 			first = k + 1
 			if trailing {
 				// A line ending in a tab ends at its stop.
-				return segments
+				return segments, false
 			}
 			break
 		}
@@ -1075,6 +1146,9 @@ func renderJustify(segments []core.RichSegment, width, hang float64, distribute 
 		gaps []gap
 		end  float64
 		last gap // the last visible cluster's last glyph
+		// lead is the width of the spaces drawn before the text.
+		lead float64
+		seen bool
 	)
 	for k := first; k < len(segments); k++ {
 		sg := segments[k]
@@ -1082,12 +1156,16 @@ func renderJustify(segments []core.RichSegment, width, hang float64, distribute 
 		pen := sg.X.Px()
 		for i, g := range sg.Glyphs {
 			if g.Cluster < 0 || g.Cluster >= len(sg.Text) {
-				return segments
-			}
-			if g.Cluster >= visible[k] {
-				break
+				return segments, false
 			}
 			pen += g.XAdvance * em
+			if g.Cluster >= visible[k] {
+				if !seen {
+					lead = pen
+				}
+				continue
+			}
+			seen = true
 			end = pen
 			if i+1 < len(sg.Glyphs) && sg.Glyphs[i+1].Cluster == g.Cluster {
 				continue
@@ -1102,9 +1180,9 @@ func renderJustify(segments []core.RichSegment, width, hang float64, distribute 
 	if n := len(gaps); n > 0 && gaps[n-1] == last {
 		gaps = gaps[:n-1]
 	}
-	extra := width - (end - hang)
+	extra := width - (end - lead - hang)
 	if len(gaps) == 0 || !(extra > 0) || math.IsInf(extra, 0) {
-		return segments
+		return segments, false
 	}
 	each := extra / float64(len(gaps))
 	out := append([]core.RichSegment(nil), segments...)
@@ -1119,17 +1197,17 @@ func renderJustify(segments []core.RichSegment, width, hang float64, distribute 
 		sg.Glyphs[g.glyph].XAdvance += each * 1000 / sg.Size.Px()
 		added[g.segment] += each
 	}
-	shift := 0.0
+	shift := -lead
 	for k := range out {
 		x, okX := style.FromPx(out[k].X.Px() + shift)
 		w, okW := style.FromPx(out[k].Width.Px() + added[k])
 		if !okX || !okW {
-			return segments
+			return segments, false
 		}
 		out[k].X, out[k].Width = x, w
 		shift += added[k]
 	}
-	return out
+	return out, true
 }
 
 func renderHasText(body *dml.TxBody) bool {
@@ -1169,7 +1247,7 @@ type renderBulletGlyph struct {
 // whose placement this profile does not claim. The bullet may not raise its
 // line. Best effort, through approx, draws such bullets where they would
 // hang, over the text or past the line.
-func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0 dml.EMU, width style.Unit, approx func(error) error) (*renderBulletGlyph, error) {
+func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *slideRenderFonts, para renderParaStyle, first renderRunStyle, line renderLine, left0, content dml.EMU, width style.Unit, approx func(error) error) (*renderBulletGlyph, error) {
 	b := para.bullet
 	shaping := renderShaping{font: first.font, bold: first.bold, italic: first.italic}
 	if b.font != "" {
@@ -1180,7 +1258,10 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	} else {
 		shaping.size = int32(int64(first.size) * int64(b.size) / 100000)
 	}
-	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, para, core.RepertoireEuropean)
+	// A bullet is a character of its own, set left to right.
+	flat := para
+	flat.rtl = false
+	lines, err := renderParagraphLines(ctx, breaker, fonts, []renderShaping{shaping}, []string{b.char}, width, flat, core.RepertoireEuropean)
 	if err != nil {
 		return nil, err
 	}
@@ -1202,7 +1283,13 @@ func renderLayoutBullet(ctx context.Context, breaker *core.TextLayout, fonts *sl
 	if b.ownColor {
 		color = b.color
 	}
-	return &renderBulletGlyph{seg: bullet.Segments[0], x: float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel), color: color}, nil
+	x := float64(left0+para.marL+para.indent) / float64(dml.EMUsPerPixel)
+	if para.rtl {
+		// The bullet hangs from the right, ending at the margin plus the
+		// indent from the box's right edge.
+		x = float64(left0+content-para.marL-para.indent)/float64(dml.EMUsPerPixel) - bullet.Width.Px()
+	}
+	return &renderBulletGlyph{seg: bullet.Segments[0], x: x, color: color}, nil
 }
 
 // renderFontRef turns a style's font reference into a list style below the

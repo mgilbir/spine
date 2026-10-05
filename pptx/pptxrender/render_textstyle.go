@@ -68,6 +68,12 @@ type renderParaStyle struct {
 	// rules, and hangPunct whether East Asian stops and commas may hang past
 	// the end of a line.
 	eaBreak, hangPunct bool
+	// rtl is a right-to-left paragraph: it starts at the right, its margins
+	// and indent are from there, and left and right alignment swap sides.
+	rtl bool
+	// kashida is low kashida justification, which stretches Arabic by
+	// elongating letters.
+	kashida bool
 }
 
 // renderBullet is a paragraph's character bullet; char is empty for none.
@@ -102,6 +108,13 @@ type renderRunStyle struct {
 	// characters does not need.
 	ea      string
 	eaFault error
+	// cs is the run's complex-script font, which draws its right-to-left
+	// characters, as ea does East Asian ones. Where its styles name a theme
+	// font the theme leaves empty, csList is the theme's font list, to be
+	// searched by the script of the characters.
+	cs      string
+	csFault error
+	csList  *dml.FontCollection
 	// underline and strike are lines drawn, approximately, under and
 	// through the run: 0 none, 1 single, 2 double.
 	underline, strike int
@@ -384,9 +397,8 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	switch s.align {
 	case enum.TextAlignLeft, enum.TextAlignCenter, enum.TextAlignRight, enum.TextAlignJustify, enum.TextAlignDistribute:
 	case enum.TextAlignJustifyLow:
-		// Low kashida justification differs only in Arabic, which this
-		// profile does not draw.
-		s.align = enum.TextAlignJustify
+		// Low kashida justification differs only in Arabic.
+		s.align, s.kashida = enum.TextAlignJustify, true
 	case enum.TextAlignThaiDistribute:
 		// Thai distribution differs only in Thai, likewise.
 		s.align = enum.TextAlignDistribute
@@ -558,9 +570,10 @@ func (t *renderTextStyles) paragraph(body *dml.TxBody, p *dml.P, chain renderLis
 	if err != nil {
 		return s, nil, err
 	}
-	if rtl || latinBreak {
-		return s, nil, fmt.Errorf("%w: right-to-left or Latin-break paragraph", render.ErrUnsupported)
+	if latinBreak {
+		return s, nil, fmt.Errorf("%w: Latin-break paragraph", render.ErrUnsupported)
 	}
+	s.rtl = rtl
 	return s, layers, nil
 }
 
@@ -804,9 +817,30 @@ func (t *renderTextStyles) run(paragraph [][]renderLayer[*dml.PPr], own *dml.RPr
 		if r == nil || r.Ea == nil {
 			return "", false, nil
 		}
-		v, err := t.slotTypeface(r.Ea.Typeface, "ea", script)
+		v, _, err := t.slotTypeface(r.Ea.Typeface, "ea", script)
 		if err != nil {
 			return "", false, fault(err)
+		}
+		return v, true, nil
+	}, renderBuiltin("")); err != nil {
+		return s, err
+	}
+	csFault := func(err error) error {
+		if s.csFault == nil {
+			s.csFault = err
+		}
+		return nil
+	}
+	if s.cs, err = renderInherit(csFault, "complex-script font", layers, func(r *dml.RPr) (string, bool, error) {
+		if r == nil || r.Cs == nil {
+			return "", false, nil
+		}
+		v, list, err := t.slotTypeface(r.Cs.Typeface, "cs", script)
+		if err != nil {
+			return "", false, csFault(err)
+		}
+		if v == "" {
+			s.csList = list
 		}
 		return v, true, nil
 	}, renderBuiltin("")); err != nil {
@@ -843,25 +877,27 @@ func (t *renderTextStyles) typeface(name string) (string, error) {
 	return name, nil
 }
 
-// slotTypeface resolves a run's East Asian ("ea") font slot, which may be a
-// theme reference. A slot the theme leaves empty takes the theme's font for
-// the run's script, if it lists one; a slot that names no font is empty.
-func (t *renderTextStyles) slotTypeface(name, slot, script string) (string, error) {
+// slotTypeface resolves a run's East Asian ("ea") or complex-script ("cs")
+// font slot, which may be a theme reference. A slot the theme leaves empty
+// takes the theme's font for the run's script, if the list names one, and
+// otherwise is empty, with the theme's font list returned for a search by the
+// script of the text.
+func (t *renderTextStyles) slotTypeface(name, slot, script string) (string, *dml.FontCollection, error) {
 	major := false
 	switch {
 	case name == "+mn-"+slot:
 	case name == "+mj-"+slot:
 		major = true
 	case strings.HasPrefix(name, "+"):
-		return "", fmt.Errorf("%w: font family %q", render.ErrUnsupported, name)
+		return "", nil, fmt.Errorf("%w: font family %q", render.ErrUnsupported, name)
 	case len(name) > 1024:
-		return "", fmt.Errorf("%w: font family name", render.ErrLimit)
+		return "", nil, fmt.Errorf("%w: font family name", render.ErrLimit)
 	default:
-		return name, nil
+		return name, nil, nil
 	}
 	theme, err := t.colors.loadTheme()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var fonts *dml.FontCollection
 	if e := theme.ThemeElements; e != nil && e.FontScheme != nil {
@@ -871,30 +907,53 @@ func (t *renderTextStyles) slotTypeface(name, slot, script string) (string, erro
 		}
 	}
 	if fonts == nil {
-		return "", fmt.Errorf("%w: theme font %s", render.ErrUnsupported, name)
+		return "", nil, fmt.Errorf("%w: theme font %s", render.ErrUnsupported, name)
 	}
 	face := fonts.Ea
-	if face != nil && len(face.Typeface) > 1024 {
-		return "", fmt.Errorf("%w: font family name", render.ErrLimit)
+	if slot == "cs" {
+		face = fonts.Cs
 	}
 	if face != nil && face.Typeface != "" {
-		return face.Typeface, nil
+		if len(face.Typeface) > 1024 {
+			return "", nil, fmt.Errorf("%w: font family name", render.ErrLimit)
+		}
+		return face.Typeface, nil, nil
 	}
-	if script != "" {
-		for _, f := range fonts.Font {
-			if f != nil && f.Script == script && f.Typeface != "" {
-				if len(f.Typeface) > 1024 {
-					return "", fmt.Errorf("%w: font family name", render.ErrLimit)
-				}
-				return f.Typeface, nil
+	v, err := renderScriptFont(fonts, slot, script)
+	return v, fonts, err
+}
+
+// renderScriptFont is the typeface a theme's font list gives a script, for
+// the slot it belongs to, or empty.
+func renderScriptFont(fonts *dml.FontCollection, slot, script string) (string, error) {
+	if script == "" || fonts == nil || (slot == "ea") != renderEastAsianScript(script) {
+		return "", nil
+	}
+	for _, f := range fonts.Font {
+		if f != nil && f.Script == script && f.Typeface != "" {
+			if len(f.Typeface) > 1024 {
+				return "", fmt.Errorf("%w: font family name", render.ErrLimit)
 			}
+			return f.Typeface, nil
 		}
 	}
 	return "", nil
 }
 
+// renderEastAsianScript reports whether an ISO 15924 script, as a theme's font
+// lists name it, belongs to the East Asian font slot rather than the
+// complex-script one.
+func renderEastAsianScript(script string) bool {
+	switch script {
+	case "Jpan", "Hang", "Hans", "Hant":
+		return true
+	}
+	return false
+}
+
 // renderLangScript is the ISO 15924 script, as a theme's font lists name it,
-// of the East Asian languages; empty for any other.
+// of the languages written in the scripts this profile draws with the East
+// Asian and complex-script fonts; empty for any other.
 func renderLangScript(tag string) string {
 	primary, rest, _ := strings.Cut(strings.ToLower(tag), "-")
 	switch primary {
@@ -910,6 +969,16 @@ func renderLangScript(tag string) string {
 			}
 		}
 		return "Hans"
+	case "ar", "fa", "ur", "ps", "sd", "ug", "ckb", "ks", "azb":
+		return "Arab"
+	case "he", "yi":
+		return "Hebr"
+	case "dv":
+		return "Thaa"
+	case "syr":
+		return "Syrc"
+	case "nqo":
+		return "Nkoo"
 	}
 	return ""
 }

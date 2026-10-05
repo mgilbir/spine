@@ -1267,8 +1267,9 @@ func slideRenderXML(el xml.StartElement) error {
 			// the rest.
 			attrs = "kumimoji lang altLang sz b i u strike kern cap spc normalizeH baseline noProof dirty err smtClean smtId bmk"
 		case "latin", "ea", "cs", "sym":
-			// ASCII and European text use the Latin font and East Asian text
-			// the East Asian font; the other slots are not consulted.
+			// European text uses the Latin font, East Asian text the East
+			// Asian font and right-to-left text the complex-script font; the
+			// symbol slot is not consulted.
 			attrs = "typeface panose pitchFamily charset"
 		case "tab":
 			attrs = "pos algn"
