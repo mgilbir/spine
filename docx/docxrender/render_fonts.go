@@ -15,8 +15,10 @@ type wordFace struct {
 	css  string
 	face *shape.Face
 	// natural is the face's own line height as a multiple of the font size,
-	// computed as forme computes "line-height: normal".
-	natural float64
+	// computed as forme computes "line-height: normal": ascent, descent and
+	// the line gap, also kept as multiples of the size.
+	natural              float64
+	ascent, descent, gap float64
 }
 
 // wordFonts resolves the document's font requests through render.Options.Fonts
@@ -68,6 +70,7 @@ func (f *wordFonts) get(family string, bold, italic bool) (*wordFace, error) {
 		}
 		if h := (top - bottom + gap) / upem; h > 0 {
 			w.natural = h
+			w.ascent, w.descent, w.gap = top/upem, -bottom/upem, gap/upem
 		}
 	}
 	f.faces[req] = w

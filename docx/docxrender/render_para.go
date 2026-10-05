@@ -32,6 +32,11 @@ type wordPara struct {
 	cont       bool
 	sawTab     bool
 	sawLineBr  bool
+	// shift, shiftMin and shiftMax place the block's lines where Word puts
+	// them in their line boxes: the shift for the tallest run, and the range
+	// of every run's own. seenRun says a run has been sized.
+	shift, shiftMin, shiftMax, tallest float64
+	seenRun                            bool
 }
 
 // wordParagraphStarts are run before a paragraph's content is translated, in
@@ -484,6 +489,17 @@ func (p *wordPara) finishBlock(final bool, breaker *wordRun) error {
 		}
 	}
 	css := p.blockCSS()
+	if p.seenRun {
+		if p.shiftMax-p.shiftMin > 1 {
+			if err := p.r.approximate("line placement with mixed font sizes"); err != nil {
+				return err
+			}
+		}
+		if math.Abs(p.shift) > 0.001 {
+			css += ";position:relative;top:" + wordPx(p.shift)
+		}
+		p.seenRun = false
+	}
 	inner := `<div style="` + css + `">` + p.sb.String() + `</div>`
 	if err := p.r.charge(1); err != nil {
 		return err
@@ -822,15 +838,49 @@ func wordFamily(rp *wordRPr, slot int) string {
 // contributes under the paragraph's line spacing.
 func (p *wordPara) lineHeight(face *wordFace, size float64) float64 {
 	natural := face.natural * size
-	ln := p.ppr.line
-	if !ln.set {
-		return natural
+	h, rule := natural, "auto"
+	if ln := p.ppr.line; ln.set {
+		rule = ln.v.rule
+		switch rule {
+		case "exact":
+			h = ln.v.val
+		case "atLeast":
+			h = math.Max(ln.v.val, natural)
+		default:
+			h = natural * ln.v.val
+		}
 	}
-	switch ln.v.rule {
+	p.place(face, size, h, rule)
+	return h
+}
+
+// place notes how far a span's text must move down for its baseline to sit
+// where Word puts it in a line h pixels high. Layout centres the extra space
+// of a line box around the text (half-leading); Word, as measured against its
+// PDF output, draws the line gap above the ascent and then puts the extra
+// space of a multiple below the text, the extra space of an at-least height
+// above it, and the baseline of an exact height at four fifths of the line.
+func (p *wordPara) place(face *wordFace, size, h float64, rule string) {
+	asc, content, gap := face.ascent*size, (face.ascent+face.descent)*size, face.gap*size
+	if content <= 0 {
+		return
+	}
+	css := (h-content)/2 + asc
+	var word float64
+	switch rule {
 	case "exact":
-		return ln.v.val
+		word = 0.8 * h
 	case "atLeast":
-		return math.Max(ln.v.val, natural)
+		word = h - face.natural*size + gap + asc
+	default:
+		word = gap + asc
 	}
-	return natural * ln.v.val
+	d := word - css
+	if !p.seenRun {
+		p.seenRun, p.shiftMin, p.shiftMax, p.tallest = true, d, d, -1
+	}
+	p.shiftMin, p.shiftMax = math.Min(p.shiftMin, d), math.Max(p.shiftMax, d)
+	if h > p.tallest {
+		p.tallest, p.shift = h, d
+	}
 }

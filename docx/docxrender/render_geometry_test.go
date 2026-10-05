@@ -31,13 +31,17 @@ func TestLineSpacingModes(t *testing.T) {
 	tests := []struct {
 		name, spacing string
 		step          float64
+		// baseline is the first baseline below the top of its line: Word
+		// puts a multiple's extra space below the text, an at-least
+		// height's above it, and an exact height's baseline at 0.8 of it.
+		baseline float64
 	}{
-		{"single", `<w:spacing w:line="240" w:lineRule="auto"/>`, 12},
-		{"one and a half", `<w:spacing w:line="360" w:lineRule="auto"/>`, 18},
-		{"double", `<w:spacing w:line="480" w:lineRule="auto"/>`, 24},
-		{"exact", `<w:spacing w:line="300" w:lineRule="exact"/>`, 20},
-		{"atLeast above", `<w:spacing w:line="300" w:lineRule="atLeast"/>`, 20},
-		{"atLeast below", `<w:spacing w:line="120" w:lineRule="atLeast"/>`, 12},
+		{"single", `<w:spacing w:line="240" w:lineRule="auto"/>`, 12, 9.6},
+		{"one and a half", `<w:spacing w:line="360" w:lineRule="auto"/>`, 18, 9.6},
+		{"double", `<w:spacing w:line="480" w:lineRule="auto"/>`, 24, 9.6},
+		{"exact", `<w:spacing w:line="300" w:lineRule="exact"/>`, 20, 16},
+		{"atLeast above", `<w:spacing w:line="300" w:lineRule="atLeast"/>`, 20, 17.6},
+		{"atLeast below", `<w:spacing w:line="120" w:lineRule="atLeast"/>`, 12, 9.6},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,6 +49,9 @@ func TestLineSpacingModes(t *testing.T) {
 			lines := p.lines(1)
 			if len(lines) != 4 {
 				t.Fatalf("%d lines", len(lines))
+			}
+			if !near(lines[0].y, wordTestTop+tc.baseline) {
+				t.Errorf("first baseline %v, want %v", lines[0].y-wordTestTop, tc.baseline)
 			}
 			for i := 1; i < len(lines); i++ {
 				if !near(lines[i].y-lines[i-1].y, tc.step) {
@@ -55,20 +62,47 @@ func TestLineSpacingModes(t *testing.T) {
 	}
 }
 
-func TestParagraphSpacingAddsAndFirstParagraphKeepsSpaceBefore(t *testing.T) {
-	sp := `<w:spacing w:before="150" w:after="300"/>`
-	p, _ := wordTestRender(t, wordTestBody(
-		wordTestPara(sp, wordTestRun("", "one")),
-		wordTestPara(sp, wordTestRun("", "two")),
-	))
-	l := p.lines(1)
+func TestParagraphSpacingTakesTheLargerAndFirstParagraphKeepsSpaceBefore(t *testing.T) {
+	// Word separates paragraphs by the larger of the space after and the
+	// space before, as its PDF output shows.
+	tests := []struct {
+		name          string
+		first, second string
+		gap           float64
+	}{
+		{"after larger", `<w:spacing w:before="150" w:after="300"/>`, `<w:spacing w:before="150" w:after="300"/>`, 20},
+		{"before larger", `<w:spacing w:before="0" w:after="150"/>`, `<w:spacing w:before="450"/>`, 30},
+		{"after only", `<w:spacing w:after="150"/>`, `<w:spacing w:before="0"/>`, 10},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := wordTestRender(t, wordTestBody(
+				wordTestPara(tc.first, wordTestRun("", "one")),
+				wordTestPara(tc.second, wordTestRun("", "two")),
+			))
+			l := p.lines(1)
+			if !near(l[1].y-l[0].y, 12+tc.gap) {
+				t.Errorf("gap %v, want %v", l[1].y-l[0].y-12, tc.gap)
+			}
+		})
+	}
+	p, _ := wordTestRender(t, wordTestBody(wordTestPara(`<w:spacing w:before="150" w:after="300"/>`, wordTestRun("", "one"))))
 	// before 10px is kept at the top of the first page.
-	if !near(l[0].y, wordTestTop+10+wordTestAscent12) {
+	if l := p.lines(1); !near(l[0].y, wordTestTop+10+wordTestAscent12) {
 		t.Errorf("first baseline %v", l[0].y)
 	}
-	// 12px line, then after 20 + before 10.
-	if !near(l[1].y-l[0].y, 12+20+10) {
-		t.Errorf("gap %v", l[1].y-l[0].y)
+}
+
+func TestMixedSizesUnderLineSpacingAreApproximated(t *testing.T) {
+	body := wordTestBody(wordTestPara(`<w:spacing w:line="360" w:lineRule="auto"/>`, wordTestRun("", "small")+wordTestRun(`<w:sz w:val="48"/>`, "big")))
+	o := newWordTestOpts(t, true)
+	wordTestPages(t, wordTestDoc(t, body, wordTestParts{styles: wordTestStyles}), o)
+	found := false
+	for _, w := range o.warnings {
+		found = found || strings.Contains(w.Error(), "line placement with mixed font sizes")
+	}
+	if !found {
+		t.Errorf("warnings %v", o.warnings)
 	}
 }
 

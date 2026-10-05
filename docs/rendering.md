@@ -858,10 +858,15 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
 - **Paragraphs.** Alignment (`left`, `start`, `center`, `right`, `end`, `both`);
   left, right, first-line and hanging indents (`start` and `end` as left and
   right); space before and after (kept at the top of a page after a hard break
-  and on the first page, and dropped after a soft break, as Word does), added
-  rather than collapsed, with `contextualSpacing` and HTML automatic spacing
+  and on the first page, and dropped after a soft break, as Word does), the
+  larger of one paragraph's space after and the next one's space before
+  separating them, with `contextualSpacing` and HTML automatic spacing
   (14 pt); line spacing `auto` (a multiple of the font's line height, 240ths of a
-  line), `exact` and `atLeast`; `pageBreakBefore`, `keepNext` (a chain taller
+  line), `exact` and `atLeast`, with the text placed in its line as Word places
+  it (the line gap above the ascent, a multiple's extra space below the text,
+  an at-least height's above it, an exact height's baseline at four fifths of
+  the line; measured against Word's PDF output), approximated in a paragraph
+  whose runs' sizes would place them differently; `pageBreakBefore`, `keepNext` (a chain taller
   than a page is ignored), `keepLines`, `widowControl` (on by default; the first
   two lines stay together and two lines move to the next page); manual page and
   column breaks (the text after a break is the paragraph's continuation on the

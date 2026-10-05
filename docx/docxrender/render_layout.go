@@ -2,6 +2,7 @@ package docxrender
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -28,8 +29,8 @@ type wordLaidBlock struct {
 	units       []wordUnit
 }
 
-// wordResolveSpacing applies contextual spacing and automatic-spacing collapse
-// between neighbouring paragraph blocks.
+// wordResolveSpacing applies contextual spacing, automatic-spacing collapse and
+// Word's larger-of rule between neighbouring paragraph blocks.
 func wordResolveSpacing(blocks []*wordBlock) {
 	for i, b := range blocks {
 		if b.kind != "p" {
@@ -42,6 +43,13 @@ func wordResolveSpacing(blocks []*wordBlock) {
 			}
 			if prev.afterAuto && b.beforeAuto {
 				b.before = 0
+			}
+			// Word separates two paragraphs by the larger of the space
+			// after the first and the space before the second, not their
+			// sum: the first keeps its space after and the second the
+			// rest.
+			if !b.continuation {
+				b.before = math.Max(0, b.before-prev.after)
 			}
 		}
 		if b.contextual && i+1 < len(blocks) && blocks[i+1].kind == "p" && blocks[i+1].styleID == b.styleID && !blocks[i+1].continuation {
