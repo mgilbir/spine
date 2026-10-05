@@ -230,11 +230,45 @@ func TestRenderChartPlans(t *testing.T) {
 		if m := signal(s, "markers").([]any); m[0] != false || m[1] != true {
 			t.Fatalf("markers %v", m)
 		}
-		if c, w := signal(s, "lineColors").([]any), signal(s, "lineWidths").([]any); c[1] != "#0000ff" || w[1] != float64(1.33) || w[0] != float64(3) {
+		// The automatic width is the theme's first line style, 1pt, times
+		// 3 for the default chart style: 3pt.
+		if c, w := signal(s, "lineColors").([]any), signal(s, "lineWidths").([]any); c[1] != "#0000ff" || w[1] != float64(1.33) || w[0] != float64(4) {
 			t.Fatalf("lines %v %v", c, w)
 		}
 		if s["legends"] != nil {
 			t.Fatal("legend without c:legend")
+		}
+	})
+	t.Run("chart style and title defaults", func(t *testing.T) {
+		plot := `<c:lineChart><c:grouping val="standard"/>` + renderChartSerXML(0, "One", "", "1", "2", "3") + `<c:axId val="1"/><c:axId val="2"/></c:lineChart>` + axes
+		for _, tt := range []struct {
+			style, txPr  string
+			width, title float64
+		}{
+			{"", "", 4, 24},
+			{`<c:style val="27"/>`, "", 9.33, 24},
+			{`<c:style val="12"/>`, `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1400"/></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`, 6.67, 22.4},
+		} {
+			var specs []map[string]any
+			o := opts
+			o.Charts = renderFakeCharts(&specs)
+			_, err := renderRewrittenPNG(t, data, o, map[string]func(string) string{
+				"ppt/charts/chart1.xml": func(string) string {
+					x := renderChartXML(plot, `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>T</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>`)
+					x = strings.Replace(x, "<c:chart>", tt.style+"<c:chart>", 1)
+					return strings.Replace(x, "</c:chart>", "</c:chart>"+tt.txPr, 1)
+				},
+				"ppt/slides/slide1.xml": func(s string) string { return renderAnyTxBody.ReplaceAllLiteralString(s, "") },
+			})
+			if err != nil || len(specs) != 1 {
+				t.Fatalf("%q: %v, %d specs", tt.style, err, len(specs))
+			}
+			if w := signal(specs[0], "lineWidths").([]any); w[0] != tt.width {
+				t.Errorf("%q: line width %v, want %v", tt.style, w[0], tt.width)
+			}
+			if size := specs[0]["title"].(map[string]any)["fontSize"]; size != tt.title {
+				t.Errorf("%q: title size %v, want %v", tt.style, size, tt.title)
+			}
 		}
 	})
 	t.Run("approximations", func(t *testing.T) {

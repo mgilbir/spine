@@ -654,7 +654,11 @@ Formatting a chart leaves out is Office's automatic look, which differs from
 the modern look of charts PowerPoint writes with explicit formatting on every
 element: text, gridlines and axis lines are black, the axes' tick marks point
 out (those of a category axis fall between categories), the legend sits at the
-right, centred along its side, and a pie's slices have no outline. Explicit
+right, centred along its side, and a pie's slices have no outline. Text is
+10pt and a title 18pt, or 1.2 times the chart space's text size when it sets
+one. A line series is the theme's first line style (0.75pt without one) times
+3, or 5 or 7 for the heavier `c:style` values (9 to 24 and 33 to 48, or 25
+to 32). Explicit
 `spPr`, `txPr`, `majorTickMark` and `legendPos` win, including their absence of
 a line (`a:ln` with `a:noFill`) or of tick marks (`none`); an axis' own text
 formatting styles only that axis, the legend's its entries and a data label's

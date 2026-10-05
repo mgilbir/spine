@@ -66,8 +66,12 @@ type renderChartPlan struct {
 
 	title               string
 	titleSize, textSize float64 // pixels
-	textColor, font     string
-	titleColor          string
+	// textSized says the chart space sets its text size.
+	textSized bool
+	// seriesLine is the automatic width of a line series, in pixels.
+	seriesLine      float64
+	textColor, font string
+	titleColor      string
 	// legend is the Vega legend orient, "" for none; legendSize and
 	// legendColor style its entries, labelColor the shown values.
 	legend               string
@@ -216,6 +220,34 @@ func (b *renderChartBuilder) line(p *dml.SpPr) (color string, none bool, width f
 		}
 	}
 	return "", false, width, nil
+}
+
+// seriesLine is the automatic width of a line series: the theme's first line
+// style (0.75pt, the standard Office theme's, when the theme sets none) times
+// 3, 5 or 7 by the chart's c:style (2 when absent), as Office draws it.
+func (b *renderChartBuilder) seriesLine(cs *dmlchart.ChartSpace) (float64, error) {
+	style := uint32(2)
+	if cs.Style != nil {
+		style = cs.Style.Val
+	}
+	rel := 3.0
+	switch {
+	case style >= 9 && style <= 24, style >= 33:
+		rel = 5
+	case style >= 25 && style <= 32:
+		rel = 7
+	}
+	base := 9525.0
+	th, err := b.colors.loadTheme()
+	if err != nil {
+		return 0, err
+	}
+	if th != nil && th.ThemeElements != nil && th.ThemeElements.FmtScheme != nil {
+		if l := th.ThemeElements.FmtScheme.LnStyleLst; l != nil && len(l.Ln) > 0 && l.Ln[0] != nil && l.Ln[0].W != nil && *l.Ln[0].W > 0 {
+			base = float64(*l.Ln[0].W)
+		}
+	}
+	return base * rel / float64(dml.EMUsPerPixel), nil
 }
 
 // text resolves a text body's default run size, in pixels, and color.
@@ -398,6 +430,10 @@ func (b *renderChartBuilder) plan(cs *dmlchart.ChartSpace) (*renderChartPlan, er
 	var err error
 	// Text: the chart space's defaults, 10pt by the standard's default.
 	if p.textSize, p.textColor, err = b.text(cs.TxPr, 10*4.0/3, p.textColor); err != nil {
+		return nil, err
+	}
+	p.textSized = p.textSize != 10*4.0/3
+	if p.seriesLine, err = b.seriesLine(cs); err != nil {
 		return nil, err
 	}
 	p.cat = renderAxisStyle{shown: true, color: renderAutoColor, tick: "out", size: p.textSize, textColor: p.textColor}
@@ -778,7 +814,7 @@ func (b *renderChartBuilder) series(p *renderChartPlan, s renderChartSer, total 
 		if noLine {
 			rs.line = ""
 		}
-		rs.lineWidth = 28575.0 / float64(dml.EMUsPerPixel)
+		rs.lineWidth = p.seriesLine
 		if width > 0 {
 			rs.lineWidth = width
 		}
@@ -1063,10 +1099,13 @@ func (b *renderChartBuilder) title(p *renderChartPlan, c *dmlchart.Chart, sers [
 			}
 		}
 	}
-	// A title is 14pt by default, 1.2 times the chart's default text when
-	// the chart space sets one.
+	// A title is 18pt by default, 1.2 times the chart's default text when
+	// the chart space sets one, as Office draws it.
 	var err error
-	p.titleSize, p.titleColor = math.Max(14*4.0/3, p.textSize*1.2), p.textColor
+	p.titleSize, p.titleColor = 18*4.0/3, p.textColor
+	if p.textSized {
+		p.titleSize = p.textSize * 1.2
+	}
 	if p.titleSize, p.titleColor, err = b.text(c.Title.TxPr, p.titleSize, p.titleColor); err != nil {
 		return err
 	}
