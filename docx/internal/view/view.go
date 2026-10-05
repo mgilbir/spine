@@ -21,6 +21,12 @@ type Document struct {
 	Styles         *oxml.CT_Styles
 	Settings       *oxml.CT_Settings
 	Load           func() *oxml.CT_Document
+	// MainXML, StylesXML, SettingsXML and ThemeXML serialize the document's
+	// current in-memory state, including unsaved edits, to the XML the part
+	// would be saved as. The styles, settings and theme functions return nil
+	// bytes when the document has no such part. None of them mutates the
+	// document.
+	MainXML, StylesXML, SettingsXML, ThemeXML func() ([]byte, error)
 }
 
 // DocumentOf snapshots d, a *docx.Document.
