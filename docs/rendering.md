@@ -111,16 +111,43 @@ for slides), each of these is drawn approximately and reported once, wrapping
 - a glyph composited in any other mode (multiply, screen, source-in and so on),
   a glyph of an SVG table, and a bitmap glyph whose image is not a readable PNG
   or that is turned or skewed, as its outline in the text color (nothing at all,
-  for a font with no outlines).
+  for a font with no outlines);
+- a monochrome or greyscale bitmap glyph (a mask of a bitmap font) scaled from the
+  strike it is drawn from, drawn scaled;
+- turned or warped text in a bitmap font, whose glyphs have no outline to turn,
+  left out.
 
 A glyph is drawn whole in one of these ways, never part by part. Text turned
 or warped in a slide is drawn as outlines, so its color glyphs are outlines in
 the text color, and reported as such; a slide's shadows and other effects take
 a color glyph's coverage. DOCX and XLSX previews have no best effort and
-refuse what cannot be drawn exactly. Bitmap fonts (`EBDT`, `EBLC`, and Apple's
-`bdat`, `bloc`) are refused unless they also have outlines (`glyf`, `CFF `, `CFF2`), as system fonts
-such as Courier New that carry strikes for small screen sizes do; those are
-drawn from their outlines.
+refuse what cannot be drawn exactly. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
+and outlines (`glyf`, `CFF `, `CFF2`), as system fonts such as Courier New that
+carry strikes for small screen sizes are, is drawn from its outlines. A font
+with strikes and no outlines (forme's `BitmapOnly`) is drawn from them: each
+glyph's monochrome or greyscale bitmap is a coverage mask painted in the text's
+color, with the text's alpha times the coverage, through the path color bitmaps
+take. Strikes of 1, 2, 4 and 8 bits are read as forme reads them, and a glyph
+with no ink (a space) draws nothing. Turned or warped text is outlines, which
+such a font has none of: strict preparation refuses it with
+`render.ErrUnsupported`, and best effort leaves those glyphs out, reports it
+once wrapping `render.ErrApproximated`, and draws the rest of the slide.
+
+A mask glyph of a bitmap font is drawn exactly only when it is not resampled:
+its strike is the size asked for (`shape.Image.Exact`: the font size in CSS
+pixels, rounded up, must be a strike's pixels per em, so a size with a fraction
+is never exact), the text is not stretched, and it is drawn at one device pixel
+to the CSS pixel (96 DPI output; PNG at another DPI and SVG at any size resample
+the pixels, as they do for any image). A glyph that has to be scaled is refused
+with `render.ErrUnsupported` in strict preparation and drawn scaled and
+smoothed, reported once wrapping `render.ErrApproximated`, in best effort. The
+two kinds of strike differ on purpose: a monochrome or greyscale strike is a
+pixel design for one size, which scaling distorts, while a CBDT or sbix strike
+is made to be scaled (Noto Color Emoji has one strike, of 109 pixels), so
+scaled color bitmaps are drawn smoothed, in strict mode too, and are not
+reported. Reading a strike is bounded by forme's work budget for each glyph,
+and its image counts against the image pixel and byte limits, once for each
+glyph, size and text color.
 
 Color glyphs are bounded as every drawing is. Forme refuses a paint graph
 deeper than 64 paints, with more than 16,384 paint edges or past its work
@@ -866,11 +893,15 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   paragraph keeps the paragraph mark with it, so no empty line opens the next
   page; with `contextualSpacing` and HTML automatic spacing
   (14 pt); line spacing `auto` (a multiple of the font's line height, 240ths of a
-  line), `exact` and `atLeast`, with the text placed in its line as Word places
-  it (the line gap above the ascent, a multiple's extra space below the text,
-  an at-least height's above it, an exact height's baseline at four fifths of
-  the line; measured against Word's PDF output), approximated in a paragraph
-  whose runs' sizes would place them differently; `pageBreakBefore`, `keepNext` (a chain taller
+  line), `exact` and `atLeast`. A font's line height is its Windows ascent and
+  descent (`usWinAscent` + `usWinDescent`), as Word sets lines, or its ascent,
+  descent and line gap when it states none. Text is placed in its line as Word
+  places it, line by line by the line's tallest text (measured against Word's
+  PDF output): a multiple's extra space below the text (the baseline at the
+  Windows ascent), an at-least height's above it, an exact height's baseline
+  at four fifths of the line. Approximated: fonts of different proportions on
+  one line, and a font whose own ascent or descent is not its Windows one
+  beside an inline picture or at an at-least height; `pageBreakBefore`, `keepNext` (a chain taller
   than a page is ignored), `keepLines`, `widowControl` (on by default; the first
   two lines stay together and two lines move to the next page); manual page and
   column breaks (the text after a break is the paragraph's continuation on the

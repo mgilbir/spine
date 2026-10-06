@@ -81,6 +81,7 @@ func (rn *wordRun) drawing(n *wordNode) error {
 				return err
 			}
 		}
+		rn.p.inlinePics = true
 		return rn.putMarkup(pic.html(), 1)
 	}
 	return p.anchored(rn, pic)

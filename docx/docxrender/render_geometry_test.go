@@ -1,9 +1,15 @@
 package docxrender
 
 import (
+	"context"
+	"errors"
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/mgilbir/forme/fonts/notosans"
+	"github.com/mgilbir/forme/shape"
+	"github.com/mgilbir/spine/render"
 )
 
 // The fixture's baseline sits 0.8 em below the top of a line: 9.6 pixels at 12.
@@ -93,16 +99,19 @@ func TestParagraphSpacingTakesTheLargerAndFirstParagraphKeepsSpaceBefore(t *test
 	}
 }
 
-func TestMixedSizesUnderLineSpacingAreApproximated(t *testing.T) {
-	body := wordTestBody(wordTestPara(`<w:spacing w:line="360" w:lineRule="auto"/>`, wordTestRun("", "small")+wordTestRun(`<w:sz w:val="48"/>`, "big")))
-	o := newWordTestOpts(t, true)
-	wordTestPages(t, wordTestDoc(t, body, wordTestParts{styles: wordTestStyles}), o)
-	found := false
-	for _, w := range o.warnings {
-		found = found || strings.Contains(w.Error(), "line placement with mixed font sizes")
+func TestMixedSizesUnderLineSpacingArePlacedLineByLine(t *testing.T) {
+	// Layout places each line by its own tallest text: a 32 px run beside a
+	// 12 px one at 1.5 lines makes a 48 px line whose baseline is the big
+	// run's ascent (0.8 em) below its top, as Word puts it, and the next
+	// line, with only small text, is placed by that text.
+	body := wordTestBody(wordTestPara(`<w:spacing w:line="360" w:lineRule="auto"/>`, wordTestRun("", "small ")+wordTestRun(`<w:sz w:val="48"/>`, "big")+`<w:r><w:br/></w:r>`+wordTestRun("", "next")))
+	p, o := wordTestRender(t, body)
+	if len(o.warnings) != 0 {
+		t.Fatalf("warnings %v", o.warnings)
 	}
-	if !found {
-		t.Errorf("warnings %v", o.warnings)
+	l := p.lines(1)
+	if len(l) != 2 || !near(l[0].y, wordTestTop+25.6) || !near(l[1].y, wordTestTop+48+9.6) {
+		t.Errorf("lines %+v", l)
 	}
 }
 
@@ -230,5 +239,57 @@ func TestSoftHyphenAndNoBreakHyphen(t *testing.T) {
 	}
 	if !strings.Contains(got, "‑") {
 		t.Errorf("no-break hyphen not drawn: %q", got)
+	}
+}
+
+// notoOpts renders with Noto Sans, whose Windows metrics (usWinAscent 1124,
+// usWinDescent 395 per 1000) are not its line metrics (1069, 293).
+func notoOpts(t *testing.T, lenient bool) *wordTestOpts {
+	t.Helper()
+	face, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := newWordTestOpts(t, lenient)
+	o.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) { return face, nil }
+	return o
+}
+
+func TestWindowsMetricsSetWordLines(t *testing.T) {
+	// Word sets a single line of 12 px Noto Sans 1.519 em tall (18.228 px)
+	// with the baseline 1.124 em (13.488 px) below its top.
+	body := wordTestBody(wordTestPara("", wordTestRun("", strings.Repeat("word ", 30))))
+	o := notoOpts(t, false)
+	p := wordTestPages(t, wordTestDoc(t, body, wordTestParts{styles: wordTestStyles}), o)
+	l := p.lines(1)
+	if len(l) < 2 || math.Abs(l[0].y-(wordTestTop+13.488)) > 0.05 || math.Abs(l[1].y-l[0].y-18.228) > 0.05 {
+		t.Errorf("lines %+v", l)
+	}
+	// At 1.5 lines the baseline stays at the Windows ascent, the extra space
+	// below, for every size of the face.
+	body = wordTestBody(wordTestPara(`<w:spacing w:line="360" w:lineRule="auto"/>`, wordTestRun("", "a ")+wordTestRun(`<w:sz w:val="36"/>`, "b")))
+	p = wordTestPages(t, wordTestDoc(t, body, wordTestParts{styles: wordTestStyles}), notoOpts(t, false))
+	if l = p.lines(1); len(l) != 1 || math.Abs(l[0].y-(wordTestTop+1.124*24)) > 0.05 {
+		t.Errorf("1.5 lines %+v", l)
+	}
+}
+
+func TestWindowsMetricsLayoutCannotFollowAreApproximated(t *testing.T) {
+	// An at-least line puts the lowest text at the bottom by its line
+	// metrics, whose descent is not Word's; a fraction placement does not
+	// hold for a picture on the line.
+	for name, body := range map[string]string{
+		"at least":       wordTestPara(`<w:spacing w:line="600" w:lineRule="atLeast"/>`, wordTestRun("", "x")),
+		"inline picture": wordTestPara(`<w:spacing w:line="360" w:lineRule="auto"/>`, wordTestRun("", "x"), wordTestPic{w: 20, h: 30}.inline()),
+	} {
+		doc := wordTestDoc(t, wordTestBody(body), wordTestMedia(wordTestSolid(4, 4, wordTestGreen)))
+		if _, err := Prepare(context.Background(), doc, notoOpts(t, false).Options); !errors.Is(err, render.ErrUnsupported) {
+			t.Errorf("%s: strict %v", name, err)
+		}
+		o := notoOpts(t, true)
+		wordTestPages(t, doc, o)
+		if len(o.warnings) == 0 || !strings.Contains(o.warnings[0].Error(), "line placement") {
+			t.Errorf("%s: warnings %v", name, o.warnings)
+		}
 	}
 }

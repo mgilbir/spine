@@ -97,6 +97,11 @@ func (t renderShapeTransform) glyphs(v layout.DrawGlyphs, colors *renderColors, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if core.HasBitmapFontGlyphs(v) {
+		if err := colors.approximate(fmt.Errorf("%w: turned glyphs of a bitmap font left out, which has no outlines", render.ErrUnsupported)); err != nil {
+			return nil, err
+		}
+	}
 	paths, exact, err := core.GlyphPaths(ctx, v, t.point, maxSegments, segments)
 	if err != nil {
 		return nil, err

@@ -174,7 +174,7 @@ func TestConcurrentGlyphPreparation(t *testing.T) {
 	wg.Wait()
 }
 
-func TestFontTablesRefuseBitmapOnlyFonts(t *testing.T) {
+func TestFontDirectory(t *testing.T) {
 	dir := func(tags ...string) []byte {
 		b := make([]byte, 12+16*len(tags))
 		binary.BigEndian.PutUint16(b[4:6], uint16(len(tags)))
@@ -183,17 +183,14 @@ func TestFontTablesRefuseBitmapOnlyFonts(t *testing.T) {
 		}
 		return b
 	}
-	for _, strikes := range [][]string{{"bdat", "bloc"}, {"EBDT", "EBLC"}} {
-		if err := checkFontTables(dir(append(strikes, "cmap", "head")...)); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("%v only: %v", strikes, err)
+	// Bitmap strikes are no reason to refuse a font: it draws from its
+	// outlines or, with none, its strikes.
+	for _, tables := range [][]string{{"bdat", "bloc"}, {"EBDT", "EBLC"}, {"bdat", "bloc", "glyf"}, {"EBDT", "EBLC", "CFF "}} {
+		if err := checkFontDirectory(dir(append(tables, "cmap", "head")...)); err != nil {
+			t.Errorf("%v: %v", tables, err)
 		}
 	}
-	for _, outline := range []string{"glyf", "CFF ", "CFF2"} {
-		if err := checkFontTables(dir("bdat", "bloc", "EBDT", "EBLC", outline)); err != nil {
-			t.Errorf("bdat beside %s: %v", outline, err)
-		}
-	}
-	if err := checkFontTables(append(dir("glyf")[:4], 0, 9)); !errors.Is(err, ErrInvalid) {
+	if err := checkFontDirectory(append(dir("glyf")[:4], 0, 9)); !errors.Is(err, ErrInvalid) {
 		t.Errorf("short directory: %v", err)
 	}
 }

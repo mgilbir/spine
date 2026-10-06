@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"math"
 	"sort"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/mgilbir/forme/style"
 )
 
-// Color glyphs. Forme paints a COLR, CBDT or sbix glyph through a shape.Painter:
+// Color glyphs. Forme paints a COLR, CBDT, sbix, EBDT or bdat glyph through a shape.Painter:
 // a stream of clips, transforms and fills in font units. Here each fill becomes
 // a drawing of the page: a solid, a gradient or an image inside the glyph's
 // clips, so that PNG and SVG output draw it as they draw a clipped fill.
@@ -31,7 +32,24 @@ func glyphPPEM(size style.Unit) int {
 	return int(math.Max(1, math.Min(math.Ceil(size.Px()), 1<<16)))
 }
 
-// HasColorGlyphs reports whether a glyph run has glyphs painted in color, which
+// HasBitmapFontGlyphs reports whether a glyph run has glyphs of a font with no
+// outlines, painted from monochrome or greyscale strikes, which GlyphPaths
+// leaves out: there is nothing to outline.
+func HasBitmapFontGlyphs(v layout.DrawGlyphs) bool {
+	if v.Face == nil {
+		return false
+	}
+	ppem := glyphPPEM(v.Size)
+	for _, g := range v.Glyphs {
+		if v.Face.GlyphColour(g.GID, ppem) == shape.ColourMask {
+			return true
+		}
+	}
+	return false
+}
+
+// HasColorGlyphs reports whether a glyph run has glyphs painted in color (not
+// bitmap fonts' masks), which
 // GlyphPaths outlines in the one color of the run.
 func HasColorGlyphs(v layout.DrawGlyphs) bool {
 	if v.Face == nil {
@@ -39,7 +57,8 @@ func HasColorGlyphs(v layout.DrawGlyphs) bool {
 	}
 	ppem := glyphPPEM(v.Size)
 	for _, g := range v.Glyphs {
-		if v.Face.GlyphColour(g.GID, ppem) != shape.ColourNone {
+		// A mask of a bitmap font is HasBitmapFontGlyphs'.
+		if c := v.Face.GlyphColour(g.GID, ppem); c != shape.ColourNone && c != shape.ColourMask {
 			return true
 		}
 	}
@@ -84,6 +103,10 @@ func (m affine) then(outer affine) affine {
 type glyphImageKey struct {
 	face      *shape.Face
 	gid, ppem int
+	// mask and color say that the image is a coverage mask painted in the
+	// text's color.
+	mask  bool
+	color style.RGBA
 }
 
 // colorRun is one color glyph to draw: where its font units land on the page,
@@ -639,11 +662,56 @@ func (c *colorGlyph) SweepGradient(g shape.SweepGradient) {
 	c.solid(meanColor(stops))
 }
 
+// maskBitmap is the image of a monochrome or greyscale glyph (EBDT, bdat): its
+// coverage as the alpha of the text's color, times the text's alpha.
+func (c *colorGlyph) maskBitmap(img shape.Image) (*bitmap, error) {
+	w, h := img.Width, img.Height
+	if w <= 0 || h <= 0 || int64(w)*int64(h) != int64(len(img.Data)) {
+		return nil, fmt.Errorf("%w: bitmap glyph mask", ErrInvalid)
+	}
+	if err := checkImageSize(w, h, c.p.limits); err != nil {
+		return nil, err
+	}
+	fg := c.run.color
+	rgb := [3]uint8{channel(fg.R), channel(fg.G), channel(fg.B)}
+	out := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		if err := c.ctx.Err(); err != nil {
+			return nil, err
+		}
+		row := out.Pix[y*out.Stride:]
+		for x, cov := range img.Data[y*w : (y+1)*w] {
+			row[4*x], row[4*x+1], row[4*x+2] = rgb[0], rgb[1], rgb[2]
+			row[4*x+3] = channel(float64(cov) * fg.A)
+		}
+	}
+	return c.p.bitmapOf(c.ctx, out, false, c.budget)
+}
+
+// scaledFromStrike reports whether a mask glyph drawn in box is resampled:
+// the strike is not the size asked for, or the glyph is drawn at another size
+// or stretched, or a transform of the glyph's own scales it. Placing a glyph
+// between pixels is not scaling it. Only a glyph that is not scaled is exact,
+// at one device pixel to the CSS pixel.
+func (c *colorGlyph) scaledFromStrike(img shape.Image, box rectangle) bool {
+	const tolerance = 0.1
+	upem := float64(c.run.face.UnitsPerEm())
+	base := c.run.base
+	if !img.Exact || img.Width <= 0 || img.Height <= 0 || base.b != 0 || base.c != 0 {
+		return true
+	}
+	if math.Abs(-base.d*upem-float64(c.run.ppem)) > 1e-6 || math.Abs(base.a+base.d) > 1e-9*math.Abs(base.d) {
+		return true
+	}
+	return math.Abs((box.x1-box.x0)-float64(img.Width)) > tolerance || math.Abs((box.y1-box.y0)-float64(img.Height)) > tolerance
+}
+
 func (c *colorGlyph) Image(img shape.Image) {
 	if c.dead() {
 		return
 	}
-	if img.Format != shape.ImagePNG {
+	mask := img.Format == shape.ImageMask
+	if img.Format != shape.ImagePNG && !mask {
 		c.fail("SVG glyph")
 		return
 	}
@@ -652,11 +720,21 @@ func (c *colorGlyph) Image(img shape.Image) {
 		return
 	}
 	key := glyphImageKey{face: c.run.face, gid: c.run.gid, ppem: c.run.ppem}
+	if mask {
+		// A mask is made in the text's color, so it is kept for it.
+		key.mask, key.color = true, c.run.color
+	}
 	bm := c.budget.glyphImages[key]
 	if bm == nil {
-		decoded, err := DecodeImage(c.ctx, img.Data, c.p.limits)
-		if err == nil {
-			bm, err = c.p.bitmapOf(c.ctx, decoded, false, c.budget)
+		var err error
+		if mask {
+			bm, err = c.maskBitmap(img)
+		} else {
+			var decoded image.Image
+			decoded, err = DecodeImage(c.ctx, img.Data, c.p.limits)
+			if err == nil {
+				bm, err = c.p.bitmapOf(c.ctx, decoded, false, c.budget)
+			}
 		}
 		if err != nil {
 			if cerr := c.ctx.Err(); cerr != nil || errors.Is(err, ErrLimit) {
@@ -684,6 +762,15 @@ func (c *colorGlyph) Image(img shape.Image) {
 	r, ok := c.area(false)
 	if !ok {
 		return
+	}
+	// A monochrome or greyscale strike is a pixel design for one size, so
+	// scaling it is approximate. A color strike, as of an emoji font, is
+	// made to be scaled, and is drawn smoothed as ever.
+	if mask && c.scaledFromStrike(img, box) {
+		c.approximate("bitmap font glyph scaled from its strike")
+		if c.dead() {
+			return
+		}
 	}
 	r = meet(r, box)
 	r.color = box.color
