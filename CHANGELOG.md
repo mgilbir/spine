@@ -189,6 +189,13 @@
 
 ### Fixed
 
+- docx: `SetMailMerge(nil)` removed `w:mailMerge` but kept the settings-part
+  relationships it referenced, so the saved document still linked the merge's
+  external data source, and the recipient-data part stayed in the package with
+  nothing pointing at it. Those relationships are now removed unless the
+  settings part still references them, and the recipient-data part is dropped
+  when no other relationship targets it. A configuration set again that
+  references one of them by id gets it back.
 - opc, docx: a part a Word document dropped on save kept its `Override` in
   `[Content_Types].xml`, naming a part the package no longer had: the VBA
   project after `RemoveVBAProject` and a header or footer replaced by
