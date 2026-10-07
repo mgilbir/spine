@@ -554,8 +554,11 @@ func applyCaseFormat(s, format string) string {
 }
 
 // capitalizeWords upper-cases the first letter of each whitespace-separated
-// word of s, or only of the first word when firstOnly is set, leaving the
-// other letters as they are.
+// word of s and lower-cases the rest of the word, as Word's \* Caps does
+// ("JOHN SMITH" becomes "John Smith"). With firstOnly, as for \* FirstCap,
+// only the first letter of the first word is upper-cased and every other
+// letter is left as it is; Word documents \* Lower \* FirstCap for
+// sentence case.
 func capitalizeWords(s string, firstOnly bool) string {
 	var b strings.Builder
 	atWordStart := true
@@ -566,11 +569,14 @@ func capitalizeWords(s string, firstOnly bool) string {
 			b.WriteRune(r)
 			continue
 		}
-		if atWordStart && !done {
+		switch {
+		case atWordStart && !done:
 			r = unicode.ToUpper(r)
 			if firstOnly {
 				done = true
 			}
+		case !firstOnly:
+			r = unicode.ToLower(r)
 		}
 		atWordStart = false
 		b.WriteRune(r)
