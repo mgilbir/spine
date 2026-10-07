@@ -60,6 +60,14 @@ func (r *CT_R) CloneWithText(text string) *CT_R {
 // and pass through untouched — a template key is deliberately not matched
 // across such a boundary.
 //
+// Spelling and grammar markers (w:proofErr) are the exception: they are hints
+// Word writes around a word it flagged, and they land between the runs of a
+// placeholder as often as anywhere ("{{", spellStart, "name", spellEnd, "}}"),
+// so they do not end a segment. When a segment changes, the markers inside it
+// may no longer bracket the text they flagged and are dropped, together with their
+// spellStart/spellEnd or gramStart/gramEnd partners so no half of a pair is
+// left behind; Word proofs the text again when it opens the document.
+//
 // The paragraph's run slice and child order are rebuilt only when some segment
 // actually changed, so a paragraph with no matching text is left byte-for-byte
 // identical. It reports whether anything changed.
@@ -80,49 +88,138 @@ func (p *CT_P) ReplaceInTextRuns(fn func(runs []*CT_R) ([]*CT_R, bool)) bool {
 		return true
 	}
 
-	var (
-		newR     []*CT_R
-		newOrder []pChildRef
-		segment  []*CT_R
-		changed  bool
-	)
-	flush := func() {
-		if len(segment) == 0 {
-			return
-		}
-		out, ok := fn(segment)
-		if ok {
-			changed = true
-		}
-		for _, r := range out {
-			newOrder = append(newOrder, pChildRef{pChildR, len(newR)})
-			newR = append(newR, r)
-		}
-		segment = nil
+	// A segment spans child-order positions first..last, both text-only runs;
+	// any w:proofErr markers between them belong to it.
+	type textSegment struct {
+		first, last int
+		runs        []*CT_R
+		out         []*CT_R
+		changed     bool
 	}
-	for _, ref := range p.childOrder {
-		if ref.kind == pChildR && ref.index < len(p.R) && p.R[ref.index].IsTextOnly() {
-			segment = append(segment, p.R[ref.index])
+	var segs []textSegment
+	open := false
+	for i, ref := range p.childOrder {
+		switch {
+		case ref.kind == pChildR && ref.index < len(p.R) && p.R[ref.index].IsTextOnly():
+			if !open {
+				segs = append(segs, textSegment{first: i})
+				open = true
+			}
+			seg := &segs[len(segs)-1]
+			seg.last = i
+			seg.runs = append(seg.runs, p.R[ref.index])
+		case ref.kind == pChildProofErr:
+			// Transparent: neither ends a segment nor joins one on its own.
+		default:
+			open = false
+		}
+	}
+
+	changed := false
+	// segAt maps the child-order position of a changed segment's first run to
+	// the segment, and inChanged marks every position the segment covers.
+	segAt := map[int]int{}
+	inChanged := make([]bool, len(p.childOrder))
+	for si := range segs {
+		seg := &segs[si]
+		seg.out, seg.changed = fn(seg.runs)
+		if !seg.changed {
 			continue
 		}
-		flush()
-		if ref.kind == pChildR {
+		changed = true
+		segAt[seg.first] = si
+		for i := seg.first; i <= seg.last; i++ {
+			inChanged[i] = true
+		}
+	}
+	if !changed {
+		return false
+	}
+
+	dropped := p.proofErrToDrop(inChanged)
+
+	var (
+		newR        []*CT_R
+		newProofErr []*CT_ProofErr
+		newOrder    []pChildRef
+	)
+	for i := 0; i < len(p.childOrder); i++ {
+		if si, ok := segAt[i]; ok {
+			for _, r := range segs[si].out {
+				newOrder = append(newOrder, pChildRef{pChildR, len(newR)})
+				newR = append(newR, r)
+			}
+			i = segs[si].last
+			continue
+		}
+		ref := p.childOrder[i]
+		switch ref.kind {
+		case pChildR:
 			if ref.index < len(p.R) {
 				newOrder = append(newOrder, pChildRef{pChildR, len(newR)})
 				newR = append(newR, p.R[ref.index])
 			}
-			continue
+		case pChildProofErr:
+			if !dropped[i] && ref.index < len(p.ProofErr) {
+				newOrder = append(newOrder, pChildRef{pChildProofErr, len(newProofErr)})
+				newProofErr = append(newProofErr, p.ProofErr[ref.index])
+			}
+		default:
+			newOrder = append(newOrder, ref)
 		}
-		newOrder = append(newOrder, ref)
-	}
-	flush()
-
-	if !changed {
-		return false
 	}
 	p.R = newR
+	p.ProofErr = newProofErr
 	p.childOrder = newOrder
 	return true
+}
+
+// proofErrToDrop returns the child-order positions of the w:proofErr markers
+// to remove after a replacement: those inside a rewritten segment (inChanged)
+// and the partners they were paired with. A spellStart pairs with the next
+// spellEnd and a gramStart with the next gramEnd, the two kinds independently.
+func (p *CT_P) proofErrToDrop(inChanged []bool) map[int]bool {
+	dropped := map[int]bool{}
+	openAt := map[string]int{} // "spell"/"gram" -> position of the unpaired start
+	for i, ref := range p.childOrder {
+		if ref.kind != pChildProofErr || ref.index >= len(p.ProofErr) {
+			continue
+		}
+		if inChanged[i] {
+			dropped[i] = true
+		}
+		pe := p.ProofErr[ref.index]
+		if pe == nil {
+			continue
+		}
+		kind, isStart := "", false
+		switch pe.Type {
+		case "spellStart":
+			kind, isStart = "spell", true
+		case "spellEnd":
+			kind = "spell"
+		case "gramStart":
+			kind, isStart = "gram", true
+		case "gramEnd":
+			kind = "gram"
+		default:
+			continue
+		}
+		if isStart {
+			openAt[kind] = i
+			continue
+		}
+		start, ok := openAt[kind]
+		if !ok {
+			continue
+		}
+		delete(openAt, kind)
+		if inChanged[start] || inChanged[i] {
+			dropped[start] = true
+			dropped[i] = true
+		}
+	}
+	return dropped
 }
 
 // replaceRunSegments applies fn to each maximal segment of consecutive

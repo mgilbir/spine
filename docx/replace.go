@@ -21,7 +21,14 @@ import (
 // the match; runs before and after the match keep their own formatting. A key
 // is not matched across a line break, tab, field, drawing, or other non-text
 // run, nor across a hyperlink or field boundary — those delimit distinct
-// content.
+// content — nor across a bookmark, comment range or permission range marker,
+// whose position the replacement would have to guess.
+//
+// Spelling and grammar markers (w:proofErr) do not split a match: Word writes
+// them between the runs of a flagged word, and so inside placeholders such as
+// "«name»". A replacement rebuilds the consecutive plain-text runs that hold
+// the match and drops the markers between them, along with their start or end
+// partners; Word proofs the text again on open.
 //
 // This mirrors pptx.Presentation.ReplaceText. Empty keys are ignored, and a
 // document with no matching text round-trips byte-for-byte.
