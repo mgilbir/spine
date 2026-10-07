@@ -172,3 +172,49 @@ func assertVBADependentsGone(t *testing.T, saved []byte, dir string) {
 		t.Errorf("content types still name a VBA part:\n%s", ct)
 	}
 }
+
+// TestVBAReplaceDropsSignature checks that replacing a signed project drops
+// the old project's signature, which no longer matches the new bytes.
+func TestVBAReplaceDropsSignature(t *testing.T) {
+	pres, err := Open("testdata/minimal.pptx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	pres.SetVBAProject(testVBABytes)
+	macro, err := pres.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	signed := testutil.AddVBASignature(t, macro, "ppt", false)
+
+	re, err := OpenReader(bytes.NewReader(signed), int64(len(signed)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	replacement := []byte("replacement vbaProject.bin blob")
+	re.SetVBAProject(replacement)
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after replace: %v", err)
+	}
+	parts, err := testutil.ReadZipPartsBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parts["ppt/vbaProjectSignature.bin"]; ok {
+		t.Error("the old project's signature is still in the package")
+	}
+	if ct := string(parts["[Content_Types].xml"]); strings.Contains(ct, "vbaProjectSignature") {
+		t.Errorf("content types still name the signature:\n%s", ct)
+	}
+	if _, ok := parts["ppt/_rels/vbaProject.bin.rels"]; ok {
+		t.Error("the emptied project .rels is still in the package")
+	}
+	re2, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("OpenReader after replace: %v", err)
+	}
+	if !bytes.Equal(re2.VBAProject(), replacement) {
+		t.Error("the replacement project was not written")
+	}
+}

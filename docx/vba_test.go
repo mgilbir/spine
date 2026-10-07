@@ -233,3 +233,52 @@ func TestVBARemoveKeepsSharedDependent(t *testing.T) {
 		t.Error("the removed project's .rels is still in the package")
 	}
 }
+
+// TestVBAReplaceDropsSignature checks that replacing a signed project drops
+// the old project's signature, which no longer matches the new bytes.
+func TestVBAReplaceDropsSignature(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc.SetVBAProject(testVBABytes)
+	macro, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	signed := testutil.AddVBASignature(t, macro, "word", true)
+
+	re, err := OpenReader(bytes.NewReader(signed), int64(len(signed)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	replacement := []byte("replacement vbaProject.bin blob")
+	re.SetVBAProject(replacement)
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after replace: %v", err)
+	}
+	parts, err := testutil.ReadZipPartsBytes(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parts["word/vbaProjectSignature.bin"]; ok {
+		t.Error("the old project's signature is still in the package")
+	}
+	if ct := string(parts["[Content_Types].xml"]); strings.Contains(ct, "vbaProjectSignature") {
+		t.Errorf("content types still name the signature:\n%s", ct)
+	}
+	if _, ok := parts["word/vbaData.xml"]; !ok {
+		t.Error("Word's macro data part was dropped with the signatures")
+	}
+	if rels := string(parts["word/_rels/vbaProject.bin.rels"]); !strings.Contains(rels, "vbaData.xml") || strings.Contains(rels, "Signature") {
+		t.Errorf("project .rels after replacement:\n%s", rels)
+	}
+	re2, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+	if err != nil {
+		t.Fatalf("OpenReader after replace: %v", err)
+	}
+	if !bytes.Equal(re2.VBAProject(), replacement) {
+		t.Error("the replacement project was not written")
+	}
+}

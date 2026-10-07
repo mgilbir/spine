@@ -177,6 +177,14 @@ const (
 	// Microsoft 2006 extension URI, not an ECMA-376 base type.
 	RelTypeVBAProject = "http://schemas.microsoft.com/office/2006/relationships/vbaProject"
 
+	// RelTypeVBAProjectSignature, RelTypeVBAProjectSignatureAgile and
+	// RelTypeVBAProjectSignatureV3 link a VBA project part to its digital
+	// signatures (the legacy, agile and V3 schemes of MS-OVBA). They live in
+	// the project's own relationships (vbaProject.bin.rels).
+	RelTypeVBAProjectSignature      = "http://schemas.microsoft.com/office/2006/relationships/vbaProjectSignature"
+	RelTypeVBAProjectSignatureAgile = "http://schemas.microsoft.com/office/2014/relationships/vbaProjectSignatureAgile"
+	RelTypeVBAProjectSignatureV3    = "http://schemas.microsoft.com/office/2020/07/relationships/vbaProjectSignatureV3"
+
 	// RelTypeOLEObject links a document part to an embedded OLE object part
 	// (typically embeddings/oleObjectN.bin).
 	RelTypeOLEObject = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject"
@@ -430,4 +438,14 @@ func GetRelationshipsPartName(partName string) string {
 	}
 
 	return dir + "_rels/" + name + ".rels"
+}
+
+// IsVBASignatureRelType reports whether relType links a VBA project to one of
+// its signatures.
+func IsVBASignatureRelType(relType string) bool {
+	switch relType {
+	case RelTypeVBAProjectSignature, RelTypeVBAProjectSignatureAgile, RelTypeVBAProjectSignatureV3:
+		return true
+	}
+	return false
 }

@@ -3,6 +3,8 @@ package xlsx
 import (
 	"path"
 
+	coxml "github.com/mgilbir/spine/common/oxml"
+
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -65,11 +67,17 @@ func (w *Workbook) VBAProject() []byte {
 // .xltm) when it is not already macro-enabled. The bytes are stored as-is and
 // written verbatim on save.
 //
+// Replacing a project drops the signatures of the one it replaces (the
+// project's signature relationships and the parts they target, unless another
+// relationship still targets them): they sign the old bytes, so Office would
+// report them as invalid.
+//
 // Security: the bytes are executable VBA carried opaquely. Injecting a project
 // extracted from another document transplants that document's macros and their
 // trust; only inject bytes from a source you trust.
 func (w *Workbook) SetVBAProject(data []byte) {
 	name := w.resolveVBAPartName()
+	w.dropVBASignatures(name)
 	w.vbaPartName = name
 	w.vbaData = append([]byte(nil), data...)
 	w.vbaRemove = false
@@ -152,4 +160,50 @@ func removeRelationshipByID(rels []*opc.Relationship, id string) []*opc.Relation
 		out = append(out, rel)
 	}
 	return out
+}
+
+// dropVBASignatures removes the project's signature relationships and the
+// parts they targeted when nothing else targets them. The project's preserved
+// .rels is rewritten from the remaining relationships, or removed once none
+// remain.
+func (w *Workbook) dropVBASignatures(name string) {
+	rels := w.relationships[name]
+	kept := make([]*opc.Relationship, 0, len(rels))
+	var targets []string
+	for _, rel := range rels {
+		if rel == nil || !opc.IsVBASignatureRelType(rel.Type) {
+			kept = append(kept, rel)
+			continue
+		}
+		if rel.TargetMode != opc.TargetModeExternal {
+			targets = append(targets, opc.ResolvePartName(name, rel.Target))
+		}
+	}
+	if len(kept) == len(rels) {
+		return
+	}
+	relsName := opc.GetRelationshipsPartName(name)
+	if len(kept) == 0 {
+		delete(w.relationships, name)
+		if w.preservedParts[relsName] != nil {
+			delete(w.preservedParts, relsName)
+			if w.deletedParts == nil {
+				w.deletedParts = make(map[string]bool)
+			}
+			w.deletedParts[relsName] = true
+		}
+	} else {
+		w.relationships[name] = kept
+		if part := w.preservedParts[relsName]; part != nil {
+			if data, err := opc.MarshalRelationships(kept); err == nil {
+				w.preservedParts[relsName] = &coxml.RawPart{ContentType: part.ContentType, Data: data}
+			}
+		}
+	}
+	for _, target := range targets {
+		if _, ok := w.preservedParts[target]; !ok || w.partReferencedFromOutside(target, nil, name) {
+			continue
+		}
+		w.deletePartAndRels(target)
+	}
 }
