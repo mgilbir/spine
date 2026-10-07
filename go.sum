@@ -4,8 +4,8 @@ github.com/mgilbir/aster v0.0.0-20261005061336-d8ce2bb95692 h1:lfHJlyiwHaimM4ikb
 github.com/mgilbir/aster v0.0.0-20261005061336-d8ce2bb95692/go.mod h1:+fBgu5XmXLxtzT+k/SOafFKbmiV0GYotagZWZSDw864=
 github.com/mgilbir/formalis v0.3.1 h1:NyYe/EcRYJ2jUjgaZG98lNXgJ7H+jgy6mq7HXOnQxl8=
 github.com/mgilbir/formalis v0.3.1/go.mod h1:M82rAk4SewJbe1B3bhgQKw0w7ojFOHus7Nm1roqZYEk=
-github.com/mgilbir/forme v0.8.0 h1:dGaYyagNf2tyym8j/di08Fpajj7tFhuqT3Uv/h1ONtw=
-github.com/mgilbir/forme v0.8.0/go.mod h1:VWH98Gvv6a4tUBmhvB0efHmpPEAHrO49EJpu4UGwfw0=
+github.com/mgilbir/forme v0.9.0 h1:m+r/Dl68SAzh+JtiRSuAB0WEblVHVRIKhNsN4E0Z8rk=
+github.com/mgilbir/forme v0.9.0/go.mod h1:VWH98Gvv6a4tUBmhvB0efHmpPEAHrO49EJpu4UGwfw0=
 github.com/mgilbir/goecma262 v0.2.0 h1:Ycgd4Gt6mjxAtNd5H1+K5kRm3bcq4uMM+vqZz2Fh3X4=
 github.com/mgilbir/goecma262 v0.2.0/go.mod h1:wQvOAFchLrhVSiF4JsSzH+yE6eLpc8gOBrvpuahNucI=
 github.com/mgilbir/golittlecms v0.0.0-20260727161601-f6af7cfe1556 h1:2ZUsOgMhxpHCYC8jyzeEnJZFLYGbXhqjAJWJBvY8q4U=

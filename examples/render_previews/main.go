@@ -50,7 +50,7 @@ func run(ctx context.Context, dir string) error {
 			return nil, fmt.Errorf("unsupported example font: %+v", r)
 		}
 		return font, nil
-	}, Limits: render.Limits{MaxDimension: 2048, MaxPixels: 4 << 20, MaxOutputBytes: 16 << 20, MaxShapeWork: 1 << 30}}
+	}, Limits: render.Limits{MaxDimension: 2048, MaxPixels: 4 << 20, MaxOutputBytes: 16 << 20}}
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
