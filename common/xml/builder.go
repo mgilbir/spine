@@ -256,6 +256,17 @@ func (b *Builder) RegisterNamespace(uri, prefix string) {
 	b.namespaces[uri] = prefix
 }
 
+// NamespacePrefixes returns the builder's registered namespaces as a map from
+// prefix to namespace URI: the prefixes it writes element and attribute names
+// with.
+func (b *Builder) NamespacePrefixes() map[string]string {
+	out := make(map[string]string, len(b.namespaces))
+	for uri, prefix := range b.namespaces {
+		out[prefix] = uri
+	}
+	return out
+}
+
 // SetIndent sets the indentation string (e.g., "  " for 2 spaces).
 func (b *Builder) SetIndent(indent string) {
 	b.indent = indent

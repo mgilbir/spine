@@ -330,6 +330,8 @@ func FuzzDocxFillMergeFields(f *testing.F) {
 	f.Add(`<w:p><w:bookmarkStart w:id="0" w:name="b"/>`+field(` MERGEFIELD Y \* Upper `, `«Y»`)+
 		`<w:proofErr w:type="spellEnd"/><w:bookmarkEnd w:id="0"/></w:p>`, "\x00￾")
 	f.Add(`<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r></w:p>`, "z")
+	f.Add(`<w:p><w:r><w:pict><v:shape xmlns:v="urn:schemas-microsoft-com:vml"><v:textbox><w:txbxContent><w:p>`+
+		field(` MERGEFIELD T `, `«T»`)+`</w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>`, "t")
 
 	valid := buildValidDocxFuzzSeed(f)
 	const docPart = "word/document.xml"
