@@ -83,8 +83,10 @@ func (w *Workbook) SetVBAProject(data []byte) {
 
 // RemoveVBAProject removes the workbook's VBA project part, dropping its
 // content-type override and workbook relationship and flipping the main part
-// back to the regular (non-macro) flavor. It is a no-op on a workbook that
-// carries no macros.
+// back to the regular (non-macro) flavor. The parts the project's own
+// relationships target — its signatures — are removed with it, along with the
+// project's .rels, unless another relationship in the package still targets
+// them. It is a no-op on a workbook that carries no macros.
 func (w *Workbook) RemoveVBAProject() {
 	if !w.HasMacros() {
 		return
@@ -99,6 +101,24 @@ func (w *Workbook) RemoveVBAProject() {
 	main := w.mainPart()
 	if id := w.vbaRelID(); id != "" {
 		w.relationships[main] = removeRelationshipByID(w.relationships[main], id)
+	}
+	for _, rel := range w.relationships[name] {
+		if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+			continue
+		}
+		target := opc.ResolvePartName(name, rel.Target)
+		if _, ok := w.preservedParts[target]; !ok || w.partReferencedFromOutside(target, nil, name) {
+			continue
+		}
+		w.deletePartAndRels(target)
+	}
+	delete(w.relationships, name)
+	if relsName := opc.GetRelationshipsPartName(name); w.preservedParts[relsName] != nil {
+		delete(w.preservedParts, relsName)
+		if w.deletedParts == nil {
+			w.deletedParts = make(map[string]bool)
+		}
+		w.deletedParts[relsName] = true
 	}
 	delete(w.preservedParts, name)
 	w.flavor = opc.PlainFlavor(w.Flavor())

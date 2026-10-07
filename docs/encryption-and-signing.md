@@ -156,6 +156,8 @@ policy requires SHA-256.
 Extract, inject/replace, and remove the `vbaProject.bin` project on
 `Document`/`Workbook`/`Presentation` (`HasMacros`, `VBAProject`, `SetVBAProject`,
 `RemoveVBAProject`). Injecting flips the package to its macro-enabled flavor
-(`.docm`/`.xlsm`/`.pptm`) and removal flips it back. The project is carried as an
+(`.docm`/`.xlsm`/`.pptm`) and removal flips it back. Removal also takes out the
+parts the project's own relationships target — its signatures and, in Word,
+`vbaData.xml` — unless something else in the package still targets them. The project is carried as an
 opaque binary blob — spine never parses or executes it, and an injected project
 brings its source's macros and their trust, so only inject bytes you trust.

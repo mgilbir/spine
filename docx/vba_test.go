@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/spine/internal/testutil"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -142,5 +143,93 @@ func TestVBARemove(t *testing.T) {
 	}
 	if ct := zipEntryString(t, out, "[Content_Types].xml"); strings.Contains(ct, "vbaProject.bin") {
 		t.Errorf("content types still name the removed VBA project:\n%s", ct)
+	}
+}
+
+// TestVBARemoveDropsSignature checks that removing a signed project also
+// removes the parts its own relationships target, its signature and Word's macro data, the project's .rels, and
+// their content-type overrides.
+func TestVBARemoveDropsSignature(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc.SetVBAProject(testVBABytes)
+	macro, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	signed := testutil.AddVBASignature(t, macro, "word", true)
+
+	re, err := OpenReader(bytes.NewReader(signed), int64(len(signed)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	re.RemoveVBAProject()
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after remove: %v", err)
+	}
+	assertVBADependentsGone(t, out, "word")
+	if _, err := OpenReader(bytes.NewReader(out), int64(len(out))); err != nil {
+		t.Fatalf("OpenReader after remove: %v", err)
+	}
+}
+
+// assertVBADependentsGone checks a saved package for the parts a signed VBA
+// project carries and their content-type overrides.
+func assertVBADependentsGone(t *testing.T, saved []byte, dir string) {
+	t.Helper()
+	parts, err := testutil.ReadZipPartsBytes(saved)
+	if err != nil {
+		t.Fatalf("read saved package: %v", err)
+	}
+	for _, name := range []string{
+		dir + "/vbaProject.bin", dir + "/_rels/vbaProject.bin.rels",
+		dir + "/vbaProjectSignature.bin", dir + "/vbaData.xml",
+	} {
+		if _, ok := parts[name]; ok {
+			t.Errorf("%s is still in the package", name)
+		}
+	}
+	if ct := string(parts["[Content_Types].xml"]); strings.Contains(ct, "vbaProject") || strings.Contains(ct, "vbaData") {
+		t.Errorf("content types still name a VBA part:\n%s", ct)
+	}
+}
+
+// TestVBARemoveKeepsSharedDependent checks that a part the project's
+// relationships target is kept when another relationship still targets it.
+func TestVBARemoveKeepsSharedDependent(t *testing.T) {
+	doc, err := Open("testdata/minimal.docx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	doc.SetVBAProject(testVBABytes)
+	macro, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	signed := testutil.AddVBASignature(t, macro, "word", true)
+	rels := zipEntryString(t, signed, "word/_rels/document.xml.rels")
+	signed = rewriteZipEntry(t, signed, "word/_rels/document.xml.rels", strings.Replace(rels, "</Relationships>",
+		`<Relationship Id="rId99" Type="http://example.com/relationships/other" Target="vbaData.xml"/></Relationships>`, 1))
+
+	re, err := OpenReader(bytes.NewReader(signed), int64(len(signed)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	re.RemoveVBAProject()
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after remove: %v", err)
+	}
+	if _, ok := zipEntry(t, out, "word/vbaData.xml"); !ok {
+		t.Error("a part another relationship still targets was dropped")
+	}
+	if _, ok := zipEntry(t, out, "word/vbaProjectSignature.bin"); ok {
+		t.Error("the unshared signature part is still in the package")
+	}
+	if _, ok := zipEntry(t, out, "word/_rels/vbaProject.bin.rels"); ok {
+		t.Error("the removed project's .rels is still in the package")
 	}
 }

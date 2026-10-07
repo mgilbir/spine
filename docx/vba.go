@@ -92,8 +92,11 @@ func (d *Document) SetVBAProject(data []byte) {
 
 // RemoveVBAProject removes the document's VBA project part, dropping its
 // content-type override and main-part relationship and flipping the main part
-// back to the regular (non-macro) flavor. It is a no-op on a document that
-// carries no macros.
+// back to the regular (non-macro) flavor. The parts the project's own
+// relationships target — its signatures and Word's macro data (vbaData.xml) —
+// are removed with it, along with the project's .rels, unless another
+// relationship in the package still targets them. It is a no-op on a document
+// that carries no macros.
 func (d *Document) RemoveVBAProject() {
 	if !d.HasMacros() {
 		return
@@ -109,7 +112,29 @@ func (d *Document) RemoveVBAProject() {
 	}
 	delete(d.preservedParts, name)
 	delete(d.otherParts, name)
+	d.dropVBADependents(name)
 	d.flavor = opc.PlainFlavor(d.Flavor())
+}
+
+// dropVBADependents drops the removed project's .rels and the parts its
+// relationships targeted, each only when no other relationship targets it.
+func (d *Document) dropVBADependents(name string) {
+	var targets []string
+	for _, rel := range d.relationships[name] {
+		if rel != nil && rel.TargetMode != opc.TargetModeExternal {
+			targets = append(targets, opc.ResolvePartName(name, rel.Target))
+		}
+	}
+	delete(d.relationships, name)
+	if relsName := opc.GetRelationshipsPartName(name); d.preservedParts[relsName] != nil {
+		if d.droppedParts == nil {
+			d.droppedParts = make(map[string]bool)
+		}
+		d.droppedParts[relsName] = true
+	}
+	for _, target := range targets {
+		d.dropUntargetedPreservedPart(target)
+	}
 }
 
 // writeVBAProject writes or drops the VBA project part during save. It is a

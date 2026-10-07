@@ -2,8 +2,10 @@ package xlsx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"github.com/mgilbir/spine/internal/testutil"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -117,5 +119,56 @@ func TestVBARemove(t *testing.T) {
 	}
 	if re2.Flavor() != opc.ContentTypeWorkbook {
 		t.Fatalf("reopened flavor = %q, want plain workbook", re2.Flavor())
+	}
+}
+
+// TestVBARemoveDropsSignature checks that removing a signed project also
+// removes the parts its own relationships target and its signature, the project's .rels, and
+// their content-type overrides.
+func TestVBARemoveDropsSignature(t *testing.T) {
+	wb, err := Open("testdata/minimal.xlsx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	wb.SetVBAProject(testVBABytes)
+	macro, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	signed := testutil.AddVBASignature(t, macro, "xl", false)
+
+	re, err := OpenReader(bytes.NewReader(signed), int64(len(signed)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	re.RemoveVBAProject()
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after remove: %v", err)
+	}
+	assertVBADependentsGone(t, out, "xl")
+	if _, err := OpenReader(bytes.NewReader(out), int64(len(out))); err != nil {
+		t.Fatalf("OpenReader after remove: %v", err)
+	}
+}
+
+// assertVBADependentsGone checks a saved package for the parts a signed VBA
+// project carries and their content-type overrides.
+func assertVBADependentsGone(t *testing.T, saved []byte, dir string) {
+	t.Helper()
+	parts, err := testutil.ReadZipPartsBytes(saved)
+	if err != nil {
+		t.Fatalf("read saved package: %v", err)
+	}
+	for _, name := range []string{
+		dir + "/vbaProject.bin", dir + "/_rels/vbaProject.bin.rels",
+		dir + "/vbaProjectSignature.bin", dir + "/vbaData.xml",
+	} {
+		if _, ok := parts[name]; ok {
+			t.Errorf("%s is still in the package", name)
+		}
+	}
+	if ct := string(parts["[Content_Types].xml"]); strings.Contains(ct, "vbaProject") || strings.Contains(ct, "vbaData") {
+		t.Errorf("content types still name a VBA part:\n%s", ct)
 	}
 }

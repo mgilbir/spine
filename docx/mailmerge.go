@@ -254,37 +254,6 @@ func (d *Document) restoreSettingsRels(ids []string) {
 	}
 }
 
-// dropUntargetedPreservedPart drops a part that came from the opened package,
-// and its .rels, when no relationship in the package targets it. Parts its
-// .rels pointed at are left in place: they may be shared. Nothing is dropped
-// when some .rels in the package could not be parsed, as a relationship in it
-// might target the part. It returns the dropped part's relationships and
-// whether it dropped the part.
-func (d *Document) dropUntargetedPreservedPart(name string) ([]*opc.Relationship, bool) {
-	if _, preserved := d.preservedParts[name]; !preserved || len(d.unparsedRels) > 0 {
-		return nil, false
-	}
-	for src, rels := range d.relationships {
-		if d.droppedParts[src] {
-			continue
-		}
-		for _, rel := range rels {
-			if rel != nil && rel.TargetMode != opc.TargetModeExternal &&
-				strings.EqualFold(opc.ResolvePartName(src, rel.Target), name) {
-				return nil, false
-			}
-		}
-	}
-	if d.droppedParts == nil {
-		d.droppedParts = make(map[string]bool)
-	}
-	d.droppedParts[name] = true
-	d.droppedParts[opc.GetRelationshipsPartName(name)] = true
-	rels := d.relationships[name]
-	delete(d.relationships, name)
-	return rels, true
-}
-
 // fromCTMailMerge converts the internal model to the public struct.
 func fromCTMailMerge(c *oxml.CT_MailMerge) *MailMerge {
 	mm := &MailMerge{

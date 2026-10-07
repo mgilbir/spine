@@ -189,6 +189,12 @@
 
 ### Fixed
 
+- docx, pptx, xlsx: `RemoveVBAProject` removed `vbaProject.bin` but left the
+  parts its own relationships target — the project's signatures
+  (`vbaProjectSignature*.bin`) and, in Word, `vbaData.xml` — together with
+  `vbaProject.bin.rels`, which then described a part the package no longer
+  had. They are now removed with the project, with their content-type
+  overrides, unless another relationship in the package still targets them.
 - docx: `SetMailMerge(nil)` removed `w:mailMerge` but kept the settings-part
   relationships it referenced, so the saved document still linked the merge's
   external data source, and the recipient-data part stayed in the package with
