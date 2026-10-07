@@ -43,7 +43,7 @@ everything else.
 ### Forms, merge, and signatures
 
 - Legacy form fields: enumerate every text/checkbox/dropdown form field (`Document.FormFields()`, walking the body, tables, headers, and footers) with its name, value, checkbox state, and dropdown entries; author new ones with `Paragraph.AddFormField(FormFieldOptions{...})`, which emits the `w:fldChar` begin/separate/end sequence with a `w:ffData` definition. Fields read from a file round-trip byte-identical
-- Mail merge: read/write the merge configuration (`Document.MailMerge`/`SetMailMerge`) — main-document type, data source, and `w:odso` field mappings — plus `Paragraph.AddMergeField` and `Document.MergeFields()` for MERGEFIELD fields
+- Mail merge: read/write the merge configuration (`Document.MailMerge`/`SetMailMerge`) — main-document type, data source, and `w:odso` field mappings — plus `Paragraph.AddMergeField` and `Document.MergeFields()` for MERGEFIELD fields, and `Document.FillMergeFields` to merge one record: each MERGEFIELD becomes its value as plain text, with the `\b`, `\f` and `\*` case switches applied (pair it with `SetMailMerge(nil)` for a finished letter)
 - Signature lines: insert a visible "Microsoft Office Signature Line" placeholder with `Document.AddSignatureLine`/`Paragraph.AddSignatureLine(SignatureLineOptions{Signer, Title, Email, Instructions})` and read them back with `Document.SignatureLines()` (the in-document signature request, distinct from signing the package with `opc.SignPackage`)
 
 ### Sections and page setup

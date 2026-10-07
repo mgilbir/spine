@@ -3,7 +3,9 @@ package docx
 import (
 	"bytes"
 	"regexp"
+	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
@@ -368,6 +370,212 @@ func (d *Document) MergeFields() []string {
 		collect(fp.ftr.AllParagraphs())
 	}
 	return out
+}
+
+// FillMergeFields completes a mail merge for one record: every MERGEFIELD whose
+// name is a key of values is replaced by the value as plain text, the way Word
+// writes a merged letter. Fields are matched by the name exactly as it appears
+// in the field, which is what MergeFields returns. The fields covered are the
+// ones MergeFields reads: in the body, including tables and content controls,
+// and in every header and footer.
+//
+// The text takes the formatting of the field's result (for a field Word has
+// shown, the «name» placeholder). Line breaks in a value become line breaks
+// and tabs become tabs. The field switches that change the text are applied:
+// \* Upper, \* Lower, \* FirstCap and \* Caps to the value, using Unicode
+// simple case mapping, then \b and \f, whose text goes before and after a
+// non-empty value. \* MERGEFORMAT and \* CHARFORMAT need nothing. Number and
+// date pictures (\# and \@) and other \* formats are not applied: pass the
+// value already formatted. An empty value removes the field.
+//
+// A MERGEFIELD in the condition of an enclosing field, such as an IF, becomes
+// instruction text, so the enclosing field still compares the value when Word
+// updates it; the enclosing field itself is left as it is. The value is
+// written as one argument, as Word reads a nested field's result: quoted, with
+// quotes and backslashes escaped, or only escaped when the MERGEFIELD already
+// sits inside a quoted argument.
+//
+// FillMergeFields returns the names of the MERGEFIELDs left in the document,
+// in first-appearance order and without repeats: those with no entry in
+// values, and those it does not rewrite because they are locked, inside a
+// tracked deletion, or laid out in a way it cannot replace without losing
+// content (see the fields it skips below). Other fields are not touched, and a
+// document in which nothing was replaced saves unchanged.
+//
+// A MERGEFIELD is skipped when its begin and end are not in the same paragraph
+// and the same hyperlink, tracked insertion or content control, when it
+// contains another field, a hyperlink, a tracked change, a content control or
+// math, when a field character shares its run with other content, or when its
+// result holds anything other than text, tabs and breaks.
+func (d *Document) FillMergeFields(values map[string]string) []string {
+	order := map[string]int{}
+	for i, name := range d.MergeFields() {
+		order[name] = i
+	}
+	var unfilled []string
+	seen := map[string]bool{}
+	note := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			unfilled = append(unfilled, name)
+		}
+	}
+	filler := oxml.FieldFiller{
+		Fill: func(instr string, _ bool) (string, bool) {
+			name, ok := mergeFieldName(instr)
+			if !ok {
+				return "", false
+			}
+			value, ok := values[name]
+			if !ok {
+				note(name)
+				return "", false
+			}
+			return mergeFieldText(value, instr), true
+		},
+		Skipped: func(instr string) {
+			if name, ok := mergeFieldName(instr); ok {
+				note(name)
+			}
+		},
+	}
+
+	if d.doc() != nil && d.doc().Body != nil {
+		if oxml.FillFields(d.doc().Body.AllParagraphs(), filler) {
+			d.markEdited()
+		}
+	}
+	for _, name := range d.sortedHeaderNames() {
+		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
+			if oxml.FillFields(hp.hdr.AllParagraphs(), filler) {
+				d.markHdrFtrModified(name)
+			}
+		}
+	}
+	for _, name := range d.sortedFooterNames() {
+		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
+			if oxml.FillFields(fp.ftr.AllParagraphs(), filler) {
+				d.markHdrFtrModified(name)
+			}
+		}
+	}
+	// The walk notes a field when it reaches it, and a skipped field only
+	// after its part; report them in the order the document has them.
+	sort.SliceStable(unfilled, func(i, j int) bool {
+		oi, iok := order[unfilled[i]]
+		oj, jok := order[unfilled[j]]
+		if iok != jok {
+			return iok
+		}
+		return iok && oi < oj
+	})
+	return unfilled
+}
+
+// mergeFieldText applies a MERGEFIELD instruction's text switches to value:
+// the \* case formats first, then the \b and \f text around a non-empty
+// result. Switch names match case-insensitively, as in Word; an argument may
+// follow its switch as the next token or be written against it (\b"Dear ").
+func mergeFieldText(value, instr string) string {
+	toks := fieldSwitchTokens(instr)
+	var before, after string
+	for i := 2; i < len(toks); i++ {
+		tok := toks[i]
+		if len(tok) < 2 || tok[0] != '\\' {
+			continue
+		}
+		sw := strings.ToLower(tok[1:2])
+		arg := tok[2:]
+		if arg == "" && i+1 < len(toks) && (sw == "b" || sw == "f" || sw == "*") {
+			i++
+			arg = toks[i]
+		}
+		switch sw {
+		case "b":
+			before = arg
+		case "f":
+			after = arg
+		case "*":
+			value = applyCaseFormat(value, arg)
+		}
+	}
+	if value == "" {
+		return ""
+	}
+	return before + value + after
+}
+
+// fieldSwitchTokens splits a field instruction into tokens like
+// tokenizeFieldInstr, except that a quoted span is always a token of its own:
+// a quote ends the token before it, and the closing quote ends the span. So
+// \b"Dear "\f"!" yields \b, Dear , \f and !, as Word reads it.
+func fieldSwitchTokens(instr string) []string {
+	var toks []string
+	var cur strings.Builder
+	inQuote := false
+	flush := func(force bool) {
+		if cur.Len() > 0 || force {
+			toks = append(toks, cur.String())
+			cur.Reset()
+		}
+	}
+	for _, r := range instr {
+		switch {
+		case r == '"' && !inQuote:
+			flush(false)
+			inQuote = true
+		case r == '"':
+			flush(true) // "" is an empty argument
+			inQuote = false
+		case !inQuote && (r == ' ' || r == '\t' || r == '\r' || r == '\n'):
+			flush(false)
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush(false)
+	return toks
+}
+
+// applyCaseFormat applies one \* general format switch to s. Formats other
+// than the four case formats leave s unchanged.
+func applyCaseFormat(s, format string) string {
+	switch strings.ToLower(format) {
+	case "upper":
+		return strings.ToUpper(s)
+	case "lower":
+		return strings.ToLower(s)
+	case "firstcap":
+		return capitalizeWords(s, true)
+	case "caps":
+		return capitalizeWords(s, false)
+	}
+	return s
+}
+
+// capitalizeWords upper-cases the first letter of each whitespace-separated
+// word of s, or only of the first word when firstOnly is set, leaving the
+// other letters as they are.
+func capitalizeWords(s string, firstOnly bool) string {
+	var b strings.Builder
+	atWordStart := true
+	done := false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			atWordStart = true
+			b.WriteRune(r)
+			continue
+		}
+		if atWordStart && !done {
+			r = unicode.ToUpper(r)
+			if firstOnly {
+				done = true
+			}
+		}
+		atWordStart = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // mergeFieldScan is the complex-field state machine, carried across paragraphs

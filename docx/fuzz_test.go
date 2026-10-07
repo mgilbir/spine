@@ -306,3 +306,70 @@ func FuzzDocxRevisions(f *testing.F) {
 		}
 	})
 }
+
+// FuzzDocxFillMergeFields injects a fuzzed body fragment, fills every merge
+// field the document reports, then saves and re-opens. Beyond not panicking,
+// the save must succeed whenever the unfilled document saves, and every merge
+// field still present after the round trip must have been reported unfilled.
+func FuzzDocxFillMergeFields(f *testing.F) {
+	field := func(instr, result string) string {
+		return `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+			`<w:r><w:instrText xml:space="preserve">` + instr + `</w:instrText></w:r>` +
+			`<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+			`<w:r><w:t>` + result + `</w:t></w:r>` +
+			`<w:r><w:fldChar w:fldCharType="end"/></w:r>`
+	}
+	f.Add(`<w:p>`+field(` MERGEFIELD Name `, `«Name»`)+`</w:p>`, "Ada")
+	f.Add(`<w:p><w:fldSimple w:instr=" MERGEFIELD Name \b &quot;x &quot; "><w:r><w:t>«Name»</w:t></w:r></w:fldSimple></w:p>`, "a\nb\tc")
+	f.Add(`<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> IF </w:instrText></w:r>`+
+		field(` MERGEFIELD G `, `«G»`)+`<w:r><w:instrText> = "f" "a" "b" </w:instrText></w:r>`+
+		`<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>b</w:t></w:r>`+
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`, "f")
+	f.Add(`<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> MERGEFIELD X </w:instrText></w:r></w:p>`+
+		`<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`, "")
+	f.Add(`<w:p><w:bookmarkStart w:id="0" w:name="b"/>`+field(` MERGEFIELD Y \* Upper `, `«Y»`)+
+		`<w:proofErr w:type="spellEnd"/><w:bookmarkEnd w:id="0"/></w:p>`, "\x00￾")
+	f.Add(`<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r></w:p>`, "z")
+
+	valid := buildValidDocxFuzzSeed(f)
+	const docPart = "word/document.xml"
+
+	f.Fuzz(func(t *testing.T, fragment, value string) {
+		wrapped := fuzzseed.ReplaceZipEntry(valid, docPart, wmlBodyDoc(fragment))
+		if wrapped == nil {
+			t.Skip("seed package unreadable")
+		}
+		d, err := OpenReader(bytes.NewReader(wrapped), int64(len(wrapped)))
+		if err != nil {
+			return
+		}
+		defer func() { _ = d.Close() }()
+		if _, err := d.SaveBytes(); err != nil {
+			return
+		}
+
+		values := map[string]string{}
+		for _, name := range d.MergeFields() {
+			values[name] = value
+		}
+		unfilled := d.FillMergeFields(values)
+		out, err := d.SaveBytes()
+		if err != nil {
+			t.Fatalf("save after FillMergeFields: %v", err)
+		}
+		d2, err := OpenReader(bytes.NewReader(out), int64(len(out)))
+		if err != nil {
+			t.Fatalf("reopen after FillMergeFields: %v", err)
+		}
+		defer func() { _ = d2.Close() }()
+		reported := map[string]bool{}
+		for _, name := range unfilled {
+			reported[name] = true
+		}
+		for _, name := range d2.MergeFields() {
+			if !reported[name] {
+				t.Errorf("merge field %q left in the document but not reported (unfilled %v)", name, unfilled)
+			}
+		}
+	})
+}
