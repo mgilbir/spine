@@ -2,6 +2,7 @@ package docx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/mgilbir/spine/opc"
@@ -138,5 +139,8 @@ func TestVBARemove(t *testing.T) {
 	}
 	if re2.VBAProject() != nil {
 		t.Fatal("VBAProject not nil after removal")
+	}
+	if ct := zipEntryString(t, out, "[Content_Types].xml"); strings.Contains(ct, "vbaProject.bin") {
+		t.Errorf("content types still name the removed VBA project:\n%s", ct)
 	}
 }

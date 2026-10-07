@@ -120,7 +120,8 @@ type Document struct {
 	modifiedHdrFtrParts map[string]bool
 	// droppedParts holds the names of parts that came from the opened package
 	// but are no longer referenced by anything this save will write, so the
-	// preserved-parts loops skip them. The only producer is a repeated
+	// preserved-parts loops skip them and the save removes their content-type
+	// overrides (removeDroppedOverrides). The only producer is a repeated
 	// AddHeader/AddFooter of the same type replacing a preserved
 	// header/footer: the section can hold at most one reference per type, so
 	// the replaced part and its .rels would otherwise stay in the package
@@ -1105,6 +1106,10 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		return err
 	}
 
+	// Parts the session dropped are not written; take their overrides out of
+	// this save's [Content_Types].xml so none names a part that is gone.
+	d.removeDroppedOverrides(writer)
+
 	// Regenerate the header/footer parts edited in this session (existing parts
 	// whose preserved bytes were skipped above), along with their .rels.
 	if err := d.writeModifiedHdrFtrParts(writer); err != nil {
@@ -1960,6 +1965,27 @@ func (d *Document) dropUnreferencedHdrFtr(relID string) {
 	}
 	d.droppedParts[target] = true
 	d.droppedParts[opc.GetRelationshipsPartName(target)] = true
+}
+
+// removeDroppedOverrides removes the content-type override of every part in
+// droppedParts. It runs after the raw [Content_Types].xml write, which is what
+// lets the writer see the removals and take them out of the raw bytes. Names
+// are visited in sorted order so the writer's state does not depend on map
+// iteration.
+func (d *Document) removeDroppedOverrides(writer *opc.Writer) {
+	if len(d.droppedParts) == 0 || writer.ContentTypes == nil {
+		return
+	}
+	names := make([]string, 0, len(d.droppedParts))
+	for name, dropped := range d.droppedParts {
+		if dropped {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		writer.ContentTypes.RemoveOverride(name)
+	}
 }
 
 // hdrFtrRefInUse reports whether any section in the document still carries a
