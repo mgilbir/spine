@@ -13,7 +13,9 @@
   names built in for da, de, en, es, fr, it and nl and more through
   `DateNames`. Values are read as ISO 8601 dates and point-decimal numbers, or
   through `ParseDate`/`ParseNumber`; a value that does not parse, or a format
-  spine does not support, is written as given and reported to `Warn`.
+  that is empty or has unmatched quotes (which Word refuses), is written as
+  given and reported to `Warn`. Edge cases follow Word's own output where the
+  documentation is silent or wrong (checked in Word for Mac).
 - docx: `Document.FillMergeFieldsWith(values, MergeOptions)`: `Missing`
   supplies a value (empty, or a placeholder) for fields missing from `values`,
   and `SuppressBlankLines` removes the paragraphs the merge left blank, as

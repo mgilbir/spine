@@ -529,7 +529,7 @@ type MergeOptions struct {
 	// 09:30, on 1 January of year 0) and as decimal numbers with a point
 	// (1234.5, -0.25); ParseDate and ParseNumber read other forms. A value
 	// that does not parse, or a format spine does not support (an empty one,
-	// a number format with no digit placeholder, a `numbered item`), is
+	// unmatched quotes, which Word refuses, a `numbered item`), is
 	// written as given and reported to Warn.
 	FormatSwitches bool
 	// Locale is the BCP 47 tag ("de-DE") whose decimal and digit-grouping

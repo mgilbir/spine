@@ -49,15 +49,27 @@ func TestFormatNumberPicture(t *testing.T) {
 		// The locale's symbols read and write the picture.
 		{"1234567.891", "#.##0,00", "1.234.567,89", true},
 		{"0.5", "0,00 €", "0,50 €", true},
-		// The grouping symbol groups only between placeholders, and the
-		// decimal symbol is the point only before one.
-		{"1234.5", "# ##0 €", "1 235 €", false},
-		{"12345", "0 'items', 'x'", "12345 items, x", false},
-		{"5", "0 Kč.", "5 Kč.", false},
-		// Sections are chosen by the rounded number.
-		{"0.001", "0;-0;'zero'", "zero", false},
-		{"-0.001", "0.00;-0.00", "0.00", false},
-		{"-0.004", "0.00;(0.00);'nil'", "nil", false},
+		// Checked in Word: the grouping symbol anywhere before the decimal
+		// point turns grouping on and is not written, even between quoted
+		// texts; the first decimal symbol is the decimal point.
+		{"12345", "0 'items', 'x'", "12,345 items x", false},
+		{"1234.5", "# ##0 €", "1 235€", false},
+		{"5", "0 Kč.", "5 Kč", false},
+		// Checked in Word: sections are chosen by the exact number.
+		{"0.001", "0;-0;'zero'", "0", false},
+		{"-0.001", "0.00;(0.00)", "(0.00)", false},
+		{"-0.004", "0.00;(0.00);'nil'", "(0.00)", false},
+		{"-0.001", "0.00;-0.00", "-0.00", false},
+		// Checked in Word: # after the decimal point drops a trailing zero,
+		// and the automatic minus goes right before the number.
+		{"-5.5", "#,##0.0#", "-   5.5", false},
+		{"5.5", "0.0#", "5.5", false},
+		{"5.25", "0.0#", "5.25", false},
+		{"-5", "$#,##0", "$-   5", false},
+		// Checked in Word: a format with no digit placeholder shows only its
+		// text, and a doubled apostrophe is no escape.
+		{"5", "$", "$", false},
+		{"5", "'it''s' 0", "its 5", false},
 	}
 	for _, c := range cases {
 		d, ok := parseDecimal(c.value)
@@ -89,13 +101,16 @@ func TestFormatDatePicture(t *testing.T) {
 	}{
 		// Word's documented examples.
 		{sat, "dddd, MMMM d", en, "Saturday, November 26"},
-		{sat, "h:mm am/pm, dddd, MMMM d", en, "10:00 AM, Saturday, November 26"},
+		// Word writes am/pm in the case of the format (checked in Word; its
+		// documentation says upper case).
+		{sat, "h:mm AM/PM, dddd, MMMM d", en, "10:00 AM, Saturday, November 26"},
+		{sat, "h:mm am/pm", en, "10:00 am"},
 		{time.Date(2022, 1, 1, 12, 45, 0, 0, time.UTC), "HH:mm 'Greenwich mean time'", en, "12:45 Greenwich mean time"},
-		{time.Date(1999, 11, 6, 11, 15, 0, 0, time.UTC), "HH:mm MMM-d, 'yy", en, "11:15 Nov-6, '99"},
+		{time.Date(1999, 11, 6, 11, 15, 0, 0, time.UTC), "HH:mm MMM-d, ''yy", en, "11:15 Nov-6, 99"},
 		{time.Date(2006, 7, 6, 9, 2, 5, 0, time.UTC), "M MM MMM d dd ddd yy yyyy h hh m mm s ss", en, "7 07 Jul 6 06 Thu 06 2006 9 09 2 02 5 05"},
 		// 12- and 24-hour clocks.
 		{time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC), "h:mm AM/PM", en, "12:30 AM"},
-		{time.Date(2026, 1, 1, 13, 5, 0, 0, time.UTC), "h:mm am/pm|HH:mm", en, "1:05 PM|13:05"},
+		{time.Date(2026, 1, 1, 13, 5, 0, 0, time.UTC), "h:mm AM/PM|HH:mm", en, "1:05 PM|13:05"},
 		// Names follow the language.
 		{time.Date(2026, 4, 17, 0, 0, 0, 0, time.UTC), "dddd, d. MMMM yyyy", de, "Freitag, 17. April 2026"},
 		{time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), "ddd dd.MMM.yyyy", de, "So 01.Mär.2026"},
@@ -220,10 +235,10 @@ func FuzzFieldFormats(f *testing.F) {
 }
 
 // TestFormatNumberPictureRefused checks the formats written as given: empty,
-// with no digit placeholder, or with an empty section for the value.
+// with an empty section for the value, or with unmatched quotes.
 func TestFormatNumberPictureRefused(t *testing.T) {
 	for _, c := range []struct{ value, picture string }{
-		{"5", ""}, {"5", "$"}, {"5", "'abc'"}, {"-5", "0;"}, {"0", "0;-0;"},
+		{"5", ""}, {"-5", "0;"}, {"0", "0;-0;"}, {"5", "0 'abc"},
 	} {
 		d, _ := parseDecimal(c.value)
 		if got, reason := formatNumberPicture(d, c.picture, ".", ","); reason == "" {
@@ -247,10 +262,10 @@ func TestFillMergeFieldsFormatSwitchEdges(t *testing.T) {
 		FormatSwitches: true,
 		Warn:           func(field, value, reason string) { warned = append(warned, field) },
 	})
-	if got, want := doc.Paragraphs()[0].Text(), "x5|5|2026-04-17|2026"; got != want {
+	if got, want := doc.Paragraphs()[0].Text(), "x5|$|2026-04-17|2026"; got != want {
 		t.Errorf("paragraph text = %q, want %q", got, want)
 	}
-	if want := []string{"A", "A", "D"}; !reflect.DeepEqual(warned, want) {
+	if want := []string{"A", "D"}; !reflect.DeepEqual(warned, want) {
 		t.Errorf("warned = %v, want %v", warned, want)
 	}
 }
@@ -258,5 +273,14 @@ func TestFillMergeFieldsFormatSwitchEdges(t *testing.T) {
 func TestParseDateZoneWithoutSeconds(t *testing.T) {
 	if _, ok := (&fieldFormat{}).parseDate("2026-04-17T09:30Z"); !ok {
 		t.Error(`parseDate("2026-04-17T09:30Z") failed`)
+	}
+}
+
+// TestFormatDatePictureUnmatchedQuote checks that an unmatched apostrophe is
+// refused, as Word refuses it ("Picture string contains unmatched quotes").
+func TestFormatDatePictureUnmatchedQuote(t *testing.T) {
+	at := time.Date(1999, 11, 6, 11, 15, 0, 0, time.UTC)
+	if got, reason := formatDatePicture(at, "HH:mm MMM-d, 'yy", builtinDateNames["en"]); reason == "" {
+		t.Errorf("formatDatePicture with an unmatched quote = %q, want a refusal", got)
 	}
 }
