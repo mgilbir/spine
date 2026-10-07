@@ -57,3 +57,5 @@ testdata/corpus/
 
 # Built binaries
 /spine-render
+# Default output of examples/render_previews.
+/render-previews/
