@@ -145,6 +145,9 @@ func (w *Workbook) writeVBAProject(writer *opc.Writer) error {
 		if writer.ContentTypes != nil {
 			writer.ContentTypes.RemoveOverride(w.vbaPartName)
 		}
+		// The "bin" default producers register for the project goes too,
+		// unless another part written to the package still relies on it.
+		writer.DropDefaultIfUnused("bin", opc.ContentTypeVBAProject)
 		return nil
 	}
 	return writer.WritePart(w.vbaPartName, opc.ContentTypeVBAProject, w.vbaData)
