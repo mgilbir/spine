@@ -23,6 +23,14 @@ type FieldFiller struct {
 	// Skipped is called with the instruction of each field FillFields cannot
 	// rewrite (see FillFields), in document order. It may be nil.
 	Skipped func(instr string)
+	// Emptied, when set, is called with the top-level paragraph (one of paras)
+	// holding each field FillFields replaced with no text outside an
+	// instruction: the candidates for blank-line suppression.
+	Emptied func(p *CT_P)
+	// SuppressBlank makes FillTextBoxFields remove the text box paragraphs a
+	// fill left blank (SuppressBlankParagraphs). FillFields itself never
+	// removes paragraphs.
+	SuppressBlank bool
 }
 
 // FillFields replaces the fields in paras — one part's paragraphs in document
@@ -67,6 +75,7 @@ func FillFields(paras []*CT_P, f FieldFiller) bool {
 	fl := &fieldFill{f: f, scan: st, simpleDone: map[*CT_SimpleField]bool{}}
 	changed := false
 	for _, p := range paras {
+		fl.para = p
 		if p != nil && fl.container(p) {
 			changed = true
 		}
@@ -347,6 +356,20 @@ type fieldFill struct {
 	f          FieldFiller
 	scan       *fieldScan
 	simpleDone map[*CT_SimpleField]bool // reached by the rewrite
+	para       *CT_P                    // the top-level paragraph being rewritten
+}
+
+// emptied reports a field replaced with no text in the current paragraph.
+func (fl *fieldFill) emptied(items []pItem, ctx fieldCtx) {
+	if fl.f.Emptied == nil || ctx.inInstr || fl.para == nil {
+		return
+	}
+	for _, it := range items {
+		if it.kind == pChildR {
+			return
+		}
+	}
+	fl.f.Emptied(fl.para)
 }
 
 // container rewrites the fields whose begin and end are direct children of c,
@@ -385,7 +408,9 @@ func (fl *fieldFill) container(c RevContainer) bool {
 				out = append(out, it)
 				continue
 			}
-			out = append(out, replacement(items[i:j+1], resultRPr(items[i:j+1]), text, rec.ctx)...)
+			repl := replacement(items[i:j+1], resultRPr(items[i:j+1]), text, rec.ctx)
+			fl.emptied(repl, rec.ctx)
+			out = append(out, repl...)
 			changed = true
 			i = j
 		case pChildFldSimple:
@@ -473,7 +498,9 @@ func (fl *fieldFill) simple(fs *CT_SimpleField) ([]pItem, bool) {
 			break
 		}
 	}
-	return replacement(items, rPr, text, ctx), true
+	repl := replacement(items, rPr, text, ctx)
+	fl.emptied(repl, ctx)
+	return repl, true
 }
 
 // endIndex returns the index of the item holding end at or after i, or -1. The
