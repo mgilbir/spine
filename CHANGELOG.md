@@ -13,9 +13,11 @@
   names built in for da, de, en, es, fr, it and nl and more through
   `DateNames`. Values are read as ISO 8601 dates and point-decimal numbers, or
   through `ParseDate`/`ParseNumber`; a value that does not parse, or a format
-  that is empty or has unmatched quotes (which Word refuses), is written as
-  given and reported to `Warn`. Edge cases follow Word's own output where the
-  documentation is silent or wrong (checked in Word for Mac).
+  Word refuses or garbles (unmatched quotes, an `am/pm` spelling other than
+  `am/pm` or `AM/PM`), is written as given and reported to `Warn`. The rules,
+  including where Word departs from its documentation, and the month and day
+  names were checked against Word for Mac: 91 of 94 comparison cases match
+  exactly, the other three being the refused formats.
 - docx: `Document.FillMergeFieldsWith(values, MergeOptions)`: `Missing`
   supplies a value (empty, or a placeholder) for fields missing from `values`,
   and `SuppressBlankLines` removes the paragraphs the merge left blank, as

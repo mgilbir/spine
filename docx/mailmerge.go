@@ -528,9 +528,12 @@ type MergeOptions struct {
 	// 2026-04-17T09:30, 2026-04-17 09:30:00, RFC 3339, or a time alone,
 	// 09:30, on 1 January of year 0) and as decimal numbers with a point
 	// (1234.5, -0.25); ParseDate and ParseNumber read other forms. A value
-	// that does not parse, or a format spine does not support (an empty one,
-	// unmatched quotes, which Word refuses, a `numbered item`), is
-	// written as given and reported to Warn.
+	// that does not parse, or a format Word refuses or garbles (unmatched
+	// quotes; an am/pm spelling other than am/pm or AM/PM) or spine does not
+	// support (a `numbered item`), is written as given and reported to Warn.
+	// The formatting rules were checked against Word, including where Word
+	// departs from its documentation; an empty number format or section, for
+	// one, shows nothing.
 	FormatSwitches bool
 	// Locale is the BCP 47 tag ("de-DE") whose decimal and digit-grouping
 	// symbols \# formats are read and written with — Word takes them from

@@ -45,8 +45,8 @@ type DateNames struct {
 
 // builtinDateNames holds the month and day names of the built-in languages.
 // Word takes them from the operating system's locale data, so they can differ
-// between Windows and macOS; these follow Word's output where it was checked
-// (Word for Mac: da, and en and de) and the common spelling otherwise.
+// between Windows and macOS; all seven languages were checked against Word
+// for Mac.
 var builtinDateNames = map[string]DateNames{
 	"en": {
 		Months:      [12]string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"},
@@ -74,9 +74,9 @@ var builtinDateNames = map[string]DateNames{
 	},
 	"es": {
 		Months:      [12]string{"enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"},
-		ShortMonths: [12]string{"ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sep.", "oct.", "nov.", "dic."},
+		ShortMonths: [12]string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"},
 		Days:        [7]string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"},
-		ShortDays:   [7]string{"do.", "lu.", "ma.", "mi.", "ju.", "vi.", "sá."},
+		ShortDays:   [7]string{"dom", "lun", "mar", "mié", "jue", "vie", "sáb"},
 	},
 	"it": {
 		Months:      [12]string{"gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"},
@@ -273,7 +273,7 @@ func formatDatePicture(t time.Time, picture string, names DateNames) (string, st
 			continue
 		case r == '`':
 			return "", "numbered items (`…`) in date pictures are not supported"
-		case strings.EqualFold(string(rs[i:min(i+5, len(rs))]), "am/pm"):
+		case string(rs[i:min(i+5, len(rs))]) == "am/pm" || string(rs[i:min(i+5, len(rs))]) == "AM/PM":
 			// The case follows the format: Word writes "am" for am/pm and
 			// "AM" for AM/PM.
 			mark := "AM"
@@ -286,6 +286,10 @@ func formatDatePicture(t time.Time, picture string, names DateNames) (string, st
 			b.WriteString(mark)
 			i += 5
 			continue
+		case strings.EqualFold(string(rs[i:min(i+5, len(rs))]), "am/pm"):
+			// Word reads only am/pm and AM/PM; other spellings come out as
+			// garbage ("Am/Pm" gave "一5/P5"), so refuse them.
+			return "", "only am/pm and AM/PM are recognized"
 		}
 		n := 1
 		for i+n < len(rs) && rs[i+n] == r {
@@ -409,10 +413,11 @@ func parseNumberSection(sec, dec, grp string) ([]numItem, bool, string) {
 // symbols of the locale, - and + signs, 'text' and other literal characters,
 // and positive;negative;zero sections. A negative number formatted with a
 // section that has no sign item gets a minus sign right before its number,
-// after any text in front. A # after the decimal point shows nothing for a
-// trailing zero. A format with no digit placeholder shows only its text, as in
-// Word. An empty section for the value, or unmatched quotes, is refused with
-// a reason.
+// after any text and x placeholders in front. A # after the decimal point
+// shows a space for a trailing zero, and the decimal symbol is written even
+// with no digit after it. A format with no digit placeholder shows only its
+// text, and an empty section shows nothing, as in Word. Unmatched quotes are
+// refused with a reason. Every rule here was checked against Word.
 func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 	sections := splitSections(picture)
 	// The section is chosen by the exact number, before rounding: Word shows
@@ -421,16 +426,16 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 	sec := sections[0]
 	autoMinus := d.neg
 	neg := d.neg
-	negSection := false
 	switch {
 	case d.isZero() && len(sections) >= 3:
 		sec = sections[2]
 	case d.neg && len(sections) >= 2:
-		sec, autoMinus, negSection = sections[1], false, true
+		sec, autoMinus = sections[1], false
 		d.neg = false
 	}
-	if strings.TrimSpace(sec) == "" {
-		return "", "the number format section for this value is empty"
+	// An empty section shows nothing, as in Word: "0;-0;" hides zero.
+	if sec == "" {
+		return "", ""
 	}
 	items, grouping, reason := parseNumberSection(sec, dec, grp)
 	if reason != "" {
@@ -464,15 +469,15 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 	}
 	r := d.round(places)
 	digits := r.int
-	// A # after the decimal point shows its digit only when it is not a
-	// trailing zero: Word shows 5.5 with "0.0#" as "5.5".
+	// A # after the decimal point shows a space for a trailing zero: Word
+	// shows 5.5 with "0.0#" as "5.5 ".
 	shown := places
 	for shown > 0 && items[fracPH[shown-1]].kind == '#' && r.frac[shown-1] == '0' {
 		shown--
 	}
-	// In the first section the sign is the rounded result's: Word shows
-	// -0.001 with "0.00" as "0.00". The negative section keeps it.
-	if neg && r.isZero() && !negSection {
+	// The sign is the rounded result's, in every section: Word shows -0.001
+	// with "0.00" as "0.00" and with "0.00;-0.00" as " 0.00".
+	if neg && r.isZero() {
 		neg = false
 	}
 
@@ -545,14 +550,12 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 		case 'l':
 			b.WriteString(it.text)
 		case '.':
-			if places > 0 || looseInt != "" {
-				writeMinus()
-			}
+			// The decimal symbol is written even with no digit after it:
+			// Word shows 5 with "0." as "5." and with "0 Kč." as "5 Kč.".
+			writeMinus()
 			b.WriteString(looseInt)
 			looseInt = ""
-			if places > 0 {
-				b.WriteString(dec)
-			}
+			b.WriteString(dec)
 		case '-':
 			if neg {
 				b.WriteString("-")
@@ -569,18 +572,37 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 				b.WriteString("+")
 			}
 		case '0', '#', 'x':
-			writeMinus()
+			// x placeholders come before the minus: Word shows -5 with
+			// "x##" as " - 5".
+			if it.kind != 'x' || fracIdx > 0 || i > lastIntX(items, intPH) {
+				writeMinus()
+			}
 			if s, ok := intOut[i]; ok {
 				b.WriteString(s)
 				continue
 			}
-			if fracIdx < shown {
+			switch {
+			case fracIdx < shown:
 				b.WriteByte(r.frac[fracIdx])
+			case fracIdx < places:
+				b.WriteString(" ")
 			}
 			fracIdx++
 		}
 	}
 	return b.String(), ""
+}
+
+// lastIntX returns the item index of the last x among the integer
+// placeholders, or -1.
+func lastIntX(items []numItem, intPH []int) int {
+	last := -1
+	for _, idx := range intPH {
+		if items[idx].kind == 'x' {
+			last = idx
+		}
+	}
+	return last
 }
 
 // splitSections splits a numeric picture on the ; outside quoted text.
@@ -652,8 +674,9 @@ func applyPicture(field, value string, sw fieldSwitches, opts *fieldFormat, lang
 		}
 		return out
 	}
-	if strings.TrimSpace(sw.number) == "" {
-		return warn("the number format is empty")
+	// An empty number format shows nothing, as in Word.
+	if sw.number == "" {
+		return ""
 	}
 	num, ok := opts.parseNumber(value)
 	if !ok {

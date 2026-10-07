@@ -54,16 +54,35 @@ func TestFormatNumberPicture(t *testing.T) {
 		// texts; the first decimal symbol is the decimal point.
 		{"12345", "0 'items', 'x'", "12,345 items x", false},
 		{"1234.5", "# ##0 €", "1 235€", false},
-		{"5", "0 Kč.", "5 Kč", false},
+		{"5", "0 Kč.", "5 Kč.", false},
 		// Checked in Word: sections are chosen by the exact number.
 		{"0.001", "0;-0;'zero'", "0", false},
 		{"-0.001", "0.00;(0.00)", "(0.00)", false},
 		{"-0.004", "0.00;(0.00);'nil'", "(0.00)", false},
-		{"-0.001", "0.00;-0.00", "-0.00", false},
-		// Checked in Word: # after the decimal point drops a trailing zero,
-		// and the automatic minus goes right before the number.
-		{"-5.5", "#,##0.0#", "-   5.5", false},
-		{"5.5", "0.0#", "5.5", false},
+		{"-0.001", "0.00;-0.00", " 0.00", false},
+		// Checked in Word: # after the decimal point shows a space for a
+		// trailing zero, and the automatic minus goes right before the
+		// number, after text and x placeholders.
+		{"-5.5", "#,##0.0#", "-   5.5 ", false},
+		{"5.5", "0.0#", "5.5 ", false},
+		{"-5", "x##", " - 5", false},
+		// Checked in Word: the decimal symbol is written with no digit
+		// after it, and empty formats and sections show nothing.
+		{"5", "0.", "5.", false},
+		{"5", "0.##", "5.  ", false},
+		{"0.5", "#.##", " .5 ", false},
+		{"5.5", "0.#0", "5.50", false},
+		{"5", "", "", false},
+		{"-5", "0;", "", false},
+		{"0", "0;-0;", "", false},
+		// Checked in Word: rounding is half away from zero, and literals
+		// around the number stay.
+		{"2.5", "0", "3", false},
+		{"-2.5", "0", "-3", false},
+		{"0.125", "0.00", "0.13", false},
+		{"-5", "(0)", "(-5)", false},
+		{"5.25", "0.0x", "5.25", false},
+		{"1234.5", "'Total: '#,##0.00' EUR'", "Total: 1,234.50 EUR", false},
 		{"5.25", "0.0#", "5.25", false},
 		{"-5", "$#,##0", "$-   5", false},
 		// Checked in Word: a format with no digit placeholder shows only its
@@ -234,11 +253,11 @@ func FuzzFieldFormats(f *testing.F) {
 	})
 }
 
-// TestFormatNumberPictureRefused checks the formats written as given: empty,
-// with an empty section for the value, or with unmatched quotes.
+// TestFormatNumberPictureRefused checks that unmatched quotes are refused,
+// as Word refuses them ("Picture string contains unmatched quotes").
 func TestFormatNumberPictureRefused(t *testing.T) {
 	for _, c := range []struct{ value, picture string }{
-		{"5", ""}, {"-5", "0;"}, {"0", "0;-0;"}, {"5", "0 'abc"},
+		{"5", "0 'abc"}, {"5", "'abc"},
 	} {
 		d, _ := parseDecimal(c.value)
 		if got, reason := formatNumberPicture(d, c.picture, ".", ","); reason == "" {
@@ -262,10 +281,11 @@ func TestFillMergeFieldsFormatSwitchEdges(t *testing.T) {
 		FormatSwitches: true,
 		Warn:           func(field, value, reason string) { warned = append(warned, field) },
 	})
-	if got, want := doc.Paragraphs()[0].Text(), "x5|$|2026-04-17|2026"; got != want {
+	// An empty number format shows nothing, as in Word, so \b goes too.
+	if got, want := doc.Paragraphs()[0].Text(), "|$|2026-04-17|2026"; got != want {
 		t.Errorf("paragraph text = %q, want %q", got, want)
 	}
-	if want := []string{"A", "D"}; !reflect.DeepEqual(warned, want) {
+	if want := []string{"D"}; !reflect.DeepEqual(warned, want) {
 		t.Errorf("warned = %v, want %v", warned, want)
 	}
 }
@@ -282,5 +302,25 @@ func TestFormatDatePictureUnmatchedQuote(t *testing.T) {
 	at := time.Date(1999, 11, 6, 11, 15, 0, 0, time.UTC)
 	if got, reason := formatDatePicture(at, "HH:mm MMM-d, 'yy", builtinDateNames["en"]); reason == "" {
 		t.Errorf("formatDatePicture with an unmatched quote = %q, want a refusal", got)
+	}
+}
+
+// TestFormatDatePictureAmPmSpelling checks that only am/pm and AM/PM are
+// read; Word turns other spellings into garbage, so they are refused.
+func TestFormatDatePictureAmPmSpelling(t *testing.T) {
+	at := time.Date(2026, 3, 1, 13, 5, 0, 0, time.UTC)
+	if got, reason := formatDatePicture(at, "h:mm Am/Pm", builtinDateNames["en"]); reason == "" {
+		t.Errorf("formatDatePicture with Am/Pm = %q, want a refusal", got)
+	}
+}
+
+// TestBuiltinSpanishNames pins the Spanish short names Word for Mac writes.
+func TestBuiltinSpanishNames(t *testing.T) {
+	es := builtinDateNames["es"]
+	if got := strings.Join(es.ShortDays[:], " "); got != "dom lun mar mié jue vie sáb" {
+		t.Errorf("es short days = %q", got)
+	}
+	if got := strings.Join(es.ShortMonths[:], " "); got != "ene feb mar abr may jun jul ago sept oct nov dic" {
+		t.Errorf("es short months = %q", got)
 	}
 }
