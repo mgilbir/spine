@@ -1213,10 +1213,11 @@ previews of a slide, a sheet range and two physical document pages at 144 DPI.
 The example uses Forme's embedded Noto Sans and explicitly substitutes it for
 the sheet's Calibri request. It needs no host fonts or external processes.
 
-`MaxShapeWork` measures conservative lookup-work units, including lookup subtable
-bytes; it is not a duration. This example explicitly raises that budget for its
-known embedded font. Untrusted input retains the default limit unless the caller
-chooses a different bounded budget.
+`MaxShapeWork` measures Forme's shaping work: each subtable, ligature and rule
+tried and each glyph a match walks over (about 50 units a byte of Latin text,
+300 of Devanagari, 350 of Nastaliq); it is not a duration. The default, 64 Mi
+units a slide, page or sheet, covers ordinary documents many times over while a
+font's runaway rules are still charged in full.
 
 ## File-rendering CLI
 
@@ -1279,13 +1280,9 @@ warning.
 defaults to 64 Mi, where the library's default of 4 Mi is less than one phone
 photo.
 
-`-shape-work` bounds shaping per slide, page or sheet in the conservative lookup
-units described above. The command defaults to 16 Gi units instead of the
-library's 64 Mi, which suits a single paragraph: complete fonts charge about a
-million units per byte of text (embedded Noto Sans) while shaping it in
-microseconds, so 64 Mi stops a slide after about 60 characters. The document
-controls only the amount of text, the fonts are the caller's, and `-timeout`
-bounds the whole command; lower the budget for fonts you do not trust. Likewise
+`-shape-work` bounds shaping per slide, page or sheet in the work units
+described above and defaults to the library's 64 Mi, which covers more than a
+million bytes of Latin text; `-timeout` bounds the whole command. Likewise
 `-edge-checks` bounds path painting per output (scanline edge tests and
 coverage samples) and defaults to 4 Gi instead of 64 Mi: a slide of text,
 circles and outlined boxes needed up to 256 Mi at 144 DPI and painted in about

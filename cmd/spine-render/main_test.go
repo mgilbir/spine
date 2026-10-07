@@ -202,10 +202,11 @@ func TestDefaultShapeWorkCoversSlideText(t *testing.T) {
 	if err = run(context.Background(), c); err != nil {
 		t.Fatalf("default budget: %v", err)
 	}
-	// The library default covers about 60 bytes of Noto Sans text.
-	c.out, c.work, c.strict = filepath.Join(dir, "library"), 64<<20, true
+	// The default is the library's; a budget far below the text's work is
+	// still refused.
+	c.out, c.work, c.strict = filepath.Join(dir, "small"), 1<<10, true
 	if err = run(context.Background(), c); err == nil || !strings.Contains(err.Error(), "resource limit") {
-		t.Fatalf("library budget: %v", err)
+		t.Fatalf("small budget: %v", err)
 	}
 }
 

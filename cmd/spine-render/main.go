@@ -30,13 +30,6 @@ import (
 	"github.com/mgilbir/spine/xlsx/xlsxrender"
 )
 
-// defaultShapeWork replaces the library's 64 Mi default, which suits a single
-// paragraph: a lookup unit is not a duration, and complete fonts charge about a
-// million units per byte of text (Noto Sans) while shaping it in microseconds.
-// Within a run the document controls only the text length, the caller chooses
-// the fonts, and -timeout bounds the whole command.
-const defaultShapeWork = 16 << 30
-
 // defaultDPI renders sharp on a display of twice the standard density.
 const defaultDPI = 288
 
@@ -98,7 +91,7 @@ func main() {
 	flag.IntVar(&c.maxPages, "max-pages", 100, "maximum total output pages/slides/sheets")
 	flag.Int64Var(&c.edges, "edge-checks", 0, "path painting budget per output in edge checks; 0 uses 1 Gi")
 	flag.Int64Var(&c.imagePixels, "image-pixels", 0, "decoded image pixels per slide, page or sheet; 0 uses 64 Mi")
-	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per slide, page or sheet in conservative lookup units; 0 uses 16 Gi")
+	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per slide, page or sheet in Forme work units (about 50 a byte of Latin text, 300 of Devanagari); 0 uses the library default, 64 Mi")
 	flag.DurationVar(&c.timeout, "timeout", time.Minute, "total rendering timeout")
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE[#FACE] mapping; FACE is the index from 0 of a face of a .ttc or .otc collection, required for one of several faces")
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
@@ -342,10 +335,9 @@ func run(ctx context.Context, c config) (result error) {
 	if err != nil {
 		return err
 	}
+	// Zero keeps the library's default, which Forme's work-based charging
+	// sizes for whole documents.
 	work := c.work
-	if work == 0 {
-		work = defaultShapeWork
-	}
 	edges := c.edges
 	if edges == 0 {
 		edges = defaultEdgeChecks
