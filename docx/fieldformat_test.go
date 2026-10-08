@@ -72,6 +72,14 @@ func TestFormatNumberPicture(t *testing.T) {
 		{"5", "0.##", "5.  ", false},
 		{"0.5", "#.##", " .5 ", false},
 		{"5.5", "0.#0", "5.50", false},
+		// Checked in Word for Windows with comma decimals: a # after the
+		// decimal point shows a space for any zero digit, and the grouping
+		// symbol is dropped, and turns grouping on, after it too.
+		{"-5.5", "#.##0,0#", "-   5,5 ", true},
+		{"-5.5", "#,##0.0#", "-5,5 00 ", true},
+		{"-5", "$#,##0", "$-5,  0", true},
+		{"1234567", "#,##0", "1234567,  0", true},
+		{"1234.5", "'Total: '#,##0.00' EUR'", "Total: 1.234,5 000 EUR", true},
 		{"5", "", "", false},
 		{"-5", "0;", "", false},
 		{"0", "0;-0;", "", false},
@@ -109,6 +117,9 @@ func TestFormatNumberPicture(t *testing.T) {
 	}
 }
 
+// macPeriods writes AM/PM as Word for Mac does, in the case of the format.
+var macPeriods = dayPeriod{am: "AM", pm: "PM", followCase: true}
+
 func TestFormatDatePicture(t *testing.T) {
 	en, de := builtinDateNames["en"], builtinDateNames["de"]
 	sat := time.Date(2022, 11, 26, 10, 0, 5, 0, time.UTC)
@@ -135,7 +146,7 @@ func TestFormatDatePicture(t *testing.T) {
 		{time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), "ddd dd.MMM.yyyy", de, "So 01.Mär.2026"},
 	}
 	for _, c := range cases {
-		got, reason := formatDatePicture(c.at, c.picture, c.names)
+		got, reason := formatDatePicture(c.at, c.picture, c.names, macPeriods)
 		if reason != "" || got != c.want {
 			t.Errorf("formatDatePicture(%v, %q) = %q (%s), want %q", c.at, c.picture, got, reason, c.want)
 		}
@@ -245,7 +256,7 @@ func FuzzFieldFormats(f *testing.F) {
 			}
 		}
 		if at, ok := o.parseDate(date); ok {
-			out, _ := formatDatePicture(at, datePic, builtinDateNames["fr"])
+			out, _ := formatDatePicture(at, datePic, builtinDateNames["fr"], macPeriods)
 			if !utf8.ValidString(out) && utf8.ValidString(datePic) {
 				t.Fatalf("invalid UTF-8 from formatDatePicture(%q, %q): %q", date, datePic, out)
 			}
@@ -300,7 +311,7 @@ func TestParseDateZoneWithoutSeconds(t *testing.T) {
 // refused, as Word refuses it ("Picture string contains unmatched quotes").
 func TestFormatDatePictureUnmatchedQuote(t *testing.T) {
 	at := time.Date(1999, 11, 6, 11, 15, 0, 0, time.UTC)
-	if got, reason := formatDatePicture(at, "HH:mm MMM-d, 'yy", builtinDateNames["en"]); reason == "" {
+	if got, reason := formatDatePicture(at, "HH:mm MMM-d, 'yy", builtinDateNames["en"], macPeriods); reason == "" {
 		t.Errorf("formatDatePicture with an unmatched quote = %q, want a refusal", got)
 	}
 }
@@ -309,18 +320,65 @@ func TestFormatDatePictureUnmatchedQuote(t *testing.T) {
 // read; Word turns other spellings into garbage, so they are refused.
 func TestFormatDatePictureAmPmSpelling(t *testing.T) {
 	at := time.Date(2026, 3, 1, 13, 5, 0, 0, time.UTC)
-	if got, reason := formatDatePicture(at, "h:mm Am/Pm", builtinDateNames["en"]); reason == "" {
+	if got, reason := formatDatePicture(at, "h:mm Am/Pm", builtinDateNames["en"], macPeriods); reason == "" {
 		t.Errorf("formatDatePicture with Am/Pm = %q, want a refusal", got)
 	}
 }
 
-// TestBuiltinSpanishNames pins the Spanish short names Word for Mac writes.
-func TestBuiltinSpanishNames(t *testing.T) {
-	es := builtinDateNames["es"]
-	if got := strings.Join(es.ShortDays[:], " "); got != "dom lun mar mié jue vie sáb" {
-		t.Errorf("es short days = %q", got)
+// TestPlatformNames pins the short names in which Word for Windows and Word
+// for Mac differ, as each wrote them.
+func TestPlatformNames(t *testing.T) {
+	cases := []struct {
+		platform WordPlatform
+		lang     string
+		days     string
+		months   string
+	}{
+		{WordWindows, "es", "do. lu. ma. mi. ju. vi. sá.", "ene. feb. mar. abr. may. jun. jul. ago. sep. oct. nov. dic."},
+		{WordMac, "es", "dom lun mar mié jue vie sáb", "ene feb mar abr may jun jul ago sept oct nov dic"},
+		{WordWindows, "de", "So Mo Di Mi Do Fr Sa", "Jan Feb Mrz Apr Mai Jun Jul Aug Sep Okt Nov Dez"},
+		{WordMac, "de", "So Mo Di Mi Do Fr Sa", "Jan Feb Mär Apr Mai Jun Jul Aug Sep Okt Nov Dez"},
+		{WordWindows, "da", "sø ma ti on to fr lø", "jan feb mar apr maj jun jul aug sep okt nov dec"},
+		{WordMac, "da", "søn. man. tirs. ons. tors. fre. lør.", "jan feb mar apr maj jun jul aug sep okt nov dec"},
+		{WordWindows, "nl", "zo ma di wo do vr za", "jan feb mrt apr mei jun jul aug sep okt nov dec"},
 	}
-	if got := strings.Join(es.ShortMonths[:], " "); got != "ene feb mar abr may jun jul ago sept oct nov dic" {
-		t.Errorf("es short months = %q", got)
+	for _, c := range cases {
+		n := (&fieldFormat{Platform: c.platform}).names(c.lang)
+		if got := strings.Join(n.ShortDays[:], " "); got != c.days {
+			t.Errorf("%v %s short days = %q, want %q", c.platform, c.lang, got, c.days)
+		}
+		if got := strings.Join(n.ShortMonths[:], " "); got != c.months {
+			t.Errorf("%v %s short months = %q, want %q", c.platform, c.lang, got, c.months)
+		}
+	}
+	// A lookup works on a copy: the shared table keeps its spelling.
+	before := builtinDateNames["es"]
+	_ = (&fieldFormat{Platform: WordWindows}).names("es")
+	_ = (&fieldFormat{Platform: WordMac}).names("es")
+	if builtinDateNames["es"] != before {
+		t.Error("a lookup changed the shared table")
+	}
+}
+
+// TestDayPeriods checks the AM/PM markers each platform writes: Word for
+// Windows the regional settings' (none in Dutch), Word for Mac AM/PM in the
+// format's case.
+func TestDayPeriods(t *testing.T) {
+	at := time.Date(2026, 3, 1, 13, 5, 0, 0, time.UTC)
+	cases := []struct {
+		o       fieldFormat
+		picture string
+		want    string
+	}{
+		{fieldFormat{Platform: WordWindows, Locale: "nl-NL"}, "h:mm am/pm", "1:05 "},
+		{fieldFormat{Platform: WordWindows, Locale: "en-US"}, "h:mm am/pm", "1:05 PM"},
+		{fieldFormat{Platform: WordMac}, "h:mm am/pm", "1:05 pm"},
+		{fieldFormat{Platform: WordMac}, "h:mm AM/PM", "1:05 PM"},
+	}
+	for _, c := range cases {
+		got, reason := formatDatePicture(at, c.picture, builtinDateNames["en"], c.o.dayPeriods())
+		if reason != "" || got != c.want {
+			t.Errorf("%+v %q = %q (%s), want %q", c.o, c.picture, got, reason, c.want)
+		}
 	}
 }

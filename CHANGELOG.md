@@ -14,10 +14,12 @@
   `DateNames`. Values are read as ISO 8601 dates and point-decimal numbers, or
   through `ParseDate`/`ParseNumber`; a value that does not parse, or a format
   Word refuses or garbles (unmatched quotes, an `am/pm` spelling other than
-  `am/pm` or `AM/PM`), is written as given and reported to `Warn`. The rules,
-  including where Word departs from its documentation, and the month and day
-  names were checked against Word for Mac: 91 of 94 comparison cases match
-  exactly, the other three being the refused formats.
+  `am/pm` or `AM/PM`), is written as given and reported to `Warn`.
+  `MergeOptions.Platform` (`WordWindows`, the default, or `WordMac`) picks the
+  spelling where the two differ: some German, Spanish and Danish short names
+  and the AM/PM marker. The rules, including where Word departs from its
+  documentation, were checked against Word for Windows and Word for Mac: every
+  comparison case matches except the three formats Word refuses or garbles.
 - docx: `Document.FillMergeFieldsWith(values, MergeOptions)`: `Missing`
   supplies a value (empty, or a placeholder) for fields missing from `values`,
   and `SuppressBlankLines` removes the paragraphs the merge left blank, as

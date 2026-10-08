@@ -535,6 +535,11 @@ type MergeOptions struct {
 	// departs from its documentation; an empty number format or section, for
 	// one, shows nothing.
 	FormatSwitches bool
+	// Platform is the Word whose output FormatSwitches reproduces where Word
+	// for Windows and Word for Mac differ: some short month and day names
+	// (German, Spanish, Danish) and the AM/PM marker. The zero value is
+	// WordWindows.
+	Platform WordPlatform
 	// Locale is the BCP 47 tag ("de-DE") whose decimal and digit-grouping
 	// symbols \# formats are read and written with — Word takes them from
 	// the computer's regional settings, so the same format means "1.234,50"

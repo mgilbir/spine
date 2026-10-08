@@ -11,6 +11,7 @@ import (
 // fieldFormat holds the MergeOptions that format MERGEFIELD values with
 // their \@ and \# switches; see MergeOptions.FormatSwitches.
 type fieldFormat struct {
+	Platform                         WordPlatform
 	Locale                           string
 	DecimalSeparator, GroupSeparator string
 	Names                            map[string]DateNames
@@ -26,6 +27,7 @@ func fieldFormatOf(opts MergeOptions) *fieldFormat {
 		return nil
 	}
 	return &fieldFormat{
+		Platform:         opts.Platform,
 		Locale:           opts.Locale,
 		DecimalSeparator: opts.DecimalSeparator,
 		GroupSeparator:   opts.GroupSeparator,
@@ -43,10 +45,10 @@ type DateNames struct {
 	Days, ShortDays     [7]string
 }
 
-// builtinDateNames holds the month and day names of the built-in languages.
-// Word takes them from the operating system's locale data, so they can differ
-// between Windows and macOS; all seven languages were checked against Word
-// for Mac.
+// builtinDateNames holds the month and day names of the built-in languages,
+// checked against Word for Windows and Word for Mac. Word takes them from the
+// operating system's locale data; where the two differ, platformDateNames
+// holds each one's spelling.
 var builtinDateNames = map[string]DateNames{
 	"en": {
 		Months:      [12]string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"},
@@ -92,6 +94,66 @@ var builtinDateNames = map[string]DateNames{
 	},
 }
 
+// WordPlatform is the Word whose output FormatSwitches reproduces where Word
+// for Windows and Word for Mac differ: some short month and day names, which
+// each takes from its operating system's locale data, and the AM/PM marker.
+type WordPlatform int
+
+const (
+	// WordWindows reproduces Word for Windows. It is the zero value.
+	WordWindows WordPlatform = iota
+	// WordMac reproduces Word for Mac.
+	WordMac
+)
+
+// platformDateNames holds the short names in which Word for Windows and Word
+// for Mac differ, checked against both; builtinDateNames holds the rest,
+// which are the same on both.
+var platformDateNames = map[WordPlatform]map[string]func(*DateNames){
+	WordWindows: {
+		"de": func(n *DateNames) { n.ShortMonths[2] = "Mrz" },
+		"es": func(n *DateNames) {
+			n.ShortDays = [7]string{"do.", "lu.", "ma.", "mi.", "ju.", "vi.", "sá."}
+			n.ShortMonths = [12]string{"ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sep.", "oct.", "nov.", "dic."}
+		},
+		"da": func(n *DateNames) { n.ShortDays = [7]string{"sø", "ma", "ti", "on", "to", "fr", "lø"} },
+	},
+	WordMac: {
+		"de": func(n *DateNames) { n.ShortMonths[2] = "Mär" },
+		"es": func(n *DateNames) {
+			n.ShortDays = [7]string{"dom", "lun", "mar", "mié", "jue", "vie", "sáb"}
+			n.ShortMonths = [12]string{"ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"}
+		},
+		"da": func(n *DateNames) {
+			n.ShortDays = [7]string{"søn.", "man.", "tirs.", "ons.", "tors.", "fre.", "lør."}
+		},
+	},
+}
+
+// dayPeriod is how a format's am/pm or AM/PM item is written.
+type dayPeriod struct {
+	am, pm     string
+	followCase bool // write lower case for am/pm
+}
+
+// dayPeriods returns the AM/PM markers of the platform and locale. Word for
+// Windows writes the regional settings' markers as they are: AM and PM in
+// English, none in Dutch (checked). Word for Mac writes AM and PM in the case
+// of the format (checked with English). Languages not checked use AM and PM.
+func (o *fieldFormat) dayPeriods() dayPeriod {
+	if o.Platform == WordMac {
+		return dayPeriod{am: "AM", pm: "PM", followCase: true}
+	}
+	locale := o.Locale
+	if locale == "" {
+		locale = "en-US"
+	}
+	if primaryLanguage(locale) == "nl" {
+		return dayPeriod{}
+	}
+	return dayPeriod{am: "AM", pm: "PM"}
+}
+
 // numberSymbols holds the decimal and digit-grouping symbols of the built-in
 // languages; other languages use the English ones.
 var numberSymbols = map[string][2]string{
@@ -134,7 +196,7 @@ func (o *fieldFormat) separators() (dec, grp string) {
 }
 
 // names returns the month and day names for the first of the languages that
-// has them, then English.
+// has them, then English, in the platform's spelling.
 func (o *fieldFormat) names(langs ...string) DateNames {
 	for _, l := range langs {
 		p := primaryLanguage(l)
@@ -145,6 +207,9 @@ func (o *fieldFormat) names(langs ...string) DateNames {
 			return n
 		}
 		if n, ok := builtinDateNames[p]; ok {
+			if adjust := platformDateNames[o.Platform][p]; adjust != nil {
+				adjust(&n)
+			}
 			return n
 		}
 	}
@@ -250,7 +315,7 @@ func (o *fieldFormat) parseNumber(value string) (decimal, bool) {
 
 // formatDatePicture writes t with a Word date-time picture. It returns false
 // with a reason for an item it does not support (a `numbered item`).
-func formatDatePicture(t time.Time, picture string, names DateNames) (string, string) {
+func formatDatePicture(t time.Time, picture string, names DateNames, periods dayPeriod) (string, string) {
 	var b strings.Builder
 	rs := []rune(picture)
 	for i := 0; i < len(rs); {
@@ -274,13 +339,11 @@ func formatDatePicture(t time.Time, picture string, names DateNames) (string, st
 		case r == '`':
 			return "", "numbered items (`…`) in date pictures are not supported"
 		case string(rs[i:min(i+5, len(rs))]) == "am/pm" || string(rs[i:min(i+5, len(rs))]) == "AM/PM":
-			// The case follows the format: Word writes "am" for am/pm and
-			// "AM" for AM/PM.
-			mark := "AM"
+			mark := periods.am
 			if t.Hour() >= 12 {
-				mark = "PM"
+				mark = periods.pm
 			}
-			if r == 'a' {
+			if r == 'a' && periods.followCase {
 				mark = strings.ToLower(mark)
 			}
 			b.WriteString(mark)
@@ -389,10 +452,12 @@ func parseNumberSection(sec, dec, grp string) ([]numItem, bool, string) {
 			items = append(items, numItem{kind: '.'})
 			i += len(dec)
 			continue
-		case !seenDecimal && grp != "" && strings.HasPrefix(sec[i:], grp):
-			// Anywhere before the decimal point, even between quoted texts,
-			// the grouping symbol turns on grouping and is not written:
-			// Word shows 12345 with "0 'items', 'x'" as "12,345 items x".
+		case grp != "" && strings.HasPrefix(sec[i:], grp):
+			// Anywhere, even between quoted texts or after the decimal
+			// point, the grouping symbol turns on grouping and is not
+			// written: Word shows 12345 with "0 'items', 'x'" as
+			// "12,345 items x", and 1234.5 with "#.##0,0#.0" (comma
+			// decimal) grouped.
 			grouping = true
 			i += len(grp)
 			continue
@@ -414,8 +479,8 @@ func parseNumberSection(sec, dec, grp string) ([]numItem, bool, string) {
 // and positive;negative;zero sections. A negative number formatted with a
 // section that has no sign item gets a minus sign right before its number,
 // after any text and x placeholders in front. A # after the decimal point
-// shows a space for a trailing zero, and the decimal symbol is written even
-// with no digit after it. A format with no digit placeholder shows only its
+// shows a space for a zero digit, the grouping symbol is never written, and
+// the decimal symbol is written even with no digit after it. A format with no digit placeholder shows only its
 // text, and an empty section shows nothing, as in Word. Unmatched quotes are
 // refused with a reason. Every rule here was checked against Word.
 func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
@@ -469,12 +534,9 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 	}
 	r := d.round(places)
 	digits := r.int
-	// A # after the decimal point shows a space for a trailing zero: Word
-	// shows 5.5 with "0.0#" as "5.5 ".
-	shown := places
-	for shown > 0 && items[fracPH[shown-1]].kind == '#' && r.frac[shown-1] == '0' {
-		shown--
-	}
+	// A # after the decimal point shows a space for a zero digit, wherever it
+	// stands: Word shows 5.5 with "0.0#" as "5.5 " and -5.5 with "#,##0.0#"
+	// read with comma decimals as "-5,5 00 ".
 	// The sign is the rounded result's, in every section: Word shows -0.001
 	// with "0.00" as "0.00" and with "0.00;-0.00" as " 0.00".
 	if neg && r.isZero() {
@@ -581,11 +643,12 @@ func formatNumberPicture(d decimal, picture, dec, grp string) (string, string) {
 				b.WriteString(s)
 				continue
 			}
-			switch {
-			case fracIdx < shown:
-				b.WriteByte(r.frac[fracIdx])
-			case fracIdx < places:
-				b.WriteString(" ")
+			if fracIdx < places {
+				if it.kind == '#' && r.frac[fracIdx] == '0' {
+					b.WriteString(" ")
+				} else {
+					b.WriteByte(r.frac[fracIdx])
+				}
 			}
 			fracIdx++
 		}
@@ -668,7 +731,7 @@ func applyPicture(field, value string, sw fieldSwitches, opts *fieldFormat, lang
 		if !ok {
 			return warn("not a date the options read")
 		}
-		out, reason := formatDatePicture(t, sw.date, opts.names(append(langs, opts.Locale)...))
+		out, reason := formatDatePicture(t, sw.date, opts.names(append(langs, opts.Locale)...), opts.dayPeriods())
 		if reason != "" {
 			return warn(reason)
 		}
