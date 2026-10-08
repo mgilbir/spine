@@ -66,12 +66,18 @@ func (p *Presentation) VBAProject() []byte {
 // flavor (.pptm / .ppsm / .potm) when it is not already macro-enabled. The
 // bytes are stored as-is and written verbatim on save.
 //
+// Replacing a project drops the signatures of the one it replaces (the
+// project's signature relationships and the parts they target, unless another
+// relationship still targets them): they sign the old bytes, so Office would
+// report them as invalid.
+//
 // Security: the bytes are executable VBA carried opaquely. Injecting a project
 // extracted from another document transplants that document's macros and their
 // trust; only inject bytes from a source you trust.
 func (p *Presentation) SetVBAProject(data []byte) {
 	p.markModelEdited()
 	name := p.resolveVBAPartName()
+	p.dropVBASignatures(name)
 	p.otherParts[name] = &coxml.RawPart{
 		ContentType: opc.ContentTypeVBAProject,
 		Data:        append([]byte(nil), data...),
@@ -124,4 +130,37 @@ func (p *Presentation) RemoveVBAProject() {
 	p.markPartRemoved(name)
 	p.markModelEdited()
 	p.flavor = opc.PlainFlavor(p.Flavor())
+}
+
+// dropVBASignatures removes the project's signature relationships and the
+// parts they targeted when nothing else targets them.
+func (p *Presentation) dropVBASignatures(name string) {
+	rels := p.relationships[name]
+	kept := make([]*opc.Relationship, 0, len(rels))
+	var targets []string
+	for _, rel := range rels {
+		if rel == nil || !opc.IsVBASignatureRelType(rel.Type) {
+			kept = append(kept, rel)
+			continue
+		}
+		if rel.TargetMode != opc.TargetModeExternal {
+			targets = append(targets, opc.ResolvePartName(name, rel.Target))
+		}
+	}
+	if len(kept) == len(rels) {
+		return
+	}
+	if len(kept) == 0 {
+		delete(p.relationships, name)
+	} else {
+		p.relationships[name] = kept
+	}
+	for _, target := range targets {
+		if _, ok := p.otherParts[target]; !ok || p.partReferencedElsewhere(target, "") {
+			continue
+		}
+		delete(p.otherParts, target)
+		delete(p.relationships, target)
+		p.markPartRemoved(target)
+	}
 }

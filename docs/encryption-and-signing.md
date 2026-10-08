@@ -158,6 +158,7 @@ Extract, inject/replace, and remove the `vbaProject.bin` project on
 `RemoveVBAProject`). Injecting flips the package to its macro-enabled flavor
 (`.docm`/`.xlsm`/`.pptm`) and removal flips it back. Removal also takes out the
 parts the project's own relationships target — its signatures and, in Word,
-`vbaData.xml` — unless something else in the package still targets them. The project is carried as an
+`vbaData.xml` — unless something else in the package still targets them.
+Replacing a project drops the old project's signatures, which no longer match. The project is carried as an
 opaque binary blob — spine never parses or executes it, and an injected project
 brings its source's macros and their trust, so only inject bytes you trust.

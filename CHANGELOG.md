@@ -200,6 +200,11 @@
 
 ### Fixed
 
+- docx, pptx, xlsx: `SetVBAProject` replacing a signed project kept the old
+  project's signatures, which sign the old bytes, so Office reported the new
+  project's signature as invalid. Replacing a project now drops its signature
+  relationships and the signature parts (unless another relationship targets
+  them); Word's `vbaData.xml` is kept.
 - docx, pptx, xlsx: `RemoveVBAProject` removed `vbaProject.bin` but left the
   parts its own relationships target — the project's signatures
   (`vbaProjectSignature*.bin`) and, in Word, `vbaData.xml` — together with

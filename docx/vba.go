@@ -68,11 +68,18 @@ func (d *Document) VBAProject() []byte {
 // .dotm) when it is not already macro-enabled. The bytes are stored as-is and
 // written verbatim on save.
 //
+// Replacing a project drops the signatures of the one it replaces (the
+// project's signature relationships and the parts they target, unless another
+// relationship still targets them): they sign the old bytes, so Office would
+// report them as invalid. Other parts of the project's relationships, such as
+// Word's macro data (vbaData.xml), are kept.
+//
 // Security: the bytes are executable VBA carried opaquely. Injecting a project
 // extracted from another document transplants that document's macros and their
 // trust; only inject bytes from a source you trust.
 func (d *Document) SetVBAProject(data []byte) {
 	name := d.resolveVBAPartName()
+	d.dropVBASignatures(name)
 	d.vbaPartName = name
 	d.vbaData = append([]byte(nil), data...)
 	d.vbaRemove = false
@@ -153,4 +160,32 @@ func (d *Document) writeVBAProject(writer *opc.Writer) error {
 		return nil
 	}
 	return writer.WritePart(d.vbaPartName, opc.ContentTypeVBAProject, d.vbaData)
+}
+
+// dropVBASignatures removes the project's signature relationships and drops
+// the parts they targeted when nothing else targets them. The project's .rels
+// is then written from the model, or left out once empty.
+func (d *Document) dropVBASignatures(name string) {
+	var targets []string
+	kept := make([]*opc.Relationship, 0, len(d.relationships[name]))
+	for _, rel := range d.relationships[name] {
+		if rel == nil || !opc.IsVBASignatureRelType(rel.Type) {
+			kept = append(kept, rel)
+			continue
+		}
+		if rel.TargetMode != opc.TargetModeExternal {
+			targets = append(targets, opc.ResolvePartName(name, rel.Target))
+		}
+	}
+	if len(kept) == len(d.relationships[name]) {
+		return
+	}
+	d.relationships[name] = kept
+	if d.rewrittenRels == nil {
+		d.rewrittenRels = make(map[string]bool)
+	}
+	d.rewrittenRels[name] = true
+	for _, target := range targets {
+		d.dropUntargetedPreservedPart(target)
+	}
 }
