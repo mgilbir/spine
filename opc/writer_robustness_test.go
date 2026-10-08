@@ -409,3 +409,70 @@ func TestWriteRawFile_ContentTypes_CoveredRegistrationKeepsRaw(t *testing.T) {
 		t.Errorf("raw CT not preserved verbatim:\ngot  %q\nwant %q", got, rawCT)
 	}
 }
+
+// rawCTWithOverrides is a raw [Content_Types].xml carrying two overrides, one
+// of which a save drops.
+const rawCTWithOverrides = `<?xml version="1.0" encoding="utf-8"?>` + "\n" +
+	`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+	`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+	`<Default Extension="xml" ContentType="application/xml"/>` +
+	`<Override PartName="/word/document.xml" ContentType="` + ContentTypeDocument + `"/>` +
+	`<Override PartName="/word/gone.xml" ContentType="application/vnd.example.gone+xml"/>` +
+	`</Types>`
+
+// An override removed after the raw [Content_Types].xml write (a part the save
+// drops) is taken out of the raw bytes; the remaining entries keep their form.
+func TestWriteRawFile_ContentTypes_RawThenRemoveOverride(t *testing.T) {
+	ct, err := UnmarshalContentTypes([]byte(rawCTWithOverrides))
+	if err != nil {
+		t.Fatalf("UnmarshalContentTypes() error = %v", err)
+	}
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	w.ContentTypes = ct.Clone()
+	if err := w.WriteRawFile("[Content_Types].xml", []byte(rawCTWithOverrides)); err != nil {
+		t.Fatalf("WriteRawFile() error = %v", err)
+	}
+	if err := w.WritePart("/word/document.xml", ContentTypeDocument, []byte("<w/>")); err != nil {
+		t.Fatalf("WritePart() error = %v", err)
+	}
+	w.ContentTypes.RemoveOverride("/word/gone.xml")
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	got := string(readCTEntry(t, buf.Bytes()))
+	want := strings.Replace(rawCTWithOverrides,
+		`<Override PartName="/word/gone.xml" ContentType="application/vnd.example.gone+xml"/>`, "", 1)
+	if got != want {
+		t.Errorf("content types after removal:\ngot  %q\nwant %q", got, want)
+	}
+}
+
+// Removing an override the raw bytes never carried leaves them verbatim.
+func TestWriteRawFile_ContentTypes_RemoveAbsentOverrideKeepsRaw(t *testing.T) {
+	ct, err := UnmarshalContentTypes([]byte(rawCTWithOverrides))
+	if err != nil {
+		t.Fatalf("UnmarshalContentTypes() error = %v", err)
+	}
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	w.ContentTypes = ct.Clone()
+	if err := w.WriteRawFile("[Content_Types].xml", []byte(rawCTWithOverrides)); err != nil {
+		t.Fatalf("WriteRawFile() error = %v", err)
+	}
+	if err := w.WritePart("/word/document.xml", ContentTypeDocument, []byte("<w/>")); err != nil {
+		t.Fatalf("WritePart() error = %v", err)
+	}
+	if err := w.WritePart("/word/gone.xml", "application/vnd.example.gone+xml", []byte("<g/>")); err != nil {
+		t.Fatalf("WritePart() error = %v", err)
+	}
+	w.ContentTypes.RemoveOverride("/word/never-there.xml")
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if got := string(readCTEntry(t, buf.Bytes())); got != rawCTWithOverrides {
+		t.Errorf("raw CT not preserved verbatim:\ngot  %q\nwant %q", got, rawCTWithOverrides)
+	}
+}

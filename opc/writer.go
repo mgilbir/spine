@@ -260,8 +260,9 @@ func (w *Writer) WriteDirectoryEntries(names []string) error {
 // by CreatePart for a new part) are merged into the raw bytes instead of
 // accumulating in memory and never being serialized — which would leave the
 // new parts without a content-type entry, a silently OPC-invalid package
-// (C46). When nothing was registered after the raw write, the bytes are
-// emitted verbatim.
+// (C46). Overrides removed afterwards (RemoveOverride for a part the save
+// drops) are taken out of the raw bytes the same way. When nothing was
+// registered or removed after the raw write, the bytes are emitted verbatim.
 func (w *Writer) WriteRawFile(name string, data []byte) error {
 	if w.closed {
 		return ErrPackageClosed
@@ -360,17 +361,17 @@ func (w *Writer) writeContentTypes() error {
 }
 
 // mergedRawContentTypes returns the raw [Content_Types].xml bytes handed to
-// WriteRawFile, with content types registered after that raw write merged in.
-// The raw bytes are returned verbatim when nothing new was registered or when
-// every late registration is already covered by them; otherwise the raw file
-// is parsed, extended, and re-marshaled — the parse captures the source
-// formatting (prolog, entry order, attribute order, self-closing style), so
-// the original entries are reproduced byte-for-byte and the new ones are
-// appended.
+// WriteRawFile, with content types registered after that raw write merged in
+// and overrides removed after it taken out. The raw bytes are returned
+// verbatim when nothing was registered or removed, or when every change is
+// already reflected in them; otherwise the raw file is parsed, edited, and
+// re-marshaled — the parse captures the source formatting (prolog, entry
+// order, attribute order, self-closing style), so the remaining original
+// entries are reproduced byte-for-byte and the new ones are appended.
 func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 	// Collect registrations made after the raw write: entries in the live
 	// ContentTypes that the snapshot taken at WriteRawFile time did not carry.
-	var newDefaults, newOverrides []string
+	var newDefaults, newOverrides, removedOverrides []string
 	for _, ext := range w.ContentTypes.orderedDefaults() {
 		if prev, ok := w.ctAtRawWrite.Defaults[ext]; ok && prev == w.ContentTypes.Defaults[ext] {
 			continue
@@ -383,7 +384,15 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 		}
 		newOverrides = append(newOverrides, name)
 	}
-	if len(newDefaults) == 0 && len(newOverrides) == 0 {
+	// Overrides removed after the raw write (RemoveOverride for a part the
+	// save dropped): the raw bytes still carry them, and an override naming a
+	// part the package no longer has would dangle.
+	for _, name := range w.ctAtRawWrite.orderedOverrides() {
+		if _, ok := w.ContentTypes.Overrides[name]; !ok {
+			removedOverrides = append(removedOverrides, name)
+		}
+	}
+	if len(newDefaults) == 0 && len(newOverrides) == 0 && len(removedOverrides) == 0 {
 		return w.rawContentTypes, nil
 	}
 
@@ -391,11 +400,18 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 	if err != nil {
 		// The raw bytes need additions but cannot be parsed: failing loudly
 		// beats emitting a package whose new parts have no content type.
-		return nil, fmt.Errorf("opc: content types were registered after WriteRawFile(\"[Content_Types].xml\") but the raw bytes do not parse, so they cannot be merged (first unmergeable: %s): %w",
-			firstNewContentTypeEntry(newDefaults, newOverrides), err)
+		return nil, fmt.Errorf("opc: content types were registered or removed after WriteRawFile(\"[Content_Types].xml\") but the raw bytes do not parse, so they cannot be merged (first unmergeable: %s): %w",
+			firstNewContentTypeEntry(newDefaults, newOverrides, removedOverrides), err)
 	}
 
 	merged := false
+	for _, name := range removedOverrides {
+		before := len(parsed.Overrides)
+		parsed.RemoveOverride(name)
+		if len(parsed.Overrides) != before {
+			merged = true
+		}
+	}
 	for _, ext := range newDefaults {
 		ct := w.ContentTypes.Defaults[ext]
 		if parsed.Defaults[ext] == ct {
@@ -418,13 +434,17 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 	return parsed.Marshal()
 }
 
-// firstNewContentTypeEntry names one late-registered entry for error messages.
-func firstNewContentTypeEntry(newDefaults, newOverrides []string) string {
+// firstNewContentTypeEntry names one late-registered or removed entry for
+// error messages.
+func firstNewContentTypeEntry(newDefaults, newOverrides, removedOverrides []string) string {
 	if len(newOverrides) > 0 {
 		return "override for " + newOverrides[0]
 	}
 	if len(newDefaults) > 0 {
 		return "default for extension ." + newDefaults[0]
+	}
+	if len(removedOverrides) > 0 {
+		return "removed override for " + removedOverrides[0]
 	}
 	return "none"
 }

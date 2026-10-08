@@ -216,6 +216,9 @@ func TestAddHeaderOverPreservedHeaderReleasesIt(t *testing.T) {
 	if !strings.Contains(rels, "header2.xml") {
 		t.Errorf("the replacement header relationship is missing:\n%s", rels)
 	}
+	if ct := zipEntryString(t, saved, "[Content_Types].xml"); strings.Contains(ct, "header1.xml") {
+		t.Errorf("content types still name the replaced header:\n%s", ct)
+	}
 
 	re, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
 	if err != nil {

@@ -189,6 +189,13 @@
 
 ### Fixed
 
+- opc, docx: a part a Word document dropped on save kept its `Override` in
+  `[Content_Types].xml`, naming a part the package no longer had: the VBA
+  project after `RemoveVBAProject` and a header or footer replaced by
+  `AddHeader`/`AddFooter`. The writer kept the opened package's
+  `[Content_Types].xml` bytes and only ever added entries to them; overrides
+  removed after those bytes are written are now taken out too, and the
+  remaining entries keep their form.
 - docx: `ReplaceText` matched nothing when Word had written spelling or
   grammar markers (`w:proofErr`) between the runs of a key, as it does inside
   placeholders such as `«name»`. The markers no longer split a match; those
