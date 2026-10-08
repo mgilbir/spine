@@ -164,6 +164,16 @@ func (f *CT_FtnEdn) MarshalToBuilder(b *xmlb.Builder, ns, localName string) {
 	b.EndElement(ns, localName)
 }
 
+// AllParagraphs returns the note's paragraphs in document order, descending
+// into tables and block-level content controls.
+func (f *CT_FtnEdn) AllParagraphs() []*CT_P {
+	var out []*CT_P
+	visitBlockContent(f.childOrder, f.P, f.Tbl, f.SdtBlock, blockVisitor{
+		Para: func(p *CT_P) { out = append(out, p) },
+	})
+	return out
+}
+
 // AppendP appends a paragraph to the note body, maintaining child order.
 func (f *CT_FtnEdn) AppendP(p *CT_P) {
 	backfillBodyChildOrder(&f.childOrder, f.P, f.Tbl, f.SdtBlock, f.BookmarkStart, f.BookmarkEnd, f.Raw)

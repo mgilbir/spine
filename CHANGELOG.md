@@ -4,6 +4,11 @@
 
 ### Added
 
+- docx: `MergeFields` and `FillMergeFields` also cover footnotes, endnotes and
+  text boxes (`w:txbxContent` in DrawingML shapes and VML pictures, both
+  copies of an `mc:AlternateContent`, nested boxes included). A text box body
+  is rewritten in place only when the new markup parses with the namespaces in
+  scope there; otherwise it is left unchanged and its fields are reported.
 - docx: `Document.FillMergeFields` merges one record into a mail-merge
   document: every MERGEFIELD whose name has a value becomes that value as plain
   text, in the formatting of the field's result, as in a letter Word merged.

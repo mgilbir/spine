@@ -489,3 +489,185 @@ func TestFillMergeFieldsReportsInDocumentOrder(t *testing.T) {
 		t.Errorf("unfilled = %v, want %v", unfilled, want)
 	}
 }
+
+// textBoxNS declares the prefixes the text-box fixtures use on the document
+// root, as Word does.
+const textBoxNS = fixtureWNS +
+	` xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"` +
+	` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"` +
+	` xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"` +
+	` xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"` +
+	` xmlns:v="urn:schemas-microsoft-com:vml"`
+
+// textBoxDrawing is a floating DrawingML text box with a VML fallback, the
+// shape Word writes, both copies of the body holding content.
+func textBoxDrawing(content string) string {
+	return `<w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing>` +
+		`<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="1" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
+		`<wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH>` +
+		`<wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>` +
+		`<wp:extent cx="914400" cy="457200"/><wp:wrapNone/><wp:docPr id="1" name="Text Box 1"/>` +
+		`<a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">` +
+		`<wps:wsp><wps:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></wps:spPr>` +
+		`<wps:txbx><w:txbxContent>` + content + `</w:txbxContent></wps:txbx><wps:bodyPr/></wps:wsp>` +
+		`</a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice>` +
+		`<mc:Fallback><w:pict><v:shape style="width:72pt;height:36pt"><v:textbox><w:txbxContent>` + content +
+		`</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent></w:r>`
+}
+
+func TestFillMergeFieldsTextBox(t *testing.T) {
+	inner := `<w:p><w:r><w:t xml:space="preserve">To: </w:t></w:r>` +
+		wordMergeField(` MERGEFIELD Name `, `«Name»`, `<w:rPr><w:b/></w:rPr>`) + `</w:p>`
+	data := fixtureWithDocument(t, textBoxNS, `<w:body><w:p>`+textBoxDrawing(inner)+`</w:p></w:body>`)
+	doc, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got := doc.MergeFields(); !reflect.DeepEqual(got, []string{"Name"}) {
+		t.Fatalf("MergeFields = %v, want [Name]", got)
+	}
+
+	if unfilled := doc.FillMergeFields(map[string]string{"Name": "Ada & Co"}); len(unfilled) != 0 {
+		t.Errorf("unfilled = %v, want none", unfilled)
+	}
+	xml := saveDocXML(t, doc)
+	if strings.Contains(xml, "MERGEFIELD") || strings.Contains(xml, "fldChar") {
+		t.Errorf("a text-box field survived:\n%s", xml)
+	}
+	if n := strings.Count(xml, `<w:b/></w:rPr><w:t xml:space="preserve">Ada &amp; Co</w:t>`); n != 2 {
+		t.Errorf("value written %d times, want 2 (DrawingML body and VML fallback):\n%s", n, xml)
+	}
+	if !strings.Contains(xml, `<wps:txbx><w:txbxContent><w:p><w:r><w:t xml:space="preserve">To: </w:t></w:r>`) {
+		t.Errorf("text box markup around the body changed:\n%s", xml)
+	}
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	re, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := re.MergeFields(); len(got) != 0 {
+		t.Errorf("MergeFields after fill = %v, want none", got)
+	}
+	if tbs := re.TextBoxes(); len(tbs) != 1 || tbs[0].Text() != "To: Ada & Co" {
+		t.Errorf("text boxes after fill = %v", tbs)
+	}
+}
+
+// TestFillMergeFieldsTextBoxUntouchedWithoutValue checks that a text box
+// whose fields have no value keeps its markup byte for byte.
+func TestFillMergeFieldsTextBoxUntouchedWithoutValue(t *testing.T) {
+	inner := `<w:p>` + wordMergeField(` MERGEFIELD Name `, `«Name»`, "") + `</w:p>`
+	body := `<w:body><w:p>` + textBoxDrawing(inner) + `</w:p></w:body>`
+	data := fixtureWithDocument(t, textBoxNS, body)
+	doc, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	baseline := saveDocXML(t, doc)
+	if unfilled := doc.FillMergeFields(map[string]string{}); !reflect.DeepEqual(unfilled, []string{"Name"}) {
+		t.Errorf("unfilled = %v, want [Name]", unfilled)
+	}
+	if got := saveDocXML(t, doc); got != baseline {
+		t.Errorf("text box changed:\nwant %s\ngot  %s", baseline, got)
+	}
+}
+
+func TestFillMergeFieldsFootnotesAndEndnotes(t *testing.T) {
+	const relsNS = `http://schemas.openxmlformats.org/officeDocument/2006/relationships`
+	notes := func(root, note string) string {
+		return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+			`<w:` + root + ` ` + fixtureWNS + `><w:` + note + ` w:id="1"><w:p>` +
+			`<w:r><w:t xml:space="preserve">See </w:t></w:r>` +
+			`<w:fldSimple w:instr=" MERGEFIELD Ref "><w:r><w:t>«Ref»</w:t></w:r></w:fldSimple>` +
+			`</w:p></w:` + note + `></w:` + root + `>`
+	}
+	data := buildFixtureDocx(t, map[string]string{
+		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+			`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+			`<Default Extension="xml" ContentType="application/xml"/>` +
+			`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+			`<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>` +
+			`<Override PartName="/word/endnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"/>` +
+			`</Types>`,
+		"_rels/.rels": fixtureRootRels,
+		"word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+			`<w:document ` + fixtureWNS + `><w:body><w:p><w:r><w:t>Body</w:t></w:r>` +
+			`<w:r><w:footnoteReference w:id="1"/></w:r><w:r><w:endnoteReference w:id="1"/></w:r></w:p></w:body></w:document>`,
+		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n" +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+			`<Relationship Id="rId1" Type="` + relsNS + `/footnotes" Target="footnotes.xml"/>` +
+			`<Relationship Id="rId2" Type="` + relsNS + `/endnotes" Target="endnotes.xml"/>` +
+			`</Relationships>`,
+		"word/footnotes.xml": notes("footnotes", "footnote"),
+		"word/endnotes.xml":  notes("endnotes", "endnote"),
+	})
+	doc, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got := doc.MergeFields(); !reflect.DeepEqual(got, []string{"Ref"}) {
+		t.Fatalf("MergeFields = %v, want [Ref]", got)
+	}
+	if unfilled := doc.FillMergeFields(map[string]string{"Ref": "p. 7"}); len(unfilled) != 0 {
+		t.Errorf("unfilled = %v, want none", unfilled)
+	}
+	saved, err := doc.SaveBytes()
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	for _, part := range []string{"word/footnotes.xml", "word/endnotes.xml"} {
+		x := zipEntryString(t, saved, part)
+		if strings.Contains(x, "MERGEFIELD") || !strings.Contains(x, ">p. 7<") {
+			t.Errorf("%s not filled:\n%s", part, x)
+		}
+	}
+	re, err := OpenReader(bytes.NewReader(saved), int64(len(saved)))
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := re.MergeFields(); len(got) != 0 {
+		t.Errorf("MergeFields after fill = %v, want none", got)
+	}
+}
+
+// TestFillMergeFieldsTextBoxWriteBackRefused covers text boxes whose rewritten
+// body cannot go back into the document: the builder writes w14:paraId, and
+// the document binds w14's namespace to another prefix, or w14 to another
+// namespace. Each box is left as it was and its fields, nested boxes'
+// included, are reported.
+func TestFillMergeFieldsTextBoxWriteBackRefused(t *testing.T) {
+	nested := `<w:p>` + wordMergeField(` MERGEFIELD Inner `, `«Inner»`, "") + `</w:p>`
+	cases := map[string]struct{ rootNS, para string }{
+		"w14 under another prefix": {
+			rootNS: textBoxNS + ` xmlns:x="http://schemas.microsoft.com/office/word/2010/wordml"`,
+			para:   `<w:p x:paraId="1234ABCD">`,
+		},
+		"w14 bound elsewhere": {
+			rootNS: textBoxNS + ` xmlns:w14="urn:example:other"`,
+			para:   `<w:p w14:paraId="1234ABCD">`,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			outer := c.para + wordMergeField(` MERGEFIELD Outer `, `«Outer»`, "") + textBoxDrawing(nested) + `</w:p>`
+			body := `<w:body><w:p>` + textBoxDrawing(outer) + `</w:p></w:body>`
+			data := fixtureWithDocument(t, c.rootNS, body)
+			doc, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			baseline := saveDocXML(t, doc)
+			unfilled := doc.FillMergeFields(map[string]string{"Outer": "O", "Inner": "I"})
+			if want := []string{"Outer", "Inner"}; !reflect.DeepEqual(unfilled, want) {
+				t.Errorf("unfilled = %v, want %v", unfilled, want)
+			}
+			if got := saveDocXML(t, doc); got != baseline {
+				t.Errorf("a refused text box changed:\nwant %s\ngot  %s", baseline, got)
+			}
+		})
+	}
+}

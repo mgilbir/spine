@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/docx/internal/oxml"
 	"github.com/mgilbir/spine/opc"
 )
@@ -335,16 +336,19 @@ func toCTMailMerge(mm *MailMerge) *oxml.CT_MailMerge {
 // MergeFields returns the distinct MERGEFIELD field names present in the
 // document, in first-appearance order. Both simple fields (w:fldSimple) and
 // complex fields (w:fldChar/w:instrText run sequences) are scanned, in
-// paragraphs anywhere in the body and in every header and footer, including
-// paragraphs nested inside tables and content nested inside content controls,
-// hyperlinks and tracked changes. This matches FormFields, which also covers
-// headers and footers, and which uses the same descent.
+// paragraphs anywhere in the body, in every header and footer, in footnotes and
+// endnotes, and in text boxes (w:txbxContent in drawings and VML pictures,
+// nested ones included), including paragraphs nested inside tables and content
+// nested inside content controls, hyperlinks and tracked changes. The descent
+// within a story is the one FormFields uses.
 //
 // The complex-field state machine runs over each part as a whole rather than
 // per paragraph, so a field whose begin, instruction and end runs are split
 // across paragraphs — legal per ECMA-376 §17.16.18 and common for IF fields —
-// is still read as one field. Headers and footers are walked in part-name
-// order, so the result is deterministic.
+// is still read as one field. Each footnote, endnote and text box is a story
+// of its own. Stories are walked in a fixed order — the body, the headers and
+// footers in part-name order, the footnotes, the endnotes — each followed by
+// its text boxes, so the result is deterministic.
 func (d *Document) MergeFields() []string {
 	var out []string
 	seen := map[string]bool{}
@@ -354,20 +358,87 @@ func (d *Document) MergeFields() []string {
 			st.paragraph(p)
 		}
 	}
-	if d.doc() != nil && d.doc().Body != nil {
-		collect(d.doc().Body.AllParagraphs())
-	}
-	for _, hp := range d.sortedHeaderParts() {
-		if hp == nil || hp.hdr == nil {
-			continue
+	for _, story := range d.mergeStories() {
+		paras := story.paras()
+		collect(paras)
+		for _, p := range paras {
+			for _, r := range oxml.ContainerRuns(p) {
+				oxml.TextBoxRawChildren(r, story.scope, func(raw *[]byte, scope oxml.NSScope) {
+					oxml.VisitTextBoxes(*raw, scope, collect)
+				})
+			}
 		}
-		collect(hp.hdr.AllParagraphs())
 	}
-	for _, fp := range d.sortedFooterParts() {
-		if fp == nil || fp.ftr == nil {
-			continue
+	return out
+}
+
+// mergeStory is one story merge fields are read and filled in — the body, a
+// header or footer, or one footnote or endnote — with the namespace scope its
+// raw markup (text boxes) resolves against and the hook that records an edit
+// to its part.
+type mergeStory struct {
+	paras    func() []*oxml.CT_P
+	scope    oxml.NSScope
+	modified func()
+}
+
+// mergeStories returns the document's stories in a fixed order: the body, the
+// headers and footers by part name, then the footnotes and endnotes in part
+// order.
+func (d *Document) mergeStories() []mergeStory {
+	var out []mergeStory
+	scopeOf := func(decls []xmlb.NSDecl) oxml.NSScope {
+		if len(decls) == 0 {
+			return oxml.NSScope(xmlb.WordprocessingMLNamespaces())
 		}
-		collect(fp.ftr.AllParagraphs())
+		return oxml.NSScope(decls)
+	}
+	if doc := d.doc(); doc != nil && doc.Body != nil {
+		out = append(out, mergeStory{
+			paras:    doc.Body.AllParagraphs,
+			scope:    scopeOf(doc.OriginalNSDecls),
+			modified: d.markEdited,
+		})
+	}
+	for _, name := range d.sortedHeaderNames() {
+		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
+			out = append(out, mergeStory{
+				paras:    hp.hdr.AllParagraphs,
+				scope:    scopeOf(hp.hdr.OriginalNSDecls),
+				modified: func() { d.markHdrFtrModified(name) },
+			})
+		}
+	}
+	for _, name := range d.sortedFooterNames() {
+		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
+			out = append(out, mergeStory{
+				paras:    fp.ftr.AllParagraphs,
+				scope:    scopeOf(fp.ftr.OriginalNSDecls),
+				modified: func() { d.markHdrFtrModified(name) },
+			})
+		}
+	}
+	if d.footnotes != nil {
+		for _, n := range d.footnotes.Footnote {
+			if n != nil {
+				out = append(out, mergeStory{
+					paras:    n.AllParagraphs,
+					scope:    scopeOf(d.footnotes.OriginalNSDecls),
+					modified: d.markFootnotesModified,
+				})
+			}
+		}
+	}
+	if d.endnotes != nil {
+		for _, n := range d.endnotes.Endnote {
+			if n != nil {
+				out = append(out, mergeStory{
+					paras:    n.AllParagraphs,
+					scope:    scopeOf(d.endnotes.OriginalNSDecls),
+					modified: d.markEndnotesModified,
+				})
+			}
+		}
 	}
 	return out
 }
@@ -377,7 +448,9 @@ func (d *Document) MergeFields() []string {
 // writes a merged letter. Fields are matched by the name exactly as it appears
 // in the field, which is what MergeFields returns. The fields covered are the
 // ones MergeFields reads: in the body, including tables and content controls,
-// and in every header and footer.
+// in every header and footer, in footnotes and endnotes, and in text boxes. A
+// text box body is written back only when the rewritten markup parses in its
+// place; otherwise it is left as it was and its fields are returned.
 //
 // The text takes the formatting of the field's result (for a field Word has
 // shown, the «name» placeholder). Line breaks in a value become line breaks
@@ -440,23 +513,19 @@ func (d *Document) FillMergeFields(values map[string]string) []string {
 		},
 	}
 
-	if d.doc() != nil && d.doc().Body != nil {
-		if oxml.FillFields(d.doc().Body.AllParagraphs(), filler) {
-			d.markEdited()
-		}
-	}
-	for _, name := range d.sortedHeaderNames() {
-		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
-			if oxml.FillFields(hp.hdr.AllParagraphs(), filler) {
-				d.markHdrFtrModified(name)
+	for _, st := range d.mergeStories() {
+		changed := oxml.FillFields(st.paras(), filler)
+		for _, p := range st.paras() {
+			for _, r := range oxml.ContainerRuns(p) {
+				oxml.TextBoxRawChildren(r, st.scope, func(raw *[]byte, scope oxml.NSScope) {
+					if oxml.FillTextBoxFields(raw, scope, filler) {
+						changed = true
+					}
+				})
 			}
 		}
-	}
-	for _, name := range d.sortedFooterNames() {
-		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
-			if oxml.FillFields(fp.ftr.AllParagraphs(), filler) {
-				d.markHdrFtrModified(name)
-			}
+		if changed {
+			st.modified()
 		}
 	}
 	// The walk notes a field when it reaches it, and a skipped field only
