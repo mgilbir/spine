@@ -128,6 +128,18 @@ type Document struct {
 	// forever with nothing pointing at them (C492). Empty on a
 	// zero-modification save.
 	droppedParts map[string]bool
+	// rewrittenRels holds the source parts whose relationship set the session
+	// changed outside the parts that are regenerated anyway (main document,
+	// headers and footers) — a mail-merge data-source relationship removed
+	// from the settings part. The round-trip save skips the preserved .rels
+	// bytes of these parts and writes their relationships from the model, or
+	// no .rels at all once none remain. Empty on a zero-modification save.
+	rewrittenRels map[string]bool
+	// releasedSettingsRels holds, by id, the settings-part relationships
+	// SetMailMerge(nil) removed, so a later SetMailMerge that references one
+	// of them again can put it back (with any part its removal dropped)
+	// instead of leaving a dangling r:id.
+	releasedSettingsRels map[string]*releasedRel
 	// watermarkSeq hands out unique VML shape ids / spids for watermark shapes
 	// so multiple watermarked headers (default/first/even) never collide.
 	watermarkSeq int
@@ -1061,6 +1073,10 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		if d.droppedParts[name] {
 			continue
 		}
+		// Written from the model by writeRewrittenRels.
+		if d.rewrittenRelsPart(name) {
+			continue
+		}
 		// The .rels of a header/footer regenerated this session is rewritten from
 		// the parsed relationship set (it may now reference a watermark image),
 		// so skip the preserved copy here.
@@ -1109,6 +1125,11 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 	// Parts the session dropped are not written; take their overrides out of
 	// this save's [Content_Types].xml so none names a part that is gone.
 	d.removeDroppedOverrides(writer)
+
+	// The .rels of parts whose relationships the session removed.
+	if err := d.writeRewrittenRels(writer); err != nil {
+		return err
+	}
 
 	// Regenerate the header/footer parts edited in this session (existing parts
 	// whose preserved bytes were skipped above), along with their .rels.
@@ -1965,6 +1986,43 @@ func (d *Document) dropUnreferencedHdrFtr(relID string) {
 	}
 	d.droppedParts[target] = true
 	d.droppedParts[opc.GetRelationshipsPartName(target)] = true
+}
+
+// rewrittenRelsPart reports whether relsName is the .rels part of a source
+// part in rewrittenRels.
+func (d *Document) rewrittenRelsPart(relsName string) bool {
+	for source := range d.rewrittenRels {
+		if opc.GetRelationshipsPartName(source) == relsName {
+			return true
+		}
+	}
+	return false
+}
+
+// writeRewrittenRels writes the .rels part of every source part in
+// rewrittenRels from its modeled relationships, in sorted order. A part with no
+// relationships left gets no .rels, and a dropped part none at all.
+func (d *Document) writeRewrittenRels(writer *opc.Writer) error {
+	sources := make([]string, 0, len(d.rewrittenRels))
+	for source, rewritten := range d.rewrittenRels {
+		if rewritten {
+			sources = append(sources, source)
+		}
+	}
+	sort.Strings(sources)
+	for _, source := range sources {
+		if d.droppedParts[source] {
+			continue
+		}
+		rels := d.relationships[source]
+		if len(rels) == 0 {
+			continue
+		}
+		if err := writer.WritePartRelationships(source, rels); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // removeDroppedOverrides removes the content-type override of every part in

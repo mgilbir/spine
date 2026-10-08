@@ -1,9 +1,12 @@
 package docx
 
 import (
+	"bytes"
+	"regexp"
 	"strings"
 
 	"github.com/mgilbir/spine/docx/internal/oxml"
+	"github.com/mgilbir/spine/opc"
 )
 
 // Mail-merge main-document types (w:mailMerge/w:mainDocumentType), the
@@ -105,18 +108,181 @@ func (d *Document) MailMerge() *MailMerge {
 // creating the settings part if necessary. A nil configuration removes the
 // element, turning the document back into a plain document. Regenerating the
 // element is a modification: the settings part is rewritten on save.
+//
+// Removing the configuration also removes the settings-part relationships it
+// referenced (the data source, header source, ODSO source and recipient data)
+// unless something else in the settings part still references them, and drops
+// a part such a relationship targeted — the recipient-data part — once no
+// relationship in the package targets it any more. Otherwise Word would still
+// find the link to the external data source in the saved file. A later
+// SetMailMerge whose configuration references one of those relationships by
+// id (DataSourceRef, HeaderSourceRef, DataSource.SourceRef) puts it back.
 func (d *Document) SetMailMerge(mm *MailMerge) {
 	if mm == nil {
 		if d.settings == nil {
 			return
 		}
+		var ids []string
+		if el := d.settings.Child("mailMerge"); el != nil {
+			ids = rawRelIDs(el.RawContent)
+		}
 		d.settings.SetMailMerge(nil)
 		d.markSettingsModified()
+		d.releaseSettingsRels(ids)
 		return
 	}
 	s := d.ensureSettings()
 	s.SetMailMerge(toCTMailMerge(mm))
 	d.markSettingsModified()
+	ids := []string{mm.DataSourceRef, mm.HeaderSourceRef}
+	if mm.DataSource != nil {
+		ids = append(ids, mm.DataSource.SourceRef)
+	}
+	d.restoreSettingsRels(ids)
+}
+
+// relIDAttrRe matches a relationship-id attribute (r:id under any prefix) and
+// captures its value.
+var relIDAttrRe = regexp.MustCompile(`\b[A-Za-z_][\w.-]*:id="([^"]*)"`)
+
+// rawRelIDs returns the values of the relationship-id attributes in raw
+// w:mailMerge content, in document order. The schema puts r:id on
+// w:dataSource, w:headerSource, w:odso/w:src and w:odso/w:recipientData and
+// gives no other descendant an attribute named id, so every match is a
+// relationship id, whatever prefix the producer bound to the namespace.
+func rawRelIDs(raw []byte) []string {
+	var ids []string
+	for _, m := range relIDAttrRe.FindAllSubmatch(raw, -1) {
+		ids = append(ids, string(m[1]))
+	}
+	return ids
+}
+
+// releaseSettingsRels removes the settings-part relationships with the given
+// ids that the settings part no longer references, and drops a part one of
+// them targeted once no relationship in the package targets it. The settings
+// part is marshaled to check for remaining references; an id still found as an
+// attribute value anywhere in it is kept, which errs on the side of keeping.
+func (d *Document) releaseSettingsRels(ids []string) {
+	if len(ids) == 0 || d.settings == nil {
+		return
+	}
+	data, err := marshalSettingsXML(d.settings)
+	if err != nil {
+		return
+	}
+	drop := map[string]bool{}
+	for _, id := range ids {
+		if id != "" && !bytes.Contains(data, []byte(`"`+id+`"`)) {
+			drop[id] = true
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	part := d.settingsPartName()
+	var released []*releasedRel
+	kept := make([]*opc.Relationship, 0, len(d.relationships[part]))
+	for _, rel := range d.relationships[part] {
+		if rel == nil || !drop[rel.ID] {
+			kept = append(kept, rel)
+			continue
+		}
+		released = append(released, &releasedRel{rel: rel})
+	}
+	if len(released) == 0 {
+		return
+	}
+	d.relationships[part] = kept
+	if d.rewrittenRels == nil {
+		d.rewrittenRels = make(map[string]bool)
+	}
+	d.rewrittenRels[part] = true
+	if d.releasedSettingsRels == nil {
+		d.releasedSettingsRels = make(map[string]*releasedRel)
+	}
+	for _, r := range released {
+		if r.rel.TargetMode != opc.TargetModeExternal {
+			r.target = opc.ResolvePartName(part, r.rel.Target)
+			r.targetRels, r.dropped = d.dropUntargetedPreservedPart(r.target)
+		}
+		d.releasedSettingsRels[r.rel.ID] = r
+	}
+}
+
+// releasedRel is a settings-part relationship releaseSettingsRels removed, and
+// the part its removal dropped, if any, with that part's relationships.
+type releasedRel struct {
+	rel        *opc.Relationship
+	target     string
+	dropped    bool
+	targetRels []*opc.Relationship
+}
+
+// restoreSettingsRels puts back the released settings-part relationships with
+// the given ids, and the parts their removal dropped. An id the settings part
+// has a relationship for again is left alone.
+func (d *Document) restoreSettingsRels(ids []string) {
+	if len(d.releasedSettingsRels) == 0 {
+		return
+	}
+	part := d.settingsPartName()
+	for _, id := range ids {
+		r := d.releasedSettingsRels[id]
+		if r == nil {
+			continue
+		}
+		delete(d.releasedSettingsRels, id)
+		exists := false
+		for _, rel := range d.relationships[part] {
+			if rel != nil && rel.ID == id {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			continue
+		}
+		d.relationships[part] = append(d.relationships[part], r.rel)
+		if r.dropped {
+			delete(d.droppedParts, r.target)
+			delete(d.droppedParts, opc.GetRelationshipsPartName(r.target))
+			if len(r.targetRels) > 0 {
+				d.relationships[r.target] = r.targetRels
+			}
+		}
+	}
+}
+
+// dropUntargetedPreservedPart drops a part that came from the opened package,
+// and its .rels, when no relationship in the package targets it. Parts its
+// .rels pointed at are left in place: they may be shared. Nothing is dropped
+// when some .rels in the package could not be parsed, as a relationship in it
+// might target the part. It returns the dropped part's relationships and
+// whether it dropped the part.
+func (d *Document) dropUntargetedPreservedPart(name string) ([]*opc.Relationship, bool) {
+	if _, preserved := d.preservedParts[name]; !preserved || len(d.unparsedRels) > 0 {
+		return nil, false
+	}
+	for src, rels := range d.relationships {
+		if d.droppedParts[src] {
+			continue
+		}
+		for _, rel := range rels {
+			if rel != nil && rel.TargetMode != opc.TargetModeExternal &&
+				strings.EqualFold(opc.ResolvePartName(src, rel.Target), name) {
+				return nil, false
+			}
+		}
+	}
+	if d.droppedParts == nil {
+		d.droppedParts = make(map[string]bool)
+	}
+	d.droppedParts[name] = true
+	d.droppedParts[opc.GetRelationshipsPartName(name)] = true
+	rels := d.relationships[name]
+	delete(d.relationships, name)
+	return rels, true
 }
 
 // fromCTMailMerge converts the internal model to the public struct.
