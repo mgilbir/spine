@@ -189,6 +189,11 @@
 
 ### Fixed
 
+- docx: `ReplaceText` matched nothing when Word had written spelling or
+  grammar markers (`w:proofErr`) between the runs of a key, as it does inside
+  placeholders such as `«name»`. The markers no longer split a match; those
+  between the rewritten runs are dropped with their partners, and Word proofs
+  the text again on open.
 - dml, pptx, docx, xlsx: children a model keeps in source order (a picture's
   `a:blip` effects, run and paragraph properties, table properties, and the
   like) that it does not type, or that repeat a single-valued child, were

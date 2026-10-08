@@ -179,3 +179,107 @@ func TestReplaceText_ByteIdenticalWhenNoMatch(t *testing.T) {
 		t.Errorf("no-match ReplaceText changed the saved bytes (%d vs %d)", len(baseline), len(after))
 	}
 }
+
+// proofErrBody is a paragraph whose "{{name}}" placeholder Word split around a
+// spell-check region ("{{", spellStart, "name", spellEnd, "}}"), followed by a
+// second, unrelated flagged word that the replacement must leave alone.
+const proofErrBody = `<w:body><w:p>` +
+	`<w:r><w:t xml:space="preserve">Dear </w:t></w:r>` +
+	`<w:r><w:rPr><w:b/></w:rPr><w:t>{{</w:t></w:r>` +
+	`<w:proofErr w:type="spellStart"/>` +
+	`<w:r><w:t>name</w:t></w:r>` +
+	`<w:proofErr w:type="spellEnd"/>` +
+	`<w:r><w:t>}}</w:t></w:r>` +
+	`<w:r><w:tab/></w:r>` +
+	`<w:proofErr w:type="spellStart"/>` +
+	`<w:r><w:t>Teh</w:t></w:r>` +
+	`<w:proofErr w:type="spellEnd"/>` +
+	`</w:p></w:body>`
+
+func TestReplaceText_AcrossProofingMarkers(t *testing.T) {
+	doc := openDocFixture(t, proofErrBody)
+
+	doc.ReplaceText(map[string]string{"{{name}}": "John"})
+
+	paras := doc.Paragraphs()
+	if got := paras[0].Text(); got != "Dear JohnTeh" {
+		t.Fatalf("paragraph text = %q, want %q", got, "Dear JohnTeh")
+	}
+	xml := saveDocXML(t, doc)
+	if !strings.Contains(xml, `<w:b/></w:rPr><w:t xml:space="preserve">John</w:t>`) {
+		t.Errorf("replacement did not inherit the first matched run's bold formatting:\n%s", xml)
+	}
+	// The pair inside the replaced placeholder is gone; the pair around the
+	// untouched word after the tab survives.
+	if n := strings.Count(xml, `w:type="spellStart"`); n != 1 {
+		t.Errorf("spellStart markers = %d, want 1:\n%s", n, xml)
+	}
+	if n := strings.Count(xml, `w:type="spellEnd"`); n != 1 {
+		t.Errorf("spellEnd markers = %d, want 1:\n%s", n, xml)
+	}
+	if !strings.Contains(xml, `<w:proofErr w:type="spellStart"/><w:r><w:t>Teh</w:t></w:r><w:proofErr w:type="spellEnd"/>`) {
+		t.Errorf("markers around the untouched word moved or were lost:\n%s", xml)
+	}
+}
+
+// TestReplaceText_DropsProofingPartnerOutsideRewrittenRuns checks that a
+// marker pair with only one half among the rewritten runs is removed whole, so
+// no unpaired spellStart is left in front of the replacement, and that every
+// marker between the rewritten runs goes, even one around unmatched text.
+func TestReplaceText_DropsProofingPartnerOutsideRewrittenRuns(t *testing.T) {
+	doc := openDocFixture(t, `<w:body><w:p>`+
+		`<w:proofErr w:type="spellStart"/>`+
+		`<w:r><w:t>{{na</w:t></w:r>`+
+		`<w:proofErr w:type="spellEnd"/>`+
+		`<w:r><w:t>me}}</w:t></w:r>`+
+		`<w:proofErr w:type="gramStart"/>`+
+		`<w:r><w:t xml:space="preserve"> it are</w:t></w:r>`+
+		`<w:proofErr w:type="gramEnd"/>`+
+		`</w:p></w:body>`)
+
+	doc.ReplaceText(map[string]string{"{{name}}": "John"})
+
+	xml := saveDocXML(t, doc)
+	if strings.Contains(xml, "spellStart") || strings.Contains(xml, "spellEnd") {
+		t.Errorf("spelling markers of the replaced text survived:\n%s", xml)
+	}
+	// The grammar pair sits between the same consecutive text runs as the
+	// match, which are rebuilt together, so it is dropped as well.
+	if strings.Contains(xml, "gramStart") || strings.Contains(xml, "gramEnd") {
+		t.Errorf("grammar markers inside the rewritten text survived:\n%s", xml)
+	}
+	if got := doc.Paragraphs()[0].Text(); got != "John it are" {
+		t.Errorf("paragraph text = %q, want %q", got, "John it are")
+	}
+}
+
+// TestReplaceText_ProofingMarkersWithoutMatchUntouched checks that a paragraph
+// carrying proofing markers but no key is not rewritten.
+func TestReplaceText_ProofingMarkersWithoutMatchUntouched(t *testing.T) {
+	baseline := saveDocXML(t, openDocFixture(t, proofErrBody))
+
+	doc := openDocFixture(t, proofErrBody)
+	doc.ReplaceText(map[string]string{"{{other}}": "X"})
+
+	if got := saveDocXML(t, doc); got != baseline {
+		t.Errorf("no-match ReplaceText changed the paragraph:\nwant %s\ngot  %s", baseline, got)
+	}
+}
+
+// TestReplaceText_BookmarkStillSplitsMatch pins the documented boundary: a
+// bookmark marker between a key's runs is not crossed, because the
+// replacement would have to choose where the bookmark goes.
+func TestReplaceText_BookmarkStillSplitsMatch(t *testing.T) {
+	doc := openDocFixture(t, `<w:body><w:p>`+
+		`<w:r><w:t>{{na</w:t></w:r>`+
+		`<w:bookmarkStart w:id="0" w:name="mark"/>`+
+		`<w:r><w:t>me}}</w:t></w:r>`+
+		`<w:bookmarkEnd w:id="0"/>`+
+		`</w:p></w:body>`)
+
+	doc.ReplaceText(map[string]string{"{{name}}": "John"})
+
+	if got := doc.Paragraphs()[0].Text(); got != "{{name}}" {
+		t.Errorf("paragraph text = %q, want it unchanged", got)
+	}
+}
