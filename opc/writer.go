@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
+	"sort"
 	"strings"
 )
 
@@ -43,6 +45,10 @@ type Writer struct {
 	output    io.Writer
 	parts     map[string]bool
 	closed    bool
+
+	// unusedDefaults holds the extension -> content type defaults Close drops
+	// when no part written to the package relies on them (DropDefaultIfUnused).
+	unusedDefaults map[string]string
 
 	// pkgRels holds the relationships of a package-relationships part the
 	// caller wrote verbatim (round-trip preservation). Close consults it to
@@ -337,7 +343,49 @@ func (w *Writer) addRelationship(relType, target string, targetMode TargetMode) 
 }
 
 // writeContentTypes writes the [Content_Types].xml file.
+// DropDefaultIfUnused asks Close to remove the Default content type for
+// extension, if it still maps to contentType, when no part written to the
+// package relies on it: every part with that extension has an override, or
+// there is none. A caller that removed the only parts a default existed for
+// (a VBA project's vbaProject.bin and its "bin" default) uses it so the saved
+// [Content_Types].xml does not keep the stale entry. The check runs at Close,
+// against the parts actually written.
+func (w *Writer) DropDefaultIfUnused(extension, contentType string) {
+	if w.unusedDefaults == nil {
+		w.unusedDefaults = make(map[string]string)
+	}
+	w.unusedDefaults[strings.ToLower(strings.TrimPrefix(extension, "."))] = contentType
+}
+
+// dropUnusedDefaults applies DropDefaultIfUnused requests, in extension order.
+func (w *Writer) dropUnusedDefaults() {
+	if len(w.unusedDefaults) == 0 || w.ContentTypes == nil {
+		return
+	}
+	exts := make([]string, 0, len(w.unusedDefaults))
+	for ext := range w.unusedDefaults {
+		exts = append(exts, ext)
+	}
+	sort.Strings(exts)
+	for _, ext := range exts {
+		if w.ContentTypes.Defaults[ext] != w.unusedDefaults[ext] {
+			continue
+		}
+		used := false
+		for key := range w.parts {
+			if strings.EqualFold(strings.TrimPrefix(path.Ext(key), "."), ext) && !w.ContentTypes.hasOverride(key) {
+				used = true
+				break
+			}
+		}
+		if !used {
+			w.ContentTypes.RemoveDefault(ext)
+		}
+	}
+}
+
 func (w *Writer) writeContentTypes() error {
+	w.dropUnusedDefaults()
 	// A raw-written [Content_Types].xml was deferred to this point: emit it
 	// now, merging in any content types registered after the raw write (C46).
 	if w.rawContentTypes != nil {
@@ -362,7 +410,7 @@ func (w *Writer) writeContentTypes() error {
 
 // mergedRawContentTypes returns the raw [Content_Types].xml bytes handed to
 // WriteRawFile, with content types registered after that raw write merged in
-// and overrides removed after it taken out. The raw bytes are returned
+// and defaults and overrides removed after it taken out. The raw bytes are returned
 // verbatim when nothing was registered or removed, or when every change is
 // already reflected in them; otherwise the raw file is parsed, edited, and
 // re-marshaled — the parse captures the source formatting (prolog, entry
@@ -371,7 +419,7 @@ func (w *Writer) writeContentTypes() error {
 func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 	// Collect registrations made after the raw write: entries in the live
 	// ContentTypes that the snapshot taken at WriteRawFile time did not carry.
-	var newDefaults, newOverrides, removedOverrides []string
+	var newDefaults, newOverrides, removedDefaults, removedOverrides []string
 	for _, ext := range w.ContentTypes.orderedDefaults() {
 		if prev, ok := w.ctAtRawWrite.Defaults[ext]; ok && prev == w.ContentTypes.Defaults[ext] {
 			continue
@@ -384,6 +432,12 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 		}
 		newOverrides = append(newOverrides, name)
 	}
+	// Defaults removed after the raw write (DropDefaultIfUnused).
+	for _, ext := range w.ctAtRawWrite.orderedDefaults() {
+		if _, ok := w.ContentTypes.Defaults[ext]; !ok {
+			removedDefaults = append(removedDefaults, ext)
+		}
+	}
 	// Overrides removed after the raw write (RemoveOverride for a part the
 	// save dropped): the raw bytes still carry them, and an override naming a
 	// part the package no longer has would dangle.
@@ -392,7 +446,7 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 			removedOverrides = append(removedOverrides, name)
 		}
 	}
-	if len(newDefaults) == 0 && len(newOverrides) == 0 && len(removedOverrides) == 0 {
+	if len(newDefaults) == 0 && len(newOverrides) == 0 && len(removedDefaults) == 0 && len(removedOverrides) == 0 {
 		return w.rawContentTypes, nil
 	}
 
@@ -401,10 +455,17 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 		// The raw bytes need additions but cannot be parsed: failing loudly
 		// beats emitting a package whose new parts have no content type.
 		return nil, fmt.Errorf("opc: content types were registered or removed after WriteRawFile(\"[Content_Types].xml\") but the raw bytes do not parse, so they cannot be merged (first unmergeable: %s): %w",
-			firstNewContentTypeEntry(newDefaults, newOverrides, removedOverrides), err)
+			firstNewContentTypeEntry(newDefaults, newOverrides, append(removedDefaults, removedOverrides...)), err)
 	}
 
 	merged := false
+	for _, ext := range removedDefaults {
+		before := len(parsed.Defaults)
+		parsed.RemoveDefault(ext)
+		if len(parsed.Defaults) != before {
+			merged = true
+		}
+	}
 	for _, name := range removedOverrides {
 		before := len(parsed.Overrides)
 		parsed.RemoveOverride(name)
@@ -435,16 +496,17 @@ func (w *Writer) mergedRawContentTypes() ([]byte, error) {
 }
 
 // firstNewContentTypeEntry names one late-registered or removed entry for
-// error messages.
-func firstNewContentTypeEntry(newDefaults, newOverrides, removedOverrides []string) string {
+// error messages. removed lists removed default extensions and override part
+// names.
+func firstNewContentTypeEntry(newDefaults, newOverrides, removed []string) string {
 	if len(newOverrides) > 0 {
 		return "override for " + newOverrides[0]
 	}
 	if len(newDefaults) > 0 {
 		return "default for extension ." + newDefaults[0]
 	}
-	if len(removedOverrides) > 0 {
-		return "removed override for " + removedOverrides[0]
+	if len(removed) > 0 {
+		return "removed entry for " + removed[0]
 	}
 	return "none"
 }

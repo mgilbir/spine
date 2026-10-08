@@ -218,3 +218,35 @@ func TestVBAReplaceDropsSignature(t *testing.T) {
 		t.Error("the replacement project was not written")
 	}
 }
+
+// TestVBARemoveDropsBinDefault checks that removing a project whose content
+// type came from a "bin" Default also removes that Default.
+func TestVBARemoveDropsBinDefault(t *testing.T) {
+	wb, err := Open("testdata/minimal.xlsx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	wb.SetVBAProject(testVBABytes)
+	macro, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	macro = testutil.UseBinDefaultForVBA(t, macro, "xl")
+
+	re, err := OpenReader(bytes.NewReader(macro), int64(len(macro)))
+	if err != nil {
+		t.Fatalf("OpenReader: %v", err)
+	}
+	if !re.HasMacros() {
+		t.Fatal("fixture lost its macros")
+	}
+	re.RemoveVBAProject()
+	out, err := re.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes after remove: %v", err)
+	}
+	assertVBADependentsGone(t, out, "xl")
+	if _, err := OpenReader(bytes.NewReader(out), int64(len(out))); err != nil {
+		t.Fatalf("OpenReader after remove: %v", err)
+	}
+}

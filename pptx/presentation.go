@@ -178,6 +178,10 @@ type Presentation struct {
 	// (RemoveSlide and the parts it owns), so the save drops their lingering
 	// content-type overrides.
 	removedParts map[string]bool
+	// vbaRemoved marks that RemoveVBAProject removed the VBA project this
+	// session (and no SetVBAProject put one back), so the save drops the
+	// "bin" default registered for it when nothing else relies on it.
+	vbaRemoved bool
 	// mediaGCNeeded marks that relationships were dropped this session
 	// (RemoveSlide, RemoveShape sync, poster swaps), allowing the save to
 	// garbage-collect /ppt/media/ parts no relationship references anymore
@@ -919,6 +923,9 @@ func (p *Presentation) SaveToUnvalidated(dst io.Writer) error {
 		// if it were good; the output must be discarded either way.
 		_ = writer.Abort()
 		return err
+	}
+	if p.vbaRemoved {
+		writer.DropDefaultIfUnused("bin", opc.ContentTypeVBAProject)
 	}
 	if err := writer.Close(); err != nil {
 		return err

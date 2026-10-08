@@ -83,6 +83,7 @@ func (p *Presentation) SetVBAProject(data []byte) {
 		Data:        append([]byte(nil), data...),
 	}
 	delete(p.removedParts, name)
+	p.vbaRemoved = false
 
 	if p.vbaRelID() == "" {
 		p.addPresentationRel(opc.RelTypeVBAProject, "vbaProject.bin")
@@ -128,6 +129,7 @@ func (p *Presentation) RemoveVBAProject() {
 	delete(p.relationships, name)
 	delete(p.otherParts, name)
 	p.markPartRemoved(name)
+	p.vbaRemoved = true
 	p.markModelEdited()
 	p.flavor = opc.PlainFlavor(p.Flavor())
 }

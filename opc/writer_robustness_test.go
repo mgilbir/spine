@@ -476,3 +476,89 @@ func TestWriteRawFile_ContentTypes_RemoveAbsentOverrideKeepsRaw(t *testing.T) {
 		t.Errorf("raw CT not preserved verbatim:\ngot  %q\nwant %q", got, rawCTWithOverrides)
 	}
 }
+
+const rawCTWithBinDefault = `<?xml version="1.0" encoding="utf-8"?>` + "\n" +
+	`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+	`<Default Extension="bin" ContentType="` + ContentTypeVBAProject + `"/>` +
+	`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+	`<Default Extension="xml" ContentType="application/xml"/>` +
+	`</Types>`
+
+// writeWithBinDefault writes a package from rawCTWithBinDefault plus the given
+// extra parts (name -> override content type, "" for none) and asks Close to
+// drop the "bin" default if unused.
+func writeWithBinDefault(t *testing.T, raw bool, parts map[string]string) string {
+	t.Helper()
+	ct, err := UnmarshalContentTypes([]byte(rawCTWithBinDefault))
+	if err != nil {
+		t.Fatalf("UnmarshalContentTypes() error = %v", err)
+	}
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	w.ContentTypes = ct.Clone()
+	if raw {
+		if err := w.WriteRawFile("[Content_Types].xml", []byte(rawCTWithBinDefault)); err != nil {
+			t.Fatalf("WriteRawFile() error = %v", err)
+		}
+	}
+	for _, name := range []string{"/word/a.bin", "/word/b.bin"} {
+		ctype, ok := parts[name]
+		if !ok {
+			continue
+		}
+		if ctype != "" {
+			w.ContentTypes.SetOverride(name, ctype)
+		}
+		if err := w.WritePart(name, ctype, []byte("data")); err != nil {
+			t.Fatalf("WritePart(%s) error = %v", name, err)
+		}
+	}
+	w.DropDefaultIfUnused("bin", ContentTypeVBAProject)
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	return string(readCTEntry(t, buf.Bytes()))
+}
+
+func TestDropDefaultIfUnused(t *testing.T) {
+	const binDefault = `<Default Extension="bin" ContentType="` + ContentTypeVBAProject + `"/>`
+	for _, raw := range []bool{false, true} {
+		// No .bin part left: the default goes, the rest keeps its form.
+		got := writeWithBinDefault(t, raw, nil)
+		if strings.Contains(got, `Extension="bin"`) {
+			t.Errorf("raw=%v: unused bin default kept:\n%s", raw, got)
+		}
+		if raw && got != strings.Replace(rawCTWithBinDefault, binDefault, "", 1) {
+			t.Errorf("raw=%v: remaining entries changed:\n%s", raw, got)
+		}
+		// A .bin part with its own override does not need the default.
+		got = writeWithBinDefault(t, raw, map[string]string{"/word/a.bin": "application/vnd.example.a"})
+		if strings.Contains(got, `Extension="bin"`) {
+			t.Errorf("raw=%v: bin default kept although every .bin part has an override:\n%s", raw, got)
+		}
+		// A .bin part that relies on the default keeps it.
+		got = writeWithBinDefault(t, raw, map[string]string{"/word/a.bin": "application/vnd.example.a", "/word/b.bin": ""})
+		if !strings.Contains(got, binDefault) {
+			t.Errorf("raw=%v: bin default dropped although /word/b.bin relies on it:\n%s", raw, got)
+		}
+	}
+}
+
+// TestRemoveDefaultForgetsSpelling checks that a default removed and set again
+// is written with the new spelling of its extension.
+func TestRemoveDefaultForgetsSpelling(t *testing.T) {
+	ct := NewContentTypes()
+	ct.SetDefault("BIN", ContentTypeVBAProject)
+	ct.RemoveDefault("bin")
+	if _, ok := ct.Defaults["bin"]; ok {
+		t.Fatal("default not removed")
+	}
+	ct.SetDefault("bin", "application/octet-stream")
+	data, err := ct.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `Extension="bin"`) {
+		t.Errorf("re-added default keeps the old spelling:\n%s", data)
+	}
+}

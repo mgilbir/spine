@@ -421,6 +421,40 @@ func (ct *ContentTypes) displayExtension(ext string) string {
 	return ext
 }
 
+// RemoveDefault removes the default content type for a file extension
+// (matched case-insensitively, as SetDefault stores it). Parts that relied on
+// it are left without a content type, so only remove a default no part needs.
+func (ct *ContentTypes) RemoveDefault(extension string) {
+	ext := strings.ToLower(strings.TrimPrefix(extension, "."))
+	if _, ok := ct.Defaults[ext]; !ok {
+		return
+	}
+	delete(ct.Defaults, ext)
+	delete(ct.origExt, ext)
+	for i, entry := range ct.defaultOrder {
+		if entry == ext {
+			ct.defaultOrder = append(ct.defaultOrder[:i], ct.defaultOrder[i+1:]...)
+			break
+		}
+	}
+}
+
+// hasOverride reports whether partName has an override, matched like
+// GetContentType does.
+func (ct *ContentTypes) hasOverride(partName string) bool {
+	if _, ok := ct.Overrides[partName]; ok {
+		return true
+	}
+	for _, name := range ct.overrideOrder {
+		if strings.EqualFold(name, partName) {
+			if _, ok := ct.Overrides[name]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SetOverride sets a content type override for a specific part.
 func (ct *ContentTypes) SetOverride(partName, contentType string) {
 	if _, exists := ct.Overrides[partName]; !exists {

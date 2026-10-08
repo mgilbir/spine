@@ -200,6 +200,12 @@
 
 ### Fixed
 
+- docx, pptx, xlsx: `RemoveVBAProject` left the `bin` `Default` that maps
+  `.bin` parts to the VBA project content type in `[Content_Types].xml`, as
+  Office often declares the project that way. The save now removes it when no
+  part written to the package still relies on it. New
+  `opc.Writer.DropDefaultIfUnused` and `ContentTypes.RemoveDefault`; the raw
+  `[Content_Types].xml` path takes removed defaults out as it does overrides.
 - docx, pptx, xlsx: `SetVBAProject` replacing a signed project kept the old
   project's signatures, which sign the old bytes, so Office reported the new
   project's signature as invalid. Replacing a project now drops its signature
