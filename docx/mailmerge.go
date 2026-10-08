@@ -46,6 +46,11 @@ type MailMerge struct {
 	// Destination is the merge output target (w:destination), e.g.
 	// "newDocument", "printer", "email", or "fax".
 	Destination string
+	// DoNotSuppressBlankLines keeps the lines a merge leaves blank
+	// (w:doNotSuppressBlankLines). Word removes them when it is false, its
+	// default; pass !DoNotSuppressBlankLines as MergeOptions.SuppressBlankLines
+	// to merge the way the document asks.
+	DoNotSuppressBlankLines bool
 	// DataSourceRef is the relationship ID (r:id) of the merge data source
 	// (w:dataSource) when it is an external part.
 	DataSourceRef string
@@ -260,15 +265,16 @@ func (d *Document) restoreSettingsRels(ids []string) {
 // fromCTMailMerge converts the internal model to the public struct.
 func fromCTMailMerge(c *oxml.CT_MailMerge) *MailMerge {
 	mm := &MailMerge{
-		MainDocumentType: strVal(c.MainDocumentType),
-		DataType:         strVal(c.DataType),
-		ConnectString:    strVal(c.ConnectString),
-		Query:            strVal(c.Query),
-		LinkToQuery:      c.LinkToQuery.IsOn(),
-		ViewMergedData:   c.ViewMergedData.IsOn(),
-		Destination:      strVal(c.Destination),
-		DataSourceRef:    relID(c.DataSource),
-		HeaderSourceRef:  relID(c.HeaderSource),
+		MainDocumentType:        strVal(c.MainDocumentType),
+		DataType:                strVal(c.DataType),
+		ConnectString:           strVal(c.ConnectString),
+		Query:                   strVal(c.Query),
+		LinkToQuery:             c.LinkToQuery.IsOn(),
+		ViewMergedData:          c.ViewMergedData.IsOn(),
+		Destination:             strVal(c.Destination),
+		DoNotSuppressBlankLines: c.DoNotSuppressBlankLines.IsOn(),
+		DataSourceRef:           relID(c.DataSource),
+		HeaderSourceRef:         relID(c.HeaderSource),
 	}
 	if c.Odso != nil {
 		ds := &MailMergeDataSource{
@@ -299,15 +305,16 @@ func fromCTMailMerge(c *oxml.CT_MailMerge) *MailMerge {
 // toCTMailMerge converts the public struct to the internal model.
 func toCTMailMerge(mm *MailMerge) *oxml.CT_MailMerge {
 	c := &oxml.CT_MailMerge{
-		MainDocumentType: newStr(mm.MainDocumentType),
-		DataType:         newStr(mm.DataType),
-		ConnectString:    newStr(mm.ConnectString),
-		Query:            newStr(mm.Query),
-		LinkToQuery:      newOnOff(mm.LinkToQuery),
-		ViewMergedData:   newOnOff(mm.ViewMergedData),
-		Destination:      newStr(mm.Destination),
-		DataSource:       newRel(mm.DataSourceRef),
-		HeaderSource:     newRel(mm.HeaderSourceRef),
+		MainDocumentType:        newStr(mm.MainDocumentType),
+		DataType:                newStr(mm.DataType),
+		ConnectString:           newStr(mm.ConnectString),
+		Query:                   newStr(mm.Query),
+		LinkToQuery:             newOnOff(mm.LinkToQuery),
+		ViewMergedData:          newOnOff(mm.ViewMergedData),
+		Destination:             newStr(mm.Destination),
+		DoNotSuppressBlankLines: newOnOff(mm.DoNotSuppressBlankLines),
+		DataSource:              newRel(mm.DataSourceRef),
+		HeaderSource:            newRel(mm.HeaderSourceRef),
 	}
 	if mm.DataSource != nil {
 		ds := mm.DataSource
@@ -378,6 +385,7 @@ func (d *Document) MergeFields() []string {
 // to its part.
 type mergeStory struct {
 	paras    func() []*oxml.CT_P
+	block    any // the story's block content, for SuppressBlankParagraphs
 	scope    oxml.NSScope
 	modified func()
 }
@@ -396,6 +404,7 @@ func (d *Document) mergeStories() []mergeStory {
 	if doc := d.doc(); doc != nil && doc.Body != nil {
 		out = append(out, mergeStory{
 			paras:    doc.Body.AllParagraphs,
+			block:    doc.Body,
 			scope:    scopeOf(doc.OriginalNSDecls),
 			modified: d.markEdited,
 		})
@@ -404,6 +413,7 @@ func (d *Document) mergeStories() []mergeStory {
 		if hp := d.headers[name]; hp != nil && hp.hdr != nil {
 			out = append(out, mergeStory{
 				paras:    hp.hdr.AllParagraphs,
+				block:    hp.hdr,
 				scope:    scopeOf(hp.hdr.OriginalNSDecls),
 				modified: func() { d.markHdrFtrModified(name) },
 			})
@@ -413,6 +423,7 @@ func (d *Document) mergeStories() []mergeStory {
 		if fp := d.footers[name]; fp != nil && fp.ftr != nil {
 			out = append(out, mergeStory{
 				paras:    fp.ftr.AllParagraphs,
+				block:    fp.ftr,
 				scope:    scopeOf(fp.ftr.OriginalNSDecls),
 				modified: func() { d.markHdrFtrModified(name) },
 			})
@@ -423,6 +434,7 @@ func (d *Document) mergeStories() []mergeStory {
 			if n != nil {
 				out = append(out, mergeStory{
 					paras:    n.AllParagraphs,
+					block:    n,
 					scope:    scopeOf(d.footnotes.OriginalNSDecls),
 					modified: d.markFootnotesModified,
 				})
@@ -434,6 +446,7 @@ func (d *Document) mergeStories() []mergeStory {
 			if n != nil {
 				out = append(out, mergeStory{
 					paras:    n.AllParagraphs,
+					block:    n,
 					scope:    scopeOf(d.endnotes.OriginalNSDecls),
 					modified: d.markEndnotesModified,
 				})
@@ -481,6 +494,34 @@ func (d *Document) mergeStories() []mergeStory {
 // math, when a field character shares its run with other content, or when its
 // result holds anything other than text, tabs and breaks.
 func (d *Document) FillMergeFields(values map[string]string) []string {
+	return d.FillMergeFieldsWith(values, MergeOptions{})
+}
+
+// MergeOptions tunes FillMergeFieldsWith. The zero value merges exactly as
+// FillMergeFields does.
+type MergeOptions struct {
+	// Missing supplies the value of a MERGEFIELD whose name is not a key of
+	// values. It returns the value and true to replace the field — "" to
+	// remove it, a placeholder such as "[" + name + "]" to show it — or false
+	// to leave the field in place and report it, which is what a nil Missing
+	// does for every such field. The value is used like one from values: the
+	// field's switches apply to it.
+	Missing func(name string) (string, bool)
+	// SuppressBlankLines removes the paragraphs the merge left blank, as Word
+	// does unless the document sets MailMerge.DoNotSuppressBlankLines. A
+	// paragraph is removed when the merge replaced a field in it with no text
+	// and nothing but whitespace is left. It is kept when it is the last
+	// paragraph of its body, cell, header, footer, note or text box, when it
+	// carries section properties or a tracked change of its paragraph mark or
+	// properties, when it is all that separates two tables (which Word would
+	// join), or when it holds anything else (a bookmark, a comment range,
+	// another field, a picture), so a removal never loses content.
+	SuppressBlankLines bool
+}
+
+// FillMergeFieldsWith is FillMergeFields with options: a value for fields
+// missing from values, and Word's blank-line suppression.
+func (d *Document) FillMergeFieldsWith(values map[string]string, opts MergeOptions) []string {
 	order := map[string]int{}
 	for i, name := range d.MergeFields() {
 		order[name] = i
@@ -500,6 +541,9 @@ func (d *Document) FillMergeFields(values map[string]string) []string {
 				return "", false
 			}
 			value, ok := values[name]
+			if !ok && opts.Missing != nil {
+				value, ok = opts.Missing(name)
+			}
 			if !ok {
 				note(name)
 				return "", false
@@ -513,7 +557,10 @@ func (d *Document) FillMergeFields(values map[string]string) []string {
 		},
 	}
 
+	filler.SuppressBlank = opts.SuppressBlankLines
 	for _, st := range d.mergeStories() {
+		emptied := map[*oxml.CT_P]bool{}
+		filler.Emptied = func(p *oxml.CT_P) { emptied[p] = true }
 		changed := oxml.FillFields(st.paras(), filler)
 		for _, p := range st.paras() {
 			for _, r := range oxml.ContainerRuns(p) {
@@ -523,6 +570,9 @@ func (d *Document) FillMergeFields(values map[string]string) []string {
 					}
 				})
 			}
+		}
+		if opts.SuppressBlankLines && oxml.SuppressBlankParagraphs(st.block, emptied) {
+			changed = true
 		}
 		if changed {
 			st.modified()

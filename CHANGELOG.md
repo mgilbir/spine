@@ -4,6 +4,12 @@
 
 ### Added
 
+- docx: `Document.FillMergeFieldsWith(values, MergeOptions)`: `Missing`
+  supplies a value (empty, or a placeholder) for fields missing from `values`,
+  and `SuppressBlankLines` removes the paragraphs the merge left blank, as
+  Word does, while keeping any paragraph whose removal would lose content or
+  that its container needs. `MailMerge.DoNotSuppressBlankLines` reads and
+  writes `w:doNotSuppressBlankLines`, which `SetMailMerge` used to drop.
 - docx: `MergeFields` and `FillMergeFields` also cover footnotes, endnotes and
   text boxes (`w:txbxContent` in DrawingML shapes and VML pictures, both
   copies of an `mc:AlternateContent`, nested boxes included). A text box body

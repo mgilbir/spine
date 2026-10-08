@@ -246,7 +246,10 @@ func FillTextBoxFields(raw *[]byte, scope NSScope, f FieldFiller) bool {
 		// c is parsed from the raw bytes, so filling it leaves raw untouched
 		// until the body is written back below.
 		paras := c.AllParagraphs()
-		filled := FillFields(paras, f)
+		inner := f
+		emptied := map[*CT_P]bool{}
+		inner.Emptied = func(p *CT_P) { emptied[p] = true }
+		filled := FillFields(paras, inner)
 		for _, p := range paras {
 			for _, r := range ContainerRuns(p) {
 				TextBoxRawChildren(r, sp.scope, func(inner *[]byte, sc NSScope) {
@@ -258,6 +261,9 @@ func FillTextBoxFields(raw *[]byte, scope NSScope, f FieldFiller) bool {
 		}
 		if !filled {
 			continue
+		}
+		if f.SuppressBlank {
+			SuppressBlankParagraphs(c, emptied)
 		}
 		content, ok := marshalTxbxContent(c, sp.scope)
 		if !ok {
