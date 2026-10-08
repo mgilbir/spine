@@ -4,6 +4,17 @@
 
 ### Added
 
+- docx: `Document.FillMergeFields` merges one record into a mail-merge
+  document: every MERGEFIELD whose name has a value becomes that value as plain
+  text, in the formatting of the field's result, as in a letter Word merged.
+  Line breaks and tabs in a value are kept, and the `\b`, `\f` and
+  `\* Upper/Lower/FirstCap/Caps` switches are applied; number and date
+  pictures are not, so pass formatted values. A MERGEFIELD in an IF condition
+  becomes instruction text, quoted as one argument, so the IF still compares
+  the value. It covers the
+  body, headers and footers, and returns the names of the merge fields it left:
+  those with no value, and locked fields or fields whose markup it cannot
+  replace without losing content.
 - render: the shared glyph painter draws fonts whose glyphs are only monochrome
   or greyscale bitmap strikes (`EBDT`/`EBLC`, Apple's `bdat`/`bloc`) in the
   PowerPoint, Word and Excel previews, as forme v0.8.0 paints them: each
