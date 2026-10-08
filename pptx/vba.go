@@ -86,8 +86,10 @@ func (p *Presentation) SetVBAProject(data []byte) {
 
 // RemoveVBAProject removes the presentation's VBA project part, dropping its
 // content-type override and presentation relationship and flipping the main
-// part back to the regular (non-macro) flavor. It is a no-op on a presentation
-// that carries no macros.
+// part back to the regular (non-macro) flavor. The parts the project's own
+// relationships target — its signatures — are removed with it, along with the
+// project's .rels, unless another relationship in the package still targets
+// them. It is a no-op on a presentation that carries no macros.
 func (p *Presentation) RemoveVBAProject() {
 	name := p.resolveVBAPartName()
 	if _, ok := p.otherParts[name]; !ok {
@@ -102,6 +104,22 @@ func (p *Presentation) RemoveVBAProject() {
 			}
 		}
 	}
+	for _, rel := range p.relationships[name] {
+		if rel == nil || rel.TargetMode == opc.TargetModeExternal {
+			continue
+		}
+		target := opc.ResolvePartName(name, rel.Target)
+		if p.partReferencedElsewhere(target, name) {
+			continue
+		}
+		if _, ok := p.otherParts[target]; !ok {
+			continue
+		}
+		delete(p.otherParts, target)
+		delete(p.relationships, target)
+		p.markPartRemoved(target)
+	}
+	delete(p.relationships, name)
 	delete(p.otherParts, name)
 	p.markPartRemoved(name)
 	p.markModelEdited()
