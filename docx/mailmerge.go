@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -472,7 +473,8 @@ func (d *Document) mergeStories() []mergeStory {
 // simple case mapping, then \b and \f, whose text goes before and after a
 // non-empty value. \* MERGEFORMAT and \* CHARFORMAT need nothing. Number and
 // date pictures (\# and \@) and other \* formats are not applied: pass the
-// value already formatted. An empty value removes the field.
+// value already formatted, or use FillMergeFieldsWith with
+// MergeOptions.FormatSwitches. An empty value removes the field.
 //
 // A MERGEFIELD in the condition of an enclosing field, such as an IF, becomes
 // instruction text, so the enclosing field still compares the value when Word
@@ -517,11 +519,59 @@ type MergeOptions struct {
 	// join), or when it holds anything else (a bookmark, a comment range,
 	// another field, a picture), so a removal never loses content.
 	SuppressBlankLines bool
+	// FormatSwitches applies the fields' \@ date and \# number formats (what
+	// Word calls date-time and numeric pictures) to their values, as Word
+	// does. Off, values are written as given. The format applies before the
+	// \* case formats and the \b and \f text.
+	//
+	// Values are read as ISO 8601 dates and times (2026-04-17,
+	// 2026-04-17T09:30, 2026-04-17 09:30:00, RFC 3339, or a time alone,
+	// 09:30, on 1 January of year 0) and as decimal numbers with a point
+	// (1234.5, -0.25); ParseDate and ParseNumber read other forms. A value
+	// that does not parse, or a format Word refuses or garbles (unmatched
+	// quotes; an am/pm spelling other than am/pm or AM/PM) or spine does not
+	// support (a `numbered item`), is written as given and reported to Warn.
+	// The formatting rules were checked against Word, including where Word
+	// departs from its documentation; an empty number format or section, for
+	// one, shows nothing.
+	FormatSwitches bool
+	// Platform is the Word whose output FormatSwitches reproduces where Word
+	// for Windows and Word for Mac differ: some short month and day names
+	// (German, Spanish, Danish) and the AM/PM marker. The zero value is
+	// WordWindows.
+	Platform WordPlatform
+	// Locale is the BCP 47 tag ("de-DE") whose decimal and digit-grouping
+	// symbols \# formats are read and written with — Word takes them from
+	// the computer's regional settings, so the same format means "1.234,50"
+	// on a German computer — and the last fallback for month and day names,
+	// which follow the field's own language (the w:lang of its run), then the
+	// document's default language. Empty means "en-US". Languages set through
+	// paragraph or character styles are not consulted.
+	Locale string
+	// DecimalSeparator and GroupSeparator override the locale's symbols, for
+	// regions whose symbols differ from their language's (de-CH writes
+	// 1’234.5). Empty means the locale's.
+	DecimalSeparator, GroupSeparator string
+	// DateNames adds or replaces month and day names, keyed by primary
+	// language subtag ("pt"). Built in: da, de, en, es, fr, it, nl.
+	DateNames map[string]DateNames
+	// ParseDate, when set, reads a value as a date and time instead of the
+	// default ISO 8601 forms.
+	ParseDate func(value string) (time.Time, bool)
+	// ParseNumber, when set, reads a value as a number instead of the default
+	// form. It returns the number as a decimal string with an optional sign
+	// and a point ("-1234.5"), which is then formatted exactly.
+	ParseNumber func(value string) (string, bool)
+	// Warn, when set, is called for each value written as given because it
+	// did not parse or its format is not supported.
+	Warn func(field, value, reason string)
 }
 
 // FillMergeFieldsWith is FillMergeFields with options: a value for fields
 // missing from values, and Word's blank-line suppression.
 func (d *Document) FillMergeFieldsWith(values map[string]string, opts MergeOptions) []string {
+	docLang := d.defaultLanguage()
+	format := fieldFormatOf(opts)
 	order := map[string]int{}
 	for i, name := range d.MergeFields() {
 		order[name] = i
@@ -535,7 +585,7 @@ func (d *Document) FillMergeFieldsWith(values map[string]string, opts MergeOptio
 		}
 	}
 	filler := oxml.FieldFiller{
-		Fill: func(instr string, _ bool) (string, bool) {
+		Fill: func(instr string, _ bool, lang string) (string, bool) {
 			name, ok := mergeFieldName(instr)
 			if !ok {
 				return "", false
@@ -548,7 +598,9 @@ func (d *Document) FillMergeFieldsWith(values map[string]string, opts MergeOptio
 				note(name)
 				return "", false
 			}
-			return mergeFieldText(value, instr), true
+			sw := parseFieldSwitches(instr)
+			value = applyPicture(name, value, sw, format, lang, docLang)
+			return sw.apply(value), true
 		},
 		Skipped: func(instr string) {
 			if name, ok := mergeFieldName(instr); ok {
@@ -591,37 +643,81 @@ func (d *Document) FillMergeFieldsWith(values map[string]string, opts MergeOptio
 	return unfilled
 }
 
-// mergeFieldText applies a MERGEFIELD instruction's text switches to value:
-// the \* case formats first, then the \b and \f text around a non-empty
-// result. Switch names match case-insensitively, as in Word; an argument may
-// follow its switch as the next token or be written against it (\b"Dear ").
-func mergeFieldText(value, instr string) string {
+// defaultLanguage returns the document's default run language (the
+// w:docDefaults run properties' w:lang w:val), or "".
+func (d *Document) defaultLanguage() string {
+	st := d.styles
+	if st == nil || st.DocDefaults == nil || st.DocDefaults.RPrDefault == nil ||
+		st.DocDefaults.RPrDefault.RPr == nil || st.DocDefaults.RPrDefault.RPr.Lang == nil {
+		return ""
+	}
+	return st.DocDefaults.RPrDefault.RPr.Lang.Val
+}
+
+// fieldSwitches are the switches of a MERGEFIELD instruction that shape its
+// text.
+type fieldSwitches struct {
+	before, after string
+	cases         []string // \* formats, in order
+	date, number  string   // \@ and \# pictures (the first of each)
+	hasDate       bool
+	hasNumber     bool
+}
+
+// parseFieldSwitches reads the switches after a MERGEFIELD's name. Switch
+// names match case-insensitively, as in Word; an argument may follow its
+// switch as the next token or be written against it (\b"Dear ").
+func parseFieldSwitches(instr string) fieldSwitches {
+	var sw fieldSwitches
 	toks := fieldSwitchTokens(instr)
-	var before, after string
 	for i := 2; i < len(toks); i++ {
 		tok := toks[i]
 		if len(tok) < 2 || tok[0] != '\\' {
 			continue
 		}
-		sw := strings.ToLower(tok[1:2])
+		name := strings.ToLower(tok[1:2])
 		arg := tok[2:]
-		if arg == "" && i+1 < len(toks) && (sw == "b" || sw == "f" || sw == "*") {
+		// A switch's argument is the next token unless that is a switch
+		// itself (\@ \* MERGEFORMAT has no date format).
+		if arg == "" && i+1 < len(toks) && strings.Contains("bf*@#", name) && !strings.HasPrefix(toks[i+1], "\\") {
 			i++
 			arg = toks[i]
 		}
-		switch sw {
+		switch name {
 		case "b":
-			before = arg
+			sw.before = arg
 		case "f":
-			after = arg
+			sw.after = arg
 		case "*":
-			value = applyCaseFormat(value, arg)
+			sw.cases = append(sw.cases, arg)
+		case "@":
+			if !sw.hasDate {
+				sw.date, sw.hasDate = arg, true
+			}
+		case "#":
+			if !sw.hasNumber {
+				sw.number, sw.hasNumber = arg, true
+			}
 		}
+	}
+	return sw
+}
+
+// mergeFieldText applies a MERGEFIELD instruction's text switches to value:
+// the \* case formats in order, then the \b and \f text around a non-empty
+// result.
+func mergeFieldText(value, instr string) string {
+	return parseFieldSwitches(instr).apply(value)
+}
+
+func (sw fieldSwitches) apply(value string) string {
+	for _, c := range sw.cases {
+		value = applyCaseFormat(value, c)
 	}
 	if value == "" {
 		return ""
 	}
-	return before + value + after
+	return sw.before + value + sw.after
 }
 
 // fieldSwitchTokens splits a field instruction into tokens like

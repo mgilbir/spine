@@ -4,6 +4,22 @@
 
 ### Added
 
+- docx: `MergeOptions.FormatSwitches` applies the `\@` date and `\#` number
+  formats of MERGEFIELDs (Word's date-time and numeric pictures) to their
+  values. Numbers are formatted exactly (decimal rounding half away from zero)
+  with the decimal and grouping symbols of `MergeOptions.Locale`, as Word uses
+  the computer's regional settings; month and day names follow the field's
+  language, then the document's default language, then the locale, with
+  names built in for da, de, en, es, fr, it and nl and more through
+  `DateNames`. Values are read as ISO 8601 dates and point-decimal numbers, or
+  through `ParseDate`/`ParseNumber`; a value that does not parse, or a format
+  Word refuses or garbles (unmatched quotes, an `am/pm` spelling other than
+  `am/pm` or `AM/PM`), is written as given and reported to `Warn`.
+  `MergeOptions.Platform` (`WordWindows`, the default, or `WordMac`) picks the
+  spelling where the two differ: some German, Spanish and Danish short names
+  and the AM/PM marker. The rules, including where Word departs from its
+  documentation, were checked against Word for Windows and Word for Mac: every
+  comparison case matches except the three formats Word refuses or garbles.
 - docx: `Document.FillMergeFieldsWith(values, MergeOptions)`: `Missing`
   supplies a value (empty, or a placeholder) for fields missing from `values`,
   and `SuppressBlankLines` removes the paragraphs the merge left blank, as

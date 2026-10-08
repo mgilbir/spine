@@ -347,7 +347,7 @@ func reportTxbxFields(raw []byte, sp txbxSpan, f FieldFiller) {
 		return
 	}
 	report := FieldFiller{
-		Fill: func(instr string, _ bool) (string, bool) {
+		Fill: func(instr string, _ bool, _ string) (string, bool) {
 			f.Skipped(instr)
 			return "", false
 		},

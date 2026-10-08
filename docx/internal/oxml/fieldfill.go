@@ -19,7 +19,9 @@ type FieldFiller struct {
 	// w:instrText so the enclosing field still reads it, as one argument: in
 	// quotes, with quotes and backslashes escaped, or only escaped when the
 	// field already sits inside a quoted argument.
-	Fill func(instr string, inInstruction bool) (string, bool)
+	// lang is the language (w:lang w:val) of the run properties the text will
+	// carry, or "" when they set none.
+	Fill func(instr string, inInstruction bool, lang string) (string, bool)
 	// Skipped is called with the instruction of each field FillFields cannot
 	// rewrite (see FillFields), in document order. It may be nil.
 	Skipped func(instr string)
@@ -402,13 +404,14 @@ func (fl *fieldFill) container(c RevContainer) bool {
 				out = append(out, it)
 				continue // reported after the walk
 			}
-			text, ok := fl.f.Fill(rec.instr.String(), rec.ctx.inInstr)
+			rPr := resultRPr(items[i : j+1])
+			text, ok := fl.f.Fill(rec.instr.String(), rec.ctx.inInstr, rPrLang(rPr))
 			rec.handled = true
 			if !ok {
 				out = append(out, it)
 				continue
 			}
-			repl := replacement(items[i:j+1], resultRPr(items[i:j+1]), text, rec.ctx)
+			repl := replacement(items[i:j+1], rPr, text, rec.ctx)
 			fl.emptied(repl, rec.ctx)
 			out = append(out, repl...)
 			changed = true
@@ -487,10 +490,6 @@ func (fl *fieldFill) simple(fs *CT_SimpleField) ([]pItem, bool) {
 		}
 		return nil, false
 	}
-	text, ok := fl.f.Fill(fs.Instr, ctx.inInstr)
-	if !ok {
-		return nil, false
-	}
 	var rPr *CT_RPr
 	for _, it := range items {
 		if r, isRun := it.val.(*CT_R); isRun && r != nil && r.RPr != nil {
@@ -498,9 +497,21 @@ func (fl *fieldFill) simple(fs *CT_SimpleField) ([]pItem, bool) {
 			break
 		}
 	}
+	text, ok := fl.f.Fill(fs.Instr, ctx.inInstr, rPrLang(rPr))
+	if !ok {
+		return nil, false
+	}
 	repl := replacement(items, rPr, text, ctx)
 	fl.emptied(repl, ctx)
 	return repl, true
+}
+
+// rPrLang returns the w:lang w:val of run properties, or "".
+func rPrLang(rPr *CT_RPr) string {
+	if rPr == nil || rPr.Lang == nil {
+		return ""
+	}
+	return rPr.Lang.Val
 }
 
 // endIndex returns the index of the item holding end at or after i, or -1. The
