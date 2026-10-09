@@ -2,9 +2,11 @@ package docx
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/internal/fuzzseed"
 )
 
@@ -349,17 +351,29 @@ func FuzzDocxFillMergeFields(f *testing.F) {
 			return
 		}
 		defer func() { _ = d.Close() }()
+		// The baseline save follows a read of every story, as the fill does:
+		// reading the body makes the save regenerate it, which a document
+		// holding a name the writer refuses (<: e=""/>, a non-QName raw
+		// child) cannot survive. Such a document opens and round-trips only
+		// untouched, by design, so it is outside this property.
+		names := d.MergeFields()
 		if _, err := d.SaveBytes(); err != nil {
 			return
 		}
 
 		values := map[string]string{}
-		for _, name := range d.MergeFields() {
+		for _, name := range names {
 			values[name] = value
 		}
 		// Exercise blank-line suppression on every other input.
 		unfilled := d.FillMergeFieldsWith(values, MergeOptions{SuppressBlankLines: len(fragment)%2 == 0})
 		out, err := d.SaveBytes()
+		if errors.Is(err, xmlb.ErrUnwritableName) {
+			// A part the fill edited holds such a name too (a header, a
+			// note), and an edited part with one refuses to save rather than
+			// write markup that does not parse.
+			return
+		}
 		if err != nil {
 			t.Fatalf("save after FillMergeFields: %v", err)
 		}
