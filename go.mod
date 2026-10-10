@@ -3,7 +3,7 @@ module github.com/mgilbir/spine
 go 1.26
 
 require (
-	github.com/mgilbir/aster v0.0.0-20261010001800-506afbbae94a
+	github.com/mgilbir/aster v0.1.0
 	github.com/mgilbir/forme v0.10.0
 	github.com/mgilbir/gowemf v0.0.0-20261005165636-3f1f9ec9553a
 	golang.org/x/tools v0.48.0

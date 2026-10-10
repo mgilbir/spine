@@ -1,7 +1,7 @@
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/mgilbir/aster v0.0.0-20261010001800-506afbbae94a h1:T8LB6wmuXa6vEBhe0RbN+DYGkAjRY57wxMW/sxrDUK4=
-github.com/mgilbir/aster v0.0.0-20261010001800-506afbbae94a/go.mod h1:YIMXBRxGjbezRPQY6AvdNltqk50CcbCAJq993CMNGzU=
+github.com/mgilbir/aster v0.1.0 h1:YY0SIViN/feNGnIYD8J6reX9NWm1P4+FfFsfxC1ZW4s=
+github.com/mgilbir/aster v0.1.0/go.mod h1:YIMXBRxGjbezRPQY6AvdNltqk50CcbCAJq993CMNGzU=
 github.com/mgilbir/formalis v0.3.1 h1:NyYe/EcRYJ2jUjgaZG98lNXgJ7H+jgy6mq7HXOnQxl8=
 github.com/mgilbir/formalis v0.3.1/go.mod h1:M82rAk4SewJbe1B3bhgQKw0w7ojFOHus7Nm1roqZYEk=
 github.com/mgilbir/forme v0.10.0 h1:EkGrIgTBnDgSJc4LcbfZyZXeRW5egYKBuXvGZUNHTKA=
