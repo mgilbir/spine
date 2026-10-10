@@ -10,8 +10,9 @@ import (
 )
 
 // wordTestEMF is an EMF of a 40 by 40 pixel picture filled by one rectangle in
-// a brush of the given style: 0 is solid red, 2 is hatched.
-func wordTestEMF(brushStyle uint32) []byte {
+// solid red, in the given mix mode (ROP2); 0 leaves the default, copying the
+// brush. XOR (7) mixes with the picture underneath, which is not drawn.
+func wordTestEMF(rop2 uint32) []byte {
 	var recs [][]byte
 	rec := func(typ uint32, vals ...uint32) {
 		b := make([]byte, 8+4*len(vals))
@@ -22,7 +23,10 @@ func wordTestEMF(brushStyle uint32) []byte {
 		}
 		recs = append(recs, b)
 	}
-	rec(39, 1, brushStyle, 0x0000ff, 0)
+	if rop2 != 0 {
+		rec(20, rop2) // EMR_SETROP2
+	}
+	rec(39, 1, 0, 0x0000ff, 0)
 	rec(37, 1)
 	rec(37, 0x80000008)
 	rec(43, 0, 0, 40, 40)
@@ -70,7 +74,7 @@ func TestMetafilePictureIsDrawn(t *testing.T) {
 func TestMetafileWhatCannotBeDrawnExactly(t *testing.T) {
 	pic := wordTestPic{w: 40, h: 30}
 	body := wordTestBody(wordTestPara("", pic.inline()))
-	strictErr, pages, o, err := prepareBoth(t, body, wordTestMedia(wordTestEMF(2)), nil)
+	strictErr, pages, o, err := prepareBoth(t, body, wordTestMedia(wordTestEMF(7)), nil)
 	if !errors.Is(strictErr, render.ErrUnsupported) {
 		t.Errorf("strict: %v", strictErr)
 	}
@@ -81,6 +85,6 @@ func TestMetafileWhatCannotBeDrawnExactly(t *testing.T) {
 		t.Errorf("warnings %v", o.warnings)
 	}
 	if got := nrgba(pages.pixels(t, 1), wordTestLeft+20, wordTestTop+15); got == (color.NRGBA{}) {
-		t.Errorf("the hatched fill is left out, over white: %+v", got)
+		t.Errorf("the XOR fill is left out, over white: %+v", got)
 	}
 }

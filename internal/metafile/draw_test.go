@@ -50,6 +50,12 @@ func TestRectangleFill(t *testing.T) {
 	expect(t, img, 35, 35, clear)
 	expect(t, img, 10, 20, red)
 	expect(t, img, 9, 20, clear)
+	// Windows plays EMF rectangles with their right and bottom edges, even
+	// in GM_COMPATIBLE mode (as gowemf's Windows oracle records): columns and
+	// rows 10 to 29.
+	expect(t, img, 29, 29, red)
+	expect(t, img, 30, 20, clear)
+	expect(t, img, 20, 30, clear)
 	// Stretched to twice the size, the same picture covers twice the pixels.
 	big := draw(t, data, 80, 80, Options{})
 	expect(t, big, 40, 40, red)
@@ -97,12 +103,20 @@ func TestEllipseAndPolygonRules(t *testing.T) {
 }
 
 func TestPenStroke(t *testing.T) {
+	// GDI draws lines through pixel centers: the line from (5, 20) runs along
+	// y = 20.5, and the pen 6 wide covers 17.5 to 23.5.
 	e := newEMF(40, 40).pen(1, 0, 6, rgb(0, 0, 0)).sel(1).r(27, 5, 20).r(54, 35, 20)
 	img := draw(t, e.bytes(), 40, 40, Options{})
 	expect(t, img, 20, 20, black)
 	expect(t, img, 20, 18, black)
+	expect(t, img, 20, 22, black)
 	expect(t, img, 20, 16, clear)
-	expect(t, img, 20, 23, clear)
+	expect(t, img, 20, 24, clear)
+	for _, y := range []int{17, 23} {
+		if a := at(img, 20, y).A; a < 120 || a > 136 {
+			t.Errorf("edge row %d alpha %d, want about 128", y, a)
+		}
+	}
 	// The default round caps run past the ends by half the width.
 	expect(t, img, 3, 20, black)
 	expect(t, img, 1, 20, clear)
@@ -136,16 +150,24 @@ func TestJoins(t *testing.T) {
 }
 
 func TestDashes(t *testing.T) {
-	// A user style: 10 on, 10 off.
-	f := newEMF(40, 40)
-	f.handle(1)
-	f.rec(95, append(words(1, 0, 0, 0, 0, 0x10000|0x200|7, 4, 0, rgb(0, 0, 0), 0, 2), words(10, 10)...))
-	f.sel(1).r(27, 0, 20).r(54, 40, 20)
-	img := draw(t, f.bytes(), 40, 40, Options{})
+	// A user style: 10 on, 10 off, in TRANSPARENT background mode.
+	dashed := func(bkMode int32) *image.NRGBA {
+		f := newEMF(40, 40).r(18, bkMode)
+		f.handle(1)
+		f.rec(95, append(words(1, 0, 0, 0, 0, 0x10000|0x200|7, 4, 0, rgb(0, 0, 0), 0, 2), words(10, 10)...))
+		f.sel(1).r(27, 0, 20).r(54, 40, 20)
+		return draw(t, f.bytes(), 40, 40, Options{})
+	}
+	img := dashed(1)
 	expect(t, img, 5, 20, black)
 	expect(t, img, 15, 20, clear)
 	expect(t, img, 25, 20, black)
 	expect(t, img, 35, 20, clear)
+	// The default OPAQUE mode paints the gaps in the background color, white.
+	img = dashed(2)
+	expect(t, img, 5, 20, black)
+	expect(t, img, 15, 20, white)
+	expect(t, img, 35, 20, white)
 }
 
 func TestPathFillStrokeAndClip(t *testing.T) {

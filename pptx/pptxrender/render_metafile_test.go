@@ -15,8 +15,9 @@ import (
 )
 
 // renderEMF writes an EMF of a 40 by 40 pixel picture filled by one rectangle
-// in a brush of the given style: 0 is solid red, 2 is hatched.
-func renderEMF(brushStyle uint32) []byte {
+// in solid red, in the given mix mode (ROP2); 0 leaves the default, copying
+// the brush. XOR (7) mixes with the picture underneath, which is not drawn.
+func renderEMF(rop2 uint32) []byte {
 	var recs [][]byte
 	rec := func(typ uint32, vals ...uint32) {
 		b := make([]byte, 8+4*len(vals))
@@ -27,7 +28,10 @@ func renderEMF(brushStyle uint32) []byte {
 		}
 		recs = append(recs, b)
 	}
-	rec(39, 1, brushStyle, 0x0000ff, 0) // brush
+	if rop2 != 0 {
+		rec(20, rop2) // EMR_SETROP2
+	}
+	rec(39, 1, 0, 0x0000ff, 0) // brush
 	rec(37, 1)
 	rec(37, 0x80000008) // null pen
 	rec(43, 0, 0, 40, 40)
@@ -101,11 +105,11 @@ func TestRenderEMFPicture(t *testing.T) {
 }
 
 func TestRenderEMFPictureStrictAndBestEffort(t *testing.T) {
-	hatched := renderEMF(2)
-	if _, _, err := renderMetafileSlide(t, hatched, render.Options{}); !errors.Is(err, render.ErrUnsupported) {
+	xor := renderEMF(7)
+	if _, _, err := renderMetafileSlide(t, xor, render.Options{}); !errors.Is(err, render.ErrUnsupported) {
 		t.Fatalf("strict: %v", err)
 	}
-	got, warnings, err := renderMetafileSlide(t, hatched, render.Options{Warn: func(error) {}})
+	got, warnings, err := renderMetafileSlide(t, xor, render.Options{Warn: func(error) {}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +117,7 @@ func TestRenderEMFPictureStrictAndBestEffort(t *testing.T) {
 		t.Fatalf("warnings: %v", warnings)
 	}
 	if got != (color.NRGBA{R: 255, G: 255, B: 255, A: 255}) {
-		t.Fatalf("hatched fill left out, pixel = %v", got)
+		t.Fatalf("XOR fill left out, pixel = %v", got)
 	}
 }
 

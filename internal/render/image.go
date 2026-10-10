@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/xml"
 	"fmt"
 	"image"
@@ -43,6 +44,14 @@ func DecodeImage(ctx context.Context, data []byte, limits Limits) (image.Image, 
 	isGIF := bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
 	switch {
 	case isPNG:
+		// A size past the limits is refused as such before the decoder sees
+		// it: on 32-bit platforms the decoder refuses one whose pixels int
+		// cannot count, which is a limit there, not a corrupt image.
+		if w, h, ok := pngDeclaredSize(data); ok {
+			if err = checkDeclaredSize(w, h, l); err != nil {
+				return nil, err
+			}
+		}
 		cfg, err = png.DecodeConfig(bytes.NewReader(data))
 	case isJPEG:
 		cfg, err = jpeg.DecodeConfig(bytes.NewReader(data))
@@ -78,6 +87,31 @@ func DecodeImage(ctx context.Context, data []byte, limits Limits) (image.Image, 
 	}
 	return img, nil
 }
+
+// pngDeclaredSize reads the width and height a PNG's IHDR chunk, which must
+// come first, declares. ok is false when there is no such chunk, or its sizes
+// are not the positive 31-bit values the format allows; the decoder then
+// refuses the image.
+func pngDeclaredSize(data []byte) (w, h int64, ok bool) {
+	if len(data) < 24 || string(data[12:16]) != "IHDR" {
+		return 0, 0, false
+	}
+	w, h = int64(binary.BigEndian.Uint32(data[16:20])), int64(binary.BigEndian.Uint32(data[20:24]))
+	if w <= 0 || h <= 0 || w > math.MaxInt32 || h > math.MaxInt32 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// checkDeclaredSize applies the dimension and pixel limits to a declared
+// size, in 64-bit arithmetic on every platform.
+func checkDeclaredSize(w, h int64, l Limits) error {
+	if w > int64(l.MaxDimension) || h > int64(l.MaxDimension) || w > l.MaxImagePixels/h {
+		return fmt.Errorf("%w: image dimensions", ErrLimit)
+	}
+	return nil
+}
+
 func checkImageSize(w, h int, l Limits) error {
 	maxInt := int(^uint(0) >> 1)
 	if w <= 0 || h <= 0 {

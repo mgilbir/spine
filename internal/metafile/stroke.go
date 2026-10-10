@@ -23,11 +23,13 @@ const (
 	joinMiter
 )
 
-// strokeStyle describes how a polyline is widened. Lengths are in device
-// units.
+// strokeStyle describes how a polyline is widened. Lengths are in the units
+// of the polyline. cap ends an open polyline at its start and endCap at its
+// end.
 type strokeStyle struct {
 	width      float64
 	cap        capStyle
+	endCap     capStyle
 	join       joinStyle
 	miter      float64
 	dash       []float64
@@ -154,7 +156,7 @@ func (s *stroker) line(pts []point, closed bool) error {
 	switch {
 	case len(pts) == 1:
 		// A zero-length line leaves a dot only where the caps are round.
-		if s.st.cap == capRound {
+		if s.st.cap == capRound && s.st.endCap == capRound {
 			c := []point{{pts[0].x + s.hw, pts[0].y}}
 			c = arcPoints(c, pts[0], s.hw, 0, 2*math.Pi, s.tol)
 			return s.emit(c[:len(c)-1])
@@ -189,16 +191,16 @@ func (s *stroker) line(pts []point, closed bool) error {
 	if closed {
 		return s.joinAt(pts[0], dirs[segs-1], dirs[0])
 	}
-	if err := s.capAt(pts[0], scale(dirs[0], -1)); err != nil {
+	if err := s.capAt(pts[0], scale(dirs[0], -1), s.st.cap); err != nil {
 		return err
 	}
-	return s.capAt(pts[n-1], dirs[segs-1])
+	return s.capAt(pts[n-1], dirs[segs-1], s.st.endCap)
 }
 
 // capAt draws the cap at p of a line leaving it in direction out.
-func (s *stroker) capAt(p, out point) error {
+func (s *stroker) capAt(p, out point, cp capStyle) error {
 	nrm := scale(point{-out.y, out.x}, s.hw)
-	switch s.st.cap {
+	switch cp {
 	case capSquare:
 		ext := scale(out, s.hw)
 		return s.emit([]point{add(p, nrm), add(add(p, nrm), ext), add(sub(p, nrm), ext), sub(p, nrm)})

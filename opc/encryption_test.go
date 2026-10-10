@@ -224,7 +224,7 @@ func TestEncryptedLargeIncompressiblePackage(t *testing.T) {
 	// stored in the regular FAT across many sectors (multiple FAT sectors here).
 	body := make([]byte, 300*1024)
 	for i := range body {
-		body[i] = byte(i*2654435761 + i>>3) // cheap incompressible-ish fill
+		body[i] = byte(uint32(i)*2654435761 + uint32(i)>>3) // cheap incompressible-ish fill, the same on 32-bit
 	}
 	parts := map[string][]byte{
 		"/ppt/presentation.xml": []byte("<presentation/>"),
