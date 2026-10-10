@@ -12,8 +12,8 @@ github.com/mgilbir/golittlecms v0.0.0-20260727161601-f6af7cfe1556 h1:2ZUsOgMhxpH
 github.com/mgilbir/golittlecms v0.0.0-20260727161601-f6af7cfe1556/go.mod h1:8SmvcTVpsTeqGaLqnhlCphGYaBeoeedJQB6AsKNNQxo=
 github.com/mgilbir/gopenjpeg v0.1.1 h1:zf0iHWEkex7TsOtQKPy6t19qNJzf7ykxK7r5Sgl/V2A=
 github.com/mgilbir/gopenjpeg v0.1.1/go.mod h1:J72BFvnlK6fgFlVEtFycG+kbNYLX04tjzVI6eVmDAho=
-github.com/mgilbir/gowemf v0.0.0-20261005165636-3f1f9ec9553a h1:ep3hoc7s2z+IYwATPokC7M2Y4rnbKNMmogjfZcM2ls0=
-github.com/mgilbir/gowemf v0.0.0-20261005165636-3f1f9ec9553a/go.mod h1:5mmbuyGlTRyulKHMmT65lGxz+BoyJyTj2M5K26Lp5Dg=
+github.com/mgilbir/gowemf v0.0.0-20261009205244-02d3bd020761 h1:9vsgv55glmxKgKemz8B1/vZYJeC9wDF5saHOuj409NM=
+github.com/mgilbir/gowemf v0.0.0-20261009205244-02d3bd020761/go.mod h1:5mmbuyGlTRyulKHMmT65lGxz+BoyJyTj2M5K26Lp5Dg=
 github.com/mgilbir/pdf0 v0.5.0 h1:djuIA5eJgdjTIsw5NO2fV3RlL/APv0AcO+EAy58ftNc=
 github.com/mgilbir/pdf0 v0.5.0/go.mod h1:V9Vo9fwQZFFgq63wDtON6m8b0c9nGdqbpEqX5oTtoUs=
 golang.org/x/image v0.47.0 h1:za/8gVz++PPZqmZJBNSISICN5Rrj5zixP/8K++fgmqo=

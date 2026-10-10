@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"unicode/utf16"
 
 	"github.com/mgilbir/forme/shape"
@@ -11,405 +12,350 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// Text alignment flags.
-const (
-	taUpdateCP = 1
-	taRight    = 2
-	taCenter   = 6
-	taBottom   = 8
-	taBaseline = 24
-)
-
-// cp1252 maps the bytes 0x80 to 0x9f of Windows-1252; zero is undefined.
-var cp1252 = [32]rune{
-	0x20ac, 0, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017d, 0,
-	0, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0, 0x017e, 0x0178,
+// realized is a logical font realized in a face: the face, and the scale from
+// its font units to text-space units.
+type realized struct {
+	face *shape.Face
+	k    float64 // text-space units per font unit along the em
+	kx   float64 // the same across the baseline's direction of advance
+	// Ascent and descent in text-space units, both positive.
+	ascent, descent float64
 }
 
-// face resolves the font a text uses, once for each request.
-func (it *interp) face(req render.FontRequest) (*shape.Face, error) {
-	if f, ok := it.faces[req]; ok {
+// fontRequest is the face a logical font asks the resolver for. GDI realizes
+// weight 600 and up from a bold face when there is no other between regular
+// and bold, as the nearer of the two.
+func fontRequest(f gowemf.FontRequest) render.FontRequest {
+	return render.FontRequest{Family: f.FaceName, Bold: f.Weight >= 600, Italic: f.Italic}
+}
+
+// face resolves a request once. A face the resolver cannot supply is
+// reported, then left out; a limit or an invalid font stops the drawing.
+func (be *backend) face(req render.FontRequest) (*shape.Face, error) {
+	if f, ok := be.faces[req]; ok {
 		return f, nil
 	}
-	if len(it.faces) >= it.maxFonts {
+	if be.noFace[req] {
+		return nil, nil
+	}
+	if be.opts.Fonts == nil {
+		return nil, be.soft("text left out: no font resolver")
+	}
+	if len(be.faces)+len(be.noFace) >= be.maxFonts {
 		return nil, fmt.Errorf("%w: metafile font requests", render.ErrLimit)
 	}
-	f, err := it.opts.Fonts(it.ctx, req)
-	if cerr := it.ctx.Err(); cerr != nil {
+	f, err := be.opts.Fonts(be.ctx, req)
+	if cerr := be.ctx.Err(); cerr != nil {
 		return nil, cerr
+	}
+	if err == nil && (f == nil || f.UnitsPerEm() <= 0) {
+		err = errors.New("no font")
 	}
 	if err != nil {
 		if errors.Is(err, render.ErrLimit) || errors.Is(err, render.ErrInvalid) {
 			return nil, err
 		}
-		return nil, it.soft("text in %q left out: %v", req.Family, err)
+		if be.noFace == nil {
+			be.noFace = map[render.FontRequest]bool{}
+		}
+		be.noFace[req] = true
+		return nil, be.soft("text in %q left out: %v", req.Family, err)
 	}
-	if f == nil || f.UnitsPerEm() <= 0 {
-		return nil, it.soft("text in %q left out: no font", req.Family)
+	if be.faces == nil {
+		be.faces = map[render.FontRequest]*shape.Face{}
 	}
-	if it.faces == nil {
-		it.faces = map[render.FontRequest]*shape.Face{}
-	}
-	it.faces[req] = f
+	be.faces[req] = f
 	return f, nil
 }
 
-func faceName(f *gowemf.Font) string {
-	b := f.FaceName
-	if f.Unicode {
-		var u []uint16
-		for i := 0; i+1 < len(b); i += 2 {
-			c := uint16(b[i]) | uint16(b[i+1])<<8
-			if c == 0 {
-				break
-			}
-			u = append(u, c)
-		}
-		return string(utf16.Decode(u))
+// realize sizes a logical font's face. It returns nil, after reporting why,
+// when the text cannot be drawn.
+func (be *backend) realize(f gowemf.FontRequest) (*realized, error) {
+	if f.FaceName == "" {
+		// Stock and unnamed fonts are realized by the system in faces this
+		// renderer does not know.
+		return nil, be.soft("text in a font without a face name left out")
 	}
-	for i, c := range b {
-		if c == 0 {
-			b = b[:i]
-			break
+	if f.Height == 0 || !finite(f.Height) || !finite(f.Width) {
+		return nil, be.soft("text in a font of default height left out")
+	}
+	face, err := be.face(fontRequest(f))
+	if err != nil || face == nil {
+		return nil, err
+	}
+	upem := float64(face.UnitsPerEm())
+	desc := face.Descriptor()
+	// GDI's tmAscent and tmDescent are the face's Windows metrics. Windows
+	// will not load a TrueType face without them; for such a face the
+	// ascent and descent it does state are all there is.
+	asc, dsc := float64(desc.Ascent), float64(-desc.Descent)
+	if desc.Has(shape.MetricWinMetrics) && desc.WinAscent+desc.WinDescent > 0 {
+		asc, dsc = float64(desc.WinAscent), float64(desc.WinDescent)
+	}
+	em := math.Abs(f.Height)
+	if f.Height > 0 {
+		// A positive height is the cell height: the ascent and descent.
+		if asc+dsc <= 0 {
+			return nil, be.soft("text sized by a cell height without font metrics left out")
+		}
+		em = f.Height * upem / (asc + dsc)
+	}
+	k := em / upem
+	rf := &realized{face: face, k: k, kx: k, ascent: asc * k, descent: dsc * k}
+	if f.Width != 0 {
+		// A width sets the average character width, which the face would
+		// have to state for the glyphs to be stretched to it.
+		if err = be.soft("text with a set character width drawn at the font's own width"); err != nil {
+			return nil, err
 		}
 	}
-	return string(b)
+	return rf, nil
 }
 
-// runes decodes the characters of a text. ok is false when it cannot, after
-// reporting why.
-func (it *interp) runes(t gowemf.Text, f *gowemf.Font) ([]rune, bool, error) {
-	if t.Options&0x10 != 0 {
-		return nil, false, it.soft("text of glyph indexes left out")
-	}
-	var out []rune
-	switch {
-	case t.SmallChars:
-		for _, c := range t.Bytes {
-			out = append(out, rune(c))
-		}
-	case t.Unicode:
-		u := make([]uint16, 0, len(t.Bytes)/2)
-		for i := 0; i+1 < len(t.Bytes); i += 2 {
-			u = append(u, uint16(t.Bytes[i])|uint16(t.Bytes[i+1])<<8)
-		}
-		out = make([]rune, 0, len(u))
-		for _, c := range u {
-			if c >= 0xd800 && c < 0xe000 {
-				return nil, false, it.soft("text with surrogate pairs left out")
-			}
-			out = append(out, rune(c))
-		}
-	default:
-		for _, c := range t.Bytes {
-			switch {
-			case c < 0x80:
-				out = append(out, rune(c))
-			case f.CharSet <= 1 && c < 0xa0 && cp1252[c-0x80] != 0:
-				out = append(out, cp1252[c-0x80])
-			case f.CharSet <= 1 && c >= 0xa0:
-				out = append(out, rune(c))
-			default:
-				return nil, false, it.soft("text in a character set other than Windows-1252 left out")
-			}
-		}
-	}
-	return out, true, nil
+// ownFace reports whether a face is the font a logical font names, by its
+// family or its PostScript name. Glyph indexes are the font's own: in another
+// face they are other glyphs.
+func ownFace(face *shape.Face, f gowemf.FontRequest) bool {
+	name := strings.TrimSpace(f.FaceName)
+	return strings.EqualFold(strings.TrimSpace(face.Family()), name) || strings.EqualFold(strings.TrimSpace(face.Name()), name)
 }
 
-// text draws the characters of a text record.
-func (it *interp) text(t gowemf.Text) error {
-	if len(t.Bytes) == 0 && (t.Options&2 == 0 || !t.HasRectangle) {
-		return nil
+// elements returns the glyph of each element of a run, and false for the
+// second unit of a surrogate pair. Characters the face lacks are -1: they are
+// left out, without an advance.
+func elements(run gowemf.TextRun, face *shape.Face) (gids []int, first []bool, missing bool) {
+	n := len(run.Text)
+	gids, first = make([]int, n), make([]bool, n)
+	if run.Glyphs {
+		for i, g := range run.Text {
+			gids[i], first[i] = int(g), true
+			if int(g) >= face.NumGlyphs() {
+				gids[i], missing = -1, true
+			}
+		}
+		return
 	}
-	if it.path != nil {
-		return it.soft("text in a path left out")
+	for i := 0; i < n; i++ {
+		u := run.Text[i]
+		r := rune(u)
+		first[i] = true
+		if utf16.IsSurrogate(r) {
+			if i+1 < n && u < 0xdc00 && run.Text[i+1] >= 0xdc00 && run.Text[i+1] < 0xe000 {
+				r = utf16.DecodeRune(r, rune(run.Text[i+1]))
+			} else {
+				r = 0xfffd
+			}
+		}
+		g, ok := face.GlyphID(r)
+		if !ok {
+			g = -1
+			if r > ' ' {
+				missing = true
+			}
+		}
+		gids[i] = g
+		if r > 0xffff {
+			// The second unit belongs to the same character.
+			i++
+			gids[i], first[i] = g, false
+		}
 	}
-	d := &it.dc
-	if it.opts.Fonts == nil {
-		return it.soft("text left out: no font resolver")
+	return
+}
+
+// MeasureText reports a run's ascent, descent and advances in text-space
+// units. A run whose font cannot be realized measures as nothing and is left
+// out when drawn.
+func (be *backend) MeasureText(run gowemf.TextRun) (gowemf.TextMetrics, error) {
+	if err := be.ctx.Err(); err != nil {
+		return gowemf.TextMetrics{}, err
 	}
-	f := d.font
-	if f == nil || len(f.FaceName) == 0 || faceName(f) == "" {
-		return it.soft("text in a font without a face name left out")
+	m := gowemf.TextMetrics{Advances: make([]float64, len(run.Text))}
+	rf, err := be.realize(run.Font)
+	if err != nil || rf == nil {
+		return m, err
 	}
-	if err := it.b.op(); err != nil {
+	if run.Glyphs && !ownFace(rf.face, run.Font) {
+		return m, nil
+	}
+	gids, first, _ := elements(run, rf.face)
+	em := rf.k * float64(rf.face.UnitsPerEm())
+	for i, g := range gids {
+		if first[i] && g >= 0 {
+			// Advances are in thousandths of the em.
+			m.Advances[i] = rf.face.GlyphAdvance(g) / 1000 * em * rf.kx / rf.k
+		}
+	}
+	m.Ascent, m.Descent = rf.ascent, rf.descent
+	return m, nil
+}
+
+// DrawText draws a run's glyphs at their origins, and its underline and
+// strikeout.
+func (be *backend) DrawText(run gowemf.TextRun, cl gowemf.Clip) error {
+	if err := be.begin(); err != nil {
 		return err
 	}
-	runes, ok, err := it.runes(t, f)
+	rf, err := be.realize(run.Font)
+	if err != nil || rf == nil {
+		return err
+	}
+	if run.Glyphs && !ownFace(rf.face, run.Font) {
+		return be.soft("text of glyph indexes in a substitute font left out")
+	}
+	if len(run.Origins) != len(run.Text) {
+		return fmt.Errorf("%w: metafile: text origins", render.ErrInvalid)
+	}
+	if len(run.Text) > be.b.maxGlyphs-be.b.glyphs {
+		return fmt.Errorf("%w: metafile glyphs", render.ErrLimit)
+	}
+	be.b.glyphs += len(run.Text)
+	st, ok, err := be.fillStyle(run.Paint)
 	if err != nil || !ok {
 		return err
 	}
-	if len(runes) > it.b.maxGlyphs-it.b.glyphs {
-		return fmt.Errorf("%w: metafile glyphs", render.ErrLimit)
-	}
-	it.b.glyphs += len(runes)
-	// A background rectangle or clip comes first.
-	if t.Options&2 != 0 && t.HasRectangle {
-		bk, err := it.color(d.bkColor)
-		if err != nil {
-			return err
-		}
-		l, tp, r, b := rectOf(t.Rectangle)
-		if err = it.r.fill([][]point{it.rectContour(l, tp, r, b)}, false, fillStyle{solid: bk}, d.clip); err != nil {
-			return err
-		}
-	}
-	if len(runes) == 0 {
-		return nil
-	}
-	saved := d.clip
-	if t.Options&4 != 0 && t.HasRectangle {
-		l, tp, r, b := rectOf(t.Rectangle)
-		if err = it.clipRect(l, tp, r, b, clipAnd); err != nil {
-			return err
-		}
-		defer func() { it.dc.clip = saved }()
-	}
-	req := render.FontRequest{Family: faceName(f), Bold: f.Weight >= 700, Italic: f.Italic != 0}
-	face, err := it.face(req)
-	if err != nil || face == nil {
-		return err
-	}
-	return it.drawRunes(t, f, face, runes)
-}
-
-func (it *interp) drawRunes(t gowemf.Text, f *gowemf.Font, face *shape.Face, runes []rune) error {
-	d := &it.dc
-	upem := float64(face.UnitsPerEm())
-	desc := face.Descriptor()
-	em := math.Abs(float64(f.Height))
-	if f.Height == 0 {
-		return it.soft("text in a font of default height left out")
-	}
-	if f.Height > 0 {
-		cell := float64(desc.Ascent - desc.Descent)
-		if cell <= 0 {
-			return it.soft("text sized by a cell height without font metrics left out")
-		}
-		if err := it.soft("text sized by its cell height from the font's metrics"); err != nil {
-			return err
-		}
-		em = em * upem / cell
-	}
-	k := em / upem // logical units per font unit
-	m := it.matrix()
-	big, small := m.singular()
-	if big > 0 && (big-small)/big > 0.01 {
-		if err := it.soft("text under a non-uniform transform stretched with it"); err != nil {
-			return err
-		}
-	}
-	if f.Escapement != f.Orientation && f.Orientation != 0 {
-		if err := it.soft("text with an orientation other than its escapement drawn at the escapement"); err != nil {
-			return err
-		}
-	}
-	theta := float64(f.Escapement) / 10 * math.Pi / 180
-	cos, sin := math.Cos(theta), math.Sin(theta)
-	ky := -1.0
-	if m.a*m.d-m.b*m.c < 0 {
-		ky = 1
-	}
-	// Advances along the baseline, in logical units.
-	n := len(runes)
-	adv := make([]float64, n)
-	pdy := t.Options&0x2000 != 0
-	switch {
-	case t.Advances.Len() >= n:
-		if pdy {
-			if err := it.soft("text with vertical advances drawn without them"); err != nil {
-				return err
-			}
-		}
-		for i := 0; i < n; i++ {
-			if pdy {
-				adv[i] = float64(t.Advances.SignedAt(2 * i))
-			} else {
-				adv[i] = float64(t.Advances.SignedAt(i))
-			}
-		}
-	default:
-		if err := it.soft("text without character advances spaced by the font's own widths"); err != nil {
-			return err
-		}
-		for i, r := range runes {
-			if gid, ok := face.GlyphID(r); ok {
-				adv[i] = face.GlyphAdvance(gid) / 1000 * em
-			}
-		}
-	}
-	if d.charExtra != 0 || d.justExtra != 0 {
-		if err := it.soft("text with extra character or break spacing drawn without it"); err != nil {
-			return err
-		}
-	}
-	var width float64
-	for _, a := range adv {
-		width += a
-	}
-	// The reference point, aligned.
-	ref := t.Reference
-	origin := point{ref.X, ref.Y}
-	if d.textAlign&taUpdateCP != 0 {
-		origin = d.pos
-	}
-	var x0 float64
-	switch d.textAlign & taCenter {
-	case taRight:
-		x0 = -width
-	case taCenter:
-		x0 = -width / 2
-	}
-	asc, dsc := float64(desc.Ascent)*k, float64(-desc.Descent)*k
-	var y0 float64 // the baseline, in text space with y up
-	switch d.textAlign & taBaseline {
-	case taBaseline:
-	case taBottom:
-		if err := it.soft("text aligned to its bottom uses the font's descent"); err != nil {
-			return err
-		}
-		y0 = dsc
-	default:
-		if err := it.soft("text aligned to its top uses the font's ascent"); err != nil {
-			return err
-		}
-		y0 = -asc
-	}
-	// toLogical places a text-space point (y up, relative to the start of the
-	// baseline) in logical coordinates.
-	toLogical := func(tx, ty float64) point {
-		tx, ty = tx+x0, ty+y0
-		rx, ry := tx*cos-ty*sin, tx*sin+ty*cos
-		return point{origin.x + rx, origin.y + ky*ry}
-	}
-	toDev := func(tx, ty float64) point {
-		p := toLogical(tx, ty)
-		return m.apply(p)
-	}
-	if d.textAlign&taUpdateCP != 0 {
-		end := toLogical(width, 0)
-		d.pos = point{end.x, end.y}
-	}
-	// The cell behind the characters, in opaque mode.
-	if d.bkMode == 2 && t.Options&2 == 0 {
-		if err := it.soft("opaque text background uses the font's ascent and descent"); err != nil {
-			return err
-		}
-		bk, err := it.color(d.bkColor)
-		if err != nil {
-			return err
-		}
-		cell := []point{toDev(0, asc), toDev(width, asc), toDev(width, -dsc), toDev(0, -dsc)}
-		if err = it.r.fill([][]point{cell}, false, fillStyle{solid: bk}, d.clip); err != nil {
-			return err
-		}
-	}
-	col, err := it.color(d.textColor)
+	c, err := be.clip(cl)
 	if err != nil {
 		return err
 	}
-	var contours [][]point
-	var penX float64
-	for i, r := range runes {
-		if err = it.ctx.Err(); err != nil {
+	toDest := fromMatrix(run.Transform)
+	if !toDest.finite() {
+		return errCoordinate
+	}
+	gids, first, missing := elements(run, rf.face)
+	if missing {
+		if err = be.soft("characters the font lacks left out"); err != nil {
 			return err
 		}
-		gid, ok := face.GlyphID(r)
-		if !ok {
-			if r != ' ' && r != '\t' && r > 0x20 {
-				if err = it.soft("characters the font lacks left out"); err != nil {
-					return err
-				}
-			}
-			penX += adv[i]
+	}
+	// Glyph space is the font's, y up; text space has y down from the
+	// baseline. Orientation turns each glyph about its origin, counterclockwise
+	// as displayed.
+	sin, cos := math.Sincos(run.Font.Orientation)
+	var contours [][]point
+	for i, g := range gids {
+		if !first[i] || g < 0 {
 			continue
 		}
-		var cur []point
-		var last shape.Point
-		var cbErr error
-		flush := func() {
-			if len(cur) >= 3 {
-				contours = append(contours, cur)
-			}
-			cur = nil
+		if err = be.ctx.Err(); err != nil {
+			return err
 		}
-		at := func(p shape.Point) point { return toDev(penX+p.X*k, p.Y*k) }
-		oerr := face.GlyphOutline(gid, func(s shape.Segment) bool {
-			if cbErr = it.ctx.Err(); cbErr != nil {
-				return false
-			}
-			switch s.Op {
-			case shape.MoveTo:
-				flush()
-				cur = []point{at(s.Pts[0])}
-				last = s.Pts[0]
-			case shape.LineTo:
-				cbErr = it.charge(1)
-				cur = append(cur, at(s.Pts[0]))
-				last = s.Pts[0]
-			case shape.QuadTo:
-				c1 := shape.Point{X: last.X + 2.0/3*(s.Pts[0].X-last.X), Y: last.Y + 2.0/3*(s.Pts[0].Y-last.Y)}
-				c2 := shape.Point{X: s.Pts[1].X + 2.0/3*(s.Pts[0].X-s.Pts[1].X), Y: s.Pts[1].Y + 2.0/3*(s.Pts[0].Y-s.Pts[1].Y)}
-				before := len(cur)
-				cur = flattenCubic(cur, at(last), at(c1), at(c2), at(s.Pts[1]), it.tol)
-				cbErr = it.charge(len(cur) - before)
-				last = s.Pts[1]
-			case shape.CubicTo:
-				before := len(cur)
-				cur = flattenCubic(cur, at(last), at(s.Pts[0]), at(s.Pts[1]), at(s.Pts[2]), it.tol)
-				cbErr = it.charge(len(cur) - before)
-				last = s.Pts[2]
-			}
-			return cbErr == nil
-		})
-		flush()
-		if cbErr != nil {
-			return cbErr
+		o := run.Origins[i]
+		at := func(p shape.Point) point {
+			x, y := p.X*rf.kx, -p.Y*rf.k
+			x, y = x*cos+y*sin, -x*sin+y*cos
+			return toDest.apply(point{o.X + x, o.Y + y})
 		}
-		if oerr != nil {
-			if err = it.soft("glyph outline left out: %v", oerr); err != nil {
-				return err
-			}
+		glyph, err := be.outline(rf.face, g, at)
+		if err != nil {
+			return err
 		}
-		penX += adv[i]
+		contours = append(contours, glyph...)
 	}
 	if len(contours) > 0 {
-		if err = it.r.fill(contours, false, fillStyle{solid: col}, d.clip); err != nil {
+		if err = be.r.fill(contours, false, st, c); err != nil {
 			return err
 		}
 	}
-	// Underline and strikeout, as thin rectangles along the baseline.
-	if f.Underline != 0 || f.StrikeOut != 0 {
-		contours = nil
-		if err = it.soft("text underline or strikeout drawn from the font's metrics"); err != nil {
-			return err
+	return be.decorate(run, rf, toDest, st, c)
+}
+
+// outline flattens a glyph's outline, placed by at.
+func (be *backend) outline(face *shape.Face, gid int, at func(shape.Point) point) ([][]point, error) {
+	var out [][]point
+	var cur []point
+	var last shape.Point
+	var cbErr error
+	flush := func() {
+		if len(cur) >= 3 {
+			out = append(out, cur)
 		}
-		thick := float64(desc.UnderlineThickness) * k
-		if thick <= 0 {
-			thick = em / 14
+		cur = nil
+	}
+	err := face.GlyphOutline(gid, func(s shape.Segment) bool {
+		switch s.Op {
+		case shape.MoveTo:
+			flush()
+			cur = []point{at(s.Pts[0])}
+			last = s.Pts[0]
+		case shape.LineTo:
+			cbErr = be.charge(1)
+			cur = append(cur, at(s.Pts[0]))
+			last = s.Pts[0]
+		case shape.QuadTo:
+			c1 := shape.Point{X: last.X + 2.0/3*(s.Pts[0].X-last.X), Y: last.Y + 2.0/3*(s.Pts[0].Y-last.Y)}
+			c2 := shape.Point{X: s.Pts[1].X + 2.0/3*(s.Pts[0].X-s.Pts[1].X), Y: s.Pts[1].Y + 2.0/3*(s.Pts[0].Y-s.Pts[1].Y)}
+			before := len(cur)
+			cur = flattenCubic(cur, at(last), at(c1), at(c2), at(s.Pts[1]), be.tol)
+			cbErr = be.charge(len(cur) - before)
+			last = s.Pts[1]
+		case shape.CubicTo:
+			before := len(cur)
+			cur = flattenCubic(cur, at(last), at(s.Pts[0]), at(s.Pts[1]), at(s.Pts[2]), be.tol)
+			cbErr = be.charge(len(cur) - before)
+			last = s.Pts[2]
 		}
-		if f.Underline != 0 {
-			pos := float64(desc.UnderlinePosition) * k
-			if pos == 0 {
-				pos = -em / 8
+		return cbErr == nil
+	})
+	flush()
+	if cbErr != nil {
+		return nil, cbErr
+	}
+	if err != nil {
+		return nil, be.soft("glyph outline left out: %v", err)
+	}
+	for _, c := range out {
+		for _, q := range c {
+			if !finite(q.x) || !finite(q.y) {
+				return nil, errCoordinate
 			}
-			contours = append(contours, []point{toDev(0, pos), toDev(width, pos), toDev(width, pos-thick), toDev(0, pos-thick)})
-		}
-		if f.StrikeOut != 0 {
-			pos := float64(desc.StrikeoutPosition) * k
-			sz := float64(desc.StrikeoutSize) * k
-			if sz <= 0 {
-				sz = em / 14
-			}
-			if pos == 0 {
-				pos = em * 0.3
-			}
-			contours = append(contours, []point{toDev(0, pos+sz), toDev(width, pos+sz), toDev(width, pos), toDev(0, pos)})
 		}
 	}
-	if len(contours) == 0 {
+	return out, nil
+}
+
+// decorate draws a run's underline and strikeout from its first origin over
+// the sum of its advances, at the positions and thicknesses the font states.
+func (be *backend) decorate(run gowemf.TextRun, rf *realized, toDest affine, st fillStyle, c *clip) error {
+	if (!run.Font.Underline && !run.Font.StrikeOut) || len(run.Origins) == 0 {
 		return nil
 	}
-	return it.r.fill(contours, false, fillStyle{solid: col}, d.clip)
+	var width float64
+	for _, a := range run.Advances {
+		width += a
+	}
+	desc := rf.face.Descriptor()
+	em := rf.k * float64(rf.face.UnitsPerEm())
+	o := run.Origins[0]
+	// A rule from top to bottom, in text space below the baseline at the
+	// first origin.
+	rule := func(top, bottom float64) []point {
+		return []point{
+			toDest.apply(point{o.X, o.Y + top}), toDest.apply(point{o.X + width, o.Y + top}),
+			toDest.apply(point{o.X + width, o.Y + bottom}), toDest.apply(point{o.X, o.Y + bottom}),
+		}
+	}
+	var contours [][]point
+	if run.Font.Underline {
+		pos, thick := -float64(desc.UnderlinePosition)*rf.k, float64(desc.UnderlineThickness)*rf.k
+		if !desc.Has(shape.MetricUnderline) || thick <= 0 {
+			if err := be.soft("text underline drawn without the font's underline metrics"); err != nil {
+				return err
+			}
+			pos, thick = em/8, em/14
+		}
+		contours = append(contours, rule(pos, pos+thick))
+	}
+	if run.Font.StrikeOut {
+		pos, size := -float64(desc.StrikeoutPosition)*rf.k, float64(desc.StrikeoutSize)*rf.k
+		if !desc.Has(shape.MetricStrikeout) || size <= 0 {
+			if err := be.soft("text strikeout drawn without the font's strikeout metrics"); err != nil {
+				return err
+			}
+			pos, size = -em*0.3, em/14
+		}
+		// The strikeout position is the top of its stroke above the baseline.
+		contours = append(contours, rule(pos, pos+size))
+	}
+	return be.r.fill(contours, false, st, c)
 }

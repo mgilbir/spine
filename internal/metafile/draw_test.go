@@ -50,13 +50,18 @@ func TestRectangleFill(t *testing.T) {
 	expect(t, img, 35, 35, clear)
 	expect(t, img, 10, 20, red)
 	expect(t, img, 9, 20, clear)
+	// Without a pen the rectangle leaves out its right and bottom edges, as
+	// GDI fills it: columns and rows 10 to 28.
+	expect(t, img, 28, 28, red)
+	expect(t, img, 29, 20, clear)
+	expect(t, img, 20, 29, clear)
 	// Stretched to twice the size, the same picture covers twice the pixels.
 	big := draw(t, data, 80, 80, Options{})
 	expect(t, big, 40, 40, red)
 	expect(t, big, 19, 40, clear)
 	expect(t, big, 21, 40, red)
-	expect(t, big, 59, 40, red)
-	expect(t, big, 61, 40, clear)
+	expect(t, big, 57, 40, red)
+	expect(t, big, 58, 40, clear)
 	// An anisotropic stretch.
 	wide := draw(t, data, 80, 40, Options{})
 	expect(t, wide, 41, 20, red)
@@ -64,15 +69,17 @@ func TestRectangleFill(t *testing.T) {
 }
 
 func TestPartialCoverage(t *testing.T) {
-	// A rectangle edge half way through a pixel covers half of it.
-	e := newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 20, 40)
+	// A rectangle edge part way through a pixel covers that part of it. A
+	// rectangle without a pen ends a device pixel before its right edge.
+	e := newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 21, 40)
 	img := draw(t, e.bytes(), 80, 40, Options{})
 	// 20 device pixels over 40 output pixels: the edge is at x = 40.
 	expect(t, img, 39, 10, blue)
 	expect(t, img, 40, 10, clear)
-	e = newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 10, 40)
+	e = newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 11, 40)
 	img = draw(t, e.bytes(), 25, 40, Options{})
-	// The edge at 6.25: the pixel 6 is a quarter covered.
+	// 10 device pixels, with the edge at 6.25: the pixel 6 is a quarter
+	// covered.
 	got := at(img, 6, 10)
 	if got.A < 56 || got.A > 72 {
 		t.Errorf("edge pixel alpha = %d, want about 64", got.A)
@@ -97,12 +104,20 @@ func TestEllipseAndPolygonRules(t *testing.T) {
 }
 
 func TestPenStroke(t *testing.T) {
+	// GDI draws lines through pixel centers: the line from (5, 20) runs along
+	// y = 20.5, and the pen 6 wide covers 17.5 to 23.5.
 	e := newEMF(40, 40).pen(1, 0, 6, rgb(0, 0, 0)).sel(1).r(27, 5, 20).r(54, 35, 20)
 	img := draw(t, e.bytes(), 40, 40, Options{})
 	expect(t, img, 20, 20, black)
 	expect(t, img, 20, 18, black)
+	expect(t, img, 20, 22, black)
 	expect(t, img, 20, 16, clear)
-	expect(t, img, 20, 23, clear)
+	expect(t, img, 20, 24, clear)
+	for _, y := range []int{17, 23} {
+		if a := at(img, 20, y).A; a < 120 || a > 136 {
+			t.Errorf("edge row %d alpha %d, want about 128", y, a)
+		}
+	}
 	// The default round caps run past the ends by half the width.
 	expect(t, img, 3, 20, black)
 	expect(t, img, 1, 20, clear)
@@ -136,16 +151,24 @@ func TestJoins(t *testing.T) {
 }
 
 func TestDashes(t *testing.T) {
-	// A user style: 10 on, 10 off.
-	f := newEMF(40, 40)
-	f.handle(1)
-	f.rec(95, append(words(1, 0, 0, 0, 0, 0x10000|0x200|7, 4, 0, rgb(0, 0, 0), 0, 2), words(10, 10)...))
-	f.sel(1).r(27, 0, 20).r(54, 40, 20)
-	img := draw(t, f.bytes(), 40, 40, Options{})
+	// A user style: 10 on, 10 off, in TRANSPARENT background mode.
+	dashed := func(bkMode int32) *image.NRGBA {
+		f := newEMF(40, 40).r(18, bkMode)
+		f.handle(1)
+		f.rec(95, append(words(1, 0, 0, 0, 0, 0x10000|0x200|7, 4, 0, rgb(0, 0, 0), 0, 2), words(10, 10)...))
+		f.sel(1).r(27, 0, 20).r(54, 40, 20)
+		return draw(t, f.bytes(), 40, 40, Options{})
+	}
+	img := dashed(1)
 	expect(t, img, 5, 20, black)
 	expect(t, img, 15, 20, clear)
 	expect(t, img, 25, 20, black)
 	expect(t, img, 35, 20, clear)
+	// The default OPAQUE mode paints the gaps in the background color, white.
+	img = dashed(2)
+	expect(t, img, 5, 20, black)
+	expect(t, img, 15, 20, white)
+	expect(t, img, 35, 20, white)
 }
 
 func TestPathFillStrokeAndClip(t *testing.T) {

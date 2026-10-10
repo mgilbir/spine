@@ -1,11 +1,13 @@
-// Package metafile draws Windows metafiles, EMF and WMF, as pictures.
+// Package metafile draws Windows metafiles, WMF, EMF and EMF+, as pictures.
 //
-// gowemf parses the files and checks their records, objects and states; it
-// leaves playback to its consumer. This package plays the records of the
-// graphics device interface (GDI) onto a transparent raster of a given size:
-// the device contexts, mapping modes and world transforms; pens, brushes and
-// paths; clipping; polygons, curves, arcs, rectangles and ellipses; bitmaps;
-// gradients; and text in fonts the caller supplies.
+// gowemf plays the files: it interprets the records of the graphics device
+// interface (GDI) and of GDI+ — device contexts and graphics states, mapping
+// modes and transforms, objects, paths, clipping, bitmaps, gradients and the
+// placement of text — and resolves each drawing into geometry and paint in
+// the picture's coordinates. This package is the backend it draws through: it
+// fills and strokes paths, places images, shades gradient meshes and draws
+// text in fonts the caller supplies, onto a transparent raster of a given
+// size.
 //
 // The raster is painted here, with the same scan-conversion approach as the
 // page painter (eight vertical samples a pixel, exact horizontal coverage)
@@ -158,6 +160,16 @@ func Inspect(data []byte) (Info, error) {
 	return info, nil
 }
 
+// checkRasterSize refuses a raster past the limits, or whose per-pixel
+// buffers, of up to 16 bytes a pixel, int cannot count, as on 32-bit
+// platforms.
+func checkRasterSize(width, height int, lim render.Limits) error {
+	if width <= 0 || height <= 0 || width > lim.MaxDimension || height > lim.MaxDimension || int64(width)*int64(height) > lim.MaxImagePixels || width > (math.MaxInt/32)/height {
+		return fmt.Errorf("%w: metafile raster size", render.ErrLimit)
+	}
+	return nil
+}
+
 // Render draws a metafile onto a transparent raster of width by height pixels,
 // stretching the picture over all of it.
 func Render(ctx context.Context, data []byte, width, height int, opts Options) (*image.NRGBA, error) {
@@ -168,8 +180,8 @@ func Render(ctx context.Context, data []byte, width, height int, opts Options) (
 	if err != nil {
 		return nil, err
 	}
-	if width <= 0 || height <= 0 || width > lim.MaxDimension || height > lim.MaxDimension || int64(width)*int64(height) > lim.MaxImagePixels {
-		return nil, fmt.Errorf("%w: metafile raster size", render.ErrLimit)
+	if err = checkRasterSize(width, height, lim); err != nil {
+		return nil, err
 	}
 	if int64(len(data)) > lim.MaxImageBytes {
 		return nil, fmt.Errorf("%w: metafile bytes", render.ErrLimit)
@@ -186,45 +198,42 @@ func Render(ctx context.Context, data []byte, width, height int, opts Options) (
 	b := &budget{
 		maxOps: lim.MaxOperations, maxSegments: lim.MaxPathSegments, maxGlyphs: lim.MaxGlyphs,
 		maxEdgeChecks: lim.MaxEdgeChecks, maxPixelVisits: lim.MaxPixelVisits,
-		maxMaskPixels:   max(16*int64(width)*int64(height), 1<<20),
-		maxBitmapPixels: lim.MaxImagePixels,
+		maxMaskPixels: max(16*int64(width)*int64(height), 1<<20),
 	}
-	r := newRaster(ctx, width, height, b)
-	r.sx, r.sy = float64(width)/(a.x1-a.x0), float64(height)/(a.y1-a.y0)
-	r.ox, r.oy = -a.x0*r.sx, -a.y0*r.sy
-	it := &interp{
-		ctx: ctx, opts: opts, r: r, b: b, emf: h.EMF != nil, seen: map[string]bool{},
-		pxPerMmX: a.pxPerMmX, pxPerMmY: a.pxPerMmY, mmX: a.mmX, mmY: a.mmY,
-		objs: map[uint32]any{}, maxFonts: lim.MaxFonts,
-		tol: (1.0 / 16) / math.Max(r.sx, r.sy),
+	be := newBackend(ctx, width, height, opts, b, lim.MaxFonts)
+	po := gowemf.PlayOptions{
+		Stream:      gowemf.StreamOptions{Framing: framing},
+		Destination: gowemf.Box{Width: float64(width), Height: float64(height)},
+		// Decoded bitmaps share the image pixel budget, as one picture.
+		Images:         gowemf.ImageLimits{MaxBytes: uint64(lim.MaxImageBytes), MaxPixels: uint64(lim.MaxImagePixels), MaxDecodedBytes: uint64(4 * lim.MaxImagePixels)},
+		MaxImagePixels: uint64(lim.MaxImagePixels),
+		MaxPathPoints:  uint64(lim.MaxPathSegments),
 	}
-	it.dc = it.newDC()
-	if h.EMF == nil {
-		// A WMF plays in the window its bounds make, as the Aldus placeable
-		// convention has it: logical units map onto the picture's area.
-		wo, we := point{a.x0, a.y0}, point{a.x1 - a.x0, a.y1 - a.y0}
-		if !a.placeable {
-			wo, we = a.wndOrg, a.wndExt
-		}
-		d := &it.dc
-		d.mapMode = mmAnisotropic
-		d.wndOrg, d.wndExt = wo, we
-		d.vpOrg, d.vpExt = point{a.x0, a.y0}, point{a.x1 - a.x0, a.y1 - a.y0}
+	if opts.Approximate != nil {
+		po.Unsupported = be.unsupported
 	}
-	opt := gowemf.StreamOptions{Framing: framing}
-	if h.EMFPlus != nil {
-		if !h.EMFPlus.Dual {
-			return nil, fmt.Errorf("%w: metafile: EMF+ without GDI records", render.ErrUnsupported)
-		}
-		if err = it.soft("EMF+ file drawn from its GDI records"); err != nil {
+	if h.EMFPlus != nil && h.EMFPlus.Dual {
+		if po.Stream.PreferGDI, err = be.preferGDI(data, po); err != nil {
 			return nil, err
 		}
-		opt.PreferGDI = true
 	}
-	_, err = gowemf.Stream(data, opt, it.command)
+	if h.WMF != nil && h.Placeable == nil {
+		// A WMF without a placeable header plays in the window its first
+		// window records set, taken as pixels at 96 per inch.
+		po.Placeable = &gowemf.PlaceableHeader{
+			Bounds:       gowemf.Rect{Left: int32(a.wndOrg.x), Top: int32(a.wndOrg.y), Right: int32(a.wndOrg.x + a.wndExt.x), Bottom: int32(a.wndOrg.y + a.wndExt.y)},
+			UnitsPerInch: 96,
+		}
+	}
+	_, err = gowemf.Play(data, po, be)
 	if err != nil {
-		if errors.Is(err, gowemf.ErrUnsupported) && it.lenient() {
-			if err = it.soft("records from %v on left out", err); err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return nil, cerr
+		}
+		if errors.Is(err, gowemf.ErrUnsupported) && opts.Approximate != nil {
+			// A record the player cannot read ends the picture; what came
+			// before it stays.
+			if err = be.soft("records from %v on left out", err); err != nil {
 				return nil, err
 			}
 		} else {
@@ -234,7 +243,7 @@ func Render(ctx context.Context, data []byte, width, height int, opts Options) (
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	return r.toNRGBA(), nil
+	return be.r.toNRGBA(), nil
 }
 
 // toNRGBA converts the canvas to straight alpha.
@@ -289,3 +298,37 @@ func Plan(data []byte, w, h float64, remaining int64, maxDim int) (pw, ph int, e
 	}
 	return pw, ph, nil
 }
+
+// wmfBounds finds the window a WMF without a placeable header draws in, from
+// its first window origin and extent records.
+func wmfWindow(data []byte, limits gowemf.Limits) (org, ext point, ok bool) {
+	var haveExt bool
+	_, err := gowemf.Walk(data, limits, func(r gowemf.Record) error {
+		if r.Format != gowemf.WMF || haveExt {
+			return nil
+		}
+		switch r.Type & 0xff {
+		case 0x0b, 0x0c:
+			body, err := gowemf.Decode(r, gowemf.DecodeLimits{})
+			if err != nil {
+				return nil
+			}
+			p, isPoint := body.(gowemf.PointRecord)
+			if !isPoint {
+				return nil
+			}
+			if r.Type&0xff == 0x0b {
+				org = point{p.Point.X, p.Point.Y}
+			} else {
+				ext, haveExt = point{p.Point.X, p.Point.Y}, true
+			}
+		}
+		return nil
+	})
+	if err != nil || !haveExt || ext.x == 0 || ext.y == 0 || math.IsNaN(ext.x) {
+		return point{}, point{}, false
+	}
+	return org, ext, true
+}
+
+var errNoSize = fmt.Errorf("%w: metafile: WMF without a placeable header or window extent", render.ErrUnsupported)

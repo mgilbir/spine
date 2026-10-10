@@ -21,21 +21,19 @@ const subSamples = 8
 
 // budget counts the work a metafile asks for against the render limits.
 type budget struct {
-	ops          int
-	segments     int
-	glyphs       int
-	edgeChecks   int64
-	pixelVisits  int64
-	maskPixels   int64
-	bitmapPixels int64
+	ops         int
+	segments    int
+	glyphs      int
+	edgeChecks  int64
+	pixelVisits int64
+	maskPixels  int64
 
-	maxOps          int
-	maxSegments     int
-	maxGlyphs       int
-	maxEdgeChecks   int64
-	maxPixelVisits  int64
-	maxMaskPixels   int64
-	maxBitmapPixels int64
+	maxOps         int
+	maxSegments    int
+	maxGlyphs      int
+	maxEdgeChecks  int64
+	maxPixelVisits int64
+	maxMaskPixels  int64
 }
 
 func (b *budget) op() error {
@@ -62,15 +60,13 @@ func (b *budget) visit(n int64) error {
 	return nil
 }
 
-// raster is the canvas and the transform from metafile device units to it.
+// raster is the canvas. Coordinates are pixels, x right and y down from the
+// top left corner.
 type raster struct {
 	ctx  context.Context
 	w, h int
 	pix  []uint8 // premultiplied RGBA
 	b    *budget
-
-	// A device point (x, y) lands at pixel (x*sx+ox, y*sy+oy).
-	sx, sy, ox, oy float64
 
 	edges  []edge
 	cross  []crossing
@@ -139,8 +135,6 @@ func (c *clip) coverage(x, y int) float32 {
 	return v
 }
 
-func (r *raster) pt(p point) point { return point{p.x*r.sx + r.ox, p.y*r.sy + r.oy} }
-
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // buildEdges converts contours, each implicitly closed, to pixel-space edges
@@ -156,12 +150,12 @@ func (r *raster) buildEdges(contours [][]point, ry0, ry1 float64) (minX, minY, m
 		if err = r.b.addSegments(len(c)); err != nil {
 			return
 		}
-		prev := r.pt(c[len(c)-1])
+		prev := c[len(c)-1]
 		if !finite(prev.x) || !finite(prev.y) {
 			return 0, 0, 0, 0, fmt.Errorf("%w: metafile coordinate", render.ErrInvalid)
 		}
 		for _, q := range c {
-			cur := r.pt(q)
+			cur := q
 			if !finite(cur.x) || !finite(cur.y) {
 				return 0, 0, 0, 0, fmt.Errorf("%w: metafile coordinate", render.ErrInvalid)
 			}
@@ -435,17 +429,6 @@ func (r *raster) polyMask(contours [][]point, evenOdd bool, within *clip) (*mask
 	return m, err
 }
 
-// clipMode combines a new region with the clip, as RGN_AND and its kin do.
-type clipMode int
-
-const (
-	clipAnd clipMode = iota + 1
-	clipOr
-	clipXor
-	clipDiff
-	clipCopy
-)
-
 // axisRect reports whether the contours are exactly one axis-aligned rectangle
 // in the raster's pixel space, returning its corners.
 func (r *raster) axisRect(contours [][]point) (x0, y0, x1, y1 float64, ok bool) {
@@ -453,7 +436,7 @@ func (r *raster) axisRect(contours [][]point) (x0, y0, x1, y1 float64, ok bool) 
 		return
 	}
 	c := contours[0]
-	p := [4]point{r.pt(c[0]), r.pt(c[1]), r.pt(c[2]), r.pt(c[3])}
+	p := [4]point{c[0], c[1], c[2], c[3]}
 	const eps = 1e-9
 	horizontalFirst := math.Abs(p[0].y-p[1].y) < eps && math.Abs(p[1].x-p[2].x) < eps && math.Abs(p[2].y-p[3].y) < eps && math.Abs(p[3].x-p[0].x) < eps
 	verticalFirst := math.Abs(p[0].x-p[1].x) < eps && math.Abs(p[1].y-p[2].y) < eps && math.Abs(p[2].x-p[3].x) < eps && math.Abs(p[3].y-p[0].y) < eps
@@ -470,7 +453,7 @@ func (r *raster) contourBounds(contours [][]point) (x0, y0, x1, y1 float64, ok b
 	x0, y0, x1, y1 = math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	for _, c := range contours {
 		for _, q := range c {
-			p := r.pt(q)
+			p := q
 			if !finite(p.x) || !finite(p.y) {
 				return 0, 0, 0, 0, false
 			}
@@ -481,97 +464,73 @@ func (r *raster) contourBounds(contours [][]point) (x0, y0, x1, y1 float64, ok b
 	return x0, y0, x1, y1, x1 >= x0
 }
 
-// combine returns the clip after combining the region with it.
-func (r *raster) combine(c *clip, contours [][]point, evenOdd bool, mode clipMode) (*clip, error) {
-	if x0, y0, x1, y1, ok := r.axisRect(contours); ok && len(contours) == 1 {
-		switch mode {
-		case clipAnd:
-			n := *c
-			n.x0, n.y0, n.x1, n.y1 = math.Max(c.x0, x0), math.Max(c.y0, y0), math.Min(c.x1, x1), math.Min(c.y1, y1)
-			return &n, nil
-		case clipCopy:
-			return &clip{x0: math.Max(0, x0), y0: math.Max(0, y0), x1: math.Min(float64(r.w), x1), y1: math.Min(float64(r.h), y1)}, nil
-		}
+// coverBuf is the coverage of a box of pixels, without a clip.
+type coverBuf struct {
+	x0, y0, w, h int
+	a            []float32
+}
+
+// newCoverage allocates a coverage buffer over a clip's integer box, charged
+// to the mask budget.
+func (r *raster) newCoverage(area *clip) (*coverBuf, error) {
+	x0, y0 := int(math.Floor(math.Max(0, area.x0))), int(math.Floor(math.Max(0, area.y0)))
+	x1, y1 := int(math.Ceil(math.Min(float64(r.w), area.x1))), int(math.Ceil(math.Min(float64(r.h), area.y1)))
+	if x1 <= x0 || y1 <= y0 {
+		return &coverBuf{}, nil
 	}
-	switch mode {
-	case clipAnd:
-		if c.empty() {
-			return c, nil
-		}
-		within := *c
-		if bx0, by0, bx1, by1, ok := r.contourBounds(contours); ok {
-			within.x0, within.y0 = math.Max(c.x0, math.Floor(bx0)), math.Max(c.y0, math.Floor(by0))
-			within.x1, within.y1 = math.Min(c.x1, math.Ceil(bx1)), math.Min(c.y1, math.Ceil(by1))
-		} else {
-			within.x1, within.y1 = within.x0, within.y0
-		}
-		m, err := r.polyMask(contours, evenOdd, &within)
-		if err != nil {
-			return nil, err
-		}
-		n := *c
-		n.x0, n.y0 = math.Max(c.x0, float64(m.x0)), math.Max(c.y0, float64(m.y0))
-		n.x1, n.y1 = math.Min(c.x1, float64(m.x0+m.w)), math.Min(c.y1, float64(m.y0+m.h))
-		if c.m != nil {
-			for y := 0; y < m.h; y++ {
-				for x := 0; x < m.w; x++ {
-					m.a[y*m.w+x] = uint8((int(m.a[y*m.w+x])*int(c.m.at(m.x0+x, m.y0+y)) + 127) / 255)
-				}
-			}
-		}
-		n.m = m
-		return &n, nil
-	case clipCopy:
-		return r.combine(r.fullClip(), contours, evenOdd, clipAnd)
-	case clipDiff:
-		if c.empty() {
-			return c, nil
-		}
-		m, err := r.polyMask(contours, evenOdd, c)
-		if err != nil {
-			return nil, err
-		}
-		// The mask spans the clip's rectangle; invert it and fold in the old.
-		out := &mask{x0: m.x0, y0: m.y0, w: m.w, h: m.h, a: m.a}
-		for y := 0; y < out.h; y++ {
-			for x := 0; x < out.w; x++ {
-				v := 255 - int(out.a[y*out.w+x])
-				if c.m != nil {
-					v = (v*int(c.m.at(out.x0+x, out.y0+y)) + 127) / 255
-				}
-				out.a[y*out.w+x] = uint8(v)
-			}
-		}
-		n := *c
-		n.m = out
-		return &n, nil
-	}
-	// Union and exclusive or work over the whole canvas.
-	full := r.fullClip()
-	m, err := r.polyMask(contours, evenOdd, full)
-	if err != nil {
+	w, h := x1-x0, y1-y0
+	if err := r.chargeMask(int64(w) * int64(h)); err != nil {
 		return nil, err
 	}
-	out := &mask{x0: 0, y0: 0, w: r.w, h: r.h}
-	if err = r.chargeMask(int64(r.w) * int64(r.h)); err != nil {
-		return nil, err
+	return &coverBuf{x0: x0, y0: y0, w: w, h: h, a: make([]float32, w*h)}, nil
+}
+
+// coverage rasterizes contours into a coverage buffer over the area's box.
+func (r *raster) coverage(contours [][]point, evenOdd bool, area *clip) (*coverBuf, error) {
+	buf, err := r.newCoverage(area)
+	if err != nil || buf.w == 0 {
+		return buf, err
 	}
-	out.a = make([]uint8, r.w*r.h)
-	for y := 0; y < r.h; y++ {
-		if err = r.ctx.Err(); err != nil {
-			return nil, err
-		}
-		for x := 0; x < r.w; x++ {
-			old := float64(c.coverage(x, y))
-			nw := float64(m.at(x, y)) / 255
-			var v float64
-			if mode == clipOr {
-				v = old + nw - old*nw
-			} else {
-				v = math.Abs(old - nw)
+	bounds := &clip{x0: float64(buf.x0), y0: float64(buf.y0), x1: float64(buf.x0 + buf.w), y1: float64(buf.y0 + buf.h)}
+	err = r.cover(contours, evenOdd, bounds, func(y, xs int, cov []float32) error {
+		copy(buf.a[(y-buf.y0)*buf.w+xs-buf.x0:], cov)
+		return nil
+	})
+	return buf, err
+}
+
+// paintCoverage composites a paint at a coverage buffer's coverage, under a
+// clip.
+func (r *raster) paintCoverage(buf *coverBuf, st fillStyle, c *clip) error {
+	if buf.w == 0 {
+		return nil
+	}
+	if err := r.b.visit(int64(buf.w) * int64(buf.h)); err != nil {
+		return err
+	}
+	for y := 0; y < buf.h; y++ {
+		if y%64 == 0 {
+			if err := r.ctx.Err(); err != nil {
+				return err
 			}
-			out.a[y*r.w+x] = uint8(math.Min(255, v*255+0.5))
+		}
+		py := buf.y0 + y
+		for x := 0; x < buf.w; x++ {
+			v := min(buf.a[y*buf.w+x], 1)
+			if v <= 0 {
+				continue
+			}
+			px := buf.x0 + x
+			v *= c.coverage(px, py)
+			if v <= 0 {
+				continue
+			}
+			col := st.solid
+			if st.fn != nil {
+				col = st.fn(px, py)
+			}
+			r.blend((py*r.w+px)*4, col, v)
 		}
 	}
-	return &clip{x0: 0, y0: 0, x1: float64(r.w), y1: float64(r.h), m: out}, nil
+	return nil
 }

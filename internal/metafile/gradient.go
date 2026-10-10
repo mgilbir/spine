@@ -1,90 +1,129 @@
 package metafile
 
 import (
-	"fmt"
+	"image/color"
 	"math"
 
 	"github.com/mgilbir/gowemf"
-	"github.com/mgilbir/spine/render"
 )
 
-// gradient plays EMR_GRADIENTFILL: rectangles shaded along one axis, or
-// triangles shaded between their corners, interpolating linearly in RGB.
-func (it *interp) gradient(g gowemf.Gradient) error {
-	step := 3
-	if g.Mode == 0 || g.Mode == 1 {
-		step = 2
-	} else if g.Mode != 2 {
-		return fmt.Errorf("%w: metafile: gradient mode", render.ErrInvalid)
+// FillGradient fills a mesh of Gouraud-shaded triangles: each point's color
+// interpolates its triangle's corner colors. The triangles of a mesh share
+// edges, and painting each with its own edge coverage would leave seams where
+// two half-covered pixels do not add up to one; so their coverage and color are
+// accumulated together and the mesh is composited once.
+func (be *backend) FillGradient(mesh []gowemf.GradientTriangle, cl gowemf.Clip) error {
+	if err := be.begin(); err != nil {
+		return err
 	}
-	m := it.matrix()
-	toPixel := m.then(affine{a: it.r.sx, d: it.r.sy, e: it.r.ox, f: it.r.oy})
-	inv, ok := toPixel.invert()
+	if len(mesh) == 0 {
+		return nil
+	}
+	if err := be.charge(3 * len(mesh)); err != nil {
+		return err
+	}
+	all := make([][]point, 0, len(mesh))
+	for _, t := range mesh {
+		tri := []point{{t.Points[0].X, t.Points[0].Y}, {t.Points[1].X, t.Points[1].Y}, {t.Points[2].X, t.Points[2].Y}}
+		for _, q := range tri {
+			if !finite(q.x) || !finite(q.y) {
+				return errCoordinate
+			}
+		}
+		all = append(all, tri)
+	}
+	c, err := be.clip(cl)
+	if err != nil {
+		return err
+	}
+	x0, y0, x1, y1, ok := be.r.contourBounds(all)
 	if !ok {
 		return nil
 	}
-	vertex := func(i uint32) (point, [3]float64, error) {
-		if int(i) >= g.Vertices.Len() {
-			return point{}, [3]float64{}, fmt.Errorf("%w: metafile: gradient vertex index", render.ErrInvalid)
-		}
-		v := g.Vertices.At(int(i))
-		return point{v.Point.X, v.Point.Y}, [3]float64{float64(v.Red >> 8), float64(v.Green >> 8), float64(v.Blue >> 8)}, nil
+	area := c.within(x0, y0, x1, y1)
+	if area.empty() {
+		return nil
 	}
-	for i := 0; i+step <= g.Indexes.Len(); i += step {
-		if err := it.ctx.Err(); err != nil {
+	cov, err := be.r.newCoverage(area)
+	if err != nil || cov.w == 0 {
+		return err
+	}
+	// Premultiplied color sums, weighted by coverage, in 0..1.
+	if err = be.r.chargeMask(4 * int64(cov.w) * int64(cov.h)); err != nil {
+		return err
+	}
+	sum := make([]float32, 4*cov.w*cov.h)
+	bounds := &clip{x0: float64(cov.x0), y0: float64(cov.y0), x1: float64(cov.x0 + cov.w), y1: float64(cov.y0 + cov.h)}
+	for k, t := range mesh {
+		if err = be.ctx.Err(); err != nil {
 			return err
 		}
-		if err := it.b.op(); err != nil {
-			return err
-		}
-		var pts [3]point
-		var cols [3][3]float64
-		for k := 0; k < step; k++ {
-			var err error
-			if pts[k], cols[k], err = vertex(g.Indexes.At(i + k)); err != nil {
-				return err
-			}
-		}
-		var contour []point
-		var paint func(x, y int) rgba
-		if step == 2 {
-			x0, y0, x1, y1 := pts[0].x, pts[0].y, pts[1].x, pts[1].y
-			contour = it.rectContour(x0, y0, x1, y1)
-			horizontal := g.Mode == 0
-			paint = func(px, py int) rgba {
-				l := inv.apply(point{float64(px) + 0.5, float64(py) + 0.5})
-				var t float64
-				if horizontal && x1 != x0 {
-					t = (l.x - x0) / (x1 - x0)
-				} else if !horizontal && y1 != y0 {
-					t = (l.y - y0) / (y1 - y0)
+		tri := all[k]
+		shade := gouraud(tri, t.Colors)
+		err = be.r.cover([][]point{tri}, false, bounds, func(y, xs int, row []float32) error {
+			base := (y - cov.y0) * cov.w
+			for i, v := range row {
+				if v <= 0 {
+					continue
 				}
-				t = math.Min(1, math.Max(0, t))
-				return rgba{clamp8(cols[0][0] + (cols[1][0]-cols[0][0])*t), clamp8(cols[0][1] + (cols[1][1]-cols[0][1])*t), clamp8(cols[0][2] + (cols[1][2]-cols[0][2])*t), 255}
+				x := xs + i
+				j := base + x - cov.x0
+				cov.a[j] += v
+				r, g, b, a := shade(float64(x)+0.5, float64(y)+0.5)
+				sum[4*j] += v * float32(r*a)
+				sum[4*j+1] += v * float32(g*a)
+				sum[4*j+2] += v * float32(b*a)
+				sum[4*j+3] += v * float32(a)
 			}
-		} else {
-			contour = []point{m.apply(pts[0]), m.apply(pts[1]), m.apply(pts[2])}
-			den := (pts[1].y-pts[2].y)*(pts[0].x-pts[2].x) + (pts[2].x-pts[1].x)*(pts[0].y-pts[2].y)
-			if den == 0 {
-				continue
-			}
-			paint = func(px, py int) rgba {
-				l := inv.apply(point{float64(px) + 0.5, float64(py) + 0.5})
-				a := ((pts[1].y-pts[2].y)*(l.x-pts[2].x) + (pts[2].x-pts[1].x)*(l.y-pts[2].y)) / den
-				b := ((pts[2].y-pts[0].y)*(l.x-pts[2].x) + (pts[0].x-pts[2].x)*(l.y-pts[2].y)) / den
-				c := 1 - a - b
-				a, b, c = math.Min(1, math.Max(0, a)), math.Min(1, math.Max(0, b)), math.Min(1, math.Max(0, c))
-				s := a + b + c
-				a, b, c = a/s, b/s, c/s
-				return rgba{
-					clamp8(cols[0][0]*a + cols[1][0]*b + cols[2][0]*c),
-					clamp8(cols[0][1]*a + cols[1][1]*b + cols[2][1]*c),
-					clamp8(cols[0][2]*a + cols[1][2]*b + cols[2][2]*c), 255}
-			}
-		}
-		if err := it.r.fill([][]point{contour}, false, fillStyle{fn: paint}, it.dc.clip); err != nil {
+			return nil
+		})
+		if err != nil {
 			return err
 		}
 	}
-	return nil
+	return be.r.paintCoverage(cov, fillStyle{fn: func(x, y int) rgba {
+		j := (y-cov.y0)*cov.w + x - cov.x0
+		n := cov.a[j]
+		if n <= 0 {
+			return rgba{}
+		}
+		a := sum[4*j+3] / n
+		if a <= 0 {
+			return rgba{}
+		}
+		return rgba{
+			clamp8(float64(sum[4*j]/n/a) * 255), clamp8(float64(sum[4*j+1]/n/a) * 255),
+			clamp8(float64(sum[4*j+2]/n/a) * 255), clamp8(float64(a) * 255),
+		}
+	}}, c)
+}
+
+// gouraud returns the straight color, in 0..1, of a point by interpolating a
+// triangle's corner colors over it, each channel linearly. Points just
+// outside, at its antialiased edge, take the color of the nearest point on it.
+func gouraud(tri []point, cols [3]color.NRGBA64) func(x, y float64) (r, g, b, a float64) {
+	p0, p1, p2 := tri[0], tri[1], tri[2]
+	den := (p1.y-p2.y)*(p0.x-p2.x) + (p2.x-p1.x)*(p0.y-p2.y)
+	ch := func(i int) [4]float64 {
+		c := cols[i]
+		return [4]float64{float64(c.R) / 0xffff, float64(c.G) / 0xffff, float64(c.B) / 0xffff, float64(c.A) / 0xffff}
+	}
+	c0, c1, c2 := ch(0), ch(1), ch(2)
+	return func(x, y float64) (r, g, b, a float64) {
+		w0, w1, w2 := 1.0/3, 1.0/3, 1.0/3
+		if den != 0 && finite(den) {
+			w0 = ((p1.y-p2.y)*(x-p2.x) + (p2.x-p1.x)*(y-p2.y)) / den
+			w1 = ((p2.y-p0.y)*(x-p2.x) + (p0.x-p2.x)*(y-p2.y)) / den
+			w0, w1 = math.Min(1, math.Max(0, w0)), math.Min(1, math.Max(0, w1))
+			w2 = math.Max(0, 1-w0-w1)
+			if s := w0 + w1 + w2; s > 0 {
+				w0, w1, w2 = w0/s, w1/s, w2/s
+			}
+		}
+		r = c0[0]*w0 + c1[0]*w1 + c2[0]*w2
+		g = c0[1]*w0 + c1[1]*w1 + c2[1]*w2
+		b = c0[2]*w0 + c1[2]*w1 + c2[2]*w2
+		a = c0[3]*w0 + c1[3]*w1 + c2[3]*w2
+		return r, g, b, a
+	}
 }

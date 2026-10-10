@@ -16,6 +16,7 @@ func FuzzRender(f *testing.F) {
 	w := newWMF().place(0, 0, 40, 40, 40)
 	w.objects = 2
 	f.Add(w.rec(0x02fc, 0, 0x00ff, 0, 0).rec(0x012d, 0).rec(0x041b, 30, 30, 10, 10).bytes())
+	f.Add(newEMF(40, 40).raw(plusComment(plusHeader(true), plusPixels(), plusFill(10, 10, 20, 20, 0xff0000ff), plusEOF())).brush(1, 0, rgb(255, 0, 0), 0).sel(1).rect(43, 10, 10, 31, 31).bytes())
 	limits := render.Limits{MaxDimension: 64, MaxPixels: 4096, MaxOperations: 256, MaxPathSegments: 4096, MaxPixelVisits: 1 << 20, MaxEdgeChecks: 1 << 20, MaxImagePixels: 4096, MaxImageBytes: 64 << 10, MaxGlyphs: 256, MaxFonts: 2}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 32<<10 {

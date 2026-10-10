@@ -101,3 +101,12 @@ func (e *emfBuilder) stretchDIBits(dx, dy, dw, dh int32, info, bits []byte, rop 
 	body = append(body, bits...)
 	return e.rec(81, body)
 }
+
+// plusFill is an EmfPlusFillRects record of one rectangle in a solid ARGB
+// color.
+func plusFill(x, y, w, h float32, argb uint32) []byte {
+	return plusRecord(0x400a, 0x8000, words(int32(argb), 1, f32(x), f32(y), f32(w), f32(h)))
+}
+
+// plusPixels is an EmfPlusSetPageTransform to pixels, at scale 1.
+func plusPixels() []byte { return plusRecord(0x4030, 2, words(f32(1))) }
