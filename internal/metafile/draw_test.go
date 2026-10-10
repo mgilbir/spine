@@ -50,18 +50,19 @@ func TestRectangleFill(t *testing.T) {
 	expect(t, img, 35, 35, clear)
 	expect(t, img, 10, 20, red)
 	expect(t, img, 9, 20, clear)
-	// Without a pen the rectangle leaves out its right and bottom edges, as
-	// GDI fills it: columns and rows 10 to 28.
-	expect(t, img, 28, 28, red)
-	expect(t, img, 29, 20, clear)
-	expect(t, img, 20, 29, clear)
+	// Windows plays EMF rectangles with their right and bottom edges, even
+	// in GM_COMPATIBLE mode (as gowemf's Windows oracle records): columns and
+	// rows 10 to 29.
+	expect(t, img, 29, 29, red)
+	expect(t, img, 30, 20, clear)
+	expect(t, img, 20, 30, clear)
 	// Stretched to twice the size, the same picture covers twice the pixels.
 	big := draw(t, data, 80, 80, Options{})
 	expect(t, big, 40, 40, red)
 	expect(t, big, 19, 40, clear)
 	expect(t, big, 21, 40, red)
-	expect(t, big, 57, 40, red)
-	expect(t, big, 58, 40, clear)
+	expect(t, big, 59, 40, red)
+	expect(t, big, 61, 40, clear)
 	// An anisotropic stretch.
 	wide := draw(t, data, 80, 40, Options{})
 	expect(t, wide, 41, 20, red)
@@ -69,17 +70,15 @@ func TestRectangleFill(t *testing.T) {
 }
 
 func TestPartialCoverage(t *testing.T) {
-	// A rectangle edge part way through a pixel covers that part of it. A
-	// rectangle without a pen ends a device pixel before its right edge.
-	e := newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 21, 40)
+	// A rectangle edge half way through a pixel covers half of it.
+	e := newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 20, 40)
 	img := draw(t, e.bytes(), 80, 40, Options{})
 	// 20 device pixels over 40 output pixels: the edge is at x = 40.
 	expect(t, img, 39, 10, blue)
 	expect(t, img, 40, 10, clear)
-	e = newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 11, 40)
+	e = newEMF(40, 40).brush(1, 0, rgb(0, 0, 255), 0).sel(1).sel(nullPen).rect(43, 0, 0, 10, 40)
 	img = draw(t, e.bytes(), 25, 40, Options{})
-	// 10 device pixels, with the edge at 6.25: the pixel 6 is a quarter
-	// covered.
+	// The edge at 6.25: the pixel 6 is a quarter covered.
 	got := at(img, 6, 10)
 	if got.A < 56 || got.A > 72 {
 		t.Errorf("edge pixel alpha = %d, want about 64", got.A)

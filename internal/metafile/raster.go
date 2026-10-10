@@ -24,6 +24,7 @@ type budget struct {
 	ops         int
 	segments    int
 	glyphs      int
+	shapeWork   int64
 	edgeChecks  int64
 	pixelVisits int64
 	maskPixels  int64
@@ -31,6 +32,8 @@ type budget struct {
 	maxOps         int
 	maxSegments    int
 	maxGlyphs      int
+	maxShapeWork   int64
+	maxRunBytes    int
 	maxEdgeChecks  int64
 	maxPixelVisits int64
 	maxMaskPixels  int64

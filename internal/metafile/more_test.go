@@ -146,15 +146,35 @@ func TestEMFPlus(t *testing.T) {
 		t.Fatalf("display warnings %q", w)
 	}
 
-	// When neither can be drawn completely, the EMF+ records are drawn,
-	// leaving out what they cannot.
+	// When neither can be drawn completely, the GDI records are drawn,
+	// leaving out what they cannot: here a dithered hatch, while a red
+	// rectangle in a solid brush is drawn.
 	both := newEMF(40, 40).raw(plusComment(plusHeader(true), plusPixels(), plusFill(0, 0, 5, 5, 0xff00ff00), plusRecord(0x4030, 1, words(f32(1))), fill, plusEOF()))
 	both.brush(1, 2, rgb(255, 0, 0), 7).sel(1).sel(nullPen).rect(43, 10, 10, 31, 31)
+	both.brush(2, 0, rgb(255, 0, 0), 0).sel(2).rect(43, 0, 0, 5, 5)
 	img, w = warnings(both.bytes())
-	expect(t, img, 2, 2, green)
+	expect(t, img, 2, 2, red)
 	expect(t, img, 20, 20, clear)
-	if len(w) != 1 || !strings.Contains(w[0], "page unit") {
+	if len(w) != 2 || !strings.Contains(w[0], "drawn from its GDI records") || !strings.Contains(w[1], "hatch style 7") {
 		t.Fatalf("both warnings %q", w)
+	}
+
+	// EMF+ records past the limits, when the GDI records are within them:
+	// twenty rectangles are eighty path points, a rectangle four.
+	rects := words(-0xffff01, 20)
+	for i := 0; i < 20; i++ {
+		rects = append(rects, words(f32(10), f32(10), f32(20), f32(20))...)
+	}
+	many := dual(plusRecord(0x400a, 0x8000, rects))
+	small := render.Limits{MaxPathSegments: 40}
+	if _, err := Render(context.Background(), many, 40, 40, Options{Limits: small}); !errors.Is(err, render.ErrLimit) {
+		t.Fatalf("strict past the limits: %v", err)
+	}
+	var past []string
+	img = draw(t, many, 40, 40, Options{Limits: small, Approximate: func(err error) error { past = append(past, err.Error()); return nil }})
+	expect(t, img, 20, 20, red)
+	if len(past) != 1 || !strings.Contains(past[0], "past the limits") {
+		t.Fatalf("limit warnings %q", past)
 	}
 
 	// An EMF+ Only file has no GDI records to fall back on: it is drawn.
@@ -177,6 +197,11 @@ func TestWMF(t *testing.T) {
 	img := draw(t, data, 40, 40, Options{})
 	expect(t, img, 20, 20, red)
 	expect(t, img, 5, 5, clear)
+	// WMF keeps GM_COMPATIBLE's rules (MS-EMF 2.1.16): without a pen the
+	// right and bottom edges are left out.
+	expect(t, img, 28, 28, red)
+	expect(t, img, 29, 20, clear)
+	expect(t, img, 20, 29, clear)
 	info, err := Inspect(data)
 	if err != nil || info.Width < 95.9 || info.Width > 96.1 || info.EMF {
 		t.Fatalf("Inspect: %+v %v", info, err)
@@ -303,9 +328,9 @@ func TestMissingCharacters(t *testing.T) {
 	// The face's .notdef is blank here; a character the face lacks is not
 	// drawn as it either.
 	face, _ := fonts(context.Background(), render.FontRequest{})
-	gids, _, missing := elements(gowemf.TextRun{Text: []uint16{'B', 'A'}}, face)
-	if !missing || gids[0] != -1 || gids[1] != 1 {
-		t.Fatalf("elements: %v %v", gids, missing)
+	gr, err := testBackend().layoutText(gowemf.TextRun{Text: []uint16{'B', 'A'}}, face)
+	if err != nil || !gr.missing || len(gr.glyphs) != 1 || gr.glyphs[0].gid != 1 || gr.glyphs[0].elem != 1 || gr.advances[0] != 0 {
+		t.Fatalf("layout: %+v %v", gr, err)
 	}
 }
 
@@ -332,4 +357,68 @@ func TestStrokePixelCenters(t *testing.T) {
 			t.Errorf("edge row %d alpha %d, want about 128", y, a)
 		}
 	}
+}
+
+// testBackend is a backend on a one-pixel raster, with room for text.
+func testBackend() *backend {
+	b := &budget{maxOps: 1 << 10, maxGlyphs: 1 << 10, maxShapeWork: 1 << 20, maxRunBytes: 1 << 10}
+	return newBackend(context.Background(), 1, 1, Options{}, b, 4)
+}
+
+func TestRightToLeftMirrored(t *testing.T) {
+	// '(' has its ink on the left half of its advance, ')' on the right.
+	f, err := shape.Load(fonttest.SFNT(fonttest.SFNTOptions{Name: "Fixture", UnitsPerEm: 2000, Ascent: 1600, Descent: -400, Glyphs: []fonttest.Glyph{
+		{Rune: '(', Advance: 2000, HasShape: true, Ink: [4]int{0, 0, 1000, 1600}},
+		{Rune: ')', Advance: 2000, HasShape: true, Ink: [4]int{1000, 0, 2000, 1600}},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fonts := func(ctx context.Context, r render.FontRequest) (*shape.Face, error) { return f, nil }
+	text := func(options int32) *image.NRGBA {
+		e := newEMF(40, 40).font(1, -20, 0, 400, "Fixture").sel(1).r(18, 1).r(22, 24)
+		e.textW(10, 30, "(", []int32{20}, options)
+		return draw(t, e.bytes(), 40, 40, Options{Fonts: fonts})
+	}
+	// Left to right, '(' is drawn as it is.
+	img := text(0)
+	expect(t, img, 15, 20, black)
+	expect(t, img, 25, 20, clear)
+	// In right-to-left reading order the bracket is at an odd level, and
+	// drawn mirrored (UAX #9 rule L4): as ')'.
+	img = text(0x80)
+	expect(t, img, 15, 20, clear)
+	expect(t, img, 25, 20, black)
+}
+
+func TestControlCharactersLeftOutQuietly(t *testing.T) {
+	// A tab has nothing to draw, in GDI as here: it is not reported as a
+	// character the font lacks.
+	e := newEMF(40, 40).font(1, -20, 0, 400, "Fixture").sel(1).r(18, 1).r(22, 24)
+	e.textW(0, 30, "\tA", []int32{0, 20}, 0)
+	img := draw(t, e.bytes(), 40, 40, Options{Fonts: namedFonts(t, "Fixture")})
+	expect(t, img, 10, 20, black)
+}
+
+func TestDefaultCharSetText(t *testing.T) {
+	// ANSI text in a DEFAULT_CHARSET font is read as a Western system writes
+	// it, in Windows-1252: 0x80 is the euro sign.
+	f, err := shape.Load(fonttest.SFNT(fonttest.SFNTOptions{Name: "Fixture", UnitsPerEm: 2000, Ascent: 1600, Descent: -400, Glyphs: []fonttest.Glyph{{Rune: '€', Advance: 2000, HasShape: true, Ink: [4]int{0, 0, 2000, 1600}}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fonts := func(ctx context.Context, r render.FontRequest) (*shape.Face, error) { return f, nil }
+	e := newEMF(40, 40).font(1, -20, 0, 400, "Fixture")
+	// The font record's charset byte, after its five LONGs, escapement and
+	// weight, italic, underline and strikeout: DEFAULT_CHARSET.
+	font := e.records[len(e.records)-1]
+	font[8+4+4*5+3] = 1
+	e.sel(1).r(18, 1).r(22, 24)
+	// EMR_EXTTEXTOUTA without a rectangle, one byte, advance 20.
+	body := words(0, 0, 0, 0, 1, f32(1), f32(1), 10, 30, 1, 8+13*4, 0x100, 8+13*4+4)
+	body = append(body, 0x80, 0, 0, 0)
+	body = append(body, words(20)...)
+	e.rec(83, body)
+	img := draw(t, e.bytes(), 40, 40, Options{Fonts: fonts})
+	expect(t, img, 20, 20, black)
 }

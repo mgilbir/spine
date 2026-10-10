@@ -40,6 +40,8 @@ type backend struct {
 
 	// Images converted for drawing, by source image and rectangle.
 	images map[imageKey]*converted
+	// lastText is the last run laid out.
+	lastText *textCache
 }
 
 func newBackend(ctx context.Context, w, h int, opts Options, b *budget, maxFonts int) *backend {

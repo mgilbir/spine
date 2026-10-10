@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/mgilbir/aster v0.1.1
 	github.com/mgilbir/forme v0.10.0
-	github.com/mgilbir/gowemf v0.0.0-20261009205244-02d3bd020761
+	github.com/mgilbir/gowemf v0.1.1
 	golang.org/x/tools v0.51.0
 )
 

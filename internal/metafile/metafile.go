@@ -197,6 +197,7 @@ func Render(ctx context.Context, data []byte, width, height int, opts Options) (
 	}
 	b := &budget{
 		maxOps: lim.MaxOperations, maxSegments: lim.MaxPathSegments, maxGlyphs: lim.MaxGlyphs,
+		maxShapeWork: lim.MaxShapeWork, maxRunBytes: lim.MaxRunBytes,
 		maxEdgeChecks: lim.MaxEdgeChecks, maxPixelVisits: lim.MaxPixelVisits,
 		maxMaskPixels: max(16*int64(width)*int64(height), 1<<20),
 	}
@@ -209,6 +210,10 @@ func Render(ctx context.Context, data []byte, width, height int, opts Options) (
 		MaxImagePixels: uint64(lim.MaxImagePixels),
 		MaxPathPoints:  uint64(lim.MaxPathSegments),
 	}
+	// DEFAULT_CHARSET is the producing system's character set. As before,
+	// it is taken as a Western system's: ANSI_CHARSET, Windows-1252.
+	ansi := uint8(0)
+	po.DefaultCharSet = &ansi
 	if opts.Approximate != nil {
 		po.Unsupported = be.unsupported
 	}

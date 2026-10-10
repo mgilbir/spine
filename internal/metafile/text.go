@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -120,47 +121,169 @@ func ownFace(face *shape.Face, f gowemf.FontRequest) bool {
 	return strings.EqualFold(strings.TrimSpace(face.Family()), name) || strings.EqualFold(strings.TrimSpace(face.Name()), name)
 }
 
-// elements returns the glyph of each element of a run, and false for the
-// second unit of a surrogate pair. Characters the face lacks are -1: they are
-// left out, without an advance.
-func elements(run gowemf.TextRun, face *shape.Face) (gids []int, first []bool, missing bool) {
-	n := len(run.Text)
-	gids, first = make([]int, n), make([]bool, n)
-	if run.Glyphs {
-		for i, g := range run.Text {
-			gids[i], first[i] = int(g), true
-			if int(g) >= face.NumGlyphs() {
-				gids[i], missing = -1, true
-			}
-		}
-		return
+// glyphRun is how a run's elements are drawn: glyphs placed from the origin
+// of the element each belongs to, and each element's advance, in thousandths
+// of the em.
+type glyphRun struct {
+	glyphs   []placedGlyph
+	advances []float64
+	missing  bool
+}
+
+type placedGlyph struct {
+	gid  int
+	elem int
+	// The glyph's displacement from its element's origin, in thousandths of
+	// the em, y up.
+	dx, dy float64
+}
+
+// simpleFeatures are those ExtTextOut draws simple text with: none it may
+// leave out. Complex scripts, and right-to-left runs, Windows shapes through
+// Uniscribe, with the font's own rules.
+var simpleFeatures = shape.Features{NoOptionalLigatures: true, NoContextualAlternates: true, NoKerning: true}
+
+// layoutText shapes a run. Glyph indexes are drawn as they are. Characters
+// are shaped in maximal runs of logically adjacent elements of one embedding
+// level, in that level's direction, mirrored at odd levels; each cluster's
+// glyphs are drawn from the origin of the element it starts at, which takes
+// the cluster's advance. Characters the face lacks are left out, without an
+// advance.
+func (be *backend) layoutText(run gowemf.TextRun, face *shape.Face) (*glyphRun, error) {
+	key := textKey(run)
+	if be.lastText != nil && be.lastText.face == face && be.lastText.key == key {
+		return be.lastText.out, nil
 	}
-	for i := 0; i < n; i++ {
-		u := run.Text[i]
+	n := len(run.Text)
+	out := &glyphRun{advances: make([]float64, n)}
+	if run.Glyphs {
+		for i, u := range run.Text {
+			if int(u) >= face.NumGlyphs() {
+				out.missing = true
+				continue
+			}
+			out.glyphs = append(out.glyphs, placedGlyph{gid: int(u), elem: i})
+			out.advances[i] = face.GlyphAdvance(int(u))
+		}
+	} else {
+		for i := 0; i < n; {
+			j := i + 1
+			for j < n && level(run, j) == level(run, i) {
+				j++
+			}
+			if err := be.shapeLevelRun(run, face, i, j, out); err != nil {
+				return nil, err
+			}
+			i = j
+		}
+	}
+	be.lastText = &textCache{face: face, key: key, out: out}
+	return out, nil
+}
+
+// textCache keeps the last run laid out, which DrawText draws after
+// MeasureText measured it.
+type textCache struct {
+	face *shape.Face
+	key  string
+	out  *glyphRun
+}
+
+func textKey(run gowemf.TextRun) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%+v|%v|", run.Font, run.Glyphs)
+	for _, u := range run.Text {
+		fmt.Fprintf(&b, "%x,", u)
+	}
+	b.WriteByte('|')
+	b.Write(run.Levels)
+	return b.String()
+}
+
+func level(run gowemf.TextRun, i int) uint8 {
+	if run.Levels == nil {
+		return 0
+	}
+	return run.Levels[i]
+}
+
+// shapeLevelRun shapes the elements i to j, all at one level.
+func (be *backend) shapeLevelRun(run gowemf.TextRun, face *shape.Face, i, j int, out *glyphRun) error {
+	rtl := level(run, i)%2 == 1
+	// An explicit override states the direction resolved for the run, which
+	// the shaper would otherwise resolve for this string alone; it draws
+	// nothing.
+	prefix := "\u202d"
+	if rtl {
+		prefix = "\u202e"
+	}
+	var b strings.Builder
+	b.WriteString(prefix)
+	complex := rtl
+	// The byte offset in text at which each character starts, its element and
+	// the character.
+	var offs, elems []int
+	var runes []rune
+	for k := i; k < j; k++ {
+		u := run.Text[k]
 		r := rune(u)
-		first[i] = true
+		e := k
 		if utf16.IsSurrogate(r) {
-			if i+1 < n && u < 0xdc00 && run.Text[i+1] >= 0xdc00 && run.Text[i+1] < 0xe000 {
-				r = utf16.DecodeRune(r, rune(run.Text[i+1]))
+			if k+1 < j && u < 0xdc00 && run.Text[k+1] >= 0xdc00 && run.Text[k+1] < 0xe000 {
+				r = utf16.DecodeRune(r, rune(run.Text[k+1]))
+				k++ // the second unit belongs to the same character
 			} else {
 				r = 0xfffd
 			}
 		}
-		g, ok := face.GlyphID(r)
-		if !ok {
-			g = -1
-			if r > ' ' {
-				missing = true
-			}
+		if r >= 0x0590 {
+			complex = true
 		}
-		gids[i] = g
-		if r > 0xffff {
-			// The second unit belongs to the same character.
-			i++
-			gids[i], first[i] = g, false
-		}
+		offs, elems, runes = append(offs, b.Len()), append(elems, e), append(runes, r)
+		b.WriteRune(r)
 	}
-	return
+	features := simpleFeatures
+	if complex {
+		features = shape.Features{}
+	}
+	text := b.String()
+	work, glyphs := be.b.maxShapeWork-be.b.shapeWork, be.b.maxGlyphs-be.b.glyphs
+	if work <= 0 || glyphs <= 0 {
+		return fmt.Errorf("%w: metafile text shaping", render.ErrLimit)
+	}
+	res, err := face.ShapeGlyphsContext(be.ctx, shape.RunInput{Text: text, Features: features}, shape.RunLimits{MaxInputBytes: be.b.maxRunBytes, MaxGlyphs: glyphs, MaxWork: work})
+	if cerr := be.ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if err != nil {
+		if errors.Is(err, shape.ErrRunLimit) {
+			return fmt.Errorf("%w: metafile text shaping: %w", render.ErrLimit, err)
+		}
+		return fmt.Errorf("%w: metafile text shaping: %w", render.ErrInvalid, err)
+	}
+	be.b.shapeWork += res.Work
+	pen := map[int]float64{}
+	for _, g := range res.Glyphs {
+		// A cluster is the offset of its first character; the override,
+		// which draws nothing, joins the first character's cluster.
+		c := max(0, sort.SearchInts(offs, g.Cluster+1)-1)
+		e, r := elems[c], runes[c]
+		if g.GID == 0 {
+			// Controls and spaces have nothing to draw; another character
+			// the face lacks is reported.
+			if r > ' ' {
+				out.missing = true
+			}
+			continue
+		}
+		if !finite(g.XAdvance) || !finite(g.XOffset) || !finite(g.YOffset) {
+			return fmt.Errorf("%w: metafile: glyph position", render.ErrInvalid)
+		}
+		out.glyphs = append(out.glyphs, placedGlyph{gid: g.GID, elem: e, dx: pen[e] + g.XOffset, dy: g.YOffset})
+		pen[e] += g.XAdvance
+		out.advances[e] += g.XAdvance
+	}
+	return nil
 }
 
 // MeasureText reports a run's ascent, descent and advances in text-space
@@ -178,13 +301,13 @@ func (be *backend) MeasureText(run gowemf.TextRun) (gowemf.TextMetrics, error) {
 	if run.Glyphs && !ownFace(rf.face, run.Font) {
 		return m, nil
 	}
-	gids, first, _ := elements(run, rf.face)
+	gr, err := be.layoutText(run, rf.face)
+	if err != nil {
+		return m, err
+	}
 	em := rf.k * float64(rf.face.UnitsPerEm())
-	for i, g := range gids {
-		if first[i] && g >= 0 {
-			// Advances are in thousandths of the em.
-			m.Advances[i] = rf.face.GlyphAdvance(g) / 1000 * em * rf.kx / rf.k
-		}
+	for i, a := range gr.advances {
+		m.Advances[i] = a / 1000 * em * rf.kx / rf.k
 	}
 	m.Ascent, m.Descent = rf.ascent, rf.descent
 	return m, nil
@@ -206,10 +329,14 @@ func (be *backend) DrawText(run gowemf.TextRun, cl gowemf.Clip) error {
 	if len(run.Origins) != len(run.Text) {
 		return fmt.Errorf("%w: metafile: text origins", render.ErrInvalid)
 	}
-	if len(run.Text) > be.b.maxGlyphs-be.b.glyphs {
+	gr, err := be.layoutText(run, rf.face)
+	if err != nil {
+		return err
+	}
+	if len(gr.glyphs) > be.b.maxGlyphs-be.b.glyphs {
 		return fmt.Errorf("%w: metafile glyphs", render.ErrLimit)
 	}
-	be.b.glyphs += len(run.Text)
+	be.b.glyphs += len(gr.glyphs)
 	st, ok, err := be.fillStyle(run.Paint)
 	if err != nil || !ok {
 		return err
@@ -222,8 +349,7 @@ func (be *backend) DrawText(run gowemf.TextRun, cl gowemf.Clip) error {
 	if !toDest.finite() {
 		return errCoordinate
 	}
-	gids, first, missing := elements(run, rf.face)
-	if missing {
+	if gr.missing {
 		if err = be.soft("characters the font lacks left out"); err != nil {
 			return err
 		}
@@ -231,22 +357,21 @@ func (be *backend) DrawText(run gowemf.TextRun, cl gowemf.Clip) error {
 	// Glyph space is the font's, y up; text space has y down from the
 	// baseline. Orientation turns each glyph about its origin, counterclockwise
 	// as displayed.
+	em := rf.k * float64(rf.face.UnitsPerEm())
 	sin, cos := math.Sincos(run.Font.Orientation)
 	var contours [][]point
-	for i, g := range gids {
-		if !first[i] || g < 0 {
-			continue
-		}
+	for _, g := range gr.glyphs {
 		if err = be.ctx.Err(); err != nil {
 			return err
 		}
-		o := run.Origins[i]
+		o := run.Origins[g.elem]
+		dx, dy := g.dx/1000*em*rf.kx/rf.k, -g.dy/1000*em
 		at := func(p shape.Point) point {
-			x, y := p.X*rf.kx, -p.Y*rf.k
+			x, y := dx+p.X*rf.kx, dy-p.Y*rf.k
 			x, y = x*cos+y*sin, -x*sin+y*cos
 			return toDest.apply(point{o.X + x, o.Y + y})
 		}
-		glyph, err := be.outline(rf.face, g, at)
+		glyph, err := be.outline(rf.face, g.gid, at)
 		if err != nil {
 			return err
 		}
@@ -326,9 +451,9 @@ func (be *backend) decorate(run gowemf.TextRun, rf *realized, toDest affine, st 
 	}
 	desc := rf.face.Descriptor()
 	em := rf.k * float64(rf.face.UnitsPerEm())
-	o := run.Origins[0]
-	// A rule from top to bottom, in text space below the baseline at the
-	// first origin.
+	o := gowemf.Point{X: run.Left, Y: run.Origins[0].Y}
+	// A rule from top to bottom, in text space below the baseline, from the
+	// origin of the element displayed first.
 	rule := func(top, bottom float64) []point {
 		return []point{
 			toDest.apply(point{o.X, o.Y + top}), toDest.apply(point{o.X + width, o.Y + top}),

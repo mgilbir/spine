@@ -3,6 +3,7 @@ package metafile
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/mgilbir/gowemf"
 )
@@ -41,34 +42,50 @@ func complete(ctx context.Context, data []byte, po gowemf.PlayOptions) (bool, er
 
 // preferGDI chooses the records a Dual EMF+ file is drawn from. Its EMF+
 // records are the picture as GDI+ draws it, and are drawn when they can be
-// drawn completely. The GDI records are there for readers that cannot: they
-// are drawn instead, and reported, when the EMF+ records cannot be read, or
-// when some cannot be drawn and the GDI records can be drawn completely.
-// Otherwise the EMF+ records are drawn, leaving out what cannot be.
+// drawn completely, within the limits. Otherwise the GDI records, which are
+// there for readers that cannot, are drawn instead, and reported, when they
+// can be read and drawn within the limits, however much of them can be
+// drawn. When they cannot, what can be drawn of the EMF+ records is.
 func (be *backend) preferGDI(data []byte, po gowemf.PlayOptions) (bool, error) {
 	ok, err := complete(be.ctx, data, po)
-	switch {
-	case ok:
-		return false, nil
-	case be.ctx.Err() != nil:
-		return false, be.ctx.Err()
-	case err != nil && !errors.Is(err, gowemf.ErrUnsupported) && !errors.Is(err, gowemf.ErrMalformed):
-		return false, wrapParse(err)
-	case err != nil:
-		// The EMF+ records cannot be read past a point.
-		return true, be.soft("EMF+ file drawn from its GDI records: %v", err)
-	case be.opts.Approximate == nil:
-		// Either set of records would be drawn approximately.
-		return false, be.soft("EMF+ file not drawn exactly")
-	}
-	gdi := po
-	gdi.Stream.PreferGDI = true
-	ok, err = complete(be.ctx, data, gdi)
 	if cerr := be.ctx.Err(); cerr != nil {
 		return false, cerr
 	}
-	if !ok || err != nil {
+	unreadable := errors.Is(err, gowemf.ErrUnsupported) || errors.Is(err, gowemf.ErrMalformed)
+	limit := errors.Is(err, gowemf.ErrLimit)
+	switch {
+	case ok:
 		return false, nil
+	case err != nil && !unreadable && !limit:
+		return false, wrapParse(err)
+	case be.opts.Approximate == nil:
+		// Drawing it exactly is past the limits, or not possible.
+		if limit {
+			return false, wrapParse(err)
+		}
+		return false, be.soft("EMF+ file not drawn exactly")
 	}
-	return true, be.soft("EMF+ file drawn from its GDI records, as some of its EMF+ records cannot be drawn")
+	why := "some of its EMF+ records cannot be drawn"
+	switch {
+	case unreadable:
+		why = fmt.Sprintf("its EMF+ records cannot be read: %v", err)
+	case limit:
+		why = fmt.Sprintf("its EMF+ records are past the limits: %v", err)
+	}
+	gdi := po
+	gdi.Stream.PreferGDI = true
+	_, gerr := complete(be.ctx, data, gdi)
+	if cerr := be.ctx.Err(); cerr != nil {
+		return false, cerr
+	}
+	switch {
+	case gerr == nil:
+		return true, be.soft("EMF+ file drawn from its GDI records, as %s", why)
+	case limit:
+		return false, wrapParse(err)
+	case unreadable:
+		// Neither can be read through; the GDI records are the fallback.
+		return true, be.soft("EMF+ file drawn from its GDI records, as %s", why)
+	}
+	return false, nil
 }
