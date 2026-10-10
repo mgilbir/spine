@@ -9,8 +9,10 @@
 #     when the corpus is absent.
 #   - The race detector and the fuzz targets. Both run on a schedule instead,
 #     in .github/workflows/scheduled.yml — they are too slow for every push.
-#   - Anything but linux/amd64. The library is pure Go with no build tags, but
-#     path handling and file modes are only exercised on Ubuntu here.
+#   - Anything but Linux. The library is pure Go with no build tags, but path
+#     handling and file modes are only exercised on Ubuntu here. Besides
+#     linux/amd64, test-32bit builds, vets and tests linux/386, where int is
+#     32 bits.
 #
 # External fixtures ARE fetched below (`make fetch`, best-effort). Without that
 # step every external-fixture test skipped in CI permanently, so a whole class
@@ -85,3 +87,31 @@ jobs:
         with:
           version: v2.12.2
           args: ./...
+
+  # linux/386: int is 32 bits. Code that keeps int arithmetic from
+  # overflowing (image size and budget checks) can only be exercised here, and
+  # an untyped constant too large for a 32-bit int fails to compile only here.
+  # 386 binaries run natively on the amd64 runner.
+  test-32bit:
+    runs-on: ubuntu-latest
+    env:
+      GOARCH: "386"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      - name: Fetch external fixtures
+        run: make fetch
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
