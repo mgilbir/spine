@@ -242,3 +242,43 @@ func TestSquareWrapKeepsThePictureWhenLinesMove(t *testing.T) {
 		t.Errorf("first line at %v,%v", lines[0].x, lines[0].y)
 	}
 }
+
+func TestAnchoredPictureInTableCellIsDrawnOnItsLine(t *testing.T) {
+	// A cell does not carry the page, margin or paragraph positions an
+	// anchored picture is placed by through layout: the picture is drawn on
+	// its line in the cell, where the same picture inline would be, and
+	// reported.
+	cell := func(runs string) string {
+		return wordTestTable(wordTestFixed, []int{3000}, wordTestRow("", wordTestCell("", wordTestPara("", wordTestRun("", "AB")+runs)))) + wordTestPage
+	}
+	pic := wordTestPic{w: 20, h: 12}
+	media := wordTestMedia(wordTestHalves(8, 4))
+	inline := wordTestPages(t, wordTestDoc(t, cell(pic.inline()), media), newWordTestOpts(t, false))
+	want := inline.pictures(1)
+	if len(want) != 1 {
+		t.Fatalf("inline pictures = %d", len(want))
+	}
+	for _, wrap := range []string{`<wp:wrapNone/>`, `<wp:wrapSquare wrapText="bothSides"/>`, `<wp:wrapTopAndBottom/>`} {
+		t.Run(wrap, func(t *testing.T) {
+			body := cell(pic.anchored(wordTestAnchor{wrap: wrap, h: "30", v: "5"}))
+			strictErr, pages, o, err := prepareBoth(t, body, media, nil)
+			if !errors.Is(strictErr, render.ErrUnsupported) {
+				t.Errorf("strict: %v", strictErr)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !warned(o, "anchored picture in a table cell drawn on its line", render.ErrApproximated) {
+				t.Errorf("warnings %v", o.warnings)
+			}
+			got := pages.pictures(1)
+			if len(got) != 1 || rectPx(got[0]) != rectPx(want[0]) {
+				t.Fatalf("pictures %v, want %v", got, want)
+			}
+			lines := pages.lines(1)
+			if len(lines) != 1 || lines[0].text != "AB" {
+				t.Errorf("lines %+v", lines)
+			}
+		})
+	}
+}

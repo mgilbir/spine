@@ -49,7 +49,8 @@ import (
 // and relationships before translating its paragraphs. An anchored picture is
 // recorded on the block holding its anchor (wordBlock.pics) and drawn after
 // pagination, on the page of its anchor line; blocks that hold floated pictures
-// need nothing else.
+// need nothing else. Only a section's own blocks are placed so: in a table
+// cell an anchored picture is drawn on its line instead, and reported.
 
 // wordBlock is one pagination unit of a section's flow.
 type wordBlock struct {

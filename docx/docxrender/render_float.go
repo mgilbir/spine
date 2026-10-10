@@ -92,6 +92,15 @@ func (rn *wordRun) drawing(n *wordNode) error {
 func (p *wordPara) anchored(rn *wordRun, pic *wordPicture) error {
 	r := p.r
 	a := pic.anchor
+	if p.f.cell != nil {
+		// The positions of anchored pictures are relative to the page, the
+		// margins or the paragraph, which a cell does not carry through layout
+		// and pagination: the picture is drawn on its line in the cell.
+		if err := r.approximate("anchored picture in a table cell drawn on its line"); err != nil {
+			return err
+		}
+		return rn.putMarkup(pic.html(), 1)
+	}
 	if err := rn.putMarkup(wordMarkerHTML(pic.id), 1); err != nil {
 		return err
 	}

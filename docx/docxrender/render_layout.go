@@ -105,7 +105,8 @@ func (r *wordRenderer) layoutSection(sec *wordSection) (*wordLaidSection, error)
 			}
 		}
 	}
-	// Tables are finished first: the floats of their cells are in their markup.
+	// Tables are finished first. Their cells hold no floats: an anchored
+	// picture in a cell is drawn on its line (wordPara.anchored).
 	if err := r.expandFloats(sec); err != nil {
 		return nil, err
 	}
