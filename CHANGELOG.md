@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-10
+
+The first release that renders. New packages draw Word, PowerPoint and Excel
+files as pages and previews (`render`, `docx/docxrender`, `pptx/pptxrender`,
+`xlsx/xlsxrender`), with the `spine-render` command over them: Word documents
+are laid out and paginated with the forme layout engine, slides draw
+right-to-left and East Asian text, colour and bitmap fonts, PowerPoint's
+built-in table styles, pattern fills and charts, and EMF and WMF pictures are
+played through gowemf. Strict rendering fails on anything not drawn exactly;
+best effort draws the rest and reports what it approximated or left out.
+
+Word mail merge fills MERGEFIELDs, with Word's date and number formats and in
+footnotes, endnotes and text boxes too, and removing or replacing a VBA project
+now cleans up everything that belonged to it. Nothing that existed in 0.3.1 has
+been removed or changed shape; everything new is added API. The module now
+requires Go 1.26, and spine builds and is tested on 32-bit platforms.
 
 ### Added
 
@@ -112,15 +127,22 @@
   which were not compared; best effort draws them and reports the
   approximation. Styles a deck defines itself are still left out, as are
   unknown ids, with a warning in best effort.
-- render: PowerPoint previews draw EMF and WMF pictures (picture shapes, picture
-  fills and backgrounds) with [gowemf](https://github.com/mgilbir/gowemf): the
-  records are played onto a raster of the size the picture is drawn at, under
-  the render limits. Strict mode fails on anything not drawn exactly; best
-  effort reports approximations and leaves out the rest. See
-  `docs/rendering.md`.
-- docxrender: EMF and WMF pictures are drawn, with the metafile playback
-  PowerPoint previews use (gowemf); strict mode fails on anything not drawn
-  exactly, best effort reports approximations and leaves out the rest.
+- render, docxrender: EMF and WMF pictures (PowerPoint picture shapes, picture
+  fills and backgrounds, and Word pictures) are drawn. The records are played
+  by [gowemf](https://github.com/mgilbir/gowemf) v0.1.1's `Play`, which keeps
+  the GDI device context and the GDI+ graphics state and resolves every record
+  into paths, paints, images and text runs; spine rasterizes those onto a raster
+  of the size the picture is drawn at, under the render limits. The raster is
+  the device GDI draws on: lines run through its pixel centres and a pen is
+  never narrower than one of its pixels. An EMF+ file is drawn from its EMF+
+  records when every one of them can be drawn; a Dual file whose EMF+ records
+  cannot all be is drawn from its GDI records, and that is reported. Text is
+  decoded from Unicode, the Windows code pages and the double-byte character
+  sets (DEFAULT_CHARSET as Windows-1252), and each bidirectional level is shaped
+  by forme in its direction, mirrored at odd levels. Strict mode fails on
+  anything not drawn exactly; best effort reports approximations and leaves out
+  the rest, among them raster operations that combine with the destination
+  beyond a mask and sprite pair. See `docs/rendering.md`.
 - docxrender: the Word page renderer is rebuilt on the forme layout engine and
   draws real documents. `Prepare` lays a document out and paginates it once and
   returns `Pages` (`Count`, `Page`); `PreparePage` is unchanged. Sections with
@@ -187,7 +209,9 @@
   charts, SmartArt, shapes and legacy VML pictures are left out with a warning
   (an inline drawing keeps its space), and what Word draws differently (tight
   wrapping, wrapped pictures placed from the page, effects) is reported as
-  approximated. Strict mode refuses all of these.
+  approximated. An anchored picture in a table cell, which Word places relative
+  to the cell, is drawn on its line and reported as approximated. Strict mode
+  refuses all of these.
 - internal/render: the picture helpers of the PowerPoint renderer (downscaling,
   cropping, fading, blur, HSL conversion and the blip colour effects) move to
   the shared package so the Word renderer draws pictures with the same code.
@@ -200,9 +224,19 @@
 - pptx: a chart is requested from the chart renderer at a scale the slide's
   image budget holds, down to half its size, and refused below that, before
   the renderer allocates it.
+- spine builds, vets and tests on 32-bit platforms, and CI runs the suite on
+  linux/386. Where `int` is 32 bits it bounds what the renderers allocate: a
+  raster or image whose pixel buffers `int` cannot count is refused with
+  `render.ErrLimit`. A PNG whose header declares a size past the limits is
+  refused as too large (`render.ErrLimit`) before it is decoded, on every
+  platform, not as corrupt.
 
 ### Changed
 
+- The module requires Go 1.26 (0.3.1 required 1.25) and, for the renderers,
+  depends on [forme](https://github.com/mgilbir/forme) v0.10.0,
+  [aster](https://github.com/mgilbir/aster) v0.1.1 and
+  [gowemf](https://github.com/mgilbir/gowemf) v0.1.1.
 - docx: lines are set by the font's Windows metrics (`usWinAscent` +
   `usWinDescent`), as Word sets them, and placed line by line with forme's
   line placement, so a paragraph of mixed sizes is drawn exactly where it was

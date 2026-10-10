@@ -273,47 +273,61 @@ negative source inset as none. Hidden shapes
 (`hidden` on `cNvPr`) are not drawn.
 
 EMF and WMF pictures, as picture shapes, picture fills and picture
-backgrounds, are drawn by playing the metafile's records (parsed and checked by
-[gowemf](https://github.com/mgilbir/gowemf), which leaves playback to its
-consumer) onto a transparent raster of the size the picture is drawn at, up to
-two pixels per CSS pixel and never below half; the raster then goes through
-the picture machinery above (crop, flips, effects, tiling). Playback is in
-`internal/metafile`: it scan-converts with the page painter's method (eight
-vertical samples, exact horizontal coverage) rather than through the display
-list, which fills only by the even-odd rule and has no strokes or arbitrary
-clip regions. A metafile fills its picture area (an EMF's frame, a placeable
-WMF's bounds, else a WMF's window) over the picture's box. Drawn exactly, in the
-sense of this page (geometry at its coordinates; GDI's pixel-centre rules and
-aliasing are not reproduced): the mapping modes, window and viewport, world
-transforms, save and restore; solid, null and stock pens and brushes, round,
-square and flat caps, round, bevel and miter joins, user-style dashes; polygons
-and polylines under either fill mode, Béziers, `PolyDraw`, rectangles, rounded
-rectangles, ellipses, arcs, chords, pies; paths, filled, stroked, and as
-clips; rectangle, region and path clips; 24-, 32- and other `gowemf`-decoded
-bitmaps copied (`SRCCOPY`, `NOTSRCCOPY`), alpha-blended or color-keyed, and
-`PatBlt` fills; rectangle and triangle gradient fills; and text in the fonts
-the caller's `Fonts` resolver supplies, from Unicode or Windows-1252 text with
-its character advances, aligned to its baseline. A metafile's own size is its
-recorded physical size; a standard WMF has none. Strict mode fails with
-`render.ErrUnsupported` for anything else; best effort draws the rest and
-reports each detail once, as approximated or left out: hatched, pattern and
-DIB brushes (their fills are left out), preset pen dashes (drawn at Windows'
-usual lengths), pens under non-uniform transforms (at the mean scale),
-inside-frame pens on turned shapes, text without advances, aligned to its top
-or bottom, sized by cell height, underlined or with extra spacing (from the
-font's metrics), text with no font resolver or in other character sets
-(left out), raster operations and binary raster operations beyond copy
-(left out), masked, parallelogram, palette and partial bitmap transfers,
-flood fills, region frames and inverts, meta regions, widened paths and
-clip offsets (left out), and an EMF+ file with GDI fallback records (drawn
-from them, which Office may draw differently). EMF+ only files, malformed
-files and files with records `gowemf` cannot decode fail in strict mode; best
-effort stops at an undecodable record and leaves out the rest. All budgets
-apply: the raster's pixels count against the unique-image pixel budget, drawing
-operations, flattened and stroked segments, scan work, pixel visits, clip
-masks (sixteen rasters), bitmap pixels (`MaxImagePixels` across the metafile),
-glyphs and fonts are charged to the render limits, and cancellation is checked
-between records and rows.
+backgrounds, are drawn onto a transparent raster of the size the picture is
+drawn at, up to two pixels per CSS pixel and never below half; the raster then
+goes through the picture machinery above (crop, flips, effects, tiling). The
+records are played by [gowemf](https://github.com/mgilbir/gowemf)'s `Play`,
+which keeps the GDI device context and the GDI+ graphics state and resolves
+every drawing record into paths, paints, images and text runs in raster
+coordinates. `internal/metafile` draws those with the page painter's scan
+conversion (eight vertical samples, exact horizontal coverage) rather than
+through the display list, which fills only by the even-odd rule and has no
+strokes or arbitrary clip regions. A metafile fills its picture area (an EMF's
+frame, a placeable WMF's bounds, else a WMF's window) over the picture's box.
+
+The raster is the device GDI draws on, as when Office plays a picture onto a
+page: GDI lines run through its pixel centres, a pen is never narrower than one
+of its pixels and a hairline is one pixel wide. EMF shapes include their right
+and bottom edges, as Windows plays them; WMF keeps GM_COMPATIBLE's rule
+(MS-EMF 2.1.16) and leaves them out. Drawn exactly, in the sense of this page:
+everything gowemf plays (its `COVERAGE.md` is the inventory), among it the
+mapping modes, window, viewport and world transforms, saved states; pens with
+their caps, joins, user dashes and compound bands; solid, hatched, pattern and
+DIB brushes, and in EMF+ GDI+'s 53 hatches, textures, linear and path
+gradients; paths, filled, stroked and as clips, and region clips; bitmaps
+copied, inverted, alpha-blended or color-keyed, and a black-and-white mask
+followed by its sprite as one image with alpha; gradient fills; EMF+ metafile
+images; and text in the fonts the caller's `Fonts` resolver supplies. Text is
+decoded from Unicode, the Windows code pages and the double-byte character
+sets; DEFAULT_CHARSET text is read as a Western system writes it, in
+Windows-1252. Each run of one bidirectional level is shaped by forme in that
+level's direction, mirrored at odd levels, without the optional ligatures,
+contextual alternates and kerning ExtTextOut does not apply to simple text
+(complex scripts and right-to-left runs keep the font's rules, as Uniscribe
+applies them). Glyph-index text is drawn only in the face it indexes, matched by
+family or PostScript name.
+
+An EMF+ file is drawn from its EMF+ records, as GDI+ draws it, when every one
+of them can be drawn within the limits; an EMF+ Only file is always drawn from
+them. A Dual file whose EMF+ records cannot all be drawn is drawn from the GDI
+records it carries for readers that cannot, when gowemf can read those, and the
+substitution is reported.
+Strict mode fails with `render.ErrUnsupported` for anything not drawn exactly;
+best effort draws the rest and reports each detail once, as approximated or left
+out: what gowemf reports it cannot play (its `UnsupportedOperation`s, such as
+EMF+ custom line caps, which stay off), preset pen dashes (drawn at Windows'
+display lengths), a font's set character width (drawn at its own width),
+characters a face lacks and glyph indexes in a substitute face (left out), and
+raster operations that combine with the destination beyond a mask and sprite
+pair (left out: a picture's destination is the page under it, which its raster
+does not have). Malformed files fail; best effort stops at a record gowemf
+cannot read and keeps what came before it. All budgets apply: the raster's
+pixels count against the unique-image pixel budget; drawing operations,
+flattened and stroked segments, scan work, pixel visits, clip masks (sixteen
+rasters), glyphs, fonts and text shaping (`MaxShapeWork`, `MaxRunBytes`) are
+charged to the render limits; gowemf's path points and decoded bitmap pixels
+are bounded by `MaxPathSegments` and `MaxImagePixels` across the metafile; and
+cancellation is checked in every drawing call and between rows.
 
 Other preset geometries draw from the standard's definitions
 (`presetShapeDefinitions.xml` of ECMA-376 Part 1, embedded with only their
@@ -1005,26 +1019,13 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   the image its `r:embed` relationship names in the part being translated: PNG,
   JPEG and GIF (the first frame), and EMF and WMF, which are played onto a
   raster of about twice the frame's pixels (never below half, within the image
-  budget) with the metafile playback `internal/metafile` shares with PowerPoint
-  (gowemf parses the file; the records are played by the page painter's
-  scan conversion, not its display list). Drawn exactly: mapping modes, window
-  and viewport, world transforms and saved contexts; solid, null and stock pens
-  and brushes with round, square and flat caps, round, bevel and miter joins and
-  user-style dashes; polygons and polylines under either fill mode, Béziers,
-  rectangles, rounded rectangles, ellipses, arcs, chords and pies; paths, filled,
-  stroked and as clips; rectangle, region and path clips; bitmaps copied,
-  alpha-blended or color-keyed; gradient fills; and text in the fonts the
-  caller's resolver supplies, from Unicode or Windows-1252 text with its
-  advances at the baseline. Anything else fails in strict mode with
-  `render.ErrUnsupported`. Best effort reports, once each, what it approximates
-  (preset pen dashes, pens under non-uniform transforms, text sized or aligned
-  from the font's metrics or spaced without advances, an EMF+ file drawn from
-  its GDI records) or leaves out (hatch, pattern and DIB brushes, raster
-  operations beyond copy, masked and palette bitmap transfers, flood fills,
-  text without a font, undecodable records), and draws the rest; EMF+ only and
-  malformed files fail. Playback is charged to the render limits (operations,
-  segments, edge checks, pixel visits, clip masks, bitmap pixels, glyphs) and
-  checks cancellation between records and rows. A metafile is drawn once, at the
+  budget) with the metafile playback `internal/metafile` shares with PowerPoint,
+  described under PowerPoint pictures above: gowemf plays the records, the page
+  painter's scan conversion draws them, and strict mode fails on anything not
+  drawn exactly while best effort reports what it approximates or leaves out
+  and draws the rest. An EMF+ file is drawn from its EMF+ records when they can
+  all be drawn, else from its GDI records. Playback is charged to the render
+  limits and checks cancellation in every drawing call. A metafile is drawn once, at the
   size of the first picture to use it. The image is read from the package, never from
   a path or URL the document writes; linked pictures (`r:link`, external
   relationships) are not loaded. Each image part is decoded once, under
@@ -1055,7 +1056,10 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
     `right`, `largest`, and `bothSides` where the picture touches an edge of the
     text) at the wrap distances, and it moves with its paragraph. The wrapped
     text around a float is laid out where the float is, so a float and the
-    paragraph's lines stay together on one page.
+    paragraph's lines stay together on one page. In a table cell, where Word
+    places the picture relative to the cell (`layoutInCell`), which is not
+    implemented, an anchored picture is drawn on its line, where the same
+    picture inline would be: strict mode fails, best effort reports it.
 - Content controls, smart tags and custom XML wrappers draw their content.
 - **Tables.** The table grid and the columns it gives (fixed and autofit
   layouts: an autofit table is drawn by the grid Word stored, which is what Word
