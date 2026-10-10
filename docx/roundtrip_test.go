@@ -31,6 +31,36 @@ var testDocxFiles = []struct {
 		path:        "testdata/chart.docx",
 		description: "DOCX with charts and inline content controls (w:sdt tags)",
 	},
+	{
+		name:        "un_gge_report",
+		path:        "testdata/external/un_gge_report.docx",
+		description: "UN GGE 2015 report: 30 parts, footnotes, numbering, 6 headers and footers",
+	},
+	{
+		name:        "ctcg_asr_template",
+		path:        "testdata/external/ctcg_asr_template.docx",
+		description: "HMA CTCG report template: 8 tables, 38 fields, comments and footnotes",
+	},
+	{
+		name:        "srb_observer_report",
+		path:        "testdata/external/srb_observer_report.docx",
+		description: "SRB observer report template: 40 parts, 5 tables, 4 headers and footers",
+	},
+	{
+		name:        "nea_energy_report",
+		path:        "testdata/external/nea_energy_report.docx",
+		description: "NEA energy report template: 9 tables, 7 pictures, a content control, footnotes",
+	},
+	{
+		name:        "ema_signal_template",
+		path:        "testdata/external/ema_signal_template.docx",
+		description: "EMA signal assessment template: 50 fields, 5 footnotes, 6 headers and footers",
+	},
+	{
+		name:        "wmo_accountability_report",
+		path:        "testdata/external/wmo_accountability_report.docx",
+		description: "WMO accountability report: 61 parts, 9 tables, tracked changes, footnotes",
+	},
 }
 
 // TestCreateAndReopen verifies that creating, saving, and reopening a document
