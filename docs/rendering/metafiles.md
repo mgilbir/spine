@@ -47,6 +47,24 @@ of them can be drawn within the limits; an EMF+ Only file is always drawn from
 them. A Dual file whose EMF+ records cannot all be drawn is drawn from the GDI
 records it carries for readers that cannot, when gowemf can read those, and the
 substitution is reported.
+
+Which records a picture is drawn from:
+
+```mermaid
+flowchart TD
+    F["metafile"] --> K{"kind"}
+    K -- "WMF, or EMF without EMF+" --> G["GDI records"]
+    K -- "EMF+ Only" --> P["EMF+ records"]
+    K -- "EMF+ Dual" --> C{"all EMF+ records drawn,<br/>within the limits?"}
+    C -- yes --> P
+    C -- "no: another playback error" --> X["fails with that error"]
+    C -- "no, strict" --> XS["fails: render.ErrUnsupported,<br/>or the limit error"]
+    C -- "no, best effort" --> D{"GDI records drawn,<br/>within the limits?"}
+    D -- yes --> GR["GDI records,<br/>substitution reported"]
+    D -- "no, EMF+ past the limits" --> XL["fails: the limit error"]
+    D -- "no, EMF+ unreadable" --> GR
+    D -- "no, EMF+ partly drawable" --> PP["EMF+ records, as far as they go;<br/>what is left out reported"]
+```
 Strict mode fails with `render.ErrUnsupported` for anything not drawn exactly;
 best effort draws the rest and reports each detail once, as approximated or left
 out: what gowemf reports it cannot play (its `UnsupportedOperation`s, such as

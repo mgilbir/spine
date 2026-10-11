@@ -319,7 +319,7 @@ Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use
 
 ## Package Structure
 
-- `opc/` - Open Packaging Conventions implementation
+- `opc/` - Open Packaging Conventions implementation: parts, relationships, content types, encryption, signatures; see [docs/opc.md](docs/opc.md)
 - `common/` - Shared types and utilities
   - `crypto/` - Office password encryption (agile/standard AES, RC4 decrypt) and OPC XML-DSig signing (`crypto.ErrWrongPassword` and friends)
   - `dml/` - DrawingML types (colors, geometry, fills, lines)
