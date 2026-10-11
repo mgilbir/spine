@@ -128,7 +128,8 @@ There is no ambient host-font lookup, external relationship loading or formula
 execution. Unsupported operations fail even if their bounds fall off the page.
 
 Supported drawing operations are solid rectangles, filled Forme paths, nested
-path clips, horizontal positioned glyphs and contextual horizontal text, and
+path clips, single-tile linear and radial gradient fills, horizontal
+positioned glyphs and contextual horizontal text, and
 validated standard-library raster images. Vertical text,
 letter spacing, tiling, strokes, effects and other operations fail
 explicitly; color fonts are drawn as described under Color fonts. PNG, JPEG and
@@ -148,25 +149,35 @@ can differ from a vector viewer or Office at touching/overlapping edges. SVG
 keeps curves and requests pixelated image sampling (not for a glyph's bitmap); the viewer controls its
 final antialiasing. No Office pixel identity is claimed.
 
-Zero limit fields select these defaults; negative limits fail:
+The fields of `render.Limits` bound each prepared page, slide or sheet range.
+Zero fields select these defaults; negative limits fail with
+`render.ErrInvalid`, and exceeding one fails with `render.ErrLimit`:
 
-| Limit | Default |
-|---|---:|
-| Maximum output/source-image dimension | 8192 |
-| Output pixels | 16 Mi |
-| Drawing operations | 100000 |
-| Pixel visits including overdraw | 64 Mi |
-| Encoded output bytes | 32 MiB |
-| Source/flattened path segments | 100000 each |
-| Clip depth | 32 |
-| Scanline/coverage work | 64 Mi units |
-| Glyphs | 100000 |
-| Logical text metadata | 1 MiB |
-| Fonts / aggregate program bytes | 32 / 32 MiB |
-| Charged text shaping work | 64 Mi units |
-| Input bytes per shaped run, including context/features | 4096 |
-| Unique source-image pixels | 4 Mi |
-| Images / aggregate normalized PNG bytes | 32 / 32 MiB |
+| Limit | `render.Limits` field | Default |
+|---|---|---:|
+| Maximum output/source-image dimension | `MaxDimension` | 8192 |
+| Output pixels | `MaxPixels` | 16 Mi |
+| Drawing operations | `MaxOperations` | 100000 |
+| Pixel visits including overdraw | `MaxPixelVisits` | 64 Mi |
+| Encoded output bytes | `MaxOutputBytes` | 32 MiB |
+| Source/flattened path segments | `MaxPathSegments` | 100000 each |
+| Clip depth | `MaxClipDepth` | 32 |
+| Scanline/coverage work | `MaxEdgeChecks` | 64 Mi units |
+| Glyphs | `MaxGlyphs` | 100000 |
+| Logical text metadata | `MaxTextBytes` | 1 MiB |
+| Fonts | `MaxFonts` | 32 |
+| Aggregate font program bytes | `MaxFontBytes` | 32 MiB |
+| Charged text shaping work | `MaxShapeWork` | 64 Mi units |
+| Input bytes per shaped run, including context/features | `MaxRunBytes` | 4096 |
+| Unique source-image pixels | `MaxImagePixels` | 4 Mi |
+| Images | `MaxImages` | 32 |
+| Encoded image input / aggregate normalized PNG bytes | `MaxImageBytes` | 32 MiB |
+
+`MaxShapeWork` measures Forme's shaping work: each subtable, ligature and rule
+tried and each glyph a match walks over (about 50 units a byte of Latin text,
+300 of Devanagari, 350 of Nastaliq); it is not a duration. The default, 64 Mi
+units a slide, page or sheet, covers ordinary documents many times over while a
+font's runaway rules are still charged in full.
 
 `Options.MaxSourceBytes` and `MaxLayoutNodes` default to 16 MiB and 100000 for
 adapter capability inspection; node accounting includes attributes. Drawing/pixel limits remain independent.
@@ -228,8 +239,13 @@ for slides), each of these is drawn approximately and reported once, wrapping
 A glyph is drawn whole in one of these ways, never part by part. Text turned
 or warped in a slide is drawn as outlines, so its color glyphs are outlines in
 the text color, and reported as such; a slide's shadows and other effects take
-a color glyph's coverage. DOCX and XLSX previews have no best effort and
-refuse what cannot be drawn exactly. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
+a color glyph's coverage. Only slides and `render.PrepareBestEffort` draw
+color glyphs approximately. XLSX previews have no best effort at all. A DOCX page is drawn strictly even
+when `Warn` is set: `docxrender.Prepare` lays the document out best effort,
+but `Pages.Page` prepares each page's drawing with strict `render.Prepare`, so
+a color glyph that can only be drawn approximately fails that whole page with
+`render.ErrUnsupported`, not wrapped in `render.ErrApproximated`, where a slide
+would draw it approximately and warn. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
 and outlines (`glyf`, `CFF `, `CFF2`), as system fonts such as Courier New that
 carry strikes for small screen sizes are, is drawn from its outlines. A font
 with strikes and no outlines (forme's `BitmapOnly`) is drawn from them: each
@@ -276,8 +292,11 @@ Each shape that cannot be drawn, on the slide, its layout or master, or in a
 group, is reported to `Warn` and left out; a shape whose text cannot be laid
 out is drawn without it; an unsupported background is drawn white; and
 problems outside any shape (unknown slide content, alternate content,
-extensions, charts and other graphic frames) are reported once. Animation and
-transitions are ignored. Some details are drawn approximately instead, and
+extensions, charts and other graphic frames) are reported once. A slide's
+transition (`p:transition`) and animation (`p:timing`) cannot change a static
+page, but they are not ignored: strict mode refuses a slide that has either,
+and best effort leaves them out with a warning for each element it skips (a
+fade transition gives two). Some details are drawn approximately instead, and
 reported once per shape as such: the effects of a shape, connector or
 picture, its own or its style's theme effects. A sharp outer shadow is drawn
 exactly, beneath the shape as its drawing in the shadow color, offset by the
@@ -497,8 +516,11 @@ prompts. At the root of a slide, layout or master, alternate content wraps
 newer transitions and animation: a fallback of `p:transition` or `p:timing`
 only, or none, changes nothing on a static page, and is treated as a
 transition, which strict mode refuses and best effort leaves out; other root
-fallback content is reported. Charts, SmartArt,
-effects, animation and raw drawing content fail explicitly.
+fallback content is reported. SmartArt, embedded objects and other graphic
+frames, animation and transitions fail in strict mode and are left out with a
+warning in best effort. Charts are drawn as described under
+[Charts](#charts), and effects as described above: strict mode refuses an
+effect it would draw approximately, such as a blurred shadow.
 Master and layout shapes are drawn beneath the slide's, master first, in their
 document order: shapes and pictures through the same profile as slide content,
 their text and colors resolved as the slide's. Placeholders on masters and
@@ -1069,8 +1091,8 @@ wrapping `render.ErrApproximated`; the rest of the page still draws.
   `rFonts` slot), size, bold, italic (complex-script text uses `bCs`, `iCs` and
   `szCs`); underline `single`, `double` and `thick` (in the underline's colour),
   strikethrough; caps; text colour and `auto`; highlight; solid or clear
-  shading; `vertAlign` superscript and subscript (65 % size, raised by a third
-  and lowered by an eighth of the run's size) and `position`; hidden text
+  shading; `vertAlign` superscript and subscript (65 % size, raised by 0.33
+  and lowered by 0.12 of the run's size) and `position`; hidden text
   (`vanish`, not drawn); soft and non-breaking hyphens; kerning from the `w:kern`
   size (off otherwise); text beyond the margin that has no break opportunity
   wraps at the margin. Optional OpenType ligatures, contextual alternates and
@@ -1266,8 +1288,8 @@ and effects colours other than sRGB, theme and system colours.
 Reported as unsupported in best effort and refused in strict mode: diagonal cell
 borders, table, row and cell properties and elements this profile does not know,
 content of merged cells that a merge hides, pictures that cannot be drawn
-(linked, missing, corrupt, in another format such as EMF and WMF, or too large
-to decode: an inline one keeps its space), legacy VML pictures (`w:pict`),
+(linked, missing, corrupt, in a format other than PNG, JPEG, GIF, EMF and WMF,
+or too large to decode: an inline one keeps its space), legacy VML pictures (`w:pict`),
 charts, SmartArt, shapes, text boxes, groups and other non-picture drawings (an
 inline one keeps its space), alternate content, notes the document does not
 have, notes in headers, footers and notes, comments, equations,
@@ -1325,12 +1347,6 @@ previews of a slide, a sheet range and two physical document pages at 144 DPI.
 The example uses Forme's embedded Noto Sans and explicitly substitutes it for
 the sheet's Calibri request. It needs no host fonts or external processes.
 
-`MaxShapeWork` measures Forme's shaping work: each subtable, ligature and rule
-tried and each glyph a match walks over (about 50 units a byte of Latin text,
-300 of Devanagari, 350 of Nastaliq); it is not a duration. The default, 64 Mi
-units a slide, page or sheet, covers ordinary documents many times over while a
-font's runaway rules are still charged in full.
-
 ## File-rendering CLI
 
 Build `go build -o spine-render ./cmd/spine-render`, then supply an input file and
@@ -1342,10 +1358,40 @@ output directory. PNG is the default; `-format both` also writes SVG.
 ./spine-render -input workbook.xlsx -out previews -range A1:D20 -sheet Data -font 'Calibri=fonts/Calibri.ttf'
 ```
 
+The input's format is chosen by its extension, matched without regard to
+case: `.pptx`, `.docx` or `.xlsx`.
+Other members of the families the libraries open, such as `.pptm`, `.potx`,
+`.docm`, `.dotx`, `.xlsm` and `.xltx`, are refused by name before the file is
+read.
+
 PPTX renders every slide. DOCX renders every physical page, with 1-based output
 names. XLSX requires an explicit range to bound its canvas; the range applies to
 all sheets unless `-sheet` selects one by exact name. Sheet filenames use their
 original 1-based workbook indices, avoiding unsafe names from source content.
+Outputs are named `slide-0001`, `page-0001` and `sheet-0001`, with `.png` or
+`.svg`.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `-input` | (required) | The `.pptx`, `.docx` or `.xlsx` file. |
+| `-out` | (required) | Output directory, created if missing. Existing files in it are never overwritten. |
+| `-format` | `png` | `png`, `svg` or `both`. |
+| `-range` | (required for XLSX) | Cell range drawn from each selected sheet, such as `A1:D20`. Refused for PPTX and DOCX. |
+| `-sheet` | every sheet | XLSX sheet to draw, by exact name. Refused for PPTX and DOCX. |
+| `-dpi` | 288 | Output resolution; positive and finite. |
+| `-max-pages` | 100 | Total slides, pages or sheets written, 1 to 10000. |
+| `-edge-checks` | 0, meaning 4 Gi | Path painting budget per output (`Limits.MaxEdgeChecks`). |
+| `-image-pixels` | 0, meaning 64 Mi | Decoded image pixels per slide, page or sheet (`Limits.MaxImagePixels`). |
+| `-shape-work` | 0, meaning 64 Mi | Shaping work per slide, page or sheet (`Limits.MaxShapeWork`). |
+| `-timeout` | `1m` | Bound on the whole run; must be positive. |
+| `-font` | none | Repeatable `FAMILY[:regular\|bold\|italic\|bolditalic]=FILE[#FACE]` mapping; at most 32. |
+| `-fallback-noto` | false | Answer unresolved regular fonts with the embedded Noto Sans. |
+| `-strict` | false | Fail on content that cannot be drawn exactly, instead of best effort (PPTX and DOCX). |
+| `-keep-going` | false | Report and skip what cannot be prepared, render the rest, then exit 1. |
+| `-charts` | true | Draw PPTX charts with aster; `-charts=false` leaves them out with a warning. |
+| `-help` | | Print the flags and exit 0. |
+
+Negative budgets are refused; 0 selects the default shown.
 
 Repeat `-font` for additional families or styles, e.g.
 `-font 'Calibri:bold=fonts/Calibri-Bold.ttf'`. Files are loaded explicitly through
@@ -1420,15 +1466,55 @@ it cannot draw prints a `warning:` line naming the slide (or the document), and
 the rest is drawn. A
 summary counts content left out and content drawn approximately, which
 warnings wrap with `render.ErrApproximated`. Use
-`-strict` to fail instead. It does not expand the supported formatting. Errors identify the failing page, slide, sheet or document. Existing outputs
+`-strict` to fail instead. It does not expand the supported formatting. XLSX
+ranges are always strict, as the library's are: `-strict` changes nothing for
+them, and content outside the sheet profile fails the sheet. A regular font
+that no `-font` mapping or `-fallback-noto` answers fails a DOCX document or an
+XLSX sheet even in best effort; on a slide, best effort leaves that shape's
+text out with a warning, and `-strict` fails the slide. Errors identify the failing page, slide, sheet or document. Existing outputs
 are never overwritten. A failed output file is removed; completed files from
 earlier pages or the other format remain available after a later error.
 
-`-keep-going` reports each slide or sheet that cannot be prepared on standard
-error, skips it, renders the rest, and then exits with an error naming the
-skipped pages. A cancelled or timed-out run still stops, and write failures are
-never skipped. DOCX lays out one document for every page, so its failures
-repeat across pages and stop the run as before.
+The command's labels count from 1, as its output names do (`slide 1`,
+`page 1`, `slide-0001.png`), but the library's messages inside them count
+slides and shapes from 0, as `Presentation.Slides` indexes them:
+`slide 1: pptx: slide 0 shape 2 (Picture 5): …` is the first slide's third
+shape. Sheets are labelled by name (`sheet "Data"`).
+
+`-keep-going` reports each slide, page or sheet that cannot be prepared on
+standard error, skips it, renders the rest, and then exits with an error naming
+the skipped pages. A cancelled or timed-out run still stops, and write failures
+are never skipped. A DOCX document is laid out once for all its pages, so a
+failure in that layout is reported as `document: skipped: …` and nothing of
+the document is written; a page that then fails on its own is skipped as
+`page N`.
+
+The command exits with one of three statuses:
+
+| Status | When |
+|---|---|
+| 0 | Every selected slide, page or sheet was written, possibly with warnings; or `-help`. |
+| 1 | The run failed, including a `-keep-going` run that skipped anything. The error is printed on standard error after `spine-render:`. |
+| 2 | The flags could not be parsed (an unknown flag or a malformed value); usage is printed. |
+
+The errors it reports itself, before or around the library's, are:
+
+| Message | Cause |
+|---|---|
+| `require -input, -out and positive bounded rendering options` | `-input` or `-out` missing, `-max-pages` outside 1–10000, a negative budget, or a `-dpi` or `-timeout` that is not positive and finite. |
+| `-format must be png, svg or both` | Another `-format`. |
+| `input must be .docx, .pptx or .xlsx` | Any other extension, including `.pptm`, `.docm` and `.xlsm`. |
+| `XLSX requires -range, e.g. A1:D20` | An XLSX input without `-range`. |
+| `-range and -sheet apply only to XLSX` | Either flag with PPTX or DOCX. |
+| `invalid font mapping "…"`, `invalid font style "…"`, `empty or duplicate font family "…"`, `invalid font face index in "…"` | A malformed or repeated `-font`. |
+| `at most 32 font mappings are allowed`, `font files exceed 32 MiB budget` | The font limits above. |
+| `font "…": the file holds N faces; choose one with FILE#INDEX: …` | A collection mapped without a face index. |
+| `unresolved font {Family:… Bold:… Italic:…}; provide -font or explicitly choose -fallback-noto for regular fonts` | A font nothing maps; see above for when it fails. |
+| `slides exceed -max-pages`, `pages exceed -max-pages`, `output exceeds -max-pages=N` | More slides, pages or sheets than `-max-pages`. |
+| `no pages selected; check the sheet name or input contents` | Nothing to draw, such as a `-sheet` no sheet has. |
+| `open <path>: file exists` | An output that already exists. |
+| `context deadline exceeded`, `context canceled` | `-timeout` expired, or the run was interrupted. |
+| `skipped N of M: …` | `-keep-going` skipped the slides, pages or sheets listed. |
 
 ## Measuring fidelity
 
