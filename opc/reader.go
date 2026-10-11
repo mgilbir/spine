@@ -100,7 +100,7 @@ func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 			uncharged = 0
 		}
 		if uncharged > pkgRemaining {
-			return 0, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
+			return 0, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
 		}
 		// A read may legitimately reach the entry's high-water mark plus the
 		// package's remaining budget before it would overrun the bound.
@@ -129,7 +129,7 @@ func (b *decompressionBudget) charge(zf *zip.File, n int64) error {
 		return nil
 	}
 	if delta > b.maxPackage-b.total {
-		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", zf.Name, b.maxPackage, b.total)
+		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, b.maxPackage, b.total)
 	}
 	b.total += delta
 	b.charged[zf] = n
@@ -286,7 +286,7 @@ func (s *budgetedReadCloser) chargeStream() error {
 	}
 	b.mu.Unlock()
 	if over {
-		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (raise MaxDecompressedPackageSize before opening to allow it)", s.name, b.maxPackage, already)
+		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", s.name, b.maxPackage, already)
 	}
 	return nil
 }

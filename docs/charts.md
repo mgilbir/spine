@@ -211,8 +211,9 @@ drawing parts are preserved verbatim unless a chart is added or modified).
 
 `Sheet.Charts` covers chartsheets as well as worksheets, so `Workbook.Charts`
 really does span every sheet of an opened workbook. One gap remains: a sheet
-copied in with `Workbook.Merge` brings no drawing across, so charts on the
-source sheet do not come with it and are not reported.
+copied in with `Workbook.CopySheetFrom` or `Workbook.AppendSheetsFrom` brings
+its images across but not its charts, so those charts are neither copied nor
+reported.
 
 ## Charts in Word documents
 
