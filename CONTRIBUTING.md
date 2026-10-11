@@ -41,7 +41,13 @@ optional python-pptx fixture corpus.
 
 ## Fuzzing
 
-The fuzz surface has two tiers.
+The fuzz surface has three tiers. The targets named below are representative,
+not exhaustive: the repository has 81 across 14 packages, including the
+rendering, metafile, chart and `common/*` parsers. List them all with:
+
+```bash
+git grep -n '^func Fuzz' -- '*_test.go'
+```
 
 **Open-path targets** feed hostile bytes into the read path. These are
 `FuzzNewReader` and `FuzzOpcMetadataXML` in `opc`, plus
@@ -96,10 +102,14 @@ In all tiers, errors are the expected outcome on malformed input; any
 panic is a bug.
 
 `make fuzz` is a short smoke run (30s per target; override with
-`FUZZTIME=5m make fuzz`). It discovers the targets dynamically at run
-time — it enumerates every `Fuzz*` function in the packages that have
-them — so this list can never go stale: a newly added target is picked
-up automatically. Deeper fuzzing is `-fuzztime`-driven per target, e.g.:
+`FUZZTIME=5m make fuzz`; `FUZZ_PKGS="docx xlsx"` restricts it to
+packages). It discovers the targets at run time rather than from the list
+above: `git grep` finds the packages with a tracked `*_test.go` file
+declaring a `Fuzz*` function, then `go test -list` enumerates each
+package's targets. A new target in a package that already has one is
+picked up as soon as it exists; a first target in a new package is not
+picked up until its file is `git add`ed. Deeper fuzzing is
+`-fuzztime`-driven per target, e.g.:
 
 ```bash
 go test ./xlsx -run '^$' -fuzz '^FuzzXlsxWorksheetXML$' -fuzztime 30m
@@ -175,12 +185,12 @@ suite could see because each only knows its own answer. If a rule spans formats,
 assert it across formats.
 
 `internal/maporder` is the one that needs type information, and it is the worked
-example of how to get it: `golang.org/x/tools/go/packages` — the module's only
-requirement, and the first reason it has a `go.sum`. `go/importer`'s source mode
-is the dependency-free alternative and was tried first; it is four times slower
-(2.5s against 0.6s) because it re-type-checks every transitive dependency, and
-it type-checks each package in isolation, so a call from `docx` into `opc`
-resolves to a *different* `*types.Func` than the one indexed from `opc`'s own
+example of how to get it: `golang.org/x/tools/go/packages`, the module's one
+test-tooling requirement (see [Dependencies](#dependencies)). `go/importer`'s
+source mode is the dependency-free alternative and was tried first; it is four
+times slower (2.5s against 0.6s) because it re-type-checks every transitive
+dependency, and it type-checks each package in isolation, so a call from `docx`
+into `opc` resolves to a *different* `*types.Func` than the one indexed from `opc`'s own
 syntax and the cross-package call graph silently does not work.
 
 A guard that resolves nothing reports a clean repository forever, so
@@ -210,11 +220,13 @@ exemption should fail the test too — otherwise the list only grows.
 
 `make cover` measures the whole module against the whole module
 (`-coverpkg=./...`) with the corpus enabled; `make cover-dark` lists the library
-functions no test executes at all. Per-package coverage is close to useless
-here — most of this library is exercised across package boundaries, `cctest`
-drives all three formats over real documents and `internal/symmetry` drives them
-together — so a package measured against only its own tests understates itself
-and points at the wrong gaps.
+functions no test executes at all. `cover-dark` only reads the profile
+(`coverage.out`) that `make cover` writes, so run `make cover` first.
+Per-package coverage is close to useless here — most of this library is
+exercised across package boundaries, `cctest` drives all three formats over
+real documents and `internal/symmetry` drives them together — so a package
+measured against only its own tests understates itself and points at the wrong
+gaps.
 
 **Do not write tests to raise the number.** A test that calls a function so a
 line turns green asserts nothing, costs maintenance forever, and makes the
@@ -340,10 +352,57 @@ Know the limits before reaching for either:
 So: sweep with ast-grep, reach for semgrep when the question needs negation,
 then promote anything real to a Go test. Prefer
 `go/ast` and `go/types` for the promoted version — they are in the standard
-library, this module has no third-party requirements, and the questions that
+library (plus `golang.org/x/tools/go/packages` to load them, as
+`internal/maporder` does), and the questions that
 matter here ("does this method transitively reach `markDirty`?", "are these map
 keys sorted before use?") need types and a call graph, which a syntactic matcher
 cannot answer.
+
+## Environment variables
+
+Every `SPINE_*` variable the code reads configures a test, a test helper or a
+corpus tool; the library packages read none. List them with
+`git grep -ohE 'SPINE_[A-Z0-9_]+' -- '*.go' | sort -u`.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `SPINE_CC_CORPUS` | `cctest` | Corpus root (default `testdata/corpus/cc`). |
+| `SPINE_CC_FULL` | `cctest` | Any value: run the whole corpus instead of the default subset (`make test-corpus`, `make cover`). |
+| `SPINE_CC_SUBSET` | `cctest` | Files per type in the default subset (default 60; `make test-race` uses 12). |
+| `SPINE_CC_PARALLEL` | `cctest` | Corpus files processed concurrently (default 4; `make test-race` uses 2). |
+| `SPINE_CC_UPDATE_QUARANTINE` | `cctest` | Any value: implies a full run, ignores the committed quarantine and rewrites `testdata/cc/known_failures.tsv` from the observed failures. |
+| `SPINE_CC_EMIT_QUARANTINE` | `cctest` | Any value: also print each new failure to stdout as a `CCQUARANTINE` quarantine-format line. |
+| `SPINE_FUZZ_CORPUS` | `internal/fuzzseed` | Directory with `docx`/`pptx`/`xlsx` subdirectories to draw extra fuzz seeds from (default `testdata/corpus/cc`). |
+| `SPINE_DOH_URL` | `tools/ccfetch`, `tools/ccrun` | Default for `-doh-url`, the DNS-over-HTTPS resolver that gates live fetches. Without it, live-only manifest rows are skipped. `ccrun` passes it on to its workers. |
+| `SPINE_REQUIRE_SCHEMA` | `internal/schemavalid` | Any value: a missing schema validator or missing schemas fails instead of skipping. |
+| `SPINE_UPDATE_ORDER_TABLE` | `internal/schemavalid` | Any value: regenerate the committed child-order table from the schemas (see [spec/README.md](spec/README.md)). |
+| `SPINE_SPEC_UPDATE_BASELINE` | `spec/spectest` | Any value: append observed spec-coverage rows to `spec/spectest/coverage_baseline.tsv.observed` instead of checking the baseline. |
+| `SPINE_REQUIRE_C14N` | `common/xml` | Any value: a missing reference canonicalizer (xmllint or lxml) fails instead of skipping. |
+| `SPINE_REQUIRE_MSOFFCRYPTO` | `opc`, `common/crypto` | Any value but `0`: a missing msoffcrypto-tool fails the encryption cross-validation instead of skipping. CI sets it. `MSOFFCRYPTO_TOOL` (`opc`) and `MSOFFCRYPTO_PY` (`common/crypto`) point at the tool and its interpreter. |
+| `SPINE_PYTHON` | `opc` | Python interpreter with lxml and cryptography for the signature cross-validation (otherwise `python3`, then `python`). |
+| `SPINE_VML_DUMP` | `common/vml` | Path to write marshalled VML fragments to, for checking with an external strict parser; the test skips when unset. |
+
+## Dependencies
+
+`go.mod` has four direct requirements. The format libraries and the packages
+they build on (`opc`, `common/...`, `pptx`, `docx`, `xlsx`) import none of
+them: a program that uses only those links no third-party code. Each
+requirement is confined to the packages below.
+
+| Module | Why | Imported by |
+|---|---|---|
+| `github.com/mgilbir/forme` | Text shaping, fonts and layout for rendering | `render`, `internal/render`, `docx/docxrender`, `pptx/pptxrender`, `xlsx/xlsxrender`, `internal/metafile`, `cmd/spine-render`, `examples/render_previews` |
+| `github.com/mgilbir/gowemf` | Plays WMF/EMF/EMF+ pictures | `internal/metafile` (so `docx/docxrender` and `pptx/pptxrender`) |
+| `github.com/mgilbir/aster` | Draws charts from a Vega specification | `cmd/spine-render` only |
+| `golang.org/x/tools` | `go/packages`, type-checked loading for the map-order guard | `internal/maporder` (a test-only guard) |
+
+The indirect requirements come in through these. `pdf0`, `formalis`,
+`goecma262`, `gopenjpeg` and `golang.org/x/text` are reached only through
+`aster`, so only `cmd/spine-render` links them. `golittlecms` comes through
+`gowemf`, and `golang.org/x/mod` and `golang.org/x/sync` through
+`golang.org/x/tools`. Check which modules a package actually links with
+`go list -deps -f '{{with .Module}}{{.Path}}{{end}}' ./pptx | sort -u`; for the
+format packages it prints only `github.com/mgilbir/spine`.
 
 ## Commit style
 

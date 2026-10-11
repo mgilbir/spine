@@ -42,7 +42,7 @@ committed manifest still pins exactly what was attempted.
 
 ## Batched multi-crawl harvest (scaled, reference-only)
 
-The single-crawl `sweep.sh` + `ccfetch` pipeline above keeps every fetched
+The `ccfetch` path described in [README.md](README.md) keeps every fetched
 binary on disk, which does not scale to a 10k/type corpus. The batched
 pipeline instead treats binaries as **transient**: it commits only
 *references*, downloads a file, tests it, records the outcome, and discards
@@ -177,8 +177,8 @@ point `-manifest` at `testdata/cc/stress` and give the run its **own** ledger
 and quarantine so the two corpora stay separate:
 
 `make harvest-batch` hardcodes `-manifest testdata/cc`, so invoke the runner
-directly with the same resource-capped scope (loop it until a batch reports
-`0 remaining`):
+directly with the same resource-capped scope (loop it as in the
+[resume loop](#resume-loop) below, stopping when a batch selects nothing):
 
 ```sh
 go build -o testdata/corpus/cc-stress/ccrun ./tools/ccrun
@@ -245,7 +245,9 @@ leader is SIGTERMed and never reaches its post-worker line (exit 143); with
 The ledger (`testdata/corpus/cc-batch/ledger.tsv`, gitignored — it lives under
 the ignored `testdata/corpus/`) has one append-only row per processed
 reference (`digest  outcome  stage  signature  timestamp`; outcome is `pass`,
-`fail`, `skip`, or `resource`) and is flushed per row. On restart `ccrun` skips
+`fail`, or `resource`) and is flushed per row. Nothing else is ledgered: a
+transient fetch failure is deferred (below) and a live row skipped for want of a
+resolver is simply not selected. On restart `ccrun` skips
 every digest already present, so an interrupted or OOM-killed batch loses at
 most the in-flight file.
 
@@ -278,15 +280,31 @@ with a non-file body). Before handing any fetched payload to the library `Open`,
 the worker validates it is a real OPC package (starts with `PK\x03\x04`, opens
 as a zip, contains `[Content_Types].xml`); a body that fails is recorded as a
 permanent `fetch:not-ooxml` at `stage=fetch`, not as a spurious `open` failure,
-and no `Open` attempt is wasted on it. Resume loop:
+and no `Open` attempt is wasted on it.
+
+### Resume loop
+
+Loop `make harvest-batch` until a batch has nothing left it can process:
 
 ```sh
-# Repeat until a batch reports 0 remaining.
+# Stop when a batch selects nothing. Without a DoH resolver the live rows are
+# never selected, so stopping on "0 remaining" would loop forever.
 while :; do
-  out=$(make harvest-batch 2>&1); echo "$out"
-  echo "$out" | grep -q "0 remaining" && break
+  out=$(make harvest-batch 2>&1) || { echo "$out"; break; }
+  echo "$out"
+  echo "$out" | grep -q 'processing a batch of 0 ' && break
 done
 ```
+
+Each batch prints `N already in ledger, M remaining` and then
+`processing a batch of K (L live rows skipped: no DoH)`. `M` counts every
+reference not yet in the ledger, including the truncated-manifest (live) rows
+that a run without `SPINE_DOH_URL` (or `-doh-url`) skips without ledgering.
+So without a resolver `M` never reaches 0: the loop above ends once
+`K` is 0, and the last batch's `L` is the number of live rows still waiting
+for a run with a resolver. With a resolver configured, the last batch also
+reports `0 remaining`. Do not match `0 remaining` with a plain substring: it
+also matches `18000 remaining`.
 
 ### Reference-keyed quarantine and refetch-for-debug
 
@@ -322,12 +340,14 @@ commit the larger manifests, and keep looping `harvest-batch` — the runner is
 unchanged. More workers or a larger `MemoryMax` trade throughput for headroom;
 the isolation model is identical at any size.
 
-## Scaling up
+## Scaling up the local `ccfetch` corpus
 
 - More files per type: raise the fetcher limit (`go run ./tools/ccfetch ...
-  -n 3000`). The committed manifests carry ~3x margin over the default goal.
-- Beyond the manifest margin: rerun `sweep.sh -t <bigger target>` to emit
-  larger manifests (pptx is scarce — roughly one crawl's warc subset yields
-  only a few thousand distinct candidates).
-- Newer crawls: `sweep.sh -c CC-MAIN-<yyyy-ww>` regenerates the manifests
-  from another crawl; commit the new manifests to repin the corpus.
+  -n 3000`). The committed manifests hold 10000 complete rows per type, 10x
+  the `make fetch-cc` goal of `-n 1000`.
+- Beyond that, or from newer crawls: regenerate the manifests with
+  `sweep-multi.sh` as described in
+  [Scaling beyond 10k](#scaling-beyond-10k), and commit them.
+- `sweep.sh` is the superseded single-crawl sweep. It writes the legacy
+  5-column layout from one crawl and is not how the committed manifests were
+  made.

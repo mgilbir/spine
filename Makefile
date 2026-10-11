@@ -90,7 +90,13 @@ cover:
 # cover-dark lists the functions no test executes at all, which is the useful
 # view. Library code only: examples/ and tools/ are demo and CLI programs whose
 # coverage says nothing about the library.
-cover-dark: $(COVER_OUT)
+#
+# It reads the profile `make cover` writes and does not produce one: run
+# `make cover` first. There is deliberately no rule that builds $(COVER_OUT),
+# so a missing profile stops here with a message instead of silently starting
+# the 45-minute corpus-wide coverage run.
+cover-dark:
+	@test -f $(COVER_OUT) || { echo "cover-dark: $(COVER_OUT) not found; run 'make cover' first" >&2; exit 1; }
 	@go tool cover -func=$(COVER_OUT) \
 		| awk '$$NF == "0.0%"' \
 		| grep -vE 'spine/(examples|tools)/' \
