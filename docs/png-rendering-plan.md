@@ -1,9 +1,16 @@
 # Native rendering with Forme: PNG and SVG
 
-Status: implementation in progress. Stacked draft PRs #333–#336 implement
-bounded snapshots, PNG/SVG primitives, paths/clips and positioned glyphs. Text
-shaping, images and Office-specific integration follow; page/slide/sheet rendering
-is not available yet.
+> **Historical design note.** This is the plan rendering was built from, kept
+> for its reasoning. It is not current status: rendering shipped in 0.4.0, and
+> what it supports today is in the [rendering guide](rendering.md). Several
+> decisions below were revisited in the implementation. Notably, the
+> dependency rule: gowemf (EMF/WMF) and, for `cmd/spine-render`, aster (charts)
+> were added alongside Forme.
+
+Status when written: implementation in progress. Stacked draft PRs #333–#336
+implement bounded snapshots, PNG/SVG primitives, paths/clips and positioned
+glyphs. Text shaping, images and Office-specific integration follow;
+page/slide/sheet rendering is not available yet.
 
 Rendering must run entirely in Go. Forme is the only permitted additional
 dependency; other dependencies require an explicit decision by the maintainer.

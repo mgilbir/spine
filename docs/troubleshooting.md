@@ -6,8 +6,8 @@ that documents the behavior in full.
 ## Save refused with a validation error
 
 `Save`, `SaveBytes`, and `SaveTo` run `Validate()` first and refuse to write when
-any **error-severity** finding is present, returning the report as an error, so a
-structurally corrupt package is never produced. Warnings never block a save.
+any **error-severity** finding is present, returning the report as an error, so an
+edit cannot introduce a structural error. Warnings never block a save.
 
 To see what tripped it, call `Validate()` yourself before saving and read the
 `validate.Report` (from `github.com/mgilbir/spine/common/validate`) — each finding
@@ -31,6 +31,22 @@ default gate exists because Office rejects the structures it flags. The
 [Validation](../README.md#validation) section of the README carries the full
 catalog, code by code, with each check's severity; it is the single source of
 truth and is verified against the validators by a test.
+
+## Save refused after only reading a file
+
+The input file already had the problem; reading it is what exposed it. The
+pre-save check covers what the program has loaded. A pptx slide or the docx
+body that was never read is written back byte-for-byte without being checked,
+so a damaged file opens and saves cleanly. Once your code reads that slide or
+the body (`Shapes()`, `Text()`, `Paragraphs()`, `ReplaceText`, ...), it is
+loaded, checked, and the same save is refused. xlsx checks every sheet on every
+save, so there this shows up on the first save.
+
+The finding's `Part` names the damaged part. Either repair the condition through
+the API before saving, or, if you only meant to pass the file through, save
+before reading it, or write with `SaveToUnvalidated`. Before you trust a file,
+call `Validate()` after reading the parts you rely on. An untouched file that
+saves cleanly has not been checked.
 
 ## Open returns `opc.ErrEncrypted`
 
@@ -64,12 +80,17 @@ non-Office file. See [Supported Flavors](../README.md#supported-flavors).
 
 ## Office offers to repair my file
 
-This should not happen for a file spine produced: every save runs `Validate()`
-first and refuses to write when a structural error is present, and the validator
-is tuned so that no error-severity finding fires on a file the corresponding
-Office app accepts. If a library-produced file does prompt for repair, that is a
-bug — please open an issue and attach the file (and the code that produced it)
-so the failing structure can be reproduced. See
+This should not happen for a file spine built, or for the parts of an opened
+file that your code changed. Every save runs `Validate()` first and refuses to
+write when a structural error is present, and the validator is tuned so that no
+error-severity finding fires on a file the corresponding Office app accepts.
+
+Check first whether the input file already prompts for repair. Parts your code
+never read are passed through unchecked (see
+[Save refused after only reading a file](#save-refused-after-only-reading-a-file)),
+so a damaged input stays damaged. If the input opens cleanly and spine's output
+does not, that is a bug. Please open an issue and attach both files and the code
+that produced the output, so the failing structure can be reproduced. See
 [Validation](../README.md#validation).
 
 ## Tests skip on my machine

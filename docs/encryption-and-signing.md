@@ -141,7 +141,7 @@ signature UI recognizes them (see `common/xml` for the inclusive Canonical XML
 1.0 implementation).
 
 `SignatureInfo.CoveredParts` reports what a signature actually protects, and
-follows the whole trust chain to say so: `SignatureValue` covers `SignedInfo`, a
+follows the whole reference chain to say so: `SignatureValue` covers `SignedInfo`, a
 `SignedInfo` reference covers an `<Object>`, and only the manifest of a covered
 `<Object>` contributes parts. Anyone can append an `<Object>` with a manifest of
 correct digests to a signed package without the private key; such an Object is
@@ -150,6 +150,39 @@ Verification also accepts the SHA-1 algorithms older Office signatures use, so
 `Valid` alone does not imply a modern algorithm — reject
 `info.UsesWeakAlgorithms()` (see `WeakAlgorithms`, `DigestMethods`) if your
 policy requires SHA-256.
+
+### What a valid signature does not tell you
+
+`Valid` says the package is unchanged since it was signed with the key of the
+certificate **embedded in the file**. Whoever wrote the file chose that
+certificate, so on its own `Valid` says nothing about who signed. spine checks
+no certificate chain, trust root, revocation, key usage or validity window. A
+package an attacker altered and re-signed with a self-signed certificate that
+expired yesterday verifies as `Valid`. `NotBefore`, `NotAfter`, `SignerSubject`
+and `SignerIssuer` are read from that certificate and are for display only.
+
+To trust a signer, check `SignerCertificate` against your own roots:
+
+```go
+func checkSigner(info opc.SignatureInfo, roots *x509.CertPool) error {
+    if !info.Valid || info.UsesWeakAlgorithms() {
+        return fmt.Errorf("signature does not verify: %v", info.Problems)
+    }
+    if info.SignerCertificate == nil {
+        return errors.New("no signer certificate")
+    }
+    _, err := info.SignerCertificate.Verify(x509.VerifyOptions{
+        Roots:     roots,
+        KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+    })
+    return err
+}
+```
+
+`Verify` checks the chain to your roots and the validity window at the current
+time. To accept a signature made while a certificate was valid but checked after
+it expired, set `CurrentTime` only from a time source you trust. `SigningTime`
+comes from the file, so it is no more trustworthy than the certificate.
 
 ## VBA macros
 

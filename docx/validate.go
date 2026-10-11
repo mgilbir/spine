@@ -28,6 +28,11 @@ const (
 // bypass the gate.
 //
 // The checks are sound (no false positives on Word-accepted packages).
+//
+// Body checks run only once the body has been loaded. If nothing has read it,
+// a defect the document arrived with is neither reported nor fixed: save writes
+// the body back verbatim. Reading it loads it, and from then on its defects are
+// reported. Package-level and style-inheritance checks always run.
 func (d *Document) Validate() validate.Report {
 	c := validate.New()
 	// The body-referential checks catch problems an edit could introduce

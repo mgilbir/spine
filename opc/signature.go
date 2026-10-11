@@ -95,11 +95,18 @@ type SignatureInfo struct {
 	// matches. A false value with a nil Err means the signature is well-formed
 	// but does not match the current package contents (tampering or an
 	// unsupported construct); Problems explains why.
+	//
+	// Valid does not identify the signer. The certificate is the one embedded
+	// in the file, chosen by whoever wrote it, and no chain, trust root,
+	// revocation or validity window is checked: a package re-signed with a
+	// self-signed or expired certificate is Valid. Verify SignerCertificate
+	// against your own roots before trusting who signed.
 	Valid bool
 
 	// SignedInfoValid reports whether the SignatureValue verified against the
-	// certificate's public key over the canonicalized SignedInfo. This is the
-	// cryptographic authenticity check, independent of the content digests.
+	// embedded certificate's public key over the canonicalized SignedInfo,
+	// independent of the content digests. Like Valid, it proves possession of
+	// that certificate's key, not who holds it.
 	SignedInfoValid bool
 
 	// SignerCertificate is the signer's X.509 certificate (the first
@@ -111,7 +118,8 @@ type SignatureInfo struct {
 	SignerSubject string
 	SignerIssuer  string
 
-	// NotBefore and NotAfter are the certificate validity window.
+	// NotBefore and NotAfter are the certificate validity window, as the
+	// certificate states it. They are reported, not enforced.
 	NotBefore time.Time
 	NotAfter  time.Time
 
@@ -259,6 +267,9 @@ type xmlSignatureTime struct {
 // a structural failure that prevents inspection (e.g. a signature part that
 // cannot be read); an individual signature that fails to verify is reported via
 // its SignatureInfo (Valid=false, Problems populated), not as an error.
+//
+// Verification is against the certificate each signature embeds; it does not
+// establish trust in that certificate. See SignatureInfo.Valid.
 func (r *Reader) VerifySignatures() ([]SignatureInfo, error) {
 	sigParts := r.signaturePartNames()
 	if len(sigParts) == 0 {
