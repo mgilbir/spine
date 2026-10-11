@@ -78,11 +78,54 @@ func (s *Slide) view() *view.Slide {
 		out.Package = &view.Package{Reader: p.reader, Presentation: p.presentation, Relationships: p.relationships, OtherParts: p.otherParts,
 			ThemeData: p.themeData, ThemeEditors: p.themeEditors, PartData: p.rawPartData, TableStyles: p.tableStylesData, Width: w, Height: h}
 	}
-	if l := s.layout; l != nil {
+	if l := s.savedLayout(); l != nil {
 		out.Layout = &view.Layout{XML: l.layoutXML, PartName: l.partName}
 		if m := l.master; m != nil {
 			out.Layout.Master = &view.Master{XML: m.masterXML, PartName: m.partName, ThemePart: m.resolvedThemePart}
+			if out.Package != nil && m.resolvedThemePart == "" {
+				out.Layout.Master.ThemePart, out.Package.ThemeData = s.presentation.savedTheme(m)
+			}
 		}
 	}
 	return out
+}
+
+// savedTheme names the theme part a master that has none resolved yet will be
+// saved with, and returns the theme data including it, for the renderer. A
+// merged master carries an imported theme part; a master of a deck built with
+// Create gets the default theme1.xml, written only at save, so its bytes are
+// added to a copy of the theme data rather than to the presentation, which
+// preparing a page must not change (C610).
+func (p *Presentation) savedTheme(m *SlideMaster) (string, map[string][]byte) {
+	if m.themePartName != "" {
+		return m.themePartName, p.themeData
+	}
+	if p.reader != nil {
+		return "", p.themeData
+	}
+	const part = "/ppt/theme/theme1.xml"
+	if _, ok := p.themeData[part]; ok {
+		return part, p.themeData
+	}
+	data := make(map[string][]byte, len(p.themeData)+1)
+	for k, v := range p.themeData {
+		data[k] = v
+	}
+	data[part] = defaultThemeXML()
+	return part, data
+}
+
+// savedLayout is the layout the slide is drawn with: its own, or, for a slide
+// added with AddSlide (which has none until save), the deck's first layout,
+// which is the one the save binds it to. Rendering through the view must see
+// what the saved file will contain, or a never-saved slide has no master and
+// so no color map (C610).
+func (s *Slide) savedLayout() *SlideLayout {
+	if s.layout != nil {
+		return s.layout
+	}
+	if p := s.presentation; p != nil && len(p.slideLayouts) > 0 {
+		return p.slideLayouts[0]
+	}
+	return nil
 }
