@@ -27,9 +27,9 @@ var ErrNilWorkbook = errors.New("xlsx: source workbook is nil")
 // slice, not the source names, is how to find the copies.
 //
 // The per-sheet contract is CopySheetFrom's, and so are its limits: cell values,
-// styles, formulas, merged ranges, column widths, row heights and images are
-// carried; charts, cross-sheet formula references, defined names and pivot
-// tables are not. A sheet that fails to copy aborts the whole append, leaving
+// styles, formulas, merged ranges, column widths, row heights, images and sheet
+// visibility are carried; charts, cross-sheet formula references, defined names
+// and pivot tables are not. A sheet that fails to copy aborts the whole append, leaving
 // the sheets copied before it in place — this is not transactional.
 //
 // Chartsheets, dialogsheets and macrosheets in other are skipped: they round-trip
@@ -46,17 +46,34 @@ func (w *Workbook) AppendSheetsFrom(other *Workbook) ([]*Sheet, error) {
 	// w and other were ever the same slice the loop would not terminate.
 	src := other.Sheets()
 	out := make([]*Sheet, 0, len(src))
+	var states []SheetVisibility
 	for _, s := range src {
 		if s == nil || s.opaque {
 			continue
 		}
-		copied, err := w.CopySheetFrom(other, s.Name())
+		copied, err := w.copySheetFrom(other, s.Name())
 		if err != nil {
+			applyVisibility(out, states)
 			return out, err
 		}
 		out = append(out, copied)
+		states = append(states, s.Visibility())
 	}
+	// Visibility is applied once every sheet is in: hiding a copy as soon as
+	// it lands could find it the only sheet of an empty destination (C609).
+	applyVisibility(out, states)
 	return out, nil
+}
+
+// applyVisibility gives each copied sheet its source sheet's visibility. A
+// state that would hide the destination's last visible sheet is not applied:
+// Excel will not open a workbook with no visible sheet.
+func applyVisibility(sheets []*Sheet, states []SheetVisibility) {
+	for i, s := range sheets {
+		if states[i] != SheetVisible {
+			_ = s.SetVisibility(states[i]) // refused only for the last visible sheet
+		}
+	}
 }
 
 // CopySheetFrom copies the sheet named sheetName from other into this workbook
@@ -72,7 +89,23 @@ func (w *Workbook) AppendSheetsFrom(other *Workbook) ([]*Sheet, error) {
 // on the new sheet, with their media re-embedded under non-colliding part names.
 // Charts embedded in the source sheet are not copied (deferred), and cross-sheet
 // references in copied formulas are not rewritten.
+//
+// The copy keeps the source sheet's visibility (hidden or very hidden), unless
+// that would leave this workbook with no visible sheet, which Excel refuses to
+// open; then it is visible (C609).
 func (w *Workbook) CopySheetFrom(other *Workbook, sheetName string) (*Sheet, error) {
+	dst, err := w.copySheetFrom(other, sheetName)
+	if err != nil {
+		return nil, err
+	}
+	src, _ := other.SheetByName(sheetName)
+	applyVisibility([]*Sheet{dst}, []SheetVisibility{src.Visibility()})
+	return dst, nil
+}
+
+// copySheetFrom is CopySheetFrom without the visibility, which its callers
+// apply.
+func (w *Workbook) copySheetFrom(other *Workbook, sheetName string) (*Sheet, error) {
 	if other == nil {
 		return nil, ErrNilWorkbook
 	}

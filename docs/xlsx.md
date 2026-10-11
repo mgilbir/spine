@@ -128,14 +128,16 @@ suffix when the name is taken, so use the returned sheets rather than the
 source names.
 
 A copy carries cell values (shared strings resolved), styles, formulas, merged
-ranges, column widths, row heights, and images. It does not carry:
+ranges, column widths, row heights, images, and the sheet's visibility. A
+hidden or very hidden sheet stays so, unless it would be the destination's only
+visible sheet, which Excel refuses. It does not carry:
 
-- charts: they are neither copied nor reported on the new sheet;
+- charts: they are neither copied nor reported on the new sheet. The hidden
+  data sheet `Sheet.AddChart` writes for each chart is a worksheet, so it is
+  copied, and stays hidden;
 - cross-sheet references: a copied formula such as `Lookup!A1*2` keeps its text
   and points at whatever sheet has that name in the destination;
-- defined names and pivot tables;
-- sheet visibility: a hidden sheet arrives visible, including the hidden data
-  sheet that `Sheet.AddChart` writes for each chart.
+- defined names and pivot tables.
 
 A sheet that fails to copy stops `AppendSheetsFrom` with the earlier copies in
 place: the append is not transactional. `AppendSheetsFrom` skips chartsheets,
