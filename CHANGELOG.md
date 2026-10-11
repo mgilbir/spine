@@ -46,6 +46,14 @@
   the whole input (bounded by `WithMaxEncryptedInputSize`) where it read 8
   bytes, and a malformed compound file reports `ErrCorruptedPackage` instead of
   `ErrEncrypted` (D54).
+- docxrender: with `render.Options.Warn` set, a color glyph a Word page can
+  only draw approximately is drawn with the paint nearest its own (or as its
+  outline in the text color) and reported, wrapping `render.ErrApproximated`,
+  as on a slide. `Pages.Page` prepared every page strictly, so such a glyph
+  failed the whole page with `render.ErrUnsupported` even in best effort.
+  Strict mode is unchanged. Page warnings read `docx: page N: …` and are
+  reported once per kind per page; `Pages.Page` calls `Warn`, so pages
+  prepared concurrently can call it concurrently (D56).
 
 ### Deprecated
 
