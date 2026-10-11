@@ -27,6 +27,13 @@
   Merging a workbook unhid its hidden and very-hidden sheets, including the
   hidden data sheet `Sheet.AddChart` writes for each chart. A copy is left
   visible only when hiding it would leave the workbook no visible sheet (C609).
+- pptxrender: a slide of a deck built with `Create` renders before the deck is
+  saved, as `PrepareSlide` promises for unsaved edits. Its text failed with
+  "missing master color map" (strict) or was left out (best effort) until the
+  deck was saved and reopened: a slide added with `AddSlide` has no layout
+  until save binds it to the first one, and the default theme is written only
+  at save. The renderer now sees the layout and theme the save will write, and
+  draws the unsaved slide exactly as the saved and reopened one (C610).
 
 ## 0.4.0 - 2026-10-10
 
