@@ -39,23 +39,38 @@ type SlideLayout struct {
 	relID        string
 }
 
-// Name returns the name of the layout.
+// Name returns the name of the layout: the name PowerPoint shows for it
+// (p:cSld@name), or, for a layout that has none, its matchingName.
+//
+// Name used to read only matchingName, which PowerPoint usually omits, so
+// every layout of a PowerPoint deck was nameless and LayoutByName found none
+// (C608).
 func (sl *SlideLayout) Name() string {
 	if sl.name != "" {
 		return sl.name
 	}
 	if sl.layoutXML != nil {
+		if sl.layoutXML.CSld != nil && sl.layoutXML.CSld.Name != "" {
+			return sl.layoutXML.CSld.Name
+		}
 		return sl.layoutXML.MatchingName
 	}
 	return ""
 }
 
-// SetName sets the name of the layout.
+// SetName sets the name of the layout, as p:cSld@name. A matchingName the
+// layout already carries is updated with it, so the two do not disagree.
 func (sl *SlideLayout) SetName(name string) {
 	sl.presentation.markModelEdited()
 	sl.name = name
 	if sl.layoutXML != nil {
-		sl.layoutXML.MatchingName = name
+		if sl.layoutXML.CSld == nil {
+			sl.layoutXML.CSld = &oxml.CommonSlideData{SpTree: newShapeTree()}
+		}
+		sl.layoutXML.CSld.Name = name
+		if sl.layoutXML.MatchingName != "" || sl.layoutXML.MatchingNamePresent {
+			sl.layoutXML.MatchingName = name
+		}
 	}
 }
 
