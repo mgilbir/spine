@@ -9,8 +9,9 @@
 //   - slide-master and slide-layout editing (SlideMaster.BodyStyle text levels
 //     and SlideLayout.SetBackgroundFill) through the typed template APIs;
 //   - speaker notes (Slide.SetNotes), which create a notesSlide part on demand;
-//   - reading SmartArt (Slide.SmartArt) — the read path is shown even though
-//     creating SmartArt from scratch is not supported (see the note below).
+//   - reading SmartArt (Slide.SmartArt). This deck does not create a diagram,
+//     so the read path reports none; Slide.AddSmartArt builds one (see the
+//     note below).
 //
 // After saving it reopens the file and reads the connectors, notes, and layout
 // background back out to prove the round trip, then prints a success summary.
@@ -254,14 +255,14 @@ func verify(outputPath string) {
 	// Slide.SmartArt / Presentation.SmartArt return the SmartArt graphics found
 	// on a slide, exposing each diagram's text hierarchy from its data part.
 	//
-	// Creating SmartArt from scratch is NOT supported (a valid diagram also
-	// needs layout/quickStyle/colors definition parts and a drawing fallback
-	// that PowerPoint rejects if malformed), so this created deck contains none
-	// and the read below reports zero. The loop is the exact read path you would
-	// use on a deck that DOES contain SmartArt (e.g. one opened from PowerPoint):
+	// This deck adds no SmartArt, so the read below reports zero. To create a
+	// diagram, call Slide.AddSmartArt with a SmartArtKind and a node outline;
+	// it generates the data, layout, quick-style and colors parts PowerPoint
+	// needs. The loop is the exact read path you would use on a deck that DOES
+	// contain SmartArt (one built with AddSmartArt, or opened from PowerPoint):
 	// it would print each top-level node's text and child count.
 	arts := p.SmartArt()
-	fmt.Printf("  SmartArt graphics: %d (create is unsupported; this is the read path)\n", len(arts))
+	fmt.Printf("  SmartArt graphics: %d (this deck adds none; Slide.AddSmartArt creates one)\n", len(arts))
 	for _, sa := range arts {
 		for _, node := range sa.Nodes() {
 			fmt.Printf("    node %q (%d child node(s))\n", node.Text, len(node.Children))

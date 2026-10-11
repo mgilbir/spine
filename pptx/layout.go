@@ -10,6 +10,10 @@ import (
 // SlideLayoutType represents the type of a slide layout.
 type SlideLayoutType string
 
+// Common slide layout types, for LayoutByType. The values are the
+// PresentationML ST_SlideLayoutType tokens (p:sldLayout@type); the schema
+// defines more than these, and SlideLayout.Type reports whichever token a
+// layout carries.
 const (
 	LayoutTitle                SlideLayoutType = "title"
 	LayoutTitleAndContent      SlideLayoutType = "obj"

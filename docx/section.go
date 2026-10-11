@@ -25,6 +25,8 @@ func (s *Section) touch() {
 // Orientation represents page orientation.
 type Orientation int
 
+// Page orientations (w:pgSz@w:orient). A section without the attribute reads
+// as OrientationPortrait.
 const (
 	OrientationPortrait Orientation = iota
 	OrientationLandscape

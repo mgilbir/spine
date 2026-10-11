@@ -20,6 +20,8 @@ const nsMorph = "http://schemas.microsoft.com/office/powerpoint/2015/09/main"
 // TransitionType represents the type of slide transition.
 type TransitionType int
 
+// Transition types. Passing TransitionNone to Slide.SetTransition removes the
+// slide's transition.
 const (
 	TransitionNone      TransitionType = iota
 	TransitionFade                     // Fade
@@ -65,6 +67,9 @@ const (
 // four corners; Strips accepts only corners; Zoom and Split accept In/Out.
 type TransitionDirection string
 
+// Transition directions: the four edges, the four corners (LeftUp is the
+// upper-left corner, and so on), and In/Out. The values are the PresentationML
+// tokens.
 const (
 	TransitionDirLeft      TransitionDirection = "l"
 	TransitionDirRight     TransitionDirection = "r"
@@ -82,6 +87,8 @@ const (
 // Checker, Comb, RandomBar, Split).
 type TransitionOrientation string
 
+// Transition orientations (the p:transition child's dir attribute,
+// ST_Direction).
 const (
 	TransitionHorizontal TransitionOrientation = "horz"
 	TransitionVertical   TransitionOrientation = "vert"
@@ -122,8 +129,9 @@ type Transition struct {
 	Type TransitionType
 	// Duration is the transition speed in seconds. The base OOXML schema only
 	// stores a coarse speed (fast/med/slow), so the value snaps to 0.5, 1.0, or
-	// 2.0 on a round-trip; exact durations require the p14 extension, which is
-	// not yet modeled.
+	// 2.0 on a round-trip. Morph is the exception: it is written with the p14
+	// exact duration (p14:dur), so its value round-trips to the millisecond.
+	// For the other types the p14 duration is not yet modeled.
 	Duration       float64
 	AdvanceOnClick bool
 	AdvanceAfter   float64 // seconds, 0 = disabled

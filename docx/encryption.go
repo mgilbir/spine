@@ -20,9 +20,10 @@ import (
 // opc.WithAllowMissingDataIntegrity for the deliberate opt-out.
 
 // SaveEncrypted saves the document to a file, encrypted with the supplied
-// password using Office's agile encryption (AES-256, SHA-512). The password
-// must not be empty. The resulting file opens in Word with the password, and
-// here with Open and opc.WithPassword.
+// password using Office's agile encryption (AES-256, SHA-512). A password that
+// is empty, is not valid UTF-8, or is longer than the 255 UTF-16 code units
+// Office accepts returns crypto.ErrInvalidPassword. The resulting file opens in
+// Word with the password, and here with Open and opc.WithPassword.
 func (d *Document) SaveEncrypted(path, password string) error {
 	var buf bytes.Buffer
 	if err := d.SaveEncryptedTo(&buf, password); err != nil {

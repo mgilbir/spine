@@ -31,6 +31,10 @@ import (
 // supplied. Every open takes options, so the retry is the same call with
 // WithPassword added — opc.OpenReader, opc.NewReader, and each format
 // package's Open and OpenReader all accept it.
+//
+// Detection is by the CFB signature alone, so a legacy binary .doc, .xls or
+// .ppt (also a compound file, but not an OOXML package) returns ErrEncrypted
+// too; no password opens one.
 var ErrEncrypted = errors.New("opc: package is encrypted; pass opc.WithPassword to the same open to decrypt it")
 
 // stream names inside the CFB container ([MS-OFFCRYPTO] §2.3.4.10).
@@ -124,7 +128,9 @@ func decryptCFBPackage(data []byte, password string, opts ReaderOptions) ([]byte
 // ciphertext.
 //
 // packageData must be the complete bytes of an unencrypted .zip package (for
-// example docx.Document.SaveBytes()). The password must not be empty.
+// example docx.Document.SaveBytes()). A password that is empty, is not valid
+// UTF-8, or is longer than the 255 UTF-16 code units Office accepts returns
+// crypto.ErrInvalidPassword.
 func SaveEncrypted(w io.Writer, packageData []byte, password string) error {
 	return SaveEncryptedWithOptions(w, packageData, password, EncryptOptions{})
 }

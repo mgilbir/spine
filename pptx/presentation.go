@@ -232,10 +232,16 @@ type Presentation struct {
 // password-encrypted presentation, and the opc.WithMax* options adjust the
 // bounds that guard against decompression bombs.
 //
-// It returns ErrNotPPTX when the package is not PresentationML,
-// opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted and no opc.WithPassword was given. Each is
-// matchable with errors.Is.
+// It returns ErrNotPPTX when the package is not PresentationML and
+// opc.ErrStrictOOXML for an ISO-Strict package. opc.ErrEncrypted means the
+// input is a compound (CFB) file and no opc.WithPassword was given. It is
+// returned for any input that starts with the CFB signature, so a legacy
+// binary .ppt, .doc or .xls reports it too, although spine reads none of
+// those formats. With opc.WithPassword, a wrong password returns
+// crypto.ErrWrongPassword, an agile package whose integrity HMAC is missing or
+// does not verify returns crypto.ErrIntegrityCheckFailed, and an encryption
+// scheme spine does not support returns crypto.ErrUnsupportedEncryption. Each
+// is matchable with errors.Is.
 func Open(path string, opts ...opc.ReaderOption) (*Presentation, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -248,7 +254,8 @@ func Open(path string, opts ...opc.ReaderOption) (*Presentation, error) {
 // OpenReader opens a PowerPoint presentation from an in-memory reader. The
 // package is read up front, so r need not remain valid after Open returns. It
 // takes the same options and returns the same sentinels as Open (ErrNotPPTX,
-// opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with errors.Is.
+// opc.ErrStrictOOXML, opc.ErrEncrypted, and the crypto errors that come with
+// opc.WithPassword), matchable with errors.Is.
 func OpenReader(r io.ReaderAt, size int64, opts ...opc.ReaderOption) (*Presentation, error) {
 	reader, err := opc.NewReader(r, size, opts...)
 	if err != nil {
@@ -882,6 +889,12 @@ func (p *Presentation) SaveBytes() ([]byte, error) {
 // were never accessed, which are never even parsed — while touched parts are
 // regenerated from the model. A presentation built with Create (or a Create*
 // helper) is generated entirely from the model.
+//
+// When the session changed the presentation's content, the save records the
+// time in Properties.Modified (docProps/core.xml's dcterms:modified) — and only
+// then, so that saving an unchanged presentation twice produces identical
+// bytes. Reading the presentation, however much of it, is not a change.
+// Assigning Properties.Modified yourself takes precedence over the stamp.
 func (p *Presentation) SaveTo(dst io.Writer) error {
 	if report := p.Validate(); report.HasErrors() {
 		return report

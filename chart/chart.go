@@ -147,6 +147,7 @@ const (
 // LegendPosition is a legend placement (CT_LegendPos values).
 type LegendPosition string
 
+// Legend placements: the four sides of the chart, and its top-right corner.
 const (
 	LegendRight    LegendPosition = "r"
 	LegendLeft     LegendPosition = "l"

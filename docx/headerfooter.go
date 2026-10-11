@@ -11,6 +11,10 @@ import (
 // HeaderType identifies the type of header.
 type HeaderType int
 
+// The header kinds a section can declare (w:headerReference@w:type). Adding a
+// HeaderFirst header turns on the section's distinct first page (w:titlePg);
+// adding a HeaderEven header turns on w:evenAndOddHeaders in settings.xml,
+// without which Word ignores it.
 const (
 	HeaderDefault HeaderType = iota
 	HeaderFirst
@@ -31,6 +35,9 @@ func (ht HeaderType) xmlVal() string {
 // FooterType identifies the type of footer.
 type FooterType int
 
+// The footer kinds a section can declare (w:footerReference@w:type). As with
+// HeaderType, adding a first-page or even-page footer turns on w:titlePg or
+// w:evenAndOddHeaders respectively.
 const (
 	FooterDefault FooterType = iota
 	FooterFirst
@@ -310,7 +317,8 @@ func (f *Footer) Paragraphs() []*Paragraph {
 // only obliquely — through Document.Hyperlinks, Document.Images or
 // ReplaceText — and there was no way to add a paragraph to a header that came
 // from the opened file, which left several header-side mutators unreachable.
-// Use Section.Header to find the header of a specific type instead.
+// Use Document.Header(section, type) to find a specific section's header of
+// a given type instead.
 func (d *Document) Headers() []*Header {
 	out := make([]*Header, 0, len(d.headers))
 	for _, name := range d.sortedHeaderNames() {

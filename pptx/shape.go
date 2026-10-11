@@ -39,6 +39,9 @@ type Shape interface {
 // ShapeType represents the type of a shape.
 type ShapeType int
 
+// Shape kinds, as reported by Shape.ShapeType, one per concrete shape type in
+// this package (ShapeTypeDiagram is a SmartArt frame). ShapeTypeUnknown is the
+// zero value; no shape this package returns reports it.
 const (
 	ShapeTypeUnknown ShapeType = iota
 	ShapeTypeTextBox

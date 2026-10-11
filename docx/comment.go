@@ -36,9 +36,8 @@ type Comment struct {
 //
 // Comments can be added, replied to and resolved, but not removed: there is no
 // RemoveComment, as there is no RemoveFootnote, RemoveStyle or
-// RemoveContentControl (Document.RemoveSource, for a bibliography source, is
-// the lone deletion in the docx feature set). Marking a thread resolved with
-// SetResolved is the closest available operation.
+// RemoveContentControl. Marking a thread resolved with SetResolved is the
+// closest available operation.
 func (d *Document) Comments() []*Comment {
 	if d.comments == nil {
 		return nil

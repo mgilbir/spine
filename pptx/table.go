@@ -586,6 +586,9 @@ type TableBorder struct {
 // BorderStyle specifies the style of a border.
 type BorderStyle string
 
+// Table cell border styles. BorderStyleNone writes an explicit no-fill line,
+// hiding a border the table style would otherwise draw; an unrecognized value
+// is drawn as a single solid line.
 const (
 	BorderStyleSingle BorderStyle = "single"
 	BorderStyleDouble BorderStyle = "double"

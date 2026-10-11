@@ -149,10 +149,16 @@ type pendingPivotCache struct {
 // password-encrypted workbook, and the opc.WithMax* options adjust the bounds
 // that guard against decompression bombs.
 //
-// It returns ErrNotXLSX when the package is not SpreadsheetML,
-// opc.ErrStrictOOXML for an ISO-Strict package, and opc.ErrEncrypted when the
-// input is password-encrypted and no opc.WithPassword was given. Each is
-// matchable with errors.Is.
+// It returns ErrNotXLSX when the package is not SpreadsheetML and
+// opc.ErrStrictOOXML for an ISO-Strict package. opc.ErrEncrypted means the
+// input is a compound (CFB) file and no opc.WithPassword was given. It is
+// returned for any input that starts with the CFB signature, so a legacy
+// binary .xls, .doc or .ppt reports it too, although spine reads none of
+// those formats. With opc.WithPassword, a wrong password returns
+// crypto.ErrWrongPassword, an agile package whose integrity HMAC is missing or
+// does not verify returns crypto.ErrIntegrityCheckFailed, and an encryption
+// scheme spine does not support returns crypto.ErrUnsupportedEncryption. Each
+// is matchable with errors.Is.
 func Open(path string, opts ...opc.ReaderOption) (*Workbook, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -166,8 +172,9 @@ func Open(path string, opts ...opc.ReaderOption) (*Workbook, error) {
 // read into memory during the call (worksheet models are then parsed lazily on
 // first access), so r need not remain valid after Open returns, and no OS file
 // handle is retained. It takes the same options and returns the same sentinels
-// as Open (ErrNotXLSX, opc.ErrStrictOOXML, opc.ErrEncrypted), matchable with
-// errors.Is. Open is implemented on top of it.
+// as Open (ErrNotXLSX, opc.ErrStrictOOXML, opc.ErrEncrypted, and the crypto
+// errors that come with opc.WithPassword), matchable with errors.Is. Open is
+// implemented on top of it.
 func OpenReader(r io.ReaderAt, size int64, opts ...opc.ReaderOption) (*Workbook, error) {
 	reader, err := opc.NewReader(r, size, opts...)
 	if err != nil {
