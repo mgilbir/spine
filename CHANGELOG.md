@@ -121,8 +121,8 @@ requires Go 1.26, and spine builds and is tested on 32-bit platforms.
   gradient as its nearest paint, the glyph as its outline in the text color).
   Paint graphs and strikes are bounded by the render limits and Forme's paint
   limits. `render.PrepareBestEffort` is `render.Prepare` that approximates;
-  PPTX slides use it when `Warn` is set. `bdat` and `bloc` fonts are still
-  refused.
+  PPTX slides use it when `Warn` is set. Monochrome and greyscale bitmap
+  strikes (`EBDT`/`EBLC`, `bdat`/`bloc`) are drawn as the entry above describes.
 - spine-render: `-font FAMILY[:style]=FILE#INDEX` loads face INDEX (from zero) of
   a TrueType or OpenType collection (`.ttc`, `.otc`, WOFF 2 collections too).
   A collection of several faces mapped without an index fails, listing its
@@ -166,9 +166,9 @@ requires Go 1.26, and spine builds and is tested on 32-bit platforms.
   orphan control and page breaks; and runs with several fonts and slopes,
   sizes, colours, underline, strikethrough, caps, highlight, shading,
   superscript and subscript, line breaks, non-ASCII text, and field results and
-  hyperlinks. Tables, numbering, images and the rest are
-  hyperlinks. Numbering, images, headers and footers and the rest are
-  refused in strict mode and left out, with a warning, in best effort.
+  hyperlinks. Headers and footers, notes, numbering, tables and pictures are
+  drawn as the entries below describe; anything else is refused in strict mode
+  and left out, with a warning, in best effort.
 - docxrender: headers and footers. `default`, `first` and `even` types with
   `titlePg` and `evenAndOddHeaders`, inherited from the previous section, drawn
   at the `pgMar` header and footer distances; a header or footer taller than the
@@ -1303,7 +1303,7 @@ godoc tooling steers callers off them (C565, C567).
   its fixtures (C576). The batched harvest's failure catalog
   (`testdata/cc/batch-quarantine.tsv`) is committed rather than gitignored, and
   `spec/gen_spec/` is no longer both tracked and ignored (C574, C575).
-  Office signatures use, so a caller that wants to refuse them now can.
+
 ### Charts
 
 - Blank data points are now a documented part of the model. `chart.Blank()`
@@ -1343,6 +1343,7 @@ godoc tooling steers callers off them (C565, C567).
   emitting a part Office reports as damaged.
 - xlsx `Sheet.Charts` finds charts anchored on chartsheets without relying on
   the chartsheet part being decoded as a worksheet.
+
 ### Fixed
 
 - docx: the round-trip fidelity machinery is now armed on every parsed part, not

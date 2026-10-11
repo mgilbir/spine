@@ -102,7 +102,8 @@ spec/
 │   └── styles/                 # Preset cell/table styles (2 XMLs + 1 xlsx)
 ├── part2/                      # ISO/IEC 29500-2:2021 (OPC)
 │   ├── ISO_IEC_29500-2_2021.pdf
-│   └── ISO_IEC_29500-2_2021.epub
+│   ├── ISO_IEC_29500-2_2021.epub
+│   └── xsd/                    # OPC package-layer schemas (see "Schema validation")
 ├── part3/                      # ISO/IEC 29500-3:2015 (MC)
 │   └── ISO_IEC_29500-3_2015.pdf
 ├── part4/                      # ISO/IEC 29500-4:2016 (Transitional)
@@ -116,18 +117,43 @@ spec/
 ├── extract_msoi.py             # Extract implementation notes from MS-OI29500
 ├── testdata/                   # Generated test data (committed)
 ├── spectest/                   # Go test harness
-└── gen_spec/                   # Optional local shape-type generator (gitignored, see below)
+└── gen_spec/                   # Shape-type generator (committed, see below)
 ```
 
-## gen_spec (optional, not shipped)
+Only `part1/` to `part4/` and `msoi29500/` are gitignored (`spec/.gitignore`);
+everything else here is tracked.
 
-`gen_spec/` is an optional local tool derived from
+## gen_spec (committed, not part of the build)
+
+`gen_spec/` is a tool derived from
 [python-pptx](https://github.com/scanny/python-pptx)'s spec-generation
-tooling (MIT-licensed). It generates shape-type constants from a local
-spec database. It is not part of this repository (gitignored, like the
-spec PDFs above) and nothing in the build or tests depends on it; if you
-obtain a copy, note that its scripts still contain the upstream author's
-local paths and need adjusting before use.
+tooling (MIT-licensed; the license is vendored at `python-tests/LICENSE`).
+It generates shape-type constants from a spec database. Its files are
+committed (`git ls-files spec/gen_spec`), but nothing in the build or tests
+depends on it. Its scripts still contain the upstream author's local paths
+(`gen_spec/gen_spec.py`) and need adjusting before use.
+
+## Schema validation
+
+`internal/schemavalid` validates the parts spine authors against the
+schemas in `SchemaDirs`: `spec/part4/xsd` (the Transitional markup, from the
+Part 4 einsert above) and `spec/part2/xsd`, the OPC package-layer schemas
+(content types, relationships, core properties). Neither the Part 2 files
+listed above nor the einsert steps produce `part2/xsd`, and neither this
+repository nor its history records where the maintainer's copy came from:
+create `spec/part2/xsd` and put the Part 2 OPC `.xsd` files in it by hand.
+`opc-coreProperties.xsd` is skipped on purpose, because it references Dublin
+Core schemas that are not vendored. The tests also need a validator backend,
+`xmllint` (`libxml2-utils`) or Python with `lxml`.
+
+When the schemas or the validator are missing, the suite skips and says which.
+Three environment variables enforce or regenerate spec-derived data:
+
+| Variable | Effect |
+|---|---|
+| `SPINE_REQUIRE_SCHEMA` | Any value: a missing validator or missing schemas fails the test instead of skipping. Set it on a machine that is supposed to have both. |
+| `SPINE_UPDATE_ORDER_TABLE` | Any value: `TestUpdateChildOrderTable` regenerates `internal/schemavalid/testdata/child_order.tsv` from `part2/xsd` and `part4/xsd`, and fails if they are absent. Commit the result: the child-order check reads the committed table, so it runs without the schemas, CI included. |
+| `SPINE_SPEC_UPDATE_BASELINE` | Any value: the spec-example suites append their observed coverage rows to `spec/spectest/coverage_baseline.tsv.observed` instead of checking `coverage_baseline.tsv`; sort the rows into the baseline yourself (see `updateBaseline` in `spectest/coverage_ratchet.go`). Needs only the committed `spec/testdata/`, not the ISO files. |
 
 ## Running the Extraction Scripts
 

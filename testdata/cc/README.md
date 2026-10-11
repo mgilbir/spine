@@ -13,21 +13,26 @@ batch runner) live in a separate guide: [**HARVEST.md**](HARVEST.md).
 ## Pipeline
 
 ```
-sweep.sh  ──►  manifest-{pptx,xlsx,docx}.tsv  ──►  tools/ccfetch  ──►  testdata/corpus/cc/  ──►  go test ./cctest
- (dev-only)          (committed)                  (make fetch-cc)          (gitignored)          (skips if absent)
+sweep-multi.sh  ──►  manifest-{pptx,xlsx,docx}.tsv  ──►  tools/ccfetch  ──►  testdata/corpus/cc/  ──►  go test ./cctest
+ (maintainer)          (committed, 6-column)           (make fetch-cc)          (gitignored)          (skips if absent)
 ```
 
-1. **Sweep** — `sweep.sh` queries the Common Crawl columnar index (the
+1. **Sweep** — `sweep-multi.sh` queries the Common Crawl columnar index (the
    `cc-index` parquet table on `data.commoncrawl.org`, via DuckDB + httpfs)
-   for responses whose detected MIME type is pptx, xlsx, or docx, with
-   `fetch_status = 200`. Complete payloads go to `manifest-<type>.tsv`;
-   payloads the crawler truncated go to `manifest-<type>-truncated.tsv`
-   (see "Live fetch" below). Candidates are deduplicated by
-   `content_digest`, capped at 5 files per registered domain per type (so a
-   single WordPress site cannot dominate the corpus), stably sorted, and cut
-   to the target count. The resulting manifests are committed here.
-   Contributors never need to run the sweep; it is only rerun to refresh the
-   manifests (e.g. from a newer crawl).
+   across several crawls for responses whose detected MIME type is pptx,
+   xlsx, or docx. Complete payloads go to `manifest-<type>.tsv`; payloads the
+   crawler truncated go to `manifest-<type>-truncated.tsv` (see "Live fetch"
+   below). Candidates are deduplicated by `content_digest` across all the
+   crawls swept, capped per registered domain (so a single site cannot
+   dominate the corpus), and cut to the target count. Each row is
+   self-contained: `crawl  url  warc_filename  warc_record_offset
+   warc_record_length  content_digest`. The committed manifests hold 10000
+   complete rows per type: docx and xlsx from four crawls (CC-MAIN-2026-12
+   to -25) at a domain cap of 15, pptx from six (CC-MAIN-2026-04 to -25) at a
+   cap of 25. Contributors never need to run the sweep; how the manifests
+   were made and how to regenerate them is in
+   [HARVEST.md](HARVEST.md#reference-only-manifests-sweep-multish). The
+   older single-crawl `sweep.sh` is superseded.
 
 2. **Fetch** — `make fetch-cc` (i.e. `go run ./tools/ccfetch -manifest
    testdata/cc -out testdata/corpus/cc -n 1000`) downloads each manifest row
@@ -73,17 +78,21 @@ catalog of compatibility work: fixing a bug means deleting its rows.
 The `wontfix` stage marks a row as **permanent-by-design**: the file cannot
 round-trip byte-identically for a reason outside the library's control, and
 the note carries the hand-written reason instead of an error signature.
-Current reasons fall into three families: corrupt source archives (a stored
-CRC that does not match the data — the library tolerates the part, a strict
-re-read cannot), the decoder's mandatory XML end-of-line normalization
+Current reasons fall into five families: corrupt source archives (a stored
+CRC that does not match the data, or an unreadable local header — the
+library tolerates the part, a strict re-read cannot), source parts that are
+not well-formed XML (rejected rather than laundered through a save),
+ISO-Strict packages (rejected by design; the library implements
+Transitional), the decoder's mandatory XML end-of-line normalization
 (pretty-printed parts whose CRLF inter-element text reaches the model as
 LF), and whitespace-preserving producers (parts pretty-printed with
-inter-element whitespace at every level of the tree, which the typed model
-does not capture). A `wontfix` row matches a failure at *any* stage and is
-skip-counted like a quarantined row, but reported in its own column of the
-stats block, so the actionable quarantine and the permanent tail stay
-separately visible. `wontfix` rows survive quarantine regeneration verbatim;
-if the file starts passing they drop out like any other row.
+inter-element whitespace at every level of the tree; those rows are probably
+stale since C587, and their notes say why they are kept). A `wontfix` row
+matches a failure at *any* stage and is skip-counted like a quarantined row,
+but reported in its own column of the stats block, so the actionable quarantine
+and the permanent tail stay separately visible. `wontfix` rows survive
+quarantine regeneration verbatim; if the file starts passing they drop out like
+any other row.
 
 To regenerate the quarantine after a fix wave, run the full corpus test with
 `SPINE_CC_UPDATE_QUARANTINE=1 go test ./cctest -count=1 -timeout 45m`: the
@@ -95,9 +104,12 @@ ad-hoc collection.
 
 ## Reproducibility and politeness
 
-- The manifests are pinned to a single crawl (`CC-MAIN-2026-25`), so a fetch
-  from the same manifests yields the same files. WARC records are immutable;
-  rows can only disappear if Common Crawl retires the crawl entirely.
+- Every manifest row names its crawl and the exact WARC file, offset and
+  length, so a fetch from the same manifests yields the same files. The
+  committed set spans CC-MAIN-2026-04 to CC-MAIN-2026-25. WARC records are
+  immutable; rows can only disappear if Common Crawl retires a crawl
+  entirely. Rows from the truncated manifests are refetched from the live
+  web and are not reproducible in the same way.
 - The fetcher identifies itself as
   `spine-corpus-fetch/1.0 (+github.com/mgilbir/spine)`, uses ranged requests
   (only the exact record bytes are transferred), runs 4 workers by default

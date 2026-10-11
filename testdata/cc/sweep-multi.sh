@@ -34,7 +34,7 @@
 #       This yields a *second, distinct* set that does not overlap an existing
 #       one — regenerate the file from a prior manifest set with e.g.
 #         tail -q -n +2 manifest-docx.tsv manifest-xlsx.tsv | cut -f6 | sort -u
-#       See the "stress set" section in README.md.
+#       See the "stress set" section in HARVEST.md.
 #   CRAWL ...  crawl ids to sweep, most-recent first. With none given, a recent
 #              default list is used. Crawls are swept in order and scanning
 #              stops early once every complete manifest has reached TARGET
