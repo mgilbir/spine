@@ -17,6 +17,12 @@
   with no type attribute, the usual form on a "Title and Content" slide. Both
   matched one exact type and returned nil on those slides. `IsBody` is true for
   a placeholder with no type, which the schema reads as `obj` (C607).
+- pptx: `SlideLayout.Name` returns the name PowerPoint shows for a layout
+  (`p:cSld@name`), and `LayoutByName` finds layouts by it. Name read only the
+  `matchingName` attribute, which PowerPoint usually omits, so the layouts of
+  a deck PowerPoint wrote had no names and `LayoutByName` found none.
+  `SetName` writes `p:cSld@name`, and a `matchingName` the layout already has
+  (C608).
 
 ## 0.4.0 - 2026-10-10
 

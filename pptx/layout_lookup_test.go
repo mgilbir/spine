@@ -362,3 +362,41 @@ func TestSlideMasterColorMap(t *testing.T) {
 		t.Errorf("ColorMap() with no master XML = %+v, want nil", got)
 	}
 }
+
+// TestOpenedLayoutNamesAreTheirDisplayNames is the C608 regression: Name read
+// the sldLayout's matchingName attribute, which PowerPoint usually omits, so
+// every layout of a PowerPoint deck reported "" and LayoutByName found none.
+// The name PowerPoint shows is p:cSld@name.
+func TestOpenedLayoutNamesAreTheirDisplayNames(t *testing.T) {
+	p, err := Open("testdata/test_slides.pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layouts := p.SlideMasters()[0].Layouts()
+	seen := map[string]bool{}
+	for _, l := range layouts {
+		if l.Name() == "" {
+			t.Errorf("layout of type %q has no name", l.Type())
+			continue
+		}
+		seen[l.Name()] = true
+	}
+	if len(seen) != len(layouts) {
+		t.Fatalf("%d layouts have %d distinct names; the lookup below needs distinguishable ones", len(layouts), len(seen))
+	}
+	for _, want := range layouts {
+		got, err := p.LayoutByName(want.Name())
+		if err != nil {
+			t.Errorf("LayoutByName(%q): %v", want.Name(), err)
+		} else if got != want {
+			t.Errorf("LayoutByName(%q) returned %q", want.Name(), got.Name())
+		}
+	}
+
+	// A rename is written where PowerPoint reads it, and survives a reopen.
+	layouts[1].SetName("Renamed layout")
+	r := reopen(t, p)
+	if _, err := r.LayoutByName("Renamed layout"); err != nil {
+		t.Errorf("after rename and reopen: %v", err)
+	}
+}

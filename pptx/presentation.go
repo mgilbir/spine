@@ -718,7 +718,6 @@ func (p *Presentation) loadSlideLayouts(master *SlideMaster, masterPartName stri
 				partName:     layoutName,
 				layoutXML:    &layoutXML,
 				layoutType:   LayoutTypeFromString(layoutXML.Type),
-				name:         layoutXML.MatchingName,
 				relID:        layoutRef.RID,
 			}
 
