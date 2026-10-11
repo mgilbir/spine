@@ -26,8 +26,8 @@ flowchart LR
     O -.-> DP
     O -.-> XR
     PS -- "source checks,<br/>display list" --> BE["render.PrepareBestEffort<br/>(nil Warn: render.Prepare)"]
-    PG -- "the page's display list" --> RP["render.Prepare<br/>(strict)"]
-    XR -- "source checks,<br/>display list" --> RP
+    PG -- "the page's display list" --> BE
+    XR -- "source checks,<br/>display list" --> RP["render.Prepare<br/>(strict)"]
     BE --> P["*render.Page<br/>immutable snapshot"]
     RP --> P
     P --> PNG["Page.WritePNG(ctx, w, dpi)"]
@@ -148,9 +148,9 @@ flowchart TD
 The exceptions:
 
 - `xlsxrender` ignores `Warn`: sheet ranges are always strict.
-- A DOCX document is laid out best effort, but `Pages.Page` draws each page
-  strictly, so a color glyph that can only be drawn approximately fails that
-  page ([Color fonts](rendering/painter.md#color-fonts)).
+- A color glyph a Word page approximates is reported once per kind per page,
+  by `Pages.Page`, which may call `Warn` concurrently when pages are prepared
+  concurrently ([Color fonts](rendering/painter.md#color-fonts)).
 - Slides report what they approximate once per shape; Word documents
   report each kind of problem once.
 - Some slide warnings for approximated content wrap `render.ErrUnsupported`

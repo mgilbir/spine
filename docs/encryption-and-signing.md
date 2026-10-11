@@ -20,11 +20,11 @@ its errors with `errors.Is`:
 - `crypto.ErrUnsupportedAlgorithm`: signing or verifying with an XML-DSig
   algorithm spine does not implement.
 
-The package-level `opc.ErrEncrypted` is returned by an open that meets a
-compound (CFB) file and was given no password. An encrypted document is such a
-file, so retry the same call with `opc.WithPassword`. A legacy binary
-`.doc`/`.xls`/`.ppt` is one too, and spine does not read those; see
-[Troubleshooting](troubleshooting.md#open-returns-opcerrencrypted).
+The package-level `opc.ErrEncrypted` is returned by an open that meets an
+encrypted document and was given no password; retry the same call with
+`opc.WithPassword`. A legacy binary `.doc`/`.xls`/`.ppt` is a compound file
+too, and returns `opc.ErrLegacyBinary` instead, with or without a password;
+spine does not read those formats.
 
 ## Password encryption
 
@@ -116,10 +116,13 @@ An open reads the input's leading bytes. A zip is read as a package; a CFB
 (compound file) container is decrypted first — the open pulls out its `EncryptionInfo` and
 `EncryptedPackage` streams and hands them to `crypto.Decrypt`, which dispatches
 on the `EncryptionInfo` version. With no password the same detection is what
-produces `opc.ErrEncrypted` instead of an opaque zip error. The detection looks
-only at the leading bytes, so a legacy binary Office file, which is a CFB file
-with no `EncryptionInfo` stream, produces `opc.ErrEncrypted` as well, and with
-a password `opc.ErrCorruptedPackage`. The recovered
+produces `opc.ErrEncrypted` instead of an opaque zip error. Before asking for
+the password the open reads the container's directory: a CFB file with no
+`EncryptionInfo` stream is a legacy binary Office document, not an encrypted
+package, and the open returns `opc.ErrLegacyBinary`, naming Word, Excel or
+PowerPoint when the file's main stream says which. Because of that read, an
+open without a password reads the whole input, bounded by
+`opc.WithMaxEncryptedInputSize`. The recovered
 plaintext is read as a package directly, so a container nested inside a
 container is a corrupt file rather than a second layer to decrypt.
 

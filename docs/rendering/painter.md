@@ -88,7 +88,7 @@ blend as SVG does.
 
 What cannot be drawn exactly is refused with `render.ErrUnsupported` in strict
 preparation. In best effort (`render.PrepareBestEffort`, and `render.Options.Warn`
-for slides), each of these is drawn approximately and reported once, wrapping
+for slides and Word pages), each of these is drawn approximately and reported once, wrapping
 `render.ErrApproximated`:
 
 - a sweep gradient, a color line with no extent that repeats or reflects, a
@@ -110,13 +110,10 @@ for slides), each of these is drawn approximately and reported once, wrapping
 A glyph is drawn whole in one of these ways, never part by part. Text turned
 or warped in a slide is drawn as outlines, so its color glyphs are outlines in
 the text color, and reported as such; a slide's shadows and other effects take
-a color glyph's coverage. Only slides and `render.PrepareBestEffort` draw
-color glyphs approximately. XLSX previews have no best effort at all. A DOCX page is drawn strictly even
-when `Warn` is set: `docxrender.Prepare` lays the document out best effort,
-but `Pages.Page` prepares each page's drawing with strict `render.Prepare`, so
-a color glyph that can only be drawn approximately fails that whole page with
-`render.ErrUnsupported`, not wrapped in `render.ErrApproximated`, where a slide
-would draw it approximately and warn. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
+a color glyph's coverage. Slides, Word pages and `render.PrepareBestEffort`
+draw color glyphs approximately when `Warn` is set; a Word page reports each
+kind once per page, as `docx: page N: …`. XLSX previews have no best effort at
+all, so a color glyph that needs approximating fails a range. A font with bitmap strikes (`EBDT`, `EBLC`, and Apple's `bdat`, `bloc`)
 and outlines (`glyf`, `CFF `, `CFF2`), as system fonts such as Courier New that
 carry strikes for small screen sizes are, is drawn from its outlines. A font
 with strikes and no outlines (forme's `BitmapOnly`) is drawn from them: each

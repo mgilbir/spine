@@ -91,8 +91,12 @@ type as `obj`). Each prefers the exact `title` or `body` type when a slide has
 both forms. `PlaceholderShape.IsTitle()` and `IsBody()` test the same
 categories on a single placeholder.
 
-A slide added with `AddSlideFromLayout` uses the layout's design but has no
-placeholder shapes of its own. Add the ones you want with
+A slide added with `AddSlideFromLayout` gets a placeholder for each of the
+layout's, as PowerPoint adds them: same type, index and name, and no geometry
+or text-body settings of its own, so it takes the layout's position, size and
+formatting. Fill them like any other. The date, footer and slide-number
+placeholders are not copied; they come from `SetSlideFooter`, `SetSlideDate`
+and `ShowSlideNumbers`. A slide added with `AddSlide` has none; add them with
 `DefaultTitlePlaceholder`, `DefaultBodyPlaceholder` or `NewPlaceholderShape`.
 
 ```go
@@ -123,18 +127,14 @@ func main() {
         }
     }
 
-    // A slide added from a layout has no placeholder shapes of its own:
-    // add the ones you want to fill.
-    layout, err := p.LayoutByType(pptx.LayoutTitleOnly)
+    // A slide added from a layout carries the layout's placeholders.
+    layout, err := p.LayoutByType(pptx.LayoutTitleAndContent)
     if err != nil {
         panic(err)
     }
     next := p.AddSlideFromLayout(layout)
-    title := pptx.DefaultTitlePlaceholder()
-    title.SetText("Next steps")
-    if err := next.AddShape(title); err != nil {
-        panic(err)
-    }
+    next.TitlePlaceholder().SetText("Next steps")
+    next.BodyPlaceholder().SetText("Ship the release")
 
     if err := p.Save("filled.pptx"); err != nil {
         panic(err)

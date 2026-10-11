@@ -43,8 +43,15 @@ import (
 
 // Common errors
 var (
-	ErrNotPPTX      = errors.New("pptx: not a valid PowerPoint file")
-	ErrNoSlides     = errors.New("pptx: presentation has no slides")
+	ErrNotPPTX = errors.New("pptx: not a valid PowerPoint file")
+
+	// ErrNoSlides is never returned: a presentation with no slides opens,
+	// saves and validates.
+	//
+	// Deprecated: nothing returns it, so matching it never succeeds. It is
+	// kept so existing references still compile.
+	ErrNoSlides = errors.New("pptx: presentation has no slides")
+
 	ErrSlideIndex   = errors.New("pptx: slide index out of range")
 	ErrInvalidSlide = errors.New("pptx: invalid slide")
 
@@ -234,10 +241,9 @@ type Presentation struct {
 //
 // It returns ErrNotPPTX when the package is not PresentationML and
 // opc.ErrStrictOOXML for an ISO-Strict package. opc.ErrEncrypted means the
-// input is a compound (CFB) file and no opc.WithPassword was given. It is
-// returned for any input that starts with the CFB signature, so a legacy
-// binary .ppt, .doc or .xls reports it too, although spine reads none of
-// those formats. With opc.WithPassword, a wrong password returns
+// input is a password-encrypted document and no opc.WithPassword was given.
+// opc.ErrLegacyBinary means it is a legacy binary .ppt, .doc or .xls, which spine
+// does not read, with or without a password. With opc.WithPassword, a wrong password returns
 // crypto.ErrWrongPassword, an agile package whose integrity HMAC is missing or
 // does not verify returns crypto.ErrIntegrityCheckFailed, and an encryption
 // scheme spine does not support returns crypto.ErrUnsupportedEncryption. Each
@@ -1107,11 +1113,54 @@ func (p *Presentation) GetLayoutByName(name string) *SlideLayout {
 	return nil
 }
 
-// AddSlideFromLayout adds a new slide using the specified layout.
+// AddSlideFromLayout adds a new slide using the specified layout, with a
+// placeholder for each of the layout's placeholders, as PowerPoint adds one:
+// the same type, index, orientation and size hint, named as the layout names
+// it, and with no geometry of its own, so it takes the layout's position and
+// size. Fill them through TitlePlaceholder, BodyPlaceholder or Placeholders.
+// The date, footer and slide-number placeholders are not copied; they come
+// from the presentation's header and footer settings (SetSlideFooter,
+// SetSlideDate, ShowSlideNumbers).
 func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 	slide := p.AddSlide()
 	slide.layout = layout
+	if layout == nil {
+		return slide
+	}
+	for _, lph := range layout.Placeholders() {
+		ph := clonedLayoutPlaceholder(lph)
+		if ph == nil {
+			continue
+		}
+		// A PlaceholderShape is always a shape AddShape can serialize.
+		_ = slide.AddShape(ph)
+	}
 	return slide
+}
+
+// clonedLayoutPlaceholder is the slide placeholder PowerPoint adds for a
+// layout placeholder, or nil for one it does not add. Its text body is empty;
+// picture, table, chart, diagram, media and clip-art placeholders have none.
+func clonedLayoutPlaceholder(lph *PlaceholderShape) *PlaceholderShape {
+	switch lph.PlaceholderType() {
+	case PlaceholderDateTime, PlaceholderFooter, PlaceholderSlideNumber:
+		return nil
+	}
+	ph := NewPlaceholderShape(lph.PlaceholderType())
+	ph.idx = lph.Index()
+	ph.orientation = lph.Orientation()
+	ph.size = lph.PlaceholderSize()
+	ph.inheritGeometry = true
+	if name := lph.Name(); name != "" {
+		ph.SetName(name)
+	}
+	switch lph.PlaceholderType() {
+	case PlaceholderPicture, PlaceholderTable, PlaceholderChart, PlaceholderDiagram, PlaceholderMedia, PlaceholderClipArt:
+		ph.textFrame = nil
+	default:
+		ph.textFrame = &TextFrame{inheritBody: true}
+	}
+	return ph
 }
 
 // saveRoundTrip saves a presentation by serializing all parts from the model.

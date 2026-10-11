@@ -25,15 +25,20 @@ var ErrPageOutOfRange = errors.New("render page out of range")
 type Pages struct {
 	pages  []*wordPage
 	limits render.Limits
+	warn   func(error) // opts.Warn of Prepare; nil in strict mode
 }
 
 // Count is the number of physical pages.
 func (p *Pages) Count() int { return len(p.pages) }
 
 // Page prepares a 1-based physical page. A page beyond Count returns
-// render.ErrInvalid wrapping ErrPageOutOfRange. The page's drawing is prepared
-// strictly even when Prepare was given opts.Warn: a color glyph that can only
-// be drawn approximately fails the whole page with render.ErrUnsupported.
+// render.ErrInvalid wrapping ErrPageOutOfRange. When Prepare was given
+// opts.Warn, a color glyph that can only be drawn approximately is drawn with
+// the paint nearest its own, or as its outline in the text color, and
+// reported to Warn wrapping render.ErrApproximated, once per kind per page, as
+// on a slide; in strict mode it fails the page with render.ErrUnsupported.
+// Page may call Warn, so pages prepared concurrently can call it
+// concurrently.
 func (p *Pages) Page(ctx context.Context, page int) (*render.Page, error) {
 	if ctx == nil || page < 1 {
 		return nil, fmt.Errorf("%w: page", render.ErrInvalid)
@@ -45,7 +50,17 @@ func (p *Pages) Page(ctx context.Context, page int) (*render.Page, error) {
 		return nil, fmt.Errorf("%w: %w: page %d beyond %d pages", render.ErrInvalid, ErrPageOutOfRange, page, len(p.pages))
 	}
 	pg := p.pages[page-1]
-	return render.Prepare(ctx, dml.EMU(math.Round(pg.w*float64(dml.EMUsPerPixel))), dml.EMU(math.Round(pg.h*float64(dml.EMUsPerPixel))), pg.ops, p.limits)
+	// Best effort draws a color glyph approximately (D56); a nil warn is
+	// render.Prepare.
+	var warn func(error)
+	if p.warn != nil {
+		warn = func(err error) {
+			if ctx.Err() == nil {
+				p.warn(fmt.Errorf("docx: page %d: %w", page, err))
+			}
+		}
+	}
+	return render.PrepareBestEffort(ctx, dml.EMU(math.Round(pg.w*float64(dml.EMUsPerPixel))), dml.EMU(math.Round(pg.h*float64(dml.EMUsPerPixel))), pg.ops, p.limits, warn)
 }
 
 // PreparePage prepares a 1-based physical page of the document. It lays out
@@ -53,8 +68,7 @@ func (p *Pages) Page(ctx context.Context, page int) (*render.Page, error) {
 // Prepare once instead. Unsupported content fails the call even when it is on
 // another page: with opts.Warn unset (strict mode) anything that cannot be
 // drawn exactly returns render.ErrUnsupported; with opts.Warn set it is left
-// out or approximated and reported there, except color glyphs (see
-// Pages.Page). Native line metrics do not promise
+// out or approximated and reported there. Native line metrics do not promise
 // identical Word pagination. See docs/rendering.md.
 func PreparePage(ctx context.Context, document *docx.Document, page int, opts render.Options) (*render.Page, error) {
 	if ctx == nil || document == nil || page < 1 {
@@ -191,7 +205,7 @@ func Prepare(ctx context.Context, document *docx.Document, opts render.Options) 
 			return nil, err
 		}
 	}
-	return &Pages{pages: pages, limits: limits}, nil
+	return &Pages{pages: pages, limits: limits, warn: opts.Warn}, nil
 }
 
 // paginateStable paginates the sections, repeating while the headers and

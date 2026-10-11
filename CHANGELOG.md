@@ -34,6 +34,48 @@
   until save binds it to the first one, and the default theme is written only
   at save. The renderer now sees the layout and theme the save will write, and
   draws the unsaved slide exactly as the saved and reopened one (C610).
+- pptx: the slide master `Create` writes gives its title, body and other text
+  styles the run defaults PowerPoint's own master has: `kern="1200"`, the `tx1`
+  scheme color, and the theme's heading fonts for titles and body fonts for
+  the rest. Without them those styles and the presentation's default text
+  style disagreed, so in strict mode every placeholder's text on a created
+  deck failed to render ("ambiguous inherited kerning", then "text without a
+  color"). Every deck built with `Create` now writes the longer master text
+  styles (C611).
+
+### Changed
+
+- opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
+  returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
+  the file says which. It returned `opc.ErrEncrypted` without a password, so a
+  caller prompted for a password that does not exist, and
+  `opc.ErrCorruptedPackage` with one. Both are compound files, so telling them
+  apart reads the container's directory: an open without a password now reads
+  the whole input (bounded by `WithMaxEncryptedInputSize`) where it read 8
+  bytes, and a malformed compound file reports `ErrCorruptedPackage` instead of
+  `ErrEncrypted` (D54).
+- docxrender: with `render.Options.Warn` set, a color glyph a Word page can
+  only draw approximately is drawn with the paint nearest its own (or as its
+  outline in the text color) and reported, wrapping `render.ErrApproximated`,
+  as on a slide. `Pages.Page` prepared every page strictly, so such a glyph
+  failed the whole page with `render.ErrUnsupported` even in best effort.
+  Strict mode is unchanged. Page warnings read `docx: page N: …` and are
+  reported once per kind per page; `Pages.Page` calls `Warn`, so pages
+  prepared concurrently can call it concurrently (D56).
+- pptx: `AddSlideFromLayout` adds a placeholder for each of the layout's
+  placeholders, as PowerPoint does when it adds a slide: same type, index,
+  orientation, size hint and name, with no geometry or text-body settings of
+  its own, so it takes the layout's position, size and formatting. The date,
+  footer and slide-number placeholders are not copied (they come from the
+  header and footer settings). The slide used to have no placeholders, so
+  `TitlePlaceholder` and `BodyPlaceholder` found nothing on it. Code that added
+  its own title or body placeholder to such a slide now gets two: fill the
+  cloned ones instead.
+
+### Deprecated
+
+- pptx: `ErrNoSlides`. No function has ever returned it, so code matching it
+  never matched; a presentation with no slides opens, saves and validates.
 
 ## 0.4.0 - 2026-10-10
 

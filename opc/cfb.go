@@ -405,6 +405,16 @@ func (f *cfbFile) readMiniStream(start uint32, size uint64) ([]byte, error) {
 // stream returns the named stream's bytes. It matches the directory entry name
 // case-sensitively (CFB stream names are case-sensitive in practice for the
 // EncryptionInfo/EncryptedPackage streams Office writes).
+// hasStream reports whether the container's directory names a stream.
+func (f *cfbFile) hasStream(name string) bool {
+	for i := 1; i < len(f.dir); i++ {
+		if e := f.dir[i]; e.objectType == cfbTypeStream && e.name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *cfbFile) stream(name string) ([]byte, error) {
 	for i := 1; i < len(f.dir); i++ {
 		e := f.dir[i]

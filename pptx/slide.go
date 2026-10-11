@@ -1256,6 +1256,11 @@ func textFrameToOxml(tf *TextFrame) *dml.TxBody {
 		LstStyle: &dml.LstStyle{},
 		P:        make([]*dml.P, 0, len(tf.paragraphs)),
 	}
+	if tf.inheritBody && !tf.marginsDirty {
+		// Inherit the layout's insets; wrap and anchor are written only when
+		// set (they are empty otherwise).
+		txBody.BodyPr.LIns, txBody.BodyPr.TIns, txBody.BodyPr.RIns, txBody.BodyPr.BIns = nil, nil, nil, nil
+	}
 	applyAutofit(txBody.BodyPr, tf.autofit)
 
 	for _, para := range tf.paragraphs {

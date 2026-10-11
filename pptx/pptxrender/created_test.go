@@ -57,3 +57,33 @@ func TestRenderUnsavedCreatedSlide(t *testing.T) {
 		t.Error("the unsaved slide renders differently from the same slide saved and reopened")
 	}
 }
+
+// TestRenderCreatedDeckPlaceholdersStrictly is the C611 regression: the
+// master Create writes gave its title, body and other text styles no kerning
+// while the presentation's default text style sets kern="1200". Whether a
+// placeholder inherits those defaults is not settled, so the renderer reads
+// the style both ways and requires them to agree; they did not, and every
+// title or body placeholder on a created deck failed strict rendering with
+// "ambiguous inherited kerning". PowerPoint's own master sets kern="1200" on
+// those styles.
+func TestRenderCreatedDeckPlaceholdersStrictly(t *testing.T) {
+	noto, err := notosans.Face()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := render.Options{Fonts: func(context.Context, render.FontRequest) (*shape.Face, error) { return noto, nil }}
+	for _, lt := range []pptx.SlideLayoutType{pptx.LayoutTitle, pptx.LayoutTitleAndContent, pptx.LayoutSectionHeader, pptx.LayoutTwoContent, pptx.LayoutTitleOnly} {
+		p := pptx.CreateWidescreen()
+		layout, err := p.LayoutByType(lt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slide := p.AddSlideFromLayout(layout)
+		for _, ph := range slide.Placeholders() {
+			ph.SetText("Some text")
+		}
+		if _, err := PrepareSlide(context.Background(), slide, opts); err != nil {
+			t.Errorf("%s: strict: %v", lt, err)
+		}
+	}
+}

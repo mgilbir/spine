@@ -32,9 +32,10 @@ import (
 // WithPassword added — opc.OpenReader, opc.NewReader, and each format
 // package's Open and OpenReader all accept it.
 //
-// Detection is by the CFB signature alone, so a legacy binary .doc, .xls or
-// .ppt (also a compound file, but not an OOXML package) returns ErrEncrypted
-// too; no password opens one.
+// A legacy binary .doc, .xls or .ppt is a compound file too, but has no
+// EncryptionInfo stream; it returns ErrLegacyBinary instead. Telling the two
+// apart reads the container's directory, so an open without a password reads
+// the whole input, bounded by WithMaxEncryptedInputSize.
 var ErrEncrypted = errors.New("opc: package is encrypted; pass opc.WithPassword to the same open to decrypt it")
 
 // stream names inside the CFB container ([MS-OFFCRYPTO] §2.3.4.10).
@@ -65,9 +66,6 @@ const (
 // ReaderOptions.AllowMissingDataIntegrity is passed through to the agile
 // decryptor — the only way to reach crypto.DecryptOptions from an OPC open.
 func openEncrypted(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
-	if opts.password == nil {
-		return nil, ErrEncrypted
-	}
 	if size < 0 {
 		// Unreachable through the detecting open, which needs the CFB
 		// signature's worth of bytes before it gets here; kept so the make
@@ -83,7 +81,23 @@ func openEncrypted(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, erro
 		return nil, fmt.Errorf("opc: reading encrypted input: %w", err)
 	}
 
-	plaintext, err := decryptCFBPackage(data, *opts.password, opts)
+	// An encrypted OOXML package is not the only compound file: Office's
+	// pre-2007 binary formats are too. Telling them apart takes the
+	// container's directory, so it is read before the password is asked for;
+	// otherwise a legacy file reports ErrEncrypted and its user is prompted
+	// for a password that does not exist (D54).
+	cf, err := readCFB(data)
+	if err != nil {
+		return nil, err
+	}
+	if !cf.hasStream(cfbStreamEncryptionInfo) {
+		return nil, legacyBinaryError(cf)
+	}
+	if opts.password == nil {
+		return nil, ErrEncrypted
+	}
+
+	plaintext, err := decryptCFB(cf, *opts.password, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +118,11 @@ func decryptCFBPackage(data []byte, password string, opts ReaderOptions) ([]byte
 	if err != nil {
 		return nil, err
 	}
+	return decryptCFB(cf, password, opts)
+}
+
+// decryptCFB is decryptCFBPackage over an already parsed container.
+func decryptCFB(cf *cfbFile, password string, opts ReaderOptions) ([]byte, error) {
 	encInfo, err := cf.stream(cfbStreamEncryptionInfo)
 	if err != nil {
 		return nil, err
@@ -208,4 +227,21 @@ func SaveEncryptedWithOptions(w io.Writer, packageData []byte, password string, 
 		storages = dataSpacesStorages()
 	}
 	return writeCFBWithStorages(w, streams, storages)
+}
+
+// legacyBinaryError reports a compound file with no EncryptionInfo stream as
+// ErrLegacyBinary, naming the application when the stream that holds the
+// document in its binary format identifies it.
+func legacyBinaryError(cf *cfbFile) error {
+	for _, k := range []struct{ stream, app string }{
+		{"WordDocument", "Word"},
+		{"Workbook", "Excel"},
+		{"Book", "Excel"},
+		{"PowerPoint Document", "PowerPoint"},
+	} {
+		if cf.hasStream(k.stream) {
+			return fmt.Errorf("%w (%s)", ErrLegacyBinary, k.app)
+		}
+	}
+	return ErrLegacyBinary
 }
