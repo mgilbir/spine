@@ -1113,11 +1113,54 @@ func (p *Presentation) GetLayoutByName(name string) *SlideLayout {
 	return nil
 }
 
-// AddSlideFromLayout adds a new slide using the specified layout.
+// AddSlideFromLayout adds a new slide using the specified layout, with a
+// placeholder for each of the layout's placeholders, as PowerPoint adds one:
+// the same type, index, orientation and size hint, named as the layout names
+// it, and with no geometry of its own, so it takes the layout's position and
+// size. Fill them through TitlePlaceholder, BodyPlaceholder or Placeholders.
+// The date, footer and slide-number placeholders are not copied; they come
+// from the presentation's header and footer settings (SetSlideFooter,
+// SetSlideDate, ShowSlideNumbers).
 func (p *Presentation) AddSlideFromLayout(layout *SlideLayout) *Slide {
 	slide := p.AddSlide()
 	slide.layout = layout
+	if layout == nil {
+		return slide
+	}
+	for _, lph := range layout.Placeholders() {
+		ph := clonedLayoutPlaceholder(lph)
+		if ph == nil {
+			continue
+		}
+		// A PlaceholderShape is always a shape AddShape can serialize.
+		_ = slide.AddShape(ph)
+	}
 	return slide
+}
+
+// clonedLayoutPlaceholder is the slide placeholder PowerPoint adds for a
+// layout placeholder, or nil for one it does not add. Its text body is empty;
+// picture, table, chart, diagram, media and clip-art placeholders have none.
+func clonedLayoutPlaceholder(lph *PlaceholderShape) *PlaceholderShape {
+	switch lph.PlaceholderType() {
+	case PlaceholderDateTime, PlaceholderFooter, PlaceholderSlideNumber:
+		return nil
+	}
+	ph := NewPlaceholderShape(lph.PlaceholderType())
+	ph.idx = lph.Index()
+	ph.orientation = lph.Orientation()
+	ph.size = lph.PlaceholderSize()
+	ph.inheritGeometry = true
+	if name := lph.Name(); name != "" {
+		ph.SetName(name)
+	}
+	switch lph.PlaceholderType() {
+	case PlaceholderPicture, PlaceholderTable, PlaceholderChart, PlaceholderDiagram, PlaceholderMedia, PlaceholderClipArt:
+		ph.textFrame = nil
+	default:
+		ph.textFrame = &TextFrame{inheritBody: true}
+	}
+	return ph
 }
 
 // saveRoundTrip saves a presentation by serializing all parts from the model.

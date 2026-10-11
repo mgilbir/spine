@@ -36,6 +36,12 @@ type TextFrame struct {
 	// updateTxBody), leaving unmodeled parsed content alone.
 	bodyDirty    bool
 	contentDirty bool
+
+	// inheritBody marks the frame of a placeholder cloned from a layout: its
+	// body properties come from the layout, so it writes only the ones the
+	// caller sets (an untouched frame writes an empty <a:bodyPr/>, as
+	// PowerPoint does) rather than a new frame's explicit defaults.
+	inheritBody bool
 }
 
 // AutofitType selects how a text body resizes text and shape to fit each other

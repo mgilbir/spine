@@ -54,6 +54,15 @@
   Strict mode is unchanged. Page warnings read `docx: page N: …` and are
   reported once per kind per page; `Pages.Page` calls `Warn`, so pages
   prepared concurrently can call it concurrently (D56).
+- pptx: `AddSlideFromLayout` adds a placeholder for each of the layout's
+  placeholders, as PowerPoint does when it adds a slide: same type, index,
+  orientation, size hint and name, with no geometry or text-body settings of
+  its own, so it takes the layout's position, size and formatting. The date,
+  footer and slide-number placeholders are not copied (they come from the
+  header and footer settings). The slide used to have no placeholders, so
+  `TitlePlaceholder` and `BodyPlaceholder` found nothing on it. Code that added
+  its own title or body placeholder to such a slide now gets two: fill the
+  cloned ones instead.
 
 ### Deprecated
 
