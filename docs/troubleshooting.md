@@ -1,7 +1,26 @@
 # Troubleshooting
 
-Common errors and what they mean. Every entry links to the reference section
-that documents the behavior in full.
+Common errors and what they mean. Match errors with `errors.Is`: every error
+below with a name is a sentinel that the returned error wraps. Every entry
+links to the reference section that documents the behavior in full.
+
+## Error catalog
+
+| Error | Returned by | Means | What to do |
+|---|---|---|---|
+| `pptx.ErrNotPPTX`, `docx.ErrNotDOCX`, `xlsx.ErrNotXLSX` | `Open`, `OpenReader` | A valid Office package of another kind, e.g. a workbook opened with `docx` | Open it with the package for its kind |
+| `zip: not a valid zip file` (no sentinel) | `Open`, `OpenReader` | Neither a zip package nor a compound file: not an Office Open XML document | — |
+| `opc.ErrEncrypted` | `Open`, `OpenReader` without a password | A compound (CFB) file: a password-encrypted document, **or** a legacy binary `.doc`/`.xls`/`.ppt` | See [below](#open-returns-opcerrencrypted) |
+| `opc.ErrCorruptedPackage` | `Open`, `OpenReader` | The package or its CFB container is malformed; with a password, also a legacy binary file | — |
+| `crypto.ErrWrongPassword` | `Open` with `opc.WithPassword` | The password did not decrypt the file | Ask again |
+| `crypto.ErrIntegrityCheckFailed` | `Open` with `opc.WithPassword` | The encrypted file's integrity check failed: tampered, or written without one | See [Integrity](encryption-and-signing.md#integrity) |
+| `crypto.ErrUnsupportedEncryption` | `Open` with `opc.WithPassword` | An encryption scheme spine cannot decode | — |
+| `opc.ErrStrictOOXML` | `Open`, `OpenReader` | An ISO-Strict document | See [below](#open-returns-opcerrstrictooxml) |
+| `… (pass WithMaxDecompressedPartSize to allow it)` and the other `WithMax*` messages (no sentinel) | `Open`, `OpenReader` | A [resource limit](../README.md#resource-limits) was reached | Pass the option the message names, if you trust the input |
+| `xml.ErrNestingTooDeep` (`common/xml`) | `Open`, `OpenReader` | An XML part nests deeper than `WithMaxNestingDepth` allows | As above |
+| `crypto.ErrInvalidPassword` | `SaveEncrypted*` | The password is empty, longer than 255 characters, or not valid UTF-8 | — |
+| `xlsx.ErrNoSheets` | `Save*` on a workbook | The workbook has no sheets; Excel refuses such files | Add a sheet |
+| `validate.Report` (an error value) | `Save*` | The pre-save check refused the save | See the next two entries |
 
 ## Save refused with a validation error
 
@@ -50,9 +69,10 @@ saves cleanly has not been checked.
 
 ## Open returns `opc.ErrEncrypted`
 
-The file is password-protected and the open was given no password. It detects an
-encrypted input and returns `opc.ErrEncrypted` rather than failing obscurely, so
-you can prompt for the password and retry the same call with it:
+The input is a compound (CFB) file and the open was given no password. An
+encrypted Office document is stored as one, so spine reports it as
+`opc.ErrEncrypted` rather than failing obscurely, and you can prompt for the
+password and retry the same call with it:
 
 ```go
 doc, err := docx.Open(path, opc.WithPassword(password))
@@ -62,6 +82,13 @@ There is no separate encrypted entry point — `Open` and `OpenReader` in every
 format take the option, as do `opc.OpenReader` and `opc.NewReader` when you want
 the raw package rather than a document model. See
 [Encryption and signing](encryption-and-signing.md).
+
+Legacy binary Office files (`.doc`, `.xls`, `.ppt`, from Office 2003 and
+earlier) are compound files too, so they also return `opc.ErrEncrypted`, and
+no password exists to supply. spine does not read them. If the user has no
+password to give, check the file's origin before asking: with any password,
+such a file fails with `opc.ErrCorruptedPackage` instead of
+`crypto.ErrWrongPassword`.
 
 ## Open returns `crypto.ErrWrongPassword`
 

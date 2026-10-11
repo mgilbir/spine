@@ -28,12 +28,13 @@ import (
 // rules to one slide, and Slide.ReplaceTextInShape to a single named shape.
 //
 // The replacement edits the parsed slide model in place and refreshes the
-// materialized Go-level shapes so Shapes()/Placeholders() reflect it. Unlike the
-// docx and xlsx counterparts, scanning a slide materializes its model, so a
-// subsequent Save regenerates every scanned slide from that model rather than
-// copying its original bytes; the run text of content that matches no key is
-// preserved exactly, but a slide scanned this way no longer takes the
-// verbatim-bytes passthrough that a never-accessed slide gets.
+// materialized Go-level shapes so Shapes()/Placeholders() reflect it. Scanning
+// a slide materializes its model (as docx's ReplaceText does the body; xlsx's
+// does not), so a subsequent Save regenerates every scanned slide from that
+// model rather than copying its original bytes; the run text of content that
+// matches no key is preserved exactly, but a slide scanned this way no longer
+// takes the verbatim-bytes passthrough that a never-accessed slide gets, and a
+// whitespace-preserving producer's exact bytes may not survive.
 func (p *Presentation) ReplaceText(replacements map[string]string) {
 	if len(replacements) == 0 {
 		return

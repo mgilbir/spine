@@ -31,7 +31,10 @@ import (
 // partners; Word proofs the text again on open.
 //
 // This mirrors pptx.Presentation.ReplaceText. Empty keys are ignored, and a
-// document with no matching text round-trips byte-for-byte.
+// document with no matching text keeps its text and structure. The scan
+// loads the body, though, so on save the body is re-marshaled rather than
+// copied: byte-identical for nearly every file, but not for one whose producer
+// wrote whitespace the model does not keep.
 func (d *Document) ReplaceText(replacements map[string]string) {
 	if d == nil || len(replacements) == 0 {
 		return
