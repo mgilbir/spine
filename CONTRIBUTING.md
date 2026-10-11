@@ -354,6 +354,6 @@ e.g. `(C76, C133)`.
 
 ## Audit reports
 
-The findings cited from commit messages (C1–C235, D1–D30) live in
-`docs/audits/`. The reports are historical records of the code at their
+The findings cited from commit messages live in `docs/audits/`, whose
+[README](docs/audits/README.md) maps each report to its ID range. The reports are historical records of the code at their
 audit date; they are not updated as findings are fixed.
