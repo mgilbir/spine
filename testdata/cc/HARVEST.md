@@ -102,8 +102,8 @@ because pptx is much scarcer than xlsx/docx:
 
 - **docx / xlsx** — swept from the 4 newest crawls (CC-MAIN-2026-25 / -21 /
   -17 / -12) at `-d 15`. They are abundant (tens of thousands of distinct per
-  crawl), so they hit the 10k target from the first crawl and the sweep stopped
-  early; a higher cap or more crawls would only cost them source diversity.
+  crawl); the committed manifests draw 2.1k–2.9k rows from each of the four
+  crawls.
 - **pptx** — swept from **6 crawls** (the same four plus the two next-older,
   CC-MAIN-2026-08 / -04) at `-p 25`, deduplicated across all six by
   `content_digest`. pptx is diversity-limited: distinct pptx are scarce

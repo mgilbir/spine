@@ -15,8 +15,8 @@ its errors with `errors.Is`:
   (e.g. the version-1.1 binary-format RC4 scheme, §2.3.6).
 - `crypto.ErrMalformedEncryptionInfo`: the encryption header cannot be parsed.
 - `crypto.ErrInvalidPassword`: on save, a password that cannot protect a
-  document: empty, not valid UTF-8, or longer than the 255 characters Office
-  accepts.
+  document: empty, not valid UTF-8, or longer than the 255 UTF-16 code units
+  Office accepts.
 - `crypto.ErrUnsupportedAlgorithm`: signing or verifying with an XML-DSig
   algorithm spine does not implement.
 

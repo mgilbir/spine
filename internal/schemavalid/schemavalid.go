@@ -60,8 +60,8 @@ var skipSchemas = map[string]string{
 	"opc-coreProperties.xsd": "references Dublin Core schemas that are not vendored",
 }
 
-// Validator holds a prepared schema set. Building it parses 27 schema documents
-// and resolves their imports, which is slow enough to be worth doing once per
+// Validator holds a prepared schema set. Building it parses every vendored
+// schema document in SchemaDirs and resolves their imports, which is slow enough to be worth doing once per
 // test binary rather than per part.
 type Validator struct {
 	// wrapper is the path of the generated schema document that imports every

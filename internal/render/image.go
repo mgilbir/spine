@@ -23,10 +23,11 @@ type bitmap struct {
 	png    []byte
 }
 
-// DecodeImage accepts PNG and JPEG bytes with preventive dimensions and encoded
-// size checks. It does not load URLs or apply EXIF orientation. Standard-library
-// decoders cannot be interrupted inside Decode; dimensions and bytes bound work.
-// The returned image remains caller-owned until Prepare copies it.
+// DecodeImage accepts PNG, JPEG and GIF (its first frame) bytes with
+// preventive dimensions and encoded size checks. It does not load URLs or apply
+// EXIF orientation. Standard-library decoders cannot be interrupted inside
+// Decode; dimensions and bytes bound work. The returned image remains
+// caller-owned until Prepare copies it.
 func DecodeImage(ctx context.Context, data []byte, limits Limits) (image.Image, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

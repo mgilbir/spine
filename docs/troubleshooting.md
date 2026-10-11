@@ -18,7 +18,7 @@ links to the reference section that documents the behavior in full.
 | `opc.ErrStrictOOXML` | `Open`, `OpenReader` | An ISO-Strict document | See [below](#open-returns-opcerrstrictooxml) |
 | `… (pass WithMaxDecompressedPartSize to allow it)` and the other `WithMax*` messages (no sentinel) | `Open`, `OpenReader` | A [resource limit](../README.md#resource-limits) was reached | Pass the option the message names, if you trust the input |
 | `xml.ErrNestingTooDeep` (`common/xml`) | `Open`, `OpenReader` | An XML part nests deeper than `WithMaxNestingDepth` allows | As above |
-| `crypto.ErrInvalidPassword` | `SaveEncrypted*` | The password is empty, longer than 255 characters, or not valid UTF-8 | — |
+| `crypto.ErrInvalidPassword` | `SaveEncrypted*` | The password is empty, not valid UTF-8, or longer than 255 UTF-16 code units (Office's limit) | — |
 | `xlsx.ErrNoSheets` | `Save*` on a workbook | The workbook has no sheets; Excel refuses such files | Add a sheet |
 | `validate.Report` (an error value) | `Save*` | The pre-save check refused the save | See the next two entries |
 

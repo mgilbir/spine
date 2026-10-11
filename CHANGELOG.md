@@ -1154,7 +1154,6 @@ godoc tooling steers callers off them (C565, C567).
   wild packages carry are percent-encoded, the content type is escaped for the
   query component, and verification resolves the literal name before falling
   back to the decoded one (#223).
-  back to the decoded one.
 - `SignatureInfo`'s documentation referred to a `DigestMethod` field that did
   not exist. The digest algorithms are now reported for real, in
   `DigestMethods`, alongside a new `WeakAlgorithms` field and
