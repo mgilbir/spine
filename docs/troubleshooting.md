@@ -10,8 +10,9 @@ links to the reference section that documents the behavior in full.
 |---|---|---|---|
 | `pptx.ErrNotPPTX`, `docx.ErrNotDOCX`, `xlsx.ErrNotXLSX` | `Open`, `OpenReader` | A valid Office package of another kind, e.g. a workbook opened with `docx` | Open it with the package for its kind |
 | `zip: not a valid zip file` (no sentinel) | `Open`, `OpenReader` | Neither a zip package nor a compound file: not an Office Open XML document | — |
-| `opc.ErrEncrypted` | `Open`, `OpenReader` without a password | A compound (CFB) file: a password-encrypted document, **or** a legacy binary `.doc`/`.xls`/`.ppt` | See [below](#open-returns-opcerrencrypted) |
-| `opc.ErrCorruptedPackage` | `Open`, `OpenReader` | The package or its CFB container is malformed; with a password, also a legacy binary file | — |
+| `opc.ErrEncrypted` | `Open`, `OpenReader` without a password | A password-encrypted document | See [below](#open-returns-opcerrencrypted) |
+| `opc.ErrLegacyBinary` | `Open`, `OpenReader` | A legacy binary `.doc`/`.xls`/`.ppt` (Office 2003 and earlier), with or without a password | spine does not read these; convert the file to the current format first |
+| `opc.ErrCorruptedPackage` | `Open`, `OpenReader` | The package or its CFB container is malformed | — |
 | `crypto.ErrWrongPassword` | `Open` with `opc.WithPassword` | The password did not decrypt the file | Ask again |
 | `crypto.ErrIntegrityCheckFailed` | `Open` with `opc.WithPassword` | The encrypted file's integrity check failed: tampered, or written without one | See [Integrity](encryption-and-signing.md#integrity) |
 | `crypto.ErrUnsupportedEncryption` | `Open` with `opc.WithPassword` | An encryption scheme spine cannot decode | — |
@@ -69,10 +70,9 @@ saves cleanly has not been checked.
 
 ## Open returns `opc.ErrEncrypted`
 
-The input is a compound (CFB) file and the open was given no password. An
-encrypted Office document is stored as one, so spine reports it as
-`opc.ErrEncrypted` rather than failing obscurely, and you can prompt for the
-password and retry the same call with it:
+The input is a password-encrypted document and the open was given no password.
+spine reports it as `opc.ErrEncrypted` rather than failing obscurely, so you can
+prompt for the password and retry the same call with it:
 
 ```go
 doc, err := docx.Open(path, opc.WithPassword(password))
@@ -83,12 +83,10 @@ format take the option, as do `opc.OpenReader` and `opc.NewReader` when you want
 the raw package rather than a document model. See
 [Encryption and signing](encryption-and-signing.md).
 
-Legacy binary Office files (`.doc`, `.xls`, `.ppt`, from Office 2003 and
-earlier) are compound files too, so they also return `opc.ErrEncrypted`, and
-no password exists to supply. spine does not read them. If the user has no
-password to give, check the file's origin before asking: with any password,
-such a file fails with `opc.ErrCorruptedPackage` instead of
-`crypto.ErrWrongPassword`.
+A legacy binary Office file (`.doc`, `.xls`, `.ppt`, from Office 2003 and
+earlier) is stored the same way, but is not encrypted: it returns
+`opc.ErrLegacyBinary` instead, so it is never mistaken for one that needs a
+password.
 
 ## Open returns `crypto.ErrWrongPassword`
 

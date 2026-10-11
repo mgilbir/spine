@@ -241,10 +241,9 @@ type Presentation struct {
 //
 // It returns ErrNotPPTX when the package is not PresentationML and
 // opc.ErrStrictOOXML for an ISO-Strict package. opc.ErrEncrypted means the
-// input is a compound (CFB) file and no opc.WithPassword was given. It is
-// returned for any input that starts with the CFB signature, so a legacy
-// binary .ppt, .doc or .xls reports it too, although spine reads none of
-// those formats. With opc.WithPassword, a wrong password returns
+// input is a password-encrypted document and no opc.WithPassword was given.
+// opc.ErrLegacyBinary means it is a legacy binary .ppt, .doc or .xls, which spine
+// does not read, with or without a password. With opc.WithPassword, a wrong password returns
 // crypto.ErrWrongPassword, an agile package whose integrity HMAC is missing or
 // does not verify returns crypto.ErrIntegrityCheckFailed, and an encryption
 // scheme spine does not support returns crypto.ErrUnsupportedEncryption. Each

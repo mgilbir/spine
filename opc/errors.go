@@ -25,4 +25,13 @@ var (
 	// genuine Office document in an unsupported dialect — not a corrupt or
 	// non-Office file.
 	ErrStrictOOXML = errors.New("opc: ISO-Strict OOXML packages are not supported")
+
+	// ErrLegacyBinary indicates a compound (CFB) file that is not an encrypted
+	// OOXML package: in practice a document in the binary format Office used
+	// before 2007 (.doc, .xls or .ppt), which spine does not read. The message
+	// names the application when the file's main stream identifies it. An
+	// encrypted OOXML package is a compound file too, and reports ErrEncrypted
+	// instead; no password opens a legacy file, so ErrLegacyBinary is returned
+	// whether or not one was given.
+	ErrLegacyBinary = errors.New("opc: legacy binary Office document, not an OOXML package")
 )

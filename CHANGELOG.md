@@ -35,6 +35,18 @@
   at save. The renderer now sees the layout and theme the save will write, and
   draws the unsaved slide exactly as the saved and reopened one (C610).
 
+### Changed
+
+- opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
+  returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
+  the file says which. It returned `opc.ErrEncrypted` without a password, so a
+  caller prompted for a password that does not exist, and
+  `opc.ErrCorruptedPackage` with one. Both are compound files, so telling them
+  apart reads the container's directory: an open without a password now reads
+  the whole input (bounded by `WithMaxEncryptedInputSize`) where it read 8
+  bytes, and a malformed compound file reports `ErrCorruptedPackage` instead of
+  `ErrEncrypted` (D54).
+
 ### Deprecated
 
 - pptx: `ErrNoSlides`. No function has ever returned it, so code matching it
