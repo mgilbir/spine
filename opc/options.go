@@ -50,8 +50,9 @@ const (
 	// magnitude of headroom over anything a producer writes.
 	DefaultMaxNestingDepth = 1000
 
-	// DefaultMaxEncryptedInputSize bounds how many bytes OpenEncrypted reads
-	// from its source before parsing the CFB container, so a hostile size
+	// DefaultMaxEncryptedInputSize bounds how many bytes an encrypted open (an
+	// open given WithPassword) reads from its source before parsing the CFB
+	// container, so a hostile size
 	// argument cannot drive an unbounded allocation.
 	DefaultMaxEncryptedInputSize int64 = 2 << 30 // 2 GiB
 )

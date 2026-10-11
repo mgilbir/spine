@@ -7,13 +7,15 @@
 // OpenReader (a file path) and NewReader (an io.ReaderAt) parse
 // [Content_Types].xml and the package relationships up front and expose the
 // remaining parts for lazy reading through File.Open. Resource use is bounded
-// by three package-level knobs: MaxDecompressedPartSize (per part),
-// MaxDecompressedPackageSize (total across a package, counting each part at
-// most once however often it is read) and MaxPackageEntries (how many zip
-// entries the archive may contain). All three are captured once when a Reader
-// is constructed — changing them affects only Readers opened afterwards, never
-// one that is already open — so set them during program setup, or override
-// them for a single Reader through ReaderOptions. A Reader is safe for
+// per open by five limits, each a Default* constant overridden by an option
+// passed to that open: WithMaxDecompressedPartSize (per part),
+// WithMaxDecompressedPackageSize (total across a package, counting each part
+// at most once however often it is read), WithMaxPackageEntries (how many zip
+// entries the archive may contain), WithMaxNestingDepth (XML element depth)
+// and WithMaxEncryptedInputSize (bytes read from an encrypted input). There is
+// no global setting: each open resolves its own limits, so concurrent opens
+// with different limits do not interact. DefaultReaderOptions and
+// WithReaderOptions adjust them together. A Reader is safe for
 // concurrent part reads: all of its Files share one decompression budget,
 // which is synchronized internally.
 //

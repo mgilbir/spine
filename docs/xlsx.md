@@ -100,10 +100,14 @@ kept. Workbook state that indexes sheets by position is adjusted too: the active
 tab is shifted or clamped, and sheet-scoped defined names are re-pointed (names
 scoped to the deleted sheet are dropped).
 
-Two deliberate exceptions: pivot-table parts are *not* cascade-deleted, because
-their caches are shared with the workbook and with other pivots; and hiding
-rather than deleting is the safer edit when other sheets' formulas reference the
-one you are about to remove — spine does not rewrite formulas.
+References to the removed sheet in the surviving sheets' formulas and in
+defined names are rewritten to `#REF!`, as Excel does. The rewrite is
+permanent: adding a sheet with the same name later does not restore them. If
+other sheets' formulas must keep pointing at it, hide the sheet instead of
+removing it.
+
+One deliberate exception: pivot-table parts are *not* cascade-deleted, because
+their caches are shared with the workbook and with other pivots.
 
 ```go
 wb, _ := xlsx.Open("book.xlsx")

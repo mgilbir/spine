@@ -34,9 +34,9 @@ func (s *Sheet) Charts() []*chart.Chart {
 // and chartsheets alike — in sheet order. The slice is nil when the workbook
 // has no charts.
 //
-// Charts held by a sheet copied in with Workbook.Merge are not included: merge
-// does not carry a source sheet's drawing across, so no chart part comes with
-// it.
+// Charts held by a sheet copied in with CopySheetFrom or AppendSheetsFrom are
+// not included: a copy carries the source sheet's images but not its charts,
+// so no chart part comes with it.
 func (w *Workbook) Charts() []*chart.Chart {
 	var out []*chart.Chart
 	for _, sheet := range w.sheets {
