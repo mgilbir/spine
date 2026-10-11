@@ -150,8 +150,15 @@ func run(ctx context.Context, dir string) error {
 		r.SetStrike(false)
 		r.SetColor("23364A")
 	}
-	for number := 1; number <= 2; number++ {
-		page, err = docxrender.PreparePage(ctx, d, number, opts)
+	// Prepare lays the document out once; each Pages.Page call then prepares
+	// one page from that layout. PreparePage would repeat the whole layout
+	// for every page.
+	pages, err := docxrender.Prepare(ctx, d, opts)
+	if err != nil {
+		return fmt.Errorf("document: %w", err)
+	}
+	for number := 1; number <= pages.Count(); number++ {
+		page, err = pages.Page(ctx, number)
 		if err != nil {
 			return fmt.Errorf("document page %d: %w", number, err)
 		}
