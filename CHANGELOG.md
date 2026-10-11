@@ -23,6 +23,10 @@
   a deck PowerPoint wrote had no names and `LayoutByName` found none.
   `SetName` writes `p:cSld@name`, and a `matchingName` the layout already has
   (C608).
+- xlsx: `CopySheetFrom` and `AppendSheetsFrom` keep a sheet's visibility.
+  Merging a workbook unhid its hidden and very-hidden sheets, including the
+  hidden data sheet `Sheet.AddChart` writes for each chart. A copy is left
+  visible only when hiding it would leave the workbook no visible sheet (C609).
 
 ## 0.4.0 - 2026-10-10
 

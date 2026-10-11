@@ -243,3 +243,70 @@ func TestCopySheetFromNil(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNilWorkbook", err)
 	}
 }
+
+// TestCopiedSheetsKeepTheirVisibility is the C609 regression: CopySheetFrom
+// and AppendSheetsFrom dropped the source sheet's visibility, so merging a
+// workbook unhid its hidden and very-hidden sheets — including the hidden
+// data sheet Sheet.AddChart creates, which AppendSheetsFrom copies while
+// leaving the chart behind.
+func TestCopiedSheetsKeepTheirVisibility(t *testing.T) {
+	src := Create()
+	want := map[string]SheetVisibility{
+		"Shown":  SheetVisible,
+		"Hidden": SheetHidden,
+		"Secret": SheetVeryHidden,
+	}
+	for _, name := range []string{"Hidden", "Shown", "Secret"} {
+		s, err := src.AddSheet(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetCellValue("A1", name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, v := range want {
+		s, _ := src.SheetByName(name)
+		if err := s.SetVisibility(v); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+
+	// An empty destination: the first sheet appended is hidden, so the states
+	// must not be applied one copy at a time.
+	merged := Create()
+	if _, err := merged.AppendSheetsFrom(src); err != nil {
+		t.Fatal(err)
+	}
+	r := reopen(t, merged)
+	for name, v := range want {
+		s, err := r.SheetByName(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Visibility(); got != v {
+			t.Errorf("AppendSheetsFrom: %s visibility = %q, want %q", name, got, v)
+		}
+	}
+
+	// CopySheetFrom keeps the state too, but never leaves a workbook with no
+	// visible sheet, which Excel refuses to open.
+	single := Create()
+	only, err := single.CopySheetFrom(src, "Hidden")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if only.Visibility() != SheetVisible {
+		t.Errorf("CopySheetFrom into an empty workbook hid its only sheet")
+	}
+	beside := Create()
+	if _, err := beside.AddSheet("Main"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := beside.CopySheetFrom(src, "Secret"); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := reopen(t, beside).SheetByName("Secret"); s.Visibility() != SheetVeryHidden {
+		t.Errorf("CopySheetFrom: Secret visibility = %q, want very hidden", s.Visibility())
+	}
+}
