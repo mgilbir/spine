@@ -24,9 +24,9 @@ test: fetch
 # Race-detector run. -race multiplies RSS several-fold and the corpus tests
 # hold whole Office files in memory, so this runs inside its own systemd
 # scope with a hard memory cap: if the kernel OOM-kills the test, only this
-# scope dies. Never run it bare in the terminal's cgroup — systemd's default
-# OOMPolicy=stop then tears down the entire terminal scope on any OOM kill
-# inside it (this took out a whole tmux pane on 2026-07-27; peak was 25.8G).
+# scope dies. Never run it bare in the terminal's cgroup (why: CONTRIBUTING.md,
+# "Building and testing"; this took out a whole tmux pane on 2026-07-27, peak
+# 25.8G).
 # GOMEMLIMIT makes each test binary GC hard before the cap (race shadow
 # memory is outside GC accounting, hence the low value); -p bounds concurrent
 # package test binaries; SPINE_CC_PARALLEL trims corpus-file concurrency,
@@ -51,8 +51,7 @@ test-race:
 # Like test-race, this runs inside its own memory-capped systemd scope: it is
 # the other memory-hungry pass CONTRIBUTING.md requires to be capped (thousands
 # of wild Office files, several held in memory at once, some of which decompress
-# very large). Without the scope an OOM kill lands in the terminal's own cgroup
-# and systemd's default OOMPolicy=stop tears the whole terminal down. No
+# very large); see CONTRIBUTING.md, "Building and testing", for why. No
 # GOMEMLIMIT squeeze here — that value exists to compensate for race shadow
 # memory, which is outside GC accounting; a non-race run does not need it.
 CORPUS_MEMMAX  ?= 12G
@@ -64,20 +63,11 @@ test-corpus:
 # --- Coverage ---------------------------------------------------------------
 #
 # cover measures the whole module against the whole module (-coverpkg=./...),
-# not each package against its own tests. Most of this library is exercised
-# across package boundaries — cctest drives docx/xlsx/pptx over real documents,
-# internal/symmetry drives all three — so per-package coverage understates it
-# badly and points at the wrong gaps. Set SPINE_CC_FULL=1 (the default here) to
-# include the corpus, which is what makes "never executed" mean never.
-#
-# It runs in a memory-capped scope for the same reason test-corpus does, and
-# takes appreciably longer than a plain run because every package is
-# instrumented.
-#
-# Treat the number as a *finder*, not a target. A test written to turn a line
-# green is worse than no test: it costs maintenance and asserts nothing. What
-# the profile is good for is pointing at code where a bug could exist today and
-# nothing would notice — see CONTRIBUTING.md.
+# with the corpus (SPINE_CC_FULL=1), in a memory-capped scope for the same
+# reason test-corpus does; it takes appreciably longer than a plain run because
+# every package is instrumented. Why whole-module, and why the number is a
+# finder rather than a target: CONTRIBUTING.md, "Coverage is a finder, not a
+# target".
 COVER_MEMMAX  ?= 14G
 COVER_SWAPMAX ?= 2G
 COVER_OUT     ?= coverage.out
@@ -124,21 +114,11 @@ harvest-sweep:
 # (see the resume loop in testdata/cc/HARVEST.md). Everything is overridable.
 #
 # OOMPolicy=continue is load-bearing, and is the one place in this Makefile
-# where the test-race reasoning inverts. systemd's default (DefaultOOMPolicy=
-# stop) kills the WHOLE unit when the kernel OOM-kills any process in its
-# cgroup — which for test-race is the containment we want, but here would kill
-# the orchestrator along with the worker. The orchestrator records the kill
-# AFTER the worker dies (ledger.Append on outcome resource/killed), so a stopped
-# scope means the offending file is never ledgered and never counted as an
-# attempt; the resume loop then re-selects the same file on every subsequent
-# batch. That is a permanent livelock on one bad file, not a quarantine row.
-# With continue, only the worker dies and the design in tools/ccrun's package
-# doc ("one quarantine row, not a dead batch") actually holds. (C389)
-#
-# Measured on systemd 255.4 with a scope whose child blows a 128M MemoryMax:
-# default policy -> the scope leader is SIGTERMed and never reaches its
-# post-worker line (exit 143); with OOMPolicy=continue -> the leader observes
-# the worker's 137 and carries on (exit 0).
+# where the test-race reasoning inverts: with systemd's default (stop) the
+# orchestrator dies with the worker before it can ledger the file, and the
+# resume loop re-selects that file forever (C389). The reasoning and the
+# measurement are in testdata/cc/HARVEST.md, under "Sharded fetch -> test ->
+# record -> discard".
 HARVEST_MEMMAX  ?= 2G
 HARVEST_CPU     ?= 200%
 HARVEST_BATCH   ?= 2000
