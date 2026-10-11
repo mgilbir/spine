@@ -54,11 +54,10 @@ type ContentControl struct {
 // (building-block) part are not reported.
 //
 // Read coverage is broader than write coverage: Type, Options, DateFormat and
-// Checked read a control's kind-specific properties, but only Tag, Alias and
-// Value can be written. There is no SetChecked for a checkbox, no way to add or
-// select a drop-down item, and no w:dataBinding authoring — so a control and a
-// CustomXMLParts item cannot be bound together through this API even though
-// both are exposed. A parsed control keeps whichever of those it already
+// Checked read a control's kind-specific properties, but only Tag, Alias,
+// Value and the w:dataBinding (SetDataBinding, RemoveDataBinding) can be
+// written. There is no SetChecked for a checkbox and no way to add or select a
+// drop-down item. A parsed control keeps whichever of those it already
 // carries: the properties the model does not type are preserved verbatim.
 func (d *Document) ContentControls() []*ContentControl {
 	if d.doc() == nil || d.doc().Body == nil {

@@ -81,8 +81,8 @@ func (m *StyleManager) AddCharacterStyle(id, name string) *Style {
 // paragraphs render. Check Style.Type on the returned builder when the type
 // matters, or pick an unused id.
 //
-// There is no RemoveStyle: no part of the docx feature API deletes, so a
-// replace-style edit accretes definitions rather than replacing them.
+// There is no RemoveStyle, so a replace-style edit accretes definitions rather
+// than replacing them.
 func (m *StyleManager) AddStyle(styleType StyleType, id, name string) *Style {
 	if existing := m.style(id); existing != nil {
 		return existing
@@ -157,9 +157,10 @@ func (s *Style) SetType(styleType StyleType) *Style {
 // a chain that leads back to it — is refused: the style keeps its previous
 // parent and the styles part is not marked modified. Word repairs or misrenders
 // a cyclic basedOn chain, and nothing downstream of the setter would have
-// caught it (Validate checked dangling references, not cycles). Use
-// BasedOnCycle to test a value before setting it, or Document.Validate to find
-// a cycle a merge introduced (C501).
+// caught it (Validate checked dangling references, not cycles). A refused
+// value is detectable by reading BasedOn back after the call; Document.Validate
+// reports a cycle a merge or the source file introduced as a "style-cycle"
+// warning (C501).
 func (s *Style) SetBasedOn(id string) *Style {
 	if id != "" && s.wouldCycle(id) {
 		return s

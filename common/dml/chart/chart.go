@@ -4,6 +4,7 @@ package chart
 
 import "github.com/mgilbir/spine/common/dml"
 
+// NsChart is the DrawingML chart namespace URI, bound to the c: prefix.
 const NsChart = "http://schemas.openxmlformats.org/drawingml/2006/chart"
 
 // --- Root Element ---

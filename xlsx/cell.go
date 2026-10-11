@@ -14,6 +14,10 @@ import (
 // CellType represents the type of value in a cell.
 type CellType int
 
+// Cell types, as reported by Cell.Type. A cell with a formula reports
+// CellTypeFormula whatever its cached value; a number reports CellTypeDate
+// when its number format is a date format, as does an ISO-8601 date cell
+// (t="d").
 const (
 	CellTypeEmpty CellType = iota
 	CellTypeString
@@ -685,6 +689,8 @@ type ProtectionStyle struct {
 // ST_UnderlineValues). The string values are the SpreadsheetML tokens.
 type UnderlineStyle string
 
+// Font underline styles: the regular single and double underlines and the
+// accounting variants Excel offers alongside them in Format Cells.
 const (
 	UnderlineNone             UnderlineStyle = "none"
 	UnderlineSingle           UnderlineStyle = "single"

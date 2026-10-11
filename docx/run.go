@@ -195,6 +195,9 @@ func (r *Run) AddTab() {
 // so they serialize directly.
 type UnderlineStyle string
 
+// Underline line styles. UnderlineWords underlines words but not the spaces
+// between them; UnderlineNone explicitly turns off an underline the run would
+// otherwise inherit.
 const (
 	UnderlineNone            UnderlineStyle = "none"
 	UnderlineSingle          UnderlineStyle = "single"

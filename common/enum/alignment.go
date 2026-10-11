@@ -4,6 +4,8 @@ package enum
 // TextAlign specifies horizontal text alignment.
 type TextAlign string
 
+// Paragraph alignments. The values are the DrawingML ST_TextAlignType tokens
+// (a:pPr@algn), as used by pptx Paragraph.SetAlignment.
 const (
 	TextAlignLeft           TextAlign = "l"
 	TextAlignCenter         TextAlign = "ctr"
@@ -17,6 +19,8 @@ const (
 // VerticalAlign specifies vertical text alignment within a container.
 type VerticalAlign string
 
+// Vertical alignments, as used by pptx TableCell.SetVerticalAlign. The values
+// are DrawingML ST_TextAnchoringType tokens (a:tcPr@anchor).
 const (
 	VerticalAlignTop    VerticalAlign = "t"
 	VerticalAlignMiddle VerticalAlign = "ctr"
@@ -26,6 +30,8 @@ const (
 // TextAnchor specifies the anchoring position of text within a shape.
 type TextAnchor string
 
+// Text anchors for a shape's text frame (pptx TextFrame.SetAnchor). The values
+// are DrawingML ST_TextAnchoringType tokens (a:bodyPr@anchor).
 const (
 	TextAnchorTop    TextAnchor = "t"
 	TextAnchorMiddle TextAnchor = "ctr"
@@ -35,6 +41,10 @@ const (
 // TextWrapping specifies how text wraps within a container.
 type TextWrapping string
 
+// Text wrapping modes for a text frame (pptx TextFrame.SetWordWrap):
+// TextWrappingSquare wraps lines at the frame's width, TextWrappingNone lets
+// them run past it. The values are DrawingML ST_TextWrappingType tokens
+// (a:bodyPr@wrap).
 const (
 	TextWrappingNone   TextWrapping = "none"
 	TextWrappingSquare TextWrapping = "square"
@@ -46,6 +56,7 @@ type FontStyle int
 // FontStyleNormal is the zero value: no styling flags set.
 const FontStyleNormal FontStyle = 0
 
+// Font style flags, combined with | or With and tested with Has.
 const (
 	// FontStyleBold is bit 0. The flags start at 1<<0 so no bit is wasted;
 	// they are never serialized as their integer value (they map to boolean
@@ -75,6 +86,9 @@ func (fs FontStyle) Without(flag FontStyle) FontStyle {
 // UnderlineStyle specifies the type of underline.
 type UnderlineStyle string
 
+// Underline styles. The values are the DrawingML ST_TextUnderlineType tokens
+// (a:rPr@u); they differ from WordprocessingML's ("sng" rather than
+// "single"), so docx.UnderlineStyle is a separate type.
 const (
 	UnderlineNone            UnderlineStyle = "none"
 	UnderlineWords           UnderlineStyle = "words"
@@ -99,6 +113,8 @@ const (
 // StrikeStyle specifies the type of strikethrough.
 type StrikeStyle string
 
+// Strikethrough styles. The values are the DrawingML ST_TextStrikeType tokens
+// (a:rPr@strike).
 const (
 	StrikeNone   StrikeStyle = "noStrike"
 	StrikeSingle StrikeStyle = "sngStrike"
@@ -111,6 +127,8 @@ const (
 // and SpreadsheetML (x:vertAlign), so they serialize directly in both formats.
 type VerticalAlignRun string
 
+// Run vertical alignments. VerticalAlignRunBaseline is the explicit form of
+// "neither superscript nor subscript".
 const (
 	VerticalAlignRunBaseline    VerticalAlignRun = "baseline"
 	VerticalAlignRunSuperscript VerticalAlignRun = "superscript"
@@ -120,6 +138,9 @@ const (
 // Orientation specifies content orientation.
 type Orientation string
 
+// Content orientations. No spine API currently takes or returns an
+// Orientation; docx has its own Orientation type and xlsx its own
+// page-orientation constants.
 const (
 	OrientationDefault   Orientation = "default"
 	OrientationPortrait  Orientation = "portrait"

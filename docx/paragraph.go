@@ -217,6 +217,9 @@ func (p *Paragraph) SetIndentHanging(points float64) {
 // ST_TabJc). The string values are the WordprocessingML tokens.
 type TabAlignment string
 
+// Tab stop alignments. TabAlignBar draws a vertical bar at the position rather
+// than aligning text; TabAlignClear removes a tab stop inherited from the
+// paragraph's style.
 const (
 	TabAlignLeft    TabAlignment = "left"
 	TabAlignCenter  TabAlignment = "center"
@@ -230,6 +233,7 @@ const (
 // (w:tab@leader, ST_TabTlc). The string values are the WordprocessingML tokens.
 type TabLeader string
 
+// Tab leader characters; TabLeaderNone leaves the tab's span blank.
 const (
 	TabLeaderNone       TabLeader = "none"
 	TabLeaderDot        TabLeader = "dot"
@@ -395,6 +399,9 @@ func twipsToPoints(twips string) float64 {
 // Alignment represents paragraph alignment.
 type Alignment int
 
+// Paragraph alignments (w:jc). AlignmentJustify is written as "both"; on read,
+// "end" maps to AlignmentRight and "distribute" to AlignmentJustify, and any
+// other value reads as AlignmentLeft.
 const (
 	AlignmentLeft Alignment = iota
 	AlignmentCenter

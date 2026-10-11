@@ -285,6 +285,10 @@ func (p *Paragraph) markSet(prop paraProp) {
 // ST_TextAutonumberScheme). The string values are the DrawingML tokens.
 type AutoNumberScheme string
 
+// Common auto-numbering schemes: Arabic, lower/upper-case letters and
+// lower/upper-case Roman numerals, followed by a period or (ParenR) a closing
+// parenthesis. The schema defines more; any ST_TextAutonumberScheme token can
+// be used as an AutoNumberScheme.
 const (
 	AutoNumberArabicPeriod  AutoNumberScheme = "arabicPeriod"
 	AutoNumberArabicParenR  AutoNumberScheme = "arabicParenR"
@@ -298,6 +302,7 @@ const (
 // ST_TextTabAlignType).
 type TabAlign string
 
+// Tab stop alignments; the values are the DrawingML tokens.
 const (
 	TabAlignLeft    TabAlign = "l"
 	TabAlignCenter  TabAlign = "ctr"

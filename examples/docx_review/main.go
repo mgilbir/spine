@@ -7,13 +7,14 @@
 //
 // It runs in two phases:
 //
-//  1. Setup — spine has no public API for *authoring* tracked changes (they are
-//     normally produced by Word), so we synthesize a realistic input document
-//     by writing a minimal .docx whose word/document.xml already contains
-//     w:ins/w:del revisions. A .docx is just a ZIP of XML parts, so this needs
-//     nothing beyond the standard library. We then open that package with
-//     spine and attach a couple of reviewer comments through the public API,
-//     and save it as the "incoming" document.
+//  1. Setup — to stand in for a file that came from Word, we synthesize the
+//     input by writing a minimal .docx whose word/document.xml already
+//     contains w:ins/w:del revisions. A .docx is just a ZIP of XML parts, so
+//     this needs nothing beyond the standard library. (spine can also author
+//     tracked changes itself with Paragraph.AddInsertedRun and
+//     Run.MarkDeleted; examples/docx_mailmerge shows that path.) We then open
+//     that package with spine, attach a couple of reviewer comments through
+//     the public API, and save it as the "incoming" document.
 //
 //  2. Review — we reopen the incoming document and use the public review API:
 //     Document.Revisions() to list every tracked change, Document.Comments()
@@ -61,9 +62,9 @@ func main() {
 }
 
 // buildIncomingDocument writes a document that carries tracked changes and
-// reviewer comments. The tracked changes are injected as raw XML (spine models
-// them for round-trip fidelity but does not author them); the comments are
-// added through spine's public API to show both halves of the review surface.
+// reviewer comments. The tracked changes are injected as raw XML, the way a
+// file saved by Word would carry them; the comments are added through spine's
+// public API to show both halves of the review surface.
 func buildIncomingDocument(path string) {
 	// A minimal but valid word/document.xml with two paragraphs of tracked
 	// changes: a deletion + insertion in the first, an inserted word in the

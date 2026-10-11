@@ -27,6 +27,9 @@ const relTypeCtrlProp = "http://schemas.openxmlformats.org/officeDocument/2006/r
 // x:ClientData carries an ObjectType.
 type FormControlType string
 
+// Form control kinds, one per VML ObjectType Excel writes (Button, Checkbox,
+// Drop, List, Radio, Spin, Scroll, Label, GBox, EditBox, Dialog).
+// FormControlUnknown reports a control whose ObjectType is none of these.
 const (
 	FormControlButton    FormControlType = "button"
 	FormControlCheckBox  FormControlType = "checkbox"

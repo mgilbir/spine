@@ -18,6 +18,9 @@ var (
 // PlaceholderType represents the type of a placeholder.
 type PlaceholderType string
 
+// Placeholder types, used to look up a slide's or layout's placeholder
+// (Slide.Placeholder, SlideLayout.Placeholder). The values are the
+// PresentationML ST_PlaceholderType tokens (p:ph@type).
 const (
 	PlaceholderTitle          PlaceholderType = "title"
 	PlaceholderBody           PlaceholderType = "body"
@@ -40,6 +43,7 @@ const (
 // PlaceholderOrientation specifies the orientation of a placeholder.
 type PlaceholderOrientation string
 
+// Placeholder orientations (p:ph@orient, ST_Direction).
 const (
 	PlaceholderOrientationHorizontal PlaceholderOrientation = "horz"
 	PlaceholderOrientationVertical   PlaceholderOrientation = "vert"
@@ -48,6 +52,8 @@ const (
 // PlaceholderSize specifies the size hint for a placeholder.
 type PlaceholderSize string
 
+// Placeholder size hints (p:ph@sz, ST_PlaceholderSize): the fraction of the
+// slide's content area the placeholder is meant to occupy.
 const (
 	PlaceholderSizeFull    PlaceholderSize = "full"
 	PlaceholderSizeHalf    PlaceholderSize = "half"
