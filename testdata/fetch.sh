@@ -65,13 +65,25 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
     mkdir -p "$(dirname "$full_path")"
     echo -n "GET:  $dest ... "
-    if curl -fSL --retry 2 --retry-delay 3 -o "$full_path" "$url" 2>/dev/null; then
+    # Download beside the destination and move it into place only once it is
+    # known to be a package. A server can answer 200 with something else — a
+    # bot check or an error page — and curl reports that as success; landing it
+    # under the fixture's name made the tests that use it fail ("zip: not a
+    # valid zip file") instead of skipping. Every fixture is an OOXML package,
+    # so it must start with the zip local-file-header signature.
+    tmp="$full_path.part"
+    if ! curl -fSL --retry 2 --retry-delay 3 -o "$tmp" "$url" 2>/dev/null; then
+        failed=$((failed + 1))
+        rm -f "$tmp"
+        echo "FAILED"
+    elif [[ "$(head -c 4 "$tmp" | od -An -tx1 | tr -d ' \n')" != "504b0304" ]]; then
+        failed=$((failed + 1))
+        rm -f "$tmp"
+        echo "FAILED (not a zip package)"
+    else
+        mv -f "$tmp" "$full_path"
         ok=$((ok + 1))
         echo "OK"
-    else
-        failed=$((failed + 1))
-        rm -f "$full_path"
-        echo "FAILED"
     fi
 done < "$CONFIG"
 
