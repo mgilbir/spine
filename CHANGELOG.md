@@ -12,6 +12,11 @@
   the save was refused with a dangling `headerReference` or
   `footerReference` (C606). `examples/docx_report` failed this way since
   0.2.0; every example now runs in the test suite.
+- pptx: `Slide.TitlePlaceholder` finds a title slide's centered title
+  (`ctrTitle`), and `Slide.BodyPlaceholder` finds a content placeholder written
+  with no type attribute, the usual form on a "Title and Content" slide. Both
+  matched one exact type and returned nil on those slides. `IsBody` is true for
+  a placeholder with no type, which the schema reads as `obj` (C607).
 
 ## 0.4.0 - 2026-10-10
 

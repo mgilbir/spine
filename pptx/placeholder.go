@@ -193,9 +193,11 @@ func (p *PlaceholderShape) IsTitle() bool {
 	return p.phType == PlaceholderTitle || p.phType == PlaceholderCenteredTitle
 }
 
-// IsBody returns true if this is a body/content placeholder.
+// IsBody returns true if this is a body/content placeholder: a "body" or
+// "obj" one, including a placeholder with no type, which the schema defines
+// as "obj" (C607).
 func (p *PlaceholderShape) IsBody() bool {
-	return p.phType == PlaceholderBody || p.phType == PlaceholderObject
+	return p.phType == PlaceholderBody || p.phType == PlaceholderObject || p.phType == ""
 }
 
 // IsPicture returns true if this is a picture placeholder.

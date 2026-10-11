@@ -371,12 +371,13 @@ func main() {
 ## Filling placeholders
 
 `Slide.Placeholders()` lists a slide's placeholder shapes; `SetText` replaces a
-placeholder's text. `Slide.TitlePlaceholder()` and `Slide.BodyPlaceholder()`
-match only the `title` and `body` types, so they miss a title slide's centered
-title (`ctrTitle`) and a content placeholder written with no type attribute,
-the usual form on a "Title and Content" slide. `PlaceholderShape.IsTitle()`
-covers both title types; for the typeless content placeholder, match on
-`Index()`.
+placeholder's text. `Slide.TitlePlaceholder()` finds the title, including a
+title slide's centered title (`ctrTitle`), and `Slide.BodyPlaceholder()` the
+body or content placeholder, including one written with no type attribute,
+the usual form on a "Title and Content" slide (the schema reads a missing
+type as `obj`). Each prefers the exact `title` or `body` type when a slide has
+both forms. `PlaceholderShape.IsTitle()` and `IsBody()` test the same
+categories on a single placeholder.
 
 A slide added with `AddSlideFromLayout` uses the layout's design but has no
 placeholder shapes of its own. Add the ones you want with
@@ -405,9 +406,7 @@ func main() {
         switch {
         case ph.IsTitle(): // title or centered title
             ph.SetText("Quarterly review")
-        case ph.IsBody(), ph.PlaceholderType() == "" && ph.Index() > 0:
-            // A content placeholder is often written with no type at all;
-            // IsBody and BodyPlaceholder do not match it, its index does.
+        case ph.IsBody(): // body, content, or a placeholder with no type
             ph.SetText("Agenda")
         }
     }
