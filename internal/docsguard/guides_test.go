@@ -60,7 +60,7 @@ var caveats = []caveat{
 		why:   "Data() returns the raster fallback for an SVG image; SVGData() returns the SVG, or nil",
 	},
 	{
-		api:   "DeleteSheet",
+		api:   "RemoveSheet",
 		guide: "xlsx.md",
 		cues:  []string{"cascade", "defined names", "pivot"},
 		why: "deletion cascades to the parts only that sheet owned, re-points sheet-scoped " +
@@ -97,9 +97,14 @@ func TestGuidesCarryGodocCaveats(t *testing.T) {
 				c.guide, c.api, c.why)
 			continue
 		}
+		// The cues must sit in a section that names the API, not anywhere in
+		// the guide: "flushes" also appears in the table-editing walkthrough,
+		// so a whole-file match kept passing after the AppendSlidesFrom caveat
+		// lost the word.
+		about := sectionsMentioning(text, c.api)
 		var missing []string
 		for _, cue := range c.cues {
-			if !strings.Contains(text, cue) {
+			if !strings.Contains(about, cue) {
 				missing = append(missing, cue)
 			}
 		}
@@ -109,4 +114,31 @@ func TestGuidesCarryGodocCaveats(t *testing.T) {
 				c.guide, c.api, strings.Join(missing, ", "), c.why)
 		}
 	}
+}
+
+// sectionsMentioning returns the sections of a Markdown guide that contain
+// api, joined. A section runs from one heading to the next, whatever its
+// level; text in a fenced code block is never taken for a heading.
+func sectionsMentioning(text, api string) string {
+	var sections []string
+	var cur strings.Builder
+	inFence := false
+	for _, line := range strings.SplitAfter(text, "\n") {
+		if strings.HasPrefix(line, "```") {
+			inFence = !inFence
+		}
+		if !inFence && strings.HasPrefix(line, "#") && cur.Len() > 0 {
+			sections = append(sections, cur.String())
+			cur.Reset()
+		}
+		cur.WriteString(line)
+	}
+	sections = append(sections, cur.String())
+	var out []string
+	for _, sec := range sections {
+		if strings.Contains(sec, api) {
+			out = append(out, sec)
+		}
+	}
+	return strings.Join(out, "\n")
 }
