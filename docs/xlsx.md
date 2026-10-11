@@ -9,72 +9,62 @@ streaming large ones. The one-paragraph quick start lives in the
 [README](../README.md#creating-an-excel-spreadsheet); this document carries
 everything else.
 
-## Capabilities
+## Common tasks
 
-### Cells, formulas, and styling
+Open a workbook, read and write cells, add sheets and images, and save. The
+walkthroughs below come first because they are what most programs do; the
+topic sections after them cover large workbooks, merging, and text extraction,
+and the [capability reference](#capabilities) closes the guide. To add a
+chart, see [Charts in spreadsheets](charts.md#charts-in-spreadsheets).
 
-- Create workbooks with multiple sheets, and remove one (`Workbook.RemoveSheet`) — see [Adding and removing sheets](#adding-and-removing-sheets)
-- Read and write cell values. `Cell.Value()` returns the value typed: `string`, `float64`, `bool`, `time.Time` for a date-formatted cell, `xlsx.CellError` (the error literal, such as `#DIV/0!`) for an error cell, and `nil` for an empty one. For a formula cell it returns the *cached result*, typed the same way a literal cell of that type reads back (`=1+1` reads as `float64(2)`, not the string `"2"`); when the file carries no cached value it falls back to the formula text. `Cell.Type()` reports which case you are in
-- Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring; saving a workbook with a new dynamic-array formula synthesizes `xl/metadata.xml` (the `XLDAPR` record) and tags the spill master cell with `cm`, so Excel shows the spill without a recalc
-- Cell styling (fonts, fills, borders, number formats, alignment)
-- Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
-- Merged cells and named ranges
-- Column widths and row heights
-- Rich text (per-run formatting) within a cell
-- Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
-- Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
+### Opening and editing a workbook
 
-### Data, filters, and views
+`Open` reads an existing file; edits made afterwards are written back on
+`Save`. `Sheet.Cell` returns a cell (creating it if it is empty) and
+`Sheet.SetCellValue` writes one by reference.
 
-- Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
-- Freeze panes, auto-filter, and data validation (including `errorStyle` and `imeMode`), with read accessors for each
-- Sheet view & structure: sheet visibility (`Sheet.SetVisibility`/`Visible`, refusing to hide the last visible sheet), row/column hide (`SetRowHidden`/`SetColumnHidden`), view toggles (row/column headers, right-to-left, formulas, zeros, ruler, and normal/page-layout/page-break view), scrolling split panes (`Sheet.SplitPanes`, distinct from freeze), row/column grouping & outline levels (`GroupRows`/`GroupColumns`, collapsed flags, outline summary placement), and force-recalc-on-open (`Workbook.SetForceFullCalc`)
-- External data: enumerate connections (`Workbook.Connections()` — name, type, connection string/command, web URL) and report the presence of a Power Pivot data model / Power Query content (`Workbook.DataModel()`); both are preserved verbatim. Authoring or refreshing a live query/mashup is deferred
-- What-if scenarios — read and write (`Sheet.Scenarios`/`Sheet.AddScenario`): named substitute-value sets over a group of changing cells; existing scenarios round-trip byte-for-byte, authored ones emit from the typed model
-- Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and a workbook with no matching text saves with every part byte-identical
+```go
+package main
 
-### Graphics, tables, and pivots
+import (
+    "fmt"
 
-- Embedded OLE objects — extract (`Workbook.OLEObjects`) and embed (`Sheet.AddOLEObject`): write an object as an embedding part with its worksheet `<oleObjects>` reference, a legacy VML Pict shape, an optional preview image, and the relationships/content types
-- Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks — see [Adding images](#adding-images)
-- Read-only enumeration of worksheet images and conditional-formatting rules
-- Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
-- Pivot tables — read and create (`Sheet.PivotTables`/`Workbook.PivotTables`/`Sheet.AddPivotTable`): name, location, source range/cache, and the row/column/value/filter field layout with per-value aggregation (sum/count/average/min/max); creating one builds the pivot cache (definition + records, `refreshOnLoad`), the pivot table definition, the workbook `<pivotCaches>` entry, relationships and content-type overrides. Also supports calculated (formula) value fields, numeric range grouping of a field into value buckets, date grouping of a date/time field by year/quarter/month/day, discrete grouping that folds selected field items into named parent groups, and adding a pivot to a workbook that already has pivot caches (the new cache is allocated without disturbing existing pivots). Existing pivots round-trip byte-for-byte.
-- Pivot slicers and timelines — read (`Sheet.Slicers`/`Workbook.Slicers`/`Sheet.Timelines`/`Workbook.Timelines`): each slicer/timeline's name, caption, source pivot field and controlled pivot tables, resolved through its slicer/timeline cache part. Slicers, timelines, their cache parts and the worksheet/workbook extension references round-trip byte-for-byte. Creating slicers and timelines is not yet supported (a slicer/timeline is an on-sheet drawing whose creation also requires injecting relationship-bearing x14/x15 extension lists into the shared workbook and worksheet parts at save time)
-- Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
-- Sparklines — read, write and mutate (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with one or more (data range, location cell) mappings, stored in the worksheet extension list; live `SparklineGroup` handles set every color slot and per-group point toggles (markers, high/low/first/last/negative) and delete groups; unmodified sparklines round-trip byte-for-byte
-- Charts (column, bar, line, pie, doughnut, radar, scatter, area, combo, bubble, stock, surface, pie-of-pie, and 3D variants) that reference the host workbook's cells — see [charts.md](charts.md)
+    "github.com/mgilbir/spine/xlsx"
+)
 
-### Comments, links, and protection
+func main() {
+    wb, err := xlsx.Open("book.xlsx")
+    if err != nil {
+        panic(err)
+    }
+    defer wb.Close()
 
-- Hyperlinks (external and internal), read and written through `xlsx.Hyperlink`, which has the same `URL`/`Anchor`/`Tooltip`/`SetTooltip` methods as the docx and pptx `Hyperlink` types plus `Ref`
-- Sheet protection (read state and write with the legacy password hash)
-- Comments: legacy notes and modern threaded comments (replies, resolve), both read and written through `xlsx.Comment` (its core methods have the same names as the docx and pptx comment types), with per-run rich text on notes (`Comment.RichText`/`Sheet.AddNoteRichText`/`Comment.SetRichText`, alongside the plain `Text()`)
-- Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
+    sheet, err := wb.Sheet(0)
+    if err != nil {
+        panic(err)
+    }
 
-### Page and print
+    // Read a cell. Value returns it typed: string, float64, bool,
+    // time.Time, xlsx.CellError, or nil for an empty cell.
+    cell, err := sheet.Cell("A1")
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("A1 = %v (%T)\n", cell.Value(), cell.Value())
 
-- Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles
+    // Write: through the cell, or by reference.
+    cell.SetValue("updated")
+    if err := sheet.SetCellValue("B1", 42.5); err != nil {
+        panic(err)
+    }
 
-## Form controls and ActiveX
+    if err := wb.Save("book-updated.xlsx"); err != nil {
+        panic(err)
+    }
+}
+```
 
-Read/enumerate interactive controls across formats — Word legacy form fields
-(`docx.Document.FormFields()`: FORMTEXT/FORMCHECKBOX/FORMDROPDOWN with name,
-value, checkbox state, and dropdown entries) with basic authoring via
-`docx.Paragraph.AddFormField`; Excel form controls (`xlsx.Sheet.FormControls()`:
-buttons, checkboxes, dropdowns, list boxes, option buttons, spinners, scroll
-bars, each with its linked cell); and ActiveX controls (`ActiveXControls()` on
-all three formats, reporting each control's COM class id, persistence mode, and
-`activeXN.bin` binary). All control parts are preserved verbatim on save;
-authoring ActiveX controls is out of scope.
-
-Excel's own legacy form controls read back through `Sheet.FormControls()` —
-buttons, checkboxes, dropdowns, list boxes, option buttons, spinners, and scroll
-bars — reading each control's type, linked cell (`x:FmlaLink`), source range,
-checkbox state, and its VML/`ctrlProps` parts; the control parts are preserved
-verbatim on save.
-
-## Adding and removing sheets
+### Adding and removing sheets
 
 `Workbook.AddSheet` appends a sheet; `Workbook.RemoveSheet(index)` removes one
 (`DeleteSheet` is the deprecated older name for the same call).
@@ -117,114 +107,60 @@ if err := wb.RemoveSheet(2); err != nil {
 }
 ```
 
-## Merging and copying sheets
+### Adding images
 
-Combine workbooks with automatic id, part-name, and relationship remapping (no
-dangling references or duplicate parts); xlsx has no split counterpart to
-pptx's `ExtractSlides`. `Workbook.CopySheetFrom` copies one sheet, and
-`Workbook.AppendSheetsFrom` copies every worksheet of another workbook after
-the existing sheets. Each copy lands under a unique name, with a `" (2)"`-style
-suffix when the name is taken, so use the returned sheets rather than the
-source names.
-
-A copy carries cell values (shared strings resolved), styles, formulas, merged
-ranges, column widths, row heights, images, and the sheet's visibility. A
-hidden or very hidden sheet stays so, unless it would be the destination's only
-visible sheet, which Excel refuses. It does not carry:
-
-- charts: they are neither copied nor reported on the new sheet. The hidden
-  data sheet `Sheet.AddChart` writes for each chart is a worksheet, so it is
-  copied, and stays hidden;
-- cross-sheet references: a copied formula such as `Lookup!A1*2` keeps its text
-  and points at whatever sheet has that name in the destination;
-- defined names and pivot tables.
-
-A sheet that fails to copy stops `AppendSheetsFrom` with the earlier copies in
-place: the append is not transactional. `AppendSheetsFrom` skips chartsheets,
-dialogsheets, and macrosheets, which have no worksheet model to copy.
+`Sheet.AddImage(cell, data, opts)` anchors a PNG, JPEG, GIF, or SVG image (an SVG
+gets a transparent raster fallback) with its top-left corner at a cell, on
+created and opened workbooks alike. `ImageOptions` sets the size in pixels
+(`WidthPx`/`HeightPx`, with `PreserveAspect` to scale the other axis), a
+two-cell anchor (`ToCell`, so the image moves and resizes with the cells), and
+the alt text. `AddImage` returns only an error; read images back with
+`Sheet.Images()`.
 
 ```go
 package main
 
 import (
-    "fmt"
+    "os"
 
     "github.com/mgilbir/spine/xlsx"
 )
 
 func main() {
-    dst, err := xlsx.Open("summary.xlsx")
+    wb := xlsx.Create()
+    sheet, err := wb.AddSheet("Report")
     if err != nil {
         panic(err)
-    }
-    defer dst.Close()
-    src, err := xlsx.Open("regions.xlsx")
-    if err != nil {
-        panic(err)
-    }
-    defer src.Close()
-
-    // Every worksheet of src, in order, after dst's own. A name already
-    // taken gets a " (2)"-style suffix, so use the returned sheets.
-    added, err := dst.AppendSheetsFrom(src)
-    if err != nil {
-        panic(err)
-    }
-    for _, s := range added {
-        fmt.Println("copied as", s.Name())
     }
 
-    if err := dst.Save("combined.xlsx"); err != nil {
+    logo, err := os.ReadFile("logo.png")
+    if err != nil {
+        panic(err)
+    }
+    // One-cell anchor at B2: 120 px wide, height scaled to keep the aspect.
+    if err := sheet.AddImage("B2", logo, xlsx.ImageOptions{
+        WidthPx: 120, PreserveAspect: true, AltText: "Company logo",
+    }); err != nil {
+        panic(err)
+    }
+
+    photo, err := os.ReadFile("photo.jpg")
+    if err != nil {
+        panic(err)
+    }
+    // Two-cell anchor: the image spans D2:H12 and moves and resizes with
+    // those cells.
+    if err := sheet.AddImage("D2", photo, xlsx.ImageOptions{ToCell: "H12"}); err != nil {
+        panic(err)
+    }
+
+    if err := wb.Save("images.xlsx"); err != nil {
         panic(err)
     }
 }
 ```
 
-## Text extraction
-
-`xlsx.Workbook.Text()` / `Sheet.Text()` return cell values row-major with shared
-strings resolved, plus cell comments — plain concatenation, no markup,
-deterministic ordering. This is the xlsx half of the symmetric, read-only "give
-me all the text" API shared with `docx.Document.Text()` and
-`pptx.Presentation.Text()` / `Slide.Text()`.
-
-## Reading and writing comments
-
-The `xlsx` package reads and writes both comment mechanisms Excel uses — legacy
-notes (`xl/comments*.xml` + a VML drawing) and modern threaded comments
-(`xl/threadedComments/*` + a person list) — through one `xlsx.Comment` type.
-
-```go
-wb, _ := xlsx.Open("review.xlsx")
-sheet, _ := wb.Sheet(0)
-
-// Read every comment on the sheet (legacy notes and threaded comments unified).
-for _, c := range sheet.Comments() {
-    fmt.Printf("%s by %s: %s (resolved=%v)\n", c.Ref(), c.Author(), c.Text(), c.Resolved())
-    for _, reply := range c.Replies() {
-        fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
-    }
-}
-
-// Add a threaded comment (Excel back-compat: a legacy note fallback is written
-// too, so older Excel still renders the text). Then reply and resolve.
-cell, _ := sheet.Cell("B2")
-c := cell.AddComment("Ada Lovelace", "Please double-check this figure.")
-c.Reply("Alan Turing", "Confirmed — updated.")
-c.Resolve()
-
-_ = wb.Save("review.xlsx")
-```
-
-`Sheet.AddComment(ref, author, text)`, `Cell.AddComment(author, text)`,
-`Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
-legacy-only note) are the write entry points; `Sheet.Comments()` and
-`Cell.Comment()` read. An open→save with no edits writes every part of a
-comment-bearing workbook byte-identical (the zip container around the parts can
-still differ); only the touched sheet's comment parts are regenerated when a
-comment is added.
-
-## Hyperlinks, images, and sheet protection
+### Hyperlinks, images, and sheet protection
 
 Spine reads and writes cell hyperlinks and sheet protection, and reads back
 merged cells, freeze panes, auto-filter, and data validation, plus worksheet
@@ -283,58 +219,41 @@ every part of a feature-bearing workbook byte-identical (the zip container
 around the parts can still differ; see the
 [round-trip fidelity model](architecture.md#round-trip-fidelity-model)).
 
-## Adding images
+### Reading and writing comments
 
-`Sheet.AddImage(cell, data, opts)` anchors a PNG, JPEG, GIF, or SVG image (an SVG
-gets a transparent raster fallback) with its top-left corner at a cell, on
-created and opened workbooks alike. `ImageOptions` sets the size in pixels
-(`WidthPx`/`HeightPx`, with `PreserveAspect` to scale the other axis), a
-two-cell anchor (`ToCell`, so the image moves and resizes with the cells), and
-the alt text. `AddImage` returns only an error; read images back with
-`Sheet.Images()`.
+The `xlsx` package reads and writes both comment mechanisms Excel uses — legacy
+notes (`xl/comments*.xml` + a VML drawing) and modern threaded comments
+(`xl/threadedComments/*` + a person list) — through one `xlsx.Comment` type.
 
 ```go
-package main
+wb, _ := xlsx.Open("review.xlsx")
+sheet, _ := wb.Sheet(0)
 
-import (
-    "os"
-
-    "github.com/mgilbir/spine/xlsx"
-)
-
-func main() {
-    wb := xlsx.Create()
-    sheet, err := wb.AddSheet("Report")
-    if err != nil {
-        panic(err)
-    }
-
-    logo, err := os.ReadFile("logo.png")
-    if err != nil {
-        panic(err)
-    }
-    // One-cell anchor at B2: 120 px wide, height scaled to keep the aspect.
-    if err := sheet.AddImage("B2", logo, xlsx.ImageOptions{
-        WidthPx: 120, PreserveAspect: true, AltText: "Company logo",
-    }); err != nil {
-        panic(err)
-    }
-
-    photo, err := os.ReadFile("photo.jpg")
-    if err != nil {
-        panic(err)
-    }
-    // Two-cell anchor: the image spans D2:H12 and moves and resizes with
-    // those cells.
-    if err := sheet.AddImage("D2", photo, xlsx.ImageOptions{ToCell: "H12"}); err != nil {
-        panic(err)
-    }
-
-    if err := wb.Save("images.xlsx"); err != nil {
-        panic(err)
+// Read every comment on the sheet (legacy notes and threaded comments unified).
+for _, c := range sheet.Comments() {
+    fmt.Printf("%s by %s: %s (resolved=%v)\n", c.Ref(), c.Author(), c.Text(), c.Resolved())
+    for _, reply := range c.Replies() {
+        fmt.Printf("  ↳ %s: %s\n", reply.Author(), reply.Text())
     }
 }
+
+// Add a threaded comment (Excel back-compat: a legacy note fallback is written
+// too, so older Excel still renders the text). Then reply and resolve.
+cell, _ := sheet.Cell("B2")
+c := cell.AddComment("Ada Lovelace", "Please double-check this figure.")
+c.Reply("Alan Turing", "Confirmed — updated.")
+c.Resolve()
+
+_ = wb.Save("review.xlsx")
 ```
+
+`Sheet.AddComment(ref, author, text)`, `Cell.AddComment(author, text)`,
+`Comment.Reply`, `Comment.Resolve`/`SetResolved`, and `Sheet.AddNote` (a
+legacy-only note) are the write entry points; `Sheet.Comments()` and
+`Cell.Comment()` read. An open→save with no edits writes every part of a
+comment-bearing workbook byte-identical (the zip container around the parts can
+still differ); only the touched sheet's comment parts are regenerated when a
+comment is added.
 
 ## Writing large workbooks
 
@@ -418,6 +337,79 @@ Streaming gives up these things:
 - There is no encryption, which needs the whole package.
 - A writer abandoned without `Close` leaves a truncated archive.
 
+## Merging and copying sheets
+
+xlsx has no split counterpart to pptx's `ExtractSlides`. `Workbook.CopySheetFrom`
+copies one sheet, and
+`Workbook.AppendSheetsFrom` copies every worksheet of another workbook after
+the existing sheets. Each copy lands under a unique name, with a `" (2)"`-style
+suffix when the name is taken, so use the returned sheets rather than the
+source names.
+
+A copy carries cell values (shared strings resolved), styles, formulas, merged
+ranges, column widths, row heights, images, and the sheet's visibility. A
+hidden or very hidden sheet stays so, unless it would be the destination's only
+visible sheet, which Excel refuses. It does not carry:
+
+- charts: they are neither copied nor reported on the new sheet. The hidden
+  data sheet `Sheet.AddChart` writes for each chart is a worksheet, so it is
+  copied, and stays hidden;
+- cross-sheet references: a copied formula such as `Lookup!A1*2` keeps its text
+  and points at whatever sheet has that name in the destination;
+- defined names and pivot tables.
+
+A sheet that fails to copy stops `AppendSheetsFrom` with the earlier copies in
+place: the append is not transactional. `AppendSheetsFrom` skips chartsheets,
+dialogsheets, and macrosheets, which have no worksheet model to copy.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/xlsx"
+)
+
+func main() {
+    dst, err := xlsx.Open("summary.xlsx")
+    if err != nil {
+        panic(err)
+    }
+    defer dst.Close()
+    src, err := xlsx.Open("regions.xlsx")
+    if err != nil {
+        panic(err)
+    }
+    defer src.Close()
+
+    // Every worksheet of src, in order, after dst's own. A name already
+    // taken gets a " (2)"-style suffix, so use the returned sheets.
+    added, err := dst.AppendSheetsFrom(src)
+    if err != nil {
+        panic(err)
+    }
+    for _, s := range added {
+        fmt.Println("copied as", s.Name())
+    }
+
+    if err := dst.Save("combined.xlsx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+## Text extraction
+
+`xlsx.Workbook.Text()` / `Sheet.Text()` return cell values row-major with shared
+strings resolved, plus cell comments — plain concatenation, no markup,
+deterministic ordering.
+
+## Form controls and ActiveX
+
+Excel form controls, Word form fields, and ActiveX controls (all three formats)
+are covered in [Form controls and ActiveX](forms-and-objects.md#form-controls-and-activex).
+
 ## PNG and SVG range previews
 
 `xlsxrender.PrepareRange(ctx, sheet, "A1:D10", render.Options{Fonts: resolver})`
@@ -427,3 +419,50 @@ compile the renderer or its dependencies. See the
 [rendering guide](rendering.md) for supported values, fonts, sizing and resource
 limits. Unsupported formatting returns an error; preparation creates no missing
 cells and does not save the workbook.
+
+## Capabilities
+
+### Cells, formulas, and styling
+
+- Create workbooks with multiple sheets, and remove one (`Workbook.RemoveSheet`) — see [Adding and removing sheets](#adding-and-removing-sheets)
+- Read and write cell values. `Cell.Value()` returns the value typed: `string`, `float64`, `bool`, `time.Time` for a date-formatted cell, `xlsx.CellError` (the error literal, such as `#DIV/0!`) for an error cell, and `nil` for an empty one. For a formula cell it returns the *cached result*, typed the same way a literal cell of that type reads back (`=1+1` reads as `float64(2)`, not the string `"2"`); when the file carries no cached value it falls back to the formula text. `Cell.Type()` reports which case you are in
+- Formula support, including array (`Cell.SetArrayFormula`), shared (`Cell.SetSharedFormula`, master + follower stubs over a range), and dynamic-array/spill (`Cell.SetDynamicArrayFormula`) authoring; saving a workbook with a new dynamic-array formula synthesizes `xl/metadata.xml` (the `XLDAPR` record) and tags the spill master cell with `cm`, so Excel shows the spill without a recalc
+- Cell styling (fonts, fills, borders, number formats, alignment)
+- Style depth — named/built-in cell styles (`StyleManager.AddNamedStyle`/`ApplyNamedStyle`/`Cell.SetNamedStyle` with `BuiltinStyle*` ids), gradient fills (`FillStyle.Gradient`), diagonal borders (`BorderStyle.Diagonal`/`DiagonalUp`/`DiagonalDown`), and alignment extras (`ShrinkToFit`, `JustifyLastLine`, `ReadingOrder`, `RelativeIndent`)
+- Merged cells and named ranges
+- Column widths and row heights
+- Rich text (per-run formatting) within a cell
+- Font depth: strikethrough, sub/superscript, and underline styles (single/double/accounting)
+- Workbook structure/window protection and per-cell locked/hidden (`CellStyle.Protection`)
+
+### Data, filters, and views
+
+- Auto-filter criteria and sort state — read and write per-column value-list/custom-comparison filters (`Sheet.SetFilterColumn`/`FilterColumns`) and sort conditions (`Sheet.SetSortState`/`SortState`)
+- Freeze panes, auto-filter, and data validation (including `errorStyle` and `imeMode`), with read accessors for each
+- Sheet view & structure: sheet visibility (`Sheet.SetVisibility`/`Visible`, refusing to hide the last visible sheet), row/column hide (`SetRowHidden`/`SetColumnHidden`), view toggles (row/column headers, right-to-left, formulas, zeros, ruler, and normal/page-layout/page-break view), scrolling split panes (`Sheet.SplitPanes`, distinct from freeze), row/column grouping & outline levels (`GroupRows`/`GroupColumns`, collapsed flags, outline summary placement), and force-recalc-on-open (`Workbook.SetForceFullCalc`)
+- External data: enumerate connections (`Workbook.Connections()` — name, type, connection string/command, web URL) and report the presence of a Power Pivot data model / Power Query content (`Workbook.DataModel()`); both are preserved verbatim. Authoring or refreshing a live query/mashup is deferred
+- What-if scenarios — read and write (`Sheet.Scenarios`/`Sheet.AddScenario`): named substitute-value sets over a group of changing cells; existing scenarios round-trip byte-for-byte, authored ones emit from the typed model
+- Search & replace (`Workbook.ReplaceText` / `Sheet.ReplaceText`, mirroring `docx` and `pptx`): replaces in string cells (shared-string cells convert to inline so the shared table is untouched) and across a rich cell's runs; formula cells are left alone, and a workbook with no matching text saves with every part byte-identical
+
+### Graphics, tables, and pivots
+
+- Embedded OLE objects — extract (`Workbook.OLEObjects`) and embed (`Sheet.AddOLEObject`): write an object as an embedding part with its worksheet `<oleObjects>` reference, a legacy VML Pict shape, an optional preview image, and the relationships/content types
+- Embedded images anchored to cells (one- and two-cell anchors, SVG with a raster fallback), on both created and opened workbooks — see [Adding images](#adding-images)
+- Read-only enumeration of worksheet images and conditional-formatting rules
+- Tables (ListObjects) — read and write (`Sheet.Tables`/`Sheet.AddTable`): name, range, columns (with totals-row functions/labels and calculated-column formulas), header/totals rows, and built-in table style with row/column-stripe and first/last-column banding
+- Pivot tables — read and create (`Sheet.PivotTables`/`Workbook.PivotTables`/`Sheet.AddPivotTable`): name, location, source range/cache, and the row/column/value/filter field layout with per-value aggregation (sum/count/average/min/max); creating one builds the pivot cache (definition + records, `refreshOnLoad`), the pivot table definition, the workbook `<pivotCaches>` entry, relationships and content-type overrides. Also supports calculated (formula) value fields, numeric range grouping of a field into value buckets, date grouping of a date/time field by year/quarter/month/day, discrete grouping that folds selected field items into named parent groups, and adding a pivot to a workbook that already has pivot caches (the new cache is allocated without disturbing existing pivots). Existing pivots round-trip byte-for-byte.
+- Pivot slicers and timelines — read (`Sheet.Slicers`/`Workbook.Slicers`/`Sheet.Timelines`/`Workbook.Timelines`): each slicer/timeline's name, caption, source pivot field and controlled pivot tables, resolved through its slicer/timeline cache part. Slicers, timelines, their cache parts and the worksheet/workbook extension references round-trip byte-for-byte. Creating slicers and timelines is not yet supported (a slicer/timeline is an on-sheet drawing whose creation also requires injecting relationship-bearing x14/x15 extension lists into the shared workbook and worksheet parts at save time)
+- Conditional formatting — read and write (`Sheet.AddConditionalFormat`): cell-value, color scales, data bars, icon sets, top/bottom, above-average, duplicate/unique, text, and formula rules
+- Sparklines — read, write and mutate (`Sheet.Sparklines`/`Sheet.AddSparklineGroup`): line/column/win-loss groups with one or more (data range, location cell) mappings, stored in the worksheet extension list; live `SparklineGroup` handles set every color slot and per-group point toggles (markers, high/low/first/last/negative) and delete groups; unmodified sparklines round-trip byte-for-byte
+- Charts (column, bar, line, pie, doughnut, radar, scatter, area, combo, bubble, stock, surface, pie-of-pie, and 3D variants) that reference the host workbook's cells — see [charts.md](charts.md)
+
+### Comments, links, and protection
+
+- Hyperlinks (external and internal), read and written through `xlsx.Hyperlink`, which has the same `URL`/`Anchor`/`Tooltip`/`SetTooltip` methods as the docx and pptx `Hyperlink` types plus `Ref`
+- Sheet protection (read state and write with the legacy password hash)
+- Comments: legacy notes and modern threaded comments (replies, resolve), both read and written through `xlsx.Comment` (its core methods have the same names as the docx and pptx comment types), with per-run rich text on notes (`Comment.RichText`/`Sheet.AddNoteRichText`/`Comment.SetRichText`, alongside the plain `Text()`)
+- Theme read/write (`Workbook.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the docx and pptx theme APIs
+
+### Page and print
+
+- Page & print setup: orientation, scaling/fit, margins, headers/footers, print options, and print area/titles

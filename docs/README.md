@@ -8,6 +8,8 @@ start per format. This index routes the follow-up questions.
 - **How do I work with PowerPoint / Word / Excel in depth?** → [pptx.md](pptx.md), [docx.md](docx.md), [xlsx.md](xlsx.md)
 - **How do I modify an existing file?** → [Opening vs. Creating Documents](../README.md#opening-vs-creating-documents)
 - **How do I add a chart?** → [charts.md](charts.md)
+- **How do I read or set the title, author, or custom properties?** → [properties.md](properties.md)
+- **Form controls, ActiveX, OLE objects, ink, or 3D models?** → [forms-and-objects.md](forms-and-objects.md)
 - **How do I render a slide, a Word page, or a sheet range to PNG or SVG?** → [rendering.md](rendering.md) (library), [rendering/cli.md](rendering/cli.md) (the `spine-render` command)
 - **Password-protected files? Signing? Macros?** → [encryption-and-signing.md](encryption-and-signing.md)
 - **Something's wrong** (save refused, `ErrEncrypted`, repair prompt, tests skip) → [troubleshooting.md](troubleshooting.md)

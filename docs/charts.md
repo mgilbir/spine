@@ -152,6 +152,23 @@ This package is the shared core. Each format wires it in with an `AddChart`
 method and a `Charts()` reader (xlsx references the host sheet; docx and pptx
 embed the workbook from `EmbeddedWorkbook`).
 
+### Where the chart data lives
+
+The chart part always carries cached values, so it renders without its data
+source. What differs per format is where the editable data goes:
+
+```mermaid
+flowchart TD
+    C["your *chart.Chart"] --> K["AddChart works on a copy (Clone):<br/>your chart and its DataRef are left as they were"]
+    K --> X{"host format"}
+    X -- "xlsx: Sheet.AddChart" --> XS["a new hidden worksheet ChartDataN in the host workbook,<br/>one per chart, holding categories and series as cells"]
+    XS --> XC["the chart's c:f references point at ChartDataN"]
+    X -- "docx: Document.AddChart, Paragraph.AddChart" --> DE["an embedded workbook part<br/>word/embeddings/Microsoft_Excel_WorksheetN.xlsx"]
+    X -- "pptx: Slide.AddChart" --> PE["an embedded workbook part<br/>ppt/embeddings/Microsoft_Excel_Worksheet.xlsx, then …1.xlsx, …2.xlsx"]
+    DE --> EC["the chart's c:f references point at the embedded workbook's sheet,<br/>and c:externalData links the chart part to that workbook"]
+    PE --> EC
+```
+
 ## Charts in spreadsheets
 
 In `xlsx`, `Sheet.AddChart` anchors a chart on a sheet and `Sheet.Charts` /
