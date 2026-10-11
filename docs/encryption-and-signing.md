@@ -5,16 +5,26 @@ Office documents, signing and verifying OPC package signatures, and the trust
 model for VBA macro projects. All of it is built on Go's standard-library crypto
 (plus a RC4 implementation from the public spec, which the stdlib omits).
 
-The crypto primitives live in `github.com/mgilbir/spine/common/crypto`; its
-error sentinels are the ones you match with `errors.Is`:
+The crypto primitives live in `github.com/mgilbir/spine/common/crypto`. Match
+its errors with `errors.Is`:
 
-- `crypto.ErrWrongPassword` — the supplied password did not decrypt the package.
-- `crypto.ErrUnsupportedEncryption` — an encryption scheme spine cannot decode
+- `crypto.ErrWrongPassword`: the supplied password did not decrypt the package.
+- `crypto.ErrIntegrityCheckFailed`: an agile package failed its integrity check
+  (see [Integrity](#integrity)).
+- `crypto.ErrUnsupportedEncryption`: an encryption scheme spine cannot decode
   (e.g. the version-1.1 binary-format RC4 scheme, §2.3.6).
+- `crypto.ErrMalformedEncryptionInfo`: the encryption header cannot be parsed.
+- `crypto.ErrInvalidPassword`: on save, a password that cannot protect a
+  document: empty, not valid UTF-8, or longer than the 255 characters Office
+  accepts.
+- `crypto.ErrUnsupportedAlgorithm`: signing or verifying with an XML-DSig
+  algorithm spine does not implement.
 
-The package-level `opc.ErrEncrypted` is returned by an open that meets an
-encrypted input and was given no password; retry the same call with
-`opc.WithPassword`.
+The package-level `opc.ErrEncrypted` is returned by an open that meets a
+compound (CFB) file and was given no password. An encrypted document is such a
+file, so retry the same call with `opc.WithPassword`. A legacy binary
+`.doc`/`.xls`/`.ppt` is one too, and spine does not read those; see
+[Troubleshooting](troubleshooting.md#open-returns-opcerrencrypted).
 
 ## Password encryption
 
@@ -27,7 +37,10 @@ into a normal reader, auto-detecting the scheme;
 `opc.SaveEncrypted(w, packageBytes, password)` writes an agile
 container with a fresh random salt, and `opc.SaveEncryptedWithOptions` selects
 the scheme (agile or standard), AES key size, and whether to emit the optional
-`\x06DataSpaces` metadata streams some Office builds expect.
+`\x06DataSpaces` metadata streams some Office builds expect. Prefer agile:
+standard encrypts with AES in ECB mode and carries no integrity check, so it
+hides content but does not detect tampering (see [Integrity](#integrity)).
+Choose it only for a consumer that cannot read agile.
 
 Whether a file is encrypted is a property of the file, not a choice the caller
 makes, so there is no separate encrypted entry point: every open detects the CFB
@@ -100,10 +113,13 @@ produced the bytes and whether they were authenticated
 ### How the open decides
 
 An open reads the input's leading bytes. A zip is read as a package; a CFB
-container is decrypted first — the open pulls out its `EncryptionInfo` and
+(compound file) container is decrypted first — the open pulls out its `EncryptionInfo` and
 `EncryptedPackage` streams and hands them to `crypto.Decrypt`, which dispatches
 on the `EncryptionInfo` version. With no password the same detection is what
-produces `opc.ErrEncrypted` instead of an opaque zip error. The recovered
+produces `opc.ErrEncrypted` instead of an opaque zip error. The detection looks
+only at the leading bytes, so a legacy binary Office file, which is a CFB file
+with no `EncryptionInfo` stream, produces `opc.ErrEncrypted` as well, and with
+a password `opc.ErrCorruptedPackage`. The recovered
 plaintext is read as a package directly, so a container nested inside a
 container is a corrupt file rather than a second layer to decrypt.
 
@@ -112,7 +128,7 @@ flowchart TD
     A["opc.NewReader(r, size, opc.WithPassword(pw))"] --> C["readCFB: extract EncryptionInfo + EncryptedPackage streams"]
     C --> D["crypto.Decrypt(encInfo, encPkg, password)"]
     D --> V{"EncryptionInfo version"}
-    V -- "4.4" --> AG["agile: AES-256-CBC / SHA-512 (Office 2010+)"]
+    V -- "4.4" --> AG["agile: AES-CBC (128/192/256) / SHA-1, -256, -384, -512<br/>(writes AES-256 / SHA-512; Office 2010+)"]
     V -- "minor 2, AES AlgID" --> ST["standard: AES-ECB / SHA-1 (Office 2007)"]
     V -- "minor 2, RC4 AlgID" --> RC["RC4 CryptoAPI decrypt (§2.3.5, read-only)"]
     V -- "minor 3 (extensible)" --> U["crypto.ErrUnsupportedEncryption"]

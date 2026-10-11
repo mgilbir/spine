@@ -7,13 +7,13 @@ A Go library for reading and writing Microsoft Office documents (PPTX, DOCX, XLS
 Each bullet links to the guide that carries the detail.
 
 - **OPC package support** — a low-level API for working with Open Packaging Convention packages.
-- **Round-trip preservation** — byte-identical round-trip fidelity for unmodified parts across all formats.
+- **Round-trip preservation** — open, edit, and save without disturbing what you did not edit: a part your code never reads is written back byte-for-byte; see [the round-trip model](docs/architecture.md#round-trip-fidelity-model) for what reading or editing a part changes.
 - **In-memory I/O** — `SaveBytes` and `OpenReader` on all three formats; see [Working with Documents in Memory](#working-with-documents-in-memory).
 - **Merge, append & split** — combine or divide packages with automatic id, part-name, and relationship remapping (no dangling references or duplicate parts): [pptx](docs/pptx.md#merging-and-splitting-decks), [docx](docs/docx.md#merging-and-appending-documents), [xlsx](docs/xlsx.md#merging-and-copying-sheets).
 - **Password encryption & digital signatures** — write real AES-encrypted documents (agile and standard schemes) across all three formats, read them back into a document model in every format (pass `opc.WithPassword` to the ordinary `Open`), and sign/verify OPC package signatures; see [Encryption and signing](docs/encryption-and-signing.md).
 - **VBA macros** — extract, inject/replace, and remove `vbaProject.bin`; see the [trust caveat](docs/encryption-and-signing.md#vba-macros).
-- **Charts** — a format-agnostic builder for column, bar, line, pie, scatter, combo, bubble, and 3D charts wired into all three formats; see [Charts](docs/charts.md).
-- **Text extraction** — a symmetric, read-only "give me all the text" API across all three formats for search, indexing, and LLM ingestion: [docx](docs/docx.md#text-extraction), [xlsx](docs/xlsx.md#text-extraction), [pptx](docs/pptx.md#text-extraction).
+- **Charts** — a format-agnostic builder for column, bar, line, pie, doughnut, area, radar, scatter, bubble, stock, surface, pie-of-pie, combo, and 3D charts wired into all three formats; see [Charts](docs/charts.md).
+- **Text extraction** — a symmetric "give me all the text" API (it changes nothing, though it loads what it reads; see the round-trip model) across all three formats for search, indexing, and LLM ingestion: [docx](docs/docx.md#text-extraction), [xlsx](docs/xlsx.md#text-extraction), [pptx](docs/pptx.md#text-extraction).
 - **Document & custom properties** — core, extended, and custom document properties on all three formats; see [Document properties](docs/docx.md#document-properties).
 - **Embedded OLE objects** — read with `OLEObjects()` and embed new objects in [docx](docs/docx.md), [pptx](docs/pptx.md#embedded-ole-objects), and [xlsx](docs/xlsx.md); unmodified objects round-trip verbatim.
 - **Form controls, ActiveX, ink & 3D models** — read Word/Excel form controls and ActiveX across formats ([details](docs/xlsx.md#form-controls-and-activex)), and extract [ink annotations and 3D models](docs/pptx.md#ink-annotations-and-3d-models).
@@ -145,11 +145,11 @@ comments, hyperlinks, images, protection), see the guides:
 
 ## Opening vs. Creating Documents
 
-`Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts you did not touch are preserved byte-for-byte. Known asymmetries that remain:
+`Create` builds a new document from scratch; `Open`/`OpenReader` parse an existing file. Both return the same types with the same mutation API, and edits made after `Open` persist on save: document properties, cell values, text edits, and added slides, sheets, or paragraphs are all written back, while parts your code never read are preserved byte-for-byte. A part that was read but not changed is re-emitted: identical for xlsx, and for pptx and docx nearly always identical, but not guaranteed (see [the round-trip model](docs/architecture.md#round-trip-fidelity-model)). Known asymmetries that remain:
 
 - pptx: `Create()` produces a 4:3 deck (use `CreateWithOptions` with `SlideSizeWidescreen`, or `CreateWidescreen()`, for 16:9). The baked master and layouts size their placeholders to the slide, so both aspect ratios are internally consistent.
 - docx: markup the library does not model is captured raw when a document is opened and preserved verbatim on save, but it is opaque to the API — `Text()` does not see text inside it and `SetText`/`ReplaceText` cannot edit it.
-- pptx: master and layout `Placeholders()` and `Theme()` are read-only views; mutating the returned values does not change the saved parts. To edit placeholder geometry use `EditablePlaceholders()`/`EditablePlaceholder()`, which write back to the part.
+- pptx: master and layout `Placeholders()` are read-only views; mutating the returned values does not change the saved parts. To edit placeholder geometry use `EditablePlaceholders()`/`EditablePlaceholder()`, which write back to the part. `Presentation.Theme()` and `SlideMaster.Theme()`, by contrast, are read/write: edits to the theme are saved (see [docs/pptx.md](docs/pptx.md)).
 
 ## Working with Documents in Memory
 
@@ -217,13 +217,14 @@ severity means the finding is reported and the save proceeds, because the
 corresponding Office app accepts the structure. The table is the single source
 of truth for these severities and is verified against the validators themselves
 by `internal/docsguard` — a severity that changes in code without changing here
-fails the build.
+fails `go test`. The guard compares codes and severities only; the "Fires when"
+text is maintained by hand.
 
 <!-- validation-catalog:begin -->
 
 | Code | Severity | Fires when |
 |------|----------|------------|
-| `dangling-rel` | error and warning | A reference names a relationship id that does not exist. Error where the structure cannot survive it — a section's `headerReference`/`footerReference` (docx), a workbook `sheet` (xlsx), a master's `sldLayoutId` (pptx). Warning for the references Word opens anyway: a drawing's image or chart embed, and a hyperlink (docx). |
+| `dangling-rel` | error and warning | A reference names a relationship id that does not exist. Error where the structure cannot survive it — a section's `headerReference`/`footerReference` (docx), a workbook `sheet` or a relationship to a part removed this session (xlsx), a master's `sldLayoutId` or a presentation's `sldId`/`custShow` entry (pptx). Warning for the references Word opens anyway: a drawing's image or chart embed, and a hyperlink (docx). |
 | `defined-name-scope` | error | A `definedName` is scoped to a `localSheetId` that is out of range for the workbook. |
 | `duplicate-part-name` | error | Two part names collide case-insensitively, which OPC forbids. |
 | `rel-id-dup` | error | Two relationships in one part's `.rels` share an `Id`, so a reference resolves to whichever the reader sees first (pptx). |
@@ -266,7 +267,7 @@ Each format family comes in several ECMA-376 flavors, distinguished only by the 
 | `docx`  | document (.docx), template (.dotx), macro-enabled document (.docm), and template (.dotm) |
 | `xlsx`  | workbook (.xlsx), template (.xltx), macro-enabled workbook (.xlsm), template (.xltm), and add-in (.xlam) |
 
-Documents built with `Create` always save as the regular flavor. Converting a file from one flavor to another (e.g. saving an `.xlsm` as a plain `.xlsx`, which would also need its macro parts stripped) is not supported.
+Adding or removing a VBA project changes the flavor: `SetVBAProject` switches the main part to its macro-enabled content type (`.xlsx` → `.xlsm`, `.docx` → `.docm`, `.pptx` → `.pptm`), and `RemoveVBAProject` switches it back, removing the macro parts — including on a document built with `Create`, which otherwise saves as the regular flavor. Other conversions, such as template to document or slideshow to presentation, are not supported.
 
 Opening an ISO-Strict (ISO/IEC 29500 Strict) package — a valid but as-yet-unread OOXML dialect that uses the `purl.oclc.org/ooxml` namespaces instead of the transitional ones — returns `opc.ErrStrictOOXML`, a distinct signal that the file is a genuine Office document in an unsupported dialect rather than a corrupt or non-Office file.
 
@@ -364,7 +365,7 @@ Runnable programs for all three formats live in [`examples/`](examples/):
 
 ## Testing
 
-Unit tests run against small synthetic fixtures (committed) and larger real-world Office files that are fetched on demand (`make fetch`, `make fetch-cc`) and skip silently when absent. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full build/test/lint/fuzz flow, [`testdata/README.md`](testdata/README.md) for the external and python-pptx fixtures, and [`testdata/cc/README.md`](testdata/cc/README.md) for the Common Crawl corpus. To run the full suite: `make test`.
+Unit tests run against small synthetic fixtures (committed) and larger real-world Office files that are fetched on demand (`make fetch`, `make fetch-cc`) and skip silently when absent. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full build/test/lint/fuzz flow, [`testdata/README.md`](testdata/README.md) for the external and python-pptx fixtures, and [`testdata/cc/README.md`](testdata/cc/README.md) for the Common Crawl corpus. To run the suite: `make test`, which fetches the fixtures first and checks a fast subset of the corpus; `make test-corpus` runs the whole corpus (15–20 minutes, in a memory-capped scope).
 
 ## Requirements
 

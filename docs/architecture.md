@@ -127,10 +127,11 @@ in three tiers:
    round-trip byte-identical via pass-through, versus 1189 when every slide is
    regenerated; docx 1196 versus 1194).
 
-One nuance: `pptx`'s `ReplaceText` materializes each scanned slide's model (its
-docx/xlsx text-scan counterparts do not), so those slides move to *Parsed* and
-are regenerated on save — byte-identical where no key matched, but no longer on
-the never-accessed verbatim-bytes path.
+One nuance: `ReplaceText` reads what it scans. In `pptx` every slide, and in
+`docx` the body, moves to *Parsed* even where no key matched. On save they are
+re-marshaled, so tier 3 applies: usually byte-identical, but no longer on the
+never-accessed verbatim path. `xlsx` scans sheets without leaving a part dirty
+when nothing matched, so tier 2 keeps them byte-identical.
 
 ## Round-trip fidelity model
 
