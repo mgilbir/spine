@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- docx: adding a header or footer to the last section after
+  `AddSectionBreak` no longer drops the one the earlier section still uses.
+  A section break copies the header and footer references into the new
+  section, and replacing one that had been added in the same session
+  released its part even though the first section still pointed at it, so
+  the save was refused with a dangling `headerReference` or
+  `footerReference` (C606). `examples/docx_report` failed this way since
+  0.2.0; every example now runs in the test suite.
+
 ## 0.4.0 - 2026-10-10
 
 The first release that renders. New packages draw Word, PowerPoint and Excel

@@ -107,8 +107,11 @@ func (d *Document) addHeaderTo(sectPr *oxml.CT_SectPr, hType HeaderType) *Header
 		replacedRID = existingRef.RID
 		// A part added earlier in this session is dropped up front: it was
 		// never written, so releasing it here also frees its part name for the
-		// replacement to reuse.
-		replacedSession = d.dropSessionHeader(replacedRID)
+		// replacement to reuse. A section break copies references, so another
+		// section may still point at the part; then it is kept.
+		if !d.hdrFtrRefInUseExcept(replacedRID, existingRef) {
+			replacedSession = d.dropSessionHeader(replacedRID)
+		}
 	}
 
 	// Derive the part name from the parts already in the package (preserved
@@ -192,7 +195,9 @@ func (d *Document) AddFooter(fType FooterType) *Footer {
 	replacedRID, replacedSession := "", false
 	if existingRef != nil {
 		replacedRID = existingRef.RID
-		replacedSession = d.dropSessionFooter(replacedRID)
+		if !d.hdrFtrRefInUseExcept(replacedRID, existingRef) {
+			replacedSession = d.dropSessionFooter(replacedRID)
+		}
 	}
 
 	// Derive the part name from the parts already in the package (see AddHeader).

@@ -2080,17 +2080,24 @@ func (d *Document) dropUntargetedPreservedPart(name string) ([]*opc.Relationship
 // hdrFtrRefInUse reports whether any section in the document still carries a
 // header or footer reference with the given relationship id.
 func (d *Document) hdrFtrRefInUse(relID string) bool {
+	return d.hdrFtrRefInUseExcept(relID, nil)
+}
+
+// hdrFtrRefInUseExcept is hdrFtrRefInUse ignoring one reference: the one a
+// repeated AddHeader/AddFooter is about to repoint, so the answer is whether
+// any other section shares the part it names.
+func (d *Document) hdrFtrRefInUseExcept(relID string, except *oxml.CT_HdrFtrRef) bool {
 	uses := func(sectPr *oxml.CT_SectPr) bool {
 		if sectPr == nil {
 			return false
 		}
 		for _, ref := range sectPr.HeaderReference {
-			if ref != nil && ref.RID == relID {
+			if ref != nil && ref != except && ref.RID == relID {
 				return true
 			}
 		}
 		for _, ref := range sectPr.FooterReference {
-			if ref != nil && ref.RID == relID {
+			if ref != nil && ref != except && ref.RID == relID {
 				return true
 			}
 		}
