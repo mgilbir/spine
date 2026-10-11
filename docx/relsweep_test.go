@@ -258,3 +258,57 @@ func TestAddHeaderKeepsHeaderSharedWithAnotherSection(t *testing.T) {
 		t.Errorf("the shared header relationship was dropped:\n%s", rels)
 	}
 }
+
+// TestReplacingSessionHeaderFooterKeepsSharedPart is the session-part half of
+// the guard above: the header or footer was added in this session, not opened
+// from a file, and a section break then shared it with a second section.
+// Replacing it in the final section dropped the part outright, leaving the
+// first section's reference dangling, so the save was refused
+// (examples/docx_report failed this way; C606).
+func TestReplacingSessionHeaderFooterKeepsSharedPart(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		add  func(d *Document, text string)
+		ref  string
+	}{
+		{"header", func(d *Document, text string) { d.AddHeader(HeaderDefault).AddParagraphWithText(text) }, "<w:headerReference"},
+		{"footer", func(d *Document, text string) { d.AddFooter(FooterDefault).AddParagraphWithText(text) }, "<w:footerReference"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := Create()
+			doc.AddParagraphWithText("first section")
+			tc.add(doc, "FIRST")
+			doc.AddSectionBreak()
+			doc.AddParagraphWithText("second section")
+			tc.add(doc, "SECOND")
+
+			doc, saved := reopen(t, doc)
+			docXML := zipEntryString(t, saved, "word/document.xml")
+			if n := strings.Count(docXML, tc.ref); n != 2 {
+				t.Fatalf("reference count = %d, want 2 (one per section):\n%s", n, docXML)
+			}
+			// Each section keeps its own part: the first section's survives
+			// the replacement, and the second gets a fresh one.
+			rels := zipEntryString(t, saved, "word/_rels/document.xml.rels")
+			for part, want := range map[string]string{
+				"word/" + tc.name + "1.xml": "FIRST",
+				"word/" + tc.name + "2.xml": "SECOND",
+			} {
+				body, ok := zipEntry(t, saved, part)
+				if !ok {
+					t.Errorf("%s is missing", part)
+					continue
+				}
+				if !strings.Contains(string(body), want) {
+					t.Errorf("%s does not carry %q:\n%s", part, want, body)
+				}
+				if !strings.Contains(rels, strings.TrimPrefix(part, "word/")) {
+					t.Errorf("no relationship targets %s:\n%s", part, rels)
+				}
+			}
+			if _, err := doc.SaveBytes(); err != nil {
+				t.Errorf("re-save of the reopened document: %v", err)
+			}
+		})
+	}
+}
