@@ -2,7 +2,7 @@
 
 > **Historical design note.** This is the plan rendering was built from, kept
 > for its reasoning. It is not current status: rendering shipped in 0.4.0, and
-> what it supports today is in the [rendering guide](rendering.md). Several
+> what it supports today is in the [rendering guide](../rendering.md). Several
 > decisions below were revisited in the implementation. Notably, the
 > dependency rule: gowemf (EMF/WMF) and, for `cmd/spine-render`, aster (charts)
 > were added alongside Forme.
