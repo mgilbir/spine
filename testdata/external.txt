@@ -11,7 +11,10 @@ docx/testdata/external/ema_signal_template.docx	https://www.ema.europa.eu/en/doc
 docx/testdata/external/wmo_accountability_report.docx	https://wmo.int/sites/default/files/2025-10/EC-79-INF08-5%285%29-ANNUAL-ACCOUNTABILITY-REPORT-IOO-2024_en%20%281%29.docx
 
 # PPTX fixtures
-pptx/testdata/external/internet_basics.pptx	https://tcall.tamu.edu/digitalliteracytoolkit/2.%20internet%20basics%20and%20cyber%20safety/2.2%20internet%20basics%20presentation.pptx
+# internet_basics: tcall.tamu.edu removed the file (404 under either spelling of
+# the path, checked 2026-10-11). The Internet Archive's raw capture (the id_
+# form returns the original bytes) is the same 49-slide, animated deck.
+pptx/testdata/external/internet_basics.pptx	https://web.archive.org/web/20221127214456id_/https://tcall.tamu.edu/DigitalLiteracyToolkit/2.%20Internet%20Basics%20and%20Cyber%20Safety/2.2%20Internet%20Basics%20Presentation.pptx
 pptx/testdata/external/swarm_cop.pptx	https://earth.esa.int/eogateway/documents/20142/2249972/N2_E_Maestroni_Swarm_COP.pptx
 pptx/testdata/external/sefuw.pptx	https://indico.esa.int/event/531/contributions/10620/attachments/6614/11765/SEFUW.pptx
 pptx/testdata/external/lecture_1_3.pptx	https://ivi.fnwi.uva.nl/fcn/teaching/Project_Analysis_2013/Practicum%20Lectures/Lecture%201.3.pptx
