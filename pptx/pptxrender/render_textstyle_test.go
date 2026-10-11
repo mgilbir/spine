@@ -126,7 +126,7 @@ func TestRenderRejectsAmbiguousOrUnsupportedInheritedText(t *testing.T) {
 	data, opts := renderInheritedText(t)
 	slide := func(lstStyle, paragraphs string) func(string) string { return renderBody(lstStyle, paragraphs) }
 	otherSize := func(s string) string {
-		return strings.Replace(s, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800"/>`, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="2400"/>`, 1)
+		return strings.Replace(s, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800"`, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="2400"`, 1)
 	}
 	for name, rewrites := range map[string]map[string]func(string) string{
 		// The master's other-text style and the default text style disagree.
@@ -134,7 +134,8 @@ func TestRenderRejectsAmbiguousOrUnsupportedInheritedText(t *testing.T) {
 		// PowerPoint may ignore a paragraph's own default run properties.
 		"paragraph default run": {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p><a:pPr><a:defRPr sz="2400"/></a:pPr>`+renderPlainRun+`</a:p>`)},
 		"inherited highlight": {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p>`+renderPlainRun+`</a:p>`), "ppt/slideMasters/slideMaster1.xml": func(s string) string {
-			return strings.Replace(s, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800"/>`, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800"><a:highlight><a:srgbClr val="FFFF00"/></a:highlight></a:defRPr>`, 1)
+			// highlight follows the fill in CT_TextCharacterProperties.
+			return strings.Replace(s, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill>`, `<p:otherStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1800" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:highlight><a:srgbClr val="FFFF00"/></a:highlight>`, 1)
 		}},
 		"unknown default style content": {"ppt/slides/slide1.xml": slide(`<a:lstStyle/>`, `<a:p>`+renderPlainRun+`</a:p>`), "ppt/presentation.xml": func(s string) string {
 			return strings.Replace(s, `<a:defPPr>`, `<a:defPPr futureAttr="1">`, 1)

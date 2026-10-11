@@ -654,31 +654,45 @@ func newMasterXML() *oxml.SlideMaster {
 			FolHlink: "folHlink",
 		},
 		TxStyles: &oxml.TxStyles{
-			TitleStyle: newDefaultTextListStyle(4400), // 44pt for titles
-			BodyStyle:  newDefaultTextListStyle(1800), // 18pt for body
-			OtherStyle: newDefaultTextListStyle(1800), // 18pt for other
+			TitleStyle: newDefaultTextListStyle(4400, "mj"), // 44pt, heading fonts
+			BodyStyle:  newDefaultTextListStyle(1800, "mn"), // 18pt, body fonts
+			OtherStyle: newDefaultTextListStyle(1800, "mn"), // 18pt, body fonts
 		},
 	}
 }
 
-// newDefaultTextListStyle creates a default text list style.
-func newDefaultTextListStyle(baseFontSize int32) *dml.LstStyle {
+// newDefaultTextListStyle creates a default text list style whose runs use
+// the theme's major ("mj") or minor ("mn") fonts.
+func newDefaultTextListStyle(baseFontSize int32, fonts string) *dml.LstStyle {
 	return &dml.LstStyle{
-		Lvl1pPr: newDefaultLevelPPr(baseFontSize, 0),
-		Lvl2pPr: newDefaultLevelPPr(baseFontSize-200, 457200),
-		Lvl3pPr: newDefaultLevelPPr(baseFontSize-400, 914400),
-		Lvl4pPr: newDefaultLevelPPr(baseFontSize-600, 1371600),
-		Lvl5pPr: newDefaultLevelPPr(baseFontSize-800, 1828800),
+		Lvl1pPr: newDefaultLevelPPr(baseFontSize, 0, fonts),
+		Lvl2pPr: newDefaultLevelPPr(baseFontSize-200, 457200, fonts),
+		Lvl3pPr: newDefaultLevelPPr(baseFontSize-400, 914400, fonts),
+		Lvl4pPr: newDefaultLevelPPr(baseFontSize-600, 1371600, fonts),
+		Lvl5pPr: newDefaultLevelPPr(baseFontSize-800, 1828800, fonts),
 	}
 }
 
 // newDefaultLevelPPr creates default paragraph properties for a level.
-func newDefaultLevelPPr(fontSize int32, marginLeft int32) *dml.PPr {
+//
+// The run defaults name the kerning, color and fonts the way PowerPoint's own
+// master does (kern="1200", the tx1 scheme color, the theme's major or minor
+// fonts). The presentation's default text style sets them too, and whether a
+// placeholder inherits those document defaults is not settled, so a master
+// that left them unset gave a renderer two readings that disagree: every
+// placeholder's text on a created deck failed strict rendering (C611).
+func newDefaultLevelPPr(fontSize int32, marginLeft int32, fonts string) *dml.PPr {
+	kern := int32(1200)
 	return &dml.PPr{
 		MarL: &marginLeft,
 		Algn: "l",
 		DefRPr: &dml.RPr{
-			Sz: fontSize,
+			Sz:        fontSize,
+			Kern:      &kern,
+			SolidFill: &dml.SolidFill{SchemeClr: &dml.SchemeClrTransform{Val: "tx1"}},
+			Latin:     &dml.TextFont{Typeface: "+" + fonts + "-lt"},
+			Ea:        &dml.TextFont{Typeface: "+" + fonts + "-ea"},
+			Cs:        &dml.TextFont{Typeface: "+" + fonts + "-cs"},
 		},
 	}
 }

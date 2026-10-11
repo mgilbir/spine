@@ -34,6 +34,14 @@
   until save binds it to the first one, and the default theme is written only
   at save. The renderer now sees the layout and theme the save will write, and
   draws the unsaved slide exactly as the saved and reopened one (C610).
+- pptx: the slide master `Create` writes gives its title, body and other text
+  styles the run defaults PowerPoint's own master has: `kern="1200"`, the `tx1`
+  scheme color, and the theme's heading fonts for titles and body fonts for
+  the rest. Without them those styles and the presentation's default text
+  style disagreed, so in strict mode every placeholder's text on a created
+  deck failed to render ("ambiguous inherited kerning", then "text without a
+  color"). Every deck built with `Create` now writes the longer master text
+  styles (C611).
 
 ### Changed
 
