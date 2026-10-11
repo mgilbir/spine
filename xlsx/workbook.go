@@ -572,8 +572,9 @@ func (w *Workbook) SaveBytes() ([]byte, error) {
 // so saving an empty workbook returns ErrNoSheets (C130). It then runs Validate
 // and refuses to write — returning the Report as an error — when any
 // error-severity finding is present, so a structurally corrupt package is never
-// produced. SaveToUnvalidated bypasses the validation gate (but still enforces
-// the non-empty-sheet invariant).
+// produced: Validate loads and checks every sheet, read or not.
+// SaveToUnvalidated bypasses the validation gate (but still enforces the
+// non-empty-sheet invariant).
 //
 // Round-trip contract: for a workbook opened with Open/OpenReader, parts the
 // session never touched are written back byte-for-byte — including sheets that

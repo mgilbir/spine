@@ -872,8 +872,10 @@ func (p *Presentation) SaveBytes() ([]byte, error) {
 // SaveTo saves the presentation to an arbitrary writer.
 //
 // It first runs Validate and refuses to write — returning the Report as an
-// error — when any error-severity finding is present, so a structurally corrupt
-// package is never produced. SaveToUnvalidated bypasses this gate.
+// error — when any error-severity finding is present, so an edit cannot
+// introduce a structural error. SaveToUnvalidated bypasses this gate. A slide
+// that was never read is not checked: it is written back verbatim, defects
+// included, and checked once something reads it (see Validate).
 //
 // Round-trip contract: for a presentation opened with Open/OpenReader, parts the
 // session never touched are written back byte-for-byte — including slides that

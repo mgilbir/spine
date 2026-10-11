@@ -8,35 +8,48 @@ contract that underlies all of it, see
 
 ```mermaid
 flowchart TD
+    cli["cmd/spine-render"]
+    pr["pptx/pptxrender"]
+    dr["docx/docxrender"]
+    xr["xlsx/xlsxrender"]
+    render["render (page snapshots, PNG/SVG writers)"]
+    irender["internal/render, internal/metafile<br/>(Forme, gowemf)"]
     pptx["pptx"]
     docx["docx"]
     xlsx["xlsx"]
     chart["chart (public chart builder)"]
     validate["common/validate"]
-    models["common/* models: dml (+chart, diagram), oxml, omml, enum, vml"]
+    models["common/* models: dml (+chart, diagram), oxml, omml, vml"]
+    enum["common/enum"]
     opc["opc (parts, rels, content types, signatures, encrypted containers)"]
     crypto["common/crypto (agile/standard AES, RC4 decrypt, XML-DSig)"]
+    options["common/options"]
     xmlb["common/xml (Builder + reflection marshaler)"]
 
-    pptx --> opc & models & validate & chart
-    docx --> opc & models & validate & chart & crypto
-    xlsx --> opc & models & validate & chart & crypto
+    cli --> pr & dr & xr
+    pr --> pptx & render
+    dr --> docx & render
+    xr --> xlsx & render
+    render --> irender
+    pptx --> opc & models & enum & validate & chart & xmlb
+    docx --> opc & models & enum & validate & chart & xmlb & crypto
+    xlsx --> opc & models & enum & validate & chart & xmlb & crypto
     chart --> models & xmlb
     validate --> opc
-    opc --> crypto & xmlb
+    opc --> crypto & xmlb & options
     models --> xmlb
 ```
 
 - **opc** is the OPC container: parts, relationships, `[Content_Types].xml`,
   package signatures, and the CFB-wrapped encrypted containers. It depends only
-  on `common/crypto` and `common/xml`.
+  on `common/crypto`, `common/xml`, and `common/options` (the shared functional
+  options type behind `opc.WithPassword` and the `WithMax*` limits).
 - **common/xml** is the write substrate — the `Builder` and the reflection
   marshaler that every XML part is serialized through. It has no spine
   dependencies (Go stdlib only), which is why it sits at the bottom.
 - **The shared models** (`common/dml` and its `chart`/`diagram` children,
-  `oxml`, `omml`, plus the leaf packages `enum` and `vml`) are the typed OOXML
-  structs. The ones that marshal (dml, oxml, omml, dml/chart, dml/diagram)
-  depend on `common/xml`; `enum` and `vml` are pure leaves.
+  `oxml`, `omml`, `vml`) are the typed OOXML structs, and all of them marshal
+  through `common/xml`. `common/enum` is the one pure leaf.
 - **common/validate** is the pre-save checker. It depends on `opc` (it inspects
   the assembled package), so it is not a bottom-level leaf.
 - **chart** is the public chart builder; it composes `common/dml`(/chart) values
@@ -46,23 +59,35 @@ flowchart TD
   `opc`'s CFB bridge — reading via `opc.WithPassword` on its ordinary open,
   writing through its own `SaveEncrypted` pair. Each also has an `internal/oxml`
   package for its format-specific structs.
+- **The render tier** sits on top and points one way. `pptxrender`,
+  `docxrender` and `xlsxrender` turn an opened document into `render.Page`
+  snapshots, drawn by `internal/render` with [Forme](https://github.com/mgilbir/forme),
+  and with [gowemf](https://github.com/mgilbir/gowemf) for EMF/WMF pictures.
+  No format package imports them, so a program that imports only `pptx`,
+  `docx` or `xlsx` links neither the renderer nor its dependencies.
+  `cmd/spine-render` wraps all three, adding aster to draw charts. See the
+  [rendering guide](rendering.md).
 
 ## Save pipeline
 
 ```mermaid
 flowchart TD
-    A["Save / SaveAs / SaveTo / SaveBytes"] --> V{"Validate()"}
+    A["Save / SaveTo / SaveBytes"] --> V{"Validate():<br/>loaded parts + package structure<br/>(never-read pptx slides / docx body skipped)"}
     V -- "error-severity finding" --> E["refused: Report returned as error<br/>(escape hatch: SaveToUnvalidated)"]
     V -- "clean or warnings only" --> O{"opened from a file?"}
     O -- "Create()" --> N["saveNew: every part generated from the model"]
     O -- "Open() / OpenReader()" --> R["saveRoundTrip"]
-    R --> P["untouched parts: original bytes verbatim<br/>(incl. never-accessed lazy slides / sheets / body)"]
+    R --> P["untouched parts: original bytes verbatim<br/>(incl. never-accessed lazy slides / sheets / body,<br/>which were not validated)"]
     R --> G["touched parts: regenerated from the model,<br/>plus the OPC furniture that references them"]
 ```
 
 `SaveTo` runs `Validate()` first and returns the `Report` as an error on any
-error-severity finding, so a structurally corrupt package is never written;
-`SaveToUnvalidated` is the escape hatch. (`xlsx` also refuses an empty workbook
+error-severity finding, so an edit cannot introduce a structural error;
+`SaveToUnvalidated` is the escape hatch. The check covers what is loaded plus
+the package structure. A pptx slide or the docx body that was never read is not
+parsed to be checked; it passes through verbatim, defects included, and is
+checked from the moment something reads it. xlsx's `Validate()` loads every
+sheet, so it has no such gap. (`xlsx` also refuses an empty workbook
 with `ErrNoSheets` ahead of the gate.) The origin decides the rest: a document
 built with `Create` regenerates every part (`saveNew`), while one opened from a
 file takes `saveRoundTrip`, writing untouched parts verbatim and regenerating
@@ -72,7 +97,7 @@ only the ones the session touched.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Raw: Open() validates the part, then discards the model
+    [*] --> Raw: Open() parse-checks the part, then discards the model
     Raw --> Parsed: first read (Slide shapes / Sheet cells / Document body)
     Parsed --> Dirty: any mutation
     Raw --> [*]: Save writes original bytes verbatim
@@ -80,8 +105,11 @@ stateDiagram-v2
     Dirty --> [*]: Save regenerates the part from the model
 ```
 
-Slides (`pptx`), sheets (`xlsx`), and the document body (`docx`) are validated
-once at `Open` and then discarded; the model is re-parsed only on first access.
+Slides (`pptx`), sheets (`xlsx`), and the document body (`docx`) are parsed
+once at `Open`, to reject malformed XML, and then discarded; the model is
+re-parsed only on first access. The parse at `Open` is not `Validate()`: a
+well-formed part with a structural error, such as a duplicate shape id, passes
+it.
 Reading never marks a part dirty, but what "unedited" buys you differs by format,
 in three tiers:
 

@@ -1,7 +1,112 @@
 # Native rendering
 
-Implementation is in progress in stacked draft PRs. The `render` package can
-prepare a caller-supplied Forme display list and write PNG or SVG. `pptxrender.PrepareSlide` (package `pptx/pptxrender`) supports a first static slide profile. `xlsxrender.PrepareRange` (package `xlsx/xlsxrender`) supports bounded range previews. `docxrender.Prepare` and `docxrender.PreparePage` (package `docx/docxrender`) lay out a Word document and prepare its physical pages.
+spine draws PowerPoint slides, the physical pages of a Word document, and Excel
+cell ranges as PNG or SVG, in pure Go, with no browser, office suite or external
+process. Use it for thumbnails, previews and visual diffs. Each format has its
+own entry point, and all of them produce a `render.Page` that writes PNG or SVG:
+
+| To draw | Call | Package |
+|---|---|---|
+| one slide | `pptxrender.PrepareSlide(ctx, slide, opts)` | `pptx/pptxrender` |
+| the pages of a Word document | `docxrender.Prepare(ctx, doc, opts)`, then `Pages.Page(ctx, n)` with `n` counted from 1 (or `docxrender.PreparePage` for a single page) | `docx/docxrender` |
+| a cell range | `xlsxrender.PrepareRange(ctx, sheet, "A1:D20", opts)` | `xlsx/xlsxrender` |
+
+Rendering shipped in 0.4.0. The format packages do not import it, so a program
+that only reads and writes documents does not link the renderer.
+
+## Quick start
+
+Render the third slide of a deck to a 144 DPI PNG:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/mgilbir/forme/fonts/notosans"
+    "github.com/mgilbir/forme/shape"
+    "github.com/mgilbir/spine/pptx"
+    "github.com/mgilbir/spine/pptx/pptxrender"
+    "github.com/mgilbir/spine/render"
+)
+
+func main() {
+    ctx := context.Background()
+
+    p, err := pptx.Open("deck.pptx")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer p.Close()
+
+    // Every font the slide asks for is answered with the bundled Noto Sans.
+    // Map the deck's real fonts here (shape.Load on the font file) for
+    // faithful text.
+    noto, err := notosans.Face()
+    if err != nil {
+        log.Fatal(err)
+    }
+    opts := render.Options{
+        Fonts: func(ctx context.Context, req render.FontRequest) (*shape.Face, error) {
+            return noto, nil
+        },
+        // Best effort: draw what can be drawn and report the rest.
+        // Leave Warn nil to fail on anything not drawn exactly.
+        Warn: func(err error) { log.Println("warning:", err) },
+    }
+
+    page, err := pptxrender.PrepareSlide(ctx, p.Slides()[2], opts) // slide 3
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    out, err := os.Create("slide-3.png")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer out.Close()
+    if err := page.WritePNG(ctx, out, 144); err != nil { // 144 DPI
+        log.Fatal(err)
+    }
+    fmt.Println(page.Size(144))
+}
+```
+
+Two things in `render.Options` decide most outcomes:
+
+- **`Fonts`** is required. spine never looks up host fonts: every family the
+  document names is requested from your resolver as a `render.FontRequest`.
+  Map them to font files with `shape.Load` (from
+  `github.com/mgilbir/forme/shape`), or answer every request with the bundled
+  Noto Sans as above. Text drawn in a substitute font is laid out with that
+  font's metrics, so it will not match Office line for line.
+- **`Warn`** selects the mode. Left nil, the call is *strict*: anything that
+  cannot be drawn exactly fails it with `render.ErrUnsupported`. Set, the call
+  is *best effort*: the rest is drawn and the problems are reported to `Warn`,
+  each as an error wrapping `render.ErrUnsupported` (left out) or `render.ErrApproximated`
+  (drawn approximately). XLSX range previews are always strict.
+
+From the command line, the same render for every slide is:
+
+```sh
+go build ./cmd/spine-render
+./spine-render -input deck.pptx -out previews -fallback-noto
+```
+
+`examples/render_previews` renders a slide, a sheet range and two Word pages,
+to both formats. The rest of this guide is reference: the painter and its
+limits, then what each format draws, approximates and leaves out, then the
+[command line](#file-rendering-cli) and [measuring fidelity](#measuring-fidelity).
+
+## The painter
+
+At the lowest level, `render.Prepare` takes a Forme display list and page size
+and returns the same `render.Page`. The format renderers above build that list
+for you; call it directly only to draw your own content:
 
 ```go
 page, err := render.Prepare(ctx, dml.Inches(8.5), dml.Inches(11), ops, render.Limits{})
@@ -10,8 +115,11 @@ return page.WritePNG(ctx, writer, 144)
 ```
 
 PNG is painted directly in Go; SVG is a sibling writer. There is no browser,
-external process, SVG conversion or PDF intermediate. Forme is the only added
-dependency. PDF/pdf0 has not been included.
+external process, SVG conversion or PDF intermediate. Rendering adds
+[Forme](https://github.com/mgilbir/forme) (layout and text) and
+[gowemf](https://github.com/mgilbir/gowemf) (EMF/WMF pictures) to the module's
+dependencies; `cmd/spine-render` also links aster, which draws charts and
+brings pdf0 in indirectly. The library writes no PDF.
 
 Snapshots own copied geometry and normalized image pixels, are safe for concurrent
 rendering, and survive later source edits. Fonts and image buffers must remain

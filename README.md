@@ -20,6 +20,7 @@ Each bullet links to the guide that carries the detail.
 - **PowerPoint (PPTX)** — create and modify presentations: shapes, tables, images, charts, animations, transitions, SmartArt, media, sections, and comments; see [docs/pptx.md](docs/pptx.md).
 - **Word (DOCX)** — create and modify documents: styles, tables, tracked changes, comments, footnotes, mail merge, content controls, and fields; see [docs/docx.md](docs/docx.md).
 - **Excel (XLSX)** — create and modify workbooks: add and delete sheets (deletion cascades to the parts only that sheet owned), formulas, styles, pivot tables, conditional formatting, sparklines, tables, and page/print setup; see [docs/xlsx.md](docs/xlsx.md).
+- **Rendering** — draw slides, Word pages, and sheet ranges to PNG or SVG in pure Go (`pptxrender`, `docxrender`, `xlsxrender`), or from the command line with `spine-render`; see [Rendering](docs/rendering.md).
 
 ## Installation
 
@@ -191,7 +192,9 @@ For xlsx, `WriteToBuffer` still works but is deprecated: it is `SaveBytes` wrapp
 
 Every top-level type — `pptx.Presentation`, `docx.Document`, `xlsx.Workbook` — has a `Validate()` method that inspects the current in-memory model (without saving) and returns a `validate.Report` (from `github.com/mgilbir/spine/common/validate`): a slice of structured findings. Each finding carries a stable `Code`, a `Severity` (error or warning), the `Part` it concerns, and a human-readable `Detail`, so callers can triage programmatically rather than parse a string.
 
-`Save`, `SaveBytes`, and `SaveTo` run `Validate()` first and refuse to write when any **error-severity** finding is present, so a structurally corrupt package is never produced. Warnings never block a save. The findings are sound — no error-severity finding fires on a file the corresponding Office app accepts.
+`Save`, `SaveBytes`, and `SaveTo` run `Validate()` first and refuse to write when any **error-severity** finding is present, so an edit cannot introduce a structural error. Warnings never block a save. The findings are sound — no error-severity finding fires on a file the corresponding Office app accepts.
+
+The gate checks what the program has loaded, not the whole input file. A pptx slide or the docx body that was never read is not parsed for validation: it is written back byte-for-byte, defects included. xlsx checks every sheet. So a damaged input file can save without complaint, and the same save is refused once your code reads the damaged slide or body, even if it changes nothing. See [Troubleshooting](docs/troubleshooting.md#save-refused-after-only-reading-a-file).
 
 ```go
 p, _ := pptx.Open("deck.pptx")
@@ -322,6 +325,7 @@ Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use
     - `chart/` - Chart types
     - `diagram/` - Diagram types
   - `enum/` - Common enumerations
+  - `options/` - The functional-option mechanism behind `opc.WithPassword`, the `WithMax*` limits, and the other per-call options
   - `omml/` - Office Math Markup Language types
   - `oxml/` - Shared Office XML types
   - `validate/` - Structured validation vocabulary (`Report`, `Error`) shared by the format packages
@@ -329,12 +333,17 @@ Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use
   - `xml/` - XML namespace handling and Builder-based serialization
 - `chart/` - Public, format-agnostic chart builder, serialization, and reader
 - `pptx/` - PowerPoint document support
+  - `pptxrender/` - Render a slide to a `render.Page`
 - `docx/` - Word document support
+  - `docxrender/` - Lay out and paginate a document into `render.Page`s
 - `xlsx/` - Excel document support
+  - `xlsxrender/` - Render a cell range to a `render.Page`
+- `render/` - Page snapshots and the PNG/SVG writers shared by the three renderers
+- `cmd/spine-render/` - Command-line renderer for .pptx, .docx, and .xlsx files
 
 ## Documentation
 
-- [docs/](docs/README.md) — the documentation index, routed by reader question, plus the per-format guides ([pptx](docs/pptx.md), [docx](docs/docx.md), [xlsx](docs/xlsx.md)), [charts](docs/charts.md), [encryption and signing](docs/encryption-and-signing.md), and [troubleshooting](docs/troubleshooting.md).
+- [docs/](docs/README.md) — the documentation index, routed by reader question, plus the per-format guides ([pptx](docs/pptx.md), [docx](docs/docx.md), [xlsx](docs/xlsx.md)), [charts](docs/charts.md), [encryption and signing](docs/encryption-and-signing.md), [rendering](docs/rendering.md), and [troubleshooting](docs/troubleshooting.md).
 - [docs/architecture.md](docs/architecture.md) — how the library is put together: package layering, the save pipeline, and the lazy-parse part lifecycle, drawn as diagrams.
 - [CHANGELOG.md](CHANGELOG.md) — the release history, including the 0.1.0 lazy-parse behavior.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, lint, fuzz, and the round-trip philosophy.
@@ -350,6 +359,7 @@ Runnable programs for all three formats live in [`examples/`](examples/):
 - [`docx_review`](examples/docx_review) — review a Word document: list tracked changes and comment threads, then accept all revisions and save a clean copy.
 - [`xlsx_report`](examples/xlsx_report) — a guided tour of the newer XLSX authoring features: a table with a totals row, conditional formatting, an embedded chart, page/print setup, freeze panes, named styles and sheet/workbook protection.
 - [`xlsx_dashboard`](examples/xlsx_dashboard) — build a sales dashboard: a pivot table cross-tabulating regions against months, per-row and per-column sparklines, and a line chart, then reopen the file to read the pivot layout and sparkline groups back.
+- [`render_previews`](examples/render_previews) — render a slide, a sheet range, and the pages of a Word document to PNG and SVG.
 - [`docx_mailmerge`](examples/docx_mailmerge) — author a mail-merge form letter: mail-merge configuration with a data source, MERGEFIELD placeholders, a floating text-box callout, a "DRAFT" text watermark, and author-side tracked changes — reopened to read the merge fields, text boxes, watermark, and revisions back.
 
 ## Testing
@@ -360,7 +370,7 @@ Unit tests run against small synthetic fixtures (committed) and larger real-worl
 
 - Go 1.26 or later
 
-Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and the encrypted open surfaces `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
+Spine is pre-1.0 (module `v0.x`): the API may change between minor versions, per the Go module versioning conventions. All non-internal packages are part of the public API surface. Some are imported directly by the user-facing examples (`chart`, `common/dml`, `common/enum`, `opc`, `render`, `pptx/pptxrender`, `docx/docxrender`, `xlsx/xlsxrender`); the rest are reachable through the format packages' own signatures — `Validate()` returns a `common/validate.Report`, and the encrypted open surfaces `common/crypto`'s errors and options — so they are equally part of the contract. Anything under an `internal/` path is not.
 
 ## License
 
@@ -369,7 +379,3 @@ MIT License - see LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and fixture instructions, and please feel free to submit issues and pull requests.
-
-Native PNG/SVG rendering is being implemented in stacked PRs. See the
-[rendering guide](docs/rendering.md) for the supported static-slide profile and
-resource, font, source-preservation and output contracts.

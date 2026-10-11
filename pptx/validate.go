@@ -32,6 +32,11 @@ const (
 // The checks are sound (no false positives on Office-accepted packages): each
 // mirrors what the save path actually writes and errs toward silence when a
 // fact cannot be established from the model alone.
+//
+// Slide checks cover only slides that have been loaded. A slide nothing has
+// read is not parsed to be checked, so a defect it arrived with is neither
+// reported nor fixed: save writes it back verbatim. Reading the slide loads it,
+// and from then on its defects are reported.
 func (p *Presentation) Validate() validate.Report {
 	c := validate.New()
 	p.validateShapeIDs(c)
