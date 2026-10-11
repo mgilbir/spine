@@ -35,6 +35,11 @@
   at save. The renderer now sees the layout and theme the save will write, and
   draws the unsaved slide exactly as the saved and reopened one (C610).
 
+### Deprecated
+
+- pptx: `ErrNoSlides`. No function has ever returned it, so code matching it
+  never matched; a presentation with no slides opens, saves and validates.
+
 ## 0.4.0 - 2026-10-10
 
 The first release that renders. New packages draw Word, PowerPoint and Excel

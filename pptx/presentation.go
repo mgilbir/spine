@@ -43,8 +43,15 @@ import (
 
 // Common errors
 var (
-	ErrNotPPTX      = errors.New("pptx: not a valid PowerPoint file")
-	ErrNoSlides     = errors.New("pptx: presentation has no slides")
+	ErrNotPPTX = errors.New("pptx: not a valid PowerPoint file")
+
+	// ErrNoSlides is never returned: a presentation with no slides opens,
+	// saves and validates.
+	//
+	// Deprecated: nothing returns it, so matching it never succeeds. It is
+	// kept so existing references still compile.
+	ErrNoSlides = errors.New("pptx: presentation has no slides")
+
 	ErrSlideIndex   = errors.New("pptx: slide index out of range")
 	ErrInvalidSlide = errors.New("pptx: invalid slide")
 
