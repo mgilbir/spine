@@ -147,3 +147,33 @@ Markup the typed model does not represent is captured verbatim and replayed on
 save, so unknown content survives a round trip untouched. Both invariants and
 the tests that enforce them are described in
 [CONTRIBUTING § Round-trip philosophy](../CONTRIBUTING.md#round-trip-philosophy).
+
+## Why it is built this way
+
+**Lazy parsing.** Opening a document used to build a model of every slide,
+sheet and document body and hold it for the document's lifetime, even when
+the caller only read a little or saved it unchanged. Parsing on first access
+cut the heap retained after open from ~506 MB to ~1 MB on a 51 MB Word body,
+by ~75% on a 21 MB worksheet, and by ~28% on a 39-slide deck. It also improved
+fidelity: a part passed through is always byte-identical, where a regenerated
+one occasionally drifted. The figures are in the [0.1.0 changelog](../CHANGELOG.md#010---2026-07-22).
+
+**Why the save check skips parts nothing has read.** Checking a slide or a
+body means parsing it, which is the cost lazy parsing exists to avoid, and a
+part nobody has touched is written back byte-for-byte, so spine cannot have
+introduced a defect into it. The price is that a defect the input already
+had passes through unreported until something reads that part
+([Save refused after only reading a file](troubleshooting.md#save-refused-after-only-reading-a-file)).
+
+**Why xlsx keeps an accessed sheet's bytes and pptx/docx do not.** xlsx wrote
+unmodified sheets from their preserved bytes, with an explicit dirty flag,
+before parsing became lazy; reading a sheet never set the flag. pptx and docx
+regenerated every slide and body from its model, and lazy parsing gave them a
+verbatim path only for a part that is never parsed. Whether pptx and docx
+should gain the same dirty tracking is not recorded as a decision.
+
+**Dependencies.** The format packages link no third-party code. Rendering adds
+Forme and gowemf, and the command-line renderer adds aster for charts; the
+rendering plan's "Forme only" rule predates those. Which module is there for
+what, and who imports it: [CONTRIBUTING § Dependencies](../CONTRIBUTING.md#dependencies).
+

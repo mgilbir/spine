@@ -83,6 +83,26 @@ otherwise a missing bold or italic face is drawn with the family's regular
 face, or the regular fallback, with a warning. Substitution can
 change wrapping and overflow.
 
+How a font the document asks for is found:
+
+```mermaid
+flowchart TD
+    R["font request: family, bold, italic"] --> M{"-font maps this<br/>family and style?"}
+    M -- yes --> F["that face"]
+    M -- no --> S{"bold or italic?"}
+    S -- "regular" --> N{"-fallback-noto?"}
+    N -- yes --> NS["embedded Noto Sans"]
+    N -- no --> U["unresolved font"]
+    S -- "bold or italic" --> ST{"-strict?"}
+    ST -- yes --> U
+    ST -- no --> RR["ask again for the regular style<br/>(-font mapping, then -fallback-noto)"]
+    RR -- found --> W["regular face, with one warning<br/>(counted as drawn approximately)"]
+    RR -- "not found" --> U
+```
+
+An unresolved font fails a DOCX page or an XLSX range even in best effort; on
+a slide, best effort leaves that shape's text out with a warning.
+
 Text is shaped at its size: a font with an AAT tracking table (`trak`, with a
 `STAT` table, as HarfBuzz requires), such as Apple's newer system fonts, is
 tracked at each run's size in CSS pixels, the size a browser hands HarfBuzz,
