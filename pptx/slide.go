@@ -495,14 +495,33 @@ func shapeByName(shape Shape, name string) Shape {
 	return nil
 }
 
-// TitlePlaceholder returns the title placeholder, or nil if none exists.
+// TitlePlaceholder returns the title placeholder, or nil if none exists. A
+// "title" placeholder is preferred; otherwise the first one IsTitle accepts,
+// such as a title slide's centered title (C607).
 func (s *Slide) TitlePlaceholder() *PlaceholderShape {
-	return s.GetPlaceholder(PlaceholderTitle)
+	return s.placeholderLike(PlaceholderTitle, (*PlaceholderShape).IsTitle)
 }
 
 // BodyPlaceholder returns the body/content placeholder, or nil if none exists.
+// A "body" placeholder is preferred; otherwise the first one IsBody accepts,
+// such as the untyped content placeholder of a "Title and Content" slide
+// (C607).
 func (s *Slide) BodyPlaceholder() *PlaceholderShape {
-	return s.GetPlaceholder(PlaceholderBody)
+	return s.placeholderLike(PlaceholderBody, (*PlaceholderShape).IsBody)
+}
+
+// placeholderLike returns the placeholder of type exact, or failing that the
+// first placeholder that kind accepts.
+func (s *Slide) placeholderLike(exact PlaceholderType, kind func(*PlaceholderShape) bool) *PlaceholderShape {
+	if ph := s.GetPlaceholder(exact); ph != nil {
+		return ph
+	}
+	for _, shape := range s.shapeList() {
+		if ph, ok := shape.(*PlaceholderShape); ok && kind(ph) {
+			return ph
+		}
+	}
+	return nil
 }
 
 // marshal converts the slide to XML bytes. It regenerates the part from the

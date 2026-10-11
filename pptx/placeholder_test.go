@@ -261,3 +261,54 @@ func TestPlaceholderSizeConstants(t *testing.T) {
 		t.Errorf("PlaceholderSizeQuarter = %q, want %q", PlaceholderSizeQuarter, "quarter")
 	}
 }
+
+// TestTitleAndBodyPlaceholderLookup is the C607 regression: TitlePlaceholder
+// and BodyPlaceholder matched only the "title" and "body" types, so they found
+// nothing on a title slide (whose title is a "ctrTitle") or on a "Title and
+// Content" slide, whose content placeholder carries no type attribute and so
+// is an "obj" by the schema default. IsTitle and IsBody already covered the
+// first case; IsBody missed the second.
+func TestTitleAndBodyPlaceholderLookup(t *testing.T) {
+	p := Create()
+	slide := p.AddSlide()
+	title := NewPlaceholderShape(PlaceholderCenteredTitle)
+	title.SetText("centered title")
+	content := NewPlaceholderShape("") // written with no type attribute
+	content.SetIndex(1)
+	content.SetText("untyped content")
+	for _, sh := range []Shape{title, content} {
+		if err := slide.AddShape(sh); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The exact type still wins when a slide has both forms.
+	exact := p.AddSlide()
+	untyped := NewPlaceholderShape("")
+	untyped.SetIndex(1)
+	untyped.SetText("untyped")
+	body := NewPlaceholderShape(PlaceholderBody)
+	body.SetIndex(2)
+	body.SetText("typed body")
+	for _, sh := range []Shape{untyped, body} {
+		if err := exact.AddShape(sh); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r := reopen(t, p)
+	s0, s1 := r.Slides()[0], r.Slides()[1]
+	if ph := s0.TitlePlaceholder(); ph == nil || ph.Text() != "centered title" {
+		t.Errorf("TitlePlaceholder on a ctrTitle slide = %v, want the centered title", ph)
+	}
+	if ph := s0.BodyPlaceholder(); ph == nil || ph.Text() != "untyped content" {
+		t.Errorf("BodyPlaceholder on an untyped content placeholder = %v, want it", ph)
+	}
+	for _, ph := range s0.Placeholders() {
+		if ph.PlaceholderType() == "" && !ph.IsBody() {
+			t.Error("IsBody is false for a placeholder with no type (obj by default)")
+		}
+	}
+	if ph := s1.BodyPlaceholder(); ph == nil || ph.Text() != "typed body" {
+		t.Errorf("BodyPlaceholder with a typed body present = %v, want the typed body", ph)
+	}
+}
