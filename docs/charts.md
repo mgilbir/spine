@@ -205,9 +205,10 @@ dedicated hidden worksheet — one per chart — and points the chart's `c:f`
 references at it, so Excel's "Edit Data" opens real cells while the cached
 values keep the chart rendering standalone; the sheet's own cells are never
 touched. Charts and images coexist in one drawing part per sheet. `AddChart`
-persists on both the `Create` and `Open` save paths, and a zero-modification
-open→save of a chart-bearing workbook stays byte-identical (the chart and
-drawing parts are preserved verbatim unless a chart is added or modified).
+persists on both the `Create` and `Open` save paths, and an open→save with no
+edits writes every part of a chart-bearing workbook byte-identical (the chart
+and drawing parts are preserved verbatim unless a chart is added or modified;
+the zip container around the parts can still differ).
 
 `Sheet.Charts` covers chartsheets as well as worksheets, so `Workbook.Charts`
 really does span every sheet of an opened workbook. One gap remains: a sheet
@@ -245,9 +246,11 @@ for _, ch := range opened.Charts() {
 }
 ```
 
-A zero-modification open→save of a chart-bearing document is byte-identical:
-the chart and embedded-workbook parts round-trip verbatim, and are regenerated
-only when a chart is added.
+An open→save with no edits writes every part of a chart-bearing document
+byte-identical (the zip container around the parts can still differ): the chart
+and embedded-workbook parts round-trip verbatim, and are regenerated only when a
+chart is added. See the
+[round-trip fidelity model](architecture.md#round-trip-fidelity-model).
 
 ## Charts in PowerPoint
 

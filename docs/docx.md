@@ -3,10 +3,10 @@
 This guide is the detailed reference for the `docx` package: creating and
 modifying Word documents. Reach for it when you need the full feature surface
 (styles, tables, tracked changes, comments, footnotes, mail merge, content
-controls, fields) or the code walkthroughs for commenting, hyperlinking, and
-annotating a document. The one-paragraph quick start lives in the
-[README](../README.md#creating-a-word-document); this document carries
-everything else.
+controls, fields) or the code walkthroughs for commenting, hyperlinking,
+annotating, and adding images and equations to a document. The one-paragraph
+quick start lives in the [README](../README.md#creating-a-word-document); this
+document carries everything else.
 
 ## Capabilities
 
@@ -25,7 +25,8 @@ everything else.
 ### Graphics and objects
 
 - Watermarks: text (`SetTextWatermark`) and washed-out image (`SetImageWatermark`) watermarks in the page header, read back with `Watermark()` and cleared with `RemoveWatermark()`; target a specific section with `SetSectionTextWatermark`/`SetSectionImageWatermark` for distinct per-section watermarks, or emit a DrawingML text box (with a VML fallback) via `WatermarkOptions.DrawingML`
-- Inline and floating (anchored) images — including SVG images with a raster fallback
+- Inline and floating (anchored) images — including SVG images with a raster fallback — see [Adding images](#adding-images)
+- Equations: write Office Math with `Paragraph.AddMath`/`AddMathPara` and read it back with `Paragraph.MathZones`/`MathParas` — see [Equations](#equations)
 - Text boxes and basic shapes (rectangle, rounded rectangle, ellipse, line), inline or anchored, with fill/border and text as real WordprocessingML paragraphs — `Paragraph.AddTextBox`/`AddShape` and `Document.AddTextBox`/`AddShape`; read every box (DrawingML and legacy VML) back with `Document.TextBoxes()`. Text boxes carry a down-level VML fallback by default (an `mc:AlternateContent` Choice+Fallback pair, so older Word versions still show the box); set `TextBoxOptions.NoVMLFallback` to write the DrawingML shape alone
 - WordArt (`Paragraph.AddWordArt`/`Document.AddWordArt`) — a DrawingML text effect with a solid fill and an optional preset text warp (arch, circle, inflate, wave, ...), inline or anchored
 - Shape groups (`Paragraph.AddShapeGroup`/`Document.AddShapeGroup`) — several shapes/text boxes combined into one `wpg:wgp` group, each member positioned in the group's coordinate space
@@ -35,7 +36,7 @@ everything else.
 ### Navigation and references
 
 - Fields (PAGE/NUMPAGES) and a table of contents
-- Hyperlinks: external and internal (bookmark-anchored) links, read and written through the `Hyperlink` type shared with the pptx/xlsx APIs (`Document.Hyperlinks`, `Paragraph.AddHyperlink`/`AddInternalHyperlink`)
+- Hyperlinks: external and internal (bookmark-anchored) links, read and written through `docx.Hyperlink`, which has the same `URL`/`Anchor`/`Tooltip`/`SetTooltip` methods as the pptx and xlsx `Hyperlink` types plus `Text` and `Runs` (`Document.Hyperlinks`, `Paragraph.AddHyperlink`/`AddInternalHyperlink`)
 - Bookmarks: read (`Document.Bookmarks`) and add (`Paragraph.AddBookmark`, `Document.AddBookmarkOnRange`) named bookmarks — the anchors internal hyperlinks target
 - Footnotes and endnotes: enumerate (`Document.Footnotes`/`Endnotes`) and author (`Run.AddFootnote`/`AddEndnote`) notes
 - Bibliography and citations: read/write bibliography sources (`word/bibliography/sources.xml`, `b:Sources`) with `Document.AddSource`/`Sources()`/`RemoveSource` (tag, type, author, title, year, city, publisher), and cite a source with `Paragraph.AddCitation(tag)`, which emits a `CITATION` field with a formatted placeholder
@@ -58,27 +59,30 @@ everything else.
 
 ### Review, controls, and structure
 
-- Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password
+- Document protection (`Document.Protect`): read-only, comments-only, tracked-changes, or forms editing modes, with an optional password. Protection is a UI guard, not encryption: the password is stored as Word's legacy 16-bit hash, which is obfuscation, not access control, and is trivially removed. To keep a document confidential, encrypt it with `SaveEncrypted` (see [encryption-and-signing.md](encryption-and-signing.md#password-encryption))
 - Tracked changes (revisions): enumerate insertions, deletions, run/paragraph property changes, and tracked moves (`w:moveFrom`/`w:moveTo`) — across the main body and every header/footer part — with `Document.Revisions()` (author, date, type, text; `Revision.MoveName` links the two halves of a move), then apply or discard them with `Revision.Accept()`/`Reject()` or `Document.AcceptAllRevisions()`/`RejectAllRevisions()`; author new ones with `Paragraph.AddInsertedRun`, `Run.MarkInserted`, `Run.MarkDeleted`, and `Paragraph.AddMoveFromRun`/`AddMoveToRun` (each assigns a unique `w:id`; `...WithDate` variants pin the timestamp)
-- Comments: read and write threaded comments with replies and resolve (`Document.Comments`, `Paragraph.AddComment`, `Document.AddCommentOnRange`, `Comment.Reply`/`Resolve`), through the `Comment` type shared with the pptx/xlsx APIs
-- Content controls (structured document tags): read and edit tag, alias, type, value, and drop-down options through `Document.ContentControls()`; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline); bind a control to a custom-XML node with `ContentControl.SetDataBinding(xpath, storeItemID)`
+- Comments: read and write threaded comments with replies and resolve (`Document.Comments`, `Paragraph.AddComment`, `Document.AddCommentOnRange`, `Comment.Reply`/`Resolve`), through `docx.Comment`, whose core methods have the same names as the pptx and xlsx comment types
+- Content controls (structured document tags): read tag, alias, type, value, and drop-down options through `Document.ContentControls()`, and edit the tag, alias, and value (`SetTag`/`SetAlias`/`SetValue`); a control's type and drop-down options are read-only; insert new ones with `Document.AddContentControl` / `Paragraph.AddContentControl` (block-level and inline); bind a control to a custom-XML node with `ContentControl.SetDataBinding(xpath, storeItemID)`
 - Document structure parts: read and author building blocks / AutoText in the glossary (`Document.BuildingBlocks()` — name, gallery, category, types, guid — and `Document.AddBuildingBlock(BuildingBlockDef{...})`, which creates the glossary part, its relationship, and content-type override or appends a `w:docPart` to an existing one, preserving the existing entries verbatim), read and add custom-XML data parts (`Document.CustomXMLParts()` / `Document.AddCustomXMLPart` — the latter generates the itemProps, relationships, and content-type override), and read and author the web-layout frameset tree (`Document.Frameset()` and `Document.SetFrameset(FramesetDef{...})` — nested framesets and leaf frames with their source documents, wired as external frame relationships). Glossary, custom-XML, and frameset parts round-trip byte-for-byte when untouched; an authored building block's body is a placeholder paragraph (the API models building-block metadata, not body content)
 - Theme read/write (`Document.Theme()`): color-scheme accents and major/minor Latin fonts, sharing the `dml.ThemeEditor` model with the xlsx and pptx theme APIs
 - Search & replace (`Document.ReplaceText`, mirroring `pptx` and `xlsx`): replaces across the body, tables, structured document tags, and every header/footer, including matches Word has split across multiple `w:r` runs — the replacement inherits the first affected run's formatting while surrounding runs keep theirs; documents with no matching text round-trip byte-for-byte
 
 ## Merging and appending documents
 
-Combine or divide packages with automatic id, part-name, and relationship
-remapping (no dangling references or duplicate parts). `Document.Append` appends
+Combine documents with automatic id, part-name, and relationship remapping (no
+dangling references or duplicate parts); docx has no split counterpart to
+pptx's `ExtractSlides`. `Document.Append` appends
 another document's body content with its images, remapped styles/numbering
 (including numbering preserved as raw XML in an opened source), and the
 header/footer parts referenced by the section breaks it copies.
 
 ## Text extraction
 
-`docx.Document.Text()` returns body paragraphs incl. hyperlink/inserted-run/content-control
-text, tables cell-by-cell, headers/footers, footnotes/endnotes, and text boxes,
-in document order — plain concatenation, no markup, deterministic ordering. This
+`docx.Document.Text()` returns plain text with no markup, in a fixed order: the
+body in document order (paragraphs incl. hyperlink/inserted-run/content-control
+text, and tables cell-by-cell), then each header and footer, then footnotes and
+endnotes, then text boxes, including those placed in the body. So a text box's
+text comes after the footnotes, not where the box sits in the body. This
 is the docx half of the symmetric, read-only "give me all the text" API shared
 with `xlsx.Workbook.Text()` / `Sheet.Text()` and `pptx.Presentation.Text()` /
 `Slide.Text()`.
@@ -96,9 +100,12 @@ existing properties round-trip byte-identically when untouched.
 ## Reading and writing comments
 
 Comments support the full review flow: read the feedback on a document, add
-comments, reply in threads, and resolve. The core method set (`ID`, `Author`,
-`Text`, `Date`, `Resolved`, `Replies`, `Parent`, `AddComment`, `Reply`,
-`Resolve`) is shared with the `xlsx` and `pptx` comment APIs.
+comments, reply in threads, and resolve. Add a comment with
+`Paragraph.AddComment`, `Run.AddComment`, or `Document.AddCommentOnRange`. The
+returned `*docx.Comment` has `ID`, `Author`, `Text`, `Date`, `Resolved`,
+`Replies`, `Parent`, `Reply`, and `Resolve`, the same method names the `xlsx`
+and `pptx` comment types use; they are three distinct types, each with
+format-specific methods too.
 
 ```go
 package main
@@ -144,15 +151,17 @@ func main() {
 Spine writes and round-trips the modern comment parts (`comments.xml`,
 `commentsExtended.xml` for threading/resolved state, and `people.xml` for the
 author registry) and preserves `commentsIds.xml`/`commentsExtensible.xml`
-verbatim. A zero-modification open→save of a comment-bearing document is
-byte-identical.
+verbatim. An open→save with no edits writes every part of a comment-bearing
+document byte-identical (the zip container around the parts can still differ,
+and a part you read follows the
+[round-trip fidelity model](architecture.md#round-trip-fidelity-model)).
 
 ## Hyperlinks, images, bookmarks, and footnotes
 
 Spine reads and writes hyperlinks, inline and floating images, bookmarks, and
-footnotes/endnotes. The `Hyperlink` type (`URL`, `Anchor`, `Tooltip`) and the
-image read accessors are shared with the `xlsx` and `pptx` APIs; bookmarks and
-footnotes/endnotes are Word-specific.
+footnotes/endnotes. `docx.Hyperlink` (`URL`, `Anchor`, `Tooltip`) and the image
+read accessors use the same method names as their `xlsx` and `pptx`
+counterparts; bookmarks and footnotes/endnotes are Word-specific.
 
 ```go
 package main
@@ -209,10 +218,141 @@ func main() {
 External hyperlinks allocate an `External` relationship in the part's rels;
 internal ones use `w:anchor`. Adding a footnote or endnote creates
 `word/footnotes.xml` / `word/endnotes.xml` (with the mandatory separator notes,
-the relationship, and the content-type override) on first use. A
-zero-modification open→save of a document using any of these features is
+the relationship, and the content-type override) on first use. An open→save
+with no edits writes every part of a document using any of these features
 byte-identical, and the parts are regenerated only when that feature is
 modified.
+
+## Adding images
+
+`Run.AddImage(path)` places an inline image in a run and
+`Run.AddFloatingImage(path, anchor)` an anchored one; `AddImageFromBytes` and
+`AddFloatingImageFromBytes` take the bytes and a content type instead. PNG,
+JPEG, GIF, and SVG are accepted (an SVG gets a transparent raster fallback), and
+anything else is rejected when added. A new image is 100×100 pt until you call
+`SetSize`, which takes points; an `Anchor` offsets a floating image in points.
+
+```go
+package main
+
+import (
+    "os"
+
+    "github.com/mgilbir/spine/docx"
+)
+
+func main() {
+    doc := docx.Create()
+
+    // Inline: the image flows with the text of its run. Sizes are in points.
+    img, err := doc.AddParagraph().AddRun().AddImage("logo.png")
+    if err != nil {
+        panic(err)
+    }
+    img.SetSize(144, 96)
+    img.SetAltText("Company logo")
+
+    // Floating: positioned by an Anchor, in points from the column and
+    // paragraph (or from the page with RelativeToPage).
+    _, err = doc.AddParagraphWithText("Text beside a floating photo.").
+        AddRun().AddFloatingImage("photo.jpg", docx.Anchor{X: 288, Y: 0})
+    if err != nil {
+        panic(err)
+    }
+
+    // From bytes, when the image is not on disk.
+    data, err := os.ReadFile("logo.png")
+    if err != nil {
+        panic(err)
+    }
+    if _, err := doc.AddParagraph().AddRun().AddImageFromBytes(data, "image/png"); err != nil {
+        panic(err)
+    }
+
+    if err := doc.Save("images.docx"); err != nil {
+        panic(err)
+    }
+}
+```
+
+## Equations
+
+`Paragraph.AddMath` appends an inline math zone (`m:oMath`) and
+`Paragraph.AddMathPara` a display equation (`m:oMathPara`). Both take typed
+models from `github.com/mgilbir/spine/common/omml`: a zone is an ordered list of
+items (runs, fractions, radicals, scripts, and the rest of the OMML set).
+`Paragraph.MathZones` and `MathParas` read math back as the same types; they
+return snapshots, so write changes back with `AddMath`. `Document.Text()` leaves
+math out; use `OMath.Text()` for an equation's plain text.
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/mgilbir/spine/common/omml"
+    "github.com/mgilbir/spine/docx"
+)
+
+// text is a math run holding literal text.
+func text(s string) *omml.Run {
+    return &omml.Run{Items: []omml.RunChild{&omml.Text{Value: s}}}
+}
+
+// arg is a fraction, radical or script argument holding literal text.
+func arg(s string) *omml.Element {
+    return &omml.Element{Items: []omml.MathItem{text(s)}}
+}
+
+func main() {
+    doc := docx.Create()
+
+    // Inline math (m:oMath) inside a paragraph of text: x = 1/2.
+    p := doc.AddParagraphWithText("Half: ")
+    if err := p.AddMath(&omml.OMath{Items: []omml.MathItem{
+        text("x="),
+        &omml.Fraction{Num: arg("1"), Den: arg("2")},
+    }}); err != nil {
+        panic(err)
+    }
+
+    // A display equation on its own line (m:oMathPara).
+    if err := doc.AddParagraph().AddMathPara(&omml.OMathPara{
+        OMath: []*omml.OMath{{Items: []omml.MathItem{text("E=m"),
+            &omml.Superscript{E: arg("c"), Sup: arg("2")}}}},
+    }); err != nil {
+        panic(err)
+    }
+
+    if err := doc.Save("math.docx"); err != nil {
+        panic(err)
+    }
+
+    // Read math back: MathZones for inline math, MathParas for display math.
+    opened, err := docx.Open("math.docx")
+    if err != nil {
+        panic(err)
+    }
+    defer opened.Close()
+    for _, para := range opened.Paragraphs() {
+        zones, err := para.MathZones()
+        if err != nil {
+            panic(err)
+        }
+        for _, z := range zones {
+            fmt.Println("inline:", z.Text())
+        }
+        paras, err := para.MathParas()
+        if err != nil {
+            panic(err)
+        }
+        for _, mp := range paras {
+            fmt.Println("display:", mp.Text())
+        }
+    }
+}
+```
 
 ## PNG and SVG physical pages
 
