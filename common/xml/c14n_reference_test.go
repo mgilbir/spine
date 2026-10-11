@@ -23,7 +23,8 @@ import (
 // XML 1.0 §3.3.3.
 //
 // Unlike the schema suites, this needs no copyrighted data — only the tool — so
-// CI installs it and SPINE_REQUIRE_C14N makes a missing one a failure.
+// it runs wherever the tool is installed, and SPINE_REQUIRE_C14N makes a
+// missing one a failure. CI installs neither the tool nor the variable today.
 
 // referenceC14N runs the reference canonicalizer, or reports that none is
 // installed.
@@ -91,7 +92,7 @@ func TestCanonicalizeMatchesLibxml2(t *testing.T) {
 					"(expected xmllint from libxml2-utils, or python3-lxml)")
 			}
 			t.Skip("no reference canonicalizer installed: `apt-get install libxml2-utils` (xmllint), " +
-				"or python3-lxml. CI installs xmllint and sets SPINE_REQUIRE_C14N.")
+				"or python3-lxml. Set SPINE_REQUIRE_C14N to make its absence a failure.")
 		}
 		got, err := Canonicalize([]byte(doc))
 		if err != nil {

@@ -1,8 +1,9 @@
 // Package render provides immutable page snapshots with native PNG and SVG
 // writers. Format-specific preparation lives in the docxrender, pptxrender and
 // xlsxrender subpackages (docx/docxrender, pptx/pptxrender and
-// xlsx/xlsxrender), which return the Page this package defines. Rendering
-// uses only Go, Forme and the standard library; it loads no external resources.
+// xlsx/xlsxrender), which return the Page this package defines. This package
+// uses only Go, Forme and the standard library (the docx and pptx renderers add
+// gowemf, for EMF and WMF pictures); it loads no external resources.
 package render
 
 import (

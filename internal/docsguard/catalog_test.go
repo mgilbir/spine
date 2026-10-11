@@ -62,8 +62,7 @@ func (s severities) String() string {
 var codeShape = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
 // parseGoDir parses every non-test .go file in dir. (parser.ParseDir is
-// deprecated and x/tools is not a dependency of this zero-dependency module, so
-// the glob is done by hand.)
+// deprecated, so the glob is done by hand.)
 func parseGoDir(t *testing.T, dir string) (*token.FileSet, []*ast.File) {
 	t.Helper()
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
