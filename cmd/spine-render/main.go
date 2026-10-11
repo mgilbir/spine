@@ -1,4 +1,8 @@
 // Command spine-render writes native PNG/SVG previews of Office files.
+//
+// It exits 0 on success and for -help, 1 when the run fails (including a run
+// that skipped pages under -keep-going), and 2 when the flags cannot be
+// parsed. See docs/rendering.md for its flags and errors.
 package main
 
 import (
@@ -89,13 +93,13 @@ func main() {
 	flag.StringVar(&c.sheet, "sheet", "", "XLSX sheet name; empty selects all sheets")
 	flag.Float64Var(&c.dpi, "dpi", defaultDPI, "output DPI")
 	flag.IntVar(&c.maxPages, "max-pages", 100, "maximum total output pages/slides/sheets")
-	flag.Int64Var(&c.edges, "edge-checks", 0, "path painting budget per output in edge checks; 0 uses 1 Gi")
+	flag.Int64Var(&c.edges, "edge-checks", 0, "path painting budget per output in edge checks; 0 uses "+strconv.Itoa(defaultEdgeChecks>>30)+" Gi")
 	flag.Int64Var(&c.imagePixels, "image-pixels", 0, "decoded image pixels per slide, page or sheet; 0 uses 64 Mi")
 	flag.Int64Var(&c.work, "shape-work", 0, "shaping-work budget per slide, page or sheet in Forme work units (about 50 a byte of Latin text, 300 of Devanagari); 0 uses the library default, 64 Mi")
 	flag.DurationVar(&c.timeout, "timeout", time.Minute, "total rendering timeout")
 	flag.Var(&c.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE[#FACE] mapping; FACE is the index from 0 of a face of a .ttc or .otc collection, required for one of several faces")
 	flag.BoolVar(&c.fallback, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
-	flag.BoolVar(&c.keepGoing, "keep-going", false, "report and skip slides or sheets that cannot be rendered, then exit with an error")
+	flag.BoolVar(&c.keepGoing, "keep-going", false, "report and skip slides, pages or sheets that cannot be rendered (a DOCX that cannot be laid out is skipped whole), then exit with an error")
 	flag.BoolVar(&c.strict, "strict", false, "fail on any content that cannot be drawn instead of warning and drawing the rest")
 	flag.BoolVar(&c.charts, "charts", true, "draw PPTX charts with the embedded Vega renderer; false leaves them out")
 	flag.Parse()

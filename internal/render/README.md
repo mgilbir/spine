@@ -1,8 +1,11 @@
 # Rendering foundation
 
 This internal package accepts Forme solid rectangles, filled paths and nested
-path clips, and positioned horizontal glyphs (`DrawGlyphs`) and horizontal `DrawText` runs, plus decoded raster `DrawImage` operations. It provides
-no page, slide or sheet layout API yet. Other operations fail explicitly, even
+path clips, single-tile linear and radial gradient fills (`FillGradient`),
+positioned horizontal glyphs (`DrawGlyphs`) and horizontal `DrawText` runs, plus decoded raster `DrawImage` operations. It does
+no slide, page or sheet layout: that belongs to the format adapters
+(`pptx/pptxrender`, `docx/docxrender` and `xlsx/xlsxrender`), which return pages
+through the public `render` package. Other operations fail explicitly, even
 when off-page; raw-source capability checks remain the format adapter's job.
 
 `Prepare` copies commands and clips them in CSS-pixel coordinates to a physical
@@ -48,8 +51,9 @@ Defaults cap glyphs at 100,000, text metadata at 1 MiB, font count at 32 and
 aggregate unique font-program bytes at 32 MiB. Font programs must remain immutable
 during preparation; parsing fonts and their decoded input budgets remain the
 font provider's responsibility. Color glyphs are drawn from their COLR, CBDT and
-sbix data (see docs/rendering.md); vertical glyph placement and Apple bitmap
-fonts fail explicitly instead of silently drawing blank glyphs.
+sbix data, and glyphs of bitmap-only fonts from their EBDT or Apple `bdat`
+strikes (see docs/rendering.md); vertical glyph placement fails explicitly
+instead of silently drawing blank glyphs.
 Missing outlines and Forme's font-layout truncation findings also fail.
 
 Bezier flattening checks a 1/16 output-pixel control-hull distance and caps
@@ -65,18 +69,25 @@ width scaling is supported; vertical text and letter spacing fail explicitly.
 Font parsing and Unicode preprocessing retain Forme's own bounds and are not
 interrupted within a single phase.
 
-Next layers must implement images and Office-specific adapters. Preserve logical text and font identity
-for a possible PDF sibling backend; pdf0 and its dependencies are not included.
+Preserve logical text and font identity for a possible PDF sibling backend;
+this package does not link pdf0 or any other PDF writer.
+
+`FillGradient` paints a single tile of a linear or radial gradient whose stops
+lie in [0, 1] and blend linearly, which PNG and SVG output draw alike; tiled and
+repeating gradients fail. Stops count toward the path segment budget.
 
 Images are copied to an eight-bit RGBA snapshot and normalized to PNG for SVG
 embedding. Only validated standard-library image storage is accepted; source
-keys and markup are never serialized. Pixel-centre nearest-neighbour sampling
-preserves mapping through rectangular and path clips. SVG requests pixelated
+keys and markup are never serialized. PNG output filters each output pixel's
+square: an axis it spans more than one image pixel of is averaged by area, and
+one it spans less of is interpolated linearly between the two nearest image
+pixels, premultiplied, with edges extended outwards. Rectangular and path clips
+restrict coverage without changing that mapping. SVG requests pixelated
 sampling, though a viewer controls its final sampling behaviour. Defaults cap
 aggregate unique source pixels at 4 million, normalized image bytes at 32 MiB
 and images at 32. Even off-page images undergo capability and budget checks.
-`DecodeImage` checks encoded bytes and dimensions before standard-library PNG
-or JPEG decoding; it loads no external resources and applies no EXIF orientation.
+`DecodeImage` checks encoded bytes and dimensions before standard-library PNG,
+JPEG or GIF (first frame) decoding; it loads no external resources and applies no EXIF orientation.
 Decoders are not interruptible within a single call. Image pixels and programs
 must remain immutable during preparation. Normalization intentionally reduces
 sixteen-bit sources to eight bits. Tiling remains unsupported.

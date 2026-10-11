@@ -1,3 +1,7 @@
+// Package xlsxrender prepares Excel cell ranges for the native preview
+// renderer. PrepareRange returns a render.Page that writes PNG or SVG. It is
+// always strict: content outside its profile fails with render.ErrUnsupported,
+// and render.Options.Warn is ignored. See docs/rendering.md for the profile.
 package xlsxrender
 
 import (

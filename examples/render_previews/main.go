@@ -40,8 +40,8 @@ func run(ctx context.Context, dir string) error {
 	// request and for Times New Roman, which is the family Word uses for text,
 	// and for a paragraph mark, that names none. A production resolver should return the requested typeface or
 	// deliberately choose its own substitution; no system fonts are discovered.
-	// Conservative lookup work counts subtable bytes as well as inspected
-	// glyphs. This known embedded font needs a larger cap than the default.
+	// The limits lower the output caps to suit these small previews; the
+	// shaping budget (MaxShapeWork) keeps the library default.
 	opts := render.Options{Fonts: func(ctx context.Context, r render.FontRequest) (*shape.Face, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err

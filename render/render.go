@@ -1,5 +1,7 @@
 // Package render provides immutable page snapshots with native PNG and SVG
-// writers. Format-specific preparation lives in docx, pptx and xlsx. Rendering
+// writers. Format-specific preparation lives in the docxrender, pptxrender and
+// xlsxrender subpackages (docx/docxrender, pptx/pptxrender and
+// xlsx/xlsxrender), which return the Page this package defines. Rendering
 // uses only Go, Forme and the standard library; it loads no external resources.
 package render
 
@@ -17,12 +19,44 @@ import (
 )
 
 // Limits bounds snapshot preparation and painting. Zero fields select the
-// documented defaults; negative fields are invalid. See docs/rendering.md.
+// defaults below; negative fields are invalid. Each bounds one prepared page,
+// slide or sheet range, with its default in parentheses:
+//
+//	MaxDimension    int    output and source-image width or height in pixels (8192)
+//	MaxPixels       int64  output pixels (16 Mi)
+//	MaxOperations   int    drawing operations (100000)
+//	MaxPixelVisits  int64  pixel visits, including overdraw (64 Mi)
+//	MaxOutputBytes  int64  encoded PNG or SVG bytes (32 MiB)
+//	MaxPathSegments int    source path segments, and flattened ones, each (100000)
+//	MaxClipDepth    int    nested clips (32)
+//	MaxEdgeChecks   int64  scanline edge checks and coverage samples (64 Mi)
+//	MaxGlyphs       int    glyphs (100000)
+//	MaxTextBytes    int    logical text kept with the glyphs, in bytes (1 MiB)
+//	MaxFonts        int    distinct fonts (32)
+//	MaxFontBytes    int64  aggregate bytes of distinct font programs (32 MiB)
+//	MaxShapeWork    int64  charged text shaping work, in Forme work units (64 Mi)
+//	MaxRunBytes     int    input bytes of one shaped run, with its context and features (4096)
+//	MaxImagePixels  int64  distinct decoded source-image pixels (4 Mi)
+//	MaxImageBytes   int64  encoded image input, and aggregate normalized PNG bytes (32 MiB)
+//	MaxImages       int    images (32)
+//
+// Exceeding one returns an error wrapping ErrLimit. docx/docxrender also
+// charges multiples of some to the whole document; see docs/rendering.md for
+// what each format charges to them.
 type Limits = core.Limits
 
 var (
-	ErrInvalid     = core.ErrInvalid
-	ErrLimit       = core.ErrLimit
+	// ErrInvalid marks a request that cannot be honoured as given: a nil
+	// context or source, a negative limit, a malformed range or page number,
+	// or invalid geometry.
+	ErrInvalid = core.ErrInvalid
+	// ErrLimit marks content that exceeds a field of Limits, or another
+	// documented resource bound of preparation or painting.
+	ErrLimit = core.ErrLimit
+	// ErrUnsupported marks content outside a format's profile. Strict
+	// preparation returns it; best effort reports it to Options.Warn for
+	// content left out, and wraps it in ErrApproximated for content drawn
+	// approximately.
 	ErrUnsupported = core.ErrUnsupported
 	// ErrApproximated marks a best-effort warning about content that was
 	// drawn, approximately, rather than left out.
@@ -57,15 +91,16 @@ type Options struct {
 	// the rest. The page is then incomplete or inexact. Errors that stop
 	// preparation as a whole (cancellation, invalid options, malformed
 	// parts, page-wide limits) are still returned. Adapters that do not
-	// support best effort ignore it.
+	// support best effort (xlsxrender) ignore it.
 	Warn func(error)
-	// Charts, when set, draws charts. A chart is given as a Vega
+	// Charts, when set, draws slide charts; only pptxrender uses it. A chart is given as a Vega
 	// specification (https://vega.github.io/vega/) whose width and height
 	// are its frame's in CSS pixels; the renderer returns an image of it at
 	// scale image pixels per CSS pixel, which is stretched over the frame.
 	// The specification holds the chart's data and fixed encodings, and no
-	// expressions from the document. Without a renderer, charts are left
-	// out. The renderer must honour ctx.
+	// expressions from the document. Without a renderer, strict preparation
+	// fails on a chart with ErrUnsupported, and best effort leaves it out
+	// and reports it to Warn. The renderer must honour ctx.
 	Charts ChartRenderer
 }
 
@@ -113,7 +148,8 @@ func (p *Page) prepared() *core.Page {
 func (p *Page) Size(dpi float64) (int, int, error) { return p.prepared().Size(dpi) }
 
 // WritePNG paints an eight-bit PNG directly onto transparent black, using sRGB
-// source-over composition. Image sampling is nearest-neighbour and path edges
+// source-over composition. Images are averaged by area where they are
+// downscaled and interpolated linearly where they are upscaled; path edges
 // use bounded numerical antialiasing. Errors can leave partial output. A blocking
 // writer must provide its own cancellation; see docs/rendering.md.
 func (p *Page) WritePNG(ctx context.Context, w io.Writer, dpi float64) error {

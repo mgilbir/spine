@@ -1,3 +1,9 @@
+// Package pptxrender prepares PowerPoint slides for the native preview
+// renderer. PrepareSlide returns a render.Page that writes PNG or SVG. Without
+// opts.Warn it is strict and fails with render.ErrUnsupported on content it
+// cannot draw exactly; with opts.Warn set it draws the rest and reports what
+// it left out or drew approximately. Charts are drawn through opts.Charts.
+// See docs/rendering.md for the profile and its limits.
 package pptxrender
 
 import (

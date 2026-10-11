@@ -31,7 +31,9 @@ type Pages struct {
 func (p *Pages) Count() int { return len(p.pages) }
 
 // Page prepares a 1-based physical page. A page beyond Count returns
-// render.ErrInvalid wrapping ErrPageOutOfRange.
+// render.ErrInvalid wrapping ErrPageOutOfRange. The page's drawing is prepared
+// strictly even when Prepare was given opts.Warn: a color glyph that can only
+// be drawn approximately fails the whole page with render.ErrUnsupported.
 func (p *Pages) Page(ctx context.Context, page int) (*render.Page, error) {
 	if ctx == nil || page < 1 {
 		return nil, fmt.Errorf("%w: page", render.ErrInvalid)
@@ -51,7 +53,8 @@ func (p *Pages) Page(ctx context.Context, page int) (*render.Page, error) {
 // Prepare once instead. Unsupported content fails the call even when it is on
 // another page: with opts.Warn unset (strict mode) anything that cannot be
 // drawn exactly returns render.ErrUnsupported; with opts.Warn set it is left
-// out or approximated and reported there. Native line metrics do not promise
+// out or approximated and reported there, except color glyphs (see
+// Pages.Page). Native line metrics do not promise
 // identical Word pagination. See docs/rendering.md.
 func PreparePage(ctx context.Context, document *docx.Document, page int, opts render.Options) (*render.Page, error) {
 	if ctx == nil || document == nil || page < 1 {
