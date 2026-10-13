@@ -163,11 +163,12 @@ func TestAddCommentPreservesFormControl(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	s2, _ := wb2.Sheet(0)
+	// The comment's note shape is not a control: the checkbox is the only one.
 	var checkbox *FormControl
-	for i := range s2.FormControls() {
-		if fc := s2.FormControls()[i]; fc.Type == FormControlCheckBox {
-			checkbox = &fc
-		}
+	if fcs := s2.FormControls(); len(fcs) == 1 && fcs[0].Type == FormControlCheckBox {
+		checkbox = &fcs[0]
+	} else {
+		t.Errorf("FormControls after round trip = %+v, want the checkbox alone", fcs)
 	}
 	if checkbox == nil || checkbox.Name != "Check Box 1" || checkbox.LinkedCell != "$B$2" {
 		t.Errorf("after round trip checkbox control = %+v, want name=Check Box 1 link=$B$2", checkbox)

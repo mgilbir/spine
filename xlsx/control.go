@@ -27,9 +27,10 @@ const relTypeCtrlProp = "http://schemas.openxmlformats.org/officeDocument/2006/r
 // x:ClientData carries an ObjectType.
 type FormControlType string
 
-// Form control kinds, one per VML ObjectType Excel writes (Button, Checkbox,
-// Drop, List, Radio, Spin, Scroll, Label, GBox, EditBox, Dialog).
-// FormControlUnknown reports a control whose ObjectType is none of these.
+// Form control kinds, one per control VML ObjectType (Button, Checkbox, Drop,
+// List, Radio, Spin, Scroll, Label, GBox, Edit, Dialog). FormControlUnknown
+// reports a shape whose ObjectType is outside the schema's list, so a control
+// the library does not know is still seen.
 const (
 	FormControlButton    FormControlType = "button"
 	FormControlCheckBox  FormControlType = "checkbox"
@@ -103,10 +104,10 @@ func (s *Sheet) FormControls() []FormControl {
 		if cd == nil {
 			continue
 		}
-		typ := formControlType(cd.ObjectType)
-		if typ == FormControlUnknown && cd.ObjectType == "" {
-			continue // a plain VML shape (e.g. a comment), not a control
+		if !isFormControlObject(cd.ObjectType) {
+			continue // a comment, picture or drawing shape, not a control
 		}
+		typ := formControlType(cd.ObjectType)
 		fc := FormControl{
 			Type:        typ,
 			LinkedCell:  strings.TrimSpace(cd.FmlaLink),
@@ -198,13 +199,31 @@ func formControlType(objectType string) FormControlType {
 		return FormControlLabel
 	case "GBox":
 		return FormControlGroupBox
-	case "EditBox":
+	case "Edit":
 		return FormControlEditBox
 	case "Dialog":
 		return FormControlDialog
 	default:
 		return FormControlUnknown
 	}
+}
+
+// isFormControlObject reports whether a VML x:ClientData ObjectType can be a
+// form control. The legacy drawing that holds a sheet's controls also holds
+// its comment boxes (Note), the pictures of embedded objects (Pict, Movie) and
+// plain drawing shapes (Shape, Group, Rect, RectA, LineA); those values are
+// the rest of ST_ObjectType. Only an absent type and those are excluded, so a
+// value outside the schema still reads as FormControlUnknown.
+//
+// Comments were meant to be excluded and were not: they were assumed to carry
+// no ObjectType, but Excel writes ObjectType="Note", so every comment on a sheet
+// with a legacy drawing was reported as an unknown control.
+func isFormControlObject(objectType string) bool {
+	switch objectType {
+	case "", "Note", "Pict", "Movie", "Shape", "Group", "Rect", "RectA", "LineA":
+		return false
+	}
+	return true
 }
 
 // shapeNumericID extracts the trailing digits of a VML shape id

@@ -105,6 +105,13 @@
   part's canonical form was reported invalid whenever the bytes differ from
   it, as a byte order mark, the declaration, CRLF line ends or UTF-16 make
   them. Office writes no transform on a part reference and is unaffected.
+- xlsx: `Sheet.FormControls` reports only form controls. The legacy drawing
+  that holds a sheet's controls also holds its comment boxes, the pictures of
+  embedded objects and plain shapes, and all but the shapes with no type were
+  reported as `FormControlUnknown`: every comment on such a sheet, 1647 bogus
+  entries across the local corpus. An edit box (`ObjectType="Edit"`) was
+  looked up as `EditBox` and reported as unknown; it is now
+  `FormControlEditBox`. A type outside the schema still reads as unknown.
 
 ### Changed
 

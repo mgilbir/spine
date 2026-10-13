@@ -76,12 +76,8 @@ func TestAddCommentKeepsEncodedLegacyDrawing(t *testing.T) {
 		}
 		defer func() { _ = re.Close() }()
 		s2, _ := re.Sheet(0)
-		found := false
-		for _, fc := range s2.FormControls() {
-			found = found || fc.Type == FormControlCheckBox && fc.Name == "Check Box 1"
-		}
-		if !found {
-			t.Errorf("FormControls after save = %+v", s2.FormControls())
+		if fcs := s2.FormControls(); len(fcs) != 1 || fcs[0].Type != FormControlCheckBox || fcs[0].Name != "Check Box 1" {
+			t.Errorf("FormControls after save = %+v, want the checkbox alone", fcs)
 		}
 		if cs := s2.Comments(); len(cs) != 1 || cs[0].Text() != "à vérifier" {
 			t.Errorf("Comments after save = %+v", cs)

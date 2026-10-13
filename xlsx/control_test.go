@@ -4,9 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mgilbir/spine/internal/fuzzseed"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -205,5 +207,39 @@ func TestControlsRoundTripPreserved(t *testing.T) {
 	}
 	if len(wb2.ActiveXControls()) != 1 {
 		t.Errorf("activeX control lost on round trip")
+	}
+}
+
+// TestFormControlsSkipsShapesThatAreNotControls pins which VML shapes are
+// form controls. The legacy drawing that holds a sheet's controls also holds
+// its comment boxes, the pictures of embedded objects and plain shapes.
+// Comments were assumed to carry no ObjectType and were reported as unknown
+// controls, since Excel writes ObjectType="Note"; so were embedded-object
+// pictures (Pict). An edit box, ObjectType="Edit" in the schema, was looked up
+// as "EditBox" and reported as unknown too. A type outside the schema still
+// reads as unknown rather than vanishing.
+func TestFormControlsSkipsShapesThatAreNotControls(t *testing.T) {
+	shape := func(id, objectType string) string {
+		return `<v:shape id="_x0000_s` + id + `" type="#_x0000_t201"><x:ClientData ObjectType="` + objectType + `">` +
+			`<x:Anchor>1, 0, 2, 0, 3, 0, 4, 0</x:Anchor></x:ClientData></v:shape>`
+	}
+	vml := `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">` +
+		shape("1025", "Checkbox") + shape("1026", "Note") + shape("1027", "Pict") + shape("1028", "Edit") +
+		shape("1029", "Shape") + shape("1030", "Group") + shape("1031", "Rect") + shape("1032", "RectA") +
+		shape("1033", "LineA") + shape("1034", "Movie") + `<v:shape id="_x0000_s1035"/>` + shape("1036", "Widget") +
+		`</xml>`
+	pkg := fuzzseed.ReplaceZipEntry(buildXLSXWithControls(t), "xl/drawings/vmlDrawing1.vml", []byte(vml))
+	wb, err := OpenReader(bytes.NewReader(pkg), int64(len(pkg)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = wb.Close() }()
+	var got []FormControlType
+	for _, c := range wb.Sheets()[0].FormControls() {
+		got = append(got, c.Type)
+	}
+	want := []FormControlType{FormControlCheckBox, FormControlEditBox, FormControlUnknown}
+	if !slices.Equal(got, want) {
+		t.Errorf("FormControls types = %v, want %v", got, want)
 	}
 }
