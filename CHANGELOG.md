@@ -42,6 +42,15 @@
   deck failed to render ("ambiguous inherited kerning", then "text without a
   color"). Every deck built with `Create` now writes the longer master text
   styles (C611).
+- render: docxrender, pptxrender and xlsxrender render parts that start with a
+  UTF-8 byte order mark, which Word writes on `document.xml` and
+  `theme1.xml`. The source check read the mark as content outside the root
+  element and failed with "content outside XML root", although the same
+  package opened without complaint (#493). The check also now follows XML's
+  own definition of white space: text made only of Unicode spaces such as
+  U+00A0 is content the capability profile sees, and is no longer accepted
+  outside the root. An XML declaration anywhere but at the very start is
+  rejected.
 
 ### Changed
 

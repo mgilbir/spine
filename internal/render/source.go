@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"strings"
 )
 
 // SourceBudget bounds adapter capability inspection across parts. Callers must
@@ -29,16 +28,25 @@ func NewSourceBudget(bytes int64, nodes int) (*SourceBudget, error) {
 	return &SourceBudget{Bytes: bytes, Nodes: nodes}, nil
 }
 
+// utf8BOM is the UTF-8 encoding of U+FEFF. XML 1.0 §4.3.3 permits it as the
+// first bytes of a UTF-8 entity; Word writes it on some parts.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 // CheckXML checks every namespace-qualified element and attribute through allow.
 // Unknown source markup must not disappear through a lossy model projection.
 // Namespace declarations and the ordinary XML declaration are metadata. Other
 // processing instructions/directives are rejected. Bytes/nodes are cumulative.
+// A byte order mark is accepted only as the first bytes of data, and the XML
+// declaration only as the first token after it.
 func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XMLNode) error) error {
 	if int64(len(data)) > b.Bytes {
 		return fmt.Errorf("%w: source bytes", ErrLimit)
 	}
 	b.Bytes -= int64(len(data))
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	// encoding/xml returns a leading BOM as character data, which would read
+	// as content outside the root.
+	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, utf8BOM)))
+	first := true
 	depth := 0
 	path := []xml.Name{}
 	siblings := []map[xml.Name]int{{}}
@@ -57,6 +65,8 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 		if err != nil {
 			return fmt.Errorf("%w: source XML: %w", ErrInvalid, err)
 		}
+		atStart := first
+		first = false
 		switch v := tok.(type) {
 		case xml.StartElement:
 			if depth == 0 {
@@ -93,13 +103,14 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 			path = path[:len(path)-1]
 			siblings = siblings[:len(siblings)-1]
 		case xml.CharData:
-			if depth > 0 && strings.TrimSpace(string(v)) != "" {
-				if err = allow(XMLNode{Path: path, Text: true}); err != nil {
-					return err
-				}
+			if isXMLSpace(v) {
+				break
 			}
-			if depth == 0 && strings.TrimSpace(string(v)) != "" {
+			if depth == 0 {
 				return fmt.Errorf("%w: content outside XML root", ErrInvalid)
+			}
+			if err = allow(XMLNode{Path: path, Text: true}); err != nil {
+				return err
 			}
 		case xml.Directive:
 			return fmt.Errorf("%w: XML directive", ErrUnsupported)
@@ -107,8 +118,23 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 			if v.Target != "xml" {
 				return fmt.Errorf("%w: XML instruction", ErrUnsupported)
 			}
+			if !atStart {
+				return fmt.Errorf("%w: misplaced XML declaration", ErrInvalid)
+			}
 		}
 	}
+}
+
+// isXMLSpace reports whether text is XML white space (XML 1.0 §2.3 production
+// S). Unicode spaces such as U+00A0 and U+FEFF are content, so
+// strings.TrimSpace is the wrong test.
+func isXMLSpace(text []byte) bool {
+	for _, c := range text {
+		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+			return false
+		}
+	}
+	return true
 }
 
 type contextReader struct {
