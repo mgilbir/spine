@@ -17,6 +17,8 @@ import (
 	"encoding/xml"
 	"strconv"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Kind is a recognized image format.
@@ -163,7 +165,11 @@ func IsSVG(data []byte) bool {
 // need an SVG's size to give a freshly added picture a sensible default frame,
 // and a 1x1 transparent PNG — the raster fallback both write — is not it.
 func SVGSizePx(data []byte) (w, h int) {
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	// An SVG may be in UTF-16 or declare a code page like any XML document.
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return 300, 150
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

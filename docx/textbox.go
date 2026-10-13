@@ -554,6 +554,7 @@ func parseTextBox(raw []byte, vml bool, dr *oxml.CT_Drawing) *TextBox {
 // prefixes (wp:, a:, w:) are tolerated: the decoder still reports the local
 // name. Values are 0/"" when the fragment carries no such element.
 func scanDrawingGeometry(raw []byte) (floating bool, cx, cy int64, prst string) {
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	txbxDepth := 0
 	haveExtent := false
@@ -621,6 +622,7 @@ func attrInt(attrs []xml.Attr, local string) int64 {
 // still reported), so it is robust to attributes and escaping and works for
 // both DrawingML and VML text bodies.
 func extractTxbxText(raw []byte) string {
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	var lines []string
 	var cur strings.Builder

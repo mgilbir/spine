@@ -115,6 +115,7 @@ func WrapPML(xmlStr string) string {
 // UnmarshalFragment wraps an XML fragment, skips the wrapper element, and
 // decodes the first child element into the target.
 func UnmarshalFragment(wrapped []byte, target interface{}) error {
+	//xmlguard:lenient reads a spec example wrapped by the harness, which is UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(wrapped))
 
 	// Skip tokens until we find the wrapper start element
@@ -418,6 +419,7 @@ func missingCapturedAttrs(want []xmlb.RootAttr, marshaled []byte) []string {
 		return nil
 	}
 	have := map[string]int{}
+	//xmlguard:lenient re-reads the library's own marshaled output
 	dec := xml.NewDecoder(bytes.NewReader(marshaled))
 	for {
 		tok, err := dec.Token()
@@ -469,6 +471,7 @@ func TestWellFormedExamples(t *testing.T, examples []Example, wrapFn func(string
 
 			wrapped := wrapFn(*xmlStr)
 
+			//xmlguard:lenient reads a spec example wrapped by the harness, which is UTF-8
 			decoder := xml.NewDecoder(bytes.NewReader([]byte(wrapped)))
 			for {
 				_, err := decoder.Token()

@@ -117,6 +117,7 @@ func txbxSpans(raw []byte, scope NSScope) []txbxSpan {
 	if !bytes.Contains(raw, []byte("txbxContent")) {
 		return nil
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	dec.Strict = false
 	var spans []txbxSpan
@@ -312,6 +313,7 @@ func marshalTxbxContent(c *CT_TxbxContent, scope NSScope) ([]byte, bool) {
 // usedPrefixes returns the prefixes of the element and attribute names in
 // content, namespace declarations aside, each once.
 func usedPrefixes(content []byte) []string {
+	//xmlguard:lenient re-reads the Builder's own UTF-8 output
 	dec := xml.NewDecoder(bytes.NewReader(content))
 	dec.Strict = false
 	seen := map[string]bool{}

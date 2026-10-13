@@ -1,11 +1,11 @@
 package pptx
 
 import (
-	"encoding/xml"
 	"fmt"
 	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/pptx/internal/oxml"
 )
@@ -429,8 +429,11 @@ func xmlUnmarshal(data []byte, v any) bool {
 	if data == nil {
 		return false
 	}
-	//xmlguard:lenient a best-effort probe that reports decodability as a bool; a stricter parse would change what validation reports, not what is written
-	return xml.Unmarshal(data, v) == nil
+	// Lenient on purpose: a best-effort probe that reports decodability as a
+	// bool, so a stricter parse would change what validation reports, not what
+	// is written. A part in a code page decodes.
+	dec, _, err := xmlb.NewPartDecoder(data)
+	return err == nil && dec.Decode(v) == nil
 }
 
 // validatePackage runs the shared OPC-level checks against the source package's

@@ -283,6 +283,13 @@ type ContentTypes struct {
 	// (pretty-printing producers put a newline there); captured from source
 	// bytes so CRLF survives the decoder's EOL normalization.
 	closeSep string
+
+	// encoded is the source bytes when they are not their own UTF-8 form (a
+	// part declaring a code page). Everything above is captured from the UTF-8
+	// form, which is what Marshal writes; when that still equals the source's
+	// UTF-8 form, Marshal returns these bytes instead, so an untouched package
+	// keeps its part. Nil for a UTF-8 source.
+	encoded []byte
 }
 
 // ctEntry is one <Default> or <Override> element in source document order.
@@ -350,6 +357,7 @@ func (ct *ContentTypes) Clone() *ContentTypes {
 		selfCloseSpace: ct.selfCloseSpace,
 		rootTag:        ct.rootTag,
 		closeSep:       ct.closeSep,
+		encoded:        ct.encoded,
 	}
 	// maps.Clone(nil) is nil; keep the invariant that the maps are usable.
 	if c.Defaults == nil {
@@ -605,6 +613,11 @@ func (ct *ContentTypes) Marshal() ([]byte, error) {
 	if ct.prolog.Captured {
 		buf.WriteString(ct.prolog.Trailer)
 	}
+	if ct.encoded != nil {
+		if text, err := xmlb.UTF8(ct.encoded); err == nil && bytes.Equal(buf.Bytes(), text) {
+			return slices.Clone(ct.encoded), nil
+		}
+	}
 	return buf.Bytes(), nil
 }
 
@@ -748,7 +761,33 @@ func inContentTypesNamespace(name xml.Name) bool {
 // any other namespace is preserved verbatim on regeneration but contributes
 // no mapping.
 func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
+	v, err := unmarshalContentTypes(data)
+	if err != nil {
+		return nil, err
+	}
+	// The token walk checks nothing around the root element. Checked after
+	// it, so a parse error still names what failed.
+	if err := xmlb.CheckDocumentBounds(data); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// unmarshalContentTypes is UnmarshalContentTypes's token walk.
+func unmarshalContentTypes(data []byte) (*ContentTypes, error) {
+	// Raw spans are sliced at decoder offsets and replayed into UTF-8 output,
+	// so both come from the part's UTF-8 form.
+	text, err := xmlb.UTF8(data)
+	if err != nil {
+		return nil, err
+	}
+	var encoded []byte
+	if !bytes.Equal(text, data) {
+		encoded = slices.Clone(data)
+	}
+	data = text
 	ct := &ContentTypes{
+		encoded:        encoded,
 		Defaults:       make(map[string]string),
 		Overrides:      make(map[string]string),
 		origExt:        make(map[string]string),

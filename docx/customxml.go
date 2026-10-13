@@ -127,7 +127,10 @@ func isCustomXMLDataPartName(name string) bool {
 // parseDatastoreItem extracts the ds:itemID and ds:schemaRef URIs from an
 // itemProps part.
 func parseDatastoreItem(data []byte) (itemID string, schemaRefs []string) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return "", nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -170,16 +173,19 @@ type pendingCustomXMLPart struct {
 // AddCustomXMLPart adds a custom-XML data part carrying data, generating its
 // itemProps (with a fresh datastore item id) and wiring the package
 // relationships. The returned part's ItemID is the storeItemID to pass to
-// ContentControl.SetDataBinding. The data must be a well-formed XML document;
-// its root-element namespace, when present, is recorded as a schema reference.
+// ContentControl.SetDataBinding. The data must be a well-formed XML document,
+// in any encoding Open reads, and is written as given; its root-element
+// namespace, when present, is recorded as a schema reference.
 func (d *Document) AddCustomXMLPart(data []byte) (*CustomXMLPart, error) {
-	root, err := rootElementName(data)
-	if err != nil {
+	// The whole document is read, not just its root tag: a part that does not
+	// parse is one Word refuses, and this is the last point it can be caught.
+	var root struct{ XMLName xml.Name }
+	if err := xmlb.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("docx: custom-XML data is not well-formed: %w", err)
 	}
 	var schemaRefs []string
-	if root.Space != "" {
-		schemaRefs = []string{root.Space}
+	if root.XMLName.Space != "" {
+		schemaRefs = []string{root.XMLName.Space}
 	}
 
 	n := d.nextCustomXMLNumber()
@@ -260,21 +266,6 @@ func buildItemProps(itemID string, schemaRefs []string) []byte {
 	b.WriteString(`</ds:schemaRefs>`)
 	b.WriteString(`</ds:datastoreItem>`)
 	return []byte(b.String())
-}
-
-// rootElementName returns the qualified name of the first element in an XML
-// document, erroring when the bytes are not well-formed enough to reach one.
-func rootElementName(data []byte) (xml.Name, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return xml.Name{}, err
-		}
-		if se, ok := tok.(xml.StartElement); ok {
-			return se.Name, nil
-		}
-	}
 }
 
 // newGUID returns a random RFC 4122 version-4 GUID in the uppercase

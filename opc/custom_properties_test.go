@@ -197,3 +197,25 @@ func TestEnsureRelationshipInRels(t *testing.T) {
 		t.Error("idempotent call changed bytes")
 	}
 }
+
+// TestEnsureRelationshipInRelsWindows1252 adds a relationship whose target is
+// not ASCII to a rels part declaring a code page. The element is UTF-8, so it
+// was spliced into code-page bytes and the part came out in two encodings;
+// the target read back as mojibake.
+func TestEnsureRelationshipInRelsWindows1252(t *testing.T) {
+	rels := []byte(`<?xml version="1.0" encoding="windows-1252" standalone="yes"?>` +
+		`<Relationships xmlns="` + RelationshipsNamespace + `">` +
+		"<Relationship Id=\"rId1\" Type=\"" + RelTypeOfficeDocument + "\" Target=\"ppt/pr\xe9sentation.xml\"/>" +
+		`</Relationships>`)
+	out, _, added := EnsureRelationshipInRels(rels, RelTypeCustom, "docProps/données.xml")
+	if !added {
+		t.Fatal("expected relationship to be added")
+	}
+	got, err := UnmarshalRelationships(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Target != "ppt/présentation.xml" || got[1].Target != "docProps/données.xml" {
+		t.Errorf("relationships read back: %+v %+v", got[0], got[len(got)-1])
+	}
+}

@@ -187,7 +187,12 @@ type c14nDoc struct {
 }
 
 func parseC14NTree(data []byte) (*c14nDoc, error) {
-	dec := NewDecoder(bytes.NewReader(data))
+	// Canonical XML is UTF-8 whatever the input's encoding (C14N 1.0 §2.1),
+	// and raw tags are sliced at decoder offsets: both want the UTF-8 form.
+	dec, data, err := NewPartDecoder(data)
+	if err != nil {
+		return nil, err
+	}
 	var root *c14nElem
 	var prologPIs, epilogPIs []*c14nPI
 	var stack []*c14nElem

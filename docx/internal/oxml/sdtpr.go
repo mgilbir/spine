@@ -500,6 +500,7 @@ func (c *CT_SdtControl) forEachChild(local string, fn func(attrs []xml.Attr)) {
 	if c == nil || len(c.raw.RawContent) == 0 {
 		return
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(c.raw.RawContent))
 	depth := 0
 	for {

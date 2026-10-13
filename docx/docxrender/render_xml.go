@@ -1,7 +1,6 @@
 package docxrender
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
@@ -107,7 +106,10 @@ func wordRenderParse(ctx context.Context, data []byte, budget *core.SourceBudget
 	if err != nil {
 		return nil, err
 	}
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: source XML: %w", render.ErrInvalid, err)
+	}
 	var stack []*wordNode
 	var root *wordNode
 	for {

@@ -585,6 +585,7 @@ func (e *Ext) MarshalXML(enc *xml.Encoder, start xml.StartElement) error {
 	if err := b.Err(); err != nil {
 		return err
 	}
+	//xmlguard:lenient re-reads the Builder's own UTF-8 output
 	dec := xml.NewDecoder(bytes.NewReader(b.Bytes()))
 	for {
 		tok, err := dec.Token()

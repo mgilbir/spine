@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
@@ -187,7 +188,12 @@ func splitVMLShapes(data []byte) (header, preserved string, notes map[string]vml
 	if len(data) == 0 {
 		return "", "", nil, 0, false
 	}
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	// The header and preserved shapes are sliced out and written back with
+	// UTF-8 note shapes, so they come from the part's UTF-8 form.
+	dec, data, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return "", "", nil, 0, false
+	}
 	notes = make(map[string]vmlNoteShape)
 
 	depth := 0

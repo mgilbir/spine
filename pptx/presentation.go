@@ -1320,6 +1320,11 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 			if err != nil {
 				return fmt.Errorf("marshal slide %d: %w", i, err)
 			}
+			// A slide that was read but not edited keeps a non-UTF-8 source's
+			// bytes.
+			if slide.sxEncoded {
+				slideData = xmlb.PreferSource(slide.rawBytes(), slideData)
+			}
 		} else if slideData = slide.rawBytes(); slideData == nil {
 			// Bytes unavailable (should not happen for an opened slide): fall
 			// back to materializing and regenerating.

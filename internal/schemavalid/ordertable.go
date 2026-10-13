@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // The committed content-order table: one line per element type, listing the
@@ -157,7 +159,10 @@ func describeModel(positions []Position) string {
 // child of the root.
 func RootChildren(part []byte) (xml.Name, []string) {
 	part = StripIgnorable(ResolveAlternateContent(part))
-	dec := xml.NewDecoder(strings.NewReader(string(part)))
+	dec, _, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return xml.Name{}, nil
+	}
 	var (
 		root     xml.Name
 		children []string

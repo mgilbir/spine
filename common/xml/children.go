@@ -251,7 +251,7 @@ func UnmarshalOrderedChildren(d *xml.Decoder, v interface{}) error {
 			// text-bearing child, with no guard and no error.
 			if src == nil {
 				// Whitespace between children carries no content; text does.
-				if len(bytes.TrimSpace(t)) > 0 {
+				if !IsSpace(t) {
 					cap.Order = append(cap.Order, ChildRef{Field: -1, Index: len(cap.Raw)})
 					cap.Raw = append(cap.Raw, []byte(EscapeText(string(t))))
 				}

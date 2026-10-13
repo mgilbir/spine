@@ -2,6 +2,7 @@ package pptx
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -485,5 +486,28 @@ func TestAddComment_NonASCIIAuthorInitials(t *testing.T) {
 	}
 	if bytes.ContainsRune(authors, '�') {
 		t.Errorf("authors.xml contains U+FFFD replacement char:\n%s", authors)
+	}
+}
+
+// TestValidateCommentAuthorWindows1252 is TestValidateCommentAuthor on a
+// comments part declaring a code page. Validation read the part with a decoder
+// that has no charset support and, failing, skipped the check: no warning.
+func TestValidateCommentAuthorWindows1252(t *testing.T) {
+	p, err := Open("testdata/test.pptx")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	s := firstSlide(t, p)
+	encoded := strings.Replace(legacyCommentXML, `encoding="UTF-8"`, `encoding="windows-1252"`, 1)
+	if encoded == legacyCommentXML {
+		t.Fatal("fixture has no encoding declaration to change")
+	}
+	injectSlidePart(p, s, "/ppt/comments/comment1.xml", opc.ContentTypePresentationComments, opc.RelTypeComments, encoded)
+	found := false
+	for _, f := range p.Validate() {
+		found = found || f.Code == codeCommentNoAuthor
+	}
+	if !found {
+		t.Errorf("expected a %q warning", codeCommentNoAuthor)
 	}
 }

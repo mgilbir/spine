@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/xml"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // StripIgnorable removes the elements and attributes that a consumer is
@@ -45,7 +47,10 @@ func StripIgnorable(part []byte) []byte {
 // ignorableNamespaces resolves the prefixes listed in the root's mc:Ignorable
 // to the URIs they are bound to.
 func ignorableNamespaces(part []byte) map[string]bool {
-	dec := xml.NewDecoder(bytes.NewReader(part))
+	dec, _, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -81,7 +86,11 @@ func ignorableNamespaces(part []byte) map[string]bool {
 // stripFirstIgnorableElement removes the first element in an ignorable
 // namespace, subtree and all.
 func stripFirstIgnorableElement(part []byte, ignorable map[string]bool) ([]byte, bool) {
-	dec := xml.NewDecoder(bytes.NewReader(part))
+	dec, text, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return part, false
+	}
+	part = text
 	var (
 		start        int64 = -1
 		startDepth   int
@@ -118,7 +127,11 @@ func stripFirstIgnorableElement(part []byte, ignorable map[string]bool) ([]byte,
 func stripIgnorableAttrs(part []byte, ignorable map[string]bool, alsoMC bool) []byte {
 	// Resolve which prefixes are bound to ignorable namespaces, since attribute
 	// removal works on the raw tag text.
-	dec := xml.NewDecoder(bytes.NewReader(part))
+	dec, text, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return part
+	}
+	part = text
 	prefixes := map[string]bool{}
 	for {
 		tok, err := dec.Token()

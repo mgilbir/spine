@@ -557,3 +557,19 @@ func mustMarshal(t *testing.T, m interface{ Marshal() ([]byte, error) }) []byte 
 	}
 	return data
 }
+
+// An author's inner content is kept unless it is XML white space; a no-break
+// space is text, which strings.TrimSpace classed as white space and dropped.
+func TestModernAuthorKeepsNoBreakSpaceContent(t *testing.T) {
+	src := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<p188:authorLst` + nsADecl + nsRDecl + ` xmlns:p188="` + xmlb.NSPowerPointComment2018 + `">` +
+		"<p188:author id=\"{A}\" name=\"Ada\"> </p188:author>" +
+		`</p188:authorLst>`
+	lst, err := ParseModernAuthorList([]byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := string(mustMarshal(t, lst)); !strings.Contains(got, " </p188:author>") {
+		t.Errorf("no-break space content dropped: %s", got)
+	}
+}

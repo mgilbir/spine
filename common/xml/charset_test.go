@@ -1,9 +1,11 @@
 package xml
 
 import (
+	"encoding/xml"
 	"io"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestCharsetReaderTranscoding(t *testing.T) {
@@ -116,5 +118,163 @@ func TestUnmarshalNonUTF8(t *testing.T) {
 				t.Errorf("got %q, want %q", d.V, tc.want)
 			}
 		})
+	}
+}
+
+func TestUTF8(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want string
+		err            bool
+	}{
+		{"utf-8 untouched", `<?xml version="1.0" encoding="UTF-8"?><r>é</r>`, `<?xml version="1.0" encoding="UTF-8"?><r>é</r>`, false},
+		{"no declaration", `<r>é</r>`, `<r>é</r>`, false},
+		{"bom kept", "\xef\xbb\xbf<?xml version=\"1.0\"?><r/>", "\xef\xbb\xbf<?xml version=\"1.0\"?><r/>", false},
+		{"windows-1252", "<?xml version=\"1.0\" encoding=\"windows-1252\" standalone=\"yes\"?>\r\n<r a=\"\x80\">John\x92s</r>\r\n", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n<r a=\"€\">John’s</r>\r\n", false},
+		{"latin-1, single quotes, spaced", "<?xml version='1.0' encoding = 'ISO-8859-1'?><r>caf\xe9</r>", "<?xml version='1.0' encoding = 'UTF-8'?><r>café</r>", false},
+		{"bom contradicts declaration", "\xef\xbb\xbf<?xml version=\"1.0\" encoding=\"windows-1252\"?><r/>", "", true},
+		{"unsupported", `<?xml version="1.0" encoding="shift_jis"?><r/>`, "", true},
+	} {
+		got, err := UTF8([]byte(tc.in))
+		if tc.err {
+			if err == nil {
+				t.Errorf("%s: no error", tc.name)
+			}
+			continue
+		}
+		if err != nil || string(got) != tc.want {
+			t.Errorf("%s: %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+	}
+	// A part that needs no transcoding is returned without a copy.
+	in := []byte(`<?xml version="1.0" encoding="us-ascii"?><r/>`)
+	if got, _ := UTF8(in); &got[0] != &in[0] {
+		t.Error("UTF-8 input copied")
+	}
+}
+
+// TestUnmarshalWithSourceCapturesTranscoded pins that a part in a code page
+// gets the same offset-based capture as a UTF-8 one: the decoder reads the
+// part's UTF-8 form, so its offsets index the registered source. The capture
+// used to be switched off for such parts, and replayed elements fell back to
+// canonical form.
+func TestUnmarshalWithSourceCapturesTranscoded(t *testing.T) {
+	var v transcodedProbe
+	if err := UnmarshalWithSource([]byte("<?xml version=\"1.0\" encoding=\"windows-1252\"?><r><a>\x92\x92\x92</a><b ></b></r>"), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.B.Style != EmptyTagExpanded || v.A != "’’’" {
+		t.Errorf("got %+v", v)
+	}
+}
+
+type transcodedProbe struct {
+	A string         `xml:"a"`
+	B transcodedLeaf `xml:"b"`
+}
+
+type transcodedLeaf struct{ Style EmptyTagStyle }
+
+func (p *transcodedLeaf) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
+	p.Style = CaptureEmptyTagStyle(d)
+	return d.Skip()
+}
+
+func TestPreferSource(t *testing.T) {
+	encoded := []byte("<?xml version=\"1.0\" encoding=\"windows-1252\"?><r>caf\xe9</r>")
+	text, err := UTF8(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := PreferSource(encoded, text); &got[0] != &encoded[0] {
+		t.Error("a rebuild equal to the UTF-8 form did not keep the source")
+	}
+	edited := []byte(`<?xml version="1.0" encoding="UTF-8"?><r>café!</r>`)
+	if got := PreferSource(encoded, edited); &got[0] != &edited[0] {
+		t.Error("an edited rebuild lost to the source")
+	}
+	// A UTF-8 source is the caller's business: the rebuild is returned even
+	// when equal, without comparing.
+	plain := []byte(`<r>café</r>`)
+	if got := PreferSource(plain, []byte(`<r>café</r>`)); &got[0] == &plain[0] {
+		t.Error("a UTF-8 source was preferred")
+	}
+	if got := PreferSource(nil, plain); &got[0] != &plain[0] {
+		t.Error("no source")
+	}
+}
+
+func utf16Bytes(s string, bigEndian, bom bool) []byte {
+	var out []byte
+	put := func(u uint16) {
+		if bigEndian {
+			out = append(out, byte(u>>8), byte(u))
+		} else {
+			out = append(out, byte(u), byte(u>>8))
+		}
+	}
+	if bom {
+		put(0xFEFF)
+	}
+	for _, u := range utf16.Encode([]rune(s)) {
+		put(u)
+	}
+	return out
+}
+
+func TestUTF8FromUTF16(t *testing.T) {
+	const doc = `<?xml version="1.0" encoding="UTF-16" standalone="yes"?>` + "\r\n<r a=\"é\">日本 😀</r>"
+	const want = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n<r a=\"é\">日本 😀</r>"
+	for _, tc := range []struct {
+		name     string
+		big, bom bool
+	}{{"LE with BOM", false, true}, {"BE with BOM", true, true}, {"LE without BOM", false, false}, {"BE without BOM", true, false}} {
+		got, err := UTF8(utf16Bytes(doc, tc.big, tc.bom))
+		if err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v", tc.name, got, err)
+		}
+	}
+	// A declaration is optional when there is a byte order mark.
+	if got, err := UTF8(utf16Bytes("<r>é</r>", false, true)); err != nil || string(got) != "<r>é</r>" {
+		t.Errorf("no declaration: %q, %v", got, err)
+	}
+	for _, tc := range []struct {
+		name string
+		in   []byte
+	}{
+		{"odd length", append(utf16Bytes("<r/>", false, true), 0)},
+		{"lone high surrogate", append(utf16Bytes("<r>", false, true), 0x3D, 0xD8, '<', 0)},
+		{"lone low surrogate", append(utf16Bytes("<r>", false, true), 0x00, 0xDC)},
+		{"trailing high surrogate", append(utf16Bytes("<r/>", false, true), 0x3D, 0xD8)},
+		{"UTF-16 declaring UTF-8", utf16Bytes(`<?xml version="1.0" encoding="UTF-8"?><r/>`, false, true)},
+		{"UTF-8 declaring UTF-16", []byte(`<?xml version="1.0" encoding="UTF-16"?><r/>`)},
+		{"UTF-32LE", []byte{0xFF, 0xFE, 0, 0, '<', 0, 0, 0}},
+		{"UTF-32BE", []byte{0, 0, 0xFE, 0xFF, 0, 0, 0, '<'}},
+	} {
+		if got, err := UTF8(tc.in); err == nil {
+			t.Errorf("%s: no error, got %q", tc.name, got)
+		}
+	}
+	if OffsetCaptureSafe(utf16Bytes("<r/>", false, true)) {
+		t.Error("OffsetCaptureSafe on UTF-16")
+	}
+}
+
+// TestUnmarshalUTF16 pins that both part-level entry points read UTF-16, and
+// that offset capture works on it as on UTF-8.
+func TestUnmarshalUTF16(t *testing.T) {
+	data := utf16Bytes("<?xml version=\"1.0\" encoding=\"UTF-16\"?><r><a>日本</a><b ></b></r>", false, true)
+	var v transcodedProbe
+	if err := UnmarshalWithSource(data, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.A != "日本" || v.B.Style != EmptyTagExpanded {
+		t.Errorf("UnmarshalWithSource: %+v", v)
+	}
+	var w transcodedProbe
+	if err := Unmarshal(data, &w); err != nil || w.A != "日本" {
+		t.Errorf("Unmarshal: %+v, %v", w, err)
+	}
+	if p := CaptureProlog(data); p.Decl != `<?xml version="1.0" encoding="UTF-8"?>` {
+		t.Errorf("prolog %+v", p)
 	}
 }

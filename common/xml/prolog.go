@@ -39,7 +39,16 @@ type Prolog struct {
 // small captured spans (never the whole part) into independent strings: a
 // string(data) of the full part, or a substring aliasing it, would pin the
 // entire part in memory through the tiny Prolog fields.
+//
+// The spans are taken from the part's UTF-8 form ([UTF8]): a regenerated part
+// is written in UTF-8, so a declaration naming a code page, or separator bytes
+// in one, would mislabel it. A part with no UTF-8 form cannot be parsed either;
+// it gets the default declaration.
 func CaptureProlog(data []byte) Prolog {
+	data, err := UTF8(data)
+	if err != nil {
+		return Prolog{}
+	}
 	p := Prolog{Captured: true}
 
 	i := 0

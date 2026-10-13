@@ -140,26 +140,30 @@ var decoderSources sync.Map
 // bytes registered for the decoder so unmarshal hooks can capture lexical
 // details the token stream hides (self-closing vs expanded empty elements).
 func UnmarshalWithSource(data []byte, v interface{}) error {
-	d := xml.NewDecoder(bytes.NewReader(data))
-	d.CharsetReader = CharsetReader
-	// A non-UTF-8 charset declaration makes CharsetReader transcode the stream,
-	// so the decoder's InputOffset would index the transcoded UTF-8 bytes while
-	// data holds the original source — every offset-based capture helper would
-	// then slice the wrong (shifted) bytes and replay garbage. Skip registering
-	// the source in that case so the helpers cleanly fall back to canonical
-	// regeneration; such parts round-trip via preserved raw bytes, not offset
-	// capture.
-	if OffsetCaptureSafe(data) {
-		decoderSources.Store(d, data)
-		defer decoderSources.Delete(d)
-	}
-	if err := d.Decode(v); err != nil {
+	// Decode the UTF-8 form, and register it: the decoder's offsets index the
+	// bytes it reads, so the capture helpers slice the right spans, and what
+	// they capture is already in the encoding regeneration writes.
+	data, err := UTF8(data)
+	if err != nil {
 		return err
 	}
+	d := NewDecoder(bytes.NewReader(data))
+	decoderSources.Store(d, data)
+	defer decoderSources.Delete(d)
 	// This is the entry point every preserved part is read through, and a
-	// preserved part is rewritten byte for byte. Accepting content after the
+	// preserved part is rewritten byte for byte. Accepting content around the
 	// root element here is what let the library emit parts that do not parse.
+	start, err := CheckDocumentStart(d)
+	if err != nil {
+		return err
+	}
+	if err := d.DecodeElement(v, &start); err != nil {
+		return err
+	}
 	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	if err := checkDeclarationsInside(data); err != nil {
 		return err
 	}
 	return CheckNamespacePrefixes(data)

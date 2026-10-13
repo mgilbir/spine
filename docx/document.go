@@ -37,6 +37,10 @@ type Document struct {
 	// built by Create). When false at save time the body was never touched, so
 	// the original bytes pass through unchanged.
 	docParsed bool
+	// docEncoded records that the parsed body's source is not UTF-8 (UTF-16,
+	// or a code page), so a save that regenerates a read-only body compares
+	// against it rather than writing the UTF-8 rebuild.
+	docEncoded bool
 	// docParseErr caches a failure of the lazy body parse in doc(). Open
 	// validates the same bytes up front, so a non-nil value here signals
 	// in-memory corruption rather than a malformed file; doc() surfaces it as a
@@ -283,6 +287,7 @@ func (d *Document) doc() *oxml.CT_Document {
 		d.docParsed = true
 		if raw := d.rawPartData(d.mainPart()); raw != nil {
 			m := &oxml.CT_Document{}
+			d.docEncoded = !xmlb.OffsetCaptureSafe(raw)
 			m.Prolog = xmlb.CaptureProlog(raw)
 			m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
 			m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)
@@ -1200,6 +1205,10 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		docData, err = marshalDocumentXML(d.docModel)
 		if err != nil {
 			return err
+		}
+		// A body that was read but not edited keeps a non-UTF-8 source's bytes.
+		if d.docEncoded {
+			docData = xmlb.PreferSource(d.rawPartData(mainPartName), docData)
 		}
 	} else if docData = d.rawPartData(mainPartName); docData == nil {
 		// Bytes unavailable (should not happen for an opened document): fall

@@ -310,6 +310,7 @@ func markTracked(rPr *CT_RPr) bool {
 	}
 	b := xmlb.NewWordprocessingMLBuilder()
 	b.MarshalElement(NsWml, "rPr", rPr)
+	//xmlguard:lenient re-reads the Builder's own UTF-8 output
 	dec := xml.NewDecoder(bytes.NewReader(b.Bytes()))
 	for {
 		tok, err := dec.RawToken()

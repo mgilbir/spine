@@ -1085,9 +1085,9 @@ type Ink struct {
 // Fields are in schema-sequence order, which is also the marshal order.
 type ClientData struct {
 	XMLName xml.Name `xml:"urn:schemas-microsoft-com:office:excel ClientData"`
-	// ObjectType selects the meaning of the children: Note, Drop, Check,
-	// Button, GBox, Spin, List, Radio, Scroll, Edit, Label, Dialog, Rect,
-	// Shape, Group, Pict, Movie.
+	// ObjectType selects the meaning of the children (ST_ObjectType): Button,
+	// Checkbox, Dialog, Drop, Edit, GBox, Label, LineA, List, Movie, Note,
+	// Pict, Radio, RectA, Scroll, Spin, Shape, Group, Rect.
 	ObjectType    string  `xml:"ObjectType,attr,omitempty"`
 	MoveWithCells *string `xml:"urn:schemas-microsoft-com:office:excel MoveWithCells,omitempty"`
 	SizeWithCells *string `xml:"urn:schemas-microsoft-com:office:excel SizeWithCells,omitempty"`

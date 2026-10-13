@@ -339,7 +339,10 @@ func spliceDrawingAnchors(drawing []byte, anchors string) []byte {
 // or 0 when none is present or the part does not parse. Session anchors take ids
 // above it so shape ids stay unique within a merged drawing.
 func maxDrawingShapeID(drawing []byte) int {
-	dec := xml.NewDecoder(bytes.NewReader(drawing))
+	dec, _, err := xmlb.NewPartDecoder(drawing)
+	if err != nil {
+		return 0
+	}
 	max := 0
 	for {
 		tok, err := dec.Token()

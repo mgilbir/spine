@@ -277,6 +277,7 @@ func (n *xsdNode) setTarget(t string) {
 
 // parseXSD reads a schema into xsdNodes, carrying namespace bindings down.
 func parseXSD(data []byte) (*xsdNode, error) {
+	//xmlguard:lenient reads the ECMA-376 schema files, which are UTF-8
 	dec := xml.NewDecoder(strings.NewReader(string(data)))
 	var stack []*xsdNode
 	var root *xsdNode

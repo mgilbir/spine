@@ -35,6 +35,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // SchemaDirs are the vendored schema sets, relative to the repository root.
@@ -245,7 +247,10 @@ func (v *Validator) Describes(namespace string) bool { return v.namespaces[names
 // RootNamespace returns the namespace of a part's root element, or "" when the
 // part does not parse far enough to have one.
 func RootNamespace(part []byte) string {
-	dec := xml.NewDecoder(bytes.NewReader(part))
+	dec, _, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return ""
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

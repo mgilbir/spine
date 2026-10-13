@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
@@ -41,9 +42,14 @@ func (w *Workbook) appendToExistingDrawing(writer *opc.Writer, sheet *Sheet, dra
 	if !ok {
 		return fmt.Errorf("xlsx: drawing part %q not found", drawingPart)
 	}
+	// The new anchors are UTF-8, so they are spliced into the part's UTF-8 form.
+	drawing, err := xmlb.UTF8(part.Data)
+	if err != nil {
+		return fmt.Errorf("xlsx: drawing part %q: %w", drawingPart, err)
+	}
 	existingRels := cloneRelationships(w.relationships[drawingPart])
 	relBase := maxRelNum(existingRels)
-	shapeBase := maxDrawingShapeID(part.Data)
+	shapeBase := maxDrawingShapeID(drawing)
 
 	// Image relationship ids come first, then charts — continuing past the
 	// drawing's existing relationship ids.
@@ -57,7 +63,7 @@ func (w *Workbook) appendToExistingDrawing(writer *opc.Writer, sheet *Sheet, dra
 	}
 
 	newAnchors := drawingAnchorsXML(sheet.images, imgRels, sheet.charts, chartRIDs, shapeBase)
-	merged := spliceDrawingAnchors(part.Data, newAnchors)
+	merged := spliceDrawingAnchors(drawing, newAnchors)
 	if err := writer.WritePart(drawingPart, opc.ContentTypeDrawing, merged); err != nil {
 		return err
 	}

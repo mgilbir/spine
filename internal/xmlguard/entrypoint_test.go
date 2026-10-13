@@ -80,8 +80,69 @@ func TestPartsAreParsedThroughTheCheckedEntryPoint(t *testing.T) {
 	}
 }
 
+// TestPartsAreDecodedThroughTheEncodingAwareEntryPoint is the same decision for
+// token loops.
+//
+// encoding/xml's own decoder reads UTF-8 and nothing else: given a part that
+// declares a code page (which wild files do, and Office opens) it stops with
+// "CharsetReader is nil". The loops that read a part themselves were written
+// with it, and being best-effort they took the error for the end of the part,
+// so the code-page part read as empty: a frameset as absent, slicers as none,
+// a legacy drawing as unparseable and then regenerated without its controls.
+// xmlb.NewPartDecoder decodes the part's UTF-8 form and returns the bytes it
+// reads, which is also what any span the loop slices out must come from.
+//
+// A decoder over markup the library built or already decoded (an inner-XML
+// capture, a marshal-then-unmarshal copy) is UTF-8 by construction and
+// carries `//xmlguard:lenient <reason>`.
+func TestPartsAreDecodedThroughTheEncodingAwareEntryPoint(t *testing.T) {
+	root := repoRoot(t)
+	fset := token.NewFileSet()
+	var findings []string
+	files := 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		if d.IsDir() {
+			if skipDirs[rel] || (strings.HasPrefix(rel, ".") && rel != ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		files++
+		f, perr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if perr != nil {
+			return nil
+		}
+		findings = append(findings, bareCalls(fset, f, filepath.ToSlash(rel), "NewDecoder")...)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the tree: %v", err)
+	}
+	if files < 50 {
+		t.Fatalf("only %d source files scanned; the walk is broken, not the tree", files)
+	}
+	for _, f := range findings {
+		t.Errorf("%s\n\tthis decodes with encoding/xml, which cannot read a part declaring a code page. "+
+			"If it reads a part, use xmlb.NewPartDecoder (and slice from the bytes it returns). "+
+			"If it does not, mark it `%s <reason>`.", f, entrypointSuppression)
+	}
+}
+
 // bareParses reports calls to encoding/xml's Unmarshal that carry no exemption.
 func bareParses(fset *token.FileSet, f *ast.File, rel string) []string {
+	return bareCalls(fset, f, rel, "Unmarshal")
+}
+
+// bareCalls reports calls to the named encoding/xml function that carry no
+// exemption.
+func bareCalls(fset *token.FileSet, f *ast.File, rel, name string) []string {
 	exempt := markedLines(fset, f, entrypointSuppression)
 	var out []string
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -90,7 +151,7 @@ func bareParses(fset *token.FileSet, f *ast.File, rel string) []string {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Unmarshal" {
+		if !ok || sel.Sel.Name != name {
 			return true
 		}
 		pkg, ok := sel.X.(*ast.Ident)

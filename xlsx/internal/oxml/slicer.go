@@ -2,7 +2,8 @@ package oxml
 
 import (
 	"encoding/xml"
-	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // Slicer and timeline namespaces. Slicers are a PowerPoint/Excel 2010 (x14)
@@ -148,8 +149,13 @@ func parsePivotTablesList(dec *xml.Decoder) ([]SlicerCachePivotTable, error) {
 // lenient and keys on local names, so the x14 (or x15) prefix binding does not
 // matter.
 func ParseSlicerCacheDefinition(raw []byte) (*CT_SlicerCacheDefinition, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	def := &CT_SlicerCacheDefinition{}
+	// A part in a code page is read in its UTF-8 form; one in an encoding
+	// the library does not read parses to nothing, like a truncated one.
+	dec, _, err := xmlb.NewPartDecoder(raw)
+	if err != nil {
+		return def, nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -190,8 +196,11 @@ func ParseSlicerCacheDefinition(raw []byte) (*CT_SlicerCacheDefinition, error) {
 
 // ParseSlicers parses a slicers part into its slicer views.
 func ParseSlicers(raw []byte) ([]CT_Slicer, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	var out []CT_Slicer
+	dec, _, err := xmlb.NewPartDecoder(raw)
+	if err != nil {
+		return out, nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -227,8 +236,11 @@ func ParseSlicers(raw []byte) ([]CT_Slicer, error) {
 
 // ParseTimelineCacheDefinition parses a timelineCacheDefinition part.
 func ParseTimelineCacheDefinition(raw []byte) (*CT_TimelineCacheDefinition, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	def := &CT_TimelineCacheDefinition{}
+	dec, _, err := xmlb.NewPartDecoder(raw)
+	if err != nil {
+		return def, nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -262,8 +274,11 @@ func ParseTimelineCacheDefinition(raw []byte) (*CT_TimelineCacheDefinition, erro
 
 // ParseTimelines parses a timelines part into its timeline views.
 func ParseTimelines(raw []byte) ([]CT_Timeline, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	var out []CT_Timeline
+	dec, _, err := xmlb.NewPartDecoder(raw)
+	if err != nil {
+		return out, nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

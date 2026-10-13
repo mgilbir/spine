@@ -42,6 +42,76 @@
   deck failed to render ("ambiguous inherited kerning", then "text without a
   color"). Every deck built with `Create` now writes the longer master text
   styles (C611).
+- render: docxrender, pptxrender and xlsxrender render parts that start with a
+  UTF-8 byte order mark, which Word writes on `document.xml` and
+  `theme1.xml`. The source check read the mark as content outside the root
+  element and failed with "content outside XML root", although the same
+  package opened without complaint (#493). The check also now follows XML's
+  own definition of white space: text made only of Unicode spaces such as
+  U+00A0 is content the capability profile sees, and is no longer accepted
+  outside the root. An XML declaration anywhere but at the very start is
+  rejected.
+- docx, pptx, xlsx, opc: a part that declares a single-byte code page
+  (`encoding="windows-1252"` or ISO-8859-1, which wild files carry and Office
+  opens) survives an edit. A part rebuilt on save is written in UTF-8, but it
+  replayed the source's declaration, so the next reader decoded UTF-8 bytes as
+  the code page and "Café" came back as "CafÃ©". Raw spans the core and custom
+  property parts keep for elements they do not model were sliced from the
+  source at offsets into the transcoded stream, which wrote a malformed
+  `core.xml`. A duplicated pptx slide came out empty and `AppendSlidesFrom`
+  failed ("CharsetReader is nil"). Every parser now reads such a part's UTF-8
+  form (the new `xml.UTF8`), and an untouched part, including the
+  `presentation.xml`, layouts, masters, `workbook.xml` and
+  `[Content_Types].xml` that are rebuilt on every save, and a document body or
+  slide rebuilt only because it was read, keeps its source bytes.
+- docx, pptx, xlsx, render: the readers that walk a part themselves read one
+  declaring a code page. They used a decoder that rejects it and, being best
+  effort, took the error for an empty part: `Frameset` returned nil, custom XML
+  parts had no item id, `Slicers` and `Timelines` were empty, form controls lost
+  their names, and pptx validation skipped its comment-author check. Writes
+  that splice into a part lost data or failed: `SetFrameset` replaced the whole
+  web-settings part, `AddBuildingBlock` failed the save, adding a comment beside
+  a form control rebuilt the legacy drawing without the control, a chart added
+  to a sheet's drawing reused a shape id, and a relationship added to a rels
+  part was written in a second encoding. The three renderers failed on such a
+  part with "CharsetReader is nil". `xml.NewPartDecoder` decodes a part's UTF-8
+  form and returns the bytes to splice into.
+- docx, pptx, xlsx, opc, render: a part in UTF-16, which OPC requires readers to
+  accept alongside UTF-8, opens, saves and renders. Every one failed: the
+  nesting-depth check counted each closing tag as an opening one and refused
+  the part, and every parse read UTF-16 as invalid UTF-8. `xml.UTF8` now
+  decodes UTF-16 of either byte order, with or without a byte order mark, and
+  rejects one whose declaration names another encoding, a part declaring
+  UTF-16 that is not, unpaired surrogates and UTF-32. The byte scans (nesting
+  depth, empty-element style) and canonical XML read the UTF-8 form, and a
+  signature part in UTF-16 verifies. An untouched UTF-16 part keeps its bytes.
+- docx, pptx, xlsx, opc: a part is checked for well-formedness before its root
+  element as it already was after it. Text ahead of the root and an XML
+  declaration anywhere but the very start (or one named `XML`, `Xml`, …) were
+  accepted, and a preserved part carrying them was saved verbatim, though Word
+  refuses it. `[Content_Types].xml` and the core and custom property parts,
+  read by walking their tokens, checked nothing around the root at all; they
+  now check what the other parts do. The check after the root, and the white
+  space the readers drop
+  between elements, now follow XML's definition of white space: a no-break
+  space or U+3000 is text, so it is no longer accepted after the root, nor
+  dropped from math, a modern comment author or a workbook view. An xlsx
+  styles part holding only a byte order mark is the empty part it was without
+  one, and `AddCustomXMLPart` checks the whole document it promises is
+  well-formed, not only its root tag.
+- opc: `VerifySignatures` verifies a part reference that carries the Canonical
+  XML transform against the part's canonical form. It accepted the transform
+  and then hashed the raw bytes, so a signature another tool made over an XML
+  part's canonical form was reported invalid whenever the bytes differ from
+  it, as a byte order mark, the declaration, CRLF line ends or UTF-16 make
+  them. Office writes no transform on a part reference and is unaffected.
+- xlsx: `Sheet.FormControls` reports only form controls. The legacy drawing
+  that holds a sheet's controls also holds its comment boxes, the pictures of
+  embedded objects and plain shapes, and all but the shapes with no type were
+  reported as `FormControlUnknown`: every comment on such a sheet, 1647 bogus
+  entries across the local corpus. An edit box (`ObjectType="Edit"`) was
+  looked up as `EditBox` and reported as unknown; it is now
+  `FormControlEditBox`. A type outside the schema still reads as unknown.
 
 ### Changed
 

@@ -1,7 +1,9 @@
 package xlsx
 
 import (
+	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,41 +16,6 @@ const (
 	nsSML = xmlb.NSSpreadsheetML
 	nsR   = xmlb.NSOfficeDocumentRels
 )
-
-// declEncodingUTF8 rewrites the encoding pseudo-attribute of a captured XML
-// declaration to UTF-8, preserving everything else about the producer's
-// declaration (version, standalone, spacing, quote style, any byte-order mark).
-// A regenerated part is always emitted as UTF-8, so replaying a source
-// declaration that names a single-byte code page would mislabel it (C369).
-// Declarations without an encoding pseudo-attribute are returned unchanged.
-func declEncodingUTF8(decl string) string {
-	i := strings.Index(decl, "encoding")
-	if i < 0 {
-		return decl
-	}
-	j := i + len("encoding")
-	skipSpace := func() {
-		for j < len(decl) && (decl[j] == ' ' || decl[j] == '\t' || decl[j] == '\r' || decl[j] == '\n') {
-			j++
-		}
-	}
-	skipSpace()
-	if j >= len(decl) || decl[j] != '=' {
-		return decl
-	}
-	j++
-	skipSpace()
-	if j >= len(decl) || (decl[j] != '"' && decl[j] != '\'') {
-		return decl
-	}
-	quote := decl[j]
-	j++
-	end := strings.IndexByte(decl[j:], quote)
-	if end < 0 {
-		return decl
-	}
-	return decl[:j] + "UTF-8" + decl[j+end:]
-}
 
 // marshalWorkbookXML marshals a workbook to XML.
 func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
@@ -89,6 +56,9 @@ func marshalWorkbookXML(wb *oxml.CT_Workbook) ([]byte, error) {
 	b.WriteTrailer(wb.Prolog)
 	if err := b.Finish(); err != nil {
 		return nil, fmt.Errorf("xlsx: marshal workbook.xml: %w", err)
+	}
+	if wb.Encoded != nil && bytes.Equal(b.Bytes(), wb.RawSource) {
+		return slices.Clone(wb.Encoded), nil
 	}
 	return b.Bytes(), nil
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
-	"strings"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
@@ -110,7 +109,10 @@ func (d *Document) Frameset() *Frameset {
 	if !ok {
 		return nil
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(part.Data)))
+	dec, _, err := xmlb.NewPartDecoder(part.Data)
+	if err != nil {
+		return nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -333,9 +335,14 @@ func (d *Document) writeFramesetPart(writer *opc.Writer) error {
 	}
 	wsName := d.webSettingsPartName()
 
+	// The existing part is spliced, so it is worked on in its UTF-8 form: the
+	// fragment is UTF-8, and the offsets below index the bytes they slice.
 	var raw []byte
 	if part, ok := d.preservedParts[wsName]; ok {
-		raw = part.Data
+		var err error
+		if raw, err = xmlb.UTF8(part.Data); err != nil {
+			return fmt.Errorf("docx: web settings part: %w", err)
+		}
 	}
 
 	wPrefix, rPrefix, rDeclared := "w", "r", true
@@ -525,7 +532,7 @@ func spliceRange(raw []byte, s, e int, ins []byte) []byte {
 // relationships namespace is declared there. Defaults ("w", "r") stand in for an
 // undeclared namespace.
 func webSettingsPrefixes(raw []byte) (wPrefix, rPrefix string, rDeclared, ok bool) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec := xmlb.NewDecoder(bytes.NewReader(raw))
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -556,7 +563,7 @@ func webSettingsPrefixes(raw []byte) (wPrefix, rPrefix string, rDeclared, ok boo
 // of its closing '>', selfClosing reports a '/>' close. The XML declaration and
 // any leading processing instructions are skipped.
 func rootStartTagBounds(raw []byte) (lt, gt int, selfClosing, ok bool) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec := xmlb.NewDecoder(bytes.NewReader(raw))
 	var prev int64
 	for {
 		prev = dec.InputOffset()
@@ -582,7 +589,7 @@ func rootStartTagBounds(raw []byte) (lt, gt int, selfClosing, ok bool) {
 // returning the byte range [s,e) it occupies (s at its '<', e just past its
 // end tag's '>').
 func framesetSpan(raw []byte) (s, e int, ok bool) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+	dec := xmlb.NewDecoder(bytes.NewReader(raw))
 	depth := 0
 	targetDepth := -1
 	start := 0

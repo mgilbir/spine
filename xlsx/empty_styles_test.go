@@ -2,17 +2,29 @@ package xlsx
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+// blankStylesParts are the forms an empty styles part takes: nothing, white
+// space, and either of those after a byte order mark, in UTF-8 or UTF-16. A
+// byte order mark alone failed Open with "EOF".
+var blankStylesParts = []string{"", " \r\n", "\xEF\xBB\xBF", "\xEF\xBB\xBF\r\n", "\xFF\xFE", "\xFF\xFE\r\x00\n\x00"}
 
 // An empty (0-byte) xl/styles.xml is tolerated at Open as an empty stylesheet,
 // matching Excel — real Common Crawl files ship a 0-byte styles part. The
 // workbook opens, its worksheet is readable, and the empty part is surfaced as
 // a styles-empty warning rather than swallowed silently.
 func TestOpenToleratesEmptyStylesPart(t *testing.T) {
+	for _, blank := range blankStylesParts {
+		t.Run(fmt.Sprintf("%q", blank), func(t *testing.T) { openToleratesEmptyStylesPart(t, blank) })
+	}
+}
+
+func openToleratesEmptyStylesPart(t *testing.T, blank string) {
 	data := buildFidelityTestXlsx(t, mutatorTestSheetBare,
-		map[string]string{"xl/styles.xml": ""},
+		map[string]string{"xl/styles.xml": blank},
 		stylesFixtureOverride, stylesFixtureRel)
 
 	wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
@@ -51,37 +63,44 @@ func TestOpenToleratesEmptyStylesPart(t *testing.T) {
 // empty part byte-for-byte: tolerating it at Open must not regenerate styles
 // from the empty model.
 func TestEmptyStylesPartZeroModSaveByteIdentical(t *testing.T) {
-	data := buildFidelityTestXlsx(t, mutatorTestSheetBare,
-		map[string]string{"xl/styles.xml": ""},
-		stylesFixtureOverride, stylesFixtureRel)
+	for _, blank := range blankStylesParts {
+		data := buildFidelityTestXlsx(t, mutatorTestSheetBare,
+			map[string]string{"xl/styles.xml": blank},
+			stylesFixtureOverride, stylesFixtureRel)
 
-	wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	out, err := wb.SaveBytes()
-	if err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	if got := readZipPart(t, out, "xl/styles.xml"); len(got) != 0 {
-		t.Errorf("empty styles.xml not preserved: got %d bytes (%q)", len(got), got)
+		wb, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			t.Fatalf("%q: open: %v", blank, err)
+		}
+		out, err := wb.SaveBytes()
+		if err != nil {
+			t.Fatalf("%q: save: %v", blank, err)
+		}
+		if got := readZipPart(t, out, "xl/styles.xml"); string(got) != blank {
+			t.Errorf("%q: empty styles.xml not preserved: got %q", blank, got)
+		}
 	}
 }
 
 // Guard the boundary: a NON-empty but malformed styles.xml is genuine
 // corruption and must still fail Open. Only the empty/EOF case is tolerated.
 func TestOpenErrorsOnCorruptStylesPart(t *testing.T) {
-	corrupt := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
-		`<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/>` // truncated
-	data := buildFidelityTestXlsx(t, mutatorTestSheetBare,
-		map[string]string{"xl/styles.xml": corrupt},
-		stylesFixtureOverride, stylesFixtureRel)
+	for _, corrupt := range []string{
+		`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
+			`<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/>`, // truncated
+		// A no-break space is text, not white space: the part is not empty.
+		"\u00a0",
+	} {
+		data := buildFidelityTestXlsx(t, mutatorTestSheetBare,
+			map[string]string{"xl/styles.xml": corrupt},
+			stylesFixtureOverride, stylesFixtureRel)
 
-	_, err := OpenReader(bytes.NewReader(data), int64(len(data)))
-	if err == nil {
-		t.Fatal("Open succeeded on a non-empty but malformed styles.xml")
-	}
-	if !strings.Contains(err.Error(), "/xl/styles.xml") {
-		t.Errorf("error does not name the failing part: %v", err)
+		_, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+		if err == nil {
+			t.Fatalf("Open succeeded on a non-empty but malformed styles.xml %.20q", corrupt)
+		}
+		if !strings.Contains(err.Error(), "/xl/styles.xml") {
+			t.Errorf("error does not name the failing part: %v", err)
+		}
 	}
 }

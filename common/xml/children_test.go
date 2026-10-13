@@ -299,6 +299,12 @@ func TestOrderedChildren_NoSourceRegisteredRebuildsUnknown(t *testing.T) {
 			`<w:b/><plain xmlns=""/>`,
 		},
 		{
+			// A no-break space is text, not the formatting between children.
+			"text that is only a no-break space",
+			"<w:b/>\u00a0<w:i/>",
+			"<w:b/>\u00a0<w:i/>",
+		},
+		{
 			"well-known prefix, comment and text",
 			`<w:b/><!-- c --><a:thing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>stray`,
 			`<w:b/><!-- c --><a:thing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>stray`,

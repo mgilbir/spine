@@ -9,7 +9,6 @@
 package oxml
 
 import (
-	"bytes"
 	"encoding/xml"
 
 	xmlb "github.com/mgilbir/spine/common/xml"
@@ -238,7 +237,7 @@ func (a *ModernAuthor) decode(d *xml.Decoder, start xml.StartElement) error {
 	if err := d.DecodeElement(&inner, &start); err != nil {
 		return err
 	}
-	if len(bytes.TrimSpace(inner.Content)) != 0 {
+	if !xmlb.IsSpace(inner.Content) {
 		a.RawInner = inner.Content
 	}
 	return nil

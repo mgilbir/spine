@@ -1933,6 +1933,7 @@ func renderRootAlternates(acs []*oxml.AlternateContent) (animated bool, err erro
 		src.WriteString(`<f xmlns:p="` + nsP + `" xmlns:a="` + nsA + `" xmlns:r="` + nsR + `">`)
 		src.Write(ac.Fallback)
 		src.WriteString(`</f>`)
+		//xmlguard:lenient a wrapper this code builds around inner XML the part parse already decoded to UTF-8
 		d := xml.NewDecoder(&src)
 		depth := 0
 		for {

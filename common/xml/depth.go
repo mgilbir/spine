@@ -42,10 +42,16 @@ var ErrNestingTooDeep = fmt.Errorf("xml: element nesting exceeds the maximum dep
 // instructions, each of which is skipped whole. '>' *can* appear unescaped
 // inside an attribute value, so quoted runs are tracked while looking for a
 // tag's end — otherwise <a b=">"/> would be read as an unclosed start tag.
+//
+// The scan reads markup as ASCII, which a single-byte code page is, but UTF-16
+// is not: every '<' and '/' comes with a zero byte, so no tag read as closed
+// and depth only grew. A UTF-16 part is scanned in its UTF-8 form; one that
+// does not decode is scanned as is, and no parse in the library reads it.
 func CheckNestingDepth(data []byte, limit int) error {
 	if limit <= 0 {
 		return nil
 	}
+	data = asciiScanForm(data)
 	depth, deepest := 0, 0
 	for i := 0; i < len(data); {
 		if data[i] != '<' {
@@ -100,6 +106,7 @@ func CheckNestingDepth(data []byte, limit int) error {
 // MaxObservedNestingDepth reports the deepest element nesting in data. It exists
 // so the limit can be calibrated against real documents rather than guessed.
 func MaxObservedNestingDepth(data []byte) int {
+	data = asciiScanForm(data)
 	depth, max := 0, 0
 	for i := 0; i < len(data); {
 		if data[i] != '<' {

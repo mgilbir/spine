@@ -312,6 +312,7 @@ func joinDrawingText(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
 	}
+	//xmlguard:lenient reads a body captured from the UTF-8 form the part was parsed from
 	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	var paras []string
 	var cur strings.Builder
