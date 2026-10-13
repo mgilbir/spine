@@ -159,6 +159,13 @@ Office's application-specific signature object (`SignatureInfoV1`) so Office's
 signature UI recognizes them (see `common/xml` for the inclusive Canonical XML
 1.0 implementation).
 
+A part reference with no transform covers the part's bytes, as Office writes
+it. One with the Canonical XML 1.0 transform covers the part's canonical form,
+so a signature over an XML part with a byte order mark, CRLF line ends or in
+UTF-16 verifies whatever the bytes; any other transform on a part reference
+makes it invalid. Relationship parts are verified through the OPC Relationship
+Transform.
+
 `SignatureInfo.CoveredParts` reports what a signature actually protects, and
 follows the whole reference chain to say so: `SignatureValue` covers `SignedInfo`, a
 `SignedInfo` reference covers an `<Object>`, and only the manifest of a covered

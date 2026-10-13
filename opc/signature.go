@@ -640,6 +640,19 @@ func (r *Reader) verifyManifestReference(ref xmlReference) (ReferenceResult, str
 		res.Detail = "reading signed part " + partName + ": " + err.Error()
 		return res, partName
 	}
+	// A transform's output is what the digest covers (XML-DSig 4.3.3.2). The
+	// C14N transform was accepted and then ignored, so a reference over a
+	// part's canonical form was checked against its bytes and failed whenever
+	// the two differ: a byte order mark, the declaration, CRLF, attribute
+	// spacing or another encoding. Office writes no transforms on a part
+	// reference; other signers do. Canonicalizing twice is canonicalizing
+	// once, so one pass serves any number of them.
+	if len(ref.Transforms) > 0 {
+		if partData, err = xmlb.Canonicalize(partData); err != nil {
+			res.Detail = "part " + partName + ": canonicalizing: " + err.Error()
+			return res, partName
+		}
+	}
 	ok, detail := compareDigest(ref, partData)
 	res.Valid = ok
 	if !ok {

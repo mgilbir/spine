@@ -99,6 +99,12 @@
   styles part holding only a byte order mark is the empty part it was without
   one, and `AddCustomXMLPart` checks the whole document it promises is
   well-formed, not only its root tag.
+- opc: `VerifySignatures` verifies a part reference that carries the Canonical
+  XML transform against the part's canonical form. It accepted the transform
+  and then hashed the raw bytes, so a signature another tool made over an XML
+  part's canonical form was reported invalid whenever the bytes differ from
+  it, as a byte order mark, the declaration, CRLF line ends or UTF-16 make
+  them. Office writes no transform on a part reference and is unaffected.
 
 ### Changed
 

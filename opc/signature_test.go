@@ -8,14 +8,19 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"io"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf16"
+
+	spinecrypto "github.com/mgilbir/spine/common/crypto"
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // testCert builds a self-signed certificate for signer's public key.
@@ -372,4 +377,60 @@ func TestVerifySignatureInUTF16(t *testing.T) {
 		encoded = append(encoded, byte(u), byte(u>>8))
 	}
 	requireOneValidSignature(t, openBytes(t, rewriteZipEntry(t, signed.Bytes(), sigPart, encoded)))
+}
+
+// TestPartReferenceWithC14NTransform pins what a C14N transform on a part
+// reference means: the digest covers the part's canonical form. The transform
+// was accepted and then ignored, so a third-party signature over a canonical
+// form failed against the part's bytes whenever they differ, as a byte order
+// mark, the declaration, CRLF or attribute spacing make them.
+func TestPartReferenceWithC14NTransform(t *testing.T) {
+	const ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+	raw := []byte("\xEF\xBB\xBF<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<document  a='1'>hello\r\n</document >\r\n")
+	var buf bytes.Buffer
+	w := NewWriter(&buf)
+	if err := w.WritePart("/word/document.xml", ct, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.AddRelationship(RelTypeOfficeDocument, "word/document.xml", TargetModeInternal); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := openBytes(t, buf.Bytes())
+	canonical, err := xmlb.Canonicalize(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(canonical, raw) {
+		t.Fatal("fixture is already canonical")
+	}
+	digestOf := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return base64.StdEncoding.EncodeToString(sum[:])
+	}
+	c14n := []xmlTransform{{Algorithm: spinecrypto.AlgC14N}}
+	for _, tc := range []struct {
+		name       string
+		transforms []xmlTransform
+		digest     string
+		valid      bool
+	}{
+		{"canonical digest under C14N", c14n, digestOf(canonical), true},
+		{"canonical digest under C14N twice", append(c14n, c14n...), digestOf(canonical), true},
+		{"byte digest under C14N", c14n, digestOf(raw), false},
+		{"byte digest, no transform", nil, digestOf(raw), true},
+		{"canonical digest, no transform", nil, digestOf(canonical), false},
+	} {
+		ref := xmlReference{
+			URI:          partReferenceURI("/word/document.xml", ct),
+			Transforms:   tc.transforms,
+			DigestMethod: xmlMethod{Algorithm: spinecrypto.AlgSHA256},
+			DigestValue:  tc.digest,
+		}
+		if res, _ := r.verifyManifestReference(ref); res.Valid != tc.valid {
+			t.Errorf("%s: valid=%v (%s), want %v", tc.name, res.Valid, res.Detail, tc.valid)
+		}
+	}
 }
