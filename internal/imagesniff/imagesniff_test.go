@@ -97,6 +97,8 @@ func TestSVGSizePx(t *testing.T) {
 		{"malformed viewBox", `<svg viewBox="nope"/>`, 300, 150},
 		{"zero rejected", `<svg width="0" height="0"/>`, 300, 150},
 		{"not xml", `not xml at all`, 300, 150},
+		// A code page declaration is honoured, not a reason to give up.
+		{"latin-1", "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><svg width=\"64\" height=\"32\"><title>caf\xe9</title></svg>", 64, 32},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -213,6 +213,19 @@ func declaredCharset(data []byte) string {
 	return ""
 }
 
+// NewPartDecoder returns a decoder over a part's UTF-8 form ([UTF8]) and the
+// bytes it reads. A token loop over a part read off a package uses it, so that
+// a part in a code page decodes; slice any raw span out of the returned bytes,
+// never the argument, since the decoder's offsets index them. Splicing into
+// them, too, gives a part that is UTF-8 throughout and says so.
+func NewPartDecoder(data []byte) (*xml.Decoder, []byte, error) {
+	data, err := UTF8(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	return NewDecoder(bytes.NewReader(data)), data, nil
+}
+
 // NewDecoder returns an [xml.Decoder] with the library's CharsetReader
 // installed, so parts declaring a non-UTF-8 (but supported) charset decode
 // instead of failing.

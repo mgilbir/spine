@@ -165,6 +165,7 @@ func decodeMoveBlock(rn *CT_RawNamedElement) *CT_RunTrackChange {
 	buf.WriteByte('>')
 	buf.Write(rn.RawContent)
 	buf.WriteString("</w:moveTo>")
+	//xmlguard:lenient a wrapper this code builds around inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(buf.Bytes()))
 	if err := dec.Decode(block); err != nil {
 		return &CT_RunTrackChange{}

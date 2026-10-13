@@ -1,7 +1,6 @@
 package docx
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"strings"
@@ -302,7 +301,7 @@ func marshalNewGlossary(defs []BuildingBlockDef) ([]byte, error) {
 // an existing glossary part's raw bytes. Every other byte — including every
 // existing docPart and its body — is preserved verbatim.
 func spliceDocParts(raw []byte, defs []BuildingBlockDef) ([]byte, error) {
-	offset, prefix, ok := docPartsInsertPoint(raw)
+	offset, prefix, raw, ok := docPartsInsertPoint(raw)
 	if !ok {
 		return nil, fmt.Errorf("docx: AddBuildingBlock: no <w:docParts> container found in glossary part")
 	}
@@ -324,15 +323,19 @@ func spliceDocParts(raw []byte, defs []BuildingBlockDef) ([]byte, error) {
 
 // docPartsInsertPoint locates the byte offset just before the closing tag of the
 // w:docParts container and the namespace prefix used on that tag ("" for a
-// default-namespace part), so a new docPart can be spliced in ahead of it.
-func docPartsInsertPoint(raw []byte) (offset int, prefix string, ok bool) {
-	dec := xml.NewDecoder(bytes.NewReader(raw))
+// default-namespace part), so a new docPart can be spliced in ahead of it. The
+// offset indexes text, the part's UTF-8 form, which is what to splice into.
+func docPartsInsertPoint(raw []byte) (offset int, prefix string, text []byte, ok bool) {
+	dec, raw, err := xmlb.NewPartDecoder(raw)
+	if err != nil {
+		return 0, "", nil, false
+	}
 	var prev int64
 	for {
 		prev = dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
-			return 0, "", false
+			return 0, "", nil, false
 		}
 		end, isEnd := tok.(xml.EndElement)
 		if !isEnd || end.Name.Local != "docParts" {
@@ -342,7 +345,7 @@ func docPartsInsertPoint(raw []byte) (offset int, prefix string, ok bool) {
 		for p < len(raw) && raw[p] != '<' {
 			p++
 		}
-		return p, tagPrefix(raw, p), true
+		return p, tagPrefix(raw, p), raw, true
 	}
 }
 

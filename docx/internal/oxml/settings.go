@@ -223,6 +223,7 @@ func parseDocVars(raw []byte) []CT_DocVar {
 	if len(raw) == 0 {
 		return nil
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	var vars []CT_DocVar
 	for {

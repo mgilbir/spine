@@ -318,6 +318,7 @@ func extTypedExclusive(found bool, raw []byte) bool {
 	if bytes.Count(raw, []byte{'<'}) <= 1 {
 		return true
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	depth := 0
 	top := 0

@@ -220,6 +220,7 @@ func setCapture(rv reflect.Value, fieldIndex int) bool {
 // outermost element of s.
 func topLevelChildren(t *testing.T, s string) []string {
 	t.Helper()
+	//xmlguard:lenient reads markup a test marshaled with the Builder, which is UTF-8
 	d := xml.NewDecoder(strings.NewReader(s))
 	var names []string
 	depth := 0

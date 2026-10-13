@@ -684,6 +684,7 @@ func undeclaredPrefixes(raw string, rootNS map[string]string) map[string]string 
 	if len(rootNS) == 0 {
 		return need
 	}
+	//xmlguard:lenient reads a span sliced from core.xml's UTF-8 form
 	dec := xml.NewDecoder(strings.NewReader(raw))
 	for {
 		tok, err := dec.Token()

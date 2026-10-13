@@ -98,4 +98,13 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 	if !bytes.Equal(gotSVG, wantSVG) || !reflect.DeepEqual(gotSpecs, wantSpecs) {
 		t.Error("a presentation with BOM-prefixed parts renders differently")
 	}
+	// Parts in a code page, which the models read, render the same too.
+	encoded, _, err := testutil.WithWindows1252(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSVG, gotSpecs = render(encoded)
+	if !bytes.Equal(gotSVG, wantSVG) || !reflect.DeepEqual(gotSpecs, wantSpecs) {
+		t.Error("a presentation with Windows-1252 parts renders differently")
+	}
 }

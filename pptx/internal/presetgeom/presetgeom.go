@@ -42,6 +42,7 @@ func load() {
 // parse reads a definitions document: one geometry per root child.
 func parse(definitions []byte) (map[string]*dml.CustGeom, error) {
 	shapes := map[string]*dml.CustGeom{}
+	//xmlguard:lenient reads the preset definitions embedded in the library, which are UTF-8
 	d := xml.NewDecoder(bytes.NewReader(definitions))
 	depth := 0
 	for {

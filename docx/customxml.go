@@ -127,7 +127,10 @@ func isCustomXMLDataPartName(name string) bool {
 // parseDatastoreItem extracts the ds:itemID and ds:schemaRef URIs from an
 // itemProps part.
 func parseDatastoreItem(data []byte) (itemID string, schemaRefs []string) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return "", nil
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -265,7 +268,10 @@ func buildItemProps(itemID string, schemaRefs []string) []byte {
 // rootElementName returns the qualified name of the first element in an XML
 // document, erroring when the bytes are not well-formed enough to reach one.
 func rootElementName(data []byte) (xml.Name, error) {
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return xml.Name{}, err
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

@@ -6,6 +6,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // SourceBudget bounds adapter capability inspection across parts. Callers must
@@ -43,9 +45,14 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 		return fmt.Errorf("%w: source bytes", ErrLimit)
 	}
 	b.Bytes -= int64(len(data))
+	// A part in a code page is checked in its UTF-8 form, as the models read it.
+	data, err := xmlb.UTF8(data)
+	if err != nil {
+		return fmt.Errorf("%w: source XML: %w", ErrInvalid, err)
+	}
 	// encoding/xml returns a leading BOM as character data, which would read
 	// as content outside the root.
-	dec := xml.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, utf8BOM)))
+	dec := xmlb.NewDecoder(bytes.NewReader(bytes.TrimPrefix(data, utf8BOM)))
 	first := true
 	depth := 0
 	path := []xml.Name{}

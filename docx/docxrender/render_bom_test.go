@@ -65,4 +65,14 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 	if got := svg(withBOM); !bytes.Equal(got, want) {
 		t.Error("a document with BOM-prefixed parts renders differently")
 	}
+	// Parts in a code page, which the models read, render the same too. The
+	// renderer read them with a decoder that has no charset support and
+	// failed with "CharsetReader is nil".
+	encoded, _, err := testutil.WithWindows1252(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := svg(encoded); !bytes.Equal(got, want) {
+		t.Error("a document with Windows-1252 parts renders differently")
+	}
 }

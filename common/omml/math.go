@@ -402,6 +402,7 @@ func appendRawMathText(sb *strings.Builder, r *Raw) {
 	if r.Space != NS || len(r.Content) == 0 {
 		return
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	d := xml.NewDecoder(bytes.NewReader(r.Content))
 	depth := 0
 	for {

@@ -143,7 +143,10 @@ func (s *Sheet) controlBlocks() map[string]controlBlock {
 	if !ok {
 		return out
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(part.Data)))
+	dec, _, err := xmlb.NewPartDecoder(part.Data)
+	if err != nil {
+		return out
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

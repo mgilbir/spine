@@ -118,6 +118,7 @@ func parseZoomTargets(raw []byte) (uint32, []string) {
 	if len(raw) == 0 {
 		return 0, nil
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	var slideID uint32
 	var sectionIDs []string

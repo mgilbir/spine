@@ -943,6 +943,7 @@ func (v *BlipEffect) marshalXML(e *xml.Encoder) error {
 	// API, so re-tokenize (prefixes bound outside the fragment cannot be
 	// resolved and end the replay early rather than failing the marshal).
 	if len(v.Raw) > 0 {
+		//xmlguard:lenient re-tokenizes inner XML the part parse already decoded to UTF-8
 		sub := xml.NewDecoder(bytes.NewReader(v.Raw))
 		for {
 			tok, err := sub.Token()

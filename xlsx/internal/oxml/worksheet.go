@@ -655,6 +655,7 @@ func (sv *CT_SheetView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) err
 	}
 
 	cap := &xmlb.ChildCapture{}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	sub := xml.NewDecoder(bytes.NewReader(aux.Inner))
 	selIdx := 0
 	for {
@@ -1954,6 +1955,7 @@ func captureUnmodeledChildren(inner []byte, modeled map[string]int) *xmlb.ChildC
 	}
 	cap := &xmlb.ChildCapture{}
 	sliceIdx := make(map[string]int)
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	sub := xml.NewDecoder(bytes.NewReader(inner))
 	for {
 		pre := sub.InputOffset()

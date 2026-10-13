@@ -254,6 +254,7 @@ func encodeClrColor(e *xml.Encoder, start xml.StartElement, attrs []xml.Attr, sl
 // inherits the enclosing namespace rather than being emitted with a bogus
 // xmlns="a".
 func encodeRawFragment(e *xml.Encoder, raw []byte) error {
+	//xmlguard:lenient replays a fragment sliced from the UTF-8 form the part was parsed from
 	sub := xml.NewDecoder(bytes.NewReader(raw))
 	for {
 		tok, err := sub.Token()

@@ -247,6 +247,7 @@ func parseNoteProps(raw []byte) NoteProperties {
 	if len(raw) == 0 {
 		return np
 	}
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	for {
 		tok, err := dec.Token()
@@ -338,6 +339,7 @@ func preserveNoteExtraChildren(raw []byte) []byte {
 		return nil
 	}
 	var buf bytes.Buffer
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(bytes.NewReader(raw))
 	// XML tokens are contiguous, so the offset after one token is the offset of
 	// the next: prev holds the '<' of the element about to be read.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -22,12 +23,13 @@ var windows1252High = map[rune]byte{
 var encodingDecl = regexp.MustCompile(`(?i)^<\?xml[^?]*?encoding\s*=\s*["'][^"']*["']`)
 
 // WithWindows1252 returns the package with every XML part (".xml" and ".rels"
-// entries, [Content_Types].xml included) re-encoded as Windows-1252, its
-// declaration naming that encoding (one is added where the part has none),
-// keeping entry order. It fails when a part holds a character the code page
-// cannot represent. It returns the names of the parts holding a character
-// outside ASCII, whose bytes the re-encoding changed.
-func WithWindows1252(data []byte) ([]byte, []string, error) {
+// entries, [Content_Types].xml included), or only the named entries when any
+// are given, re-encoded as Windows-1252, its declaration naming that encoding
+// (one is added where the part has none), keeping entry order. It fails when a
+// part holds a character the code page cannot represent. It returns the names
+// of the parts holding a character outside ASCII, whose bytes the re-encoding
+// changed.
+func WithWindows1252(data []byte, only ...string) ([]byte, []string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, nil, err
@@ -46,7 +48,7 @@ func WithWindows1252(data []byte) ([]byte, []string, error) {
 			return nil, nil, err
 		}
 		lower := strings.ToLower(f.Name)
-		if strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".rels") {
+		if len(only) > 0 && slices.Contains(only, f.Name) || len(only) == 0 && (strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".rels")) {
 			if b, err = toWindows1252(b); err != nil {
 				return nil, nil, fmt.Errorf("%s: %w", f.Name, err)
 			}

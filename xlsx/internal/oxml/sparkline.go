@@ -109,6 +109,7 @@ type CT_Sparkline struct {
 // (outside raw), so parsing is lenient about the element namespace and keys on
 // local names.
 func ParseSparklineGroups(raw []byte) (*CT_SparklineGroups, error) {
+	//xmlguard:lenient reads inner XML the part parse already decoded to UTF-8
 	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	sg := &CT_SparklineGroups{}
 	for {

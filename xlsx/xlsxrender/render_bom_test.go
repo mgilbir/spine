@@ -65,7 +65,16 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 		}
 		return out.Bytes()
 	}
-	if want, got := svg(plain), svg(withBOM); !bytes.Equal(got, want) {
+	want := svg(plain)
+	if got := svg(withBOM); !bytes.Equal(got, want) {
 		t.Error("a workbook with BOM-prefixed parts renders differently")
+	}
+	// Parts in a code page, which the models read, render the same too.
+	encoded, _, err := testutil.WithWindows1252(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := svg(encoded); !bytes.Equal(got, want) {
+		t.Error("a workbook with Windows-1252 parts renders differently")
 	}
 }

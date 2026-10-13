@@ -3,7 +3,8 @@ package testutil
 import (
 	"encoding/xml"
 	"io"
-	"strings"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // NamespaceWellFormed reports the first element or attribute in s written with
@@ -20,7 +21,10 @@ import (
 // resolves a prefix to its URI only while a declaration for it is in scope, so
 // anything still carrying a bare prefix here is unbound at that point.
 func NamespaceWellFormed(s string) error {
-	d := xml.NewDecoder(strings.NewReader(s))
+	d, _, err := xmlb.NewPartDecoder([]byte(s))
+	if err != nil {
+		return err
+	}
 	declared := map[string]bool{"http://www.w3.org/XML/1998/namespace": true}
 	for {
 		tok, err := d.Token()

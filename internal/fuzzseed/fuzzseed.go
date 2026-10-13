@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 	"unicode"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // BuildZip assembles an in-memory zip archive from name/body pairs, in
@@ -239,7 +241,11 @@ func UnresolvedElementNamespaces(data []byte, limit int) []string {
 		"http://www.w3.org/XML/1998/namespace": true,
 		"http://www.w3.org/2000/xmlns/":        true,
 	}
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	// A preserved part may declare a code page; read its UTF-8 form.
+	if text, err := xmlb.UTF8(data); err == nil {
+		data = text
+	}
+	dec := xmlb.NewDecoder(bytes.NewReader(data))
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -262,7 +268,7 @@ func UnresolvedElementNamespaces(data []byte, limit int) []string {
 	// which is never one of the declared URIs — including when the declaration
 	// exists but is out of scope, which is the shape a sibling-scoped inline
 	// declaration produces.
-	dec = xml.NewDecoder(bytes.NewReader(data))
+	dec = xmlb.NewDecoder(bytes.NewReader(data))
 	var bad []string
 	for len(bad) < limit {
 		tok, err := dec.Token()
@@ -355,7 +361,10 @@ func AssertEmittedNamespacesResolve(tb testing.TB, in, out []byte) {
 // are exactly the inputs worth asserting on: well-formed XML that a writer can
 // still turn into bytes no parser accepts.
 func NamesAreValid(data []byte) bool {
-	dec := xml.NewDecoder(bytes.NewReader(data))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return true // no UTF-8 form: ill-formed beyond names, as below
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {

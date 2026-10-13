@@ -128,6 +128,7 @@ func (c *Comment) AnchorShapeID() (uint32, bool) {
 
 // scanShapeMarkID finds an spMk id attribute inside a raw anchor marker list.
 func scanShapeMarkID(raw []byte) (uint32, bool) {
+	//xmlguard:lenient reads a child captured from the UTF-8 form the part was parsed from
 	dec := xml.NewDecoder(strings.NewReader(string(raw)))
 	for {
 		tok, err := dec.Token()
@@ -251,6 +252,7 @@ func (s *Slide) readModernThread(partName string, authors map[string]string) *Co
 // modernPos extracts an x/y position from a raw p188:pos child, if present.
 func modernPos(children [][]byte) (x, y int64, ok bool) {
 	for _, raw := range children {
+		//xmlguard:lenient reads a child captured from the UTF-8 form the part was parsed from
 		dec := xml.NewDecoder(strings.NewReader(string(raw)))
 		for {
 			tok, err := dec.Token()

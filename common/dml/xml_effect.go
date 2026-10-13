@@ -389,6 +389,7 @@ func (c *effectChild) marshalXML(e *xml.Encoder) error {
 		return err
 	}
 	if len(c.Raw) > 0 {
+		//xmlguard:lenient re-tokenizes inner XML the part parse already decoded to UTF-8
 		sub := xml.NewDecoder(bytes.NewReader(c.Raw))
 		for {
 			tok, err := sub.Token()

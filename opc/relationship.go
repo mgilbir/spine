@@ -369,7 +369,13 @@ func EnsureRelationshipInRels(data []byte, relType, target string) (out []byte, 
 		}
 		id := nextFreeRelID(used)
 		newRel := &Relationship{ID: id, Type: relType, Target: target, TargetMode: TargetModeInternal}
-		injected, ok := injectRelationshipElement(data, newRel)
+		// The element is UTF-8, so it goes into the part's UTF-8 form; the
+		// parse above already proved there is one.
+		text, err := xmlb.UTF8(data)
+		if err != nil {
+			return data, nil, false
+		}
+		injected, ok := injectRelationshipElement(text, newRel)
 		if !ok {
 			return data, nil, false
 		}

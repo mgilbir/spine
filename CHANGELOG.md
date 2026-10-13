@@ -64,6 +64,18 @@
   `presentation.xml`, layouts, masters, `workbook.xml` and
   `[Content_Types].xml` that are rebuilt on every save, and a document body or
   slide rebuilt only because it was read, keeps its source bytes.
+- docx, pptx, xlsx, render: the readers that walk a part themselves read one
+  declaring a code page. They used a decoder that rejects it and, being best
+  effort, took the error for an empty part: `Frameset` returned nil, custom XML
+  parts had no item id, `Slicers` and `Timelines` were empty, form controls lost
+  their names, and pptx validation skipped its comment-author check. Writes
+  that splice into a part lost data or failed: `SetFrameset` replaced the whole
+  web-settings part, `AddBuildingBlock` failed the save, adding a comment beside
+  a form control rebuilt the legacy drawing without the control, a chart added
+  to a sheet's drawing reused a shape id, and a relationship added to a rels
+  part was written in a second encoding. The three renderers failed on such a
+  part with "CharsetReader is nil". `xml.NewPartDecoder` decodes a part's UTF-8
+  form and returns the bytes to splice into.
 
 ### Changed
 

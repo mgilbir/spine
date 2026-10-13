@@ -1,8 +1,9 @@
 package schemavalid
 
 import (
-	"bytes"
 	"encoding/xml"
+
+	xmlb "github.com/mgilbir/spine/common/xml"
 )
 
 // nsMarkupCompatibility is the namespace of the mc: elements and attributes.
@@ -43,7 +44,11 @@ func ResolveAlternateContent(part []byte) []byte {
 // resolveFirstAlternateContent replaces the first mc:AlternateContent it finds,
 // reporting whether it replaced anything.
 func resolveFirstAlternateContent(part []byte) ([]byte, bool) {
-	dec := xml.NewDecoder(bytes.NewReader(part))
+	dec, text, err := xmlb.NewPartDecoder(part)
+	if err != nil {
+		return part, false
+	}
+	part = text
 
 	var (
 		acStart         int64 = -1
