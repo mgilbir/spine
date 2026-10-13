@@ -219,18 +219,22 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 		return nil, err
 	}
 
+	// workbook.xml is always regenerated, in UTF-8, so it is read from its
+	// UTF-8 form: the decoder's offsets then index the bytes the raw captures
+	// slice, and the captured declaration names UTF-8 (C369).
+	text, err := xmlb.UTF8(data)
+	if err != nil {
+		_ = reader.Close()
+		return nil, err
+	}
 	var wb oxml.CT_Workbook
+	if !bytes.Equal(text, data) {
+		wb.Encoded = data
+	}
+	data = text
 	// Give the unmarshal access to the raw part bytes so unknown children
 	// (e.g. xr:revisionPtr) are captured verbatim instead of re-encoded.
-	//
-	// Only when the decoder's input offsets still index these bytes: a part
-	// declaring a single-byte code page is transcoded to UTF-8 on read, so the
-	// offsets index the transcoded stream and slicing data at them would splice
-	// misaligned fragments into the always-regenerated workbook.xml (C369).
-	// Without a source the capture paths fall back to canonical regeneration.
-	if xmlb.OffsetCaptureSafe(data) {
-		wb.RawSource = data
-	}
+	wb.RawSource = data
 	if err := xmlb.UnmarshalWithSource(data, &wb); err != nil {
 		_ = reader.Close()
 		return nil, err
@@ -238,12 +242,6 @@ func openFromReader(reader *opc.ReadCloser) (*Workbook, error) {
 
 	// Extract formatting details from the raw XML for byte-identical round-trip.
 	wb.Prolog = xmlb.CaptureProlog(data)
-	// workbook.xml is always regenerated, and regeneration emits UTF-8. Replaying
-	// a transcoded part's declaration verbatim would label UTF-8 bytes with the
-	// source code page, so rewrite the encoding pseudo-attribute (C369).
-	if !xmlb.OffsetCaptureSafe(data) {
-		wb.Prolog.Decl = declEncodingUTF8(wb.Prolog.Decl)
-	}
 	wb.SelfClosingSpace = xmlb.DetectSelfClosingSpace(data)
 
 	w := &Workbook{

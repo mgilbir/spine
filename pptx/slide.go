@@ -29,6 +29,10 @@ type Slide struct {
 	// built for a created slide). When sxModel is still nil at save time the
 	// slide was never touched, so its original bytes pass through unchanged.
 	sxParsed bool
+	// sxEncoded records that the parsed source is not UTF-8 (it declares a
+	// code page), so a save that regenerates the read-only slide compares
+	// against it rather than writing the UTF-8 rebuild.
+	sxEncoded bool
 	// sxParseErr holds the failure of a lazy re-parse of bytes loadSlides
 	// already parsed — an impossible state that sx() reports by panicking
 	// rather than by silently reading the slide as empty (C568).
@@ -113,6 +117,7 @@ func (s *Slide) sx() *oxml.Slide {
 			return nil
 		}
 		m := &oxml.Slide{}
+		s.sxEncoded = !xmlb.OffsetCaptureSafe(raw)
 		m.Prolog = xmlb.CaptureProlog(raw)
 		m.SelfClosingSpace = xmlb.DetectSelfClosingSpace(raw)
 		m.CollapseEmpty = xmlb.DetectCollapsedEmptyElements(raw)

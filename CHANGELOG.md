@@ -51,6 +51,19 @@
   U+00A0 is content the capability profile sees, and is no longer accepted
   outside the root. An XML declaration anywhere but at the very start is
   rejected.
+- docx, pptx, xlsx, opc: a part that declares a single-byte code page
+  (`encoding="windows-1252"` or ISO-8859-1, which wild files carry and Office
+  opens) survives an edit. A part rebuilt on save is written in UTF-8, but it
+  replayed the source's declaration, so the next reader decoded UTF-8 bytes as
+  the code page and "Café" came back as "CafÃ©". Raw spans the core and custom
+  property parts keep for elements they do not model were sliced from the
+  source at offsets into the transcoded stream, which wrote a malformed
+  `core.xml`. A duplicated pptx slide came out empty and `AppendSlidesFrom`
+  failed ("CharsetReader is nil"). Every parser now reads such a part's UTF-8
+  form (the new `xml.UTF8`), and an untouched part, including the
+  `presentation.xml`, layouts, masters, `workbook.xml` and
+  `[Content_Types].xml` that are rebuilt on every save, and a document body or
+  slide rebuilt only because it was read, keeps its source bytes.
 
 ### Changed
 

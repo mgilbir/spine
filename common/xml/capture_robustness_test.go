@@ -7,12 +7,13 @@ import (
 	"testing"
 )
 
-// C239: a part declaring a non-UTF-8 charset makes CharsetReader transcode the
-// stream, so the decoder's InputOffset indexes the transcoded bytes while the
-// registered source is the original. Offset-based capture would then slice
-// garbage and replay it. UnmarshalWithSource must not register the source for
-// such parts, so capture degrades cleanly to canonical regeneration.
-func TestUnmarshalWithSource_TranscodedCharsetSkipsCapture(t *testing.T) {
+// C239: a part declaring a non-UTF-8 charset is transcoded, and offset-based
+// capture slices the registered source at the decoder's offsets. Registering
+// the original bytes while the decoder read transcoded ones sliced garbage;
+// the fix then was to register nothing, so such parts lost their capture.
+// UnmarshalWithSource now decodes the part's UTF-8 form and registers that,
+// so the offsets index the source and the capture matches a UTF-8 part's.
+func TestUnmarshalWithSource_TranscodedCharsetCaptures(t *testing.T) {
 	// Three high bytes (0xE9 -> é) before the unknown child shift every
 	// transcoded offset by three relative to the original source bytes.
 	src := `<?xml version="1.0" encoding="windows-1252"?>` +
@@ -24,12 +25,11 @@ func TestUnmarshalWithSource_TranscodedCharsetSkipsCapture(t *testing.T) {
 		t.Fatalf("UnmarshalWithSource: %v", err)
 	}
 	got := marshalOrderedDoc(t, &doc)
-	// Source not registered: the unknown child degrades to the no-source path
-	// (rebuilt from tokens, so kept) and the typed w:sz decodes normally — no
-	// garbage span.
-	want := `<w:props><w:sz w:val="ééé"/><ns1:unknown xmlns:ns1="http://example.com/x"/></w:props>`
+	// The unknown child is kept verbatim, as in a UTF-8 part (see the control
+	// below); a span sliced at shifted offsets would be garbage.
+	want := `<w:props><w:sz w:val="ééé"/><x:unknown/></w:props>`
 	if got != want {
-		t.Errorf("transcoded capture produced garbage:\n got %q\nwant %q", got, want)
+		t.Errorf("transcoded capture:\n got %q\nwant %q", got, want)
 	}
 	// Must be well-formed regardless.
 	if err := wellFormed(got); err != nil {

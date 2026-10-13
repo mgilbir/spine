@@ -358,6 +358,12 @@ func parseVTScalar(local, text string) (any, bool) {
 // unchanged) and a value that does not parse as its declared type is likewise
 // kept as raw XML rather than failing the open.
 func UnmarshalCustomProperties(data []byte) (*CustomProperties, error) {
+	// Unmodeled values are sliced at decoder offsets and replayed into UTF-8
+	// output, so both come from the part's UTF-8 form.
+	data, err := xmlb.UTF8(data)
+	if err != nil {
+		return nil, err
+	}
 	cp := &CustomProperties{}
 	src := string(data)
 	decoder := xmlb.NewDecoder(strings.NewReader(src))

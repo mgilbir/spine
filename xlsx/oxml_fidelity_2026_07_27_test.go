@@ -153,6 +153,18 @@ func TestTranscodedWorkbookRegeneratesWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
+	// Untouched, the part is written as its source bytes.
+	untouched, err := wb.SaveBytes()
+	if err != nil {
+		t.Fatalf("SaveBytes: %v", err)
+	}
+	if got := partOf(t, untouched, "xl/workbook.xml"); !bytes.Equal(got, workbook) {
+		t.Errorf("untouched save rewrote workbook.xml:\n%s", got)
+	}
+	// An edit makes the rebuilt part differ from the source.
+	if err = wb.AddDefinedName("Total", "Sheet1!$A$1"); err != nil {
+		t.Fatal(err)
+	}
 	out, err := wb.SaveBytes()
 	if err != nil {
 		t.Fatalf("SaveBytes: %v", err)

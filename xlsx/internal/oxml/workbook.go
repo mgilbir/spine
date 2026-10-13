@@ -89,6 +89,11 @@ type CT_Workbook struct {
 	// preserves producer quirks tokens cannot express (" />" self-closing
 	// space, expanded empty elements like <xr:revisionPtr ...></xr:revisionPtr>).
 	RawSource []byte `xml:"-"`
+	// Encoded holds the part's source bytes when they are not their own UTF-8
+	// form (a part declaring a code page); RawSource and every capture are the
+	// UTF-8 form. A rebuild equal to that form is written as these bytes, so an
+	// untouched workbook keeps its part. Nil for a UTF-8 source.
+	Encoded []byte `xml:"-"`
 	// ElemSeparator is whitespace inserted between sibling elements (e.g., " " for spaced format).
 	ElemSeparator string `xml:"-"`
 }

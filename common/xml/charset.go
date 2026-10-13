@@ -24,23 +24,126 @@ import (
 //
 // For the ASCII-compatible encodings (utf-8/us-ascii/empty) it returns the
 // input reader unchanged, so the decoder's InputOffset keeps indexing the
-// original source bytes and the fidelity-capture helpers are unaffected. Only
-// the genuinely single-byte encodings wrap the reader in a transcoder, and
-// such files are handled by preserved raw bytes rather than offset capture.
+// original source bytes. Only the genuinely single-byte encodings wrap the
+// reader in a transcoder, whose offsets index the transcoded stream; parse a
+// part through [UTF8] when anything is sliced from it at those offsets.
 func CharsetReader(charset string, in io.Reader) (io.Reader, error) {
-	switch strings.ToLower(strings.TrimSpace(charset)) {
-	case "", "utf-8", "utf8", "us-ascii", "ascii", "usascii", "ansi_x3.4-1968":
+	table, err := charmap(charset)
+	if err != nil || table == nil {
 		// ASCII is a subset of UTF-8: pass the bytes through untouched so
 		// input offsets continue to index the original source.
-		return in, nil
+		return in, err
+	}
+	return newCharmapReader(in, table), nil
+}
+
+// charmap returns the byte-to-rune table of a single-byte charset, nil for the
+// ASCII-compatible encodings that need no transcoding, or an error for a
+// charset the library does not read.
+func charmap(charset string) (*[256]rune, error) {
+	switch strings.ToLower(strings.TrimSpace(charset)) {
+	case "", "utf-8", "utf8", "us-ascii", "ascii", "usascii", "ansi_x3.4-1968":
+		return nil, nil
 	case "iso-8859-1", "iso8859-1", "iso_8859-1", "latin1", "latin-1", "l1",
 		"8859-1", "cp819", "iso-ir-100", "csisolatin1":
-		return newCharmapReader(in, &latin1Table), nil
+		return &latin1Table, nil
 	case "windows-1252", "cp1252", "win-1252", "win1252", "1252", "x-cp1252":
-		return newCharmapReader(in, &windows1252Table), nil
+		return &windows1252Table, nil
 	default:
 		return nil, fmt.Errorf("xml: unsupported charset %q", charset)
 	}
+}
+
+// UTF8 returns a part's bytes as the UTF-8 document they encode. A part that
+// declares a single-byte code page is transcoded, and its declaration's
+// encoding rewritten to UTF-8 so the result describes itself; anything else is
+// returned as is, without a copy.
+//
+// Parse a part through this, and slice any raw spans out of its result. The
+// decoder then reads the bytes those spans come from, so its input offsets
+// index them, and everything captured for replay (the prolog, verbatim
+// children, separators) is already UTF-8 — the encoding every regenerated part
+// is written in. Capturing from the source bytes instead replayed code-page
+// bytes, or a declaration naming the code page, into UTF-8 output, and text
+// read back as mojibake. The source bytes stay what an untouched part is
+// saved as.
+//
+// A UTF-8 byte order mark on a part that declares another encoding is an error
+// (XML 1.0 §4.3.3), as is a charset the library does not read.
+func UTF8(data []byte) ([]byte, error) {
+	charset := declaredCharset(data)
+	table, err := charmap(charset)
+	if err != nil {
+		return nil, err
+	}
+	if table == nil {
+		return data, nil
+	}
+	if bytes.HasPrefix(data, utf8BOM) {
+		return nil, fmt.Errorf("xml: UTF-8 byte order mark on a part declaring encoding %q", charset)
+	}
+	out := make([]byte, 0, len(data)+len(data)/4)
+	for _, c := range data {
+		out = utf8.AppendRune(out, table[c])
+	}
+	// The declaration is ASCII, so it sits at the same offsets in out.
+	end := bytes.Index(out, []byte("?>")) + len("?>")
+	return append([]byte(declEncodingUTF8(string(out[:end]))), out[end:]...), nil
+}
+
+// PreferSource returns a part's source bytes when they are in an encoding
+// other than UTF-8 and regenerated is exactly their UTF-8 form, and
+// regenerated otherwise. A part the library rebuilds because it was read, not
+// because it was edited, then keeps the bytes it was written in; a UTF-8
+// source is left to the caller's own fidelity, at no cost.
+func PreferSource(source, regenerated []byte) []byte {
+	if len(source) == 0 {
+		return regenerated
+	}
+	text, err := UTF8(source)
+	if err != nil || len(text) > 0 && &text[0] == &source[0] {
+		return regenerated
+	}
+	if bytes.Equal(text, regenerated) {
+		return source
+	}
+	return regenerated
+}
+
+// utf8BOM is the UTF-8 encoding of U+FEFF.
+var utf8BOM = []byte("\xef\xbb\xbf")
+
+// declEncodingUTF8 rewrites the encoding pseudo-attribute of an XML
+// declaration to UTF-8, preserving everything else about the producer's
+// declaration (version, standalone, spacing, quote style). Declarations
+// without an encoding pseudo-attribute are returned unchanged.
+func declEncodingUTF8(decl string) string {
+	i := strings.Index(decl, "encoding")
+	if i < 0 {
+		return decl
+	}
+	j := i + len("encoding")
+	skipSpace := func() {
+		for j < len(decl) && isXMLSpace(decl[j]) {
+			j++
+		}
+	}
+	skipSpace()
+	if j >= len(decl) || decl[j] != '=' {
+		return decl
+	}
+	j++
+	skipSpace()
+	if j >= len(decl) || (decl[j] != '"' && decl[j] != '\'') {
+		return decl
+	}
+	quote := decl[j]
+	j++
+	end := strings.IndexByte(decl[j:], quote)
+	if end < 0 {
+		return decl
+	}
+	return decl[:j] + "UTF-8" + decl[j+end:]
 }
 
 // charsetTranscodes reports whether CharsetReader will wrap a stream declaring
@@ -62,10 +165,9 @@ func charsetTranscodes(charset string) bool {
 //
 // A part declaring a single-byte code page is transcoded to UTF-8 on read, so
 // the decoder's offsets index the transcoded stream and any capture that
-// slices the original bytes at those offsets would replay garbage. Callers
-// that hand raw part bytes to an offset-based capture (a RawSource field, a
-// verbatim child slice) must gate the assignment on this predicate;
-// [UnmarshalWithSource] applies it to its own source registration.
+// slices the original bytes at those offsets would replay garbage. The
+// library's parsers no longer need the gate: they decode the part's [UTF8]
+// form and slice that, which keeps the capture for such parts too.
 func OffsetCaptureSafe(data []byte) bool {
 	return !charsetTranscodes(declaredCharset(data))
 }
@@ -75,9 +177,7 @@ func OffsetCaptureSafe(data []byte) bool {
 // only the declaration bytes; the value is not validated against the supported
 // set (charsetTranscodes handles that).
 func declaredCharset(data []byte) string {
-	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
-		data = data[3:]
-	}
+	data = bytes.TrimPrefix(data, utf8BOM)
 	if !bytes.HasPrefix(data, []byte("<?xml")) {
 		return ""
 	}
@@ -137,6 +237,10 @@ func NewDecoder(r io.Reader) *xml.Decoder {
 // (FuzzPptxModernCommentXML). Two entry points enforcing different rules is one
 // rule and one hole.
 func Unmarshal(data []byte, v any) error {
+	data, err := UTF8(data)
+	if err != nil {
+		return err
+	}
 	d := NewDecoder(bytes.NewReader(data))
 	if err := d.Decode(v); err != nil {
 		return err
