@@ -115,11 +115,10 @@ func (r *Raw) marshal(b *xmlb.Builder) {
 // away. Non-whitespace text there is non-conformant, but dropping it silently
 // is the inverse of the leniency this package extends to unknown elements.
 func captureCharData(t xml.CharData) *Raw {
-	s := string(t)
-	if strings.TrimSpace(s) == "" {
+	if xmlb.IsSpace(t) {
 		return nil
 	}
-	return &Raw{Content: []byte(xmlb.EscapeText(s))}
+	return &Raw{Content: []byte(xmlb.EscapeText(string(t)))}
 }
 
 // selfDeclaredPrefix returns the prefix a captured attribute list declares for

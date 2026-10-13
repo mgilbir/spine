@@ -3,7 +3,6 @@
 package oxml
 
 import (
-	"bytes"
 	"encoding/xml"
 	"fmt"
 	"sort"
@@ -646,7 +645,7 @@ func (bv *CT_BookView) UnmarshalXML(d *xml.Decoder, start xml.StartElement) erro
 	if err := d.DecodeElement(&inner, &start); err != nil {
 		return err
 	}
-	if len(bytes.TrimSpace(inner.Content)) > 0 {
+	if !xmlb.IsSpace(inner.Content) {
 		bv.rawChildren = inner.Content
 	}
 	return nil

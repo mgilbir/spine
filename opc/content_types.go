@@ -761,6 +761,20 @@ func inContentTypesNamespace(name xml.Name) bool {
 // any other namespace is preserved verbatim on regeneration but contributes
 // no mapping.
 func UnmarshalContentTypes(data []byte) (*ContentTypes, error) {
+	v, err := unmarshalContentTypes(data)
+	if err != nil {
+		return nil, err
+	}
+	// The token walk checks nothing around the root element. Checked after
+	// it, so a parse error still names what failed.
+	if err := xmlb.CheckDocumentBounds(data); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// unmarshalContentTypes is UnmarshalContentTypes's token walk.
+func unmarshalContentTypes(data []byte) (*ContentTypes, error) {
 	// Raw spans are sliced at decoder offsets and replayed into UTF-8 output,
 	// so both come from the part's UTF-8 form.
 	text, err := xmlb.UTF8(data)

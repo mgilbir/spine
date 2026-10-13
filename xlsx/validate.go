@@ -1,12 +1,12 @@
 package xlsx
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/mgilbir/spine/common/validate"
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/opc"
 )
 
@@ -212,19 +212,19 @@ func (w *Workbook) validateDataValidations(c *validate.Collector) {
 }
 
 // validateStyles reports an xl/styles.xml part that is present in the package
-// but empty (0-byte or whitespace-only). Open tolerates such a part as an empty
-// stylesheet — matching Excel, and real Common Crawl files ship a 0-byte
-// styles.xml — but surfaces it here so the tolerated defect is not swallowed
-// silently. The finding is warning severity: the file opens and saves fine
-// (the empty part is preserved raw), so it must not block a save. An entirely
-// absent-but-referenced styles part is covered instead by the shared
-// rel-target-missing check.
+// but empty (0-byte or whitespace-only, byte order mark or not). Open tolerates
+// such a part as an empty stylesheet — matching Excel, and real Common Crawl
+// files ship a 0-byte styles.xml — but surfaces it here so the tolerated defect
+// is not swallowed silently. The finding is warning severity: the file opens
+// and saves fine (the empty part is preserved raw), so it must not block a
+// save. An entirely absent-but-referenced styles part is covered instead by the
+// shared rel-target-missing check.
 func (w *Workbook) validateStyles(c *validate.Collector) {
 	part, ok := w.preservedParts["/xl/styles.xml"]
 	if !ok || part == nil {
 		return
 	}
-	if len(bytes.TrimSpace(part.Data)) == 0 {
+	if xmlb.IsBlank(part.Data) {
 		c.Warnf(codeStylesEmpty, "/xl/styles.xml",
 			"styles part is present but empty; treated as an empty stylesheet (styles default to Excel's built-ins)")
 	}

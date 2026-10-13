@@ -150,13 +150,20 @@ func UnmarshalWithSource(data []byte, v interface{}) error {
 	d := NewDecoder(bytes.NewReader(data))
 	decoderSources.Store(d, data)
 	defer decoderSources.Delete(d)
-	if err := d.Decode(v); err != nil {
+	// This is the entry point every preserved part is read through, and a
+	// preserved part is rewritten byte for byte. Accepting content around the
+	// root element here is what let the library emit parts that do not parse.
+	start, err := CheckDocumentStart(d)
+	if err != nil {
 		return err
 	}
-	// This is the entry point every preserved part is read through, and a
-	// preserved part is rewritten byte for byte. Accepting content after the
-	// root element here is what let the library emit parts that do not parse.
+	if err := d.DecodeElement(v, &start); err != nil {
+		return err
+	}
 	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	if err := checkDeclarationsInside(data); err != nil {
 		return err
 	}
 	return CheckNamespacePrefixes(data)

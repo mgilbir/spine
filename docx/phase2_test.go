@@ -46,7 +46,7 @@ func fixtureHyperlinkDocx(t *testing.T) []byte {
 	return buildFixtureDocx(t, map[string]string{
 		"[Content_Types].xml":          fixtureContentTypes,
 		"_rels/.rels":                  fixtureRootRels,
-		"word/_rels/document.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + docRels,
+		"word/_rels/document.xml.rels": docRels,
 		"word/document.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" +
 			`<w:document ` + fixtureWNS + `>` + body + `</w:document>`,
 	})

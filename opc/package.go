@@ -746,6 +746,20 @@ func coreElementKey(name xml.Name) string {
 // It preserves element order and tracks which fields are present (even if empty)
 // for round-trip fidelity.
 func UnmarshalCoreProperties(data []byte) (*CoreProperties, error) {
+	v, err := unmarshalCoreProperties(data)
+	if err != nil {
+		return nil, err
+	}
+	// The token walk checks nothing around the root element. Checked after
+	// it, so a parse error still names what failed.
+	if err := xmlb.CheckDocumentBounds(data); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// unmarshalCoreProperties is UnmarshalCoreProperties's token walk.
+func unmarshalCoreProperties(data []byte) (*CoreProperties, error) {
 	// Unknown children are sliced at decoder offsets and replayed into UTF-8
 	// output, so both come from the part's UTF-8 form.
 	data, err := xmlb.UTF8(data)

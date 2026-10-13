@@ -344,9 +344,10 @@ func NewDecoder(r io.Reader) *xml.Decoder {
 // CharsetReader installed so a non-UTF-8 charset declaration in the prolog is
 // honored rather than rejected.
 //
-// Unlike [xml.Unmarshal] it also requires the document to be well-formed to its
-// end and to bind every prefix it uses — see [CheckDocumentEnd] and
-// [CheckNamespacePrefixes] for why the difference matters.
+// Unlike [xml.Unmarshal] it also requires the document to be well-formed from
+// its start to its end and to bind every prefix it uses — see
+// [CheckDocumentStart], [CheckDocumentEnd] and [CheckNamespacePrefixes] for
+// why the difference matters.
 //
 // The two checks are applied together, and by both part-level entry points.
 // They were not, once: this one took only CheckDocumentEnd while
@@ -360,10 +361,17 @@ func Unmarshal(data []byte, v any) error {
 		return err
 	}
 	d := NewDecoder(bytes.NewReader(data))
-	if err := d.Decode(v); err != nil {
+	start, err := CheckDocumentStart(d)
+	if err != nil {
+		return err
+	}
+	if err := d.DecodeElement(v, &start); err != nil {
 		return err
 	}
 	if err := CheckDocumentEnd(d); err != nil {
+		return err
+	}
+	if err := checkDeclarationsInside(data); err != nil {
 		return err
 	}
 	return CheckNamespacePrefixes(data)

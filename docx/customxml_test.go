@@ -278,3 +278,25 @@ func TestSetDataBindingOnCreatedControl(t *testing.T) {
 		t.Fatalf("read-back binding = %q %q %v", xpath, sid, ok)
 	}
 }
+
+// TestAddCustomXMLPartRefusesMalformedData pins that the whole document is
+// checked. Only the root start tag was, so each of these was accepted and
+// written into a package Word refuses.
+func TestAddCustomXMLPartRefusesMalformedData(t *testing.T) {
+	for _, data := range []string{
+		`<root xmlns="urn:x"><a>`,
+		`<root xmlns="urn:x"><a></b></root>`,
+		`<root xmlns="urn:x"/><second/>`,
+		`<root xmlns="urn:x"/>trailing`,
+		`junk<root xmlns="urn:x"/>`,
+		`<root xmlns="urn:x"><p:a/></root>`,
+		`<root xmlns="urn:x"><?xml version="1.0"?></root>`,
+	} {
+		if _, err := Create().AddCustomXMLPart([]byte(data)); err == nil {
+			t.Errorf("accepted %q", data)
+		}
+	}
+	if _, err := Create().AddCustomXMLPart([]byte(`<?xml version="1.0"?><root xmlns="urn:x"><p:a xmlns:p="urn:p"/></root>`)); err != nil {
+		t.Errorf("refused a well-formed document: %v", err)
+	}
+}

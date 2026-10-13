@@ -322,15 +322,15 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 			}
 		case name == "/xl/styles.xml":
 			w.stylesheet = &oxml.CT_Stylesheet{}
-			// An empty (0-byte or whitespace-only) styles part is tolerated as
-			// an empty stylesheet, matching Excel: it opens such files treating
-			// styles as defaults. Real Common Crawl files ship a 0-byte
+			// An empty (0-byte or whitespace-only, byte order mark or not) styles part
+			// is tolerated as an empty stylesheet, matching Excel: it opens such files
+			// treating styles as defaults. Real Common Crawl files ship a 0-byte
 			// xl/styles.xml. Only the empty case is swallowed — a non-empty but
-			// malformed styles.xml is genuine corruption and still errors. The
-			// raw part is preserved above, so a zero-modification save re-emits
-			// the original 0-byte part byte-for-byte (stylesDirty stays false
-			// because the empty model is non-nil and is never mutated on read).
-			if len(bytes.TrimSpace(data)) == 0 {
+			// malformed styles.xml is genuine corruption and still errors. The raw
+			// part is preserved above, so a zero-modification save re-emits the
+			// original 0-byte part byte-for-byte (stylesDirty stays false because the
+			// empty model is non-nil and is never mutated on read).
+			if xmlb.IsBlank(data) {
 				break
 			}
 			if err := xmlb.Unmarshal(data, w.stylesheet); err != nil {

@@ -85,6 +85,20 @@
   UTF-16 that is not, unpaired surrogates and UTF-32. The byte scans (nesting
   depth, empty-element style) and canonical XML read the UTF-8 form, and a
   signature part in UTF-16 verifies. An untouched UTF-16 part keeps its bytes.
+- docx, pptx, xlsx, opc: a part is checked for well-formedness before its root
+  element as it already was after it. Text ahead of the root and an XML
+  declaration anywhere but the very start (or one named `XML`, `Xml`, …) were
+  accepted, and a preserved part carrying them was saved verbatim, though Word
+  refuses it. `[Content_Types].xml` and the core and custom property parts,
+  read by walking their tokens, checked nothing around the root at all; they
+  now check what the other parts do. The check after the root, and the white
+  space the readers drop
+  between elements, now follow XML's definition of white space: a no-break
+  space or U+3000 is text, so it is no longer accepted after the root, nor
+  dropped from math, a modern comment author or a workbook view. An xlsx
+  styles part holding only a byte order mark is the empty part it was without
+  one, and `AddCustomXMLPart` checks the whole document it promises is
+  well-formed, not only its root tag.
 
 ### Changed
 

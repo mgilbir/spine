@@ -358,6 +358,20 @@ func parseVTScalar(local, text string) (any, bool) {
 // unchanged) and a value that does not parse as its declared type is likewise
 // kept as raw XML rather than failing the open.
 func UnmarshalCustomProperties(data []byte) (*CustomProperties, error) {
+	v, err := unmarshalCustomProperties(data)
+	if err != nil {
+		return nil, err
+	}
+	// The token walk checks nothing around the root element. Checked after
+	// it, so a parse error still names what failed.
+	if err := xmlb.CheckDocumentBounds(data); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+// unmarshalCustomProperties is UnmarshalCustomProperties's token walk.
+func unmarshalCustomProperties(data []byte) (*CustomProperties, error) {
 	// Unmodeled values are sliced at decoder offsets and replayed into UTF-8
 	// output, so both come from the part's UTF-8 form.
 	data, err := xmlb.UTF8(data)

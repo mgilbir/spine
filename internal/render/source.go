@@ -110,7 +110,7 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 			path = path[:len(path)-1]
 			siblings = siblings[:len(siblings)-1]
 		case xml.CharData:
-			if isXMLSpace(v) {
+			if xmlb.IsSpace(v) {
 				break
 			}
 			if depth == 0 {
@@ -130,18 +130,6 @@ func (b *SourceBudget) CheckXML(ctx context.Context, data []byte, allow func(XML
 			}
 		}
 	}
-}
-
-// isXMLSpace reports whether text is XML white space (XML 1.0 §2.3 production
-// S). Unicode spaces such as U+00A0 and U+FEFF are content, so
-// strings.TrimSpace is the wrong test.
-func isXMLSpace(text []byte) bool {
-	for _, c := range text {
-		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
-			return false
-		}
-	}
-	return true
 }
 
 type contextReader struct {

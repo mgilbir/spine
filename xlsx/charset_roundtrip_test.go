@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	xmlb "github.com/mgilbir/spine/common/xml"
 	"github.com/mgilbir/spine/internal/fuzzseed"
 	"github.com/mgilbir/spine/internal/testutil"
+	"github.com/mgilbir/spine/xlsx/internal/oxml"
 )
 
 // TestEncodedPackageRoundTrip covers a workbook whose parts are not UTF-8: in
@@ -144,5 +146,26 @@ func encodedRoundTrip(t *testing.T, src []byte) {
 	defer func() { _ = reopened.Close() }()
 	if _, err = reopened.SheetByName("Résultats"); err != nil {
 		t.Errorf("edited: added sheet: %v", err)
+	}
+}
+
+// A workbookView's inner content is kept unless it is XML white space; a
+// no-break space is text, which strings.TrimSpace classed as white space and
+// dropped from the always-regenerated workbook.xml.
+func TestBookViewKeepsNoBreakSpaceContent(t *testing.T) {
+	src := []byte(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+		"<bookViews><workbookView activeTab=\"0\"> </workbookView></bookViews>" +
+		`<sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`)
+	var wb oxml.CT_Workbook
+	wb.RawSource = src
+	if err := xmlb.UnmarshalWithSource(src, &wb); err != nil {
+		t.Fatal(err)
+	}
+	out, err := marshalWorkbookXML(&wb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte(" </workbookView>")) {
+		t.Errorf("no-break space content dropped: %s", out)
 	}
 }

@@ -412,3 +412,16 @@ func TestStrayCharDataIgnored(t *testing.T) {
 		t.Errorf("marshal = %s, want %s", got, want)
 	}
 }
+
+// TestNoBreakSpaceBetweenElementsIsKept pins that only XML white space between
+// structural elements normalizes away. A no-break space is text: strings.
+// TrimSpace classed it as white space and the parse dropped it.
+func TestNoBreakSpaceBetweenElementsIsKept(t *testing.T) {
+	fixture := "<m:oMath> <m:r>　<m:t>a</m:t></m:r></m:oMath>"
+	m := &OMath{}
+	parseFixture(t, fixture, m)
+	want := "<m:oMath> <m:r>　<m:t>a</m:t></m:r></m:oMath>"
+	if got := marshalFixture(t, m, "oMath"); got != want {
+		t.Errorf("marshal = %q, want %q", got, want)
+	}
+}
