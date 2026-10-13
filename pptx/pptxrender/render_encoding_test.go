@@ -16,13 +16,15 @@ import (
 	"github.com/mgilbir/spine/render"
 )
 
-// TestRenderBOMPrefixedParts is the #493 regression for presentations: a UTF-8
-// byte order mark at the start of a part (Office writes them) read as content
-// outside the root, so strict rendering failed with "content outside XML
-// root". With a BOM on every XML part, every part the renderer reads (slide,
-// layout, master, theme, table styles, chart) must render exactly as without
-// one.
-func TestRenderBOMPrefixedParts(t *testing.T) {
+// TestRenderPartsInEveryEncoding started as the #493 regression for
+// presentations: a UTF-8 byte order mark at the start of a part (Office writes
+// them) read as content outside the root, so strict rendering failed with
+// "content outside XML root". With a BOM on every XML part, every part the
+// renderer reads (slide, layout, master, theme, table styles, chart) must
+// render exactly as without one. The same package with every part in
+// Windows-1252, and in UTF-16 of either byte order, which the models read, must
+// render the same too.
+func TestRenderPartsInEveryEncoding(t *testing.T) {
 	p := pptx.CreateWidescreen()
 	layout, err := p.LayoutByType(pptx.LayoutTitleAndContent)
 	if err != nil {
@@ -106,5 +108,15 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 	gotSVG, gotSpecs = render(encoded)
 	if !bytes.Equal(gotSVG, wantSVG) || !reflect.DeepEqual(gotSpecs, wantSpecs) {
 		t.Error("a presentation with Windows-1252 parts renders differently")
+	}
+	for _, big := range []bool{false, true} {
+		encoded, err := testutil.WithUTF16(plain, big)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotSVG, gotSpecs = render(encoded)
+		if !bytes.Equal(gotSVG, wantSVG) || !reflect.DeepEqual(gotSpecs, wantSpecs) {
+			t.Errorf("a presentation with UTF-16 parts (big endian %v) renders differently", big)
+		}
 	}
 }

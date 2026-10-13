@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -30,61 +31,109 @@ var encodingDecl = regexp.MustCompile(`(?i)^<\?xml[^?]*?encoding\s*=\s*["'][^"']
 // of the parts holding a character outside ASCII, whose bytes the re-encoding
 // changed.
 func WithWindows1252(data []byte, only ...string) ([]byte, []string, error) {
+	var nonASCII []string
+	out, err := reencode(data, only, func(name string, b []byte) ([]byte, error) {
+		b, err := toWindows1252(b)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range b {
+			if c >= 0x80 {
+				nonASCII = append(nonASCII, name)
+				break
+			}
+		}
+		return b, nil
+	})
+	return out, nonASCII, err
+}
+
+// WithUTF16 returns the package with every XML part, or only the named
+// entries when any are given, re-encoded as UTF-16 in the given byte order
+// with a byte order mark, its declaration naming UTF-16 (one is added where
+// the part has none), keeping entry order.
+func WithUTF16(data []byte, bigEndian bool, only ...string) ([]byte, error) {
+	return reencode(data, only, func(_ string, b []byte) ([]byte, error) {
+		b, err := redeclare(b, "UTF-16")
+		if err != nil {
+			return nil, err
+		}
+		out := make([]byte, 0, 2*len(b)+2)
+		put := func(u uint16) {
+			if bigEndian {
+				out = append(out, byte(u>>8), byte(u))
+			} else {
+				out = append(out, byte(u), byte(u>>8))
+			}
+		}
+		put(0xFEFF)
+		for _, u := range utf16.Encode([]rune(string(b))) {
+			put(u)
+		}
+		return out, nil
+	})
+}
+
+// reencode rewrites the XML parts of a package, or the named entries, through
+// encode, keeping entry order.
+func reencode(data []byte, only []string, encode func(name string, b []byte) ([]byte, error)) ([]byte, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var out bytes.Buffer
 	zw := zip.NewWriter(&out)
-	var nonASCII []string
 	for _, f := range zr.File {
 		rc, err := f.Open()
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		b, err := io.ReadAll(rc)
 		_ = rc.Close()
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		lower := strings.ToLower(f.Name)
 		if len(only) > 0 && slices.Contains(only, f.Name) || len(only) == 0 && (strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".rels")) {
-			if b, err = toWindows1252(b); err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", f.Name, err)
-			}
-			for _, c := range b {
-				if c >= 0x80 {
-					nonASCII = append(nonASCII, f.Name)
-					break
-				}
+			if b, err = encode(f.Name, b); err != nil {
+				return nil, fmt.Errorf("%s: %w", f.Name, err)
 			}
 		}
 		w, err := zw.CreateHeader(&zip.FileHeader{Name: f.Name, Method: f.Method, Modified: f.Modified})
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if _, err = w.Write(b); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	if err = zw.Close(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return out.Bytes(), nonASCII, nil
+	return out.Bytes(), nil
 }
 
-func toWindows1252(b []byte) ([]byte, error) {
+// redeclare returns a UTF-8 part, its byte order mark dropped, with its
+// declaration naming encoding; one is added where the part has none.
+func redeclare(b []byte, encoding string) ([]byte, error) {
 	b = bytes.TrimPrefix(b, []byte(UTF8BOM))
 	if !utf8.Valid(b) {
 		return nil, fmt.Errorf("not UTF-8")
 	}
-	const decl = `<?xml version="1.0" encoding="windows-1252"`
+	decl := `<?xml version="1.0" encoding="` + encoding + `"`
 	if m := encodingDecl.Find(b); m != nil {
-		b = append([]byte(decl), b[len(m):]...)
-	} else if bytes.HasPrefix(b, []byte("<?xml")) {
+		return append([]byte(decl), b[len(m):]...), nil
+	}
+	if bytes.HasPrefix(b, []byte("<?xml")) {
 		return nil, fmt.Errorf("declaration without an encoding")
-	} else {
-		b = append([]byte(decl+"?>"), b...)
+	}
+	return append([]byte(decl+"?>"), b...), nil
+}
+
+func toWindows1252(b []byte) ([]byte, error) {
+	b, err := redeclare(b, "windows-1252")
+	if err != nil {
+		return nil, err
 	}
 	out := make([]byte, 0, len(b))
 	for _, r := range string(b) {

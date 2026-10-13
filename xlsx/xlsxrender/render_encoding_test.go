@@ -12,11 +12,13 @@ import (
 	"github.com/mgilbir/spine/xlsx"
 )
 
-// TestRenderBOMPrefixedParts is the #493 regression for workbooks: a UTF-8
-// byte order mark at the start of a part (Office writes them) read as content
-// outside the root, so rendering failed with "content outside XML root". With
-// a BOM on every XML part, the range must render exactly as without one.
-func TestRenderBOMPrefixedParts(t *testing.T) {
+// TestRenderPartsInEveryEncoding started as the #493 regression for workbooks:
+// a UTF-8 byte order mark at the start of a part (Office writes them) read as
+// content outside the root, so rendering failed with "content outside XML
+// root". With a BOM on every XML part, the range must render exactly as without
+// one. The same package with every part in Windows-1252, and in UTF-16 of
+// either byte order, which the models read, must render the same too.
+func TestRenderPartsInEveryEncoding(t *testing.T) {
 	w, _, opts := renderTestSheet(t)
 	created, err := w.SaveBytes()
 	if err != nil {
@@ -76,5 +78,14 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 	}
 	if got := svg(encoded); !bytes.Equal(got, want) {
 		t.Error("a workbook with Windows-1252 parts renders differently")
+	}
+	for _, big := range []bool{false, true} {
+		encoded, err := testutil.WithUTF16(plain, big)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := svg(encoded); !bytes.Equal(got, want) {
+			t.Errorf("a workbook with UTF-16 parts (big endian %v) renders differently", big)
+		}
 	}
 }

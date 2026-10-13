@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 // testCert builds a self-signed certificate for signer's public key.
@@ -323,4 +324,52 @@ func rewriteZipEntry(t *testing.T, data []byte, name string, content []byte) []b
 		t.Fatalf("zip close: %v", err)
 	}
 	return out.Bytes()
+}
+
+// TestVerifySignatureInUTF16 verifies a signature whose part is in UTF-16,
+// which OPC allows. The signature part is not covered by its own references,
+// so re-encoding it changes no digest; canonical XML is UTF-8 whatever the
+// input's encoding, so SignedInfo still verifies. The parse read the part's
+// raw bytes and failed on anything but UTF-8.
+func TestVerifySignatureInUTF16(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signed bytes.Buffer
+	if err = SignPackage(openBytes(t, buildMinimalPackage(t)), &signed, key, testCert(t, key), nil); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(signed.Bytes()), int64(signed.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sigPart string
+	var data []byte
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, "_xmlsignatures/") && strings.HasSuffix(f.Name, ".xml") {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sigPart = f.Name
+			data, err = io.ReadAll(rc)
+			_ = rc.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if sigPart == "" {
+		t.Fatal("no signature part")
+	}
+	text := strings.Replace(string(data), `encoding="UTF-8"`, `encoding="UTF-16"`, 1)
+	if text == string(data) {
+		t.Fatalf("signature part declares no UTF-8 encoding: %.80s", data)
+	}
+	encoded := []byte{0xFF, 0xFE}
+	for _, u := range utf16.Encode([]rune(text)) {
+		encoded = append(encoded, byte(u), byte(u>>8))
+	}
+	requireOneValidSignature(t, openBytes(t, rewriteZipEntry(t, signed.Bytes(), sigPart, encoded)))
 }

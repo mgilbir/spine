@@ -1,7 +1,6 @@
 package opc
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/x509"
 	"encoding/base64"
@@ -509,7 +508,10 @@ func sameDocumentID(uri string) string {
 // signed.
 func objectIDOwners(data []byte) map[string]int {
 	owners := make(map[string]int)
-	dec := xmlb.NewDecoder(bytes.NewReader(data))
+	dec, _, err := xmlb.NewPartDecoder(data)
+	if err != nil {
+		return owners
+	}
 	depth, objects := 0, 0
 	for {
 		tok, err := dec.Token()

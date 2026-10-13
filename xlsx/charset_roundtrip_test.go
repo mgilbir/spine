@@ -11,12 +11,13 @@ import (
 	"github.com/mgilbir/spine/internal/testutil"
 )
 
-// TestWindows1252PackageRoundTrip covers a workbook whose parts declare a
-// single-byte code page. The text reads correctly; an untouched save keeps
+// TestEncodedPackageRoundTrip covers a workbook whose parts are not UTF-8: in
+// a single-byte code page, or in UTF-16, which OPC requires readers to accept
+// and the library could not open. The text reads correctly; an untouched save keeps
 // every part's bytes (workbook.xml is rebuilt on every save and must still
 // prefer the source when nothing changed); and an edited save must read back
 // the same text.
-func TestWindows1252PackageRoundTrip(t *testing.T) {
+func TestEncodedPackageRoundTrip(t *testing.T) {
 	w := Create()
 	s, err := w.AddSheet("Données")
 	if err != nil {
@@ -40,16 +41,33 @@ func TestWindows1252PackageRoundTrip(t *testing.T) {
 		{"[Content_Types].xml", strings.Replace(types, "</Types>", `<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`, 1)},
 		{"xl/sharedStrings.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n" + `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1"><si><t>Zoë</t></si></sst>`},
 	})
-	src, nonASCII, err := testutil.WithWindows1252(plain)
-	if err != nil {
-		t.Fatal(err)
+	for _, enc := range []struct {
+		name   string
+		encode func([]byte) ([]byte, error)
+	}{
+		{"windows-1252", func(b []byte) ([]byte, error) {
+			src, nonASCII, err := testutil.WithWindows1252(b)
+			for _, part := range []string{"xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/sharedStrings.xml", "docProps/core.xml"} {
+				if err == nil && !slices.Contains(nonASCII, part) {
+					t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
+				}
+			}
+			return src, err
+		}},
+		{"UTF-16LE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, false) }},
+		{"UTF-16BE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, true) }},
+	} {
+		t.Run(enc.name, func(t *testing.T) {
+			src, err := enc.encode(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodedRoundTrip(t, src)
+		})
 	}
-	for _, part := range []string{"xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/sharedStrings.xml", "docProps/core.xml"} {
-		if !slices.Contains(nonASCII, part) {
-			t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
-		}
-	}
+}
 
+func encodedRoundTrip(t *testing.T, src []byte) {
 	check := func(label string, data []byte, cells map[string]string) {
 		t.Helper()
 		book, err := OpenReader(bytes.NewReader(data), int64(len(data)))

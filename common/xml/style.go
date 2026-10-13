@@ -7,7 +7,10 @@ import "bytes"
 // the first self-closing tag after the XML declaration (producers are
 // consistent within a part). That first "/>" may be the root element's own
 // tag or a self-closing child; either reflects the part's style.
+//
+// Like every byte scan here it reads a UTF-16 part's UTF-8 form.
 func DetectSelfClosingSpace(data []byte) bool {
+	data = asciiScanForm(data)
 	// Search from just after the XML declaration (or the start if none).
 	start := bytes.Index(data, []byte("?>"))
 	if start < 0 {
@@ -33,6 +36,7 @@ func DetectSelfClosingSpace(data []byte) bool {
 // (<name attrs></name>); producers are consistent within a part, so a single
 // expanded empty disables collapsing to preserve the source style.
 func DetectCollapsedEmptyElements(data []byte) bool {
+	data = asciiScanForm(data)
 	if !bytes.Contains(data, []byte("/>")) {
 		return false
 	}

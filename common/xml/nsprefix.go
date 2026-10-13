@@ -42,7 +42,10 @@ func CheckNamespacePrefixes(data []byte) error {
 }
 
 func checkNamespacePrefixes(data []byte, inScope []string) error {
-	d := NewDecoder(bytes.NewReader(data))
+	d, _, err := NewPartDecoder(data)
+	if err != nil {
+		return err
+	}
 	// scopes[i] holds the URIs declared by the i-th open element. A URI is in
 	// scope while any frame holding it is open.
 	declared := map[string]int{NSXML: 1}

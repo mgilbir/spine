@@ -76,6 +76,15 @@
   part was written in a second encoding. The three renderers failed on such a
   part with "CharsetReader is nil". `xml.NewPartDecoder` decodes a part's UTF-8
   form and returns the bytes to splice into.
+- docx, pptx, xlsx, opc, render: a part in UTF-16, which OPC requires readers to
+  accept alongside UTF-8, opens, saves and renders. Every one failed: the
+  nesting-depth check counted each closing tag as an opening one and refused
+  the part, and every parse read UTF-16 as invalid UTF-8. `xml.UTF8` now
+  decodes UTF-16 of either byte order, with or without a byte order mark, and
+  rejects one whose declaration names another encoding, a part declaring
+  UTF-16 that is not, unpaired surrogates and UTF-32. The byte scans (nesting
+  depth, empty-element style) and canonical XML read the UTF-8 form, and a
+  signature part in UTF-16 verifies. An untouched UTF-16 part keeps its bytes.
 
 ### Changed
 

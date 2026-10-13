@@ -9,8 +9,9 @@ import (
 	"github.com/mgilbir/spine/internal/testutil"
 )
 
-// TestWindows1252PackageRoundTrip covers a deck whose parts declare a
-// single-byte code page. The text reads correctly; an untouched save keeps
+// TestEncodedPackageRoundTrip covers a deck whose parts are not UTF-8: in a
+// single-byte code page, or in UTF-16, which OPC requires readers to accept
+// and the library could not open. The text reads correctly; an untouched save keeps
 // every part's bytes (presentation.xml, layouts and masters are rebuilt on
 // every save and must still prefer the source when nothing changed); and an
 // edited save, a duplicated slide and a merged copy must read back the same
@@ -18,7 +19,7 @@ import (
 // (encoding="windows-1252") over UTF-8 bytes, so text read back as mojibake,
 // and a duplicate parsed its own rebuilt copy with a decoder that rejects the
 // declaration and came out empty.
-func TestWindows1252PackageRoundTrip(t *testing.T) {
+func TestEncodedPackageRoundTrip(t *testing.T) {
 	p := CreateWidescreen()
 	layout, err := p.LayoutByType(LayoutTitleAndContent)
 	if err != nil {
@@ -34,19 +35,37 @@ func TestWindows1252PackageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, nonASCII, err := testutil.WithWindows1252(plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, part := range []string{"ppt/slides/slide1.xml", "ppt/slideLayouts/slideLayout2.xml", "docProps/core.xml"} {
-		if !slices.Contains(nonASCII, part) {
-			t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
-		}
-	}
 	wantText := s.Text()
 	if wantText == "" {
 		t.Fatal("fixture slide has no text")
 	}
+	for _, enc := range []struct {
+		name   string
+		encode func([]byte) ([]byte, error)
+	}{
+		{"windows-1252", func(b []byte) ([]byte, error) {
+			src, nonASCII, err := testutil.WithWindows1252(b)
+			for _, part := range []string{"ppt/slides/slide1.xml", "ppt/slideLayouts/slideLayout2.xml", "docProps/core.xml"} {
+				if err == nil && !slices.Contains(nonASCII, part) {
+					t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
+				}
+			}
+			return src, err
+		}},
+		{"UTF-16LE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, false) }},
+		{"UTF-16BE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, true) }},
+	} {
+		t.Run(enc.name, func(t *testing.T) {
+			src, err := enc.encode(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodedRoundTrip(t, src, wantText)
+		})
+	}
+}
+
+func encodedRoundTrip(t *testing.T, src []byte, wantText string) {
 
 	check := func(label string, data []byte, slides int) {
 		t.Helper()

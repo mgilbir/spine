@@ -132,3 +132,22 @@ func BenchmarkUnmarshalRealisticPart(b *testing.B) {
 		}
 	}
 }
+
+// TestCheckNestingDepthUTF16 pins the scan on UTF-16 parts. Read as bytes,
+// every closing tag of one looked like an opening tag, so a shallow part was
+// rejected; the depth must be measured, so a deep one is still caught.
+func TestCheckNestingDepthUTF16(t *testing.T) {
+	shallow := `<?xml version="1.0" encoding="UTF-16"?><a><b/><b></b><b>x</b><b/><b/></a>`
+	// Without a byte order mark, UTF-16 is recognised by its declaration.
+	deep := `<?xml version="1.0"?>` + strings.Repeat("<a>", 10) + strings.Repeat("</a>", 10)
+	for _, big := range []bool{false, true} {
+		for _, bom := range []bool{true, false} {
+			if err := CheckNestingDepth(utf16Bytes(shallow, big, bom), 2); err != nil {
+				t.Errorf("big=%v bom=%v: shallow part rejected: %v", big, bom, err)
+			}
+			if err := CheckNestingDepth(utf16Bytes(deep, big, bom), 9); !errors.Is(err, ErrNestingTooDeep) {
+				t.Errorf("big=%v bom=%v: deep part: %v", big, bom, err)
+			}
+		}
+	}
+}

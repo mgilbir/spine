@@ -10,12 +10,14 @@ import (
 	"github.com/mgilbir/spine/internal/testutil"
 )
 
-// TestRenderBOMPrefixedParts is the #493 regression: Word writes a UTF-8 byte
-// order mark at the start of some parts (document.xml, theme1.xml), which the
-// source check read as content outside the root, so strict rendering failed
-// with "content outside XML root". With a BOM on every XML part, every part
-// the renderer reads must render exactly as without one.
-func TestRenderBOMPrefixedParts(t *testing.T) {
+// TestRenderPartsInEveryEncoding started as the #493 regression: Word writes a
+// UTF-8 byte order mark at the start of some parts (document.xml, theme1.xml),
+// which the source check read as content outside the root, so strict rendering
+// failed with "content outside XML root". With a BOM on every XML part, every
+// part the renderer reads must render exactly as without one. The same package
+// with every part in Windows-1252, and in UTF-16 of either byte order, which
+// the models read, must render the same too.
+func TestRenderPartsInEveryEncoding(t *testing.T) {
 	numbering := numAbstract("0", "", numDecimal(0, "%1.", ""), numLvl(1, `<w:start w:val="1"/><w:numFmt w:val="lowerRoman"/><w:lvlText w:val="%1.%2"/>`)) + numInstance("1", "0")
 	hdr := wordTestHeader(wordTestPara("", wordTestRun("", "H"), hfField("PAGE", "1"), hfField("NUMPAGES", "1")))
 	ftr := wordTestFooter(wordTestPara("", wordTestRun("", "F"), `<w:r><w:pgNum/></w:r>`))
@@ -74,5 +76,14 @@ func TestRenderBOMPrefixedParts(t *testing.T) {
 	}
 	if got := svg(encoded); !bytes.Equal(got, want) {
 		t.Error("a document with Windows-1252 parts renders differently")
+	}
+	for _, big := range []bool{false, true} {
+		encoded, err := testutil.WithUTF16(plain, big)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := svg(encoded); !bytes.Equal(got, want) {
+			t.Errorf("a document with UTF-16 parts (big endian %v) renders differently", big)
+		}
 	}
 }

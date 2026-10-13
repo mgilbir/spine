@@ -37,9 +37,9 @@ type Document struct {
 	// built by Create). When false at save time the body was never touched, so
 	// the original bytes pass through unchanged.
 	docParsed bool
-	// docEncoded records that the parsed body's source is not UTF-8 (it
-	// declares a code page), so a save that regenerates a read-only body
-	// compares against it rather than writing the UTF-8 rebuild.
+	// docEncoded records that the parsed body's source is not UTF-8 (UTF-16,
+	// or a code page), so a save that regenerates a read-only body compares
+	// against it rather than writing the UTF-8 rebuild.
 	docEncoded bool
 	// docParseErr caches a failure of the lazy body parse in doc(). Open
 	// validates the same bytes up front, so a non-nil value here signals

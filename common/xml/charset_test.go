@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestCharsetReaderTranscoding(t *testing.T) {
@@ -199,5 +200,81 @@ func TestPreferSource(t *testing.T) {
 	}
 	if got := PreferSource(nil, plain); &got[0] != &plain[0] {
 		t.Error("no source")
+	}
+}
+
+func utf16Bytes(s string, bigEndian, bom bool) []byte {
+	var out []byte
+	put := func(u uint16) {
+		if bigEndian {
+			out = append(out, byte(u>>8), byte(u))
+		} else {
+			out = append(out, byte(u), byte(u>>8))
+		}
+	}
+	if bom {
+		put(0xFEFF)
+	}
+	for _, u := range utf16.Encode([]rune(s)) {
+		put(u)
+	}
+	return out
+}
+
+func TestUTF8FromUTF16(t *testing.T) {
+	const doc = `<?xml version="1.0" encoding="UTF-16" standalone="yes"?>` + "\r\n<r a=\"é\">日本 😀</r>"
+	const want = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\r\n<r a=\"é\">日本 😀</r>"
+	for _, tc := range []struct {
+		name     string
+		big, bom bool
+	}{{"LE with BOM", false, true}, {"BE with BOM", true, true}, {"LE without BOM", false, false}, {"BE without BOM", true, false}} {
+		got, err := UTF8(utf16Bytes(doc, tc.big, tc.bom))
+		if err != nil || string(got) != want {
+			t.Errorf("%s: %q, %v", tc.name, got, err)
+		}
+	}
+	// A declaration is optional when there is a byte order mark.
+	if got, err := UTF8(utf16Bytes("<r>é</r>", false, true)); err != nil || string(got) != "<r>é</r>" {
+		t.Errorf("no declaration: %q, %v", got, err)
+	}
+	for _, tc := range []struct {
+		name string
+		in   []byte
+	}{
+		{"odd length", append(utf16Bytes("<r/>", false, true), 0)},
+		{"lone high surrogate", append(utf16Bytes("<r>", false, true), 0x3D, 0xD8, '<', 0)},
+		{"lone low surrogate", append(utf16Bytes("<r>", false, true), 0x00, 0xDC)},
+		{"trailing high surrogate", append(utf16Bytes("<r/>", false, true), 0x3D, 0xD8)},
+		{"UTF-16 declaring UTF-8", utf16Bytes(`<?xml version="1.0" encoding="UTF-8"?><r/>`, false, true)},
+		{"UTF-8 declaring UTF-16", []byte(`<?xml version="1.0" encoding="UTF-16"?><r/>`)},
+		{"UTF-32LE", []byte{0xFF, 0xFE, 0, 0, '<', 0, 0, 0}},
+		{"UTF-32BE", []byte{0, 0, 0xFE, 0xFF, 0, 0, 0, '<'}},
+	} {
+		if got, err := UTF8(tc.in); err == nil {
+			t.Errorf("%s: no error, got %q", tc.name, got)
+		}
+	}
+	if OffsetCaptureSafe(utf16Bytes("<r/>", false, true)) {
+		t.Error("OffsetCaptureSafe on UTF-16")
+	}
+}
+
+// TestUnmarshalUTF16 pins that both part-level entry points read UTF-16, and
+// that offset capture works on it as on UTF-8.
+func TestUnmarshalUTF16(t *testing.T) {
+	data := utf16Bytes("<?xml version=\"1.0\" encoding=\"UTF-16\"?><r><a>日本</a><b ></b></r>", false, true)
+	var v transcodedProbe
+	if err := UnmarshalWithSource(data, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.A != "日本" || v.B.Style != EmptyTagExpanded {
+		t.Errorf("UnmarshalWithSource: %+v", v)
+	}
+	var w transcodedProbe
+	if err := Unmarshal(data, &w); err != nil || w.A != "日本" {
+		t.Errorf("Unmarshal: %+v, %v", w, err)
+	}
+	if p := CaptureProlog(data); p.Decl != `<?xml version="1.0" encoding="UTF-8"?>` {
+		t.Errorf("prolog %+v", p)
 	}
 }

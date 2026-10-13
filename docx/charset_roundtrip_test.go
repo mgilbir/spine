@@ -12,15 +12,16 @@ import (
 	"github.com/mgilbir/spine/internal/testutil"
 )
 
-// TestWindows1252PackageRoundTrip covers a package whose parts declare a
-// single-byte code page, which wild files do and Word opens. The text reads
+// TestEncodedPackageRoundTrip covers a package whose parts are not UTF-8: in a
+// single-byte code page, which wild files declare and Word opens, or in
+// UTF-16, which OPC requires readers to accept and the library could not open. The text reads
 // correctly; an untouched save keeps every part's bytes; and an edited save,
 // which regenerates the document, core and custom property parts, must still
 // read back the same text. It did not: a regenerated part replayed the
 // source's declaration (encoding="windows-1252") over UTF-8 bytes, so
 // "Café" read back as "CafÃ©", and raw spans sliced from the source at
 // offsets into the transcoded stream were misplaced and still in the code page.
-func TestWindows1252PackageRoundTrip(t *testing.T) {
+func TestEncodedPackageRoundTrip(t *testing.T) {
 	d := Create()
 	d.AddParagraphWithText("Café ‘quoted’ costs €5 – naïve")
 	d.AddHeader(HeaderDefault).AddParagraphWithText("Tête")
@@ -41,16 +42,33 @@ func TestWindows1252PackageRoundTrip(t *testing.T) {
 	custom := string(fuzzseed.ZipEntry(created, "docProps/custom.xml"))
 	custom = strings.Replace(custom, "</Properties>", `<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="Tags"><vt:vector size="1" baseType="lpwstr"><vt:lpwstr>Ünï</vt:lpwstr></vt:vector></property></Properties>`, 1)
 	plain := fuzzseed.EditZip(created, [][2]string{{"docProps/core.xml", core}, {"docProps/custom.xml", custom}})
-	src, nonASCII, err := testutil.WithWindows1252(plain)
-	if err != nil {
-		t.Fatal(err)
+	for _, enc := range []struct {
+		name   string
+		encode func([]byte) ([]byte, error)
+	}{
+		{"windows-1252", func(b []byte) ([]byte, error) {
+			src, nonASCII, err := testutil.WithWindows1252(b)
+			for _, part := range []string{"word/document.xml", "word/header1.xml", "docProps/core.xml", "docProps/custom.xml"} {
+				if err == nil && !slices.Contains(nonASCII, part) {
+					t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
+				}
+			}
+			return src, err
+		}},
+		{"UTF-16LE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, false) }},
+		{"UTF-16BE", func(b []byte) ([]byte, error) { return testutil.WithUTF16(b, true) }},
+	} {
+		t.Run(enc.name, func(t *testing.T) {
+			src, err := enc.encode(plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodedRoundTrip(t, src)
+		})
 	}
-	for _, part := range []string{"word/document.xml", "word/header1.xml", "docProps/core.xml", "docProps/custom.xml"} {
-		if !slices.Contains(nonASCII, part) {
-			t.Fatalf("fixture has no non-ASCII %s: %v", part, nonASCII)
-		}
-	}
+}
 
+func encodedRoundTrip(t *testing.T, src []byte) {
 	check := func(label string, data []byte, extra ...string) {
 		t.Helper()
 		doc, err := OpenReader(bytes.NewReader(data), int64(len(data)))

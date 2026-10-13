@@ -3,10 +3,12 @@ package xml
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -54,7 +56,8 @@ func charmap(charset string) (*[256]rune, error) {
 	}
 }
 
-// UTF8 returns a part's bytes as the UTF-8 document they encode. A part that
+// UTF8 returns a part's bytes as the UTF-8 document they encode. A part in
+// UTF-16 (which OPC requires readers to accept alongside UTF-8) or one that
 // declares a single-byte code page is transcoded, and its declaration's
 // encoding rewritten to UTF-8 so the result describes itself; anything else is
 // returned as is, without a copy.
@@ -68,10 +71,22 @@ func charmap(charset string) (*[256]rune, error) {
 // read back as mojibake. The source bytes stay what an untouched part is
 // saved as.
 //
-// A UTF-8 byte order mark on a part that declares another encoding is an error
-// (XML 1.0 §4.3.3), as is a charset the library does not read.
+// UTF-16 is recognised by its byte order mark or, without one, by the "<?"
+// that must then open the part (XML 1.0 Appendix F). An encoding the bytes
+// contradict is an error (§4.3.3): a UTF-8 byte order mark on a part declaring
+// another encoding, a UTF-16 part declaring anything but UTF-16, or one that
+// declares UTF-16 without being it. So is a charset the library does not
+// read, UTF-32 among them, and UTF-16 that does not decode.
 func UTF8(data []byte) ([]byte, error) {
+	if order, skip, ok, err := utf16Order(data); err != nil {
+		return nil, err
+	} else if ok {
+		return utf16ToUTF8(data[skip:], order)
+	}
 	charset := declaredCharset(data)
+	if isUTF16Name(charset) {
+		return nil, fmt.Errorf("xml: part declares encoding %q but is not UTF-16", charset)
+	}
 	table, err := charmap(charset)
 	if err != nil {
 		return nil, err
@@ -86,9 +101,7 @@ func UTF8(data []byte) ([]byte, error) {
 	for _, c := range data {
 		out = utf8.AppendRune(out, table[c])
 	}
-	// The declaration is ASCII, so it sits at the same offsets in out.
-	end := bytes.Index(out, []byte("?>")) + len("?>")
-	return append([]byte(declEncodingUTF8(string(out[:end]))), out[end:]...), nil
+	return rewriteDeclEncoding(out), nil
 }
 
 // PreferSource returns a part's source bytes when they are in an encoding
@@ -108,6 +121,93 @@ func PreferSource(source, regenerated []byte) []byte {
 		return source
 	}
 	return regenerated
+}
+
+// asciiScanForm returns bytes a scan that reads markup as ASCII can work on:
+// a UTF-16 part's UTF-8 form, since in UTF-16 every '<', '/' and '>' comes with
+// a zero byte; anything else as is (a code page is ASCII in its markup). A
+// UTF-16 part that does not decode is returned as is, and no parse reads it.
+func asciiScanForm(data []byte) []byte {
+	if _, _, utf16, _ := utf16Order(data); utf16 {
+		if text, err := UTF8(data); err == nil {
+			return text
+		}
+	}
+	return data
+}
+
+// rewriteDeclEncoding returns text, a transcoded part, with its declaration's
+// encoding rewritten to UTF-8. The declaration is ASCII, so it is found in the
+// transcoded text where it was in the source.
+func rewriteDeclEncoding(text []byte) []byte {
+	if !bytes.HasPrefix(text, []byte("<?xml")) {
+		return text
+	}
+	end := bytes.Index(text, []byte("?>"))
+	if end < 0 {
+		return text
+	}
+	end += len("?>")
+	return append([]byte(declEncodingUTF8(string(text[:end]))), text[end:]...)
+}
+
+// utf16Order reports whether data is UTF-16 and in which byte order, and how
+// many bytes its byte order mark takes. UTF-32, whose marks begin like
+// UTF-16's, is an error rather than a misreading.
+func utf16Order(data []byte) (order binary.ByteOrder, skip int, ok bool, err error) {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xFF, 0xFE, 0, 0}), bytes.HasPrefix(data, []byte{0, 0, 0xFE, 0xFF}),
+		bytes.HasPrefix(data, []byte{'<', 0, 0, 0}), bytes.HasPrefix(data, []byte{0, 0, 0, '<'}):
+		return nil, 0, false, fmt.Errorf("xml: unsupported encoding UTF-32")
+	case bytes.HasPrefix(data, []byte{0xFF, 0xFE}):
+		return binary.LittleEndian, 2, true, nil
+	case bytes.HasPrefix(data, []byte{0xFE, 0xFF}):
+		return binary.BigEndian, 2, true, nil
+	case bytes.HasPrefix(data, []byte{'<', 0, '?', 0}):
+		return binary.LittleEndian, 0, true, nil
+	case bytes.HasPrefix(data, []byte{0, '<', 0, '?'}):
+		return binary.BigEndian, 0, true, nil
+	}
+	return nil, 0, false, nil
+}
+
+// utf16ToUTF8 decodes UTF-16 code units in the given byte order into UTF-8
+// and rewrites the declaration, which must name UTF-16 if it names anything.
+func utf16ToUTF8(data []byte, order binary.ByteOrder) ([]byte, error) {
+	if len(data)%2 != 0 {
+		return nil, fmt.Errorf("xml: UTF-16 part has an odd number of bytes")
+	}
+	// Markup is mostly ASCII, which halves; anything wider grows in append.
+	out := make([]byte, 0, len(data)/2+16)
+	for i := 0; i < len(data); i += 2 {
+		u := order.Uint16(data[i:])
+		switch {
+		case u < 0xD800 || u > 0xDFFF:
+			out = utf8.AppendRune(out, rune(u))
+		case u < 0xDC00 && i+3 < len(data):
+			lo := order.Uint16(data[i+2:])
+			if lo < 0xDC00 || lo > 0xDFFF {
+				return nil, fmt.Errorf("xml: UTF-16 part has an unpaired surrogate at byte %d", i)
+			}
+			out = utf8.AppendRune(out, utf16.DecodeRune(rune(u), rune(lo)))
+			i += 2
+		default:
+			return nil, fmt.Errorf("xml: UTF-16 part has an unpaired surrogate at byte %d", i)
+		}
+	}
+	if charset := declaredCharset(out); charset != "" && !isUTF16Name(charset) {
+		return nil, fmt.Errorf("xml: UTF-16 part declares encoding %q", charset)
+	}
+	return rewriteDeclEncoding(out), nil
+}
+
+// isUTF16Name reports whether charset names UTF-16.
+func isUTF16Name(charset string) bool {
+	switch strings.ToLower(strings.TrimSpace(charset)) {
+	case "utf-16", "utf16", "utf-16le", "utf-16be", "unicode", "ucs-2", "iso-10646-ucs-2", "csunicode":
+		return true
+	}
+	return false
 }
 
 // utf8BOM is the UTF-8 encoding of U+FEFF.
@@ -167,8 +267,12 @@ func charsetTranscodes(charset string) bool {
 // the decoder's offsets index the transcoded stream and any capture that
 // slices the original bytes at those offsets would replay garbage. The
 // library's parsers no longer need the gate: they decode the part's [UTF8]
-// form and slice that, which keeps the capture for such parts too.
+// form and slice that, which keeps the capture for such parts too. A UTF-16
+// part is never safe: only its UTF-8 form decodes at all.
 func OffsetCaptureSafe(data []byte) bool {
+	if _, _, utf16, err := utf16Order(data); utf16 || err != nil {
+		return false
+	}
 	return !charsetTranscodes(declaredCharset(data))
 }
 
@@ -227,8 +331,9 @@ func NewPartDecoder(data []byte) (*xml.Decoder, []byte, error) {
 }
 
 // NewDecoder returns an [xml.Decoder] with the library's CharsetReader
-// installed, so parts declaring a non-UTF-8 (but supported) charset decode
-// instead of failing.
+// installed, so a stream declaring a supported code page decodes instead of
+// failing. It transcodes as it reads, so it cannot read UTF-16, whose
+// declaration it never reaches: read a whole part through [NewPartDecoder].
 func NewDecoder(r io.Reader) *xml.Decoder {
 	d := xml.NewDecoder(r)
 	d.CharsetReader = CharsetReader
