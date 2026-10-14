@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -50,6 +51,26 @@ Usage:
                               not accepted for pptx text
              --out PATH       save to PATH instead of overwriting the input
              --password STRING  decrypt (and re-encrypt the output)
+
+  spine edit <file> <opsfile>
+      Apply a batch of JSON operations (see "spine ops-schema") in order and
+      save once, atomically. All-or-nothing: the first failing operation
+      aborts the batch and nothing is saved. opsfile is a path, or "-" for
+      standard input.
+
+      Flags: --out PATH       save to PATH instead of overwriting the input
+             --password STRING  decrypt (and re-encrypt the output)
+
+  spine new <kind> <file>
+      Create an empty xlsx or pptx file. An existing file is never
+      overwritten.
+
+      Flags: --title STRING    document title property
+             --creator STRING  document creator property
+
+  spine ops-schema
+      Print the JSON schema of all edit operations (the same objects "spine
+      edit" accepts).
 
   spine help
       Show this text.
@@ -120,6 +141,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 			c.addSetFlags(fs)
 			return &c
 		}, func(fs *flagSetT, stdout io.Writer) error { return runSet(fs, stdout) })
+	case "edit":
+		return runCmd("edit", rest, stdout, stderr, func(fs *flagSetT) *commonFlags {
+			var c commonFlags
+			c.addCommon(fs, true, true)
+			return &c
+		}, func(fs *flagSetT, stdout io.Writer) error { return runEdit(fs, stdout) })
+	case "new":
+		var title, creator string
+		return runCmd("new", rest, stdout, stderr, func(fs *flagSetT) *commonFlags {
+			var c commonFlags
+			c.addCommon(fs, false, false)
+			fs.StringVar(&title, "title", "", "document title property")
+			fs.StringVar(&creator, "creator", "", "document creator property")
+			return &c
+		}, func(fs *flagSetT, stdout io.Writer) error { return runNew(fs, stdout, title, creator) })
+	case "ops-schema":
+		return runCmd("ops-schema", rest, stdout, stderr, func(fs *flagSetT) *commonFlags {
+			var c commonFlags
+			c.addCommon(fs, false, false)
+			return &c
+		}, func(fs *flagSetT, stdout io.Writer) error { return runOpsSchema(fs, stdout) })
 	default:
 		fmt.Fprintf(stderr, "spine: unknown command %q\n\n%s", cmd, usage)
 		return 2
@@ -167,6 +209,11 @@ func runCmd(name string, args []string, stdout, stderr io.Writer, add func(fs *f
 			if asFlagError(err, &fe) {
 				fmt.Fprintf(stderr, "spine: %s\n\n%s", fe.message, usage)
 				return 2
+			}
+			var of *opFailure
+			if errors.As(err, &of) {
+				emitOpError(stderr, common.json, of.err, of.index, of.op)
+				return 1
 			}
 			var ce *cliError
 			if asCLIError(err, &ce) {

@@ -12,7 +12,7 @@ import (
 // containing a single quote is not supported in slice 1 and selects nothing.
 // Structural problems are invalid_selector; a missing or malformed cell
 // reference is invalid_range.
-func parseCellSelector(sel string) (sheet, ref string, selectsNothing bool, err *cliError) {
+func parseCellSelector(sel string) (sheet, ref string, selectsNothing bool, err error) {
 	var name string
 	if strings.HasPrefix(sel, "'") {
 		end := strings.Index(sel[1:], "'")

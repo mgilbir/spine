@@ -69,22 +69,8 @@ func setXlsxCell(d *document, selector, value string, common *commonFlags, stdou
 	if cerr != nil {
 		return errf("io", "cannot address %s: %v", ref, cerr)
 	}
-	switch v := typed.(type) {
-	case string:
-		cell.SetString(v)
-	case float64:
-		cell.SetFloat(v)
-	case bool:
-		cell.SetBool(v)
-	case time.Time:
-		// A date value is stored as an Excel serial with a date number
-		// format, so it reads back as a date rather than a bare number.
-		cell.SetTime(v)
-		if serr := cell.SetStyle(xlsx.CellStyle{NumberFormatID: xlsx.NumberFormatDate}); serr != nil {
-			return errf("io", "cannot apply date format to %s: %v", ref, serr)
-		}
-	case formulaValue:
-		cell.SetFormula(string(v))
+	if serr := storeCell(cell, ref, typed); serr != nil {
+		return serr
 	}
 	out := setXLSXOutput{Selector: selector, Type: typ, Value: cellValue(cell)}
 	destination := d.path
@@ -172,38 +158,33 @@ func checkMerged(sheet *xlsx.Sheet, ref string, row, col int) error {
 	return nil
 }
 
+// storeCell writes a coerced value into cell. A date value is stored as an
+// Excel serial with a date number format, so it reads back as a date rather
+// than a bare number.
+func storeCell(cell *xlsx.Cell, ref string, typed any) error {
+	switch v := typed.(type) {
+	case string:
+		cell.SetString(v)
+	case float64:
+		cell.SetFloat(v)
+	case bool:
+		cell.SetBool(v)
+	case time.Time:
+		cell.SetTime(v)
+		if serr := cell.SetStyle(xlsx.CellStyle{NumberFormatID: xlsx.NumberFormatDate}); serr != nil {
+			return errf("io", "cannot apply date format to %s: %v", ref, serr)
+		}
+	case formulaValue:
+		cell.SetFormula(string(v))
+	}
+	return nil
+}
+
 // setPptxText applies one text write and saves atomically.
 func setPptxText(d *document, selector, value string, common *commonFlags, stdout io.Writer) error {
-	sel, err := parsePptxSelector(selector)
+	sel, shape, err := resolveTextTarget(d.pres, selector)
 	if err != nil {
 		return err
-	}
-	slide, serr := resolveSlide(d.pres, sel.slide)
-	if serr != nil {
-		return serr
-	}
-	var shape pptx.Shape
-	switch sel.kind {
-	case "slide":
-		return errf("invalid_selector", "selector %q does not address text; use slide/%d/title, slide/%d/body or slide/%d/shape/<ID>", selector, sel.slide, sel.slide, sel.slide)
-	case "title":
-		ph := slide.TitlePlaceholder()
-		if ph == nil {
-			return errf("not_found", "slide %d has no title placeholder", sel.slide)
-		}
-		shape = ph
-	case "body":
-		ph := slide.BodyPlaceholder()
-		if ph == nil {
-			return errf("not_found", "slide %d has no body placeholder", sel.slide)
-		}
-		shape = ph
-	case "shape":
-		sh, sherr := resolveShape(slide, sel.slide, sel.shape)
-		if sherr != nil {
-			return sherr
-		}
-		shape = sh
 	}
 	tf := textFrameOf(shape)
 	if tf == nil {
@@ -219,6 +200,41 @@ func setPptxText(d *document, selector, value string, common *commonFlags, stdou
 		return serr
 	}
 	return writeJSON(stdout, out)
+}
+
+// resolveTextTarget parses a pptx text selector and resolves it to the shape
+// holding the text frame: slide/N/title, slide/N/body or slide/N/shape/ID.
+func resolveTextTarget(pres *pptx.Presentation, selector string) (*pptxSelector, pptx.Shape, error) {
+	sel, err := parsePptxSelector(selector)
+	if err != nil {
+		return nil, nil, err
+	}
+	slide, serr := resolveSlide(pres, sel.slide)
+	if serr != nil {
+		return nil, nil, serr
+	}
+	switch sel.kind {
+	case "slide":
+		return nil, nil, errf("invalid_selector", "selector %q does not address text; use slide/%d/title, slide/%d/body or slide/%d/shape/<ID>", selector, sel.slide, sel.slide, sel.slide)
+	case "title":
+		ph := slide.TitlePlaceholder()
+		if ph == nil {
+			return nil, nil, errf("not_found", "slide %d has no title placeholder", sel.slide)
+		}
+		return sel, ph, nil
+	case "body":
+		ph := slide.BodyPlaceholder()
+		if ph == nil {
+			return nil, nil, errf("not_found", "slide %d has no body placeholder", sel.slide)
+		}
+		return sel, ph, nil
+	default: // shape
+		sh, sherr := resolveShape(slide, sel.slide, sel.shape)
+		if sherr != nil {
+			return nil, nil, sherr
+		}
+		return sel, sh, nil
+	}
 }
 
 // textFrameOf returns the text frame to write for a text-bearing shape, or

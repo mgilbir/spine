@@ -57,7 +57,7 @@ func (fs *flagSetT) parse(args []string) error {
 		}
 		left := fs.FlagSet.Args()
 		i := 0
-		for i < len(left) && !strings.HasPrefix(left[i], "-") {
+		for i < len(left) && (left[i] == "-" || !strings.HasPrefix(left[i], "-")) {
 			i++
 		}
 		fs.positional = append(fs.positional, left[:i]...)
