@@ -18,6 +18,7 @@ surface from the tool itself).
 2. **Slice 2: shared op vocabulary** — every mutating command is sugar for a
    JSON operation; `spine edit ops.json` applies a batch atomically over one
    open/save. `spine ops-schema` prints the JSON schema of all operations.
+   Specified below.
 3. **Slice 3: `spine serve`** — local HTTP server holding the document open in
    memory; the same operations over `POST /op` / `POST /ops`; `GET /schema`;
    PNG previews via the render packages; a small embedded single-page UI.
@@ -290,3 +291,150 @@ stderr, exit 2.
 DOCX, styles/formatting, images, charts, comments, batch ops, server, MCP.
 Selectors for shapes inside groups. Creating files (`spine new`) — arrives
 with slice 2's op vocabulary.
+
+## Slice 2 — the operation vocabulary
+
+One JSON vocabulary for every mutation, regardless of transport: `spine set`
+runs a single operation; `spine edit` runs a batch; slice 3's server accepts
+the same objects over HTTP. The vocabulary is versioned so it can grow
+without breaking agents that pinned it.
+
+### Document
+
+An operations document is one JSON object:
+
+```json
+{
+  "version": 1,
+  "ops": [
+    {"op": "set_cell", "selector": "Data!B1", "value": 42},
+    {"op": "add_slide"}
+  ]
+}
+```
+
+- `version` must be `1` (else `invalid_value` with a message naming the
+  supported version).
+- `ops` must be present and a non-empty array; each element an object with a
+  string `op` field naming the operation (else `invalid_value`).
+- Unknown `op` name: `invalid_value` with the message "unknown operation
+  \"foo\"; run `spine ops-schema` for the list".
+- Unknown fields in an operation are errors (`invalid_value`), never ignored:
+  a typo like `"valu"` must not silently no-op. Error messages name the
+  offending field.
+
+### Operations
+
+Selectors reuse the slice 1 grammar and resolution rules exactly. Fields not
+listed are errors. All ops accept nothing else.
+
+- **`set_cell`** — fields: `selector` (xlsx cell), `value` (string, number or
+  boolean), `type` (optional: `string|number|boolean|formula|date`). JSON
+  typing is authoritative: a JSON number is stored as a number, a boolean as
+  a boolean, a string per the same inference rules as `spine set`; `type`
+  overrides. `value` must be present; `null` is `invalid_value` (clearing a
+  cell is `clear_cell`, below).
+- **`clear_cell`** — fields: `selector` (xlsx cell). Makes the cell empty
+  (removes value and formula; keeps any style).
+- **`set_text`** — fields: `selector` (pptx text target: `slide/N/title`,
+  `slide/N/body`, `slide/N/shape/ID`), `text` (string). `
+` separates
+  paragraphs.
+- **`add_sheet`** — fields: `name` (string, optional). Without `name`, the
+  sheet is `Sheet2`-style: the first unused `Sheet<N>` (Excel's rule, checked
+  case-insensitively, starting from the smallest free N). With `name`, illegal
+  or taken names are `invalid_value` — the CLI never silently renames
+  (`UniqueSheetName` exists for callers who want coercion; the CLI does not
+  guess). Result reports the new sheet's index and name.
+- **`remove_sheet`** — fields: `name` (string, exact match; `not_found`
+  otherwise). Destructive: the library's cascade rules apply (formulas
+  referencing it become `#REF!` permanently; shared pivot caches survive).
+  The workbook's last remaining sheet cannot be removed (`invalid_value`).
+- **`add_slide`** — fields: none. Appends a slide with no placeholders (the
+  library's `AddSlide`). Result reports the new 1-based slide index.
+- **`remove_slide`** — fields: `index` (integer, 1-based; `not_found` if out
+  of range). The presentation's last remaining slide cannot be removed
+  (`invalid_value`).
+- **`set_properties`** — fields, all optional strings: `title`, `subject`,
+  `creator`, `keywords`. Empty string clears the property. Works on both
+  kinds.
+
+### `spine edit <file> <opsfile>`
+
+Opens, applies the operations in order, atomic-saves once. `--out PATH` and
+`--password` behave as elsewhere. `opsfile` is a path, or `-` for standard
+input (the one sanctioned stdin use: agents pipe generated batches).
+
+- All-or-nothing: the first failing operation aborts the batch and nothing is
+  saved. Because ops run against the in-memory document, a failure leaves no
+  partial state on disk; a later op can never repair an earlier one's
+  failure, so agents get exactly one error to fix.
+- Failure output (stderr, exit 1, `--json` respected): the usual error
+  envelope plus `"op_index": N` (0-based) and `"op": "<name>"`.
+- Success output: `{"applied": N}` where N is the operation count.
+- Human format mirrors this; stderr keeps the `spine: ` prefix.
+
+### `spine new <kind> <file>`
+
+`kind` is `xlsx` or `pptx` (else `invalid_value`). Creates an empty file —
+`xlsx.Create()` / `pptx.CreateWidescreen()` — at `file` via the atomic-save
+path. An existing `file` is never overwritten: `io` with the message "file
+already exists: PATH". Flags: `--title STRING`, `--creator STRING` (stored as
+document properties). Output: `{"kind":"xlsx","path":"..."}`.
+
+### `spine ops-schema`
+
+Prints the machine-readable description of the vocabulary — the same
+information an MCP adapter or agent prompt needs, generated from the same Go
+structures the commands dispatch on (one source of truth; a hand-written copy
+that drifts is a bug):
+
+```json
+{
+  "version": 1,
+  "operations": [
+    {
+      "op": "set_cell",
+      "applies_to": ["xlsx"],
+      "fields": {
+        "selector": {"type": "string", "required": true,
+                     "description": "xlsx cell selector, e.g. Sheet1!B2"},
+        "value":    {"type": "string|number|boolean", "required": true},
+        "type":     {"type": "string", "required": false,
+                     "enum": ["string", "number", "boolean", "formula", "date"]}
+      }
+    }
+  ]
+}
+```
+
+Every operation must appear; `fields` maps field name to type, requiredness,
+`enum` values where applicable, and a one-line description including
+destructiveness warnings (`remove_sheet`'s cascade). `--json` is accepted but
+changes nothing (the output is always JSON).
+
+### Slice 2 testing requirements
+
+Everything in the slice 1 list, plus:
+- Every operation has an accept test and at least one reject test per
+  required field and per error condition, including unknown-op,
+  unknown-field, and wrong-`version` rejects.
+- Batch atomicity: a two-op batch whose second op fails leaves the file
+  byte-identical (`md5` before/after) with no temp files.
+- `spine edit` via stdin (`-`) and via file path both covered.
+- `ops-schema` output parses as JSON and every `op` name in it is accepted by
+  `spine edit` (a test iterates the schema, builds one minimal op per entry,
+  and asserts `edit` does not fail with "unknown operation").
+- `spine new` refuses to overwrite; created files pass `spine info`.
+
+## Slice 3 — `spine serve` (outline, spec before implementation)
+
+`spine serve <file> --port N` binds 127.0.0.1 only, opens the file once, and
+holds the live document in memory. Endpoints map to the vocabulary: `GET
+/info`, `GET /ls?scope=…`, `GET /text`, `GET /cells?sheet=&range=`, `POST
+/op`, `POST /ops`, `POST /save`, `POST /revert`, `GET /schema` (the
+`ops-schema` document plus read-command descriptions), `GET /render` (PNG via
+the render packages, cached by content hash). Ops apply in memory; nothing
+touches disk until `/save`, which uses the same atomic path and keeps the
+original bytes for `/revert`. An ops journal sidecar records every applied
+batch. This slice gets its own spec section before any code.
