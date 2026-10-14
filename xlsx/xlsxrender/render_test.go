@@ -232,3 +232,22 @@ func BenchmarkRenderDefaultSheetRange(b *testing.B) {
 		}
 	}
 }
+
+// A resolver failure is caller-fixable (map the family, provide a fallback),
+// so PrepareRange classifies it with ErrUnsupported and preserves the
+// resolver's message (render.FontResolverError), rather than surfacing the
+// resolver's own error unclassified.
+func TestRenderSheetResolverErrorClassifiedUnsupported(t *testing.T) {
+	_, s, opts := renderTestSheet(t)
+	boom := errors.New("no font mapped for family")
+	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) {
+		return nil, boom
+	}
+	page, err := PrepareRange(context.Background(), s, "A1:B2", opts)
+	if page != nil || !errors.Is(err, render.ErrUnsupported) || !errors.Is(err, boom) {
+		t.Fatalf("resolver error: %v %v", page, err)
+	}
+	if !strings.Contains(err.Error(), "no font mapped for family") {
+		t.Errorf("resolver message lost: %v", err)
+	}
+}

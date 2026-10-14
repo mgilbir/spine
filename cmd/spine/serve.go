@@ -801,15 +801,6 @@ type revertOutput struct {
 
 // ---- render ----
 
-// isFontResolutionError reports whether err is a font-resolution failure.
-// It duplicates errors.Is(err, render.ErrUnsupported) coverage for the pptx
-// pipeline (pptxrender wraps the resolver error in the sentinel) but not for
-// the xlsx one, where the resolver's error surfaces unwrapped; the message
-// check covers both.
-func isFontResolutionError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "unresolved font")
-}
-
 // handleRender renders one target from the live in-memory document, cached
 // by (target, format, edit-serial).
 func (h *serveHandler) handleRender(w http.ResponseWriter, r *http.Request) {
@@ -838,14 +829,13 @@ func (h *serveHandler) handleRender(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	page, err := h.prepareRender(ctx, target)
 	if err != nil {
-		// ErrUnsupported marks caller-fixable render profile violations
-		// (missing explicit column widths or row heights, unsupported
-		// content, unresolved fonts in the pptx pipeline). The xlsx pipeline
-		// surfaces the font resolver's error unwrapped, so the message check
-		// is not redundant. Sizing violations are fixable with the
-		// set_column_width / set_row_height operations, so the message
-		// carries that hint for agents.
-		if errors.Is(err, render.ErrUnsupported) || isFontResolutionError(err) {
+		// ErrUnsupported marks caller-fixable render profile violations —
+		// unresolved fonts (every pipeline's adapter wraps resolver failures
+		// via render.FontResolverError), missing explicit column widths or
+		// row heights, unsupported content. Sizing violations are fixable
+		// with the set_column_width / set_row_height operations, so the
+		// message carries that hint for agents.
+		if errors.Is(err, render.ErrUnsupported) {
 			writeJSONError(w, http.StatusBadRequest, errf("unsupported", "%s (a render capability limit; set_column_width and set_row_height fix sizing errors)", err))
 			return
 		}
@@ -864,8 +854,7 @@ func (h *serveHandler) handleRender(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		code, status := "internal", http.StatusInternalServerError
-		// Same dual check as the prepare path above.
-		if errors.Is(err, render.ErrUnsupported) || isFontResolutionError(err) {
+		if errors.Is(err, render.ErrUnsupported) {
 			code, status = "unsupported", http.StatusBadRequest
 		}
 		writeJSONError(w, status, errf(code, "render %q: %v", target, err))

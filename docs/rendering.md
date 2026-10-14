@@ -106,7 +106,14 @@ Two things in `render.Options` decide most outcomes:
   Map them to font files with `shape.Load` (from
   `github.com/mgilbir/forme/shape`), or answer every request with the bundled
   Noto Sans as above. Text drawn in a substitute font is laid out with that
-  font's metrics, so it will not match Office line for line.
+  font's metrics, so it will not match Office line for line. A resolver that
+  fails (or answers nil) makes preparation fail with an error wrapping
+  `render.ErrUnsupported` — a resolver failure is a configuration matter, not
+  a document defect — with the resolver's own error preserved in the chain
+  (`render.FontResolverError`); cancellation still wins, and `ErrLimit` and
+  `ErrInvalid` from the resolver pass through untouched. The metafile paths
+  are the exception: missing text faces are left out and reported through
+  `Warn` (or strict preparation) instead of failing the call.
 - **`Warn`** selects the mode. Left nil, the call is *strict*: anything that
   cannot be drawn exactly fails it with `render.ErrUnsupported`. Set, the call
   is *best effort*: the rest is drawn and the problems are reported to `Warn`,

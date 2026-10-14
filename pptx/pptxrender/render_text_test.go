@@ -393,3 +393,22 @@ func TestRenderTextColumns(t *testing.T) {
 		t.Fatalf("strict anchored columns: %v", err)
 	}
 }
+
+// A resolver failure is caller-fixable (map the family, provide a fallback),
+// so PrepareSlide classifies it with ErrUnsupported and preserves the
+// resolver's message (render.FontResolverError), rather than surfacing the
+// resolver's own error unclassified.
+func TestRenderSlideResolverErrorClassifiedUnsupported(t *testing.T) {
+	_, s, _, opts := renderTextSlide(t)
+	boom := errors.New("no font mapped for family")
+	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) {
+		return nil, boom
+	}
+	page, err := PrepareSlide(context.Background(), s, opts)
+	if page != nil || !errors.Is(err, render.ErrUnsupported) || !errors.Is(err, boom) {
+		t.Fatalf("resolver error: %v %v", page, err)
+	}
+	if !strings.Contains(err.Error(), "no font mapped for family") {
+		t.Errorf("resolver message lost: %v", err)
+	}
+}

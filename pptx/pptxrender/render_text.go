@@ -56,7 +56,7 @@ func (f *slideRenderFonts) resolve(ctx context.Context, family string, bold, ita
 	}
 	face, err := f.opts.Fonts(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, render.FontResolverError(ctx, err)
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
