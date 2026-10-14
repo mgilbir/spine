@@ -1,41 +1,62 @@
 ---
 name: office-files
 description: Create, read, edit, and verify Office files (xlsx, docx, pptx) with the spine CLI and spine serve. Use for any task involving .xlsx/.pptx/.docx files — spreadsheets, decks, documents — instead of writing Python or Go scripts. Covers the read/author loop, the JSON operation vocabulary, sessions over HTTP, and when to verify with text versus rendered images.
+compatibility: Needs the spine CLI (Go 1.26+ toolchain to install or build). Linux, macOS and Windows.
 ---
 
 # Office files with spine
 
 spine is a Go CLI (and local HTTP server) that edits Office files with
 round-trip fidelity: parts you do not touch are written back byte-for-byte.
-Build it once per session:
 
-```bash
-go build -o /tmp/spine ./cmd/spine   # run from the spine repository root
-```
+## Setup — resolve the binary once, before anything else
 
-`/tmp/spine` below refers to that binary. Every command prints human-readable
-output by default; add `--json` for machine-readable output. Exit codes:
-0 success, 1 failure, 2 bad flags. Errors carry a `code`
-(`not_found`, `invalid_selector`, `invalid_value`, `invalid_range`, `io`,
-`unsupported`, `internal`) — read the message, it usually says what to do.
+Find or install `spine` in this order, then use the resolved path (written
+below as `spine`) for every command:
+
+1. **Already installed?** `command -v spine` — if it prints a path, use it.
+2. **A spine checkout available?** Build it once, from the repository root
+   (Go 1.26+ toolchain): `go build -o /tmp/spine ./cmd/spine`.
+3. **Otherwise install a release** with a Go toolchain:
+   `go install github.com/mgilbir/spine/cmd/spine@latest` — the binary lands
+   in `$(go env GOBIN)` or `~/go/bin`; use that path if it is not on your
+   PATH. `@latest` is the newest **tagged** release; `cmd/spine` ships in
+   releases from v0.5.0 onward, so on older versions this fails with "does
+   not contain package" — then fall back to step 2, or install a specific
+   commit that has it: `go install github.com/mgilbir/spine/cmd/spine@<sha>`.
+
+Never install or build unconditionally on every run — that is a one-time
+setup step. After resolving the binary, check it speaks the current
+operation vocabulary: `spine ops-schema` must succeed and list `set_cell`.
+If it does not, the binary predates the operation vocabulary: rebuild or
+reinstall. Whatever its version, its `ops-schema` output is the
+authoritative contract for what it can do (see Gotchas) — these
+instructions describe the current vocabulary and a slightly older binary
+differs only by having fewer operations.
 
 ## The loop
 
+Every command prints human-readable output by default; add `--json` for
+machine-readable output. Exit codes: 0 success, 1 failure, 2 bad flags.
+Errors carry a `code` (`not_found`, `invalid_selector`, `invalid_value`,
+`invalid_range`, `io`, `unsupported`, `internal`) — read the message, it
+usually says what to do.
+
 1. **Discover** what is addressable, never guess:
-   - `/tmp/spine info book.xlsx --json` — kind, sheets/slides, properties
-   - `/tmp/spine ls deck.pptx slides` — one row per slide
-   - `/tmp/spine ls deck.pptx slide/3` — shapes on slide 3 with their **ids**
-   - `/tmp/spine ls book.xlsx sheets` — exact sheet names
-2. **Read** content as text: `/tmp/spine text deck.pptx` (or `--slide N`),
-   `/tmp/spine cells book.xlsx Sheet1 A1:D20 --json` (typed values; formulas
+   - `spine info book.xlsx --json` — kind, sheets/slides, properties
+   - `spine ls deck.pptx slides` — one row per slide
+   - `spine ls deck.pptx slide/3` — shapes on slide 3 with their **ids**
+   - `spine ls book.xlsx sheets` — exact sheet names
+2. **Read** content as text: `spine text deck.pptx` (or `--slide N`),
+   `spine cells book.xlsx Sheet1 A1:D20 --json` (typed values; formulas
    report their stored formula and cached value, `null` when not yet
    calculated — **spine does not evaluate formulas**; Excel does that on
    open).
 3. **Author** with one command per edit (`spine set`) or a batch
    (`spine edit`): generate an operations document from
-   `/tmp/spine ops-schema` and apply it — all-or-nothing, one save:
+   `spine ops-schema` and apply it — all-or-nothing, one save:
    ```bash
-   /tmp/spine edit book.xlsx ops.json            # or -  for stdin
+   spine edit book.xlsx ops.json            # or -  for stdin
    ```
 4. **Verify by re-reading**: run the same `text`/`cells` command again and
    check what you expected is there.
@@ -56,7 +77,7 @@ output by default; add `--json` for machine-readable output. Exit codes:
 ## Sessions: `spine serve` for many operations on one file
 
 ```bash
-/tmp/spine serve deck.pptx --port 8089 --fallback-noto
+spine serve deck.pptx --port 8089 --fallback-noto
 ```
 
 Opens the file once, holds it in memory; every read and operation is an HTTP
@@ -117,5 +138,5 @@ slide/sheet; nothing else. It is deterministic plain text with no markup.
 - Sheet names with `!`, `[`, `]` or doubled `''` are rejected — nothing is
   ever silently renamed.
 - The authoritative, always-current contract for operations is
-  `/tmp/spine ops-schema` and `GET /schema`; this skill summarizes but the
+  `spine ops-schema` and `GET /schema`; this skill summarizes but the
   binary wins.
