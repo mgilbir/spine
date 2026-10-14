@@ -1,0 +1,4 @@
+{
+  "error": "unresolved font {Family:Calibri Bold:false Italic:false}; provide -font or explicitly choose -fallback-noto for regular fonts",
+  "code": "internal"
+}

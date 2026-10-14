@@ -117,7 +117,7 @@ func PrepareRange(ctx context.Context, sheet *xlsx.Sheet, ref string, opts rende
 	}
 	face, err := opts.Fonts(ctx, render.FontRequest{Family: "Calibri"})
 	if err != nil {
-		return nil, err
+		return nil, render.FontResolverError(ctx, err)
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err

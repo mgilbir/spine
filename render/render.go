@@ -77,6 +77,28 @@ type FontRequest struct {
 // performed by this package.
 type FontResolver func(ctx context.Context, request FontRequest) (*shape.Face, error)
 
+// FontResolverError classifies a font resolver's failure the way renderers
+// report caller-fixable conditions: wrapping ErrUnsupported with the
+// resolver's message preserved. A resolver failure means the provider could
+// not supply the requested face — a configuration matter (map the family,
+// provide a fallback), not a document defect — so every format's adapter
+// routes resolver failures through this instead of returning them raw.
+// Cancellation takes precedence: when ctx is done, its error is returned
+// unchanged, and a resolver error that already carries ErrLimit or ErrInvalid
+// passes through as the provider's own classification.
+func FontResolverError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if errors.Is(err, ErrLimit) || errors.Is(err, ErrInvalid) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrUnsupported, err)
+}
+
 // Options controls format preparation. Source limits are separate from drawing
 // and pixel limits because unsupported/raw content must be checked before paint.
 // Zero MaxSourceBytes and MaxLayoutNodes select 16 MiB and 100000 respectively.

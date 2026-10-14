@@ -61,7 +61,7 @@ func (f *wordFonts) get(family string, bold, italic bool) (*wordFace, error) {
 	}
 	face, err := f.r.opts.Fonts(f.r.ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, render.FontResolverError(f.r.ctx, err)
 	}
 	if err = f.r.ctx.Err(); err != nil {
 		return nil, err

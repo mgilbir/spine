@@ -1,0 +1,395 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>spine</title>
+<style>
+  :root { font-family: monospace; font-size: 13px; }
+  body { margin: 0; display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; grid-template-rows: auto 1fr; height: 100vh; }
+  header { grid-column: 1 / 4; padding: 6px 10px; border-bottom: 2px solid #333; display: flex; gap: 16px; align-items: baseline; }
+  header h1 { font-size: 16px; margin: 0; display: inline; }
+  #dirty { font-weight: bold; }
+  .dirty-yes { color: #b00; }
+  .dirty-no { color: #060; }
+  section { overflow: auto; padding: 8px; border-right: 1px solid #999; min-width: 0; }
+  section h2 { font-size: 14px; margin: 0 0 6px 0; border-bottom: 1px solid #ccc; }
+  ul { list-style: none; padding-left: 0; margin: 4px 0; }
+  li { padding: 2px 4px; cursor: pointer; }
+  li:hover { background: #eef; }
+  li.selected { background: #ccf; font-weight: bold; }
+  .info { color: #333; margin: 4px 0; white-space: pre-wrap; }
+  .error { color: #fff; background: #b00; padding: 4px; margin: 4px 0; white-space: pre-wrap; font-weight: bold; }
+  .opresult { padding: 2px 4px; margin: 2px 0; border-left: 3px solid #060; white-space: pre-wrap; }
+  #preview img { max-width: 100%; border: 1px solid #999; }
+  #cells table { border-collapse: collapse; }
+  #cells td, #cells th { border: 1px solid #999; padding: 2px 6px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  #console { border-right: none; display: flex; flex-direction: column; }
+  #opsdoc { width: 100%; flex: none; height: 34%; box-sizing: border-box; font-family: monospace; font-size: 12px; }
+  #consoleout { flex: 1; overflow: auto; }
+  button { margin: 2px 4px 2px 0; }
+  #schemadrawer { position: fixed; right: 0; top: 0; bottom: 0; width: 46%; min-width: 420px; background: #fffdf5; border-left: 2px solid #333; box-shadow: -3px 0 8px rgba(0,0,0,.25); overflow: auto; padding: 10px; z-index: 10; }
+  #schemadrawer h3 { margin: 8px 0 2px; cursor: pointer; }
+  #schemadrawer .fields { margin: 0 0 8px 16px; color: #444; }
+  .hint { color: #666; }
+  input[type=text] { width: 90px; }
+  #rangebox input[type=text] { width: 110px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>spine</h1>
+  <span id="healthinfo"></span>
+  <span id="dirty" class="dirty-no">clean</span>
+  <button id="btnsave" title="POST /save">Save</button>
+  <button id="btnrevert" title="POST /revert">Revert</button>
+  <button id="btnschema" title="fetch /schema">Schema&hellip;</button>
+</header>
+
+<section id="structure">
+  <h2>Structure</h2>
+  <div id="info" class="info">loading&hellip;</div>
+  <ul id="toplist"></ul>
+  <h2 id="subheading" style="display:none">Shapes</h2>
+  <ul id="sublist"></ul>
+</section>
+
+<section id="preview">
+  <h2>Preview</h2>
+  <div id="pptxpreview" style="display:none">
+    <button id="prevslide" title="previous slide">&lt; prev</button>
+    <span id="slidepos"></span>
+    <button id="nextslide" title="next slide">next &gt;</button>
+    <div><img id="slideimg" alt="slide preview"></div>
+    <div id="pptxerr"></div>
+  </div>
+  <div id="xlsxpreview">
+    <div id="rangebox">
+      sheet <input type="text" id="cellsheet" value="">
+      range <input type="text" id="cellrange" value="A1:H20">
+      <button id="loadcells" title="GET /cells">Load</button>
+    </div>
+    <div id="cells"></div>
+  </div>
+</section>
+
+<section id="console">
+  <h2>Console</h2>
+  <textarea id="opsdoc" spellcheck="false"></textarea>
+  <div>
+    <button id="btnrun" title="POST /ops">Run</button>
+    <span class="hint">edits apply in memory; use Save to write the file</span>
+  </div>
+  <div id="consoleout"></div>
+</section>
+
+<div id="schemadrawer" style="display:none">
+  <h2 style="margin-top:0">Operations schema <button id="closeschema">close</button></h2>
+  <div class="hint">click an operation to insert a skeleton op into the console</div>
+  <div id="schemalist">loading&hellip;</div>
+</div>
+
+<script>
+"use strict";
+window.SPINE_OPS = __SPINE_OPS__;
+
+var kind = null;
+var dirty = false;
+var slideCount = 0;
+var curSlide = 1;
+var sheetName = "";
+
+function $(id) { return document.getElementById(id); }
+
+// showError surfaces every failure (HTTP error envelope or fetch failure) in
+// the console output area — nothing is silently swallowed.
+function showError(prefix, err) {
+  var div = document.createElement("div");
+  div.className = "error";
+  div.textContent = prefix + ": " + err;
+  $("consoleout").prepend(div);
+}
+
+// api fetches JSON and throws on any non-2xx response with the error envelope.
+function api(path, opts) {
+  return fetch(path, opts).then(function (r) {
+    return r.text().then(function (t) {
+      var body = null;
+      try { body = JSON.parse(t); } catch (e) { body = null; }
+      if (!r.ok) {
+        var msg = r.status + " " + r.statusText;
+        if (body && body.error) { msg = body.error + " (code " + body.code + (body.op_index !== undefined ? ", op_index " + body.op_index : "") + ")"; }
+        else if (t) { msg = t; }
+        throw new Error(msg);
+      }
+      return body;
+    });
+  });
+}
+
+// ---- health / dirty ----
+
+function loadHealth() {
+  return api("/health").then(function (h) {
+    dirty = h.dirty;
+    $("dirty").textContent = h.dirty ? "DIRTY (unsaved)" : "clean";
+    $("dirty").className = h.dirty ? "dirty-yes" : "dirty-no";
+    $("healthinfo").textContent = h.kind + " · " + h.path;
+    kind = h.kind;
+  });
+}
+
+function refreshHealth() { loadHealth().catch(function (e) { showError("health", e); }); }
+
+// ---- structure ----
+
+function loadInfo() {
+  api("/info").then(function (inf) {
+    var lines = [];
+    if (inf.title) { lines.push("title: " + inf.title); }
+    if (inf.creator) { lines.push("creator: " + inf.creator); }
+    if (inf.sheet_count !== undefined) { lines.push("sheets: " + inf.sheet_count); }
+    if (inf.slide_count !== undefined) { lines.push("slides: " + inf.slide_count); }
+    $("info").textContent = lines.join("\n");
+    slideCount = inf.slide_count || 0;
+  }).catch(function (e) { showError("info", e); });
+}
+
+function loadStructure() {
+  var scope = kind === "pptx" ? "slides" : "sheets";
+  api("/ls?scope=" + encodeURIComponent(scope)).then(function (items) {
+    var ul = $("toplist");
+    ul.textContent = "";
+    items.forEach(function (it) {
+      var li = document.createElement("li");
+      var label = it.name || ("slide " + it.index);
+      li.textContent = label;
+      if (kind === "pptx") {
+        li.textContent += " (" + it.shape_count + " shapes)";
+        if (it.text_preview) { li.title = it.text_preview; }
+        li.onclick = function () { selectSlide(it.index, li); };
+      } else {
+        li.onclick = function () {
+          sheetName = it.name;
+          $("cellsheet").value = it.name;
+          loadCells();
+        };
+      }
+      ul.appendChild(li);
+    });
+  }).catch(function (e) { showError("ls", e); });
+}
+
+function selectSlide(n, li) {
+  curSlide = n;
+  Array.prototype.forEach.call($("toplist").children, function (el) { el.className = ""; });
+  if (li) { li.className = "selected"; }
+  loadShapes(n);
+  loadSlideImage();
+}
+
+function loadShapes(n) {
+  $("subheading").style.display = "";
+  $("subheading").textContent = "Shapes on slide " + n;
+  api("/ls?scope=slide%2F" + n).then(function (shapes) {
+    var ul = $("sublist");
+    ul.textContent = "";
+    shapes.forEach(function (sh) {
+      var li = document.createElement("li");
+      li.textContent = "id " + sh.id + " · " + sh.type + " · " + sh.name;
+      if (sh.text_preview) {
+        li.title = sh.text_preview;
+        li.textContent += " — " + sh.text_preview;
+      }
+      if (sh.placeholder) { li.textContent += " [" + sh.placeholder.type + "]"; }
+      ul.appendChild(li);
+    });
+  }).catch(function (e) { showError("ls slide/" + n, e); });
+}
+
+// ---- preview ----
+
+function loadSlideImage() {
+  $("pptxpreview").style.display = "";
+  $("xlsxpreview").style.display = "none";
+  $("slidepos").textContent = "slide " + curSlide + " / " + (slideCount || "?");
+  $("pptxerr").textContent = "";
+  $("slideimg").onerror = function () {
+    $("pptxerr").textContent = "render failed for slide " + curSlide + " — see /render?target=slide/" + curSlide;
+  };
+  $("slideimg").src = "/render?target=slide%2F" + curSlide + "&format=png&ts=" + Date.now();
+}
+
+function loadCells() {
+  var sheet = $("cellsheet").value;
+  var rng = $("cellrange").value;
+  $("cells").textContent = "";
+  if (!sheet) { showError("cells", "choose a sheet in Structure first"); return; }
+  api("/cells?sheet=" + encodeURIComponent(sheet) + "&range=" + encodeURIComponent(rng)).then(function (out) {
+    var tbl = document.createElement("table");
+    var rows = {};
+    var cols = [];
+    out.cells.forEach(function (c) {
+      var m = c.ref.match(/^([A-Z]+)(\d+)$/);
+      if (!m) { return; }
+      if (rows[m[2]] === undefined) { rows[m[2]] = {}; }
+      if (cols.indexOf(m[1]) < 0) { cols.push(m[1]); }
+      rows[m[2]][m[1]] = c;
+    });
+    cols.sort();
+    Object.keys(rows).sort(function (a, b) { return a - b; }).forEach(function (rn) {
+      var tr = document.createElement("tr");
+      cols.forEach(function (col) {
+        var td = document.createElement("td");
+        var c = rows[rn][col];
+        td.textContent = c === undefined ? "" : (c.value === null ? "" : String(c.value));
+        if (c && c.type === "formula") { td.title = c.formula || ""; }
+        tr.appendChild(td);
+      });
+      tbl.appendChild(tr);
+    });
+    $("cells").appendChild(tbl);
+  }).catch(function (e) { showError("cells", e); });
+}
+
+function loadPreview() {
+  if (kind === "pptx") {
+    $("pptxpreview").style.display = "";
+    $("xlsxpreview").style.display = "none";
+    loadSlideImage();
+  } else {
+    $("pptxpreview").style.display = "none";
+    $("xlsxpreview").style.display = "";
+  }
+}
+
+// ---- console ----
+
+function exampleDoc() {
+  if (kind === "pptx") {
+    return JSON.stringify({ version: 1, ops: [{ op: "set_text", selector: "slide/1/title", text: "Hello from spine" }] }, null, 2);
+  }
+  return JSON.stringify({ version: 1, ops: [{ op: "set_cell", selector: "Sheet1!A1", value: "Hello from spine" }] }, null, 2);
+}
+
+function runOps() {
+  var out = $("consoleout");
+  out.textContent = "";
+  var doc;
+  try { doc = JSON.parse($("opsdoc").value); }
+  catch (e) { showError("console", "ops document is not valid JSON: " + e.message); return; }
+  api("/ops", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }).then(function (res) {
+    var ok = document.createElement("div");
+    ok.className = "opresult";
+    ok.textContent = "applied " + res.applied + " operation(s)";
+    out.appendChild(ok);
+    refreshAll();
+  }).catch(function (e) { showError("run", e); });
+}
+
+function doSave() {
+  api("/save", { method: "POST" }).then(function (res) {
+    var ok = document.createElement("div");
+    ok.className = "opresult";
+    ok.textContent = "saved to " + res.path;
+    $("consoleout").appendChild(ok);
+    refreshHealth();
+  }).catch(function (e) { showError("save", e); });
+}
+
+function doRevert() {
+  api("/revert", { method: "POST" }).then(function () {
+    var ok = document.createElement("div");
+    ok.className = "opresult";
+    ok.textContent = "reverted to the file on disk";
+    $("consoleout").appendChild(ok);
+    refreshAll();
+  }).catch(function (e) { showError("revert", e); });
+}
+
+function refreshAll() {
+  refreshHealth();
+  loadInfo();
+  loadStructure();
+  loadPreview();
+}
+
+// ---- schema drawer ----
+
+// skeletonFor builds one skeleton operation from its schema entry: required
+// string fields become empty strings, so the op parses once filled in.
+function skeletonFor(op) {
+  var skel = { op: op.op };
+  op.fields.forEach(function (f) {
+    if (!f.required) { return; }
+    skel[f.name] = "";
+  });
+  return skel;
+}
+
+// insertOp appends a skeleton op to the console document, preserving the
+// version and any existing ops.
+function insertOp(op) {
+  var doc;
+  try { doc = JSON.parse($("opsdoc").value); }
+  catch (e) { doc = { version: 1, ops: [] }; }
+  if (typeof doc.version !== "number") { doc.version = 1; }
+  if (!Array.isArray(doc.ops)) { doc.ops = []; }
+  doc.ops.push(skeletonFor(op));
+  $("opsdoc").value = JSON.stringify(doc, null, 2);
+}
+
+function loadSchema() {
+  var drawer = $("schemadrawer");
+  drawer.style.display = "";
+  api("/schema").then(function (doc) {
+    var list = $("schemalist");
+    list.textContent = "";
+    doc.operations.forEach(function (op) {
+      var h = document.createElement("h3");
+      h.textContent = op.op + "  (" + op.applies_to.join(", ") + ")";
+      h.title = "insert a skeleton " + op.op + " op";
+      h.onclick = function () { insertOp(op); };
+      var fields = document.createElement("div");
+      fields.className = "fields";
+      op.fields.forEach(function (f) {
+        var d = document.createElement("div");
+        var desc = f.type + (f.required ? " (required)" : "") + (f.enum ? " [" + f.enum.join("|") + "]" : "") + (f.description ? " — " + f.description : "");
+        d.textContent = f.name + ": " + desc;
+        fields.appendChild(d);
+      });
+      list.appendChild(h);
+      list.appendChild(fields);
+    });
+  }).catch(function (e) {
+    // Fetch failure is shown, never swallowed.
+    $("schemalist").textContent = "";
+    showError("schema", e);
+    // Fall back to the injected operation names so the drawer is still usable.
+    window.SPINE_OPS.forEach(function (name) {
+      var h = document.createElement("h3");
+      h.textContent = name;
+      $("schemalist").appendChild(h);
+    });
+  });
+}
+
+// ---- wiring ----
+
+$("btnrun").onclick = runOps;
+$("btnsave").onclick = doSave;
+$("btnrevert").onclick = doRevert;
+$("btnschema").onclick = loadSchema;
+$("closeschema").onclick = function () { $("schemadrawer").style.display = "none"; };
+$("prevslide").onclick = function () { if (curSlide > 1) { selectSlide(curSlide - 1, null); } };
+$("nextslide").onclick = function () { if (curSlide < slideCount) { selectSlide(curSlide + 1, null); } };
+$("loadcells").onclick = loadCells;
+
+loadHealth().then(function () {
+  $("opsdoc").value = exampleDoc();
+  loadInfo();
+  loadStructure();
+  loadPreview();
+}).catch(function (e) { showError("startup", e); });
+</script>
+</body>
+</html>

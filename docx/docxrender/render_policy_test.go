@@ -206,7 +206,10 @@ func TestFontResolverIsRequiredAndErrorsPropagate(t *testing.T) {
 	}
 	boom := errors.New("boom")
 	opts := render.Options{Fonts: func(context.Context, render.FontRequest) (*shape.Face, error) { return nil, boom }}
-	if _, err := Prepare(context.Background(), doc, opts); !errors.Is(err, boom) {
+	// A resolver failure is caller-fixable (map the family, provide a
+	// fallback), so it is classified with ErrUnsupported and the resolver's
+	// message is preserved (render.FontResolverError).
+	if _, err := Prepare(context.Background(), doc, opts); !errors.Is(err, render.ErrUnsupported) || !errors.Is(err, boom) || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("resolver error: %v", err)
 	}
 	opts.Fonts = func(context.Context, render.FontRequest) (*shape.Face, error) { return nil, nil }
