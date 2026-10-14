@@ -289,7 +289,7 @@ func lockDocument(path string) (*os.File, error) {
 	if err != nil {
 		return nil, errf("io", "cannot open %s: %v", path, err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockExclusive(f); err != nil {
 		_ = f.Close()
 		return nil, errf("io", "file is locked: %s", path)
 	}

@@ -1,7 +1,7 @@
 ---
 name: office-files
 description: Create, read, edit, and verify Office files (xlsx, docx, pptx) with the spine CLI and spine serve. Use for any task involving .xlsx/.pptx/.docx files — spreadsheets, decks, documents — instead of writing Python or Go scripts. Covers the read/author loop, the JSON operation vocabulary, sessions over HTTP, and when to verify with text versus rendered images.
-compatibility: Needs the spine CLI (Go 1.26+ toolchain to install or build). Linux, macOS and Windows.
+compatibility: Needs the spine CLI (Go 1.26+ toolchain to install or build). Linux and macOS are fully supported; on Windows the CLI builds and the read/edit commands work, but `spine serve` is not yet supported (file locking).
 ---
 
 # Office files with spine
