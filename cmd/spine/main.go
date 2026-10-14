@@ -68,6 +68,24 @@ Usage:
       Flags: --title STRING    document title property
              --creator STRING  document creator property
 
+  spine serve <file> --port N
+      Serve one file over local HTTP on 127.0.0.1, holding the live document
+      in memory. The same reads and operations as the commands above, plus
+      PNG/SVG rendering of the live document. The process holds an exclusive
+      lock on the file; on exit with unsaved changes the exit code is 1.
+
+      Flags: --port INT      required; 0 lets the OS choose (printed on
+                             startup)
+             --token STRING  require Authorization: Bearer STRING on every
+                             request
+             --font FAMILY[:STYLE]=FILE[#FACE]
+                             repeatable font mapping for rendering, as in
+                             spine-render
+             --fallback-noto substitute embedded Noto Sans for unresolved
+                             regular fonts when rendering
+             --journal PATH  append one JSON line per applied batch to PATH
+             --out PATH      /save writes to PATH for the process lifetime
+
   spine ops-schema
       Print the JSON schema of all edit operations (the same objects "spine
       edit" accepts).
@@ -156,6 +174,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fs.StringVar(&creator, "creator", "", "document creator property")
 			return &c
 		}, func(fs *flagSetT, stdout io.Writer) error { return runNew(fs, stdout, title, creator) })
+	case "serve":
+		return runServeCmd(rest, stdout, stderr)
 	case "ops-schema":
 		return runCmd("ops-schema", rest, stdout, stderr, func(fs *flagSetT) *commonFlags {
 			var c commonFlags

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/xlsx"
@@ -162,7 +163,7 @@ func (f *opFailure) Error() string { return f.err.message }
 // first failure aborts the batch (nothing has been saved yet).
 func applyOps(d *document, ops []json.RawMessage) error {
 	for i, raw := range ops {
-		if err := applyOneOp(d, i, raw); err != nil {
+		if _, err := runOneOp(d, i, raw); err != nil {
 			return err
 		}
 	}
@@ -170,21 +171,28 @@ func applyOps(d *document, ops []json.RawMessage) error {
 }
 
 func applyOneOp(d *document, i int, raw json.RawMessage) error {
+	_, err := runOneOp(d, i, raw)
+	return err
+}
+
+// runOneOp parses and executes one operation, returning its result envelope.
+// A failure is an *opFailure carrying the operation's 0-based index and name.
+func runOneOp(d *document, i int, raw json.RawMessage) (any, *opFailure) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return &opFailure{errf("invalid_value", "operation %d is not a JSON object", i), i, ""}
+		return nil, &opFailure{errf("invalid_value", "operation %d is not a JSON object", i), i, ""}
 	}
 	nameRaw, ok := fields["op"]
 	if !ok {
-		return &opFailure{errf("invalid_value", `operation %d has no "op" field`, i), i, ""}
+		return nil, &opFailure{errf("invalid_value", `operation %d has no "op" field`, i), i, ""}
 	}
 	var name string
 	if err := json.Unmarshal(nameRaw, &name); err != nil {
-		return &opFailure{errf("invalid_value", `operation %d: "op" must be a string`, i), i, ""}
+		return nil, &opFailure{errf("invalid_value", `operation %d: "op" must be a string`, i), i, ""}
 	}
 	def := lookupOp(name)
 	if def == nil {
-		return &opFailure{errf("invalid_value", "unknown operation %q; run `spine ops-schema` for the list", name), i, name}
+		return nil, &opFailure{errf("invalid_value", "unknown operation %q; run `spine ops-schema` for the list", name), i, name}
 	}
 	applies := false
 	for _, k := range def.AppliesTo {
@@ -193,26 +201,27 @@ func applyOneOp(d *document, i int, raw json.RawMessage) error {
 		}
 	}
 	if !applies {
-		return &opFailure{errf("unsupported", "operation %q applies only to %s files, not %s", name, strings.Join(def.AppliesTo, " and "), d.kind), i, name}
+		return nil, &opFailure{errf("unsupported", "operation %q applies only to %s files, not %s", name, strings.Join(def.AppliesTo, " and "), d.kind), i, name}
 	}
 	if unknown := def.unknownFieldsOf(fields); len(unknown) > 0 {
-		return &opFailure{errf("invalid_value", `operation %q does not accept field %q`, name, unknown[0]), i, name}
+		return nil, &opFailure{errf("invalid_value", `operation %q does not accept field %q`, name, unknown[0]), i, name}
 	}
 	for _, f := range def.Fields {
 		if f.Required {
 			if _, ok := fields[f.Name]; !ok {
-				return &opFailure{errf("invalid_value", `operation %q is missing required field %q`, name, f.Name), i, name}
+				return nil, &opFailure{errf("invalid_value", `operation %q is missing required field %q`, name, f.Name), i, name}
 			}
 		}
 	}
-	if _, err := def.Run(d, fields); err != nil {
+	result, err := def.Run(d, fields)
+	if err != nil {
 		var ce *cliError
 		if asCLIError(err, &ce) {
-			return &opFailure{ce, i, name}
+			return nil, &opFailure{ce, i, name}
 		}
-		return &opFailure{&cliError{code: "internal", message: err.Error()}, i, name}
+		return nil, &opFailure{&cliError{code: "internal", message: err.Error()}, i, name}
 	}
-	return nil
+	return result, nil
 }
 
 // ---- field decoding helpers ----
@@ -327,7 +336,29 @@ func opSetCell(d *document, fields map[string]json.RawMessage) (any, error) {
 	if err := storeCell(cell, ref, typed); err != nil {
 		return nil, err
 	}
+	if typ == "" {
+		typ = storedTypeName(typed)
+	}
 	return setXLSXOutput{Selector: selector, Type: typ, Value: cellValue(cell)}, nil
+}
+
+// storedTypeName reports the interpretation a coerced set_cell value was
+// stored as — the same string `spine set` prints for the same write. It is
+// computed from the coerced value, so a set_cell without an explicit "type"
+// reports the interpretation actually used, not an empty string.
+func storedTypeName(typed any) string {
+	switch typed.(type) {
+	case float64:
+		return "number"
+	case bool:
+		return "boolean"
+	case formulaValue:
+		return "formula"
+	case time.Time:
+		return "date"
+	default:
+		return "string"
+	}
 }
 
 // coerceOpValue interprets a set_cell value. JSON typing is authoritative

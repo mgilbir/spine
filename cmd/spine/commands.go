@@ -25,33 +25,28 @@ func runInfo(fs *flagSetT, stdout io.Writer) error {
 		return err
 	}
 	defer d.close()
-	switch d.kind {
-	case "xlsx":
-		return infoXLSXOut(d, stdout)
-	default:
-		return infoPPTXOut(d, stdout)
-	}
+	return writeJSON(stdout, docInfo(d))
 }
 
-func infoXLSXOut(d *document, stdout io.Writer) error {
-	active := d.wb.ActiveSheet()
-	out := infoXLSX{Kind: "xlsx", SheetCount: d.wb.SheetCount()}
-	for i, s := range d.wb.Sheets() {
-		out.Sheets = append(out.Sheets, sheetInfo{Index: i, Name: s.Name(), Active: s == active})
+// docInfo builds the info output for an open document.
+func docInfo(d *document) any {
+	if d.kind == "xlsx" {
+		active := d.wb.ActiveSheet()
+		out := infoXLSX{Kind: "xlsx", SheetCount: d.wb.SheetCount()}
+		for i, s := range d.wb.Sheets() {
+			out.Sheets = append(out.Sheets, sheetInfo{Index: i, Name: s.Name(), Active: s == active})
+		}
+		out.Title = d.wb.Properties.Title
+		out.Creator = d.wb.Properties.Creator
+		return out
 	}
-	out.Title = d.wb.Properties.Title
-	out.Creator = d.wb.Properties.Creator
-	return writeJSON(stdout, out)
-}
-
-func infoPPTXOut(d *document, stdout io.Writer) error {
 	out := infoPPTX{Kind: "pptx", SlideCount: d.pres.SlideCount()}
 	for i, s := range d.pres.Slides() {
 		out.Slides = append(out.Slides, slideInfo{Index: i + 1, Name: s.Name(), ShapeCount: len(s.Shapes())})
 	}
 	out.Title = d.pres.Properties.Title
 	out.Creator = d.pres.Properties.Creator
-	return writeJSON(stdout, out)
+	return out
 }
 
 // ---- ls ----
@@ -68,52 +63,61 @@ func runLs(fs *flagSetT, stdout io.Writer) error {
 		return err
 	}
 	defer d.close()
+	out, err := docLS(d, scope)
+	if err != nil {
+		return err
+	}
+	return writeJSON(stdout, out)
+}
+
+// docLS builds the ls output for scope: sheets, slides or slide/<N>.
+func docLS(d *document, scope string) (any, error) {
 	switch {
 	case scope == "sheets":
-		return lsSheets(d, stdout)
+		return lsSheetsDoc(d)
 	case scope == "slides":
-		return lsSlides(d, stdout)
+		return lsSlidesDoc(d)
 	case strings.HasPrefix(scope, "slide/"):
-		return lsSlideShapes(d, scope, stdout)
+		return lsSlideShapesDoc(d, scope)
 	default:
-		return errf("invalid_selector", "unknown scope %q; use sheets, slides or slide/<N>", scope)
+		return nil, errf("invalid_selector", "unknown scope %q; use sheets, slides or slide/<N>", scope)
 	}
 }
 
-func lsSheets(d *document, stdout io.Writer) error {
+func lsSheetsDoc(d *document) (any, error) {
 	if d.kind != "xlsx" {
-		return errf("unsupported", "scope sheets applies only to xlsx files")
+		return nil, errf("unsupported", "scope sheets applies only to xlsx files")
 	}
 	active := d.wb.ActiveSheet()
 	out := make([]sheetInfo, 0, d.wb.SheetCount())
 	for i, s := range d.wb.Sheets() {
 		out = append(out, sheetInfo{Index: i, Name: s.Name(), Active: s == active})
 	}
-	return writeJSON(stdout, out)
+	return out, nil
 }
 
-func lsSlides(d *document, stdout io.Writer) error {
+func lsSlidesDoc(d *document) (any, error) {
 	if d.kind != "pptx" {
-		return errf("unsupported", "scope slides applies only to pptx files")
+		return nil, errf("unsupported", "scope slides applies only to pptx files")
 	}
 	out := make([]slideEntry, 0, d.pres.SlideCount())
 	for i, s := range d.pres.Slides() {
 		out = append(out, slideEntry{Index: i + 1, Name: s.Name(), ShapeCount: len(s.Shapes()), TextPreview: textPreview(s.Text())})
 	}
-	return writeJSON(stdout, out)
+	return out, nil
 }
 
-func lsSlideShapes(d *document, scope string, stdout io.Writer) error {
+func lsSlideShapesDoc(d *document, scope string) (any, error) {
 	if d.kind != "pptx" {
-		return errf("unsupported", "scope slide/<N> applies only to pptx files")
+		return nil, errf("unsupported", "scope slide/<N> applies only to pptx files")
 	}
 	n, err := parseSlideArg(strings.TrimPrefix(scope, "slide/"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	slide, err := resolveSlide(d.pres, n)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	out := make([]shapeEntry, 0, len(slide.Shapes()))
 	for _, sh := range slide.Shapes() {
@@ -123,7 +127,7 @@ func lsSlideShapes(d *document, scope string, stdout io.Writer) error {
 		}
 		out = append(out, entry)
 	}
-	return writeJSON(stdout, out)
+	return out, nil
 }
 
 // shapeTypeName maps a shape kind to the ls type vocabulary.
@@ -238,34 +242,9 @@ func runText(fs *flagSetT, stdout io.Writer) error {
 		return err
 	}
 	defer d.close()
-	var text string
-	switch d.kind {
-	case "xlsx":
-		if slideGiven {
-			return &flagError{message: "--slide applies only to pptx files"}
-		}
-		if common.sheet != "" {
-			s, serr := resolveSheet(d.wb, common.sheet)
-			if serr != nil {
-				return serr
-			}
-			text = s.Text()
-		} else {
-			text = d.wb.Text()
-		}
-	default:
-		if common.sheet != "" {
-			return &flagError{message: "--sheet applies only to xlsx files"}
-		}
-		if slideGiven {
-			slide, err := resolveSlide(d.pres, common.slide)
-			if err != nil {
-				return err
-			}
-			text = slide.Text()
-		} else {
-			text = d.pres.Text()
-		}
+	text, err := docText(d, common.sheet, slideGiven, common.slide)
+	if err != nil {
+		return err
 	}
 	if common.json {
 		return writeJSON(stdout, textOutput{Text: text})
@@ -277,6 +256,41 @@ func runText(fs *flagSetT, stdout io.Writer) error {
 	}
 	_, err = io.WriteString(stdout, text)
 	return err
+}
+
+// docText extracts the document's plain text, restricted to one sheet or
+// slide when asked. The restrictions reuse the text command's semantics.
+func docText(d *document, sheetName string, slideGiven bool, slide int) (string, error) {
+	var text string
+	switch d.kind {
+	case "xlsx":
+		if slideGiven {
+			return "", errf("invalid_value", "--slide applies only to pptx files")
+		}
+		if sheetName != "" {
+			s, serr := resolveSheet(d.wb, sheetName)
+			if serr != nil {
+				return "", serr
+			}
+			text = s.Text()
+		} else {
+			text = d.wb.Text()
+		}
+	default:
+		if sheetName != "" {
+			return "", errf("invalid_value", "--sheet applies only to xlsx files")
+		}
+		if slideGiven {
+			s, err := resolveSlide(d.pres, slide)
+			if err != nil {
+				return "", err
+			}
+			text = s.Text()
+		} else {
+			text = d.pres.Text()
+		}
+	}
+	return text, nil
 }
 
 // ---- cells ----
@@ -296,13 +310,28 @@ func runCells(fs *flagSetT, stdout io.Writer) error {
 	if d.kind != "xlsx" {
 		return errf("unsupported", "cells applies only to xlsx files")
 	}
+	out, err := docCells(d, sheetName, rng)
+	if err != nil {
+		return err
+	}
+	if common.json {
+		return writeJSON(stdout, out)
+	}
+	for _, c := range out.Cells {
+		fmt.Fprintf(stdout, "%s\t%s\t%s\n", c.Ref, c.Type, valueString(c.Value))
+	}
+	return nil
+}
+
+// docCells reads the present cells of an xlsx range, row-major.
+func docCells(d *document, sheetName, rng string) (cellsOutput, error) {
 	sheet, serr := resolveSheet(d.wb, sheetName)
 	if serr != nil {
-		return serr
+		return cellsOutput{}, serr
 	}
 	r1, c1, r2, c2, err := parseRange(rng)
 	if err != nil {
-		return err
+		return cellsOutput{}, err
 	}
 	out := cellsOutput{Sheet: sheet.Name(), Range: formatRange(rng, r1, c1, r2, c2)}
 	for r := r1; r <= r2; r++ {
@@ -321,13 +350,7 @@ func runCells(fs *flagSetT, stdout io.Writer) error {
 	if out.Cells == nil {
 		out.Cells = []cellEntry{}
 	}
-	if common.json {
-		return writeJSON(stdout, out)
-	}
-	for _, c := range out.Cells {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", c.Ref, c.Type, valueString(c.Value))
-	}
-	return nil
+	return out, nil
 }
 
 // parseRange parses "A1" or "A1:D20" into ordered 1-based bounds. The
