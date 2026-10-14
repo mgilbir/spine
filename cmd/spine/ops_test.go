@@ -342,7 +342,7 @@ func TestEditAddSlideLayout(t *testing.T) {
 		t.Fatalf("exit = %d, want 1", code)
 	}
 	e = parseErrJSON(t, errOut)
-	if e.Code != "not_found" || !strings.Contains(e.Error, "twoTxTwoObj") {
+	if e.Code != "not_found" || !strings.Contains(e.Error, "comparison") {
 		t.Errorf("missing layout: code %q, error %q", e.Code, e.Error)
 	}
 }

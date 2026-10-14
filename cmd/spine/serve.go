@@ -19,8 +19,10 @@ import (
 	"time"
 
 	"github.com/mgilbir/spine/internal/renderfonts"
+	"github.com/mgilbir/spine/pptx"
 	"github.com/mgilbir/spine/pptx/pptxrender"
 	"github.com/mgilbir/spine/render"
+	"github.com/mgilbir/spine/xlsx"
 	"github.com/mgilbir/spine/xlsx/xlsxrender"
 )
 
@@ -54,6 +56,7 @@ type serveOptions struct {
 	port         int
 	portGiven    bool
 	token        string
+	password     string
 	fonts        renderfonts.Flags
 	fallbackNoto bool
 	journal      string
@@ -73,6 +76,7 @@ func runServeCmd(args []string, stdout, stderr io.Writer) (exit int) {
 	fs.StringVar(&opts.out, "out", "", "redirect /save to PATH for the process lifetime")
 	fs.IntVar(&opts.port, "port", 0, "port to bind on 127.0.0.1 (0 lets the OS choose)")
 	fs.StringVar(&opts.token, "token", "", "require Authorization: Bearer STRING on every request")
+	fs.StringVar(&opts.password, "password", "", "password for an encrypted file")
 	fs.Var(&opts.fonts, "font", "repeatable FAMILY[:regular|bold|italic|bolditalic]=FONT_FILE[#FACE] mapping")
 	fs.BoolVar(&opts.fallbackNoto, "fallback-noto", false, "explicitly substitute embedded Noto Sans for unresolved regular fonts")
 	fs.StringVar(&opts.journal, "journal", "", "append one JSON line per applied batch to PATH")
@@ -208,7 +212,7 @@ func newServeHandler(opts serveOptions) (*serveHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	d, err := openDocument(opts.path, openOptions{})
+	d, err := openDocument(opts.path, openOptions{password: opts.password})
 	if err != nil {
 		_ = lock.Close()
 		return nil, err
@@ -434,7 +438,8 @@ func writeJSONResponse(w http.ResponseWriter, status int, v any) {
 
 // writeJSONError writes the CLI's error envelope with an HTTP status chosen
 // by code: 400 for not_found and invalid/unsupported selectors and values,
-// 500 for io and internal.
+// 500 for io and internal. Error bodies are the CLI's compact single-line
+// JSON, never indented.
 func writeJSONError(w http.ResponseWriter, status int, e *cliError) {
 	writeJSONErrorOp(w, status, e, -1, "")
 }
@@ -442,27 +447,38 @@ func writeJSONError(w http.ResponseWriter, status int, e *cliError) {
 // writeJSONErrorOp is writeJSONError plus, when withOp, the operation name
 // and (for batches) the 0-based op index — the edit error envelope.
 func writeJSONErrorOp(w http.ResponseWriter, status int, e *cliError, opIndex int, op string) {
+	var v any
 	if op == "" {
-		writeJSONResponse(w, status, struct {
+		v = struct {
 			Error string `json:"error"`
 			Code  string `json:"code"`
-		}{Error: e.message, Code: e.code})
-		return
-	}
-	if opIndex < 0 {
-		writeJSONResponse(w, status, struct {
+		}{Error: e.message, Code: e.code}
+	} else if opIndex < 0 {
+		v = struct {
 			Error string `json:"error"`
 			Code  string `json:"code"`
 			Op    string `json:"op"`
-		}{Error: e.message, Code: e.code, Op: op})
-		return
+		}{Error: e.message, Code: e.code, Op: op}
+	} else {
+		v = struct {
+			Error   string `json:"error"`
+			Code    string `json:"code"`
+			OpIndex int    `json:"op_index"`
+			Op      string `json:"op"`
+		}{Error: e.message, Code: e.code, OpIndex: opIndex, Op: op}
 	}
-	writeJSONResponse(w, status, struct {
-		Error   string `json:"error"`
-		Code    string `json:"code"`
-		OpIndex int    `json:"op_index"`
-		Op      string `json:"op"`
-	}{Error: e.message, Code: e.code, OpIndex: opIndex, Op: op})
+	writeCompactJSON(w, status, v)
+}
+
+// writeCompactJSON writes v as the CLI's deterministic single-line JSON.
+func writeCompactJSON(w http.ResponseWriter, status int, v any) {
+	b, err := marshalJSON(v)
+	if err != nil {
+		b = []byte(`{"error":"encode output","code":"internal"}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(b, '\n'))
 }
 
 // statusForCode maps a CLI error code to an HTTP status per the spec.
@@ -563,6 +579,7 @@ func (h *serveHandler) handleLs(w http.ResponseWriter, r *http.Request) {
 func (h *serveHandler) handleText(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sheet := q.Get("sheet")
+	sheetGiven := q.Has("sheet")
 	slideGiven := false
 	slide := 0
 	if s := q.Get("slide"); s != "" {
@@ -577,7 +594,7 @@ func (h *serveHandler) handleText(w http.ResponseWriter, r *http.Request) {
 		}
 		slideGiven, slide = true, n
 	}
-	text, err := docText(h.d, sheet, slideGiven, slide)
+	text, err := docText(h.d, sheet, sheetGiven, slideGiven, slide)
 	if err != nil {
 		writeCLIError(w, err.(*cliError))
 		return
@@ -604,14 +621,68 @@ func (h *serveHandler) handleCells(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, out)
 }
 
-// handleOp applies one operation object in memory.
+// snapshot serializes the live document into memory exactly as a save would
+// (writeTo, so an encrypted session produces encrypted bytes) — the restore
+// point for a failing mutating request.
+func (h *serveHandler) snapshot() ([]byte, error) {
+	var buf bytes.Buffer
+	if err := h.d.writeTo(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// restoreFrom replaces the in-memory document with one reopened from data —
+// a snapshot taken by snapshot — preserving kind, password, path and
+// encryption state. After a restore the document is exactly as it was before
+// the failed request: dirty is untouched and the edit-serial does not bump.
+func (h *serveHandler) restoreFrom(data []byte) error {
+	ropts, err := readerOptions(openOptions{password: h.d.password})
+	if err != nil {
+		return err
+	}
+	d := &document{kind: h.d.kind, encrypted: h.d.encrypted, password: h.d.password, path: h.d.path}
+	switch d.kind {
+	case "xlsx":
+		wb, err := xlsx.OpenReader(bytes.NewReader(data), int64(len(data)), ropts...)
+		if err != nil {
+			return openError(d.path, err)
+		}
+		d.wb = wb
+	case "pptx":
+		p, err := pptx.OpenReader(bytes.NewReader(data), int64(len(data)), ropts...)
+		if err != nil {
+			return openError(d.path, err)
+		}
+		d.pres = p
+	default:
+		return errf("internal", "unknown document kind %q", d.kind)
+	}
+	h.d.close()
+	h.d = d
+	return nil
+}
+
+// handleOp applies one operation object in memory, all-or-nothing: on any
+// failure the document is restored from the pre-request snapshot, so no
+// partial state survives and /health still reports dirty:false (unless an
+// earlier successful request had already made it dirty).
 func (h *serveHandler) handleOp(w http.ResponseWriter, r *http.Request) {
 	data, ok := readBody(w, r)
 	if !ok {
 		return
 	}
+	snap, serr := h.snapshot()
+	if serr != nil {
+		writeCLIError(w, serr)
+		return
+	}
 	result, failure := runOneOp(h.d, 0, data)
 	if failure != nil {
+		if rerr := h.restoreFrom(snap); rerr != nil {
+			writeJSONError(w, http.StatusInternalServerError, errf("internal", "cannot restore the document after the failed operation: %v", rerr))
+			return
+		}
 		h.journal(1, failure.err.message)
 		writeJSONErrorOp(w, statusForCode(failure.err.code), failure.err, -1, failure.op)
 		return
@@ -621,7 +692,9 @@ func (h *serveHandler) handleOp(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, http.StatusOK, result)
 }
 
-// handleOps applies a versioned operations document, all-or-nothing.
+// handleOps applies a versioned operations document, all-or-nothing in
+// memory as on disk: on any failure the document is restored from the
+// pre-request snapshot, so no earlier op of the batch survives in memory.
 func (h *serveHandler) handleOps(w http.ResponseWriter, r *http.Request) {
 	data, ok := readBody(w, r)
 	if !ok {
@@ -632,7 +705,16 @@ func (h *serveHandler) handleOps(w http.ResponseWriter, r *http.Request) {
 		writeCLIError(w, err.(*cliError))
 		return
 	}
+	snap, serr := h.snapshot()
+	if serr != nil {
+		writeCLIError(w, serr)
+		return
+	}
 	if ferr := applyOps(h.d, ops); ferr != nil {
+		if rerr := h.restoreFrom(snap); rerr != nil {
+			writeJSONError(w, http.StatusInternalServerError, errf("internal", "cannot restore the document after the failed batch: %v", rerr))
+			return
+		}
 		var of *opFailure
 		if errors.As(ferr, &of) {
 			h.journal(len(ops), of.err.message)

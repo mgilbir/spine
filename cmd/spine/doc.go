@@ -41,7 +41,12 @@ type openOptions struct {
 }
 
 // openDocument opens path read-only in memory, detecting the kind from the
-// package's content type rather than its file name.
+// package's content type rather than its file name. Actual encryption is
+// detected at open: the plaintext open is tried first, so a plaintext file
+// opened with --password stays plaintext (encrypted=false, the password has
+// no side effects), while a file that fails it with opc.ErrEncrypted is
+// reopened with the password and marked encrypted. A wrong password is
+// therefore reported exactly.
 func openDocument(path string, opts openOptions) (*document, error) {
 	if fi, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -55,21 +60,46 @@ func openDocument(path string, opts openOptions) (*document, error) {
 	if err != nil {
 		return nil, err
 	}
-	kind, err := sniffKind(path, ropts)
+	// Detect actual encryption: try the plaintext open first.
+	kind, err := sniffKind(path, nil)
+	encrypted := false
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, opc.ErrEncrypted) {
+			// Either an already-mapped CLI error (unrecognizable file) or a raw
+			// open failure.
+			var ce *cliError
+			if asCLIError(err, &ce) {
+				return nil, ce
+			}
+			return nil, openError(path, err)
+		}
+		// The file really is encrypted. Without a password this is the usual
+		// unsupported error; with one, reopen with it (which also reports a
+		// wrong password exactly).
+		if opts.password == "" {
+			return nil, openError(path, err)
+		}
+		kind, err = sniffKind(path, ropts)
+		if err != nil {
+			return nil, openError(path, err)
+		}
+		encrypted = true
 	}
-	d := &document{kind: kind, encrypted: opts.password != "", password: opts.password, path: path}
+	d := &document{kind: kind, encrypted: encrypted, password: opts.password, path: path}
+	openOpts := ropts
+	if !encrypted {
+		openOpts = nil
+	}
 	switch kind {
 	case "xlsx":
-		wb, err := xlsx.Open(path, ropts...)
+		wb, err := xlsx.Open(path, openOpts...)
 		if err != nil {
 			d.close()
 			return nil, openError(path, err)
 		}
 		d.wb = wb
 	case "pptx":
-		p, err := pptx.Open(path, ropts...)
+		p, err := pptx.Open(path, openOpts...)
 		if err != nil {
 			d.close()
 			return nil, openError(path, err)
@@ -89,6 +119,9 @@ func readerOptions(opts openOptions) ([]opc.ReaderOption, error) {
 
 // openError maps a package-open failure to an error code.
 func openError(path string, err error) *cliError {
+	if ce, ok := err.(*cliError); ok {
+		return ce
+	}
 	switch {
 	case errors.Is(err, opc.ErrEncrypted):
 		return errf("unsupported", "%s is encrypted; pass --password to open it", path)
@@ -102,11 +135,13 @@ func openError(path string, err error) *cliError {
 }
 
 // sniffKind reads the package's main-part content type to decide between xlsx
-// and pptx. Anything else is unsupported.
+// and pptx. Anything else is unsupported. The opc.OpenReader failure is
+// returned raw so the caller can match opc.ErrEncrypted and retry with a
+// password; content-type failures are already CLI errors.
 func sniffKind(path string, ropts []opc.ReaderOption) (string, error) {
 	r, err := opc.OpenReader(path, ropts...)
 	if err != nil {
-		return "", openError(path, err)
+		return "", err
 	}
 	defer r.Close()
 	rels := r.GetRelationshipsByType(opc.RelTypeOfficeDocument)

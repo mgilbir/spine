@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +100,9 @@ func coerceValue(value, typ string) (string, any, error) {
 			return "boolean", value == "true", nil
 		default:
 			if f, err := strconv.ParseFloat(value, 64); err == nil {
+				if math.IsNaN(f) || math.IsInf(f, 0) {
+					return "", nil, errf("invalid_value", "value %q is not a finite number", value)
+				}
 				return "number", f, nil
 			}
 			return "string", value, nil
@@ -107,6 +111,9 @@ func coerceValue(value, typ string) (string, any, error) {
 		f, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return "", nil, errf("invalid_value", "value %q is not a number", value)
+		}
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return "", nil, errf("invalid_value", "value %q is not a finite number", value)
 		}
 		return "number", f, nil
 	case "string":

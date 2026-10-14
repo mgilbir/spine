@@ -24,6 +24,14 @@ func (fs *flagSetT) Args() []string {
 	return fs.FlagSet.Args()
 }
 
+// looksNegativeNumber reports whether tok is a negative number rather than a
+// flag: '-' followed by a digit or dot. No flag in this CLI begins with a
+// digit, so treating such tokens as positional is unambiguous and lets
+// `spine set f S!A1 -0.5` work without `--`.
+func looksNegativeNumber(tok string) bool {
+	return len(tok) > 1 && tok[0] == '-' && (tok[1] >= '0' && tok[1] <= '9' || tok[1] == '.')
+}
+
 // helpSignal reports that -h/--help was requested.
 type helpSignal struct{}
 
@@ -44,10 +52,23 @@ func newFlagSet(name string) *flagSetT {
 // parse parses args, converting flag package failures: ErrHelp to helpSignal,
 // anything else to a flagError. Flags may appear anywhere on the line: the
 // positionals ahead of each flag run are collected and parsing resumes after
-// them, so `spine set f S!A1 v --type number` works.
+// them, so `spine set f S!A1 v --type number` works. A bare "--" terminates
+// flag parsing: everything after it is positional (standard flag package
+// semantics), so negative values can be written with
+// `spine set f S!A1 -- -5`.
 func (fs *flagSetT) parse(args []string) error {
 	fs.positional = nil
-	rest := args
+	// Split off everything after the first bare "--" before parsing: the flag
+	// package would consume the terminator itself, and the rescan loop below
+	// could then no longer tell where it was. The tail is appended once flag
+	// parsing is done, after the positionals of the flagged region.
+	rest, tail := args, args[len(args):]
+	for i, a := range args {
+		if a == "--" {
+			rest, tail = args[:i], args[i+1:]
+			break
+		}
+	}
 	for {
 		if err := fs.Parse(rest); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -57,11 +78,12 @@ func (fs *flagSetT) parse(args []string) error {
 		}
 		left := fs.FlagSet.Args()
 		i := 0
-		for i < len(left) && (left[i] == "-" || !strings.HasPrefix(left[i], "-")) {
+		for i < len(left) && (left[i] == "-" || left[i] == "--" || !strings.HasPrefix(left[i], "-") || looksNegativeNumber(left[i])) {
 			i++
 		}
 		fs.positional = append(fs.positional, left[:i]...)
 		if i >= len(left) {
+			fs.positional = append(fs.positional, tail...)
 			return nil
 		}
 		rest = left[i:]

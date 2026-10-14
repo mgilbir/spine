@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -254,11 +255,16 @@ func fieldString(fields map[string]json.RawMessage, name string) (string, error)
 	return s, nil
 }
 
-// fieldOptString decodes an optional string field, reporting presence.
+// fieldOptString decodes an optional string field, reporting presence. An
+// explicitly present JSON null is not a string: it is invalid_value, not a
+// silent present-empty string.
 func fieldOptString(fields map[string]json.RawMessage, name string) (string, bool, error) {
 	raw, ok := fields[name]
 	if !ok {
 		return "", false, nil
+	}
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return "", true, errf("invalid_value", "field %q must be a string", name)
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
@@ -476,6 +482,9 @@ func coerceOpValue(value any, typ string) (any, error) {
 	if typ == "" {
 		switch v := value.(type) {
 		case float64:
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return nil, errf("invalid_value", "value %v is not a finite number", v)
+			}
 			return v, nil
 		case bool:
 			return v, nil
@@ -489,6 +498,9 @@ func coerceOpValue(value any, typ string) (any, error) {
 		_, typed, err := coerceValue(v, typ)
 		return typed, err
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, errf("invalid_value", "value %v is not a finite number", v)
+		}
 		switch typ {
 		case "number":
 			return v, nil
@@ -640,10 +652,10 @@ func opAddSlide(d *document, fields map[string]json.RawMessage) (any, error) {
 		}
 		layout, lerr := d.pres.LayoutByType(lt)
 		if lerr != nil {
-			return nil, errf("not_found", "deck has no slide layout of type %q", lt)
+			return nil, errf("not_found", "deck has no slide layout of type %q", layoutName)
 		}
 		d.pres.AddSlideFromLayout(layout)
-		used := string(lt)
+		used := layoutFriendlyName[lt]
 		out.Layout = &used
 	}
 	out.Index = d.pres.SlideCount()
@@ -689,6 +701,17 @@ var layoutByFriendlyName = map[string]pptx.SlideLayoutType{
 	"title_and_vertical_text": pptx.LayoutTitleAndVerticalText,
 	"vertical_title_and_text": pptx.LayoutVerticalTitleAndText,
 }
+
+// layoutFriendlyName maps the library's SlideLayoutType back to add_slide's
+// friendly enum name, so results and messages never leak the library's raw
+// layout tokens ("obj", "secHead", …).
+var layoutFriendlyName = func() map[pptx.SlideLayoutType]string {
+	m := make(map[pptx.SlideLayoutType]string, len(layoutByFriendlyName))
+	for name, lt := range layoutByFriendlyName {
+		m[lt] = name
+	}
+	return m
+}()
 
 func opSetProperties(d *document, fields map[string]json.RawMessage) (any, error) {
 	type prop struct {
@@ -865,7 +888,8 @@ type removeSheetOutput struct {
 }
 
 // addSlideOutput is add_slide's result: the new 1-based slide index and,
-// when added from a layout, the SlideLayoutType string used (null otherwise).
+// when added from a layout, the friendly layout enum name used (null
+// otherwise).
 type addSlideOutput struct {
 	Index  int     `json:"index"`
 	Layout *string `json:"layout"`

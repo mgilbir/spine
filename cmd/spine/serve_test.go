@@ -355,7 +355,7 @@ func TestServeRenderFontErrorIsUnsupported(t *testing.T) {
 	// is mapped, so rendering fails on font resolution.
 	h := newTestHandler(t, renderFixture(t), func(o *serveOptions) { o.fallbackNoto = false })
 	status, body, _ := doReq(t, h, "GET", "/render?target=Data!A1:B1&format=png", "", nil)
-	if status != 400 || !strings.Contains(string(body), `"code": "unsupported"`) || !strings.Contains(string(body), "unresolved font") {
+	if status != 400 || !strings.Contains(string(body), `"code":"unsupported"`) || !strings.Contains(string(body), "unresolved font") {
 		t.Fatalf("font-resolution render failure: %d %s", status, body)
 	}
 }
@@ -629,7 +629,7 @@ func TestServeRenderPNG(t *testing.T) {
 	// otherwise outside the render profile) fails with the renderer's
 	// ErrUnsupported sentinel: code "unsupported", HTTP 400 — never "internal".
 	status, body, _ = doReq(t, hx, "GET", "/render?target=Data!A1:B2", "", nil)
-	if status != 400 || !strings.Contains(string(body), `"code": "unsupported"`) {
+	if status != 400 || !strings.Contains(string(body), `"code":"unsupported"`) {
 		t.Fatalf("unrenderable range: %d %s", status, body)
 	}
 }
@@ -892,5 +892,163 @@ func TestServeFlagErrors(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if got := runServeCmd([]string{"--help"}, &stdout, &stderr); got != 0 || !strings.Contains(stdout.String(), "spine serve") {
 		t.Fatalf("serve --help: exit %d", got)
+	}
+}
+
+// ---- all-or-nothing in memory ----
+
+// TestServeFailedBatchLeavesNoPartialState is the reviewer's repro: a failing
+// /ops batch must not leave earlier ops applied to the live document — /cells
+// shows pre-batch values, /health reports dirty:false, and a /save persists
+// the original values, not the batch's.
+func TestServeFailedBatchLeavesNoPartialState(t *testing.T) {
+	h := newTestHandler(t, xlsxPath, nil)
+	serialBefore := h.serial
+	status, body, _ := doReq(t, h, "POST", "/ops", `{"version":1,"ops":[{"op":"set_cell","selector":"Data!A1","value":"changed"},{"op":"clear_cell","selector":"Nope!A1"}]}`, nil)
+	if status != 400 || !strings.Contains(compact(t, body), `"op_index":1`) {
+		t.Fatalf("failing batch: %d %s", status, body)
+	}
+	// /cells shows the pre-batch value.
+	_, body, _ = doReq(t, h, "GET", "/cells?sheet=Data&range=A1", "", nil)
+	if strings.Contains(string(body), "changed") || !strings.Contains(string(body), "Revenue") {
+		t.Fatalf("the first op's effect survived the failed batch: %s", body)
+	}
+	// /health reports dirty:false and the edit-serial did not bump.
+	_, body, _ = doReq(t, h, "GET", "/health", "", nil)
+	if strings.Contains(compact(t, body), `"dirty":true`) {
+		t.Fatalf("a failed batch marked the document dirty: %s", body)
+	}
+	if h.serial != serialBefore {
+		t.Fatalf("edit-serial bumped on a failed batch: %d → %d", serialBefore, h.serial)
+	}
+	// A later /save persists the original values.
+	if status, _, _ = doReq(t, h, "POST", "/save", "", nil); status != 200 {
+		t.Fatalf("save after failed batch: %d", status)
+	}
+	if cli := cliJSON(t, "--json", "cells", h.path, "Data", "A1"); strings.Contains(cli, "changed") || !strings.Contains(cli, "Revenue") {
+		t.Fatalf("the failed batch leaked to disk via /save: %s", cli)
+	}
+}
+
+// TestServeFailedOpSetPropertiesPartialApplication: set_properties applies
+// its fields in order, so a failing single /op can catch the operation
+// mid-application (title applied, keywords rejected). The snapshot/restore
+// must undo even that.
+func TestServeFailedOpSetPropertiesPartialApplication(t *testing.T) {
+	h := newTestHandler(t, xlsxPath, nil)
+	serialBefore := h.serial
+	status, body, _ := doReq(t, h, "POST", "/op", `{"op":"set_properties","title":"Tainted","keywords":5}`, nil)
+	if status != 400 || !strings.Contains(compact(t, body), `"code":"invalid_value"`) {
+		t.Fatalf("failing set_properties: %d %s", status, body)
+	}
+	// The title applied before the failure must be gone: /info shows the
+	// original property.
+	_, body, _ = doReq(t, h, "GET", "/info", "", nil)
+	if strings.Contains(string(body), "Tainted") || !strings.Contains(string(body), "Q3 report") {
+		t.Fatalf("partial set_properties survived the failure: %s", body)
+	}
+	_, body, _ = doReq(t, h, "GET", "/health", "", nil)
+	if strings.Contains(compact(t, body), `"dirty":true`) {
+		t.Fatalf("a failed op marked the document dirty: %s", body)
+	}
+	if h.serial != serialBefore {
+		t.Fatalf("edit-serial bumped on a failed op: %d → %d", serialBefore, h.serial)
+	}
+}
+
+// ---- add_slide friendly layout names ----
+
+func TestServeAddSlideLayoutFriendlyName(t *testing.T) {
+	h := newTestHandler(t, pptxPath, nil)
+	status, body, _ := doReq(t, h, "POST", "/op", `{"op":"add_slide","layout":"title_and_content"}`, nil)
+	if status != 200 || !strings.Contains(compact(t, body), `"layout":"title_and_content"`) {
+		t.Fatalf("add_slide title_and_content: %d %s", status, body)
+	}
+	// A layout the default master lacks: not_found naming the friendly type.
+	status, body, _ = doReq(t, h, "POST", "/op", `{"op":"add_slide","layout":"comparison"}`, nil)
+	if status != 400 || !strings.Contains(compact(t, body), `"code":"not_found"`) || !strings.Contains(string(body), "comparison") {
+		t.Fatalf("add_slide comparison: %d %s", status, body)
+	}
+	if strings.Contains(string(body), "twoTxTwoObj") {
+		t.Fatalf("not-found message leaks the raw layout token: %s", body)
+	}
+}
+
+// ---- error bodies are compact single-line JSON ----
+
+func TestServeErrorBodiesAreSingleLine(t *testing.T) {
+	h := newTestHandler(t, xlsxPath, nil)
+	_, body, _ := doReq(t, h, "POST", "/op", `{"op":"frobnicate"}`, nil)
+	trimmed := strings.TrimSuffix(string(body), "\n")
+	if strings.Contains(trimmed, "\n") {
+		t.Fatalf("error body is not single-line: %q", body)
+	}
+	if !strings.Contains(trimmed, `{"error":"unknown operation \"frobnicate\"; run `+"`spine ops-schema`"+` for the list","code":"invalid_value","op":"frobnicate"}`) {
+		t.Fatalf("error body is not the compact CLI envelope: %q", trimmed)
+	}
+	// Reads still mirror the CLI's indented --json output.
+	_, body, _ = doReq(t, h, "GET", "/info", "", nil)
+	if !strings.Contains(string(body), "\n  ") {
+		t.Fatalf("success body lost its indentation: %q", body)
+	}
+}
+
+// ---- cells range size cap over HTTP ----
+
+func TestServeCellsRangeTooLarge(t *testing.T) {
+	h := newTestHandler(t, xlsxPath, nil)
+	status, body, _ := doReq(t, h, "GET", "/cells?sheet=Data&range=A1:GR60000", "", nil)
+	if status != 400 || !strings.Contains(compact(t, body), `"code":"invalid_range"`) || !strings.Contains(string(body), "covers 12,000,000 cells; the limit is 10,000,000") {
+		t.Fatalf("200x60000 range over HTTP: %d %s", status, body)
+	}
+}
+
+// ---- --sheet= over HTTP matches the CLI's text semantics ----
+
+func TestServeTextEmptySheetParam(t *testing.T) {
+	h := newTestHandler(t, xlsxPath, nil)
+	status, body, _ := doReq(t, h, "GET", "/text?sheet=", "", nil)
+	if status != 400 || !strings.Contains(string(body), "not_found") || !strings.Contains(string(body), `sheet not found: \"\"`) {
+		t.Fatalf("GET /text?sheet=: %d %s", status, body)
+	}
+}
+
+// ---- --password on serve opens encrypted files ----
+
+func TestServeEncryptedFile(t *testing.T) {
+	// Without --password an encrypted file fails at startup with the usual
+	// unsupported error.
+	opts := serveOptions{path: copyFixture(t, encPath), port: 0}
+	if _, err := newServeHandler(opts); err == nil || !strings.Contains(err.Error(), "encrypted") {
+		t.Fatalf("encrypted file without password: %v", err)
+	}
+	// With the right password the handler opens the document, and /save
+	// re-encrypts because the document is actually encrypted.
+	opts.password = "s3cret"
+	h, err := newServeHandler(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(h.close)
+	if status, body, _ := doReq(t, h, "POST", "/op", `{"op":"set_text","selector":"slide/1/title","text":"Encrypted edit"}`, nil); status != 200 {
+		t.Fatalf("op on encrypted file: %d %s", status, body)
+	}
+	if status, _, _ := doReq(t, h, "POST", "/save", "", nil); status != 200 {
+		t.Fatalf("save: %d", status)
+	}
+	if _, errOut, code := runCLI("--json", "info", h.path, "--password", "wrong"); code != 1 || !strings.Contains(errOut, "wrong password") {
+		t.Fatalf("saved output is not encrypted: exit %d, stderr %s", code, errOut)
+	}
+	if out, _, code := runCLI("--json", "info", h.path, "--password", "s3cret"); code != 0 || !strings.Contains(out, "pptx") {
+		t.Fatalf("saved output with right password: exit %d", code)
+	}
+	// A plaintext file served with --password stays plaintext on /save.
+	h2 := newTestHandler(t, xlsxPath, func(o *serveOptions) { o.password = "bogus" })
+	doReq(t, h2, "POST", "/op", `{"op":"set_cell","selector":"Data!A1","value":"plain"}`, nil)
+	if status, _, _ := doReq(t, h2, "POST", "/save", "", nil); status != 200 {
+		t.Fatalf("save on plaintext with --password: %d", status)
+	}
+	if _, errOut, code := runCLI("--json", "info", h2.path); code != 0 {
+		t.Fatalf("plaintext stayed encrypted by --password: exit %d, stderr %s", code, errOut)
 	}
 }

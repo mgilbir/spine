@@ -61,7 +61,10 @@ surfaces.
   without it the input file is replaced in place. If the document opened with
   a password (`--password`), the output preserves encryption.
 - **No reading of stdin for values.** All inputs are arguments or flags so
-  agents cannot be tripped by stdin quirks.
+  agents cannot be tripped by stdin quirks. Tokens beginning with `-`
+  followed by a digit or dot (`-5`, `-0.5`, `-.5`) are always positional
+  values, never flags — no flag name begins with a digit, so this is
+  unambiguous. `--` still terminates flag parsing for anything else.
 - **Determinism**: identical input file + identical command ⇒ identical
   stdout, byte for byte. Never emit timestamps, durations, or map-iteration
   order.

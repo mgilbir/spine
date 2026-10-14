@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -273,7 +274,7 @@ func TestLsGolden(t *testing.T) {
       "type": "body",
       "idx": 0
     },
-    "text_preview": "Body line\nSecond line"
+    "text_preview": "Body line Second line"
   }
 ]
 `, titleShapeID, bodyShapeID)
@@ -795,5 +796,257 @@ func TestCellsPptxMessage(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "cells applies only to xlsx files") {
 		t.Errorf("cells on pptx stderr: %s", errOut)
+	}
+}
+
+// ---- negative values and the "--" terminator ----
+
+func TestSetNegativeNumbersAfterDashDash(t *testing.T) {
+	path := copyFixture(t, xlsxPath)
+	// Inference: "-5" and "-0.5" are numbers when they follow "--".
+	out := runJSON(t, "set", path, "Data!G1", "--", "-5")
+	if out != "{\n  \"selector\": \"Data!G1\",\n  \"type\": \"number\",\n  \"value\": -5\n}\n" {
+		t.Errorf("set -5: %s", out)
+	}
+	out = runJSON(t, "set", path, "Data!G2", "--", "-0.5")
+	if !strings.Contains(out, `"value": -0.5`) {
+		t.Errorf("set -0.5: %s", out)
+	}
+	// Forced type, with flags before the terminator.
+	out = runJSON(t, "set", path, "Data!G3", "--type", "number", "--", "-5")
+	if !strings.Contains(out, `"value": -5`) {
+		t.Errorf("set --type number -- -5: %s", out)
+	}
+	// The values round-trip as numbers.
+	cells := runJSON(t, "cells", path, "Data", "G1:G3")
+	for _, want := range []string{`"value": -5`, `"value": -0.5`} {
+		if !strings.Contains(cells, want) {
+			t.Errorf("round trip missing %s in:\n%s", want, cells)
+		}
+	}
+	// Without the terminator, "-5" is still treated as a value (negative
+	// numbers need no "--"): tokens like "-5" and "-0.5" are positional
+	// because no flag name in this CLI begins with a digit.
+	out = runJSON(t, "set", path, "Data!G5", "-5")
+	if !strings.Contains(out, `"value": -5`) {
+		t.Errorf("set -5 without --: %s", out)
+	}
+	// Everything after "--" is positional, even flag-looking tokens: this is
+	// a three-argument set with the string value "-5" typed as string.
+	out = runJSON(t, "set", path, "Data!G4", "--type", "string", "--", "-5")
+	if !strings.Contains(out, `"type": "string"`) || !strings.Contains(out, `"value": "-5"`) {
+		t.Errorf("set --type string -- -5: %s", out)
+	}
+}
+
+// ---- password has no effect on plaintext files ----
+
+func TestPasswordOnPlaintextStaysPlaintext(t *testing.T) {
+	path := copyFixture(t, xlsxPath)
+	// Editing a plaintext file with --password (even a bogus one) must not
+	// encrypt the output: the file still opens without any password.
+	runJSON(t, "set", path, "--password", "bogus", "Data!F1", "plain")
+	if got := runJSON(t, "cells", path, "Data", "F1"); !strings.Contains(got, `"value": "plain"`) {
+		t.Errorf("plaintext set with --password not readable without it: %s", got)
+	}
+	if info := runJSON(t, "info", path); !strings.Contains(info, `"kind": "xlsx"`) {
+		t.Errorf("info on the plaintext file failed: %s", info)
+	}
+	// A wrong password on a genuinely encrypted file is unsupported with the
+	// exact "wrong password" message.
+	_, errOut, code := runCLI("--json", "info", encPath, "--password", "wrong")
+	if code != 1 || !strings.Contains(errOut, `"code":"unsupported"`) || !strings.Contains(errOut, "wrong password") {
+		t.Errorf("wrong password on encrypted file: exit %d, stderr %s", code, errOut)
+	}
+	// The encrypted round trip still re-encrypts (covered in detail by
+	// TestSetEncryptedRoundTrip); here: the right password works.
+	out, _, code := runCLI("--json", "info", encPath, "--password", "s3cret")
+	if code != 0 || !strings.Contains(out, `"kind": "pptx"`) {
+		t.Errorf("encrypted file with right password: exit %d", code)
+	}
+}
+
+// ---- ls slide/<N> text_preview truncation ----
+
+func TestLsSlideShapePreviewTruncation(t *testing.T) {
+	p := pptx.CreateWidescreen()
+	s := p.AddSlide()
+	tb := s.AddTextBox()
+	long := strings.Repeat("ab\ncd", 20) // 100 runes, multi-line
+	tb.TextFrame().SetText(long)
+	path := filepath.Join(t.TempDir(), "long.pptx")
+	if err := p.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	var entries []shapeEntry
+	if err := json.Unmarshal([]byte(runJSON(t, "ls", path, "slide/1")), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("shape entries: %d", len(entries))
+	}
+	got := entries[0].TextPreview
+	runes := []rune(got)
+	if len(runes) != 81 || !strings.HasSuffix(got, "…") {
+		t.Errorf("preview of 100 runes = %d runes, want 80 + ellipsis: %q", len(runes), got)
+	}
+	if strings.ContainsAny(got, "\n\r") {
+		t.Errorf("preview keeps newlines: %q", got)
+	}
+}
+
+// ---- info on an empty pptx ----
+
+func TestInfoEmptyPPTXSlidesArray(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.pptx")
+	runJSON(t, "new", "pptx", path)
+	out := runJSON(t, "info", path)
+	if !strings.Contains(out, `"slides": []`) {
+		t.Errorf("empty pptx info does not emit an empty slides array: %s", out)
+	}
+}
+
+// ---- doubled '' in a quoted sheet name ----
+
+func TestDoubledQuoteSheetNameNotFound(t *testing.T) {
+	// 'a''b'!A1 contains a doubled quote inside the quoted name; such names
+	// select nothing and are not_found, not a selector parse error.
+	_, errOut, code := runCLI("--json", "set", xlsxPath, "'a''b'!A1", "x")
+	if code != 1 || !strings.Contains(errOut, `"code":"not_found"`) || !strings.Contains(errOut, "sheet not found") {
+		t.Errorf("set 'a''b'!A1: exit %d, stderr %s", code, errOut)
+	}
+	// The same through the operations vocabulary.
+	f := copyFixture(t, xlsxPath)
+	ops := writeOpsFile(t, `{"version":1,"ops":[{"op":"set_cell","selector":"'a''b'!A1","value":1}]}`)
+	_, errOut, code = runCLI("--json", "edit", f, ops)
+	if code != 1 {
+		t.Fatalf("edit exit = %d, want 1", code)
+	}
+	if e := parseErrJSON(t, errOut); e.Code != "not_found" {
+		t.Errorf("edit 'a''b'!A1: code %q, want not_found (error %q)", e.Code, e.Error)
+	}
+	// A normal quoted name still works.
+	if got := runJSON(t, "set", xlsxPath, "'Data'!F2", "ok"); !strings.Contains(got, `"value": "ok"`) {
+		t.Errorf("quoted sheet name broke: %s", got)
+	}
+}
+
+// ---- non-finite numbers ----
+
+func TestSetRejectsNonFiniteNumbers(t *testing.T) {
+	// Values beginning with "-" need the "--" terminator (standard flag
+	// semantics); the rest are plain positionals.
+	for _, tc := range []struct{ dashdash, value string }{
+		{"--", "-Inf"},
+		{"--", "-inf"},
+		{"", "NaN"},
+		{"", "nan"},
+		{"", "Inf"},
+		{"", "+Inf"},
+		{"", "inf"},
+	} {
+		args := []string{"--json", "set", xlsxPath, "Data!H1"}
+		if tc.dashdash != "" {
+			args = append(args, tc.dashdash)
+		}
+		args = append(args, tc.value)
+		_, errOut, code := runCLI(args...)
+		if code != 1 || !strings.Contains(errOut, `"code":"invalid_value"`) || !strings.Contains(errOut, "is not a finite number") {
+			t.Errorf("set %q: exit %d, stderr %s", tc.value, code, errOut)
+		}
+		typed := []string{"--json", "set", xlsxPath, "Data!H1", "--type", "number"}
+		if tc.dashdash != "" {
+			typed = append(typed, tc.dashdash)
+		}
+		typed = append(typed, tc.value)
+		_, errOut, code = runCLI(typed...)
+		if code != 1 || !strings.Contains(errOut, "is not a finite number") {
+			t.Errorf("set --type number %q: exit %d, stderr %s", tc.value, code, errOut)
+		}
+	}
+	// set_cell rejects them too (they can only arrive as strings, since JSON
+	// cannot encode NaN/Inf).
+	f := copyFixture(t, xlsxPath)
+	ops := writeOpsFile(t, opsDoc(t, op("set_cell", "selector", "Data!H1", "value", "NaN")))
+	_, errOut, code := runCLI("--json", "edit", f, ops)
+	if code != 1 {
+		t.Fatalf("edit exit = %d, want 1", code)
+	}
+	if e := parseErrJSON(t, errOut); e.Code != "invalid_value" || !strings.Contains(e.Error, "is not a finite number") {
+		t.Errorf("set_cell NaN: code %q, error %q", e.Code, e.Error)
+	}
+}
+
+// ---- --password is rejected where no document is opened ----
+
+func TestPasswordFlagRejectedWithoutDocument(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, code := runCLI("new", "xlsx", filepath.Join(dir, "n.xlsx"), "--password", "x"); code != 2 {
+		t.Errorf("new --password: exit %d, want 2", code)
+	}
+	if _, _, code := runCLI("ops-schema", "--password", "x"); code != 2 {
+		t.Errorf("ops-schema --password: exit %d, want 2", code)
+	}
+}
+
+// ---- explicitly empty --sheet ----
+
+func TestTextEmptySheetFlag(t *testing.T) {
+	// --sheet "" is distinct from the flag being absent: not_found.
+	_, errOut, code := runCLI("--json", "text", xlsxPath, "--sheet", "")
+	if code != 1 || !strings.Contains(errOut, `"code":"not_found"`) {
+		t.Fatalf("text --sheet \"\": exit %d, stderr %s", code, errOut)
+	}
+	if !strings.Contains(errOut, `sheet not found: \"\"`) {
+		t.Errorf("text --sheet \"\" message: %s", errOut)
+	}
+	// The flag absent still reads the whole workbook.
+	if out, _, code := runCLI("text", xlsxPath); code != 0 || !strings.Contains(out, "Revenue") {
+		t.Errorf("text without --sheet: exit %d", code)
+	}
+	// --sheet "" still conflicts with --slide.
+	if _, _, code := runCLI("text", xlsxPath, "--sheet", "", "--slide", "1"); code != 2 {
+		t.Errorf("--sheet \"\" with --slide: exit %d, want 2", code)
+	}
+}
+
+// ---- set_properties with JSON null fields ----
+
+func TestEditSetPropertiesNullField(t *testing.T) {
+	f := copyFixture(t, xlsxPath)
+	ops := writeOpsFile(t, `{"version":1,"ops":[{"op":"set_properties","title":null}]}`)
+	_, errOut, code := runCLI("--json", "edit", f, ops)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	e := parseErrJSON(t, errOut)
+	if e.Code != "invalid_value" || !strings.Contains(e.Error, `field "title" must be a string`) {
+		t.Errorf("null title: code %q, error %q", e.Code, e.Error)
+	}
+	// add_sheet's optional name rejects null the same way.
+	ops = writeOpsFile(t, `{"version":1,"ops":[{"op":"add_sheet","name":null}]}`)
+	_, errOut, code = runCLI("--json", "edit", f, ops)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if e := parseErrJSON(t, errOut); e.Code != "invalid_value" || !strings.Contains(e.Error, `field "name" must be a string`) {
+		t.Errorf("null name: code %q, error %q", e.Code, e.Error)
+	}
+}
+
+// ---- cells range size cap ----
+
+func TestCellsRangeTooLarge(t *testing.T) {
+	_, errOut, code := runCLI("--json", "cells", xlsxPath, "Data", "A1:GR60000")
+	if code != 1 || !strings.Contains(errOut, `"code":"invalid_range"`) {
+		t.Fatalf("200x60000 range: exit %d, stderr %s", code, errOut)
+	}
+	if !strings.Contains(errOut, "range A1:GR60000 covers 12,000,000 cells; the limit is 10,000,000") {
+		t.Errorf("range cap message: %s", errOut)
+	}
+	// The full worksheet grid is far over the cap too.
+	_, errOut, code = runCLI("--json", "cells", xlsxPath, "Data", "A1:XFD1048576")
+	if code != 1 || !strings.Contains(errOut, "covers 17,179,869,184 cells; the limit is 10,000,000") {
+		t.Errorf("full grid message: exit %d, stderr %s", code, errOut)
 	}
 }

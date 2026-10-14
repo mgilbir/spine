@@ -28,6 +28,10 @@ func runInfo(fs *flagSetT, stdout io.Writer) error {
 	return writeJSON(stdout, docInfo(d))
 }
 
+// maxCellsPerRange caps how many cells one cells read may cover, on the CLI
+// and on GET /cells alike.
+const maxCellsPerRange = 10_000_000
+
 // docInfo builds the info output for an open document.
 func docInfo(d *document) any {
 	if d.kind == "xlsx" {
@@ -41,6 +45,7 @@ func docInfo(d *document) any {
 		return out
 	}
 	out := infoPPTX{Kind: "pptx", SlideCount: d.pres.SlideCount()}
+	out.Slides = make([]slideInfo, 0, d.pres.SlideCount())
 	for i, s := range d.pres.Slides() {
 		out.Slides = append(out.Slides, slideInfo{Index: i + 1, Name: s.Name(), ShapeCount: len(s.Shapes())})
 	}
@@ -121,7 +126,7 @@ func lsSlideShapesDoc(d *document, scope string) (any, error) {
 	}
 	out := make([]shapeEntry, 0, len(slide.Shapes()))
 	for _, sh := range slide.Shapes() {
-		entry := shapeEntry{ID: sh.ID(), Name: sh.Name(), Type: shapeTypeName(sh.ShapeType()), TextPreview: shapeText(sh)}
+		entry := shapeEntry{ID: sh.ID(), Name: sh.Name(), Type: shapeTypeName(sh.ShapeType()), TextPreview: textPreview(shapeText(sh))}
 		if ph, ok := sh.(*pptx.PlaceholderShape); ok {
 			entry.Placeholder = &placeholderInfo{Type: placeholderTypeName(ph.PlaceholderType()), Idx: ph.Index()}
 		}
@@ -225,16 +230,19 @@ func runText(fs *flagSetT, stdout io.Writer) error {
 		return &flagError{message: fmt.Sprintf("text expects exactly one file argument (%d given)", len(args))}
 	}
 	common := flagsCommon(fs)
-	slideGiven := false
+	slideGiven, sheetGiven := false, false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "slide" {
+		switch f.Name {
+		case "slide":
 			slideGiven = true
+		case "sheet":
+			sheetGiven = true
 		}
 	})
 	if slideGiven && common.slide < 1 {
 		return &flagError{message: fmt.Sprintf("--slide must be 1 or greater (got %d)", common.slide)}
 	}
-	if common.sheet != "" && slideGiven {
+	if sheetGiven && slideGiven {
 		return &flagError{message: "--sheet and --slide cannot be combined"}
 	}
 	d, err := openDocument(args[0], openOptions{password: common.password})
@@ -242,7 +250,7 @@ func runText(fs *flagSetT, stdout io.Writer) error {
 		return err
 	}
 	defer d.close()
-	text, err := docText(d, common.sheet, slideGiven, common.slide)
+	text, err := docText(d, common.sheet, sheetGiven, slideGiven, common.slide)
 	if err != nil {
 		return err
 	}
@@ -259,15 +267,17 @@ func runText(fs *flagSetT, stdout io.Writer) error {
 }
 
 // docText extracts the document's plain text, restricted to one sheet or
-// slide when asked. The restrictions reuse the text command's semantics.
-func docText(d *document, sheetName string, slideGiven bool, slide int) (string, error) {
+// slide when asked. The restrictions reuse the text command's semantics; an
+// explicitly empty sheet name is distinguished from an absent restriction
+// and resolves to not_found.
+func docText(d *document, sheetName string, sheetGiven, slideGiven bool, slide int) (string, error) {
 	var text string
 	switch d.kind {
 	case "xlsx":
 		if slideGiven {
 			return "", errf("invalid_value", "--slide applies only to pptx files")
 		}
-		if sheetName != "" {
+		if sheetGiven {
 			s, serr := resolveSheet(d.wb, sheetName)
 			if serr != nil {
 				return "", serr
@@ -277,7 +287,7 @@ func docText(d *document, sheetName string, slideGiven bool, slide int) (string,
 			text = d.wb.Text()
 		}
 	default:
-		if sheetName != "" {
+		if sheetGiven {
 			return "", errf("invalid_value", "--sheet applies only to xlsx files")
 		}
 		if slideGiven {
@@ -333,6 +343,10 @@ func docCells(d *document, sheetName, rng string) (cellsOutput, error) {
 	if err != nil {
 		return cellsOutput{}, err
 	}
+	if rows, cols := r2-r1+1, c2-c1+1; rows*cols > maxCellsPerRange {
+		return cellsOutput{}, errf("invalid_range", "range %s covers %s cells; the limit is %s",
+			formatRange(rng, r1, c1, r2, c2), commaInt(rows*cols), commaInt(maxCellsPerRange))
+	}
 	out := cellsOutput{Sheet: sheet.Name(), Range: formatRange(rng, r1, c1, r2, c2)}
 	for r := r1; r <= r2; r++ {
 		for c := c1; c <= c2; c++ {
@@ -384,6 +398,29 @@ func formatRange(given string, r1, c1, r2, c2 int) string {
 		return xlsx.FormatCellRef(r1, c1)
 	}
 	return xlsx.FormatCellRef(r1, c1) + ":" + xlsx.FormatCellRef(r2, c2)
+}
+
+// commaInt renders a non-negative int with comma thousands separators, as in
+// "17,179,869,184".
+func commaInt(n int) string {
+	s := strconv.Itoa(n)
+	start := 0
+	if n < 0 {
+		start = 1
+	}
+	parts := make([]string, 0, len(s)/3+1)
+	for i := len(s); i > start; {
+		lo := i - 3
+		if lo < start {
+			lo = start
+		}
+		parts = append(parts, s[lo:i])
+		i = lo
+	}
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	return s[:start] + strings.Join(parts, ",")
 }
 
 // cellTypeName maps a CellType to the cells type vocabulary.

@@ -50,7 +50,9 @@ Usage:
       Flags: --type STRING    number|string|boolean|formula|date (xlsx);
                               not accepted for pptx text
              --out PATH       save to PATH instead of overwriting the input
-             --password STRING  decrypt (and re-encrypt the output)
+             --password STRING  decrypt an encrypted file; the output stays
+                              plaintext when the input is plaintext and is
+                              re-encrypted only when the input was encrypted
 
   spine edit <file> <opsfile>
       Apply a batch of JSON operations (see "spine ops-schema") in order and
@@ -59,7 +61,8 @@ Usage:
       standard input.
 
       Flags: --out PATH       save to PATH instead of overwriting the input
-             --password STRING  decrypt (and re-encrypt the output)
+             --password STRING  decrypt an encrypted file (same encryption
+                              rules as "spine set")
 
   spine new <kind> <file>
       Create an empty xlsx or pptx file. An existing file is never
@@ -78,6 +81,8 @@ Usage:
                              startup)
              --token STRING  require Authorization: Bearer STRING on every
                              request
+             --password STRING  decrypt an encrypted file; /save re-encrypts
+                             when the file was encrypted
              --font FAMILY[:STYLE]=FILE[#FACE]
                              repeatable font mapping for rendering, as in
                              spine-render

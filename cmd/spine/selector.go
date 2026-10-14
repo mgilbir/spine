@@ -15,19 +15,32 @@ import (
 func parseCellSelector(sel string) (sheet, ref string, selectsNothing bool, err error) {
 	var name string
 	if strings.HasPrefix(sel, "'") {
-		end := strings.Index(sel[1:], "'")
-		if end < 0 {
-			return "", "", false, errf("invalid_selector", "selector %q has an unterminated quoted sheet name", sel)
+		// Scan the quoted sheet name. A doubled '' inside is not supported in
+		// slice 1: such a name selects nothing (not_found), like any other
+		// name no sheet has.
+		var sb strings.Builder
+		i, doubled := 1, false
+		for {
+			q := strings.IndexByte(sel[i:], '\'')
+			if q < 0 {
+				return "", "", false, errf("invalid_selector", "selector %q has an unterminated quoted sheet name", sel)
+			}
+			sb.WriteString(sel[i : i+q])
+			i += q + 1
+			if i >= len(sel) || sel[i] != '\'' {
+				break
+			}
+			doubled = true
+			sb.WriteString("''")
+			i++
 		}
-		name = sel[1 : 1+end]
-		rest := sel[2+end:]
+		name = sb.String()
+		rest := sel[i:]
+		if doubled {
+			return name, "", true, nil
+		}
 		if !strings.HasPrefix(rest, "!") {
 			return "", "", false, errf("invalid_selector", "selector %q must be SHEET!CELL, e.g. Sheet1!B2", sel)
-		}
-		if strings.Contains(name, "'") {
-			// A doubled '' inside a quoted name is not supported in slice 1;
-			// such names select nothing.
-			return name, "", true, nil
 		}
 		return name, rest[1:], false, nil
 	}
@@ -57,6 +70,11 @@ func resolveSheet(wb *xlsx.Workbook, name string) (*xlsx.Sheet, error) {
 		if s.Name() == name {
 			return s, nil
 		}
+	}
+	if name == "" {
+		// An empty name (e.g. `text --sheet ""`) has no prefix relationships
+		// worth a hint; report it plainly.
+		return nil, errf("not_found", "sheet not found: %q", name)
 	}
 	msg := "sheet not found: " + quoted(name)
 	if closest := closestSheetName(name, wb); closest != "" {
