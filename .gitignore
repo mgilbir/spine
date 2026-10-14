@@ -56,6 +56,9 @@ testdata/corpus/
 # testdata/corpus/ and are pure machine-local progress state.
 
 # Built binaries
+/spine
 /spine-render
+# Adversarial-test smoke artifacts (rendered previews written to the repo root).
+/*.png
 # Default output of examples/render_previews.
 /render-previews/
