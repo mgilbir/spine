@@ -26,7 +26,12 @@ below as `spine`) for every command:
    commit that has it: `go install github.com/mgilbir/spine/cmd/spine@<sha>`.
 
 Never install or build unconditionally on every run — that is a one-time
-setup step. After resolving the binary, check it speaks the current
+setup step. If the environment has no Go toolchain and no way to obtain a
+spine binary (offline sandbox, no releases to download), **stop and report
+that spine cannot run here** — do not substitute a Python or other
+reimplementation: it would violate the round-trip fidelity and operation
+semantics this skill depends on. After resolving the binary, check it
+speaks the current
 operation vocabulary: `spine ops-schema` must succeed and list `set_cell`.
 If it does not, the binary predates the operation vocabulary: rebuild or
 reinstall. Whatever its version, its `ops-schema` output is the
