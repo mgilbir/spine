@@ -368,6 +368,15 @@ listed are errors. All ops accept nothing else.
 - **`set_properties`** — fields, all optional strings: `title`, `subject`,
   `creator`, `keywords`. Empty string clears the property. Works on both
   kinds.
+- **`set_column_width`** — fields: `selector` (xlsx cell selector; the
+  targeted column is the one containing the addressed cell — the cell part
+  of the selector only picks the sheet and column), `width` (number, Excel
+  character units, `0 < width <= 255`; else `invalid_value`). Sets the
+  column's width with `customWidth`, so renderers requiring explicit column
+  widths accept the sheet afterwards.
+- **`set_row_height`** — fields: `selector` (xlsx cell selector; the targeted
+  row is the one containing the addressed cell), `height` (number, points,
+  `0 < height <= 409`; else `invalid_value`).
 
 ### `spine edit <file> <opsfile>`
 
@@ -515,8 +524,12 @@ structs; no re-invention):
 - `GET /render?target=…&format=png|svg` — pptx: `target=slide/N`; xlsx:
   `target=SHEETNAME!A1:D20` (sheet required). Response: image bytes with the
   right content type, or the error envelope (render failures keep the CLI's
-  message text). Rendered from the live in-memory document, so unsaved edits
-  are visible. Results are cached by (target, format, edit-serial); any
+  message text). The renderer's `ErrUnsupported` sentinel (capability
+  limits: unstyled fonts, missing explicit column widths, unsupported
+  content) maps to code `unsupported` and HTTP 400 — a caller-fixable
+  condition, never `internal`. Other render failures keep the CLI's message
+  text and map to 500. Rendered from the live in-memory document, so unsaved
+  edits are visible. Results are cached by (target, format, edit-serial); any
   successful mutation bumps the serial and invalidates the cache. Cache is
   bounded at 64 MiB of encoded bytes, LRU.
 - `GET /` → the embedded single-page UI (below).
