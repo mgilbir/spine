@@ -442,14 +442,133 @@ Everything in the slice 1 list, plus:
   and asserts `edit` does not fail with "unknown operation").
 - `spine new` refuses to overwrite; created files pass `spine info`.
 
-## Slice 3 — `spine serve` (outline, spec before implementation)
+## Slice 3 — `spine serve`
 
-`spine serve <file> --port N` binds 127.0.0.1 only, opens the file once, and
-holds the live document in memory. Endpoints map to the vocabulary: `GET
-/info`, `GET /ls?scope=…`, `GET /text`, `GET /cells?sheet=&range=`, `POST
-/op`, `POST /ops`, `POST /save`, `POST /revert`, `GET /schema` (the
-`ops-schema` document plus read-command descriptions), `GET /render` (PNG via
-the render packages, cached by content hash). Ops apply in memory; nothing
-touches disk until `/save`, which uses the same atomic path and keeps the
-original bytes for `/revert`. An ops journal sidecar records every applied
-batch. This slice gets its own spec section before any code.
+`spine serve <file> --port N` opens the file once and holds the live document
+in memory; operations go over HTTP. One process serves one file.
+
+### Security (non-negotiable)
+
+- **Loopback only**: the listener binds `127.0.0.1:PORT` (or `--port 0` for
+  an OS-chosen port, printed on startup). Binding any other address is
+  refused at startup — there is no flag to disable this.
+- **No CORS**: no `Access-Control-Allow-*` headers are ever emitted, and
+  cross-origin requests are rejected (requests whose `Origin` header is
+  present and not the server's own origin get 403). The UI is served
+  same-origin from `GET /`.
+- **Optional token**: `--token STRING` requires every request to carry
+  `Authorization: Bearer STRING`; anything else is 401 with a JSON error.
+  Without the flag no auth is required (single-user machines).
+- **Single writer**: the process holds an exclusive non-blocking `flock` on
+  the document file for its lifetime; a second `spine serve` (or any other
+  flocker) on the same file fails to start with `io`, "file is locked". All
+  request handling is serialized under one mutex — the document model is not
+  safe for concurrent access, and local latency makes serialization fine.
+- **Input limits**: request bodies are capped at 8 MiB; larger bodies get
+  413. `http.Server` gets `ReadHeaderTimeout` (10s), `ReadTimeout` (60s),
+  `WriteTimeout` (120s), `IdleTimeout` (120s). The 1 GiB input guard still
+  applies at startup.
+- **Surface discipline**: fixed route table, exact method matching (wrong
+  method: 405 with `Allow`), unknown paths 404, no path parameters beyond the
+  fixed routes, no file serving, no redirects, no directory listing. Every
+  response is JSON or PNG bytes; HTML only at `/`.
+- Render runs in-process with the same budgets as `spine-render` (its flag
+  defaults), plus a per-request timeout of 60s. Chart rendering is on.
+
+### Flags
+
+`--port INT` (required unless `--port 0`), `--token STRING`, `--font
+FAMILY[:style]=FILE[#FACE]` (repeatable, same syntax as `spine-render`),
+`--fallback-noto`, `--journal PATH` (append one JSON line per applied batch:
+timestamp, ops count, first error if any — disabled by default).
+
+### Endpoints
+
+Reads mirror the CLI's `--json` outputs byte for byte in body shape (same
+structs; no re-invention):
+
+- `GET /health` → `{"ok":true,"kind":"xlsx","dirty":false,"path":"…"}`.
+  `dirty` is true after any successful mutating request until `/save` or
+  `/revert`.
+- `GET /info` → the `spine info --json` object.
+- `GET /ls?scope=…` → the `spine ls --json` array. Missing/unknown scope: 400
+  with the CLI's error envelope and code.
+- `GET /text` → `{"text":"…"}`; query `slide=N` or `sheet=NAME` restrict,
+  matching `spine text` semantics.
+- `GET /cells?sheet=NAME&range=A1:D20` → the `spine cells --json` object.
+- `GET /schema` → the `spine ops-schema` document plus a `"reads"` object
+  describing the GET endpoints above (one self-description for everything).
+- `POST /op` — body: one operation object (`{"op":"set_cell",…}`). Applies
+  in memory. Success: 200 with the operation's result envelope. Failure: the
+  CLI's error envelope plus `"op": name` and HTTP status chosen by code
+  (`not_found`/`invalid_*`/`unsupported` → 400, `io`/`internal` → 500).
+- `POST /ops` — body: the versioned operations document. Applies in order,
+  all-or-nothing, same as `spine edit`. Success: `{"applied":N}`. Failure:
+  the op-failure envelope (with `op_index`) and status per code.
+- `POST /save` → atomic save to the file the server opened (mode-preserving
+  path from slice 1). `{"saved":true,"path":"…"}`; `dirty` becomes false.
+  With `--out PATH` given at startup, saves go there instead and the flag
+  wins for the process lifetime.
+- `POST /revert` → discard the in-memory document and reload it from the
+  file on disk. `{"reverted":true}`; `dirty` becomes false. Nothing is
+  written.
+- `GET /render?target=…&format=png|svg` — pptx: `target=slide/N`; xlsx:
+  `target=SHEETNAME!A1:D20` (sheet required). Response: image bytes with the
+  right content type, or the error envelope (render failures keep the CLI's
+  message text). Rendered from the live in-memory document, so unsaved edits
+  are visible. Results are cached by (target, format, edit-serial); any
+  successful mutation bumps the serial and invalidates the cache. Cache is
+  bounded at 64 MiB of encoded bytes, LRU.
+- `GET /` → the embedded single-page UI (below).
+
+Error responses always use the slice 1/2 error envelope — one error format
+across CLI and HTTP.
+
+### The UI
+
+One embedded HTML page (`go:embed`), no external assets, no framework, no
+CDN — it must work offline and cannot phone home. Three panes:
+
+1. **Structure** — from `/info` and `/ls`: sheets or slides, shapes under the
+   selected slide; clicking a shape shows its entry from `/ls`.
+2. **Preview** — for pptx, `/render` PNG of the selected slide (and
+   slide-number paging); for xlsx, a table from `/cells` for a range box.
+   Refreshes after every mutation.
+3. **Console** — a textarea holding an operations document, prefilled with a
+   valid example for the file's kind; Run posts it to `/ops`, then renders
+   the per-op result or error, refreshes Structure and Preview, and shows
+   the dirty state with Save / Revert buttons calling `POST /save` /
+   `POST /revert`. A schema drawer fetches `/schema` and lists operations
+   with their fields (click inserts a skeleton op).
+
+Plain JavaScript, no build step. The page is a debugging and verification
+surface, not a product: correctness lives in the API.
+
+### Lifecycle
+
+- Startup prints one line to stdout: `listening on http://127.0.0.1:PORT`
+  then serves until SIGINT/SIGTERM.
+- On shutdown: if `dirty`, exit code 1 and a stderr line `spine: unsaved
+  changes discarded`; else exit 0. Agents can check the exit code to notice
+  they forgot to save.
+- `/health` is the readiness probe; it never touches the document.
+
+### Slice 3 testing requirements
+
+Everything via `httptest` against the real handler wiring, plus:
+- Every endpoint: success and each error code, assert envelope equality with
+  the CLI's JSON for the same operation on the same fixture.
+- Security tests: non-loopback bind refusal; `Origin` header → 403; token
+  mode → 401 without/with wrong token; wrong method → 405; unknown path →
+  404; body over the cap → 413; second `serve` on the same file → lock
+  error.
+- Concurrency: 32 parallel `/ops` + `/info` requests complete without race
+  (`go test -race`) and leave the document in a consistent state (the ops of
+  the test are idempotent counter-writes; assert the final value equals the
+  number of applied mutations — serialization means none are lost).
+- Render: PNG response for a slide and a range; cache invalidation after a
+  mutation (render, mutate, render → different bytes).
+- Lifecycle: dirty shutdown exit code, journal lines.
+- UI: `GET /` returns 200 text/html and mentions every operation name from
+  `/schema` (the console skeleton insert must know them).
+
