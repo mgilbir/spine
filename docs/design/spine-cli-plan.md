@@ -580,7 +580,7 @@ instructions, not corruption: sizing errors are fixed with
 `--fallback-noto`. One-shot previews without a session stay with
 `spine-render`; `serve /render` exists for the live in-memory document.
 This decision is encoded for agents in the office-files skill
-(`.pi/skills/office-files/SKILL.md`).
+(`skills/office-files/SKILL.md`).
 
 ### Lifecycle
 

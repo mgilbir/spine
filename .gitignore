@@ -62,3 +62,7 @@ testdata/corpus/
 /*.png
 # Default output of examples/render_previews.
 /render-previews/
+
+# Machine-local pi state (settings, agents, trust decisions). The agent-facing
+# skill lives in skills/ at the repo root, wired up via .pi/settings.json.
+/.pi/
