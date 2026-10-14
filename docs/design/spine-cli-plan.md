@@ -44,9 +44,14 @@ surfaces.
   - `io` — file system or save failure
   - `unsupported` — file is encrypted, or feature not supported for this kind
   - `internal` — anything else (include the wrapped error text)
+- **`--password STRING` is accepted by every command.** An encrypted file
+  without it is `unsupported`; a wrong password is `unsupported` with a
+  "wrong password" message. A command that saves re-encrypts its output with
+  the same password.
 - **Atomic save**: mutating commands open, mutate, and save. The save writes
   to a temporary file in the destination directory, fsyncs, then renames over
-  the destination. `--out PATH` saves to PATH instead (parent directory must
+  the destination, preserving the destination's existing file mode (a newly
+  created file gets the process default). `--out PATH` saves to PATH instead (parent directory must
   exist; PATH must not be an existing directory) leaving the input untouched;
   without it the input file is replaced in place. If the document opened with
   a password (`--password`), the output preserves encryption.
@@ -67,8 +72,13 @@ quoted by the caller when they contain `!`.
 <Sheet>!<CellRef>       e.g. Sheet1!B2   'Q3 Data'!A1
 ```
 
-- `<Sheet>` is a sheet name matched case-insensitively against the workbook's
-  sheets, exactly as `Workbook.SheetByName` matches. It may not contain `!`,
+- `<Sheet>` is a sheet name matched **exactly** (byte for byte, as
+  `Workbook.SheetByName` matches) against the workbook's sheets — the CLI
+  never guesses: an agent takes names from `ls sheets` or `info`, and a
+  case-insensitive fallback could silently address the wrong sheet. An
+  unknown name is `not_found`, with the closest sheet name by case-insensitive
+  prefix match added to the message when one exists (the hint is diagnostic
+  only). It may not contain `!`,
   `[`, `]`, `'` alone (a doubled `''` inside a quoted name is not supported in
   slice 1; such names select nothing and return `not_found`), and may not be
   empty. `internal/sheetref.NeedsQuoting` names must be wrapped in single
@@ -102,7 +112,9 @@ slide/<N>/shape/<ID>           — the shape whose stored shape id is ID
 ## Commands
 
 All examples assume `--json` output shown; the human format is for eyes only
-and is not specified beyond "contains the same information".
+and is not specified beyond "contains the same information". `--json` may
+also appear before the command name (`spine --json info f`), where it sets
+the default for that invocation.
 
 ### `spine info <file>`
 
@@ -159,6 +171,8 @@ Prints extracted plain text to stdout. Without `--json`, stdout is exactly the
 - xlsx: `Workbook.Text()`; `--sheet NAME` restricts to one sheet's `Text()`
   (`not_found` if absent). Does not save, therefore cannot modify the file.
 - pptx: `Presentation.Text()`; `--slide N` restricts to `Slide.Text()`.
+  `--slide` values below 1 are a flag error (exit 2), never a silent
+  whole-document read.
 
 ### `spine cells <file> <sheet> <range>`
 
@@ -192,7 +206,11 @@ swap them if reversed). Reads only — uses `FindCell`, never
   the cached result typed as above. A formula cell whose cached value is
   absent (`Cell.Value()` nil) emits `"value":null`.
 - `formula` present only for `type:"formula"`: the formula string as stored,
-  with leading `=`.
+  with leading `=`. A formula cell with no cached result reports
+  `"value":null`; the library reports such a cell's value as the formula text
+  itself, so "no cached result" is defined as `Cell.Value()` equalling
+  `Cell.Formula()` (a cached string exactly equal to the formula text is the
+  accepted false positive).
 - Human format: tab-separated `ref<TAB>type<TAB>value` lines, row-major.
 
 ### `spine set <file> <selector> <value>`
@@ -207,7 +225,8 @@ Flags: `--type STRING` forces interpretation; default inference below.
   - `--type boolean`: accept exactly `true`/`false` (else `invalid_value`).
   - `--type formula`: value must start with `=` (else `invalid_value`);
     written with `SetFormula`.
-  - `--type date`: value is RFC 3339; parsed and stored as a date value.
+  - `--type date`: value is RFC 3339; stored as an Excel date serial with the
+    built-in date number format applied, so it reads back as `type:"date"`.
   - default inference: `=...`→formula, `true`/`false`→boolean, a parseable
     float→number, otherwise string.
   - Selecting an absent cell creates it (this is the write path; `Cell` is
@@ -219,7 +238,8 @@ Flags: `--type STRING` forces interpretation; default inference below.
 - PPTX text (`slide/N/title`, `slide/N/body`, `slide/N/shape/ID`): value is
   the new text, `\n` separated into paragraphs via `TextFrame.SetText` /
   `PlaceholderShape.SetText`. `--type` is not accepted (flag parse error,
-  exit 2).
+  exit 2). A shape that holds no text frame (picture, table, group, chart,
+  …) is `unsupported`.
 - On success prints the selector and its new state:
   - xlsx: `{"selector":"Sheet1!B2","type":"number","value":42}`
   - pptx: `{"selector":"slide/3/title","shape_id":5,"text":"..."}`
