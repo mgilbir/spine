@@ -567,6 +567,21 @@ CDN — it must work offline and cannot phone home. Three panes:
 Plain JavaScript, no build step. The page is a debugging and verification
 surface, not a product: correctness lives in the API.
 
+### Reading and previewing: text versus render
+
+Both stay, with distinct roles. `text`, `cells` and `ls` are the **content
+path**: cheap, fontless, deterministic, and how agents read and author. A
+render is the **presentation path**: the only check that catches overlap,
+text overflow, broken styling, or charts that do not draw. Rendering costs
+fonts and CPU, so it is a verification step — once, at the end, or when the
+task is about appearance. Render failures with code `unsupported` are
+instructions, not corruption: sizing errors are fixed with
+`set_column_width`/`set_row_height`, unresolved fonts with `--font` or
+`--fallback-noto`. One-shot previews without a session stay with
+`spine-render`; `serve /render` exists for the live in-memory document.
+This decision is encoded for agents in the office-files skill
+(`.pi/skills/office-files/SKILL.md`).
+
 ### Lifecycle
 
 - Startup prints one line to stdout: `listening on http://127.0.0.1:PORT`
