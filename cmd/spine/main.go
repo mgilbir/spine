@@ -127,7 +127,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		args = args[1:]
 	}
 	if len(args) == 0 || args[0] == "help" {
-		fmt.Fprint(stdout, usage)
+		_, _ = fmt.Fprint(stdout, usage)
 		return 0
 	}
 	cmd, rest := args[0], args[1:]
@@ -188,7 +188,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return &c
 		}, func(fs *flagSetT, stdout io.Writer) error { return runOpsSchema(fs, stdout) })
 	default:
-		fmt.Fprintf(stderr, "spine: unknown command %q\n\n%s", cmd, usage)
+		_, _ = fmt.Fprintf(stderr, "spine: unknown command %q\n\n%s", cmd, usage)
 		return 2
 	}
 }
@@ -216,23 +216,23 @@ func runCmd(name string, args []string, stdout, stderr io.Writer, add func(fs *f
 	fs := newFlagSet(name)
 	common := add(fs)
 	if defaultJSON {
-		fs.Set("json", "true")
+		_ = fs.Set("json", "true")
 		common.json = true
 	}
 	fs.common = common
 	if err := fs.parse(args); err != nil {
 		if _, ok := err.(helpSignal); ok {
-			fmt.Fprint(stdout, usage)
+			_, _ = fmt.Fprint(stdout, usage)
 			return 0
 		}
-		fmt.Fprintf(stderr, "spine: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "spine: %s\n", err)
 		return 2
 	}
 	return guard(common.json, stderr, func() int {
 		if err := exec(fs, stdout); err != nil {
 			var fe *flagError
 			if asFlagError(err, &fe) {
-				fmt.Fprintf(stderr, "spine: %s\n\n%s", fe.message, usage)
+				_, _ = fmt.Fprintf(stderr, "spine: %s\n\n%s", fe.message, usage)
 				return 2
 			}
 			var of *opFailure
@@ -260,10 +260,10 @@ func emitError(stderr io.Writer, jsonMode bool, e *cliError) {
 			Error string `json:"error"`
 			Code  string `json:"code"`
 		}{Error: e.message, Code: e.code})
-		fmt.Fprintf(stderr, "%s\n", b)
+		_, _ = fmt.Fprintf(stderr, "%s\n", b)
 		return
 	}
-	fmt.Fprintf(stderr, "spine: %s\n", e.message)
+	_, _ = fmt.Fprintf(stderr, "spine: %s\n", e.message)
 }
 
 // marshalJSON encodes v deterministically, leaving HTML characters such as <
@@ -314,7 +314,9 @@ func writeJSON(stdout io.Writer, v any) error {
 	if err != nil {
 		return errf("internal", "encode output: %v", err)
 	}
-	fmt.Fprintf(stdout, "%s\n", b)
+	if _, werr := fmt.Fprintf(stdout, "%s\n", b); werr != nil {
+		return errf("io", "cannot write output: %v", werr)
+	}
 	return nil
 }
 

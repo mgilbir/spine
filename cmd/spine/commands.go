@@ -30,7 +30,7 @@ func runInfo(fs *flagSetT, stdout io.Writer) error {
 
 // maxCellsPerRange caps how many cells one cells read may cover, on the CLI
 // and on GET /cells alike.
-const maxCellsPerRange = 10_000_000
+const maxCellsPerRange int64 = 10_000_000
 
 // docInfo builds the info output for an open document.
 func docInfo(d *document) any {
@@ -328,7 +328,9 @@ func runCells(fs *flagSetT, stdout io.Writer) error {
 		return writeJSON(stdout, out)
 	}
 	for _, c := range out.Cells {
-		fmt.Fprintf(stdout, "%s\t%s\t%s\n", c.Ref, c.Type, valueString(c.Value))
+		if _, werr := fmt.Fprintf(stdout, "%s\t%s\t%s\n", c.Ref, c.Type, valueString(c.Value)); werr != nil {
+			return errf("io", "cannot write output: %v", werr)
+		}
 	}
 	return nil
 }
@@ -343,9 +345,13 @@ func docCells(d *document, sheetName, rng string) (cellsOutput, error) {
 	if err != nil {
 		return cellsOutput{}, err
 	}
-	if rows, cols := r2-r1+1, c2-c1+1; rows*cols > maxCellsPerRange {
+	// 64-bit on purpose: the full grid is 17,179,869,184 cells, which
+	// overflows a 32-bit int and would wrap the cap check into bypassing
+	// itself (and the loop into running for hours).
+	area := (int64(r2) - int64(r1) + 1) * (int64(c2) - int64(c1) + 1)
+	if area > maxCellsPerRange {
 		return cellsOutput{}, errf("invalid_range", "range %s covers %s cells; the limit is %s",
-			formatRange(rng, r1, c1, r2, c2), commaInt(rows*cols), commaInt(maxCellsPerRange))
+			formatRange(rng, r1, c1, r2, c2), commaInt(area), commaInt(maxCellsPerRange))
 	}
 	out := cellsOutput{Sheet: sheet.Name(), Range: formatRange(rng, r1, c1, r2, c2)}
 	for r := r1; r <= r2; r++ {
@@ -400,10 +406,10 @@ func formatRange(given string, r1, c1, r2, c2 int) string {
 	return xlsx.FormatCellRef(r1, c1) + ":" + xlsx.FormatCellRef(r2, c2)
 }
 
-// commaInt renders a non-negative int with comma thousands separators, as in
-// "17,179,869,184".
-func commaInt(n int) string {
-	s := strconv.Itoa(n)
+// commaInt renders a non-negative int64 with comma thousands separators, as
+// in "17,179,869,184".
+func commaInt(n int64) string {
+	s := strconv.FormatInt(n, 10)
 	start := 0
 	if n < 0 {
 		start = 1

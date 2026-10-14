@@ -190,11 +190,6 @@ func applyOps(d *document, ops []json.RawMessage) error {
 	return nil
 }
 
-func applyOneOp(d *document, i int, raw json.RawMessage) error {
-	_, err := runOneOp(d, i, raw)
-	return err
-}
-
 // runOneOp parses and executes one operation, returning its result envelope.
 // A failure is an *opFailure carrying the operation's 0-based index and name.
 func runOneOp(d *document, i int, raw json.RawMessage) (any, *opFailure) {

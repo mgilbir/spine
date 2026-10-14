@@ -114,14 +114,14 @@ func emitOpError(stderr io.Writer, jsonMode bool, e *cliError, opIndex int, op s
 			OpIndex int    `json:"op_index"`
 			Op      string `json:"op"`
 		}{Error: e.message, Code: e.code, OpIndex: opIndex, Op: op})
-		fmt.Fprintf(stderr, "%s\n", b)
+		_, _ = fmt.Fprintf(stderr, "%s\n", b)
 		return
 	}
 	if op == "" {
-		fmt.Fprintf(stderr, "spine: %s (at operation %d)\n", e.message, opIndex)
+		_, _ = fmt.Fprintf(stderr, "spine: %s (at operation %d)\n", e.message, opIndex)
 		return
 	}
-	fmt.Fprintf(stderr, "spine: %s (at operation %d: %s)\n", e.message, opIndex, op)
+	_, _ = fmt.Fprintf(stderr, "spine: %s (at operation %d: %s)\n", e.message, opIndex, op)
 }
 
 // runNew implements `spine new <kind> <file>`: create an empty xlsx or pptx
@@ -185,6 +185,8 @@ func runOpsSchema(fs *flagSetT, stdout io.Writer) error {
 	if err := json.Indent(&indented, b, "", "  "); err != nil {
 		return errf("internal", "indent schema: %v", err)
 	}
-	fmt.Fprintf(stdout, "%s\n", indented.String())
+	if _, werr := fmt.Fprintf(stdout, "%s\n", indented.String()); werr != nil {
+		return errf("io", "cannot write schema: %v", werr)
+	}
 	return nil
 }

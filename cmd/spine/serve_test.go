@@ -571,7 +571,7 @@ func TestServeLoopbackBindRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln.Close()
+	_ = ln.Close()
 }
 
 func TestServeFileLock(t *testing.T) {
@@ -799,7 +799,7 @@ func TestServeDirtyShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	_ = res.Body.Close()
 	signals <- syscall.SIGTERM
 	if got := <-code; got != 1 {
 		t.Fatalf("dirty shutdown exit %d, stderr %q", got, stderr.String())

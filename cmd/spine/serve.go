@@ -82,14 +82,14 @@ func runServeCmd(args []string, stdout, stderr io.Writer) (exit int) {
 	fs.StringVar(&opts.journal, "journal", "", "append one JSON line per applied batch to PATH")
 	if err := fs.parse(args); err != nil {
 		if _, ok := err.(helpSignal); ok {
-			fmt.Fprint(stdout, usage)
+			_, _ = fmt.Fprint(stdout, usage)
 			return 0
 		}
-		fmt.Fprintf(stderr, "spine: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "spine: %s\n", err)
 		return 2
 	}
 	if len(fs.Args()) != 1 {
-		fmt.Fprintf(stderr, "spine: serve expects exactly one file argument (%d given)\n\n%s", len(fs.Args()), usage)
+		_, _ = fmt.Fprintf(stderr, "spine: serve expects exactly one file argument (%d given)\n\n%s", len(fs.Args()), usage)
 		return 2
 	}
 	opts.path = fs.Args()[0]
@@ -99,16 +99,16 @@ func runServeCmd(args []string, stdout, stderr io.Writer) (exit int) {
 		}
 	})
 	if !opts.portGiven {
-		fmt.Fprintln(stderr, "spine: --port is required (0 lets the OS choose)")
+		_, _ = fmt.Fprintln(stderr, "spine: --port is required (0 lets the OS choose)")
 		return 2
 	}
 	if opts.port < 0 || opts.port > 65535 {
-		fmt.Fprintf(stderr, "spine: --port must be 0-65535 (got %d)\n", opts.port)
+		_, _ = fmt.Fprintf(stderr, "spine: --port must be 0-65535 (got %d)\n", opts.port)
 		return 2
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(stderr, "spine: internal error: %v\n", r)
+			_, _ = fmt.Fprintf(stderr, "spine: internal error: %v\n", r)
 			exit = 1
 		}
 	}()
@@ -135,14 +135,14 @@ func listen(addr string) (net.Listener, error) {
 func serveRun(opts serveOptions, stdout, stderr io.Writer) (exit int) {
 	h, err := newServeHandler(opts)
 	if err != nil {
-		fmt.Fprintf(stderr, "spine: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "spine: %s\n", err)
 		return 1
 	}
 	defer h.close()
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(opts.port))
 	ln, err := listen(addr)
 	if err != nil {
-		fmt.Fprintf(stderr, "spine: %s\n", err)
+		_, _ = fmt.Fprintf(stderr, "spine: %s\n", err)
 		return 1
 	}
 	h.setOrigin("http://" + ln.Addr().String())
@@ -155,7 +155,7 @@ func serveRun(opts serveOptions, stdout, stderr io.Writer) (exit int) {
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve(ln) }()
-	fmt.Fprintf(stdout, "listening on http://%s\n", ln.Addr())
+	_, _ = fmt.Fprintf(stdout, "listening on http://%s\n", ln.Addr())
 	sigCh := opts.signals
 	if sigCh == nil {
 		ch := make(chan os.Signal, 1)
@@ -166,14 +166,14 @@ func serveRun(opts serveOptions, stdout, stderr io.Writer) (exit int) {
 	select {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fmt.Fprintf(stderr, "spine: %s\n", err)
+			_, _ = fmt.Fprintf(stderr, "spine: %s\n", err)
 			return 1
 		}
 	case <-sigCh:
 		_ = srv.Close()
 	}
 	if h.dirtyState() {
-		fmt.Fprintln(stderr, "spine: unsaved changes discarded")
+		_, _ = fmt.Fprintln(stderr, "spine: unsaved changes discarded")
 		return 1
 	}
 	return 0

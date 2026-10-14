@@ -143,23 +143,23 @@ func sniffKind(path string, ropts []opc.ReaderOption) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	rels := r.GetRelationshipsByType(opc.RelTypeOfficeDocument)
 	if len(rels) == 0 || r.ContentTypes == nil {
 		return "", errf("unsupported", "%s is not a recognizable Office file", path)
 	}
 	mainPart := opc.ResolvePartName("/", rels[0].Target)
 	ct := r.ContentTypes.GetContentType(mainPart)
-	switch {
-	case ct == opc.ContentTypeWorkbook,
-		ct == opc.ContentTypeWorkbookTemplateMain,
-		ct == opc.ContentTypeWorkbookMacroMain,
-		ct == opc.ContentTypeWorkbookTemplateMacroMain:
+	switch ct {
+	case opc.ContentTypeWorkbook,
+		opc.ContentTypeWorkbookTemplateMain,
+		opc.ContentTypeWorkbookMacroMain,
+		opc.ContentTypeWorkbookTemplateMacroMain:
 		return "xlsx", nil
-	case ct == opc.ContentTypePresentationMain,
-		ct == opc.ContentTypePresentationTemplateMain,
-		ct == opc.ContentTypePresentationMacroMain,
-		ct == opc.ContentTypePresentationTemplateMacroMain:
+	case opc.ContentTypePresentationMain,
+		opc.ContentTypePresentationTemplateMain,
+		opc.ContentTypePresentationMacroMain,
+		opc.ContentTypePresentationTemplateMacroMain:
 		return "pptx", nil
 	default:
 		return "", errf("unsupported", "%s is not a recognizable Office file", path)

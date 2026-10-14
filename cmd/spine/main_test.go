@@ -18,10 +18,9 @@ import (
 var (
 	xlsxPath, pptxPath, encPath, encXlsxPath string
 
-	titleShapeID    uint32 // slide 1's title placeholder id
-	bodyShapeID     uint32 // slide 1's body placeholder id
-	textBoxShapeID  uint32 // slide 2's text box id
-	slide2HasNoText = ""   // placeholder for the "no title on slide 2" case
+	titleShapeID   uint32 // slide 1's title placeholder id
+	bodyShapeID    uint32 // slide 1's body placeholder id
+	textBoxShapeID uint32 // slide 2's text box id
 )
 
 func TestMain(m *testing.M) {
@@ -33,11 +32,11 @@ func TestMain(m *testing.M) {
 	xlsxPath, pptxPath, encPath, encXlsxPath, err = buildFixtures(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		os.Exit(1)
 	}
 	code := m.Run()
-	os.RemoveAll(dir)
+	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
 
@@ -117,7 +116,7 @@ func buildFixtures(dir string) (xlsxPath, pptxPath, encPath, encXlsxPath string,
 	if err != nil {
 		return "", "", "", "", err
 	}
-	defer loaded.Close()
+	defer func() { _ = loaded.Close() }()
 	for _, sh := range loaded.Slides()[0].Shapes() {
 		if ph, ok := sh.(*pptx.PlaceholderShape); ok {
 			if ph.IsTitle() {
@@ -217,32 +216,33 @@ func TestInfoPPTXGolden(t *testing.T) {
 }
 
 func TestInfoEncrypted(t *testing.T) {
-	out, errOut, code := runCLI("--json", "info", encPath)
+	_, errOut, code := runCLI("--json", "info", encPath)
 	if code != 1 || !strings.Contains(errOut, `"code":"unsupported"`) {
 		t.Errorf("encrypted without password: exit %d, stderr %s", code, errOut)
 	}
-	out, errOut, code = runCLI("--json", "info", encPath, "--password", "wrong")
+	_, errOut, code = runCLI("--json", "info", encPath, "--password", "wrong")
 	if code != 1 || !strings.Contains(errOut, `"code":"unsupported"`) {
 		t.Errorf("wrong password: exit %d, stderr %s", code, errOut)
 	}
-	out, _, code = runCLI("--json", "info", encPath, "--password", "s3cret")
+	out, _, code := runCLI("--json", "info", encPath, "--password", "s3cret")
 	if code != 0 || !strings.Contains(out, `"kind": "pptx"`) {
 		t.Errorf("encrypted with password: exit %d, stdout %s", code, out)
 	}
 }
 
 func TestInfoNotFoundsAndUnsupported(t *testing.T) {
-	out, errOut, code := runCLI("--json", "info", filepath.Join(t.TempDir(), "missing.xlsx"))
+	_, errOut, code := runCLI("--json", "info", filepath.Join(t.TempDir(), "missing.xlsx"))
 	if code != 1 || !strings.Contains(errOut, `"code":"not_found"`) {
 		t.Errorf("missing file: exit %d, stderr %s", code, errOut)
 	}
 	plain := filepath.Join(t.TempDir(), "plain.txt")
-	os.WriteFile(plain, []byte("hello"), 0o600)
-	out, errOut, code = runCLI("--json", "info", plain)
+	if err := os.WriteFile(plain, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, code = runCLI("--json", "info", plain)
 	if code != 1 || !strings.Contains(errOut, `"code":"unsupported"`) {
 		t.Errorf("plain text file: exit %d, stderr %s", code, errOut)
 	}
-	_ = out
 }
 
 func TestLsGolden(t *testing.T) {
@@ -471,7 +471,7 @@ func TestSetMergedTopLeftAllowed(t *testing.T) {
 
 func TestSetPptxText(t *testing.T) {
 	path := copyFixture(t, pptxPath)
-	out := runJSON(t, "set", path, fmt.Sprintf("slide/1/title"), "Changed")
+	out := runJSON(t, "set", path, "slide/1/title", "Changed")
 	want := fmt.Sprintf("{\n  \"selector\": \"slide/1/title\",\n  \"shape_id\": %d,\n  \"text\": \"Changed\"\n}\n", titleShapeID)
 	if out != want {
 		t.Errorf("set title\n got: %s\nwant: %s", out, want)
@@ -523,7 +523,9 @@ func TestSetOutLeavesInputUntouched(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "in.xlsx")
 	data, _ := os.ReadFile(xlsxPath)
-	os.WriteFile(src, data, 0o600)
+	if err := os.WriteFile(src, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dst := filepath.Join(dir, "out.xlsx")
 	runJSON(t, "set", src, "--out", dst, "Data!H1", "spilled")
 	if got := runJSON(t, "cells", src, "Data", "H1:H1"); strings.Contains(got, "spilled") {
@@ -574,10 +576,14 @@ func TestAtomicity(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "in.xlsx")
 	data, _ := os.ReadFile(xlsxPath)
-	os.WriteFile(src, data, 0o600)
+	if err := os.WriteFile(src, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	before, _ := os.ReadFile(src)
 	locked := filepath.Join(dir, "locked")
-	os.Mkdir(locked, 0o500)
+	if err := os.Mkdir(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
 	_, errOut, code := runCLI("--json", "set", src, "--out", filepath.Join(locked, "out.xlsx"), "Data!J1", "x")
 	if code != 1 || !strings.Contains(errOut, `"code":"io"`) {
 		t.Errorf("unwritable directory: exit %d, stderr %s", code, errOut)
@@ -639,7 +645,7 @@ func TestExitCodesAndHelp(t *testing.T) {
 	if code != 2 {
 		t.Errorf("unknown flag: exit %d", code)
 	}
-	out, _, code = runCLI("info", "--help")
+	_, _, code = runCLI("info", "--help")
 	if code != 0 {
 		t.Errorf("--help: exit %d", code)
 	}
