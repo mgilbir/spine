@@ -45,10 +45,14 @@ surfaces.
   - `io` — file system or save failure
   - `unsupported` — file is encrypted, or feature not supported for this kind
   - `internal` — anything else (include the wrapped error text)
-- **`--password STRING` is accepted by every command.** An encrypted file
+- **`--password STRING` is accepted by every command that opens a document**
+  (`info`, `ls`, `text`, `cells`, `set`, `edit`, `serve`; `new` and
+  `ops-schema` do not open files and reject the flag). An encrypted file
   without it is `unsupported`; a wrong password is `unsupported` with a
-  "wrong password" message. A command that saves re-encrypts its output with
-  the same password.
+  "wrong password" message. A command that saves re-encrypts its output
+  **only when the input was actually encrypted** — a plaintext file edited
+  with `--password` set stays plaintext (the password may be passed
+  unconditionally by an agent without side effects).
 - **Atomic save**: mutating commands open, mutate, and save. The save writes
   to a temporary file in the destination directory, fsyncs, then renames over
   the destination, preserving the destination's existing file mode (a newly
@@ -115,7 +119,10 @@ slide/<N>/shape/<ID>           — the shape whose stored shape id is ID
 All examples assume `--json` output shown; the human format is for eyes only
 and is not specified beyond "contains the same information". `--json` may
 also appear before the command name (`spine --json info f`), where it sets
-the default for that invocation.
+the default for that invocation. `info`, `ls` and `ops-schema` are machine
+surfaces: they print the specified JSON regardless of `--json`. Flag-parse
+errors (exit 2) always print the human usage text on stderr, never the JSON
+envelope.
 
 ### `spine info <file>`
 
