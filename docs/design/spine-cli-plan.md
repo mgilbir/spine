@@ -350,8 +350,18 @@ listed are errors. All ops accept nothing else.
   otherwise). Destructive: the library's cascade rules apply (formulas
   referencing it become `#REF!` permanently; shared pivot caches survive).
   The workbook's last remaining sheet cannot be removed (`invalid_value`).
-- **`add_slide`** — fields: none. Appends a slide with no placeholders (the
-  library's `AddSlide`). Result reports the new 1-based slide index.
+- **`add_slide`** — fields: `layout` (optional string enum). Without `layout`,
+  appends a slide with no placeholders (the library's `AddSlide`) — its text
+  can only be set through text boxes added in a later slice. With `layout`,
+  the slide is added from the master's layout of that type
+  (`AddSlideFromLayout`), inheriting the layout's placeholders, so
+  `set_text` on its title/body works immediately. Enum: `title`,
+  `title_and_content`, `section_header`, `two_content`, `comparison`,
+  `title_only`, `blank`, `content_with_caption`, `picture_with_caption`,
+  `title_and_vertical_text`, `vertical_title_and_text` (mapped to the
+  library's `SlideLayoutType` constants). A deck whose master lacks that
+  layout is `not_found`, with a message naming the type. Result reports the
+  new 1-based slide index and the layout used (or null).
 - **`remove_slide`** — fields: `index` (integer, 1-based; `not_found` if out
   of range). The presentation's last remaining slide cannot be removed
   (`invalid_value`).
@@ -370,14 +380,19 @@ input (the one sanctioned stdin use: agents pipe generated batches).
   partial state on disk; a later op can never repair an earlier one's
   failure, so agents get exactly one error to fix.
 - Failure output (stderr, exit 1, `--json` respected): the usual error
-  envelope plus `"op_index": N` (0-based) and `"op": "<name>"`.
+  envelope plus `"op_index": N` (0-based) and `"op": "<name>"`. When several
+  defects exist in one operation, the reported one is deterministic: fields
+  are checked in the operation's declaration order, unknown fields in
+  sorted order.
 - Success output: `{"applied": N}` where N is the operation count.
 - Human format mirrors this; stderr keeps the `spine: ` prefix.
 
 ### `spine new <kind> <file>`
 
 `kind` is `xlsx` or `pptx` (else `invalid_value`). Creates an empty file —
-`xlsx.Create()` / `pptx.CreateWidescreen()` — at `file` via the atomic-save
+`pptx.CreateWidescreen()`, or `xlsx.Create()` plus one sheet named `Sheet1`
+(the library refuses to serialize a sheetless workbook, so the CLI never
+produces one) — at `file` via the atomic-save
 path. An existing `file` is never overwritten: `io` with the message "file
 already exists: PATH". Flags: `--title STRING`, `--creator STRING` (stored as
 document properties). Output: `{"kind":"xlsx","path":"..."}`.
