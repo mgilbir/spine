@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -107,6 +108,24 @@ var opRegistry = []opDef{
 			{Name: "keywords", Type: "string", Description: "document keywords; an empty string clears it"},
 		},
 		Run: opSetProperties,
+	},
+	{
+		Name:      "set_column_width",
+		AppliesTo: []string{"xlsx"},
+		Fields: []fieldSpec{
+			{Name: "selector", Type: "string", Required: true, Description: "xlsx cell selector, e.g. Sheet1!B2; the targeted column is the one containing the addressed cell — the cell part only picks the sheet and column"},
+			{Name: "width", Type: "number", Required: true, Description: "column width in Excel character units; must be 0 < width <= 255"},
+		},
+		Run: opSetColumnWidth,
+	},
+	{
+		Name:      "set_row_height",
+		AppliesTo: []string{"xlsx"},
+		Fields: []fieldSpec{
+			{Name: "selector", Type: "string", Required: true, Description: "xlsx cell selector, e.g. Sheet1!B2; the targeted row is the one containing the addressed cell"},
+			{Name: "height", Type: "number", Required: true, Description: "row height in points; must be 0 < height <= 409"},
+		},
+		Run: opSetRowHeight,
 	},
 }
 
@@ -248,6 +267,15 @@ func fieldOptString(fields map[string]json.RawMessage, name string) (string, boo
 	return s, true, nil
 }
 
+// fieldNumber decodes a required number field (a JSON number).
+func fieldNumber(fields map[string]json.RawMessage, name string) (float64, error) {
+	var f float64
+	if err := json.Unmarshal(fields[name], &f); err != nil {
+		return 0, errf("invalid_value", "field %q must be a number", name)
+	}
+	return f, nil
+}
+
 // fieldInt decodes a required integer field (a JSON number that is whole).
 func fieldInt(fields map[string]json.RawMessage, name string) (int, error) {
 	var f float64
@@ -340,6 +368,86 @@ func opSetCell(d *document, fields map[string]json.RawMessage) (any, error) {
 		typ = storedTypeName(typed)
 	}
 	return setXLSXOutput{Selector: selector, Type: typ, Value: cellValue(cell)}, nil
+}
+
+// resolveXLSXCellSelector parses and resolves an xlsx cell selector exactly
+// like set_cell: not_found for an unknown sheet, invalid_selector for a
+// missing cell part, invalid_range for a malformed cell reference. Only the
+// sheet and the row/column of the addressed cell matter to the callers; the
+// cell itself is not written, so merged-range checks do not apply.
+func resolveXLSXCellSelector(d *document, selector string) (*xlsx.Sheet, string, int, int, error) {
+	sheetName, ref, selectsNothing, err := parseCellSelector(selector)
+	if err != nil {
+		return nil, "", 0, 0, err
+	}
+	if selectsNothing {
+		return nil, "", 0, 0, errf("not_found", "sheet not found: %q", sheetName)
+	}
+	row, col, perr := xlsx.ParseCellRef(ref)
+	if perr != nil {
+		return nil, "", 0, 0, errf("invalid_range", "invalid cell reference %q: %v", ref, perr)
+	}
+	sheet, err := resolveSheet(d.wb, sheetName)
+	if err != nil {
+		return nil, "", 0, 0, err
+	}
+	return sheet, ref, row, col, nil
+}
+
+// opSetColumnWidth sets the width of the column containing the addressed
+// cell. The cell part of the selector only picks the sheet and the column.
+func opSetColumnWidth(d *document, fields map[string]json.RawMessage) (any, error) {
+	selector, err := fieldString(fields, "selector")
+	if err != nil {
+		return nil, err
+	}
+	width, err := fieldNumber(fields, "width")
+	if err != nil {
+		return nil, err
+	}
+	if width <= 0 || width > 255 {
+		return nil, errf("invalid_value", "field \"width\" must be 0 < width <= 255 (got %v)", width)
+	}
+	sheet, _, _, col, err := resolveXLSXCellSelector(d, selector)
+	if err != nil {
+		return nil, err
+	}
+	if serr := sheet.SetColWidth(col, width); serr != nil {
+		return nil, errf("io", "cannot set column width of %s: %v", selector, serr)
+	}
+	return setColumnWidthOutput{Selector: selector, Column: columnLetterOf(col), Width: width}, nil
+}
+
+// opSetRowHeight sets the height of the row containing the addressed cell.
+func opSetRowHeight(d *document, fields map[string]json.RawMessage) (any, error) {
+	selector, err := fieldString(fields, "selector")
+	if err != nil {
+		return nil, err
+	}
+	height, err := fieldNumber(fields, "height")
+	if err != nil {
+		return nil, err
+	}
+	if height <= 0 || height > 409 {
+		return nil, errf("invalid_value", "field \"height\" must be 0 < height <= 409 (got %v)", height)
+	}
+	sheet, _, row, _, err := resolveXLSXCellSelector(d, selector)
+	if err != nil {
+		return nil, err
+	}
+	if serr := sheet.SetRowHeight(row, height); serr != nil {
+		if errors.Is(serr, xlsx.ErrInvalidCell) {
+			return nil, errf("invalid_range", "row %d is outside the worksheet grid", row)
+		}
+		return nil, errf("io", "cannot set row height of %s: %v", selector, serr)
+	}
+	return setRowHeightOutput{Selector: selector, Row: row, Height: height}, nil
+}
+
+// columnLetterOf returns the spreadsheet column letter(s) for a 1-based
+// column index (1 → "A", 2 → "B", …).
+func columnLetterOf(col int) string {
+	return strings.TrimRight(xlsx.FormatCellRef(1, col), "0123456789")
 }
 
 // storedTypeName reports the interpretation a coerced set_cell value was
@@ -729,6 +837,20 @@ func schemaDocumentOf() *schemaDocument {
 // clearCellOutput is clear_cell's result.
 type clearCellOutput struct {
 	Selector string `json:"selector"`
+}
+
+// setColumnWidthOutput is set_column_width's result.
+type setColumnWidthOutput struct {
+	Selector string  `json:"selector"`
+	Column   string  `json:"column"`
+	Width    float64 `json:"width"`
+}
+
+// setRowHeightOutput is set_row_height's result.
+type setRowHeightOutput struct {
+	Selector string  `json:"selector"`
+	Row      int     `json:"row"`
+	Height   float64 `json:"height"`
 }
 
 // addSheetOutput is add_sheet's result.

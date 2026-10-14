@@ -360,6 +360,71 @@ func TestServeRenderFontErrorIsUnsupported(t *testing.T) {
 	}
 }
 
+// TestServeSetColumnWidthAndRowHeight: the two xlsx-only sizing ops report
+// their envelopes over /op and make the range renderable with the fallback
+// Noto face.
+func TestServeSetColumnWidthAndRowHeight(t *testing.T) {
+	f := widthlessFixture(t)
+	h := newTestHandler(t, f, func(o *serveOptions) { o.fallbackNoto = true })
+	// Before the widths are set, rendering the range is "unsupported".
+	status, body, _ := doReq(t, h, "GET", "/render?target=Data!A1:B2&format=png", "", nil)
+	if status != 400 || !strings.Contains(string(body), "explicit column width required") {
+		t.Fatalf("pre-width render: %d %s", status, body)
+	}
+	status, body, _ = doReq(t, h, "POST", "/op", `{"op":"set_column_width","selector":"Data!A1","width":10}`, nil)
+	if status != 200 {
+		t.Fatalf("set_column_width: %d %s", status, body)
+	}
+	if !strings.Contains(string(body), `"column": "A"`) || !strings.Contains(string(body), `"width": 10`) || !strings.Contains(string(body), `"selector": "Data!A1"`) {
+		t.Errorf("set_column_width envelope: %s", body)
+	}
+	status, body, _ = doReq(t, h, "POST", "/op", `{"op":"set_column_width","selector":"Data!B3","width":12.5}`, nil)
+	if status != 200 {
+		t.Fatalf("set_column_width B: %d %s", status, body)
+	}
+	status, body, _ = doReq(t, h, "POST", "/op", `{"op":"set_row_height","selector":"Data!B2","height":24}`, nil)
+	if status != 200 {
+		t.Fatalf("set_row_height: %d %s", status, body)
+	}
+	if !strings.Contains(string(body), `"row": 2`) || !strings.Contains(string(body), `"height": 24`) || !strings.Contains(string(body), `"selector": "Data!B2"`) {
+		t.Errorf("set_row_height envelope: %s", body)
+	}
+	// The fallback Noto face needs taller rows than the default to fit the
+	// cell text vertically; size both rows of the range too.
+	for _, sel := range []string{"Data!A1", "Data!A2"} {
+		if status, body, _ = doReq(t, h, "POST", "/op", `{"op":"set_row_height","selector":"`+sel+`","height":24}`, nil); status != 200 {
+			t.Fatalf("set_row_height %s: %d %s", sel, status, body)
+		}
+	}
+	// The width- and height-set range now renders as an image.
+	status, body, header := doReq(t, h, "GET", "/render?target=Data!A1:B2&format=png", "", nil)
+	if status != 200 || header.Get("Content-Type") != "image/png" || string(body[:4]) != "\x89PNG" {
+		t.Fatalf("render after sizing ops: %d %v %d bytes: %s", status, header, len(body), body)
+	}
+}
+
+// widthlessFixture is an xlsx file with content but no explicit column
+// widths — unrenderable until set_column_width supplies them.
+func widthlessFixture(t *testing.T) string {
+	t.Helper()
+	wb := xlsx.Create()
+	sheet, err := wb.AddSheet("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sheet.SetCellValue("A1", "Revenue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sheet.SetCellValue("B1", 42); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "widthless.xlsx")
+	if err := wb.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestServeSchema(t *testing.T) {
 	h := newTestHandler(t, xlsxPath, nil)
 	status, body, _ := doReq(t, h, "GET", "/schema", "", nil)
@@ -560,10 +625,11 @@ func TestServeRenderPNG(t *testing.T) {
 	if status != 400 {
 		t.Fatalf("sheetless target: %d %s", status, body)
 	}
-	// A sheet without the explicit column widths the renderer requires is a
-	// render failure with the renderer's message.
+	// A sheet without the explicit column widths the renderer requires (or
+	// otherwise outside the render profile) fails with the renderer's
+	// ErrUnsupported sentinel: code "unsupported", HTTP 400 — never "internal".
 	status, body, _ = doReq(t, hx, "GET", "/render?target=Data!A1:B2", "", nil)
-	if status != 500 || !strings.Contains(string(body), "render") {
+	if status != 400 || !strings.Contains(string(body), `"code": "unsupported"`) {
 		t.Fatalf("unrenderable range: %d %s", status, body)
 	}
 }

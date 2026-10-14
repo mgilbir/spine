@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mgilbir/spine/xlsx"
 )
 
 // opsDoc is a small builder for operations documents in tests.
@@ -427,6 +429,143 @@ func TestEditSetProperties(t *testing.T) {
 	}
 }
 
+// ---- set_column_width ----
+
+func TestEditSetColumnWidth(t *testing.T) {
+	f := copyFixture(t, xlsxPath)
+	ops := writeOpsFile(t, opsDoc(t,
+		op("set_column_width", "selector", "Data!B3", "width", 12.5),
+		op("set_column_width", "selector", "Data!C1", "width", 20),
+	))
+	runJSON(t, "edit", f, ops)
+	// The widths persist: reopen the saved file and read them back.
+	wb, err := xlsx.Open(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sheet, err := wb.SheetByName("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, ok := sheet.ColumnWidth(2); !ok || w != 12.5 {
+		t.Errorf("column B width = %v, %v; want 12.5, true", w, ok)
+	}
+	if w, ok := sheet.ColumnWidth(3); !ok || w != 20 {
+		t.Errorf("column C width = %v, %v; want 20, true", w, ok)
+	}
+	// The saved file must still open cleanly through the CLI.
+	runJSON(t, "info", f)
+}
+
+func TestEditSetColumnWidthRejects(t *testing.T) {
+	f := copyFixture(t, xlsxPath)
+	cases := []struct {
+		name string
+		op   map[string]any
+		code string
+	}{
+		{"missing selector", op("set_column_width", "width", 10), "invalid_value"},
+		{"missing width", op("set_column_width", "selector", "Data!B1"), "invalid_value"},
+		{"string width", op("set_column_width", "selector", "Data!B1", "width", "10"), "invalid_value"},
+		{"zero width", op("set_column_width", "selector", "Data!B1", "width", 0), "invalid_value"},
+		{"negative width", op("set_column_width", "selector", "Data!B1", "width", -3), "invalid_value"},
+		{"width over 255", op("set_column_width", "selector", "Data!B1", "width", 255.5), "invalid_value"},
+		{"unknown sheet", op("set_column_width", "selector", "Nope!B1", "width", 10), "not_found"},
+		{"bad selector", op("set_column_width", "selector", "Data", "width", 10), "invalid_selector"},
+		{"bad cell ref", op("set_column_width", "selector", "Data!1A", "width", 10), "invalid_range"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := writeOpsFile(t, opsDoc(t, tc.op))
+			_, errOut, code := runCLI("--json", "edit", f, ops)
+			if code != 1 {
+				t.Fatalf("exit = %d, want 1 (stderr %s)", code, errOut)
+			}
+			if e := parseErrJSON(t, errOut); e.Code != tc.code {
+				t.Errorf("code = %q, want %q (error %q)", e.Code, tc.code, e.Error)
+			}
+		})
+	}
+	// Kind mismatch: a pptx file gets the standard unsupported error.
+	g := copyFixture(t, pptxPath)
+	ops := writeOpsFile(t, opsDoc(t, op("set_column_width", "selector", "Data!B1", "width", 10)))
+	_, errOut, code := runCLI("--json", "edit", g, ops)
+	if code != 1 {
+		t.Fatalf("pptx kind mismatch: exit = %d, want 1 (stderr %s)", code, errOut)
+	}
+	if e := parseErrJSON(t, errOut); e.Code != "unsupported" || !strings.Contains(e.Error, "applies only to xlsx") {
+		t.Errorf("pptx kind mismatch: %q %q", e.Code, e.Error)
+	}
+}
+
+// ---- set_row_height ----
+
+func TestEditSetRowHeight(t *testing.T) {
+	f := copyFixture(t, xlsxPath)
+	ops := writeOpsFile(t, opsDoc(t,
+		op("set_row_height", "selector", "Data!B2", "height", 24),
+		op("set_row_height", "selector", "Data!C5", "height", 12.5),
+	))
+	runJSON(t, "edit", f, ops)
+	// The heights persist: reopen the saved file and read them back.
+	wb, err := xlsx.Open(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sheet, err := wb.SheetByName("Data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, ok := sheet.RowHeight(2); !ok || h != 24 {
+		t.Errorf("row 2 height = %v, %v; want 24, true", h, ok)
+	}
+	if h, ok := sheet.RowHeight(5); !ok || h != 12.5 {
+		t.Errorf("row 5 height = %v, %v; want 12.5, true", h, ok)
+	}
+	runJSON(t, "info", f)
+}
+
+func TestEditSetRowHeightRejects(t *testing.T) {
+	f := copyFixture(t, xlsxPath)
+	cases := []struct {
+		name string
+		op   map[string]any
+		code string
+	}{
+		{"missing selector", op("set_row_height", "height", 20), "invalid_value"},
+		{"missing height", op("set_row_height", "selector", "Data!B1"), "invalid_value"},
+		{"string height", op("set_row_height", "selector", "Data!B1", "height", "20"), "invalid_value"},
+		{"zero height", op("set_row_height", "selector", "Data!B1", "height", 0), "invalid_value"},
+		{"negative height", op("set_row_height", "selector", "Data!B1", "height", -1), "invalid_value"},
+		{"height over 409", op("set_row_height", "selector", "Data!B1", "height", 409.5), "invalid_value"},
+		{"unknown sheet", op("set_row_height", "selector", "Nope!B1", "height", 20), "not_found"},
+		{"bad selector", op("set_row_height", "selector", "Data", "height", 20), "invalid_selector"},
+		{"bad cell ref", op("set_row_height", "selector", "Data!1A", "height", 20), "invalid_range"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := writeOpsFile(t, opsDoc(t, tc.op))
+			_, errOut, code := runCLI("--json", "edit", f, ops)
+			if code != 1 {
+				t.Fatalf("exit = %d, want 1 (stderr %s)", code, errOut)
+			}
+			if e := parseErrJSON(t, errOut); e.Code != tc.code {
+				t.Errorf("code = %q, want %q (error %q)", e.Code, tc.code, e.Error)
+			}
+		})
+	}
+	// Kind mismatch: a pptx file gets the standard unsupported error.
+	g := copyFixture(t, pptxPath)
+	ops := writeOpsFile(t, opsDoc(t, op("set_row_height", "selector", "Data!B1", "height", 20)))
+	_, errOut, code := runCLI("--json", "edit", g, ops)
+	if code != 1 {
+		t.Fatalf("pptx kind mismatch: exit = %d, want 1 (stderr %s)", code, errOut)
+	}
+	if e := parseErrJSON(t, errOut); e.Code != "unsupported" || !strings.Contains(e.Error, "applies only to xlsx") {
+		t.Errorf("pptx kind mismatch: %q %q", e.Code, e.Error)
+	}
+}
+
 // ---- envelope and dispatch errors ----
 
 func TestEditEnvelopeErrors(t *testing.T) {
@@ -746,14 +885,16 @@ func TestOpsSchemaRoundTrip(t *testing.T) {
 		return "xlsx"
 	}
 	minimal := map[string][]map[string]any{
-		"set_cell":       {op("set_cell", "selector", "Sheet1!A1", "value", 1)},
-		"clear_cell":     {op("clear_cell", "selector", "Sheet1!A1")},
-		"set_text":       {op("add_slide"), op("set_text", "selector", "slide/2/title", "text", "x")},
-		"add_sheet":      {op("add_sheet")},
-		"remove_sheet":   {op("add_sheet", "name", "Temp"), op("remove_sheet", "name", "Temp")},
-		"add_slide":      {op("add_slide")},
-		"remove_slide":   {op("add_slide"), op("add_slide"), op("remove_slide", "index", 2)},
-		"set_properties": {op("set_properties", "title", "x")},
+		"set_cell":         {op("set_cell", "selector", "Sheet1!A1", "value", 1)},
+		"clear_cell":       {op("clear_cell", "selector", "Sheet1!A1")},
+		"set_text":         {op("add_slide"), op("set_text", "selector", "slide/2/title", "text", "x")},
+		"add_sheet":        {op("add_sheet")},
+		"remove_sheet":     {op("add_sheet", "name", "Temp"), op("remove_sheet", "name", "Temp")},
+		"add_slide":        {op("add_slide")},
+		"remove_slide":     {op("add_slide"), op("add_slide"), op("remove_slide", "index", 2)},
+		"set_properties":   {op("set_properties", "title", "x")},
+		"set_column_width": {op("set_column_width", "selector", "Sheet1!B1", "width", 12)},
+		"set_row_height":   {op("set_row_height", "selector", "Sheet1!B1", "height", 24)},
 	}
 	for _, o := range doc.Operations {
 		batch, ok := minimal[o.Op]
