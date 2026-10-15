@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -44,9 +45,24 @@ func chartRenderer(fonts []renderfonts.File, timeout time.Duration) (render.Char
 		}
 		data, err := conv.VegaToPNG(spec, aster.WithScale(scale))
 		if err != nil {
-			return nil, err
+			return nil, chartError(err)
 		}
 		return png.Decode(bytes.NewReader(data))
 	}
 	return draw, conv.Close, nil
+}
+
+// chartError classifies an aster failure for the render pipeline: since
+// aster v0.2.0 a chart whose data or images cannot be loaded fails instead
+// of rendering without them (*aster.LoadError — under DenyLoader that is
+// every external reference a specification names). That is a capability
+// limit of the sandboxed renderer, not a defect, so it carries
+// render.ErrUnsupported and callers report it as unsupported rather than
+// internal.
+func chartError(err error) error {
+	var load *aster.LoadError
+	if errors.As(err, &load) {
+		return fmt.Errorf("%w: %v", render.ErrUnsupported, err)
+	}
+	return err
 }
